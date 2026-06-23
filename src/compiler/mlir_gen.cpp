@@ -650,17 +650,19 @@ mlir::Value MLIRGenImpl::gep_field(mlir::Value base, const StructInfo& info,
 // pointer-to-pair (like any ref value); this wrapper peels it to the data ptr so
 // field/method access lands on the object, not the fat-pair storage. Identity for
 // every other (thin) receiver.
-std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& recv) {
+std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(lir_view::ExprRef recv) {
     auto res = gen_recv_struct_inner(recv);
-    if (res.first && recv.type &&
-        ref_repr_of(TypeRef(recv.type)) == RefReprKind::FatZoneMut)
+    TypeRef recv_ty = recv.type(pool_impl());
+    if (res.first && recv_ty &&
+        ref_repr_of(TypeRef(recv_ty)) == RefReprKind::FatZoneMut)
         res.first = repr_data(RefReprKind::FatZoneMut, res.first);
     return res;
 }
 
-std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LExpr& recv) {
+std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view::ExprRef recv) {
     namespace ec = lir_schema::expr;
-    auto recv_ref = expr_ref_of(recv);
+    TypeRef recv_ty = recv.type(pool_impl());
+    auto recv_ref = recv;
     auto recv_kind = recv_ref ? recv_ref.kind() : ec::Code(0);
     if (recv_kind == ec::Code::VarRef) {
         std::string name(lir_view::EVarRefView{recv_ref}.name());
@@ -668,16 +670,16 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LEx
         if (sit != var_struct_.end())
             return {get_struct_ptr(name), sit->second};
         // Local pointer-to-struct/datatype slots already record the concrete
-        // LLVM aggregate type.  Use that as a fallback even if recv.type was
+        // LLVM aggregate type.  Use that as a fallback even if recv_ty was
         // not preserved through lowering.
         auto lpit = var_local_ptrs_.find(name);
         if (lpit != var_local_ptrs_.end()) {
             if (auto sc = scope_.find(name); sc != scope_.end()) {
-                if (recv.type && TypeRef(recv.type).kind() == LogosType::Kind::Ptr &&
-                    TypeRef(recv.type).pointee() &&
-                    (TypeRef(recv.type).pointee().kind() == LogosType::Kind::Struct ||
-                     TypeRef(recv.type).pointee().kind() == LogosType::Kind::ZonedStruct)) {
-                    return {sc->second, mlir_struct_key(TypeRef(recv.type).pointee())};
+                if (recv_ty && TypeRef(recv_ty).kind() == LogosType::Kind::Ptr &&
+                    TypeRef(recv_ty).pointee() &&
+                    (TypeRef(recv_ty).pointee().kind() == LogosType::Kind::Struct ||
+                     TypeRef(recv_ty).pointee().kind() == LogosType::Kind::ZonedStruct)) {
+                    return {sc->second, mlir_struct_key(TypeRef(recv_ty).pointee())};
                 }
                 // If the receiver type is unavailable, still treat it as a
                 // struct/datatype pointer using the recorded aggregate type.
@@ -692,8 +694,8 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LEx
         // lowering and return it directly.  This covers `self: *const T` and
         // `self: &T` receivers even when the LIR type annotation got dropped.
         if (auto sc = scope_.find(name); sc != scope_.end()) {
-            if (recv.type) {
-                TypeRef tv{recv.type};
+            if (recv_ty) {
+                TypeRef tv{recv_ty};
                 if ((tv.kind() == LogosType::Kind::Ptr ||
                      tv.kind() == LogosType::Kind::Ref ||
                      tv.kind() == LogosType::Kind::MutRef) && tv.pointee() &&
@@ -716,9 +718,9 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LEx
         }
         // Check if this is a pointer-to-struct variable (e.g. *mut Point).
         // The logical type is Ptr/Ref/MutRef with pointee=Struct.
-        if (recv.type) {
-            TypeRef tv{recv.type};
-            if (type_str(recv.type) == "AnyVal") {
+        if (recv_ty) {
+            TypeRef tv{recv_ty};
+            if (type_str(recv_ty) == "AnyVal") {
                 auto sc = scope_.find(name);
                 if (sc != scope_.end())
                     return {sc->second, "AnyVal"};
@@ -755,10 +757,9 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LEx
     }
     if (recv_kind == ec::Code::FieldRead) {
         lir_view::EFieldReadView fr{recv_ref};
-        auto rec_le = lexpr_of(fr.receiver());
-        if (!rec_le) return {nullptr, {}};
+        if (!fr.receiver()) return {nullptr, {}};
         std::string field(fr.field());
-        auto [base_ptr, base_sname] = gen_recv_struct(*rec_le);
+        auto [base_ptr, base_sname] = gen_recv_struct(fr.receiver());
         if (!base_ptr || base_sname.empty()) return {nullptr, {}};
         auto it = struct_types_.find(base_sname);
         if (it == struct_types_.end()) return {nullptr, {}};
@@ -817,13 +818,13 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LEx
     // the real element ADDRESS with the correct per-element struct stride
     // (place_slot_type). The general gen_expr(recv) path below returned a
     // wrong pointer here → field READ SIGSEGV (K3) and method-self pointing
-    // at garbage (N2). The element's struct name comes from recv.type.
+    // at garbage (N2). The element's struct name comes from recv_ty.
     if (recv_kind == ec::Code::IndexRead || recv_kind == ec::Code::TupleIndex) {
         // Peel a `&`/`&mut`/`*` wrapper: a `&self` method call auto-refs its
         // receiver, so `hs[i]` arrives typed `&Big`. The element address that
         // gen_lvalue_addr computes IS that reference, so treat it as a struct
         // receiver regardless of an outer ref annotation.
-        TypeRef st = recv.type;
+        TypeRef st = recv_ty;
         if (st && (TypeRef(st).kind() == LogosType::Kind::Ref ||
                    TypeRef(st).kind() == LogosType::Kind::MutRef ||
                    TypeRef(st).kind() == LogosType::Kind::Ptr) &&
@@ -841,10 +842,10 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LEx
     // If the result is an aggregate struct (by-value return), spill to alloca.
     // AnyVal is a scalar-like 4-byte slot, not a by-value aggregate receiver.
     if (mlir::isa<mlir::LLVM::LLVMStructType>(ptr.getType()) &&
-        (!recv.type || type_str(recv.type) != "AnyVal"))
+        (!recv_ty || type_str(recv_ty) != "AnyVal"))
         ptr = spill_to_alloca(ptr);
-    if (recv.type) {
-        TypeRef t = recv.type;
+    if (recv_ty) {
+        TypeRef t = recv_ty;
         // Strip one level of pointer/reference to get the struct type
         TypeRef tv{t};
         if ((tv.kind() == LogosType::Kind::Ptr ||
@@ -874,8 +875,8 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
             std::fprintf(stderr, "mlir_gen: AnyVal literal expects a single 'raw' field\n");
             return nullptr;
         }
-        auto* le = lexpr_of(fields.front().second); if (!le) return nullptr;
-        auto raw = gen_expr(*le);
+        if (!fields.front().second) return nullptr;
+        auto raw = gen_expr(fields.front().second);
         if (!raw) return nullptr;
         return coerce_numeric(raw, builder_.getI32Type());
     }
@@ -927,8 +928,8 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
             uint64_t n = arr_view.count();
             for (uint64_t i = 0; i < n; ++i) {
                 auto er = arr_view.elem(i);
-                auto* le = lexpr_of(er); if (!le) { ok = false; return; }
-                auto val = gen_expr(*le);
+                if (!er) { ok = false; return; }
+                auto val = gen_expr(er);
                 if (!val) { ok = false; return; }
                 llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
                 auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
@@ -950,20 +951,21 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
             return;
         }
 
-        auto* fle = lexpr_of(fval); if (!fle) { ok = false; return; }
+        if (!fval) { ok = false; return; }
+        TypeRef fval_ty = fval.type(pool_impl());
         // An uninhabited (`!`-typed) field — e.g. a PhantomData<!> marker in an
         // iterator struct monomorphised for the never type — has no runtime
         // value. gen_expr of a never-typed initialiser yields a malformed Value
         // whose getType() SIGSEGVs below; the field slot is zero-size anyway, so
         // skip it. (Surfaced by hoisting a generic match-temp scrutinee into an
         // Option<!> instantiation.)
-        if (fle->type && TypeRef(fle->type).kind() == LogosType::Kind::Never) return;
-        auto val = gen_expr(*fle);
+        if (fval_ty && TypeRef(fval_ty).kind() == LogosType::Kind::Never) return;
+        auto val = gen_expr(fval);
         if (!val) { ok = false; return; }
         // &dyn Trait field — value may be a concrete `&S` / `&mut S`; build the
         // fat-pointer slot (data+vtable) before storing the handle into the field.
         if (fi && !fi->trait_name.empty() && val.getType() == ptr_type()) {
-            TypeRef vt(fle->type);
+            TypeRef vt(fval_ty);
             if (vt && vt.kind() != LogosType::Kind::TraitObject) {
                 TypeRef pointee = vt;
                 if (pointee && (pointee.kind() == LogosType::Kind::Ref ||
@@ -1064,12 +1066,13 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
         auto gep = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), arr_type, alloca, idx);
         auto er = v.elem(i);
-        auto* le = lexpr_of(er); if (!le) return nullptr;
+        if (!er) return nullptr;
+        TypeRef er_ty = er.type(pool_impl());
         if (elem_is_dyn) {
-            auto val = gen_expr(*le);
+            auto val = gen_expr(er);
             if (!val) return nullptr;
             // Peel the source `&Concrete` to its struct, build the fat pointer.
-            TypeRef vt(le->type);
+            TypeRef vt(er_ty);
             if (vt && vt.kind() != LogosType::Kind::TraitObject) {
                 TypeRef pointee = vt;
                 if (pointee && (pointee.kind() == LogosType::Kind::Ref ||
@@ -1104,7 +1107,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
             // the struct value itself (function return). Either way, write
             // sizeof(struct) bytes into the slot so the *value* lives in
             // the array — this is what makes returning [Struct;N] safe.
-            auto src = gen_expr(*le);
+            auto src = gen_expr(er);
             if (!src) return nullptr;
             if (src.getType() == ptr_type()) {
                 auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
@@ -1120,7 +1123,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
             continue;
         }
         if (elem_is_array) {
-            auto inner_ptr = gen_expr(*le);
+            auto inner_ptr = gen_expr(er);
             if (!inner_ptr) return nullptr;
             auto inner_arr_type = mlir::cast<mlir::LLVM::LLVMArrayType>(elem_type);
             auto inner_elem_type = inner_arr_type.getElementType();
@@ -1134,7 +1137,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, dst_gep);
             }
         } else {
-            auto val = gen_expr(*le);
+            auto val = gen_expr(er);
             if (!val) return nullptr;
             val = coerce_numeric(val, elem_type);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);

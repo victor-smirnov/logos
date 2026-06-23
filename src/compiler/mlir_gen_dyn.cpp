@@ -1275,8 +1275,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
     auto ptr_t = ptr_type();
 
     auto recv_ref = v.receiver();
-    auto* recv_le = lexpr_of(recv_ref);
-    if (!recv_le) return nullptr;
+    if (!recv_ref) return nullptr;
 
     // 1. Evaluate the receiver.
     mlir::Value obj_ptr = nullptr;
@@ -1290,7 +1289,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
                 obj_ptr = it->second;
         }
     }
-    if (!obj_ptr) obj_ptr = gen_expr(*recv_le);
+    if (!obj_ptr) obj_ptr = gen_expr(recv_ref);
     if (!obj_ptr) return nullptr;
 
     // 2. <TagSystem>::read_tag(nullptr_self, obj_ptr) → i64.
@@ -1436,9 +1435,8 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
     param_types.push_back(ptr_t);  // self: *const u8
 
     v.each_arg([&](lir_view::ExprRef ar){
-        auto* le = lexpr_of(ar);
-        if (!le) { return; }
-        auto val = gen_expr(*le);
+        if (!ar) { return; }
+        auto val = gen_expr(ar);
         if (!val) return;
         args.push_back(val);
         param_types.push_back(val.getType());
@@ -1472,8 +1470,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
 
     auto recv_ref = v.receiver();
-    auto* recv_le = lexpr_of(recv_ref);
-    if (!recv_le) return nullptr;
+    if (!recv_ref) return nullptr;
     // Unwrap the implicit-reborrow wrap (inserted by sema's
     // try_implicit_reborrow_mut). The wrap exists for borrow_check; for
     // vtable dispatch we need the underlying VarRef so the var_dyn_trait_ /
@@ -1482,9 +1479,9 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     // by-value fat pair, and field-0/field-1 GEPs misread → segfault.
     if (lir_view::ExprRef inner_var; lir_view::is_reborrow_shape(recv_ref, &inner_var)) {
         recv_ref = inner_var;
-        recv_le  = lexpr_of(inner_var);
-        if (!recv_le) return nullptr;
+        if (!recv_ref) return nullptr;
     }
+    TypeRef recv_ty = recv_ref.type(pool_impl());
 
     // Check if receiver is a variable we know is dyn
     mlir::Value recv_alloca = nullptr;
@@ -1504,7 +1501,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
         }
     }
     if (!recv_alloca) {
-        recv_alloca = gen_expr(*recv_le);
+        recv_alloca = gen_expr(recv_ref);
     }
     if (!recv_alloca) return nullptr;
     bool recv_from_varref =
@@ -1521,8 +1518,8 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     // scope_ already yielded the fat-pointer value — loading it would read `data`
     // as the storage address (the Box<dyn>-via-borrow dispatch crash). Load only
     // the address-bearing form.
-    if (recv_le->type && recv_from_varref && !recv_var_holds_value) {
-        TypeRef rlt(recv_le->type);
+    if (recv_ty && recv_from_varref && !recv_var_holds_value) {
+        TypeRef rlt(recv_ty);
         if ((rlt.kind() == LogosType::Kind::Ref ||
              rlt.kind() == LogosType::Kind::MutRef) && rlt.pointee() &&
             TypeRef(rlt.pointee()).kind() == LogosType::Kind::TraitObject)
@@ -1567,9 +1564,8 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     llvm::SmallVector<mlir::Value> args;
     args.push_back(data_ptr);
     v.each_arg([&](lir_view::ExprRef ar){
-        auto* le = lexpr_of(ar);
-        if (!le) return;
-        auto val = gen_expr(*le);
+        if (!ar) return;
+        auto val = gen_expr(ar);
         if (!val) return;
         args.push_back(val);
     });

@@ -14296,11 +14296,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 case SC::Return: {
                     auto vr = lir_view::SReturnView{s}.value();
                     if (vr) {
-                        auto* le = lexpr_of(vr);
-                        if (le && le->type &&
-                            TypeRef(le->type).kind() != LogosType::Kind::Void &&
-                            TypeRef(le->type).kind() != LogosType::Kind::Error) {
-                            inferred = le->type;
+                        TypeRef vr_ty = vr.type(cur_prog_->type_pool.impl());
+                        if (vr_ty &&
+                            TypeRef(vr_ty).kind() != LogosType::Kind::Void &&
+                            TypeRef(vr_ty).kind() != LogosType::Kind::Error) {
+                            inferred = vr_ty;
                         }
                     }
                     break;

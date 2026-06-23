@@ -1245,9 +1245,8 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
     }
     case ec::Code::FieldRead: {
         lir_view::EFieldReadView frv{e};
-        auto* recv_le = lexpr_of(frv.receiver());
-        if (!recv_le) return nullptr;
-        auto [struct_ptr, sname] = gen_recv_struct(*recv_le);
+        if (!frv.receiver()) return nullptr;
+        auto [struct_ptr, sname] = gen_recv_struct(frv.receiver());
         if (!struct_ptr || sname.empty()) return nullptr;
         auto sit = struct_types_.find(sname);
         if (sit == struct_types_.end()) return nullptr;
@@ -1503,9 +1502,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
     // loads, which would give us a by-value copy — useless for mutation.
     if (inner_ref.kind() == ec::Code::FieldRead) {
         lir_view::EFieldReadView frv{inner_ref};
-        auto* fr_recv_le = lexpr_of(frv.receiver());
-        if (fr_recv_le) {
-            auto [ptr, sname] = gen_recv_struct(*fr_recv_le);
+        if (frv.receiver()) {
+            auto [ptr, sname] = gen_recv_struct(frv.receiver());
             if (ptr && !sname.empty()) {
                 auto sit = struct_types_.find(sname);
                 if (sit != struct_types_.end()) {
@@ -1582,9 +1580,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
             }
         } else if (ir_recv.kind() == ec::Code::FieldRead) {
             lir_view::EFieldReadView frv{ir_recv};
-            auto* fr_recv_le = lexpr_of(frv.receiver());
-            if (fr_recv_le) {
-                auto [struct_ptr, sname] = gen_recv_struct(*fr_recv_le);
+            if (frv.receiver()) {
+                auto [struct_ptr, sname] = gen_recv_struct(frv.receiver());
                 if (struct_ptr && !sname.empty()) {
                     auto& info = struct_types_[sname];
                     auto field_ptr = gep_field(struct_ptr, info, std::string(frv.field()));
@@ -1820,12 +1817,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     std::string callee(v.callee());
     std::vector<lir_view::ExprRef> arg_refs;
     v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
-    std::vector<const LExpr*> arg_les;
+    std::vector<lir_view::ExprRef> arg_les;
     arg_les.reserve(arg_refs.size());
     for (auto& ar : arg_refs) {
-        auto* le = lexpr_of(ar);
-        if (!le) return nullptr;
-        arg_les.push_back(le);
+        if (!ar) return nullptr;
+        arg_les.push_back(ar);
     }
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
@@ -1852,8 +1848,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             is_wrapping_intr("wrapping_add") ? "wrapping_add" :
             is_wrapping_intr("wrapping_sub") ? "wrapping_sub" : "wrapping_mul";
         if (arg_les.size() == 2) {
-            auto a = gen_expr(*arg_les[0]); if (!a) return nullptr;
-            auto b = gen_expr(*arg_les[1]); if (!b) return nullptr;
+            auto a = gen_expr(arg_les[0]); if (!a) return nullptr;
+            auto b = gen_expr(arg_les[1]); if (!b) return nullptr;
             // Coerce types so the arith op sees matching integer widths.
             if (a.getType() != b.getType()) {
                 if (auto ai = mlir::dyn_cast<mlir::IntegerType>(a.getType())) {
@@ -1917,8 +1913,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // codegen — layout is uniform), arg[1]=data ptr, arg[2]=vtable ptr.
     if (match_intr("__dyn_from_parts__")) {
         if (arg_les.size() != 3) return nullptr;
-        auto data_v  = gen_expr(*arg_les[1]); if (!data_v)  return nullptr;
-        auto vtable_v = gen_expr(*arg_les[2]); if (!vtable_v) return nullptr;
+        auto data_v  = gen_expr(arg_les[1]); if (!data_v)  return nullptr;
+        auto vtable_v = gen_expr(arg_les[2]); if (!vtable_v) return nullptr;
         auto dyn_struct = dyn_llvm_type();
         auto alloca = create_entry_alloca(dyn_struct);
         if (!alloca) return nullptr;
@@ -1996,7 +1992,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                                     mlir::LLVM::AtomicOrdering::seq_cst,
                                 size_t expected_args = 1) -> mlir::Value {
         if (arg_les.size() != expected_args) return nullptr;
-        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
         return builder_.create<mlir::LLVM::LoadOp>(
             loc_, res_type, ptr_v, align, /*isVolatile=*/false,
             /*isNonTemporal=*/false, /*isInvariant=*/false,
@@ -2007,8 +2003,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                                      mlir::LLVM::AtomicOrdering::seq_cst,
                                  size_t expected_args = 2) -> mlir::Value {
         if (arg_les.size() != expected_args) return nullptr;
-        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
-        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(arg_les[1]); if (!val_v) return nullptr;
         builder_.create<mlir::LLVM::StoreOp>(
             loc_, val_v, ptr_v, align, /*isVolatile=*/false,
             /*isNonTemporal=*/false, /*isInvariantGroup=*/false, ord);
@@ -2034,9 +2030,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     auto emit_atomic_store_runtime =
         [&](unsigned align, size_t ord_idx, size_t expected_args) -> mlir::Value {
         if (arg_les.size() != expected_args) return nullptr;
-        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
-        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
-        auto ord_v = gen_expr(*arg_les[ord_idx]); if (!ord_v) return nullptr;
+        auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(arg_les[1]); if (!val_v) return nullptr;
+        auto ord_v = gen_expr(arg_les[ord_idx]); if (!ord_v) return nullptr;
         auto ord_ty = mlir::dyn_cast<mlir::IntegerType>(ord_v.getType());
         auto emit_one = [&](mlir::LLVM::AtomicOrdering o) {
             builder_.create<mlir::LLVM::StoreOp>(
@@ -2073,8 +2069,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                                          mlir::LLVM::AtomicOrdering::seq_cst,
                                      size_t expected_args = 2) -> mlir::Value {
         if (arg_les.size() != expected_args) return nullptr;
-        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
-        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(arg_les[1]); if (!val_v) return nullptr;
         return builder_.create<mlir::LLVM::AtomicRMWOp>(
             loc_, mlir::LLVM::AtomicBinOp::add, ptr_v, val_v, ord);
     };
@@ -2085,9 +2081,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                                    mlir::LLVM::AtomicOrdering::seq_cst,
                                size_t expected_args = 3) -> mlir::Value {
         if (arg_les.size() != expected_args) return nullptr;
-        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
-        auto exp_v = gen_expr(*arg_les[1]); if (!exp_v) return nullptr;
-        auto des_v = gen_expr(*arg_les[2]); if (!des_v) return nullptr;
+        auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
+        auto exp_v = gen_expr(arg_les[1]); if (!exp_v) return nullptr;
+        auto des_v = gen_expr(arg_les[2]); if (!des_v) return nullptr;
         auto cmpxchg = builder_.create<mlir::LLVM::AtomicCmpXchgOp>(
             loc_, ptr_v, exp_v, des_v, succ, fail);
         return builder_.create<mlir::LLVM::ExtractValueOp>(
@@ -2103,8 +2099,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                                    mlir::LLVM::AtomicOrdering::seq_cst,
                                size_t expected_args = 2) -> mlir::Value {
         if (arg_les.size() != expected_args) return nullptr;
-        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
-        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(arg_les[1]); if (!val_v) return nullptr;
         return builder_.create<mlir::LLVM::AtomicRMWOp>(
             loc_, op, ptr_v, val_v, ord);
     };
@@ -2210,8 +2206,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
     if (bare_intrinsic == "str__str_from_raw" || bare_intrinsic == "str_from_raw") {
         if (arg_les.size() == 2) {
-            auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
-            auto len_v = gen_expr(*arg_les[1]); if (!len_v) return nullptr;
+            auto ptr_v = gen_expr(arg_les[0]); if (!ptr_v) return nullptr;
+            auto len_v = gen_expr(arg_les[1]); if (!len_v) return nullptr;
             auto stype  = slice_llvm_type();
             auto alloca = create_entry_alloca(stype);
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
@@ -2231,7 +2227,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         bare_intrinsic == "trailing_zeros_u64"  || bare_intrinsic == "bswap_u64"          ||
         bare_intrinsic == "bitreverse_u64") {
         if (arg_les.size() == 1) {
-            auto v = gen_expr(*arg_les[0]); if (!v) return nullptr;
+            auto v = gen_expr(arg_les[0]); if (!v) return nullptr;
             auto i64_ty = builder_.getIntegerType(64);
             auto i32_ty = builder_.getIntegerType(32);
             v = coerce_int(v, i64_ty);
@@ -2268,7 +2264,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         auto fn_type   = callee_fn.getFunctionType();
         auto fixed_inputs = fn_type.getParams();
         for (size_t i = 0; i < arg_les.size(); ++i) {
-            auto v = gen_expr(*arg_les[i]);
+            auto v = gen_expr(arg_les[i]);
             if (!v) return nullptr;
             if (i < fixed_inputs.size()) v = coerce_numeric(v, fixed_inputs[i]);
             args.push_back(v);
@@ -2357,7 +2353,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     if (!callee_fn) {
         llvm::SmallVector<mlir::Value> args;
         for (size_t i = 0; i < arg_les.size(); ++i) {
-            auto v = gen_expr(*arg_les[i]);
+            auto v = gen_expr(arg_les[i]);
             if (!v) return nullptr;
             args.push_back(v);
         }
@@ -2384,10 +2380,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         if (i < param_types.size() && param_types[i] == ptr_type() &&
             arg_refs[i].kind() == ec::Code::FieldRead) {
             lir_view::EFieldReadView frv{arg_refs[i]};
-            auto* fr_recv_le = lexpr_of(frv.receiver());
             std::string fr_field(frv.field());
-            if (fr_recv_le) {
-                auto [base_ptr, base_sname] = gen_recv_struct(*fr_recv_le);
+            if (frv.receiver()) {
+                auto [base_ptr, base_sname] = gen_recv_struct(frv.receiver());
                 if (base_ptr && !base_sname.empty()) {
                     auto bit = struct_types_.find(base_sname);
                     if (bit != struct_types_.end()) {
@@ -2405,7 +2400,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
-        v = gen_expr(*arg_les[i]);
+        v = gen_expr(arg_les[i]);
         if (!v) return nullptr;
     arg_push:
         // Coerce concrete struct → &dyn Trait if param expects it.
@@ -2510,18 +2505,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     std::string resolved_symbol(v.resolved_symbol());
     int32_t     vtable_index = v.vtable_index();
     auto recv_ref = v.receiver();
-    auto* recv_le = lexpr_of(recv_ref);
-    if (!recv_le) return nullptr;
+    if (!recv_ref) return nullptr;
     TypeRef recv_t = recv_ref.type(pool_impl());
 
     std::vector<lir_view::ExprRef>    arg_refs;
     v.each_arg([&](lir_view::ExprRef ar){ arg_refs.push_back(ar); });
-    std::vector<const LExpr*> arg_les;
+    std::vector<lir_view::ExprRef> arg_les;
     arg_les.reserve(arg_refs.size());
     for (auto& ar : arg_refs) {
-        auto* le = lexpr_of(ar);
-        if (!le) return nullptr;
-        arg_les.push_back(le);
+        if (!ar) return nullptr;
+        arg_les.push_back(ar);
     }
 
     if (method == "as_offset" && recv_t) {
@@ -2532,7 +2525,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
               recv_t.kind() == LogosType::Kind::MutRef) &&
              recv_t.pointee() && type_str(recv_t.pointee()) == "AnyVal");
         if (is_anyval) {
-            auto recv = gen_expr(*recv_le);
+            auto recv = gen_expr(recv_ref);
             if (!recv) return nullptr;
             if (recv.getType() == ptr_type())
                 return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
@@ -2572,7 +2565,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                               ->getParentOfType<mlir::ModuleOp>();
             auto callee_fn = find_func_op(parent_mod, resolved_symbol);
             if (callee_fn) {
-                auto recv_val = gen_expr(*recv_le);
+                auto recv_val = gen_expr(recv_ref);
                 if (!recv_val) return nullptr;
                 // Auto-ref: spill scalar to alloca + pass alloca ptr.
                 // Mirrors the gen_expr_kind(EAddrOfTempView) scalar path.
@@ -2582,8 +2575,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                 builder_.create<mlir::LLVM::StoreOp>(loc_, recv_val, recv_slot);
                 llvm::SmallVector<mlir::Value> all_args;
                 all_args.push_back(recv_slot);
-                for (auto* le : arg_les) {
-                    auto av = gen_expr(*le);
+                for (auto& le : arg_les) {
+                    auto av = gen_expr(le);
                     if (!av) return nullptr;
                     all_args.push_back(av);
                 }
@@ -2598,9 +2591,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     // the full fat value (the inner ptr-to-{data,zone} pair), not the peeled data
     // half — gen_recv_struct(self) inside the callee re-peels it for field access.
     bool recv_is_fat_zone =
-        recv_le->type && ref_repr_of(TypeRef(recv_le->type)) == RefReprKind::FatZoneMut;
-    auto [ptr, tname] = recv_is_fat_zone ? gen_recv_struct_inner(*recv_le)
-                                         : gen_recv_struct(*recv_le);
+        recv_t && ref_repr_of(TypeRef(recv_t)) == RefReprKind::FatZoneMut;
+    auto [ptr, tname] = recv_is_fat_zone ? gen_recv_struct_inner(recv_ref)
+                                         : gen_recv_struct(recv_ref);
     if (!ptr || tname.empty()) return nullptr;
     if (strip_struct_pkg(tname) == "AnyVal" && ptr.getType() != ptr_type()) {
         auto slot = create_entry_alloca(builder_.getI32Type());
@@ -2693,7 +2686,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         ref_repr_of(m_fpit->second[0]) != RefReprKind::FatZoneMut)
         args[0] = repr_data(RefReprKind::FatZoneMut, args[0]);
     for (size_t i = 0; i < arg_les.size(); ++i) {
-        auto val = gen_expr(*arg_les[i]);
+        auto val = gen_expr(arg_les[i]);
         if (!val) return nullptr;
         size_t pi = i + 1;
         // G167-7: a concrete `Box<T>` / `&T` / struct argument passed where the
@@ -2770,25 +2763,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type) {
-    auto* recv_l = lexpr_of(v.receiver());
-    if (!recv_l) return nullptr;
+    if (!v.receiver()) return nullptr;
+    TypeRef recv_ty = v.receiver().type(pool_impl());
     std::string field{v.field()};
-    if (TypeRef rt(recv_l->type); field == "raw" && rt) {
-        bool is_anyval = type_str(recv_l->type) == "AnyVal";
+    if (TypeRef rt(recv_ty); field == "raw" && rt) {
+        bool is_anyval = type_str(recv_ty) == "AnyVal";
         bool is_anyval_ptr = (rt.kind() == LogosType::Kind::Ptr ||
                               rt.kind() == LogosType::Kind::Ref ||
                               rt.kind() == LogosType::Kind::MutRef) &&
                              rt.pointee() &&
                              type_str(rt.pointee()) == "AnyVal";
         if (is_anyval || is_anyval_ptr) {
-            auto recv = gen_expr(*recv_l);
+            auto recv = gen_expr(v.receiver());
             if (!recv) return nullptr;
             if (recv.getType() == ptr_type())
                 return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), recv);
             return coerce_numeric(recv, builder_.getI32Type());
         }
     }
-    auto [ptr, sname] = gen_recv_struct(*recv_l);
+    auto [ptr, sname] = gen_recv_struct(v.receiver());
     if (!ptr || sname.empty()) return nullptr;
     auto& info = struct_types_[sname];
     auto gep   = gep_field(ptr, info, field);
@@ -2920,10 +2913,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
         // Field index read: field may be an array or a pointer.
         lir_view::EFieldReadView frv{recv_ref};
         auto fr_recv = frv.receiver();
-        auto* fr_recv_le = lexpr_of(fr_recv);
         std::string field(frv.field());
-        if (fr_recv_le) {
-            auto [struct_ptr, sname] = gen_recv_struct(*fr_recv_le);
+        if (fr_recv) {
+            auto [struct_ptr, sname] = gen_recv_struct(fr_recv);
             if (struct_ptr && !sname.empty()) {
                 auto& info = struct_types_[sname];
                 auto field_ptr = gep_field(struct_ptr, info, field);

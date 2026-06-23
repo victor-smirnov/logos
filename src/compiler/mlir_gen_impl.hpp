@@ -1136,8 +1136,8 @@ private:
     mlir::Value get_struct_ptr(const std::string& name);
     mlir::Value gep_field(mlir::Value base, const StructInfo& info,
                           const std::string& field_name);
-    std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv);
-    std::pair<mlir::Value, std::string> gen_recv_struct_inner(const LExpr& recv);
+    std::pair<mlir::Value, std::string> gen_recv_struct(lir_view::ExprRef recv);
+    std::pair<mlir::Value, std::string> gen_recv_struct_inner(lir_view::ExprRef recv);
     mlir::Value gen_struct_lit(lir_view::EStructLitView v);
 
     // Bind the payload of a tagged-enum VariantData pattern given a pointer to
