@@ -26,66 +26,66 @@ public:
 
     // ── Expression leaves ────────────────────────────────────────────────
 
-    lir::LExprPtr lit_int   (int64_t v, TypeRef ty);
-    lir::LExprPtr lit_int_128(uint64_t lo, uint64_t hi, TypeRef ty);
-    lir::LExprPtr lit_bool  (bool v,    TypeRef ty);
-    lir::LExprPtr lit_str   (std::string v, TypeRef ty);
-    lir::LExprPtr lit_float (double v,  TypeRef ty);
-    lir::LExprPtr var_ref   (std::string name, TypeRef ty, uint32_t slot = 0xFFFFFFFFu);
-    lir::LExprPtr addr_of   (std::string var_name, TypeRef ty);
-    lir::LExprPtr pack_expand(std::string var_name, TypeRef ty);
-    lir::LExprPtr size_of   (TypeRef elem_type, TypeRef ty);
-    lir::LExprPtr align_of  (TypeRef elem_type, TypeRef ty);
-    lir::LExprPtr generic_ref(std::string name,
+    lir_view::ExprRef lit_int   (int64_t v, TypeRef ty);
+    lir_view::ExprRef lit_int_128(uint64_t lo, uint64_t hi, TypeRef ty);
+    lir_view::ExprRef lit_bool  (bool v,    TypeRef ty);
+    lir_view::ExprRef lit_str   (std::string v, TypeRef ty);
+    lir_view::ExprRef lit_float (double v,  TypeRef ty);
+    lir_view::ExprRef var_ref   (std::string name, TypeRef ty, uint32_t slot = 0xFFFFFFFFu);
+    lir_view::ExprRef addr_of   (std::string var_name, TypeRef ty);
+    lir_view::ExprRef pack_expand(std::string var_name, TypeRef ty);
+    lir_view::ExprRef size_of   (TypeRef elem_type, TypeRef ty);
+    lir_view::ExprRef align_of  (TypeRef elem_type, TypeRef ty);
+    lir_view::ExprRef generic_ref(std::string name,
                               std::vector<TypeRef> type_args,
                               TypeRef ty);
-    lir::LExprPtr type_code_of(TypeRef elem_type, TypeRef ty);
-    lir::LExprPtr reflect_of(TypeRef elem_type, TypeRef ty);
+    lir_view::ExprRef type_code_of(TypeRef elem_type, TypeRef ty);
+    lir_view::ExprRef reflect_of(TypeRef elem_type, TypeRef ty);
 
     // ── Composite expressions ────────────────────────────────────────────
 
-    lir::LExprPtr bin_op   (std::string op,
-                            lir::LExprPtr lhs,
-                            lir::LExprPtr rhs,
+    lir_view::ExprRef bin_op   (std::string op,
+                            lir_view::ExprRef lhs,
+                            lir_view::ExprRef rhs,
                             TypeRef ty);
-    lir::LExprPtr unary    (std::string op, lir::LExprPtr operand, TypeRef ty);
-    lir::LExprPtr deref    (lir::LExprPtr operand, TypeRef ty);
-    lir::LExprPtr cast     (lir_view::ExprRef operand, TypeRef ty);
-    lir::LExprPtr field_read(lir::LExprPtr receiver, std::string field, TypeRef ty);
-    lir::LExprPtr index_read(lir::LExprPtr receiver, lir::LExprPtr index, TypeRef ty);
-    lir::LExprPtr tuple_index(lir::LExprPtr receiver, uint32_t index, TypeRef ty);
-    lir::LExprPtr slice_index(lir::LExprPtr slice, lir::LExprPtr index, TypeRef ty);
-    lir::LExprPtr arr_lit  (std::vector<lir::LExprPtr> elems, TypeRef ty);
-    lir::LExprPtr tuple_lit(std::vector<lir::LExprPtr> elems, TypeRef ty);
-    lir::LExprPtr try_expr(lir::LExprPtr inner, int32_t ok_disc, int32_t err_disc, TypeRef ty);
-    lir::LExprPtr call(std::string callee,
+    lir_view::ExprRef unary    (std::string op, lir_view::ExprRef operand, TypeRef ty);
+    lir_view::ExprRef deref    (lir_view::ExprRef operand, TypeRef ty);
+    lir_view::ExprRef cast     (lir_view::ExprRef operand, TypeRef ty);
+    lir_view::ExprRef field_read(lir_view::ExprRef receiver, std::string field, TypeRef ty);
+    lir_view::ExprRef index_read(lir_view::ExprRef receiver, lir_view::ExprRef index, TypeRef ty);
+    lir_view::ExprRef tuple_index(lir_view::ExprRef receiver, uint32_t index, TypeRef ty);
+    lir_view::ExprRef slice_index(lir_view::ExprRef slice, lir_view::ExprRef index, TypeRef ty);
+    lir_view::ExprRef arr_lit  (std::vector<lir_view::ExprRef> elems, TypeRef ty);
+    lir_view::ExprRef tuple_lit(std::vector<lir_view::ExprRef> elems, TypeRef ty);
+    lir_view::ExprRef try_expr(lir_view::ExprRef inner, int32_t ok_disc, int32_t err_disc, TypeRef ty);
+    lir_view::ExprRef call(std::string callee,
                        std::vector<TypeRef> type_args,
-                       std::vector<lir::LExprPtr> args,
+                       std::vector<lir_view::ExprRef> args,
                        TypeRef ty);
-    lir::LExprPtr block_expr(lir::LBlock* block,
-                             lir::LExprPtr result, TypeRef ty);
-    lir::LExprPtr struct_lit(std::string name,
-                             std::vector<std::pair<std::string, lir::LExprPtr>> fields,
+    lir_view::ExprRef block_expr(lir::LBlock* block,
+                             lir_view::ExprRef result, TypeRef ty);
+    lir_view::ExprRef struct_lit(std::string name,
+                             std::vector<std::pair<std::string, lir_view::ExprRef>> fields,
                              TypeRef ty);
-    lir::LExprPtr enum_lit(std::string enum_name, std::string variant,
+    lir_view::ExprRef enum_lit(std::string enum_name, std::string variant,
                            int64_t disc, TypeRef ty);
-    lir::LExprPtr closure_box(lir::EClosure* inner, TypeRef ty);
+    lir_view::ExprRef closure_box(lir::EClosure* inner, TypeRef ty);
     // Coerce an existing EClosureBox expr into an FnPtr-typed closure_box.
     // Sets inner->as_fn_ptr=true and re-emits via closure_box() so the Hermes
     // mirror reflects the new type. Caller is responsible for verifying that
     // the input is an EClosureBox with no captures.
-    lir::LExprPtr closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty);
+    lir_view::ExprRef closure_to_fnptr(lir_view::ExprRef arg, TypeRef new_ty);
     // Replace one element of an existing ETupleLit and re-emit its mirror so
     // view reads see the new child offset. Caller must ensure `tuple` is
     // ETupleLit and has no already-mirrored ancestors (mutating an embedded
     // child can't update parent mirrors, which is the parent-mirror
     // invalidation blocker).
-    void set_tuple_elem(lir::LExpr* tuple, size_t idx, lir::LExpr* new_value);
-    lir::LExprPtr closure_call(lir::LExprPtr callee,
-                               std::vector<lir::LExprPtr> args, TypeRef ty);
-    lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,
-                              std::vector<lir::LExprPtr> args, TypeRef ty);
-    lir::LExprPtr addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty);
+    lir_view::ExprRef set_tuple_elem(lir_view::ExprRef tuple, size_t idx, lir_view::ExprRef new_value);
+    lir_view::ExprRef closure_call(lir_view::ExprRef callee,
+                               std::vector<lir_view::ExprRef> args, TypeRef ty);
+    lir_view::ExprRef fn_ptr_call(lir_view::ExprRef callee,
+                              std::vector<lir_view::ExprRef> args, TypeRef ty);
+    lir_view::ExprRef addr_of_temp(lir_view::ExprRef inner, bool is_mut, TypeRef ty);
 
     // Re-emit a `&mut T` LIR expression for a second consuming use, wrapping
     // it as an implicit reborrow `AddrOfTemp(Deref(orig))` of the SAME type
@@ -99,24 +99,24 @@ public:
     // Returns `orig` unchanged if its type isn't `&mut T` (no reborrow
     // needed) or has no pointee (degenerate); callers can ignore the
     // distinction and always wrap.
-    lir::LExprPtr reuse_mut_ref(const lir::LExprPtr& orig);
-    lir::LExprPtr slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty);
-    lir::LExprPtr slice_len(lir::LExprPtr slice, TypeRef ty);
-    lir::LExprPtr slice_ptr(lir::LExprPtr slice, TypeRef ty);
-    lir::LExprPtr ptr_arith(lir::EPtrArith::Op op, lir::LExprPtr lhs,
-                            lir::LExprPtr rhs, TypeRef ty);
-    lir::LExprPtr ptr_diff(bool by_byte, lir::LExprPtr lhs,
-                           lir::LExprPtr rhs, TypeRef ty);
-    lir::LExprPtr enum_lit_data(std::string enum_name, std::string variant,
+    lir_view::ExprRef reuse_mut_ref(const lir_view::ExprRef& orig);
+    lir_view::ExprRef slice_lit(lir_view::ExprRef base, lir_view::ExprRef len, TypeRef ty);
+    lir_view::ExprRef slice_len(lir_view::ExprRef slice, TypeRef ty);
+    lir_view::ExprRef slice_ptr(lir_view::ExprRef slice, TypeRef ty);
+    lir_view::ExprRef ptr_arith(lir::EPtrArith::Op op, lir_view::ExprRef lhs,
+                            lir_view::ExprRef rhs, TypeRef ty);
+    lir_view::ExprRef ptr_diff(bool by_byte, lir_view::ExprRef lhs,
+                           lir_view::ExprRef rhs, TypeRef ty);
+    lir_view::ExprRef enum_lit_data(std::string enum_name, std::string variant,
                                 int64_t disc,
-                                std::vector<lir::LExprPtr> payload,
+                                std::vector<lir_view::ExprRef> payload,
                                 TypeRef ty);
-    lir::LExprPtr method_call(lir::LExprPtr receiver, std::string method,
+    lir_view::ExprRef method_call(lir_view::ExprRef receiver, std::string method,
                               std::string resolved_symbol,
                               std::vector<TypeRef> type_args,
-                              std::vector<lir::LExprPtr> args,
+                              std::vector<lir_view::ExprRef> args,
                               int32_t vtable_index, TypeRef ty);
-    lir::LExprPtr hermes_cast(lir::LExprPtr operand, std::string build_fn,
+    lir_view::ExprRef hermes_cast(lir_view::ExprRef operand, std::string build_fn,
                               TypeRef ty);
 
     // ── Post-construction retype ────────────────────────────────────────
@@ -137,22 +137,22 @@ public:
     // emit (i.e. construction is final-state, no later mutation of children
     // or reparenting of child blocks) gets its own builder method here.
 
-    lir::LStmt stmt_expr(lir::LExprPtr expr, uint32_t line);
-    lir::LStmt stmt_break(lir::LExprPtr value, std::string label, uint32_t line);
+    lir::LStmt stmt_expr(lir_view::ExprRef expr, uint32_t line);
+    lir::LStmt stmt_break(lir_view::ExprRef value, std::string label, uint32_t line);
     lir::LStmt stmt_continue(std::string label, uint32_t line);
-    lir::LStmt stmt_return(lir::LExprPtr value, uint32_t line);
-    lir::LStmt stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old = false);
-    lir::LStmt stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line, bool drop_old = false);
+    lir::LStmt stmt_return(lir_view::ExprRef value, uint32_t line);
+    lir::LStmt stmt_assign(std::string name, lir_view::ExprRef value, uint32_t line, bool drop_old = false);
+    lir::LStmt stmt_deref_write(lir_view::ExprRef ptr, lir_view::ExprRef value, uint32_t line, bool drop_old = false);
 
     // ── Adopt-style: pre-built variants populated incrementally ─────────────
     // Stage 3g deletes these along with the variant types. Until then, sema
     // sites that fill multi-field variants in place hand the result here so
     // LExpr construction still goes through the builder.
-    lir::LExprPtr call_v       (lir::ECall ec,        TypeRef ty);
-    lir::LExprPtr method_call_v(lir::EMethodCall mc,  TypeRef ty);
-    lir::LExprPtr if_expr_v    (lir::EIfExpr eif,     TypeRef ty);
-    lir::LExprPtr hermes_lit_v (lir::EHermesLit lit,  TypeRef ty);
-    lir::LExprPtr match_expr_v (lir::EMatchExpr me,   TypeRef ty);
+    lir_view::ExprRef call_v       (lir::ECall ec,        TypeRef ty);
+    lir_view::ExprRef method_call_v(lir::EMethodCall mc,  TypeRef ty);
+    lir_view::ExprRef if_expr_v    (lir::EIfExpr eif,     TypeRef ty);
+    lir_view::ExprRef hermes_lit_v (lir::EHermesLit lit,  TypeRef ty);
+    lir_view::ExprRef match_expr_v (lir::EMatchExpr me,   TypeRef ty);
 
     // … grows as sema sites migrate; do not pre-populate.
 

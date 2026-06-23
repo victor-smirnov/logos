@@ -1452,9 +1452,9 @@ class BorrowChecker {
     // params.empty() && !is_local → unknown/global — assumed safe (e.g. static data,
     //   or result of a function call where we don't track cross-call lifetimes).
 
+    // LExprPtr is now lir_view::ExprRef — the expression IS its own mirror view.
     lir_view::ExprRef expr_ref(const LExprPtr& e) const {
-        if (!e || e->mirror_ptr_ == nullptr) return {};
-        return lir_view::ExprRef(prog_.type_pool.arena(), e->mirror_ptr_);
+        return e;
     }
 
     lir_view::StmtRef stmt_ref(const LStmt& s) const {
@@ -1843,11 +1843,6 @@ class BorrowChecker {
         }
     }
 
-    RefProv prov_of(const LExprPtr& e) const {
-        if (!e) return {};
-        return prov_of(expr_ref(e));
-    }
-
     // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
 
     void check_return_value(lir_view::ExprRef er, uint32_t line) {
@@ -1970,10 +1965,6 @@ class BorrowChecker {
     // ── Expression visitor ─────────────────────────────────────────────────
 
     void visit(lir_view::ExprRef e, bool consuming, uint32_t line);
-    void visit(const LExprPtr& e, bool consuming, uint32_t line) {
-        if (!e) return;
-        visit(expr_ref(e), consuming, line);
-    }
 
     // Take scoped borrows for all EAddrOf nodes reachable through a ref
     // expression.  Handles the case where the ref is formed conditionally:
@@ -2302,12 +2293,6 @@ class BorrowChecker {
                 break;
         }
     }
-    void take_ref_borrows(const LExprPtr& e, uint32_t line,
-                           const std::string& holder = "") {
-        if (!e) return;
-        take_ref_borrows(expr_ref(e), line, holder);
-    }
-
     // ── Statement visitor ─────────────────────────────────────────────────
 
     // Phase 9 (NLL): pre-pass over fn body computing the max line at which

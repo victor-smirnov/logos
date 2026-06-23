@@ -727,7 +727,7 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     auto save_fn = cur_fn_name_;
     cur_fn_name_ = "__logos_static_init";
     for (auto* c : with_init) {
-        auto val = gen_expr(*c->value);
+        auto val = gen_expr(c->value);
         if (!val) continue;
         auto addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), c->sym);
         TypeRef vt(c->type);

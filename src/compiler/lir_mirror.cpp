@@ -464,15 +464,6 @@ public:
         return map_off;
     }
     const uint8_t* emit_tuple_lit_direct(TypeRef ty,
-                                                  const std::vector<lir::LExprPtr>& elems) {
-        auto el_av = expr_array(elems);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleLit));
-        put(map_off, ek::ELEMS, el_av);
-        if (ty) put(map_off, ec::TYPE, type_av(ty));
-        return map_off;
-    }
-    // Stage D overload: elements as mirror views.
-    const uint8_t* emit_tuple_lit_direct(TypeRef ty,
                                          const std::vector<lir_view::ExprRef>& elems) {
         auto el_av = expr_array(elems);
         auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleLit));
@@ -1215,7 +1206,6 @@ private:
     // Stage D: EXPR children are eagerly direct-emitted, so their mirror_ptr_ is
     // already set — reference by address via the view (no emit_expr re-walk).
     hermes::AnyVal expr_av(lir_view::ExprRef e)  { return e ? mref_addr(e.addr()) : hermes::AnyVal{}; }
-    hermes::AnyVal expr_av(const lir::LExprPtr& e){ return expr_av(lir::eref(e)); }  // bridge: vector elems / *guard
     // BLOCKS are NOT eagerly emitted: emit_block lazily builds the block's mirror
     // (walking its stmts) from the C++ LBlock, so block_av MUST keep the LBlock and
     // call emit_block — a BlockRef would be null here (mirror not built yet).
@@ -1252,15 +1242,6 @@ private:
         LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-003", "ObjectArray push failed");
     }
 
-    hermes::AnyVal expr_array(const std::vector<lir::LExprPtr>& v) {
-        if (v.empty()) return hermes::AnyVal{};
-        std::vector<hermes::AnyVal> elems;
-        elems.reserve(v.size());
-        for (auto& e : v) elems.push_back(expr_av(e));
-        auto arr_off = make_array(elems.size());
-        for (auto av : elems) array_push(arr_off, av);
-        return mref_addr(arr_off);
-    }
     // Stage D: elements as mirror views (the eager-emitted expr mirrors).
     hermes::AnyVal expr_array(const std::vector<lir_view::ExprRef>& v) {
         if (v.empty()) return hermes::AnyVal{};
@@ -1447,7 +1428,7 @@ const uint8_t* LirMirrorEmitter::emit_arm(const LMatchArm& a) {
 
 const uint8_t* LirMirrorEmitter::emit_expr_arm(const lir::EMatchArm& a) {
     auto pat_off    = emit_pat(a.pat);
-    auto value_off  = emit_expr(*a.value);
+    auto value_off  = a.value.addr();
     hermes::AnyVal guard_av;
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
@@ -1728,7 +1709,7 @@ void LirMirrorEmitter::run(lir::LProgram& prog) {
         (void)t;
     }
     for (auto& c : prog.consts)
-        if (c.value) emit_expr(*c.value);
+        (void)c;  // const value mirrors are eager-emitted (ExprRef); nothing to walk
 }
 
 } // namespace
@@ -1846,40 +1827,20 @@ const uint8_t* lir_mirror_emit_enum_lit(lir::LProgram& prog, TypeRef ty, std::st
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_enum_lit_direct(ty, enum_name, variant, disc);
 }
-const uint8_t* lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir::LExprPtr>& payload) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_enum_lit_data_direct(ty, enum_name, variant, disc, payload);
-}
 const uint8_t* lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir_view::ExprRef>& payload) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_enum_lit_data_direct(ty, enum_name, variant, disc, payload);
-}
-const uint8_t* lir_mirror_emit_struct_lit(lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_struct_lit_direct(ty, name, fields);
 }
 const uint8_t* lir_mirror_emit_struct_lit(lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir_view::ExprRef>>& fields) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_struct_lit_direct(ty, name, fields);
 }
-const uint8_t* lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_call_direct(ty, callee, type_args, args);
-}
 const uint8_t* lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_call_direct(ty, callee, type_args, args);
-}
-const uint8_t* lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_method_call_direct(ty, receiver, method, resolved_symbol, type_args, args, vtable_index, resolved_type, tag_system, tag_trait);
 }
 const uint8_t* lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -1905,11 +1866,6 @@ const uint8_t* lir_mirror_emit_index_read(lir::LProgram& prog, TypeRef ty, lir_v
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_index_read_direct(ty, receiver, index);
-}
-const uint8_t* lir_mirror_emit_hermes_lit(lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir::LExprPtr>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_hermes_lit_direct(ty, root, has_captures, capture_exprs, capture_types, capture_param_count, static_blob);
 }
 const uint8_t* lir_mirror_emit_hermes_lit(lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir_view::ExprRef>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -1971,11 +1927,6 @@ const uint8_t* lir_mirror_emit_if_expr(lir::LProgram& prog, TypeRef ty, lir_view
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_if_expr_direct(ty, cond, then_val, else_val);
 }
-const uint8_t* lir_mirror_emit_tuple_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_tuple_lit_direct(ty, elems);
-}
 const uint8_t* lir_mirror_emit_tuple_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
@@ -1985,11 +1936,6 @@ const uint8_t* lir_mirror_emit_tuple_index(lir::LProgram& prog, TypeRef ty, lir_
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_index_direct(ty, receiver, index);
-}
-const uint8_t* lir_mirror_emit_arr_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_arr_lit_direct(ty, elems);
 }
 const uint8_t* lir_mirror_emit_arr_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -2001,20 +1947,10 @@ const uint8_t* lir_mirror_emit_block_expr(lir::LProgram& prog, TypeRef ty, const
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_block_expr_direct(ty, block, result);
 }
-const uint8_t* lir_mirror_emit_closure_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir::LExprPtr>& args) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_closure_call_direct(ty, callee, args);
-}
 const uint8_t* lir_mirror_emit_closure_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_closure_call_direct(ty, callee, args);
-}
-const uint8_t* lir_mirror_emit_fn_ptr_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir::LExprPtr>& args) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_fn_ptr_call_direct(ty, callee, args);
 }
 const uint8_t* lir_mirror_emit_fn_ptr_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -2030,11 +1966,6 @@ const uint8_t* lir_mirror_emit_match_expr(lir::LProgram& prog, TypeRef ty, lir_v
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_match_expr_direct(ty, scrut, arms);
-}
-const uint8_t* lir_mirror_emit_format_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_format_call_direct(ty, fmt, args, arg_types);
 }
 const uint8_t* lir_mirror_emit_format_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef fmt, const std::vector<lir_view::ExprRef>& args, const std::vector<TypeRef>& arg_types) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -2294,8 +2225,7 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
     LirMirrorEmitter em(ctr, table, prog.type_pool);
     for (auto& i : prog.impls)
         for (auto& m : i.methods) em.emit_function(*m);
-    for (auto& c : prog.consts)
-        if (c.value) em.emit_expr_public(*c.value);
+    // const value mirrors are eager-emitted (ExprRef); nothing to re-walk.
 }
 
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────

@@ -46,7 +46,7 @@ struct LFunction;
 // LExprPtr is now a non-owning raw handle — allocate via lir::alloc_expr(prog).
 // Variant fields previously holding unique_ptr<LExpr> now hold raw LExpr*.
 // std::move() on LExprPtr remains legal (it's a no-op pointer copy).
-using LExprPtr     = LExpr*;
+using LExprPtr     = lir_view::ExprRef;
 // ADR 0007 slice 1c: LBlock is pool-owned by LProgram::block_pool_.
 // LBlockPtr is a non-owning raw handle — allocate via lir::alloc_block(prog, ...).
 using LBlockPtr    = LBlock*;
@@ -249,7 +249,7 @@ struct ECall      {
 };
 
 struct EMethodCall {
-    LExprPtr                      receiver = nullptr;
+    LExprPtr                      receiver = {};
     std::string                   method;
     // Concrete function symbol selected by sema for direct calls.
     // Empty means "resolve by receiver type + method name" in later phases.
@@ -267,13 +267,13 @@ struct EMethodCall {
 
 struct EBinOp {
     std::string op;             // "+", "-", "==", "&&", ...
-    LExprPtr    lhs = nullptr;
-    LExprPtr    rhs = nullptr;
+    LExprPtr    lhs = {};
+    LExprPtr    rhs = {};
 };
 
 struct EUnary {
     std::string op;             // "-" or "!"
-    LExprPtr    operand = nullptr;
+    LExprPtr    operand = {};
 };
 
 // & address-of: returns alloca pointer for a variable (does not dereference)
@@ -284,22 +284,22 @@ struct EAddrOf {
 // Address of a temporary rvalue: &expr where expr is not a named variable.
 // Codegen spills the inner expression to an anonymous alloca.
 struct EAddrOfTemp {
-    LExprPtr inner = nullptr;
+    LExprPtr inner = {};
     bool     is_mut = false;  // true → &mut T, false → &T
 };
 
 struct EDeref {
-    LExprPtr operand = nullptr;
+    LExprPtr operand = {};
 };
 
 struct EFieldRead {
-    LExprPtr    receiver = nullptr;
+    LExprPtr    receiver = {};
     std::string field;
 };
 
 struct EIndexRead {
-    LExprPtr receiver = nullptr;
-    LExprPtr index = nullptr;
+    LExprPtr receiver = {};
+    LExprPtr index = {};
 };
 
 struct EStructLit {
@@ -313,7 +313,7 @@ struct EArrLit {
 };
 
 struct ECast {
-    LExprPtr operand = nullptr;
+    LExprPtr operand = {};
     // target type is LExpr::type.
     // For Hermes typed container casts (e.g. &[i32] as <I32>[]):
     //   hermes_build_fn names the stdlib builder (e.g. "hermes_build_array_i32").
@@ -324,16 +324,16 @@ struct ECast {
 // if cond { then_val } else { else_val }  — used when if is an expression.
 // Both branches must yield the same type.
 struct EIfExpr {
-    LExprPtr cond = nullptr;
-    LExprPtr then_val = nullptr;
-    LExprPtr else_val = nullptr;
+    LExprPtr cond = {};
+    LExprPtr then_val = {};
+    LExprPtr else_val = {};
 };
 
 // Match expression arm: pattern [guard] => expr
 struct EMatchArm {
     Pattern                  pat;
     std::optional<LExprPtr>  guard;
-    LExprPtr                 value = nullptr;
+    LExprPtr                 value = {};
 };
 
 // Mirror-view form of an expression match arm: value/guard reference an
@@ -347,7 +347,7 @@ struct EMatchArmView {
 
 // match expr { pat => val, ... } — produces a value
 struct EMatchExpr {
-    LExprPtr               scrut = nullptr;
+    LExprPtr               scrut = {};
     std::vector<EMatchArm> arms;
 };
 
@@ -358,7 +358,7 @@ struct ETupleLit {
 
 // Tuple element access: t.0, t.1
 struct ETupleIndex {
-    LExprPtr  receiver = nullptr;
+    LExprPtr  receiver = {};
     uint32_t  index;
 };
 
@@ -371,43 +371,43 @@ struct EClosureBox {
 
 // Closure call: closure(args...)
 struct EClosureCall {
-    LExprPtr              callee = nullptr;
+    LExprPtr              callee = {};
     std::vector<LExprPtr> args;
 };
 
 // Call via fn(T) -> R bare function pointer (no env_ptr, no fat pointer).
 struct EFnPtrCall {
-    LExprPtr              callee = nullptr;  // EVarRef to the fn-ptr variable
+    LExprPtr              callee = {};  // EVarRef to the fn-ptr variable
     std::vector<LExprPtr> args;
 };
 
 // Slice construction: &arr (whole array → slice) or &arr[lo..hi]
 struct ESliceLit {
-    LExprPtr base = nullptr;    // pointer to first element
-    LExprPtr len = nullptr;     // length as i64
+    LExprPtr base = {};    // pointer to first element
+    LExprPtr len = {};     // length as i64
 };
 
 // Slice element access: s[i]
 struct ESliceIndex {
-    LExprPtr slice = nullptr;
-    LExprPtr index = nullptr;
+    LExprPtr slice = {};
+    LExprPtr index = {};
 };
 
 // Slice length: s.len()
 struct ESliceLen {
-    LExprPtr slice = nullptr;
+    LExprPtr slice = {};
 };
 
 // Slice / str as_ptr: s.as_ptr() → *const u8
 struct ESlicePtr {
-    LExprPtr slice = nullptr;
+    LExprPtr slice = {};
 };
 
 // format() compiler built-in: format("x={}, y={}", x, y)
 // Returns *mut u8 (heap-allocated, caller frees via format_free).
 // The compiler builds tags[] and data[] arrays and calls __format_impl.
 struct EFormatCall {
-    LExprPtr                    fmt = nullptr;        // format string expr
+    LExprPtr                    fmt = {};        // format string expr
     std::vector<LExprPtr>       args;       // arguments (without fmt)
     std::vector<TypeRef> arg_types; // parallel to args, resolved at sema
 };
@@ -448,14 +448,14 @@ struct EGenericRef {
 struct EPtrArith {
     enum Op { ByteAdd, ByteSub, Add, Sub };
     Op       op;
-    LExprPtr ptr = nullptr;
-    LExprPtr offset = nullptr;
+    LExprPtr ptr = {};
+    LExprPtr offset = {};
 };
 
 struct EPtrDiff {
     bool     by_byte;   // true = byte distance, false = element distance
-    LExprPtr lhs = nullptr;
-    LExprPtr rhs = nullptr;
+    LExprPtr lhs = {};
+    LExprPtr rhs = {};
 };
 
 // type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
@@ -469,7 +469,7 @@ struct ETypeCodeOf {
 // ok_disc / err_disc are the discriminant values for Ok and Err variants.
 // The ETry expression itself has type T (the Ok payload type).
 struct ETry {
-    LExprPtr inner = nullptr;
+    LExprPtr inner = {};
     int32_t  ok_disc  = 0;   // discriminant of Ok  (typically 0)
     int32_t  err_disc = 1;   // discriminant of Err (typically 1)
 };
@@ -477,7 +477,7 @@ struct ETry {
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
     LBlockPtr block = nullptr;
-    LExprPtr result = nullptr; // may be null if it evaluates to void
+    LExprPtr result = {}; // may be null if it evaluates to void
 };
 
 
@@ -1071,7 +1071,7 @@ struct LImplBlock {
 struct LConst {
     std::string      name;
     TypeRef type;
-    LExprPtr         value = nullptr;
+    LExprPtr         value = {};
     // Outer doc-comment on the const declaration.
     std::string      doc;
     // §6.2 statics (S25): a `static [mut]` item gets REAL global storage —
@@ -1240,8 +1240,8 @@ struct LProgram {
     // populates at LIT_HSTATIC resolution time; mono looks up by the
     // HStaticLit's const_val (the same hash) to materialise the literal in
     // place of `__const_param:CFG` references inside generic bodies.
-    // LExpr* points into expr_pool_; lifetimes match LProgram.
-    std::unordered_map<uint64_t, LExpr*> hstatic_registry_;
+    // ExprRef = mirror view into type_pool arena; lifetimes match LProgram.
+    std::unordered_map<uint64_t, LExprPtr> hstatic_registry_;
 
     // M.1: per-site record of `metacall <call_expr>` occurrences in the user
     // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)

@@ -4715,8 +4715,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rit = cur_prog_->hstatic_registry_.find(hash);
         if (rit == cur_prog_->hstatic_registry_.end()) return t;
-        if (!rit->second || lir::eref(rit->second).addr() == nullptr) return t;
-        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), lir::eref(rit->second).addr());
+        if (!rit->second || rit->second.addr() == nullptr) return t;
+        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second.addr());
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };
@@ -5011,8 +5011,8 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
             uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
             auto rit = cur_prog_->hstatic_registry_.find(hash);
             if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
-                lir::eref(rit->second).addr() != nullptr) {
-                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), lir::eref(rit->second).addr());
+                rit->second.addr() != nullptr) {
+                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second.addr());
                 if (eref.kind() == lir_schema::expr::Code::HermesLit) {
                     // Walk path through the Hermes value.
                     lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();

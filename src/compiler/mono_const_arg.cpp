@@ -166,7 +166,7 @@ std::string Mono::const_specialize_callee(
     auto& arena = out_.type_pool.arena_or_init();
     for (size_t p : cw) {
         if (p >= args.size() || p >= fn->params.size() || !args[p]) continue;
-        lir_view::ExprRef aref(&arena, args[p]->mirror_ptr_);
+        lir_view::ExprRef aref(&arena, args[p].addr());
         ConstArgVal cv;
         if (!try_read_const_arg(aref, cv)) continue;  // runtime arg → no spec
         binds.emplace_back(fn->params[p].name, cv);

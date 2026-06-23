@@ -456,12 +456,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         // through LirBuilder (which speaks LExprPtr husks). Wrap an already-
         // emitted ExprRef (from subst_child_expr) as a thin husk so it can be
         // fed into those LirBuilder chains. The mirror is shared, not re-emitted.
+        // LExprPtr is now lir_view::ExprRef — the mirror view IS the handle,
+        // so feeding an ExprRef into a LirBuilder chain needs no husk wrapper.
         auto child_husk = [&](lir_view::ExprRef e) -> lir::LExprPtr {
-            if (!e) return nullptr;
-            auto* h = lir::alloc_expr(out_);
-            h->type = e.type(out_.type_pool.impl());
-            h->mirror_ptr_ = e.addr();
-            return h;
+            return e;
         };
         using C = lir_schema::expr::Code;
         switch (eref.kind()) {
@@ -532,7 +530,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             SubstMap empty;
                             lir_view::ExprRef src_eref(
                                 out_.type_pool.arena(),
-                                lir::eref(rit->second).addr());
+                                rit->second.addr());
                             auto cloned = subst_expr(src_eref, empty);
                             if (cloned) {
                                 mp_ = cloned.addr();
@@ -1524,7 +1522,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 rt_ = i64_t;
-                mp_ = lit->mirror_ptr_;
+                mp_ = lit.addr();
                 break;
             }
             // has_trait::<T, Trait>() — bool. Recursive lookup against
@@ -1649,7 +1647,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 rt_ = i64_t;
-                mp_ = lit->mirror_ptr_;
+                mp_ = lit.addr();
                 break;
             }
             // typelist_head::<L>() / typelist_nth::<L>(i) — emit a single
@@ -1712,7 +1710,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 rt_ = type_t;
-                mp_ = sl->mirror_ptr_;
+                mp_ = sl.addr();
                 break;
             }
             // reify_type(t: Type) -> Type — recover source TypeRef from
@@ -1816,7 +1814,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 rt_ = type_t;
-                mp_ = sl->mirror_ptr_;
+                mp_ = sl.addr();
                 break;
             }
             // apply(name: &[u8], args: [Type; N]) -> Type — instantiate a
@@ -1947,7 +1945,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto sl = b.struct_lit("Type",
                                                std::move(f), type_t);
                         rt_ = type_t;
-                        mp_ = sl->mirror_ptr_;
+                        mp_ = sl.addr();
                         break;
                     }
                 }
@@ -2065,7 +2063,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 rt_ = type_t;
-                mp_ = sl->mirror_ptr_;
+                mp_ = sl.addr();
                 break;
             }
             // __apply_generic__(g: Type, args: [Type; N]) — instantiate
@@ -2221,7 +2219,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 rt_ = type_t;
-                mp_ = sl->mirror_ptr_;
+                mp_ = sl.addr();
                 break;
             }
             // __tuple_type_apply__([Type; N]) and __array_type_apply__(Type, N) —
@@ -2370,7 +2368,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 rt_ = type_t;
-                mp_ = sl->mirror_ptr_;
+                mp_ = sl.addr();
                 break;
             }
             // variant_count_of::<E>() / variant_names_of::<E>() /
@@ -2398,7 +2396,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                     auto lit = b.lit_int(n, i64_t);
                     rt_ = i64_t;
-                    mp_ = lit->mirror_ptr_;
+                    mp_ = lit.addr();
                     break;
                 }
                 TypeRef elem_t = rt_ ? rt_.elem() : nullptr;
@@ -2481,7 +2479,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     sub_args.size() < 2) {
                     auto lit = lb.lit_bool(true, bool_t);
                     rt_ = bool_t;
-                    mp_ = lit->mirror_ptr_;
+                    mp_ = lit.addr();
                     break;
                 }
                 // Recursive chain builder: handles nested tuple elements
@@ -2563,7 +2561,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 };
                 auto chain = build_chain(T, sub_args[0], sub_args[1]);
                 rt_ = bool_t;
-                mp_ = chain->mirror_ptr_;
+                mp_ = chain.addr();
                 break;
             }
             // __tuple_each_field_debug__::<T>(self, f) — expand the variadic
@@ -2612,7 +2610,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto cl = lb.call(close_sym, {},
                         { sub_args.empty() ? nullptr : sub_args.back() }, res_t);
                     rt_ = res_t;
-                    mp_ = cl->mirror_ptr_;
+                    mp_ = cl.addr();
                     break;
                 }
                 auto self_r = sub_args[0];
@@ -2661,7 +2659,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 };
                 auto chain = build(T, self_r);
                 rt_ = res_t;
-                mp_ = chain->mirror_ptr_;
+                mp_ = chain.addr();
                 break;
             }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
@@ -2677,7 +2675,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 rt_ = i64_t;
-                mp_ = lit->mirror_ptr_;
+                mp_ = lit.addr();
                 break;
             }
             // field_count_of::<T>() — emit lit_int N for struct T (0 for
@@ -2708,7 +2706,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 rt_ = i64_t;
-                mp_ = lit->mirror_ptr_;
+                mp_ = lit.addr();
                 break;
             }
             // field_names_of::<T>() — emit [&[u8]; N] of struct field names.
@@ -3110,8 +3108,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                             };
                                             std::set<std::string> arg_tokens;
                                             for (auto& a : nc.args) {
-                                                if (!a || !a->type) continue;
-                                                TypeRef at(a->type);
+                                                TypeRef at = a ? a.type(out_.type_pool.impl()) : TypeRef{};
+                                                if (!a || !at) continue;
                                                 for (auto& impl : out_.impls) {
                                                     if (impl.is_blanket || impl.trait_type_args.empty())
                                                         continue;
@@ -3172,9 +3170,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     // case (single-impl dispatch is unaffected).
                                     std::string want_sig;
                                     for (auto& a : nc.args) {
-                                        if (a && a->type) {
+                                        TypeRef a_t = a ? a.type(out_.type_pool.impl()) : TypeRef{};
+                                        if (a && a_t) {
                                             if (!want_sig.empty()) want_sig += "__";
-                                            want_sig += mangle_type(TypeRef(a->type));
+                                            want_sig += mangle_type(TypeRef(a_t));
                                         }
                                     }
                                     if (!want_sig.empty()) {
@@ -3244,11 +3243,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                     tmpl->params.size(),
                                                     nc.args.size());
                                                 for (size_t i = 0; i < pn; ++i) {
+                                                    TypeRef ai_t = nc.args[i] ? nc.args[i].type(out_.type_pool.impl()) : TypeRef{};
                                                     if (!tmpl->params[i].type ||
                                                         !nc.args[i] ||
-                                                        !nc.args[i]->type)
+                                                        !ai_t)
                                                         continue;
-                                                    match_type(nc.args[i]->type,
+                                                    match_type(ai_t,
                                                                tmpl->params[i].type,
                                                                inferred);
                                                 }
@@ -3463,8 +3463,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // sign bit set as "unset/virtual-unknown".
             bool vtable_unset = ((uint32_t)vtable_index) >= 0x00800000u;
             if (vtable_unset && resolved_symbol.empty() && tag_system.empty() &&
-                new_recv && new_recv->type) {
-                TypeRef nrt = new_recv->type;
+                new_recv && new_recv.type(out_.type_pool.impl())) {
+                TypeRef nrt = new_recv.type(out_.type_pool.impl());
                 while (nrt && (TypeRef(nrt).kind() == LogosType::Kind::Ptr ||
                                TypeRef(nrt).kind() == LogosType::Kind::Ref ||
                                TypeRef(nrt).kind() == LogosType::Kind::MutRef) &&
@@ -3486,7 +3486,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         tob.kind = LogosType::Kind::TraitObject;
                         tob.trait_name = tname;
                         tob.type_args = TypeRef(nrt).type_args();
-                        new_recv->type = out_.type_pool.alloc(std::move(tob));
+                        LirBuilder(out_).retype_expr(new_recv, out_.type_pool.alloc(std::move(tob)));
                         std::vector<lir_view::ExprRef> mc_args;
                         v.each_arg([&](lir_view::ExprRef ar) {
                             mc_args.push_back(subst_child_expr(ar));
@@ -3519,8 +3519,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 (TypeRef(orig_inner).kind() == LogosType::Kind::TypeVar ||
                  TypeRef(orig_inner).kind() == LogosType::Kind::AssocType);
             bool new_concrete = false;
-            if (new_recv && new_recv->type) {
-                TypeRef nrt{new_recv->type};
+            if (new_recv && new_recv.type(out_.type_pool.impl())) {
+                TypeRef nrt{new_recv.type(out_.type_pool.impl())};
                 if ((nrt.kind() == LogosType::Kind::Ptr ||
                      nrt.kind() == LogosType::Kind::Ref ||
                      nrt.kind() == LogosType::Kind::MutRef) && nrt.pointee())
@@ -3529,9 +3529,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                nrt.kind() != LogosType::Kind::AssocType;
             }
             if (orig_retargetable && new_concrete &&
-                new_recv && new_recv->type) {
+                new_recv && new_recv.type(out_.type_pool.impl())) {
                 std::string cname;
-                auto rt = new_recv->type;
+                auto rt = new_recv.type(out_.type_pool.impl());
                 // Helper: concrete enum cname mirroring record_needed_enum's
                 // mangling (`<enum_name>__<arg1>__<arg2>...`). CP-cm-15
                 // follow-up: needed by generic-Debug-for-enum dispatch from
@@ -3966,8 +3966,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nm.tag_trait  = tag_trait;
             // SPECIALIZATION LOOKUP (Bug 12)
             bool rewritten = false;
-            if (nm.receiver && nm.receiver->type) {
-                TypeRef rt = nm.receiver->type;
+            if (nm.receiver && nm.receiver.type(out_.type_pool.impl())) {
+                TypeRef rt = nm.receiver.type(out_.type_pool.impl());
                 while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ptr ||
                               TypeRef(rt).kind() == LogosType::Kind::Ref ||
                               TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
@@ -4013,7 +4013,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     if (auto* spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
                                                     combined_args)) {
                         std::vector<lir_view::ExprRef> args;
-                        args.push_back(lir::eref(nm.receiver));
+                        args.push_back(nm.receiver);
                         v.each_arg([&](lir_view::ExprRef ar) {
                             args.push_back(subst_child_expr(ar));
                         });
@@ -4023,7 +4023,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     } else if (!combined_args.empty() && !mono_base.empty()) {
                         std::string callee = mangle(mono_base, combined_args);
                         std::vector<lir_view::ExprRef> args;
-                        args.push_back(lir::eref(nm.receiver));
+                        args.push_back(nm.receiver);
                         v.each_arg([&](lir_view::ExprRef ar) {
                             args.push_back(subst_child_expr(ar));
                         });
@@ -4087,7 +4087,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string callee = mangle(resolved_symbol, nm.type_args);
                     enqueue_if_needed(callee, nm.type_args);
                     std::vector<lir_view::ExprRef> args;
-                    args.push_back(lir::eref(nm.receiver));
+                    args.push_back(nm.receiver);
                     v.each_arg([&](lir_view::ExprRef ar) {
                         args.push_back(subst_child_expr(ar));
                     });
@@ -4340,13 +4340,9 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     // subst_stmt still builds lir::LStmt with LExprPtr husk members; bridge the
     // ExprRef that subst_expr now returns into a thin husk over its mirror.
     auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
-        if (!er) return nullptr;
-        auto child = subst_expr(er, s);
-        if (!child) return nullptr;
-        auto* h = lir::alloc_expr(out_);
-        h->type = child.type(out_.type_pool.impl());
-        h->mirror_ptr_ = child.addr();
-        return h;
+        if (!er) return {};
+        // subst_expr returns an ExprRef into out_; LExprPtr now IS ExprRef.
+        return subst_expr(er, s);
     };
     auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
         return br ? subst_block(br, s) : lir::LBlock{};
@@ -4685,9 +4681,10 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         // Symbolic-length iterables (e.g. `for x in arr` where arr has type
         // `[T; sizeof...(P)]`) record arr_size==0 at sema; re-derive from the
         // substituted iter type once the pack length is concrete.
-        if (arr_size == 0 && !is_slice && iter && iter->type &&
-            iter->type.kind() == LogosType::Kind::Array)
-            arr_size = (int64_t)iter->type.arr_size();
+        TypeRef iter_t = iter ? iter.type(out_.type_pool.impl()) : TypeRef{};
+        if (arr_size == 0 && !is_slice && iter && iter_t &&
+            iter_t.kind() == LogosType::Kind::Array)
+            arr_size = (int64_t)iter_t.arr_size();
         auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *body);
         ns.mirror_ptr_ = lir_mirror_emit_for_each(

@@ -385,7 +385,7 @@ private:
         TypeRef at(expr_type(arg));
         if (!at || at.kind() != LogosType::Kind::Slice) return false;
         if (!types_compatible(at.elem(), pointee.elem())) return false;
-        auto xref = expr_ref_of(*arg);
+        auto xref = expr_ref_of(arg);
         if (!xref || xref.kind() != lir_schema::expr::Code::SliceLit) return false;
         auto base = lir_view::ESliceLitView{xref}.base();
         if (!base || base.kind() != lir_schema::expr::Code::AddrOf) return false;
@@ -410,7 +410,7 @@ private:
     // branch is a blanket-accept (impl check deferred), so this is the
     // soundness gate that emits a specific diagnostic when the source's
     // pointee doesn't structurally satisfy the bound.
-    void check_dyn_auto_bounds_at_coercion(const lir::LExpr& arg, TypeRef pt);
+    void check_dyn_auto_bounds_at_coercion(lir_view::ExprRef arg, TypeRef pt);
 
     // If param `pt` is a trait-object (`&dyn Trait` / `&mut dyn Trait`) and
     // `arg` is a `&Concrete`/`&mut Concrete` that satisfies the trait (directly
@@ -585,7 +585,7 @@ private:
             pt.kind() != LogosType::Kind::Enum) return false;
         if (pt.type_args().empty()) return false;
         if (at.enum_name() != pt.enum_name()) return false;
-        auto rk = expr_ref_of(*arg).kind();
+        auto rk = expr_ref_of(arg).kind();
         if (rk != lir_schema::expr::Code::EnumLit &&
             rk != lir_schema::expr::Code::EnumLitData) return false;
         auto aa = at.type_args();
@@ -605,7 +605,7 @@ private:
         // Retype the top node (keeps LExpr.type in sync for the post-call
         // compat check) then recurse into nested payload enum-lits.
         builder().retype_expr(arg, pt);
-        retype_enum_lit_recursive(expr_ref_of(*arg), pt);
+        retype_enum_lit_recursive(expr_ref_of(arg), pt);
         return true;
     }
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
@@ -615,7 +615,7 @@ private:
         if (!arg || !er || er.kind() != LogosType::Kind::FnPtr) return false;
         TypeRef at(expr_type(arg));
         if (!at || at.kind() != LogosType::Kind::Closure) return false;
-        auto xref = expr_ref_of(*arg);
+        auto xref = expr_ref_of(arg);
         if (!xref || xref.kind() != lir_schema::expr::Code::ClosureBox) return false;
         lir_view::EClosureBoxView box{xref};
         if (box.capture_count() != 0) return false;
@@ -847,9 +847,10 @@ private:
     // ── Mirror ref accessors (read-only view of just-built L-IR nodes) ──
     // Every LirBuilder-constructed node has mirror_ptr_ set, so these
     // never return a null Ref unless `e` was built outside the builder.
-    lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        if (e.mirror_ptr_ == nullptr) return {};
-        return lir_view::ExprRef(cur_prog_->type_pool.arena(), e.mirror_ptr_);
+    // LExprPtr is now lir_view::ExprRef — the expression IS its own mirror view,
+    // so expr_ref_of is the identity. Kept as a named chokepoint for clarity.
+    lir_view::ExprRef expr_ref_of(lir_view::ExprRef e) const noexcept {
+        return e;
     }
     lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
         if (s.mirror_ptr_ == nullptr) return {};
@@ -859,8 +860,8 @@ private:
     // mirror (replaces the husk LExpr::type cache field, which goes away with the
     // skeleton). Null-safe via lir::eref. The single place to memoize if the
     // per-read TinyObjectMap lookup ever shows up in a profile ("optimize later").
-    TypeRef expr_type(const lir::LExpr* e) const noexcept {
-        return lir::eref(e).type(cur_prog_->type_pool.impl());
+    TypeRef expr_type(lir_view::ExprRef e) const noexcept {
+        return e.type(cur_prog_->type_pool.impl());
     }
     // E0507: is `e` a place from which a MOVE-typed value cannot be moved out by
     // value — `*r` (deref of a `&`/`&mut` reference VARIABLE), `v[i]`/`s[i]`
@@ -872,7 +873,7 @@ private:
     // field-out-of-`&self` are NOT flagged here (documented).
     bool is_unowned_move_source(const lir::LExprPtr& e) {
         if (!e) return false;
-        auto r = expr_ref_of(*e);
+        auto r = expr_ref_of(e);
         if (!r) return false;
         using Code = lir_schema::expr::Code;
         const auto* pool = cur_prog_->type_pool.impl();
@@ -2059,7 +2060,7 @@ private:
     void track_write_move(const lir::LExprPtr& val) {
         if (!val) return;
         if (!is_move_type(expr_type(val))) return;
-        mark_moved_expr(expr_ref_of(*val));
+        mark_moved_expr(expr_ref_of(val));
     }
 
     // Mark a moved expression — handles VarRef + nested FieldRead chains.
@@ -4217,7 +4218,7 @@ private:
     // must run BEFORE the `return` terminator, else they are dead code past it
     // and the temporaries leak. {name, type, value-expr}. Reset each lower_stmt.
     std::optional<std::tuple<std::string, TypeRef, lir::LExprPtr>> pending_ret_bind_;
-    bool is_hoistable_temp_rvalue(const lir::LExpr& e);
+    bool is_hoistable_temp_rvalue(lir_view::ExprRef e);
     // Auto-ref a method receiver to `&self`/`&mut self`. When `recv` is a fresh
     // DROPPABLE rvalue and a statement temp-scope is active, hoist it to a named
     // local (so its scope-exit drop runs at end of statement — Rust temporary
@@ -4318,7 +4319,7 @@ private:
     // without touching ~100 call sites in sema_stmt/sema_expr.
     std::optional<int64_t> get_intlit_value(const lir::LExpr* e) const noexcept {
         if (!e) return std::nullopt;
-        return logos::compiler::get_intlit_value(expr_ref_of(*e));
+        return logos::compiler::get_intlit_value(expr_ref_of(e));
     }
     std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) const noexcept {
         return logos::compiler::get_intlit_value(e);
@@ -4336,7 +4337,7 @@ private:
         if ((ek == LogosType::Kind::Ref || ek == LogosType::Kind::MutRef) &&
             (tk == LogosType::Kind::Ref || tk == LogosType::Kind::MutRef) &&
             TypeRef(expr_type(e)).pointee() && TypeRef(target).pointee()) {
-            auto er = expr_ref_of(*e);
+            auto er = expr_ref_of(e);
             if (er.kind() == lir_schema::expr::Code::AddrOfTemp) {
                 lir_view::EAddrOfTempView av{er};
                 TypeRef ipt = TypeRef(target).pointee();
@@ -4369,7 +4370,7 @@ private:
         if (!ok) return;
         e = b.cast(std::move(e), target);
     }
-    bool arg_compatible_for_dispatch(const lir::LExpr* arg,
+    bool arg_compatible_for_dispatch(lir_view::ExprRef arg,
                                      TypeRef at,
                                      TypeRef pt) const noexcept {
         if (types_equal(at, pt)) return true;
@@ -4850,7 +4851,7 @@ public:
     // LProgram::hstatic_registry_ which is per-call. Cached here so
     // subsequent sema_lower calls can pre-seed the fresh prog's
     // registry instead of re-walking binary ASTs to rediscover them.
-    std::unordered_map<uint64_t, lir::LExpr*> hstatic_registry;
+    std::unordered_map<uint64_t, lir::LExprPtr> hstatic_registry;
 
     // M5 step 5: synth tuple-struct field-name intern pool. Owns the
     // std::string objects whose string_views are stored on

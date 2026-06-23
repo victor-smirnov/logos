@@ -227,9 +227,9 @@ bool SemaChecker::body_always_diverges_simple(TinyMapView body_node) {
 
 // A fresh owned rvalue (not a place / borrow) — the kinds whose materialized
 // temporary needs a statement-scope drop. Mirrors the B140-G1 is_place check.
-bool SemaChecker::is_hoistable_temp_rvalue(const lir::LExpr& e) {
+bool SemaChecker::is_hoistable_temp_rvalue(lir_view::ExprRef e) {
     namespace ec = lir_schema::expr;
-    auto k = expr_ref_of(e).kind();
+    auto k = e.kind();
     switch (k) {
         case ec::Code::VarRef: case ec::Code::FieldRead: case ec::Code::IndexRead:
         case ec::Code::Deref:  case ec::Code::TupleIndex: case ec::Code::SliceIndex:
@@ -346,7 +346,7 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // `existing_var;` move isn't double-dropped against its scope drop.
         if (e && expr_type(e) && is_move_type(expr_type(e))) {
             namespace ec = lir_schema::expr;
-            auto ek = expr_ref_of(*e).kind();
+            auto ek = expr_ref_of(e).kind();
             bool is_place = ek == ec::Code::VarRef || ek == ec::Code::FieldRead ||
                             ek == ec::Code::IndexRead || ek == ec::Code::Deref ||
                             ek == ec::Code::TupleIndex || ek == ec::Code::SliceIndex ||
@@ -440,7 +440,7 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                     check_variance(expr_type(inner), ret_type_,
                                    "return type mismatch");
                     // T1-12: dyn+auto bound at tail-return coercion.
-                    check_dyn_auto_bounds_at_coercion(*inner, ret_type_);
+                    check_dyn_auto_bounds_at_coercion(inner, ret_type_);
                     if (ret_type_ && is_move_type(ret_type_) && is_unowned_move_source(inner))
                         error("cannot move out of a value behind a reference / out of an index (E0507)");
                 }
@@ -814,7 +814,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         // owner's scope-exit drop is suppressed (else double-free). At the top
         // level `src` is var_ref(tmp) → the whole tuple is marked moved; at a
         // nested level it is tuple_index(parent_src_tmp, pos) → that one element.
-        if (is_move_type(src_ty)) mark_moved_expr(expr_ref_of(*src));
+        if (is_move_type(src_ty)) mark_moved_expr(expr_ref_of(src));
         std::string src_tmp = std::format("__destruct_{}", destruct_counter_++);
         define(src_tmp, src_ty);
         lir::SLet sl;
@@ -847,7 +847,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
                 define(nm, elem_t);
                 // Binding moves the element OUT of src_tmp — mark src_tmp.<pos>
                 // moved so src_tmp's scope-exit drop skips it (double-free else).
-                if (is_move_type(elem_t)) mark_moved_expr(expr_ref_of(*elem_expr));
+                if (is_move_type(elem_t)) mark_moved_expr(expr_ref_of(elem_expr));
                 lir::SLet el;
                 el.name = nm; el.type = elem_t; el.is_mut = false; el.value = std::move(elem_expr);
                 blk->stmts.push_back(make_stmt_emit(node_line_, std::move(el)));
@@ -1268,7 +1268,7 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
         // into the per-element bindings. Suppress the temp's drop and
         // also any source-var drop, otherwise the array's [T;N] tail-drop
         // double-frees the same payload.
-        if (rhs) mark_moved_expr(expr_ref_of(*rhs));
+        if (rhs) mark_moved_expr(expr_ref_of(rhs));
         {
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
@@ -1464,7 +1464,7 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
     // `let __dst = rhs` consumes rhs — mark the source moved (lower_let does
     // this for a plain `let`; this manual SLet must too, else the source AND
     // the destructured field bindings both drop the same buffer → double-free).
-    if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(*rhs));
+    if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
     {
         lir::SLet sl;
         sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
@@ -1987,8 +1987,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (rhs_is_expr_blob && ann != nullptr) {
         rhs_type = ann;
         if (rhs) {
-            rhs->type = ann;
-            lir_mirror_update_type(*cur_prog_, *rhs);
+            builder().retype_expr(rhs, ann);
         }
     }
     if (rhs && ann != nullptr) {
@@ -2053,7 +2052,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // T1-12 (audit-v2): `let r: &dyn Trait + Send = &not_send;` — the
         // dyn+auto-bound gate used to fire at arg-coercion only.
         if (rhs && ann)
-            check_dyn_auto_bounds_at_coercion(*rhs, ann);
+            check_dyn_auto_bounds_at_coercion(rhs, ann);
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
         if (rhs && ann && is_integer_kind(TypeRef(ann).kind()) && is_integer_kind(TypeRef(rhs_type).kind()) &&
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
@@ -2069,7 +2068,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // Retype/coerce integer literal (or IntLit-typed expr) to float annotation type (f32 or f64).
         if (TypeRef(rhs_type).kind() == LogosType::Kind::IntLit && ann &&
             (TypeRef(ann).kind() == LogosType::Kind::F32 || TypeRef(ann).kind() == LogosType::Kind::F64)) {
-            auto rhs_ref = expr_ref_of(*rhs);
+            auto rhs_ref = expr_ref_of(rhs);
             if (rhs_ref.kind() == lir_schema::expr::Code::LitInt) {
                 // Simple integer literal: convert directly to float literal.
                 // Build a fresh node so the Hermes mirror is emitted with
@@ -2094,7 +2093,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (TypeRef(ann).kind() == LogosType::Kind::Array && TypeRef(ann).elem() &&
             TypeRef(rhs_type).kind() == LogosType::Kind::Array && TypeRef(rhs_type).elem() &&
             TypeRef(rhs_type).elem().kind() == LogosType::Kind::IntLit) {
-            auto rhs_ref = expr_ref_of(*rhs);
+            auto rhs_ref = expr_ref_of(rhs);
             if (rhs_ref.kind() == lir_schema::expr::Code::ArrLit) {
                 lir_view::EArrLitView arrlit{rhs_ref};
                 for (uint64_t ei = 0; ei < arrlit.count(); ++ei) {
@@ -2109,7 +2108,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // Also retype FloatLit tuple elements to concrete float annotation types.
         if (TypeRef(ann).kind() == LogosType::Kind::Tuple &&
             TypeRef(rhs_type).kind() == LogosType::Kind::Tuple) {
-            auto rhs_ref = expr_ref_of(*rhs);
+            auto rhs_ref = expr_ref_of(rhs);
             if (rhs_ref.kind() == lir_schema::expr::Code::TupleLit) {
                 lir_view::ETupleLitView tlit_view{rhs_ref};
                 const auto& tup_anns = TypeRef(ann).tuple_elems();
@@ -2130,9 +2129,9 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                         auto er = elem_er;
                         if (er.kind() == lir_schema::expr::Code::LitInt) {
                             double fval = static_cast<double>(lir_view::ELitIntView{er}.value());
-                            builder().set_tuple_elem(rhs, ei, builder().lit_float(fval, ann_e));
-                            // Re-fetch view since rhs's mirror_ptr_ is fresh.
-                            tlit_view = lir_view::ETupleLitView{expr_ref_of(*rhs)};
+                            rhs = builder().set_tuple_elem(rhs, ei, builder().lit_float(fval, ann_e));
+                            // Re-fetch view since rhs's mirror is fresh.
+                            tlit_view = lir_view::ETupleLitView{rhs};
                             continue;
                         }
                     }
@@ -2196,7 +2195,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (TypeRef(var_type).kind() == LogosType::Kind::IntLit) {
             // Default IntLit to i32; upgrade to i64 if the literal value overflows i32.
             var_type = i32_t();
-            auto er = expr_ref_of(*rhs);
+            auto er = expr_ref_of(rhs);
             if (er.kind() == lir_schema::expr::Code::LitInt) {
                 int64_t v = lir_view::ELitIntView{er}.value();
                 if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
@@ -2233,7 +2232,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     // container's element. So exclude Deref / IndexRead / MethodCall / etc.
     if (ann_is_box_dyn && !scope_.empty() && rhs) {
         using C = lir_schema::expr::Code;
-        auto rk = expr_ref_of(*rhs).kind();
+        auto rk = expr_ref_of(rhs).kind();
         bool owns = rk == C::Cast || rk == C::Call;
         if (owns) {
             auto sname = std::string(name);
@@ -2247,7 +2246,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     // nested FieldRead chains, recording dotted paths so make_drop_stmt
     // can suppress per-field auto-drop on the source struct.
     if (rhs && is_move_type(rhs_type))
-        mark_moved_expr(expr_ref_of(*rhs));
+        mark_moved_expr(expr_ref_of(rhs));
 
     lir::SLet slet;
     slet.name   = std::string(name);
@@ -2599,7 +2598,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
         TypeRef(var_type).kind() == LogosType::Kind::Enum &&
         !TypeRef(var_type).type_args().empty() &&
         TypeRef(var_type).enum_name() == TypeRef(expr_type(rhs)).enum_name()) {
-        auto rk = expr_ref_of(*rhs).kind();
+        auto rk = expr_ref_of(rhs).kind();
         bool is_enum_lit = rk == lir_schema::expr::Code::EnumLit ||
                            rk == lir_schema::expr::Code::EnumLitData;
         auto rhs_args = TypeRef(expr_type(rhs)).type_args();
@@ -2656,7 +2655,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     // Check array literal elements against narrow array variable type.
     if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::Array &&
         TypeRef(var_type).kind() == LogosType::Kind::Array && TypeRef(var_type).elem()) {
-        auto rhs_ref = expr_ref_of(*rhs);
+        auto rhs_ref = expr_ref_of(rhs);
         if (rhs_ref.kind() == lir_schema::expr::Code::ArrLit) {
             lir_view::EArrLitView al{rhs_ref};
             for (uint64_t i = 0; i < al.count(); ++i) {
@@ -2671,7 +2670,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     }
     // Check tuple literal elements against narrow tuple variable element types.
     if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::Tuple && TypeRef(var_type).kind() == LogosType::Kind::Tuple) {
-        auto rhs_ref = expr_ref_of(*rhs);
+        auto rhs_ref = expr_ref_of(rhs);
         if (rhs_ref.kind() == lir_schema::expr::Code::TupleLit) {
             lir_view::ETupleLitView tl{rhs_ref};
             uint64_t i = 0;
@@ -2848,7 +2847,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 check_variance(expr_type(val), ret_type_, "return type mismatch",
                                /*permissive=*/false);
                 // T1-12: dyn+auto bound at return coercion.
-                check_dyn_auto_bounds_at_coercion(*val, ret_type_);
+                check_dyn_auto_bounds_at_coercion(val, ret_type_);
                 if (is_move_type(ret_type_) && is_unowned_move_source(val))
                     error("cannot move out of a value behind a reference / out of an index (E0507)");
             }
@@ -2869,7 +2868,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             // Detect array literal elements that don't fit in the return element type.
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Array && TypeRef(ret_type_).elem() &&
                 TypeRef(expr_type(val)).kind() == LogosType::Kind::Array) {
-                auto vr = expr_ref_of(*val);
+                auto vr = expr_ref_of(val);
                 if (vr.kind() == lir_schema::expr::Code::ArrLit) {
                     lir_view::EArrLitView al{vr};
                     for (uint64_t i = 0; i < al.count(); ++i) {
@@ -2885,7 +2884,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             // Detect tuple literal elements that don't fit in the return tuple element types.
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Tuple &&
                 TypeRef(expr_type(val)).kind() == LogosType::Kind::Tuple) {
-                auto vr = expr_ref_of(*val);
+                auto vr = expr_ref_of(val);
                 if (vr.kind() == lir_schema::expr::Code::TupleLit) {
                     lir_view::ETupleLitView tl{vr};
                     uint64_t i = 0;
@@ -2977,7 +2976,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                     default: return;
                 }
             };
-            if (val) mark_moved_in_expr(expr_ref_of(*val));
+            if (val) mark_moved_in_expr(expr_ref_of(val));
             // If lowering the value hoisted statement-temporaries (a droppable
             // rvalue receiver `make().get()`), the temps must drop BEFORE the
             // return transfers control. lower_stmt emits drops AFTER the wrapped
@@ -6287,7 +6286,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
         }
     }
     if (var_t == i32_t()) {
-        auto intlit_overflows = [this](const lir::LExpr* e) {
+        auto intlit_overflows = [this](lir_view::ExprRef e) {
             if (auto v = get_intlit_value(e))
                 return !intlit_fits(*v, LogosType::Kind::I32);
             return false;
@@ -7325,7 +7324,7 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     // is an implicit deref: `*const` cannot be written and a `*mut` write
     // requires unsafe (matches the retired field_index_write diagnostics).
     {
-        auto pr = expr_ref_of(*place);
+        auto pr = expr_ref_of(place);
         if (pr.kind() == lir_schema::expr::Code::IndexRead) {
             lir_view::EIndexReadView irv{pr};
             TypeRef rtp = irv.receiver().type(cur_prog_->type_pool.impl());
@@ -7374,7 +7373,7 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     // array element type (generalizes the retired deref_field_write check).
     if (pt && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem() &&
         val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Array) {
-        auto vr = expr_ref_of(*val);
+        auto vr = expr_ref_of(val);
         if (vr.kind() == lir_schema::expr::Code::ArrLit) {
             lir_view::EArrLitView al{vr};
             for (uint64_t i = 0; i < al.count(); ++i) {
@@ -7391,7 +7390,7 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     // narrow tuple element type (generalizes the retired deref_field_write check).
     if (pt && TypeRef(pt).kind() == LogosType::Kind::Tuple &&
         val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Tuple) {
-        auto vr = expr_ref_of(*val);
+        auto vr = expr_ref_of(val);
         if (vr.kind() == lir_schema::expr::Code::TupleLit) {
             lir_view::ETupleLitView tl{vr};
             auto elems = TypeRef(pt).tuple_elems();
@@ -7583,20 +7582,20 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // moved-out payload (the issue-19367 double-free). A bare VarRef marks the
     // var. mark_moved_target dispatches to the right form.
     bool scrut_is_place = scrut &&
-        (expr_ref_of(*scrut).kind() == ec::Code::VarRef ||
-         expr_ref_of(*scrut).kind() == ec::Code::FieldRead ||
-         expr_ref_of(*scrut).kind() == ec::Code::TupleIndex);
+        (expr_ref_of(scrut).kind() == ec::Code::VarRef ||
+         expr_ref_of(scrut).kind() == ec::Code::FieldRead ||
+         expr_ref_of(scrut).kind() == ec::Code::TupleIndex);
     auto mark_moved_target = [&]() {
-        if (expr_ref_of(*scrut).kind() == ec::Code::VarRef)
-            mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(*scrut)}.name()));
+        if (expr_ref_of(scrut).kind() == ec::Code::VarRef)
+            mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name()));
         else
-            mark_moved_expr(expr_ref_of(*scrut));
+            mark_moved_expr(expr_ref_of(scrut));
     };
     if (scrut && scrut_type && is_move_type(scrut_type) &&
         scrut_is_place && node.has_key(la::ITEMS)) {
         std::string scrut_var =
-            expr_ref_of(*scrut).kind() == ec::Code::VarRef
-                ? std::string(lir_view::EVarRefView{expr_ref_of(*scrut)}.name())
+            expr_ref_of(scrut).kind() == ec::Code::VarRef
+                ? std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name())
                 : std::string("<place>");
         if (!scrut_var.empty()) {
             auto arms_mv = arr_of(node.get(la::ITEMS.code));
@@ -8029,7 +8028,7 @@ void SemaChecker::emit_nested_pat_destructure(
                 // moved so the owner's scope-exit Drop is suppressed (else
                 // double-free): top level is var_ref(synth payload) → the whole
                 // tuple; a nested level is tuple_index(parent, i) → one element.
-                if (is_move_type(tty)) mark_moved_expr(expr_ref_of(*src));
+                if (is_move_type(tty)) mark_moved_expr(expr_ref_of(src));
                 std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
                 define(stmp, tty);
                 {
@@ -8059,7 +8058,7 @@ void SemaChecker::emit_nested_pat_destructure(
                         define(nm, et);
                         // Binding moves the element OUT of stmp — mark stmp.<i>
                         // moved so stmp's scope-exit Drop skips it (else double).
-                        if (is_move_type(et)) mark_moved_expr(expr_ref_of(*elem_expr));
+                        if (is_move_type(et)) mark_moved_expr(expr_ref_of(elem_expr));
                         lir::SLet el; el.name = nm; el.type = et;
                         el.is_mut = false; el.value = std::move(elem_expr);
                         nested_destructure_stmts.push_back(
@@ -8204,7 +8203,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     lir::LStmt temp_scrut_let;
     if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
-        auto sk = expr_ref_of(*scrut).kind();
+        auto sk = expr_ref_of(scrut).kind();
         bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
                         sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
                         sk == ec::Code::IndexRead;
@@ -8873,7 +8872,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     lir::LStmt temp_scrut_let;
     if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
-        auto sk = expr_ref_of(*scrut).kind();
+        auto sk = expr_ref_of(scrut).kind();
         bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
                         sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
                         sk == ec::Code::IndexRead;
@@ -9523,7 +9522,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // Upgrade IntLit result to i64 if any arm literal overflows i32.
             if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
                 if (val) {
-                    auto er = expr_ref_of(*val);
+                    auto er = expr_ref_of(val);
                     // A divergent arm lowers to a BlockExpr with NO result
                     // (Never-typed `panic!`/`unreachable!` expansion, or a
                     // tail-`return` block) — `.result()` is null there.
@@ -9552,7 +9551,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
                 // Mark bindings consumed by val as moved before
                 // computing drops (matches lower_return semantics).
-                mark_moved_in_expr_recursive(expr_ref_of(*val));
+                mark_moved_in_expr_recursive(expr_ref_of(val));
                 auto arm_drops = collect_drops();
                 if (!arm_drops.empty()) {
                     TypeRef vt = expr_type(val);
