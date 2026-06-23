@@ -16,7 +16,7 @@ template <class EmitFn>
 inline lir::LExprPtr direct(lir::LProgram& prog, TypeRef ty, EmitFn&& emit) {
     auto* e = lir::alloc_expr(prog);
     e->type = ty;
-    e->mirror_offset_ = emit(prog, ty);
+    e->mirror_ptr_ = emit(prog, ty);
     lir_mirror_emit_expr_node(prog, *e);
     return e;
 }
@@ -198,9 +198,9 @@ lir::LExprPtr LirBuilder::closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty) {
 
 void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
                                   lir::LExpr* new_value) {
-    if (!prog_.mirror_table || tuple->mirror_offset_ == hermes::arena_offset_t{}) return;
+    if (!prog_.mirror_table || tuple->mirror_ptr_ == nullptr) return;
     auto& arena = prog_.type_pool.arena_or_init();
-    lir_view::ExprRef tref(&arena, tuple->mirror_offset_);
+    lir_view::ExprRef tref(&arena, tuple->mirror_ptr_);
     if (tref.kind() != lir_schema::expr::Code::TupleLit) return;
     lir_view::ETupleLitView v{tref};
     if (idx >= v.count()) return;
@@ -209,12 +209,12 @@ void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
     for (uint64_t i = 0; i < v.count(); ++i) {
         if (i == idx) { elems.push_back(new_value); continue; }
         auto er = v.elem(i);
-        auto it = prog_.mirror_table->expr_by_offset.find(er.offset().value());
-        elems.push_back(it != prog_.mirror_table->expr_by_offset.end()
+        auto it = prog_.mirror_table->expr_by_addr.find(er.addr());
+        elems.push_back(it != prog_.mirror_table->expr_by_addr.end()
                           ? const_cast<lir::LExpr*>(it->second)
                           : nullptr);
     }
-    tuple->mirror_offset_ = lir_mirror_emit_tuple_lit(prog_, tuple->type, elems);
+    tuple->mirror_ptr_ = lir_mirror_emit_tuple_lit(prog_, tuple->type, elems);
 }
 
 lir::LExprPtr LirBuilder::closure_call(lir::LExprPtr callee,
@@ -307,48 +307,48 @@ void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
     // Stage 2: variant-free leaf kinds have e->kind at default (ELitInt{0}),
     // so we can't reliably re-walk the variant. Update the TYPE field on the
     // existing mirror in-place; mirror is the truth.
-    lir_mirror_retype_expr(prog_, e->mirror_offset_, new_ty);
+    lir_mirror_retype_expr(prog_, e->mirror_ptr_, new_ty);
 }
 
 lir::LStmt LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_expr_stmt(prog_, line, expr);
+    s.mirror_ptr_ = lir_mirror_emit_expr_stmt(prog_, line, expr);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_break(lir::LExprPtr value, std::string label, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_break(prog_, line, value, label);
+    s.mirror_ptr_ = lir_mirror_emit_break(prog_, line, value, label);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_continue(std::string label, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_continue(prog_, line, label);
+    s.mirror_ptr_ = lir_mirror_emit_continue(prog_, line, label);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_return(lir::LExprPtr value, uint32_t line) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_return(prog_, line, value);
+    s.mirror_ptr_ = lir_mirror_emit_return(prog_, line, value);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_assign(prog_, line, name, value, drop_old);
+    s.mirror_ptr_ = lir_mirror_emit_assign(prog_, line, name, value, drop_old);
     return s;
 }
 
 lir::LStmt LirBuilder::stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line, bool drop_old) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_deref_write(prog_, line, ptr, value, drop_old);
+    s.mirror_ptr_ = lir_mirror_emit_deref_write(prog_, line, ptr, value, drop_old);
     return s;
 }
 

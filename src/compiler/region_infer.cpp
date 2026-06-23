@@ -202,14 +202,14 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
         walk_stmt(s, cur, local_idx, prog);
 
         // Detect branching / loop statements that need sub-blocks.
-        if (s.mirror_offset_ == hermes::arena_offset_t{}) continue;
-        StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
+        if (s.mirror_ptr_ == nullptr) continue;
+        StmtRef sr(prog.type_pool.arena(), s.mirror_ptr_);
         if (!sr) continue;
 
         auto block_ptr_of = [&](BlockRef br) -> const lir::LBlock* {
             if (!br) return nullptr;
-            auto& m = prog.mirror_table->block_by_offset;
-            auto it = m.find(br.offset().value());
+            auto& m = prog.mirror_table->block_by_addr;
+            auto it = m.find(br.addr());
             return it == m.end() ? nullptr : it->second;
         };
 
@@ -324,8 +324,8 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     using namespace lir_view;
     using ECode = lir_schema::expr::Code;
     using SCode = lir_schema::stmt::Code;
-    if (s.mirror_offset_ == hermes::arena_offset_t{}) return;
-    StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
+    if (s.mirror_ptr_ == nullptr) return;
+    StmtRef sr(prog.type_pool.arena(), s.mirror_ptr_);
     if (!sr) return;
     StmtPoint origin{blk_id, idx};
     const auto* pool = prog.type_pool.impl();
@@ -585,8 +585,8 @@ void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
     using ECode = lir_schema::expr::Code;
     using SCode = lir_schema::stmt::Code;
     (void)blk_id; (void)idx;
-    if (s.mirror_offset_ == hermes::arena_offset_t{}) return;
-    StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
+    if (s.mirror_ptr_ == nullptr) return;
+    StmtRef sr(prog.type_pool.arena(), s.mirror_ptr_);
     if (!sr) return;
 
     // Recursive expression walker that records every VarRef / AddrOf

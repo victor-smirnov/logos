@@ -138,43 +138,43 @@ protected:
         return lir_view::PatRef(effective_src_arena(), it->second);
     }
     lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::ExprRef(effective_src_arena(), e.mirror_offset_);
+        if (e.mirror_ptr_ == nullptr) return {};
+        return lir_view::ExprRef(effective_src_arena(), e.mirror_ptr_);
     }
     lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
-        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::StmtRef(effective_src_arena(), s.mirror_offset_);
+        if (s.mirror_ptr_ == nullptr) return {};
+        return lir_view::StmtRef(effective_src_arena(), s.mirror_ptr_);
     }
     lir_view::BlockRef block_ref_of(const lir::LBlock& b) const noexcept {
-        if (b.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::BlockRef(effective_src_arena(), b.mirror_offset_);
+        if (b.mirror_ptr_ == nullptr) return {};
+        return lir_view::BlockRef(effective_src_arena(), b.mirror_ptr_);
     }
     lir_view::HermesValRef hv_ref_of(const lir::HermesVal& v) const noexcept {
-        if (v.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::HermesValRef(effective_src_arena(), v.mirror_offset_);
+        if (v.mirror_ptr_ == nullptr) return {};
+        return lir_view::HermesValRef(effective_src_arena(), v.mirror_ptr_);
     }
     // Reverse maps: ref → variant pointer. Used by subst_* to look up the
     // input variant whose kind is being substituted while reading sub-refs
     // through views. The input mirror_table lives on `in_`.
     const lir::LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
         if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->expr_by_offset.find(uint32_t(r.offset()));
-        return it == in_.mirror_table->expr_by_offset.end() ? nullptr : it->second;
+        auto it = in_.mirror_table->expr_by_addr.find(r.addr());
+        return it == in_.mirror_table->expr_by_addr.end() ? nullptr : it->second;
     }
     const lir::LStmt* lstmt_of(lir_view::StmtRef r) const noexcept {
         if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->stmt_by_offset.find(uint32_t(r.offset()));
-        return it == in_.mirror_table->stmt_by_offset.end() ? nullptr : it->second;
+        auto it = in_.mirror_table->stmt_by_addr.find(r.addr());
+        return it == in_.mirror_table->stmt_by_addr.end() ? nullptr : it->second;
     }
     const lir::LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
         if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->block_by_offset.find(uint32_t(r.offset()));
-        return it == in_.mirror_table->block_by_offset.end() ? nullptr : it->second;
+        auto it = in_.mirror_table->block_by_addr.find(r.addr());
+        return it == in_.mirror_table->block_by_addr.end() ? nullptr : it->second;
     }
     const lir::HermesVal* hermes_val_of(lir_view::HermesValRef r) const noexcept {
         if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->hermes_val_by_offset.find(uint32_t(r.offset()));
-        return it == in_.mirror_table->hermes_val_by_offset.end() ? nullptr : it->second;
+        auto it = in_.mirror_table->hermes_val_by_addr.find(r.addr());
+        return it == in_.mirror_table->hermes_val_by_addr.end() ? nullptr : it->second;
     }
 private:
 
@@ -860,7 +860,7 @@ private:
     // body walk). The result is suitable for mlir_gen's forward_declare —
     // mlir_gen skips body emission for binary_symbols fns anyway. Caller
     // must NOT call lir_mirror_emit_function / scan_fn on the result;
-    // body.mirror_offset_ stays default, and scan_fn early-returns on that.
+    // body.mirror_ptr_ stays default, and scan_fn early-returns on that.
     lir::LFunction clone_fn_signature(const lir::LFunction& fn, const SubstMap& s,
                                        const PackMap& packs = {});
 

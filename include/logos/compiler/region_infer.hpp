@@ -115,7 +115,7 @@ public:
     // Run the analysis pass over `fn`. Populates `cfg_`, `borrows_`,
     // and `constraints_`. `prog` supplies the type-pool arena needed
     // to materialize lir_view::{ExprRef, StmtRef} from each LStmt's
-    // and LExpr's `mirror_offset_`.
+    // and LExpr's `mirror_ptr_`.
     void analyze(const lir::LFunction& fn, const lir::LProgram& prog);
 
     // Dump everything to stderr in a stable, grep-friendly format.

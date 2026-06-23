@@ -458,24 +458,24 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto liv = lir_view::ELitIntView{eref};
             int64_t lo = liv.value();
             int64_t hi = liv.value_hi();
-            result->mirror_offset_ = (hi != 0)
+            result->mirror_ptr_ = (hi != 0)
                 ? lir_mirror_emit_lit_int_128(out_, result->type, (uint64_t)lo, (uint64_t)hi)
                 : lir_mirror_emit_lit_int(out_, result->type, lo);
             break;
         }
         case C::LitFloat:
-            result->mirror_offset_ = lir_mirror_emit_lit_float(
+            result->mirror_ptr_ = lir_mirror_emit_lit_float(
                 out_, result->type, lir_view::ELitFloatView{eref}.value());
             break;
         case C::LitBool:
-            result->mirror_offset_ = lir_mirror_emit_lit_bool(
+            result->mirror_ptr_ = lir_mirror_emit_lit_bool(
                 out_, result->type, lir_view::ELitBoolView{eref}.value());
             break;
         case C::LitStr: {
             // Copy to std::string: lir_mirror_emit_* may grow the arena,
             // which invalidates string_view pointers into it.
             std::string v(lir_view::ELitStrView{eref}.value());
-            result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, v);
+            result->mirror_ptr_ = lir_mirror_emit_lit_str(out_, result->type, v);
             break;
         }
         case C::VarRef: {
@@ -505,7 +505,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         } else {
                             // Deep-clone the registered literal at this site.
                             // subst_expr returns a freshly-pooled LExpr in out_;
-                            // splice its mirror_offset_ + type into `result` so
+                            // splice its mirror_ptr_ + type into `result` so
                             // the surrounding clone-loop sees a well-formed node.
                             //
                             // hstatic_registry_ lives on out_, so we must
@@ -517,10 +517,10 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             SubstMap empty;
                             lir_view::ExprRef src_eref(
                                 out_.type_pool.arena(),
-                                rit->second->mirror_offset_);
+                                rit->second->mirror_ptr_);
                             auto cloned = subst_expr(src_eref, empty);
                             if (cloned) {
-                                result->mirror_offset_ = cloned->mirror_offset_;
+                                result->mirror_ptr_ = cloned->mirror_ptr_;
                                 result->type           = cloned->type;
                                 break;
                             }
@@ -528,7 +528,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                     if (sit->second.const_val()) {
                         int64_t v = *sit->second.const_val();
-                        result->mirror_offset_ = lir_mirror_emit_lit_int(
+                        result->mirror_ptr_ = lir_mirror_emit_lit_int(
                             out_, result->type, v);
                         break;
                     }
@@ -541,7 +541,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (auto cit = current_const_args_.find(n);
                     cit != current_const_args_.end()) {
                     const ConstArgVal& cv = cit->second;
-                    result->mirror_offset_ = cv.is_enum
+                    result->mirror_ptr_ = cv.is_enum
                         ? lir_mirror_emit_enum_lit(out_, result->type,
                               cv.enum_name, cv.variant, cv.ival)
                         : lir_mirror_emit_lit_int(out_, result->type, cv.ival);
@@ -550,29 +550,29 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             }
             // Phase-1: carry the var slot across monomorphization (else
             // post-mono borrow/mlir lose it and fall back to name-keying).
-            result->mirror_offset_ = lir_mirror_emit_var_ref(
+            result->mirror_ptr_ = lir_mirror_emit_var_ref(
                 out_, result->type, n, lir_view::EVarRefView{eref}.var_slot());
             break;
         }
         case C::AddrOf: {
             std::string n(lir_view::EAddrOfView{eref}.var_name());
-            result->mirror_offset_ = lir_mirror_emit_addr_of(out_, result->type, n);
+            result->mirror_ptr_ = lir_mirror_emit_addr_of(out_, result->type, n);
             break;
         }
         case C::PackExpand: {
             std::string n(lir_view::EPackExpandView{eref}.var_name());
-            result->mirror_offset_ = lir_mirror_emit_pack_expand(out_, result->type, n);
+            result->mirror_ptr_ = lir_mirror_emit_pack_expand(out_, result->type, n);
             break;
         }
         case C::SizeOf: {
             auto t = lir_view::ESizeOfView{eref}.elem_type(out_.type_pool.impl());
-            result->mirror_offset_ = lir_mirror_emit_size_of(
+            result->mirror_ptr_ = lir_mirror_emit_size_of(
                 out_, result->type, subst_type(t, s));
             break;
         }
         case C::AlignOf: {
             auto t = lir_view::EAlignOfView{eref}.elem_type(out_.type_pool.impl());
-            result->mirror_offset_ = lir_mirror_emit_align_of(
+            result->mirror_ptr_ = lir_mirror_emit_align_of(
                 out_, result->type, subst_type(t, s));
             break;
         }
@@ -590,13 +590,13 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string mangled = mangle(base, sargs);
             // Enqueue the instantiation if not already scheduled.
             enqueue_if_needed(mangled, sargs);
-            result->mirror_offset_ = lir_mirror_emit_var_ref(
+            result->mirror_ptr_ = lir_mirror_emit_var_ref(
                 out_, result->type, mangled);
             break;
         }
         case C::Deref: {
             auto op = subst_child_expr(lir_view::EDerefView{eref}.operand());
-            result->mirror_offset_ = lir_mirror_emit_deref(
+            result->mirror_ptr_ = lir_mirror_emit_deref(
                 out_, result->type, op);
             break;
         }
@@ -628,9 +628,9 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     TypeRef u8p = mk_ptr(u8t);
                     LogosTypeBuilder i64b; i64b.kind = LogosType::Kind::I64;
                     TypeRef i64t = out_.type_pool.alloc(std::move(i64b));
-                    auto mk_node = [&](TypeRef ty, hermes::arena_offset_t mo) {
+                    auto mk_node = [&](TypeRef ty, const uint8_t* mo) {
                         auto* e = lir::alloc_expr(out_);
-                        e->type = ty; e->mirror_offset_ = mo; return e;
+                        e->type = ty; e->mirror_ptr_ = mo; return e;
                     };
                     // data half (field 0) + tail/field pointer = data + off.
                     auto data = mk_node(u8p, lir_mirror_emit_slice_ptr(out_, u8p, rcv));
@@ -658,7 +658,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         TypeRef to_t = out_.type_pool.alloc(std::move(tb));
                         auto vtbl = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
                         result->type = to_t;
-                        result->mirror_offset_ =
+                        result->mirror_ptr_ =
                             lir_mirror_emit_slice_lit(out_, to_t, fpu8, vtbl);
                         break;
                     }
@@ -671,7 +671,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             lir_mirror_emit_cast(out_, mk_ptr(elem), fpu8, ""));
                         auto len = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
                         result->type = sl_t;
-                        result->mirror_offset_ =
+                        result->mirror_ptr_ =
                             lir_mirror_emit_slice_lit(out_, sl_t, fpe, len);
                         break;
                     }
@@ -679,11 +679,11 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto fpft = mk_node(mk_ptr(ftype),
                         lir_mirror_emit_cast(out_, mk_ptr(ftype), fpu8, ""));
                     result->type = ftype;
-                    result->mirror_offset_ = lir_mirror_emit_deref(out_, ftype, fpft);
+                    result->mirror_ptr_ = lir_mirror_emit_deref(out_, ftype, fpft);
                     break;
                 }
             }
-            result->mirror_offset_ = lir_mirror_emit_field_read(
+            result->mirror_ptr_ = lir_mirror_emit_field_read(
                 out_, result->type, rcv, field);
             break;
         }
@@ -691,7 +691,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::ETupleIndexView v{eref};
             uint32_t idx = v.index();
             auto rcv = subst_child_expr(v.receiver());
-            result->mirror_offset_ = lir_mirror_emit_tuple_index(
+            result->mirror_ptr_ = lir_mirror_emit_tuple_index(
                 out_, result->type, rcv, idx);
             break;
         }
@@ -699,7 +699,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::EIndexReadView v{eref};
             auto rcv = subst_child_expr(v.receiver());
             auto idx = subst_child_expr(v.index());
-            result->mirror_offset_ = lir_mirror_emit_index_read(
+            result->mirror_ptr_ = lir_mirror_emit_index_read(
                 out_, result->type, rcv, idx);
             break;
         }
@@ -707,7 +707,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::ECastView v{eref};
             std::string hbf(v.hermes_build_fn());
             auto op = subst_child_expr(v.operand());
-            result->mirror_offset_ = lir_mirror_emit_cast(
+            result->mirror_ptr_ = lir_mirror_emit_cast(
                 out_, result->type, op, hbf);
             break;
         }
@@ -716,7 +716,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             int32_t ok_disc  = v.ok_disc();
             int32_t err_disc = v.err_disc();
             auto inner = subst_child_expr(v.inner());
-            result->mirror_offset_ = lir_mirror_emit_try(
+            result->mirror_ptr_ = lir_mirror_emit_try(
                 out_, result->type, inner, ok_disc, err_disc);
             break;
         }
@@ -724,7 +724,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::ESliceLitView v{eref};
             auto base = subst_child_expr(v.base());
             auto len  = subst_child_expr(v.len());
-            result->mirror_offset_ = lir_mirror_emit_slice_lit(
+            result->mirror_ptr_ = lir_mirror_emit_slice_lit(
                 out_, result->type, base, len);
             break;
         }
@@ -732,18 +732,18 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::ESliceIndexView v{eref};
             auto slice = subst_child_expr(v.slice());
             auto idx   = subst_child_expr(v.index());
-            result->mirror_offset_ = lir_mirror_emit_slice_index(
+            result->mirror_ptr_ = lir_mirror_emit_slice_index(
                 out_, result->type, slice, idx);
             break;
         }
         case C::SliceLen: {
             auto sl = subst_child_expr(lir_view::ESliceLenView{eref}.slice());
-            result->mirror_offset_ = lir_mirror_emit_slice_len(out_, result->type, sl);
+            result->mirror_ptr_ = lir_mirror_emit_slice_len(out_, result->type, sl);
             break;
         }
         case C::SlicePtr: {
             auto sl = subst_child_expr(lir_view::ESlicePtrView{eref}.slice());
-            result->mirror_offset_ = lir_mirror_emit_slice_ptr(out_, result->type, sl);
+            result->mirror_ptr_ = lir_mirror_emit_slice_ptr(out_, result->type, sl);
             break;
         }
         case C::IfExpr: {
@@ -751,7 +751,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto cond = subst_child_expr(v.cond());
             auto thn  = subst_child_expr(v.then_val());
             auto els  = subst_child_expr(v.else_val());
-            result->mirror_offset_ = lir_mirror_emit_if_expr(
+            result->mirror_ptr_ = lir_mirror_emit_if_expr(
                 out_, result->type, cond, thn, els);
             break;
         }
@@ -759,7 +759,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::vector<lir::LExprPtr> elems;
             lir_view::ETupleLitView{eref}.each_elem(
                 [&](lir_view::ExprRef er) { elems.push_back(subst_child_expr(er)); });
-            result->mirror_offset_ = lir_mirror_emit_tuple_lit(
+            result->mirror_ptr_ = lir_mirror_emit_tuple_lit(
                 out_, result->type, elems);
             break;
         }
@@ -813,7 +813,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 while (elems.size() < target)
                     elems.push_back(subst_child_expr(fill_src));
             }
-            result->mirror_offset_ = lir_mirror_emit_arr_lit(
+            result->mirror_ptr_ = lir_mirror_emit_arr_lit(
                 out_, result->type, elems);
             break;
         }
@@ -832,7 +832,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             TypeRef ct = callee ? TypeRef(callee->type) : TypeRef{};
             auto k = ct ? ct.kind() : LogosType::Kind::Error;
             if (LogosType::is_fn_value_kind(k)) {
-                result->mirror_offset_ = lir_mirror_emit_fn_ptr_call(
+                result->mirror_ptr_ = lir_mirror_emit_fn_ptr_call(
                     out_, result->type, callee, args);
             } else if (k == LogosType::Kind::Struct ||
                        k == LogosType::Kind::ZonedStruct) {
@@ -899,10 +899,10 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 std::vector<lir::LExprPtr> call_args;
                 call_args.push_back(std::move(callee));
                 for (auto& a : args) call_args.push_back(std::move(a));
-                result->mirror_offset_ = lir_mirror_emit_call(
+                result->mirror_ptr_ = lir_mirror_emit_call(
                     out_, result->type, callee_name, {}, call_args);
             } else {
-                result->mirror_offset_ = lir_mirror_emit_closure_call(
+                result->mirror_ptr_ = lir_mirror_emit_closure_call(
                     out_, result->type, callee, args);
             }
             break;
@@ -912,7 +912,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto callee = subst_child_expr(v.callee());
             std::vector<lir::LExprPtr> args;
             v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
-            result->mirror_offset_ = lir_mirror_emit_fn_ptr_call(
+            result->mirror_ptr_ = lir_mirror_emit_fn_ptr_call(
                 out_, result->type, callee, args);
             break;
         }
@@ -922,7 +922,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto arg_types = v.arg_types(out_.type_pool.impl());
             std::vector<lir::LExprPtr> args;
             v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
-            result->mirror_offset_ = lir_mirror_emit_format_call(
+            result->mirror_ptr_ = lir_mirror_emit_format_call(
                 out_, result->type, fmt, args, arg_types);
             break;
         }
@@ -931,7 +931,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             uint8_t op = v.op_code();
             auto ptr = subst_child_expr(v.ptr());
             auto off = subst_child_expr(v.offset());
-            result->mirror_offset_ = lir_mirror_emit_ptr_arith(
+            result->mirror_ptr_ = lir_mirror_emit_ptr_arith(
                 out_, result->type, op, ptr, off);
             break;
         }
@@ -940,7 +940,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             bool by_byte = v.by_byte();
             auto lhs = subst_child_expr(v.lhs());
             auto rhs = subst_child_expr(v.rhs());
-            result->mirror_offset_ = lir_mirror_emit_ptr_diff(
+            result->mirror_ptr_ = lir_mirror_emit_ptr_diff(
                 out_, result->type, by_byte, lhs, rhs);
             break;
         }
@@ -954,14 +954,14 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             }
             if (auto rr = v.result(); rr)
                 nb_result = subst_child_expr(rr);
-            result->mirror_offset_ = lir_mirror_emit_block_expr(
+            result->mirror_ptr_ = lir_mirror_emit_block_expr(
                 out_, result->type, nb_block, nb_result);
             break;
         }
         case C::ReflectOf: {
             auto resolved = subst_type(
                 lir_view::EReflectOfView{eref}.type(out_.type_pool.impl()), s);
-            result->mirror_offset_ = lir_mirror_emit_reflect_of(
+            result->mirror_ptr_ = lir_mirror_emit_reflect_of(
                 out_, result->type, resolved);
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
                 TypeRef(resolved).type_args().empty()) {
@@ -986,12 +986,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string pkg{vt.pkg_name()};
                     std::string callee = pkg.empty() ? bare : pkg + "." + bare;
                     std::vector<lir::LExprPtr> args; args.push_back(std::move(new_op));
-                    result->mirror_offset_ = lir_mirror_emit_call(
+                    result->mirror_ptr_ = lir_mirror_emit_call(
                         out_, result->type, callee, {}, args);
                     break;
                 }
             }
-            result->mirror_offset_ = lir_mirror_emit_unary(
+            result->mirror_ptr_ = lir_mirror_emit_unary(
                 out_, result->type, op, new_op);
             break;
         }
@@ -1021,12 +1021,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::vector<lir::LExprPtr> args;
                     args.push_back(std::move(new_lhs));
                     args.push_back(std::move(new_rhs));
-                    result->mirror_offset_ = lir_mirror_emit_call(
+                    result->mirror_ptr_ = lir_mirror_emit_call(
                         out_, result->type, callee, {}, args);
                     break;
                 }
             }
-            result->mirror_offset_ = lir_mirror_emit_bin_op(
+            result->mirror_ptr_ = lir_mirror_emit_bin_op(
                 out_, result->type, op, new_lhs, new_rhs);
             break;
         }
@@ -1034,7 +1034,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::EAddrOfTempView v{eref};
             bool is_mut = v.is_mut();
             auto inner = subst_child_expr(v.inner());
-            result->mirror_offset_ = lir_mirror_emit_addr_of_temp(
+            result->mirror_ptr_ = lir_mirror_emit_addr_of_temp(
                 out_, result->type, inner, is_mut);
             break;
         }
@@ -1051,7 +1051,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 enum_name = std::move(cname);
                 record_needed_enum(result->type);
             }
-            result->mirror_offset_ = lir_mirror_emit_enum_lit(
+            result->mirror_ptr_ = lir_mirror_emit_enum_lit(
                 out_, result->type, enum_name, variant, disc);
             break;
         }
@@ -1074,7 +1074,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             v.each_payload([&](lir_view::ExprRef er) {
                 payload.push_back(subst_child_expr(er));
             });
-            result->mirror_offset_ = lir_mirror_emit_enum_lit_data(
+            result->mirror_ptr_ = lir_mirror_emit_enum_lit_data(
                 out_, result->type, enum_name, variant, disc, payload);
             break;
         }
@@ -1093,7 +1093,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 fields.push_back({std::string(fname), subst_child_expr(er)});
             });
             record_needed_struct(result->type);
-            result->mirror_offset_ = lir_mirror_emit_struct_lit(
+            result->mirror_ptr_ = lir_mirror_emit_struct_lit(
                 out_, result->type, name, fields);
             break;
         }
@@ -1112,7 +1112,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 na.value = subst_child_expr(arm.value());
                 arms.push_back(std::move(na));
             });
-            result->mirror_offset_ = lir_mirror_emit_match_expr(
+            result->mirror_ptr_ = lir_mirror_emit_match_expr(
                 out_, result->type, scrut, arms);
             break;
         }
@@ -1129,7 +1129,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             };
             walk(resolved);
             if (has_tv || !resolved) {
-                result->mirror_offset_ = lir_mirror_emit_type_code_of(
+                result->mirror_ptr_ = lir_mirror_emit_type_code_of(
                     out_, result->type, resolved);
             } else {
                 uint64_t code = 0;
@@ -1151,7 +1151,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     uint64_t raw = type_hash_56bit(hash);
                     code = (raw < 128) ? (raw + 128) : raw;
                 }
-                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(
                     out_, result->type, (int64_t)code);
             }
             break;
@@ -1169,34 +1169,34 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 switch (vref.kind()) {
                 case hvc::Code::Null:
-                    out->mirror_offset_ = lir_mirror_emit_hv_null(out_);
+                    out->mirror_ptr_ = lir_mirror_emit_hv_null(out_);
                     break;
                 case hvc::Code::Bool:
-                    out->mirror_offset_ = lir_mirror_emit_hv_bool(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_bool(
                         out_, lir_view::HVBoolView{vref}.value());
                     break;
                 case hvc::Code::Int:
-                    out->mirror_offset_ = lir_mirror_emit_hv_int(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_int(
                         out_, lir_view::HVIntView{vref}.value());
                     break;
                 case hvc::Code::Float:
-                    out->mirror_offset_ = lir_mirror_emit_hv_float(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_float(
                         out_, lir_view::HVFloatView{vref}.value());
                     break;
                 case hvc::Code::Str: {
                     std::string s(lir_view::HVStrView{vref}.value());
-                    out->mirror_offset_ = lir_mirror_emit_hv_str(out_, s);
+                    out->mirror_ptr_ = lir_mirror_emit_hv_str(out_, s);
                     break;
                 }
                 case hvc::Code::Capture: {
                     lir_view::HVCaptureView cv{vref};
-                    out->mirror_offset_ = lir_mirror_emit_hv_capture(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_capture(
                         out_, cv.param_index(), cv.value_index());
                     break;
                 }
                 case hvc::Code::Type: {
                     lir_view::HVTypeView tv{vref};
-                    out->mirror_offset_ = lir_mirror_emit_hv_type(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_type(
                         out_, tv.kind(), tv.uid(), std::string(tv.name()));
                     break;
                 }
@@ -1213,7 +1213,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         ent.val = clone_hv(mv.value(i));
                         entries.push_back(std::move(ent));
                     }
-                    out->mirror_offset_ = lir_mirror_emit_hv_map(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_map(
                         out_, entries, key_type);
                     break;
                 }
@@ -1224,7 +1224,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     elements.reserve(av.size());
                     for (uint64_t i = 0; i < av.size(); ++i)
                         elements.push_back(clone_hv(av.elem(i)));
-                    out->mirror_offset_ = lir_mirror_emit_hv_array(
+                    out->mirror_ptr_ = lir_mirror_emit_hv_array(
                         out_, elements, elem_type);
                     break;
                 }
@@ -1247,7 +1247,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // out_), and growth invalidates the source-side string_view.
             // Same pattern used at line 908 for HVStrView.
             std::string static_blob_copy(v.static_blob());
-            result->mirror_offset_ = lir_mirror_emit_hermes_lit(
+            result->mirror_ptr_ = lir_mirror_emit_hermes_lit(
                 out_, result->type, root, has_captures,
                 capture_exprs, capture_types, capture_param_count,
                 static_blob_copy);
@@ -1384,7 +1384,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // nc.type_args holds the concrete pack types — emit their count.
             if (nc.callee == "__sizeof_pack__") {
                 int64_t n = (int64_t)nc.type_args.size();
-                result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, n);
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(out_, result->type, n);
                 break;
             }
             // type_of::<T>() intrinsic: sema lowered to magic call with T in
@@ -1393,7 +1393,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (nc.callee == "__type_kind_of__") {
                 int64_t k = nc.type_args.empty() ? 0
                           : (int64_t)nc.type_args[0].kind();
-                result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, k);
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(out_, result->type, k);
                 break;
             }
             // hstatic_hash_of::<CFG>() — byte-hash identity of CFG as u64.
@@ -1403,7 +1403,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 int64_t v = (nc.type_args.empty() || !nc.type_args[0])
                           ? 0
                           : (int64_t)(uint64_t)nc.type_args[0].const_val().value_or(0);
-                result->mirror_offset_ = lir_mirror_emit_lit_int(out_, result->type, v);
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(out_, result->type, v);
                 break;
             }
             // type_hash::<T>() — structural FNV-1a-64 hash of T.
@@ -1414,7 +1414,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 uint64_t h = (nc.type_args.empty())
                            ? 0
                            : compute_type_hash(nc.type_args[0], seen);
-                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(
                     out_, result->type, (int64_t)h);
                 break;
             }
@@ -1423,7 +1423,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (nc.callee == "__type_name_of__") {
                 std::string s = nc.type_args.empty() ? std::string()
                               : type_str(nc.type_args[0]);
-                result->mirror_offset_ = lir_mirror_emit_lit_str(out_, result->type, s);
+                result->mirror_ptr_ = lir_mirror_emit_lit_str(out_, result->type, s);
                 break;
             }
             // type_of::<T>().uid — TypeUID = first 8 bytes of
@@ -1436,7 +1436,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     uid = type_hash_64bit(type_hash_23(type_id_canon(nc.type_args[0])));
                     uid_to_type_[uid] = nc.type_args[0];
                 }
-                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(
                     out_, result->type, (int64_t)uid);
                 break;
             }
@@ -1446,7 +1446,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 uint64_t uid_hi = 0;
                 if (!nc.type_args.empty() && nc.type_args[0])
                     uid_hi = type_hash_hi64(type_hash_23(type_id_canon(nc.type_args[0])));
-                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                result->mirror_ptr_ = lir_mirror_emit_lit_int(
                     out_, result->type, (int64_t)uid_hi);
                 break;
             }
@@ -1455,7 +1455,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             {
                 using K = LogosType::Kind;
                 auto bool_of = [&](bool r) {
-                    result->mirror_offset_ =
+                    result->mirror_ptr_ =
                         lir_mirror_emit_lit_bool(out_, result->type, r);
                 };
                 if (nc.callee == "__is_same__") {
@@ -1509,7 +1509,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 result->type = i64_t;
-                result->mirror_offset_ = lit->mirror_offset_;
+                result->mirror_ptr_ = lit->mirror_ptr_;
                 break;
             }
             // has_trait::<T, Trait>() — bool. Recursive lookup against
@@ -1549,7 +1549,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
                 result->type = bool_t;
-                result->mirror_offset_ =
+                result->mirror_ptr_ =
                     lir_mirror_emit_lit_bool(out_, bool_t, answer);
                 break;
             }
@@ -1618,7 +1618,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
                 result->type = bool_t;
-                result->mirror_offset_ =
+                result->mirror_ptr_ =
                     lir_mirror_emit_lit_bool(out_, bool_t, answer);
                 break;
             }
@@ -1634,7 +1634,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 result->type = i64_t;
-                result->mirror_offset_ = lit->mirror_offset_;
+                result->mirror_ptr_ = lit->mirror_ptr_;
                 break;
             }
             // typelist_head::<L>() / typelist_nth::<L>(i) — emit a single
@@ -1697,7 +1697,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
-                result->mirror_offset_ = sl->mirror_offset_;
+                result->mirror_ptr_ = sl->mirror_ptr_;
                 break;
             }
             // reify_type(t: Type) -> Type — recover source TypeRef from
@@ -1801,7 +1801,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
-                result->mirror_offset_ = sl->mirror_offset_;
+                result->mirror_ptr_ = sl->mirror_ptr_;
                 break;
             }
             // apply(name: &[u8], args: [Type; N]) -> Type — instantiate a
@@ -1932,7 +1932,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto sl = b.struct_lit("Type",
                                                std::move(f), type_t);
                         result->type = type_t;
-                        result->mirror_offset_ = sl->mirror_offset_;
+                        result->mirror_ptr_ = sl->mirror_ptr_;
                         break;
                     }
                 }
@@ -2050,7 +2050,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
-                result->mirror_offset_ = sl->mirror_offset_;
+                result->mirror_ptr_ = sl->mirror_ptr_;
                 break;
             }
             // __apply_generic__(g: Type, args: [Type; N]) — instantiate
@@ -2206,7 +2206,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
-                result->mirror_offset_ = sl->mirror_offset_;
+                result->mirror_ptr_ = sl->mirror_ptr_;
                 break;
             }
             // __tuple_type_apply__([Type; N]) and __array_type_apply__(Type, N) —
@@ -2355,7 +2355,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
                 result->type = type_t;
-                result->mirror_offset_ = sl->mirror_offset_;
+                result->mirror_ptr_ = sl->mirror_ptr_;
                 break;
             }
             // variant_count_of::<E>() / variant_names_of::<E>() /
@@ -2383,7 +2383,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                     auto lit = b.lit_int(n, i64_t);
                     result->type = i64_t;
-                    result->mirror_offset_ = lit->mirror_offset_;
+                    result->mirror_ptr_ = lit->mirror_ptr_;
                     break;
                 }
                 TypeRef elem_t = result->type ? result->type.elem() : nullptr;
@@ -2440,7 +2440,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 ab.arr_size = (int64_t)elems.size();
                 TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
                 result->type = new_arr_t;
-                result->mirror_offset_ =
+                result->mirror_ptr_ =
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
@@ -2466,7 +2466,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     sub_args.size() < 2) {
                     auto lit = lb.lit_bool(true, bool_t);
                     result->type = bool_t;
-                    result->mirror_offset_ = lit->mirror_offset_;
+                    result->mirror_ptr_ = lit->mirror_ptr_;
                     break;
                 }
                 // Recursive chain builder: handles nested tuple elements
@@ -2548,7 +2548,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 };
                 auto chain = build_chain(T, sub_args[0], sub_args[1]);
                 result->type = bool_t;
-                result->mirror_offset_ = chain->mirror_offset_;
+                result->mirror_ptr_ = chain->mirror_ptr_;
                 break;
             }
             // __tuple_each_field_debug__::<T>(self, f) — expand the variadic
@@ -2597,7 +2597,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto cl = lb.call(close_sym, {},
                         { sub_args.empty() ? nullptr : sub_args.back() }, res_t);
                     result->type = res_t;
-                    result->mirror_offset_ = cl->mirror_offset_;
+                    result->mirror_ptr_ = cl->mirror_ptr_;
                     break;
                 }
                 auto self_r = sub_args[0];
@@ -2646,7 +2646,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 };
                 auto chain = build(T, self_r);
                 result->type = res_t;
-                result->mirror_offset_ = chain->mirror_offset_;
+                result->mirror_ptr_ = chain->mirror_ptr_;
                 break;
             }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
@@ -2662,7 +2662,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 result->type = i64_t;
-                result->mirror_offset_ = lit->mirror_offset_;
+                result->mirror_ptr_ = lit->mirror_ptr_;
                 break;
             }
             // field_count_of::<T>() — emit lit_int N for struct T (0 for
@@ -2693,7 +2693,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
                 result->type = i64_t;
-                result->mirror_offset_ = lit->mirror_offset_;
+                result->mirror_ptr_ = lit->mirror_ptr_;
                 break;
             }
             // field_names_of::<T>() — emit [&[u8]; N] of struct field names.
@@ -2730,7 +2730,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 ab.arr_size = (int64_t)field_names.size();
                 TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
                 result->type = new_arr_t;
-                result->mirror_offset_ =
+                result->mirror_ptr_ =
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
@@ -2830,7 +2830,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 ab.arr_size = (int64_t)elem_types.size();
                 TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
                 result->type = new_arr_t;
-                result->mirror_offset_ =
+                result->mirror_ptr_ =
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
@@ -3414,7 +3414,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // T2-24 (B): redirect to a const-arg specialization when the
             // callee's const-want params got compile-time literals here.
             maybe_const_specialize(nc);
-            result->mirror_offset_ = lir_mirror_emit_call(
+            result->mirror_ptr_ = lir_mirror_emit_call(
                 out_, result->type, nc.callee, nc.type_args, nc.args);
             break;
         }
@@ -3472,7 +3472,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         v.each_arg([&](lir_view::ExprRef ar) {
                             mc_args.push_back(subst_child_expr(ar));
                         });
-                        result->mirror_offset_ = lir_mirror_emit_method_call(
+                        result->mirror_ptr_ = lir_mirror_emit_method_call(
                             out_, result->type, new_recv, method, "",
                             {}, mc_args, slot, "", "", "");
                         break;
@@ -3912,7 +3912,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // call (producing a broken body). Enqueue it explicitly.
                         enqueue_if_needed(nc.callee, nc.type_args);
                     }
-                    result->mirror_offset_ = lir_mirror_emit_call(
+                    result->mirror_ptr_ = lir_mirror_emit_call(
                         out_, result->type, nc.callee, nc.type_args, nc.args);
                     break;
                 }
@@ -3921,7 +3921,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 v.each_arg([&](lir_view::ExprRef ar) {
                     mc_args.push_back(subst_child_expr(ar));
                 });
-                result->mirror_offset_ = lir_mirror_emit_method_call(
+                result->mirror_ptr_ = lir_mirror_emit_method_call(
                     out_, result->type, new_recv, method, resolved_symbol,
                     {}, mc_args, vtable_index, resolved_type,
                     tag_system, tag_trait);
@@ -3998,7 +3998,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         v.each_arg([&](lir_view::ExprRef ar) {
                             args.push_back(subst_child_expr(ar));
                         });
-                        result->mirror_offset_ = lir_mirror_emit_call(
+                        result->mirror_ptr_ = lir_mirror_emit_call(
                             out_, result->type, spec->name, {}, args);
                         rewritten = true;
                     } else if (!combined_args.empty() && !mono_base.empty()) {
@@ -4014,7 +4014,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // trait-default method calling another method-generic
                         // method on `self`.
                         enqueue_if_needed(callee, combined_args);
-                        result->mirror_offset_ = lir_mirror_emit_call(
+                        result->mirror_ptr_ = lir_mirror_emit_call(
                             out_, result->type, callee, combined_args, args);
                         rewritten = true;
                     }
@@ -4072,7 +4072,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     v.each_arg([&](lir_view::ExprRef ar) {
                         args.push_back(subst_child_expr(ar));
                     });
-                    result->mirror_offset_ = lir_mirror_emit_call(
+                    result->mirror_ptr_ = lir_mirror_emit_call(
                         out_, result->type, callee, nm.type_args, args);
                     rewritten = true;
                 }
@@ -4094,7 +4094,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     nm.resolved_symbol =
                         const_specialize_callee(nm.resolved_symbol, combined);
                 }
-                result->mirror_offset_ = lir_mirror_emit_method_call(
+                result->mirror_ptr_ = lir_mirror_emit_method_call(
                     out_, result->type, nm.receiver, nm.method, nm.resolved_symbol,
                     nm.type_args, nm.args, nm.vtable_index, resolved_type,
                     nm.tag_system, nm.tag_trait);
@@ -4105,7 +4105,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::EClosureBoxView v{eref};
             auto br = v.body();
             if (!br) {
-                result->mirror_offset_ = lir_mirror_emit_closure_box(
+                result->mirror_ptr_ = lir_mirror_emit_closure_box(
                     out_, result->type, nullptr);
                 break;
             }
@@ -4144,7 +4144,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 auto ft = v.capture_field_type(out_.type_pool.impl(), i);
                 nc->capture_field_types[i] = ft ? subst_type(ft, s) : TypeRef{};
             }
-            result->mirror_offset_ = lir_mirror_emit_closure_box(
+            result->mirror_ptr_ = lir_mirror_emit_closure_box(
                 out_, result->type, nc);
             break;
         }
@@ -4173,33 +4173,33 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         std::string vn(v.variant());
         int64_t disc = v.disc();
         lir::Pattern p;
-        p.mirror_offset_ = lir_mirror_emit_pat_variant(*prog_, en, vn, disc);
+        p.mirror_ptr_ = lir_mirror_emit_pat_variant(*prog_, en, vn, disc);
         return p;
     }
     case pc::Code::Int: {
         int64_t v = lir_view::PatIntView{pref}.value();
         lir::Pattern p;
-        p.mirror_offset_ = lir_mirror_emit_pat_int(*prog_, v);
+        p.mirror_ptr_ = lir_mirror_emit_pat_int(*prog_, v);
         return p;
     }
     case pc::Code::Bool: {
         bool v = lir_view::PatBoolView{pref}.value();
         lir::Pattern p;
-        p.mirror_offset_ = lir_mirror_emit_pat_bool(*prog_, v);
+        p.mirror_ptr_ = lir_mirror_emit_pat_bool(*prog_, v);
         return p;
     }
     case pc::Code::Wild: {
         lir_view::PatWildView wv{pref};
         std::string name(wv.name());
         lir::Pattern p;
-        p.mirror_offset_ = lir_mirror_emit_pat_wild(*prog_, name, wv.bind_slot());  // Phase-1
+        p.mirror_ptr_ = lir_mirror_emit_pat_wild(*prog_, name, wv.bind_slot());  // Phase-1
         return p;
     }
     case pc::Code::Range: {
         lir_view::PatRangeView v{pref};
         int64_t lo = v.lo(), hi = v.hi();
         lir::Pattern p;
-        p.mirror_offset_ = lir_mirror_emit_pat_range(*prog_, lo, hi);
+        p.mirror_ptr_ = lir_mirror_emit_pat_range(*prog_, lo, hi);
         return p;
     }
     case pc::Code::VariantData: {
@@ -4214,7 +4214,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
             *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types,
             v.bind_slots());  // Phase-1: carry slots
         lir::Pattern p_;
-        p_.mirror_offset_ = off;
+        p_.mirror_ptr_ = off;
         return p_;
     }
     case pc::Code::Or: {
@@ -4223,7 +4223,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
             [&](lir_view::PatRef alt) { n.alts.push_back(walk(alt)); });
         auto off = lir_mirror_emit_pat_or(*prog_, n.alts);
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     case pc::Code::Tuple: {
@@ -4235,7 +4235,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         auto off = lir_mirror_emit_pat_tuple(
             *prog_, n.bindings, n.binding_types, n.subs, v.bind_slots());  // Phase-1
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     case pc::Code::Struct: {
@@ -4253,7 +4253,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         auto off = lir_mirror_emit_pat_struct(
             *prog_, n.struct_name, n.fields, n.has_rest);
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     case pc::Code::Slice: {
@@ -4265,7 +4265,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         auto off = lir_mirror_emit_pat_slice(
             *prog_, n.prefix, n.rest, n.suffix);
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     case pc::Code::At: {
@@ -4276,7 +4276,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         if (auto sub = v.sub()) n.sub.push_back(walk(sub));
         auto off = lir_mirror_emit_pat_at(*prog_, n.name, n.sub, n.type, v.bind_slot());  // Phase-1
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     case pc::Code::RefBind: {
@@ -4288,7 +4288,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         auto off = lir_mirror_emit_pat_ref_bind(
             *prog_, n.name, n.is_mut, n.bind_type, v.bind_slot());  // Phase-1
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     case pc::Code::RefPat: {
@@ -4298,7 +4298,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         if (auto inner = v.inner()) n.inner.push_back(walk(inner));
         auto off = lir_mirror_emit_pat_ref_pat(*prog_, n.inner, n.is_mut);
         lir::Pattern p;
-        p.mirror_offset_ = off;
+        p.mirror_ptr_ = off;
         return p;
     }
     }
@@ -4306,7 +4306,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
 }
 
 lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
-    // Returns LStmt with mirror_offset_=0 by design. Caller (instantiate_fn /
+    // Returns LStmt with mirror_ptr_=0 by design. Caller (instantiate_fn /
     // clone_struct_def) bulk-emits via lir_mirror_emit_function only after the
     // owning LFunction reaches a heap-stable address (unique_ptr) and its
     // body's stmt-vector buffers stop reallocating. See the call sites in
@@ -4335,7 +4335,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto rhs = v.value();
         if (rhs) type_let_inits_[name] = rhs;
         auto value = subst_child_expr(rhs);
-        ns.mirror_offset_ = lir_mirror_emit_let(
+        ns.mirror_ptr_ = lir_mirror_emit_let(
             out_, ns.line, name, ty, value, is_mut, v.var_slot());  // Phase-1: carry slot
         break;
     }
@@ -4343,14 +4343,14 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir_view::SAssignView v{sref};
         std::string name(v.name());
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_assign(
+        ns.mirror_ptr_ = lir_mirror_emit_assign(
             out_, ns.line, name, value, v.drop_old());  // B8: preserve drop-before-replace
         break;
     }
     case SCode::Return: {
         auto val = lir_view::SReturnView{sref}.value();
         auto value = val ? subst_child_expr(val) : nullptr;
-        ns.mirror_offset_ = lir_mirror_emit_return(
+        ns.mirror_ptr_ = lir_mirror_emit_return(
             out_, ns.line, value);
         break;
     }
@@ -4364,7 +4364,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             else_blk = lir::alloc_block(out_, subst_child_block(eb));
             lir_mirror_emit_block_node(out_, *else_blk);
         }
-        ns.mirror_offset_ = lir_mirror_emit_if_stmt(
+        ns.mirror_ptr_ = lir_mirror_emit_if_stmt(
             out_, ns.line, cond, then_blk, else_blk);
         break;
     }
@@ -4374,7 +4374,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *body);
         std::string label(v.label());
-        ns.mirror_offset_ = lir_mirror_emit_while(
+        ns.mirror_ptr_ = lir_mirror_emit_while(
             out_, ns.line, cond, body, label);
         break;
     }
@@ -4387,7 +4387,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *body);
         std::string label(v.label());
-        ns.mirror_offset_ = lir_mirror_emit_for(
+        ns.mirror_ptr_ = lir_mirror_emit_for(
             out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot());  // Phase-1
         break;
     }
@@ -4398,7 +4398,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         TypeRef result_type = v.result_type(pool);
         std::string break_slot(v.break_slot());
         std::string label(v.label());
-        ns.mirror_offset_ = lir_mirror_emit_loop(
+        ns.mirror_ptr_ = lir_mirror_emit_loop(
             out_, ns.line, body, label, break_slot, result_type);
         break;
     }
@@ -4406,7 +4406,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir_view::SBlockView v{sref};
         auto* blk = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *blk);
-        ns.mirror_offset_ = lir_mirror_emit_block_stmt(
+        ns.mirror_ptr_ = lir_mirror_emit_block_stmt(
             out_, ns.line, blk);
         break;
     }
@@ -4415,13 +4415,13 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir::LExprPtr value = nullptr;
         if (auto val = v.value()) value = subst_child_expr(val);
         std::string label(v.label());
-        ns.mirror_offset_ = lir_mirror_emit_break(
+        ns.mirror_ptr_ = lir_mirror_emit_break(
             out_, ns.line, value, label);
         break;
     }
     case SCode::Continue: {
         std::string label(lir_view::SContinueView{sref}.label());
-        ns.mirror_offset_ = lir_mirror_emit_continue(
+        ns.mirror_ptr_ = lir_mirror_emit_continue(
             out_, ns.line, label);
         break;
     }
@@ -4430,7 +4430,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::string receiver(v.receiver());
         std::string field(v.field());
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_field_write(
+        ns.mirror_ptr_ = lir_mirror_emit_field_write(
             out_, ns.line, receiver, field, value);
         break;
     }
@@ -4442,7 +4442,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::vector<std::string> extras;
         v.each_extra([&](std::string_view s) { extras.emplace_back(s); });
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_chain_field_write(
+        ns.mirror_ptr_ = lir_mirror_emit_chain_field_write(
             out_, ns.line, receiver, mid_field, extras, field, value);
         break;
     }
@@ -4452,7 +4452,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::string type_name(v.type_name());
         std::string field(v.field());
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_deref_field_write(
+        ns.mirror_ptr_ = lir_mirror_emit_deref_field_write(
             out_, ns.line, receiver, type_name, field, value);
         break;
     }
@@ -4461,7 +4461,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::string arr(v.arr());
         auto idx = subst_child_expr(v.index());
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_index_write(
+        ns.mirror_ptr_ = lir_mirror_emit_index_write(
             out_, ns.line, arr, idx, value);
         break;
     }
@@ -4471,7 +4471,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::string field(v.field());
         auto idx = subst_child_expr(v.index());
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_field_index_write(
+        ns.mirror_ptr_ = lir_mirror_emit_field_index_write(
             out_, ns.line, receiver, field, idx, value);
         break;
     }
@@ -4479,7 +4479,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir_view::SDerefWriteView v{sref};
         auto ptr = subst_child_expr(v.ptr());
         auto value = subst_child_expr(v.value());
-        ns.mirror_offset_ = lir_mirror_emit_deref_write(
+        ns.mirror_ptr_ = lir_mirror_emit_deref_write(
             out_, ns.line, ptr, value, v.drop_old());  // T1.5: preserve drop_old
         break;
     }
@@ -4489,13 +4489,13 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         uint32_t index = v.index();
         auto value = subst_child_expr(v.value());
         TypeRef recv_type = v.recv_type(pool);
-        ns.mirror_offset_ = lir_mirror_emit_tuple_write(
+        ns.mirror_ptr_ = lir_mirror_emit_tuple_write(
             out_, ns.line, receiver, index, value, recv_type);
         break;
     }
     case SCode::ExprStmt: {
         auto expr = subst_child_expr(lir_view::SExprStmtView{sref}.expr());
-        ns.mirror_offset_ = lir_mirror_emit_expr_stmt(
+        ns.mirror_ptr_ = lir_mirror_emit_expr_stmt(
             out_, ns.line, expr);
         break;
     }
@@ -4626,7 +4626,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         }
         std::vector<std::string> moved_fields;
         v.each_moved_field([&](std::string_view f) { moved_fields.emplace_back(f); });
-        ns.mirror_offset_ = lir_mirror_emit_drop(
+        ns.mirror_ptr_ = lir_mirror_emit_drop(
             out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields);
         break;
     }
@@ -4642,7 +4642,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             if (auto g = arm.guard()) na.guard = subst_child_expr(g);
             arms.push_back(std::move(na));
         });
-        ns.mirror_offset_ = lir_mirror_emit_match_stmt(
+        ns.mirror_ptr_ = lir_mirror_emit_match_stmt(
             out_, ns.line, scrut, arms);
         break;
     }
@@ -4661,7 +4661,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             arr_size = (int64_t)iter->type.arr_size();
         auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *body);
-        ns.mirror_offset_ = lir_mirror_emit_for_each(
+        ns.mirror_ptr_ = lir_mirror_emit_for_each(
             out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot());  // Phase-1
         break;
     }
@@ -4674,7 +4674,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir_mirror_emit_block_node(out_, *else_block);
         std::vector<lir::LExprPtr> guards;   // G161-3
         v.each_guard([&](lir_view::ExprRef g){ guards.push_back(subst_child_expr(g)); });
-        ns.mirror_offset_ = lir_mirror_emit_let_else(
+        ns.mirror_ptr_ = lir_mirror_emit_let_else(
             out_, ns.line, pat, scrut, else_block, guards);
         break;
     }
@@ -4777,7 +4777,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
 // TypeVars on the surface types, but leaves body empty. mlir_gen needs
 // the signature for forward_declare; the body is in liblstdlib.a and
 // would be skipped anyway. Caller must not run lir_mirror_emit_function
-// or scan_fn on the result — body.mirror_offset_ stays default-zero, so
+// or scan_fn on the result — body.mirror_ptr_ stays default-zero, so
 // scan_fn's mirror_offset guard short-circuits if accidentally invoked.
 lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
                                          const SubstMap& s,
@@ -5362,9 +5362,9 @@ void Mono::collect_struct_needs_from_output() {
     for (auto& fn : out_.functions) {
         collect_type_for_structs(fn->ret_type);
         for (auto& p : fn->params) collect_type_for_structs(p.type);
-        if (fn->body.mirror_offset_ != hermes::arena_offset_t{})
+        if (fn->body.mirror_ptr_ != nullptr)
             collect_struct_needs_from_block(
-                lir_view::BlockRef(&arena, fn->body.mirror_offset_));
+                lir_view::BlockRef(&arena, fn->body.mirror_ptr_));
     }
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)
@@ -5618,7 +5618,7 @@ void Mono::instantiate_struct_templates() {
             //   (b) each LFunction sits behind a unique_ptr in inst.methods,
             //       so the LFunction itself (and therefore its body LBlock) is
             //       heap-stable even when `inst` is later moved into out_.structs.
-            // subst_stmt deliberately returns LStmt with mirror_offset_=0 — emitting
+            // subst_stmt deliberately returns LStmt with mirror_ptr_=0 — emitting
             // mid-clone would point the mirror at a transient vector slot.
             for (auto& m : inst.methods)
                 lir_mirror_emit_function(out_, *out_.mirror_table, *m);

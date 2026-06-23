@@ -1221,12 +1221,12 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
 
                 // Ok(__try_ok_v) pattern.
                 lir::Pattern ok_pat;
-                ok_pat.mirror_offset_ = lir_mirror_emit_pat_variant_data(
+                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
                     *cur_prog_, "Result", "Ok", ok_disc, {ok_name_b}, {ok_type});
 
                 // Err(__try_err_e) pattern.
                 lir::Pattern err_pat;
-                err_pat.mirror_offset_ = lir_mirror_emit_pat_variant_data(
+                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
                     *cur_prog_, "Result", "Err", err_disc, {err_name_b}, {e_inner});
 
                 // Ok arm value: VarRef(__try_ok_v).
@@ -14469,7 +14469,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // View-based capture scanner. The closure body was just lowered through
     // the builder, so every LExpr / LStmt / LBlock has its mirror eager-emitted
     // — `expr_ref_of` / `stmt_ref_of` / a fresh BlockRef from the LBlock's
-    // mirror_offset_ all yield non-null views.
+    // mirror_ptr_ all yield non-null views.
     using EC = lir_schema::expr::Code;
     using SC = lir_schema::stmt::Code;
     std::function<void(lir_view::BlockRef)> scan_block_v;
@@ -14737,9 +14737,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // which std::move just invalidated). The scanner pushes into the
         // local `captures` / `capture_types`, so they must still own data
         // here — moves into ec happen below.
-        if (ec->body.mirror_offset_ == hermes::arena_offset_t{})
+        if (ec->body.mirror_ptr_ == nullptr)
             lir_mirror_emit_block_node(*cur_prog_, ec->body);
-        lir_view::BlockRef br{cur_prog_->type_pool.arena(), ec->body.mirror_offset_};
+        lir_view::BlockRef br{cur_prog_->type_pool.arena(), ec->body.mirror_ptr_};
         scan_block_v(br);
     }
     ec->captures      = std::move(captures);
@@ -15131,7 +15131,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 if (!hv) return nullptr;
                 // Bounds-check I32 elements at compile time.
                 if (type_name == "I32") {
-                    lir_view::HermesValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_offset_);
+                    lir_view::HermesValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_ptr_);
                     if (hvref && hvref.kind() == lir_schema::hermes_val::Code::Int) {
                         int64_t hv_val = lir_view::HVIntView{hvref}.value();
                         if (hv_val < -2147483648LL || hv_val > 2147483647LL) {

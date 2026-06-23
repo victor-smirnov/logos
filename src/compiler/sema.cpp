@@ -2442,33 +2442,33 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     lir_mirror_emit_into(prog, *prog.mirror_table);
 
     // M5 step 6: lir_mirror_emit_into's backfill path (taken for cached
-    // LFunction bodies whose mirror_offset_ is already set from a prior
+    // LFunction bodies whose mirror_ptr_ is already set from a prior
     // sema_lower) registers only the top-level stmt/block in their reverse
     // maps; it does NOT recurse into sub-exprs / sub-blocks / sub-HVs /
     // sub-closures of cached items. Mono's lexpr_of / lblock_of /
     // hermes_val_of / etc. would then return null inside cached bodies,
     // corrupting subst (e.g. SReturn loses its value). Mirror
     // lir_mirror_populate_moved's pool-sweep approach: every pooled node
-    // with a non-zero mirror_offset_ goes into the reverse map. Cheap
+    // with a non-zero mirror_ptr_ goes into the reverse map. Cheap
     // (single pass per append-only pool, runs every sema_lower regardless
     // of cache state — the cost is negligible vs the lower walk savings).
     if (prog.expr_pool_) {
         for (auto& uptr : *prog.expr_pool_)
-            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
-                prog.mirror_table->expr_by_offset[
-                    uptr->mirror_offset_.value()] = uptr.get();
+            if (uptr && uptr->mirror_ptr_ != nullptr)
+                prog.mirror_table->expr_by_addr[
+                    uptr->mirror_ptr_] = uptr.get();
     }
     if (prog.block_pool_) {
         for (auto& uptr : *prog.block_pool_)
-            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
-                prog.mirror_table->block_by_offset[
-                    uptr->mirror_offset_.value()] = uptr.get();
+            if (uptr && uptr->mirror_ptr_ != nullptr)
+                prog.mirror_table->block_by_addr[
+                    uptr->mirror_ptr_] = uptr.get();
     }
     if (prog.hermes_val_pool_) {
         for (auto& uptr : *prog.hermes_val_pool_)
-            if (uptr && uptr->mirror_offset_ != hermes::arena_offset_t{})
-                prog.mirror_table->hermes_val_by_offset[
-                    uptr->mirror_offset_.value()] = uptr.get();
+            if (uptr && uptr->mirror_ptr_ != nullptr)
+                prog.mirror_table->hermes_val_by_addr[
+                    uptr->mirror_ptr_] = uptr.get();
     }
     // EClosure is not pooled-keyed in the reverse-map set (closure_box_inner
     // maps LExpr* → EClosure*, populated by LirBuilder at construction).
@@ -2480,9 +2480,9 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // mirror reads), so it works regardless of table state.
     auto register_lstmts_in_block = [&](auto&& self, const lir::LBlock& blk) -> void {
         for (auto& st : blk.stmts) {
-            if (st.mirror_offset_ != hermes::arena_offset_t{})
-                prog.mirror_table->stmt_by_offset[st.mirror_offset_.value()] = &st;
-            // LStmt carries no in-memory children other than mirror_offset_
+            if (st.mirror_ptr_ != nullptr)
+                prog.mirror_table->stmt_by_addr[st.mirror_ptr_] = &st;
+            // LStmt carries no in-memory children other than mirror_ptr_
             // (the variant fields were retired at Stage B.6). All children
             // are reachable only through the mirror view — sub-blocks are
             // separately pooled and covered by the block_pool_ sweep above.
@@ -3160,7 +3160,7 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
           TypeRef(info.type).kind() == LogosType::Kind::TraitObject))) {
         lir::LStmt s; s.line = node_line_;
         if (cur_prog_)
-            s.mirror_offset_ = lir_mirror_emit_drop(
+            s.mirror_ptr_ = lir_mirror_emit_drop(
                 *cur_prog_, node_line_, name, "__box_dyn__drop", info.type, false, {});
         return s;
     }
@@ -3212,7 +3212,7 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
     }
     lir::LStmt s; s.line = node_line_;
     if (cur_prog_)
-        s.mirror_offset_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields);
+        s.mirror_ptr_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields);
     return s;
 }
 
@@ -4777,8 +4777,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rit = cur_prog_->hstatic_registry_.find(hash);
         if (rit == cur_prog_->hstatic_registry_.end()) return t;
-        if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return t;
-        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
+        if (!rit->second || rit->second->mirror_ptr_ == nullptr) return t;
+        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_ptr_);
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };
@@ -5073,8 +5073,8 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
             uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
             auto rit = cur_prog_->hstatic_registry_.find(hash);
             if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
-                rit->second->mirror_offset_ != hermes::arena_offset_t{}) {
-                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_offset_);
+                rit->second->mirror_ptr_ != nullptr) {
+                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_ptr_);
                 if (eref.kind() == lir_schema::expr::Code::HermesLit) {
                     // Walk path through the Hermes value.
                     lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();

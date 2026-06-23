@@ -2494,7 +2494,7 @@ int run_metaprog_dispatch(
             // ONLY when the sema cache provides shared TypePool + pools
             // across iters — without that (emit_module's stdlib build runs
             // without a cache), each iter's prog has a fresh TypePool and
-            // prev_out's mirror_offset_ values reference iter N-1's now-
+            // prev_out's mirror_ptr_ values reference iter N-1's now-
             // dead arena.
             MonoOpts mopts_iter;
             if (opts.sema_cache) {

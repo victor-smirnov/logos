@@ -544,7 +544,7 @@ private:
         auto ek = e.kind();
         if (ek != EC::EnumLit && ek != EC::EnumLitData) return;
         if (!concrete || TypeRef(concrete).kind() != LogosType::Kind::Enum) return;
-        lir_mirror_retype_expr(*cur_prog_, e.offset(), concrete);
+        lir_mirror_retype_expr(*cur_prog_, e.addr(), concrete);
         if (ek != EC::EnumLitData) return;
         lir_view::EEnumLitDataView v{e};
         std::string en(v.enum_name());
@@ -845,15 +845,15 @@ private:
     }
 
     // ── Mirror ref accessors (read-only view of just-built L-IR nodes) ──
-    // Every LirBuilder-constructed node has mirror_offset_ set, so these
+    // Every LirBuilder-constructed node has mirror_ptr_ set, so these
     // never return a null Ref unless `e` was built outside the builder.
     lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::ExprRef(cur_prog_->type_pool.arena(), e.mirror_offset_);
+        if (e.mirror_ptr_ == nullptr) return {};
+        return lir_view::ExprRef(cur_prog_->type_pool.arena(), e.mirror_ptr_);
     }
     lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
-        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_offset_);
+        if (s.mirror_ptr_ == nullptr) return {};
+        return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_ptr_);
     }
     // E0507: is `e` a place from which a MOVE-typed value cannot be moved out by
     // value — `*r` (deref of a `&`/`&mut` reference VARIABLE), `v[i]`/`s[i]`
@@ -949,16 +949,16 @@ private:
         }
     }
     lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
-        if (p.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::PatRef(cur_prog_->type_pool.arena(), p.mirror_offset_);
+        if (p.mirror_ptr_ == nullptr) return {};
+        return lir_view::PatRef(cur_prog_->type_pool.arena(), p.mirror_ptr_);
     }
     // Reverse lookup ExprRef → owning LExpr* via the program's mirror table.
     // Returns nullptr if the ref is null or its offset isn't in the table
     // (e.g. mono-cloned exprs not registered in cur_prog_).
     lir::LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
         if (!r || !cur_prog_->mirror_table) return nullptr;
-        auto it = cur_prog_->mirror_table->expr_by_offset.find(uint32_t(r.offset()));
-        if (it == cur_prog_->mirror_table->expr_by_offset.end()) return nullptr;
+        auto it = cur_prog_->mirror_table->expr_by_addr.find(r.addr());
+        if (it == cur_prog_->mirror_table->expr_by_addr.end()) return nullptr;
         return const_cast<lir::LExpr*>(it->second);
     }
 
@@ -974,56 +974,56 @@ private:
                 // once. define() ran before this for the binding, so lookup_slot
                 // returns the just-assigned slot; NO_SLOT for un-define()'d
                 // synthetic temps (downstream name-keys those).
-                s.mirror_offset_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value,
+                s.mirror_ptr_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value,
                                                        k.is_mut, lookup_slot(k.name));
             } else if constexpr (std::is_same_v<KT, lir::SAssign>) {
-                s.mirror_offset_ = lir_mirror_emit_assign(p, line, k.name, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_assign(p, line, k.name, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SReturn>) {
-                s.mirror_offset_ = lir_mirror_emit_return(p, line, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_return(p, line, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SIf>) {
                 const lir::LBlock* eb = k.else_.has_value() ? *k.else_ : nullptr;
-                s.mirror_offset_ = lir_mirror_emit_if_stmt(p, line, k.cond, k.then_, eb);
+                s.mirror_ptr_ = lir_mirror_emit_if_stmt(p, line, k.cond, k.then_, eb);
             } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
-                s.mirror_offset_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
+                s.mirror_ptr_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SFor>) {
-                s.mirror_offset_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot);
+                s.mirror_ptr_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot);
             } else if constexpr (std::is_same_v<KT, lir::SLoop>) {
-                s.mirror_offset_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
+                s.mirror_ptr_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
             } else if constexpr (std::is_same_v<KT, lir::SBreak>) {
-                s.mirror_offset_ = lir_mirror_emit_break(p, line, k.value, k.label);
+                s.mirror_ptr_ = lir_mirror_emit_break(p, line, k.value, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SContinue>) {
-                s.mirror_offset_ = lir_mirror_emit_continue(p, line, k.label);
+                s.mirror_ptr_ = lir_mirror_emit_continue(p, line, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SBlock>) {
-                s.mirror_offset_ = lir_mirror_emit_block_stmt(p, line, k.body);
+                s.mirror_ptr_ = lir_mirror_emit_block_stmt(p, line, k.body);
             } else if constexpr (std::is_same_v<KT, lir::SFieldWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_field_write(p, line, k.receiver, k.field, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_field_write(p, line, k.receiver, k.field, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SIndexWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_index_write(p, line, k.arr, k.index, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_index_write(p, line, k.arr, k.index, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SFieldIndexWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_field_index_write(p, line, k.receiver, k.field, k.index, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_field_index_write(p, line, k.receiver, k.field, k.index, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SExprStmt>) {
-                s.mirror_offset_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
+                s.mirror_ptr_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
             } else if constexpr (std::is_same_v<KT, lir::SMatch>) {
-                s.mirror_offset_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
+                s.mirror_ptr_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
             } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
-                s.mirror_offset_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot);
+                s.mirror_ptr_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SDrop>) {
-                s.mirror_offset_ = lir_mirror_emit_drop(p, line, k.var_name, k.drop_fn, k.type, k.drop_fields, k.moved_fields);
+                s.mirror_ptr_ = lir_mirror_emit_drop(p, line, k.var_name, k.drop_fn, k.type, k.drop_fields, k.moved_fields);
             } else if constexpr (std::is_same_v<KT, lir::SDerefFieldWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_deref_field_write(p, line, k.receiver, k.type_name, k.field, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_deref_field_write(p, line, k.receiver, k.type_name, k.field, k.value);
             } else if constexpr (std::is_same_v<KT, lir::STupleWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_tuple_write(p, line, k.receiver, k.index, k.value, k.recv_type);
+                s.mirror_ptr_ = lir_mirror_emit_tuple_write(p, line, k.receiver, k.index, k.value, k.recv_type);
             } else if constexpr (std::is_same_v<KT, lir::SLetElse>) {
-                s.mirror_offset_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block, k.guards);
+                s.mirror_ptr_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block, k.guards);
             } else if constexpr (std::is_same_v<KT, lir::SChainFieldWrite>) {
-                s.mirror_offset_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.extras, k.field, k.value);
+                s.mirror_ptr_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.extras, k.field, k.value);
             } else {
                 static_assert(sizeof(K) == 0, "make_stmt_emit: unknown stmt kind");
             }
         }
-        (void)k;  // payload swallowed — only mirror_offset_ matters now
+        (void)k;  // payload swallowed — only mirror_ptr_ matters now
         return s;
     }
 
@@ -1031,7 +1031,7 @@ private:
     lir::HermesValPtr alloc_hv_emit(K&& k) {
         using KT = std::decay_t<K>;
         auto& p = *cur_prog_;
-        ::logos::hermes::arena_offset_t mo;
+        const uint8_t* mo = nullptr;
         if constexpr (std::is_same_v<KT, lir::HVNull>) {
             mo = lir_mirror_emit_hv_null(p);
         } else if constexpr (std::is_same_v<KT, lir::HVBool>) {
@@ -1055,7 +1055,7 @@ private:
         }
         (void)k;  // payload consumed by per-kind dispatch above
         auto* hv = lir::alloc_hermes_val(*cur_prog_);
-        hv->mirror_offset_ = mo;
+        hv->mirror_ptr_ = mo;
         return hv;
     }
 

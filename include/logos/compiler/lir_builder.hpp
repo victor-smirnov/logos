@@ -130,7 +130,7 @@ public:
 
     // ── Statement constructors ──────────────────────────────────────────
     // Build an LStmt and eager-emit its Hermes mirror. After this call,
-    // `stmt_ref_of(s)` is valid (mirror_offset_ is set). Used by sub-slice
+    // `stmt_ref_of(s)` is valid (mirror_ptr_ is set). Used by sub-slice
     // 2.0 to eliminate the make_stmt/eager-emit gap (gap memo
     // feat_lir_mirror_eager_emit_gaps): every kind that's safe for eager
     // emit (i.e. construction is final-state, no later mutation of children

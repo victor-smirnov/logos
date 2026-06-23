@@ -1453,19 +1453,19 @@ class BorrowChecker {
     //   or result of a function call where we don't track cross-call lifetimes).
 
     lir_view::ExprRef expr_ref(const LExprPtr& e) const {
-        if (!e || e->mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::ExprRef(prog_.type_pool.arena(), e->mirror_offset_);
+        if (!e || e->mirror_ptr_ == nullptr) return {};
+        return lir_view::ExprRef(prog_.type_pool.arena(), e->mirror_ptr_);
     }
 
     lir_view::StmtRef stmt_ref(const LStmt& s) const {
-        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
-        return lir_view::StmtRef(prog_.type_pool.arena(), s.mirror_offset_);
+        if (s.mirror_ptr_ == nullptr) return {};
+        return lir_view::StmtRef(prog_.type_pool.arena(), s.mirror_ptr_);
     }
 
     const LBlock* block_ptr(lir_view::BlockRef br) const {
         if (!br) return nullptr;
-        auto& m = prog_.mirror_table->block_by_offset;
-        auto it = m.find(br.offset().value());
+        auto& m = prog_.mirror_table->block_by_addr;
+        auto it = m.find(br.addr());
         return it == m.end() ? nullptr : it->second;
     }
 
@@ -2221,9 +2221,9 @@ class BorrowChecker {
             case Code::BlockExpr: {
                 EBlockExprView v{e};
                 if (auto br = v.block()) {
-                    auto it = prog_.mirror_table->block_by_offset.find(
-                        br.offset().value());
-                    if (it != prog_.mirror_table->block_by_offset.end())
+                    auto it = prog_.mirror_table->block_by_addr.find(
+                        br.addr());
+                    if (it != prog_.mirror_table->block_by_addr.end())
                         visit_block(*it->second);
                 }
                 take_ref_borrows(v.result(), line, holder);
@@ -2405,8 +2405,8 @@ class BorrowChecker {
             case Code::BlockExpr: {
                 EBlockExprView v{e};
                 if (auto br = v.block()) {
-                    auto it = prog_.mirror_table->block_by_offset.find(br.offset().value());
-                    if (it != prog_.mirror_table->block_by_offset.end())
+                    auto it = prog_.mirror_table->block_by_addr.find(br.addr());
+                    if (it != prog_.mirror_table->block_by_addr.end())
                         scan_uses_block(*it->second);
                 }
                 if (auto r = v.result()) scan_uses_expr(r, line);
@@ -3770,9 +3770,9 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         case Code::BlockExpr: {
             EBlockExprView v{e};
             if (auto br = v.block()) {
-                auto it = prog_.mirror_table->block_by_offset.find(
-                    br.offset().value());
-                if (it != prog_.mirror_table->block_by_offset.end())
+                auto it = prog_.mirror_table->block_by_addr.find(
+                    br.addr());
+                if (it != prog_.mirror_table->block_by_addr.end())
                     visit_block(*it->second);
             }
             if (auto r = v.result()) visit(r, consuming, line);

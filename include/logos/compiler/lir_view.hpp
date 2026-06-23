@@ -61,8 +61,17 @@ public:
     // RefBase lives in `detail` and is never the public handle, so exposing
     // construction here costs no encapsulation.
     RefBase() = default;
+    // (arena, address) — the node's mirror is already an absolute pointer (the
+    // mirror_ptr_ back-pointer stored on LExpr/LStmt nodes). Segments never move,
+    // so the address is stable; no base+offset round-trip (MultiChunk-safe).
+    RefBase(const hermes::Arena* a, const uint8_t* p) noexcept
+        : arena_(a), ptr_(p) {}
+    RefBase(const hermes::Arena* a, const uint8_t* p,
+            hermes::arena_id_t aid) noexcept
+        : arena_(a), ptr_(p), arena_id_(aid) {}
     // (arena, offset) — resolve against the single-chunk base (valid pre-MultiChunk;
-    // the stored mirror_offset_ bridge path. Stage C/D removes the offset source).
+    // serialized .hermes0 reads + cross-arena r.offset(). Stage C/D removes the
+    // remaining offset sources).
     RefBase(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
         : arena_(a), ptr_(ptr_from_off(a, o)) {}
     // Cross-arena constructor — used by sub_*() dispatchers when a child
@@ -86,6 +95,10 @@ public:
         return (ptr_ && b) ? hermes::arena_offset_t(static_cast<uint32_t>(ptr_ - b))
                            : hermes::NULL_OFFSET;
     }
+    // Absolute mirror address — the stable node identity used to key the mirror
+    // table's reverse (mirror→C++ node) maps. Segments never move (MultiChunk-safe);
+    // offset() is reserved for .hermes0 serialization (single rigid segment).
+    const uint8_t* addr() const noexcept { return ptr_; }
     const hermes::Arena*   arena()  const noexcept { return arena_; }
     // Phase 2.B accessors.
     hermes::arena_id_t arena_id() const noexcept { return arena_id_; }

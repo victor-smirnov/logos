@@ -946,7 +946,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // B.6 Stage 1b: full bulk emit pass replaced with cache-only walker.
     // Functions, struct methods, and enum-impl methods are emit'd eagerly at
     // their push_back sites. The remaining items moved wholesale from in_ →
-    // out_ (impl methods, const value exprs) carry mirror_offset_ from sema
+    // out_ (impl methods, const value exprs) carry mirror_ptr_ from sema
     // but need their fresh out_.mirror_table cache populated for downstream
     // offset → ptr reverse lookups (mlir_gen, borrow_check).
     lir_mirror_populate_moved(out_, *out_.mirror_table);

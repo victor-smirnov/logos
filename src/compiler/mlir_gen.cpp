@@ -411,8 +411,8 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             auto it = by_name.find(name);
             if (it == by_name.end()) continue;
             auto& fn = *it->second;
-            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) continue;
-            walk_block(lir_view::BlockRef(walk_arena_p, fn.body.mirror_offset_));
+            if (fn.body.mirror_ptr_ == nullptr) continue;
+            walk_block(lir_view::BlockRef(walk_arena_p, fn.body.mirror_ptr_));
         }
 
         if (std::getenv("LOGOS_TRACE_PHASES")) {

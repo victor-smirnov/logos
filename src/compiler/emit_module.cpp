@@ -440,7 +440,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // names → arena_offset for cross-arena clone.
     struct TemplateEntry {
         std::string                name;
-        hermes::arena_offset_t     body_offset{};
+        const uint8_t*             body_addr = nullptr;  // stable mirror address
     };
     std::vector<TemplateEntry> generic_fn_templates;
     std::vector<TemplateEntry> generic_method_templates;
@@ -451,11 +451,11 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         // stdlib build for ast_only files (e.g. std.compiler.metaprog) —
         // those get stamped from_binary=true post-metaprog-dispatch but
         // their bodies came from THIS sema's source, so there's no other
-        // archive providing them. The mirror_offset_ guard below catches
+        // archive providing them. The mirror_ptr_ guard below catches
         // the genuine "already published" case (mirror missing means
         // body never lowered locally → nothing to publish).
-        if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
-        dst.push_back({fn.name, fn.body.mirror_offset_});
+        if (fn.body.mirror_ptr_ == nullptr) return;
+        dst.push_back({fn.name, fn.body.mirror_ptr_});
     };
     for (auto& fn : prog.functions) {
         if (fn && !fn->type_params.empty()) stash_template(generic_fn_templates, *fn);
@@ -518,7 +518,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // M4 step 1: snapshot prog.type_pool arena bytes for the .hermes0 LIR
     // blob section. This is the post-mono LIR Hermes mirror — every
     // template/struct/fn/expr/stmt that mono produced lives here with its
-    // mirror_offset_ value referencing offsets in these very bytes. Loaded
+    // mirror_ptr_ value referencing offsets in these very bytes. Loaded
     // user-side via hermes::from_bytes_copy; future M4 steps add the cross-
     // arena lookup so sema/mono skip re-lowering stdlib AST.
     //
@@ -566,11 +566,13 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         // stays at its offset; only its values array may move —
                         // so stamping after the mirror was emitted is safe.
                         auto stamp_export_id =
-                            [&](hermes::arena_offset_t off, uint32_t oid) {
-                            if (off == hermes::arena_offset_t{}) return;
+                            [&](const uint8_t* addr, uint32_t oid) {
+                            if (addr == nullptr) return;
                             auto av = hermes::AnyVal::from_value<uint32_t>(
                                 oid, static_cast<uint8_t>(hermes::type_hash::U24));
-                            (void) hermes::TinyMapView(off, holder)
+                            (void) hermes::TinyMapView(
+                                reinterpret_cast<hermes::TinyObjectMap*>(
+                                    const_cast<uint8_t*>(addr)), holder)
                                 .put(lir_schema::stmt_keys::EXPORT_ID.code, av);
                         };
                         auto try_publish = [&](const lir::LFunction& fn) {
@@ -578,10 +580,10 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                             if (fn.is_specialization) return;
                             if (!fn.type_params.empty()) return;
                             if (fn.from_binary_module) return;
-                            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
-                            auto av = hermes::AnyVal::from_offset(prog.type_pool.arena()->head().data(), fn.body.mirror_offset_);
+                            if (fn.body.mirror_ptr_ == nullptr) return;
+                            hermes::AnyVal av; av.set_ref(fn.body.mirror_ptr_);
                             if (auto r = hermes::arena_publish_named(*bld, fn.name, av)) {
-                                stamp_export_id(fn.body.mirror_offset_, *r);
+                                stamp_export_id(fn.body.mirror_ptr_, *r);
                                 ++published;
                             }
                         };
@@ -604,16 +606,16 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         // template's body in stdlib's arena, walks via lir_view
                         // through that arena, substitutes into user's arena.
                         for (auto& tmpl : generic_fn_templates) {
-                            auto av = hermes::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
+                            hermes::AnyVal av; av.set_ref(tmpl.body_addr);
                             if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
-                                stamp_export_id(tmpl.body_offset, *r);
+                                stamp_export_id(tmpl.body_addr, *r);
                                 ++published_tmpl;
                             }
                         }
                         for (auto& tmpl : generic_method_templates) {
-                            auto av = hermes::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
+                            hermes::AnyVal av; av.set_ref(tmpl.body_addr);
                             if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
-                                stamp_export_id(tmpl.body_offset, *r);
+                                stamp_export_id(tmpl.body_addr, *r);
                                 ++published_tmpl;
                             }
                         }

@@ -448,8 +448,8 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rit = out_.hstatic_registry_.find(hash);
         if (rit == out_.hstatic_registry_.end()) return tv;
-        if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return tv;
-        lir_view::ExprRef eref(out_.type_pool.arena(), rit->second->mirror_offset_);
+        if (!rit->second || rit->second->mirror_ptr_ == nullptr) return tv;
+        lir_view::ExprRef eref(out_.type_pool.arena(), rit->second->mirror_ptr_);
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return tv;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };

@@ -130,7 +130,7 @@ struct PatRefPat {
 // B.6 Stage 3.5 step 7e: Pattern is a POD shell — payload lives in the LIR
 // mirror; pattern variant kinds are transient parameter packs, not stored.
 struct Pattern {
-    mutable hermes::arena_offset_t mirror_offset_{};
+    mutable const uint8_t* mirror_ptr_ = nullptr;
 
     Pattern() = default;
     Pattern(const Pattern&) = default;
@@ -189,7 +189,7 @@ struct HVType {
 };
 
 struct HermesVal {
-    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+    mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
 
     HermesVal() = default;
     HermesVal(const HermesVal&) = default;
@@ -480,7 +480,7 @@ struct LExpr {
     // Stage 3g.2 / 7e: back-pointer to this node's Hermes mirror is the only
     // payload — the variant kind has been dropped, all readers go through the
     // mirror via lir_view::ExprRef.
-    mutable hermes::arena_offset_t mirror_offset_{};
+    mutable const uint8_t* mirror_ptr_ = nullptr;
 };
 
 // ── Statement node payloads ───────────────────────────────────────────────
@@ -623,7 +623,7 @@ struct SDrop {
 
 struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
-    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+    mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
 
     LStmt() = default;
     LStmt(const LStmt&) = default;
@@ -636,7 +636,7 @@ struct LStmt {
 
 struct LBlock {
     std::vector<LStmt> stmts;
-    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+    mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
 };
 
 // ── Top-level declarations ────────────────────────────────────────────────
