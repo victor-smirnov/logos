@@ -174,7 +174,13 @@ struct LogosTypeBuilder;  // defined below TypeRef
 
 class TypeRef {
     const hermes::Arena*      arena_ = nullptr;
-    hermes::arena_offset_t    off_{};  // NULL_OFFSET when null
+    // Stage B (self-relative handles): the interned type's mirror is addressed by
+    // its ABSOLUTE pointer, resolved once at construction (self-relative AnyVal::
+    // resolve() — no base threading). arena_ is retained for offset() (the type
+    // identity key into TypePoolImpl::uid_of_ / intern_buckets_, and .hermes0
+    // serialization) and for holder lookup. nullptr = null ref. Within one arena
+    // ptr_ equality ≡ offset equality, so type identity is preserved.
+    const uint8_t*            ptr_ = nullptr;
     const TypePoolImpl*       pool_  = nullptr;
     // Phase 2.B (multi-arena IR): arena_id of the arena this TypeRef belongs
     // to. INVALID_ARENA_ID = "local arena" (single-arena fast path, current
@@ -183,50 +189,58 @@ class TypeRef {
     // id. Single-arena code paths leave this default (INVALID) and behave
     // exactly as before. See docs/internals/multi-arena-ir.md §3.1.
     hermes::arena_id_t        arena_id_ = hermes::INVALID_ARENA_ID;
+
+    static const uint8_t* ptr_from_off(const hermes::Arena* a,
+                                       hermes::arena_offset_t o) noexcept {
+        return (a && o != hermes::NULL_OFFSET) ? a->head().data() + o.value() : nullptr;
+    }
 public:
     constexpr TypeRef() noexcept = default;
     constexpr TypeRef(std::nullptr_t) noexcept {}
+    // (arena, offset) — resolve against the single-chunk base (the interning/root
+    // path: TypePoolImpl::ref(off) and cross-arena r.offset() both feed offsets).
     TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
             const TypePoolImpl* p) noexcept
-        : arena_(a), off_(off), pool_(p) {}
+        : arena_(a), ptr_(ptr_from_off(a, off)), pool_(p) {}
     // Cross-arena constructor: explicit arena_id of the (typically remote)
     // arena. Used by ptr_via_mirror's ExternalRef dispatch path.
     TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
             const TypePoolImpl* p, hermes::arena_id_t aid) noexcept
-        : arena_(a), off_(off), pool_(p), arena_id_(aid) {}
-    // AnyVal constructors — compute the within-arena offset from a value-form Ref
-    // against `a`'s single-chunk base (the cut-over unifies offset/AnyVal handles).
+        : arena_(a), ptr_(ptr_from_off(a, off)), pool_(p), arena_id_(aid) {}
+    // AnyVal constructors — self-relative resolve (no base): av.resolve() gives the
+    // absolute mirror address directly. Chunk-agnostic (ready for MultiChunk).
     TypeRef(const hermes::Arena* a, hermes::AnyVal av, const TypePoolImpl* p) noexcept
-        : arena_(a),
-          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes::NULL_OFFSET),
-          pool_(p) {}
+        : arena_(a), ptr_(av.is_ref() ? av.resolve() : nullptr), pool_(p) {}
     TypeRef(const hermes::Arena* a, hermes::AnyVal av, const TypePoolImpl* p,
             hermes::arena_id_t aid) noexcept
-        : arena_(a),
-          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes::NULL_OFFSET),
+        : arena_(a), ptr_(av.is_ref() ? av.resolve() : nullptr),
           pool_(p), arena_id_(aid) {}
 
     constexpr explicit operator bool() const noexcept {
-        return off_ != hermes::NULL_OFFSET;
+        return ptr_ != nullptr;
     }
 
-    hermes::arena_offset_t offset() const noexcept { return off_; }
+    hermes::arena_offset_t offset() const noexcept {
+        auto* b = mirror_base();
+        return (ptr_ && b) ? hermes::arena_offset_t(static_cast<uint32_t>(ptr_ - b))
+                           : hermes::NULL_OFFSET;
+    }
 
     friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept {
-        return a.off_ == b.off_;
+        return a.ptr_ == b.ptr_;
     }
     friend constexpr bool operator==(TypeRef a, std::nullptr_t) noexcept {
-        return a.off_ == hermes::NULL_OFFSET;
+        return a.ptr_ == nullptr;
     }
     friend constexpr bool operator==(std::nullptr_t, TypeRef a) noexcept {
-        return a.off_ == hermes::NULL_OFFSET;
+        return a.ptr_ == nullptr;
     }
 
     uint8_t* mirror_base() const noexcept {
         return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
     }
     const hermes::TinyObjectMap* mirror() const noexcept {
-        return reinterpret_cast<const hermes::TinyObjectMap*>(mirror_base() + off_.value());
+        return reinterpret_cast<const hermes::TinyObjectMap*>(ptr_);
     }
     const hermes::Arena* arena() const noexcept { return arena_; }
     const TypePoolImpl* pool() const noexcept { return pool_; }

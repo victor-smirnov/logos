@@ -88,6 +88,11 @@ public:
     TypeRef ref(hermes::arena_offset_t off) const noexcept {
         return TypeRef{&arena(), off, this};
     }
+    // Self-relative overload: attach this pool to a child mirror addressed by a
+    // value-form Ref (av.resolve(), no base) — the base-free navigation path.
+    TypeRef ref(hermes::AnyVal av) const noexcept {
+        return TypeRef{&arena(), av, this};
+    }
 
     TypePoolImpl(logos::InitTag& tag) {
         // HermesCtr::make builds the MemHolder (refcount 1, owned by ctr_) AND the
@@ -1163,7 +1168,7 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     // same arena. This branch covers ~100% of current single-arena work.
     if (!hermes::is_external_ref_av(av)) [[likely]] {
         if (self.pool()) {
-            return self.pool()->ref(av.to_offset(self.mirror_base()));
+            return self.pool()->ref(av);
         }
         // Self is already cross-arena (pool=nullptr). Chain into the same
         // foreign arena: same arena bytes, same arena_id, no local pool.
@@ -1237,7 +1242,6 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
                                           sema_schema::Key key) {
     std::vector<TypeRef> result;
     if (!self) return result;
-    auto* base = self.mirror_base();
     auto av = self.mirror()->get(key.code);
     if (av.is_null()) return result;
     auto* arr = av.as_ptr<const hermes::ObjectArray>();
@@ -1258,7 +1262,7 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
             result.push_back(TypeRef(&r.mem->arena(), r.offset(),
                                      /*pool=*/nullptr, ref->arena_id()));
         } else if (self.pool()) {
-            result.push_back(self.pool()->ref(e.to_offset(self.mirror_base())));
+            result.push_back(self.pool()->ref(e));
         } else {
             result.push_back(TypeRef(self.arena(), e,
                                      /*pool=*/nullptr, self.arena_id()));
@@ -1270,7 +1274,6 @@ std::vector<std::string> string_vec_via_mirror(const TypeRef& self,
                                                 sema_schema::Key key) {
     std::vector<std::string> result;
     if (!self) return result;
-    auto* base = self.mirror_base();
     auto av = self.mirror()->get(key.code);
     if (av.is_null()) return result;
     auto* arr = av.as_ptr<const hermes::ObjectArray>();
