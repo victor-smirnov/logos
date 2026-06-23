@@ -126,7 +126,6 @@ public:
     // in lower_let / lower_return / assoc-const lookup. Must only be
     // called when no enclosing structure has snapshotted `e` yet — i.e.
     // before the LExpr is fed into a parent builder call.
-    void retype_expr(lir::LExpr* e, TypeRef new_ty);
     void retype_expr(lir_view::ExprRef e, TypeRef new_ty);
 
     // ── Statement constructors ──────────────────────────────────────────

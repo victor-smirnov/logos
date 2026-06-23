@@ -37,15 +37,11 @@ namespace logos::compiler::lir {
 
 // ── Forward declarations ──────────────────────────────────────────────────
 
-struct LExpr;
 struct LStmt;
 struct LBlock;
 struct LFunction;
 
-// ADR 0007 slice 1b: LExpr is pool-owned by LProgram::expr_pool_.
-// LExprPtr is now a non-owning raw handle — allocate via lir::alloc_expr(prog).
-// Variant fields previously holding unique_ptr<LExpr> now hold raw LExpr*.
-// std::move() on LExprPtr remains legal (it's a no-op pointer copy).
+// The husk LExpr skeleton struct is gone — expression handles are mirror VIEWS.
 using LExprPtr     = lir_view::ExprRef;
 // ADR 0007 slice 1c: LBlock is pool-owned by LProgram::block_pool_.
 // LBlockPtr is a non-owning raw handle — allocate via lir::alloc_block(prog, ...).
@@ -485,21 +481,6 @@ struct EBlockExpr {
 struct EReflectOf { TypeRef type; };
 
 // ── Expression node ───────────────────────────────────────────────────────
-
-struct LExpr {
-    TypeRef type = nullptr;   // always set; error_t() on ill-typed nodes
-    // Stage 3g.2 / 7e: back-pointer to this node's Hermes mirror is the only
-    // payload — the variant kind has been dropped, all readers go through the
-    // mirror via lir_view::ExprRef.
-    mutable const uint8_t* mirror_ptr_ = nullptr;
-    // Stage D bridge (TRANSIENT): the arena this node's mirror lives in, so an
-    // LExpr* converts to a lir_view::ExprRef for free during the LExprPtr→ExprRef
-    // migration. Dropped together with this whole struct once the skeleton is gone.
-    const hermes::Arena* arena = nullptr;
-    operator lir_view::ExprRef() const noexcept {
-        return lir_view::ExprRef(arena, mirror_ptr_);
-    }
-};
 
 // ── Statement node payloads ───────────────────────────────────────────────
 
@@ -1164,22 +1145,11 @@ struct LProgram {
     // global module → no module qualification (byte-identical legacy mangle).
     std::unordered_map<std::string, std::string> pkg_module_ids;
 
-    // ADR 0007 slice 1b: pool that owns every LExpr in this program. Builder
-    // and mono allocate through `alloc_expr(prog)`; variant fields hold raw
-    // LExpr* into this pool. Pool is append-only and survives until LProgram
-    // destruction, so handles never dangle.
-    //
-    // M5 step 4: wrapped in shared_ptr so multiple LPrograms can share the
-    // SAME underlying vector. The SemaCache uses this to keep cached
-    // LExpr* alive across sema_lower invocations even after mono moves
-    // the LProgram into its out_ and discards it. Vector reallocation
-    // during push_back doesn't invalidate `LExpr*` (heap objects don't
-    // move when the vector resizes — only the unique_ptr slots do).
-    std::shared_ptr<std::deque<LExpr>>      expr_pool_;
-
-    // ADR 0007 slice 1c: matching pools for LBlock / HermesVal / EClosure.
-    // Same semantics as expr_pool_ — append-only, lifetime = LProgram. Mono
-    // moves these alongside expr_pool_ to keep raw handles valid.
+    // ADR 0007 slice 1c: pools for LBlock / HermesVal / EClosure. Append-only,
+    // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
+    // underlying deque (SemaCache holds a ref so cached raw handles survive past
+    // mono's out_ destruction); deque never moves elements, so handles never
+    // dangle. Mono moves these from in_ to out_ to keep raw handles valid.
     std::shared_ptr<std::deque<LBlock>>     block_pool_;
     std::shared_ptr<std::deque<HermesVal>>  hermes_val_pool_;
     std::shared_ptr<std::deque<EClosure>>   closure_pool_;
@@ -1299,22 +1269,6 @@ struct LProgram {
     LProgram& operator=(const LProgram&) = delete;
 };
 
-// ADR 0007 slice 1b: allocator for LExpr nodes in the program pool.
-// Returns a non-owning raw pointer; the unique_ptr in expr_pool_ keeps
-// the node alive for the lifetime of the LProgram.
-//
-// M5 step 4: pools are shared_ptr<vector<unique_ptr<X>>>. Constructor
-// initializes them; if ever passed a default-constructed LProgram (e.g.
-// from {} init), lazy-init here to avoid null-deref. Sharing across
-// LPrograms happens via shared_ptr copy at mono's out_ assignment.
-inline LExpr* alloc_expr(LProgram& prog) {
-    if (!prog.expr_pool_) prog.expr_pool_ = std::make_shared<std::deque<LExpr>>();
-    prog.expr_pool_->emplace_back();
-    LExpr* e = &prog.expr_pool_->back();
-    e->arena = &prog.type_pool.arena_or_init();  // Stage D bridge (transient; never-move arena)
-    return e;
-}
-
 // Slice 1c allocators. Forward Args... so callers can `alloc_block(prog, std::move(inner))`
 // or `alloc_block(prog)` for default-construction.
 template <class... Args>
@@ -1339,7 +1293,6 @@ inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
 }
 
 // Stage D bridge (transient): wrap a raw skeleton handle as a mirror VIEW.
-inline lir_view::ExprRef eref(const LExpr* e) noexcept { return e ? lir_view::ExprRef(*e) : lir_view::ExprRef{}; }
 inline lir_view::BlockRef bref(const LBlock* b) noexcept { return b ? lir_view::BlockRef(*b) : lir_view::BlockRef{}; }
 
 } // namespace logos::compiler::lir
@@ -1348,8 +1301,6 @@ namespace logos::compiler {
 
 // Stage D bridge (transient): out-of-line defs of the implicit View ctors that
 // take a raw skeleton handle (declared in lir_view.hpp; need LExpr/LBlock layout).
-inline lir_view::ExprRef::ExprRef(const lir::LExpr* e) noexcept
-    : RefBase(e ? e->arena : nullptr, e ? e->mirror_ptr_ : nullptr) {}
 inline lir_view::BlockRef::BlockRef(const lir::LBlock* b) noexcept
     : RefBase(b ? b->arena : nullptr, b ? b->mirror_ptr_ : nullptr) {}
 

@@ -4317,10 +4317,6 @@ private:
     // These wrap the free ExprRef-based helpers so the variant peek lives
     // here (via expr_ref_of), letting B.6 drop the LExpr-variant payload
     // without touching ~100 call sites in sema_stmt/sema_expr.
-    std::optional<int64_t> get_intlit_value(const lir::LExpr* e) const noexcept {
-        if (!e) return std::nullopt;
-        return logos::compiler::get_intlit_value(expr_ref_of(e));
-    }
     std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) const noexcept {
         return logos::compiler::get_intlit_value(e);
     }

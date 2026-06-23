@@ -21,7 +21,6 @@
 
 namespace logos::compiler {
 
-using lir::LExpr;
 using lir::LStmt;
 using lir::LBlock;
 using lir::LMatchArm;
@@ -89,7 +88,6 @@ public:
 
     // Public per-node entry points (Stage 3g.1). Called from
     // lir_mirror_emit_*_node free functions; idempotent via table cache.
-    const uint8_t* emit_expr_public (const LExpr& e)    { return emit_expr(e); }
     const uint8_t* emit_stmt_public (const LStmt& s)    { return emit_stmt(s); }
     const uint8_t* emit_block_public(const LBlock& b)   { return emit_block(b); }
     const uint8_t* emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
@@ -1352,7 +1350,6 @@ private:
 
     // ── expression emit ────────────────────────────────────────────────────
 
-    const uint8_t* emit_expr(const LExpr& e);
     const uint8_t* emit_stmt(const LStmt& s);
     const uint8_t* emit_block(const LBlock& b);
     const uint8_t* emit_pat(const Pattern& p);
@@ -1659,29 +1656,6 @@ const uint8_t* LirMirrorEmitter::emit_stmt(const LStmt& s) {
     return s.mirror_ptr_;
 }
 
-
-// ──────────────────────────────────────────────────────────────────────────
-// LExpr mirror — biggest switch
-// ──────────────────────────────────────────────────────────────────────────
-
-const uint8_t* LirMirrorEmitter::emit_expr(const LExpr& e) {
-    // B.6 Stage 3.5 step 7d: mirror_ptr_ is field-as-truth. All LExpr
-    // construction sites (sema LirBuilder direct(), mono subst_expr per-kind
-    // direct emitters, closure_box) eagerly emit and set mirror_ptr_ via
-    // per-kind direct emitters; children are registered transitively. The
-    // bulk std::visit body that previously walked LExpr::kind is gone.
-    LOGOS_ASSERT(e.mirror_ptr_ != nullptr,
-                 "B6.S35.S7D",
-                 "emit_expr: LExpr reached without mirror_ptr_ set "
-                 "(construction site missed direct-emit migration)");
-    if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
-        if (it->second == e.mirror_ptr_) return it->second;
-        it->second = e.mirror_ptr_;
-        return e.mirror_ptr_;
-    }
-    table_.expr[&e] = e.mirror_ptr_;
-    return e.mirror_ptr_;
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // Top-level driver
@@ -2236,11 +2210,6 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
 // lir_mirror_emit_function — which keeps existing post-sema and per-clone
 // passes correct without modification.
 
-const uint8_t* lir_mirror_emit_expr_node(lir::LProgram& prog, const lir::LExpr& e) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_expr_public(e);
-}
 const uint8_t* lir_mirror_emit_stmt_node(lir::LProgram& prog, const lir::LStmt& s) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
@@ -2260,33 +2229,6 @@ const uint8_t* lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::HermesVal
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_public(v);
-}
-
-void lir_mirror_update_type(lir::LProgram& prog, const lir::LExpr& e) {
-    // Phase 5.B step 2 prerequisite: sema modifies LExpr.type AFTER initial
-    // mirror emit at 5 sites (sema_stmt:1244, sema_expr:629/1419/4408/12216).
-    // Overwrite the mirror's TYPE field in-place so view-based readers
-    // (mlir_gen, borrow_check, mono_scan, region_infer, mono cross-arena
-    // subst_expr) observe the post-construction type.
-    //
-    // TinyObjectMap::put for an existing key is in-place (no arena grow),
-    // so this is cheap and safe to call repeatedly.
-    if (e.mirror_ptr_ == nullptr) return;
-    auto& ctr = prog.type_pool.ctr_or_init();
-    auto tom = hermes::TinyMapView(
-        reinterpret_cast<hermes::TinyObjectMap*>(const_cast<uint8_t*>(e.mirror_ptr_)),
-        ctr.holder());
-    hermes::AnyVal av;
-    if (e.type) av.set_ref(e.type.addr());
-    // Ignore put() error: TYPE key was already present when the mirror
-    // was first emitted (every emit_*_direct that gets a non-null ty
-    // writes the TYPE key), so this is an in-place overwrite that
-    // cannot OOM. If TYPE was absent (e.g. construction-time ty was
-    // null), put() may need to grow the TinyObjectMap; in that case
-    // it returns error but we have nothing useful to do — the original
-    // mirror just stays with no TYPE key, same as it was before this
-    // helper was called. Either way, observable state is consistent.
-    (void) tom.put(lir_schema::expr_common::TYPE.code, av);
 }
 
 } // namespace logos::compiler

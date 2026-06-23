@@ -166,10 +166,6 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
 // gen_expr — main dispatcher
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr(const LExpr& e) {
-    return gen_expr(expr_ref_of(e));
-}
-
 mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     if (!er) {
         std::fprintf(stderr, "mlir_gen: gen_expr called without LIR mirror\n");

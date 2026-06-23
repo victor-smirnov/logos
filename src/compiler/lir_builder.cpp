@@ -294,14 +294,6 @@ lir_view::ExprRef LirBuilder::hermes_cast(lir::LExprPtr operand, std::string bui
         [&](auto& p, TypeRef t){ return lir_mirror_emit_cast(p, t, operand, build_fn); });
 }
 
-void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
-    e->type = new_ty;
-    // Stage 2: variant-free leaf kinds have e->kind at default (ELitInt{0}),
-    // so we can't reliably re-walk the variant. Update the TYPE field on the
-    // existing mirror in-place; mirror is the truth.
-    lir_mirror_retype_expr(prog_, e->mirror_ptr_, new_ty);
-}
-
 // Stage D: retype by mirror view — the mirror IS the truth, so just rewrite its
 // TYPE key (no C++ skeleton node needed; callers that only hold an ExprRef use
 // this instead of round-tripping through lexpr_of).

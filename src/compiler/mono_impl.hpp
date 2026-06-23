@@ -137,10 +137,6 @@ protected:
         if (it == tbl.pat.end()) return {};
         return lir_view::PatRef(effective_src_arena(), it->second);
     }
-    lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        if (e.mirror_ptr_ == nullptr) return {};
-        return lir_view::ExprRef(effective_src_arena(), e.mirror_ptr_);
-    }
     lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
         if (s.mirror_ptr_ == nullptr) return {};
         return lir_view::StmtRef(effective_src_arena(), s.mirror_ptr_);

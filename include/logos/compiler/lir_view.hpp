@@ -29,7 +29,7 @@
 #include <string_view>
 #include <vector>
 
-namespace logos::compiler::lir { struct LExpr; struct LBlock; }
+namespace logos::compiler::lir { struct LBlock; }
 
 namespace logos::compiler::lir_view {
 
@@ -244,10 +244,12 @@ class HermesValRef;
 class ExprRef : public detail::RefBase {
 public:
     ExprRef() = default;
+    // Null-handle convenience: `LExprPtr x = nullptr` / `cond ? e : nullptr`
+    // are the codebase's idiom for an absent expression handle (= default ExprRef).
+    constexpr ExprRef(std::nullptr_t) noexcept {}
     // Inherit RefBase's (arena,offset[,aid]) and the self-relative (arena,AnyVal[,aid])
     // ctors — the latter make child navigation base-free (av.resolve(), MultiChunk-ready).
     using RefBase::RefBase;
-    ExprRef(const lir::LExpr* e) noexcept;
 
     lir_schema::expr::Code kind() const noexcept {
         return lir_schema::expr::Code(

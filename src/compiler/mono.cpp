@@ -154,14 +154,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         out_.mirror_table = std::make_unique<LirMirrorTable>();
     }
 
-    // Slice 1b: LExprPtr is now a raw pointer into LProgram::expr_pool_.
-    // Moving consts/functions/etc. from in_ to out_ leaves their LExpr*'s
-    // pointing into in_.expr_pool_ — so we must transfer the pool too. New
-    // mono-cloned exprs are appended onto this same pool by alloc_expr(out_).
     // M6.2: when has_prev_out_, in_'s pools/type_pool are the SAME shared_ptr
     // values as prev_out_'s (via SemaCache), so this move is effectively a
     // no-op for the pointed-to data — refcounts stay the same.
-    out_.expr_pool_          = std::move(in_.expr_pool_);
     // Module system: carry the package→module map forward so metaprog delta
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;

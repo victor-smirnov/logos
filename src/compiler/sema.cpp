@@ -369,7 +369,6 @@ public:
     // step 4 the pools are shared_ptr<vector<...>>; cache must hold a
     // ref or mono's out_ destruction would drop the last refcount and
     // free the underlying vectors — dangling cached LExpr* etc.
-    std::shared_ptr<std::deque<lir::LExpr>>      expr_pool;
     std::shared_ptr<std::deque<lir::LBlock>>     block_pool;
     std::shared_ptr<std::deque<lir::HermesVal>>  hermes_val_pool;
     std::shared_ptr<std::deque<lir::EClosure>>   closure_pool;
@@ -2266,7 +2265,6 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         // Without this, cached LExpr*/LBlock*/etc. (e.g. via
         // hstatic_registry) dangle as soon as mono's out_ pool refcount
         // drops to zero. Cache's shared_ptr holds the storage alive.
-        if (cache_->impl()->expr_pool)        prog.expr_pool_        = cache_->impl()->expr_pool;
         if (cache_->impl()->block_pool)       prog.block_pool_       = cache_->impl()->block_pool;
         if (cache_->impl()->hermes_val_pool)  prog.hermes_val_pool_  = cache_->impl()->hermes_val_pool;
         if (cache_->impl()->closure_pool)     prog.closure_pool_     = cache_->impl()->closure_pool;
@@ -2274,8 +2272,8 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
 
     // M5 step 3b+5a+5c: install cached symbol tables + restore the
-    // hstatic_registry. Step 4's shared expr_pool_ keeps cached LExpr*
-    // valid; Step 5b's per-binary-AST skip in collect keeps user ASTs
+    // hstatic_registry. The shared block/hermes_val/closure pools keep cached
+    // raw handles valid; Step 5b's per-binary-AST skip in collect keeps user ASTs
     // re-walking each call (so strict validation still fires) without
     // tripping ODR-less duplicate checks; Step 5c's user-pkg filter in
     // take_snapshot ensures the persisted state contains binary-origin
@@ -2327,7 +2325,6 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         cache_->impl()->shared_pool = prog.type_pool.shared_clone();
         // M5 step 5: keep refcounts on the LIR pools so cached
         // LExpr*/LBlock*/etc. survive past mono's out_ destruction.
-        cache_->impl()->expr_pool        = prog.expr_pool_;
         cache_->impl()->block_pool       = prog.block_pool_;
         cache_->impl()->hermes_val_pool  = prog.hermes_val_pool_;
         cache_->impl()->closure_pool     = prog.closure_pool_;

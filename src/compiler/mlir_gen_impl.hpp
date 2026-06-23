@@ -138,10 +138,6 @@ private:
     const LProgram*       prog_   = nullptr;
     const LirMirrorTable* mirror_ = nullptr;
 
-    lir_view::ExprRef expr_ref_of(const LExpr& e) const noexcept {
-        if (!prog_ || e.mirror_ptr_ == nullptr) return {};
-        return lir_view::ExprRef(prog_->type_pool.arena(), e.mirror_ptr_);
-    }
     // Resolve an ExprRef back to its variant LExpr* via the mirror's reverse
     // map. Used inside view-handlers to recurse through gen_expr() on
     // sub-expressions while the rest of the dispatcher still walks variants.
@@ -1059,7 +1055,6 @@ private:
     void gen_match(lir_view::SMatchView v);
 
     // ── Expressions ───────────────────────────────────────────────
-    mlir::Value gen_expr(const LExpr& e);
     mlir::Value gen_expr(lir_view::ExprRef er);
 
     mlir::Value gen_expr_kind(lir_view::ELitIntView v,   TypeRef type);
