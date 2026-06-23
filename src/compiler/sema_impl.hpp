@@ -342,7 +342,7 @@ private:
         if (!arg || !expected) return false;
         TypeRef et(expected);
         if (et.kind() != LogosType::Kind::Slice) return false;
-        TypeRef at(arg->type);
+        TypeRef at(expr_type(arg));
         if (!at) return false;
         bool is_ref_or_ptr =
             at.kind() == LogosType::Kind::Ref ||
@@ -382,7 +382,7 @@ private:
             et.kind() != LogosType::Kind::Ptr) return false;
         TypeRef pointee = et.pointee();
         if (!pointee || pointee.kind() != LogosType::Kind::Array) return false;
-        TypeRef at(arg->type);
+        TypeRef at(expr_type(arg));
         if (!at || at.kind() != LogosType::Kind::Slice) return false;
         if (!types_compatible(at.elem(), pointee.elem())) return false;
         auto xref = expr_ref_of(*arg);
@@ -572,7 +572,7 @@ private:
     }
     bool try_retype_bare_enum_arg(lir::LExprPtr& arg, TypeRef expected) {
         if (!arg || !expected) return false;
-        TypeRef at(arg->type), pt(expected);
+        TypeRef at(expr_type(arg)), pt(expected);
         // Peel `&Enum<T>` / `&mut Enum<T>` on the target so a `&Option::None`
         // arg vs `&Option<i32>` formal still triggers retype (the call-arg
         // coercion site may have wrapped pt in a ref). Pre-fix this peel
@@ -613,7 +613,7 @@ private:
     bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, TypeRef expected) {
         TypeRef er(expected);
         if (!arg || !er || er.kind() != LogosType::Kind::FnPtr) return false;
-        TypeRef at(arg->type);
+        TypeRef at(expr_type(arg));
         if (!at || at.kind() != LogosType::Kind::Closure) return false;
         auto xref = expr_ref_of(*arg);
         if (!xref || xref.kind() != lir_schema::expr::Code::ClosureBox) return false;
@@ -2058,7 +2058,7 @@ private:
     // owns the Drop responsibility.
     void track_write_move(const lir::LExprPtr& val) {
         if (!val) return;
-        if (!is_move_type(val->type)) return;
+        if (!is_move_type(expr_type(val))) return;
         mark_moved_expr(expr_ref_of(*val));
     }
 
@@ -3398,7 +3398,7 @@ private:
         };
         size_t n = std::min(callee_param_types.size(), arg_exprs.size());
         for (size_t i = 0; i < n; ++i)
-            if (arg_exprs[i]) walk(callee_param_types[i], arg_exprs[i]->type);
+            if (arg_exprs[i]) walk(callee_param_types[i], expr_type(arg_exprs[i]));
         auto adj = outlives_adj(current_outlives_);
         for (auto& [c_long, c_short] : callee_outlives) {
             // 'static is reserved — always satisfies; skip checking.
@@ -3493,7 +3493,7 @@ private:
             for (auto& fi : sinfo_fields) {
                 if (fi.name == fname) { fdecl = fi.type; break; }
             }
-            if (fdecl) walk(fdecl, fval->type);
+            if (fdecl) walk(fdecl, expr_type(fval));
         }
         auto adj = outlives_adj(current_outlives_);
         for (auto& [c_long, c_short] : sinfo_outlives) {
@@ -4324,8 +4324,8 @@ private:
         return logos::compiler::get_intlit_value(e);
     }
     void widen_int_expr(lir::LExprPtr& e, TypeRef target, LirBuilder b) {
-        if (!e || !target || !e->type) return;
-        auto ek = TypeRef(e->type).kind();
+        if (!e || !target || !expr_type(e)) return;
+        auto ek = TypeRef(expr_type(e)).kind();
         auto tk = TypeRef(target).kind();
         // G149-2 (silent miscompile): `&<int-literal>` passed where `&T` is
         // expected. The arg lowers to an AddrOfTemp whose inner literal stays
@@ -4335,7 +4335,7 @@ private:
         // and widen it to the pointee so the temp's slot is sized to T.
         if ((ek == LogosType::Kind::Ref || ek == LogosType::Kind::MutRef) &&
             (tk == LogosType::Kind::Ref || tk == LogosType::Kind::MutRef) &&
-            TypeRef(e->type).pointee() && TypeRef(target).pointee()) {
+            TypeRef(expr_type(e)).pointee() && TypeRef(target).pointee()) {
             auto er = expr_ref_of(*e);
             if (er.kind() == lir_schema::expr::Code::AddrOfTemp) {
                 lir_view::EAddrOfTempView av{er};
@@ -4361,7 +4361,7 @@ private:
         }
         if (ek == tk) return;
         bool ok = can_widen_int(ek, tk);
-        if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {
+        if (!ok && is_integer_kind(TypeRef(expr_type(e)).kind()) && is_integer_kind(TypeRef(target).kind())) {
             if (auto v = get_intlit_value(e))
                 if (intlit_fits(*v, TypeRef(target).kind()))
                     ok = true;

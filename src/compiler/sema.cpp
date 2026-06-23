@@ -1722,7 +1722,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
         int score = 0;
         bool ok = true;
         for (size_t i = 0; i < fi->param_types.size(); ++i) {
-            auto at = arg_exprs[i] ? arg_exprs[i]->type : nullptr;
+            auto at = arg_exprs[i] ? expr_type(arg_exprs[i]) : nullptr;
             auto pt = fi->param_types[i];
             if (!at || !pt) { ok = false; break; }
             if (types_equal(at, pt)) score = std::max(score, 2);
@@ -1753,7 +1753,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
             int score = 0;
             bool ok = true;
             for (size_t i = 0; i < fi->param_types.size(); ++i) {
-                auto at = arg_exprs[i] ? arg_exprs[i]->type : nullptr;
+                auto at = arg_exprs[i] ? expr_type(arg_exprs[i]) : nullptr;
                 auto pt = fi->param_types[i];
                 if (!at || !pt) { ok = false; break; }
                 if (types_equal(at, pt)) score = std::max(score, 2);
@@ -4715,8 +4715,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rit = cur_prog_->hstatic_registry_.find(hash);
         if (rit == cur_prog_->hstatic_registry_.end()) return t;
-        if (!rit->second || rit->second->mirror_ptr_ == nullptr) return t;
-        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_ptr_);
+        if (!rit->second || lir::eref(rit->second).addr() == nullptr) return t;
+        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), lir::eref(rit->second).addr());
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };
@@ -5011,8 +5011,8 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
             uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
             auto rit = cur_prog_->hstatic_registry_.find(hash);
             if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
-                rit->second->mirror_ptr_ != nullptr) {
-                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second->mirror_ptr_);
+                lir::eref(rit->second).addr() != nullptr) {
+                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), lir::eref(rit->second).addr());
                 if (eref.kind() == lir_schema::expr::Code::HermesLit) {
                     // Walk path through the Hermes value.
                     lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
@@ -5629,8 +5629,8 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // is returned.  The LExpr we build is discarded after this call.
         auto expr_node = map_of(node.get(la::VALUE.code));
         auto lex = lower_expr(expr_node);
-        if (!lex || !lex->type) return error_t();
-        return lex->type;
+        if (!lex || !expr_type(lex)) return error_t();
+        return expr_type(lex);
     }
 
     if (tc == la::CFG_SLOT_TYPE) return resolve_type_cfg_slot(node);
