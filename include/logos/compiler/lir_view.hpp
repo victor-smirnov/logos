@@ -38,34 +38,48 @@ namespace detail {
 class RefBase {
 protected:
     const hermes::Arena*   arena_ = nullptr;
-    hermes::arena_offset_t off_{};
+    // Stage B (self-relative handles): the node's mirror is addressed by its
+    // ABSOLUTE pointer, resolved once at construction (self-relative AnyVal::
+    // resolve() — no base threading). arena_ is retained only for offset()
+    // (the .hermes0 serialization round-trip) and ownership. nullptr = null ref.
+    const uint8_t*         ptr_ = nullptr;
     // Phase 2.B (multi-arena IR): arena_id of the arena this ref lives in.
     // INVALID_ARENA_ID = single-arena fast path (current compiler).
     // Non-INVALID = resolved from an ExternalRef; arena_ + arena_id_ are
     // both populated and consistent with each other.
     hermes::arena_id_t     arena_id_ = hermes::INVALID_ARENA_ID;
 
+    static const uint8_t* ptr_from_off(const hermes::Arena* a,
+                                       hermes::arena_offset_t o) noexcept {
+        return (a && o != hermes::NULL_OFFSET) ? a->head().data() + o.value() : nullptr;
+    }
+
     RefBase() = default;
+    // (arena, offset) — resolve against the single-chunk base (valid pre-MultiChunk;
+    // the stored mirror_offset_ bridge path. Stage C/D removes the offset source).
     RefBase(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : arena_(a), off_(o) {}
+        : arena_(a), ptr_(ptr_from_off(a, o)) {}
     // Cross-arena constructor — used by sub_*() dispatchers when a child
     // AnyVal points to an ExternalRef object.
     RefBase(const hermes::Arena* a, hermes::arena_offset_t o,
             hermes::arena_id_t aid) noexcept
-        : arena_(a), off_(o), arena_id_(aid) {}
-    // AnyVal constructors — offset computed from the value-form Ref against `a`'s
-    // single-chunk base (unifies offset/AnyVal handle construction in the cut-over).
+        : arena_(a), ptr_(ptr_from_off(a, o)), arena_id_(aid) {}
+    // AnyVal constructors — self-relative resolve (no base): av.resolve() gives the
+    // absolute mirror address directly. Chunk-agnostic (ready for MultiChunk).
     RefBase(const hermes::Arena* a, hermes::AnyVal av) noexcept
-        : arena_(a), off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes::NULL_OFFSET) {}
+        : arena_(a), ptr_(av.is_ref() ? av.resolve() : nullptr) {}
     RefBase(const hermes::Arena* a, hermes::AnyVal av, hermes::arena_id_t aid) noexcept
-        : arena_(a), off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes::NULL_OFFSET),
-          arena_id_(aid) {}
+        : arena_(a), ptr_(av.is_ref() ? av.resolve() : nullptr), arena_id_(aid) {}
 
 public:
     constexpr explicit operator bool() const noexcept {
-        return off_ != hermes::NULL_OFFSET;
+        return ptr_ != nullptr;
     }
-    hermes::arena_offset_t offset() const noexcept { return off_; }
+    hermes::arena_offset_t offset() const noexcept {
+        auto* b = base();
+        return (ptr_ && b) ? hermes::arena_offset_t(static_cast<uint32_t>(ptr_ - b))
+                           : hermes::NULL_OFFSET;
+    }
     const hermes::Arena*   arena()  const noexcept { return arena_; }
     // Phase 2.B accessors.
     hermes::arena_id_t arena_id() const noexcept { return arena_id_; }
@@ -75,14 +89,14 @@ public:
         return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
     }
     const hermes::TinyObjectMap* mirror() const noexcept {
-        return reinterpret_cast<const hermes::TinyObjectMap*>(base() + off_.value());
+        return reinterpret_cast<const hermes::TinyObjectMap*>(ptr_);
     }
     uint64_t schema_type_code() const noexcept {
         return mirror()->schema_type_code();
     }
 
     friend constexpr bool operator==(const RefBase& a, const RefBase& b) noexcept {
-        return a.off_ == b.off_;
+        return a.ptr_ == b.ptr_;
     }
 };
 
