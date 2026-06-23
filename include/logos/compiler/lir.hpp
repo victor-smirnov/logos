@@ -16,6 +16,7 @@
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
 #include <logos/compiler/lir_view.hpp> // ExprRef/StmtRef/BlockRef (Stage D bridge)
+#include <deque>
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/compat.hpp>    // arena_offset_t
 #include <logos/hermes/compat.hpp>  // ExternalRef (Phase 4.A: LFunction.body_external_ref)
@@ -1165,14 +1166,14 @@ struct LProgram {
     // the LProgram into its out_ and discards it. Vector reallocation
     // during push_back doesn't invalidate `LExpr*` (heap objects don't
     // move when the vector resizes — only the unique_ptr slots do).
-    std::shared_ptr<std::vector<std::unique_ptr<LExpr>>>      expr_pool_;
+    std::shared_ptr<std::deque<LExpr>>      expr_pool_;
 
     // ADR 0007 slice 1c: matching pools for LBlock / HermesVal / EClosure.
     // Same semantics as expr_pool_ — append-only, lifetime = LProgram. Mono
     // moves these alongside expr_pool_ to keep raw handles valid.
-    std::shared_ptr<std::vector<std::unique_ptr<LBlock>>>     block_pool_;
-    std::shared_ptr<std::vector<std::unique_ptr<HermesVal>>>  hermes_val_pool_;
-    std::shared_ptr<std::vector<std::unique_ptr<EClosure>>>   closure_pool_;
+    std::shared_ptr<std::deque<LBlock>>     block_pool_;
+    std::shared_ptr<std::deque<HermesVal>>  hermes_val_pool_;
+    std::shared_ptr<std::deque<EClosure>>   closure_pool_;
 
     // Phase 3b: Hermes mirror back-references. Populated by lir_mirror_emit.
     // Held by unique_ptr to keep lir.hpp free of <unordered_map> for the
@@ -1298,9 +1299,9 @@ struct LProgram {
 // from {} init), lazy-init here to avoid null-deref. Sharing across
 // LPrograms happens via shared_ptr copy at mono's out_ assignment.
 inline LExpr* alloc_expr(LProgram& prog) {
-    if (!prog.expr_pool_) prog.expr_pool_ = std::make_shared<std::vector<std::unique_ptr<LExpr>>>();
-    prog.expr_pool_->push_back(std::make_unique<LExpr>());
-    LExpr* e = prog.expr_pool_->back().get();
+    if (!prog.expr_pool_) prog.expr_pool_ = std::make_shared<std::deque<LExpr>>();
+    prog.expr_pool_->emplace_back();
+    LExpr* e = &prog.expr_pool_->back();
     e->arena = &prog.type_pool.arena_or_init();  // Stage D bridge (transient; never-move arena)
     return e;
 }
@@ -1309,23 +1310,23 @@ inline LExpr* alloc_expr(LProgram& prog) {
 // or `alloc_block(prog)` for default-construction.
 template <class... Args>
 inline LBlock* alloc_block(LProgram& prog, Args&&... args) {
-    if (!prog.block_pool_) prog.block_pool_ = std::make_shared<std::vector<std::unique_ptr<LBlock>>>();
-    prog.block_pool_->push_back(std::make_unique<LBlock>(std::forward<Args>(args)...));
-    LBlock* b = prog.block_pool_->back().get();
+    if (!prog.block_pool_) prog.block_pool_ = std::make_shared<std::deque<LBlock>>();
+    prog.block_pool_->emplace_back(std::forward<Args>(args)...);
+    LBlock* b = &prog.block_pool_->back();
     b->arena = &prog.type_pool.arena_or_init();  // Stage D bridge (transient; never-move arena)
     return b;
 }
 template <class... Args>
 inline HermesVal* alloc_hermes_val(LProgram& prog, Args&&... args) {
-    if (!prog.hermes_val_pool_) prog.hermes_val_pool_ = std::make_shared<std::vector<std::unique_ptr<HermesVal>>>();
-    prog.hermes_val_pool_->push_back(std::make_unique<HermesVal>(std::forward<Args>(args)...));
-    return prog.hermes_val_pool_->back().get();
+    if (!prog.hermes_val_pool_) prog.hermes_val_pool_ = std::make_shared<std::deque<HermesVal>>();
+    prog.hermes_val_pool_->emplace_back(std::forward<Args>(args)...);
+    return &prog.hermes_val_pool_->back();
 }
 template <class... Args>
 inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
-    if (!prog.closure_pool_) prog.closure_pool_ = std::make_shared<std::vector<std::unique_ptr<EClosure>>>();
-    prog.closure_pool_->push_back(std::make_unique<EClosure>(std::forward<Args>(args)...));
-    return prog.closure_pool_->back().get();
+    if (!prog.closure_pool_) prog.closure_pool_ = std::make_shared<std::deque<EClosure>>();
+    prog.closure_pool_->emplace_back(std::forward<Args>(args)...);
+    return &prog.closure_pool_->back();
 }
 
 // Stage D bridge (transient): wrap a raw skeleton handle as a mirror VIEW.

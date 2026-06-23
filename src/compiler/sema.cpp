@@ -369,10 +369,10 @@ public:
     // step 4 the pools are shared_ptr<vector<...>>; cache must hold a
     // ref or mono's out_ destruction would drop the last refcount and
     // free the underlying vectors — dangling cached LExpr* etc.
-    std::shared_ptr<std::vector<std::unique_ptr<lir::LExpr>>>      expr_pool;
-    std::shared_ptr<std::vector<std::unique_ptr<lir::LBlock>>>     block_pool;
-    std::shared_ptr<std::vector<std::unique_ptr<lir::HermesVal>>>  hermes_val_pool;
-    std::shared_ptr<std::vector<std::unique_ptr<lir::EClosure>>>   closure_pool;
+    std::shared_ptr<std::deque<lir::LExpr>>      expr_pool;
+    std::shared_ptr<std::deque<lir::LBlock>>     block_pool;
+    std::shared_ptr<std::deque<lir::HermesVal>>  hermes_val_pool;
+    std::shared_ptr<std::deque<lir::EClosure>>   closure_pool;
 
     // M5 step 3b: persistent SemaChecker symbol tables. Moved out at end
     // of each sema_lower call, moved in at start of the next. Initially
