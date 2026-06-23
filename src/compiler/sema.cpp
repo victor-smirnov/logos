@@ -41,10 +41,13 @@ namespace logos::compiler {
 // type lives as a TinyObjectMap inside this arena; TypeRef is a fat pointer
 // {arena, offset, pool} into it.
 //
-// Arena mode: GrowableSingleChunk so that RelativePtrs resolved against
-// arena.head().data() are always valid (MultiChunk would scatter tail
-// allocations into separate buffers, breaking TinyObjectMap's fixed-base
-// addressing).
+// Arena mode: MultiChunk — segments never move (grow() appends a fresh chunk),
+// so every object's absolute address is stable for the arena's lifetime. All
+// compiler handles (TypeRef / lir_view mirror_ptr_ / uid_of_ keys) address by
+// pointer (self-relative AnyVal::resolve, never base+offset), which is exactly
+// what MultiChunk's never-move guarantee makes sound — and removes the old 4 GB
+// single-chunk offset ceiling. (GrowableSingleChunk stays HermesCtr-internal,
+// for compactification.)
 
 class TypePoolImpl {
 public:
@@ -88,15 +91,13 @@ public:
         return it != uid_of_.end() ? it->second : LogosType::TypeUID{};
     }
 
-    TypeRef ref(hermes::arena_offset_t off) const noexcept {
-        return TypeRef{&arena(), off, this};
-    }
-    // Self-relative overload: attach this pool to a child mirror addressed by a
-    // value-form Ref (av.resolve(), no base) — the base-free navigation path.
+    // Attach this pool to a child mirror addressed by a value-form Ref
+    // (av.resolve(), no base) — the base-free navigation path.
     TypeRef ref(hermes::AnyVal av) const noexcept {
         return TypeRef{&arena(), av, this};
     }
-    // Rebuild a TypeRef from a stable mirror address (the intern-bucket key).
+    // Rebuild a TypeRef from a stable mirror address (the intern-bucket key /
+    // freshly-minted type). Self-relative, MultiChunk-safe.
     TypeRef ref_at(const uint8_t* p) const noexcept {
         hermes::AnyVal a; a.set_ref(p);
         return TypeRef{&arena(), a, this};
@@ -105,12 +106,17 @@ public:
     TypePoolImpl(logos::InitTag& tag) {
         // HermesCtr::make builds the MemHolder (refcount 1, owned by ctr_) AND the
         // DocumentHeader at offset 0 — so a zero offset reads as the canonical
-        // "null" sentinel for AnyVal / RelativePtr. GrowableSingleChunk: a single
-        // segment whose RelativePtrs resolve against arena.head().data() (the
-        // MultiChunk flip is a later stage). 512 MB reserved up front, lazily
-        // paged, so the single chunk never reallocs in practice.
-        auto c = hermes::HermesCtr::make(512ull * 1024 * 1024,
-                                         hermes::ArenaMode::GrowableSingleChunk);
+        // "null" sentinel for AnyVal / RelativePtr. MultiChunk: segments NEVER
+        // move — grow() appends a fresh chunk instead of reallocating, so every
+        // object's absolute address is stable for the arena's whole lifetime.
+        // This is what makes the compiler's address-based handles (TypeRef /
+        // lir_view mirror_ptr_ / uid_of_ keys) sound: no base+offset, no realloc
+        // dangle, no 4 GB single-chunk ceiling. (GrowableSingleChunk stays
+        // HermesCtr-internal, used for compactification.) The initial chunk is
+        // sized generously so small/medium compiles stay single-chunk (locality);
+        // larger ones append transparently.
+        auto c = hermes::HermesCtr::make(64ull * 1024 * 1024,
+                                         hermes::ArenaMode::MultiChunk);
         if (!c) {
             tag.fail(std::move(c.error()));
             return;
@@ -130,17 +136,12 @@ public:
         return p;
     }
 
-    hermes::arena_offset_t offset_of(const void* p) const noexcept {
-        auto off = static_cast<uint32_t>(
-            static_cast<const uint8_t*>(p) - arena().head().data());
-        return hermes::arena_offset_t{off};
-    }
-
-    // Raw arena access encapsulated in a view: the view re-resolves obj from the
-    // offset against the holder's base each call (valid as long as it isn't held
-    // past the next allocation — Stage C / MultiChunk removes the discipline).
-    hermes::TinyMapView at(hermes::arena_offset_t off) noexcept {
-        return hermes::TinyMapView(off, ctr_.holder());
+    // Raw arena access encapsulated in a view, addressed by the object's stable
+    // absolute pointer (segments never move) — no base+offset, MultiChunk-safe.
+    hermes::TinyMapView at(const uint8_t* addr) noexcept {
+        return hermes::TinyMapView(
+            reinterpret_cast<hermes::TinyObjectMap*>(const_cast<uint8_t*>(addr)),
+            ctr_.holder());
     }
 
     // Allocate an ArenaString and return an AnyVal pointing at it. Object
@@ -153,10 +154,12 @@ public:
         return v->to_anyval();
     }
 
-    // Translate a TypeRef to an AnyVal pointing at its mirror.
+    // Translate a TypeRef to an AnyVal pointing at its mirror. Self-relative
+    // (set_ref on the stable mirror address) — no base+offset, MultiChunk-safe.
     hermes::AnyVal ptr_to_mirror(TypeRef p) {
-        if (!p) return hermes::AnyVal{};
-        return hermes::AnyVal::from_offset(arena().head().data(), p.offset());
+        hermes::AnyVal a;
+        if (p) a.set_ref(p.addr());
+        return a;
     }
 
     // Build an ObjectArray from a vector<TypeRef> and return AnyVal. Created via
@@ -174,22 +177,22 @@ public:
     }
 
     // Build an ObjectArray from a vector<std::string> (lifetime_args). Created via
-    // the HermesCtr producer API. Strings are built FIRST, tracking their offsets
-    // (offsets survive a GrowableSingleChunk realloc; a held AnyVal would not);
-    // then the pre-sized array is created, so no allocation happens during the
-    // pushes and the array view stays valid.
+    // the HermesCtr producer API. Strings are built FIRST, tracking their stable
+    // addresses (segments never move); then the pre-sized array is created and the
+    // strings referenced self-relatively (set_ref) — no base+offset, MultiChunk-safe.
     hermes::AnyVal put_string_vec(const std::vector<std::string>& v) {
-        std::vector<hermes::arena_offset_t> offs;
-        offs.reserve(v.size());
+        std::vector<const uint8_t*> addrs;
+        addrs.reserve(v.size());
         for (const auto& s : v) {
             auto sv = ctr_.make_string(s);
             LOGOS_ASSERT(sv.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
-            offs.push_back(sv->offset());
+            addrs.push_back(reinterpret_cast<const uint8_t*>(sv->ptr()));
         }
         auto arr = ctr_.make_array(v.empty() ? 1 : v.size());
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
-        for (auto off : offs) {
-            auto r = arr->push_back(hermes::AnyVal::from_offset(arena().head().data(), off));
+        for (auto addr : addrs) {
+            hermes::AnyVal av; av.set_ref(addr);
+            auto r = arr->push_back(av);
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
         return arr->to_anyval();
@@ -199,7 +202,7 @@ public:
     // Every field populated on the C++ struct is also written to the mirror
     // under the key defined in sema_schema.hpp. Reads still go through the
     // raw struct pointer — Phase 2c.3 will switch TypeRef to read the mirror.
-    hermes::arena_offset_t mirror(const LogosTypeBuilder& t) {
+    const uint8_t* mirror(const LogosTypeBuilder& t) {
         namespace k = sema_schema;
 
         // Pre-allocate all sub-values first (each may grow the arena and
@@ -258,11 +261,11 @@ public:
         LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
             "TinyObjectMap allocation failed");
         map_exp->set_schema_type_code(hermes::schema::type(int32_t(t.kind)));
-        hermes::arena_offset_t map_off = map_exp->offset();
+        const uint8_t* map_addr = reinterpret_cast<const uint8_t*>(map_exp->ptr());
 
         auto put = [&](const sema_schema::Key& key, hermes::AnyVal val) {
             if (val.is_null()) return;
-            auto r = at(map_off).put(key.code, val);
+            auto r = at(map_addr).put(key.code, val);
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003",
                 "TinyObjectMap put failed");
         };
@@ -288,7 +291,7 @@ public:
         put(k::GAT_ARGS,         v_gat_args);
         put(k::LIFETIME_ARGS,    v_lifetime_args);
 
-        return map_off;
+        return map_addr;
     }
 
 };
@@ -1096,17 +1099,16 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
         if (builder_equals_typeref(t, cand)) return cand;
     }
 
-    auto off = impl_->mirror(t);
-    TypeRef nt = impl_->ref(off);
+    auto addr = impl_->mirror(t);
+    TypeRef nt = impl_->ref_at(addr);
     impl_->uid_of_[nt.addr()] = uid;
     bucket.push_back(nt.addr());
 
-    // Phase 7 lite — arena size monitoring. The Hermes arena has a hard
-    // 4 GB ceiling (32-bit offsets). Before rolling multi-arena lands
-    // (full Phase 7), give the user a heads-up at 3.5 GB and a clear
-    // diagnostic + abort at 3.9 GB instead of a mid-emit hermes OOM.
-    // The warning latches via TypePoolImpl::size_warned_ to avoid
-    // spamming the hot path. Override thresholds via env for testing.
+    // Arena memory monitoring. Under MultiChunk there is no 4 GB single-chunk
+    // offset ceiling any more (handles are pointers, not 32-bit offsets), so this
+    // is a runaway-memory guard, not an addressing limit: warn at 3.5 GB, abort at
+    // 3.9 GB of total arena usage across all chunks. The warning latches via
+    // size_warned_ to avoid spamming the hot path. Override thresholds via env.
     {
         const uint64_t MB = uint64_t{1024} * 1024;
         uint64_t warn_at = 3500 * MB;
@@ -1115,25 +1117,20 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
             warn_at = std::strtoull(w, nullptr, 10) * MB;
         if (const char* e = std::getenv("LOGOS_ARENA_ERR_MB"))
             err_at  = std::strtoull(e, nullptr, 10) * MB;
-        uint64_t used = impl_->arena().head().used;
+        uint64_t used = impl_->arena().total_used();
         if (used > err_at) {
             std::fprintf(stderr,
-                "FATAL: TypePool arena reached %llu MB (limit %llu MB). The\n"
-                "Hermes arena has a 4 GB hard ceiling (32-bit offsets). The\n"
-                "compiler does not yet support rolling to a new arena\n"
-                "mid-emit (Phase 7 of the multi-arena IR refactor). To\n"
-                "continue, split the module into smaller compilation units\n"
-                "or ship parts as separate `logos.module`s.\n",
+                "FATAL: TypePool arena reached %llu MB (limit %llu MB) — runaway\n"
+                "memory. Split the module into smaller compilation units or ship\n"
+                "parts as separate `logos.module`s.\n",
                 (unsigned long long)(used / MB),
                 (unsigned long long)(err_at / MB));
             std::abort();
         }
         if (used > warn_at && !impl_->size_warned_) {
             std::fprintf(stderr,
-                "WARNING: TypePool arena past %llu MB (current %llu MB,\n"
-                "         hard 4 GB ceiling). Approaching the Hermes\n"
-                "         arena limit — split the module or wait for\n"
-                "         multi-arena IR Phase 7 (rolling arenas).\n",
+                "WARNING: TypePool arena past %llu MB (current %llu MB) — high\n"
+                "         memory; consider splitting the module.\n",
                 (unsigned long long)(warn_at / MB),
                 (unsigned long long)(used / MB));
             impl_->size_warned_ = true;

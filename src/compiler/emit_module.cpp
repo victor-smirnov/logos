@@ -672,8 +672,23 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                     }
                 }
             }
-            if (!dumped)
+            if (!dumped) {
+                // The raw dump ships head() bytes verbatim — only valid when the
+                // MultiChunk arena never appended (single chunk). A multi-chunk
+                // arena would truncate to the first chunk; fail loudly instead of
+                // silently corrupting the .hermes0 blob. (The compactify path above
+                // is the multi-chunk-safe route; the legacy no-module-root path
+                // simply doesn't support arenas that outgrew the initial chunk.)
+                if (arena->chunk_count() > 1) {
+                    std::fprintf(stderr,
+                        "emit_module: cannot raw-dump a multi-chunk type-pool arena "
+                        "(%zu chunks) without a LirArenaRoot to compactify from — "
+                        "build with a module name so the blob is compactified.\n",
+                        arena->chunk_count());
+                    return false;
+                }
                 out_lir_blob->assign(chunk.data(), chunk.data() + chunk.used);
+            }
         }
     }
 

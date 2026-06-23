@@ -192,14 +192,20 @@ logos::expected<void> Arena::grow(size_t needed) noexcept {
         chunk.memory.reset(new_mem);
         chunk.capacity = new_cap;
     } else {
-        // MultiChunk: add a new chunk.
-        size_t cap = std::max(needed, size_t{4096});
+        // MultiChunk: append a new chunk (existing chunks never move). Size it to
+        // at least the current tail's capacity so a big initial chunk isn't
+        // followed by a swarm of tiny ones — keeps the chunk count low (cheap
+        // total_used(), good locality) while still honouring an oversized single
+        // allocation via `needed`.
+        size_t cap = std::max(needed, chunks_.back().capacity);
 
         auto* new_mem = new (std::nothrow) uint8_t[cap];
         if (!new_mem) [[unlikely]]
             return std::unexpected(logos::err(ErrCode::out_of_memory));
 
-        std::memset(new_mem, 0, cap);
+        // Not zeroed up front — allocate()/allocate_raw() zero each
+        // [old_used, new_used) region on demand, so a large appended chunk stays
+        // lazily paged (only touched pages commit).
 
         Chunk chunk;
         chunk.memory.reset(new_mem);
