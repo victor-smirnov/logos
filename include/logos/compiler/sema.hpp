@@ -242,6 +242,12 @@ public:
     const hermes::TinyObjectMap* mirror() const noexcept {
         return reinterpret_cast<const hermes::TinyObjectMap*>(ptr_);
     }
+    // Absolute mirror address — the in-process type-identity key (segments never
+    // move, so the pointer is stable and unique). Used to key TypePoolImpl::
+    // uid_of_ / intern_buckets_ without any base+offset round-trip (offset-from-
+    // first-chunk-base is unsigned and breaks under MultiChunk; the address does
+    // not). offset() is reserved for .hermes0 serialization (single rigid segment).
+    const uint8_t* addr() const noexcept { return ptr_; }
     const hermes::Arena* arena() const noexcept { return arena_; }
     const TypePoolImpl* pool() const noexcept { return pool_; }
     // Phase 2.B: arena_id of this TypeRef's arena. INVALID = single-arena

@@ -72,16 +72,19 @@ public:
             size_t h = 0; std::memcpy(&h, u.bytes, sizeof(h)); return h;
         }
     };
+    // Interned candidates per UID, keyed by their stable mirror ADDRESS (not a
+    // head-relative offset — the address is unique and survives the MultiChunk
+    // flip; an unsigned offset-from-first-base does not).
     std::unordered_map<LogosType::TypeUID,
-                       std::vector<hermes::arena_offset_t>, UIDHash> intern_buckets_;
+                       std::vector<const uint8_t*>, UIDHash> intern_buckets_;
 
-    // 2c.6.6.B.6: TypeUID per offset. Populated by TypePool::alloc(); read by
-    // put_sub (UID composition) and types_equal.
-    std::unordered_map<hermes::arena_offset_t, LogosType::TypeUID> uid_of_;
+    // 2c.6.6.B.6: TypeUID per interned type, keyed by mirror ADDRESS. Populated
+    // by TypePool::alloc(); read by put_sub (UID composition) and types_equal.
+    std::unordered_map<const uint8_t*, LogosType::TypeUID> uid_of_;
 
     LogosType::TypeUID uid_of(TypeRef p) const noexcept {
         if (!p) return LogosType::TypeUID{};
-        auto it = uid_of_.find(p.offset());
+        auto it = uid_of_.find(p.addr());
         return it != uid_of_.end() ? it->second : LogosType::TypeUID{};
     }
 
@@ -92,6 +95,11 @@ public:
     // value-form Ref (av.resolve(), no base) — the base-free navigation path.
     TypeRef ref(hermes::AnyVal av) const noexcept {
         return TypeRef{&arena(), av, this};
+    }
+    // Rebuild a TypeRef from a stable mirror address (the intern-bucket key).
+    TypeRef ref_at(const uint8_t* p) const noexcept {
+        hermes::AnyVal a; a.set_ref(p);
+        return TypeRef{&arena(), a, this};
     }
 
     TypePoolImpl(logos::InitTag& tag) {
@@ -1083,14 +1091,15 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
 
     LogosType::TypeUID uid = compute_type_uid(impl_.get(), t);
     auto& bucket = impl_->intern_buckets_[uid];
-    for (auto cand_off : bucket) {
-        TypeRef cand = impl_->ref(cand_off);
+    for (auto cand_ptr : bucket) {
+        TypeRef cand = impl_->ref_at(cand_ptr);
         if (builder_equals_typeref(t, cand)) return cand;
     }
 
     auto off = impl_->mirror(t);
-    impl_->uid_of_[off] = uid;
-    bucket.push_back(off);
+    TypeRef nt = impl_->ref(off);
+    impl_->uid_of_[nt.addr()] = uid;
+    bucket.push_back(nt.addr());
 
     // Phase 7 lite — arena size monitoring. The Hermes arena has a hard
     // 4 GB ceiling (32-bit offsets). Before rolling multi-arena lands
@@ -1131,7 +1140,7 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
         }
     }
 
-    return impl_->ref(off);
+    return nt;
 }
 
 TypeRef TypePool::intern_foreign(TypeRef tv) {
