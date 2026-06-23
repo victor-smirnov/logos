@@ -145,12 +145,6 @@ private:
     // Resolve an ExprRef back to its variant LExpr* via the mirror's reverse
     // map. Used inside view-handlers to recurse through gen_expr() on
     // sub-expressions while the rest of the dispatcher still walks variants.
-    const LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
-        if (!mirror_) return nullptr;
-        auto it = mirror_->expr_by_addr.find(r.addr());
-        if (it == mirror_->expr_by_addr.end()) return nullptr;
-        return it->second;
-    }
     lir_view::StmtRef stmt_ref_of(const LStmt& s) const noexcept {
         if (!prog_ || s.mirror_ptr_ == nullptr) return {};
         return lir_view::StmtRef(prog_->type_pool.arena(), s.mirror_ptr_);
@@ -164,18 +158,6 @@ private:
     lir_view::BlockRef block_ref_of(const LBlock& b) const noexcept {
         if (!prog_ || b.mirror_ptr_ == nullptr) return {};
         return lir_view::BlockRef(prog_->type_pool.arena(), b.mirror_ptr_);
-    }
-    const LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
-        if (!mirror_) return nullptr;
-        auto it = mirror_->block_by_addr.find(r.addr());
-        if (it == mirror_->block_by_addr.end()) return nullptr;
-        return it->second;
-    }
-    const LStmt* lstmt_of(lir_view::StmtRef r) const noexcept {
-        if (!mirror_) return nullptr;
-        auto it = mirror_->stmt_by_addr.find(r.addr());
-        if (it == mirror_->stmt_by_addr.end()) return nullptr;
-        return it->second;
     }
     // Resolve `<struct>__<method>` to the actual mangled fn symbol in
     // prog_->structs (sema may append `__f__sig` / `__g__sig` under

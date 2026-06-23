@@ -153,29 +153,6 @@ protected:
         if (v.mirror_ptr_ == nullptr) return {};
         return lir_view::HermesValRef(effective_src_arena(), v.mirror_ptr_);
     }
-    // Reverse maps: ref → variant pointer. Used by subst_* to look up the
-    // input variant whose kind is being substituted while reading sub-refs
-    // through views. The input mirror_table lives on `in_`.
-    const lir::LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
-        if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->expr_by_addr.find(r.addr());
-        return it == in_.mirror_table->expr_by_addr.end() ? nullptr : it->second;
-    }
-    const lir::LStmt* lstmt_of(lir_view::StmtRef r) const noexcept {
-        if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->stmt_by_addr.find(r.addr());
-        return it == in_.mirror_table->stmt_by_addr.end() ? nullptr : it->second;
-    }
-    const lir::LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
-        if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->block_by_addr.find(r.addr());
-        return it == in_.mirror_table->block_by_addr.end() ? nullptr : it->second;
-    }
-    const lir::HermesVal* hermes_val_of(lir_view::HermesValRef r) const noexcept {
-        if (!r || !in_.mirror_table) return nullptr;
-        auto it = in_.mirror_table->hermes_val_by_addr.find(r.addr());
-        return it == in_.mirror_table->hermes_val_by_addr.end() ? nullptr : it->second;
-    }
 private:
 
     StrMap<const lir::LFunction*>  templates_;

@@ -952,15 +952,6 @@ private:
         if (p.mirror_ptr_ == nullptr) return {};
         return lir_view::PatRef(cur_prog_->type_pool.arena(), p.mirror_ptr_);
     }
-    // Reverse lookup ExprRef → owning LExpr* via the program's mirror table.
-    // Returns nullptr if the ref is null or its offset isn't in the table
-    // (e.g. mono-cloned exprs not registered in cur_prog_).
-    lir::LExpr* lexpr_of(lir_view::ExprRef r) const noexcept {
-        if (!r || !cur_prog_->mirror_table) return nullptr;
-        auto it = cur_prog_->mirror_table->expr_by_addr.find(r.addr());
-        if (it == cur_prog_->mirror_table->expr_by_addr.end()) return nullptr;
-        return const_cast<lir::LExpr*>(it->second);
-    }
 
     template<typename K>
     lir::LStmt make_stmt_emit(uint32_t line, K&& k) {

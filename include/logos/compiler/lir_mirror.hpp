@@ -25,31 +25,20 @@
 namespace logos::compiler {
 
 // Side table populated by lir_mirror_emit. Read-only after emit completes.
-// Keyed by raw pointer into the std::variant tree because LExpr/LStmt nodes
-// are uniquely owned (no aliasing); a successful lookup yields the offset of
-// the corresponding TinyObjectMap inside the program's TypePool arena.
+// Forward maps only: C++ node pointer → its TinyObjectMap mirror ADDRESS in the
+// TypePool arena. Stage D removed the reverse (mirror→node) maps — every consumer
+// reads the mirror via lir_view, so no mirror→C++ lookup remains.
 struct LirMirrorTable {
-    // Stage 3g.2: pointer-keyed forward maps still drive per-table dedup
-    // (so reverse maps stay consistent across multiple table instances —
-    // e.g. sema's prog.mirror_table vs mono's out_.mirror_table). Consumer
-    // hot-path reads (`expr_ref_of(LExpr&)` etc.) bypass these maps and
-    // hit `LExpr::mirror_ptr_` directly — that field is the cross-table
-    // back-pointer set on first emission.
+    // Pointer-keyed forward maps drive per-table emit dedup (idempotent
+    // re-emission across multiple table instances — sema's prog.mirror_table vs
+    // mono's out_.mirror_table). Consumer reads go straight through the node's
+    // own mirror_ptr_ / a lir_view ref, not these maps.
     std::unordered_map<const lir::LExpr*,    const uint8_t*> expr;
     std::unordered_map<const lir::LStmt*,    const uint8_t*> stmt;
     std::unordered_map<const lir::LBlock*,   const uint8_t*> block;
     std::unordered_map<const lir::Pattern*,  const uint8_t*> pat;
     std::unordered_map<const lir::HermesVal*, const uint8_t*> hermes_val;
 
-    // Reverse maps (mirror ADDRESS → C++ node). Populated alongside their forward
-    // counterparts so view code can descend back to the variant tree where the
-    // recursion target is still a C++ struct (e.g. visit_block(LBlock&)). Keyed by
-    // the node's stable mirror address (segments never move) — not a head-relative
-    // offset, which is unsigned and breaks under MultiChunk.
-    std::unordered_map<const uint8_t*, const lir::LBlock*>     block_by_addr;
-    std::unordered_map<const uint8_t*, const lir::LExpr*>      expr_by_addr;
-    std::unordered_map<const uint8_t*, const lir::LStmt*>      stmt_by_addr;
-    std::unordered_map<const uint8_t*, const lir::HermesVal*>  hermes_val_by_addr;
 
     // Step 7b: closure_box LExpr* → its EClosure*. Populated by
     // LirBuilder::closure_box and read by closure_to_fnptr to retrieve

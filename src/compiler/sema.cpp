@@ -2438,65 +2438,6 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // TypeRef offsets share the same arena from the start.
     lir_mirror_emit_into(prog, *prog.mirror_table);
 
-    // M5 step 6: lir_mirror_emit_into's backfill path (taken for cached
-    // LFunction bodies whose mirror_ptr_ is already set from a prior
-    // sema_lower) registers only the top-level stmt/block in their reverse
-    // maps; it does NOT recurse into sub-exprs / sub-blocks / sub-HVs /
-    // sub-closures of cached items. Mono's lexpr_of / lblock_of /
-    // hermes_val_of / etc. would then return null inside cached bodies,
-    // corrupting subst (e.g. SReturn loses its value). Mirror
-    // lir_mirror_populate_moved's pool-sweep approach: every pooled node
-    // with a non-zero mirror_ptr_ goes into the reverse map. Cheap
-    // (single pass per append-only pool, runs every sema_lower regardless
-    // of cache state — the cost is negligible vs the lower walk savings).
-    if (prog.expr_pool_) {
-        for (auto& uptr : *prog.expr_pool_)
-            if (uptr && uptr->mirror_ptr_ != nullptr)
-                prog.mirror_table->expr_by_addr[
-                    uptr->mirror_ptr_] = uptr.get();
-    }
-    if (prog.block_pool_) {
-        for (auto& uptr : *prog.block_pool_)
-            if (uptr && uptr->mirror_ptr_ != nullptr)
-                prog.mirror_table->block_by_addr[
-                    uptr->mirror_ptr_] = uptr.get();
-    }
-    if (prog.hermes_val_pool_) {
-        for (auto& uptr : *prog.hermes_val_pool_)
-            if (uptr && uptr->mirror_ptr_ != nullptr)
-                prog.mirror_table->hermes_val_by_addr[
-                    uptr->mirror_ptr_] = uptr.get();
-    }
-    // EClosure is not pooled-keyed in the reverse-map set (closure_box_inner
-    // maps LExpr* → EClosure*, populated by LirBuilder at construction).
-    // Stmts and Patterns are not pooled (owned by their parent vectors); the
-    // backfill walk in lir_mirror_emit_into reaches them only via the
-    // function-body recursion, which is shallow. Walk every cached LFunction
-    // body recursively here, registering every LStmt and Pattern in the
-    // reverse maps. The walk operates entirely off in-memory fields (no
-    // mirror reads), so it works regardless of table state.
-    auto register_lstmts_in_block = [&](auto&& self, const lir::LBlock& blk) -> void {
-        for (auto& st : blk.stmts) {
-            if (st.mirror_ptr_ != nullptr)
-                prog.mirror_table->stmt_by_addr[st.mirror_ptr_] = &st;
-            // LStmt carries no in-memory children other than mirror_ptr_
-            // (the variant fields were retired at Stage B.6). All children
-            // are reachable only through the mirror view — sub-blocks are
-            // separately pooled and covered by the block_pool_ sweep above.
-        }
-    };
-    auto walk_fn = [&](const lir::LFunction& fn) {
-        register_lstmts_in_block(register_lstmts_in_block, fn.body);
-    };
-    for (auto& f : prog.functions)        if (f) walk_fn(*f);
-    for (auto& f : prog.specializations)  if (f) walk_fn(*f);
-    for (auto& s : prog.structs)
-        for (auto& m : s.methods) if (m) walk_fn(*m);
-    for (auto& s : prog.struct_specializations)
-        for (auto& m : s.methods) if (m) walk_fn(*m);
-    for (auto& i : prog.impls)
-        for (auto& m : i.methods) if (m) walk_fn(*m);
-
     return prog;
 }
 

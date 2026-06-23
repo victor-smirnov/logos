@@ -1354,12 +1354,10 @@ const uint8_t* LirMirrorEmitter::emit_block(const LBlock& b) {
             return it->second;
         }
         table_.block[&b] = b.mirror_ptr_;
-        table_.block_by_addr[b.mirror_ptr_] = &b;
         backfill_only = true;
     } else if (auto it = table_.block.find(&b); it != table_.block.end()) {
         // Heap-address recycling: stale cache entry for a freed LBlock.
         // Invalidate and fall through to emit a fresh mirror.
-        table_.block_by_addr.erase(it->second);
         table_.block.erase(it);
     }
 
@@ -1388,7 +1386,6 @@ const uint8_t* LirMirrorEmitter::emit_block(const LBlock& b) {
 
     b.mirror_ptr_ = map_off;
     table_.block[&b] = map_off;
-    table_.block_by_addr[map_off] = &b;
     return map_off;
 }
 
@@ -1582,13 +1579,10 @@ const uint8_t* LirMirrorEmitter::emit_hv(const HermesVal& v) {
                  "(construction site missed direct-emit migration)");
     if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
         if (it->second == v.mirror_ptr_) return it->second;
-        table_.hermes_val_by_addr.erase(it->second);
         it->second = v.mirror_ptr_;
-        table_.hermes_val_by_addr[v.mirror_ptr_] = &v;
         return v.mirror_ptr_;
     }
     table_.hermes_val[&v] = v.mirror_ptr_;
-    table_.hermes_val_by_addr[v.mirror_ptr_] = &v;
     return v.mirror_ptr_;
 }
 
@@ -1634,13 +1628,10 @@ const uint8_t* LirMirrorEmitter::emit_stmt(const LStmt& s) {
                  "(construction site missed direct-emit migration)");
     if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
         if (it->second == s.mirror_ptr_) return it->second;
-        table_.stmt_by_addr.erase(it->second);
         it->second = s.mirror_ptr_;
-        table_.stmt_by_addr[s.mirror_ptr_] = &s;
         return s.mirror_ptr_;
     }
     table_.stmt[&s] = s.mirror_ptr_;
-    table_.stmt_by_addr[s.mirror_ptr_] = &s;
     return s.mirror_ptr_;
 }
 
@@ -1661,13 +1652,10 @@ const uint8_t* LirMirrorEmitter::emit_expr(const LExpr& e) {
                  "(construction site missed direct-emit migration)");
     if (auto it = table_.expr.find(&e); it != table_.expr.end()) {
         if (it->second == e.mirror_ptr_) return it->second;
-        table_.expr_by_addr.erase(it->second);
         it->second = e.mirror_ptr_;
-        table_.expr_by_addr[e.mirror_ptr_] = &e;
         return e.mirror_ptr_;
     }
     table_.expr[&e] = e.mirror_ptr_;
-    table_.expr_by_addr[e.mirror_ptr_] = &e;
     return e.mirror_ptr_;
 }
 
@@ -2215,18 +2203,6 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
         for (auto& m : i.methods) em.emit_function(*m);
     for (auto& c : prog.consts)
         if (c.value) em.emit_expr_public(*c.value);
-    // Stage 2 (Group 1+) fix: direct-emitted nodes leave kind=ELitInt default,
-    // so emit_expr's back-fill walk-via-variant misses their descendants. Sweep
-    // the pools to register every LExpr/LStmt/LBlock that already carries a
-    // mirror_ptr_ but whose descendants weren't reached by the recursive
-    // visit. Cheap (one-time, post-mono) and unconditional — works for both
-    // variant-built and direct-built nodes.
-    // M5 step 4: expr_pool_ is now shared_ptr<vector<...>>; deref to iterate.
-    if (prog.expr_pool_) {
-        for (auto& uptr : *prog.expr_pool_)
-            if (uptr && uptr->mirror_ptr_ != nullptr)
-                table.expr_by_addr[uptr->mirror_ptr_] = uptr.get();
-    }
 }
 
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────
