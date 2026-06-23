@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include <logos/compiler/lir_view.hpp>  // lir_view::BlockRef/StmtRef (Stage D)
+
 namespace logos::compiler::lir {
     struct LFunction; struct LBlock; struct LStmt; struct LExpr;
     struct LProgram;
@@ -186,9 +188,9 @@ private:
     RegionId fresh_region() noexcept {
         return RegionId{next_region_id_++};
     }
-    void walk_block(const lir::LBlock& blk, uint32_t blk_id,
+    void walk_block(lir_view::BlockRef br0, uint32_t blk_id,
                     const lir::LProgram& prog);
-    void walk_stmt(const lir::LStmt& s, uint32_t blk_id, uint32_t idx,
+    void walk_stmt(lir_view::StmtRef sr, uint32_t blk_id, uint32_t idx,
                    const lir::LProgram& prog);
 
     // B71.1: per-statement use/def + live-in/live-out, computed by
@@ -199,7 +201,7 @@ private:
     // propagate the shorter region's point set into the longer's.
     // Fixed-point iteration.
     void solve();
-    void use_def_for_stmt(const lir::LStmt& s,
+    void use_def_for_stmt(lir_view::StmtRef sr,
                           uint32_t blk_id, uint32_t idx,
                           const lir::LProgram& prog,
                           LiveSet& use, LiveSet& def) const;

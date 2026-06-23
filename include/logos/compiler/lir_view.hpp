@@ -387,6 +387,7 @@ inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
 // reusing the same key for SMatch.arms — see lir_mirror.cpp:emit_block.
 template <class F>
 inline void BlockRef::each_stmt(F&& f) const noexcept {
+    if (!*this) return;   // null block (e.g. absent/extern body) — no stmts
     auto av = mirror()->get(/*stmt_keys::ARMS*/ 24);
     if (av.is_null()) return;
     uint64_t n = av.as_ptr<const hermes::ObjectArray>()->size();

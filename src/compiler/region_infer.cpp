@@ -64,7 +64,7 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     }
 
     cfg_.blocks.emplace_back();
-    walk_block(fn.body, /*blk_id=*/0, prog);
+    walk_block(lir_view::BlockRef(prog.type_pool.arena(), fn.body.mirror_ptr_), /*blk_id=*/0, prog);
     // After CFG construction, also walk every block one more time to
     // populate use_/def_ per StmtPoint. This is independent of the
     // borrow-walker (which targets AddrOf nodes only).
@@ -186,32 +186,22 @@ uint32_t RegionInferer_alloc_block(CFG& cfg) {
     return static_cast<uint32_t>(cfg.blocks.size() - 1);
 }
 
-void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
+void RegionInferer::walk_block(lir_view::BlockRef br0, uint32_t blk_id,
                                 const lir::LProgram& prog) {
     using namespace lir_view;
     using SCode = lir_schema::stmt::Code;
 
     uint32_t cur = blk_id;
-    for (uint32_t i = 0; i < blk.stmts.size(); ++i) {
-        auto& s = blk.stmts[i];
+    br0.each_stmt([&](lir_view::StmtRef sr) {
         // Statement index within the current CFG block.
         uint32_t local_idx = cfg_.blocks[cur].n_stmts;
         cfg_.blocks[cur].n_stmts = local_idx + 1;
 
         // Default: walk for borrow sites at this point.
-        walk_stmt(s, cur, local_idx, prog);
+        walk_stmt(sr, cur, local_idx, prog);
 
         // Detect branching / loop statements that need sub-blocks.
-        if (s.mirror_ptr_ == nullptr) continue;
-        StmtRef sr(prog.type_pool.arena(), s.mirror_ptr_);
-        if (!sr) continue;
-
-        auto block_ptr_of = [&](BlockRef br) -> const lir::LBlock* {
-            if (!br) return nullptr;
-            auto& m = prog.mirror_table->block_by_addr;
-            auto it = m.find(br.addr());
-            return it == m.end() ? nullptr : it->second;
-        };
+        if (!sr) return;
 
         switch (sr.kind()) {
             case SCode::If: {
@@ -221,8 +211,8 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t else_id  = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {then_id, else_id};
-                if (auto b = block_ptr_of(v.then_block())) walk_block(*b, then_id, prog);
-                if (auto b = block_ptr_of(v.else_block())) walk_block(*b, else_id, prog);
+                if (auto b = v.then_block()) walk_block(b, then_id, prog);
+                if (auto b = v.else_block()) walk_block(b, else_id, prog);
                 cfg_.blocks[then_id].successors.push_back(after_id);
                 cfg_.blocks[else_id].successors.push_back(after_id);
                 cur = after_id;
@@ -233,7 +223,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t body_id  = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {body_id, after_id};
-                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                if (auto b = v.body()) walk_block(b, body_id, prog);
                 cfg_.blocks[body_id].successors.push_back(cur);  // back-edge
                 cur = after_id;
                 break;
@@ -243,7 +233,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t body_id  = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {body_id, after_id};
-                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                if (auto b = v.body()) walk_block(b, body_id, prog);
                 cfg_.blocks[body_id].successors.push_back(cur);  // back-edge
                 cur = after_id;
                 break;
@@ -253,7 +243,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t body_id  = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {body_id, after_id};
-                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                if (auto b = v.body()) walk_block(b, body_id, prog);
                 cfg_.blocks[body_id].successors.push_back(cur);
                 cur = after_id;
                 break;
@@ -263,7 +253,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t body_id  = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {body_id};
-                if (auto b = block_ptr_of(v.body())) walk_block(*b, body_id, prog);
+                if (auto b = v.body()) walk_block(b, body_id, prog);
                 cfg_.blocks[body_id].successors.push_back(body_id);  // back to body
                 // `break` inside body wires to after via separate edge;
                 // tracked when liveness lands in B71.1. Empty successors
@@ -276,7 +266,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t inner_id = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {inner_id};
-                if (auto b = block_ptr_of(v.body())) walk_block(*b, inner_id, prog);
+                if (auto b = v.body()) walk_block(b, inner_id, prog);
                 cfg_.blocks[inner_id].successors.push_back(after_id);
                 cur = after_id;
                 break;
@@ -287,7 +277,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 v.each_arm([&](EMatchArmRef arm) {
                     uint32_t arm_id = RegionInferer_alloc_block(cfg_);
                     arm_ids.push_back(arm_id);
-                    if (auto b = block_ptr_of(arm.body())) walk_block(*b, arm_id, prog);
+                    if (auto b = arm.body()) walk_block(b, arm_id, prog);
                 });
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 for (auto id : arm_ids) {
@@ -302,7 +292,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
                 uint32_t else_id  = RegionInferer_alloc_block(cfg_);
                 uint32_t after_id = RegionInferer_alloc_block(cfg_);
                 cfg_.blocks[cur].successors = {else_id, after_id};
-                if (auto b = block_ptr_of(v.else_block())) walk_block(*b, else_id, prog);
+                if (auto b = v.else_block()) walk_block(b, else_id, prog);
                 // else block diverges; no edge to after.
                 cur = after_id;
                 break;
@@ -315,27 +305,25 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
             default:
                 break;
         }
-    }
+    });
 }
 
-void RegionInferer::walk_stmt(const lir::LStmt& s,
+void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                                uint32_t blk_id, uint32_t idx,
                                const lir::LProgram& prog) {
     using namespace lir_view;
     using ECode = lir_schema::expr::Code;
     using SCode = lir_schema::stmt::Code;
-    if (s.mirror_ptr_ == nullptr) return;
-    StmtRef sr(prog.type_pool.arena(), s.mirror_ptr_);
     if (!sr) return;
     StmtPoint origin{blk_id, idx};
     const auto* pool = prog.type_pool.impl();
     // B73: remember the source line for this CFG point.
-    if (s.line) point_line_.emplace(origin, s.line);
+    if (uint32_t ln = lir_view::stmt_line(sr)) point_line_.emplace(origin, ln);
 
     // B71.1: collect use/def for this point. Runs alongside the
     // borrow walker so we don't traverse the AST twice.
     LiveSet u, d;
-    use_def_for_stmt(s, blk_id, idx, prog, u, d);
+    use_def_for_stmt(sr, blk_id, idx, prog, u, d);
     use_.emplace(origin, std::move(u));
     def_.emplace(origin, std::move(d));
 
@@ -356,7 +344,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 bs.target = std::string(v.var_name());
                 bs.is_mut = is_mut_ref_type(e.type(pool));
                 bs.is_tpb_reservation = bs.is_mut && in_call_args_depth > 0;
-                bs.origin_line = s.line;
+                bs.origin_line = lir_view::stmt_line(sr);
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;
@@ -380,7 +368,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                 bs.target = "<temp#" + std::to_string(bs.region.value) + ">";
                 bs.is_mut = v.is_mut();
                 bs.is_tpb_reservation = bs.is_mut && in_call_args_depth > 0;
-                bs.origin_line = s.line;
+                bs.origin_line = lir_view::stmt_line(sr);
                 borrows_.push_back(std::move(bs));
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;
@@ -577,7 +565,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     }
 }
 
-void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
+void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
                                        uint32_t blk_id, uint32_t idx,
                                        const lir::LProgram& prog,
                                        LiveSet& use, LiveSet& def) const {
@@ -585,8 +573,6 @@ void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
     using ECode = lir_schema::expr::Code;
     using SCode = lir_schema::stmt::Code;
     (void)blk_id; (void)idx;
-    if (s.mirror_ptr_ == nullptr) return;
-    StmtRef sr(prog.type_pool.arena(), s.mirror_ptr_);
     if (!sr) return;
 
     // Recursive expression walker that records every VarRef / AddrOf

@@ -1462,11 +1462,11 @@ class BorrowChecker {
         return lir_view::StmtRef(prog_.type_pool.arena(), s.mirror_ptr_);
     }
 
-    const LBlock* block_ptr(lir_view::BlockRef br) const {
-        if (!br) return nullptr;
-        auto& m = prog_.mirror_table->block_by_addr;
-        auto it = m.find(br.addr());
-        return it == m.end() ? nullptr : it->second;
+    // Stage D: a block as a mirror view (replaces the block_by_addr reverse
+    // lookup). fn.body and nested block children both yield a BlockRef directly.
+    lir_view::BlockRef block_ref(const LBlock& b) const {
+        if (b.mirror_ptr_ == nullptr) return {};
+        return lir_view::BlockRef(prog_.type_pool.arena(), b.mirror_ptr_);
     }
 
     lir_view::PatRef pat_ref(const Pattern& p) const {
@@ -2220,12 +2220,7 @@ class BorrowChecker {
             }
             case Code::BlockExpr: {
                 EBlockExprView v{e};
-                if (auto br = v.block()) {
-                    auto it = prog_.mirror_table->block_by_addr.find(
-                        br.addr());
-                    if (it != prog_.mirror_table->block_by_addr.end())
-                        visit_block(*it->second);
-                }
+                if (auto br = v.block()) visit_block(br);
                 take_ref_borrows(v.result(), line, holder);
                 break;
             }
@@ -2404,11 +2399,7 @@ class BorrowChecker {
             }
             case Code::BlockExpr: {
                 EBlockExprView v{e};
-                if (auto br = v.block()) {
-                    auto it = prog_.mirror_table->block_by_addr.find(br.addr());
-                    if (it != prog_.mirror_table->block_by_addr.end())
-                        scan_uses_block(*it->second);
-                }
+                if (auto br = v.block()) scan_uses_block(br);
                 if (auto r = v.result()) scan_uses_expr(r, line);
                 break;
             }
@@ -2473,12 +2464,11 @@ class BorrowChecker {
         }
     }
 
-    void scan_uses_stmt(const LStmt& s) {
+    void scan_uses_stmt(lir_view::StmtRef sr) {
         using namespace lir_view;
         using Code = lir_schema::stmt::Code;
-        auto sr = stmt_ref(s);
         if (!sr) return;
-        uint32_t ln = s.line;
+        uint32_t ln = stmt_line(sr);
         switch (sr.kind()) {
             case Code::Let:
                 scan_uses_expr(SLetView{sr}.value(), ln);
@@ -2539,33 +2529,33 @@ class BorrowChecker {
             case Code::If: {
                 SIfView v{sr};
                 scan_uses_expr(v.cond(), ln);
-                if (auto b = block_ptr(v.then_block())) scan_uses_block(*b);
-                if (auto b = block_ptr(v.else_block())) scan_uses_block(*b);
+                if (auto b = v.then_block()) scan_uses_block(b);
+                if (auto b = v.else_block()) scan_uses_block(b);
                 break;
             }
             case Code::While: {
                 SWhileView v{sr};
                 scan_uses_expr(v.cond(), ln);
-                if (auto b = block_ptr(v.body())) scan_uses_block(*b);
+                if (auto b = v.body()) scan_uses_block(b);
                 break;
             }
             case Code::For: {
                 SForView v{sr};
                 scan_uses_expr(v.lo(), ln);
                 scan_uses_expr(v.hi(), ln);
-                if (auto b = block_ptr(v.body())) scan_uses_block(*b);
+                if (auto b = v.body()) scan_uses_block(b);
                 break;
             }
             case Code::Loop:
-                if (auto b = block_ptr(SLoopView{sr}.body())) scan_uses_block(*b);
+                if (auto b = SLoopView{sr}.body()) scan_uses_block(b);
                 break;
             case Code::Block:
-                if (auto b = block_ptr(SBlockView{sr}.body())) scan_uses_block(*b);
+                if (auto b = SBlockView{sr}.body()) scan_uses_block(b);
                 break;
             case Code::ForEach: {
                 SForEachView v{sr};
                 scan_uses_expr(v.iter(), ln);
-                if (auto b = block_ptr(v.body())) scan_uses_block(*b);
+                if (auto b = v.body()) scan_uses_block(b);
                 break;
             }
             case Code::Match: {
@@ -2573,14 +2563,14 @@ class BorrowChecker {
                 scan_uses_expr(v.scrut(), ln);
                 v.each_arm([&](EMatchArmRef arm) {
                     if (auto g = arm.guard()) scan_uses_expr(g, ln);
-                    if (auto b = block_ptr(arm.body())) scan_uses_block(*b);
+                    if (auto b = arm.body()) scan_uses_block(b);
                 });
                 break;
             }
             case Code::LetElse: {
                 SLetElseView v{sr};
                 scan_uses_expr(v.scrut(), ln);
-                if (auto b = block_ptr(v.else_block())) scan_uses_block(*b);
+                if (auto b = v.else_block()) scan_uses_block(b);
                 break;
             }
             case Code::Break:
@@ -2591,8 +2581,8 @@ class BorrowChecker {
         }
     }
 
-    void scan_uses_block(const LBlock& blk) {
-        for (auto& s : blk.stmts) scan_uses_stmt(s);
+    void scan_uses_block(lir_view::BlockRef br) {
+        br.each_stmt([&](lir_view::StmtRef sr) { scan_uses_stmt(sr); });
     }
 
     // Phase 9 (NLL): release borrows whose holder is no longer live.
@@ -2641,24 +2631,24 @@ class BorrowChecker {
         }
     }
 
-    void visit_block(const LBlock& blk) {
+    void visit_block(lir_view::BlockRef br) {
         push_scope();
-        for (auto& s : blk.stmts) {
-            visit_stmt(s);
-            release_dead_borrows(s.line);
-        }
+        br.each_stmt([&](lir_view::StmtRef sr) {
+            visit_stmt(sr);
+            release_dead_borrows(lir_view::stmt_line(sr));
+        });
         pop_scope();
     }
 
     // Analyse a loop body: outer variables moved/borrowed inside are propagated.
     // loop_vars are local to the loop iteration.
-    void visit_loop_body(const LBlock& body,
+    void visit_loop_body(lir_view::BlockRef body,
                          const std::vector<std::string>& loop_vars = {}) {
         auto pre_s = states_;
         auto pre_p = prov_;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
-        for (auto& s : body.stmts) visit_stmt(s);
+        body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
         pop_scope();
         // Borrows released by pop_scope; propagate only moves of outer vars.
         // For provenance, merge conservatively (loop may run 0 or more times).
@@ -2673,10 +2663,9 @@ class BorrowChecker {
         merge_provs(prov_, post_p);
     }
 
-    void visit_stmt(const LStmt& stmt) {
-        uint32_t ln = stmt.line;
-        auto sr = stmt_ref(stmt);
+    void visit_stmt(lir_view::StmtRef sr) {
         if (!sr) return;
+        uint32_t ln = lir_view::stmt_line(sr);
         using namespace lir_view;
         using Code = lir_schema::stmt::Code;
         const auto* pool = prog_.type_pool.impl();
@@ -3026,14 +3015,14 @@ class BorrowChecker {
                 auto saved_p = prov_;
                 bool saved_div = cur_diverged_;
                 cur_diverged_ = false;
-                if (auto then_b = block_ptr(v.then_block())) visit_block(*then_b);
+                if (auto then_b = v.then_block()) visit_block(then_b);
                 auto then_s = states_;
                 auto then_p = prov_;
                 bool then_div = cur_diverged_;
                 states_ = saved_s;
                 prov_   = saved_p;
                 cur_diverged_ = false;
-                if (auto else_b = block_ptr(v.else_block())) visit_block(*else_b);
+                if (auto else_b = v.else_block()) visit_block(else_b);
                 bool else_div = cur_diverged_;
                 // A diverged branch (return/break/continue at the join point)
                 // contributes nothing to the post-if move state — only the
@@ -3059,7 +3048,7 @@ class BorrowChecker {
             case Code::While: {
                 SWhileView v{sr};
                 visit(v.cond(), /*consuming=*/true, ln);
-                if (auto b = block_ptr(v.body())) visit_loop_body(*b);
+                if (auto b = v.body()) visit_loop_body(b);
                 break;
             }
 
@@ -3068,27 +3057,27 @@ class BorrowChecker {
                 SForView v{sr};
                 visit(v.lo(), /*consuming=*/true, ln);
                 visit(v.hi(), /*consuming=*/true, ln);
-                if (auto b = block_ptr(v.body()))
-                    visit_loop_body(*b, {std::string(v.var())});
+                if (auto b = v.body())
+                    visit_loop_body(b, {std::string(v.var())});
                 break;
             }
 
             // ── Infinite loop ─────────────────────────────────────────────
             case Code::Loop:
-                if (auto b = block_ptr(SLoopView{sr}.body())) visit_loop_body(*b);
+                if (auto b = SLoopView{sr}.body()) visit_loop_body(b);
                 break;
 
             // ── Scoping block ─────────────────────────────────────────────
             case Code::Block:
-                if (auto b = block_ptr(SBlockView{sr}.body())) visit_block(*b);
+                if (auto b = SBlockView{sr}.body()) visit_block(b);
                 break;
 
             // ── For-each loop ─────────────────────────────────────────────
             case Code::ForEach: {
                 SForEachView v{sr};
                 visit(v.iter(), /*consuming=*/false, ln);
-                if (auto b = block_ptr(v.body()))
-                    visit_loop_body(*b, {std::string(v.var())});
+                if (auto b = v.body())
+                    visit_loop_body(b, {std::string(v.var())});
                 break;
             }
 
@@ -3126,7 +3115,7 @@ class BorrowChecker {
                     declare_pat_bindings(arm.pat());
                     propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
-                    if (auto body = block_ptr(arm.body())) visit_block(*body);
+                    if (auto body = arm.body()) visit_block(body);
                     pop_scope();
                     bool arm_div = cur_diverged_;
                     cur_diverged_ = saved_div;
@@ -3239,7 +3228,7 @@ public:
         outlives_adj_ = outlives_adj(fn.lifetime_outlives);
         ret_type_ = fn.ret_type;
 
-        scan_uses_block(fn.body);
+        scan_uses_block(block_ref(fn.body));
 
         push_scope();  // function scope
         for (auto& p : fn.params) {
@@ -3265,7 +3254,7 @@ public:
             }
         }
 
-        visit_block(fn.body);
+        visit_block(block_ref(fn.body));
         pop_scope();
     }
 };
@@ -3769,12 +3758,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // ── Block expression ───────────────────────────────────────────
         case Code::BlockExpr: {
             EBlockExprView v{e};
-            if (auto br = v.block()) {
-                auto it = prog_.mirror_table->block_by_addr.find(
-                    br.addr());
-                if (it != prog_.mirror_table->block_by_addr.end())
-                    visit_block(*it->second);
-            }
+            if (auto br = v.block()) visit_block(br);
             if (auto r = v.result()) visit(r, consuming, line);
             break;
         }
