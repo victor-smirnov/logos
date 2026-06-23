@@ -645,6 +645,10 @@ struct LStmt {
 struct LBlock {
     std::vector<LStmt> stmts;
     mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
+    const hermes::Arena* arena = nullptr;   // Stage D bridge (transient)
+    operator lir_view::BlockRef() const noexcept {
+        return lir_view::BlockRef(arena, mirror_ptr_);
+    }
 };
 
 // ── Top-level declarations ────────────────────────────────────────────────
@@ -1304,7 +1308,9 @@ template <class... Args>
 inline LBlock* alloc_block(LProgram& prog, Args&&... args) {
     if (!prog.block_pool_) prog.block_pool_ = std::make_shared<std::vector<std::unique_ptr<LBlock>>>();
     prog.block_pool_->push_back(std::make_unique<LBlock>(std::forward<Args>(args)...));
-    return prog.block_pool_->back().get();
+    LBlock* b = prog.block_pool_->back().get();
+    b->arena = &prog.type_pool.arena_or_init();  // Stage D bridge (transient; never-move arena)
+    return b;
 }
 template <class... Args>
 inline HermesVal* alloc_hermes_val(LProgram& prog, Args&&... args) {
@@ -1319,9 +1325,20 @@ inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
     return prog.closure_pool_->back().get();
 }
 
+// Stage D bridge (transient): wrap a raw skeleton handle as a mirror VIEW.
+inline lir_view::ExprRef eref(const LExpr* e) noexcept { return e ? lir_view::ExprRef(*e) : lir_view::ExprRef{}; }
+inline lir_view::BlockRef bref(const LBlock* b) noexcept { return b ? lir_view::BlockRef(*b) : lir_view::BlockRef{}; }
+
 } // namespace logos::compiler::lir
 
 namespace logos::compiler {
+
+// Stage D bridge (transient): out-of-line defs of the implicit View ctors that
+// take a raw skeleton handle (declared in lir_view.hpp; need LExpr/LBlock layout).
+inline lir_view::ExprRef::ExprRef(const lir::LExpr* e) noexcept
+    : RefBase(e ? e->arena : nullptr, e ? e->mirror_ptr_ : nullptr) {}
+inline lir_view::BlockRef::BlockRef(const lir::LBlock* b) noexcept
+    : RefBase(b ? b->arena : nullptr, b ? b->mirror_ptr_ : nullptr) {}
 
 // Strip `function_symbol_name` mangling layers
 // (`pkg$base__f__sig` / `pkg$base__g__sig`) and return the bare base

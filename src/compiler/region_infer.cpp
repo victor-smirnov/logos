@@ -26,6 +26,9 @@ bool is_mut_ref_type(TypeRef t) {
 } // namespace
 
 void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog) {
+    // Body-less function (extern / stub / from_binary) — no mirror, nothing to
+    // infer; skip so the BlockRef built from fn.body is never null.
+    if (fn.body.mirror_ptr_ == nullptr) return;
     cfg_.blocks.clear();
     borrows_.clear();
     constraints_.clear();

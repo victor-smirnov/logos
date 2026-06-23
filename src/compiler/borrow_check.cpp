@@ -3195,6 +3195,10 @@ public:
     bool exclusivity_only_ = false;
 
     void check(const LFunction& fn) {
+        // No body mirror ⇒ a body-less function (extern / metaprog stub /
+        // from_binary_module — emit_function skips these). Nothing to borrow-check;
+        // skip before any block walk so block_ref(fn.body) is never a null view.
+        if (fn.body.mirror_ptr_ == nullptr) return;
         states_.reset(fn.local_count);  // Phase-1: size the dense slot vector
         scopes_.clear();
         prov_.clear();

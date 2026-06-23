@@ -29,6 +29,8 @@
 #include <string_view>
 #include <vector>
 
+namespace logos::compiler::lir { struct LExpr; struct LBlock; }
+
 namespace logos::compiler::lir_view {
 
 // ── Fat-handle base ───────────────────────────────────────────────────────
@@ -245,6 +247,7 @@ public:
     // Inherit RefBase's (arena,offset[,aid]) and the self-relative (arena,AnyVal[,aid])
     // ctors — the latter make child navigation base-free (av.resolve(), MultiChunk-ready).
     using RefBase::RefBase;
+    ExprRef(const lir::LExpr* e) noexcept;
 
     lir_schema::expr::Code kind() const noexcept {
         return lir_schema::expr::Code(
@@ -328,6 +331,7 @@ class BlockRef : public detail::RefBase {
 public:
     BlockRef() = default;
     using RefBase::RefBase;
+    BlockRef(const lir::LBlock* b) noexcept;
 
     // Block stmts are stored under stmt_keys::ARMS (key 24) — a single key
     // shared with SMatch.arms because both are Array<RelPtr<sub-node>>.
@@ -387,7 +391,6 @@ inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
 // reusing the same key for SMatch.arms — see lir_mirror.cpp:emit_block.
 template <class F>
 inline void BlockRef::each_stmt(F&& f) const noexcept {
-    if (!*this) return;   // null block (e.g. absent/extern body) — no stmts
     auto av = mirror()->get(/*stmt_keys::ARMS*/ 24);
     if (av.is_null()) return;
     uint64_t n = av.as_ptr<const hermes::ObjectArray>()->size();
