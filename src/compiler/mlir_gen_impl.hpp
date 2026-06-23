@@ -204,7 +204,7 @@ private:
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
     std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration
-    std::unordered_map<std::string, const LEnumDef*>   enum_types_;
+    std::unordered_map<std::string, lir_view::EnumView> enum_types_;
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
     std::unordered_map<std::string, lir_view::ConstView> module_consts_;
@@ -575,9 +575,11 @@ private:
     // explicit backing type if declared (`enum Foo : u64 {}`), else i32.
     mlir::Type enum_disc_mlir(const std::string& enum_name) {
         auto it = enum_types_.find(enum_name);
-        if (it != enum_types_.end() && it->second->backing_type) {
-            auto t = logos_to_mlir(it->second->backing_type);
-            if (t) return t;
+        if (it != enum_types_.end()) {
+            if (auto bt = it->second.backing_type(pool_impl())) {
+                auto t = logos_to_mlir(bt);
+                if (t) return t;
+            }
         }
         return builder_.getI32Type();
     }
@@ -656,8 +658,8 @@ private:
         return it->second + ".." + callee;
     }
     bool register_struct(const LStructDef& sd);
-    void register_tagged_enum(const LEnumDef& ed);
-    uint64_t variant_payload_bytes(const LVariant& v);
+    void register_tagged_enum(lir_view::EnumView ed);
+    uint64_t variant_payload_bytes(lir_view::EnumVariantView v);
 
     // ── Unified in-memory layout ─────────────────────────────────────────────
     // THE single source of truth for the {size, alignment} of any Logos type,
@@ -678,7 +680,7 @@ private:
     Layout aggregate_member_layout(TypeRef m, std::unordered_set<std::string>& seen);
     // {size, align} of one variant's payload (struct/tuple of its fields) —
     // both the enum's payload_bytes and payload_align derive from this.
-    Layout variant_payload_layout(const LVariant& v);
+    Layout variant_payload_layout(lir_view::EnumVariantView v);
 
     // ── RefRepr — reference-representation registry (Phase 0 scaffold) ────────
     // Consolidates the ~50 per-kind switches that hardcode how a reference-like

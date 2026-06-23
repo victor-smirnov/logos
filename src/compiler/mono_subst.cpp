@@ -519,11 +519,11 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                     return out_.type_pool.alloc(std::move(b));
                 }
             for (auto& ed : out_.enums)
-                if (ed.name == tname) {
+                if (ed.name() == tname) {
                     LogosTypeBuilder b;
                     b.kind = LogosType::Kind::Enum;
                     b.enum_name = tname;
-                    b.pkg_name = ed.pkg;
+                    b.pkg_name = std::string(ed.pkg());
                     return out_.type_pool.alloc(std::move(b));
                 }
             return tv;

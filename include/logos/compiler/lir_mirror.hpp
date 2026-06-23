@@ -95,6 +95,7 @@ const uint8_t* lir_mirror_emit_const(lir::LProgram& prog, std::string_view name,
                                      bool is_mut, bool is_extern, std::string_view sym);
 const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,
                                           TypeRef type, std::string_view doc);
+const uint8_t* lir_mirror_emit_enum_def(lir::LProgram& prog, const lir::EnumDraft& ed);
 const uint8_t* lir_mirror_emit_size_of      (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 const uint8_t* lir_mirror_emit_align_of     (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 const uint8_t* lir_mirror_emit_generic_ref  (lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<TypeRef>& type_args);

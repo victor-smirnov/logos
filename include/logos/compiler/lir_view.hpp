@@ -428,6 +428,128 @@ struct ConstView {
     }
 };
 
+// LVariant sub-map { V_NAME, V_DISC, V_PAYLOAD_TYPES: Array<RelPtr<LogosType>>,
+//                    V_IS_VARIADIC: bool (sparse) }. Wraps a child DeclRef.
+struct EnumVariantView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::variant_keys::V_NAME.code);
+    }
+    int64_t disc() const noexcept {
+        return detail::read_i64(self, lir_schema::variant_keys::V_DISC.code);
+    }
+    bool is_variadic() const noexcept {
+        return detail::read_bool(self, lir_schema::variant_keys::V_IS_VARIADIC.code);
+    }
+    // True if this variant carries any payload (drives enum has_payload()).
+    bool has_payload() const noexcept {
+        auto av = self.mirror()->get(lir_schema::variant_keys::V_PAYLOAD_TYPES.code);
+        if (av.is_null()) return false;
+        return av.as_ptr<const hermes::ObjectArray>()->size() > 0;
+    }
+    // Read V_PAYLOAD_TYPES into a TypeRef vector (cross-arena aware).
+    std::vector<TypeRef> payload_types(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(lir_schema::variant_keys::V_PAYLOAD_TYPES.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        out.reserve(arr->size());
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.push_back(detail::make_child_typeref(self, el, pool));
+        }
+        return out;
+    }
+    template <class F>
+    void each_payload_type(const TypePoolImpl* pool, F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::variant_keys::V_PAYLOAD_TYPES.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(detail::make_child_typeref(self, el, pool));
+        }
+    }
+};
+
+// Enum type-param sub-map { TP_NAME, TP_IS_VARIADIC: bool (sparse) }.
+struct EnumTParamView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::enum_tparam_keys::TP_NAME.code);
+    }
+    bool is_variadic() const noexcept {
+        return detail::read_bool(self, lir_schema::enum_tparam_keys::TP_IS_VARIADIC.code);
+    }
+};
+
+// LEnumDef { name, pkg, doc: Varchar; zoned2/borrow_carrying: bool (sparse);
+//            variants: Array<variant sub-map>; type_params: Array<tparam sub-map> }
+struct EnumView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::NAME.code);
+    }
+    std::string_view pkg() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::PKG.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::DOC.code);
+    }
+    bool zoned2() const noexcept {
+        return detail::read_bool(self, lir_schema::decl_keys::ZONED2.code);
+    }
+    bool borrow_carrying() const noexcept {
+        return detail::read_bool(self, lir_schema::decl_keys::BORROW_CARRYING.code);
+    }
+    // C-style enum discriminant type (null ⇒ default i32).
+    TypeRef backing_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::decl_keys::BACKING_TYPE.code, pool);
+    }
+    uint64_t variant_count() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::VARIANTS.code);
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>()->size();
+    }
+    bool type_params_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::TYPE_PARAMS.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    // Iterate variants. F is called as f(EnumVariantView) for each variant.
+    template <class F>
+    void each_variant(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::VARIANTS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(EnumVariantView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    // Iterate type params. F is called as f(EnumTParamView).
+    template <class F>
+    void each_type_param(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::TYPE_PARAMS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(EnumTParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    // True if any variant carries a payload (mirrors LEnumDef::has_payload()).
+    bool has_payload() const noexcept {
+        bool any = false;
+        each_variant([&](EnumVariantView v) { if (v.has_payload()) any = true; });
+        return any;
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

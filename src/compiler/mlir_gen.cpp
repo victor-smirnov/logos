@@ -96,11 +96,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // ptr_type rather than the discriminant scalar. Then fill in real
     // layouts in the second pass.
     for (auto& ed : prog.enums) {
-        enum_types_[ed.name] = &ed;
-        if (ed.has_payload() && !tagged_enums_.count(ed.name)) {
+        std::string ed_name(ed.name());
+        enum_types_[ed_name] = ed;
+        if (ed.has_payload() && !tagged_enums_.count(ed_name)) {
             TaggedEnumInfo stub;
-            stub.name = ed.name;
-            tagged_enums_[ed.name] = std::move(stub);
+            stub.name = ed_name;
+            tagged_enums_[ed_name] = std::move(stub);
         }
     }
     for (auto& ed : prog.enums) {
@@ -120,14 +121,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             changed = false;
             for (auto& ed : prog.enums) {
                 if (!ed.has_payload()) continue;
-                auto it = tagged_enums_.find(ed.name);
+                auto it = tagged_enums_.find(std::string(ed.name()));
                 if (it == tagged_enums_.end()) continue;
                 uint64_t max_bytes = 0, max_align = 1;
-                for (auto& v : ed.variants) {
+                ed.each_variant([&](lir_view::EnumVariantView v) {
                     auto pl = variant_payload_layout(v);
                     if (pl.size  > max_bytes) max_bytes = pl.size;
                     if (pl.align > max_align) max_align = pl.align;
-                }
+                });
                 if (max_bytes > it->second.payload_bytes ||
                     max_align > it->second.payload_align) {
                     it->second.payload_bytes = std::max(max_bytes, it->second.payload_bytes);

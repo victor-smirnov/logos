@@ -478,8 +478,9 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
             if (!sd.type_params.empty())
                 out_exports->struct_templates.push_back({sd.pkg, sd.name});
         for (auto& ed : prog.enums)
-            if (!ed.type_params.empty())
-                out_exports->enum_templates.push_back({ed.pkg, ed.name});
+            if (!ed.type_params_empty())
+                out_exports->enum_templates.push_back(
+                    {std::string(ed.pkg()), std::string(ed.name())});
         for (auto& fn : prog.functions)
             if (!fn->type_params.empty())
                 out_exports->fn_templates.push_back(fn->name);

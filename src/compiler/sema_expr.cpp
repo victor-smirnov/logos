@@ -4491,7 +4491,11 @@ lir::LExprPtr SemaChecker::lower_intrinsic_generic_of(TinyMapView node) {
             if (sd.name == sname) { arity = (int64_t)sd.type_params.size(); break; }
         if (arity < 0)
             for (auto& ed : cur_prog_->enums)
-                if (ed.name == sname) { arity = (int64_t)ed.type_params.size(); break; }
+                if (ed.name() == sname) {
+                    int64_t n = 0;
+                    ed.each_type_param([&](lir_view::EnumTParamView) { ++n; });
+                    arity = n; break;
+                }
     }
     if (arity < 0) {
         error("generic_of::<X>(): unknown struct/enum '" + sname + "'");

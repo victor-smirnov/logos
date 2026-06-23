@@ -408,7 +408,30 @@ inline constexpr Key IS_STATIC {"IS_STATIC", 5};  // bool (sparse: present only 
 inline constexpr Key IS_MUT    {"IS_MUT",    6};  // bool (sparse) — `static mut`
 inline constexpr Key IS_EXTERN {"IS_EXTERN", 7};  // bool (sparse) — extern-block decl
 inline constexpr Key SYM       {"SYM",       8};  // Varchar — link symbol
+// ── Enum (Code::Enum) decl keys ──────────────────────────────────────────
+inline constexpr Key PKG             {"PKG",             9};  // Varchar — declaring package
+inline constexpr Key ZONED2          {"ZONED2",          10}; // bool (sparse) — niche enum, Ref arm self-relative at-rest
+inline constexpr Key BORROW_CARRYING {"BORROW_CARRYING", 11}; // bool (sparse) — HAny escape-tracked value
+inline constexpr Key VARIANTS        {"VARIANTS",        12}; // Array<RelPtr<variant sub-map>>
+inline constexpr Key TYPE_PARAMS     {"TYPE_PARAMS",     13}; // Array<RelPtr<typeparam sub-map>>
+inline constexpr Key BACKING_TYPE    {"BACKING_TYPE",    14}; // RelPtr<LogosType> — C-style enum disc type (null=i32)
 } // namespace decl_keys
+
+// Enum VARIANT sub-map keys (own small key space — distinct map schema).
+namespace variant_keys {
+inline constexpr Key V_NAME         {"V_NAME",         1};  // Varchar
+inline constexpr Key V_DISC         {"V_DISC",         2};  // i64
+inline constexpr Key V_PAYLOAD_TYPES{"V_PAYLOAD_TYPES",3};  // Array<RelPtr<LogosType>>
+inline constexpr Key V_IS_VARIADIC  {"V_IS_VARIADIC",  4};  // bool (sparse)
+} // namespace variant_keys
+
+// Enum TYPE_PARAM sub-map keys (own small key space). Only the fields READ
+// post-construction off an enum template are stored (name + is_variadic);
+// bounds/is_const/const_type/default_type are NOT read for enums (verified).
+namespace enum_tparam_keys {
+inline constexpr Key TP_NAME        {"TP_NAME",        1};  // Varchar
+inline constexpr Key TP_IS_VARIADIC {"TP_IS_VARIADIC", 2};  // bool (sparse)
+} // namespace enum_tparam_keys
 
 // ── Pattern sparse keys ───────────────────────────────────────────────────
 

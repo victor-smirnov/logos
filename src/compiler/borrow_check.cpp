@@ -65,7 +65,7 @@ struct TypeSets {
     // O(n²) in program size. First-def-wins, matching the scans' short-circuit.
     std::unordered_map<std::string, const lir::LStructDef*> struct_by_name;
     std::unordered_map<std::string, const lir::LStructDef*> spec_by_name;
-    std::unordered_map<std::string, const lir::LEnumDef*>   enum_by_name;
+    std::unordered_map<std::string, lir_view::EnumView>     enum_by_name;
 };
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
@@ -132,7 +132,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     for (auto& sd : prog.struct_specializations) reg_bc(sd);
     // `#[borrow_carrying]` enums (HAny) — same escape tracking as the struct form.
     for (auto& ed : prog.enums)
-        if (ed.borrow_carrying) reg_bc_name(ed.name, /*strip_generic=*/true);
+        if (ed.borrow_carrying()) reg_bc_name(std::string(ed.name()), /*strip_generic=*/true);
     // Transitive closure (escape tracking must see the WHOLE aggregate): a struct
     // or enum with an INLINE field / variant payload of a (transitively) borrow-
     // carrying type is itself borrow-carrying — the borrow rides inside the value,
@@ -211,18 +211,22 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         for (auto& sd : prog.structs)                consider_struct(sd);
         for (auto& sd : prog.struct_specializations) consider_struct(sd);
         for (auto& ed : prog.enums) {
-            if (ts.borrow_carrying.count(ed.name)) continue;
-            for (auto& var : ed.variants) {
-                bool hit = false;
-                for (auto& pt : var.payload_types) if (type_is_bc(pt)) { hit = true; break; }
-                if (hit) { reg_bc_name(ed.name, /*strip_generic=*/false); bc_changed = true; break; }
-            }
+            std::string ed_name(ed.name());
+            if (ts.borrow_carrying.count(ed_name)) continue;
+            bool hit = false;
+            ed.each_variant([&](lir_view::EnumVariantView var) {
+                if (hit) return;
+                var.each_payload_type(prog.type_pool.impl(), [&](TypeRef pt) {
+                    if (type_is_bc(pt)) hit = true;
+                });
+            });
+            if (hit) { reg_bc_name(ed_name, /*strip_generic=*/false); bc_changed = true; }
         }
     }
     // Name → def indices for O(1) by-name lookup (first-def-wins).
     for (auto& sd : prog.structs)               ts.struct_by_name.emplace(sd.name, &sd);
     for (auto& sd : prog.struct_specializations) ts.spec_by_name.emplace(sd.name, &sd);
-    for (auto& ed : prog.enums)                 ts.enum_by_name.emplace(ed.name, &ed);
+    for (auto& ed : prog.enums)                 ts.enum_by_name.emplace(std::string(ed.name()), ed);
     return ts;
 }
 
@@ -301,10 +305,13 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         if (ts.drop_types.count(en)) return true;       // has a Drop impl
         auto eit = ts.enum_by_name.find(en);            // any move-typed payload
         if (eit != ts.enum_by_name.end()) {
-            for (auto& v : eit->second->variants)
-                for (auto& pt : v.payload_types)
-                    if (is_move_type(pt, prog, ts, copy_tvs)) return true;
-            return false;
+            bool moved = false;
+            eit->second.each_variant([&](lir_view::EnumVariantView v) {
+                v.each_payload_type(prog.type_pool.impl(), [&](TypeRef pt) {
+                    if (is_move_type(pt, prog, ts, copy_tvs)) moved = true;
+                });
+            });
+            return moved;
         }
         return false;
     };

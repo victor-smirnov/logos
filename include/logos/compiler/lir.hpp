@@ -903,40 +903,38 @@ struct LStructDef {
 };
 
 
-struct LVariant {
+// Stage E: transient assembly drafts for an enum mirror. lower_enum_def /
+// clone_enum_def build these locally, then lir_mirror_emit_enum_def writes the
+// Hermes Code::Enum map and the caller stores a lir_view::EnumView. Only the
+// fields READ post-construction are carried (verified read-surface): variant
+// doc + enum lifetime_params/lifetime_outlives/backing_type are NOT read after
+// construction, so they're dropped here.
+struct EnumVariantDraft {
+    std::string          name;
+    int64_t              disc = 0;
+    std::vector<TypeRef> payload_types;
+    bool                 is_variadic = false;
+};
+struct EnumTParamDraft {
     std::string name;
-    int64_t     disc;
-    std::vector<TypeRef> payload_types;  // empty = no payload (C-style)
-    bool        is_variadic = false;              // variadic pack payload (...T)
-    std::string doc;     // Phase A.2: outer `///` doc-comment
+    bool        is_variadic = false;
+};
+struct EnumDraft {
+    std::string                   name;
+    std::string                   pkg;
+    std::string                   doc;
+    bool                          zoned2 = false;
+    bool                          borrow_carrying = false;
+    TypeRef                       backing_type = nullptr;  // C-style disc type; null=i32
+    std::vector<EnumVariantDraft> variants;
+    std::vector<EnumTParamDraft>  type_params;
 };
 
-struct LEnumDef {
-    std::string              name;
-    std::string              pkg;            // package that declares this enum
-    std::vector<TypeParam>   type_params;   // empty for non-generic enums
-    std::vector<std::string> lifetime_params;
-    // B65: outlives bounds on the enum's lifetime params.
-    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-    std::vector<LVariant>    variants;
-    TypeRef         backing_type = nullptr;  // null = default (i32)
-    // `#[zoned2]`: a niche-packed enum whose Ref arm is stored SELF-RELATIVE
-    // (RelOffset) at-rest and absolute as a value — the storage/compute split
-    // (ref-repr-design §8 / F3). The compiler bridges via the generalized
-    // ha_materialize/ha_lower (offset the Ref arm by the low bit, anchored at
-    // the access location). #[zoned2] enums are non-movable at-rest.
-    bool                     zoned2 = false;
-    // `#[borrow_carrying]`: an enum value (HAny) may hold a Ref into an arena —
-    // the borrow checker escape-tracks it like a reference.
-    bool                     borrow_carrying = false;
-    bool has_payload() const {
-        for (auto& v : variants)
-            if (!v.payload_types.empty()) return true;
-        return false;
-    }
-    // Outer doc-comment on the enum declaration.
-    std::string doc;
-};
+// Stage E: struct LEnumDef + struct LVariant deleted — enums live ONLY as Hermes
+// mirror nodes (lir_schema::decl::Code::Enum + variant/typeparam sub-maps), read
+// via lir_view::EnumView / EnumVariantView / EnumTParamView. The transient data
+// lower_enum_def / clone_enum_def assemble is carried in EnumDraft (above), then
+// lir_mirror_emit_enum_def writes the mirror and the caller stores an EnumView.
 
 // ── Trait definition ──────────────────────────────────────────────────────
 
@@ -1132,7 +1130,7 @@ struct LProgram {
 
     std::vector<LStructDef>      structs;
     std::vector<LStructDef>      struct_specializations;  // struct specs (consumed by mono)
-    std::vector<LEnumDef>        enums;
+    std::vector<lir_view::EnumView> enums;               // Stage E: decl mirrors
     std::vector<LFunctionPtr>    functions;        // free functions and extern fn
     std::vector<LFunctionPtr>    specializations;  // fn specialisations (consumed by mono)
     std::vector<lir_view::ConstView> consts;            // Stage E: decl mirrors

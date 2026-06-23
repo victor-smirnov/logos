@@ -44,7 +44,7 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
             if (sd.name == concrete) { concrete_pkg = sd.pkg; break; }
         if (concrete_pkg.empty())
             for (auto& ed : out_.enums)
-                if (ed.name == concrete) { concrete_pkg = ed.pkg; break; }
+                if (ed.name() == concrete) { concrete_pkg = std::string(ed.pkg()); break; }
         // Coexistence: module-qualify the type part (matches concrete_struct_name
         // used at the call site) so two modules' blanket-method instances (e.g.
         // `Widget__type_id` from `impl<T> Any for T`) don't collide at link.
@@ -204,9 +204,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             }
         }
         for (auto& ed : out_.enums) {
-            auto qkey = ed.pkg.empty() ? ed.name : (ed.pkg + "." + ed.name);
+            std::string ed_name(ed.name()), ed_pkg(ed.pkg());
+            auto qkey = ed_pkg.empty() ? ed_name : (ed_pkg + "." + ed_name);
             enum_done_.insert(qkey);
-            enum_done_.insert(ed.name);
+            enum_done_.insert(ed_name);
         }
     }
 
@@ -331,12 +332,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index generic enum templates; pass-through plain enums.
     for (auto& ed : in_.enums) {
-        if (!ed.type_params.empty()) {
-            enum_templates_[ed.name] = &ed;
+        std::string ed_name(ed.name()), ed_pkg(ed.pkg());
+        if (!ed.type_params_empty()) {
+            enum_templates_[ed_name] = ed;
         } else {
             if (has_prev_out_) {
-                auto qkey = ed.pkg.empty() ? ed.name : (ed.pkg + "." + ed.name);
-                if (enum_done_.count(qkey) || enum_done_.count(ed.name)) continue;
+                auto qkey = ed_pkg.empty() ? ed_name : (ed_pkg + "." + ed_name);
+                if (enum_done_.count(qkey) || enum_done_.count(ed_name)) continue;
             }
             out_.enums.push_back(ed);
         }
@@ -376,7 +378,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& sd : out_.structs)
                 if (sd.type_params.empty()) candidates.push_back(sd.name);
             for (auto& ed : out_.enums)
-                if (ed.type_params.empty()) candidates.push_back(ed.name);
+                if (ed.type_params_empty()) candidates.push_back(std::string(ed.name()));
         } else {
             // Direct concrete impls of bound_trait.
             for (auto& impl : out_.impls) {
@@ -408,7 +410,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& sd : out_.structs)
                 if (sd.type_params.empty()) consider(sd.name);
             for (auto& ed : out_.enums)
-                if (ed.type_params.empty()) consider(ed.name);
+                if (ed.type_params_empty()) consider(std::string(ed.name()));
         }
         // ADR 0008: helper to check Trait<Assoc = Type> equality clauses.
         // Falls back to blanket-derived assoc-types when `concrete` does

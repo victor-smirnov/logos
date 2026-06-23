@@ -1207,11 +1207,19 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     return sd;
 }
 
-lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
+// Stage E: builds the enum's transient EnumDraft (struct LEnumDef is gone). The
+// caller adds the doc-comment, emits the Hermes mirror, and stores an EnumView.
+// Local validation still uses the full TypeParam set (`tparams`); only the
+// fields READ post-construction (name/is_variadic) are carried into the draft.
+lir::EnumDraft SemaChecker::lower_enum_def(TinyMapView node) {
     auto ename = std::string(str_of(node.get(la::NAME.code)));
-    lir::LEnumDef ed;
+    lir::EnumDraft ed;
     ed.name = ename;
     ed.pkg  = cur_package_;
+    // Local TypeParam set for validation (outlives/uniqueness) — NOT stored.
+    std::vector<TypeParam> tparams;
+    std::vector<std::string> lifetime_params;
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     auto [epkg_led, esi_led] = find_enum_by_name(ename);
     auto eit_led = esi_led ? enums_.find(sema_key(epkg_led, ename)) : enums_.end();
     if (eit_led == enums_.end()) eit_led = enums_.find(ename);
@@ -1220,18 +1228,18 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
         return ed;
     }
     auto& einfo = eit_led->second;
-    ed.type_params = einfo.type_params;
+    tparams = einfo.type_params;
     ed.backing_type = einfo.backing_type;
     ed.zoned2 = einfo.zoned2;   // F3: niche enum's Ref arm self-relative at-rest
     ed.borrow_carrying = einfo.borrow_carrying;   // HAny: escape-tracked value
     // B65: capture outlives bounds. Enum lifetime_params lives on einfo;
     // outlives bounds re-read from the node.
-    ed.lifetime_params = einfo.lifetime_params;
-    ed.lifetime_outlives = read_lifetime_outlives(node);
+    lifetime_params = einfo.lifetime_params;
+    lifetime_outlives = read_lifetime_outlives(node);
     // B68.3: also pick up where-clause outlives + type-outlives.
     {
         auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
-        for (auto& p : where_outlives) ed.lifetime_outlives.push_back(std::move(p));
+        for (auto& p : where_outlives) lifetime_outlives.push_back(std::move(p));
         if (node.has_key(la::WHERE)) {
             AnyVal wav = node.get(la::WHERE.code);
             if (!wav.is_null()) {
@@ -1245,7 +1253,7 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
                         std::string tname(str_of(witem.get(la::NAME.code)));
                         auto inner = arr_of(witem.get(la::ITEMS.code));
                         TypeParam* target = nullptr;
-                        for (auto& tp : ed.type_params)
+                        for (auto& tp : tparams)
                             if (tp.name == tname) { target = &tp; break; }
                         if (!target) continue;
                         for (uint64_t j = 0; j < inner.size(); ++j) {
@@ -1260,14 +1268,14 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
         }
     }
     {
-        std::unordered_set<std::string> declared(ed.lifetime_params.begin(),
-                                                 ed.lifetime_params.end());
+        std::unordered_set<std::string> declared(lifetime_params.begin(),
+                                                 lifetime_params.end());
         auto known = [&](std::string_view lt) {
             if (lt.empty()) return true;
             if (lt == "'static" || lt == "static") return true;
             return declared.count(std::string(lt)) > 0;
         };
-        for (auto& [lng, sht] : ed.lifetime_outlives) {
+        for (auto& [lng, sht] : lifetime_outlives) {
             if (!known(lng))
                 error(std::format("enum '{}': use of undeclared lifetime name '{}' in outlives clause",
                                   ename, lng));
@@ -1275,7 +1283,7 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
                 error(std::format("enum '{}': use of undeclared lifetime name '{}' in outlives clause",
                                   ename, sht));
         }
-        for (auto& tp : ed.type_params) {
+        for (auto& tp : tparams) {
             for (auto& lt : tp.lifetime_outlives) {
                 if (!known(lt))
                     error(std::format("enum '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
@@ -1284,15 +1292,19 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
         }
     }
     // Type-param uniqueness on enum (B-gn-01 family)
-    check_unique_names(ed.type_params,
+    check_unique_names(tparams,
                        [](auto& tp) -> std::string_view { return tp.name; },
                        "type parameter", "enum " + ename);
     for (auto& v : einfo.variants)
-        ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic, v.doc});
+        ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic});
     // Variant-name uniqueness (closes B-it-04)
     check_unique_names(ed.variants,
                        [](auto& v) -> std::string_view { return v.name; },
                        "variant", "enum " + ename);
+    // Carry only the type-param fields READ post-construction (name +
+    // is_variadic); bounds/const/default are not read for enums.
+    for (auto& tp : tparams)
+        ed.type_params.push_back({tp.name, tp.is_variadic});
     return ed;
 }
 

@@ -4302,7 +4302,7 @@ private:
     // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
     void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::LFunction& fn);
     lir::LStructDef lower_struct_def(hermes::TinyMapView node);
-    lir::LEnumDef lower_enum_def(hermes::TinyMapView node);
+    lir::EnumDraft lower_enum_def(hermes::TinyMapView node);
     lir::ConstDraft lower_const_def(hermes::TinyMapView node);
     std::pair<std::string, TypeRef> lower_type_alias_def(hermes::TinyMapView node);
     lir::LTraitDef lower_trait_def(hermes::TinyMapView node);

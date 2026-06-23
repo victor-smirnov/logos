@@ -3899,10 +3899,12 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         } else {
             std::string en(enum_lt.enum_name());
             auto eit = enum_types_.find(en);
-            if (eit != enum_types_.end() && eit->second) {
-                exhaustive_discrete = std::all_of(
-                    eit->second->variants.begin(), eit->second->variants.end(),
-                    [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
+            if (eit != enum_types_.end()) {
+                bool all_covered = true;
+                eit->second.each_variant([&](lir_view::EnumVariantView v) {
+                    if (covered.count(v.disc()) == 0) all_covered = false;
+                });
+                exhaustive_discrete = all_covered;
             } else if (auto* te = resolve_tagged_enum(en, enum_lt)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),

@@ -270,14 +270,17 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     case Kind::Enum: {
         std::string ename{tv.enum_name()};
         if (has_explicit(ename) || has_explicit(type_str(tv))) return true;
-        const lir::LEnumDef* ed = nullptr;
-        for (auto& e : out_.enums) if (e.name == ename) { ed = &e; break; }
-        if (!ed) for (auto& e : in_.enums) if (e.name == ename) { ed = &e; break; }
+        std::optional<lir_view::EnumView> ed;
+        for (auto& e : out_.enums) if (e.name() == ename) { ed = e; break; }
+        if (!ed) for (auto& e : in_.enums) if (e.name() == ename) { ed = e; break; }
         if (!ed) return true;
-        for (auto& v : ed->variants)
-            for (auto pt : v.payload_types)
-                if (!is_auto_satisfied(pt, trait_name, visited)) return false;
-        return true;
+        bool ok = true;
+        ed->each_variant([&](lir_view::EnumVariantView v) {
+            v.each_payload_type(out_.type_pool.impl(), [&](TypeRef pt) {
+                if (!is_auto_satisfied(pt, trait_name, visited)) ok = false;
+            });
+        });
+        return ok;
     }
 
     // TypeVar: should be substituted before we get here; if not, conservative true.
@@ -2379,18 +2382,19 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 nc.callee == "__variant_names_of__" ||
                 nc.callee == "__variant_payload_counts_of__" ||
                 nc.callee == "__variant_payload_types_flat_of__") {
-                const lir::LEnumDef* edef = nullptr;
+                std::optional<lir_view::EnumView> edef;
                 if (!nc.type_args.empty()) {
                     TypeRef E = nc.type_args[0];
                     if (E && E.kind() == LogosType::Kind::Enum) {
                         std::string base{E.enum_name()};
                         for (auto& ed : in_.enums)
-                            if (ed.name == base) { edef = &ed; break; }
+                            if (ed.name() == base) { edef = ed; break; }
                     }
                 }
                 LirBuilder b(out_);
+                auto* edef_pool = out_.type_pool.impl();
                 if (nc.callee == "__variant_count_of__") {
-                    int64_t n = edef ? (int64_t)edef->variants.size() : 0;
+                    int64_t n = edef ? (int64_t)edef->variant_count() : 0;
                     LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                     TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                     auto lit = b.lit_int(n, i64_t);
@@ -2402,13 +2406,15 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 std::vector<lir_view::ExprRef> elems;
                 if (nc.callee == "__variant_names_of__") {
                     if (edef)
-                        for (auto& vr : edef->variants)
-                            elems.push_back(b.lit_str(vr.name, elem_t));
+                        edef->each_variant([&](lir_view::EnumVariantView vr) {
+                            elems.push_back(b.lit_str(std::string(vr.name()), elem_t));
+                        });
                 } else if (nc.callee == "__variant_payload_counts_of__") {
                     if (edef)
-                        for (auto& vr : edef->variants)
+                        edef->each_variant([&](lir_view::EnumVariantView vr) {
                             elems.push_back(b.lit_int(
-                                (int64_t)vr.payload_types.size(), elem_t));
+                                (int64_t)vr.payload_types(edef_pool).size(), elem_t));
+                        });
                 } else { // __variant_payload_types_flat_of__
                     if (edef) {
                         LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
@@ -2422,8 +2428,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                         LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
                         TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
-                        for (auto& vr : edef->variants) {
-                            for (auto& pt : vr.payload_types) {
+                        edef->each_variant([&](lir_view::EnumVariantView vr) {
+                            vr.each_payload_type(edef_pool, [&](TypeRef pt) {
                                 TypeRef pty = subst_type(pt, s);
                                 if (!pty) pty = pt;
                                 uint64_t uid = type_hash_64bit(
@@ -2443,8 +2449,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     b.lit_int((int64_t)uid, u64_t));
                                 elems.push_back(
                                     b.struct_lit("Type", std::move(f), elem_t));
-                            }
-                        }
+                            });
+                        });
                     }
                 }
                 LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
@@ -3215,21 +3221,27 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         // and tries to infer T,E from args).
                                         auto* stt_ptr = find_struct_template_pkg_first(
                                             struct_pkg, struct_base);
-                                        const std::vector<TypeParam> empty_tpars;
-                                        const std::vector<TypeParam>* sd_tpars_ptr = &empty_tpars;
+                                        // Receiver-level type-param NAMES (struct
+                                        // or enum) — only the names are consulted
+                                        // to split method-level vs receiver-level
+                                        // tparams. Enum names come via EnumView.
+                                        std::vector<std::string> sd_tpar_names;
                                         if (stt_ptr) {
-                                            sd_tpars_ptr = &stt_ptr->type_params;
+                                            for (auto& stp : stt_ptr->type_params)
+                                                sd_tpar_names.push_back(stp.name);
                                         } else if (TypeRef(t).kind() == LogosType::Kind::Enum) {
-                                            auto* edt = find_enum_template_bare(struct_base);
-                                            if (edt) sd_tpars_ptr = &edt->type_params;
+                                            auto edt = find_enum_template_bare(struct_base);
+                                            if (edt) edt->each_type_param(
+                                                [&](lir_view::EnumTParamView tp) {
+                                                    sd_tpar_names.push_back(std::string(tp.name()));
+                                                });
                                         }
-                                        const std::vector<TypeParam>& sd_tpars = *sd_tpars_ptr;
                                         {
                                             std::vector<const TypeParam*> meth_tps;
                                             for (auto& tp : tmpl->type_params) {
                                                 bool is_struct = false;
-                                                for (auto& stp : sd_tpars)
-                                                    if (stp.name == tp.name) {
+                                                for (auto& stp : sd_tpar_names)
+                                                    if (stp == tp.name) {
                                                         is_struct = true;
                                                         break;
                                                     }
@@ -3289,7 +3301,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                             // are impl-level (flattened
                                                             // at sema-collect time).
                                                             for (size_t i = 0;
-                                                                 i < sd_tpars.size() &&
+                                                                 i < sd_tpar_names.size() &&
                                                                  i < tmpl->type_params.size();
                                                                  ++i) {
                                                                 auto& nm = tmpl->type_params[i].name;
@@ -3299,7 +3311,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                                 }
                                                                 ia.push_back(it_b->second);
                                                             }
-                                                            if (ok && ia.size() == sd_tpars.size()) {
+                                                            if (ok && ia.size() == sd_tpar_names.size()) {
                                                                 for (auto a : ia) full.push_back(a);
                                                                 used_pattern = true;
                                                             }
@@ -5680,21 +5692,30 @@ void Mono::instantiate_struct_templates() {
 // Clone a class def with substitution; rename to new_name.
 // Mirrors clone_struct_def but preserves vtable_order, parent_name, etc.
 
-lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
+// Stage E: read the template enum via EnumView, apply subst_type / variadic-pack
+// expansion to each variant's payload EXACTLY as before, emit the substituted
+// enum's Hermes mirror into out_, and return an EnumView. Matches the old
+// clone behaviour: only name/pkg/zoned2/variants are carried (type_params /
+// backing_type / borrow_carrying / doc are intentionally dropped on instances).
+lir_view::EnumView Mono::clone_enum_def(lir_view::EnumView tmpl,
                               const SubstMap& s,
                               const PackMap& packs,
                               const std::string& new_name) {
-    lir::LEnumDef nd;
+    // in_.type_pool was moved into out_ at run() start; read the (shared-arena)
+    // template payloads through out_'s live pool handle.
+    auto* pool = out_.type_pool.impl();
+    lir::EnumDraft nd;
     nd.name = new_name;
-    nd.pkg  = tmpl.pkg;
-    nd.zoned2 = tmpl.zoned2;   // F3: preserve the niche enum's at-rest-relative marker
-    for (auto& v : tmpl.variants) {
-        lir::LVariant nv;
-        nv.name = v.name;
-        nv.disc = v.disc;
+    nd.pkg  = std::string(tmpl.pkg());
+    nd.zoned2 = tmpl.zoned2();   // F3: preserve the niche enum's at-rest-relative marker
+    tmpl.each_variant([&](lir_view::EnumVariantView v) {
+        lir::EnumVariantDraft nv;
+        nv.name = std::string(v.name());
+        nv.disc = v.disc();
+        auto pts = v.payload_types(pool);
         // Variadic expansion for variants like Multi(...T)
-        if (v.is_variadic && !v.payload_types.empty()) {
-            auto pt = v.payload_types[0];
+        if (v.is_variadic() && !pts.empty()) {
+            auto pt = pts[0];
             if (TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto pit = packs.find(TypeRef(pt).type_var_name());
                 if (pit != packs.end()) {
@@ -5707,12 +5728,13 @@ lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
                 nv.payload_types.push_back(subst_type(pt, s));
             }
         } else {
-            for (auto pt : v.payload_types)
+            for (auto pt : pts)
                 nv.payload_types.push_back(subst_type(pt, s));
         }
         nd.variants.push_back(std::move(nv));
-    }
-    return nd;
+    });
+    auto mp = lir_mirror_emit_enum_def(out_, nd);
+    return lir_view::EnumView{lir_view::DeclRef(out_.type_pool.arena(), mp)};
 }
 
 
@@ -5735,18 +5757,24 @@ void Mono::instantiate_enum_templates() {
             std::string base = cname;
             auto pos = base.find("__");
             if (pos != std::string::npos) base = base.substr(0, pos);
-            auto* tmpl = find_enum_template_bare(base);
+            auto tmpl = find_enum_template_bare(base);
             if (!tmpl) continue;
+            // Materialize the template's type-params (name + is_variadic) so the
+            // positional substitution below can index them like the old vector.
+            std::vector<std::pair<std::string, bool>> tps;
+            tmpl->each_type_param([&](lir_view::EnumTParamView tp) {
+                tps.push_back({std::string(tp.name()), tp.is_variadic()});
+            });
             // Build substitution map and packs
             SubstMap subst;
             PackMap packs;
-            for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
-                if (tmpl->type_params[i].is_variadic) {
+            for (size_t i = 0, j = 0; i < tps.size(); ++i) {
+                if (tps[i].second) {
                     std::vector<TypeRef> pack;
                     while (j < args.size()) pack.push_back(args[j++]);
-                    packs[tmpl->type_params[i].name] = std::move(pack);
+                    packs[tps[i].first] = std::move(pack);
                 } else if (j < args.size()) {
-                    subst[tmpl->type_params[i].name] = args[j++];
+                    subst[tps[i].first] = args[j++];
                 }
             }
             // Instantiate: substitute payload types and methods
@@ -5855,7 +5883,7 @@ void Mono::instantiate_enum_templates() {
                 }
                 if (bare.substr(0, prefix.size()) != prefix) continue;
                 // Match type params to subst keys
-                bool matches = fn.type_params.size() == tmpl->type_params.size();
+                bool matches = fn.type_params.size() == tps.size();
                 if (!matches) continue;
                 // A generic enum method has TWO mangled-name conventions
                 // depending on its call site, and instantiate_enum_templates

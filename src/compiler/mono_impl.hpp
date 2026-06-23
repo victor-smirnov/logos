@@ -276,18 +276,18 @@ private:
     StrMap<std::vector<const lir::LStructDef*>> struct_specs_;
     StrMap<std::pair<TypeRef, int>> needed_struct_insts_;
     StrSet struct_done_;
-    StrMap<const lir::LEnumDef*>   enum_templates_;
+    StrMap<lir_view::EnumView>     enum_templates_;   // Stage E: decl mirrors
     // M2: enum_templates_ is currently bare-keyed only (mono.cpp:192).
     // The single lookup site (mono_clone.cpp:4048) takes a bare base
     // extracted from a mangled cname. Helper wraps the direct .find for
     // call-site symmetry with struct_template helpers; M3 can swap the
     // backing store without touching the call site.
-    const lir::LEnumDef*
+    std::optional<lir_view::EnumView>
     find_enum_template_bare(std::string_view base) const noexcept {
         if (auto it = enum_templates_.find(std::string(base));
             it != enum_templates_.end())
             return it->second;
-        return nullptr;
+        return std::nullopt;
     }
     StrMap<std::pair<std::vector<TypeRef>, int>> needed_enum_insts_;
     StrSet enum_done_;
@@ -532,11 +532,11 @@ private:
             }
         // Enum.
         for (auto& ed : out_.enums)
-            if (ed.name == name) {
+            if (ed.name() == name) {
                 LogosTypeBuilder et;
                 et.kind = LogosType::Kind::Enum;
                 et.enum_name = name;
-                et.pkg_name  = ed.pkg;
+                et.pkg_name  = std::string(ed.pkg());
                 return out_.type_pool.alloc(std::move(et));
             }
         // Primitive scalar.
@@ -877,7 +877,7 @@ private:
                                       const SubstMap& s,
                                       const PackMap& packs,
                                       const std::string& new_name);
-    lir::LEnumDef   clone_enum_def(const lir::LEnumDef& tmpl,
+    lir_view::EnumView clone_enum_def(lir_view::EnumView tmpl,
                                     const SubstMap& s,
                                     const PackMap& packs,
                                     const std::string& new_name);

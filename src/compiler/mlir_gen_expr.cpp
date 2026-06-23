@@ -4252,10 +4252,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         } else {
             std::string en(TypeRef(scrut_ty).enum_name());
             auto eit = enum_types_.find(en);
-            if (eit != enum_types_.end() && eit->second) {
-                exhaustive_discrete = std::all_of(
-                    eit->second->variants.begin(), eit->second->variants.end(),
-                    [&](const lir::LVariant& v) { return covered.count(v.disc) > 0; });
+            if (eit != enum_types_.end()) {
+                bool all_covered = true;
+                eit->second.each_variant([&](lir_view::EnumVariantView v) {
+                    if (covered.count(v.disc()) == 0) all_covered = false;
+                });
+                exhaustive_discrete = all_covered;
             } else if (auto* te = resolve_tagged_enum(en, scrut_ty)) {
                 exhaustive_discrete = std::all_of(
                     te->variants.begin(), te->variants.end(),

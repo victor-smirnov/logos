@@ -328,7 +328,7 @@ TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 struct LirBundle {
     std::vector<lir::LStructDef>      structs;
     std::vector<lir::LStructDef>      struct_specializations;
-    std::vector<lir::LEnumDef>        enums;
+    std::vector<lir_view::EnumView>   enums;             // Stage E: decl mirrors
     std::vector<lir::LFunctionPtr>    functions;
     std::vector<lir::LFunctionPtr>    specializations;
     std::vector<lir_view::ConstView>  consts;            // Stage E: decl mirrors
@@ -7686,9 +7686,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             }
         }
         else if (c == la::ENUM) {
+            // Stage E: emit the enum's Hermes mirror and store an EnumView
+            // (struct LEnumDef is gone — the mirror is the sole representation).
             auto ed = lower_enum_def(item);
             ed.doc = take_pending_doc();
-            prog.enums.push_back(std::move(ed));
+            auto mp = lir_mirror_emit_enum_def(prog, ed);
+            prog.enums.push_back(
+                lir_view::EnumView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
         }
         else if (c == la::FN || c == la::EXTERN_FN) {
             // lower_fn / lower_spec_fn read pending_doc_ at entry — no

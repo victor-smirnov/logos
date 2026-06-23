@@ -694,7 +694,7 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
 // padding INCLUDED). A naive sum of field sizes under-counts a multi-field
 // variant like `Cons { head: i32, tail: *const List }` (4+8=12 vs the real
 // {i32,ptr} struct of 16) — which silently overlapped adjacent enum allocas.
-MLIRGenImpl::Layout MLIRGenImpl::variant_payload_layout(const lir::LVariant& v) {
+MLIRGenImpl::Layout MLIRGenImpl::variant_payload_layout(lir_view::EnumVariantView v) {
     // The payload is laid out exactly like a struct/tuple of its fields —
     // derive {size, align} from the unified layout accumulator.
     // Enum payloads store members BY VALUE (a slice/closure payload is the full
@@ -703,42 +703,43 @@ MLIRGenImpl::Layout MLIRGenImpl::variant_payload_layout(const lir::LVariant& v) 
     // by-value layout_of here, not aggregate_member_layout.
     LayoutAgg agg;
     std::unordered_set<std::string> seen;
-    for (auto pt : v.payload_types) {
-        if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;
+    v.each_payload_type(pool_impl(), [&](TypeRef pt) {
+        if (TypeRef(pt).kind() == LogosType::Kind::Void) return;
         agg.push(layout_of(pt, seen));
-    }
+    });
     return agg.finish();
 }
 
-uint64_t MLIRGenImpl::variant_payload_bytes(const lir::LVariant& v) {
+uint64_t MLIRGenImpl::variant_payload_bytes(lir_view::EnumVariantView v) {
     return variant_payload_layout(v).size;
 }
 
-void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
+void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
     // Skip if fully populated already (variants filled in). Stub entries
     // (pre-registered by mlir_gen.cpp's two-pass loop) have empty variants
     // and need their bodies filled here.
-    auto eit = tagged_enums_.find(ed.name);
+    std::string ed_name(ed.name());
+    auto eit = tagged_enums_.find(ed_name);
     if (eit != tagged_enums_.end() && !eit->second.variants.empty()) return;
     TaggedEnumInfo info;
-    info.zoned = ed.zoned2;   // F3: niche enum's Ref arm self-relative at-rest
-    info.name = ed.name;
+    info.zoned = ed.zoned2();   // F3: niche enum's Ref arm self-relative at-rest
+    info.name = ed_name;
     uint64_t max_bytes = 0, max_align = 1;
-    for (auto& v : ed.variants) {
+    ed.each_variant([&](lir_view::EnumVariantView v) {
         TaggedEnumInfo::VariantPayload vp;
-        vp.disc = v.disc;
-        for (auto pt : v.payload_types) {
-            if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;  // () unit — no field
+        vp.disc = v.disc();
+        v.each_payload_type(pool_impl(), [&](TypeRef pt) {
+            if (TypeRef(pt).kind() == LogosType::Kind::Void) return;  // () unit — no field
             auto ft = logos_to_mlir(pt);
             if (!ft) ft = builder_.getI32Type();
             vp.field_types.push_back(ft);
             vp.logos_types.push_back(pt);
-        }
+        });
         auto pl = variant_payload_layout(v);
         if (pl.size  > max_bytes) max_bytes = pl.size;
         if (pl.align > max_align) max_align = pl.align;
         info.variants.push_back(std::move(vp));
-    }
+    });
     info.payload_bytes = max_bytes;
     info.payload_align = max_align;
     // Phase 3.5 — null-pointer niche eligibility (Option<&T>-shape): exactly two
@@ -842,7 +843,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
         }
     }
     auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
-        builder_.getContext(), "enum." + ed.name);
+        builder_.getContext(), "enum." + ed_name);
     // NOTE: the body (payload byte-array size) is NOT set here — a nested enum
     // payload may still be a 0-byte stub at this point, so max_bytes can be
     // under-sized. The body is set ONCE, after the fixpoint in mlir_gen.cpp
@@ -850,7 +851,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     // An identified LLVM struct's body is set-once, so setting it prematurely
     // here would lock in the wrong size.
     info.llvm_type = enum_type;
-    tagged_enums_[ed.name] = std::move(info);
+    tagged_enums_[ed_name] = std::move(info);
 }
 
 
