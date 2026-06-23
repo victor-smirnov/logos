@@ -39,6 +39,10 @@ namespace sc = lir_schema::stmt_common;
 namespace dk = lir_schema::decl_keys;
 namespace vk = lir_schema::variant_keys;
 namespace tpk = lir_schema::enum_tparam_keys;
+namespace pmk = lir_schema::param_keys;
+namespace ftpk = lir_schema::fn_tparam_keys;
+namespace tbk = lir_schema::fn_tbound_keys;
+namespace wbk = lir_schema::fn_wherebound_keys;
 namespace pk = lir_schema::pat_keys;
 namespace ak = lir_schema::arm_keys;
 namespace hl = lir_schema::hermes_lit_keys;
@@ -81,10 +85,90 @@ public:
 
     void run(lir::LProgram& prog);
 
+    // Stage E: emit the function DECL mirror (full field set) and stash a
+    // transient bridge (mirror_ptr_ + mirror_arena_) on the C++ struct so
+    // readers can route through FunctionView while the struct is still alive.
+    // f.body is a pre-emitted BlockRef (Stage D, eager) — referenced by addr.
+    // ALWAYS re-emits (overwrites the bridge): clone_fn copies a template's
+    // stale mirror_ptr_, and the per-clone callers re-emit to give the clone
+    // its own map. Idempotent enough — segments never move, maps are append.
     void emit_function(LFunction& f) {
-        // Stage D: f.body is a pre-emitted BlockRef (eager). Nothing to walk —
-        // the body + all its statements/sub-blocks were mirrored at sema time.
-        (void)f;
+        if (dry_run_) return;  // back-fill mode: keep existing bridge intact
+        auto map_off = make_map(hermes::schema::lir_stmt(
+            int32_t(lir_schema::decl::Code::Func)));
+        put(map_off, dk::NAME, put_string(f.name));
+        if (!f.method_base.empty()) put(map_off, dk::METHOD_BASE, put_string(f.method_base));
+        if (!f.package.empty())     put(map_off, dk::PKG,         put_string(f.package));
+        if (!f.doc.empty())         put(map_off, dk::DOC,         put_string(f.doc));
+        if (f.ret_type)             put(map_off, dk::RET_TYPE,    type_av(f.ret_type));
+        if (f.body)                 put(map_off, dk::BODY,        mref_addr(f.body.addr()));
+        if (f.local_count)          put(map_off, dk::LOCAL_COUNT, put_i64((int64_t)f.local_count));
+        if (f.is_extern)            put(map_off, dk::IS_EXTERN,          put_bool(true));
+        if (f.is_vararg)            put(map_off, dk::IS_VARARG,          put_bool(true));
+        if (f.is_pub)               put(map_off, dk::IS_PUB,             put_bool(true));
+        if (f.is_metaprog_stub)     put(map_off, dk::IS_METAPROG_STUB,   put_bool(true));
+        if (f.is_specialization)    put(map_off, dk::IS_SPECIALIZATION,  put_bool(true));
+        if (f.from_binary_module)   put(map_off, dk::FROM_BINARY_MODULE, put_bool(true));
+        if (f.from_lazy_module)     put(map_off, dk::FROM_LAZY_MODULE,   put_bool(true));
+        if (!f.source_file.empty()) put(map_off, dk::SOURCE_FILE, put_string(f.source_file));
+        if (f.impl_target_pattern)  put(map_off, dk::IMPL_TARGET_PATTERN, type_av(f.impl_target_pattern));
+        if (f.is_test)              put(map_off, dk::IS_TEST,      put_bool(true));
+        if (f.should_panic)         put(map_off, dk::SHOULD_PANIC, put_bool(true));
+        if (f.ignored)              put(map_off, dk::IGNORED,      put_bool(true));
+        if (!f.should_panic_expected_msg.empty())
+            put(map_off, dk::SHOULD_PANIC_MSG, put_string(f.should_panic_expected_msg));
+        if (f.body_external_ref.arena_id().is_valid())
+            put(map_off, dk::BODY_EXTERNAL_REF, hermes::external_ref_av(f.body_external_ref));
+        // params
+        if (!f.params.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(f.params.size());
+            for (auto& p : f.params) elems.push_back(param_av(p));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, dk::PARAMS, mref_addr(arr_off));
+        }
+        // type_params (rich fn variant)
+        if (!f.type_params.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(f.type_params.size());
+            for (auto& tp : f.type_params) elems.push_back(fn_tparam_av(tp));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, dk::TYPE_PARAMS, mref_addr(arr_off));
+        }
+        if (!f.impl_type_params.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(f.impl_type_params.size());
+            for (auto& tp : f.impl_type_params) elems.push_back(fn_tparam_av(tp));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, dk::IMPL_TYPE_PARAMS, mref_addr(arr_off));
+        }
+        // spec_patterns (Array<RelPtr<LogosType>>)
+        { auto a = type_array(f.spec_patterns); if (!a.is_null()) put(map_off, dk::SPEC_PATTERNS, a); }
+        // lifetime_params (Array<Varchar>)
+        if (!f.lifetime_params.empty()) {
+            auto arr_off = make_array(f.lifetime_params.size());
+            for (auto& s : f.lifetime_params) array_push(arr_off, put_string(s));
+            put(map_off, dk::LIFETIME_PARAMS, mref_addr(arr_off));
+        }
+        // lifetime_outlives (flat Array<Varchar>: 2i=long, 2i+1=short)
+        if (!f.lifetime_outlives.empty()) {
+            auto arr_off = make_array(f.lifetime_outlives.size() * 2);
+            for (auto& pr : f.lifetime_outlives) {
+                array_push(arr_off, put_string(pr.first));
+                array_push(arr_off, put_string(pr.second));
+            }
+            put(map_off, dk::LIFETIME_OUTLIVES, mref_addr(arr_off));
+        }
+        // where_type_bounds (Array<wherebound sub-map>)
+        if (!f.where_type_bounds.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(f.where_type_bounds.size());
+            for (auto& wb : f.where_type_bounds) elems.push_back(wherebound_av(wb));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, dk::WHERE_TYPE_BOUNDS, mref_addr(arr_off));
+        }
+        f.mirror_ptr_   = map_off;
+        f.mirror_arena_ = pool_ ? pool_->arena() : nullptr;
     }
 
     // Public per-node entry points (Stage 3g.1). Called from
@@ -195,6 +279,55 @@ public:
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 4));
         put(map_off, tpk::TP_NAME, put_string(tp.name));
         if (tp.is_variadic) put(map_off, tpk::TP_IS_VARIADIC, put_bool(true));
+        return mref_addr(map_off);
+    }
+    // ── Function decl sub-map builders (Stage E LFunction migration) ──────
+    // PARAMS array element (LParam sub-map). Own key space.
+    hermes::AnyVal param_av(const lir::LParam& p) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 5));
+        put(map_off, pmk::P_NAME, put_string(p.name));
+        if (p.type)           put(map_off, pmk::P_TYPE,           type_av(p.type));
+        if (p.is_variadic)    put(map_off, pmk::P_IS_VARIADIC,    put_bool(true));
+        if (p.owning_box_dyn) put(map_off, pmk::P_OWNING_BOX_DYN, put_bool(true));
+        if (p.slot != 0xFFFFFFFFu) put(map_off, pmk::P_SLOT, put_i64((int64_t)p.slot));
+        return mref_addr(map_off);
+    }
+    // FTP_BOUNDS array element (TraitBound sub-map). Own key space.
+    hermes::AnyVal tbound_av(const TraitBound& tb) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 7));
+        put(map_off, tbk::TB_TRAIT_NAME, put_string(tb.trait_name));
+        auto a = type_array(tb.type_args);
+        if (!a.is_null()) put(map_off, tbk::TB_TYPE_ARGS, a);
+        return mref_addr(map_off);
+    }
+    // TYPE_PARAMS / IMPL_TYPE_PARAMS array element (fn TypeParam sub-map; richer
+    // than enum's — carries bounds/const/default). Own key space.
+    hermes::AnyVal fn_tparam_av(const TypeParam& tp) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 6));
+        put(map_off, ftpk::FTP_NAME, put_string(tp.name));
+        if (tp.is_variadic)  put(map_off, ftpk::FTP_IS_VARIADIC, put_bool(true));
+        if (tp.is_const)     put(map_off, ftpk::FTP_IS_CONST,    put_bool(true));
+        if (tp.const_type)   put(map_off, ftpk::FTP_CONST_TYPE,  type_av(tp.const_type));
+        if (tp.default_type) put(map_off, ftpk::FTP_DEFAULT_TYPE,type_av(tp.default_type));
+        if (!tp.bounds.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(tp.bounds.size());
+            for (auto& tb : tp.bounds) elems.push_back(tbound_av(tb));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, ftpk::FTP_BOUNDS, mref_addr(arr_off));
+        }
+        if (!tp.lifetime_outlives.empty()) {
+            auto arr_off = make_array(tp.lifetime_outlives.size());
+            for (auto& s : tp.lifetime_outlives) array_push(arr_off, put_string(s));
+            put(map_off, ftpk::FTP_LIFETIME_OUTLIVES, mref_addr(arr_off));
+        }
+        return mref_addr(map_off);
+    }
+    // WHERE_TYPE_BOUNDS array element (subject type + trait name). Own key space.
+    hermes::AnyVal wherebound_av(const std::pair<TypeRef, std::string>& wb) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 8));
+        if (wb.first) put(map_off, wbk::WB_TYPE, type_av(wb.first));
+        put(map_off, wbk::WB_TRAIT, put_string(wb.second));
         return mref_addr(map_off);
     }
     const uint8_t* emit_enum_def_direct(const lir::EnumDraft& ed) {
@@ -1679,13 +1812,11 @@ const uint8_t* LirMirrorEmitter::emit_pat(const Pattern& p) {
 
 void LirMirrorEmitter::run(lir::LProgram& prog) {
     auto walk_fn = [&](LFunction& f) {
-        // Skip extern (no body) and metaprog stubs (synthetic, never cloned).
-        // from_binary_module functions DO have bodies and DO get cloned by
-        // mono — their EPackExpand/etc. must be mirrored so subst_expr can
-        // dispatch via lir_view.
-        if (f.is_extern || f.is_metaprog_stub) return;
-        // Stage D: f.body is a pre-emitted BlockRef — nothing to walk.
-        (void)f;
+        // Stage E: emit the function DECL mirror for EVERY function (incl.
+        // extern + metaprog stubs — their name/is_extern/flags are read).
+        // Body sub-nodes were already eager-mirrored at sema (Stage D); this
+        // only builds the decl map + bridge.
+        emit_function(f);
     };
     for (auto& f : prog.functions)        walk_fn(*f);
     for (auto& f : prog.specializations)  walk_fn(*f);

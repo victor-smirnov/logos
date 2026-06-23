@@ -415,7 +415,66 @@ inline constexpr Key BORROW_CARRYING {"BORROW_CARRYING", 11}; // bool (sparse) �
 inline constexpr Key VARIANTS        {"VARIANTS",        12}; // Array<RelPtr<variant sub-map>>
 inline constexpr Key TYPE_PARAMS     {"TYPE_PARAMS",     13}; // Array<RelPtr<typeparam sub-map>>
 inline constexpr Key BACKING_TYPE    {"BACKING_TYPE",    14}; // RelPtr<LogosType> — C-style enum disc type (null=i32)
+// ── Function (Code::Func) decl keys ──────────────────────────────────────
+// Func reuses NAME=1, DOC=3, PKG=9, IS_EXTERN=7, TYPE_PARAMS=13 (array of
+// fn_tparam sub-maps — richer element schema than the enum tparam array).
+inline constexpr Key METHOD_BASE        {"METHOD_BASE",        15}; // Varchar — unmangled source method name
+inline constexpr Key LIFETIME_PARAMS    {"LIFETIME_PARAMS",    16}; // Array<Varchar>
+inline constexpr Key LIFETIME_OUTLIVES  {"LIFETIME_OUTLIVES",  17}; // Array<Varchar> flat pairs (2i=long, 2i+1=short)
+inline constexpr Key PARAMS             {"PARAMS",             18}; // Array<RelPtr<param sub-map>>
+inline constexpr Key RET_TYPE           {"RET_TYPE",           19}; // RelPtr<LogosType>
+inline constexpr Key BODY               {"BODY",               20}; // RelPtr<block mirror>
+inline constexpr Key LOCAL_COUNT        {"LOCAL_COUNT",        21}; // i64 (sparse: omit when 0)
+inline constexpr Key IS_VARARG          {"IS_VARARG",          22}; // bool (sparse)
+inline constexpr Key IS_PUB             {"IS_PUB",             23}; // bool (sparse)
+inline constexpr Key IS_METAPROG_STUB   {"IS_METAPROG_STUB",   24}; // bool (sparse)
+inline constexpr Key IS_SPECIALIZATION  {"IS_SPECIALIZATION",  25}; // bool (sparse)
+inline constexpr Key SPEC_PATTERNS      {"SPEC_PATTERNS",      26}; // Array<RelPtr<LogosType>>
+inline constexpr Key FROM_BINARY_MODULE {"FROM_BINARY_MODULE", 27}; // bool (sparse)
+inline constexpr Key FROM_LAZY_MODULE   {"FROM_LAZY_MODULE",   28}; // bool (sparse)
+inline constexpr Key SOURCE_FILE        {"SOURCE_FILE",        29}; // Varchar
+inline constexpr Key IMPL_TYPE_PARAMS   {"IMPL_TYPE_PARAMS",   30}; // Array<RelPtr<fn_tparam sub-map>>
+inline constexpr Key IMPL_TARGET_PATTERN{"IMPL_TARGET_PATTERN",31}; // RelPtr<LogosType>
+inline constexpr Key WHERE_TYPE_BOUNDS  {"WHERE_TYPE_BOUNDS",  32}; // Array<RelPtr<wherebound sub-map>>
+inline constexpr Key IS_TEST            {"IS_TEST",            33}; // bool (sparse)
+inline constexpr Key SHOULD_PANIC       {"SHOULD_PANIC",       34}; // bool (sparse)
+inline constexpr Key IGNORED            {"IGNORED",            35}; // bool (sparse)
+inline constexpr Key SHOULD_PANIC_MSG   {"SHOULD_PANIC_MSG",   36}; // Varchar
+inline constexpr Key BODY_EXTERNAL_REF  {"BODY_EXTERNAL_REF",  37}; // ExternalRef Pod niche (sparse: omit when invalid)
 } // namespace decl_keys
+
+// Function PARAM sub-map keys (own small key space — distinct map schema).
+namespace param_keys {
+inline constexpr Key P_NAME          {"P_NAME",          1};  // Varchar
+inline constexpr Key P_TYPE          {"P_TYPE",          2};  // RelPtr<LogosType>
+inline constexpr Key P_IS_VARIADIC   {"P_IS_VARIADIC",   3};  // bool (sparse)
+inline constexpr Key P_OWNING_BOX_DYN{"P_OWNING_BOX_DYN",4};  // bool (sparse)
+inline constexpr Key P_SLOT          {"P_SLOT",          5};  // i64 (sparse: omit when 0xFFFFFFFF)
+} // namespace param_keys
+
+// Function TYPE_PARAM sub-map keys (own space; richer than enum's — carries
+// bounds + const + default, all read by mono/sema bound-checking).
+namespace fn_tparam_keys {
+inline constexpr Key FTP_NAME              {"FTP_NAME",              1};  // Varchar
+inline constexpr Key FTP_IS_VARIADIC       {"FTP_IS_VARIADIC",       2};  // bool (sparse)
+inline constexpr Key FTP_IS_CONST          {"FTP_IS_CONST",          3};  // bool (sparse)
+inline constexpr Key FTP_CONST_TYPE        {"FTP_CONST_TYPE",        4};  // RelPtr<LogosType>
+inline constexpr Key FTP_DEFAULT_TYPE      {"FTP_DEFAULT_TYPE",      5};  // RelPtr<LogosType>
+inline constexpr Key FTP_BOUNDS            {"FTP_BOUNDS",            6};  // Array<RelPtr<tbound sub-map>>
+inline constexpr Key FTP_LIFETIME_OUTLIVES {"FTP_LIFETIME_OUTLIVES", 7};  // Array<Varchar>
+} // namespace fn_tparam_keys
+
+// TraitBound sub-map keys (own space) — element schema of FTP_BOUNDS.
+namespace fn_tbound_keys {
+inline constexpr Key TB_TRAIT_NAME {"TB_TRAIT_NAME", 1};  // Varchar
+inline constexpr Key TB_TYPE_ARGS  {"TB_TYPE_ARGS",  2};  // Array<RelPtr<LogosType>>
+} // namespace fn_tbound_keys
+
+// where_type_bounds sub-map keys (own space) — pair (subject type, trait name).
+namespace fn_wherebound_keys {
+inline constexpr Key WB_TYPE  {"WB_TYPE",  1};  // RelPtr<LogosType>
+inline constexpr Key WB_TRAIT {"WB_TRAIT", 2};  // Varchar
+} // namespace fn_wherebound_keys
 
 // Enum VARIANT sub-map keys (own small key space — distinct map schema).
 namespace variant_keys {

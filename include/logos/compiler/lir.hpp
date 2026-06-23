@@ -796,6 +796,17 @@ struct LFunction {
     bool                          should_panic  = false;
     bool                          ignored       = false;
     std::string                   should_panic_expected_msg;
+
+    // Stage E (decl→Hermes migration): transient bridge to the function's
+    // Hermes decl mirror. Set by lir_mirror_emit_function (which re-runs on
+    // every clone). mirror_ptr_ = absolute address of the decl map (segments
+    // never move); mirror_arena_ = its owning arena (for cross-arena child
+    // resolution). view() wraps them as a FunctionView for read migration.
+    mutable const uint8_t*     mirror_ptr_   = nullptr;
+    mutable const hermes::Arena* mirror_arena_ = nullptr;
+    lir_view::FunctionView view() const noexcept {
+        return lir_view::FunctionView{lir_view::DeclRef(mirror_arena_, mirror_ptr_)};
+    }
 };
 
 struct LField {

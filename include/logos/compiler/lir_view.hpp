@@ -230,6 +230,39 @@ inline uint8_t read_u8(const RefBase& r, uint8_t key) noexcept {
     return av.as_value<uint8_t>();
 }
 
+// Read an Array<RelPtr<LogosType>> field into a TypeRef vector (cross-arena
+// aware). Null elements become null TypeRefs (positional integrity preserved).
+inline std::vector<TypeRef> read_type_array(const RefBase& r, uint8_t key,
+                                            const TypePoolImpl* pool) noexcept {
+    std::vector<TypeRef> out;
+    auto av = r.mirror()->get(key);
+    if (av.is_null()) return out;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>();
+    out.reserve(arr->size());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i);
+        if (el.is_null()) { out.emplace_back(); continue; }
+        out.push_back(make_child_typeref(r, el, pool));
+    }
+    return out;
+}
+
+// Read an Array<Varchar> field into a string_view vector (views point into the
+// arena, valid as long as the mirror lives).
+inline std::vector<std::string_view> read_string_array(const RefBase& r, uint8_t key) noexcept {
+    std::vector<std::string_view> out;
+    auto av = r.mirror()->get(key);
+    if (av.is_null()) return out;
+    auto* arr = av.as_ptr<const hermes::ObjectArray>();
+    out.reserve(arr->size());
+    for (uint64_t i = 0; i < arr->size(); ++i) {
+        auto el = arr->get(i);
+        if (el.is_null()) { out.emplace_back(); continue; }
+        out.push_back(el.as_ptr<const hermes::ArenaString>()->view());
+    }
+    return out;
+}
+
 } // namespace detail
 
 class StmtRef;
@@ -381,6 +414,15 @@ public:
         if (!loc) return {};
         if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.av, loc.aid);
         return detail::make_sub_ref<ExprRef>(*this, loc.av);
+    }
+    // Read a RelPtr<block mirror> field as a BlockRef (cross-arena aware) —
+    // used by FunctionView::body().
+    BlockRef decl_block(uint8_t key) const noexcept {
+        auto av = mirror()->get(key);
+        auto loc = detail::resolve_child(*this, av);
+        if (!loc) return {};
+        if (loc.aid.is_valid()) return BlockRef(loc.arena, loc.av, loc.aid);
+        return detail::make_sub_ref<BlockRef>(*this, loc.av);
     }
 };
 
@@ -547,6 +589,262 @@ struct EnumView {
         bool any = false;
         each_variant([&](EnumVariantView v) { if (v.has_payload()) any = true; });
         return any;
+    }
+};
+
+// ── Function decl views (Stage E LFunction migration) ────────────────────
+
+// LParam sub-map view { P_NAME, P_TYPE, P_IS_VARIADIC, P_OWNING_BOX_DYN, P_SLOT }.
+struct LParamView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::param_keys::P_NAME.code);
+    }
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::param_keys::P_TYPE.code, pool);
+    }
+    bool is_variadic() const noexcept {
+        return detail::read_bool(self, lir_schema::param_keys::P_IS_VARIADIC.code);
+    }
+    bool owning_box_dyn() const noexcept {
+        return detail::read_bool(self, lir_schema::param_keys::P_OWNING_BOX_DYN.code);
+    }
+    uint32_t slot() const noexcept {
+        auto av = self.mirror()->get(lir_schema::param_keys::P_SLOT.code);
+        if (av.is_null()) return 0xFFFFFFFFu;
+        return static_cast<uint32_t>(*av.as_ptr<const int64_t>());
+    }
+};
+
+// TraitBound sub-map view { TB_TRAIT_NAME, TB_TYPE_ARGS }.
+struct FnTraitBoundView {
+    DeclRef self;
+    std::string_view trait_name() const noexcept {
+        return detail::read_string(self, lir_schema::fn_tbound_keys::TB_TRAIT_NAME.code);
+    }
+    std::vector<TypeRef> type_args(const TypePoolImpl* pool) const noexcept {
+        return detail::read_type_array(self, lir_schema::fn_tbound_keys::TB_TYPE_ARGS.code, pool);
+    }
+};
+
+// Function TypeParam sub-map view (richer than enum's).
+struct FnTParamView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::fn_tparam_keys::FTP_NAME.code);
+    }
+    bool is_variadic() const noexcept {
+        return detail::read_bool(self, lir_schema::fn_tparam_keys::FTP_IS_VARIADIC.code);
+    }
+    bool is_const() const noexcept {
+        return detail::read_bool(self, lir_schema::fn_tparam_keys::FTP_IS_CONST.code);
+    }
+    TypeRef const_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::fn_tparam_keys::FTP_CONST_TYPE.code, pool);
+    }
+    TypeRef default_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::fn_tparam_keys::FTP_DEFAULT_TYPE.code, pool);
+    }
+    bool bounds_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::fn_tparam_keys::FTP_BOUNDS.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_bound(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::fn_tparam_keys::FTP_BOUNDS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(FnTraitBoundView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<std::string_view> lifetime_outlives() const noexcept {
+        return detail::read_string_array(self, lir_schema::fn_tparam_keys::FTP_LIFETIME_OUTLIVES.code);
+    }
+};
+
+// where_type_bounds sub-map view { WB_TYPE (subject), WB_TRAIT }.
+struct FnWhereBoundView {
+    DeclRef self;
+    TypeRef subject(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::fn_wherebound_keys::WB_TYPE.code, pool);
+    }
+    std::string_view trait() const noexcept {
+        return detail::read_string(self, lir_schema::fn_wherebound_keys::WB_TRAIT.code);
+    }
+};
+
+// LFunction decl view — the whole declaration as a Hermes mirror map.
+struct FunctionView {
+    DeclRef self;
+
+    bool valid() const noexcept { return self.addr() != nullptr; }
+    explicit operator bool() const noexcept { return self.addr() != nullptr; }
+
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::NAME.code);
+    }
+    std::string_view method_base() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::METHOD_BASE.code);
+    }
+    std::string_view package() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::PKG.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::DOC.code);
+    }
+    std::string_view source_file() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::SOURCE_FILE.code);
+    }
+    std::string_view should_panic_expected_msg() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::SHOULD_PANIC_MSG.code);
+    }
+    TypeRef ret_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::decl_keys::RET_TYPE.code, pool);
+    }
+    TypeRef impl_target_pattern(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::decl_keys::IMPL_TARGET_PATTERN.code, pool);
+    }
+    BlockRef body() const noexcept {
+        return self.decl_block(lir_schema::decl_keys::BODY.code);
+    }
+    uint32_t local_count() const noexcept {
+        return static_cast<uint32_t>(detail::read_i64(self, lir_schema::decl_keys::LOCAL_COUNT.code));
+    }
+    bool is_extern() const noexcept          { return detail::read_bool(self, lir_schema::decl_keys::IS_EXTERN.code); }
+    bool is_vararg() const noexcept          { return detail::read_bool(self, lir_schema::decl_keys::IS_VARARG.code); }
+    bool is_pub() const noexcept             { return detail::read_bool(self, lir_schema::decl_keys::IS_PUB.code); }
+    bool is_metaprog_stub() const noexcept   { return detail::read_bool(self, lir_schema::decl_keys::IS_METAPROG_STUB.code); }
+    bool is_specialization() const noexcept  { return detail::read_bool(self, lir_schema::decl_keys::IS_SPECIALIZATION.code); }
+    bool from_binary_module() const noexcept { return detail::read_bool(self, lir_schema::decl_keys::FROM_BINARY_MODULE.code); }
+    bool from_lazy_module() const noexcept   { return detail::read_bool(self, lir_schema::decl_keys::FROM_LAZY_MODULE.code); }
+    bool is_test() const noexcept            { return detail::read_bool(self, lir_schema::decl_keys::IS_TEST.code); }
+    bool should_panic() const noexcept       { return detail::read_bool(self, lir_schema::decl_keys::SHOULD_PANIC.code); }
+    bool ignored() const noexcept            { return detail::read_bool(self, lir_schema::decl_keys::IGNORED.code); }
+
+    hermes::ExternalRef body_external_ref() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::BODY_EXTERNAL_REF.code);
+        if (av.is_null() || !hermes::is_external_ref_av(av)) return hermes::ExternalRef{};
+        return hermes::decode_external_ref(av);
+    }
+
+    // ── params ──
+    uint64_t param_count() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::PARAMS.code);
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>()->size();
+    }
+    bool params_empty() const noexcept { return param_count() == 0; }
+    template <class F>
+    void each_param(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::PARAMS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(LParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<LParamView> params() const noexcept {
+        std::vector<LParamView> out;
+        each_param([&](LParamView p) { out.push_back(p); });
+        return out;
+    }
+    LParamView param(uint64_t i) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::PARAMS.code);
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        return LParamView{detail::make_sub_ref<DeclRef>(self, arr->get(i))};
+    }
+
+    // ── type_params / impl_type_params ──
+    uint64_t type_param_count() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::TYPE_PARAMS.code);
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>()->size();
+    }
+    bool type_params_empty() const noexcept { return type_param_count() == 0; }
+    template <class F>
+    void each_type_param(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::TYPE_PARAMS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(FnTParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<FnTParamView> type_params() const noexcept {
+        std::vector<FnTParamView> out;
+        each_type_param([&](FnTParamView tp) { out.push_back(tp); });
+        return out;
+    }
+    uint64_t impl_type_param_count() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::IMPL_TYPE_PARAMS.code);
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>()->size();
+    }
+    bool impl_type_params_empty() const noexcept { return impl_type_param_count() == 0; }
+    template <class F>
+    void each_impl_type_param(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::IMPL_TYPE_PARAMS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(FnTParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<FnTParamView> impl_type_params() const noexcept {
+        std::vector<FnTParamView> out;
+        each_impl_type_param([&](FnTParamView tp) { out.push_back(tp); });
+        return out;
+    }
+
+    // ── where_type_bounds ──
+    bool where_type_bounds_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::WHERE_TYPE_BOUNDS.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_where_bound(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::WHERE_TYPE_BOUNDS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(FnWhereBoundView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+
+    // ── spec_patterns ──
+    std::vector<TypeRef> spec_patterns(const TypePoolImpl* pool) const noexcept {
+        return detail::read_type_array(self, lir_schema::decl_keys::SPEC_PATTERNS.code, pool);
+    }
+
+    // ── lifetime_params / lifetime_outlives ──
+    std::vector<std::string_view> lifetime_params() const noexcept {
+        return detail::read_string_array(self, lir_schema::decl_keys::LIFETIME_PARAMS.code);
+    }
+    // flat array (2i=long, 2i+1=short) → pairs.
+    std::vector<std::pair<std::string_view, std::string_view>> lifetime_outlives() const noexcept {
+        std::vector<std::pair<std::string_view, std::string_view>> out;
+        auto av = self.mirror()->get(lir_schema::decl_keys::LIFETIME_OUTLIVES.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i + 1 < arr->size(); i += 2) {
+            auto a = arr->get(i); auto b = arr->get(i + 1);
+            out.emplace_back(a.is_null() ? std::string_view{} : a.as_ptr<const hermes::ArenaString>()->view(),
+                             b.is_null() ? std::string_view{} : b.as_ptr<const hermes::ArenaString>()->view());
+        }
+        return out;
     }
 };
 
