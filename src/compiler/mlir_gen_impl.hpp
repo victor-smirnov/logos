@@ -1096,7 +1096,7 @@ private:
     // storage (a container accessor return, e.g. `HashMap::get → *const Box<dyn>`)
     // and must LOAD the stored handle — as opposed to the default, where the
     // value already IS the dyn handle (the raw fat pointer) and `*p` is a no-op.
-    bool deref_operand_is_ptr_to_dyn_handle(const LExpr& operand);
+    bool deref_operand_is_ptr_to_dyn_handle(lir_view::ExprRef operand);
     mlir::Value gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type);
     mlir::Value gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     mlir::Value gen_expr_kind(lir_view::EFieldReadView v, TypeRef type);

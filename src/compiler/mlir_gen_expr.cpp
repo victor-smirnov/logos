@@ -1734,7 +1734,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
     return alloca;
 }
 
-bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(const LExpr& operand) {
+bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(lir_view::ExprRef operand) {
     // UNIFORM FAT MODEL: every dyn value (`&dyn`/`*dyn`/`Box<dyn>`) is a 16-byte
     // {data,vtable} pair, and a `*const/*mut dyn` (Ptr<TraitObject>) always points
     // AT such a 16-byte slot. So `*p` is ALWAYS a no-op reinterpret — the pointer
@@ -1748,9 +1748,8 @@ bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(const LExpr& operand) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
-    auto* operand = lexpr_of(v.operand());
-    if (!operand) return nullptr;
-    auto ptr = gen_expr(*operand);
+    if (!v.operand()) return nullptr;
+    auto ptr = gen_expr(v.operand());
     if (!ptr) return nullptr;
     // Structs/datatypes are always pointer-represented in MLIR/LLVM; the
     // logical *-deref just yields the same pointer.  Subsequent field
@@ -1765,7 +1764,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     // *const Box<dyn>`), in which case `*p` must LOAD the stored handle. See
     // deref_operand_is_ptr_to_dyn_handle for the provenance discriminator.
     if (type && TypeRef(type).kind() == LogosType::Kind::TraitObject &&
-        deref_operand_is_ptr_to_dyn_handle(*operand)) {
+        deref_operand_is_ptr_to_dyn_handle(v.operand())) {
         auto pointee = logos_to_mlir(type);
         if (!pointee) pointee = ptr_type();
         return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);
