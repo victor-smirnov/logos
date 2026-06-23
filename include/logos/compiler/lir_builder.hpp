@@ -136,12 +136,12 @@ public:
     // emit (i.e. construction is final-state, no later mutation of children
     // or reparenting of child blocks) gets its own builder method here.
 
-    lir::LStmt stmt_expr(lir_view::ExprRef expr, uint32_t line);
-    lir::LStmt stmt_break(lir_view::ExprRef value, std::string label, uint32_t line);
-    lir::LStmt stmt_continue(std::string label, uint32_t line);
-    lir::LStmt stmt_return(lir_view::ExprRef value, uint32_t line);
-    lir::LStmt stmt_assign(std::string name, lir_view::ExprRef value, uint32_t line, bool drop_old = false);
-    lir::LStmt stmt_deref_write(lir_view::ExprRef ptr, lir_view::ExprRef value, uint32_t line, bool drop_old = false);
+    lir_view::StmtRef stmt_expr(lir_view::ExprRef expr, uint32_t line);
+    lir_view::StmtRef stmt_break(lir_view::ExprRef value, std::string label, uint32_t line);
+    lir_view::StmtRef stmt_continue(std::string label, uint32_t line);
+    lir_view::StmtRef stmt_return(lir_view::ExprRef value, uint32_t line);
+    lir_view::StmtRef stmt_assign(std::string name, lir_view::ExprRef value, uint32_t line, bool drop_old = false);
+    lir_view::StmtRef stmt_deref_write(lir_view::ExprRef ptr, lir_view::ExprRef value, uint32_t line, bool drop_old = false);
 
     // ── Adopt-style: pre-built variants populated incrementally ─────────────
     // Stage 3g deletes these along with the variant types. Until then, sema

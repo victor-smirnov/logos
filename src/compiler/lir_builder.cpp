@@ -301,46 +301,34 @@ void LirBuilder::retype_expr(lir_view::ExprRef e, TypeRef new_ty) {
     if (e) lir_mirror_retype_expr(prog_, e.addr(), new_ty);
 }
 
-lir::LStmt LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {
-    lir::LStmt s;
-    s.line = line;
-    s.mirror_ptr_ = lir_mirror_emit_expr_stmt(prog_, line, expr);
-    return s;
+lir_view::StmtRef LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {
+    return lir_view::StmtRef(prog_.type_pool.arena(),
+        lir_mirror_emit_expr_stmt(prog_, line, expr));
 }
 
-lir::LStmt LirBuilder::stmt_break(lir::LExprPtr value, std::string label, uint32_t line) {
-    lir::LStmt s;
-    s.line = line;
-    s.mirror_ptr_ = lir_mirror_emit_break(prog_, line, value, label);
-    return s;
+lir_view::StmtRef LirBuilder::stmt_break(lir::LExprPtr value, std::string label, uint32_t line) {
+    return lir_view::StmtRef(prog_.type_pool.arena(),
+        lir_mirror_emit_break(prog_, line, value, label));
 }
 
-lir::LStmt LirBuilder::stmt_continue(std::string label, uint32_t line) {
-    lir::LStmt s;
-    s.line = line;
-    s.mirror_ptr_ = lir_mirror_emit_continue(prog_, line, label);
-    return s;
+lir_view::StmtRef LirBuilder::stmt_continue(std::string label, uint32_t line) {
+    return lir_view::StmtRef(prog_.type_pool.arena(),
+        lir_mirror_emit_continue(prog_, line, label));
 }
 
-lir::LStmt LirBuilder::stmt_return(lir::LExprPtr value, uint32_t line) {
-    lir::LStmt s;
-    s.line = line;
-    s.mirror_ptr_ = lir_mirror_emit_return(prog_, line, value);
-    return s;
+lir_view::StmtRef LirBuilder::stmt_return(lir::LExprPtr value, uint32_t line) {
+    return lir_view::StmtRef(prog_.type_pool.arena(),
+        lir_mirror_emit_return(prog_, line, value));
 }
 
-lir::LStmt LirBuilder::stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old) {
-    lir::LStmt s;
-    s.line = line;
-    s.mirror_ptr_ = lir_mirror_emit_assign(prog_, line, name, value, drop_old);
-    return s;
+lir_view::StmtRef LirBuilder::stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old) {
+    return lir_view::StmtRef(prog_.type_pool.arena(),
+        lir_mirror_emit_assign(prog_, line, name, value, drop_old));
 }
 
-lir::LStmt LirBuilder::stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line, bool drop_old) {
-    lir::LStmt s;
-    s.line = line;
-    s.mirror_ptr_ = lir_mirror_emit_deref_write(prog_, line, ptr, value, drop_old);
-    return s;
+lir_view::StmtRef LirBuilder::stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line, bool drop_old) {
+    return lir_view::StmtRef(prog_.type_pool.arena(),
+        lir_mirror_emit_deref_write(prog_, line, ptr, value, drop_old));
 }
 
 lir_view::ExprRef LirBuilder::call_v(lir::ECall ec, TypeRef ty) {

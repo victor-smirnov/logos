@@ -37,7 +37,6 @@ namespace logos::compiler::lir {
 
 // ── Forward declarations ──────────────────────────────────────────────────
 
-struct LStmt;
 struct LBlock;
 struct LFunction;
 
@@ -621,23 +620,10 @@ struct SDrop {
     std::vector<std::string> moved_fields; // field names of `var_name` consumed by move; auto-drop must skip them
 };
 
-// ── Statement node ────────────────────────────────────────────────────────
-
-struct LStmt {
-    uint32_t line = 0;             // source line (0 = unknown)
-    mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
-
-    LStmt() = default;
-    LStmt(const LStmt&) = default;
-    LStmt(LStmt&&) noexcept = default;
-    LStmt& operator=(const LStmt&) = default;
-    LStmt& operator=(LStmt&&) noexcept = default;
-};
-
 // ── Block ─────────────────────────────────────────────────────────────────
 
 struct LBlock {
-    std::vector<LStmt> stmts;
+    std::vector<lir_view::StmtRef> stmts;
     mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
     const hermes::Arena* arena = nullptr;   // Stage D bridge (transient)
     operator lir_view::BlockRef() const noexcept {

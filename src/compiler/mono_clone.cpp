@@ -4326,14 +4326,13 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
     return lir::Pattern{};
 }
 
-lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
-    // Returns LStmt with mirror_ptr_=0 by design. Caller (instantiate_fn /
-    // clone_struct_def) bulk-emits via lir_mirror_emit_function only after the
-    // owning LFunction reaches a heap-stable address (unique_ptr) and its
-    // body's stmt-vector buffers stop reallocating. See the call sites in
-    // the worklist drain and per-method emit loop for the full rationale.
-    lir::LStmt ns;
-    if (!sref) return ns;  // null source — defensive
+lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
+    // Returns a StmtRef into out_ (the eager-emitted mirror). Null StmtRef ==
+    // old null/empty LStmt. Each case eager-emits its mirror via
+    // lir_mirror_emit_<kind> and stores the result into the local husk `ns`
+    // below; the function returns a view over ns.mirror_ptr_.
+    struct { uint32_t line = 0; const uint8_t* mirror_ptr_ = nullptr; } ns;
+    if (!sref) return lir_view::StmtRef{};  // null source — defensive
     // Phase 5.B: read line from the mirror via the view (cross-arena safe).
     ns.line = lir_view::stmt_line(sref);
 
@@ -4707,10 +4706,9 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     default: break;
     }
 
-    // ns is local; address registration happens later via
-    // lir_mirror_emit_function once the LStmt sits at a stable heap address.
-    // Children were registered by their own _node emit calls.
-    return ns;
+    // Children were registered by their own _node emit calls. Return a view
+    // over the eager-emitted mirror.
+    return lir_view::StmtRef(out_.type_pool.arena(), ns.mirror_ptr_);
 }
 
 

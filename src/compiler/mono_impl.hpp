@@ -137,9 +137,8 @@ protected:
         if (it == tbl.pat.end()) return {};
         return lir_view::PatRef(effective_src_arena(), it->second);
     }
-    lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
-        if (s.mirror_ptr_ == nullptr) return {};
-        return lir_view::StmtRef(effective_src_arena(), s.mirror_ptr_);
+    lir_view::StmtRef stmt_ref_of(const lir_view::StmtRef& s) const noexcept {
+        return s;
     }
     lir_view::BlockRef block_ref_of(const lir::LBlock& b) const noexcept {
         if (b.mirror_ptr_ == nullptr) return {};
@@ -813,7 +812,7 @@ private:
     // type modifications.
     lir_view::ExprRef subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                               const PackMap& /*unused*/ = {});
-    lir::LStmt    subst_stmt(lir_view::StmtRef sref, const SubstMap& s);
+    lir_view::StmtRef subst_stmt(lir_view::StmtRef sref, const SubstMap& s);
 
     lir::LBlock subst_block(lir_view::BlockRef bref, const SubstMap& s,
                              const PackMap& /*unused*/ = {}) {

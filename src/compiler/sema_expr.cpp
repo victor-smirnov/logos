@@ -14228,7 +14228,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // C5-cl-07: prepend `let user_k = __tup_param_*.k;` for each
     // tuple-destructure param's element.
     if (!ref_binds.empty() || !tuple_params.empty() || !mut_binds.empty()) {
-        std::vector<lir::LStmt> prologue;
+        std::vector<lir_view::StmtRef> prologue;
         for (auto& mb : mut_binds) {
             lir::SLet sl;
             sl.name   = mb.user;

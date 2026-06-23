@@ -852,9 +852,10 @@ private:
     lir_view::ExprRef expr_ref_of(lir_view::ExprRef e) const noexcept {
         return e;
     }
-    lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
-        if (s.mirror_ptr_ == nullptr) return {};
-        return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_ptr_);
+    // LStmt is now lir_view::StmtRef — the statement IS its own mirror view,
+    // so stmt_ref_of is the identity. Kept as a named chokepoint for clarity.
+    lir_view::StmtRef stmt_ref_of(const lir_view::StmtRef& s) const noexcept {
+        return s;
     }
     // Stage D4.1 chokepoint: the type of an L-IR expression read from its Hermes
     // mirror (replaces the husk LExpr::type cache field, which goes away with the
@@ -962,8 +963,9 @@ private:
     }
 
     template<typename K>
-    lir::LStmt make_stmt_emit(uint32_t line, K&& k) {
-        lir::LStmt s; s.line = line;
+    lir_view::StmtRef make_stmt_emit(uint32_t line, K&& k) {
+        struct { uint32_t line = 0; const uint8_t* mirror_ptr_ = nullptr; } s;
+        s.line = line;
         if (cur_prog_) {
             using KT = std::decay_t<K>;
             auto& p = *cur_prog_;
@@ -1023,7 +1025,8 @@ private:
             }
         }
         (void)k;  // payload swallowed — only mirror_ptr_ matters now
-        return s;
+        if (s.mirror_ptr_ == nullptr) return lir_view::StmtRef{};
+        return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_ptr_);
     }
 
     template<typename K>
@@ -1913,7 +1916,7 @@ private:
     // Shared per-frame drop emission (group-aware) — the single inner loop
     // behind collect_drops / collect_all_drops / collect_drops_to_loop and
     // the fn-epilogue param walk (was 4 drifting copies).
-    void emit_frame_drops(const Frame& frame, std::vector<lir::LStmt>& drops,
+    void emit_frame_drops(const Frame& frame, std::vector<lir_view::StmtRef>& drops,
                           const std::set<std::string>* extra_skip = nullptr) const;
     std::set<std::string> copy_types_;   // types with impl Copy — never move-only
     // T1-13: extern-block statics (declaration only, foreign storage) —
@@ -2242,13 +2245,13 @@ private:
         return !drop_fn_for(t).empty() || has_droppable_fields(t);
     }
 
-    std::optional<lir::LStmt> make_drop_stmt(const std::string& name, const VarInfo& info) const;
-    std::vector<lir::LStmt> collect_drops() const;
-    std::vector<lir::LStmt> collect_all_drops() const;
+    std::optional<lir_view::StmtRef> make_drop_stmt(const std::string& name, const VarInfo& info) const;
+    std::vector<lir_view::StmtRef> collect_drops() const;
+    std::vector<lir_view::StmtRef> collect_all_drops() const;
     // G167-4: drops for a `break`/`continue` — every frame from the innermost
     // down to AND INCLUDING the enclosing loop-body frame (loop_boundary), so a
     // break/continue nested in an `if` still runs the loop body's destructors.
-    std::vector<lir::LStmt> collect_drops_to_loop() const;
+    std::vector<lir_view::StmtRef> collect_drops_to_loop() const;
 
     // Recursive variant of mark_moved_expr that descends into composite
     // producer expressions (Call args, StructLit fields, TupleLit elems,
@@ -4072,22 +4075,22 @@ private:
 
     // ── lower_stmt and friends ───────────────────────────────────
 
-    lir::LStmt lower_stmt(hermes::TinyMapView stmt);
-    lir::LStmt lower_stmt_inner(hermes::TinyMapView stmt);
+    lir_view::StmtRef lower_stmt(hermes::TinyMapView stmt);
+    lir_view::StmtRef lower_stmt_inner(hermes::TinyMapView stmt);
     lir::LBlock lower_block(hermes::TinyMapView block);
-    lir::LStmt lower_let_destruct(hermes::TinyMapView node);
-    lir::LStmt lower_let_pat(hermes::TinyMapView node);
-    lir::LStmt lower_let(hermes::TinyMapView node);
-    lir::LStmt lower_let_else(hermes::TinyMapView node);
-    lir::LStmt lower_nested_fn(hermes::TinyMapView node);
-    lir::LStmt lower_compound_assign(hermes::TinyMapView node);
-    lir::LStmt lower_place_compound_assign(hermes::TinyMapView node,
+    lir_view::StmtRef lower_let_destruct(hermes::TinyMapView node);
+    lir_view::StmtRef lower_let_pat(hermes::TinyMapView node);
+    lir_view::StmtRef lower_let(hermes::TinyMapView node);
+    lir_view::StmtRef lower_let_else(hermes::TinyMapView node);
+    lir_view::StmtRef lower_nested_fn(hermes::TinyMapView node);
+    lir_view::StmtRef lower_compound_assign(hermes::TinyMapView node);
+    lir_view::StmtRef lower_place_compound_assign(hermes::TinyMapView node,
                                            hermes::TinyMapView place_node,
                                            const std::string& base_op);
     std::string render_place_node(hermes::TinyMapView n);
-    lir::LStmt lower_assign(hermes::TinyMapView node);
-    lir::LStmt lower_destructure_assign(hermes::TinyMapView node);
-    lir::LStmt lower_return(hermes::TinyMapView node);
+    lir_view::StmtRef lower_assign(hermes::TinyMapView node);
+    lir_view::StmtRef lower_destructure_assign(hermes::TinyMapView node);
+    lir_view::StmtRef lower_return(hermes::TinyMapView node);
     lir::Pattern build_pattern(hermes::TinyMapView pnode, TypeRef scrut_type);
     // Internal: build_pattern's body without eager mirror emit. Recurses via
     // build_pattern (so sub-patterns get their own eager emit).
@@ -4112,7 +4115,7 @@ private:
                                          const std::string& scrut_var,
                                          TypeRef scrut_type,
                                          const std::string& base_var,
-                                         std::vector<lir::LStmt>& out_stmts,
+                                         std::vector<lir_view::StmtRef>& out_stmts,
                                          std::vector<HermesPatBinding>& out_bindings);
     // Returns the "inner" (ref-stripped) view type if `t` is Hermes,
     // HermesView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
@@ -4161,14 +4164,14 @@ private:
     // ensured the match, so the else block is dead.
     void emit_nested_variant_lets(const std::string& synth_name, TypeRef synth_t,
                                   hermes::TinyMapView sub_pat,
-                                  std::vector<lir::LStmt>& out);
+                                  std::vector<lir_view::StmtRef>& out);
     // Emit body-prologue `let` destructures for the nested sub-patterns
     // collected in `nested_subs` (tuple/struct/variant payloads). Shared by
     // match arms and if-let/while-let so all three handle nested payload
     // patterns identically. `for_guard` skips the refutable nested-variant
     // let-else (used when building a guard prologue, not the arm body).
     void emit_nested_pat_destructure(const std::vector<NestedPatSub>& nested_subs,
-                                     std::vector<lir::LStmt>& out, bool for_guard);
+                                     std::vector<lir_view::StmtRef>& out, bool for_guard);
     // G-CONF-1: bind a `for PATTERN in iter` loop variable. `src_var` holds one
     // element (type `src_type`); defines the pattern's bindings in the current
     // scope and appends the destructure `let`s to `out`. Returns false (with a
@@ -4177,7 +4180,7 @@ private:
     // here.
     bool emit_for_pattern_destructure(hermes::TinyMapView pat,
                                       const std::string& src_var, TypeRef src_type,
-                                      std::vector<lir::LStmt>& out);
+                                      std::vector<lir_view::StmtRef>& out);
     // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
     // The LIR-level check skips guarded arms, so a desugared nested match
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
@@ -4239,25 +4242,25 @@ private:
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
-    lir::LStmt lower_if(hermes::TinyMapView node);
-    lir::LStmt lower_while(hermes::TinyMapView node);
-    lir::LStmt lower_for(hermes::TinyMapView node);
-    lir::LStmt lower_for_each(hermes::TinyMapView node);
-    lir::LStmt lower_loop(hermes::TinyMapView node);
-    lir::LStmt lower_place_assign(hermes::TinyMapView node);
+    lir_view::StmtRef lower_if(hermes::TinyMapView node);
+    lir_view::StmtRef lower_while(hermes::TinyMapView node);
+    lir_view::StmtRef lower_for(hermes::TinyMapView node);
+    lir_view::StmtRef lower_for_each(hermes::TinyMapView node);
+    lir_view::StmtRef lower_loop(hermes::TinyMapView node);
+    lir_view::StmtRef lower_place_assign(hermes::TinyMapView node);
     bool place_write_supported(hermes::TinyMapView place);
     bool check_place_writable(hermes::TinyMapView place);
     TypeRef resolve_place_type(hermes::TinyMapView place);
-    std::optional<lir::LStmt> try_index_mut_assign(
+    std::optional<lir_view::StmtRef> try_index_mut_assign(
         const std::string& arr_name, TypeRef arr_type,
         hermes::TinyMapView idx_node, hermes::TinyMapView val_node);
-    std::optional<lir::LStmt> try_dataref_field_write(
+    std::optional<lir_view::StmtRef> try_dataref_field_write(
         const std::string& recv_name, const std::string& field_name,
         hermes::TinyMapView val_node);
     bool place_recv_is_simple(hermes::TinyMapView recv);
     bool place_field_base_ok(hermes::TinyMapView recv);
     hermes::TinyMapView unwrap_paren_node(hermes::TinyMapView n);
-    lir::LStmt lower_match(hermes::TinyMapView node);
+    lir_view::StmtRef lower_match(hermes::TinyMapView node);
     lir::LExprPtr lower_match_expr(hermes::TinyMapView node);
     // G156-2: mark a by-value move-type match scrutinee var as moved when an
     // unguarded arm binds+moves it (whole-binding / struct / tuple / variant

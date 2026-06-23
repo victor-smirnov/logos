@@ -240,7 +240,7 @@ bool SemaChecker::is_hoistable_temp_rvalue(lir_view::ExprRef e) {
     }
 }
 
-lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
+lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
     // Install a temporary-scope collector for this statement (save/restore across
     // the recursion below — LABELED_LOOP and loop bodies re-enter lower_stmt).
     std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>> hoisted;
@@ -248,7 +248,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     cur_stmt_temp_hoist_ = &hoisted;
     auto saved_ret_bind = std::move(pending_ret_bind_);
     pending_ret_bind_.reset();
-    lir::LStmt s = lower_stmt_inner(stmt);
+    lir_view::StmtRef s = lower_stmt_inner(stmt);
     cur_stmt_temp_hoist_ = saved_hoist;
     auto ret_bind = std::move(pending_ret_bind_);
     pending_ret_bind_ = std::move(saved_ret_bind);
@@ -260,7 +260,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     // explicit SDrop statements inserted by sema — mlir-gen does not auto-drop
     // block-scoped locals — so we must emit them here.)
     auto blk = lir::alloc_block(*cur_prog_);
-    std::vector<lir::LStmt> drops;
+    std::vector<lir_view::StmtRef> drops;
     for (auto& h : hoisted) {
         std::string nm = std::move(std::get<0>(h));
         TypeRef ty = std::get<1>(h);
@@ -293,7 +293,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
-lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
+lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     node_line_ = get_line(stmt);
     int32_t c = code_of(stmt);
 
@@ -755,7 +755,7 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
     return result;
 }
 
-lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
@@ -874,7 +874,7 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
 // `_` places discard (evaluate the accessor for effect). Nested tuple places
 // (`(a, (b, c)) = …`) recurse. Each place must be an existing mutable local
 // (reuses lower_assign's mutability/undefined checks via stmt_assign).
-lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
     int op = 0;
     if (node.has_key(la::OP)) {
         AnyVal av = node.get(la::OP.code);
@@ -1051,7 +1051,7 @@ lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
 // rejected with a clear diagnostic — they're refutable or need full
 // match lowering, which we layer on top of this basic destructure path
 // in a later sprint.
-lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
@@ -1568,7 +1568,7 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
-lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
     // let Pat = expr else { block };
     // The pattern's bindings go into the outer scope after this statement.
     // Lowering:
@@ -1679,7 +1679,7 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
 // pass the node directly to lower_closure_expr. The local binding is
 // emitted as an SLet with the closure value; the variable's type comes
 // from the closure's own inferred type.
-lir::LStmt SemaChecker::lower_nested_fn(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_nested_fn(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     auto value = lower_closure_expr(node);
     auto var_type = value ? expr_type(value) : error_t();
@@ -1692,7 +1692,7 @@ lir::LStmt SemaChecker::lower_nested_fn(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sl));
 }
 
-lir::LStmt SemaChecker::lower_let(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     auto name = str_of(node.get(la::NAME.code));
     bool is_mut = false;
     if (node.has_key(la::IS_MUT)) {
@@ -2275,7 +2275,7 @@ static bool op_assign_trait_method(const std::string& base_op,
     return true;
 }
 
-lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     auto op_tok = str_of(node.get(la::OP.code));
     // Strip trailing '=' to get the base operator
     std::string base_op;
@@ -2397,7 +2397,7 @@ std::string SemaChecker::render_place_node(hermes::TinyMapView n) {
 // desugar (`place = (place) op rhs`), matching the specialised lowerings'
 // double-eval semantics; struct places with an `*Assign` impl get the in-place
 // `op_assign(&mut place, rhs)` call instead.
-lir::LStmt SemaChecker::lower_place_compound_assign(
+lir_view::StmtRef SemaChecker::lower_place_compound_assign(
         TinyMapView node, TinyMapView place_node, const std::string& base_op) {
     // G167-5: user-defined IndexMut compound `a[i] op= v` on a struct — the
     // general addr-of place-write path cannot dispatch IndexMut, so desugar to
@@ -2527,7 +2527,7 @@ lir::LStmt SemaChecker::lower_place_compound_assign(
     return builder().stmt_deref_write(std::move(addr), std::move(newval), node_line_);
 }
 
-lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
     auto name = str_of(node.get(la::NAME.code));
     auto var_type = lookup(name);
     if (!var_type) {
@@ -2769,7 +2769,7 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     return builder().stmt_assign(std::string(name), std::move(rhs), node_line_, drop_old);
 }
 
-lir::LStmt SemaChecker::lower_return(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
     lir::LExprPtr val = nullptr;
     if (node.has_key(la::VALUE)) {
         AnyVal vav = node.get(la::VALUE.code);
@@ -5277,7 +5277,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
 lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         TinyMapView pnode, const std::string& scrut_var,
         TypeRef scrut_type, const std::string& base_var,
-        std::vector<lir::LStmt>& out_stmts,
+        std::vector<lir_view::StmtRef>& out_stmts,
         std::vector<HermesPatBinding>& out_bindings) {
     TypeRef ptr_t_outer = make_ptr(false, scrut_type);
     TypeRef u8_ptr_t_outer = make_ptr(false, prim(LogosType::Kind::U8));
@@ -5838,7 +5838,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
     }
 }
 
-lir::LStmt SemaChecker::lower_if(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     // ── if let pattern = expr { ... } ─────────────────────────────
     if (node.has_key(la::PAT)) {
         auto scrut = node.has_key(la::VALUE)
@@ -5863,7 +5863,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         // destructures BEFORE the body so its bindings are in scope.
         push_scope();
         bind_pattern(pat, scrut_type);
-        std::vector<lir::LStmt> nested_destructure;
+        std::vector<lir_view::StmtRef> nested_destructure;
         emit_nested_pat_destructure(nested_subs, nested_destructure, /*for_guard=*/false);
         // Let-chain trailing condition: `if let P = e && <cond>` desugars to
         // `match e { P if <cond> => THEN, _ => ELSE }` — the chain cond becomes
@@ -5890,7 +5890,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
                               "body instead");
                         break;
                     }
-                std::vector<lir::LStmt> gd;
+                std::vector<lir_view::StmtRef> gd;
                 emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
                 if (!gd.empty()) {
                     auto gblk = lir::alloc_block(*cur_prog_);
@@ -5905,7 +5905,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         if (node.has_key(la::THEN))
             *then_body = lower_block(map_of(node.get(la::THEN.code)));
         if (!nested_destructure.empty()) {
-            std::vector<lir::LStmt> merged = std::move(nested_destructure);
+            std::vector<lir_view::StmtRef> merged = std::move(nested_destructure);
             merged.insert(merged.end(),
                           std::make_move_iterator(then_body->stmts.begin()),
                           std::make_move_iterator(then_body->stmts.end()));
@@ -6044,7 +6044,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sif));
 }
 
-lir::LStmt SemaChecker::lower_while(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
     // logos-core 2.7: a while may not run at all → body's assignments don't
     // count at the outer scope. RAII-restore the definite-assignment tracker
     // on every exit path.
@@ -6125,7 +6125,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         // Then arm: pattern → loop body
         push_scope();
         bind_pattern(pat, scrut_type);
-        std::vector<lir::LStmt> nested_destructure;
+        std::vector<lir_view::StmtRef> nested_destructure;
         emit_nested_pat_destructure(nested_subs, nested_destructure, /*for_guard=*/false);
         // Let-chain trailing condition: `while let P = e && <cond>` desugars to
         // `loop { match e { P if <cond> => BODY, _ => break } }` — the chain cond
@@ -6145,7 +6145,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
                               "from a nested enum-variant pattern; match in the body instead");
                         break;
                     }
-                std::vector<lir::LStmt> gd;
+                std::vector<lir_view::StmtRef> gd;
                 emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
                 if (!gd.empty()) {
                     auto gblk = lir::alloc_block(*cur_prog_);
@@ -6168,7 +6168,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
             --loop_depth_;
         }
         if (!nested_destructure.empty()) {
-            std::vector<lir::LStmt> merged = std::move(nested_destructure);
+            std::vector<lir_view::StmtRef> merged = std::move(nested_destructure);
             merged.insert(merged.end(),
                           std::make_move_iterator(then_body->stmts.begin()),
                           std::make_move_iterator(then_body->stmts.end()));
@@ -6239,7 +6239,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sw));
 }
 
-lir::LStmt SemaChecker::lower_for(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     // logos-core 2.7: a for may not run at all; restore tracker on exit.
     struct ForUninitGuard {
         std::set<std::string>& slot;
@@ -6328,7 +6328,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sf));
 }
 
-lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
     // logos-core 2.7: for-each may not run at all; restore tracker on exit.
     struct ForEachUninitGuard {
         std::set<std::string>& slot;
@@ -6363,12 +6363,12 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     // pattern's bindings in the just-pushed loop scope (so the body sees them)
     // and returns the destructure `let`s; `prepend_for_pat` runs AFTER, prepending
     // them to the lowered body. `bind_t` is the element's binding type (value/&T).
-    auto build_for_pat = [&](TypeRef bind_t) -> std::vector<lir::LStmt> {
-        std::vector<lir::LStmt> pro;
+    auto build_for_pat = [&](TypeRef bind_t) -> std::vector<lir_view::StmtRef> {
+        std::vector<lir_view::StmtRef> pro;
         if (for_has_pat) emit_for_pattern_destructure(for_pat, var_name, bind_t, pro);
         return pro;
     };
-    auto prepend_for_pat = [&](lir::LBlockPtr& body, std::vector<lir::LStmt>& pro) {
+    auto prepend_for_pat = [&](lir::LBlockPtr& body, std::vector<lir_view::StmtRef>& pro) {
         if (pro.empty()) return;
         pro.insert(pro.end(), std::make_move_iterator(body->stmts.begin()),
                    std::make_move_iterator(body->stmts.end()));
@@ -6832,7 +6832,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     return builder().stmt_break(nullptr, "", node_line_);
 }
 
-lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
     // Capture label before lowering body (same reason as in lower_for).
     std::string my_label = std::move(pending_loop_label_);
     pending_loop_label_.clear();
@@ -7093,7 +7093,7 @@ TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
     return nullptr;
 }
 
-std::optional<lir::LStmt> SemaChecker::try_index_mut_assign(
+std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     const std::string& arr_name, TypeRef arr_type,
     hermes::TinyMapView idx_node, hermes::TinyMapView val_node) {
     if (!arr_type || TypeRef(arr_type).kind() != LogosType::Kind::Struct)
@@ -7157,7 +7157,7 @@ std::optional<lir::LStmt> SemaChecker::try_index_mut_assign(
 // Returns the lowered block if p is such a DataRef, else nullopt (caller falls
 // through to the plain field place-write). Relocated from the retired
 // lower_field_write.
-std::optional<lir::LStmt> SemaChecker::try_dataref_field_write(
+std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
     const std::string& recv_name, const std::string& field_name,
     hermes::TinyMapView val_node) {
     TypeRef recv_type = lookup(recv_name);
@@ -7200,7 +7200,7 @@ std::optional<lir::LStmt> SemaChecker::try_dataref_field_write(
         lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
 }
 
-lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     auto place_node = map_of(node.get(la::RECEIVER.code));
     int32_t pc = code_of(place_node);
     // Only genuine lvalue shapes are assignable. A bare VarRef is handled by
@@ -7812,7 +7812,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
 
 void SemaChecker::emit_nested_variant_lets(
         const std::string& synth_name, TypeRef synth_t,
-        hermes::TinyMapView sub_pat, std::vector<lir::LStmt>& out) {
+        hermes::TinyMapView sub_pat, std::vector<lir_view::StmtRef>& out) {
     namespace ps = lir_schema::pat;
     // Build `let <sub_pat> = synth else { loop {} }`. Capture any DEEPER
     // refutable-inner guards / nested subs locally — the guards are dead
@@ -7993,7 +7993,7 @@ bool SemaChecker::ast_patterns_exhaustive(
 // (which assumes the arm already matched) when building a guard prologue.
 void SemaChecker::emit_nested_pat_destructure(
         const std::vector<NestedPatSub>& nested_subs,
-        std::vector<lir::LStmt>& nested_destructure_stmts, bool for_guard) {
+        std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
     for (auto& nsub : nested_subs) {
         TypeRef synth_t = lookup(nsub.synth_name);
         if (!synth_t) continue;
@@ -8116,7 +8116,7 @@ void SemaChecker::emit_nested_pat_destructure(
 
 bool SemaChecker::emit_for_pattern_destructure(
         hermes::TinyMapView pat, const std::string& src_var, TypeRef src_type,
-        std::vector<lir::LStmt>& out) {
+        std::vector<lir_view::StmtRef>& out) {
     // Unwrap the grammar's single-alt PAT_OR wrapper.
     if (code_of(pat) == la::PAT_OR && pat.has_key(la::ITEMS)) {
         auto alts = arr_of(pat.get(la::ITEMS.code));
@@ -8180,7 +8180,7 @@ bool SemaChecker::emit_for_pattern_destructure(
     return true;
 }
 
-lir::LStmt SemaChecker::lower_match(TinyMapView node) {
+lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
@@ -8200,7 +8200,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     // so it is left alone. Mirrors the existing Hermes / str-pattern scrut hoist.
     bool temp_scrut_hoisted = false;
     std::string temp_scrut_var;
-    lir::LStmt temp_scrut_let;
+    lir_view::StmtRef temp_scrut_let;
     if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
         auto sk = expr_ref_of(scrut).kind();
@@ -8234,7 +8234,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     // drops> }` when the scrutinee was a hoisted temporary. collect_drops()
     // yields the fall-through drop of __ms (skipped if an arm moved it);
     // pop_scope() balances the push above. Called at every return path.
-    auto finalize = [&](lir::LStmt stmt) -> lir::LStmt {
+    auto finalize = [&](lir_view::StmtRef stmt) -> lir_view::StmtRef {
         if (!temp_scrut_hoisted) return stmt;
         auto ft_drops = collect_drops();
         pop_scope();
@@ -8311,9 +8311,9 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     //   let __hmatch_root: AnyVal = view.root(); // root AnyVal, used by guard helpers
     std::string root_var;
     std::string base_var;
-    lir::LStmt hoist_let_view;
-    lir::LStmt hoist_let_root;
-    lir::LStmt hoist_let_base;
+    lir_view::StmtRef hoist_let_view;
+    lir_view::StmtRef hoist_let_root;
+    lir_view::StmtRef hoist_let_base;
     bool has_hoist_let = false;
     TypeRef anyval_t = nullptr;
     if (has_hermes_pat) {
@@ -8391,7 +8391,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     }
     std::string str_scrut_var;
     TypeRef str_scrut_type;
-    lir::LStmt str_hoist_let;
+    lir_view::StmtRef str_hoist_let;
     bool has_str_hoist = false;
     if (has_str_pat) {
         str_scrut_var = "__smatch_" + std::to_string(tmp_var_count_++);
@@ -8540,10 +8540,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
 
             // Synthesize guard for Hermes patterns (scalar + structural).
             lir::LExprPtr synth_guard = nullptr;
-            std::vector<lir::LStmt> body_prologue;
+            std::vector<lir_view::StmtRef> body_prologue;
             std::vector<HermesPatBinding> body_binds;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
-                std::vector<lir::LStmt> g_stmts;
+                std::vector<lir_view::StmtRef> g_stmts;
                 std::vector<HermesPatBinding> g_binds;
                 auto raw = build_hermes_pat_guard(
                     effective_lhs(arm, alt_idx), root_var, anyval_t, base_var,
@@ -8632,10 +8632,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             // shadow-restore reverts a binding already in scope from a sibling
             // fanned or-arm.
             auto build_nested_destructure =
-                [&](std::vector<lir::LStmt>& nested_destructure_stmts, bool for_guard) {
+                [&](std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
                 emit_nested_pat_destructure(nested_subs, nested_destructure_stmts, for_guard);
             };
-            std::vector<lir::LStmt> nested_destructure_stmts;
+            std::vector<lir_view::StmtRef> nested_destructure_stmts;
             build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
             bool arm_has_user_guard = arm.has_key(la::GUARD);
 
@@ -8695,7 +8695,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             if (guard && arm_has_user_guard) {
                 // Build the SAFE (unconditional field/element) destructure for
                 // the guard — never the refutable nested-variant let-else.
-                std::vector<lir::LStmt> guard_destructure;
+                std::vector<lir_view::StmtRef> guard_destructure;
                 build_nested_destructure(guard_destructure, /*for_guard=*/true);
                 if (!guard_destructure.empty()) {
                     auto gblk = lir::alloc_block(*cur_prog_);
@@ -8728,7 +8728,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             // P4-pm-02: prepend nested-pat destructure stmts so user
             // body sees the sub-pat bindings.
             if (!nested_destructure_stmts.empty()) {
-                std::vector<lir::LStmt> merged = std::move(nested_destructure_stmts);
+                std::vector<lir_view::StmtRef> merged = std::move(nested_destructure_stmts);
                 merged.insert(merged.end(),
                               std::make_move_iterator(body->stmts.begin()),
                               std::make_move_iterator(body->stmts.end()));
@@ -8737,7 +8737,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             // Prepend Hermes @-pattern prologue (helper __hp_N lets + user
             // binding lets) to body so bindings are live inside the arm body.
             if (!body_prologue.empty() || !body_binds.empty()) {
-                std::vector<lir::LStmt> prologue = std::move(body_prologue);
+                std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
                 for (const auto& b : body_binds) {
                     lir::SLet sl;
                     sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
@@ -8869,7 +8869,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     // the value. Concrete-only (see lower_match for the generic/Option<!> crash).
     bool temp_scrut_hoisted = false;
     std::string temp_scrut_var;
-    lir::LStmt temp_scrut_let;
+    lir_view::StmtRef temp_scrut_let;
     if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
         auto sk = expr_ref_of(scrut).kind();
@@ -8978,9 +8978,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     // Symmetric to lower_match: hoist view + root AnyVal + base ptr.
     std::string root_var;
     std::string base_var;
-    lir::LStmt hoist_let_view;
-    lir::LStmt hoist_let_root;
-    lir::LStmt hoist_let_base;
+    lir_view::StmtRef hoist_let_view;
+    lir_view::StmtRef hoist_let_root;
+    lir_view::StmtRef hoist_let_base;
     bool has_hoist_let = false;
     TypeRef anyval_t = nullptr;
     if (has_hermes_pat) {
@@ -9041,7 +9041,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     }
     std::string str_scrut_var;
     TypeRef str_scrut_type;
-    lir::LStmt str_hoist_let;
+    lir_view::StmtRef str_hoist_let;
     bool has_str_hoist = false;
     if (has_str_pat) {
         str_scrut_var = "__smatch_" + std::to_string(tmp_var_count_++);
@@ -9140,10 +9140,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (code_of(arm) != la::MATCH_ARM) continue;
 
             lir::LExprPtr synth_guard = nullptr;
-            std::vector<lir::LStmt> body_prologue;
+            std::vector<lir_view::StmtRef> body_prologue;
             std::vector<HermesPatBinding> body_binds;
             if (has_hermes_pat && arm.has_key(la::LHS)) {
-                std::vector<lir::LStmt> g_stmts;
+                std::vector<lir_view::StmtRef> g_stmts;
                 std::vector<HermesPatBinding> g_binds;
                 auto raw = build_hermes_pat_guard(
                     effective_lhs(arm, alt_idx), root_var, anyval_t,
@@ -9218,7 +9218,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // a lambda so a guarded arm can get an independent copy for its
             // guard (B170-D/E) — see the lower_match twin.
             auto build_nested_destructure =
-                [&](std::vector<lir::LStmt>& nested_destructure_stmts, bool for_guard) {
+                [&](std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
             for (auto& nsub : nested_subs) {
                 TypeRef synth_t = lookup(nsub.synth_name);
                 if (!synth_t) continue;
@@ -9324,7 +9324,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 }
             }
             };  // build_nested_destructure
-            std::vector<lir::LStmt> nested_destructure_stmts;
+            std::vector<lir_view::StmtRef> nested_destructure_stmts;
             build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
             bool arm_has_user_guard = arm.has_key(la::GUARD);
 
@@ -9382,7 +9382,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (guard && arm_has_user_guard) {
                 // Build the SAFE (unconditional field/element) destructure for
                 // the guard — never the refutable nested-variant let-else.
-                std::vector<lir::LStmt> guard_destructure;
+                std::vector<lir_view::StmtRef> guard_destructure;
                 build_nested_destructure(guard_destructure, /*for_guard=*/true);
                 if (!guard_destructure.empty()) {
                     auto gblk = lir::alloc_block(*cur_prog_);
@@ -9466,7 +9466,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // Wrap arm value with Hermes @-pattern prologue so bindings are
             // live during evaluation.
             if (!body_prologue.empty() || !body_binds.empty()) {
-                std::vector<lir::LStmt> prologue = std::move(body_prologue);
+                std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
                 for (const auto& b : body_binds) {
                     lir::SLet sl;
                     sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;

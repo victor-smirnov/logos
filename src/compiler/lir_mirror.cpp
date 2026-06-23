@@ -21,7 +21,6 @@
 
 namespace logos::compiler {
 
-using lir::LStmt;
 using lir::LBlock;
 using lir::LMatchArm;
 using lir::Pattern;
@@ -88,7 +87,6 @@ public:
 
     // Public per-node entry points (Stage 3g.1). Called from
     // lir_mirror_emit_*_node free functions; idempotent via table cache.
-    const uint8_t* emit_stmt_public (const LStmt& s)    { return emit_stmt(s); }
     const uint8_t* emit_block_public(const LBlock& b)   { return emit_block(b); }
     const uint8_t* emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
     const uint8_t* emit_hv_public   (const HermesVal& v){ return emit_hv(v); }
@@ -1209,9 +1207,6 @@ private:
     // call emit_block — a BlockRef would be null here (mirror not built yet).
     hermes::AnyVal block_av(const lir::LBlockPtr& b) { return b ? mref_addr(emit_block(*b)) : hermes::AnyVal{}; }
     hermes::AnyVal block_av_raw(const lir::LBlock* b){ return b ? mref_addr(emit_block(*b)) : hermes::AnyVal{}; }
-    hermes::AnyVal stmt_av(const LStmt& s) {
-        return mref_addr(emit_stmt(s));
-    }
     hermes::AnyVal pat_av(const Pattern& p) {
         return mref_addr(emit_pat(p));
     }
@@ -1350,7 +1345,6 @@ private:
 
     // ── expression emit ────────────────────────────────────────────────────
 
-    const uint8_t* emit_stmt(const LStmt& s);
     const uint8_t* emit_block(const LBlock& b);
     const uint8_t* emit_pat(const Pattern& p);
     const uint8_t* emit_hv(const HermesVal& v);
@@ -1384,7 +1378,8 @@ const uint8_t* LirMirrorEmitter::emit_block(const LBlock& b) {
     // Pre-emit statements so child offsets exist before we create the array.
     std::vector<hermes::AnyVal> stmt_elems;
     stmt_elems.reserve(b.stmts.size());
-    for (auto& s : b.stmts) stmt_elems.push_back(stmt_av(s));
+    // Each StmtRef IS the already-emitted statement mirror; reference it directly.
+    for (auto& s : b.stmts) stmt_elems.push_back(mref_addr(s.addr()));
 
     hermes::AnyVal stmts_av;
     if (!stmt_elems.empty()) {
@@ -1629,31 +1624,6 @@ const uint8_t* LirMirrorEmitter::emit_pat(const Pattern& p) {
     }
     table_.pat[&p] = p.mirror_ptr_;
     return p.mirror_ptr_;
-}
-
-
-// ──────────────────────────────────────────────────────────────────────────
-// LStmt mirror
-// ──────────────────────────────────────────────────────────────────────────
-
-const uint8_t* LirMirrorEmitter::emit_stmt(const LStmt& s) {
-    // B.6 Stage 3.5 step 5: mirror_ptr_ is field-as-truth. All LStmt
-    // construction sites (sema make_stmt_emit, sema LirBuilder stmt_*,
-    // mono subst_stmt) eagerly emit and set mirror_ptr_ via per-kind
-    // direct emitters; children (LExpr/LBlock) are registered transitively
-    // by those direct emitters' internal expr_av/block_av calls. The bulk
-    // std::visit fallback below is now unreachable.
-    LOGOS_ASSERT(s.mirror_ptr_ != nullptr,
-                 "B6.S35.S5",
-                 "emit_stmt: LStmt reached without mirror_ptr_ set "
-                 "(construction site missed direct-emit migration)");
-    if (auto it = table_.stmt.find(&s); it != table_.stmt.end()) {
-        if (it->second == s.mirror_ptr_) return it->second;
-        it->second = s.mirror_ptr_;
-        return s.mirror_ptr_;
-    }
-    table_.stmt[&s] = s.mirror_ptr_;
-    return s.mirror_ptr_;
 }
 
 
@@ -2210,11 +2180,6 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
 // lir_mirror_emit_function — which keeps existing post-sema and per-clone
 // passes correct without modification.
 
-const uint8_t* lir_mirror_emit_stmt_node(lir::LProgram& prog, const lir::LStmt& s) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_stmt_public(s);
-}
 const uint8_t* lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock& b) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);

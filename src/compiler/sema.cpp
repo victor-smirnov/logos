@@ -3076,7 +3076,7 @@ void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
     }
 }
 
-std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
+std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
     // B8: a declared-uninit var's drop is gated at RUNTIME by mlir-gen's dynamic
     // drop flag (it only runs the destructor if the slot holds a live value), so
     // we EMIT the drop here regardless of static init-state — the flag handles
@@ -3093,11 +3093,10 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
         (TypeRef(info.type).owning_trait_object() ||
          (info.owning_dyn &&
           TypeRef(info.type).kind() == LogosType::Kind::TraitObject))) {
-        lir::LStmt s; s.line = node_line_;
-        if (cur_prog_)
-            s.mirror_ptr_ = lir_mirror_emit_drop(
-                *cur_prog_, node_line_, name, "__box_dyn__drop", info.type, false, {});
-        return s;
+        if (!cur_prog_) return lir_view::StmtRef{};
+        return lir_view::StmtRef(cur_prog_->type_pool.arena(),
+            lir_mirror_emit_drop(
+                *cur_prog_, node_line_, name, "__box_dyn__drop", info.type, false, {}));
     }
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
@@ -3145,10 +3144,9 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
             if (!seen) moved_fields.push_back(std::move(path));
         }
     }
-    lir::LStmt s; s.line = node_line_;
-    if (cur_prog_)
-        s.mirror_ptr_ = lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields);
-    return s;
+    if (!cur_prog_) return lir_view::StmtRef{};
+    return lir_view::StmtRef(cur_prog_->type_pool.arena(),
+        lir_mirror_emit_drop(*cur_prog_, node_line_, name, dfn, info.type, df, moved_fields));
 }
 
 // Single inner loop behind every drop walk (was 4 drifting copies).
@@ -3160,7 +3158,7 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
 // not at their own var_order slots — same-frame only (cross-frame owners
 // would hoist drops into branch-only code).
 void SemaChecker::emit_frame_drops(const Frame& frame,
-                                   std::vector<lir::LStmt>& drops,
+                                   std::vector<lir_view::StmtRef>& drops,
                                    const std::set<std::string>* extra_skip) const {
     auto eligible = [&](const std::string& n) -> const VarInfo* {
         if (extra_skip && extra_skip->count(n)) return nullptr;
@@ -3189,15 +3187,15 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
     }
 }
 
-std::vector<lir::LStmt> SemaChecker::collect_drops() const {
-    std::vector<lir::LStmt> drops;
+std::vector<lir_view::StmtRef> SemaChecker::collect_drops() const {
+    std::vector<lir_view::StmtRef> drops;
     if (scope_.empty()) return drops;
     emit_frame_drops(scope_.back(), drops);
     return drops;
 }
 
-std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
-    std::vector<lir::LStmt> drops;
+std::vector<lir_view::StmtRef> SemaChecker::collect_all_drops() const {
+    std::vector<lir_view::StmtRef> drops;
     for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
         emit_frame_drops(*fit, drops);
         // G156-7: stop at a closure boundary — a `return` inside a closure body
@@ -3208,8 +3206,8 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
     return drops;
 }
 
-std::vector<lir::LStmt> SemaChecker::collect_drops_to_loop() const {
-    std::vector<lir::LStmt> drops;
+std::vector<lir_view::StmtRef> SemaChecker::collect_drops_to_loop() const {
+    std::vector<lir_view::StmtRef> drops;
     for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
         emit_frame_drops(*fit, drops);
         // Stop AFTER dropping the loop-body frame: break/continue leaves the

@@ -916,7 +916,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         // P4-pm-19: prepend `let user_k = synth.k;` for each tuple-
         // destructure parameter so body sees the user-visible names.
         if (!fn_tuple_params.empty()) {
-            std::vector<lir::LStmt> prologue;
+            std::vector<lir_view::StmtRef> prologue;
             for (auto& tp : fn_tuple_params) {
                 if (TypeRef(tp.ty).kind() != LogosType::Kind::Tuple) continue;
                 auto elems = TypeRef(tp.ty).tuple_elems();
@@ -942,7 +942,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         // visible names. PAT_STRUCT bindings = field-read of the synth;
         // PAT_SLICE bindings = index-read of the synth.
         if (!fn_pat_params.empty()) {
-            std::vector<lir::LStmt> prologue;
+            std::vector<lir_view::StmtRef> prologue;
             for (auto& pp : fn_pat_params) {
                 int32_t pcode = code_of(pp.pat_node);
                 if (pcode == la::PAT_STRUCT &&
@@ -993,7 +993,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         // `mut x: T` params — prepend `let mut x = synth;` so the body's
         // mutable local is materialized from the (immutable) synth parameter.
         if (!fn_mut_params.empty()) {
-            std::vector<lir::LStmt> prologue;
+            std::vector<lir_view::StmtRef> prologue;
             for (auto& mp : fn_mut_params) {
                 lir::SLet sl;
                 sl.name   = mp.user;
@@ -1054,7 +1054,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             // leak on the non-move path). Proper fix = B8-style drop-flag
             // elaboration extended to params.
             auto& frame = scope_.back();
-            std::vector<lir::LStmt> epilogue_drops;
+            std::vector<lir_view::StmtRef> epilogue_drops;
             emit_frame_drops(frame, epilogue_drops, &body_ever_moved_);
             for (auto& d : epilogue_drops)
                 fn.body.stmts.push_back(std::move(d));

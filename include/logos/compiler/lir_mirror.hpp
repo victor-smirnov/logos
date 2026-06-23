@@ -33,7 +33,6 @@ struct LirMirrorTable {
     // re-emission across multiple table instances — sema's prog.mirror_table vs
     // mono's out_.mirror_table). Consumer reads go straight through the node's
     // own mirror_ptr_ / a lir_view ref, not these maps.
-    std::unordered_map<const lir::LStmt*,    const uint8_t*> stmt;
     std::unordered_map<const lir::LBlock*,   const uint8_t*> block;
     std::unordered_map<const lir::Pattern*,  const uint8_t*> pat;
     std::unordered_map<const lir::HermesVal*, const uint8_t*> hermes_val;
@@ -47,7 +46,7 @@ struct LirMirrorTable {
     std::unordered_map<const uint8_t*, lir::EClosure*> closure_box_inner;
 
     bool empty() const noexcept {
-        return stmt.empty() && block.empty() && pat.empty()
+        return block.empty() && pat.empty()
             && hermes_val.empty();
     }
 };
@@ -209,7 +208,6 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table);
 //
 // All four require `prog.mirror_table` to be non-null (LProgram() now
 // initializes it eagerly). The arena is `prog.type_pool.arena_or_init()`.
-const uint8_t* lir_mirror_emit_stmt_node (lir::LProgram& prog, const lir::LStmt&     s);
 const uint8_t* lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock&    b);
 const uint8_t* lir_mirror_emit_pat_node  (lir::LProgram& prog, const lir::Pattern&   p);
 const uint8_t* lir_mirror_emit_hv_node   (lir::LProgram& prog, const lir::HermesVal& v);

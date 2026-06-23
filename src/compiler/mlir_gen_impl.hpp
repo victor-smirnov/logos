@@ -141,9 +141,8 @@ private:
     // Resolve an ExprRef back to its variant LExpr* via the mirror's reverse
     // map. Used inside view-handlers to recurse through gen_expr() on
     // sub-expressions while the rest of the dispatcher still walks variants.
-    lir_view::StmtRef stmt_ref_of(const LStmt& s) const noexcept {
-        if (!prog_ || s.mirror_ptr_ == nullptr) return {};
-        return lir_view::StmtRef(prog_->type_pool.arena(), s.mirror_ptr_);
+    lir_view::StmtRef stmt_ref_of(const lir_view::StmtRef& s) const noexcept {
+        return s;
     }
     lir_view::PatRef pat_ref_of(const Pattern& p) const noexcept {
         if (!mirror_ || !prog_) return {};

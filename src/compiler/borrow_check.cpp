@@ -1457,11 +1457,6 @@ class BorrowChecker {
         return e;
     }
 
-    lir_view::StmtRef stmt_ref(const LStmt& s) const {
-        if (s.mirror_ptr_ == nullptr) return {};
-        return lir_view::StmtRef(prog_.type_pool.arena(), s.mirror_ptr_);
-    }
-
     // Stage D: a block as a mirror view (replaces the block_by_addr reverse
     // lookup). fn.body and nested block children both yield a BlockRef directly.
     lir_view::BlockRef block_ref(const LBlock& b) const {
