@@ -108,7 +108,7 @@ lir::LExprPtr LirBuilder::deref(lir::LExprPtr operand, TypeRef ty) {
         [&](auto& p, TypeRef t){ return lir_mirror_emit_deref(p, t, operand); });
 }
 
-lir::LExprPtr LirBuilder::cast(lir::LExprPtr operand, TypeRef ty) {
+lir::LExprPtr LirBuilder::cast(lir_view::ExprRef operand, TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_cast(p, t, operand, {}); });
 }
@@ -204,16 +204,12 @@ void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
     if (tref.kind() != lir_schema::expr::Code::TupleLit) return;
     lir_view::ETupleLitView v{tref};
     if (idx >= v.count()) return;
-    std::vector<lir::LExprPtr> elems;
+    // Stage D: rebuild from the existing element mirror VIEWS (no reverse-map
+    // round-trip to the C++ skeleton); the replaced slot takes new_value's view.
+    std::vector<lir_view::ExprRef> elems;
     elems.reserve(v.count());
-    for (uint64_t i = 0; i < v.count(); ++i) {
-        if (i == idx) { elems.push_back(new_value); continue; }
-        auto er = v.elem(i);
-        auto it = prog_.mirror_table->expr_by_addr.find(er.addr());
-        elems.push_back(it != prog_.mirror_table->expr_by_addr.end()
-                          ? const_cast<lir::LExpr*>(it->second)
-                          : nullptr);
-    }
+    for (uint64_t i = 0; i < v.count(); ++i)
+        elems.push_back(i == idx ? lir::eref(new_value) : v.elem(i));
     tuple->mirror_ptr_ = lir_mirror_emit_tuple_lit(prog_, tuple->type, elems);
 }
 
@@ -308,6 +304,13 @@ void LirBuilder::retype_expr(lir::LExpr* e, TypeRef new_ty) {
     // so we can't reliably re-walk the variant. Update the TYPE field on the
     // existing mirror in-place; mirror is the truth.
     lir_mirror_retype_expr(prog_, e->mirror_ptr_, new_ty);
+}
+
+// Stage D: retype by mirror view — the mirror IS the truth, so just rewrite its
+// TYPE key (no C++ skeleton node needed; callers that only hold an ExprRef use
+// this instead of round-tripping through lexpr_of).
+void LirBuilder::retype_expr(lir_view::ExprRef e, TypeRef new_ty) {
+    if (e) lir_mirror_retype_expr(prog_, e.addr(), new_ty);
 }
 
 lir::LStmt LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {

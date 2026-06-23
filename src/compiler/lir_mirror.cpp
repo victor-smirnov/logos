@@ -466,6 +466,15 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    // Stage D overload: elements as mirror views.
+    const uint8_t* emit_tuple_lit_direct(TypeRef ty,
+                                         const std::vector<lir_view::ExprRef>& elems) {
+        auto el_av = expr_array(elems);
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleLit));
+        put(map_off, ek::ELEMS, el_av);
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
     const uint8_t* emit_tuple_index_direct(TypeRef ty,
                                                     lir_view::ExprRef receiver,
                                                     uint32_t index) {
@@ -1232,6 +1241,16 @@ private:
         for (auto av : elems) array_push(arr_off, av);
         return mref_addr(arr_off);
     }
+    // Stage D: elements as mirror views (the eager-emitted expr mirrors).
+    hermes::AnyVal expr_array(const std::vector<lir_view::ExprRef>& v) {
+        if (v.empty()) return hermes::AnyVal{};
+        std::vector<hermes::AnyVal> elems;
+        elems.reserve(v.size());
+        for (auto& e : v) elems.push_back(expr_av(e));
+        auto arr_off = make_array(elems.size());
+        for (auto av : elems) array_push(arr_off, av);
+        return mref_addr(arr_off);
+    }
     hermes::AnyVal type_array(const std::vector<TypeRef>& v) {
         if (v.empty()) return hermes::AnyVal{};
         auto arr_off = make_array(v.size());
@@ -1897,6 +1916,11 @@ const uint8_t* lir_mirror_emit_if_expr(lir::LProgram& prog, TypeRef ty, lir_view
     return em.emit_if_expr_direct(ty, cond, then_val, else_val);
 }
 const uint8_t* lir_mirror_emit_tuple_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    return em.emit_tuple_lit_direct(ty, elems);
+}
+const uint8_t* lir_mirror_emit_tuple_lit(lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_lit_direct(ty, elems);

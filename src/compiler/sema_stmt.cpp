@@ -711,7 +711,7 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                         std::to_string(tmp_var_count_++);
                     lir::SLet sl;
                     sl.name = tmp; sl.type = rt; sl.is_mut = false;
-                    sl.value = lexpr_of(val_ref);
+                    sl.value = val_ref;
                     result.stmts.push_back(
                         make_stmt_emit(node_line_, std::move(sl)));
                     for (auto& d : drops)
@@ -2115,19 +2115,19 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                 const auto& tup_anns = TypeRef(ann).tuple_elems();
                 uint64_t n = std::min<uint64_t>(tlit_view.count(), tup_anns.size());
                 for (uint64_t ei = 0; ei < n; ++ei) {
-                    auto* elem_lexpr = lexpr_of(tlit_view.elem(ei));
-                    if (!elem_lexpr) continue;
+                    auto elem_er = tlit_view.elem(ei);
+                    if (!elem_er) continue;
                     TypeRef ann_e = tup_anns[ei];
-                    auto elem_kind = TypeRef(elem_lexpr->type).kind();
+                    auto elem_kind = elem_er.type(cur_prog_->type_pool.impl()).kind();
                     bool ann_is_float = ann_e && (TypeRef(ann_e).kind() == LogosType::Kind::F32 ||
                                                   TypeRef(ann_e).kind() == LogosType::Kind::F64);
                     // Retype FloatLit element to concrete float annotation (f32/f64).
                     if (elem_kind == LogosType::Kind::FloatLit && ann_is_float)
-                        builder().retype_expr(elem_lexpr, ann_e);
+                        builder().retype_expr(elem_er, ann_e);
                     // Replace IntLit element with a concrete-typed FloatLit when the
                     // annotation is a float — re-emits the parent tuple's mirror.
                     if (elem_kind == LogosType::Kind::IntLit && ann_is_float) {
-                        auto er = expr_ref_of(*elem_lexpr);
+                        auto er = elem_er;
                         if (er.kind() == lir_schema::expr::Code::LitInt) {
                             double fval = static_cast<double>(lir_view::ELitIntView{er}.value());
                             builder().set_tuple_elem(rhs, ei, builder().lit_float(fval, ann_e));
@@ -2137,14 +2137,14 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                         }
                     }
                     if (elem_kind == LogosType::Kind::IntLit)
-                        if (auto v = get_intlit_value(elem_lexpr))
+                        if (auto v = get_intlit_value(elem_er))
                             if (ann_e && !intlit_fits(*v, TypeRef(ann_e).kind()))
                                 error(std::format("let '{}': tuple element {}: value {} does not fit in {}",
                                       name, ei, *v, type_str(ann_e)));
                     // Tuple element is itself an array literal.
                     if (ann_e && TypeRef(ann_e).kind() == LogosType::Kind::Array &&
                         TypeRef(ann_e).elem() && elem_kind == LogosType::Kind::Array) {
-                        auto er = expr_ref_of(*elem_lexpr);
+                        auto er = elem_er;
                         if (er.kind() == lir_schema::expr::Code::ArrLit) {
                             lir_view::EArrLitView ial{er};
                             for (uint64_t ii = 0; ii < ial.count(); ++ii) {
@@ -2160,7 +2160,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                     // Tuple element is itself a tuple literal.
                     if (ann_e && TypeRef(ann_e).kind() == LogosType::Kind::Tuple &&
                         elem_kind == LogosType::Kind::Tuple) {
-                        auto er = expr_ref_of(*elem_lexpr);
+                        auto er = elem_er;
                         if (er.kind() == lir_schema::expr::Code::TupleLit) {
                             lir_view::ETupleLitView itl{er};
                             uint64_t ii = 0;

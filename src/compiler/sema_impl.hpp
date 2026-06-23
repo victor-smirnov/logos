@@ -4342,9 +4342,10 @@ private:
             if (er.kind() == lir_schema::expr::Code::AddrOfTemp) {
                 lir_view::EAddrOfTempView av{er};
                 TypeRef ipt = TypeRef(target).pointee();
-                if (auto* inner = lexpr_of(av.inner())) {
-                    auto ik = inner->type ? TypeRef(inner->type).kind()
-                                          : LogosType::Kind::Error;
+                if (auto inner = av.inner()) {
+                    TypeRef inner_ty = inner.type(cur_prog_->type_pool.impl());
+                    auto ik = inner_ty ? inner_ty.kind()
+                                       : LogosType::Kind::Error;
                     bool widenable = is_integer_kind(ik) &&
                                      is_integer_kind(TypeRef(ipt).kind()) &&
                                      ik != TypeRef(ipt).kind() &&

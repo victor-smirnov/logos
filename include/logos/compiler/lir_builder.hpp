@@ -50,7 +50,7 @@ public:
                             TypeRef ty);
     lir::LExprPtr unary    (std::string op, lir::LExprPtr operand, TypeRef ty);
     lir::LExprPtr deref    (lir::LExprPtr operand, TypeRef ty);
-    lir::LExprPtr cast     (lir::LExprPtr operand, TypeRef ty);
+    lir::LExprPtr cast     (lir_view::ExprRef operand, TypeRef ty);
     lir::LExprPtr field_read(lir::LExprPtr receiver, std::string field, TypeRef ty);
     lir::LExprPtr index_read(lir::LExprPtr receiver, lir::LExprPtr index, TypeRef ty);
     lir::LExprPtr tuple_index(lir::LExprPtr receiver, uint32_t index, TypeRef ty);
@@ -127,6 +127,7 @@ public:
     // called when no enclosing structure has snapshotted `e` yet — i.e.
     // before the LExpr is fed into a parent builder call.
     void retype_expr(lir::LExpr* e, TypeRef new_ty);
+    void retype_expr(lir_view::ExprRef e, TypeRef new_ty);
 
     // ── Statement constructors ──────────────────────────────────────────
     // Build an LStmt and eager-emit its Hermes mirror. After this call,

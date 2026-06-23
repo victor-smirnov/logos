@@ -130,6 +130,7 @@ const uint8_t* lir_mirror_emit_ptr_arith    (lir::LProgram& prog, TypeRef ty, ui
 const uint8_t* lir_mirror_emit_ptr_diff     (lir::LProgram& prog, TypeRef ty, bool by_byte, lir_view::ExprRef lhs, lir_view::ExprRef rhs);
 const uint8_t* lir_mirror_emit_if_expr      (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef cond, lir_view::ExprRef then_val, lir_view::ExprRef else_val);
 const uint8_t* lir_mirror_emit_tuple_lit    (lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems);
+const uint8_t* lir_mirror_emit_tuple_lit    (lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems);
 const uint8_t* lir_mirror_emit_tuple_index  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, uint32_t index);
 const uint8_t* lir_mirror_emit_arr_lit      (lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems);
 const uint8_t* lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, lir_view::ExprRef result);

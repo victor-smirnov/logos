@@ -497,7 +497,10 @@ struct SLet {
     std::string      name;
     TypeRef type;         // concrete type (annotations resolved; IntLit → i32)
     bool             is_mut;
-    LExprPtr         value = nullptr;
+    // Stage D: scratchpad value as a mirror view (set from an ExprRef, or via the
+    // transient LExpr*→ExprRef bridge from a builder()-returned LExprPtr). Only
+    // ever read in make_stmt_emit → lir_mirror_emit_let(ExprRef).
+    lir_view::ExprRef value;
 };
 
 struct SAssign    { std::string name; LExprPtr value = nullptr; };
