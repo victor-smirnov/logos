@@ -38,9 +38,13 @@ std::vector<size_t> Mono::const_intrinsic_positions(const std::string& name) {
 lir_view::FunctionView Mono::find_fn_def_by_base(const std::string& base) {
     for (auto& f : in_.functions)
         if (f && f.name() == base) return f;
-    for (auto& sd : in_.structs)
-        for (auto& m : sd.methods)
-            if (m && m.name() == base) return m;
+    for (auto& sd : in_.structs) {
+        lir_view::FunctionView found;
+        sd.each_method([&](lir_view::FunctionView m) {
+            if (!found.valid() && m && m.name() == base) found = m;
+        });
+        if (found.valid()) return found;
+    }
     return {};
 }
 

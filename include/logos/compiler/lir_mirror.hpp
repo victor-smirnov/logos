@@ -94,6 +94,13 @@ void lir_mirror_struct_set_methods(lir::LProgram& prog,
                                    lir_view::StructView sv,
                                    const std::vector<lir_view::FunctionView>& ms);
 
+// Set/overwrite a stored struct's TYPE_CODE scalar in place. Used by sema when
+// a trait-declared / explicit type_code is applied to a struct AFTER it is
+// stored (sema_decl trait type_code inheritance + explicit_type_codes_ apply).
+void lir_mirror_struct_set_type_code(lir::LProgram& prog,
+                                     lir_view::StructView sv,
+                                     uint64_t code);
+
 // Run the full emit driver but extend an existing table rather than create a
 // fresh one. Used by mono as a fixup pass to cover items not reached via the
 // per-function path (consts, impls, struct methods of non-instantiated

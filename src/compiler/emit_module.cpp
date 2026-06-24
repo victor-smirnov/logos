@@ -249,7 +249,7 @@ static void apply_only_file_filter(lir::LProgram& prog,
         prog.binary_symbols.insert(std::string(fn.name()));
     };
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods) add(m);
+        for (auto& m : sd.methods()) add(m);
     for (auto& fn : prog.functions) add(fn);
 }
 
@@ -462,8 +462,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         if (fn && !fn.type_params_empty()) stash_template(generic_fn_templates, fn);
     }
     for (auto& sd : prog.structs) {
-        if (sd.type_params.empty()) continue;
-        for (auto& m : sd.methods) {
+        if (sd.type_params_empty()) continue;
+        for (auto& m : sd.methods()) {
             if (m) stash_template(generic_method_templates, m);
         }
     }
@@ -476,8 +476,9 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // runtime presence.
     if (out_exports) {
         for (auto& sd : prog.structs)
-            if (!sd.type_params.empty())
-                out_exports->struct_templates.push_back({sd.pkg, sd.name});
+            if (!sd.type_params_empty())
+                out_exports->struct_templates.push_back(
+                    {std::string(sd.pkg()), std::string(sd.name())});
         for (auto& ed : prog.enums)
             if (!ed.type_params_empty())
                 out_exports->enum_templates.push_back(
@@ -594,8 +595,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                             if (fn) try_publish(fn);
                         }
                         for (auto& sd : prog.structs) {
-                            if (!sd.type_params.empty()) continue;  // generic struct
-                            for (auto& m : sd.methods) {
+                            if (!sd.type_params_empty()) continue;  // generic struct
+                            for (auto& m : sd.methods()) {
                                 if (m) try_publish(m);
                             }
                         }

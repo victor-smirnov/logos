@@ -4067,7 +4067,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                     sptr = a;
                 }
-                const LStructDef* sd = nullptr;
+                lir_view::StructView sd{};
                 if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
                     sd = di->second;
                 if (sptr) ps.each_field([&](lir_view::PatFieldBindingView pfb) {
@@ -4104,8 +4104,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             auto fp = gep_field(sptr, sinfo, field_name);
                             if (fp) {
                                 TypeRef fty;
-                                if (sd) for (auto& lf : sd->fields)
-                                    if (lf.name == field_name) { fty = lf.type; break; }
+                                if (sd) for (auto lf : sd.fields())
+                                    if (std::string(lf.name()) == field_name) { fty = lf.type(pool_impl()); break; }
                                 bool ref_to_struct = fty &&
                                     (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                      TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
@@ -4132,8 +4132,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         auto fp = gep_field(sptr, sinfo, field_name);
                         if (fp) {
                             TypeRef fty;
-                            if (sd) for (auto& lf : sd->fields)
-                                if (lf.name == field_name) { fty = lf.type; break; }
+                            if (sd) for (auto lf : sd.fields())
+                                if (std::string(lf.name()) == field_name) { fty = lf.type(pool_impl()); break; }
                             std::vector<std::pair<std::string, TypeRef>> binds;
                             collect_pat_bindings(sub, fty, binds);
                             pat_bind(sub, fp, fty);
@@ -4982,9 +4982,9 @@ bool MLIRGenImpl::dstref_has_slice_tail(TypeRef t) {
     if (!t || TypeRef(t).kind() != LogosType::Kind::DstRef) return false;
     std::string nm(TypeRef(t).struct_name());
     auto it = all_struct_defs_.find(nm);
-    if (it == all_struct_defs_.end() || !it->second || it->second->fields.empty())
+    if (it == all_struct_defs_.end() || !it->second.valid() || it->second.fields().empty())
         return false;
-    auto lk = TypeRef(it->second->fields.back().type).kind();
+    auto lk = TypeRef(it->second.fields().back().type(pool_impl())).kind();
     return lk == LogosType::Kind::Slice || lk == LogosType::Kind::UnsizedSlice;
 }
 
@@ -5009,8 +5009,8 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
         std::string(TypeRef(t).struct_name()), targ_vec, concrete_pkg);
     for (const std::string& nm : {concrete, std::string(TypeRef(t).struct_name())}) {
         auto it = all_struct_defs_.find(nm);
-        if (it != all_struct_defs_.end() && it->second)
-            return it->second->self_describing;
+        if (it != all_struct_defs_.end() && it->second.valid())
+            return it->second.self_describing();
     }
     return false;
 }

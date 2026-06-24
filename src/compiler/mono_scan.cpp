@@ -556,11 +556,12 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                     // Find the struct template to split type_args into struct-
                     // vs method-tparam slices. Primitive receivers won't have
                     // a struct_templates_ entry; treat them as zero-tparam.
-                    auto* stt_ptr = find_struct_template_unguarded(struct_part);
+                    auto stt_ptr = find_struct_template_unguarded(struct_part);
                     {
-                        const std::vector<TypeParam> empty_tpars;
-                        const std::vector<TypeParam>& sd_tpars =
-                            stt_ptr ? stt_ptr->type_params : empty_tpars;
+                        std::vector<std::string> sd_tpars;
+                        if (stt_ptr.valid())
+                            for (auto tp : stt_ptr.type_params())
+                                sd_tpars.push_back(std::string(tp.name()));
                         size_t n_struct = sd_tpars.size();
                         // Cross-package impl method on a generic receiver: the
                         // impl's type-params (e.g. T in `impl<T> Pin<&T>`) are
@@ -595,13 +596,13 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                             // method tparams from suffix.
                             SubstMap subst;
                             for (size_t i = 0; i < n_struct && i < type_args.size(); ++i)
-                                subst[sd_tpars[i].name] = type_args[i];
+                                subst[sd_tpars[i]] = type_args[i];
                             size_t i_meth = 0;
                             for (auto& mtp : tmpl.type_params()) {
                                 std::string mtp_name(mtp.name());
                                 bool is_struct = false;
                                 for (auto& stp : sd_tpars)
-                                    if (stp.name == mtp_name) { is_struct = true; break; }
+                                    if (stp == mtp_name) { is_struct = true; break; }
                                 if (is_struct) continue;
                                 if (n_struct + i_meth < type_args.size())
                                     subst[mtp_name] = type_args[n_struct + i_meth];
@@ -747,9 +748,9 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     }
     if (matches.empty()) return;
 
-    auto* stt_ptr = find_struct_template_pkg_first(pkg, base);
-    if (!stt_ptr) return;
-    const auto& tpars = stt_ptr->type_params;
+    auto stt_ptr = find_struct_template_pkg_first(pkg, base);
+    if (!stt_ptr.valid()) return;
+    auto tpars = stt_ptr.type_params();
     auto type_args = TypeRef(concrete_struct_t).type_args();
 
     for (auto& [sn, fp] : matches) {
@@ -766,7 +767,7 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
             std::string tp_name(tp.name());
             bool is_struct_tparam = false;
             for (auto& stp : tpars)
-                if (stp.name == tp_name) { is_struct_tparam = true; break; }
+                if (stp.name() == tp_name) { is_struct_tparam = true; break; }
             if (!is_struct_tparam) { has_method_tparam = true; break; }
         }
         if (has_method_tparam) continue;
@@ -779,12 +780,12 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         SubstMap subst;
         PackMap  packs;
         for (size_t i = 0, j = 0; i < tpars.size(); ++i) {
-            if (tpars[i].is_variadic) {
+            if (tpars[i].is_variadic()) {
                 std::vector<TypeRef> pack;
                 while (j < type_args.size()) pack.push_back(type_args[j++]);
-                packs[tpars[i].name] = std::move(pack);
+                packs[std::string(tpars[i].name())] = std::move(pack);
             } else if (j < type_args.size()) {
-                subst[tpars[i].name] = type_args[j++];
+                subst[std::string(tpars[i].name())] = type_args[j++];
             }
         }
 
@@ -832,16 +833,16 @@ void Mono::drain_method_worklist() {
 
         // Find the target struct in out_.structs (it must already exist —
         // struct shells are emitted before any method enqueue can fire).
-        lir::LStructDef* target = nullptr;
+        lir_view::StructView* target = nullptr;
         // Pkg-aware disambig when two same-named clones coexist.
         for (auto& sd : out_.structs)
-            if (sd.name == item.concrete_struct &&
-                (item.struct_pkg.empty() || sd.pkg == item.struct_pkg)) {
+            if (sd.name() == item.concrete_struct &&
+                (item.struct_pkg.empty() || sd.pkg() == item.struct_pkg)) {
                 target = &sd; break;
             }
         if (!target)
             for (auto& sd : out_.structs)
-                if (sd.name == item.concrete_struct) { target = &sd; break; }
+                if (sd.name() == item.concrete_struct) { target = &sd; break; }
         if (!target) continue;
 
         // Build pkg-qualified dest_name preserving the template's sig suffix
@@ -877,8 +878,9 @@ void Mono::drain_method_worklist() {
                                 ? bare_dest
                                 : item.struct_pkg + "." + bare_dest;
         bool exists = false;
-        for (auto& m : target->methods)
-            if (m.name() == dest_name) { exists = true; break; }
+        target->each_method([&](lir_view::FunctionView m) {
+            if (m.name() == dest_name) exists = true;
+        });
         if (exists) continue;
         // Specialization: a non-generic `impl Foo<Concrete>` lowers to a
         // free-fn under this exact mangled name. Don't clone the blanket
@@ -900,7 +902,7 @@ void Mono::drain_method_worklist() {
             auto stub = clone_fn_signature(tmpl, item.subst, item.packs);
             stub.name = dest_name;
             stub.type_params.clear();
-            target->methods.push_back(lir_mirror_emit_fn_view(out_, stub));
+            lir_mirror_struct_append_method(out_, *target, lir_mirror_emit_fn_view(out_, stub));
             ++stats_.method_instances;
             note_method_worklist_size(method_worklist_.size());
             continue;
@@ -909,7 +911,7 @@ void Mono::drain_method_worklist() {
         cloned.name = dest_name;
         cloned.type_params.clear();
 
-        target->methods.push_back(lir_mirror_emit_fn_view(out_, cloned));
+        lir_mirror_struct_append_method(out_, *target, lir_mirror_emit_fn_view(out_, cloned));
         scan_fn(cloned);
         ++stats_.method_instances;
         note_method_worklist_size(method_worklist_.size());

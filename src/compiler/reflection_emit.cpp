@@ -82,18 +82,19 @@ static AnyVal as_ptr(Hermes& doc, uint32_t off) {
 
 // ── Annotation value serializer ───────────────────────────────────────────
 
-static AnyVal annot_val_to_hval(Hermes& doc, const lir::LAnnotationValue& v) {
+static AnyVal annot_val_to_hval(Hermes& doc, lir_view::AnnotValueView v) {
     using K = lir::LAnnotationValue::Kind;
-    switch (v.kind) {
-    case K::Int:   return hval_i64(doc, v.i);
-    case K::Float: return doc.box<double>(v.f).get();
-    case K::Bool:  return hval_bool(doc, v.i != 0);
-    case K::Str:   return hval_str(doc, v.s);
-    case K::Enum:  return hval_str(doc, v.enum_name + "::" + v.enum_variant);
+    switch (static_cast<K>(v.kind())) {
+    case K::Int:   return hval_i64(doc, v.i());
+    case K::Float: return doc.box<double>(v.f()).get();
+    case K::Bool:  return hval_bool(doc, v.i() != 0);
+    case K::Str:   return hval_str(doc, v.s());
+    case K::Enum:  return hval_str(doc, std::string(v.enum_name()) + "::" + std::string(v.enum_variant()));
     case K::Array: {
         uint32_t arr = begin_array(doc);
-        for (auto& item : v.arr)
+        v.each_arr([&](lir_view::AnnotValueView item) {
             array_push(doc, arr, annot_val_to_hval(doc, item));
+        });
         return as_ptr(doc, arr);
     }
     }
@@ -102,12 +103,13 @@ static AnyVal annot_val_to_hval(Hermes& doc, const lir::LAnnotationValue& v) {
 
 // ── Build one annotation instance as a Hermes map ────────────────────────
 
-static AnyVal build_annotation_map(Hermes& doc, const lir::LAnnotationInstance& inst) {
+static AnyVal build_annotation_map(Hermes& doc, lir_view::AnnotInstanceView inst) {
     uint32_t m = begin_map(doc);
-    std::string_view type_key = inst.ann_fqn.empty() ? inst.ann_name : inst.ann_fqn;
+    std::string_view type_key = inst.ann_fqn().empty() ? inst.ann_name() : inst.ann_fqn();
     map_put(doc, m, "type", hval_str(doc, type_key));
-    for (auto& [k, v] : inst.kv)
-        map_put(doc, m, k, annot_val_to_hval(doc, v));
+    inst.each_kv([&](lir_view::AnnotKvView kv) {
+        map_put(doc, m, std::string(kv.key_name()), annot_val_to_hval(doc, kv.value()));
+    });
     return as_ptr(doc, m);
 }
 
@@ -131,10 +133,11 @@ static std::string type_name_of(TypeRef t) {
     }
 }
 
-static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
+static AnyVal build_field_map(Hermes& doc, lir_view::LFieldView f,
+                              const TypePoolImpl* pool) {
     uint32_t m = begin_map(doc, 2);  // 4 buckets
-    map_put(doc, m, "name",      hval_str(doc, f.name));
-    map_put(doc, m, "type_name", hval_str(doc, type_name_of(f.type)));
+    map_put(doc, m, "name",      hval_str(doc, f.name()));
+    map_put(doc, m, "type_name", hval_str(doc, type_name_of(f.type(pool))));
     map_put(doc, m, "offset",    hval_u64(doc, 0));  // layout not yet computed at LIR stage
     map_put(doc, m, "size",      hval_u64(doc, 0));
     return as_ptr(doc, m);
@@ -142,28 +145,31 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
 
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
 
-static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir::LStructDef& sd) {
+static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, lir_view::StructView sd) {
+    const TypePoolImpl* pool = prog.type_pool.impl();
     auto doc = logos::hermes::make_doc_single_chunk(131072).get();
 
     // Root map — log2=4 → 16 buckets.
     uint32_t root = begin_map(doc, 4);
 
-    map_put(doc, root, "name",          hval_str(doc, sd.name));
-    map_put(doc, root, "pkg",           hval_str(doc, sd.pkg));
-    map_put(doc, root, "type_code",     hval_u64(doc, sd.type_code));
-    map_put(doc, root, "kind",          hval_i64(doc, sd.is_zoned ? 2 : 1));
-    map_put(doc, root, "is_data_plain", hval_bool(doc, sd.is_data_plain));
+    map_put(doc, root, "name",          hval_str(doc, sd.name()));
+    map_put(doc, root, "pkg",           hval_str(doc, sd.pkg()));
+    map_put(doc, root, "type_code",     hval_u64(doc, sd.type_code()));
+    map_put(doc, root, "kind",          hval_i64(doc, sd.is_zoned() ? 2 : 1));
+    map_put(doc, root, "is_data_plain", hval_bool(doc, sd.is_data_plain()));
 
     // Fields array
     uint32_t fields_arr = begin_array(doc);
-    for (auto& f : sd.fields)
-        array_push(doc, fields_arr, build_field_map(doc, f));
+    sd.each_field([&](lir_view::LFieldView f) {
+        array_push(doc, fields_arr, build_field_map(doc, f, pool));
+    });
     map_put(doc, root, "fields", as_ptr(doc, fields_arr));
 
     // Annotations array
     uint32_t annots_arr = begin_array(doc);
-    for (auto& inst : sd.annotations)
+    sd.each_annotation([&](lir_view::AnnotInstanceView inst) {
         array_push(doc, annots_arr, build_annotation_map(doc, inst));
+    });
     map_put(doc, root, "annotations", as_ptr(doc, annots_arr));
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
@@ -223,8 +229,9 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
     for (auto& fqn : prog.reflect_requests)
         to_emit.insert(fqn);
     for (auto& sd : prog.structs) {
-        if (sd.is_zoned && !sd.annotations.empty()) {
-            std::string fqn = sd.pkg.empty() ? sd.name : sd.pkg + "::" + sd.name;
+        if (sd.is_zoned() && !sd.annotations_empty()) {
+            std::string fqn = sd.pkg().empty() ? std::string(sd.name())
+                                               : std::string(sd.pkg()) + "::" + std::string(sd.name());
             to_emit.insert(fqn);
         }
     }
@@ -233,12 +240,16 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
     std::unordered_set<std::string> emitted;
 
     for (auto& sd : prog.structs) {
-        if (!sd.is_zoned) continue;
-        if (sd.type_hash == std::array<uint8_t, 23>{}) continue; // generic template
-        std::string fqn = sd.pkg.empty() ? sd.name : sd.pkg + "::" + sd.name;
+        if (!sd.is_zoned()) continue;
+        if (sd.type_hash().empty()) continue; // generic template
+        std::string fqn = sd.pkg().empty() ? std::string(sd.name())
+                                           : std::string(sd.pkg()) + "::" + std::string(sd.name());
         if (to_emit.find(fqn) == to_emit.end()) continue;
 
-        auto sym = reflect_symbol(sd.type_hash);
+        std::array<uint8_t, 23> th{};
+        auto tv = sd.type_hash();
+        if (tv.size() == 23) std::memcpy(th.data(), tv.data(), 23);
+        auto sym = reflect_symbol(th);
         if (!emitted.insert(sym).second) continue;  // already done
 
         auto blob = build_type_info_blob(prog, sd);

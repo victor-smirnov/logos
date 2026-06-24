@@ -70,22 +70,23 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
     for (auto& sd : prog.structs) {
-        std::string key = qualify_pkg(sd.pkg, sd.name);
-        all_struct_defs_[key] = &sd;
+        std::string sd_name(sd.name()), sd_pkg(sd.pkg());
+        std::string key = qualify_pkg(sd_pkg, sd_name);
+        all_struct_defs_[key] = sd;
         // Bare alias for legacy paths that haven't been threaded with pkg.
         // First-registered wins on collision (matches the legacy global-
         // namespace behavior; cross-pkg same-name structs surface via the
         // qualified entry).
-        if (!sd.pkg.empty() && !all_struct_defs_.count(sd.name))
-            all_struct_defs_[sd.name] = &sd;
+        if (!sd_pkg.empty() && !all_struct_defs_.count(sd_name))
+            all_struct_defs_[sd_name] = sd;
         // Coexistence: concrete_struct_name lookups (field access, DST resolve)
         // now carry the "$M<module_id>" suffix for non-stdlib module types, so
         // register a matching alias. Generic-instance sd.name already carries it
         // (built via concrete_struct_name in mono) → suffix is empty, no dup.
-        std::string msuffix = type_module_suffix(sd.pkg);
+        std::string msuffix = type_module_suffix(sd_pkg);
         if (!msuffix.empty()) {
-            std::string qname = sd.name + msuffix;
-            if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = &sd;
+            std::string qname = sd_name + msuffix;
+            if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = sd;
         }
     }
 
@@ -227,14 +228,18 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& fn : prog.functions) if (fn && fn.from_lazy_module()) { any_lazy = true; break; }
     if (!any_lazy)
         for (auto& sd : prog.structs)
-            for (auto& m : sd.methods) if (m && m.from_lazy_module()) { any_lazy = true; break; }
+            sd.each_method([&](lir_view::FunctionView m) {
+                if (m && m.from_lazy_module()) any_lazy = true;
+            });
 
     if (any_lazy) {
         // Index all fn definitions for cheap callee→fn lookup.
         std::unordered_map<std::string, lir_view::FunctionView> by_name;
         for (auto& fn : prog.functions) if (fn) by_name[std::string(fn.name())] = fn;
         for (auto& sd : prog.structs)
-            for (auto& m : sd.methods) if (m) by_name[std::string(m.name())] = m;
+            sd.each_method([&](lir_view::FunctionView m) {
+                if (m) by_name[std::string(m.name())] = m;
+            });
 
         std::deque<std::string> worklist;
         auto seed_root = [&](lir_view::FunctionView fn) {
@@ -244,7 +249,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         };
         for (auto& fn : prog.functions) if (fn) seed_root(fn);
         for (auto& sd : prog.structs)
-            for (auto& m : sd.methods) if (m) seed_root(m);
+            sd.each_method([&](lir_view::FunctionView m) { if (m) seed_root(m); });
 
         // prog is const; use the const arena() accessor (returns nullptr if
         // the pool was never initialised — in that case there are no bodies
@@ -427,11 +432,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                     if (lazy_emit.count(std::string(fn.name()))) ++lazy_kept;
                 }
             for (auto& sd : prog.structs)
-                for (auto& m : sd.methods)
+                sd.each_method([&](lir_view::FunctionView m) {
                     if (m && m.from_lazy_module()) {
                         ++lazy_total;
                         if (lazy_emit.count(std::string(m.name()))) ++lazy_kept;
                     }
+                });
             std::fprintf(stderr,
                 "mlir_gen: lazy reach = %zu/%zu kept (%zu pruned)\n",
                 lazy_kept, lazy_total, lazy_total - lazy_kept);
@@ -446,7 +452,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     if (std::getenv("LOGOS_TRACE_PHASES")) {
         size_t total = 0, skipped = 0;
-        for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(m)) ++skipped; }
+        for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { ++total; if (is_binary_skip(m)) ++skipped; });
         for (auto& fn : prog.functions) { ++total; if (is_binary_skip(fn)) ++skipped; }
         std::fprintf(stderr, "mlir_gen: %zu functions total, %zu binary-skip\n", total, skipped);
     }
@@ -461,10 +467,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // entirely (no forward-decl, no body) — nothing references them, so
     // there's nothing to link against.
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods) {
-            if (is_lazy_skip(m)) continue;
+        sd.each_method([&](lir_view::FunctionView m) {
+            if (is_lazy_skip(m)) return;
             forward_declare(mod, m, is_binary_skip(m));
-        }
+        });
 
     for (auto& fn : prog.functions) {
         if (is_lazy_skip(fn)) continue;
@@ -508,12 +514,15 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     size_t method_bodies = 0;
     size_t fn_bodies = 0;
     for (auto& sd : prog.structs) {
-        for (auto& m : sd.methods) {
-            if (is_binary_skip(m) || is_lazy_skip(m)) continue;
+        bool method_failed = false;
+        sd.each_method([&](lir_view::FunctionView m) {
+            if (method_failed) return;
+            if (is_binary_skip(m) || is_lazy_skip(m)) return;
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(m));
-            if (!gen_function_body(func, m)) return nullptr;
+            if (!gen_function_body(func, m)) { method_failed = true; return; }
             ++method_bodies; ++bodies_emitted;
-        }
+        });
+        if (method_failed) return nullptr;
     }
     for (auto& fn : prog.functions) {
         if (fn.is_extern() || is_binary_skip(fn) || is_lazy_skip(fn)) continue;
@@ -796,9 +805,11 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
                 // in-place (scalar) — the GEP is already its address.
                 if (auto cdi = all_struct_defs_.find(base_sname);
                     cdi != all_struct_defs_.end()) {
-                    for (auto& lf : cdi->second->fields) {
-                        if (lf.name == field && lf.type) {
-                            auto cn = concrete_struct_name(lf.type);
+                    const TypePoolImpl* cf_pool = pool_impl();
+                    for (auto lf : cdi->second.fields()) {
+                        TypeRef lf_type = lf.type(cf_pool);
+                        if (lf.name() == field && lf_type) {
+                            auto cn = concrete_struct_name(lf_type);
                             if (!cn.empty() && struct_types_.count(cn)) {
                                 if (!mlir::isa<mlir::LLVM::LLVMPointerType>(f.type))
                                     return {gep, cn};

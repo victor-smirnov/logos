@@ -1157,8 +1157,8 @@ struct LProgram {
     // millions of TUs that include it just for the variant tree.
     std::unique_ptr<::logos::compiler::LirMirrorTable> mirror_table;
 
-    std::vector<LStructDef>      structs;
-    std::vector<LStructDef>      struct_specializations;  // struct specs (consumed by mono)
+    std::vector<lir_view::StructView>      structs;
+    std::vector<lir_view::StructView>      struct_specializations;  // struct specs (consumed by mono)
     std::vector<lir_view::EnumView> enums;               // Stage E: decl mirrors
     std::vector<LFunctionPtr>    functions;        // free functions and extern fn
     std::vector<LFunctionPtr>    specializations;  // fn specialisations (consumed by mono)

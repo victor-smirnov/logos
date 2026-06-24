@@ -479,8 +479,8 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
         std::string name = concrete_struct_name(ty);
         if (!resolve_method_symbol(name, "drop").empty()) return true;
         if (auto sd = all_struct_defs_.find(name); sd != all_struct_defs_.end())
-            for (auto& f : sd->second->fields)
-                if (value_needs_drop(f.type)) return true;
+            for (auto& f : sd->second.fields())
+                if (value_needs_drop(f.type(pool_impl()))) return true;
         return false;
     }
     if (k == K::Tuple) {
@@ -693,24 +693,25 @@ void MLIRGenImpl::gen_drop_owning_dst(mlir::Value dst_ptr, TypeRef ty) {
     auto sdit = all_struct_defs_.find(name);
     auto sit  = struct_types_.find(name);
     if (sdit != all_struct_defs_.end() && sit != struct_types_.end() &&
-        !sdit->second->fields.empty()) {
-        auto& def  = *sdit->second;
+        !sdit->second.fields().empty()) {
+        auto def   = sdit->second;
+        auto fields = def.fields();
         auto& info = sit->second;
-        size_t last = def.fields.size() - 1;
+        size_t last = fields.size() - 1;
         for (size_t i = 0; i < last; ++i) {
-            TypeRef ft(def.fields[i].type);
+            TypeRef ft(fields[i].type(pool_impl()));
             if (!ft) continue;
             auto fk = TypeRef(ft).kind();
             if (fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
             if (!value_needs_drop(ft)) continue;
-            if (auto fp = gep_field(data, info, std::string(def.fields[i].name)))
+            if (auto fp = gep_field(data, info, std::string(fields[i].name())))
                 gen_drop_value(fp, ft);
         }
         // Tail: last field is the unsized slice; drop its elements (runtime len).
-        TypeRef tailt(def.fields[last].type);
+        TypeRef tailt(fields[last].type(pool_impl()));
         TypeRef et = tailt ? TypeRef(tailt).elem() : TypeRef{};
         if (et && value_needs_drop(et)) {
-            if (auto base = gep_field(data, info, std::string(def.fields[last].name))) {
+            if (auto base = gep_field(data, info, std::string(fields[last].name()))) {
                 uint64_t stride = layout_of(et).size; if (!stride) stride = 1;
                 auto strideC = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)stride, 64);
                 auto* cond_blk = new mlir::Block();
@@ -896,13 +897,14 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
         if (sit == struct_types_.end()) sit = struct_types_.find(name);
         if (sdit != all_struct_defs_.end() && sit != struct_types_.end()) {
             auto& info = sit->second;
-            auto& def  = *sdit->second;
-            for (int i = (int)def.fields.size() - 1; i >= 0; --i) {
-                TypeRef ft(def.fields[i].type);
+            auto def   = sdit->second;
+            auto fields = def.fields();
+            for (int i = (int)fields.size() - 1; i >= 0; --i) {
+                TypeRef ft(fields[i].type(pool_impl()));
                 auto fk = ft ? TypeRef(ft).kind() : K::Error;
                 if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
                 if (!value_needs_drop(ft)) continue;
-                std::string fname(def.fields[i].name);
+                std::string fname(fields[i].name());
                 std::set<std::string> child_skips;
                 if (split_skip_paths(skip_paths, fname, child_skips)) continue;
                 auto fp = gep_field(value_ptr, info, fname);
@@ -1118,12 +1120,13 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             if (sit == struct_types_.end()) sit = struct_types_.find(std::string(st.struct_name()));
             if (sdit != all_struct_defs_.end() && sit != struct_types_.end()) {
                 auto& info = sit->second;
-                auto& def  = *sdit->second;
-                for (int i = (int)def.fields.size() - 1; i >= 0; --i) {
-                    std::string fname(def.fields[i].name);
+                auto def   = sdit->second;
+                auto fields = def.fields();
+                for (int i = (int)fields.size() - 1; i >= 0; --i) {
+                    std::string fname(fields[i].name());
                     std::set<std::string> child_skips;
                     if (split_skip_paths(&moved, fname, child_skips)) continue;
-                    TypeRef ft(def.fields[i].type);
+                    TypeRef ft(fields[i].type(pool_impl()));
                     auto fk = ft ? TypeRef(ft).kind() : K::Error;
                     if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
                     if (!value_needs_drop(ft)) continue;
@@ -2736,10 +2739,10 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
     // offset stored AT the field slot (`gep` is the anchor). RefRepr RelOffset.
     {
         auto sdit = all_struct_defs_.find(type_name);
-        if (sdit != all_struct_defs_.end() && sdit->second)
-            for (auto& f : sdit->second->fields)
-                if (f.name == field &&
-                    field_repr(type_name, f.type) == RefReprKind::RelOffset) {
+        if (sdit != all_struct_defs_.end() && sdit->second.valid())
+            for (auto& f : sdit->second.fields())
+                if (f.name() == field &&
+                    field_repr(type_name, f.type(pool_impl())) == RefReprKind::RelOffset) {
                     repr_lower(RefReprKind::RelOffset, val, gep);
                     return;
                 }
@@ -2816,10 +2819,10 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
     // stored AT the slot (`gep` is the anchor). RefRepr RelOffset.
     {
         auto sdit = all_struct_defs_.find(sit->first);
-        if (sdit != all_struct_defs_.end() && sdit->second)
-            for (auto& f : sdit->second->fields)
-                if (f.name == field &&
-                    field_repr(sit->first, f.type) == RefReprKind::RelOffset) {
+        if (sdit != all_struct_defs_.end() && sdit->second.valid())
+            for (auto& f : sdit->second.fields())
+                if (f.name() == field &&
+                    field_repr(sit->first, f.type(pool_impl())) == RefReprKind::RelOffset) {
                     repr_lower(RefReprKind::RelOffset, val, gep);
                     return;
                 }
@@ -2899,9 +2902,9 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
         bool seg_is_ptr = false;
         auto cdi = all_struct_defs_.find(cur_type_name);
         if (cdi != all_struct_defs_.end()) {
-            for (auto& f : cdi->second->fields) {
-                if (f.name == path[i] && f.type) {
-                    TypeRef ft = f.type;
+            for (auto& f : cdi->second.fields()) {
+                if (f.name() == path[i] && f.type(pool_impl())) {
+                    TypeRef ft = f.type(pool_impl());
                     if (TypeRef(ft).kind() == LogosType::Kind::Ptr && TypeRef(ft).pointee()) {
                         ft = TypeRef(ft).pointee();
                         seg_is_ptr = true;
@@ -3394,7 +3397,7 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         // the child as if they were a heap pointer (silent miscompile that
         // segfaults on dereference).
         auto sptr = slot_ptr;
-        const LStructDef* sd = nullptr;
+        lir_view::StructView sd;
         if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
             sd = di->second;
         mlir::Value cond = true_c();
@@ -3407,8 +3410,8 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             auto fp = gep_field(sptr, sinfo, fname);
             if (!fp) return;
             TypeRef fty;
-            if (sd) for (auto& lf : sd->fields)
-                if (lf.name == fname) { fty = lf.type; break; }
+            if (sd) for (auto& lf : sd.fields())
+                if (lf.name() == fname) { fty = lf.type(pool_impl()); break; }
             auto sc = pat_test(sub, fp, fty);
             cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
         });
@@ -3668,7 +3671,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // pat_test's Struct case for the rationale (nested sub-pattern
         // miscompile / segfault if we Load through inline-child storage).
         auto sptr = slot_ptr;
-        const LStructDef* sd = nullptr;
+        lir_view::StructView sd;
         if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
             sd = di->second;
         ps.each_field([&](lir_view::PatFieldBindingView pfb){
@@ -3676,8 +3679,8 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             auto fp = gep_field(sptr, sinfo, fname);
             if (!fp) return;
             TypeRef fty;
-            if (sd) for (auto& lf : sd->fields)
-                if (lf.name == fname) { fty = lf.type; break; }
+            if (sd) for (auto& lf : sd.fields())
+                if (lf.name() == fname) { fty = lf.type(pool_impl()); break; }
             auto sub = pfb.sub();
             if (!sub) {
                 // Shorthand `{x}` → bind field value to `x`. Mirror the Wild
@@ -3974,7 +3977,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                 sptr = a;
             }
-            const LStructDef* sd = nullptr;
+            lir_view::StructView sd;
             if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
                 sd = di->second;
             ps.each_field([&](lir_view::PatFieldBindingView pfb) {
@@ -3989,8 +3992,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     // shared reads because the &-typed binding's Drop is skipped.
                     // Mirrors the tuple-element / pat_bind aggregate bind.
                     TypeRef fty;
-                    if (sd) for (auto& lf : sd->fields)
-                        if (lf.name == field_name) { fty = lf.type; break; }
+                    if (sd) for (auto& lf : sd.fields())
+                        if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
                     if (fty && (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                 TypeRef(fty).kind() == LogosType::Kind::ZonedStruct)) {
                         scope_[bind_name] = fp;
@@ -4030,8 +4033,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             // the enum-payload G151-1 fix. Scalar fields keep
                             // the alloca-wrap so `*px` derefs one level.
                             TypeRef fty;
-                            if (sd) for (auto& lf : sd->fields)
-                                if (lf.name == field_name) { fty = lf.type; break; }
+                            if (sd) for (auto& lf : sd.fields())
+                                if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
                             bool ref_to_struct = fty &&
                                 (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                  TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
@@ -4055,8 +4058,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     auto fp = gep_field(sptr, sinfo, field_name);
                     if (fp) {
                         TypeRef fty;
-                        if (sd) for (auto& lf : sd->fields)
-                            if (lf.name == field_name) { fty = lf.type; break; }
+                        if (sd) for (auto& lf : sd.fields())
+                            if (lf.name() == field_name) { fty = lf.type(pool_impl()); break; }
                         pat_bind(sub, fp, fty);
                     }
                 }

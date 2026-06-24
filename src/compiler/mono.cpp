@@ -40,7 +40,7 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
         std::string method = tn.substr(tmpl_prefix.size());
         std::string concrete_pkg;
         for (auto& sd : out_.structs)
-            if (sd.name == concrete) { concrete_pkg = sd.pkg; break; }
+            if (sd.name() == concrete) { concrete_pkg = std::string(sd.pkg()); break; }
         if (concrete_pkg.empty())
             for (auto& ed : out_.enums)
                 if (ed.name() == concrete) { concrete_pkg = std::string(ed.pkg()); break; }
@@ -181,24 +181,24 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         for (auto& fp : out_.specializations)
             if (fp) done_.insert(std::string(fp.name()));
         for (auto& sd : out_.structs) {
-            auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
+            std::string sd_name(sd.name()), sd_pkg(sd.pkg());
+            auto qkey = sd_pkg.empty() ? sd_name : (sd_pkg + "." + sd_name);
             struct_done_.insert(qkey);
-            struct_done_.insert(sd.name);
-            for (auto& m : sd.methods) {
-                if (!m) continue;
-                done_methods_.insert(sd.name + "__" + std::string(m.name()));
+            struct_done_.insert(sd_name);
+            sd.each_method([&](lir_view::FunctionView m) {
+                done_methods_.insert(sd_name + "__" + std::string(m.name()));
                 done_.insert(std::string(m.name()));
-            }
+            });
         }
         for (auto& sd : out_.struct_specializations) {
-            auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
+            std::string sd_name(sd.name()), sd_pkg(sd.pkg());
+            auto qkey = sd_pkg.empty() ? sd_name : (sd_pkg + "." + sd_name);
             struct_done_.insert(qkey);
-            struct_done_.insert(sd.name);
-            for (auto& m : sd.methods) {
-                if (!m) continue;
-                done_methods_.insert(sd.name + "__" + std::string(m.name()));
+            struct_done_.insert(sd_name);
+            sd.each_method([&](lir_view::FunctionView m) {
+                done_methods_.insert(sd_name + "__" + std::string(m.name()));
                 done_.insert(std::string(m.name()));
-            }
+            });
         }
         for (auto& ed : out_.enums) {
             std::string ed_name(ed.name()), ed_pkg(ed.pkg());
@@ -254,22 +254,23 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // bare alias kept as last-wins for back-compat with callers operating
     // by base name only.
     for (auto& sd : in_.structs) {
+        std::string sd_name(sd.name()), sd_pkg(sd.pkg());
         // Index EVERY struct (generic + non-generic) for the DstRef
         // canonicalisation's is_dst lookup (struct_templates_ below is
         // generics-only). Bare last-wins + pkg-qualified, mirroring below.
-        if (!sd.pkg.empty()) all_structs_[sd.pkg + "." + sd.name] = &sd;
-        all_structs_[sd.name] = &sd;
-        if (!sd.type_params.empty()) {
-            if (!sd.pkg.empty())
-                struct_templates_[sd.pkg + "." + sd.name] = &sd;
-            struct_templates_[sd.name] = &sd;  // stable: in_.structs not moved
+        if (!sd_pkg.empty()) all_structs_[sd_pkg + "." + sd_name] = sd;
+        all_structs_[sd_name] = sd;
+        if (!sd.type_params_empty()) {
+            if (!sd_pkg.empty())
+                struct_templates_[sd_pkg + "." + sd_name] = sd;
+            struct_templates_[sd_name] = sd;  // stable: in_.structs not moved
         }
         // L1: build (base_struct, short_method_name) → template index for lazy
         // method instantiation. After unification, method fn-names are
         // pkg-qualified (`pkg.Base__method__f__sig`); extract short name
         // by finding `Base__` and reading until next `__`.
-        std::string prefix = sd.name + "__";
-        for (auto& m : sd.methods) {
+        std::string prefix = sd_name + "__";
+        sd.each_method([&](lir_view::FunctionView m) {
             std::string m_name(m.name());
             std::string short_name;
             auto p = m_name.find(prefix);
@@ -306,10 +307,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             } else {
                 short_name = m_name;
             }
-            if (!sd.pkg.empty())
-                struct_method_templates_[sd.pkg + "." + sd.name][short_name] = m;
-            struct_method_templates_[sd.name][short_name] = m;
-        }
+            if (!sd_pkg.empty())
+                struct_method_templates_[sd_pkg + "." + sd_name][short_name] = m;
+            struct_method_templates_[sd_name][short_name] = m;
+        });
     }
     // Move non-generic structs to output.
     // M6.2: when has_prev_out_, skip structs that prev_out already
@@ -319,12 +320,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // insert so subsequent code paths that consult struct_done_
     // observe consistent state.
     for (auto& sd : in_.structs) {
-        if (sd.type_params.empty()) {
+        if (sd.type_params_empty()) {
+            std::string sd_name(sd.name()), sd_pkg(sd.pkg());
             if (has_prev_out_) {
-                auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
-                if (struct_done_.count(qkey) || struct_done_.count(sd.name)) continue;
+                auto qkey = sd_pkg.empty() ? sd_name : (sd_pkg + "." + sd_name);
+                if (struct_done_.count(qkey) || struct_done_.count(sd_name)) continue;
             }
-            out_.structs.push_back(clone_struct_def(sd, {}, {}, sd.name));
+            auto nd = clone_struct_def(sd, {}, {}, sd_name);
+            out_.structs.push_back(lir_mirror_emit_struct_view(out_, nd));
         }
     }
 
@@ -374,7 +377,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         std::vector<std::string> candidates;
         if (bi.bound_trait.empty()) {
             for (auto& sd : out_.structs)
-                if (sd.type_params.empty()) candidates.push_back(sd.name);
+                if (sd.type_params_empty()) candidates.push_back(std::string(sd.name()));
             for (auto& ed : out_.enums)
                 if (ed.type_params_empty()) candidates.push_back(std::string(ed.name()));
         } else {
@@ -406,7 +409,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 }
             };
             for (auto& sd : out_.structs)
-                if (sd.type_params.empty()) consider(sd.name);
+                if (sd.type_params_empty()) consider(std::string(sd.name()));
             for (auto& ed : out_.enums)
                 if (ed.type_params_empty()) consider(std::string(ed.name()));
         }
@@ -528,7 +531,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index struct specialisations.
     for (auto& ss : in_.struct_specializations)
-        struct_specs_[ss.name].push_back(&ss);
+        struct_specs_[std::string(ss.name())].push_back(ss);
 
     // Process non-generic free functions. The lazy_methods_ path handles
     // struct methods separately.
@@ -807,11 +810,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // No-op in eager mode (clone_struct_def already cloned every method).
     if (lazy_methods_) {
         for (auto& sd : out_.structs) {
-            std::string base = sd.name;
+            std::string sd_name(sd.name());
+            std::string base = sd_name;
             auto p = base.find("$G");
             if (p == std::string::npos) continue;  // not a generic instance
             base = base.substr(0, p);
-            auto cit = concrete_struct_types_.find(sd.name);
+            auto cit = concrete_struct_types_.find(sd_name);
             if (cit == concrete_struct_types_.end()) continue;
             for (auto& impl : out_.impls) {
                 if (impl.is_blanket) continue;
@@ -820,7 +824,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 for (auto& td : out_.traits) {
                     if (td.name != impl.trait_name) continue;
                     for (auto& tm : td.methods) {
-                        std::string sym = sd.name + "__" + tm.name;
+                        std::string sym = sd_name + "__" + tm.name;
                         pinned_method_roots_.insert(sym);
                         enqueue_method_inst(cit->second, tm.name);
                     }
@@ -833,7 +837,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // common `Box`/`Vec` shape) never instantiates `drop` in lazy
                 // mode and the destructor silently never runs. Pin it directly.
                 if (impl.trait_name == "Drop") {
-                    pinned_method_roots_.insert(sd.name + "__drop");
+                    pinned_method_roots_.insert(sd_name + "__drop");
                     enqueue_method_inst(cit->second, "drop");
                 }
             }
@@ -870,9 +874,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // monomorphized struct set and cross-reference against impls whose
     // target is the template's base name.
     for (auto& sd : out_.structs) {
-        if (sd.type_code == 0) continue;
+        if (sd.type_code() == 0) continue;
+        std::string sd_name(sd.name());
         // Extract the base name: "Array$G1$AnyVal" → "Array".
-        std::string base = sd.name;
+        std::string base = sd_name;
         if (auto p = base.find("$G"); p != std::string::npos)
             base = base.substr(0, p);
         for (auto& impl : out_.impls) {
@@ -889,13 +894,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& td : out_.traits) {
                 if (td.name != impl.trait_name) continue;
                 for (auto& tm : td.methods) {
-                    std::string sym = sd.name + "__" + tm.name;
+                    std::string sym = sd_name + "__" + tm.name;
                     // Only emit if the method actually exists (cloned by mono).
                     // Capture the actual (pkg-qualified, sig-suffixed) symbol
                     // so the dispatch table init resolves correctly.
                     std::string actual_sym;
-                    for (auto& sm : sd.methods)
-                        if (bare_fn_name(sm.name()) == sym) { actual_sym = std::string(sm.name()); break; }
+                    sd.each_method([&](lir_view::FunctionView sm) {
+                        if (actual_sym.empty() && bare_fn_name(sm.name()) == sym)
+                            actual_sym = std::string(sm.name());
+                    });
                     if (actual_sym.empty()) {
                         for (auto& f : out_.functions)
                             if (bare_fn_name(f.name()) == sym) { actual_sym = std::string(f.name()); break; }
@@ -906,7 +913,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     bool dup = false;
                     for (auto& e : out_.dispatch_entries)
                         if (e.tag_system == tag_system && e.trait_name == impl.trait_name &&
-                            e.method_name == tm.name && e.type_code == sd.type_code)
+                            e.method_name == tm.name && e.type_code == sd.type_code())
                             { dup = true; break; }
                     if (dup) continue;
                     lir::LDispatchEntry de;
@@ -914,8 +921,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     de.trait_name     = impl.trait_name;
                     de.method_name    = tm.name;
                     de.fn_symbol      = std::move(actual_sym);
-                    de.impl_type_name = sd.name;
-                    de.type_code      = sd.type_code;
+                    de.impl_type_name = sd_name;
+                    de.type_code      = sd.type_code();
                     out_.dispatch_entries.push_back(std::move(de));
                     ++stats_.dispatch_entries;
                 }

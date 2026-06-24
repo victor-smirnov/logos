@@ -185,11 +185,12 @@ private:
             return false;
         };
         for (auto& sd : prog_->structs) {
-            if (sd.name != bare_struct) continue;
-            for (auto& mp : sd.methods) {
-                if (!mp) continue;
-                if (matches(mp.name())) return std::string(mp.name());
-            }
+            if (sd.name() != bare_struct) continue;
+            std::string found;
+            sd.each_method([&](lir_view::FunctionView mp) {
+                if (found.empty() && matches(mp.name())) found = std::string(mp.name());
+            });
+            if (!found.empty()) return found;
         }
         for (auto& fn : prog_->functions) {
             if (!fn) continue;
@@ -203,7 +204,7 @@ private:
     }
 
     std::unordered_map<std::string, StructInfo>        struct_types_;
-    std::unordered_map<std::string, const LStructDef*> all_struct_defs_; // name→def for recursive registration
+    std::unordered_map<std::string, lir_view::StructView> all_struct_defs_; // name→def for recursive registration
     std::unordered_map<std::string, lir_view::EnumView> enum_types_;
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
@@ -657,7 +658,7 @@ private:
         if (it == prog_->pkg_module_ids.end() || it->second.empty()) return callee;
         return it->second + ".." + callee;
     }
-    bool register_struct(const LStructDef& sd);
+    bool register_struct(lir_view::StructView sd);
     void register_tagged_enum(lir_view::EnumView ed);
     uint64_t variant_payload_bytes(lir_view::EnumVariantView v);
 

@@ -327,8 +327,8 @@ TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 // enums, consts, ...) the capture walks per-AST [start,end) ranges
 // recorded during the iter-0 loop.
 struct LirBundle {
-    std::vector<lir::LStructDef>      structs;
-    std::vector<lir::LStructDef>      struct_specializations;
+    std::vector<lir_view::StructView> structs;
+    std::vector<lir_view::StructView> struct_specializations;
     std::vector<lir_view::EnumView>   enums;             // Stage E: decl mirrors
     std::vector<lir::LFunctionPtr>    functions;
     std::vector<lir::LFunctionPtr>    specializations;
@@ -509,11 +509,11 @@ void SemaCache::reset_user_state() {
     auto only_binary_vec = [](auto& vec, auto pred) {
         vec.erase(std::remove_if(vec.begin(), vec.end(), pred), vec.end());
     };
-    only_binary_vec(b.structs, [](const lir::LStructDef& sd) {
-        return !sd.from_binary_module;
+    only_binary_vec(b.structs, [](lir_view::StructView sd) {
+        return !sd.from_binary_module();
     });
-    only_binary_vec(b.struct_specializations, [](const lir::LStructDef& sd) {
-        return !sd.from_binary_module;
+    only_binary_vec(b.struct_specializations, [](lir_view::StructView sd) {
+        return !sd.from_binary_module();
     });
     only_binary_vec(b.functions, [](const lir::LFunctionPtr& fp) {
         return !fp || !fp.from_binary_module();
@@ -521,14 +521,19 @@ void SemaCache::reset_user_state() {
     only_binary_vec(b.specializations, [](const lir::LFunctionPtr& fp) {
         return !fp || !fp.from_binary_module();
     });
-    auto filter_methods = [](std::vector<lir::LStructDef>& v) {
+    // The bundle's struct mirrors live in the cache's shared arena. Drive the
+    // METHODS-array rewrite through a throwaway LProgram that shares that same
+    // pool (shared_clone → same arena), with a mirror_table for the emitter.
+    lir::LProgram mprog;
+    mprog.type_pool = c->shared_pool.shared_clone();
+    mprog.mirror_table = std::make_unique<::logos::compiler::LirMirrorTable>();
+    auto filter_methods = [&mprog](std::vector<lir_view::StructView>& v) {
         for (auto& sd : v) {
-            sd.methods.erase(
-                std::remove_if(sd.methods.begin(), sd.methods.end(),
-                    [](const lir::LFunctionPtr& m) {
-                        return !m || !m.from_binary_module();
-                    }),
-                sd.methods.end());
+            std::vector<lir_view::FunctionView> kept;
+            sd.each_method([&](lir_view::FunctionView m) {
+                if (m && m.from_binary_module()) kept.push_back(m);
+            });
+            lir_mirror_struct_set_methods(mprog, sd, kept);
         }
     };
     filter_methods(b.structs);
@@ -6953,10 +6958,10 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         // from prog.functions AND from the user struct's own emission → a `&user
         // Rc as &dyn Trait` vtable slot then references an un-emitted method →
         // SIGSEGV). Fixes user-struct-shadows-stdlib (Rc/Arc/Box/Vec/…).
-        std::unordered_map<std::string, std::vector<lir::LStructDef*>> templates_by_name;
+        std::unordered_map<std::string, std::vector<lir_view::StructView*>> templates_by_name;
         for (auto& sd : prog.structs) {
-            if (sd.type_params.empty()) continue;
-            templates_by_name[sd.name].push_back(&sd);
+            if (sd.type_params_empty()) continue;
+            templates_by_name[std::string(sd.name())].push_back(&sd);
         }
         auto is_impl_method_shape = [](std::string_view nm) -> std::string_view {
             if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
@@ -6977,7 +6982,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         for (auto& fp : prog.functions) {
             if (!fp) continue;
             auto base = is_impl_method_shape(std::string(fp.name()));
-            lir::LStructDef* host = nullptr;
+            lir_view::StructView* host = nullptr;
             if (!base.empty()) {
                 auto it = templates_by_name.find(std::string(base));
                 if (it != templates_by_name.end()) {
@@ -6987,12 +6992,12 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                     // `Rc<T>`) must NOT move it. Prefer exact-pkg; if the method
                     // carries no package, fall back to a sole candidate.
                     for (auto* cand : it->second)
-                        if (cand->pkg == fp.package()) { host = cand; break; }
+                        if (cand->pkg() == fp.package()) { host = cand; break; }
                     if (!host && fp.package().empty() && it->second.size() == 1)
                         host = it->second.front();
                 }
             }
-            if (host) host->methods.push_back(std::move(fp));
+            if (host) lir_mirror_struct_append_method(prog, *host, fp);
             else      kept.push_back(std::move(fp));
         }
         prog.functions = std::move(kept);
@@ -7032,24 +7037,17 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             b.functions.clear();
             b.specializations.clear();
         }
-        auto take_methods = [keep_user](const std::vector<lir::LFunctionPtr>& src) {
-            std::vector<lir::LFunctionPtr> dst;
-            dst.reserve(src.size());
-            for (auto& m : src)
-                if (m && (keep_user || m.from_binary_module())) dst.push_back(m);
-            return dst;
-        };
+        // Structs are now Hermes StructView handles over a shared mirror —
+        // value-copy the handle (no struct clone / method re-emit). Method
+        // filtering for binary-only capture is handled by the bundle's
+        // filter_methods on reset/next sema_lower.
         for (auto& sd : prog.structs) {
-            if (!keep_user && !sd.from_binary_module) continue;
-            auto copy = sd;
-            copy.methods = take_methods(sd.methods);
-            b.structs.push_back(std::move(copy));
+            if (!keep_user && !sd.from_binary_module()) continue;
+            b.structs.push_back(sd);
         }
         for (auto& sd : prog.struct_specializations) {
-            if (!keep_user && !sd.from_binary_module) continue;
-            auto copy = sd;
-            copy.methods = take_methods(sd.methods);
-            b.struct_specializations.push_back(std::move(copy));
+            if (!keep_user && !sd.from_binary_module()) continue;
+            b.struct_specializations.push_back(sd);
         }
         for (auto& fp : prog.functions)
             if (fp && (keep_user || fp.from_binary_module())) b.functions.push_back(fp);
@@ -7563,7 +7561,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     apply_annots_to_struct(sd);
                 }
                 sd.doc = std::move(struct_doc);
-                prog.struct_specializations.push_back(std::move(sd));
+                prog.struct_specializations.push_back(lir_mirror_emit_struct_view(prog, sd));
             } else if (has_zoned) {
                 auto sd = lower_struct_def(item);
                 sd.is_zoned = true;
@@ -7579,12 +7577,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     }
                 }
                 sd.doc = std::move(struct_doc);
-                prog.structs.push_back(std::move(sd));
+                prog.structs.push_back(lir_mirror_emit_struct_view(prog, sd));
             } else {
                 auto sd = lower_struct_def(item);
                 sd.pkg = std::string(cur_package_);
                 sd.doc = std::move(struct_doc);
-                prog.structs.push_back(std::move(sd));
+                prog.structs.push_back(lir_mirror_emit_struct_view(prog, sd));
             }
         }
         else if (c == la::DATATYPE) {
@@ -7664,7 +7662,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     }
                 }
                 sd.doc = take_pending_doc();
-                prog.struct_specializations.push_back(std::move(sd));
+                prog.struct_specializations.push_back(lir_mirror_emit_struct_view(prog, sd));
             } else {
                 // Normal datatype definition.
                 auto sd = lower_struct_def(item);
@@ -7686,7 +7684,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         sd.type_code = (raw < 128) ? (raw + 128) : raw;
                     }
                 }
-                prog.structs.push_back(std::move(sd));
+                prog.structs.push_back(lir_mirror_emit_struct_view(prog, sd));
             }
         }
         else if (c == la::ENUM) {

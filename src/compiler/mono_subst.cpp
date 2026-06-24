@@ -104,7 +104,8 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             // M2: bare-first lookup preserves prior behavior for this
             // specific call (DST flag is pkg-independent in practice, but
             // bare-first is the historical ordering here).
-            auto* sit_ptr = find_struct_template_bare_first(inner.pkg_name(), sn);
+            const TypePoolImpl* mst_pool = out_.type_pool.impl();
+            auto sit_ptr = find_struct_template_bare_first(inner.pkg_name(), sn);
             // Per-instance DST: the template is NOT flagged is_dst (its tail is
             // a generic `T`, not a literal `[U]`), but THIS instantiation bound
             // that tail param to an unsized type — `Inner<dyn Tr>` /
@@ -117,15 +118,17 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             // GEP at sema-lower time and reads the fat pointer's data half as
             // the field → garbage. Mirrors sema is_effective_dst at mono time.
             bool inst_dst = false;
-            if (sit_ptr && !sit_ptr->is_dst && !sit_ptr->fields.empty() &&
-                !sit_ptr->type_params.empty()) {
-                TypeRef lastf = sit_ptr->fields.back().type;
+            if (sit_ptr.valid() && !sit_ptr.is_dst() && !sit_ptr.fields().empty() &&
+                !sit_ptr.type_params_empty()) {
+                auto sit_fields = sit_ptr.fields();
+                auto sit_tps = sit_ptr.type_params();
+                TypeRef lastf = sit_fields.back().type(mst_pool);
                 auto args = inner.type_args();
                 if (lastf && lastf.kind() == LogosType::Kind::TypeVar) {
                     std::string tvn(lastf.type_var_name());
-                    for (size_t i = 0; i < sit_ptr->type_params.size() &&
+                    for (size_t i = 0; i < sit_tps.size() &&
                                        i < args.size(); ++i) {
-                        if (sit_ptr->type_params[i].name == tvn) {
+                        if (sit_tps[i].name() == tvn) {
                             auto ak = args[i].kind();
                             // TraitObject = a `dyn Trait` arg canonicalised to
                             // the uniform fat form (the common case for
@@ -154,16 +157,16 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             // consult the all-structs index so a non-generic DST pointee
             // canonicalises to DstRef too (matches sema's PTR_TYPE resolve;
             // prevents the field-repr divergence that left it thin Ptr).
-            auto* any_sit = find_any_struct(inner.pkg_name(), sn);
-            bool tmpl_dst = (sit_ptr && sit_ptr->is_dst) ||
-                            (any_sit && any_sit->is_dst);
+            auto any_sit = find_any_struct(inner.pkg_name(), sn);
+            bool tmpl_dst = (sit_ptr.valid() && sit_ptr.is_dst()) ||
+                            (any_sit.valid() && any_sit.is_dst());
             // Hermes / RefRepr: a `#[self_describing]` DST recovers its tail
             // length from an in-band prefix field, so a RAW `*const/*mut Self`
             // stays THIN (kind=Ptr, 8B) — do NOT canonicalise to fat DstRef.
             // `&Self` / `&mut Self` keep the fat repr (no in-band len contract),
             // so the skip is gated on the pointer being a raw Ptr.
-            bool self_desc = (sit_ptr && sit_ptr->self_describing) ||
-                             (any_sit && any_sit->self_describing);
+            bool self_desc = (sit_ptr.valid() && sit_ptr.self_describing()) ||
+                             (any_sit.valid() && any_sit.self_describing());
             if (self_desc && tv.kind() == LogosType::Kind::Ptr) {
                 if (inner == tv.pointee()) return tv;
                 LogosTypeBuilder nt = tv.to_builder(); nt.pointee = inner;
@@ -510,12 +513,12 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             if (tname == "f64")  return alloc_kind(LogosType::Kind::F64);
             if (tname == "bool") return alloc_kind(LogosType::Kind::Bool);
             for (auto& sd : out_.structs)
-                if (sd.name == tname) {
+                if (sd.name() == tname) {
                     LogosTypeBuilder b;
-                    b.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
+                    b.kind = sd.is_zoned() ? LogosType::Kind::ZonedStruct
                                          : LogosType::Kind::Struct;
                     b.struct_name = tname;
-                    b.pkg_name = sd.pkg;
+                    b.pkg_name = std::string(sd.pkg());
                     return out_.type_pool.alloc(std::move(b));
                 }
             for (auto& ed : out_.enums)

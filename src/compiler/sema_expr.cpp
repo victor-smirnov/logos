@@ -4488,7 +4488,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_generic_of(TinyMapView node) {
     int64_t arity = -1;
     if (cur_prog_) {
         for (auto& sd : cur_prog_->structs)
-            if (sd.name == sname) { arity = (int64_t)sd.type_params.size(); break; }
+            if (sd.name() == sname) { arity = (int64_t)sd.type_param_count(); break; }
         if (arity < 0)
             for (auto& ed : cur_prog_->enums)
                 if (ed.name() == sname) {
@@ -4891,45 +4891,51 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
     // Build Datatype<A> type for the struct literal
     TypeRef a_type = A;  // already a Datatype type
     // Find the annotation instance on T
-    const lir::LAnnotationInstance* found_inst = nullptr;
+    bool found = false;
+    lir_view::AnnotInstanceView found_inst{};
     if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
         for (auto& sd : cur_prog_->structs) {
-            if (sd.name == TypeRef(T).struct_name()) {
-                for (auto& inst : sd.annotations)
-                    if (inst.ann_fqn == a_fqn || inst.ann_name == TypeRef(A).struct_name())
-                        { found_inst = &inst; break; }
+            if (sd.name() == TypeRef(T).struct_name()) {
+                sd.each_annotation([&](lir_view::AnnotInstanceView inst) {
+                    if (!found && (inst.ann_fqn() == a_fqn ||
+                                   inst.ann_name() == TypeRef(A).struct_name()))
+                        { found_inst = inst; found = true; }
+                });
                 break;
             }
         }
     }
-    if (!found_inst) {
+    if (!found) {
         // Return Option::None
         return builder().enum_lit("Option", "None", none_disc, result_type);
     }
     // Materialize the annotation as A{field: value, ...}
-    // Helper: convert LAnnotationValue to LExprPtr
-    std::function<lir::LExprPtr(const lir::LAnnotationValue&, TypeRef)> annot_val_to_expr;
-    annot_val_to_expr = [&](const lir::LAnnotationValue& av, TypeRef expected) -> lir::LExprPtr {
+    // Helper: convert an annotation-value mirror (AnnotValueView) to LExprPtr.
+    std::function<lir::LExprPtr(lir_view::AnnotValueView, TypeRef)> annot_val_to_expr;
+    annot_val_to_expr = [&](lir_view::AnnotValueView av, TypeRef expected) -> lir::LExprPtr {
         using K = lir::LAnnotationValue::Kind;
-        switch (av.kind) {
-        case K::Int:   return builder().lit_int(av.i, expected ? expected : prim(LogosType::Kind::I64));
-        case K::Float: return builder().lit_float(av.f, expected ? expected : prim(LogosType::Kind::F64));
-        case K::Bool:  return builder().lit_int(av.i, prim(LogosType::Kind::Bool));
-        case K::Str:   return builder().lit_str(av.s, make_slice_type(u8_t()));
+        switch (static_cast<K>(av.kind())) {
+        case K::Int:   return builder().lit_int(av.i(), expected ? expected : prim(LogosType::Kind::I64));
+        case K::Float: return builder().lit_float(av.f(), expected ? expected : prim(LogosType::Kind::F64));
+        case K::Bool:  return builder().lit_int(av.i(), prim(LogosType::Kind::Bool));
+        case K::Str:   return builder().lit_str(std::string(av.s()), make_slice_type(u8_t()));
         case K::Enum:  {
             // Emit as enum literal: av.enum_name::av.enum_variant
-            auto [epkg2, esi2] = find_enum_by_name(av.enum_name);
+            std::string en(av.enum_name()), ev(av.enum_variant());
+            auto [epkg2, esi2] = find_enum_by_name(en);
             int64_t disc2 = 0;
             if (esi2) for (auto& v : esi2->variants)
-                if (v.name == av.enum_variant) { disc2 = v.value; break; }
-            auto etype = make_enum_type(av.enum_name, epkg2);
-            return builder().enum_lit(av.enum_name, av.enum_variant, disc2, etype);
+                if (v.name == ev) { disc2 = v.value; break; }
+            auto etype = make_enum_type(en, epkg2);
+            return builder().enum_lit(en, ev, disc2, etype);
         }
         case K::Array: {
             std::vector<lir::LExprPtr> elems;
             TypeRef elem_t = (expected && TypeRef(expected).kind() == LogosType::Kind::Array)
                                       ? TypeRef(expected).elem() : nullptr;
-            for (auto& item : av.arr) elems.push_back(annot_val_to_expr(item, elem_t));
+            av.each_arr([&](lir_view::AnnotValueView item) {
+                elems.push_back(annot_val_to_expr(item, elem_t));
+            });
             LogosTypeBuilder at; at.kind = LogosType::Kind::Array;
             at.elem = elem_t ? elem_t : (elems.empty() ? prim(LogosType::Kind::I64) : expr_type(elems[0]));
             at.arr_size = (int64_t)elems.size();
@@ -4940,13 +4946,14 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
     };
     // Build field list for the struct literal
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
-    for (auto& [fname, fval] : found_inst->kv) {
+    found_inst.each_kv([&](lir_view::AnnotKvView kv) {
+        std::string fname(kv.key_name());
         // Find expected type from annotation type's fields
         TypeRef ftype = nullptr;
         if (a_info) for (auto& f : a_info->fields)
             if (f.name == fname) { ftype = f.type; break; }
-        fields.emplace_back(fname, annot_val_to_expr(fval, ftype));
-    }
+        fields.emplace_back(fname, annot_val_to_expr(kv.value(), ftype));
+    });
     auto struct_expr = builder().struct_lit(std::string(TypeRef(A).struct_name()), std::move(fields), a_type);
     // Wrap in Option<A>::Some(struct_expr)
     std::vector<lir::LExprPtr> payload;
@@ -5755,10 +5762,11 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         bool found = false;
         if (TypeRef(T).kind() == LogosType::Kind::ZonedStruct && cur_prog_) {
             for (auto& sd : cur_prog_->structs) {
-                if (sd.name == TypeRef(T).struct_name() || (!TypeRef(T).pkg_name().empty() && sd.name == TypeRef(T).struct_name())) {
-                    for (auto& inst : sd.annotations)
-                        if (inst.ann_fqn == a_fqn || inst.ann_name == TypeRef(A).struct_name())
-                            { found = true; break; }
+                if (sd.name() == TypeRef(T).struct_name() || (!TypeRef(T).pkg_name().empty() && sd.name() == TypeRef(T).struct_name())) {
+                    sd.each_annotation([&](lir_view::AnnotInstanceView inst) {
+                        if (inst.ann_fqn() == a_fqn || inst.ann_name() == TypeRef(A).struct_name())
+                            found = true;
+                    });
                     break;
                 }
             }

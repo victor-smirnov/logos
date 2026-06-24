@@ -1025,6 +1025,12 @@ struct StructView {
     }
 
     // ── type_params (rich fn variant) ──
+    uint64_t type_param_count() const noexcept {
+        auto av = self.mirror()->get(lir_schema::struct_keys::TYPE_PARAMS.code);
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>()->size();
+    }
+    bool type_params_empty() const noexcept { return type_param_count() == 0; }
     template <class F>
     void each_type_param(F&& fn) const noexcept {
         auto av = self.mirror()->get(lir_schema::struct_keys::TYPE_PARAMS.code);

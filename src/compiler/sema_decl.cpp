@@ -1652,15 +1652,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (td.name != trait_name || td.type_code == 0) continue;
             bool applied = false;
             for (auto& sd : prog.structs) {
-                if (sd.name != target) continue;
+                if (sd.name() != target) continue;
                 // Trait-declared type_code wins over the hash-derived default
                 // auto-assigned at eidos lowering time.  An explicit
                 // `#[type_code]` on the eidos itself would normally also
                 // win, but we don't allow both at the moment.
-                sd.type_code = td.type_code;
-                auto fqn = cur_package_.empty() ? sd.name
-                                                 : cur_package_ + "::" + sd.name;
-                explicit_type_codes_[fqn] = sd.type_code;
+                lir_mirror_struct_set_type_code(prog, sd, td.type_code);
+                auto fqn = cur_package_.empty() ? std::string(sd.name())
+                                                 : cur_package_ + "::" + std::string(sd.name());
+                explicit_type_codes_[fqn] = td.type_code;
                 applied = true;
                 break;
             }
@@ -1772,11 +1772,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         auto eit = explicit_type_codes_.find(canon);
         if (eit != explicit_type_codes_.end()) {
             for (auto& sd : prog.structs) {
-                if (sd.name != target) continue;
-                sd.type_code = eit->second;
-                auto fqn = cur_package_.empty() ? sd.name
-                                                 : cur_package_ + "::" + sd.name;
-                explicit_type_codes_[fqn] = sd.type_code;
+                if (sd.name() != target) continue;
+                lir_mirror_struct_set_type_code(prog, sd, eit->second);
+                auto fqn = cur_package_.empty() ? std::string(sd.name())
+                                                 : cur_package_ + "::" + std::string(sd.name());
+                explicit_type_codes_[fqn] = eit->second;
                 break;
             }
         }
@@ -1786,7 +1786,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // prog.functions so mono's instantiate_one_struct can clone them with T substituted.
     // For `impl<V> PartialSpec<Concrete, V>` attach to the matching partial spec
     // (so mono picks up methods when instantiating the spec, not the base template).
-    lir::LStructDef* target_struct_tmpl = nullptr;
+    lir_view::StructView* target_struct_tmpl = nullptr;
     if (!impl_tps.empty()) {
         // Try matching a partial/full spec first.  The impl's target type,
         // resolved with impl_tps' TypeVars bound, should match a spec's
@@ -1798,13 +1798,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto base_name = std::string(str_of(tnode.get(la::NAME.code)));
                 auto target_type = resolve_type(tnode);
                 if (target_type && !TypeRef(target_type).type_args().empty()) {
+                    const TypePoolImpl* sd_pool = prog.type_pool.impl();
                     for (auto& ss : prog.struct_specializations) {
-                        if (ss.name != base_name) continue;
-                        if (ss.spec_patterns.size() != TypeRef(target_type).type_args().size()) continue;
+                        if (ss.name() != base_name) continue;
+                        auto ss_pats = ss.spec_patterns(sd_pool);
+                        if (ss_pats.size() != TypeRef(target_type).type_args().size()) continue;
                         bool match = true;
-                        for (size_t i = 0; i < ss.spec_patterns.size(); ++i) {
+                        for (size_t i = 0; i < ss_pats.size(); ++i) {
                             auto a = TypeRef(target_type).type_args()[i];
-                            auto p = ss.spec_patterns[i];
+                            auto p = ss_pats[i];
                             if (!a || !p) { match = false; break; }
                             if (TypeRef(a).kind() == LogosType::Kind::TypeVar &&
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) continue;  // both TV, OK
@@ -1821,12 +1823,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             // Prefer struct in the impl's pkg (cur_package_) over a same-named
             // struct from another pkg (e.g. stdlib's Box vs user's Box).
             for (auto& sd : prog.structs)
-                if (sd.name == target && sd.pkg == cur_package_) {
+                if (sd.name() == target && sd.pkg() == cur_package_) {
                     target_struct_tmpl = &sd; break;
                 }
             if (!target_struct_tmpl) {
                 for (auto& sd : prog.structs)
-                    if (sd.name == target) { target_struct_tmpl = &sd; break; }
+                    if (sd.name() == target) { target_struct_tmpl = &sd; break; }
             }
         }
     }
@@ -1942,7 +1944,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // the pattern to map impl-level args ([T]) to the struct's
                     // concrete args ([&T]) — positional copy mis-names specs.
                     fn.impl_target_pattern = ib.target_typeref;
-                    target_struct_tmpl->methods.push_back(lir_mirror_emit_fn_view(prog, fn));
+                    lir_mirror_struct_append_method(prog, *target_struct_tmpl, lir_mirror_emit_fn_view(prog, fn));
                 } else {
                     // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
                     // Result<Vec<T>, E>). Methods go to prog.functions with
@@ -2209,7 +2211,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             }
                         }
                         fn.impl_target_pattern = ib.target_typeref;
-                        target_struct_tmpl->methods.push_back(lir_mirror_emit_fn_view(prog, fn));
+                        lir_mirror_struct_append_method(prog, *target_struct_tmpl, lir_mirror_emit_fn_view(prog, fn));
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for
                         // trait-default methods on enum-impl path.
@@ -2276,8 +2278,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // annotation hasn't been applied yet (or it's an unannotated
                 // type), so breaking early would prevent finding a later entry
                 // with the correct code (e.g. from a different imported file).
-                if (sd.is_zoned && sd.name == target && sd.type_code != 0) {
-                    tcode = sd.type_code; break;
+                if (sd.is_zoned() && sd.name() == target && sd.type_code() != 0) {
+                    tcode = sd.type_code(); break;
                 }
             }
             if (tcode == 0) {

@@ -63,8 +63,8 @@ struct TypeSets {
     // needs_drop / struct_is_dropck_relevant / enum_is_move O(structs) each —
     // and, called per variable across every function, the whole borrow pass
     // O(n²) in program size. First-def-wins, matching the scans' short-circuit.
-    std::unordered_map<std::string, const lir::LStructDef*> struct_by_name;
-    std::unordered_map<std::string, const lir::LStructDef*> spec_by_name;
+    std::unordered_map<std::string, lir_view::StructView>  struct_by_name;
+    std::unordered_map<std::string, lir_view::StructView>  spec_by_name;
     std::unordered_map<std::string, lir_view::EnumView>     enum_by_name;
 };
 
@@ -96,8 +96,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     scan_fns(prog.functions);
     scan_fns(prog.specializations);
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)
+        sd.each_method([&](lir_view::FunctionView m) {
             register_drop_symbol(m.name());
+        });
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
@@ -125,8 +126,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                 ts.borrow_carrying.insert(std::string(base.substr(d2 + 1)));
         }
     };
-    auto reg_bc = [&](const lir::LStructDef& sd) {
-        if (sd.borrow_carrying) reg_bc_name(sd.name, /*strip_generic=*/true);
+    auto reg_bc = [&](lir_view::StructView sd) {
+        if (sd.borrow_carrying()) reg_bc_name(std::string(sd.name()), /*strip_generic=*/true);
     };
     for (auto& sd : prog.structs) reg_bc(sd);
     for (auto& sd : prog.struct_specializations) reg_bc(sd);
@@ -166,12 +167,13 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // arena alive independent of any local, so the contained borrow is SAFE to
     // escape. Such a type must NOT be transitively borrow-carrying (else returning
     // the escape hatch — its whole purpose — would be wrongly rejected).
-    auto holds_residency_holder = [&](const lir::LStructDef& sd) -> bool {
-        for (auto& f : sd.fields) {
-            if (!f.type) continue;
-            auto k = f.type.kind();
+    auto holds_residency_holder = [&](lir_view::StructView sd) -> bool {
+        for (auto& f : sd.fields()) {
+            auto ft = f.type(prog.type_pool.impl());
+            if (!ft) continue;
+            auto k = ft.kind();
             if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) continue;
-            std::string n(f.type.struct_name());
+            std::string n(ft.struct_name());
             if (auto d = n.rfind('.'); d != std::string::npos) n = n.substr(d + 1);
             if (n == "Rc" || n == "Arc") return true;
         }
@@ -196,17 +198,17 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // handle happens to be ref-counted. No laundered-escape type is also
     // explicitly borrow-carrying — they are opposites.)
     for (auto& sd : prog.structs)
-        if (!sd.borrow_carrying && holds_residency_holder(sd)) reg_exempt_name(sd.name);
+        if (!sd.borrow_carrying() && holds_residency_holder(sd)) reg_exempt_name(std::string(sd.name()));
     for (auto& sd : prog.struct_specializations)
-        if (!sd.borrow_carrying && holds_residency_holder(sd)) reg_exempt_name(sd.name);
+        if (!sd.borrow_carrying() && holds_residency_holder(sd)) reg_exempt_name(std::string(sd.name()));
     bool bc_changed = true;
     while (bc_changed) {
         bc_changed = false;
-        auto consider_struct = [&](const lir::LStructDef& sd) {
-            if (ts.borrow_carrying.count(sd.name)) return;
+        auto consider_struct = [&](lir_view::StructView sd) {
+            if (ts.borrow_carrying.count(std::string(sd.name()))) return;
             if (holds_residency_holder(sd)) return;   // laundered escape package — exempt
-            for (auto& f : sd.fields)
-                if (type_is_bc(f.type)) { reg_bc_name(sd.name, /*strip_generic=*/false); bc_changed = true; return; }
+            for (auto& f : sd.fields())
+                if (type_is_bc(f.type(prog.type_pool.impl()))) { reg_bc_name(std::string(sd.name()), /*strip_generic=*/false); bc_changed = true; return; }
         };
         for (auto& sd : prog.structs)                consider_struct(sd);
         for (auto& sd : prog.struct_specializations) consider_struct(sd);
@@ -224,8 +226,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         }
     }
     // Name → def indices for O(1) by-name lookup (first-def-wins).
-    for (auto& sd : prog.structs)               ts.struct_by_name.emplace(sd.name, &sd);
-    for (auto& sd : prog.struct_specializations) ts.spec_by_name.emplace(sd.name, &sd);
+    for (auto& sd : prog.structs)               ts.struct_by_name.emplace(std::string(sd.name()), sd);
+    for (auto& sd : prog.struct_specializations) ts.spec_by_name.emplace(std::string(sd.name()), sd);
     for (auto& ed : prog.enums)                 ts.enum_by_name.emplace(std::string(ed.name()), ed);
     return ts;
 }
@@ -248,10 +250,10 @@ static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
     // slipped through for generic containers). concrete_struct_name == base for
     // non-generic structs, so this also covers the plain case.
     std::string want = concrete_struct_name(t);
-    auto def_has_drop = [&](const lir::LStructDef* sd) -> bool {
+    auto def_has_drop = [&](lir_view::StructView sd) -> bool {
         if (!sd) return false;
-        for (auto& f : sd->fields)
-            if (needs_drop(f.type, prog, ts)) return true;
+        for (auto& f : sd.fields())
+            if (needs_drop(f.type(prog.type_pool.impl()), prog, ts)) return true;
         return false;
     };
     auto sit = ts.struct_by_name.find(want);
@@ -665,7 +667,7 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     FnIndex idx;
     {   // post-mono this indexes thousands of fns; reserve to skip the rehashes.
         size_t cnt = prog.functions.size() + prog.specializations.size();
-        for (auto& sd : prog.structs) cnt += sd.methods.size();
+        for (auto& sd : prog.structs) cnt += sd.methods().size();
         for (auto& im : prog.impls)   cnt += im.methods.size();
         idx.by_name.reserve(cnt);
     }
@@ -676,7 +678,7 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     };
     for (auto& f  : prog.functions)       add(f);
     for (auto& f  : prog.specializations) add(f);
-    for (auto& sd : prog.structs) for (auto& m : sd.methods) add(m);
+    for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { add(m); });
     for (auto& im : prog.impls)   for (auto& m : im.methods) add(m);  // trait-impl methods (Index, Deref, …)
     return idx;
 }
@@ -918,8 +920,8 @@ class BorrowChecker {
         std::string sname(t.struct_name());
         // Check the post-mono struct (preserves lifetime_params via the
         // B87 clone_struct_def change). O(1) via ts_'s name→def index.
-        auto has_lt = [](const lir::LStructDef* sd) {
-            return sd && !sd->lifetime_params.empty();
+        auto has_lt = [](lir_view::StructView sd) {
+            return sd && !sd.lifetime_params().empty();
         };
         auto sit = ts_.struct_by_name.find(sname);
         if (sit != ts_.struct_by_name.end() && has_lt(sit->second)) return true;
@@ -937,9 +939,9 @@ class BorrowChecker {
     bool is_union_root(TypeRef t) const {
         if (!t || t.kind() != LogosType::Kind::Struct) return false;
         std::string sname(t.struct_name());
-        auto check = [&](const std::vector<lir::LStructDef>& defs) {
+        auto check = [&](const std::vector<lir_view::StructView>& defs) {
             for (auto& sd : defs)
-                if (sd.name == sname && sd.is_union) return true;
+                if (sd.name() == sname && sd.is_union()) return true;
             return false;
         };
         return check(prog_.structs) || check(prog_.struct_specializations);
@@ -3846,7 +3848,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     for (auto& fn : prog.functions)       check(fn);
     for (auto& fn : prog.specializations) check(fn);
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)        check(m);
+        sd.each_method([&](lir_view::FunctionView m) { check(m); });
 
     // P2-10: a generic template and each of its monomorphizations are checked
     // separately and report the SAME borrow error (same context/line/message —

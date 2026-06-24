@@ -2532,12 +2532,12 @@ int run_metaprog_dispatch(
                 m6_prev_emitted_fns.insert(std::move(ln));
         }
         for (auto& sd : meta_prog.structs) {
-            for (auto& m : sd.methods) {
-                if (!m) continue;
+            sd.each_method([&](lir_view::FunctionView m) {
+                if (!m) return;
                 auto ln = sym::link_name(m, meta_prog.pkg_module_ids);
                 if (!meta_prog.binary_symbols.count(ln))
                     m6_prev_emitted_fns.insert(std::move(ln));
-            }
+            });
         }
         mlir::PassManager meta_pm(&meta_mlir_ctx);
         meta_pm.addPass(logos::compat::create_scf_to_cf_pass());

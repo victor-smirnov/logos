@@ -508,6 +508,15 @@ public:
         for (auto av : elems) array_push(arr_off, av);
         put(sv.self.addr(), lir_schema::struct_keys::METHODS, mref_addr(arr_off));
     }
+    // Set/overwrite a stored struct's TYPE_CODE scalar in place (sema applies a
+    // trait-declared / explicit type_code AFTER the struct is stored). The
+    // struct mirror's map has cap=40 with room for the key even when it was
+    // absent at emit time (emit_struct_def_direct only writes TYPE_CODE when
+    // non-zero).
+    void struct_set_type_code_direct(lir_view::StructView sv, uint64_t code) {
+        put(sv.self.addr(), lir_schema::struct_keys::TYPE_CODE,
+            put_i64((int64_t)code));
+    }
     const uint8_t* emit_enum_def_direct(const lir::EnumDraft& ed) {
         auto map_off = make_map(hermes::schema::lir_stmt(
             int32_t(lir_schema::decl::Code::Enum)));
@@ -2061,6 +2070,14 @@ void lir_mirror_struct_set_methods(lir::LProgram& prog,
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     em.struct_set_methods_direct(sv, ms);
+}
+
+void lir_mirror_struct_set_type_code(lir::LProgram& prog,
+                                     lir_view::StructView sv,
+                                     uint64_t code) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    em.struct_set_type_code_direct(sv, code);
 }
 
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {

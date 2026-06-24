@@ -148,15 +148,15 @@ private:
 
     StrMap<lir_view::FunctionView>  templates_;
     StrMap<std::vector<lir_view::FunctionView>> specs_;
-    StrMap<const lir::LStructDef*> struct_templates_;
+    StrMap<lir_view::StructView> struct_templates_;
     // ALL structs (generic templates AND non-generic), by bare + pkg-qualified
     // name. struct_templates_ holds GENERICS ONLY, so the `*mut DstStruct`→DstRef
     // canonicalisation in subst_type missed non-generic custom-DSTs (`*mut Foo`
     // where Foo has a `[u8]` tail), leaving them thin Ptr while sema resolved
     // them to DstRef — a representation divergence. This map closes it.
-    StrMap<const lir::LStructDef*> all_structs_;
-    const lir::LStructDef* find_any_struct(std::string_view pkg,
-                                           std::string_view base) const noexcept {
+    StrMap<lir_view::StructView> all_structs_;
+    lir_view::StructView find_any_struct(std::string_view pkg,
+                                         std::string_view base) const noexcept {
         if (auto it = all_structs_.find(std::string(base)); it != all_structs_.end())
             return it->second;
         if (!pkg.empty()) {
@@ -164,7 +164,7 @@ private:
             q.append(pkg).append(".").append(base);
             if (auto it = all_structs_.find(q); it != all_structs_.end()) return it->second;
         }
-        return nullptr;
+        return {};
     }
     // ── M2: centralized struct_templates_ lookup helpers ─────────────
     //
@@ -182,7 +182,7 @@ private:
     // every lookup. Composite-key sites (mono_scan.cpp:487, mono_clone.cpp
     // :2454) take a single string and split internally — they stay on
     // direct .find for now.
-    const lir::LStructDef*
+    lir_view::StructView
     find_struct_template_pkg_first(std::string_view pkg, std::string_view base) const noexcept {
         if (!pkg.empty()) {
             std::string qkey;
@@ -194,7 +194,7 @@ private:
         if (auto it = struct_templates_.find(std::string(base));
             it != struct_templates_.end())
             return it->second;
-        return nullptr;
+        return {};
     }
     // Stage 2 (B): ABI size of a (substituted) type and the byte offset of a
     // PREFIX field inside a custom-DST struct instance. Used to RE-LOWER a
@@ -218,9 +218,9 @@ private:
     // selection instantiate_struct_templates uses — so layout/size computed here
     // matches the struct that is actually emitted. Falls back to the base template
     // (positional binding) when no spec matches. Returns nullptr if no def is found.
-    const lir::LStructDef* resolve_struct_layout(TypeRef t, SubstMap& m_out);
+    lir_view::StructView resolve_struct_layout(TypeRef t, SubstMap& m_out);
 
-    const lir::LStructDef*
+    lir_view::StructView
     find_struct_template_bare_first(std::string_view pkg, std::string_view base) const noexcept {
         if (auto it = struct_templates_.find(std::string(base));
             it != struct_templates_.end())
@@ -232,14 +232,14 @@ private:
             if (auto it = struct_templates_.find(qkey); it != struct_templates_.end())
                 return it->second;
         }
-        return nullptr;
+        return {};
     }
     // M2: composite-key variant. Caller passes a possibly-pkg-qualified
     // string in one argument (e.g. mono_scan's `struct_part`). Tries the
     // full string first; on miss with a dot present, retries with the
     // tail after the last dot. Mirrors find_struct_method_templates_
     // unguarded's semantics for the per-struct map.
-    const lir::LStructDef*
+    lir_view::StructView
     find_struct_template_unguarded(std::string_view qkey) const noexcept {
         if (auto it = struct_templates_.find(std::string(qkey));
             it != struct_templates_.end())
@@ -260,11 +260,11 @@ private:
             auto pkg  = qkey.substr(0, dot);
             if (auto it = struct_templates_.find(std::string(bare));
                 it != struct_templates_.end() &&
-                it->second && it->second->pkg == pkg)
+                it->second.valid() && it->second.pkg() == pkg)
                 return it->second;
-            return nullptr;
+            return {};
         }
-        return nullptr;
+        return {};
     }
     bool has_struct_template_pkg(std::string_view pkg, std::string_view base) const noexcept {
         if (pkg.empty()) return false;
@@ -273,7 +273,7 @@ private:
         qkey.append(pkg).append(".").append(base);
         return struct_templates_.find(qkey) != struct_templates_.end();
     }
-    StrMap<std::vector<const lir::LStructDef*>> struct_specs_;
+    StrMap<std::vector<lir_view::StructView>> struct_specs_;
     StrMap<std::pair<TypeRef, int>> needed_struct_insts_;
     StrSet struct_done_;
     StrMap<lir_view::EnumView>     enum_templates_;   // Stage E: decl mirrors
@@ -522,12 +522,12 @@ private:
     TypeRef build_concrete_typeref(const std::string& name) {
         // Struct (incl. ZonedStruct).
         for (auto& sd : out_.structs)
-            if (sd.name == name) {
+            if (sd.name() == name) {
                 LogosTypeBuilder st;
-                st.kind = sd.is_zoned ? LogosType::Kind::ZonedStruct
+                st.kind = sd.is_zoned() ? LogosType::Kind::ZonedStruct
                                       : LogosType::Kind::Struct;
                 st.struct_name = name;
-                st.pkg_name    = sd.pkg;
+                st.pkg_name    = std::string(sd.pkg());
                 return out_.type_pool.alloc(std::move(st));
             }
         // Enum.
@@ -873,7 +873,7 @@ private:
                                        StrSet& seen);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
-    lir::LStructDef clone_struct_def(const lir::LStructDef& tmpl,
+    lir::LStructDef clone_struct_def(lir_view::StructView tmpl,
                                       const SubstMap& s,
                                       const PackMap& packs,
                                       const std::string& new_name);
@@ -1042,7 +1042,7 @@ private:
     // ── Spec selection (defined in mono_scan.cpp) ─────────────────────────
     lir_view::FunctionView find_best_spec(const std::string& base_name,
                                           const std::vector<TypeRef>& type_args);
-    const lir::LStructDef* find_best_struct_spec(const std::string& base_name,
+    lir_view::StructView find_best_struct_spec(const std::string& base_name,
                                                   const std::vector<TypeRef>& type_args);
 
     // ── Enqueue / instantiate (defined in mono_scan.cpp) ─────────────────

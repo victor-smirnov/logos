@@ -81,7 +81,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
             if (sit == struct_types_.end()) {
                 auto def_it = all_struct_defs_.find(cname);
                 if (def_it != all_struct_defs_.end()) {
-                    register_struct(*def_it->second);
+                    register_struct(def_it->second);
                     sit = struct_types_.find(cname);
                 }
             }
@@ -174,8 +174,10 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
 // Struct registration (Pass 0)
 // ---------------------------------------------------------------------------
 
-bool MLIRGenImpl::register_struct(const LStructDef& sd) {
-    std::string key = qualify_pkg(sd.pkg, sd.name);
+bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
+    const TypePoolImpl* rs_pool = pool_impl();
+    std::string sd_name(sd.name()), sd_pkg(sd.pkg());
+    std::string key = qualify_pkg(sd_pkg, sd_name);
     if (struct_types_.count(key)) return true;
     auto struct_type = mlir::LLVM::LLVMStructType::getIdentified(
         builder_.getContext(), key);
@@ -184,7 +186,8 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
     info.llvm_type = struct_type;
 
     std::vector<mlir::Type> field_types;
-    for (auto& f : sd.fields) {
+    for (auto fld : sd.fields()) {
+        struct { std::string name; TypeRef type; } f{ std::string(fld.name()), fld.type(rs_pool) };
         mlir::Type ft;
         std::string fsname;
         // Datatype fields are embedded by value (not by pointer).
@@ -212,7 +215,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                 if (def_it == all_struct_defs_.end())
                     def_it = all_struct_defs_.find(concrete_struct_name(f.type));
                 if (def_it != all_struct_defs_.end())
-                    register_struct(*def_it->second);
+                    register_struct(def_it->second);
                 sit = struct_types_.find(cname);
             }
             if (sit != struct_types_.end()) {
@@ -335,7 +338,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         } else {
             ft = logos_to_mlir(f.type);
             if (!ft) {
-                std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n", sd.name.c_str());
+                std::fprintf(stderr, "mlir_gen: unknown field type in '%s'\n", sd_name.c_str());
                 return false;
             }
         }
@@ -349,14 +352,15 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
     // fields share GEP index 0 (they overlap at offset 0).
     // Mismatching field types at access time bitcast via the load's
     // declared type.
-    if (sd.is_union && !field_types.empty()) {
+    if (sd.is_union() && !field_types.empty()) {
+        auto sd_fields = sd.fields();
         size_t max_al_idx = 0;
         uint64_t max_sz = 0, max_al = 1;
-        std::vector<uint64_t> sizes(sd.fields.size(), 0);
-        std::vector<uint64_t> aligns(sd.fields.size(), 1);
-        for (size_t i = 0; i < sd.fields.size(); ++i) {
+        std::vector<uint64_t> sizes(sd_fields.size(), 0);
+        std::vector<uint64_t> aligns(sd_fields.size(), 1);
+        for (size_t i = 0; i < sd_fields.size(); ++i) {
             std::unordered_set<std::string> seen;
-            auto fl = layout_of(sd.fields[i].type, seen);
+            auto fl = layout_of(sd_fields[i].type(rs_pool), seen);
             sizes[i] = fl.size; aligns[i] = fl.align;
             if (fl.size > max_sz) max_sz = fl.size;
             if (fl.align > max_al) { max_al = fl.align; max_al_idx = i; }
@@ -380,16 +384,16 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
     struct_types_[key] = info;
     // Back-compat alias under the bare name for paths that look up via
     // concrete_struct_name (which doesn't carry pkg). First-registered wins.
-    if (!sd.pkg.empty() && !struct_types_.count(sd.name))
-        struct_types_[sd.name] = info;
+    if (!sd_pkg.empty() && !struct_types_.count(sd_name))
+        struct_types_[sd_name] = info;
     // Coexistence: mlir_struct_key = qualify_pkg(pkg, concrete_struct_name),
     // and concrete_struct_name now carries "$M<module_id>" for non-stdlib module
     // types. Register matching aliases — both the pkg-qualified form (the actual
     // lookup key) and the bare suffixed form (concrete_struct_name-only paths).
-    std::string msuffix = type_module_suffix(sd.pkg);
+    std::string msuffix = type_module_suffix(sd_pkg);
     if (!msuffix.empty()) {
-        std::string qbare = sd.name + msuffix;
-        std::string qkey  = qualify_pkg(sd.pkg, qbare);
+        std::string qbare = sd_name + msuffix;
+        std::string qkey  = qualify_pkg(sd_pkg, qbare);
         if (!struct_types_.count(qkey))  struct_types_[qkey]  = info;
         if (!struct_types_.count(qbare)) struct_types_[qbare] = info;
     }
@@ -475,28 +479,31 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         if (!seen.insert(cname).second) return {8, 8};  // cycle guard
         Layout r{8, 8};
         if (auto it = all_struct_defs_.find(cname); it != all_struct_defs_.end()) {
+            const TypePoolImpl* lo_pool = pool_impl();
+            auto sv = it->second;
+            auto sv_fields = sv.fields();
             // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper
             // inherits its field's layout exactly (no aggregate padding).
             // `NonZeroI64`-style wrappers at FFI boundaries depend on this.
             // The single-field invariant is enforced by sema_collect at
             // collect time (errors on multi-field `#[repr(transparent)]`),
             // so we can trust fields.size() == 1 here.
-            if (it->second->repr_transparent && it->second->fields.size() == 1) {
-                r = aggregate_member_layout(it->second->fields[0].type, seen);
-            } else if (it->second->is_union) {
+            if (sv.repr_transparent() && sv_fields.size() == 1) {
+                r = aggregate_member_layout(sv_fields[0].type(lo_pool), seen);
+            } else if (sv.is_union()) {
                 // §6.1: union layout per Rust spec
                 // `items.union.common-storage` — size = max(field
                 // sizes), align = max(field aligns), rounded up.
                 uint64_t max_sz = 0, max_al = 1;
-                for (auto& f : it->second->fields) {
-                    auto fl = aggregate_member_layout(f.type, seen);
+                for (auto f : sv_fields) {
+                    auto fl = aggregate_member_layout(f.type(lo_pool), seen);
                     if (fl.size > max_sz) max_sz = fl.size;
                     if (fl.align > max_al) max_al = fl.align;
                 }
                 r = { (max_sz + max_al - 1) & ~(max_al - 1), max_al };
             } else {
                 LayoutAgg agg;
-                for (auto& f : it->second->fields) agg.push(aggregate_member_layout(f.type, seen));
+                for (auto f : sv_fields) agg.push(aggregate_member_layout(f.type(lo_pool), seen));
                 r = agg.finish();
             }
         }
@@ -548,7 +555,7 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
                 auto it = all_struct_defs_.find(concrete_struct_name(p));
                 if (it == all_struct_defs_.end())
                     it = all_struct_defs_.find(std::string(p.struct_name()));
-                if (it != all_struct_defs_.end() && it->second && it->second->zone_mut)
+                if (it != all_struct_defs_.end() && it->second.valid() && it->second.zone_mut())
                     return RefReprKind::FatZoneMut;
             }
             return RefReprKind::ThinPtr;
@@ -571,7 +578,7 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
             auto it = all_struct_defs_.find(concrete_struct_name(t));
             if (it == all_struct_defs_.end())
                 it = all_struct_defs_.find(std::string(TypeRef(t).struct_name()));
-            if (it != all_struct_defs_.end() && it->second && it->second->rel_ptr)
+            if (it != all_struct_defs_.end() && it->second.valid() && it->second.rel_ptr())
                 return RefReprKind::RelOffset;
             return RefReprKind::NotARef;
         }
@@ -586,7 +593,7 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::field_repr(const std::string& owner_key, T
     // A thin pointer field of a #[zoned2] struct is stored self-relative.
     if (r == RefReprKind::ThinPtr) {
         auto it = all_struct_defs_.find(owner_key);
-        if (it != all_struct_defs_.end() && it->second && it->second->zoned2)
+        if (it != all_struct_defs_.end() && it->second.valid() && it->second.zoned2())
             return RefReprKind::RelOffset;
     }
     return r;
@@ -771,7 +778,7 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
                 auto it = all_struct_defs_.find(concrete_struct_name(pt));
                 if (it == all_struct_defs_.end())
                     it = all_struct_defs_.find(std::string(TypeRef(pt).struct_name()));
-                if (it != all_struct_defs_.end() && it->second && it->second->non_null) {
+                if (it != all_struct_defs_.end() && it->second.valid() && it->second.non_null()) {
                     std::unordered_set<std::string> seen;
                     if (logos_abi_byte_size(pt, seen) == 8) eligible = true;
                 }

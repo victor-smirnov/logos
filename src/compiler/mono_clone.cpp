@@ -148,26 +148,29 @@ uint64_t Mono::compute_type_hash(TypeRef t, StrSet& seen) noexcept {
             h = th_mix_u64(h, TH_TAG_STRUCT);
             std::string base{t.struct_name()};
             std::string tpkg{t.pkg_name()};
-            const lir::LStructDef* tmpl = nullptr;
+            const TypePoolImpl* cth_pool = out_.type_pool.impl();
+            lir_view::StructView tmpl;
             for (auto& sd : in_.structs)
-                if (sd.name == base && (tpkg.empty() || sd.pkg == tpkg)) {
-                    tmpl = &sd; break;
+                if (sd.name() == base && (tpkg.empty() || sd.pkg() == tpkg)) {
+                    tmpl = sd; break;
                 }
-            if (!tmpl)
+            if (!tmpl.valid())
                 for (auto& sd : in_.structs)
-                    if (sd.name == base) { tmpl = &sd; break; }
-            if (!tmpl) {
+                    if (sd.name() == base) { tmpl = sd; break; }
+            if (!tmpl.valid()) {
                 seen.erase(sk);
                 return th_mix_u64(h, 0);
             }
             SubstMap fsubst;
-            for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
+            auto tmpl_tps = tmpl.type_params();
+            for (size_t i = 0, j = 0; i < tmpl_tps.size(); ++i) {
                 if (j < t.type_args().size())
-                    fsubst[tmpl->type_params[i].name] = t.type_args()[j++];
+                    fsubst[std::string(tmpl_tps[i].name())] = t.type_args()[j++];
             }
-            h = th_mix_u64(h, static_cast<uint64_t>(tmpl->fields.size()));
-            for (auto& f : tmpl->fields) {
-                TypeRef ft = subst_type(f.type, fsubst);
+            auto tmpl_fields = tmpl.fields();
+            h = th_mix_u64(h, static_cast<uint64_t>(tmpl_fields.size()));
+            for (auto f : tmpl_fields) {
+                TypeRef ft = subst_type(f.type(cth_pool), fsubst);
                 h = th_mix_u64(h, compute_type_hash(ft, seen));
             }
             seen.erase(sk);
@@ -245,19 +248,21 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
             return true;
         // Locate the struct definition. Look in out_ first (post-mono shape),
         // then in_ (pre-mono templates).
-        const lir::LStructDef* sd = nullptr;
-        for (auto& s : out_.structs) if (s.name == cn) { sd = &s; break; }
-        if (!sd) for (auto& s : in_.structs) if (s.name == base) { sd = &s; break; }
-        if (!sd) return true;  // unknown — be lenient (matches sema)
+        const TypePoolImpl* ias_pool = out_.type_pool.impl();
+        lir_view::StructView sd;
+        for (auto& s : out_.structs) if (s.name() == cn) { sd = s; break; }
+        if (!sd.valid()) for (auto& s : in_.structs) if (s.name() == base) { sd = s; break; }
+        if (!sd.valid()) return true;  // unknown — be lenient (matches sema)
         // Build subst from struct's type-params to the concrete tv's type-args.
         SubstMap subst;
-        if (!tv.type_args().empty() && !sd->type_params.empty()) {
-            size_t n = std::min(tv.type_args().size(), sd->type_params.size());
+        auto sd_tps = sd.type_params();
+        if (!tv.type_args().empty() && !sd_tps.empty()) {
+            size_t n = std::min(tv.type_args().size(), sd_tps.size());
             for (size_t j = 0; j < n; ++j)
-                subst[sd->type_params[j].name] = tv.type_args()[j];
+                subst[std::string(sd_tps[j].name())] = tv.type_args()[j];
         }
-        for (auto& f : sd->fields) {
-            TypeRef ft = f.type;
+        for (auto f : sd.fields()) {
+            TypeRef ft = f.type(ias_pool);
             if (ft && ft.kind() == Kind::TypeVar && !subst.empty()) {
                 auto it = subst.find(std::string(ft.type_var_name()));
                 if (it != subst.end()) ft = it->second;
@@ -319,21 +324,24 @@ lir::Pattern Mono::subst_pattern(lir_view::PatRef pref, const SubstMap& s) {
     return w.walk(pref);
 }
 
-const lir::LStructDef* Mono::resolve_struct_layout(TypeRef t, SubstMap& m_out) {
+lir_view::StructView Mono::resolve_struct_layout(TypeRef t, SubstMap& m_out) {
+    const TypePoolImpl* rsl_pool = out_.type_pool.impl();
     auto args = t.type_args();
     std::string base{t.struct_name()};
     // Prefer the best-matching partial specialisation (e.g. HMap<HString,V> over the
     // empty base HMap<K,V>); bind its pattern type-vars via match_type, exactly as
     // instantiate_struct_templates does — otherwise layout reads the wrong fields.
-    if (auto* spec = find_best_struct_spec(base, args)) {
-        for (size_t i = 0; i < spec->spec_patterns.size() && i < args.size(); ++i)
-            match_type(args[i], spec->spec_patterns[i], m_out);
+    if (auto spec = find_best_struct_spec(base, args); spec.valid()) {
+        auto pats = spec.spec_patterns(rsl_pool);
+        for (size_t i = 0; i < pats.size() && i < args.size(); ++i)
+            match_type(args[i], pats[i], m_out);
         return spec;
     }
-    auto* sit = find_any_struct(t.pkg_name(), t.struct_name());
-    if (!sit) return nullptr;
-    for (size_t i = 0; i < sit->type_params.size() && i < args.size(); ++i)
-        m_out[sit->type_params[i].name] = args[i];
+    auto sit = find_any_struct(t.pkg_name(), t.struct_name());
+    if (!sit.valid()) return {};
+    auto sit_tps = sit.type_params();
+    for (size_t i = 0; i < sit_tps.size() && i < args.size(); ++i)
+        m_out[std::string(sit_tps[i].name())] = args[i];
     return sit;
 }
 
@@ -366,11 +374,13 @@ uint64_t Mono::mono_abi_size(TypeRef t) {
     }
     case K::Struct: case K::ZonedStruct: {
         SubstMap m;
-        auto* sit = resolve_struct_layout(t, m);
-        if (!sit) return 8;
+        auto sit = resolve_struct_layout(t, m);
+        if (!sit.valid()) return 8;
+        const TypePoolImpl* mas_pool = out_.type_pool.impl();
         uint64_t off = 0, maxa = 1;
-        for (auto& f : sit->fields) {
-            TypeRef ft = m.empty() ? TypeRef(f.type) : subst_type(f.type, m);
+        for (auto f : sit.fields()) {
+            TypeRef fty = f.type(mas_pool);
+            TypeRef ft = m.empty() ? fty : subst_type(fty, m);
             uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
             if (a > 1) off = (off + a - 1) & ~(a - 1);
             off += sz; if (a > maxa) maxa = a;
@@ -407,14 +417,16 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                  uint64_t& off_out, TypeRef& ftype_out) {
     using K = LogosType::Kind;
     SubstMap m;
-    auto* sit = resolve_struct_layout(dstref, m);
-    if (!sit || sit->fields.empty()) return false;
+    auto sit = resolve_struct_layout(dstref, m);
+    if (!sit.valid() || sit.fields().empty()) return false;
+    const TypePoolImpl* mdpf_pool = out_.type_pool.impl();
     uint64_t off = 0;
-    for (auto& f : sit->fields) {
-        TypeRef ft = m.empty() ? TypeRef(f.type) : subst_type(f.type, m);
+    for (auto f : sit.fields()) {
+        TypeRef fty = f.type(mdpf_pool);
+        TypeRef ft = m.empty() ? fty : subst_type(fty, m);
         uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
         if (a > 1) off = (off + a - 1) & ~(a - 1);
-        if (f.name == field) {
+        if (f.name() == field) {
             // Returns the field's byte offset + (substituted) type. The caller
             // branches on the kind: a sized PREFIX field → offset deref; the
             // unsized TAIL (UnsizedDyn/UnsizedSlice) → fat-pair projection that
@@ -1154,8 +1166,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         ? std::string(TypeRef(resolved).struct_name())
                         : concrete_struct_name(resolved);
                     for (auto& sd : out_.structs)
-                        if (sd.name == mangled && sd.type_code != 0)
-                            { code = sd.type_code; break; }
+                        if (sd.name() == mangled && sd.type_code() != 0)
+                            { code = sd.type_code(); break; }
                     if (code == 0)
                         for (auto& ia : out_.inst_annotations)
                             if (ia.mangled_name == mangled && ia.type_code != 0)
@@ -1343,22 +1355,24 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                               T.kind() == LogosType::Kind::ZonedStruct)) {
                                         std::string base{T.struct_name()};
                                         std::string tpkg{T.pkg_name()};
-                                        const lir::LStructDef* tmpl = nullptr;
+                                        const TypePoolImpl* sp_pool = out_.type_pool.impl();
+                                        lir_view::StructView tmpl;
                                         for (auto& sd : in_.structs)
-                                            if (sd.name == base &&
-                                                (tpkg.empty() || sd.pkg == tpkg)) { tmpl = &sd; break; }
-                                        if (!tmpl)
+                                            if (sd.name() == base &&
+                                                (tpkg.empty() || sd.pkg() == tpkg)) { tmpl = sd; break; }
+                                        if (!tmpl.valid())
                                             for (auto& sd : in_.structs)
-                                                if (sd.name == base) { tmpl = &sd; break; }
-                                        if (tmpl) {
+                                                if (sd.name() == base) { tmpl = sd; break; }
+                                        if (tmpl.valid()) {
                                             SubstMap fsubst;
+                                            auto tmpl_tps = tmpl.type_params();
                                             for (size_t i = 0, j = 0;
-                                                 i < tmpl->type_params.size(); ++i)
+                                                 i < tmpl_tps.size(); ++i)
                                                 if (j < T.type_args().size())
-                                                    fsubst[tmpl->type_params[i].name] =
+                                                    fsubst[std::string(tmpl_tps[i].name())] =
                                                         T.type_args()[j++];
-                                            for (auto& f : tmpl->fields)
-                                                elems.push_back(subst_type(f.type, fsubst));
+                                            for (auto f : tmpl.fields())
+                                                elems.push_back(subst_type(f.type(sp_pool), fsubst));
                                             ok = true;
                                         }
                                     }
@@ -1907,7 +1921,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         sb.kind = LogosType::Kind::Struct;
                         sb.struct_name = tmpl_name;
                         for (auto& s : out_.structs)
-                            if (s.name == tmpl_name) { sb.pkg_name = s.pkg; break; }
+                            if (s.name() == tmpl_name) { sb.pkg_name = std::string(s.pkg()); break; }
                         sb.type_args = direct;
                         TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                         collect_type_for_structs(inst_t);
@@ -2038,7 +2052,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // so metacall-instantiated specs share UID/registry keys
                 // with the rest of the pipeline.
                 for (auto& s : out_.structs)
-                    if (s.name == tmpl_name) { sb.pkg_name = s.pkg; break; }
+                    if (s.name() == tmpl_name) { sb.pkg_name = std::string(s.pkg()); break; }
                 sb.type_args = targs;
                 TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                 collect_type_for_structs(inst_t);
@@ -2194,7 +2208,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // so metacall-instantiated specs share UID/registry keys
                 // with the rest of the pipeline.
                 for (auto& s : out_.structs)
-                    if (s.name == tmpl_name) { sb.pkg_name = s.pkg; break; }
+                    if (s.name() == tmpl_name) { sb.pkg_name = std::string(s.pkg()); break; }
                 sb.type_args = targs;
                 TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                 collect_type_for_structs(inst_t);
@@ -2694,16 +2708,16 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                               T.kind() == LogosType::Kind::ZonedStruct)) {
                         std::string base{T.struct_name()};
                         std::string tpkg{T.pkg_name()};
-                        const lir::LStructDef* match = nullptr;
+                        lir_view::StructView match;
                         for (auto& sd : in_.structs)
-                            if (sd.name == base &&
-                                (tpkg.empty() || sd.pkg == tpkg)) {
-                                match = &sd; break;
+                            if (sd.name() == base &&
+                                (tpkg.empty() || sd.pkg() == tpkg)) {
+                                match = sd; break;
                             }
-                        if (!match)
+                        if (!match.valid())
                             for (auto& sd : in_.structs)
-                                if (sd.name == base) { match = &sd; break; }
-                        if (match) n = (int64_t)match->fields.size();
+                                if (sd.name() == base) { match = sd; break; }
+                        if (match.valid()) n = (int64_t)match.fields().size();
                     }
                 }
                 LirBuilder b(out_);
@@ -2724,18 +2738,18 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                               T.kind() == LogosType::Kind::ZonedStruct)) {
                         std::string base{T.struct_name()};
                         std::string tpkg{T.pkg_name()};
-                        const lir::LStructDef* tmpl = nullptr;
+                        lir_view::StructView tmpl;
                         for (auto& sd : in_.structs)
-                            if (sd.name == base &&
-                                (tpkg.empty() || sd.pkg == tpkg)) {
-                                tmpl = &sd; break;
+                            if (sd.name() == base &&
+                                (tpkg.empty() || sd.pkg() == tpkg)) {
+                                tmpl = sd; break;
                             }
-                        if (!tmpl)
+                        if (!tmpl.valid())
                             for (auto& sd : in_.structs)
-                                if (sd.name == base) { tmpl = &sd; break; }
-                        if (tmpl)
-                            for (auto& f : tmpl->fields)
-                                field_names.push_back(f.name);
+                                if (sd.name() == base) { tmpl = sd; break; }
+                        if (tmpl.valid())
+                            for (auto f : tmpl.fields())
+                                field_names.push_back(std::string(f.name()));
                     }
                 }
                 TypeRef elem_t = rt_ ? rt_.elem() : nullptr;
@@ -2787,25 +2801,27 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                   T.kind() == LogosType::Kind::ZonedStruct)) {
                             std::string base{T.struct_name()};
                             std::string tpkg{T.pkg_name()};
-                            const lir::LStructDef* tmpl = nullptr;
+                            const TypePoolImpl* fto_pool = out_.type_pool.impl();
+                            lir_view::StructView tmpl;
                             for (auto& sd : in_.structs)
-                                if (sd.name == base &&
-                                    (tpkg.empty() || sd.pkg == tpkg)) {
-                                    tmpl = &sd; break;
+                                if (sd.name() == base &&
+                                    (tpkg.empty() || sd.pkg() == tpkg)) {
+                                    tmpl = sd; break;
                                 }
-                            if (!tmpl)
+                            if (!tmpl.valid())
                                 for (auto& sd : in_.structs)
-                                    if (sd.name == base) { tmpl = &sd; break; }
-                            if (tmpl) {
+                                    if (sd.name() == base) { tmpl = sd; break; }
+                            if (tmpl.valid()) {
                                 SubstMap fsubst;
+                                auto tmpl_tps = tmpl.type_params();
                                 for (size_t i = 0, j = 0;
-                                     i < tmpl->type_params.size(); ++i) {
+                                     i < tmpl_tps.size(); ++i) {
                                     if (j < T.type_args().size())
-                                        fsubst[tmpl->type_params[i].name] =
+                                        fsubst[std::string(tmpl_tps[i].name())] =
                                             T.type_args()[j++];
                                 }
-                                for (auto& f : tmpl->fields)
-                                    elem_types.push_back(subst_type(f.type, fsubst));
+                                for (auto f : tmpl.fields())
+                                    elem_types.push_back(subst_type(f.type(fto_pool), fsubst));
                             }
                         }
                     }
@@ -3219,16 +3235,16 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         // (otherwise from_iter<I> on Result
                                         // sees [T,E,I] all as method-level
                                         // and tries to infer T,E from args).
-                                        auto* stt_ptr = find_struct_template_pkg_first(
+                                        auto stt_ptr = find_struct_template_pkg_first(
                                             struct_pkg, struct_base);
                                         // Receiver-level type-param NAMES (struct
                                         // or enum) — only the names are consulted
                                         // to split method-level vs receiver-level
                                         // tparams. Enum names come via EnumView.
                                         std::vector<std::string> sd_tpar_names;
-                                        if (stt_ptr) {
-                                            for (auto& stp : stt_ptr->type_params)
-                                                sd_tpar_names.push_back(stp.name);
+                                        if (stt_ptr.valid()) {
+                                            for (auto stp : stt_ptr.type_params())
+                                                sd_tpar_names.push_back(std::string(stp.name()));
                                         } else if (TypeRef(t).kind() == LogosType::Kind::Enum) {
                                             auto edt = find_enum_template_bare(struct_base);
                                             if (edt) edt->each_type_param(
@@ -3360,8 +3376,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (sep != std::string::npos) {
                     std::string struct_part = nc.callee.substr(0, sep);
                     std::string method_part = nc.callee.substr(sep);
-                    auto* sit_ptr = find_struct_template_unguarded(struct_part);
-                    if (sit_ptr) {
+                    auto sit_ptr = find_struct_template_unguarded(struct_part);
+                    if (sit_ptr.valid()) {
                         bool all_concrete = true;
                         for (auto ta : nc.type_args)
                             if (ta && TypeRef(ta).kind() == LogosType::Kind::TypeVar)
@@ -3375,7 +3391,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // this guard, `Wrap<T>::make_box<U>` calls land
                         // at a receiver-only spec with `U` still TypeVar
                         // in the body.
-                        size_t n_impl_tp = sit_ptr->type_params.size();
+                        size_t n_impl_tp = sit_ptr.type_param_count();
                         bool has_method_level_tail =
                             nc.type_args.size() > n_impl_tp;
                         if (all_concrete && !has_method_level_tail) {
@@ -4562,12 +4578,14 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                 // Lookup uses the CONCRETE mangled name (out_.structs
                 // holds monomorphized defs after clone_struct_def);
                 // falls back to bare name for non-generic structs.
+                const TypePoolImpl* df_pool = out_.type_pool.impl();
                 for (auto& sd : out_.structs) {
-                    bool match = (!cname.empty() && sd.name == cname) ||
-                                 sd.name == TypeRef(ty).struct_name();
+                    bool match = (!cname.empty() && sd.name() == cname) ||
+                                 sd.name() == TypeRef(ty).struct_name();
                     if (!match) continue;
-                    for (auto& f : sd.fields) {
-                        if (!f.type) continue;
+                    for (auto fv : sd.fields()) {
+                        TypeRef f_type = fv.type(df_pool);
+                        if (!f_type) continue;
                         // Force field-recursion if ANY field's drop is non-trivial.
                         // Must mirror mlir-gen's gen_drop_value / value_needs_drop
                         // coverage, NOT just Struct/ZonedStruct: an owning fat field
@@ -4575,7 +4593,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                         // is droppable too, and was silently dropped on the floor —
                         // a `struct H { pin: Rc<dyn Tr> }` / `{ obj: Box<dyn Tr> }`
                         // used as a Vec/Rc element never released its dyn payload.
-                        auto fkk = TypeRef(f.type).kind();
+                        auto fkk = TypeRef(f_type).kind();
                         if (fkk == LogosType::Kind::Struct ||
                             fkk == LogosType::Kind::ZonedStruct ||
                             fkk == LogosType::Kind::Enum ||
@@ -4583,11 +4601,11 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                             fkk == LogosType::Kind::Array ||
                             fkk == LogosType::Kind::Closure ||
                             (fkk == LogosType::Kind::TraitObject &&
-                             TypeRef(f.type).owning_trait_object()) ||
+                             TypeRef(f_type).owning_trait_object()) ||
                             (fkk == LogosType::Kind::Slice &&
-                             TypeRef(f.type).owning_slice()) ||
+                             TypeRef(f_type).owning_slice()) ||
                             (fkk == LogosType::Kind::DstRef &&
-                             TypeRef(f.type).owning_dst())) {
+                             TypeRef(f_type).owning_dst())) {
                             drop_fields = true;
                             break;
                         }
@@ -5233,46 +5251,51 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
 
 // Clone a struct def with substitution; rename to new_name.
 // Method names are rewritten from "Base__method" to "new_name__method".
-lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
+lir::LStructDef Mono::clone_struct_def(lir_view::StructView tmpl,
                                   const SubstMap& s,
                                   const PackMap& packs,
                                   const std::string& new_name) {
+    // CRITICAL: read template types via out_'s pool — mono moves in_.type_pool
+    // into out_ at run() start, so in_'s pool is moved-from. (Same gotcha that
+    // bit clone_enum_def.)
+    const TypePoolImpl* pool = out_.type_pool.impl();
     lir::LStructDef nd;
     nd.name = new_name;
-    nd.pkg  = tmpl.pkg;
-    nd.is_zoned = tmpl.is_zoned;
-    nd.is_dst   = tmpl.is_dst;  // Phase 1B-15: preserved; possibly upgraded below.
-    nd.self_describing = tmpl.self_describing;  // Hermes: thin-*Self marker preserved.
-    nd.rel_ptr = tmpl.rel_ptr;                  // RefRepr RelOffset marker preserved.
-    nd.borrow_carrying = tmpl.borrow_carrying;  // HAny escape-tracking marker preserved.
-    nd.zone_mut = tmpl.zone_mut;                // Hermes: fat-`&mut` zone marker preserved.
-    nd.zoned2 = tmpl.zoned2;                    // Hermes: auto-relative ptr-field marker preserved.
-    nd.borrow_carrying = tmpl.borrow_carrying;  // HAny: escape-tracked value marker preserved.
-    nd.non_null = tmpl.non_null;                // #[non_null]: Option<T> NullPtr-niche marker preserved.
-    nd.is_union = tmpl.is_union;  // §6.1: preserved through mono clone.
+    nd.pkg  = std::string(tmpl.pkg());
+    nd.is_zoned = tmpl.is_zoned();
+    nd.is_dst   = tmpl.is_dst();  // Phase 1B-15: preserved; possibly upgraded below.
+    nd.self_describing = tmpl.self_describing();  // Hermes: thin-*Self marker preserved.
+    nd.rel_ptr = tmpl.rel_ptr();                  // RefRepr RelOffset marker preserved.
+    nd.borrow_carrying = tmpl.borrow_carrying();  // HAny escape-tracking marker preserved.
+    nd.zone_mut = tmpl.zone_mut();                // Hermes: fat-`&mut` zone marker preserved.
+    nd.zoned2 = tmpl.zoned2();                    // Hermes: auto-relative ptr-field marker preserved.
+    nd.non_null = tmpl.non_null();                // #[non_null]: Option<T> NullPtr-niche marker preserved.
+    nd.is_union = tmpl.is_union();  // §6.1: preserved through mono clone.
     // type_params cleared: result is monomorphic.
     // B87: preserve lifetime_params + lifetime_outlives so post-mono
     // dropck can identify "this struct had a lifetime parameter in its
     // template form" — lifetimes are erased at runtime but the markers
     // are needed for soundness checks (Drop touching 'a).
-    nd.lifetime_params  = tmpl.lifetime_params;
-    nd.lifetime_outlives = tmpl.lifetime_outlives;
-    for (auto& f : tmpl.fields) {
-        if (f.is_variadic) {
+    for (auto lp : tmpl.lifetime_params())
+        nd.lifetime_params.push_back(std::string(lp));
+    for (auto& [a, b] : tmpl.lifetime_outlives())
+        nd.lifetime_outlives.emplace_back(std::string(a), std::string(b));
+    for (auto f : tmpl.fields()) {
+        if (f.is_variadic()) {
             std::string pack_name;
-            TypeRef ft(f.type);
+            TypeRef ft(f.type(pool));
             if (ft && ft.kind() == LogosType::Kind::TypeVar)
                 pack_name = std::string(ft.type_var_name());
             auto pit = packs.find(pack_name);
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
                     // Phase 5.C: localize pack entries (see clone_fn).
-                    nd.fields.push_back({f.name + "_" + std::to_string(i),
+                    nd.fields.push_back({std::string(f.name()) + "_" + std::to_string(i),
                                          localize_type(pit->second[i])});
                 }
             }
         } else {
-            nd.fields.push_back({f.name, subst_type(f.type, s)});
+            nd.fields.push_back({std::string(f.name()), subst_type(f.type(pool), s)});
         }
     }
     // Phase 1B-15: DST inheritance through generic instantiation. If the
@@ -5289,9 +5312,10 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     // L1.4: in lazy mode, skip eager method cloning. drain_method_worklist
     // will clone methods on demand (from L1.1 call-site hook, L1.2 dispatch
     // pin, L1.3 is_root_pin). The bound gate runs there too.
-    if (lazy_methods_ && !tmpl.type_params.empty()) return nd;
-    auto* csd_pool = out_.type_pool.impl();
-    for (auto& m : tmpl.methods) {
+    if (lazy_methods_ && !tmpl.type_params_empty()) return nd;
+    const TypePoolImpl* csd_pool = pool;
+    auto tmpl_tparams = tmpl.type_params();
+    for (auto m : tmpl.methods()) {
         // Structured impl self-type (`impl<T> Pin<&T>` on `struct Pin<P>`):
         // the impl-level params don't share names with the struct's own, so
         // the struct subst alone leaves them unbound. Bind them by unifying
@@ -5304,11 +5328,11 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         TypeRef m_itp = m.impl_target_pattern(csd_pool);
         if (m_itp) {
             auto pa = TypeRef(m_itp).type_args();
-            if (!pa.empty() && pa.size() == tmpl.type_params.size()) {
+            if (!pa.empty() && pa.size() == tmpl_tparams.size()) {
                 ms = s;
                 bool extended = false;
                 for (size_t i = 0; i < pa.size(); ++i) {
-                    auto cit = s.find(tmpl.type_params[i].name);
+                    auto cit = s.find(std::string(tmpl_tparams[i].name()));
                     if (cit == s.end() || !cit->second) continue;
                     if (contains_typevar(cit->second)) continue;  // defer
                     if (contains_assoc_type(pa[i]))
@@ -5378,28 +5402,30 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
 
 
 // Return the best-matching struct specialisation for (base_name, type_args).
-const lir::LStructDef* Mono::find_best_struct_spec(
+lir_view::StructView Mono::find_best_struct_spec(
     const std::string& base_name,
     const std::vector<TypeRef>& type_args) {
     auto sit = struct_specs_.find(base_name);
-    if (sit == struct_specs_.end()) return nullptr;
+    if (sit == struct_specs_.end()) return {};
 
-    const lir::LStructDef* best       = nullptr;
+    const TypePoolImpl* pool = out_.type_pool.impl();
+    lir_view::StructView   best;
     std::vector<int>       best_vec;
     bool                   ambiguous  = false;
 
-    for (auto* spec : sit->second) {
-        if (spec->spec_patterns.size() != type_args.size()) continue;
+    for (auto spec : sit->second) {
+        auto pats = spec.spec_patterns(pool);
+        if (pats.size() != type_args.size()) continue;
         SubstMap dummy;
         bool ok = true;
         for (size_t i = 0; i < type_args.size(); ++i) {
-            if (!match_type(type_args[i], spec->spec_patterns[i], dummy)) {
+            if (!match_type(type_args[i], pats[i], dummy)) {
                 ok = false; break;
             }
         }
         if (!ok) continue;
-        auto svec = specificity_vec(spec->spec_patterns);
-        if (!best || svec > best_vec) {
+        auto svec = specificity_vec(pats);
+        if (!best.valid() || svec > best_vec) {
             best_vec  = svec;
             best      = spec;
             ambiguous = false;
@@ -5429,7 +5455,7 @@ void Mono::collect_struct_needs_from_output() {
     }
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)
-        for (auto& f : sd.fields) collect_type_for_structs(f.type);
+        for (auto f : sd.fields()) collect_type_for_structs(f.type(csn_pool));
 }
 
 
@@ -5632,27 +5658,30 @@ void Mono::instantiate_struct_templates() {
             const std::string base{TypeRef(struct_t).struct_name()};
             SubstMap subst;
 
-            const lir::LStructDef* tmpl = nullptr;
+            const TypePoolImpl* ist_pool = out_.type_pool.impl();
+            lir_view::StructView tmpl;
             PackMap packs;
             // Prefer pkg-qualified lookup so cross-pkg same-named structs
             // route to their own template; fall back to bare for legacy
             // call sites that don't carry pkg.
             std::string struct_pkg{TypeRef(struct_t).pkg_name()};
-            if (auto* spec = find_best_struct_spec(base, TypeRef(struct_t).type_args())) {
-                for (size_t i = 0; i < spec->spec_patterns.size() &&
+            if (auto spec = find_best_struct_spec(base, TypeRef(struct_t).type_args()); spec.valid()) {
+                auto pats = spec.spec_patterns(ist_pool);
+                for (size_t i = 0; i < pats.size() &&
                                    i < TypeRef(struct_t).type_args().size(); ++i)
-                    match_type(TypeRef(struct_t).type_args()[i], spec->spec_patterns[i], subst);
+                    match_type(TypeRef(struct_t).type_args()[i], pats[i], subst);
                 tmpl = spec;
             } else {
                 tmpl = find_struct_template_pkg_first(struct_pkg, base);
-                if (!tmpl) continue;
-                for (size_t i = 0, j = 0; i < tmpl->type_params.size(); ++i) {
-                    if (tmpl->type_params[i].is_variadic) {
+                if (!tmpl.valid()) continue;
+                auto tmpl_tps = tmpl.type_params();
+                for (size_t i = 0, j = 0; i < tmpl_tps.size(); ++i) {
+                    if (tmpl_tps[i].is_variadic()) {
                         std::vector<TypeRef> pack;
                         while (j < TypeRef(struct_t).type_args().size()) pack.push_back(TypeRef(struct_t).type_args()[j++]);
-                        packs[tmpl->type_params[i].name] = std::move(pack);
+                        packs[std::string(tmpl_tps[i].name())] = std::move(pack);
                     } else if (j < TypeRef(struct_t).type_args().size()) {
-                        subst[tmpl->type_params[i].name] = TypeRef(struct_t).type_args()[j++];
+                        subst[std::string(tmpl_tps[i].name())] = TypeRef(struct_t).type_args()[j++];
                     }
                 }
             }
@@ -5662,15 +5691,15 @@ void Mono::instantiate_struct_templates() {
             // sites that only have sd.name fall through bare lookup.
             concrete_struct_types_[qcname] = struct_t;
             concrete_struct_types_[cname]  = struct_t;
-            auto inst = clone_struct_def(*tmpl, subst, packs, cname);
+            auto inst = clone_struct_def(tmpl, subst, packs, cname);
             // The generic's home pkg owns the conceptual identity. A spec in a
             // different pkg only contributes layout; the cloned inst should
             // carry the generic's pkg so user-side TypeRefs (resolved against
             // the generic decl) and mlir-side struct names agree.
             // Inst pkg comes from the generic template (not the spec, which
             // may live in a different pkg and only contribute layout).
-            if (auto* git = find_struct_template_pkg_first(struct_pkg, base))
-                inst.pkg = git->pkg;
+            if (auto git = find_struct_template_pkg_first(struct_pkg, base); git.valid())
+                inst.pkg = std::string(git.pkg());
             // Mirror emit happens here — *after* clone, *before* scan_fn — because
             // only at this point are stmt/expr addresses stable. Two conditions:
             //   (a) all recursive subst_block push_backs are done, so the
@@ -5692,7 +5721,7 @@ void Mono::instantiate_struct_templates() {
             }
             // Collect field types of new struct for further instantiation.
             for (auto& f : inst.fields) collect_type_for_structs(f.type);
-            out_.structs.push_back(std::move(inst));
+            out_.structs.push_back(lir_mirror_emit_struct_view(out_, inst));
             ++stats_.struct_instances;
         }
         depth_ = 0;

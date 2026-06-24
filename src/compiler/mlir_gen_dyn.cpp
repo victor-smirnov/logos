@@ -774,8 +774,8 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
         std::unordered_map<std::string, std::vector<lir_view::FunctionView>>>
         struct_method_idx;
     for (auto& sd : prog.structs) {
-        auto& sm = struct_method_idx[sd.name];
-        for (auto& mp : sd.methods)
+        auto& sm = struct_method_idx[std::string(sd.name())];
+        for (auto& mp : sd.methods())
             if (mp && !mp.method_base().empty())
                 sm[std::string(mp.method_base())].push_back(mp);
     }
@@ -800,7 +800,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
         };
         for (auto& fp : prog.functions) if (fp) scan(fp.name());
         for (auto& sd : prog.structs)
-            for (auto& mp : sd.methods) if (mp) scan(mp.name());
+            for (auto& mp : sd.methods()) if (mp) scan(mp.name());
     }
     auto collect_concrete_targets = [&](const std::string& target_base)
         -> const std::set<std::string>& {
@@ -1315,8 +1315,8 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
                    nm.find(rtc_g) != std::string::npos;
         };
         for (auto& sd : prog_->structs) {
-            if (sd.name != v.tag_system()) continue;
-            for (auto& mp : sd.methods) {
+            if (sd.name() != v.tag_system()) continue;
+            for (auto& mp : sd.methods()) {
                 if (!mp) continue;
                 if (try_match(std::string(mp.name()))) {
                     rtc_sym = link_name(mp);  // module-qualified emitted name
@@ -1652,8 +1652,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             auto fp = gep_field(cur, sit->second, fname);
             if (!fp) return mlir::Value{};
             TypeRef next;
-            for (auto& f : sdit->second->fields)
-                if (f.name == fname) { next = f.type; break; }
+            for (auto& f : sdit->second.fields())
+                if (f.name() == fname) { next = f.type(pool_impl()); break; }
             if (dot == std::string_view::npos) return fp;
             rem = rem.substr(dot + 1);
             cur = fp;
