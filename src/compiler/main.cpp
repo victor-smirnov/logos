@@ -23,6 +23,7 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>  // lir_mirror_macro_arg_get (metacall shim)
 #include <logos/compiler/mono.hpp>
 #include <logos/hermes/compat.hpp>
 
@@ -125,8 +126,7 @@ const char*                          g_current_hook_name = nullptr;
 // `logos_macro_arg(site_id, arg_idx)` can resolve each thunk's args.
 // Each blob is laid out as `[u64 size][bytes]`; the shim returns
 // `&blob[8]` (past the size prefix) to match the ExprBlob/HermesStatic ABI.
-const std::unordered_map<uint64_t, std::vector<std::vector<uint8_t>>>*
-    g_macro_args = nullptr;
+const logos::compiler::lir_view::ObjectMapRef* g_macro_args = nullptr;
 
 // `--dump-metaprog` provenance tracking. When the metaprog driver is
 // about to invoke a hook or metacall thunk, it sets g_current_emit_ctx
@@ -1183,31 +1183,15 @@ extern "C" const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
             static_cast<unsigned long long>(site_id));
         std::abort();
     }
-    auto it = g_macro_args->find(site_id);
-    if (it == g_macro_args->end()) {
+    const uint8_t* p = logos::compiler::lir_mirror_macro_arg_get(*g_macro_args, site_id, arg_idx);
+    if (!p) {
         std::fprintf(stderr,
-            "logos_macro_arg: no args registered for site %llu\n",
-            static_cast<unsigned long long>(site_id));
-        std::abort();
-    }
-    const auto& args = it->second;
-    if (arg_idx >= args.size()) {
-        std::fprintf(stderr,
-            "logos_macro_arg: arg_idx %llu out of range (site %llu has %zu args)\n",
-            static_cast<unsigned long long>(arg_idx),
-            static_cast<unsigned long long>(site_id),
-            args.size());
-        std::abort();
-    }
-    const auto& blob = args[arg_idx];
-    if (blob.size() < 8) {
-        std::fprintf(stderr,
-            "logos_macro_arg: blob too small at site %llu arg %llu\n",
+            "logos_macro_arg: no arg at site %llu idx %llu\n",
             static_cast<unsigned long long>(site_id),
             static_cast<unsigned long long>(arg_idx));
         std::abort();
     }
-    return blob.data() + 8;
+    return p;
 }
 
 // Pack a stack-local `[*const Ident; N]` (one entry per `#name` site
@@ -3577,7 +3561,12 @@ int main(int argc, char** argv) {
             // from `prog`.
             auto _mc_t = std::chrono::steady_clock::now();
             auto saved_metacall_sites = prog.metacall_sites;
-            auto saved_macro_args     = std::move(prog.macro_arg_blobs);
+            // Stage E: macro_arg_blobs is an arena-backed ObjectMap handle —
+            // copy the handle (the map lives in prog.type_pool, whose arena is
+            // PIMPL-stable across the move below) and reset prog's so the next
+            // re-sema iter builds a fresh map.
+            auto saved_macro_args     = prog.macro_arg_blobs;
+            prog.macro_arg_blobs      = logos::compiler::lir_view::ObjectMapRef{};
             auto mc_prog = std::move(prog);
             mc_stat_step(_mc_t, "sema_lower", mi);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }

@@ -1949,6 +1949,46 @@ void lir_mirror_map_put_null(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
     LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
 }
 
+// macro_arg_blobs: site_id → array of [u64 size][bytes] blobs. Stored as an
+// ObjectMap<to_string(site_id)> → ObjectArray of byte-Varchars. The blob bytes
+// live as ArenaStrings (separate, stable allocations — array grow never moves
+// them), so the shim can hand JIT'd thunk code a raw pointer into them.
+void lir_mirror_macro_arg_put(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                              uint64_t site_id,
+                              const std::vector<std::vector<uint8_t>>& blobs) {
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* m = ensure_obj_map(prog, ref);
+    auto arrExp = hermes::ObjectArray::create(arena, blobs.empty() ? 1 : blobs.size());
+    LOGOS_ASSERT(arrExp.has_value(), "LIR-MIRROR-MAP", "macro-arg array create failed");
+    auto* arr = *arrExp;
+    for (auto& b : blobs) {
+        auto sExp = hermes::ArenaString::create(
+            arena, std::string_view(reinterpret_cast<const char*>(b.data()), b.size()));
+        LOGOS_ASSERT(sExp.has_value(), "LIR-MIRROR-MAP", "macro-arg blob alloc failed");
+        hermes::AnyVal av; av.set_ref(reinterpret_cast<const uint8_t*>(*sExp));
+        auto r = arr->push_back(av, arena); LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "macro-arg push failed");
+    }
+    hermes::AnyVal arrAv; arrAv.set_ref(reinterpret_cast<const uint8_t*>(arr));
+    auto r = m->put(std::to_string(site_id), arrAv, arena);
+    LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "macro-arg map put failed");
+}
+
+// Shim read: return a pointer to the arg blob's BYTES PAST the 8-byte size
+// prefix (matching the old `&blob[8]`), or nullptr if site/arg absent.
+const uint8_t* lir_mirror_macro_arg_get(const lir_view::ObjectMapRef& ref,
+                                        uint64_t site_id, uint64_t arg_idx) {
+    if (!ref.valid()) return nullptr;
+    auto site_av = ref.get(std::to_string(site_id));
+    if (site_av.is_null()) return nullptr;
+    auto* arr = reinterpret_cast<const hermes::ObjectArray*>(site_av.resolve());
+    if (!arr || arg_idx >= arr->size()) return nullptr;
+    auto blob_av = arr->get(arg_idx);
+    if (blob_av.is_null()) return nullptr;
+    auto* s = reinterpret_cast<const hermes::ArenaString*>(blob_av.resolve());
+    if (!s || s->view().size() < 8) return nullptr;
+    return reinterpret_cast<const uint8_t*>(s->view().data()) + 8;
+}
+
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, table, prog.type_pool);

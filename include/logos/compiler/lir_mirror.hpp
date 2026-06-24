@@ -184,6 +184,13 @@ void lir_mirror_map_put_ref (lir::LProgram& prog, lir_view::ObjectMapRef& ref,
                              std::string_view key, const uint8_t* val_addr);
 void lir_mirror_map_put_null(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
                              std::string_view key);
+// macro_arg_blobs: store a site's [u64 size][bytes] blobs; read one (past the
+// 8-byte size prefix) for the logos_macro_arg C shim.
+void lir_mirror_macro_arg_put(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                              uint64_t site_id,
+                              const std::vector<std::vector<uint8_t>>& blobs);
+const uint8_t* lir_mirror_macro_arg_get(const lir_view::ObjectMapRef& ref,
+                                        uint64_t site_id, uint64_t arg_idx);
 
 // Stage E — declaration-layer mirror writers.
 const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,

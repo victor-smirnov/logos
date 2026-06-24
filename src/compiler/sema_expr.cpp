@@ -18558,13 +18558,14 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     // calls `str_from_raw(ptr, len)` before forwarding to the callee.
     if (sig_str) {
         uint64_t site_id = cur_prog_->metacall_sites.size();
-        auto& blobs = cur_prog_->macro_arg_blobs[site_id];
+        std::vector<std::vector<uint8_t>> blobs;
         blobs.resize(1);
         uint64_t sz = static_cast<uint64_t>(raw_text.size());
         blobs[0].resize(8 + raw_text.size());
         std::memcpy(blobs[0].data(), &sz, 8);
         if (!raw_text.empty())
             std::memcpy(blobs[0].data() + 8, raw_text.data(), raw_text.size());
+        lir_mirror_macro_arg_put(*cur_prog_, cur_prog_->macro_arg_blobs, site_id, blobs);
 
         std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
@@ -19005,7 +19006,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
 
     // Serialise each ARG sub-tree into a fresh Hermes doc, prefix with
     // [u64 size], and store under macro_arg_blobs[site_id][arg_idx].
-    auto& blobs = cur_prog_->macro_arg_blobs[site_id];
+    std::vector<std::vector<uint8_t>> blobs;
     blobs.resize(arg_avs.size());
     for (size_t i = 0; i < arg_avs.size(); ++i) {
         if (arg_avs[i].is_null() || !arg_avs[i].is_pointer()) {
@@ -19055,6 +19056,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         std::memcpy(blobs[i].data(), &sz, 8);
         std::memcpy(blobs[i].data() + 8, data, used);
     }
+    lir_mirror_macro_arg_put(*cur_prog_, cur_prog_->macro_arg_blobs, site_id, blobs);
 
     // Synthesise thunk. Two shapes per signature:
     //   single-arg: pass ExprBlob directly.
@@ -19252,7 +19254,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
     uint64_t site_id = prog.metacall_sites.size();
 
     // Serialise each ARG into the per-site arg-blob table.
-    auto& blobs = prog.macro_arg_blobs[site_id];
+    std::vector<std::vector<uint8_t>> blobs;
     blobs.resize(arg_avs.size());
     for (size_t i = 0; i < arg_avs.size(); ++i) {
         if (arg_avs[i].is_null() || !arg_avs[i].is_pointer()) {
@@ -19290,6 +19292,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
         std::memcpy(blobs[i].data(), &sz, 8);
         std::memcpy(blobs[i].data() + 8, data, used);
     }
+    lir_mirror_macro_arg_put(prog, prog.macro_arg_blobs, site_id, blobs);
 
     // Synthesise thunk. Call shape:
     //   let __r = callee(<args reconstituted>);

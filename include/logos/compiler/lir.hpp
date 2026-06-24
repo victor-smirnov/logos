@@ -869,8 +869,10 @@ struct LProgram {
     // `logos_macro_arg` reads, then clears the registry after invoke.
     //
     // Non-fn-macro sites keep their slot empty.
-    std::unordered_map<uint64_t, std::vector<std::vector<uint8_t>>>
-        macro_arg_blobs;
+    // Stage E: heap-free — ObjectMap<to_string(site_id)> → ObjectArray of
+    // [u64 size][bytes] Varchars. Built via lir_mirror_macro_arg_put; the
+    // logos_macro_arg C shim reads via lir_mirror_macro_arg_get.
+    lir_view::ObjectMapRef macro_arg_blobs;
 
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
