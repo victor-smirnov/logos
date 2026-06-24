@@ -209,7 +209,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     auto is_binary_skip = [&prog, this](lir_view::FunctionView fn) -> bool {
         if (fn.is_extern() || prog.binary_symbols.empty()) return false;
         // Module system: archive nm carries QUALIFIED link symbols → match on link_name.
-        return prog.binary_symbols.count(link_name(fn)) > 0;
+        return prog.binary_symbols.has(link_name(fn)) > 0;
     };
 
     // Phase 6 (multi-arena IR) item-level lazy reach analysis.

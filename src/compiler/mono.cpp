@@ -99,7 +99,7 @@ void Mono::drain_free_fn_queue() {
         // Binary-symbol fast path (mirrors the eager loop): the body lives in
         // a linked archive, so emit a signature-only stub and skip the scan —
         // the archive is self-contained for this fn's transitive closure.
-        if (!in_.binary_symbols.empty() && in_.binary_symbols.count(std::string(fn.name()))) {
+        if (!in_.binary_symbols.empty() && in_.binary_symbols.has(std::string(fn.name()))) {
             auto stub = clone_fn_signature(fn, {}, {});
             out_.functions.push_back(stub.view<lir_view::FunctionView>());
             if (has_prev_out_) done_.insert(std::string(fn.name()));
@@ -588,7 +588,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // are already pre-baked in the same archive (otherwise the archive
             // wouldn't link), so dropping the scan can't leave the worklist
             // missing a required instantiation.
-            if (!in_.binary_symbols.empty() && in_.binary_symbols.count(std::string(fn.name()))) {
+            if (!in_.binary_symbols.empty() && in_.binary_symbols.has(std::string(fn.name()))) {
                 auto stub = clone_fn_signature(fn, {}, {});
                 out_.functions.push_back(stub.view<lir_view::FunctionView>());
                 if (has_prev_out_) done_.insert(std::string(fn.name()));
@@ -617,7 +617,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // signature-only stub so mlir_gen can forward-declare; skip mirror
         // + scan_fn to save the deep body walk.
         if (!in_.binary_symbols.empty() &&
-            in_.binary_symbols.count(item.mangled)) {
+            in_.binary_symbols.has(item.mangled)) {
             auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
             stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
             out_.functions.push_back(stub.view<lir_view::FunctionView>());
@@ -687,7 +687,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
             depth_ = item.depth;
-            if (!in_.binary_symbols.empty() && in_.binary_symbols.count(item.mangled)) {
+            if (!in_.binary_symbols.empty() && in_.binary_symbols.has(item.mangled)) {
                 auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                 stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
                 out_.functions.push_back(stub.view<lir_view::FunctionView>());
@@ -800,7 +800,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             worklist_.pop_back();
             depth_ = item.depth;
             if (!in_.binary_symbols.empty() &&
-                in_.binary_symbols.count(item.mangled)) {
+                in_.binary_symbols.has(item.mangled)) {
                 auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                 stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
                 out_.functions.push_back(stub.view<lir_view::FunctionView>());
@@ -878,7 +878,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 worklist_.pop_back();
                 depth_ = item.depth;
                 if (!in_.binary_symbols.empty() &&
-                    in_.binary_symbols.count(item.mangled)) {
+                    in_.binary_symbols.has(item.mangled)) {
                     auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                     stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
                     out_.functions.push_back(stub.view<lir_view::FunctionView>());

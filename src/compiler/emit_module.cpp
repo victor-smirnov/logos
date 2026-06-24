@@ -17,6 +17,7 @@
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
 #include <logos/hermes/compat.hpp>
 #include <logos/hermes/compat.hpp>
@@ -246,7 +247,7 @@ static void apply_only_file_filter(lir::LProgram& prog,
     auto add = [&](lir_view::FunctionView fn) {
         if (fn.is_extern()) return;
         if (fits(std::string(fn.source_file()))) return;
-        prog.binary_symbols.insert(std::string(fn.name()));
+        lir_mirror_map_put_null(prog, prog.binary_symbols, fn.name());
     };
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods()) add(m);
@@ -713,7 +714,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // deps, so a name match guarantees the linker (and the metacall JIT, which
     // now loads all layers) finds the body elsewhere. dep_symbols was already
     // collected up front (it doubles as the sema skeleton-skip gate).
-    prog.binary_symbols.insert(dep_symbols.begin(), dep_symbols.end());
+    for (auto& __s : dep_symbols) lir_mirror_map_put_null(prog, prog.binary_symbols, __s);
 
     // Shared lowering tail (mlir_gen → MLIR→LLVM → object).
     LowerEmitOpts lopts;

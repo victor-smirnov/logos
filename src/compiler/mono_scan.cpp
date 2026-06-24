@@ -892,7 +892,7 @@ void Mono::drain_method_worklist() {
         // archive. Push a signature-only stub so mlir_gen can forward-declare
         // it; skip the deep body clone + scan_fn.
         if (!in_.binary_symbols.empty() &&
-            in_.binary_symbols.count(dest_name)) {
+            in_.binary_symbols.has(dest_name)) {
             auto stub = clone_fn_signature(tmpl, item.subst, item.packs);
             stub.str_always(lir_schema::decl_keys::NAME, dest_name);
             lir_mirror_struct_append_method(out_, *target, stub.view<lir_view::FunctionView>());

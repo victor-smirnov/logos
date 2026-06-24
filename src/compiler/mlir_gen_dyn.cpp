@@ -228,7 +228,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
             auto it = sys_all_binary.find(ts);
             if (it == sys_all_binary.end())
                 sys_all_binary[ts] = true;
-            if (!prog.binary_symbols.count(link_name_str(std::string(de.fn_symbol()))))
+            if (!prog.binary_symbols.has(link_name_str(std::string(de.fn_symbol()))))
                 sys_all_binary[ts] = false;
         }
         for (auto& [sys, all_bin] : sys_all_binary)
@@ -360,7 +360,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     // linker deduplicates rather than flagging a duplicate-definition error.
     for (auto& [table_name, _entries] : tier1_tables) {
         if (mod.lookupSymbol(table_name)) continue;
-        bool in_binary = prog.binary_symbols.count(table_name) > 0;
+        bool in_binary = prog.binary_symbols.has(table_name) > 0;
         auto linkage = in_binary ? mlir::LLVM::Linkage::Weak
                                  : mlir::LLVM::Linkage::External;
         builder_.setInsertionPointToEnd(mod.getBody());
@@ -391,7 +391,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         tier2_valid_entries[t2key] = valid_entries;
         int64_t n = static_cast<int64_t>(valid_entries.size());
 
-        bool t2_in_binary = prog.binary_symbols.count(t2key + "_codes") > 0;
+        bool t2_in_binary = prog.binary_symbols.has(t2key + "_codes") > 0;
         auto t2_linkage = t2_in_binary ? mlir::LLVM::Linkage::Weak
                                        : mlir::LLVM::Linkage::External;
 

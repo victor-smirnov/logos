@@ -5444,7 +5444,7 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
         // body emission, and any transitive instantiations from this body are
         // already in the archive. Signature-only stub is enough.
         if (!in_.binary_symbols.empty() &&
-            in_.binary_symbols.count(final_name)) {
+            in_.binary_symbols.has(final_name)) {
             auto nm = clone_fn_signature(m, *msel, packs);
             nm.str_always(lir_schema::decl_keys::NAME, final_name);
             ma.push_ref(nm.view<lir_view::FunctionView>().self.addr());

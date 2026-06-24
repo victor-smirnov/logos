@@ -2465,13 +2465,13 @@ int run_metaprog_dispatch(
         // Pass binary_symbols through so the metaprog JIT's mlir_gen skips
         // body emission for fns already provided by the JIT's archive
         // generators (resolved via build_jit_from_module's archive_paths).
-        meta_prog.binary_symbols = opts.binary_symbols;
+        for (auto& __s : opts.binary_symbols) logos::compiler::lir_mirror_map_put_null(meta_prog, meta_prog.binary_symbols, __s);
         // M6.3: extend binary_symbols with the names already emitted by
         // prior iters' mlir_gen. mlir_gen will forward-declare these but
         // skip body emission — the bodies live in m6_meta_jit (from those
         // prior iters' addModule calls) and resolve through ORC's
         // existing JITDylib at link time.
-        for (auto& n : m6_prev_emitted_fns) meta_prog.binary_symbols.insert(n);
+        for (auto& n : m6_prev_emitted_fns) logos::compiler::lir_mirror_map_put_null(meta_prog, meta_prog.binary_symbols, n);
         auto _t3 = std::chrono::steady_clock::now();
         meta_prog = reflection_emit(std::move(meta_prog));
         stat_step(_t3, "reflection", iter);
@@ -2514,14 +2514,14 @@ int run_metaprog_dispatch(
         for (auto& fp : meta_prog.functions) {
             if (!fp) continue;
             auto ln = sym::link_name(fp, meta_prog.pkg_module_ids);
-            if (!meta_prog.binary_symbols.count(ln))
+            if (!meta_prog.binary_symbols.has(ln))
                 m6_prev_emitted_fns.insert(std::move(ln));
         }
         for (auto& sd : meta_prog.structs) {
             sd.each_method([&](lir_view::FunctionView m) {
                 if (!m) return;
                 auto ln = sym::link_name(m, meta_prog.pkg_module_ids);
-                if (!meta_prog.binary_symbols.count(ln))
+                if (!meta_prog.binary_symbols.has(ln))
                     m6_prev_emitted_fns.insert(std::move(ln));
             });
         }
@@ -3574,7 +3574,7 @@ int main(int argc, char** argv) {
             // and the final user-compile path. The metacall JIT registers
             // archive_paths via build_jit_from_module, so binary_symbols
             // covers everything mlir_gen would otherwise re-emit.
-            mc_prog.binary_symbols = binary_symbols;
+            for (auto& __s : binary_symbols) logos::compiler::lir_mirror_map_put_null(mc_prog, mc_prog.binary_symbols, __s);
             mc_prog = logos::compiler::reflection_emit(std::move(mc_prog));
             mc_stat_step(_mc_t, "reflection", mi);
             // Reachability prune: the metacall JIT only executes the thunks,
@@ -4278,7 +4278,7 @@ int main(int argc, char** argv) {
             prog.functions.end());
     }
 
-    prog.binary_symbols = std::move(binary_symbols);
+    for (auto& __s : binary_symbols) logos::compiler::lir_mirror_map_put_null(prog, prog.binary_symbols, __s);
 
     // ── Step 2b+: Reflection TypeInfo emission (pre-mono, concrete types only)
     prog = logos::compiler::reflection_emit(std::move(prog));

@@ -877,7 +877,8 @@ struct LProgram {
     // Symbol names present in binary archives on the search path.
     // mlir_gen skips functions whose mangled name is in this set (they're
     // already compiled and will be found by the linker in the .a).
-    StrSet binary_symbols;
+    // Stage E: heap-free — membership ObjectMap (null values).
+    lir_view::ObjectMapRef binary_symbols;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }
