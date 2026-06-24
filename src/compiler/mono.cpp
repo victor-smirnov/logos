@@ -28,27 +28,31 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
                                     const std::string& tmpl_prefix,
                                     const std::string& concrete, TypeRef candidate_t) {
     if (!candidate_t) return;
+    // concrete_pkg / concrete_q are invariant across the function scan — they
+    // depend only on `concrete`. Compute ONCE (was an O(structs+enums) scan per
+    // matching template method inside the loop).
+    // Coexistence: module-qualify the type part (matches concrete_struct_name
+    // used at the call site) so two modules' blanket-method instances (e.g.
+    // `Widget__type_id` from `impl<T> Any for T`) don't collide at link.
+    std::string concrete_pkg;
+    for (auto& sd : out_.structs)
+        if (sd.name() == concrete) { concrete_pkg = std::string(sd.pkg()); break; }
+    if (concrete_pkg.empty())
+        for (auto& ed : out_.enums)
+            if (ed.name() == concrete) { concrete_pkg = std::string(ed.pkg()); break; }
+    std::string concrete_q = concrete + type_module_suffix(concrete_pkg);
     for (auto& tfn : in_.functions) {
         // Strip pkg prefix (`pkg.`) before matching the synthetic
-        // `$blanket$...` template prefix.
-        std::string tn = std::string(tfn.name());
-        if (auto dot = tn.rfind('.'); dot != std::string::npos)
+        // `$blanket$...` template prefix. string_view — no per-function alloc
+        // (the scan is O(functions) and most don't match).
+        std::string_view tn = tfn.name();
+        if (auto dot = tn.rfind('.'); dot != std::string_view::npos)
             tn = tn.substr(dot + 1);
         if (tn.rfind(tmpl_prefix, 0) != 0) continue;
         // Method may carry `__f__sig` / `__g__sig`. Preserve sig in dest so
         // subsequent enqueues that mangle with type_args produce matching names.
-        std::string method = tn.substr(tmpl_prefix.size());
-        std::string concrete_pkg;
-        for (auto& sd : out_.structs)
-            if (sd.name() == concrete) { concrete_pkg = std::string(sd.pkg()); break; }
-        if (concrete_pkg.empty())
-            for (auto& ed : out_.enums)
-                if (ed.name() == concrete) { concrete_pkg = std::string(ed.pkg()); break; }
-        // Coexistence: module-qualify the type part (matches concrete_struct_name
-        // used at the call site) so two modules' blanket-method instances (e.g.
-        // `Widget__type_id` from `impl<T> Any for T`) don't collide at link.
-        std::string concrete_q = concrete + type_module_suffix(concrete_pkg);
-        std::string bare_dest = concrete_q + "__" + method;
+        std::string_view method = tn.substr(tmpl_prefix.size());
+        std::string bare_dest = concrete_q + "__" + std::string(method);
         std::string dest = concrete_pkg.empty() ? bare_dest
                                                 : concrete_pkg + "." + bare_dest;
         if (done_.count(dest)) continue;
