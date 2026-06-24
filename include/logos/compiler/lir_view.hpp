@@ -1416,6 +1416,81 @@ struct ReflectGlobalView {
     }
 };
 
+// ── Stage E: metaprog / metacall driver tables decl views ────────────────────
+
+// MetacallSite return-type discriminator (hoisted out of the old
+// LProgram::MetacallSite struct to namespace scope so MetacallSiteView and the
+// main.cpp driver can name it without the struct). Stored in the mirror as i64.
+} // namespace logos::compiler::lir_view
+namespace logos::compiler::lir {
+enum class MetacallRetTag : int32_t {
+    Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64,
+    F32, F64, Str, HermesStatic, Hermes, ExprBlob, ItemBlob
+};
+} // namespace logos::compiler::lir
+namespace logos::compiler::lir_view {
+
+// MetaprogHandler { trigger, hook_fn: Varchar }.
+struct MetaprogHandlerView {
+    DeclRef self;
+    std::string_view trigger() const noexcept {
+        return detail::read_string(self, lir_schema::mp_handler_keys::TRIGGER.code);
+    }
+    std::string_view hook_fn() const noexcept {
+        return detail::read_string(self, lir_schema::mp_handler_keys::HOOK_FN.code);
+    }
+};
+
+// MetaprogTarget { ast_idx, item_offset: i64; trigger: Varchar }.
+struct MetaprogTargetView {
+    DeclRef self;
+    size_t ast_idx() const noexcept {
+        return (size_t)detail::read_i64(self, lir_schema::mp_target_keys::AST_IDX.code);
+    }
+    uint32_t item_offset() const noexcept {
+        return (uint32_t)detail::read_i64(self, lir_schema::mp_target_keys::ITEM_OFFSET.code);
+    }
+    std::string_view trigger() const noexcept {
+        return detail::read_string(self, lir_schema::mp_target_keys::TRIGGER.code);
+    }
+};
+
+// MetacallSite { ast_idx, expr_offset: i64; thunk_name, thunk_source: Varchar;
+//   ret_tag: i64 (MetacallRetTag); callee_name: Varchar }.
+struct MetacallSiteView {
+    DeclRef self;
+    size_t ast_idx() const noexcept {
+        return (size_t)detail::read_i64(self, lir_schema::metacall_keys::AST_IDX.code);
+    }
+    uint32_t expr_offset() const noexcept {
+        return (uint32_t)detail::read_i64(self, lir_schema::metacall_keys::EXPR_OFFSET.code);
+    }
+    std::string_view thunk_name() const noexcept {
+        return detail::read_string(self, lir_schema::metacall_keys::THUNK_NAME.code);
+    }
+    std::string_view thunk_source() const noexcept {
+        return detail::read_string(self, lir_schema::metacall_keys::THUNK_SOURCE.code);
+    }
+    lir::MetacallRetTag ret_tag() const noexcept {
+        return lir::MetacallRetTag(
+            (int32_t)detail::read_i64(self, lir_schema::metacall_keys::RET_TAG.code));
+    }
+    std::string_view callee_name() const noexcept {
+        return detail::read_string(self, lir_schema::metacall_keys::CALLEE_NAME.code);
+    }
+};
+
+// ModuleInnerDoc { module, doc: Varchar }.
+struct ModuleInnerDocView {
+    DeclRef self;
+    std::string_view module() const noexcept {
+        return detail::read_string(self, lir_schema::module_doc_keys::MODULE.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::module_doc_keys::DOC.code);
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

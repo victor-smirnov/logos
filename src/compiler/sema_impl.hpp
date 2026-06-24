@@ -113,6 +113,15 @@ namespace sema_detail {
 // methods, never the field types.
 class SemaCheckerSnapshot;
 
+// Stage E: the LProgram::MetaprogHandler / MetaprogTarget structs were deleted
+// (those tables now live as Hermes mirror views — MetaprogHandlerView /
+// MetaprogTargetView). Sema still needs transient C++ staging buffers while
+// collecting handlers/targets (no LProgram host handy at collection time); the
+// views are direct-built at the move-into-prog point. These PODs are
+// sema-internal scaffolding, not part of LProgram.
+struct MetaprogHandlerStage { std::string trigger; std::string hook_fn; };
+struct MetaprogTargetStage  { size_t ast_idx; uint32_t item_offset; std::string trigger; };
+
 class SemaChecker {
 public:
     friend class SemaCheckerSnapshot;
@@ -1935,8 +1944,8 @@ private:
 
     // Phase 7 slice 12: derive-style handler registry, collected from
     // `#[metaprog_handler("name")]` annotations on hook fns.
-    std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers_;
-    std::vector<lir::LProgram::MetaprogTarget>  metaprog_targets_;
+    std::vector<MetaprogHandlerStage> metaprog_handlers_;
+    std::vector<MetaprogTargetStage>  metaprog_targets_;
 
     // Phase 7 slice 17: metaprog-compile mode. When metaprog_mode_ is true,
     // lower_fn skips body lowering for non-handler fns in the entry ast
@@ -4862,8 +4871,8 @@ public:
     StrMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
     StrMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
     std::vector<SemaChecker::BlanketImpl>  blanket_impls;
-    std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers;
-    std::vector<lir::LProgram::MetaprogTarget>  metaprog_targets;
+    std::vector<MetaprogHandlerStage> metaprog_handlers;
+    std::vector<MetaprogTargetStage>  metaprog_targets;
     std::set<std::string>                   copy_types;
     std::unordered_map<std::string, std::vector<size_t>> conditional_copy;
     StrMap<std::vector<std::string>>       pkg_reexports;

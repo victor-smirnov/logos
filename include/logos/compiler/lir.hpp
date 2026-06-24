@@ -812,8 +812,8 @@ struct LProgram {
 
     // Phase A.3: inner doc-comments (`//!`) collected from all source modules.
     // Each entry: { source_file, joined_doc_text }. Append-only; downstream
-    // rustdoc-style tooling consumes this directly.
-    std::vector<std::pair<std::string, std::string>> module_inner_docs;
+    // rustdoc-style tooling consumes this directly. (Stage E: decl mirrors)
+    std::vector<lir_view::ModuleInnerDocView> module_inner_docs;
 
     // Populated by sema when reflect::<T>() is lowered; consumed by reflection_emit pass.
     StrSet reflect_requests; // fqn of types to reflect
@@ -826,23 +826,16 @@ struct LProgram {
     // `#[trigger]` cause the handler to fire once per item with the item's
     // node pointer as argument. Vector (not map) so duplicate-trigger
     // collisions surface as sema errors with deterministic ordering.
-    struct MetaprogHandler {
-        std::string trigger;     // user-facing name, e.g. "derive_debug"
-        std::string hook_fn;     // fn name to JIT-invoke
-    };
-    std::vector<MetaprogHandler> metaprog_handlers;
+    // (Stage E: decl mirrors — see lir_view::MetaprogHandlerView.)
+    std::vector<lir_view::MetaprogHandlerView> metaprog_handlers;
 
     // Phase 7 slice 12: per-iter list of (ast_idx, item_offset, trigger_name)
     // for top-level items in the user sources whose annotations match a
     // registered handler trigger. The driver computes the absolute target
     // pointer at invoke time as `asts[ast_idx].holder()->base() + offset`
     // (offsets are stable; base may move on arena growth between iters).
-    struct MetaprogTarget {
-        size_t      ast_idx;
-        uint32_t    item_offset;  // offset of the TinyObjectMap node in the holder
-        std::string trigger;
-    };
-    std::vector<MetaprogTarget> metaprog_targets;
+    // (Stage E: decl mirrors — see lir_view::MetaprogTargetView.)
+    std::vector<lir_view::MetaprogTargetView> metaprog_targets;
 
     // hstatic-as-const-generic: registry of HermesStatic literals encountered
     // at type-arg position (`Foo::<@{...}>`), keyed by content-hash. Sema
@@ -857,24 +850,10 @@ struct LProgram {
     // that wraps the literal-folded call; the driver looks up the thunk in the
     // metaprog JIT, invokes it, and splices the resulting literal back into the
     // AST node at `expr_offset` (overwriting CODE+VALUE in place via TOM::put).
-    struct MetacallSite {
-        size_t      ast_idx;       // index into asts[] (== entry_ast_idx for now)
-        uint32_t    expr_offset;   // arena offset of the METACALL TOM node
-        std::string thunk_name;    // mangled name of the synthesised thunk fn
-        // Stage 2: synthesised thunk source. Driver feeds it through
-        // logos_emit_source so the metaprog JIT compiles a no-arg fn that
-        // returns the const-folded callee result. Empty if thunk synthesis
-        // failed (e.g. unsupported call shape) — driver skips such sites.
-        std::string thunk_source;
-        // Return-type discriminator for the driver (avoids re-deriving from L-IR).
-        enum class RetTag { Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64, F32, F64, Str, HermesStatic, Hermes, ExprBlob, ItemBlob };
-        RetTag      ret_tag = RetTag::I64;
-        // MC1.2: simple-name of the free-fn callee (no turbofish, no `Type::`
-        // prefix). Driver passes these as `metaprog_keep_fns` on re-sema so
-        // the callee body isn't stubbed out in metaprog_mode.
-        std::string callee_name;
-    };
-    std::vector<MetacallSite> metacall_sites;
+    // (Stage E: decl mirrors — see lir_view::MetacallSiteView. The per-site
+    // return-type discriminator RetTag was hoisted to namespace scope as
+    // MetacallRetTag — see above.)
+    std::vector<lir_view::MetacallSiteView> metacall_sites;
 
     // Function-style macro arg blobs (slice 1.3b of fn-macros).
     //

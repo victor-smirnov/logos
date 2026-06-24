@@ -2408,9 +2408,9 @@ int run_metaprog_dispatch(
 
         bool has_pending_item_mc = false;
         {
-            using RT = lir::LProgram::MetacallSite::RetTag;
+            using RT = lir::MetacallRetTag;
             for (const auto& s : prog.metacall_sites) {
-                if (s.ret_tag == RT::ItemBlob) { has_pending_item_mc = true; break; }
+                if (s.ret_tag() == RT::ItemBlob) { has_pending_item_mc = true; break; }
             }
         }
         if (prog.metaprog_targets.empty() && !has_pending_item_mc) break;
@@ -2419,7 +2419,8 @@ int run_metaprog_dispatch(
             std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
                          iter, prog.metaprog_targets.size());
             for (auto& t : prog.metaprog_targets)
-                std::fprintf(stderr, "                 - %s\n", t.trigger.c_str());
+                std::fprintf(stderr, "                 - %s\n",
+                             std::string(t.trigger()).c_str());
         }
 
         auto _t2 = std::chrono::steady_clock::now();
@@ -2436,11 +2437,11 @@ int run_metaprog_dispatch(
         stat_step(_t2, "meta_sema_lower", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 
-        std::vector<lir::LProgram::MetacallSite> meta_item_sites;
+        std::vector<lir_view::MetacallSiteView> meta_item_sites;
         {
-            using RT = lir::LProgram::MetacallSite::RetTag;
+            using RT = lir::MetacallRetTag;
             for (const auto& s : meta_prog.metacall_sites) {
-                if (s.ret_tag == RT::ItemBlob) meta_item_sites.push_back(s);
+                if (s.ret_tag() == RT::ItemBlob) meta_item_sites.push_back(s);
             }
         }
         if (!meta_item_sites.empty()) {
@@ -2448,13 +2449,14 @@ int run_metaprog_dispatch(
             bool* prev_any = g_any_emitted;
             g_any_emitted = &tmp_emitted;
             for (const auto& s : meta_item_sites) {
-                if (!s.thunk_source.empty()) logos_emit_source(s.thunk_source.c_str());
+                if (!s.thunk_source().empty())
+                    logos_emit_source(std::string(s.thunk_source()).c_str());
             }
             g_any_emitted = prev_any;
             auto resema_opts = meta_opts;
             for (const auto& s : meta_item_sites) {
-                if (!s.callee_name.empty())
-                    resema_opts.metaprog_keep_fns.push_back(s.callee_name);
+                if (!s.callee_name().empty())
+                    resema_opts.metaprog_keep_fns.push_back(std::string(s.callee_name()));
             }
             // M6.1: bypass the cache for this re-sema. The cache snapshot
             // captured the iter-top sema where the callee bodies were
@@ -2637,14 +2639,16 @@ int run_metaprog_dispatch(
             // multiple non-binary asts in one pass). Restored after the
             // inner per-handler loop.
             auto saved_root = g_user_root_idx;
-            g_user_root_idx = tgt.ast_idx;
+            g_user_root_idx = tgt.ast_idx();
             bool any_handler = false;
+            std::string tgt_trigger(tgt.trigger());
             for (const auto& mh : saved_handlers) {
-                if (mh.trigger != tgt.trigger) continue;
+                if (mh.trigger() != tgt_trigger) continue;
                 any_handler = true;
-                std::string lookup_name = mh.hook_fn;
+                std::string mh_hook_fn(mh.hook_fn());
+                std::string lookup_name = mh_hook_fn;
                 for (const auto& f : meta_prog.functions) {
-                    if (bare_fn_name(f.name()) == mh.hook_fn) {
+                    if (bare_fn_name(f.name()) == mh_hook_fn) {
                         lookup_name = std::string(f.name());
                         break;
                     }
@@ -2656,14 +2660,14 @@ int run_metaprog_dispatch(
                     g_user_root_idx = saved_root;
                     return 1;
                 }
-                g_current_hook_name = mh.hook_fn.c_str();
+                g_current_hook_name = mh_hook_fn.c_str();
                 {
                     int line = 0;
                     std::string target_name;
-                    if (tgt.ast_idx < asts.size()) {
-                        auto* h    = asts[tgt.ast_idx].holder();
+                    if (tgt.ast_idx() < asts.size()) {
+                        auto* h    = asts[tgt.ast_idx()].holder();
                         auto tom   = hermes::TinyMapView(
-                                        hermes::arena_offset_t(tgt.item_offset), h);
+                                        hermes::arena_offset_t(tgt.item_offset()), h);
                         auto av = tom.get(ast::SRC_LINE.code);
                         if (!av.is_null() && av.is_value())
                             line = static_cast<int>(av.as_value<uint32_t>());
@@ -2675,12 +2679,12 @@ int run_metaprog_dispatch(
                         }
                     }
                     g_current_emit_ctx = EmitProvenance{
-                        tgt.ast_idx < filenames.size() ? filenames[tgt.ast_idx] : std::string{},
-                        line, mh.hook_fn, tgt.trigger, target_name, iter,
+                        tgt.ast_idx() < filenames.size() ? filenames[tgt.ast_idx()] : std::string{},
+                        line, mh_hook_fn, tgt_trigger, target_name, iter,
                     };
                     g_current_emit_ctx_valid = true;
                 }
-                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
+                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset());
                 g_current_emit_ctx_valid = false;
                 g_current_hook_name = nullptr;
             }
@@ -2688,7 +2692,7 @@ int run_metaprog_dispatch(
             if (!any_handler) {
                 std::fprintf(stderr,
                     "logosc: internal: no handler for trigger '%s'\n",
-                    tgt.trigger.c_str());
+                    tgt_trigger.c_str());
                 return 1;
             }
         }
@@ -2699,14 +2703,14 @@ int run_metaprog_dispatch(
         }
 
         for (const auto& site : meta_item_sites) {
-            if (site.thunk_source.empty()) continue;
-            if (site.ast_idx >= asts.size()) continue;
-            auto* sym = meta_jit->lookup(site.thunk_name);
+            if (site.thunk_source().empty()) continue;
+            if (site.ast_idx() >= asts.size()) continue;
+            auto* sym = meta_jit->lookup(std::string(site.thunk_name()));
             if (!sym) continue;
             reinterpret_cast<void (*)()>(sym)();
-            auto& doc = asts[site.ast_idx];
+            auto& doc = asts[site.ast_idx()];
             auto* h    = doc.holder();
-            auto tom  = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset), h);
+            auto tom  = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
             if (auto r = tom.put(
                     ast::CODE.code,
                     hermes::AnyVal::from_value<int32_t>(
@@ -3372,7 +3376,8 @@ int main(int argc, char** argv) {
             auto post_prog = logos::compiler::sema_lower(asts, filenames, from_binary,
                                                           logos::compiler::SemaOptions{}, is_lazy, module_ids);
             for (auto& mh : post_prog.metaprog_handlers) {
-                if (mh.trigger != "<missing>") consumed_triggers.insert(mh.trigger);
+                if (mh.trigger() != "<missing>")
+                    consumed_triggers.insert(std::string(mh.trigger()));
             }
         }
         // Helper: split a rendered module string into:
@@ -3551,8 +3556,8 @@ int main(int argc, char** argv) {
             // Step 1: emit thunk sources for new sites (dedup via emit_seen).
             bool emitted_any_thunk = false;
             for (const auto& site : prog.metacall_sites) {
-                if (site.thunk_source.empty()) continue;
-                if (logos_emit_source(site.thunk_source.c_str()))
+                if (site.thunk_source().empty()) continue;
+                if (logos_emit_source(std::string(site.thunk_source()).c_str()))
                     emitted_any_thunk = true;
             }
             if (emitted_any_thunk) {
@@ -3600,16 +3605,16 @@ int main(int argc, char** argv) {
                 // dynamic-dispatch deps (vtables, Hermes TypeCode tag tables)
                 // a static call-graph can't see — pruning there drops a
                 // dispatch target and the JIT jumps to 0x0. Leave those eager.
-                using MCRetTag = logos::compiler::lir::LProgram::MetacallSite::RetTag;
+                using MCRetTag = logos::compiler::lir::MetacallRetTag;
                 bool all_macro = !saved_metacall_sites.empty();
                 for (const auto& site : saved_metacall_sites)
-                    if (site.ret_tag != MCRetTag::ExprBlob &&
-                        site.ret_tag != MCRetTag::ItemBlob) { all_macro = false; break; }
+                    if (site.ret_tag() != MCRetTag::ExprBlob &&
+                        site.ret_tag() != MCRetTag::ItemBlob) { all_macro = false; break; }
                 logos::compiler::MonoOpts mc_mopts;
                 if (all_macro && !std::getenv("LOGOS_NO_MC_PRUNE"))
                     for (const auto& site : saved_metacall_sites)
-                        if (!site.thunk_name.empty())
-                            mc_mopts.entry_points.insert(site.thunk_name);
+                        if (!site.thunk_name().empty())
+                            mc_mopts.entry_points.insert(std::string(site.thunk_name()));
                 mc_prog = logos::compiler::mono_pass(std::move(mc_prog), std::move(mc_mopts));
             }
             mc_stat_step(_mc_t, "mono", mi);
@@ -3759,15 +3764,15 @@ int main(int argc, char** argv) {
             } macro_args_guard;
 
             // Step 3: invoke each thunk and splice the result into the AST.
-            using RT = logos::compiler::lir::LProgram::MetacallSite::RetTag;
+            using RT = logos::compiler::lir::MetacallRetTag;
             bool any_spliced = false;
             for (const auto& site : saved_metacall_sites) {
-                if (site.thunk_source.empty()) continue;
-                if (site.ast_idx >= asts.size()) continue;
-                auto* sym = mc_jit->lookup(site.thunk_name);
+                if (site.thunk_source().empty()) continue;
+                if (site.ast_idx() >= asts.size()) continue;
+                auto* sym = mc_jit->lookup(std::string(site.thunk_name()));
                 if (!sym) {
                     std::fprintf(stderr, "logosc: metacall thunk lookup '%s': %s\n",
-                                 site.thunk_name.c_str(), mc_jit->error_str().c_str());
+                                 std::string(site.thunk_name()).c_str(), mc_jit->error_str().c_str());
                     return 1;
                 }
 
@@ -3776,30 +3781,30 @@ int main(int argc, char** argv) {
                 // which appends a fresh AST to g_asts. After invoke, mark the
                 // METACALL_ITEM AST node consumed (CODE = METACALL_ITEM_DONE)
                 // so the next sema pass skips it.
-                if (site.ret_tag == RT::ItemBlob) {
+                if (site.ret_tag() == RT::ItemBlob) {
                     // Provenance for --dump-metaprog: file:line + callee at
                     // the original `metacall foo();` site. Read SRC_LINE
                     // from the METACALL_ITEM TOM before splice.
                     {
                         int line = 0;
-                        if (site.ast_idx < asts.size()) {
-                            auto* h    = asts[site.ast_idx].holder();
-                            auto tom  = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset), h);
+                        if (site.ast_idx() < asts.size()) {
+                            auto* h    = asts[site.ast_idx()].holder();
+                            auto tom  = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
                             auto av = tom.get(logos::compiler::ast::SRC_LINE.code);
                             if (!av.is_null() && av.is_value())
                                 line = static_cast<int>(av.as_value<uint32_t>());
                         }
                         g_current_emit_ctx = EmitProvenance{
-                            site.ast_idx < filenames.size() ? filenames[site.ast_idx] : std::string{},
-                            line, site.callee_name, std::string{}, std::string{}, mi,
+                            site.ast_idx() < filenames.size() ? filenames[site.ast_idx()] : std::string{},
+                            line, std::string(site.callee_name()), std::string{}, std::string{}, mi,
                         };
                         g_current_emit_ctx_valid = true;
                     }
                     reinterpret_cast<void (*)()>(sym)();
                     g_current_emit_ctx_valid = false;
-                    auto& doc = asts[site.ast_idx];
+                    auto& doc = asts[site.ast_idx()];
                     auto* h   = doc.holder();
-                    auto tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset), h);
+                    auto tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
                     // Determine the DONE marker from the current CODE
                     // — metacall_item and fn_macro_call_item share the
                     // ItemBlob splice path but have distinct grammar
@@ -3833,7 +3838,7 @@ int main(int argc, char** argv) {
                 std::string blob_bytes;  // for HermesStatic ret
                 bool is_float = false, is_bool = false, is_str = false, is_unsigned = false;
                 bool is_hermes_blob = false;
-                switch (site.ret_tag) {
+                switch (site.ret_tag()) {
                 case RT::Bool:  b_val = reinterpret_cast<bool   (*)()>(sym)(); is_bool = true; break;
                 case RT::I8:    i_val = reinterpret_cast<int8_t (*)()>(sym)(); break;
                 case RT::I16:   i_val = reinterpret_cast<int16_t(*)()>(sym)(); break;
@@ -3911,9 +3916,9 @@ int main(int argc, char** argv) {
                 else if (is_unsigned) { lit_text = std::to_string(u_val); }
                 else { lit_text = std::to_string(i_val); }
 
-                auto& doc = asts[site.ast_idx];
+                auto& doc = asts[site.ast_idx()];
                 auto* h = doc.holder();
-                auto tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset), h);
+                auto tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
 
                 logos::hermes::AnyVal value_av;
                 if (is_bool) {
@@ -3925,7 +3930,7 @@ int main(int argc, char** argv) {
                         return 1;
                     }
                     value_av = str_exp->to_anyval();
-                    tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset), h);
+                    tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
                 }
 
                 if (auto r = tom.put(logos::compiler::ast::CODE.code,
@@ -3934,7 +3939,7 @@ int main(int argc, char** argv) {
                     std::fprintf(stderr, "logosc: metacall splice: CODE put failed\n");
                     return 1;
                 }
-                tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset), h);
+                tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
                 tom.set_schema_type_code(
                     logos::hermes::schema::ast(static_cast<int32_t>(new_code)));
                 if (auto r = tom.put(logos::compiler::ast::VALUE.code, value_av); !r) {
@@ -4275,7 +4280,7 @@ int main(int argc, char** argv) {
     // but won't reach mono / MLIR / linker.
     {
         std::set<std::string> hook_names;
-        for (const auto& mh : prog.metaprog_handlers) hook_names.insert(mh.hook_fn);
+        for (const auto& mh : prog.metaprog_handlers) hook_names.insert(std::string(mh.hook_fn()));
         prog.functions.erase(
             std::remove_if(prog.functions.begin(), prog.functions.end(),
                 [&](const auto& f) {

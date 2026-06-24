@@ -398,8 +398,41 @@ enum class Code : int32_t {
     InstAnnot     = DECL_BASE + 7,
     DispatchEntry = DECL_BASE + 8,
     ReflectGlobal = DECL_BASE + 9,
+    MetaprogHandler = DECL_BASE + 10,
+    MetaprogTarget  = DECL_BASE + 11,
+    MetacallSite    = DECL_BASE + 12,
+    ModuleInnerDoc  = DECL_BASE + 13,
 };
 } // namespace decl
+
+// ── MetaprogHandler (Code::MetaprogHandler) decl keys — OWN key space ────────
+namespace mp_handler_keys {
+inline constexpr Key TRIGGER {"TRIGGER", 1};  // Varchar
+inline constexpr Key HOOK_FN {"HOOK_FN", 2};  // Varchar
+} // namespace mp_handler_keys
+
+// ── MetaprogTarget (Code::MetaprogTarget) decl keys — OWN key space ──────────
+namespace mp_target_keys {
+inline constexpr Key AST_IDX     {"AST_IDX",     1};  // i64
+inline constexpr Key ITEM_OFFSET {"ITEM_OFFSET", 2};  // i64
+inline constexpr Key TRIGGER     {"TRIGGER",     3};  // Varchar
+} // namespace mp_target_keys
+
+// ── MetacallSite (Code::MetacallSite) decl keys — OWN key space ──────────────
+namespace metacall_keys {
+inline constexpr Key AST_IDX      {"AST_IDX",      1};  // i64
+inline constexpr Key EXPR_OFFSET  {"EXPR_OFFSET",  2};  // i64
+inline constexpr Key THUNK_NAME   {"THUNK_NAME",   3};  // Varchar
+inline constexpr Key THUNK_SOURCE {"THUNK_SOURCE", 4};  // Varchar
+inline constexpr Key RET_TAG      {"RET_TAG",      5};  // i64
+inline constexpr Key CALLEE_NAME  {"CALLEE_NAME",  6};  // Varchar
+} // namespace metacall_keys
+
+// ── ModuleInnerDoc (Code::ModuleInnerDoc) decl keys — OWN key space ──────────
+namespace module_doc_keys {
+inline constexpr Key MODULE {"MODULE", 1};  // Varchar
+inline constexpr Key DOC    {"DOC",    2};  // Varchar
+} // namespace module_doc_keys
 
 // ── LInstAnnotation (Code::InstAnnot) decl keys — OWN key space ──────────────
 namespace inst_annot_keys {

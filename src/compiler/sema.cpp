@@ -338,7 +338,7 @@ struct LirBundle {
     std::vector<lir_view::ImplView>   impls;
     std::vector<lir_view::InstAnnotView>     inst_annotations;
     std::vector<lir_view::DispatchEntryView> dispatch_entries;
-    std::vector<std::pair<std::string, std::string>> module_inner_docs;
+    std::vector<lir_view::ModuleInnerDocView> module_inner_docs;
     StrSet                            reflect_requests;
     bool                              valid = false;
     // M6.1: per-vector "binary boundary" — entries [0, *_binary_end) came
@@ -2434,8 +2434,27 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     }
 
     prog.diags      = std::move(result_);
-    prog.metaprog_handlers = std::move(metaprog_handlers_);
-    prog.metaprog_targets = std::move(metaprog_targets_);
+    // Stage E: build the Hermes mirror views for the handler/target tables at
+    // the move-into-prog point (prog is the host for the decl mirrors).
+    prog.metaprog_handlers.clear();
+    prog.metaprog_handlers.reserve(metaprog_handlers_.size());
+    for (const auto& mh : metaprog_handlers_) {
+        namespace mhk = lir_schema::mp_handler_keys;
+        DeclBuilder b(prog, lir_schema::decl::Code::MetaprogHandler, /*cap=*/4);
+        b.str(mhk::TRIGGER, mh.trigger);
+        b.str(mhk::HOOK_FN, mh.hook_fn);
+        prog.metaprog_handlers.push_back(b.view<lir_view::MetaprogHandlerView>());
+    }
+    prog.metaprog_targets.clear();
+    prog.metaprog_targets.reserve(metaprog_targets_.size());
+    for (const auto& mt : metaprog_targets_) {
+        namespace mtk = lir_schema::mp_target_keys;
+        DeclBuilder b(prog, lir_schema::decl::Code::MetaprogTarget, /*cap=*/4);
+        b.i64(mtk::AST_IDX, (int64_t)mt.ast_idx);
+        b.i64(mtk::ITEM_OFFSET, (int64_t)mt.item_offset);
+        b.str(mtk::TRIGGER, mt.trigger);
+        prog.metaprog_targets.push_back(b.view<lir_view::MetaprogTargetView>());
+    }
 
     // Stage 3g.1: populate prog.mirror_table after lowering completes. With
     // pool_ bound to prog.type_pool throughout sema, mirror offsets and
@@ -7972,7 +7991,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     }
     // Phase A.3: commit per-module `//!` accumulator into LProgram and reset.
     if (!module_inner_doc_.empty()) {
-        prog.module_inner_docs.push_back({file_, std::move(module_inner_doc_)});
+        namespace mdk = lir_schema::module_doc_keys;
+        DeclBuilder b(prog, lir_schema::decl::Code::ModuleInnerDoc, /*cap=*/4);
+        b.str(mdk::MODULE, file_);
+        b.str(mdk::DOC, module_inner_doc_);
+        prog.module_inner_docs.push_back(b.view<lir_view::ModuleInnerDocView>());
         module_inner_doc_.clear();
     }
 }

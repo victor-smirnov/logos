@@ -34,6 +34,30 @@ using hermes::StringView;
 using hermes::AnyVal;
 using hermes::MemHolder;
 
+// Stage E: LProgram::MetacallSite was migrated to a Hermes mirror view
+// (lir_view::MetacallSiteView). Sema collects each site into this transient
+// POD first (fields filled incrementally), then direct-builds the view via
+// push_metacall_site() at the push point (the host LProgram is in scope there).
+struct MetacallSiteStage {
+    size_t      ast_idx = 0;
+    uint32_t    expr_offset = 0;
+    std::string thunk_name;
+    std::string thunk_source;
+    lir::MetacallRetTag ret_tag = lir::MetacallRetTag::I64;
+    std::string callee_name;
+};
+static void push_metacall_site(lir::LProgram& prog, const MetacallSiteStage& s) {
+    namespace mck = lir_schema::metacall_keys;
+    DeclBuilder b(prog, lir_schema::decl::Code::MetacallSite, /*cap=*/8);
+    b.i64(mck::AST_IDX, (int64_t)s.ast_idx);
+    b.i64(mck::EXPR_OFFSET, (int64_t)s.expr_offset);
+    b.str(mck::THUNK_NAME, s.thunk_name);
+    b.str(mck::THUNK_SOURCE, s.thunk_source);
+    b.i64(mck::RET_TAG, (int64_t)(int32_t)s.ret_tag);
+    b.str(mck::CALLEE_NAME, s.callee_name);
+    prog.metacall_sites.push_back(b.view<lir_view::MetacallSiteView>());
+}
+
 // Expression lowering methods
 
 lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
@@ -17379,12 +17403,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
 
     // Record site for the eventual driver-side splice (M.1 Stage 2).
     if (cur_prog_ && rt && ok_ret) {
-        lir::LProgram::MetacallSite site;
+        MetacallSiteStage site;
         site.ast_idx = cur_ast_idx_;
         site.expr_offset = static_cast<uint32_t>(node.offset().value());
         site.thunk_name = std::format("__metacall_thunk_{}",
                                       cur_prog_->metacall_sites.size());
-        using RT = lir::LProgram::MetacallSite::RetTag;
+        using RT = lir::MetacallRetTag;
         switch (rk) {
         case LogosType::Kind::Bool:  site.ret_tag = RT::Bool; break;
         case LogosType::Kind::I8:    site.ret_tag = RT::I8; break;
@@ -17487,7 +17511,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 ret_text = type_str(rt);
             }
             std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
-            using RT2 = lir::LProgram::MetacallSite::RetTag;
+            using RT2 = lir::MetacallRetTag;
             if (site.ret_tag == RT2::Hermes) {
                 // Hermes ret: wrap in __metacall_freeze, which copies the
                 // live-zone bytes into a malloc'd [u64 size][bytes] buffer
@@ -17546,7 +17570,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     pkg, extra_uses, site.thunk_name, ret_text, body);
             }
         }
-        cur_prog_->metacall_sites.push_back(std::move(site));
+        push_metacall_site(*cur_prog_, site);
 
         // Post-splice the AST node becomes HERMES_BLOB (typed HermesStatic).
         // Override the lowered expr's type so sema sees the post-splice shape
@@ -18557,14 +18581,14 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
             static_cast<int64_t>(raw_text.size()),
             macro_info->base_name);
 
-        lir::LProgram::MetacallSite site;
+        MetacallSiteStage site;
         site.ast_idx = cur_ast_idx_;
         site.expr_offset = static_cast<uint32_t>(node.offset().value());
         site.thunk_name = thunk_name;
         site.thunk_source = std::move(thunk_src);
-        site.ret_tag = lir::LProgram::MetacallSite::RetTag::ExprBlob;
+        site.ret_tag = lir::MetacallRetTag::ExprBlob;
         site.callee_name = macro_info->base_name;
-        cur_prog_->metacall_sites.push_back(std::move(site));
+        push_metacall_site(*cur_prog_, site);
 
         lir::EHermesLit lit;
         return builder().hermes_lit_v(std::move(lit), macro_info->ret_type);
@@ -19068,14 +19092,14 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
             pkg, thunk_name, body, macro_info->base_name);
     }
 
-    lir::LProgram::MetacallSite site;
+    MetacallSiteStage site;
     site.ast_idx = cur_ast_idx_;
     site.expr_offset = static_cast<uint32_t>(node.offset().value());
     site.thunk_name = thunk_name;
     site.thunk_source = std::move(thunk_src);
-    site.ret_tag = lir::LProgram::MetacallSite::RetTag::ExprBlob;
+    site.ret_tag = lir::MetacallRetTag::ExprBlob;
     site.callee_name = macro_info->base_name;
-    cur_prog_->metacall_sites.push_back(std::move(site));
+    push_metacall_site(*cur_prog_, site);
 
     // Pass-through placeholder typed as the callee's ret (ExprBlob) — the
     // driver splices HERMES_BLOB over this node before the final sema
@@ -19341,14 +19365,14 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
             pkg, thunk_name, call_text);
     }
 
-    lir::LProgram::MetacallSite site;
+    MetacallSiteStage site;
     site.ast_idx = cur_ast_idx_;
     site.expr_offset = static_cast<uint32_t>(node.offset().value());
     site.thunk_name = thunk_name;
     site.thunk_source = std::move(thunk_src);
-    site.ret_tag = lir::LProgram::MetacallSite::RetTag::ItemBlob;
+    site.ret_tag = lir::MetacallRetTag::ItemBlob;
     site.callee_name = macro_info->base_name;
-    prog.metacall_sites.push_back(std::move(site));
+    push_metacall_site(prog, site);
 }
 
 // ── metacall <call_expr>; at item position ───────────────────────────────
@@ -19568,12 +19592,12 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     }
     if (!ok) return;
 
-    lir::LProgram::MetacallSite site;
+    MetacallSiteStage site;
     site.ast_idx = cur_ast_idx_;
     site.expr_offset = static_cast<uint32_t>(node.offset().value());
     site.thunk_name = std::format("__metacall_thunk_{}",
                                   prog.metacall_sites.size());
-    site.ret_tag = lir::LProgram::MetacallSite::RetTag::ItemBlob;
+    site.ret_tag = lir::MetacallRetTag::ItemBlob;
     if (ic == la::CALL || ic == la::GENERIC_CALL) {
         site.callee_name = std::string(str_of(inner.get(la::CALLEE.code)));
     }
@@ -19631,7 +19655,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
             "}}\n",
             pkg, site.thunk_name, call_text);
     }
-    prog.metacall_sites.push_back(std::move(site));
+    push_metacall_site(prog, site);
 }
 
 } // namespace logos::compiler
