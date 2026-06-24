@@ -4272,18 +4272,24 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
     return false;
 }
 
-lir::StructDraft SemaChecker::lower_spec_struct(TinyMapView node) {
+// Stage E direct-build: like lower_struct_def but for specialization defs.
+// Builds the spec's struct mirror STRAIGHT into the program HermesCtr via
+// DeclBuilder (no Draft) and returns a DeclBuilder the caller finalizes
+// (doc/flags/type_code) and pushes into prog.struct_specializations.
+DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
+    namespace stk = lir_schema::struct_keys;
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("struct {} (specialization)", sname);
 
-    lir::StructDraft sd;
-    sd.name = sname;
-    sd.pkg  = cur_package_;
-    sd.is_specialization = true;
-    sd.from_binary_module = cur_from_binary_;
+    DeclBuilder sd(*cur_prog_, lir_schema::decl::Code::Struct, /*cap=*/40);
+    sd.str_always(stk::NAME, sname);
+    sd.str(stk::PKG, cur_package_);
+    sd.flag(stk::IS_SPECIALIZATION, true);
+    if (cur_from_binary_) sd.flag(stk::FROM_BINARY_MODULE, true);
 
     // Parse spec type-param list: populate spec_patterns and TypeVar scope.
     std::vector<TypeParam> pattern_tvars;
+    std::vector<TypeRef>   spec_patterns;
     if (node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (!tpav.is_null()) {
@@ -4296,7 +4302,7 @@ lir::StructDraft SemaChecker::lower_spec_struct(TinyMapView node) {
                     if (tc == la::LIFETIME_PARAM) continue;  // skip — deferred to borrow checker
                     if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
                         extract_typevars_from_type_node(tpnode, pattern_tvars);
-                        sd.spec_patterns.push_back(resolve_type(tpnode));
+                        spec_patterns.push_back(resolve_type(tpnode));
                     } else if (tc == la::TYPE_PARAM) {
                         auto name = str_of(tpnode.get(la::NAME.code));
                         if (tpnode.has_key(la::ITEMS)) {
@@ -4304,15 +4310,15 @@ lir::StructDraft SemaChecker::lower_spec_struct(TinyMapView node) {
                             current_type_params_[std::string(name)] = make_typevar(name);
                             TypeParam tp; tp.name = std::string(name);
                             pattern_tvars.push_back(std::move(tp));
-                            sd.spec_patterns.push_back(make_typevar(name));
+                            spec_patterns.push_back(make_typevar(name));
                         } else {
                             auto known = try_resolve_as_known_type(name);
                             if (known) {
-                                sd.spec_patterns.push_back(known);
+                                spec_patterns.push_back(known);
                             } else {
                                 current_type_params_[std::string(name)] = make_typevar(name);
                                 pattern_tvars.push_back({std::string(name), {}});
-                                sd.spec_patterns.push_back(make_typevar(name));
+                                spec_patterns.push_back(make_typevar(name));
                             }
                         }
                     }
@@ -4320,26 +4326,35 @@ lir::StructDraft SemaChecker::lower_spec_struct(TinyMapView node) {
             }
         }
     }
+    if (!spec_patterns.empty()) {
+        auto pa = sd.array(stk::SPEC_PATTERNS);
+        for (auto t : spec_patterns) pa.push_type(t);
+    }
 
     // Lower fields (TypeVars from patterns now in scope).
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
-        for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fnode = map_of(fields.get(i));
-            auto fname = str_of(fnode.get(la::NAME.code));
-            auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
-            sd.fields.push_back({std::string(fname), ftype});
+        if (fields.size() > 0) {
+            auto fa = sd.array(stk::FIELDS);
+            for (uint64_t i = 0; i < fields.size(); ++i) {
+                auto fnode = map_of(fields.get(i));
+                auto fname = str_of(fnode.get(la::NAME.code));
+                auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+                lir::LField fld{std::string(fname), ftype};
+                fa.push_field(fld);
+            }
         }
     }
 
-    // Lower methods.
+    // METHODS array ALWAYS created (even empty) so in-place appends work later.
+    auto ma = sd.array(stk::METHODS);
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
             if (code_of(method) == la::FN) {
                 auto mfn = lower_fn(method, sname);
-                sd.methods.push_back(lir_mirror_emit_fn_view(*cur_prog_, mfn));
+                ma.push_ref(lir_mirror_emit_fn_view(*cur_prog_, mfn).self.addr());
             }
         }
     }

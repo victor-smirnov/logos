@@ -1067,12 +1067,20 @@ lir::FunctionDraft SemaChecker::lower_fn(TinyMapView node, std::string_view stru
     return fn;
 }
 
-lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
+// Stage E direct-build: builds the struct/datatype's Hermes mirror STRAIGHT into
+// the program HermesCtr via DeclBuilder (no Draft; struct StructDraft is gone)
+// and returns a DeclBuilder the caller finalizes (pkg/doc/flags/type_hash) and
+// pushes as a StructView. Local validation still uses the full TypeParam /
+// lifetime / field sets (kept as locals); only the fields written into the
+// mirror are carried. METHODS array is ALWAYS created (even empty) so later
+// in-place appends work. Reproduces the former emit_struct_def_direct mapping.
+DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
+    namespace stk = lir_schema::struct_keys;
     auto sname = std::string(str_of(node.get(la::NAME.code)));
-    lir::StructDraft sd;
-    sd.name               = sname;
-    sd.pkg                = cur_package_;
-    sd.from_binary_module = cur_from_binary_;
+    DeclBuilder sd(*cur_prog_, lir_schema::decl::Code::Struct, /*cap=*/40);
+    sd.str_always(stk::NAME, sname);
+    sd.str(stk::PKG, cur_package_);
+    if (cur_from_binary_) sd.flag(stk::FROM_BINARY_MODULE, true);
     // Look up in structs_ or datatypes_ — never default-insert via operator[].
     // Use package-aware find helpers so cross-package lowering works.
     auto [spkg_sd, ssi_sd] = find_struct_by_name(sname);
@@ -1089,40 +1097,43 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
         else if (doit2 != datatypes_.end()) sinfo = &doit2->second;
         else {
             error(std::format("internal: '{}' not found in collect phase", sname));
+            sd.array(stk::METHODS);
+            sd.bool_always(stk::IS_DATA_PLAIN, true);
             return sd;
         }
     }
-    sd.type_params = sinfo->type_params;
-    sd.lifetime_params = sinfo->lifetime_params;
+    // Local validation sets (NOT all stored verbatim).
+    std::vector<TypeParam>   type_params = sinfo->type_params;
+    std::vector<std::string> lifetime_params = sinfo->lifetime_params;
     // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
-    sd.is_dst = sinfo->is_dst;
+    if (sinfo->is_dst) sd.flag(stk::IS_DST, true);
     // Hermes / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
     // canonicalisation in mono_subst can keep `*Self` thin for this struct.
-    sd.self_describing = sinfo->self_describing;
+    if (sinfo->self_describing) sd.flag(stk::SELF_DESCRIBING, true);
     // Hermes: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
     // {data, zone} reference carrying its allocator.
-    sd.zone_mut = sinfo->zone_mut;
-    sd.zoned2 = sinfo->zoned2;   // hermes2: auto-relative pointer fields (RelOffset)
+    if (sinfo->zone_mut) sd.flag(stk::ZONE_MUT, true);
+    if (sinfo->zoned2) sd.flag(stk::ZONED2, true);   // hermes2: auto-relative pointer fields (RelOffset)
     // RefRepr RelOffset: propagate `#[rel_ptr]` so mlir-gen's ref_repr_of can
     // classify this type as a self-relative pointer (8B offset storage).
-    sd.rel_ptr = sinfo->rel_ptr;
+    if (sinfo->rel_ptr) sd.flag(stk::REL_PTR, true);
     // hermes2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
     // values of this type (HAny) like references.
-    sd.borrow_carrying = sinfo->borrow_carrying;
+    if (sinfo->borrow_carrying) sd.flag(stk::BORROW_CARRYING, true);
     // `#[non_null]`: single non-null ptr wrapper → Option<T> NullPtr niche in mlir-gen.
-    sd.non_null = sinfo->non_null;
+    if (sinfo->non_null) sd.flag(stk::NON_NULL, true);
     // §6.1: propagate union flag so mlir-gen's layout path can branch
     // to max-of-fields aligned to max-alignment.
-    sd.is_union = sinfo->is_union;
+    if (sinfo->is_union) sd.flag(stk::IS_UNION, true);
     // logos-core 1.5: propagate `#[repr(transparent)]` so mlir-gen's
     // `layout_of` Struct case can collapse to the field's layout.
-    sd.repr_transparent = sinfo->repr_transparent;
+    if (sinfo->repr_transparent) sd.flag(stk::REPR_TRANSPARENT, true);
     // B65: outlives bounds from `struct Foo<'a, 'b: 'a>` + validate names.
-    sd.lifetime_outlives = read_lifetime_outlives(node);
+    auto lifetime_outlives = read_lifetime_outlives(node);
     // B68.3: also pick up where-clause outlives + type-outlives bounds.
     {
         auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
-        for (auto& p : where_outlives) sd.lifetime_outlives.push_back(std::move(p));
+        for (auto& p : where_outlives) lifetime_outlives.push_back(std::move(p));
         if (node.has_key(la::WHERE)) {
             AnyVal wav = node.get(la::WHERE.code);
             if (!wav.is_null()) {
@@ -1136,7 +1147,7 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
                         std::string tname(str_of(witem.get(la::NAME.code)));
                         auto inner = arr_of(witem.get(la::ITEMS.code));
                         TypeParam* target = nullptr;
-                        for (auto& tp : sd.type_params)
+                        for (auto& tp : type_params)
                             if (tp.name == tname) { target = &tp; break; }
                         if (!target) continue;
                         for (uint64_t j = 0; j < inner.size(); ++j) {
@@ -1151,14 +1162,14 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
         }
     }
     {
-        std::unordered_set<std::string> declared(sd.lifetime_params.begin(),
-                                                 sd.lifetime_params.end());
+        std::unordered_set<std::string> declared(lifetime_params.begin(),
+                                                 lifetime_params.end());
         auto known = [&](std::string_view lt) {
             if (lt.empty()) return true;
             if (lt == "'static" || lt == "static") return true;
             return declared.count(std::string(lt)) > 0;
         };
-        for (auto& [lng, sht] : sd.lifetime_outlives) {
+        for (auto& [lng, sht] : lifetime_outlives) {
             if (!known(lng))
                 error(std::format("struct '{}': use of undeclared lifetime name '{}' in outlives clause",
                                   sname, lng));
@@ -1166,7 +1177,7 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
                 error(std::format("struct '{}': use of undeclared lifetime name '{}' in outlives clause",
                                   sname, sht));
         }
-        for (auto& tp : sd.type_params) {
+        for (auto& tp : type_params) {
             for (auto& lt : tp.lifetime_outlives) {
                 if (!known(lt))
                     error(std::format("struct '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
@@ -1174,21 +1185,42 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
             }
         }
     }
-    push_type_params(sd.type_params);
+    push_type_params(type_params);
     // Type-param uniqueness (closes B-gn-01)
-    check_unique_names(sd.type_params,
+    check_unique_names(type_params,
                        [](auto& tp) -> std::string_view { return tp.name; },
                        "type parameter", "struct " + sname);
     // Lifetime-param uniqueness (closes B-gn-02)
-    check_unique_names(sd.lifetime_params,
+    check_unique_names(lifetime_params,
                        [](auto& lt) -> std::string_view { return lt; },
                        "lifetime parameter", "struct " + sname);
+    // ── Write the mirror arrays now that validation locals are built. ──
+    if (!type_params.empty()) {
+        auto ta = sd.array(stk::TYPE_PARAMS);
+        for (auto& tp : type_params) ta.push_fn_tparam(tp);
+    }
+    if (!lifetime_params.empty()) {
+        auto la_ = sd.array(stk::LIFETIME_PARAMS);
+        for (auto& s : lifetime_params) la_.push_str(s);
+    }
+    if (!lifetime_outlives.empty()) {
+        auto lo = sd.array(stk::LIFETIME_OUTLIVES);
+        for (auto& pr : lifetime_outlives) { lo.push_str(pr.first); lo.push_str(pr.second); }
+    }
+    // Fields (collect into locals first for the uniqueness check, then write).
+    std::vector<lir::LField> fields;
     for (auto& f : sinfo->fields)
-        sd.fields.push_back({std::string(f.name), f.type, f.is_variadic, f.doc});
+        fields.push_back({std::string(f.name), f.type, f.is_variadic, f.doc});
     // Field-name uniqueness (closes B-it-03)
-    check_unique_names(sd.fields,
+    check_unique_names(fields,
                        [](auto& f) -> std::string_view { return f.name; },
                        "field", "struct " + sname);
+    if (!fields.empty()) {
+        auto fa = sd.array(stk::FIELDS);
+        for (auto& f : fields) fa.push_field(f);
+    }
+    // METHODS array ALWAYS created (even empty) so in-place appends work later.
+    auto ma = sd.array(stk::METHODS);
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
         // Phase A.2: doc-comments in the method stream prime pending_doc_
@@ -1200,12 +1232,15 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
             int32_t mc = code_of(method);
             if (mc == la::FN || mc == la::STATIC_FN) {
                 auto mfn = lower_fn(method, sname);
-                sd.methods.push_back(lir_mirror_emit_fn_view(*cur_prog_, mfn));
+                ma.push_ref(lir_mirror_emit_fn_view(*cur_prog_, mfn).self.addr());
             }
         }
         pending_doc_.clear();
     }
-    pop_type_params(sd.type_params);
+    // is_data_plain defaults true → ALWAYS stored (reader distinguishes false
+    // from absent). The caller may overwrite for datatypes.
+    sd.bool_always(stk::IS_DATA_PLAIN, true);
+    pop_type_params(type_params);
     return sd;
 }
 

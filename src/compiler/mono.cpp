@@ -343,7 +343,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (struct_done_.count(qkey) || struct_done_.count(sd_name)) continue;
             }
             auto nd = clone_struct_def(sd, {}, {}, sd_name);
-            out_.structs.push_back(lir_mirror_emit_struct_view(out_, nd));
+            out_.structs.push_back(nd.view<lir_view::StructView>());
         }
     }
 

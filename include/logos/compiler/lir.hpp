@@ -847,99 +847,15 @@ struct LAnnotationInstance {
     std::vector<std::pair<std::string, LAnnotationValue>> kv;
 };
 
-// Stage E: `struct LStructDef` is DELETED. Structs live ONLY as Hermes decl
-// mirror nodes (lir_schema::decl::Code::Struct + field/annotation sub-maps),
-// read via lir_view::StructView (the stored handle in LProgram::structs). The
-// METHODS array is mutated in place (lir_mirror_struct_append_method) for the
-// sema/mono passes that collect methods after the struct is stored. StructDraft
-// is the TRANSIENT BUILD BUFFER — never stored: sema (lower_struct_def/
-// lower_spec_struct) and mono (clone_struct_def) build one, emit it
-// (lir_mirror_emit_struct_view), store the View, discard the draft. (Same
-// FunctionDraft pattern; enums skip the Draft entirely — see lower_enum_def.)
-struct StructDraft {
-    std::string              name;
-    std::string              pkg;            // package that declares this struct/datatype
-    std::vector<TypeParam>   type_params;    // empty for non-generic structs
-    std::vector<std::string> lifetime_params; // e.g. ["'a", "'z"]; erased at codegen
-    // B65: outlives bounds on the struct's lifetime params, e.g.
-    // `struct Foo<'a, 'b: 'a>` → [("'b", "'a")].
-    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-    std::vector<LField>       fields;
-    std::vector<LFunctionPtr> methods;
-    bool                     is_pub        = false;
-    bool                     is_zoned   = false;  // Hermes datatype (C POD layout)
-    uint64_t                 type_code     = 0;      // explicit #[type_code=N]; 0 = auto-assign
-    bool                     is_data_plain = true;   // no relative-ptr fields → value-copyable
-    bool                     from_binary_module = false;  // loaded from binary archive
-    // Phase 1B-14: custom DST — the last field has unsized type ([T] / dyn).
-    // The struct itself is unsized; `&Self` / `*const Self` etc. are fat
-    // pointers `{*const u8, i64 tail_len}` (same shape as Slice fat-ptr).
-    bool                     is_dst        = false;
-    // Hermes / RefRepr: `#[self_describing]` — this DST struct recovers its
-    // tail length from an in-band prefix field (e.g. Segment's `cap`), so a
-    // `*const Self` / `*mut Self` raw pointer stays THIN (8B, kind=Ptr) rather
-    // than fattening to a 16B DstRef. `&Self` / `&mut Self` / `Box<Self>` keep
-    // the fat DstRef repr (they don't carry the in-band length contract). The
-    // marker dissolves the self-referential-DST-pointer bug without regressing
-    // Rc/Arc<dyn> (those use the fat DstRef path). Consulted at the Ptr→DstRef
-    // canonicalisation in mono_subst + sema resolve_type.
-    bool                     self_describing = false;
-    // `#[rel_ptr]`: self-relative pointer type — RefRepr RelOffset (8B i64 byte
-    // offset storage, absolute thin ptr compute; materialize = slot + load(slot)).
-    bool                     rel_ptr = false;
-    // `#[borrow_carrying]`: a value type whose value may hold a Ref into an arena
-    // (e.g. HAny) — the borrow checker escape-tracks such values like references.
-    bool                     borrow_carrying = false;
-    // `#[non_null]`: single 8-byte pointer wrapper (Box/Rc/Arc) whose pointer is
-    // guaranteed non-null → `Option<ThisStruct>` gets the NullPtr niche
-    // (None = null pointer, so the enum is pointer-sized).
-    bool                     non_null = false;
-    // `#[zone_mut]`: a `&mut T` to this type is a FAT ref {data, zone=*mut Allocator}
-    // carrying its Hermes zone, so grow methods reach the allocator from &mut self;
-    // read `&T` stays thin. (hermes2-zone-mut-fat-ref)
-    bool                     zone_mut = false;
-    // `#[zoned2]`: every thin pointer field is stored SELF-RELATIVE (RelOffset i64,
-    // anchored to the field's own slot) and materialises to an absolute pointer in
-    // compute — the untagged zoned-reference case (ref-repr-design §6). Non-movable.
-    bool                     zoned2 = false;
-    // logos-core §6.1: this type was declared as `union NAME { … }`.
-    // Layout is max-of-fields aligned to max-alignment (vs struct's
-    // sum-of-fields); only one field is "active" at a time. Field-
-    // reads require enclosing `unsafe` (Rust soundness contract);
-    // struct-lit construction initializes exactly one field.
-    bool                     is_union      = false;
-    // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper inherits
-    // its field's layout EXACTLY (size + align). Recognised by sema_collect
-    // (`SemaStructInfo::repr_transparent`); consumed by mlir-gen's `layout_of`
-    // Struct case to return the field's layout directly, bypassing the
-    // aggregate-with-padding path. Required for sound `NonZeroI64`-style
-    // wrapper-type ABI identity at FFI boundaries.
-    bool                     repr_transparent = false;
-    // SHA-256 of canonical type string, truncated to 23 bytes; all-zero = not yet computed
-    // (zero for generic templates — hashed at instantiation time in mono_pass).
-    std::array<uint8_t, 23>  type_hash     = {};
-
-    // User-annotation metadata.
-    bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
-    std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
-
-    // Specialisation support (mirrors FunctionDraft).
-    bool                          is_specialization = false;
-    std::vector<TypeRef> spec_patterns;
-    // Outer doc-comment (`/// ...`) on the struct/datatype declaration.
-    std::string                   doc;
-
-    // Stage E (decl→Hermes migration): transient bridge to the struct's Hermes
-    // decl mirror (Code::Struct map). Set by lir_mirror_emit_struct_view.
-    // mirror_ptr_ = absolute address of the decl map (segments never move);
-    // mirror_arena_ = its owning arena (for cross-arena child resolution).
-    // view() wraps them as a StructView for read migration.
-    mutable const uint8_t*       mirror_ptr_   = nullptr;
-    mutable const hermes::Arena* mirror_arena_ = nullptr;
-    lir_view::StructView view() const noexcept {
-        return lir_view::StructView{lir_view::DeclRef(mirror_arena_, mirror_ptr_)};
-    }
-};
+// Stage E: `struct LStructDef` + `struct StructDraft` are DELETED. Structs live
+// ONLY as Hermes decl mirror nodes (lir_schema::decl::Code::Struct +
+// field/annotation sub-maps), read via lir_view::StructView (the stored handle
+// in LProgram::structs). The METHODS array is mutated in place
+// (lir_mirror_struct_append_method) for the sema/mono passes that collect
+// methods after the struct is stored. sema (lower_struct_def / lower_spec_struct)
+// and mono (clone_struct_def) DIRECT-BUILD the mirror via DeclBuilder (no Draft)
+// and return a builder/View the caller finalizes and pushes — same pattern as
+// lower_enum_def / clone_enum_def.
 
 
 // Stage E: structs LEnumDef / LVariant + EnumDraft / EnumVariantDraft /

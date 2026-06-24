@@ -5261,35 +5261,50 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
 
 // Clone a struct def with substitution; rename to new_name.
 // Method names are rewritten from "Base__method" to "new_name__method".
-lir::StructDraft Mono::clone_struct_def(lir_view::StructView tmpl,
+DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
                                   const SubstMap& s,
                                   const PackMap& packs,
                                   const std::string& new_name) {
+    namespace stk = lir_schema::struct_keys;
     // CRITICAL: read template types via out_'s pool — mono moves in_.type_pool
     // into out_ at run() start, so in_'s pool is moved-from. (Same gotcha that
     // bit clone_enum_def.)
     const TypePoolImpl* pool = out_.type_pool.impl();
-    lir::StructDraft nd;
-    nd.name = new_name;
-    nd.pkg  = std::string(tmpl.pkg());
-    nd.is_zoned = tmpl.is_zoned();
-    nd.is_dst   = tmpl.is_dst();  // Phase 1B-15: preserved; possibly upgraded below.
-    nd.self_describing = tmpl.self_describing();  // Hermes: thin-*Self marker preserved.
-    nd.rel_ptr = tmpl.rel_ptr();                  // RefRepr RelOffset marker preserved.
-    nd.borrow_carrying = tmpl.borrow_carrying();  // HAny escape-tracking marker preserved.
-    nd.zone_mut = tmpl.zone_mut();                // Hermes: fat-`&mut` zone marker preserved.
-    nd.zoned2 = tmpl.zoned2();                    // Hermes: auto-relative ptr-field marker preserved.
-    nd.non_null = tmpl.non_null();                // #[non_null]: Option<T> NullPtr-niche marker preserved.
-    nd.is_union = tmpl.is_union();  // §6.1: preserved through mono clone.
+    // Stage E direct-build: build the substituted struct mirror STRAIGHT into out_.
+    DeclBuilder nd(out_, lir_schema::decl::Code::Struct, /*cap=*/40);
+    nd.str_always(stk::NAME, new_name);
+    nd.str(stk::PKG, tmpl.pkg());
+    if (tmpl.is_zoned())        nd.flag(stk::IS_ZONED, true);
+    bool is_dst = tmpl.is_dst();  // Phase 1B-15: preserved; possibly upgraded below.
+    if (tmpl.self_describing())  nd.flag(stk::SELF_DESCRIBING, true);  // Hermes: thin-*Self marker preserved.
+    if (tmpl.rel_ptr())          nd.flag(stk::REL_PTR, true);          // RefRepr RelOffset marker preserved.
+    if (tmpl.borrow_carrying())  nd.flag(stk::BORROW_CARRYING, true);  // HAny escape-tracking marker preserved.
+    if (tmpl.zone_mut())         nd.flag(stk::ZONE_MUT, true);         // Hermes: fat-`&mut` zone marker preserved.
+    if (tmpl.zoned2())           nd.flag(stk::ZONED2, true);           // Hermes: auto-relative ptr-field marker preserved.
+    if (tmpl.non_null())         nd.flag(stk::NON_NULL, true);         // #[non_null]: Option<T> NullPtr-niche marker preserved.
+    if (tmpl.is_union())         nd.flag(stk::IS_UNION, true);         // §6.1: preserved through mono clone.
+    // is_data_plain defaults true on the (now-deleted) Draft → ALWAYS emitted.
+    nd.bool_always(stk::IS_DATA_PLAIN, true);
     // type_params cleared: result is monomorphic.
     // B87: preserve lifetime_params + lifetime_outlives so post-mono
     // dropck can identify "this struct had a lifetime parameter in its
     // template form" — lifetimes are erased at runtime but the markers
     // are needed for soundness checks (Drop touching 'a).
-    for (auto lp : tmpl.lifetime_params())
-        nd.lifetime_params.push_back(std::string(lp));
-    for (auto& [a, b] : tmpl.lifetime_outlives())
-        nd.lifetime_outlives.emplace_back(std::string(a), std::string(b));
+    {
+        auto lps = tmpl.lifetime_params();
+        if (!lps.empty()) {
+            auto la_ = nd.array(stk::LIFETIME_PARAMS);
+            for (auto lp : lps) la_.push_str(lp);
+        }
+        auto los = tmpl.lifetime_outlives();
+        if (!los.empty()) {
+            auto lo = nd.array(stk::LIFETIME_OUTLIVES);
+            for (auto& [a, b] : los) { lo.push_str(a); lo.push_str(b); }
+        }
+    }
+    // Substitute field types; expand variadic packs. Collect into locals first
+    // so the DST-inheritance check can inspect the last field's type.
+    std::vector<lir::LField> fields;
     for (auto f : tmpl.fields()) {
         if (f.is_variadic()) {
             std::string pack_name;
@@ -5300,25 +5315,32 @@ lir::StructDraft Mono::clone_struct_def(lir_view::StructView tmpl,
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
                     // Phase 5.C: localize pack entries (see clone_fn).
-                    nd.fields.push_back({std::string(f.name()) + "_" + std::to_string(i),
-                                         localize_type(pit->second[i])});
+                    fields.push_back({std::string(f.name()) + "_" + std::to_string(i),
+                                      localize_type(pit->second[i])});
                 }
             }
         } else {
-            nd.fields.push_back({std::string(f.name()), subst_type(f.type(pool), s)});
+            fields.push_back({std::string(f.name()), subst_type(f.type(pool), s)});
         }
     }
     // Phase 1B-15: DST inheritance through generic instantiation. If the
     // post-substitution LAST field has UnsizedSlice / UnsizedDyn type
     // (i.e. T bound to an unsized form for the `?Sized` template), the
     // cloned struct becomes a custom-DST.
-    if (!nd.fields.empty()) {
-        auto last_t = TypeRef(nd.fields.back().type);
+    if (!fields.empty()) {
+        auto last_t = TypeRef(fields.back().type);
         if (last_t && (last_t.kind() == LogosType::Kind::UnsizedSlice ||
                        last_t.kind() == LogosType::Kind::UnsizedDyn)) {
-            nd.is_dst = true;
+            is_dst = true;
         }
     }
+    if (is_dst) nd.flag(stk::IS_DST, true);
+    if (!fields.empty()) {
+        auto fa = nd.array(stk::FIELDS);
+        for (auto& f : fields) fa.push_field(f);
+    }
+    // METHODS array ALWAYS created (even empty) so in-place appends work later.
+    auto ma = nd.array(stk::METHODS);
     // L1.4: in lazy mode, skip eager method cloning. drain_method_worklist
     // will clone methods on demand (from L1.1 call-site hook, L1.2 dispatch
     // pin, L1.3 is_root_pin). The bound gate runs there too.
@@ -5398,14 +5420,14 @@ lir::StructDraft Mono::clone_struct_def(lir_view::StructView tmpl,
             in_.binary_symbols.count(final_name)) {
             auto nm = clone_fn_signature(m, *msel, packs);
             nm.name = final_name;
-            nd.methods.push_back(lir_mirror_emit_fn_view(out_, nm));
+            ma.push_ref(lir_mirror_emit_fn_view(out_, nm).self.addr());
             continue;
         }
 
         auto nm = clone_fn(m, *msel, packs);
         nm.name = final_name;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
-        nd.methods.push_back(lir_mirror_emit_fn_view(out_, nm));
+        ma.push_ref(lir_mirror_emit_fn_view(out_, nm).self.addr());
     }
     return nd;
 }
@@ -5709,29 +5731,25 @@ void Mono::instantiate_struct_templates() {
             // Inst pkg comes from the generic template (not the spec, which
             // may live in a different pkg and only contribute layout).
             if (auto git = find_struct_template_pkg_first(struct_pkg, base); git.valid())
-                inst.pkg = std::string(git.pkg());
-            // Mirror emit happens here — *after* clone, *before* scan_fn — because
-            // only at this point are stmt/expr addresses stable. Two conditions:
-            //   (a) all recursive subst_block push_backs are done, so the
-            //       LBlock::stmts vector buffers won't reallocate again and
-            //       LStmt addresses inside them are fixed;
-            //   (b) each FunctionDraft sits behind a unique_ptr in inst.methods,
-            //       so the FunctionDraft itself (and therefore its body LBlock) is
-            //       heap-stable even when `inst` is later moved into out_.structs.
-            // subst_stmt deliberately returns LStmt with mirror_ptr_=0 — emitting
-            // mid-clone would point the mirror at a transient vector slot.
-            for (auto& m : inst.methods) scan_fn(m);
+                inst.str(lir_schema::struct_keys::PKG, git.pkg());
+            auto inst_sv = inst.view<lir_view::StructView>();
+            // Stage E direct-build: the struct mirror (and its method fn-views)
+            // were built straight into out_ by clone_struct_def — no separate
+            // emit. Each method body's stmt/expr addresses are stable (segments
+            // never move), so scan_fn can read them via the FunctionView now.
+            inst_sv.each_method([&](lir_view::FunctionView m) { scan_fn(m); });
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
             for (auto& ia : out_.inst_annotations) {
                 if (ia.mangled_name == cname && ia.type_code != 0) {
-                    inst.type_code = ia.type_code;
+                    inst.i64(lir_schema::struct_keys::TYPE_CODE, (int64_t)ia.type_code);
                     break;
                 }
             }
             // Collect field types of new struct for further instantiation.
-            for (auto& f : inst.fields) collect_type_for_structs(f.type);
-            out_.structs.push_back(lir_mirror_emit_struct_view(out_, inst));
+            const TypePoolImpl* fpool = out_.type_pool.impl();
+            inst_sv.each_field([&](lir_view::LFieldView f) { collect_type_for_structs(f.type(fpool)); });
+            out_.structs.push_back(inst_sv);
             ++stats_.struct_instances;
         }
         depth_ = 0;

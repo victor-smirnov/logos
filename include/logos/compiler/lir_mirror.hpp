@@ -51,6 +51,7 @@ public:
     void i64(lir_schema::Key key, int64_t v);            // always
     void i64_if(lir_schema::Key key, int64_t v);         // skip when 0
     void flag(lir_schema::Key key, bool v);              // sparse — only when true
+    void bool_always(lir_schema::Key key, bool v);       // always — put_bool(v)
     void type(lir_schema::Key key, TypeRef t);           // skip when null
     void expr(lir_schema::Key key, lir_view::ExprRef e); // RelPtr<LExpr> — skip when null
     void block(lir_schema::Key key, lir_view::BlockRef b);// RelPtr<block> — skip when null
@@ -82,6 +83,10 @@ public:
     void push_tbound(const TraitBound& tb);
     void push_param(const lir::LParam& p);
     void push_fn_tparam(const TypeParam& tp);
+    // Struct decl array elements — delegate to the emitter's field_av / annot_av
+    // (FIELDS / ANNOTATIONS), mirroring the recursive sub-map encoders.
+    void push_field(const lir::LField& fld);
+    void push_annotation(const lir::LAnnotationInstance& ai);
 private:
     DeclArrayBuilder(DeclBuilder::Impl* owner, const uint8_t* arr_addr) noexcept
         : owner_(owner), arr_(arr_addr) {}
@@ -138,13 +143,6 @@ void lir_mirror_emit_function(lir::LProgram& prog,
 // The View points at the arena mirror, so `fn` may be discarded afterwards.
 lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
                                                lir::FunctionDraft& fn);
-
-// Stage E convenience (struct decl layer): emit `sd`'s Code::Struct decl mirror
-// into `prog` and return a StructView over it (also sets sd's transient bridge).
-// Mirrors lir_mirror_emit_fn_view. UNUSED by real code for now — this stage
-// only defines the struct schema/emitter/view infrastructure.
-lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
-                                                 lir::StructDraft& sd);
 
 // Append a method (already-emitted FunctionView) to a stored struct's mutable
 // METHODS array IN PLACE — for the sema/mono passes that collect struct methods

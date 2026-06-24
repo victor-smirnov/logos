@@ -3599,7 +3599,7 @@ private:
                                          std::vector<TypeParam>& out);
     bool is_specialization_fn(hermes::TinyMapView node);
     bool is_specialization_struct(hermes::TinyMapView node);
-    lir::StructDraft lower_spec_struct(hermes::TinyMapView node);
+    DeclBuilder lower_spec_struct(hermes::TinyMapView node);
     lir::FunctionDraft lower_spec_fn(hermes::TinyMapView node);
     void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
                     std::string_view trait_ctx = {});
@@ -4301,7 +4301,7 @@ private:
     // plus its where-clause (and merge where-clause type-param lifetime
     // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
     void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::FunctionDraft& fn);
-    lir::StructDraft lower_struct_def(hermes::TinyMapView node);
+    DeclBuilder lower_struct_def(hermes::TinyMapView node);
     // Stage E direct-build: builds the whole enum mirror (NAME/PKG/DOC/flags/
     // backing/variants/type_params) STRAIGHT into the program HermesCtr via
     // DeclBuilder (no Draft) and returns an EnumView. DOC is consumed here via

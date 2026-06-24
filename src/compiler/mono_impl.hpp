@@ -873,7 +873,7 @@ private:
                                        StrSet& seen);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
-    lir::StructDraft clone_struct_def(lir_view::StructView tmpl,
+    DeclBuilder clone_struct_def(lir_view::StructView tmpl,
                                       const SubstMap& s,
                                       const PackMap& packs,
                                       const std::string& new_name);

@@ -26,7 +26,6 @@ using lir::Pattern;
 using lir::HermesVal;
 using lir::EClosure;
 using lir::FunctionDraft;
-using lir::StructDraft;
 
 namespace {
 
@@ -39,7 +38,6 @@ namespace pmk = lir_schema::param_keys;
 namespace ftpk = lir_schema::fn_tparam_keys;
 namespace tbk = lir_schema::fn_tbound_keys;
 namespace wbk = lir_schema::fn_wherebound_keys;
-namespace stk  = lir_schema::struct_keys;
 namespace fldk = lir_schema::field_keys;
 namespace ank  = lir_schema::annot_keys;
 namespace akvk = lir_schema::annkv_keys;
@@ -355,93 +353,6 @@ public:
         }
         return mref_addr(map_off);
     }
-    // Top-level StructDraft → Code::Struct decl map. Stage E infrastructure
-    // (UNUSED by real code for now — defines schema+emitter only).
-    const uint8_t* emit_struct_def_direct(const lir::StructDraft& sd) {
-        auto map_off = make_map(hermes::schema::lir_stmt(
-            int32_t(lir_schema::decl::Code::Struct)), /*cap=*/40);
-        put(map_off, stk::NAME, put_string(sd.name));
-        if (!sd.pkg.empty()) put(map_off, stk::PKG, put_string(sd.pkg));
-        if (!sd.doc.empty()) put(map_off, stk::DOC, put_string(sd.doc));
-        // type_params (rich fn variant — REUSE fn_tparam_av)
-        if (!sd.type_params.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(sd.type_params.size());
-            for (auto& tp : sd.type_params) elems.push_back(fn_tparam_av(tp));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, stk::TYPE_PARAMS, mref_addr(arr_off));
-        }
-        // lifetime_params (Array<Varchar>)
-        if (!sd.lifetime_params.empty()) {
-            auto arr_off = make_array(sd.lifetime_params.size());
-            for (auto& s : sd.lifetime_params) array_push(arr_off, put_string(s));
-            put(map_off, stk::LIFETIME_PARAMS, mref_addr(arr_off));
-        }
-        // lifetime_outlives (flat Array<Varchar>: 2i=long, 2i+1=short)
-        if (!sd.lifetime_outlives.empty()) {
-            auto arr_off = make_array(sd.lifetime_outlives.size() * 2);
-            for (auto& pr : sd.lifetime_outlives) {
-                array_push(arr_off, put_string(pr.first));
-                array_push(arr_off, put_string(pr.second));
-            }
-            put(map_off, stk::LIFETIME_OUTLIVES, mref_addr(arr_off));
-        }
-        // fields
-        if (!sd.fields.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(sd.fields.size());
-            for (auto& fld : sd.fields) elems.push_back(field_av(fld));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, stk::FIELDS, mref_addr(arr_off));
-        }
-        // methods (each element = address of an already-emitted func decl map).
-        // ALWAYS create the METHODS array (even when empty) so it has a stable
-        // ObjectArray HEADER: struct methods are appended in place across sema
-        // (impl blocks + re-attachment) and mono (lazy drain_method_worklist)
-        // AFTER the struct is stored. grow() re-points only the array's internal
-        // buffer, never the header, so the map's METHODS ref stays valid —
-        // see lir_mirror_struct_append_method.
-        {
-            std::vector<hermes::AnyVal> elems; elems.reserve(sd.methods.size());
-            for (auto& m : sd.methods) elems.push_back(mref_addr(m.self.addr()));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, stk::METHODS, mref_addr(arr_off));
-        }
-        if (sd.type_code != 0) put(map_off, stk::TYPE_CODE, put_i64((int64_t)sd.type_code));
-        if (sd.type_hash != std::array<uint8_t, 23>{}) {
-            put(map_off, stk::TYPE_HASH,
-                put_string(std::string_view((const char*)sd.type_hash.data(), sd.type_hash.size())));
-        }
-        // bools (sparse — emit only when true), EXCEPT is_data_plain (defaults
-        // true → ALWAYS emit so the reader can distinguish false from absent).
-        if (sd.is_pub)             put(map_off, stk::IS_PUB,             put_bool(true));
-        if (sd.is_zoned)           put(map_off, stk::IS_ZONED,           put_bool(true));
-        put(map_off, stk::IS_DATA_PLAIN, put_bool(sd.is_data_plain));
-        if (sd.from_binary_module) put(map_off, stk::FROM_BINARY_MODULE, put_bool(true));
-        if (sd.is_dst)             put(map_off, stk::IS_DST,             put_bool(true));
-        if (sd.self_describing)    put(map_off, stk::SELF_DESCRIBING,    put_bool(true));
-        if (sd.rel_ptr)            put(map_off, stk::REL_PTR,            put_bool(true));
-        if (sd.borrow_carrying)    put(map_off, stk::BORROW_CARRYING,    put_bool(true));
-        if (sd.non_null)           put(map_off, stk::NON_NULL,           put_bool(true));
-        if (sd.zone_mut)           put(map_off, stk::ZONE_MUT,           put_bool(true));
-        if (sd.zoned2)             put(map_off, stk::ZONED2,             put_bool(true));
-        if (sd.is_union)           put(map_off, stk::IS_UNION,           put_bool(true));
-        if (sd.repr_transparent)   put(map_off, stk::REPR_TRANSPARENT,   put_bool(true));
-        if (sd.is_annotation_type) put(map_off, stk::IS_ANNOTATION_TYPE, put_bool(true));
-        if (sd.is_specialization)  put(map_off, stk::IS_SPECIALIZATION,  put_bool(true));
-        // annotations
-        if (!sd.annotations.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(sd.annotations.size());
-            for (auto& ai : sd.annotations) elems.push_back(annot_av(ai));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, stk::ANNOTATIONS, mref_addr(arr_off));
-        }
-        // spec_patterns (Array<RelPtr<LogosType>>)
-        { auto a = type_array(sd.spec_patterns); if (!a.is_null()) put(map_off, stk::SPEC_PATTERNS, a); }
-        return map_off;
-    }
     // Append a method (its already-emitted func decl map) to a stored struct's
     // mutable METHODS array IN PLACE. Sound because the ObjectArray header is
     // stable (grow re-points only the internal buffer — see object_array.hpp).
@@ -451,8 +362,8 @@ public:
         auto* map = const_cast<hermes::TinyObjectMap*>(sv.self.mirror());
         auto cur = map->get(lir_schema::struct_keys::METHODS.code);
         LOGOS_ASSERT(!cur.is_null(), "LIR-MIRROR-STRUCT-METHODS",
-                     "struct mirror has no METHODS array (emit_struct_def_direct "
-                     "always creates it)");
+                     "struct mirror has no METHODS array (lower_struct_def / "
+                     "lower_spec_struct / clone_struct_def always create it)");
         auto* arr_addr = reinterpret_cast<const uint8_t*>(cur.as_ptr<const hermes::ObjectArray>());
         array_push(arr_addr, mref_addr(m.self.addr()));
     }
@@ -470,7 +381,7 @@ public:
     // Set/overwrite a stored struct's TYPE_CODE scalar in place (sema applies a
     // trait-declared / explicit type_code AFTER the struct is stored). The
     // struct mirror's map has cap=40 with room for the key even when it was
-    // absent at emit time (emit_struct_def_direct only writes TYPE_CODE when
+    // absent at build time (the direct-build only writes TYPE_CODE when
     // non-zero).
     void struct_set_type_code_direct(lir_view::StructView sv, uint64_t code) {
         put(sv.self.addr(), lir_schema::struct_keys::TYPE_CODE,
@@ -1979,16 +1890,6 @@ lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
     return fn.view();
 }
 
-lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
-                                                 lir::StructDraft& sd) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    auto p = em.emit_struct_def_direct(sd);
-    sd.mirror_ptr_   = p;
-    sd.mirror_arena_ = prog.type_pool.arena();
-    return sd.view();
-}
-
 void lir_mirror_struct_append_method(lir::LProgram& prog,
                                      lir_view::StructView sv,
                                      lir_view::FunctionView m) {
@@ -2057,6 +1958,9 @@ void DeclBuilder::i64_if(lir_schema::Key key, int64_t v) {
 void DeclBuilder::flag(lir_schema::Key key, bool v) {
     if (v) p_->em.put(p_->map, key, p_->em.put_bool(true));
 }
+void DeclBuilder::bool_always(lir_schema::Key key, bool v) {
+    p_->em.put(p_->map, key, p_->em.put_bool(v));
+}
 void DeclBuilder::type(lir_schema::Key key, TypeRef t) {
     if (t) p_->em.put(p_->map, key, p_->em.type_av(t));
 }
@@ -2091,6 +1995,12 @@ void DeclArrayBuilder::push_param(const lir::LParam& p) {
 }
 void DeclArrayBuilder::push_fn_tparam(const TypeParam& tp) {
     owner_->em.array_push(arr_, owner_->em.fn_tparam_av(tp));
+}
+void DeclArrayBuilder::push_field(const lir::LField& fld) {
+    owner_->em.array_push(arr_, owner_->em.field_av(fld));
+}
+void DeclArrayBuilder::push_annotation(const lir::LAnnotationInstance& ai) {
+    owner_->em.array_push(arr_, owner_->em.annot_av(ai));
 }
 DeclBuilder DeclArrayBuilder::submap(uint64_t schema_code, uint64_t cap) {
     auto sub = owner_->em.make_map(schema_code, cap);

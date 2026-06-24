@@ -7240,30 +7240,40 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // Annotations accumulate until the next non-annotation item, then are consumed.
     std::vector<TinyMapView> pending_annots;
 
-    auto apply_annots_to_struct = [&](lir::StructDraft& sd) {
+    // Stage E direct-build: writes annotation-derived fields straight into the
+    // open struct mirror (DeclBuilder) — in-place put, no Draft. ANNOTATIONS are
+    // appended one at a time (each call opens/creates the array via push).
+    auto apply_annots_to_struct = [&](DeclBuilder& sd) {
+        std::vector<lir::LAnnotationInstance> annots;  // collect then push as a group
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                sd.type_code = read_annotation_u64(ann);
+                uint64_t code = read_annotation_u64(ann);
+                sd.i64(lir_schema::struct_keys::TYPE_CODE, (int64_t)code);
                 // Cache with fully-qualified key so type_code_of::<T>() works
-                // across packages.  Bare sd.name would collide if two packages
+                // across packages.  Bare name would collide if two packages
                 // define the same struct name with different type_codes.
-                auto fqn = cur_package_.empty() ? sd.name
-                                                 : cur_package_ + "::" + sd.name;
-                explicit_type_codes_[fqn] = sd.type_code;
+                auto sname = std::string(sd.view<lir_view::StructView>().name());
+                auto fqn = cur_package_.empty() ? sname
+                                                 : cur_package_ + "::" + sname;
+                explicit_type_codes_[fqn] = code;
             } else if (aname == "annotation") {
                 // Marker: this datatype is itself a user-annotation declaration.
-                sd.is_annotation_type = true;
+                sd.flag(lir_schema::struct_keys::IS_ANNOTATION_TYPE, true);
             } else {
                 // User annotation: NAME must resolve to a registered `#[annotation]` datatype.
                 auto [pkg, info] = find_datatype_by_name(aname);
                 if (info && info->is_annotation_type) {
                     if (auto inst = build_annotation_instance(ann, aname, pkg, *info))
-                        sd.annotations.push_back(std::move(*inst));
+                        annots.push_back(std::move(*inst));
                 }
                 // Unknown annotations silently ignored (future compiler-internal
                 // keys, or forward-declared not-yet-seen).
             }
+        }
+        if (!annots.empty()) {
+            auto aa = sd.array(lir_schema::struct_keys::ANNOTATIONS);
+            for (auto& ai : annots) aa.push_annotation(ai);
         }
     };
 
@@ -7274,13 +7284,15 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // so without this they silently lose every struct-level attribute — e.g. a
     // `#[zone_mut] struct HMap<HString,V>` spec would clone with zone_mut=false, making
     // ref_repr_of treat `&mut` as thin and corrupting the zone-carrying receiver.
-    auto apply_struct_flags = [&](lir::StructDraft& sd) {
+    auto apply_struct_flags = [&](DeclBuilder& sd) {
         auto f = parse_struct_attr_flags(pending_annots);
-        sd.zone_mut        |= f.zone_mut;
-        sd.zoned2          |= f.zoned;
-        sd.rel_ptr         |= f.rel_ptr;
-        sd.self_describing |= f.self_describing;
-        sd.borrow_carrying |= f.borrow_carrying;
+        // |= over a sparse flag = set-if-true (lower already set the base value;
+        // a true here can only set, never clear — matches the old |= semantics).
+        if (f.zone_mut)        sd.flag(lir_schema::struct_keys::ZONE_MUT, true);
+        if (f.zoned)           sd.flag(lir_schema::struct_keys::ZONED2, true);
+        if (f.rel_ptr)         sd.flag(lir_schema::struct_keys::REL_PTR, true);
+        if (f.self_describing) sd.flag(lir_schema::struct_keys::SELF_DESCRIBING, true);
+        if (f.borrow_carrying) sd.flag(lir_schema::struct_keys::BORROW_CARRYING, true);
     };
 
     // Stage E direct-build: writes annotation-derived fields straight into the
@@ -7554,6 +7566,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             const bool has_zoned =
                 parse_struct_attr_flags(pending_annots).promotes_to_datatype();
             std::string struct_doc = take_pending_doc();
+            namespace stk = lir_schema::struct_keys;
             if (is_specialization_struct(item)) {
                 auto sd = lower_spec_struct(item);
                 // Structural flags (zone_mut/zoned2/rel_ptr/…) apply to EVERY spec,
@@ -7561,32 +7574,35 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 // carries them for regular structs.
                 apply_struct_flags(sd);
                 if (has_zoned) {
-                    sd.is_zoned = true;
+                    sd.flag(stk::IS_ZONED, true);
                     apply_annots_to_struct(sd);
                 }
-                sd.doc = std::move(struct_doc);
-                prog.struct_specializations.push_back(lir_mirror_emit_struct_view(prog, sd));
+                sd.str(stk::DOC, struct_doc);
+                prog.struct_specializations.push_back(sd.view<lir_view::StructView>());
             } else if (has_zoned) {
                 auto sd = lower_struct_def(item);
-                sd.is_zoned = true;
-                sd.pkg = std::string(cur_package_);
-                { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }
+                sd.flag(stk::IS_ZONED, true);
+                sd.str(stk::PKG, cur_package_);
+                auto sname2 = std::string(sd.view<lir_view::StructView>().name());
+                { auto [pkg, dsi] = find_datatype_by_name(sname2); if (dsi) sd.bool_always(stk::IS_DATA_PLAIN, dsi->is_data_plain); }
                 apply_annots_to_struct(sd);
-                if (sd.type_params.empty()) {
-                    std::string canon = std::string(cur_package_) + "::" + sd.name;
-                    sd.type_hash = type_hash_23(canon);
-                    if (sd.type_code == 0) {
-                        uint64_t raw = type_hash_56bit(sd.type_hash);
-                        sd.type_code = (raw < 128) ? (raw + 128) : raw;
+                if (sd.view<lir_view::StructView>().type_params_empty()) {
+                    std::string canon = std::string(cur_package_) + "::" + sname2;
+                    auto th = type_hash_23(canon);
+                    sd.str_always(stk::TYPE_HASH,
+                                  std::string_view((const char*)th.data(), th.size()));
+                    if (sd.view<lir_view::StructView>().type_code() == 0) {
+                        uint64_t raw = type_hash_56bit(th);
+                        sd.i64(stk::TYPE_CODE, (int64_t)((raw < 128) ? (raw + 128) : raw));
                     }
                 }
-                sd.doc = std::move(struct_doc);
-                prog.structs.push_back(lir_mirror_emit_struct_view(prog, sd));
+                sd.str(stk::DOC, struct_doc);
+                prog.structs.push_back(sd.view<lir_view::StructView>());
             } else {
                 auto sd = lower_struct_def(item);
-                sd.pkg = std::string(cur_package_);
-                sd.doc = std::move(struct_doc);
-                prog.structs.push_back(lir_mirror_emit_struct_view(prog, sd));
+                sd.str(stk::PKG, cur_package_);
+                sd.str(stk::DOC, struct_doc);
+                prog.structs.push_back(sd.view<lir_view::StructView>());
             }
         }
         else if (c == la::DATATYPE) {
@@ -7628,67 +7644,75 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     }
                 }
             } else if (is_specialization_struct(item)) {
+                namespace stk = lir_schema::struct_keys;
                 // Datatype specialization (e.g. `pub eidos Map<Bitmap, V> { ... }`).
                 auto sd = lower_spec_struct(item);
-                sd.is_zoned = true;
+                sd.flag(stk::IS_ZONED, true);
+                auto sname2 = std::string(sd.view<lir_view::StructView>().name());
+                auto spec_patterns = sd.view<lir_view::StructView>().spec_patterns(prog.type_pool.impl());
                 // Apply #[type_code=N] annotations on full (all-concrete) specs.
                 // Without this, `impl Trait for Map<i32, AnyVal>` has no way to
                 // find the annotated code during dispatch-entry emission.
-                bool all_concrete = !sd.spec_patterns.empty();
-                for (auto p : sd.spec_patterns)
+                bool all_concrete = !spec_patterns.empty();
+                for (auto p : spec_patterns)
                     if (!p || TypeRef(p).kind() == LogosType::Kind::TypeVar) { all_concrete = false; break; }
                 if (all_concrete) {
                     for (auto& ann : pending_annots) {
                         auto aname = std::string(str_of(ann.get(la::NAME.code)));
                         if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                            sd.type_code = read_annotation_u64(ann);
+                            uint64_t code = read_annotation_u64(ann);
+                            sd.i64(stk::TYPE_CODE, (int64_t)code);
                             // Register mangled fqn so dispatch-entry lookup
                             // (target = "Map$G2$i32$AnyVal") succeeds.
-                            auto inst_type = make_generic_struct(sd.name, sd.spec_patterns);
+                            auto inst_type = make_generic_struct(sname2, spec_patterns);
                             std::string mangled = concrete_struct_name(inst_type);
                             std::string canon = type_str(inst_type);  // "Name<Args>"
                             auto fqn_mangled = cur_package_.empty()
                                 ? mangled : cur_package_ + "::" + mangled;
                             auto fqn_canon = cur_package_.empty()
                                 ? canon : cur_package_ + "::" + canon;
-                            explicit_type_codes_[fqn_mangled] = sd.type_code;
-                            explicit_type_codes_[fqn_canon]   = sd.type_code;
+                            explicit_type_codes_[fqn_mangled] = code;
+                            explicit_type_codes_[fqn_canon]   = code;
                             // Also register under the template's package (see
                             // matching note in the genos-spec annotation path).
                             std::string tmpl_pkg;
-                            { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) tmpl_pkg = dsi->package; }
-                            if (tmpl_pkg.empty()) { auto [pkg, ssi] = find_struct_by_name(sd.name); if (ssi) tmpl_pkg = ssi->package; }
+                            { auto [pkg, dsi] = find_datatype_by_name(sname2); if (dsi) tmpl_pkg = dsi->package; }
+                            if (tmpl_pkg.empty()) { auto [pkg, ssi] = find_struct_by_name(sname2); if (ssi) tmpl_pkg = ssi->package; }
                             if (!tmpl_pkg.empty() && tmpl_pkg != cur_package_) {
-                                explicit_type_codes_[tmpl_pkg + "::" + mangled] = sd.type_code;
-                                explicit_type_codes_[tmpl_pkg + "::" + canon]   = sd.type_code;
+                                explicit_type_codes_[tmpl_pkg + "::" + mangled] = code;
+                                explicit_type_codes_[tmpl_pkg + "::" + canon]   = code;
                             }
                         }
                     }
                 }
-                sd.doc = take_pending_doc();
-                prog.struct_specializations.push_back(lir_mirror_emit_struct_view(prog, sd));
+                sd.str(stk::DOC, take_pending_doc());
+                prog.struct_specializations.push_back(sd.view<lir_view::StructView>());
             } else {
+                namespace stk = lir_schema::struct_keys;
                 // Normal datatype definition.
                 auto sd = lower_struct_def(item);
-                sd.is_zoned = true;
-                sd.pkg = std::string(cur_package_);
-                sd.doc = take_pending_doc();
+                sd.flag(stk::IS_ZONED, true);
+                sd.str(stk::PKG, cur_package_);
+                sd.str(stk::DOC, take_pending_doc());
+                auto sname2 = std::string(sd.view<lir_view::StructView>().name());
                 // Propagate is_data_plain only for datatypes (not regular structs).
-                { auto [pkg, dsi] = find_datatype_by_name(sd.name); if (dsi) sd.is_data_plain = dsi->is_data_plain; }
+                { auto [pkg, dsi] = find_datatype_by_name(sname2); if (dsi) sd.bool_always(stk::IS_DATA_PLAIN, dsi->is_data_plain); }
                 apply_annots_to_struct(sd);
                 // Compute type_hash for concrete (non-generic) datatypes only.
                 // Generic templates get their hash at instantiation time in mono_pass.
-                if (sd.type_params.empty()) {
-                    std::string canon = std::string(cur_package_) + "::" + sd.name;
-                    sd.type_hash = type_hash_23(canon);
+                if (sd.view<lir_view::StructView>().type_params_empty()) {
+                    std::string canon = std::string(cur_package_) + "::" + sname2;
+                    auto th = type_hash_23(canon);
+                    sd.str_always(stk::TYPE_HASH,
+                                  std::string_view((const char*)th.data(), th.size()));
                     // Auto-assign type_code from hash; ensure it's outside the reserved
                     // inline-AnyVal range 1-127 (those are for zone-stored types >= 128).
-                    if (sd.type_code == 0) {
-                        uint64_t raw = type_hash_56bit(sd.type_hash);
-                        sd.type_code = (raw < 128) ? (raw + 128) : raw;
+                    if (sd.view<lir_view::StructView>().type_code() == 0) {
+                        uint64_t raw = type_hash_56bit(th);
+                        sd.i64(stk::TYPE_CODE, (int64_t)((raw < 128) ? (raw + 128) : raw));
                     }
                 }
-                prog.structs.push_back(lir_mirror_emit_struct_view(prog, sd));
+                prog.structs.push_back(sd.view<lir_view::StructView>());
             }
         }
         else if (c == la::ENUM) {
