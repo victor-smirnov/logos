@@ -23,12 +23,6 @@ using SCode = lir_schema::stmt::Code;
 
 } // namespace
 
-void Mono::scan_fn(const lir::FunctionDraft& fn) {
-    if (!fn.body) return;
-    auto& arena = out_.type_pool.arena_or_init();
-    scan_block(fn.body);
-}
-
 void Mono::scan_fn(lir_view::FunctionView fn) {
     auto b = fn.body();
     if (!b) return;
@@ -900,19 +894,17 @@ void Mono::drain_method_worklist() {
         if (!in_.binary_symbols.empty() &&
             in_.binary_symbols.count(dest_name)) {
             auto stub = clone_fn_signature(tmpl, item.subst, item.packs);
-            stub.name = dest_name;
-            stub.type_params.clear();
-            lir_mirror_struct_append_method(out_, *target, lir_mirror_emit_fn_view(out_, stub));
+            stub.str_always(lir_schema::decl_keys::NAME, dest_name);
+            lir_mirror_struct_append_method(out_, *target, stub.view<lir_view::FunctionView>());
             ++stats_.method_instances;
             note_method_worklist_size(method_worklist_.size());
             continue;
         }
         auto cloned = clone_fn(tmpl, item.subst, item.packs);
-        cloned.name = dest_name;
-        cloned.type_params.clear();
-
-        lir_mirror_struct_append_method(out_, *target, lir_mirror_emit_fn_view(out_, cloned));
-        scan_fn(cloned);
+        cloned.str_always(lir_schema::decl_keys::NAME, dest_name);
+        auto cloned_v = cloned.view<lir_view::FunctionView>();
+        lir_mirror_struct_append_method(out_, *target, cloned_v);
+        scan_fn(cloned_v);
         ++stats_.method_instances;
         note_method_worklist_size(method_worklist_.size());
     }

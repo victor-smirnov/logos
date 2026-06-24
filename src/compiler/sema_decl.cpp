@@ -18,9 +18,16 @@ using hermes::MemHolder;
 
 // Declaration lowering methods
 
-void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::FunctionDraft& fn) {
-    std::unordered_set<std::string> fn_lts(fn.lifetime_params.begin(),
-                                           fn.lifetime_params.end());
+void SemaChecker::compute_fn_lifetime_outlives(
+        TinyMapView node,
+        std::string_view fn_name,
+        const std::vector<std::string>& lifetime_params,
+        const std::vector<lir::LParam>& params,
+        TypeRef ret_type,
+        std::vector<TypeParam>& type_params,
+        std::vector<std::pair<std::string, std::string>>& lifetime_outlives) {
+    std::unordered_set<std::string> fn_lts(lifetime_params.begin(),
+                                           lifetime_params.end());
     auto fn_lifetime_known = [&](std::string_view lt) {
         if (lt.empty()) return false;
         if (lt == "'static" || lt == "static") return true;
@@ -68,11 +75,11 @@ void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::FunctionDr
             return;
         }
     };
-    fn.lifetime_outlives = read_lifetime_outlives(node);
-    for (auto& p : fn.params) walk_implied(p.type, "", fn.lifetime_outlives, walk_implied);
-    walk_implied(fn.ret_type, "", fn.lifetime_outlives, walk_implied);
+    lifetime_outlives = read_lifetime_outlives(node);
+    for (auto& p : params) walk_implied(p.type, "", lifetime_outlives, walk_implied);
+    walk_implied(ret_type, "", lifetime_outlives, walk_implied);
     auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
-    for (auto& p : where_outlives) fn.lifetime_outlives.push_back(std::move(p));
+    for (auto& p : where_outlives) lifetime_outlives.push_back(std::move(p));
     // Merge type-outlives bounds from where clause.
     if (node.has_key(la::WHERE)) {
         AnyVal wav = node.get(la::WHERE.code);
@@ -87,7 +94,7 @@ void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::FunctionDr
                     std::string tname(str_of(witem.get(la::NAME.code)));
                     auto inner = arr_of(witem.get(la::ITEMS.code));
                     TypeParam* target = nullptr;
-                    for (auto& tp : fn.type_params)
+                    for (auto& tp : type_params)
                         if (tp.name == tname) { target = &tp; break; }
                     if (!target) continue;
                     for (uint64_t j = 0; j < inner.size(); ++j) {
@@ -101,31 +108,89 @@ void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::FunctionDr
         }
     }
     // Validate declared names.
-    std::unordered_set<std::string> declared(fn.lifetime_params.begin(),
-                                             fn.lifetime_params.end());
+    std::unordered_set<std::string> declared(lifetime_params.begin(),
+                                             lifetime_params.end());
     auto known = [&](std::string_view lt) {
         if (lt.empty()) return true;
         if (lt == "'static" || lt == "static") return true;
         return declared.count(std::string(lt)) > 0;
     };
-    for (auto& [lng, sht] : fn.lifetime_outlives) {
+    for (auto& [lng, sht] : lifetime_outlives) {
         if (!known(lng))
             error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
-                              fn.name, lng));
+                              fn_name, lng));
         if (!known(sht))
             error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
-                              fn.name, sht));
+                              fn_name, sht));
     }
-    for (auto& tp : fn.type_params) {
+    for (auto& tp : type_params) {
         for (auto& lt : tp.lifetime_outlives) {
             if (!known(lt))
                 error(std::format("fn '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
-                                  fn.name, lt, tp.name, lt));
+                                  fn_name, lt, tp.name, lt));
         }
     }
 }
 
-lir::FunctionDraft SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
+DeclBuilder SemaChecker::emit_fn_decl(lir::LProgram& prog, const FnLowerBuf& f) {
+    namespace dk = lir_schema::decl_keys;
+    // Direct-build the Func decl mirror STRAIGHT into prog (replaces the deleted
+    // emit_function). Field→KEY map matches emit_function exactly (sparse setters
+    // skip empty/zero/false). The arena-stable, idempotent-append invariants of
+    // DeclBuilder hold (segments never move).
+    DeclBuilder fn(prog, lir_schema::decl::Code::Func, /*cap=*/40);
+    fn.str_always(dk::NAME, f.name);
+    fn.str(dk::METHOD_BASE, f.method_base);
+    fn.str(dk::PKG, f.package);
+    fn.str(dk::DOC, f.doc);
+    fn.type(dk::RET_TYPE, f.ret_type);
+    fn.block(dk::BODY, f.body);
+    fn.i64_if(dk::LOCAL_COUNT, (int64_t)f.local_count);
+    fn.flag(dk::IS_EXTERN,          f.is_extern);
+    fn.flag(dk::IS_VARARG,          f.is_vararg);
+    fn.flag(dk::IS_PUB,             f.is_pub);
+    fn.flag(dk::IS_METAPROG_STUB,   f.is_metaprog_stub);
+    fn.flag(dk::IS_SPECIALIZATION,  f.is_specialization);
+    fn.flag(dk::FROM_BINARY_MODULE, f.from_binary_module);
+    fn.flag(dk::FROM_LAZY_MODULE,   f.from_lazy_module);
+    fn.str(dk::SOURCE_FILE, f.source_file);
+    fn.type(dk::IMPL_TARGET_PATTERN, f.impl_target_pattern);
+    fn.flag(dk::IS_TEST,      f.is_test);
+    fn.flag(dk::SHOULD_PANIC, f.should_panic);
+    fn.flag(dk::IGNORED,      f.ignored);
+    fn.str(dk::SHOULD_PANIC_MSG, f.should_panic_expected_msg);
+    if (!f.params.empty()) {
+        auto a = fn.array(dk::PARAMS);
+        for (auto& p : f.params) a.push_param(p);
+    }
+    if (!f.type_params.empty()) {
+        auto a = fn.array(dk::TYPE_PARAMS);
+        for (auto& tp : f.type_params) a.push_fn_tparam(tp);
+    }
+    if (!f.impl_type_params.empty()) {
+        auto a = fn.array(dk::IMPL_TYPE_PARAMS);
+        for (auto& tp : f.impl_type_params) a.push_fn_tparam(tp);
+    }
+    if (!f.spec_patterns.empty()) {
+        auto a = fn.array(dk::SPEC_PATTERNS);
+        for (auto& t : f.spec_patterns) a.push_type(t);
+    }
+    if (!f.lifetime_params.empty()) {
+        auto a = fn.array(dk::LIFETIME_PARAMS);
+        for (auto& s : f.lifetime_params) a.push_str(s);
+    }
+    if (!f.lifetime_outlives.empty()) {
+        auto a = fn.array(dk::LIFETIME_OUTLIVES);
+        for (auto& pr : f.lifetime_outlives) { a.push_str(pr.first); a.push_str(pr.second); }
+    }
+    if (!f.where_type_bounds.empty()) {
+        auto a = fn.array(dk::WHERE_TYPE_BOUNDS);
+        for (auto& wb : f.where_type_bounds) a.push_wherebound(wb);
+    }
+    return fn;
+}
+
+FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
     // Allowing `fn _()` would let `_(...)` be a valid call expression and
@@ -230,7 +295,7 @@ lir::FunctionDraft SemaChecker::lower_fn(TinyMapView node, std::string_view stru
         }
     }
 
-    lir::FunctionDraft fn;
+    FnLowerBuf fn;
     fn.name               = mangled;
     fn.from_binary_module = cur_from_binary_;
     fn.from_lazy_module   = cur_from_lazy_;
@@ -808,7 +873,8 @@ lir::FunctionDraft SemaChecker::lower_fn(TinyMapView node, std::string_view stru
     // B65: outlives bounds — capture explicit + implied + where-clause +
     // type-outlives. Placed AFTER fn.params + fn.ret_type so the implied-
     // bounds walker sees the resolved signature.
-    compute_fn_lifetime_outlives(node, fn);
+    compute_fn_lifetime_outlives(node, fn.name, fn.lifetime_params, fn.params,
+                                 fn.ret_type, fn.type_params, fn.lifetime_outlives);
     current_outlives_ = fn.lifetime_outlives;  // B64/B65: visible to coercion sites
 
     // unsafe fn body is implicitly an unsafe context
@@ -1232,7 +1298,7 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
             int32_t mc = code_of(method);
             if (mc == la::FN || mc == la::STATIC_FN) {
                 auto mfn = lower_fn(method, sname);
-                ma.push_ref(lir_mirror_emit_fn_view(*cur_prog_, mfn).self.addr());
+                ma.push_ref(emit_fn_decl(*cur_prog_, mfn).view<lir_view::FunctionView>().self.addr());
             }
         }
         pending_doc_.clear();
@@ -2093,7 +2159,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // the pattern to map impl-level args ([T]) to the struct's
                     // concrete args ([&T]) — positional copy mis-names specs.
                     fn.impl_target_pattern = impl_target_typeref;
-                    lir_mirror_struct_append_method(prog, *target_struct_tmpl, lir_mirror_emit_fn_view(prog, fn));
+                    lir_mirror_struct_append_method(prog, *target_struct_tmpl, emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
                 } else {
                     // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
                     // Result<Vec<T>, E>). Methods go to prog.functions with
@@ -2102,7 +2168,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // impl-target pattern so mono's instantiate_enum_templates
                     // can unify pattern↔receiver instead of positional binding.
                     fn.impl_target_pattern = impl_target_typeref;
-                    prog.functions.push_back(lir_mirror_emit_fn_view(prog, fn));
+                    prog.functions.push_back(emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
                 }
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 pending_doc_.clear();
@@ -2124,7 +2190,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         ? resolve_type(map_of(m.get(la::TYPE.code))) : nullptr;
                     auto val = lower_expr(map_of(m.get(la::VALUE.code)));
                     if (ctype) builder().retype_expr(val, ctype);
-                    lir::FunctionDraft acc;
+                    FnLowerBuf acc;
                     acc.name        = lower_target + "__kassoc_" + cname;
                     acc.method_base = "kassoc_" + cname;
                     acc.package     = cur_package_;
@@ -2137,7 +2203,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         acc_body.push_back(builder().stmt_return(val, 0));
                         acc.body = lir_mirror_block(*cur_prog_, acc_body);
                     }
-                    prog.functions.push_back(lir_mirror_emit_fn_view(prog, acc));
+                    prog.functions.push_back(emit_fn_decl(prog, acc).view<lir_view::FunctionView>());
                 }
             } else {
                 // Non-fn impl item (assoc-type). Discard any sweep doc since
@@ -2360,12 +2426,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             }
                         }
                         fn.impl_target_pattern = impl_target_typeref;
-                        lir_mirror_struct_append_method(prog, *target_struct_tmpl, lir_mirror_emit_fn_view(prog, fn));
+                        lir_mirror_struct_append_method(prog, *target_struct_tmpl, emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for
                         // trait-default methods on enum-impl path.
                         fn.impl_target_pattern = impl_target_typeref;
-                        prog.functions.push_back(lir_mirror_emit_fn_view(prog, fn));
+                        prog.functions.push_back(emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
                     }
                     current_type_params_.erase("Self");
                 }

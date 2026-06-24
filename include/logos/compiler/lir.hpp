@@ -19,7 +19,7 @@
 #include <deque>
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/compat.hpp>    // arena_offset_t
-#include <logos/hermes/compat.hpp>  // ExternalRef (Phase 4.A: FunctionDraft.body_external_ref)
+#include <logos/hermes/compat.hpp>  // ExternalRef, resolve_external_ref (cross-arena body refs)
 #include <unordered_set>
 #include <string>
 
@@ -37,8 +37,6 @@ namespace logos::compiler::lir {
 
 // ── Forward declarations ──────────────────────────────────────────────────
 
-struct FunctionDraft;
-
 // The husk LExpr skeleton struct is gone — expression handles are mirror VIEWS.
 using LExprPtr     = lir_view::ExprRef;
 // Stage D: blocks are eager-emitted mirror VIEWS. LBlockPtr is a BlockRef
@@ -46,10 +44,10 @@ using LExprPtr     = lir_view::ExprRef;
 using LBlockPtr    = lir_view::BlockRef;
 // Stage E (decl→Hermes): LFunctionPtr is a FunctionView handle over the
 // function's Hermes decl mirror (each IS its mirror, like LBlockPtr). The
-// C++ `struct FunctionDraft` survives only as a transient BUILD BUFFER: code
-// builds one, emits it (lir_mirror_emit_fn_view), stores the View. Stored
-// collections (LProgram::functions/specializations, {Struct,Trait,Impl}Def::
-// methods, SemaCache) hold Views — refcount-free, arena-stable.
+// `struct FunctionDraft` build buffer is GONE — fn decls are DIRECT-BUILT into
+// the HermesCtr (mono: DeclBuilder via clone_fn; sema: FnLowerBuf → emit_fn_decl).
+// Stored collections (LProgram::functions/specializations, {Struct,Trait,Impl}
+// Def::methods, SemaCache) hold Views — refcount-free, arena-stable.
 using LFunctionPtr = lir_view::FunctionView;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
@@ -688,134 +686,6 @@ struct EClosure {
     bool                            escapes = false;
 };
 
-// Stage E: `struct LFunction` is DELETED. Functions live ONLY as Hermes decl
-// mirror nodes (lir_schema::decl::Code::Func + param/tparam/tbound/wherebound
-// sub-maps), read via lir_view::FunctionView (= LFunctionPtr, the stored handle).
-// FunctionDraft is the TRANSIENT BUILD BUFFER — never stored in LProgram: sema
-// (lower_fn) and mono (clone_fn) build one, emit it (lir_mirror_emit_fn_view),
-// store the returned View, and discard the draft. (Enums went one step further:
-// they direct-build the mirror with no Draft at all — see lower_enum_def.)
-struct FunctionDraft {
-    std::string              name;
-    // Unmangled method name as written in the source (e.g. "cow_clone").
-    // Equals the bare fn name for free fns; for struct/impl methods this
-    // is the part after `Target__`. Used by mlir_gen_dyn's vtable
-    // construction to bind trait methods to their impl symbols by
-    // exact-name lookup instead of mangling-string heuristics.
-    std::string              method_base;
-    // Package the fn was declared in (sema's `package …;` of the source
-    // module). Used by mlir_gen's pkg-rename pass to disambiguate
-    // same-named struct methods from distinct pkgs (Box-vs-UserBox).
-    std::string              package;
-    std::vector<TypeParam>   type_params;    // TypeVar names (generic def, empty otherwise)
-    std::vector<std::string> lifetime_params; // Lifetime param names, e.g. ["'a", "'b"]
-    // B65: outlives bounds declared in the function header or where clause.
-    // Each pair (long, short) means "'long: 'short" (i.e. 'long lives at least
-    // as long as 'short). Built into a transitive outlives graph at query time.
-    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-    std::vector<LParam>      params;
-    TypeRef         ret_type  = nullptr;
-    lir_view::BlockRef       body;
-    // Phase-1 string-interning: number of dense variable SLOTS sema assigned in
-    // this function (params + every let/pattern/for/closure binding; shadowing
-    // counts separately). Lets borrow-check / mlir-gen size a vector<VarState>
-    // / vector<Value> and key it on EVarRefView::var_slot() instead of hashing
-    // the variable name. 0 ⇒ slots not assigned (synthetic/extern fn).
-    uint32_t                 local_count = 0;
-    bool                     is_extern = false;
-    bool                     is_vararg = false;
-    bool                     is_pub    = false;
-    // Phase 7 slice 17: set by sema in metaprog-mode for entry-file fns
-    // whose body was skipped (non-handler user fns). meta_prog driver must
-    // filter these out before mono/MLIR — the body is empty and there's
-    // nothing valid to lower.
-    bool                     is_metaprog_stub = false;
-
-    // Specialisation support (set by sema, cleared by mono after instantiation).
-    // is_specialization == true  →  this is a specialisation of `name`.
-    // spec_patterns: one LogosType* per type-param position; may contain TypeVar
-    //   for partial specialisations (e.g. fn foo<*T> → pattern = *const TypeVar<T>).
-    bool                          is_specialization = false;
-    std::vector<TypeRef> spec_patterns;
-
-    // Set when this function was loaded from a binary module (.hermes0 in .a).
-    // Non-generic functions with this flag are forward-declared only; the linker
-    // resolves them from the archive's .o member.
-    bool from_binary_module = false;
-
-    // Phase 6 (multi-arena IR) item-level lazy. Set when this function comes
-    // from a `lowering lazy` archive: its body is lowered into the consumer's
-    // LProgram (same path as user code), but a post-mono reach analysis
-    // determines whether mlir-gen actually emits a body. Lazy fns not in the
-    // reach closure of any non-lazy fn are skipped at codegen, eliminating
-    // the per-consumer "lower-everything" tax for big lazy libraries.
-    bool from_lazy_module = false;
-
-    // Phase 4.A (multi-arena IR): when LOGOS_SEMA_USE_BLOB=1, sema skips
-    // body lowering for non-generic from_binary_module fns and stores a
-    // cross-arena handle here pointing into the registered library arena.
-    // Default INVALID — body was lowered locally (legacy path) or is not
-    // available cross-arena (e.g. generic templates).
-    // Phase 4.B will resolve the target obj_id via the library's name→obj_id
-    // export table; Phase 4.C will teach mono/codegen to traverse it.
-    hermes::ExternalRef body_external_ref{};
-
-    // Absolute path of the source file this function was lowered from.
-    // Empty for fns reconstructed from binary modules. Used by the
-    // --emit-file mode to filter mlir-gen body emission to a single
-    // source file (other files' fns become forward-decls only and the
-    // linker resolves at archive-merge time).
-    std::string source_file;
-
-    // Impl-level type params (with their bounds) that were stripped from
-    // type_params when this method was attached to a generic struct template.
-    // Preserved so mono can check whether the impl bound is satisfied for the
-    // struct's concrete type args before instantiating this method.
-    // Each entry: bound on struct's type-param at position `index` within the
-    // struct's type_params.  Empty when no impl-level type params.
-    std::vector<TypeParam>        impl_type_params;
-    // CP-cm-16 follow-up: full impl-target type pattern (with TypeVars
-    // unsubstituted) for impl-block-derived methods on **enum** receivers.
-    // E.g. for `impl<T,E> FromIterator<Result<T,E>> for Result<Vec<T>, E>`
-    // this carries `Result<Vec<T>, E>`. Mono's `instantiate_enum_templates`
-    // unifies this pattern against the concrete receiver to bind impl-level
-    // T,E correctly when the impl is partially specialised (e.g. T appears
-    // inside a Vec<…> in the target). Null for non-impl fns + for impls
-    // whose target pattern is a bare enum (positional binding suffices).
-    TypeRef                       impl_target_pattern = nullptr;
-    // §8.5: per-method where-bounds whose SUBJECT is an arbitrary type
-    // EXPRESSION (not just a bare type-param), expressed in the impl's
-    // generic terms. E.g. `fn max() where Item: Ord` on
-    // `impl<T> Iterator<&T> for VecIter<T>` records `{&T, "Ord"}`. Mono
-    // substitutes the subject with the clone's concrete args and checks
-    // satisfaction — gating default-method synthesis when sema can't
-    // (the trait-arg still mentions a TypeVar). Generalises the bare-
-    // type-param `impl_type_params[].bounds` gate to compound subjects
-    // like `&T` / `[T;0]` / `EnumPair<T>`.
-    std::vector<std::pair<TypeRef, std::string>> where_type_bounds;
-    // Outer doc-comment (`/// ...`) lines joined with '\n', leading `/// ` (or
-    // `///`) stripped from each. Empty when the fn has no doc-comment.
-    std::string                   doc;
-    // Test harness attributes. is_test = `#[test]`; should_panic / ignored
-    // are modifiers (only meaningful when is_test is true, validated in sema).
-    // should_panic_expected_msg = optional `expected = "..."` arg on
-    // `#[should_panic]`; empty means any panic accepted (matches Rust).
-    bool                          is_test       = false;
-    bool                          should_panic  = false;
-    bool                          ignored       = false;
-    std::string                   should_panic_expected_msg;
-
-    // Stage E (decl→Hermes migration): transient bridge to the function's
-    // Hermes decl mirror. Set by lir_mirror_emit_function (which re-runs on
-    // every clone). mirror_ptr_ = absolute address of the decl map (segments
-    // never move); mirror_arena_ = its owning arena (for cross-arena child
-    // resolution). view() wraps them as a FunctionView for read migration.
-    mutable const uint8_t*     mirror_ptr_   = nullptr;
-    mutable const hermes::Arena* mirror_arena_ = nullptr;
-    lir_view::FunctionView view() const noexcept {
-        return lir_view::FunctionView{lir_view::DeclRef(mirror_arena_, mirror_ptr_)};
-    }
-};
 
 struct LField {
     std::string      name;

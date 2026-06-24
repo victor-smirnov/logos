@@ -55,6 +55,8 @@ public:
     void type(lir_schema::Key key, TypeRef t);           // skip when null
     void expr(lir_schema::Key key, lir_view::ExprRef e); // RelPtr<LExpr> — skip when null
     void block(lir_schema::Key key, lir_view::BlockRef b);// RelPtr<block> — skip when null
+    // ExternalRef Pod niche — skip when the ref's arena_id is invalid.
+    void ext_ref(lir_schema::Key key, hermes::ExternalRef r);
     DeclArrayBuilder array(lir_schema::Key key);         // create empty array under key
 
     const uint8_t* addr() const noexcept;
@@ -83,6 +85,8 @@ public:
     void push_tbound(const TraitBound& tb);
     void push_param(const lir::LParam& p);
     void push_fn_tparam(const TypeParam& tp);
+    // WHERE_TYPE_BOUNDS element — delegate to the emitter's wherebound_av.
+    void push_wherebound(const std::pair<TypeRef, std::string>& wb);
     // Struct decl array elements — delegate to the emitter's field_av / annot_av
     // (FIELDS / ANNOTATIONS), mirroring the recursive sub-map encoders.
     void push_field(const lir::LField& fld);
@@ -128,21 +132,6 @@ struct LirMirrorTable {
 // Idempotent: re-emitting on the same prog produces a fresh table (and fresh
 // mirror nodes; no de-duplication — L-IR has no interning).
 LirMirrorTable lir_mirror_emit(lir::LProgram& prog);
-
-// Emit mirror entries for a single function body into an existing table.
-// Used by mono to mirror each cloned/instantiated function as it is produced
-// (so scan_fn / borrow_check can read the variant tree via mirror dispatch).
-// Skips extern / metaprog_stub / from_binary_module functions, like run().
-void lir_mirror_emit_function(lir::LProgram& prog,
-                              LirMirrorTable& table,
-                              lir::FunctionDraft& fn);
-
-// Stage E convenience: emit `fn`'s decl mirror into `prog` and return a
-// FunctionView over it. Used at the storage push sites (vector<FunctionView>):
-//   coll.push_back(lir_mirror_emit_fn_view(prog, fn));
-// The View points at the arena mirror, so `fn` may be discarded afterwards.
-lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
-                                               lir::FunctionDraft& fn);
 
 // Append a method (already-emitted FunctionView) to a stored struct's mutable
 // METHODS array IN PLACE — for the sema/mono passes that collect struct methods

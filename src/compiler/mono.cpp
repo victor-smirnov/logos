@@ -101,14 +101,15 @@ void Mono::drain_free_fn_queue() {
         // the archive is self-contained for this fn's transitive closure.
         if (!in_.binary_symbols.empty() && in_.binary_symbols.count(std::string(fn.name()))) {
             auto stub = clone_fn_signature(fn, {}, {});
-            out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+            out_.functions.push_back(stub.view<lir_view::FunctionView>());
             if (has_prev_out_) done_.insert(std::string(fn.name()));
             ++stats_.fn_clones;
             continue;
         }
         auto cloned = clone_fn(fn, {});
-        out_.functions.push_back(lir_mirror_emit_fn_view(out_, cloned));
-        scan_fn(cloned);
+        auto cloned_v = cloned.view<lir_view::FunctionView>();
+        out_.functions.push_back(cloned_v);
+        scan_fn(cloned_v);
         if (has_prev_out_) done_.insert(std::string(fn.name()));
         ++stats_.fn_clones;
     }
@@ -589,14 +590,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // missing a required instantiation.
             if (!in_.binary_symbols.empty() && in_.binary_symbols.count(std::string(fn.name()))) {
                 auto stub = clone_fn_signature(fn, {}, {});
-                out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+                out_.functions.push_back(stub.view<lir_view::FunctionView>());
                 if (has_prev_out_) done_.insert(std::string(fn.name()));
                 ++stats_.fn_clones;
                 continue;
             }
             auto cloned = clone_fn(fn, {});
-            out_.functions.push_back(lir_mirror_emit_fn_view(out_, cloned));
-            scan_fn(cloned);
+            auto cloned_v = cloned.view<lir_view::FunctionView>();
+            out_.functions.push_back(cloned_v);
+            scan_fn(cloned_v);
             if (has_prev_out_) done_.insert(std::string(fn.name()));
             ++stats_.fn_clones;
         }
@@ -617,9 +619,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (!in_.binary_symbols.empty() &&
             in_.binary_symbols.count(item.mangled)) {
             auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
-            stub.name = item.mangled;
-            stub.type_params.clear();
-            out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+            stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
+            out_.functions.push_back(stub.view<lir_view::FunctionView>());
             ++stats_.fn_instances;
             note_fn_worklist_size(worklist_.size());
             continue;
@@ -630,8 +631,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         for (auto& [pn, cv] : item.const_args) current_const_args_[pn] = cv;
         auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
         current_const_args_.clear();
-        out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
-        scan_fn(inst);
+        auto inst_v = inst.view<lir_view::FunctionView>();
+        out_.functions.push_back(inst_v);
+        scan_fn(inst_v);
         ++stats_.fn_instances;
         note_fn_worklist_size(worklist_.size());
     }
@@ -687,13 +689,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             depth_ = item.depth;
             if (!in_.binary_symbols.empty() && in_.binary_symbols.count(item.mangled)) {
                 auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
-                stub.name = item.mangled; stub.type_params.clear();
-                out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+                stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
+                out_.functions.push_back(stub.view<lir_view::FunctionView>());
                 continue;
             }
             auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
-            out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
-            scan_fn(inst);
+            auto inst_v = inst.view<lir_view::FunctionView>();
+            out_.functions.push_back(inst_v);
+            scan_fn(inst_v);
         }
         depth_ = 0;
     }
@@ -793,14 +796,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             if (!in_.binary_symbols.empty() &&
                 in_.binary_symbols.count(item.mangled)) {
                 auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
-                stub.name = item.mangled;
-                stub.type_params.clear();
-                out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+                stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
+                out_.functions.push_back(stub.view<lir_view::FunctionView>());
                 continue;
             }
             auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
-            out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
-            scan_fn(inst);
+            auto inst_v = inst.view<lir_view::FunctionView>();
+            out_.functions.push_back(inst_v);
+            scan_fn(inst_v);
         }
         if (!needed_struct_insts_.empty()) instantiate_struct_templates();
         instantiate_enum_templates();
@@ -871,14 +874,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (!in_.binary_symbols.empty() &&
                     in_.binary_symbols.count(item.mangled)) {
                     auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
-                    stub.name = item.mangled;
-                    stub.type_params.clear();
-                    out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+                    stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
+                    out_.functions.push_back(stub.view<lir_view::FunctionView>());
                     continue;
                 }
                 auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
-                out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
-                scan_fn(inst);
+                auto inst_v = inst.view<lir_view::FunctionView>();
+                out_.functions.push_back(inst_v);
+                scan_fn(inst_v);
             }
             if (!needed_struct_insts_.empty()) instantiate_struct_templates();
             instantiate_enum_templates();

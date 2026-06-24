@@ -4746,20 +4746,22 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
 
 // ── Clone a function with substitution (empty SubstMap = verbatim copy) ─
 
-lir::FunctionDraft Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
+DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                          const PackMap& packs) {
+    namespace dk = lir_schema::decl_keys;
     cur_packs_ = packs;  // make available to subst_expr
     // Stage E: read the template via its FunctionView mirror. Type reads MUST
     // use out_.type_pool.impl() — mono moved in_.type_pool into out_ at run()
     // start, so in_ is moved-from (the same gotcha that bit clone_enum_def).
     const TypePoolImpl* pool = out_.type_pool.impl();
-    lir::FunctionDraft nf;
-    nf.name               = std::string(fn.name());
-    nf.method_base        = std::string(fn.method_base());
-    nf.package            = std::string(fn.package());
-    nf.is_extern          = fn.is_extern();
-    nf.local_count        = fn.local_count();   // Phase-1: preserve slot count.
-    nf.is_vararg          = fn.is_vararg();
+    // Direct-build: write the substituted fn mirror STRAIGHT into out_.
+    DeclBuilder nf(out_, lir_schema::decl::Code::Func, /*cap=*/40);
+    nf.str_always(dk::NAME,         fn.name());
+    nf.str(dk::METHOD_BASE,         fn.method_base());
+    nf.str(dk::PKG,                 fn.package());
+    if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
+    nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
+    if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     // Never propagate from_binary_module to cloned functions: clone_fn is
     // called by mono to create instantiations, which are new functions not
     // present in the binary archive. The archive contains only the pre-compiled
@@ -4768,38 +4770,50 @@ lir::FunctionDraft Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     // archive ships only parsed AST, so cloned items are still "originating
     // from a lazy module" — their bodies need the same reach-based emit
     // filter that mlir_gen applies to the originals.
-    nf.from_lazy_module  = fn.from_lazy_module();
-    nf.ret_type  = subst_type(fn.ret_type(pool), s);
+    if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);
+    nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
     // B65: lifetime params + outlives bounds are preserved verbatim through
     // mono. Lifetime substitution is identity (lifetimes are not in the
     // SubstMap), so the original pairs remain valid on the cloned signature.
-    for (auto lp : fn.lifetime_params()) nf.lifetime_params.emplace_back(lp);
-    for (auto& [a, b] : fn.lifetime_outlives())
-        nf.lifetime_outlives.emplace_back(std::string(a), std::string(b));
-    for (auto p : fn.params()) {
-        if (p.is_variadic()) {
-            // Expand variadic param into N concrete params.
-            // Find the pack type for this param's TypeVar name.
-            std::string pack_name;
-            TypeRef pt = p.type(pool);
-            if (pt && pt.kind() == LogosType::Kind::TypeVar)
-                pack_name = std::string(pt.type_var_name());
-            auto pit = packs.find(pack_name);
-            if (pit != packs.end()) {
-                for (size_t i = 0; i < pit->second.size(); ++i) {
-                    auto expanded_name = make_pack_arg_name(std::string(p.name()), i);
-                    // Phase 5.C: localize foreign pack entries so the
-                    // cloned fn's params don't hold offsets into a remote
-                    // arena (mlir_gen reads via TypeRef accessors which
-                    // work cross-arena, but downstream sites that route
-                    // TypeRef through mirror writes — e.g. emit_function
-                    // header / signature mangling — assume local pool).
-                    nf.params.push_back({expanded_name,
-                                         localize_type(pit->second[i])});
+    {
+        auto lps = fn.lifetime_params();
+        if (!lps.empty()) {
+            auto la = nf.array(dk::LIFETIME_PARAMS);
+            for (auto lp : lps) la.push_str(lp);
+        }
+        auto los = fn.lifetime_outlives();
+        if (!los.empty()) {
+            auto lo = nf.array(dk::LIFETIME_OUTLIVES);
+            for (auto& [a, b] : los) { lo.push_str(a); lo.push_str(b); }
+        }
+    }
+    {
+        auto pa = nf.array(dk::PARAMS);
+        for (auto p : fn.params()) {
+            if (p.is_variadic()) {
+                // Expand variadic param into N concrete params.
+                // Find the pack type for this param's TypeVar name.
+                std::string pack_name;
+                TypeRef pt = p.type(pool);
+                if (pt && pt.kind() == LogosType::Kind::TypeVar)
+                    pack_name = std::string(pt.type_var_name());
+                auto pit = packs.find(pack_name);
+                if (pit != packs.end()) {
+                    for (size_t i = 0; i < pit->second.size(); ++i) {
+                        auto expanded_name = make_pack_arg_name(std::string(p.name()), i);
+                        // Phase 5.C: localize foreign pack entries so the
+                        // cloned fn's params don't hold offsets into a remote
+                        // arena (mlir_gen reads via TypeRef accessors which
+                        // work cross-arena, but downstream sites that route
+                        // TypeRef through mirror writes — e.g. emit_function
+                        // header / signature mangling — assume local pool).
+                        pa.push_param({expanded_name, localize_type(pit->second[i])});
+                    }
                 }
+            } else {
+                pa.push_param({std::string(p.name()), subst_type(p.type(pool), s),
+                               p.is_variadic(), p.owning_box_dyn(), p.slot()});
             }
-        } else {
-            nf.params.push_back({std::string(p.name()), subst_type(p.type(pool), s), p.is_variadic(), p.owning_box_dyn(), p.slot()});
         }
     }
     // Phase 5.B step 2: cross-arena body source. When sema skipped this fn's
@@ -4826,7 +4840,7 @@ lir::FunctionDraft Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     if (!src_body) {
         src_body = fn.body();
     }
-    nf.body = subst_block(src_body, s, packs);
+    nf.block(dk::BODY, subst_block(src_body, s, packs));
     src_arena_ = saved_src_arena;
     // type_params left empty: instantiated functions are monomorphic
     return nf;
@@ -4841,41 +4855,54 @@ lir::FunctionDraft Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
 // would be skipped anyway. Caller must not run lir_mirror_emit_function
 // or scan_fn on the result — body.mirror_ptr_ stays default-zero, so
 // scan_fn's mirror_offset guard short-circuits if accidentally invoked.
-lir::FunctionDraft Mono::clone_fn_signature(lir_view::FunctionView fn,
+DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
                                          const SubstMap& s,
                                          const PackMap& packs) {
+    namespace dk = lir_schema::decl_keys;
     cur_packs_ = packs;
     const TypePoolImpl* pool = out_.type_pool.impl();  // see clone_fn (moved-pool)
-    lir::FunctionDraft nf;
-    nf.name               = std::string(fn.name());
-    nf.method_base        = std::string(fn.method_base());
-    nf.package            = std::string(fn.package());
-    nf.is_extern          = fn.is_extern();
-    nf.local_count        = fn.local_count();   // Phase-1: preserve slot count.
-    nf.is_vararg          = fn.is_vararg();
-    nf.from_lazy_module   = fn.from_lazy_module();  // Phase 6 — see clone_fn.
-    nf.ret_type           = subst_type(fn.ret_type(pool), s);
-    for (auto lp : fn.lifetime_params()) nf.lifetime_params.emplace_back(lp);
-    for (auto& [a, b] : fn.lifetime_outlives())
-        nf.lifetime_outlives.emplace_back(std::string(a), std::string(b));
-    for (auto p : fn.params()) {
-        if (p.is_variadic()) {
-            std::string pack_name;
-            TypeRef pt = p.type(pool);
-            if (pt && pt.kind() == LogosType::Kind::TypeVar)
-                pack_name = std::string(pt.type_var_name());
-            auto pit = packs.find(pack_name);
-            if (pit != packs.end()) {
-                for (size_t i = 0; i < pit->second.size(); ++i) {
-                    auto expanded_name = make_pack_arg_name(std::string(p.name()), i);
-                    // Phase 5.C: localize foreign pack entries (see
-                    // matching site in clone_fn for rationale).
-                    nf.params.push_back({expanded_name,
-                                         localize_type(pit->second[i])});
+    DeclBuilder nf(out_, lir_schema::decl::Code::Func, /*cap=*/40);
+    nf.str_always(dk::NAME,         fn.name());
+    nf.str(dk::METHOD_BASE,         fn.method_base());
+    nf.str(dk::PKG,                 fn.package());
+    if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
+    nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
+    if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
+    if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);  // Phase 6 — see clone_fn.
+    nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
+    {
+        auto lps = fn.lifetime_params();
+        if (!lps.empty()) {
+            auto la = nf.array(dk::LIFETIME_PARAMS);
+            for (auto lp : lps) la.push_str(lp);
+        }
+        auto los = fn.lifetime_outlives();
+        if (!los.empty()) {
+            auto lo = nf.array(dk::LIFETIME_OUTLIVES);
+            for (auto& [a, b] : los) { lo.push_str(a); lo.push_str(b); }
+        }
+    }
+    {
+        auto pa = nf.array(dk::PARAMS);
+        for (auto p : fn.params()) {
+            if (p.is_variadic()) {
+                std::string pack_name;
+                TypeRef pt = p.type(pool);
+                if (pt && pt.kind() == LogosType::Kind::TypeVar)
+                    pack_name = std::string(pt.type_var_name());
+                auto pit = packs.find(pack_name);
+                if (pit != packs.end()) {
+                    for (size_t i = 0; i < pit->second.size(); ++i) {
+                        auto expanded_name = make_pack_arg_name(std::string(p.name()), i);
+                        // Phase 5.C: localize foreign pack entries (see
+                        // matching site in clone_fn for rationale).
+                        pa.push_param({expanded_name, localize_type(pit->second[i])});
+                    }
                 }
+            } else {
+                pa.push_param({std::string(p.name()), subst_type(p.type(pool), s),
+                               p.is_variadic(), p.owning_box_dyn(), p.slot()});
             }
-        } else {
-            nf.params.push_back({std::string(p.name()), subst_type(p.type(pool), s), p.is_variadic(), p.owning_box_dyn(), p.slot()});
         }
     }
     return nf;
@@ -5419,15 +5446,15 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
         if (!in_.binary_symbols.empty() &&
             in_.binary_symbols.count(final_name)) {
             auto nm = clone_fn_signature(m, *msel, packs);
-            nm.name = final_name;
-            ma.push_ref(lir_mirror_emit_fn_view(out_, nm).self.addr());
+            nm.str_always(lir_schema::decl_keys::NAME, final_name);
+            ma.push_ref(nm.view<lir_view::FunctionView>().self.addr());
             continue;
         }
 
         auto nm = clone_fn(m, *msel, packs);
-        nm.name = final_name;
+        nm.str_always(lir_schema::decl_keys::NAME, final_name);
         // Substitute struct type in params/ret as needed (already done by clone_fn).
-        ma.push_ref(lir_mirror_emit_fn_view(out_, nm).self.addr());
+        ma.push_ref(nm.view<lir_view::FunctionView>().self.addr());
     }
     return nd;
 }
@@ -5762,10 +5789,11 @@ void Mono::instantiate_struct_templates() {
             depth_ = item.depth;
             note_depth(depth_);
             auto fn_inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
-            // Emit the decl mirror for the freshly-built transient, store the
-            // View, then scan the transient (still alive this iteration).
-            out_.functions.push_back(lir_mirror_emit_fn_view(out_, fn_inst));
-            scan_fn(fn_inst);
+            // The decl mirror was direct-built into out_; store the View and
+            // scan it (the builder stays alive this iteration).
+            auto fn_inst_v = fn_inst.view<lir_view::FunctionView>();
+            out_.functions.push_back(fn_inst_v);
+            scan_fn(fn_inst_v);
             ++stats_.fn_instances;
             note_fn_worklist_size(worklist_.size());
         }
@@ -6174,30 +6202,34 @@ void Mono::instantiate_enum_templates() {
                     }
                 }
                 if (!fully_bound) continue;
-                auto nm = clone_fn(fn, fn_subst, fn_packs);
                 // Emit the alias copy (same body, alternate mangled name) so
                 // both the bound-dispatch (append) and direct-call/operator
                 // (cname-insert) forms link — emitting whichever name a caller
                 // demanded but no path has produced yet. (One may already be
                 // done via another call site; see need_primary/need_alias.)
+                // Direct-build: DeclBuilder is non-copyable + emits in place, so
+                // clone afresh for each needed name (replaces the old deep-copy).
                 if (need_alias) {
-                    auto alias = nm;            // deep copy of the cloned body
-                    alias.name = alias_name;
+                    auto alias = clone_fn(fn, fn_subst, fn_packs);
+                    alias.str_always(lir_schema::decl_keys::NAME, alias_name);
                     done_.insert(alias_name);
-                    out_.functions.push_back(lir_mirror_emit_fn_view(out_, alias));
+                    auto alias_v = alias.view<lir_view::FunctionView>();
+                    out_.functions.push_back(alias_v);
                     // Scan the cloned enum-method body for nested generic calls
                     // (mirrors the struct-method path's `scan_fn(*m)`). Without
                     // this, a method like `Option::take` that calls a generic FREE
                     // fn (`mem::replace_ref::<Option<T>>`) never enqueues that
                     // specialization → mlir-gen "does not reference a valid
                     // function". The enclosing fixpoint drains anything enqueued.
-                    scan_fn(alias);
+                    scan_fn(alias_v);
                 }
                 if (need_primary) {
-                    nm.name = inst_name;
+                    auto nm = clone_fn(fn, fn_subst, fn_packs);
+                    nm.str_always(lir_schema::decl_keys::NAME, inst_name);
                     done_.insert(inst_name);
-                    out_.functions.push_back(lir_mirror_emit_fn_view(out_, nm));
-                    scan_fn(nm);
+                    auto nm_v = nm.view<lir_view::FunctionView>();
+                    out_.functions.push_back(nm_v);
+                    scan_fn(nm_v);
                 }
             }
             out_.enums.push_back(std::move(inst));

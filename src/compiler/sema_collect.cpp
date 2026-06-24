@@ -4354,7 +4354,7 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
             auto method = map_of(methods.get(m));
             if (code_of(method) == la::FN) {
                 auto mfn = lower_fn(method, sname);
-                ma.push_ref(lir_mirror_emit_fn_view(*cur_prog_, mfn).self.addr());
+                ma.push_ref(emit_fn_decl(*cur_prog_, mfn).view<lir_view::FunctionView>().self.addr());
             }
         }
     }
@@ -4370,12 +4370,12 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
 // Like lower_fn but for specialisation definitions.
 // Populates spec_patterns and routes the result to prog.specialisations.
 
-lir::FunctionDraft SemaChecker::lower_spec_fn(TinyMapView node) {
+FnLowerBuf SemaChecker::lower_spec_fn(TinyMapView node) {
     auto raw_name = str_of(node.get(la::NAME.code));
     ctx_ = std::format("fn {} (specialization)", raw_name);
     node_line_ = get_line(node);
 
-    lir::FunctionDraft fn;
+    FnLowerBuf fn;
     fn.name = std::string(raw_name);
     fn.doc  = take_pending_doc();
     fn.is_specialization = true;

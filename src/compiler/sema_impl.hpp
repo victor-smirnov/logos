@@ -52,6 +52,42 @@ namespace logos::compiler {
 bool types_equal(TypeRef a, TypeRef b) noexcept;
 std::string type_str(TypeRef t);
 
+// Stage E (FunctionDraft → direct-build): transient build buffer for the sema
+// fn-lowering path. `struct FunctionDraft` (lir.hpp) is gone; lower_fn /
+// lower_spec_fn fill this POD (so all intra-function read-backs + post-lower
+// caller mutations stay value-typed), then emit_fn_decl writes it into the
+// program HermesCtr via DeclBuilder, returning the open builder. Mirrors the
+// FunctionDraft field set exactly (sans the deleted mirror bridge).
+struct FnLowerBuf {
+    std::string              name;
+    std::string              method_base;
+    std::string              package;
+    std::vector<TypeParam>   type_params;
+    std::vector<std::string> lifetime_params;
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
+    std::vector<lir::LParam> params;
+    TypeRef                  ret_type = nullptr;
+    lir_view::BlockRef       body;
+    uint32_t                 local_count = 0;
+    bool                     is_extern = false;
+    bool                     is_vararg = false;
+    bool                     is_pub    = false;
+    bool                     is_metaprog_stub = false;
+    bool                     is_specialization = false;
+    std::vector<TypeRef>     spec_patterns;
+    bool                     from_binary_module = false;
+    bool                     from_lazy_module = false;
+    std::string              source_file;
+    std::vector<TypeParam>   impl_type_params;
+    TypeRef                  impl_target_pattern = nullptr;
+    std::vector<std::pair<TypeRef, std::string>> where_type_bounds;
+    std::string              doc;
+    bool                     is_test       = false;
+    bool                     should_panic  = false;
+    bool                     ignored       = false;
+    std::string              should_panic_expected_msg;
+};
+
 // Diagnostic helper: when two types have the same bare struct/enum name but
 // different packages (B-mv-02 / B-mv-09), prepend `pkg.` so the user can see
 // which is which.  For all other cases (different bare names, no pkg, etc.)
@@ -3600,7 +3636,7 @@ private:
     bool is_specialization_fn(hermes::TinyMapView node);
     bool is_specialization_struct(hermes::TinyMapView node);
     DeclBuilder lower_spec_struct(hermes::TinyMapView node);
-    lir::FunctionDraft lower_spec_fn(hermes::TinyMapView node);
+    FnLowerBuf lower_spec_fn(hermes::TinyMapView node);
     void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
                     std::string_view trait_ctx = {});
 
@@ -4296,11 +4332,24 @@ private:
 
     // ── lower_fn and declaration lowering ───────────────────────
 
-    lir::FunctionDraft lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
-    // Derive `fn.lifetime_outlives` from the fn's params/return implied bounds
+    // Emit `buf` as a Func decl mirror in `prog`; returns the open DeclBuilder
+    // (caller stores .view<FunctionView>() / .self.addr()).
+    DeclBuilder emit_fn_decl(lir::LProgram& prog, const FnLowerBuf& buf);
+
+    FnLowerBuf lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
+    // Derive `lifetime_outlives` from the fn's params/return implied bounds
     // plus its where-clause (and merge where-clause type-param lifetime
-    // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
-    void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::FunctionDraft& fn);
+    // bounds). Reads `node` + the fn's signature locals; appends to
+    // `lifetime_outlives` and mutates `type_params[].lifetime_outlives`.
+    // Factored out of lower_fn (Stage E: takes locals, not a Draft).
+    void compute_fn_lifetime_outlives(
+        hermes::TinyMapView node,
+        std::string_view fn_name,
+        const std::vector<std::string>& lifetime_params,
+        const std::vector<lir::LParam>& params,
+        TypeRef ret_type,
+        std::vector<TypeParam>& type_params,
+        std::vector<std::pair<std::string, std::string>>& lifetime_outlives);
     DeclBuilder lower_struct_def(hermes::TinyMapView node);
     // Stage E direct-build: builds the whole enum mirror (NAME/PKG/DOC/flags/
     // backing/variants/type_params) STRAIGHT into the program HermesCtr via

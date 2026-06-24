@@ -25,7 +25,6 @@ using lir::LMatchArm;
 using lir::Pattern;
 using lir::HermesVal;
 using lir::EClosure;
-using lir::FunctionDraft;
 
 namespace {
 
@@ -83,96 +82,6 @@ public:
     }
 
     void run(lir::LProgram& prog);
-
-    // Stage E: emit the function DECL mirror (full field set) and stash a
-    // transient bridge (mirror_ptr_ + mirror_arena_) on the C++ struct so
-    // readers can route through FunctionView while the struct is still alive.
-    // f.body is a pre-emitted BlockRef (Stage D, eager) — referenced by addr.
-    // ALWAYS re-emits (overwrites the bridge): clone_fn copies a template's
-    // stale mirror_ptr_, and the per-clone callers re-emit to give the clone
-    // its own map. Idempotent enough — segments never move, maps are append.
-    void emit_function(FunctionDraft& f) {
-        if (dry_run_) return;  // back-fill mode: keep existing bridge intact
-        // The function decl writes up to ~28 sparse keys (NAME=1 … BODY_EXTERNAL_REF=37);
-        // a TinyObjectMap has FIXED capacity and silently drops puts past it, so size
-        // the map for the full key set (was the default cap=8 → PARAMS/TYPE_PARAMS and
-        // every later field were dropped, making FunctionView read 0 params).
-        auto map_off = make_map(hermes::schema::lir_stmt(
-            int32_t(lir_schema::decl::Code::Func)), /*cap=*/40);
-        put(map_off, dk::NAME, put_string(f.name));
-        if (!f.method_base.empty()) put(map_off, dk::METHOD_BASE, put_string(f.method_base));
-        if (!f.package.empty())     put(map_off, dk::PKG,         put_string(f.package));
-        if (!f.doc.empty())         put(map_off, dk::DOC,         put_string(f.doc));
-        if (f.ret_type)             put(map_off, dk::RET_TYPE,    type_av(f.ret_type));
-        if (f.body)                 put(map_off, dk::BODY,        mref_addr(f.body.addr()));
-        if (f.local_count)          put(map_off, dk::LOCAL_COUNT, put_i64((int64_t)f.local_count));
-        if (f.is_extern)            put(map_off, dk::IS_EXTERN,          put_bool(true));
-        if (f.is_vararg)            put(map_off, dk::IS_VARARG,          put_bool(true));
-        if (f.is_pub)               put(map_off, dk::IS_PUB,             put_bool(true));
-        if (f.is_metaprog_stub)     put(map_off, dk::IS_METAPROG_STUB,   put_bool(true));
-        if (f.is_specialization)    put(map_off, dk::IS_SPECIALIZATION,  put_bool(true));
-        if (f.from_binary_module)   put(map_off, dk::FROM_BINARY_MODULE, put_bool(true));
-        if (f.from_lazy_module)     put(map_off, dk::FROM_LAZY_MODULE,   put_bool(true));
-        if (!f.source_file.empty()) put(map_off, dk::SOURCE_FILE, put_string(f.source_file));
-        if (f.impl_target_pattern)  put(map_off, dk::IMPL_TARGET_PATTERN, type_av(f.impl_target_pattern));
-        if (f.is_test)              put(map_off, dk::IS_TEST,      put_bool(true));
-        if (f.should_panic)         put(map_off, dk::SHOULD_PANIC, put_bool(true));
-        if (f.ignored)              put(map_off, dk::IGNORED,      put_bool(true));
-        if (!f.should_panic_expected_msg.empty())
-            put(map_off, dk::SHOULD_PANIC_MSG, put_string(f.should_panic_expected_msg));
-        if (f.body_external_ref.arena_id().is_valid())
-            put(map_off, dk::BODY_EXTERNAL_REF, hermes::external_ref_av(f.body_external_ref));
-        // params
-        if (!f.params.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(f.params.size());
-            for (auto& p : f.params) elems.push_back(param_av(p));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, dk::PARAMS, mref_addr(arr_off));
-        }
-        // type_params (rich fn variant)
-        if (!f.type_params.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(f.type_params.size());
-            for (auto& tp : f.type_params) elems.push_back(fn_tparam_av(tp));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, dk::TYPE_PARAMS, mref_addr(arr_off));
-        }
-        if (!f.impl_type_params.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(f.impl_type_params.size());
-            for (auto& tp : f.impl_type_params) elems.push_back(fn_tparam_av(tp));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, dk::IMPL_TYPE_PARAMS, mref_addr(arr_off));
-        }
-        // spec_patterns (Array<RelPtr<LogosType>>)
-        { auto a = type_array(f.spec_patterns); if (!a.is_null()) put(map_off, dk::SPEC_PATTERNS, a); }
-        // lifetime_params (Array<Varchar>)
-        if (!f.lifetime_params.empty()) {
-            auto arr_off = make_array(f.lifetime_params.size());
-            for (auto& s : f.lifetime_params) array_push(arr_off, put_string(s));
-            put(map_off, dk::LIFETIME_PARAMS, mref_addr(arr_off));
-        }
-        // lifetime_outlives (flat Array<Varchar>: 2i=long, 2i+1=short)
-        if (!f.lifetime_outlives.empty()) {
-            auto arr_off = make_array(f.lifetime_outlives.size() * 2);
-            for (auto& pr : f.lifetime_outlives) {
-                array_push(arr_off, put_string(pr.first));
-                array_push(arr_off, put_string(pr.second));
-            }
-            put(map_off, dk::LIFETIME_OUTLIVES, mref_addr(arr_off));
-        }
-        // where_type_bounds (Array<wherebound sub-map>)
-        if (!f.where_type_bounds.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(f.where_type_bounds.size());
-            for (auto& wb : f.where_type_bounds) elems.push_back(wherebound_av(wb));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, dk::WHERE_TYPE_BOUNDS, mref_addr(arr_off));
-        }
-        f.mirror_ptr_   = map_off;
-        f.mirror_arena_ = pool_ ? pool_->arena() : nullptr;
-    }
 
     // Public per-node entry points (Stage 3g.1). Called from
     // lir_mirror_emit_*_node free functions; idempotent via table cache.
@@ -1876,20 +1785,6 @@ LirMirrorTable lir_mirror_emit(lir::LProgram& prog) {
     return table;
 }
 
-void lir_mirror_emit_function(lir::LProgram& prog,
-                              LirMirrorTable& table,
-                              lir::FunctionDraft& fn) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, table, prog.type_pool);
-    em.emit_function(fn);
-}
-
-lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
-                                               lir::FunctionDraft& fn) {
-    lir_mirror_emit_function(prog, *prog.mirror_table, fn);
-    return fn.view();
-}
-
 void lir_mirror_struct_append_method(lir::LProgram& prog,
                                      lir_view::StructView sv,
                                      lir_view::FunctionView m) {
@@ -1970,6 +1865,10 @@ void DeclBuilder::expr(lir_schema::Key key, lir_view::ExprRef e) {
 void DeclBuilder::block(lir_schema::Key key, lir_view::BlockRef b) {
     if (b) p_->em.put(p_->map, key, p_->em.mref_addr(b.addr()));
 }
+void DeclBuilder::ext_ref(lir_schema::Key key, hermes::ExternalRef r) {
+    if (r.arena_id().is_valid())
+        p_->em.put(p_->map, key, hermes::external_ref_av(r));
+}
 DeclArrayBuilder DeclBuilder::array(lir_schema::Key key) {
     auto arr = p_->em.make_array(0);
     p_->em.put(p_->map, key, p_->em.mref_addr(arr));
@@ -1995,6 +1894,9 @@ void DeclArrayBuilder::push_param(const lir::LParam& p) {
 }
 void DeclArrayBuilder::push_fn_tparam(const TypeParam& tp) {
     owner_->em.array_push(arr_, owner_->em.fn_tparam_av(tp));
+}
+void DeclArrayBuilder::push_wherebound(const std::pair<TypeRef, std::string>& wb) {
+    owner_->em.array_push(arr_, owner_->em.wherebound_av(wb));
 }
 void DeclArrayBuilder::push_field(const lir::LField& fld) {
     owner_->em.array_push(arr_, owner_->em.field_av(fld));
@@ -2502,9 +2404,9 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
 //
 // LirBuilder calls these immediately after constructing each variant. The
 // emitter's per-node emit_* functions are memoized via the table, so a node
-// emitted here is a cache hit when later walked by lir_mirror_emit_into /
-// lir_mirror_emit_function — which keeps existing post-sema and per-clone
-// passes correct without modification.
+// emitted here is a cache hit when later walked by lir_mirror_emit_into —
+// which keeps existing post-sema and per-clone passes correct without
+// modification.
 
 // EAGER block completion primitive: emit a block container from its collected
 // statement refs and return a BlockRef handle. Call at each block's TRUE

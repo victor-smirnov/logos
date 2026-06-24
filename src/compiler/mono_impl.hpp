@@ -820,7 +820,7 @@ private:
         return lir_mirror_block(out_, nb);
     }
 
-    lir::FunctionDraft clone_fn(lir_view::FunctionView fn, const SubstMap& s,
+    DeclBuilder clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                              const PackMap& packs = {});
 
     // Signature-only clone for binary-symbol fast path: copies name/flags
@@ -829,7 +829,7 @@ private:
     // mlir_gen skips body emission for binary_symbols fns anyway. Caller
     // must NOT call lir_mirror_emit_function / scan_fn on the result;
     // body.mirror_ptr_ stays default, and scan_fn early-returns on that.
-    lir::FunctionDraft clone_fn_signature(lir_view::FunctionView fn, const SubstMap& s,
+    DeclBuilder clone_fn_signature(lir_view::FunctionView fn, const SubstMap& s,
                                        const PackMap& packs = {});
 
     // Auto-trait structural check.  Mirrors sema_auto_trait.cpp::is_auto_trait_satisfied
@@ -887,7 +887,6 @@ private:
     // out_.mirror_table and walks through view types from there. This
     // requires lir_mirror_emit_function to have been called for `fn`
     // before scan_fn — see clone+push_back sites in mono.cpp.
-    void scan_fn(const lir::FunctionDraft& fn);
     void scan_fn(lir_view::FunctionView fn);
     void scan_block(lir_view::BlockRef b);
     void scan_stmt(lir_view::StmtRef s);
@@ -1086,20 +1085,17 @@ private:
     // (arena-stable mirror), and scan for further calls.
     void drain_method_worklist();
 
-    lir::FunctionDraft instantiate_fn(lir_view::FunctionView tmpl,
+    DeclBuilder instantiate_fn(lir_view::FunctionView tmpl,
                                    const std::string& mangled_name,
                                    const SubstMap& subst,
                                    const PackMap& packs = {}) {
         ++depth_;
         auto fn = clone_fn(tmpl, subst, packs);
-        fn.name = mangled_name;
-        // Phase 2: clear type_params on the instance. Without this the
-        // cloned instance still claims to be generic, which can confuse
-        // downstream passes (mlir-gen treats it as a template, dispatch
-        // resolution miscategorises it, etc.). Mirror of the eager
-        // blanket-instantiation path which already does this clear at
-        // mono.cpp:491,565.
-        fn.type_params.clear();
+        fn.str_always(lir_schema::decl_keys::NAME, mangled_name);
+        // Phase 2: instances are monomorphic — clone_fn already omits
+        // TYPE_PARAMS (it never emits the rich fn type_params for clones),
+        // so there is nothing to clear here. Mirror of the eager
+        // blanket-instantiation path.
         --depth_;
         return fn;
     }
