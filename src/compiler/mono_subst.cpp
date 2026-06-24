@@ -449,10 +449,10 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (cfg) cfg = subst_type(cfg, s);
         if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::HStaticLit) return tv;
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
-        auto rit = out_.hstatic_registry_.find(hash);
-        if (rit == out_.hstatic_registry_.end()) return tv;
-        if (!rit->second || rit->second.addr() == nullptr) return tv;
-        lir_view::ExprRef eref(out_.type_pool.arena(), rit->second.addr());
+        auto rav = out_.hstatic_registry_.get(std::to_string(hash));
+        if (rav.is_null()) return tv;
+        lir_view::ExprRef eref(out_.type_pool.arena(), rav);
+        if (eref.addr() == nullptr) return tv;
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return tv;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };

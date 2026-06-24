@@ -1912,6 +1912,43 @@ DeclBuilder DeclArrayBuilder::submap(uint64_t schema_code, uint64_t cap) {
     return DeclBuilder(std::move(p));
 }
 
+// ── ObjectMapRef put helpers (Stage E working-state maps) ───────────────────
+// Create the ObjectMap in prog's arena on first put, then insert key→value.
+static hermes::ObjectMap* ensure_obj_map(lir::LProgram& prog, lir_view::ObjectMapRef& ref) {
+    auto& arena = prog.type_pool.arena_or_init();
+    if (!ref.valid()) {
+        auto exp = hermes::ObjectMap::create(arena, 8);
+        LOGOS_ASSERT(exp.has_value(), "LIR-MIRROR-MAP", "ObjectMap create failed");
+        ref.arena_ = &arena;
+        ref.addr_  = reinterpret_cast<const uint8_t*>(*exp);   // operator* — Err is move-only
+    }
+    return ref.map();
+}
+void lir_mirror_map_put_str(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                            std::string_view key, std::string_view val) {
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* m = ensure_obj_map(prog, ref);
+    auto exp = hermes::ArenaString::create(arena, val);
+    LOGOS_ASSERT(exp.has_value(), "LIR-MIRROR-MAP", "value string alloc failed");
+    hermes::AnyVal av; av.set_ref(reinterpret_cast<const uint8_t*>(*exp));
+    auto r = m->put(key, av, arena); LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
+}
+void lir_mirror_map_put_ref(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                            std::string_view key, const uint8_t* val_addr) {
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* m = ensure_obj_map(prog, ref);
+    hermes::AnyVal av;
+    if (val_addr) av.set_ref(val_addr);
+    auto r = m->put(key, av, arena); LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
+}
+void lir_mirror_map_put_null(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                             std::string_view key) {
+    auto& arena = prog.type_pool.arena_or_init();
+    auto* m = ensure_obj_map(prog, ref);
+    auto r = m->put(key, hermes::AnyVal{}, arena);   // membership set (null value)
+    LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
+}
+
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, table, prog.type_pool);

@@ -782,7 +782,7 @@ struct LProgram {
     // (`<module_id>.<pkg>.<Struct>__<method>`), matching function_symbol_name's
     // definition mangle. A package absent here (or mapped to "") is in the
     // global module → no module qualification (byte-identical legacy mangle).
-    std::unordered_map<std::string, std::string> pkg_module_ids;
+    lir_view::ObjectMapRef pkg_module_ids;  // Stage E: heap-free working-state map
 
     // ADR 0007 slice 1c: pools for HermesVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
@@ -816,7 +816,7 @@ struct LProgram {
     std::vector<lir_view::ModuleInnerDocView> module_inner_docs;
 
     // Populated by sema when reflect::<T>() is lowered; consumed by reflection_emit pass.
-    StrSet reflect_requests; // fqn of types to reflect
+    lir_view::ObjectMapRef reflect_requests; // Stage E: fqn-set as ObjectMap (null values)
 
     // Populated by reflection_emit pass; consumed by mlir_gen.
     std::vector<lir_view::ReflectGlobalView> reflection_globals;  // Stage E: decl mirrors
@@ -843,7 +843,8 @@ struct LProgram {
     // HStaticLit's const_val (the same hash) to materialise the literal in
     // place of `__const_param:CFG` references inside generic bodies.
     // ExprRef = mirror view into type_pool arena; lifetimes match LProgram.
-    std::unordered_map<uint64_t, LExprPtr> hstatic_registry_;
+    // Stage E: heap-free ObjectMap (uint64 hash stringified as key → set_ref(expr)).
+    lir_view::ObjectMapRef hstatic_registry_;
 
     // M.1: per-site record of `metacall <call_expr>` occurrences in the user
     // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)
@@ -1015,26 +1016,26 @@ inline std::string mangle(const Sym& s) {
 // tracking, so the two can never desync. `Fn` is FunctionDraft (has .package/.name).
 template <class Fn>
 inline std::string link_name(const Fn& fn,
-                             const std::unordered_map<std::string, std::string>& pkg_module_ids) {
+                             const lir_view::ObjectMapRef& pkg_module_ids) {
     if (fn.package.empty()) return fn.name;
-    auto it = pkg_module_ids.find(fn.package);
-    if (it == pkg_module_ids.end() || it->second.empty()) return fn.name;
+    std::string_view mid = pkg_module_ids.get_str(fn.package);
+    if (mid.empty()) return fn.name;
     std::string prefix = fn.package + ".";
-    if (fn.name.rfind(prefix, 0) == 0) return it->second + ".." + fn.name;
+    if (fn.name.rfind(prefix, 0) == 0) return std::string(mid) + ".." + fn.name;
     return fn.name;
 }
 
 // FunctionView overload (Stage E: FunctionDraft storage is a Hermes mirror View).
 // String fields are method-accessed; same logic as the struct template above.
 inline std::string link_name(lir_view::FunctionView fn,
-                             const std::unordered_map<std::string, std::string>& pkg_module_ids) {
+                             const lir_view::ObjectMapRef& pkg_module_ids) {
     std::string pkg(fn.package());
     std::string nm(fn.name());
     if (pkg.empty()) return nm;
-    auto it = pkg_module_ids.find(pkg);
-    if (it == pkg_module_ids.end() || it->second.empty()) return nm;
+    std::string_view mid = pkg_module_ids.get_str(pkg);
+    if (mid.empty()) return nm;
     std::string prefix = pkg + ".";
-    if (nm.rfind(prefix, 0) == 0) return it->second + ".." + nm;
+    if (nm.rfind(prefix, 0) == 0) return std::string(mid) + ".." + nm;
     return nm;
 }
 

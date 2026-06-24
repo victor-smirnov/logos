@@ -226,8 +226,8 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
     // - Explicitly requested via reflect::<T>()
     // - Annotated datatypes (always emit so runtime can read annotations)
     std::unordered_set<std::string> to_emit;
-    for (auto& fqn : prog.reflect_requests)
-        to_emit.insert(fqn);
+    prog.reflect_requests.for_each(
+        [&](std::string_view fqn, hermes::AnyVal) { to_emit.insert(std::string(fqn)); });
     for (auto& sd : prog.structs) {
         if (sd.is_zoned() && !sd.annotations_empty()) {
             std::string fqn = sd.pkg().empty() ? std::string(sd.name())

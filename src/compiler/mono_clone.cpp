@@ -523,8 +523,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto kind = TypeRef(sit->second).kind();
                     if (kind == LogosType::Kind::HStaticLit) {
                         uint64_t h = (uint64_t)sit->second.const_val().value_or(0);
-                        auto rit = out_.hstatic_registry_.find(h);
-                        if (rit == out_.hstatic_registry_.end()) {
+                        auto rav = out_.hstatic_registry_.get(std::to_string(h));
+                        if (rav.is_null()) {
                             std::fprintf(stderr,
                                 "mono: __const_param:%s — HermesStatic registry "
                                 "miss for hash %016llx\n",
@@ -545,7 +545,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             SubstMap empty;
                             lir_view::ExprRef src_eref(
                                 out_.type_pool.arena(),
-                                rit->second.addr());
+                                rav);
                             auto cloned = subst_expr(src_eref, empty);
                             if (cloned) {
                                 mp_ = cloned.addr();
@@ -995,7 +995,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 std::string pkg{TypeRef(resolved).pkg_name()};
                 std::string fqn = pkg.empty() ? std::string(TypeRef(resolved).struct_name())
                                               : pkg + "::" + std::string(TypeRef(resolved).struct_name());
-                out_.reflect_requests.insert(fqn);
+                lir_mirror_map_put_null(out_, out_.reflect_requests, fqn);
             }
             break;
         }

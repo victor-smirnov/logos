@@ -30,6 +30,8 @@
 
 namespace logos::compiler {
 
+namespace lir_view { struct ObjectMapRef; }
+
 // ── Type representation ────────────────────────────────────────────────────
 
 // 2c.6.6.B.6: LogosType is no longer an instantiated struct — it has no
@@ -526,8 +528,13 @@ std::string concrete_struct_name_raw(std::string_view base_name,
 
 // Set/get the current phase's pkg→module_id map for type module-qualification
 // (same-pkg-same-name coexistence). Threaded as a thread_local; null disables.
+// Two backings coexist: sema installs its working C++ map; mono/mlir install the
+// LProgram's heap-free ObjectMapRef (Stage E). type_module_suffix reads whichever
+// is active.
 void set_type_module_map(const std::unordered_map<std::string, std::string>* m);
 const std::unordered_map<std::string, std::string>* get_type_module_map();
+void set_type_module_map_ref(const lir_view::ObjectMapRef* m);
+const lir_view::ObjectMapRef* get_type_module_map_ref();
 
 // The module suffix appended to a type's mangled name for a given owning
 // package ("$M<module_id>", or "" for stdlib/no-module). Public so struct/enum
@@ -539,9 +546,20 @@ std::string type_module_suffix(std::string_view pkg);
 // (sema run / mono run / mlir generate) and restores the previous on scope exit.
 struct TypeModuleScope {
     const std::unordered_map<std::string, std::string>* prev_;
+    const lir_view::ObjectMapRef*                        prev_ref_;
+    // C++-map backing (sema's working pkg_module_ids_).
     explicit TypeModuleScope(const std::unordered_map<std::string, std::string>* m)
-        : prev_(get_type_module_map()) { set_type_module_map(m); }
-    ~TypeModuleScope() { set_type_module_map(prev_); }
+        : prev_(get_type_module_map()), prev_ref_(get_type_module_map_ref()) {
+        set_type_module_map(m);
+        set_type_module_map_ref(nullptr);
+    }
+    // ObjectMapRef backing (LProgram's heap-free pkg_module_ids; Stage E).
+    explicit TypeModuleScope(const lir_view::ObjectMapRef* m)
+        : prev_(get_type_module_map()), prev_ref_(get_type_module_map_ref()) {
+        set_type_module_map(nullptr);
+        set_type_module_map_ref(m);
+    }
+    ~TypeModuleScope() { set_type_module_map(prev_); set_type_module_map_ref(prev_ref_); }
     TypeModuleScope(const TypeModuleScope&) = delete;
     TypeModuleScope& operator=(const TypeModuleScope&) = delete;
 };

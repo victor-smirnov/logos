@@ -654,9 +654,9 @@ private:
         auto dot = callee.rfind('.', us);
         if (dot == std::string::npos) return callee;
         std::string pkg = callee.substr(0, dot);
-        auto it = prog_->pkg_module_ids.find(pkg);
-        if (it == prog_->pkg_module_ids.end() || it->second.empty()) return callee;
-        return it->second + ".." + callee;
+        std::string_view mid = prog_->pkg_module_ids.get_str(pkg);
+        if (mid.empty()) return callee;
+        return std::string(mid) + ".." + callee;
     }
     bool register_struct(lir_view::StructView sd);
     void register_tagged_enum(lir_view::EnumView ed);

@@ -176,6 +176,15 @@ const uint8_t* lir_mirror_emit_var_ref  (lir::LProgram& prog, TypeRef ty, std::s
 const uint8_t* lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 
+// Stage E — ObjectMap (working-state map) put helpers. Create the map in prog's
+// arena on first put; ref carries the stable header addr afterwards.
+void lir_mirror_map_put_str (lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                             std::string_view key, std::string_view val);
+void lir_mirror_map_put_ref (lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                             std::string_view key, const uint8_t* val_addr);
+void lir_mirror_map_put_null(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
+                             std::string_view key);
+
 // Stage E — declaration-layer mirror writers.
 const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,
                                           TypeRef type, std::string_view doc);

@@ -109,9 +109,9 @@ private:
     // definition. Reads the package→module map handed over by sema.
     std::string mq(const std::string& pkg) const {
         if (pkg.empty()) return pkg;
-        auto it = in_.pkg_module_ids.find(pkg);
-        if (it != in_.pkg_module_ids.end() && !it->second.empty())
-            return it->second + "." + pkg;
+        std::string_view mid = in_.pkg_module_ids.get_str(pkg);
+        if (!mid.empty())
+            return std::string(mid) + "." + pkg;
         return pkg;
     }
 

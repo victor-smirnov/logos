@@ -3033,4 +3033,33 @@ inline bool is_reborrow_shape(ExprRef e, ExprRef* out_varref = nullptr) noexcept
     return true;
 }
 
+// ── Stage E: handle to a Hermes ObjectMap held as an LProgram member ─────────
+// Replaces a C++ std::unordered_map<string,…>. Like DeclRef it stores the arena
+// + the stable header address (ObjectMap::grow re-points only the internal
+// buffer, never the 24-byte header). Read-only here (get/has/for_each/size);
+// inserts route through lir_mirror_map_put_* (which create the map on first put
+// and grow in the program's arena). Copy/move of the handle is trivial; the map
+// lives in the type_pool arena (stable across mono's pool move).
+struct ObjectMapRef {
+    const hermes::Arena* arena_ = nullptr;
+    const uint8_t*       addr_  = nullptr;   // ObjectMap header (stable)
+    bool valid() const noexcept { return addr_ != nullptr; }
+    hermes::ObjectMap* map() const noexcept {
+        return reinterpret_cast<hermes::ObjectMap*>(const_cast<uint8_t*>(addr_));
+    }
+    hermes::AnyVal get(std::string_view k) const noexcept {
+        return valid() ? map()->get(k) : hermes::AnyVal{};
+    }
+    std::string_view get_str(std::string_view k) const noexcept {
+        auto av = get(k);
+        return av.is_null() ? std::string_view{}
+                            : av.as_ptr<const hermes::ArenaString>()->view();
+    }
+    bool     has(std::string_view k) const noexcept { return valid() && map()->has(k); }
+    uint64_t size()  const noexcept { return valid() ? map()->size() : 0; }
+    bool     empty() const noexcept { return size() == 0; }
+    // F is called as f(std::string_view key, hermes::AnyVal val).
+    template <class F> void for_each(F&& f) const { if (valid()) map()->for_each(std::forward<F>(f)); }
+};
+
 } // namespace logos::compiler::lir_view

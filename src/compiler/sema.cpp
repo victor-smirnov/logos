@@ -1384,6 +1384,9 @@ static bool g_mangle_erase_fnptr = false;
 // coexist, so they are NOT qualified → zero stdlib mangling churn. An empty map
 // (plain non-module compiles) likewise yields no suffix → byte-identical output.
 thread_local const std::unordered_map<std::string, std::string>* g_type_pkg_module_ids = nullptr;
+// Stage E: the ObjectMapRef backing (mono/mlir install the LProgram's heap-free
+// pkg_module_ids). Exactly one of the two thread_locals is non-null at a time.
+thread_local const lir_view::ObjectMapRef* g_type_pkg_module_ids_ref = nullptr;
 
 void set_type_module_map(const std::unordered_map<std::string, std::string>* m) {
     g_type_pkg_module_ids = m;
@@ -1391,10 +1394,21 @@ void set_type_module_map(const std::unordered_map<std::string, std::string>* m) 
 const std::unordered_map<std::string, std::string>* get_type_module_map() {
     return g_type_pkg_module_ids;
 }
+void set_type_module_map_ref(const lir_view::ObjectMapRef* m) {
+    g_type_pkg_module_ids_ref = m;
+}
+const lir_view::ObjectMapRef* get_type_module_map_ref() {
+    return g_type_pkg_module_ids_ref;
+}
 
 std::string type_module_suffix(std::string_view pkg) {
-    if (!g_type_pkg_module_ids || pkg.empty()) return {};
+    if (pkg.empty()) return {};
     if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: globally unique
+    if (g_type_pkg_module_ids_ref) {
+        std::string_view mid = g_type_pkg_module_ids_ref->get_str(pkg);
+        return mid.empty() ? std::string{} : "$M" + std::string(mid);
+    }
+    if (!g_type_pkg_module_ids) return {};
     auto it = g_type_pkg_module_ids->find(std::string(pkg));
     if (it == g_type_pkg_module_ids->end() || it->second.empty()) return {};
     return "$M" + it->second;
@@ -2283,7 +2297,10 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     // take_snapshot ensures the persisted state contains binary-origin
     // entries only.
     if (cache_ && cache_->impl()->snapshot) {
-        prog.hstatic_registry_ = cache_->impl()->snapshot->hstatic_registry;
+        for (auto& [hash, lit] : cache_->impl()->snapshot->hstatic_registry)
+            if (lit && lit.addr())
+                lir_mirror_map_put_ref(prog, prog.hstatic_registry_,
+                                       std::to_string(hash), lit.addr());
         install_snapshot(std::move(cache_->impl()->snapshot));
     }
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
@@ -2301,7 +2318,8 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     sema_tick("collect");
     // Module system: hand the package→module-id map to mono for synthesised
     // method-call qualification. Filled during collect() across all files.
-    prog.pkg_module_ids = pkg_module_ids_;
+    for (auto& [k, v] : pkg_module_ids_)
+        lir_mirror_map_put_str(prog, prog.pkg_module_ids, k, v);
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
@@ -2335,7 +2353,16 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         // M5 step 5a: also capture prog.hstatic_registry_ (per-LProgram
         // field, not in SemaChecker). With pools shared above the LExpr*
         // entries here stay alive for the next call.
-        cache_->impl()->snapshot->hstatic_registry = prog.hstatic_registry_;
+        {
+            const hermes::Arena* arena = prog.type_pool.arena();
+            prog.hstatic_registry_.for_each(
+                [&](std::string_view key, hermes::AnyVal av) {
+                    if (av.is_null()) return;
+                    uint64_t hash = std::strtoull(std::string(key).c_str(), nullptr, 10);
+                    cache_->impl()->snapshot->hstatic_registry[hash] =
+                        lir_view::ExprRef(arena, av);
+                });
+        }
     }
 
     // Enforce the "one eidos per (genos, tag-system)" invariant at compile
@@ -4734,10 +4761,10 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::HStaticLit) return t;
         if (!cur_prog_) return t;
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
-        auto rit = cur_prog_->hstatic_registry_.find(hash);
-        if (rit == cur_prog_->hstatic_registry_.end()) return t;
-        if (!rit->second || rit->second.addr() == nullptr) return t;
-        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second.addr());
+        auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
+        if (rav.is_null()) return t;
+        lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
+        if (eref.addr() == nullptr) return t;
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };
@@ -5030,10 +5057,9 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
         TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
         if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::HStaticLit && cur_prog_) {
             uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
-            auto rit = cur_prog_->hstatic_registry_.find(hash);
-            if (rit != cur_prog_->hstatic_registry_.end() && rit->second &&
-                rit->second.addr() != nullptr) {
-                lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rit->second.addr());
+            auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
+            lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
+            if (!rav.is_null() && eref.addr() != nullptr) {
                 if (eref.kind() == lir_schema::expr::Code::HermesLit) {
                     // Walk path through the Hermes value.
                     lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
@@ -6462,9 +6488,10 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
         // place of `__const_param:CFG` references inside generic bodies.
         // First-write-wins: identical hashes resolve to the same registered
         // LExpr (content-only identity).
-        if (cur_prog_ && !cur_prog_->hstatic_registry_.count(hash)) {
+        if (cur_prog_ && !cur_prog_->hstatic_registry_.has(std::to_string(hash))) {
             auto lit = lower_hermes_lit(val_node);
-            if (lit) cur_prog_->hstatic_registry_[hash] = lit;
+            if (lit) lir_mirror_map_put_ref(*cur_prog_, cur_prog_->hstatic_registry_,
+                                            std::to_string(hash), lit.addr());
         }
         LogosTypeBuilder t; t.kind = LogosType::Kind::HStaticLit;
         t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
@@ -6698,7 +6725,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         prog.inst_annotations.insert       (prog.inst_annotations.end(),       c.inst_annotations.begin(),       c.inst_annotations.end());
         prog.dispatch_entries.insert       (prog.dispatch_entries.end(),       c.dispatch_entries.begin(),       c.dispatch_entries.end());
         prog.module_inner_docs.insert      (prog.module_inner_docs.end(),      c.module_inner_docs.begin(),      c.module_inner_docs.end());
-        for (auto& r : c.reflect_requests) prog.reflect_requests.insert(r);
+        for (auto& r : c.reflect_requests) lir_mirror_map_put_null(prog, prog.reflect_requests, r);
     }
     // Per-binary-AST range tracking for unflagged vectors (when capturing).
     // Indices into unflagged prog vectors right after each binary AST's
@@ -6721,7 +6748,9 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     };
     std::vector<BinaryAstRange> m5_ranges;
     StrSet m5_refl0;
-    if (m5_capture_active) m5_refl0 = prog.reflect_requests;
+    if (m5_capture_active)
+        prog.reflect_requests.for_each(
+            [&](std::string_view fqn, hermes::AnyVal) { m5_refl0.insert(std::string(fqn)); });
     for (size_t i = 0; i < asts.size(); ++i) {
         // M6.1: delta mode — this AST was processed in a prior sema_lower
         // call within this compile session. Its prog contributions are

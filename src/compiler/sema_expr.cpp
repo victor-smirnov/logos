@@ -4839,7 +4839,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
                         if (cur_prog_) {
                             std::string pkg = std::string(cur_package_);
                             std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
-                            cur_prog_->reflect_requests.insert(fqn);
+                            lir_mirror_map_put_null(*cur_prog_, cur_prog_->reflect_requests, fqn);
                         }
                         auto hs_type = make_struct_type("HermesStatic");
                         // Synthesize a ZonedStruct type for EReflectOf codegen.
@@ -4868,7 +4868,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
     if (cur_prog_) {
         std::string pkg = TypeRef(T).pkg_name().empty() ? std::string(cur_package_) : std::string(TypeRef(T).pkg_name());
         std::string fqn = pkg.empty() ? std::string(TypeRef(T).struct_name()) : pkg + "::" + std::string(TypeRef(T).struct_name());
-        cur_prog_->reflect_requests.insert(fqn);
+        lir_mirror_map_put_null(*cur_prog_, cur_prog_->reflect_requests, fqn);
     }
     auto hs_type = make_struct_type("HermesStatic");
     return builder().reflect_of(T, hs_type);
