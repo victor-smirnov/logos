@@ -3106,13 +3106,16 @@ int main(int argc, char** argv) {
         }
         ::pclose(pipe);
     };
+    // `-p` (no-sort): we only build a set, so nm's default symbol sort is pure
+    // waste — and it sorts via locale-aware strcoll (the #1 cost when compiling a
+    // small stdlib consumer, ~9% of wall-clock, thousands of stdlib symbols).
     for (const auto& dir : explicit_lib_paths)
-        collect_syms("nm --defined-only -j " + dir + "/*.a 2>/dev/null");
+        collect_syms("nm --defined-only -p -j " + dir + "/*.a 2>/dev/null");
     for (const auto& f : explicit_lib_files)
-        collect_syms("nm --defined-only -j " + f + " 2>/dev/null");
+        collect_syms("nm --defined-only -p -j " + f + " 2>/dev/null");
     if (!std::getenv("LOGOS_NO_LIB_BINARY_SKIP")) {
         for (const auto& dir : search_paths)
-            collect_syms("nm --defined-only -j " + dir + "/*.a 2>/dev/null");
+            collect_syms("nm --defined-only -p -j " + dir + "/*.a 2>/dev/null");
     }
     if (trace)
         std::fprintf(stderr, "[trace] binary_symbols: %zu from %zu archive(s)\n",
