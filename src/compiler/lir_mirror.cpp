@@ -25,7 +25,7 @@ using lir::LMatchArm;
 using lir::Pattern;
 using lir::HermesVal;
 using lir::EClosure;
-using lir::LFunction;
+using lir::FunctionDraft;
 using lir::LStructDef;
 using lir::LImplBlock;
 using lir::LTraitDef;
@@ -92,7 +92,7 @@ public:
     // ALWAYS re-emits (overwrites the bridge): clone_fn copies a template's
     // stale mirror_ptr_, and the per-clone callers re-emit to give the clone
     // its own map. Idempotent enough — segments never move, maps are append.
-    void emit_function(LFunction& f) {
+    void emit_function(FunctionDraft& f) {
         if (dry_run_) return;  // back-fill mode: keep existing bridge intact
         // The function decl writes up to ~28 sparse keys (NAME=1 … BODY_EXTERNAL_REF=37);
         // a TinyObjectMap has FIXED capacity and silently drops puts past it, so size
@@ -285,7 +285,7 @@ public:
         if (tp.is_variadic) put(map_off, tpk::TP_IS_VARIADIC, put_bool(true));
         return mref_addr(map_off);
     }
-    // ── Function decl sub-map builders (Stage E LFunction migration) ──────
+    // ── Function decl sub-map builders (Stage E FunctionDraft migration) ──────
     // PARAMS array element (LParam sub-map). Own key space.
     hermes::AnyVal param_av(const lir::LParam& p) {
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 5));
@@ -1856,14 +1856,14 @@ LirMirrorTable lir_mirror_emit(lir::LProgram& prog) {
 
 void lir_mirror_emit_function(lir::LProgram& prog,
                               LirMirrorTable& table,
-                              lir::LFunction& fn) {
+                              lir::FunctionDraft& fn) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, table, prog.type_pool);
     em.emit_function(fn);
 }
 
 lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
-                                               lir::LFunction& fn) {
+                                               lir::FunctionDraft& fn) {
     lir_mirror_emit_function(prog, *prog.mirror_table, fn);
     return fn.view();
 }

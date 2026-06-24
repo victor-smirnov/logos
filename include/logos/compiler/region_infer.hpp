@@ -1,6 +1,6 @@
 #pragma once
 // B70: region inference scaffolding — per-borrow region variables, CFG
-// over LFunction body, borrow-site collection. Standalone analysis: at
+// over FunctionDraft body, borrow-site collection. Standalone analysis: at
 // this slice it builds the data structures and runs an empty solver
 // hook (B71 will populate the solver, B72 will replace min-viable NLL
 // with the conflict checker driven by these regions).
@@ -26,7 +26,7 @@
 #include <logos/compiler/lir_view.hpp>  // lir_view::BlockRef/StmtRef (Stage D)
 
 namespace logos::compiler::lir {
-    struct LFunction;
+    struct FunctionDraft;
     struct LProgram;
 }
 
@@ -106,7 +106,7 @@ struct CFG {
     std::vector<Block> blocks;
 };
 
-// Front-end of the inference. Walks an LFunction body once: assigns
+// Front-end of the inference. Walks an FunctionDraft body once: assigns
 // RegionIds to every borrow expression, builds the CFG, collects
 // borrow sites and seed constraints (containment at origin, declared
 // outlives bounds from fn.lifetime_outlives mapped onto named regions).

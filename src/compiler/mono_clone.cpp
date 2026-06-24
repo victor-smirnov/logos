@@ -4723,14 +4723,14 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
 
 // ── Clone a function with substitution (empty SubstMap = verbatim copy) ─
 
-lir::LFunction Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
+lir::FunctionDraft Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                          const PackMap& packs) {
     cur_packs_ = packs;  // make available to subst_expr
     // Stage E: read the template via its FunctionView mirror. Type reads MUST
     // use out_.type_pool.impl() — mono moved in_.type_pool into out_ at run()
     // start, so in_ is moved-from (the same gotcha that bit clone_enum_def).
     const TypePoolImpl* pool = out_.type_pool.impl();
-    lir::LFunction nf;
+    lir::FunctionDraft nf;
     nf.name               = std::string(fn.name());
     nf.method_base        = std::string(fn.method_base());
     nf.package            = std::string(fn.package());
@@ -4818,12 +4818,12 @@ lir::LFunction Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
 // would be skipped anyway. Caller must not run lir_mirror_emit_function
 // or scan_fn on the result — body.mirror_ptr_ stays default-zero, so
 // scan_fn's mirror_offset guard short-circuits if accidentally invoked.
-lir::LFunction Mono::clone_fn_signature(lir_view::FunctionView fn,
+lir::FunctionDraft Mono::clone_fn_signature(lir_view::FunctionView fn,
                                          const SubstMap& s,
                                          const PackMap& packs) {
     cur_packs_ = packs;
     const TypePoolImpl* pool = out_.type_pool.impl();  // see clone_fn (moved-pool)
-    lir::LFunction nf;
+    lir::FunctionDraft nf;
     nf.name               = std::string(fn.name());
     nf.method_base        = std::string(fn.method_base());
     nf.package            = std::string(fn.package());
@@ -5676,8 +5676,8 @@ void Mono::instantiate_struct_templates() {
             //   (a) all recursive subst_block push_backs are done, so the
             //       LBlock::stmts vector buffers won't reallocate again and
             //       LStmt addresses inside them are fixed;
-            //   (b) each LFunction sits behind a unique_ptr in inst.methods,
-            //       so the LFunction itself (and therefore its body LBlock) is
+            //   (b) each FunctionDraft sits behind a unique_ptr in inst.methods,
+            //       so the FunctionDraft itself (and therefore its body LBlock) is
             //       heap-stable even when `inst` is later moved into out_.structs.
             // subst_stmt deliberately returns LStmt with mirror_ptr_=0 — emitting
             // mid-clone would point the mirror at a transient vector slot.

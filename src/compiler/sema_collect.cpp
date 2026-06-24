@@ -4355,12 +4355,12 @@ lir::LStructDef SemaChecker::lower_spec_struct(TinyMapView node) {
 // Like lower_fn but for specialisation definitions.
 // Populates spec_patterns and routes the result to prog.specialisations.
 
-lir::LFunction SemaChecker::lower_spec_fn(TinyMapView node) {
+lir::FunctionDraft SemaChecker::lower_spec_fn(TinyMapView node) {
     auto raw_name = str_of(node.get(la::NAME.code));
     ctx_ = std::format("fn {} (specialization)", raw_name);
     node_line_ = get_line(node);
 
-    lir::LFunction fn;
+    lir::FunctionDraft fn;
     fn.name = std::string(raw_name);
     fn.doc  = take_pending_doc();
     fn.is_specialization = true;

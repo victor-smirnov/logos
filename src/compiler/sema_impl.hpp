@@ -1068,7 +1068,7 @@ private:
     // Phase 6 (multi-arena IR) item-level lazy. Parallel to from_binary_;
     // per-AST flag indicating the source archive shipped only parsed AST
     // (no .o, no LIR blob — see ModuleManifest::lazy). Stamped onto
-    // LFunction.from_lazy_module; consumed by post-mono reach analysis to
+    // FunctionDraft.from_lazy_module; consumed by post-mono reach analysis to
     // skip mlir-gen for lazy fns not reached from any non-lazy caller.
     const std::vector<bool>*        is_lazy_      = nullptr;
     // Module system: per-AST owning-module id, parallel to from_binary_.
@@ -3600,7 +3600,7 @@ private:
     bool is_specialization_fn(hermes::TinyMapView node);
     bool is_specialization_struct(hermes::TinyMapView node);
     lir::LStructDef lower_spec_struct(hermes::TinyMapView node);
-    lir::LFunction lower_spec_fn(hermes::TinyMapView node);
+    lir::FunctionDraft lower_spec_fn(hermes::TinyMapView node);
     void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
                     std::string_view trait_ctx = {});
 
@@ -4296,11 +4296,11 @@ private:
 
     // ── lower_fn and declaration lowering ───────────────────────
 
-    lir::LFunction lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
+    lir::FunctionDraft lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
     // Derive `fn.lifetime_outlives` from the fn's params/return implied bounds
     // plus its where-clause (and merge where-clause type-param lifetime
     // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
-    void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::LFunction& fn);
+    void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::FunctionDraft& fn);
     lir::LStructDef lower_struct_def(hermes::TinyMapView node);
     lir::EnumDraft lower_enum_def(hermes::TinyMapView node);
     lir::ConstDraft lower_const_def(hermes::TinyMapView node);

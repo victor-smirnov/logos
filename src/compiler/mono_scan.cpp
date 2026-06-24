@@ -23,7 +23,7 @@ using SCode = lir_schema::stmt::Code;
 
 } // namespace
 
-void Mono::scan_fn(const lir::LFunction& fn) {
+void Mono::scan_fn(const lir::FunctionDraft& fn) {
     if (!fn.body) return;
     auto& arena = out_.type_pool.arena_or_init();
     scan_block(fn.body);
@@ -564,7 +564,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                         size_t n_struct = sd_tpars.size();
                         // Cross-package impl method on a generic receiver: the
                         // impl's type-params (e.g. T in `impl<T> Pin<&T>`) are
-                        // NOT carried in the method's own LFunction.type_params
+                        // NOT carried in the method's own FunctionDraft.type_params
                         // (they would have come from the struct-template path,
                         // which a foreign-package impl bypasses). The body is in
                         // terms of those impl params, and the call's type_args

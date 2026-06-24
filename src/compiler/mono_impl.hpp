@@ -820,7 +820,7 @@ private:
         return lir_mirror_block(out_, nb);
     }
 
-    lir::LFunction clone_fn(lir_view::FunctionView fn, const SubstMap& s,
+    lir::FunctionDraft clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                              const PackMap& packs = {});
 
     // Signature-only clone for binary-symbol fast path: copies name/flags
@@ -829,7 +829,7 @@ private:
     // mlir_gen skips body emission for binary_symbols fns anyway. Caller
     // must NOT call lir_mirror_emit_function / scan_fn on the result;
     // body.mirror_ptr_ stays default, and scan_fn early-returns on that.
-    lir::LFunction clone_fn_signature(lir_view::FunctionView fn, const SubstMap& s,
+    lir::FunctionDraft clone_fn_signature(lir_view::FunctionView fn, const SubstMap& s,
                                        const PackMap& packs = {});
 
     // Auto-trait structural check.  Mirrors sema_auto_trait.cpp::is_auto_trait_satisfied
@@ -887,7 +887,7 @@ private:
     // out_.mirror_table and walks through view types from there. This
     // requires lir_mirror_emit_function to have been called for `fn`
     // before scan_fn — see clone+push_back sites in mono.cpp.
-    void scan_fn(const lir::LFunction& fn);
+    void scan_fn(const lir::FunctionDraft& fn);
     void scan_fn(lir_view::FunctionView fn);
     void scan_block(lir_view::BlockRef b);
     void scan_stmt(lir_view::StmtRef s);
@@ -999,7 +999,7 @@ private:
     // Collect the free TypeVar/ConstVar names of an impl-target pattern in
     // first-appearance order, mirroring unify_impl_target's traversal. Used to
     // recover the impl-level type-param names (e.g. T in `impl<T> Pin<&T>`) for
-    // a cross-package impl method whose own LFunction.type_params is empty —
+    // a cross-package impl method whose own FunctionDraft.type_params is empty —
     // the method-instantiation enqueue binds the call's type_args to these.
     static void collect_pattern_typevars(TypeRef p, std::vector<std::string>& out) {
         if (!p) return;
@@ -1056,7 +1056,7 @@ private:
     //  * compute_const_want: memoized const-want positions of `base` — registry
     //    positions for an intrinsic, else the param indices `base` forwards to a
     //    const-want position of a callee. Recursion-guarded.
-    //  * find_fn_def_by_base: locate the (unmangled-base) LFunction for the
+    //  * find_fn_def_by_base: locate the (unmangled-base) FunctionDraft for the
     //    forwarding analysis / spec clone — free fns + struct methods in in_.
     static std::vector<size_t> const_intrinsic_positions(const std::string& name);
     const std::vector<size_t>& compute_const_want(const std::string& base);
@@ -1086,7 +1086,7 @@ private:
     // (arena-stable mirror), and scan for further calls.
     void drain_method_worklist();
 
-    lir::LFunction instantiate_fn(lir_view::FunctionView tmpl,
+    lir::FunctionDraft instantiate_fn(lir_view::FunctionView tmpl,
                                    const std::string& mangled_name,
                                    const SubstMap& subst,
                                    const PackMap& packs = {}) {

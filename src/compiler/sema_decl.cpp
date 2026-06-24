@@ -18,7 +18,7 @@ using hermes::MemHolder;
 
 // Declaration lowering methods
 
-void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::LFunction& fn) {
+void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::FunctionDraft& fn) {
     std::unordered_set<std::string> fn_lts(fn.lifetime_params.begin(),
                                            fn.lifetime_params.end());
     auto fn_lifetime_known = [&](std::string_view lt) {
@@ -125,7 +125,7 @@ void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::LFunction&
     }
 }
 
-lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
+lir::FunctionDraft SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
     // Allowing `fn _()` would let `_(...)` be a valid call expression and
@@ -230,7 +230,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         }
     }
 
-    lir::LFunction fn;
+    lir::FunctionDraft fn;
     fn.name               = mangled;
     fn.from_binary_module = cur_from_binary_;
     fn.from_lazy_module   = cur_from_lazy_;
@@ -1973,7 +1973,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         ? resolve_type(map_of(m.get(la::TYPE.code))) : nullptr;
                     auto val = lower_expr(map_of(m.get(la::VALUE.code)));
                     if (ctype) builder().retype_expr(val, ctype);
-                    lir::LFunction acc;
+                    lir::FunctionDraft acc;
                     acc.name        = lower_target + "__kassoc_" + cname;
                     acc.method_base = "kassoc_" + cname;
                     acc.package     = cur_package_;

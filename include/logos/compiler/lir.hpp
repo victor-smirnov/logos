@@ -19,7 +19,7 @@
 #include <deque>
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/compat.hpp>    // arena_offset_t
-#include <logos/hermes/compat.hpp>  // ExternalRef (Phase 4.A: LFunction.body_external_ref)
+#include <logos/hermes/compat.hpp>  // ExternalRef (Phase 4.A: FunctionDraft.body_external_ref)
 #include <unordered_set>
 #include <string>
 
@@ -37,7 +37,7 @@ namespace logos::compiler::lir {
 
 // ── Forward declarations ──────────────────────────────────────────────────
 
-struct LFunction;
+struct FunctionDraft;
 
 // The husk LExpr skeleton struct is gone — expression handles are mirror VIEWS.
 using LExprPtr     = lir_view::ExprRef;
@@ -46,7 +46,7 @@ using LExprPtr     = lir_view::ExprRef;
 using LBlockPtr    = lir_view::BlockRef;
 // Stage E (decl→Hermes): LFunctionPtr is a FunctionView handle over the
 // function's Hermes decl mirror (each IS its mirror, like LBlockPtr). The
-// C++ `struct LFunction` survives only as a transient BUILD BUFFER: code
+// C++ `struct FunctionDraft` survives only as a transient BUILD BUFFER: code
 // builds one, emits it (lir_mirror_emit_fn_view), stores the View. Stored
 // collections (LProgram::functions/specializations, {Struct,Trait,Impl}Def::
 // methods, SemaCache) hold Views — refcount-free, arena-stable.
@@ -688,7 +688,13 @@ struct EClosure {
     bool                            escapes = false;
 };
 
-struct LFunction {
+// Stage E: `struct LFunction` is DELETED. Functions live ONLY as Hermes decl
+// mirror nodes (lir_schema::decl::Code::Func + param/tparam/tbound/wherebound
+// sub-maps), read via lir_view::FunctionView (= LFunctionPtr, the stored handle).
+// FunctionDraft is the TRANSIENT BUILD BUFFER — never stored in LProgram: sema
+// (lower_fn) and mono (clone_fn) build one, emit it (lir_mirror_emit_fn_view),
+// store the returned View, and discard the draft. Mirrors the EnumDraft pattern.
+struct FunctionDraft {
     std::string              name;
     // Unmangled method name as written in the source (e.g. "cow_clone").
     // Equals the bare fn name for free fns; for struct/impl methods this
@@ -907,7 +913,7 @@ struct LStructDef {
     bool                             is_annotation_type = false;  // true → this datatype is itself a `#[annotation]` marker type
     std::vector<LAnnotationInstance> annotations;                  // user-annotations attached to this type
 
-    // Specialisation support (mirrors LFunction).
+    // Specialisation support (mirrors FunctionDraft).
     bool                          is_specialization = false;
     std::vector<TypeRef> spec_patterns;
     // Outer doc-comment (`/// ...`) on the struct/datatype declaration.
@@ -1271,7 +1277,7 @@ namespace logos::compiler {
 // Strip `function_symbol_name` mangling layers
 // (`pkg$base__f__sig` / `pkg$base__g__sig`) and return the bare base
 // name. Used at sites that compare an AST-captured string (always
-// bare, e.g. metaprog hook trigger) against an LFunction `name` (may
+// bare, e.g. metaprog hook trigger) against an FunctionDraft `name` (may
 // be mangled by the time mono / final-strip / dispatch runs).
 //
 // Pkg prefix vs struct-generic `$G\d+`: strip the first `$` unless it
@@ -1375,7 +1381,7 @@ inline std::string mangle(const Sym& s) {
 // Method shape = name starts with `<pkg>.`; free fns use a `$` boundary (or
 // already carry the module) → unchanged. THE SINGLE definition used by both
 // mlir-gen (FuncOp names / is_binary_skip) AND the metaprog-dispatch emitted-set
-// tracking, so the two can never desync. `Fn` is LFunction (has .package/.name).
+// tracking, so the two can never desync. `Fn` is FunctionDraft (has .package/.name).
 template <class Fn>
 inline std::string link_name(const Fn& fn,
                              const std::unordered_map<std::string, std::string>& pkg_module_ids) {
@@ -1387,7 +1393,7 @@ inline std::string link_name(const Fn& fn,
     return fn.name;
 }
 
-// FunctionView overload (Stage E: LFunction storage is a Hermes mirror View).
+// FunctionView overload (Stage E: FunctionDraft storage is a Hermes mirror View).
 // String fields are method-accessed; same logic as the struct template above.
 inline std::string link_name(lir_view::FunctionView fn,
                              const std::unordered_map<std::string, std::string>& pkg_module_ids) {
@@ -1487,7 +1493,7 @@ struct SemaOptions {
 // from_binary: parallel to asts/filenames; true means the file came from a
 // binary module archive and its non-generic symbols should not be re-emitted.
 // is_lazy: parallel to asts/filenames; true means the file came from a
-// `lowering lazy` archive. Lazy fns get LFunction.from_lazy_module=true and
+// `lowering lazy` archive. Lazy fns get FunctionDraft.from_lazy_module=true and
 // participate in post-mono reach analysis (mlir-gen skips unreached lazy
 // bodies). Default: empty → no lazy modules (back-compat).
 lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
