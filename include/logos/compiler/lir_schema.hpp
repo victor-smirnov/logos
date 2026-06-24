@@ -493,6 +493,74 @@ inline constexpr Key TP_NAME        {"TP_NAME",        1};  // Varchar
 inline constexpr Key TP_IS_VARIADIC {"TP_IS_VARIADIC", 2};  // bool (sparse)
 } // namespace enum_tparam_keys
 
+// ── LStructDef (Code::Struct) decl keys — OWN key space ─────────────────────
+// Struct is a distinct map schema; decl_keys already reaches 37 and a
+// TinyObjectMap presence bitmap only holds key codes 0..51, so struct gets its
+// own namespace restarting at 1 (codes never collide across distinct schemas).
+namespace struct_keys {
+inline constexpr Key NAME              {"NAME",              1};  // Varchar
+inline constexpr Key PKG               {"PKG",               2};  // Varchar — declaring package
+inline constexpr Key DOC               {"DOC",               3};  // Varchar — outer doc-comment
+inline constexpr Key TYPE_PARAMS       {"TYPE_PARAMS",       4};  // Array<RelPtr<fn_tparam sub-map>> (REUSE fn_tparam schema)
+inline constexpr Key LIFETIME_PARAMS   {"LIFETIME_PARAMS",   5};  // Array<Varchar>
+inline constexpr Key LIFETIME_OUTLIVES {"LIFETIME_OUTLIVES", 6};  // Array<Varchar> flat pairs (2i=long, 2i+1=short)
+inline constexpr Key FIELDS            {"FIELDS",            7};  // Array<RelPtr<field sub-map>>
+inline constexpr Key METHODS           {"METHODS",           8};  // Array<RelPtr<func decl map>> (each = a FunctionView.addr())
+inline constexpr Key TYPE_CODE         {"TYPE_CODE",         9};  // i64 (sparse: omit when 0)
+inline constexpr Key TYPE_HASH         {"TYPE_HASH",         10}; // Varchar (23 raw bytes; omit when all-zero)
+inline constexpr Key IS_PUB            {"IS_PUB",            11}; // bool (sparse)
+inline constexpr Key IS_ZONED          {"IS_ZONED",          12}; // bool (sparse)
+inline constexpr Key IS_DATA_PLAIN     {"IS_DATA_PLAIN",     13}; // bool (ALWAYS emitted — defaults true)
+inline constexpr Key FROM_BINARY_MODULE{"FROM_BINARY_MODULE",14}; // bool (sparse)
+inline constexpr Key IS_DST            {"IS_DST",            15}; // bool (sparse)
+inline constexpr Key SELF_DESCRIBING   {"SELF_DESCRIBING",   16}; // bool (sparse)
+inline constexpr Key REL_PTR           {"REL_PTR",           17}; // bool (sparse)
+inline constexpr Key BORROW_CARRYING   {"BORROW_CARRYING",   18}; // bool (sparse)
+inline constexpr Key NON_NULL          {"NON_NULL",          19}; // bool (sparse)
+inline constexpr Key ZONE_MUT          {"ZONE_MUT",          20}; // bool (sparse)
+inline constexpr Key ZONED2            {"ZONED2",            21}; // bool (sparse)
+inline constexpr Key IS_UNION          {"IS_UNION",          22}; // bool (sparse)
+inline constexpr Key REPR_TRANSPARENT  {"REPR_TRANSPARENT",  23}; // bool (sparse)
+inline constexpr Key IS_ANNOTATION_TYPE{"IS_ANNOTATION_TYPE",24}; // bool (sparse)
+inline constexpr Key ANNOTATIONS       {"ANNOTATIONS",       25}; // Array<RelPtr<annot sub-map>>
+inline constexpr Key IS_SPECIALIZATION {"IS_SPECIALIZATION", 26}; // bool (sparse)
+inline constexpr Key SPEC_PATTERNS     {"SPEC_PATTERNS",     27}; // Array<RelPtr<LogosType>>
+} // namespace struct_keys
+
+// LStructDef FIELD sub-map keys (own space — element schema of FIELDS).
+namespace field_keys {
+inline constexpr Key F_NAME        {"F_NAME",        1};  // Varchar
+inline constexpr Key F_TYPE        {"F_TYPE",        2};  // RelPtr<LogosType>
+inline constexpr Key F_IS_VARIADIC {"F_IS_VARIADIC", 3};  // bool (sparse)
+inline constexpr Key F_DOC         {"F_DOC",         4};  // Varchar (sparse)
+} // namespace field_keys
+
+// LAnnotationInstance sub-map keys (own space — element schema of ANNOTATIONS).
+namespace annot_keys {
+inline constexpr Key A_NAME {"A_NAME", 1};  // Varchar — annotation datatype name
+inline constexpr Key A_PKG  {"A_PKG",  2};  // Varchar — declaring package
+inline constexpr Key A_FQN  {"A_FQN",  3};  // Varchar — resolved fully-qualified name
+inline constexpr Key A_KV   {"A_KV",   4};  // Array<RelPtr<annkv sub-map>>
+} // namespace annot_keys
+
+// LAnnotationInstance KV-pair sub-map keys (own space — element schema of A_KV).
+namespace annkv_keys {
+inline constexpr Key KV_NAME  {"KV_NAME",  1};  // Varchar — field name
+inline constexpr Key KV_VALUE {"KV_VALUE", 2};  // RelPtr<annval sub-map>
+} // namespace annkv_keys
+
+// LAnnotationValue sub-map keys (own space; RECURSIVE via AV_ARR). Reader keys
+// off AV_KIND to decide which value field(s) are populated.
+namespace annval_keys {
+inline constexpr Key AV_KIND         {"AV_KIND",         1};  // i64 — LAnnotationValue::Kind
+inline constexpr Key AV_I            {"AV_I",            2};  // i64 (Int / Bool)
+inline constexpr Key AV_F            {"AV_F",            3};  // f64 (Float)
+inline constexpr Key AV_S            {"AV_S",            4};  // Varchar (Str)
+inline constexpr Key AV_ENUM_NAME    {"AV_ENUM_NAME",    5};  // Varchar (Enum)
+inline constexpr Key AV_ENUM_VARIANT {"AV_ENUM_VARIANT", 6};  // Varchar (Enum)
+inline constexpr Key AV_ARR          {"AV_ARR",          7};  // Array<RelPtr<annval sub-map>> (Array — RECURSIVE)
+} // namespace annval_keys
+
 // ── Pattern sparse keys ───────────────────────────────────────────────────
 
 namespace pat_keys {

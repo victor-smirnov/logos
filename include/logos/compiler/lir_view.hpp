@@ -856,6 +856,233 @@ struct FunctionView {
     }
 };
 
+// ──────────────────────────────────────────────────────────────────────────
+// Stage E: LStructDef decl views (Code::Struct map + field/annotation sub-maps)
+// ──────────────────────────────────────────────────────────────────────────
+
+// FIELDS array element (LField sub-map; field_keys).
+struct LFieldView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::field_keys::F_NAME.code);
+    }
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::field_keys::F_TYPE.code, pool);
+    }
+    bool is_variadic() const noexcept {
+        return detail::read_bool(self, lir_schema::field_keys::F_IS_VARIADIC.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::field_keys::F_DOC.code);
+    }
+};
+
+// LAnnotationValue sub-map view (annval_keys; RECURSIVE via each_arr).
+struct AnnotValueView {
+    DeclRef self;
+    int64_t kind() const noexcept {
+        return detail::read_i64(self, lir_schema::annval_keys::AV_KIND.code);
+    }
+    int64_t i() const noexcept {
+        return detail::read_i64(self, lir_schema::annval_keys::AV_I.code);
+    }
+    double f() const noexcept {
+        return detail::read_f64(self, lir_schema::annval_keys::AV_F.code);
+    }
+    std::string_view s() const noexcept {
+        return detail::read_string(self, lir_schema::annval_keys::AV_S.code);
+    }
+    std::string_view enum_name() const noexcept {
+        return detail::read_string(self, lir_schema::annval_keys::AV_ENUM_NAME.code);
+    }
+    std::string_view enum_variant() const noexcept {
+        return detail::read_string(self, lir_schema::annval_keys::AV_ENUM_VARIANT.code);
+    }
+    template <class F>
+    void each_arr(F&& fn) const noexcept {
+        auto av = self.mirror()->get(lir_schema::annval_keys::AV_ARR.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k < arr->size(); ++k) {
+            auto el = arr->get(k);
+            if (el.is_null()) continue;
+            fn(AnnotValueView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
+// A_KV array element (annkv_keys): (field name, value).
+struct AnnotKvView {
+    DeclRef self;
+    std::string_view key_name() const noexcept {
+        return detail::read_string(self, lir_schema::annkv_keys::KV_NAME.code);
+    }
+    AnnotValueView value() const noexcept {
+        auto av = self.mirror()->get(lir_schema::annkv_keys::KV_VALUE.code);
+        return AnnotValueView{detail::make_sub_ref<DeclRef>(self, av)};
+    }
+};
+
+// ANNOTATIONS array element (LAnnotationInstance sub-map; annot_keys).
+struct AnnotInstanceView {
+    DeclRef self;
+    std::string_view ann_name() const noexcept {
+        return detail::read_string(self, lir_schema::annot_keys::A_NAME.code);
+    }
+    std::string_view ann_pkg() const noexcept {
+        return detail::read_string(self, lir_schema::annot_keys::A_PKG.code);
+    }
+    std::string_view ann_fqn() const noexcept {
+        return detail::read_string(self, lir_schema::annot_keys::A_FQN.code);
+    }
+    template <class F>
+    void each_kv(F&& fn) const noexcept {
+        auto av = self.mirror()->get(lir_schema::annot_keys::A_KV.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k < arr->size(); ++k) {
+            auto el = arr->get(k);
+            if (el.is_null()) continue;
+            fn(AnnotKvView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
+// LStructDef decl view (Code::Struct map; struct_keys).
+struct StructView {
+    DeclRef self;
+
+    bool valid() const noexcept { return self.addr() != nullptr; }
+    explicit operator bool() const noexcept { return self.addr() != nullptr; }
+
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::struct_keys::NAME.code);
+    }
+    std::string_view pkg() const noexcept {
+        return detail::read_string(self, lir_schema::struct_keys::PKG.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::struct_keys::DOC.code);
+    }
+    uint64_t type_code() const noexcept {
+        return static_cast<uint64_t>(detail::read_i64(self, lir_schema::struct_keys::TYPE_CODE.code));
+    }
+    // Raw 23-byte hash (string_view points into the arena; empty when unset).
+    std::string_view type_hash() const noexcept {
+        return detail::read_string(self, lir_schema::struct_keys::TYPE_HASH.code);
+    }
+
+    bool is_pub() const noexcept             { return detail::read_bool(self, lir_schema::struct_keys::IS_PUB.code); }
+    bool is_zoned() const noexcept           { return detail::read_bool(self, lir_schema::struct_keys::IS_ZONED.code); }
+    bool is_data_plain() const noexcept      { return detail::read_bool(self, lir_schema::struct_keys::IS_DATA_PLAIN.code); }
+    bool from_binary_module() const noexcept { return detail::read_bool(self, lir_schema::struct_keys::FROM_BINARY_MODULE.code); }
+    bool is_dst() const noexcept             { return detail::read_bool(self, lir_schema::struct_keys::IS_DST.code); }
+    bool self_describing() const noexcept    { return detail::read_bool(self, lir_schema::struct_keys::SELF_DESCRIBING.code); }
+    bool rel_ptr() const noexcept            { return detail::read_bool(self, lir_schema::struct_keys::REL_PTR.code); }
+    bool borrow_carrying() const noexcept    { return detail::read_bool(self, lir_schema::struct_keys::BORROW_CARRYING.code); }
+    bool non_null() const noexcept           { return detail::read_bool(self, lir_schema::struct_keys::NON_NULL.code); }
+    bool zone_mut() const noexcept           { return detail::read_bool(self, lir_schema::struct_keys::ZONE_MUT.code); }
+    bool zoned2() const noexcept             { return detail::read_bool(self, lir_schema::struct_keys::ZONED2.code); }
+    bool is_union() const noexcept           { return detail::read_bool(self, lir_schema::struct_keys::IS_UNION.code); }
+    bool repr_transparent() const noexcept   { return detail::read_bool(self, lir_schema::struct_keys::REPR_TRANSPARENT.code); }
+    bool is_annotation_type() const noexcept { return detail::read_bool(self, lir_schema::struct_keys::IS_ANNOTATION_TYPE.code); }
+    bool is_specialization() const noexcept  { return detail::read_bool(self, lir_schema::struct_keys::IS_SPECIALIZATION.code); }
+
+    // ── fields ──
+    template <class F>
+    void each_field(F&& fn) const noexcept {
+        auto av = self.mirror()->get(lir_schema::struct_keys::FIELDS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k < arr->size(); ++k) {
+            auto el = arr->get(k);
+            if (el.is_null()) continue;
+            fn(LFieldView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<LFieldView> fields() const noexcept {
+        std::vector<LFieldView> out;
+        each_field([&](LFieldView fv) { out.push_back(fv); });
+        return out;
+    }
+
+    // ── methods (each METHODS element is a func decl map → FunctionView) ──
+    template <class F>
+    void each_method(F&& fn) const noexcept {
+        auto av = self.mirror()->get(lir_schema::struct_keys::METHODS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k < arr->size(); ++k) {
+            auto el = arr->get(k);
+            if (el.is_null()) continue;
+            fn(FunctionView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<FunctionView> methods() const noexcept {
+        std::vector<FunctionView> out;
+        each_method([&](FunctionView m) { out.push_back(m); });
+        return out;
+    }
+
+    // ── type_params (rich fn variant) ──
+    template <class F>
+    void each_type_param(F&& fn) const noexcept {
+        auto av = self.mirror()->get(lir_schema::struct_keys::TYPE_PARAMS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k < arr->size(); ++k) {
+            auto el = arr->get(k);
+            if (el.is_null()) continue;
+            fn(FnTParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    std::vector<FnTParamView> type_params() const noexcept {
+        std::vector<FnTParamView> out;
+        each_type_param([&](FnTParamView tp) { out.push_back(tp); });
+        return out;
+    }
+
+    // ── spec_patterns ──
+    std::vector<TypeRef> spec_patterns(const TypePoolImpl* pool) const noexcept {
+        return detail::read_type_array(self, lir_schema::struct_keys::SPEC_PATTERNS.code, pool);
+    }
+
+    // ── lifetime_params / lifetime_outlives ──
+    std::vector<std::string_view> lifetime_params() const noexcept {
+        return detail::read_string_array(self, lir_schema::struct_keys::LIFETIME_PARAMS.code);
+    }
+    std::vector<std::pair<std::string_view, std::string_view>> lifetime_outlives() const noexcept {
+        std::vector<std::pair<std::string_view, std::string_view>> out;
+        auto av = self.mirror()->get(lir_schema::struct_keys::LIFETIME_OUTLIVES.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k + 1 < arr->size(); k += 2) {
+            auto a = arr->get(k); auto b = arr->get(k + 1);
+            out.emplace_back(a.is_null() ? std::string_view{} : a.as_ptr<const hermes::ArenaString>()->view(),
+                             b.is_null() ? std::string_view{} : b.as_ptr<const hermes::ArenaString>()->view());
+        }
+        return out;
+    }
+
+    // ── annotations ──
+    bool annotations_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::struct_keys::ANNOTATIONS.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_annotation(F&& fn) const noexcept {
+        auto av = self.mirror()->get(lir_schema::struct_keys::ANNOTATIONS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t k = 0; k < arr->size(); ++k) {
+            auto el = arr->get(k);
+            if (el.is_null()) continue;
+            fn(AnnotInstanceView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

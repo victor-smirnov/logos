@@ -73,6 +73,13 @@ void lir_mirror_emit_function(lir::LProgram& prog,
 lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
                                                lir::FunctionDraft& fn);
 
+// Stage E convenience (struct decl layer): emit `sd`'s Code::Struct decl mirror
+// into `prog` and return a StructView over it (also sets sd's transient bridge).
+// Mirrors lir_mirror_emit_fn_view. UNUSED by real code for now — this stage
+// only defines the struct schema/emitter/view infrastructure.
+lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
+                                                 lir::LStructDef& sd);
+
 // Run the full emit driver but extend an existing table rather than create a
 // fresh one. Used by mono as a fixup pass to cover items not reached via the
 // per-function path (consts, impls, struct methods of non-instantiated

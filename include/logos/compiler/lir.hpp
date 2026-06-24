@@ -918,6 +918,17 @@ struct LStructDef {
     std::vector<TypeRef> spec_patterns;
     // Outer doc-comment (`/// ...`) on the struct/datatype declaration.
     std::string                   doc;
+
+    // Stage E (decl→Hermes migration): transient bridge to the struct's Hermes
+    // decl mirror (Code::Struct map). Set by lir_mirror_emit_struct_view.
+    // mirror_ptr_ = absolute address of the decl map (segments never move);
+    // mirror_arena_ = its owning arena (for cross-arena child resolution).
+    // view() wraps them as a StructView for read migration.
+    mutable const uint8_t*       mirror_ptr_   = nullptr;
+    mutable const hermes::Arena* mirror_arena_ = nullptr;
+    lir_view::StructView view() const noexcept {
+        return lir_view::StructView{lir_view::DeclRef(mirror_arena_, mirror_ptr_)};
+    }
 };
 
 

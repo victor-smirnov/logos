@@ -43,6 +43,11 @@ namespace pmk = lir_schema::param_keys;
 namespace ftpk = lir_schema::fn_tparam_keys;
 namespace tbk = lir_schema::fn_tbound_keys;
 namespace wbk = lir_schema::fn_wherebound_keys;
+namespace stk  = lir_schema::struct_keys;
+namespace fldk = lir_schema::field_keys;
+namespace ank  = lir_schema::annot_keys;
+namespace akvk = lir_schema::annkv_keys;
+namespace avk  = lir_schema::annval_keys;
 namespace pk = lir_schema::pat_keys;
 namespace ak = lir_schema::arm_keys;
 namespace hl = lir_schema::hermes_lit_keys;
@@ -338,6 +343,139 @@ public:
         if (wb.first) put(map_off, wbk::WB_TYPE, type_av(wb.first));
         put(map_off, wbk::WB_TRAIT, put_string(wb.second));
         return mref_addr(map_off);
+    }
+
+    // ── LStructDef decl sub-map builders (Stage E struct migration) ───────────
+    // FIELDS array element (LField sub-map; schema code stmt::Count+9). Own space.
+    hermes::AnyVal field_av(const lir::LField& fld) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 9));
+        put(map_off, fldk::F_NAME, put_string(fld.name));
+        if (fld.type)        put(map_off, fldk::F_TYPE,        type_av(fld.type));
+        if (fld.is_variadic) put(map_off, fldk::F_IS_VARIADIC, put_bool(true));
+        if (!fld.doc.empty())put(map_off, fldk::F_DOC,         put_string(fld.doc));
+        return mref_addr(map_off);
+    }
+    // ANNOTATIONS value sub-map (LAnnotationValue; stmt::Count+12). RECURSIVE.
+    // Reader keys off AV_KIND; value fields emitted only when non-default.
+    hermes::AnyVal annval_av(const lir::LAnnotationValue& v) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 12));
+        put(map_off, avk::AV_KIND, put_i64((int64_t)v.kind));
+        if (v.i != 0)               put(map_off, avk::AV_I,            put_i64(v.i));
+        if (v.f != 0.0)             put(map_off, avk::AV_F,            put_f64(v.f));
+        if (!v.s.empty())           put(map_off, avk::AV_S,            put_string(v.s));
+        if (!v.enum_name.empty())   put(map_off, avk::AV_ENUM_NAME,    put_string(v.enum_name));
+        if (!v.enum_variant.empty())put(map_off, avk::AV_ENUM_VARIANT, put_string(v.enum_variant));
+        if (!v.arr.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(v.arr.size());
+            for (auto& child : v.arr) elems.push_back(annval_av(child));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, avk::AV_ARR, mref_addr(arr_off));
+        }
+        return mref_addr(map_off);
+    }
+    // A_KV array element (annotation kv-pair sub-map; stmt::Count+11). Own space.
+    hermes::AnyVal annkv_av(const std::pair<std::string, lir::LAnnotationValue>& kv) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 11));
+        put(map_off, akvk::KV_NAME,  put_string(kv.first));
+        put(map_off, akvk::KV_VALUE, annval_av(kv.second));
+        return mref_addr(map_off);
+    }
+    // ANNOTATIONS array element (LAnnotationInstance sub-map; stmt::Count+10).
+    hermes::AnyVal annot_av(const lir::LAnnotationInstance& ai) {
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 10));
+        put(map_off, ank::A_NAME, put_string(ai.ann_name));
+        if (!ai.ann_pkg.empty()) put(map_off, ank::A_PKG, put_string(ai.ann_pkg));
+        if (!ai.ann_fqn.empty()) put(map_off, ank::A_FQN, put_string(ai.ann_fqn));
+        if (!ai.kv.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(ai.kv.size());
+            for (auto& kv : ai.kv) elems.push_back(annkv_av(kv));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, ank::A_KV, mref_addr(arr_off));
+        }
+        return mref_addr(map_off);
+    }
+    // Top-level LStructDef → Code::Struct decl map. Stage E infrastructure
+    // (UNUSED by real code for now — defines schema+emitter only).
+    const uint8_t* emit_struct_def_direct(const lir::LStructDef& sd) {
+        auto map_off = make_map(hermes::schema::lir_stmt(
+            int32_t(lir_schema::decl::Code::Struct)), /*cap=*/40);
+        put(map_off, stk::NAME, put_string(sd.name));
+        if (!sd.pkg.empty()) put(map_off, stk::PKG, put_string(sd.pkg));
+        if (!sd.doc.empty()) put(map_off, stk::DOC, put_string(sd.doc));
+        // type_params (rich fn variant — REUSE fn_tparam_av)
+        if (!sd.type_params.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(sd.type_params.size());
+            for (auto& tp : sd.type_params) elems.push_back(fn_tparam_av(tp));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, stk::TYPE_PARAMS, mref_addr(arr_off));
+        }
+        // lifetime_params (Array<Varchar>)
+        if (!sd.lifetime_params.empty()) {
+            auto arr_off = make_array(sd.lifetime_params.size());
+            for (auto& s : sd.lifetime_params) array_push(arr_off, put_string(s));
+            put(map_off, stk::LIFETIME_PARAMS, mref_addr(arr_off));
+        }
+        // lifetime_outlives (flat Array<Varchar>: 2i=long, 2i+1=short)
+        if (!sd.lifetime_outlives.empty()) {
+            auto arr_off = make_array(sd.lifetime_outlives.size() * 2);
+            for (auto& pr : sd.lifetime_outlives) {
+                array_push(arr_off, put_string(pr.first));
+                array_push(arr_off, put_string(pr.second));
+            }
+            put(map_off, stk::LIFETIME_OUTLIVES, mref_addr(arr_off));
+        }
+        // fields
+        if (!sd.fields.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(sd.fields.size());
+            for (auto& fld : sd.fields) elems.push_back(field_av(fld));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, stk::FIELDS, mref_addr(arr_off));
+        }
+        // methods (each element = address of an already-emitted func decl map)
+        if (!sd.methods.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(sd.methods.size());
+            for (auto& m : sd.methods) elems.push_back(mref_addr(m.self.addr()));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, stk::METHODS, mref_addr(arr_off));
+        }
+        if (sd.type_code != 0) put(map_off, stk::TYPE_CODE, put_i64((int64_t)sd.type_code));
+        if (sd.type_hash != std::array<uint8_t, 23>{}) {
+            put(map_off, stk::TYPE_HASH,
+                put_string(std::string_view((const char*)sd.type_hash.data(), sd.type_hash.size())));
+        }
+        // bools (sparse — emit only when true), EXCEPT is_data_plain (defaults
+        // true → ALWAYS emit so the reader can distinguish false from absent).
+        if (sd.is_pub)             put(map_off, stk::IS_PUB,             put_bool(true));
+        if (sd.is_zoned)           put(map_off, stk::IS_ZONED,           put_bool(true));
+        put(map_off, stk::IS_DATA_PLAIN, put_bool(sd.is_data_plain));
+        if (sd.from_binary_module) put(map_off, stk::FROM_BINARY_MODULE, put_bool(true));
+        if (sd.is_dst)             put(map_off, stk::IS_DST,             put_bool(true));
+        if (sd.self_describing)    put(map_off, stk::SELF_DESCRIBING,    put_bool(true));
+        if (sd.rel_ptr)            put(map_off, stk::REL_PTR,            put_bool(true));
+        if (sd.borrow_carrying)    put(map_off, stk::BORROW_CARRYING,    put_bool(true));
+        if (sd.non_null)           put(map_off, stk::NON_NULL,           put_bool(true));
+        if (sd.zone_mut)           put(map_off, stk::ZONE_MUT,           put_bool(true));
+        if (sd.zoned2)             put(map_off, stk::ZONED2,             put_bool(true));
+        if (sd.is_union)           put(map_off, stk::IS_UNION,           put_bool(true));
+        if (sd.repr_transparent)   put(map_off, stk::REPR_TRANSPARENT,   put_bool(true));
+        if (sd.is_annotation_type) put(map_off, stk::IS_ANNOTATION_TYPE, put_bool(true));
+        if (sd.is_specialization)  put(map_off, stk::IS_SPECIALIZATION,  put_bool(true));
+        // annotations
+        if (!sd.annotations.empty()) {
+            std::vector<hermes::AnyVal> elems; elems.reserve(sd.annotations.size());
+            for (auto& ai : sd.annotations) elems.push_back(annot_av(ai));
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            put(map_off, stk::ANNOTATIONS, mref_addr(arr_off));
+        }
+        // spec_patterns (Array<RelPtr<LogosType>>)
+        { auto a = type_array(sd.spec_patterns); if (!a.is_null()) put(map_off, stk::SPEC_PATTERNS, a); }
+        return map_off;
     }
     const uint8_t* emit_enum_def_direct(const lir::EnumDraft& ed) {
         auto map_off = make_map(hermes::schema::lir_stmt(
@@ -1866,6 +2004,16 @@ lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
                                                lir::FunctionDraft& fn) {
     lir_mirror_emit_function(prog, *prog.mirror_table, fn);
     return fn.view();
+}
+
+lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
+                                                 lir::LStructDef& sd) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    auto p = em.emit_struct_def_direct(sd);
+    sd.mirror_ptr_   = p;
+    sd.mirror_arena_ = prog.type_pool.arena();
+    return sd.view();
 }
 
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
