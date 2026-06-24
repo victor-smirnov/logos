@@ -693,7 +693,8 @@ struct EClosure {
 // sub-maps), read via lir_view::FunctionView (= LFunctionPtr, the stored handle).
 // FunctionDraft is the TRANSIENT BUILD BUFFER — never stored in LProgram: sema
 // (lower_fn) and mono (clone_fn) build one, emit it (lir_mirror_emit_fn_view),
-// store the returned View, and discard the draft. Mirrors the EnumDraft pattern.
+// store the returned View, and discard the draft. (Enums went one step further:
+// they direct-build the mirror with no Draft at all — see lower_enum_def.)
 struct FunctionDraft {
     std::string              name;
     // Unmangled method name as written in the source (e.g. "cow_clone").
@@ -853,8 +854,8 @@ struct LAnnotationInstance {
 // sema/mono passes that collect methods after the struct is stored. StructDraft
 // is the TRANSIENT BUILD BUFFER — never stored: sema (lower_struct_def/
 // lower_spec_struct) and mono (clone_struct_def) build one, emit it
-// (lir_mirror_emit_struct_view), store the View, discard the draft. EnumDraft
-// / FunctionDraft pattern.
+// (lir_mirror_emit_struct_view), store the View, discard the draft. (Same
+// FunctionDraft pattern; enums skip the Draft entirely — see lower_enum_def.)
 struct StructDraft {
     std::string              name;
     std::string              pkg;            // package that declares this struct/datatype
@@ -941,38 +942,12 @@ struct StructDraft {
 };
 
 
-// Stage E: transient assembly drafts for an enum mirror. lower_enum_def /
-// clone_enum_def build these locally, then lir_mirror_emit_enum_def writes the
-// Hermes Code::Enum map and the caller stores a lir_view::EnumView. Only the
-// fields READ post-construction are carried (verified read-surface): variant
-// doc + enum lifetime_params/lifetime_outlives/backing_type are NOT read after
-// construction, so they're dropped here.
-struct EnumVariantDraft {
-    std::string          name;
-    int64_t              disc = 0;
-    std::vector<TypeRef> payload_types;
-    bool                 is_variadic = false;
-};
-struct EnumTParamDraft {
-    std::string name;
-    bool        is_variadic = false;
-};
-struct EnumDraft {
-    std::string                   name;
-    std::string                   pkg;
-    std::string                   doc;
-    bool                          zoned2 = false;
-    bool                          borrow_carrying = false;
-    TypeRef                       backing_type = nullptr;  // C-style disc type; null=i32
-    std::vector<EnumVariantDraft> variants;
-    std::vector<EnumTParamDraft>  type_params;
-};
-
-// Stage E: struct LEnumDef + struct LVariant deleted — enums live ONLY as Hermes
-// mirror nodes (lir_schema::decl::Code::Enum + variant/typeparam sub-maps), read
-// via lir_view::EnumView / EnumVariantView / EnumTParamView. The transient data
-// lower_enum_def / clone_enum_def assemble is carried in EnumDraft (above), then
-// lir_mirror_emit_enum_def writes the mirror and the caller stores an EnumView.
+// Stage E: structs LEnumDef / LVariant + EnumDraft / EnumVariantDraft /
+// EnumTParamDraft DELETED — enums live ONLY as Hermes mirror nodes
+// (lir_schema::decl::Code::Enum + variant/typeparam sub-maps), read via
+// lir_view::EnumView / EnumVariantView / EnumTParamView. lower_enum_def and
+// Mono::clone_enum_def DIRECT-BUILD the mirror via DeclBuilder (no Draft) and
+// return an EnumView; the caller just pushes it.
 
 // ── Trait definition ──────────────────────────────────────────────────────
 //

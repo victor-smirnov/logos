@@ -7692,13 +7692,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             }
         }
         else if (c == la::ENUM) {
-            // Stage E: emit the enum's Hermes mirror and store an EnumView
-            // (struct LEnumDef is gone — the mirror is the sole representation).
-            auto ed = lower_enum_def(item);
-            ed.doc = take_pending_doc();
-            auto mp = lir_mirror_emit_enum_def(prog, ed);
-            prog.enums.push_back(
-                lir_view::EnumView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
+            // Stage E direct-build: lower_enum_def builds the whole enum mirror
+            // (incl. DOC via take_pending_doc) STRAIGHT into prog's HermesCtr and
+            // returns the EnumView — no Draft, no separate emit.
+            prog.enums.push_back(lower_enum_def(item));
         }
         else if (c == la::FN || c == la::EXTERN_FN) {
             // lower_fn / lower_spec_fn read pending_doc_ at entry — no

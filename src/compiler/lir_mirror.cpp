@@ -35,8 +35,6 @@ namespace ec = lir_schema::expr_common;
 namespace sk = lir_schema::stmt_keys;
 namespace sc = lir_schema::stmt_common;
 namespace dk = lir_schema::decl_keys;
-namespace vk = lir_schema::variant_keys;
-namespace tpk = lir_schema::enum_tparam_keys;
 namespace pmk = lir_schema::param_keys;
 namespace ftpk = lir_schema::fn_tparam_keys;
 namespace tbk = lir_schema::fn_tbound_keys;
@@ -250,23 +248,6 @@ public:
         if (type) put(map_off, dk::TYPE_REF, type_av(type));
         if (!d_av.is_null()) put(map_off, dk::DOC, d_av);
         return map_off;
-    }
-    // Build a VARIANTS array element (variant sub-map). Own key space.
-    hermes::AnyVal variant_av(const lir::EnumVariantDraft& v) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 3));
-        put(map_off, vk::V_NAME, put_string(v.name));
-        put(map_off, vk::V_DISC, put_i64(v.disc));
-        auto pt_av = type_array(v.payload_types);
-        if (!pt_av.is_null()) put(map_off, vk::V_PAYLOAD_TYPES, pt_av);
-        if (v.is_variadic) put(map_off, vk::V_IS_VARIADIC, put_bool(true));
-        return mref_addr(map_off);
-    }
-    // Build a TYPE_PARAMS array element (typeparam sub-map). Own key space.
-    hermes::AnyVal enum_tparam_av(const lir::EnumTParamDraft& tp) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 4));
-        put(map_off, tpk::TP_NAME, put_string(tp.name));
-        if (tp.is_variadic) put(map_off, tpk::TP_IS_VARIADIC, put_bool(true));
-        return mref_addr(map_off);
     }
     // ── Function decl sub-map builders (Stage E FunctionDraft migration) ──────
     // PARAMS array element (LParam sub-map). Own key space.
@@ -494,33 +475,6 @@ public:
     void struct_set_type_code_direct(lir_view::StructView sv, uint64_t code) {
         put(sv.self.addr(), lir_schema::struct_keys::TYPE_CODE,
             put_i64((int64_t)code));
-    }
-    const uint8_t* emit_enum_def_direct(const lir::EnumDraft& ed) {
-        auto map_off = make_map(hermes::schema::lir_stmt(
-            int32_t(lir_schema::decl::Code::Enum)));
-        put(map_off, dk::NAME, put_string(ed.name));
-        if (!ed.pkg.empty()) put(map_off, dk::PKG, put_string(ed.pkg));
-        if (!ed.doc.empty()) put(map_off, dk::DOC, put_string(ed.doc));
-        if (ed.zoned2)          put(map_off, dk::ZONED2,          put_bool(true));
-        if (ed.borrow_carrying) put(map_off, dk::BORROW_CARRYING, put_bool(true));
-        if (ed.backing_type)    put(map_off, dk::BACKING_TYPE,    type_av(ed.backing_type));
-        if (!ed.variants.empty()) {
-            std::vector<hermes::AnyVal> elems;
-            elems.reserve(ed.variants.size());
-            for (auto& v : ed.variants) elems.push_back(variant_av(v));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, dk::VARIANTS, mref_addr(arr_off));
-        }
-        if (!ed.type_params.empty()) {
-            std::vector<hermes::AnyVal> elems;
-            elems.reserve(ed.type_params.size());
-            for (auto& tp : ed.type_params) elems.push_back(enum_tparam_av(tp));
-            auto arr_off = make_array(elems.size());
-            for (auto av : elems) array_push(arr_off, av);
-            put(map_off, dk::TYPE_PARAMS, mref_addr(arr_off));
-        }
-        return map_off;
     }
     const uint8_t* emit_pack_expand_direct(TypeRef ty, std::string_view var_name) {
         auto n_av = put_string(var_name);
@@ -2195,11 +2149,6 @@ const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view 
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_type_alias_direct(name, type, doc);
-}
-const uint8_t* lir_mirror_emit_enum_def(lir::LProgram& prog, const lir::EnumDraft& ed) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_enum_def_direct(ed);
 }
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
     auto& ctr = prog.type_pool.ctr_or_init();

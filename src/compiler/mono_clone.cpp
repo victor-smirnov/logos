@@ -5770,17 +5770,21 @@ lir_view::EnumView Mono::clone_enum_def(lir_view::EnumView tmpl,
                               const SubstMap& s,
                               const PackMap& packs,
                               const std::string& new_name) {
+    namespace dk = lir_schema::decl_keys;
+    namespace vk = lir_schema::variant_keys;
     // in_.type_pool was moved into out_ at run() start; read the (shared-arena)
     // template payloads through out_'s live pool handle.
     auto* pool = out_.type_pool.impl();
-    lir::EnumDraft nd;
-    nd.name = new_name;
-    nd.pkg  = std::string(tmpl.pkg());
-    nd.zoned2 = tmpl.zoned2();   // F3: preserve the niche enum's at-rest-relative marker
+    // Stage E direct-build: build the substituted enum mirror STRAIGHT into out_.
+    // Only name/pkg/zoned2/variants are carried (type_params / backing_type /
+    // borrow_carrying / doc are intentionally dropped on instances, as before).
+    DeclBuilder nd(out_, lir_schema::decl::Code::Enum, /*cap=*/16);
+    nd.str_always(dk::NAME, new_name);
+    nd.str(dk::PKG, tmpl.pkg());
+    if (tmpl.zoned2()) nd.flag(dk::ZONED2, true);   // F3: preserve niche enum's at-rest-relative marker
+    auto va = nd.array(dk::VARIANTS);
     tmpl.each_variant([&](lir_view::EnumVariantView v) {
-        lir::EnumVariantDraft nv;
-        nv.name = std::string(v.name());
-        nv.disc = v.disc();
+        std::vector<TypeRef> payloads;
         auto pts = v.payload_types(pool);
         // Variadic expansion for variants like Multi(...T)
         if (v.is_variadic() && !pts.empty()) {
@@ -5789,21 +5793,27 @@ lir_view::EnumView Mono::clone_enum_def(lir_view::EnumView tmpl,
                 auto pit = packs.find(TypeRef(pt).type_var_name());
                 if (pit != packs.end()) {
                     for (auto pt_in_pack : pit->second)
-                        nv.payload_types.push_back(subst_type(pt_in_pack, s));
+                        payloads.push_back(subst_type(pt_in_pack, s));
                 } else {
-                    nv.payload_types.push_back(subst_type(pt, s));
+                    payloads.push_back(subst_type(pt, s));
                 }
             } else {
-                nv.payload_types.push_back(subst_type(pt, s));
+                payloads.push_back(subst_type(pt, s));
             }
         } else {
             for (auto pt : pts)
-                nv.payload_types.push_back(subst_type(pt, s));
+                payloads.push_back(subst_type(pt, s));
         }
-        nd.variants.push_back(std::move(nv));
+        auto vb = va.submap(lir_schema::stmt::Count + 3, /*cap=*/8);
+        vb.str_always(vk::V_NAME, v.name());
+        vb.i64(vk::V_DISC, v.disc());
+        if (!payloads.empty()) {
+            auto pa = vb.array(vk::V_PAYLOAD_TYPES);
+            for (auto t : payloads) pa.push_type(t);
+        }
+        if (v.is_variadic()) vb.flag(vk::V_IS_VARIADIC, true);
     });
-    auto mp = lir_mirror_emit_enum_def(out_, nd);
-    return lir_view::EnumView{lir_view::DeclRef(out_.type_pool.arena(), mp)};
+    return nd.view<lir_view::EnumView>();
 }
 
 

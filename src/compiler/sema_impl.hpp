@@ -4302,7 +4302,11 @@ private:
     // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
     void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::FunctionDraft& fn);
     lir::StructDraft lower_struct_def(hermes::TinyMapView node);
-    lir::EnumDraft lower_enum_def(hermes::TinyMapView node);
+    // Stage E direct-build: builds the whole enum mirror (NAME/PKG/DOC/flags/
+    // backing/variants/type_params) STRAIGHT into the program HermesCtr via
+    // DeclBuilder (no Draft) and returns an EnumView. DOC is consumed here via
+    // take_pending_doc(); the caller just pushes the View.
+    lir_view::EnumView lower_enum_def(hermes::TinyMapView node);
     // Stage E direct-build: builds NAME+TYPE_REF into a Const DeclBuilder (in
     // the program HermesCtr, no Draft) and returns it + the value ExprRef. The
     // caller adds VALUE/DOC/IS_STATIC/etc. (the static path overrides VALUE for

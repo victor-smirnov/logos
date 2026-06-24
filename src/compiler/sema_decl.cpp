@@ -1209,15 +1209,20 @@ lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
     return sd;
 }
 
-// Stage E: builds the enum's transient EnumDraft (struct LEnumDef is gone). The
-// caller adds the doc-comment, emits the Hermes mirror, and stores an EnumView.
-// Local validation still uses the full TypeParam set (`tparams`); only the
-// fields READ post-construction (name/is_variadic) are carried into the draft.
-lir::EnumDraft SemaChecker::lower_enum_def(TinyMapView node) {
+// Stage E direct-build: builds the enum's Hermes mirror STRAIGHT into the
+// program HermesCtr via DeclBuilder (no Draft; struct LEnumDef + EnumDraft are
+// gone), consumes the pending doc-comment, and returns an EnumView the caller
+// pushes. Local validation still uses the full TypeParam set (`tparams`); only
+// the fields READ post-construction (name/is_variadic) are stored in the mirror.
+lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
+    namespace dk = lir_schema::decl_keys;
+    namespace vk = lir_schema::variant_keys;
+    namespace tpk = lir_schema::enum_tparam_keys;
     auto ename = std::string(str_of(node.get(la::NAME.code)));
-    lir::EnumDraft ed;
-    ed.name = ename;
-    ed.pkg  = cur_package_;
+    // Stage E direct-build: NAME always; the rest is added below as it's read.
+    DeclBuilder ed(*cur_prog_, lir_schema::decl::Code::Enum, /*cap=*/16);
+    ed.str_always(dk::NAME, ename);
+    if (!cur_package_.empty()) ed.str(dk::PKG, cur_package_);
     // Local TypeParam set for validation (outlives/uniqueness) — NOT stored.
     std::vector<TypeParam> tparams;
     std::vector<std::string> lifetime_params;
@@ -1227,13 +1232,14 @@ lir::EnumDraft SemaChecker::lower_enum_def(TinyMapView node) {
     if (eit_led == enums_.end()) eit_led = enums_.find(ename);
     if (eit_led == enums_.end()) {
         error(std::format("internal: enum '{}' not found in lower_enum_def", ename));
-        return ed;
+        ed.str(dk::DOC, take_pending_doc());
+        return ed.view<lir_view::EnumView>();
     }
     auto& einfo = eit_led->second;
     tparams = einfo.type_params;
-    ed.backing_type = einfo.backing_type;
-    ed.zoned2 = einfo.zoned2;   // F3: niche enum's Ref arm self-relative at-rest
-    ed.borrow_carrying = einfo.borrow_carrying;   // HAny: escape-tracked value
+    if (einfo.backing_type)  ed.type(dk::BACKING_TYPE, einfo.backing_type);
+    if (einfo.zoned2)          ed.flag(dk::ZONED2, true);   // F3: niche enum's Ref arm self-relative at-rest
+    if (einfo.borrow_carrying) ed.flag(dk::BORROW_CARRYING, true);   // HAny: escape-tracked value
     // B65: capture outlives bounds. Enum lifetime_params lives on einfo;
     // outlives bounds re-read from the node.
     lifetime_params = einfo.lifetime_params;
@@ -1297,17 +1303,37 @@ lir::EnumDraft SemaChecker::lower_enum_def(TinyMapView node) {
     check_unique_names(tparams,
                        [](auto& tp) -> std::string_view { return tp.name; },
                        "type parameter", "enum " + ename);
-    for (auto& v : einfo.variants)
-        ed.variants.push_back({std::string(v.name), v.value, v.payload_types, v.is_variadic});
     // Variant-name uniqueness (closes B-it-04)
-    check_unique_names(ed.variants,
+    check_unique_names(einfo.variants,
                        [](auto& v) -> std::string_view { return v.name; },
                        "variant", "enum " + ename);
-    // Carry only the type-param fields READ post-construction (name +
-    // is_variadic); bounds/const/default are not read for enums.
-    for (auto& tp : tparams)
-        ed.type_params.push_back({tp.name, tp.is_variadic});
-    return ed;
+    // VARIANTS array of variant sub-maps (direct-build, mirrors variant_av).
+    if (!einfo.variants.empty()) {
+        auto va = ed.array(dk::VARIANTS);
+        for (auto& v : einfo.variants) {
+            auto vb = va.submap(lir_schema::stmt::Count + 3, /*cap=*/8);
+            vb.str_always(vk::V_NAME, v.name);
+            vb.i64(vk::V_DISC, v.value);
+            if (!v.payload_types.empty()) {
+                auto pa = vb.array(vk::V_PAYLOAD_TYPES);
+                for (auto t : v.payload_types) pa.push_type(t);
+            }
+            if (v.is_variadic) vb.flag(vk::V_IS_VARIADIC, true);
+        }
+    }
+    // TYPE_PARAMS array of enum-tparam sub-maps. Carry only the fields READ
+    // post-construction (name + is_variadic); bounds/const/default are not
+    // read for enums (mirrors enum_tparam_av).
+    if (!tparams.empty()) {
+        auto ta = ed.array(dk::TYPE_PARAMS);
+        for (auto& tp : tparams) {
+            auto tb = ta.submap(lir_schema::stmt::Count + 4, /*cap=*/4);
+            tb.str_always(tpk::TP_NAME, tp.name);
+            if (tp.is_variadic) tb.flag(tpk::TP_IS_VARIADIC, true);
+        }
+    }
+    ed.str(dk::DOC, take_pending_doc());
+    return ed.view<lir_view::EnumView>();
 }
 
 
