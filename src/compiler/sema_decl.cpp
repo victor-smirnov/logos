@@ -132,65 +132,9 @@ void SemaChecker::compute_fn_lifetime_outlives(
     }
 }
 
-DeclBuilder SemaChecker::emit_fn_decl(lir::LProgram& prog, const FnLowerBuf& f) {
+DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
+                                  std::vector<TypeParam>* out_type_params) {
     namespace dk = lir_schema::decl_keys;
-    // Direct-build the Func decl mirror STRAIGHT into prog (replaces the deleted
-    // emit_function). Field→KEY map matches emit_function exactly (sparse setters
-    // skip empty/zero/false). The arena-stable, idempotent-append invariants of
-    // DeclBuilder hold (segments never move).
-    DeclBuilder fn(prog, lir_schema::decl::Code::Func, /*cap=*/40);
-    fn.str_always(dk::NAME, f.name);
-    fn.str(dk::METHOD_BASE, f.method_base);
-    fn.str(dk::PKG, f.package);
-    fn.str(dk::DOC, f.doc);
-    fn.type(dk::RET_TYPE, f.ret_type);
-    fn.block(dk::BODY, f.body);
-    fn.i64_if(dk::LOCAL_COUNT, (int64_t)f.local_count);
-    fn.flag(dk::IS_EXTERN,          f.is_extern);
-    fn.flag(dk::IS_VARARG,          f.is_vararg);
-    fn.flag(dk::IS_PUB,             f.is_pub);
-    fn.flag(dk::IS_METAPROG_STUB,   f.is_metaprog_stub);
-    fn.flag(dk::IS_SPECIALIZATION,  f.is_specialization);
-    fn.flag(dk::FROM_BINARY_MODULE, f.from_binary_module);
-    fn.flag(dk::FROM_LAZY_MODULE,   f.from_lazy_module);
-    fn.str(dk::SOURCE_FILE, f.source_file);
-    fn.type(dk::IMPL_TARGET_PATTERN, f.impl_target_pattern);
-    fn.flag(dk::IS_TEST,      f.is_test);
-    fn.flag(dk::SHOULD_PANIC, f.should_panic);
-    fn.flag(dk::IGNORED,      f.ignored);
-    fn.str(dk::SHOULD_PANIC_MSG, f.should_panic_expected_msg);
-    if (!f.params.empty()) {
-        auto a = fn.array(dk::PARAMS);
-        for (auto& p : f.params) a.push_param(p);
-    }
-    if (!f.type_params.empty()) {
-        auto a = fn.array(dk::TYPE_PARAMS);
-        for (auto& tp : f.type_params) a.push_fn_tparam(tp);
-    }
-    if (!f.impl_type_params.empty()) {
-        auto a = fn.array(dk::IMPL_TYPE_PARAMS);
-        for (auto& tp : f.impl_type_params) a.push_fn_tparam(tp);
-    }
-    if (!f.spec_patterns.empty()) {
-        auto a = fn.array(dk::SPEC_PATTERNS);
-        for (auto& t : f.spec_patterns) a.push_type(t);
-    }
-    if (!f.lifetime_params.empty()) {
-        auto a = fn.array(dk::LIFETIME_PARAMS);
-        for (auto& s : f.lifetime_params) a.push_str(s);
-    }
-    if (!f.lifetime_outlives.empty()) {
-        auto a = fn.array(dk::LIFETIME_OUTLIVES);
-        for (auto& pr : f.lifetime_outlives) { a.push_str(pr.first); a.push_str(pr.second); }
-    }
-    if (!f.where_type_bounds.empty()) {
-        auto a = fn.array(dk::WHERE_TYPE_BOUNDS);
-        for (auto& wb : f.where_type_bounds) a.push_wherebound(wb);
-    }
-    return fn;
-}
-
-FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
     // Allowing `fn _()` would let `_(...)` be a valid call expression and
@@ -295,29 +239,37 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
         }
     }
 
-    FnLowerBuf fn;
-    fn.name               = mangled;
-    fn.from_binary_module = cur_from_binary_;
-    fn.from_lazy_module   = cur_from_lazy_;
-    fn.doc                = take_pending_doc();
+    // Direct-build the Func decl mirror STRAIGHT into the program HermesCtr — no
+    // heap accumulator. A few working locals hold the values the lowering logic
+    // genuinely reads back during construction (name / type_params / ret_type /
+    // params / a handful of flags); everything else is emitted directly the
+    // moment it becomes final. Field→KEY map matches the former emit_fn_decl.
+    DeclBuilder fn(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);
+    std::string fn_name = mangled;                 // read pervasively below
+    if (cur_from_binary_) fn.flag(dk::FROM_BINARY_MODULE, true);
+    if (cur_from_lazy_)   fn.flag(dk::FROM_LAZY_MODULE, true);
+    fn.str(dk::DOC, take_pending_doc());
     // Phase #[test] attributes. Consume here so they don't leak into the
     // next fn lowered in the same item-loop iteration.
-    fn.is_test            = pending_is_test_;
-    fn.should_panic       = pending_should_panic_;
-    fn.ignored            = pending_ignore_;
-    fn.should_panic_expected_msg = std::move(pending_should_panic_expected_);
+    if (pending_is_test_)      fn.flag(dk::IS_TEST, true);
+    if (pending_should_panic_) fn.flag(dk::SHOULD_PANIC, true);
+    if (pending_ignore_)       fn.flag(dk::IGNORED, true);
+    fn.str(dk::SHOULD_PANIC_MSG, pending_should_panic_expected_);
     pending_is_test_      = false;
     pending_should_panic_ = false;
     pending_ignore_       = false;
     pending_should_panic_expected_.clear();
     int32_t node_code = code_of(node);
-    fn.is_extern = (node_code == la::EXTERN_FN);
+    bool is_extern = (node_code == la::EXTERN_FN);
+    if (is_extern) fn.flag(dk::IS_EXTERN, true);
 
     // Check is_vararg for extern fn with variadic params
-    if (fn.is_extern && node.has_key(la::IS_VARARG)) {
+    bool is_vararg = false;
+    if (is_extern && node.has_key(la::IS_VARARG)) {
         AnyVal av = node.get(la::IS_VARARG.code);
-        fn.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    if (is_vararg) fn.flag(dk::IS_VARARG, true);
 
     auto node_tparams = read_type_params(node);
     SemaFuncInfo* fi_ptr = nullptr;
@@ -407,7 +359,7 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
             if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
         }
         if (!fi_ptr) {
-            if (auto fit = find_func_by_base_and_signature(mangled, decl_param_types, fn.is_vararg))
+            if (auto fit = find_func_by_base_and_signature(mangled, decl_param_types, is_vararg))
                 fi_ptr = const_cast<SemaFuncInfo*>(fit);
         }
         // Relaxed method match for overloaded members: if only `self` disagrees
@@ -494,22 +446,34 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
             }
         }
     }
-    if (!fi_ptr) return fn;   // shouldn't happen after collect
+    if (!fi_ptr) {            // shouldn't happen after collect
+        fn.str_always(dk::NAME, fn_name);
+        return fn;
+    }
 
-    fn.name           = fi_ptr->symbol_name.empty() ? mangled : fi_ptr->symbol_name;
-    fn.method_base    = std::string(raw_name);
-    fn.package        = fi_ptr->package;
-    fn.source_file    = fi_ptr->source_file;
-    fn.type_params    = fi_ptr->type_params;
-    fn.lifetime_params = read_lifetime_params(node);
+    fn_name = fi_ptr->symbol_name.empty() ? mangled : fi_ptr->symbol_name;
+    fn.str(dk::METHOD_BASE, std::string(raw_name));
+    fn.str(dk::PKG, fi_ptr->package);
+    fn.str(dk::SOURCE_FILE, fi_ptr->source_file);
+    // Working type_params: read by check_unique_names + compute_fn_lifetime_
+    // outlives + pop_type_params below + (impl-method) caller filtering.
+    std::vector<TypeParam> type_params = fi_ptr->type_params;
+    std::vector<std::string> lifetime_params = read_lifetime_params(node);
     // Lifetime-param uniqueness on fn (closes B-gn-02)
-    check_unique_names(fn.lifetime_params,
+    check_unique_names(lifetime_params,
                        [](auto& lt) -> std::string_view { return lt; },
                        "lifetime parameter", "fn " + mangled);
+    if (!lifetime_params.empty()) {
+        auto a = fn.array(dk::LIFETIME_PARAMS);
+        for (auto& s : lifetime_params) a.push_str(s);
+    }
     // Robust associated type resolution: call subst_type_sema even if subst is empty
     // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
-    fn.ret_type    = subst_type_sema(fi_ptr->ret_type, {});
-    ret_type_      = fn.ret_type;
+    TypeRef ret_type = subst_type_sema(fi_ptr->ret_type, {});
+    ret_type_      = ret_type;
+    // Working param list: built incrementally (self detection, variadic, tuple/
+    // pattern/mut desugar) then emitted to PARAMS at the end.
+    std::vector<lir::LParam> params;
     // Bug 5 fix: DataNode enforcement covers both bare Datatype and Array-of-Datatype
     // return/param types.  Extract the innermost non-Array element for the check.
     auto datanode_name = [&](TypeRef t) -> std::string {
@@ -525,7 +489,7 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
     };
     // DataNode enforcement on return type.
     {
-        auto dn = datanode_name(fn.ret_type);
+        auto dn = datanode_name(ret_type);
         if (!dn.empty()) {
             error(std::format(
                 "return type '{}' is a DataNode eidos — cannot be returned by value. "
@@ -539,21 +503,21 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
     // Pass / return a pointer instead (`*mut T` / `&T`), which lives in the zone's
     // segment and is NOT flagged by contains_rel_ptr_field (it follows only inline
     // storage). Mirrors the DataNode "cannot be returned by value" rule above.
-    if (fn.ret_type && is_non_movable_type(fn.ret_type))
+    if (ret_type && is_non_movable_type(ret_type))
         error(std::format(
             "return type `{}` is location-anchored (a self-relative `#[rel_ptr]` "
             "field, or a `#[pinned]` type) — it cannot be returned by value; "
             "return a pointer (`*mut {}` / `&{}`) into its zone's segment instead",
-            type_str(fn.ret_type), type_str(fn.ret_type), type_str(fn.ret_type)));
-    // (param check is below, once fn.params is populated)
+            type_str(ret_type), type_str(ret_type), type_str(ret_type)));
+    // (param check is below, once params is populated)
     // Reset impl-trait inference state for this function.
-    if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait)
+    if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait)
         impl_ret_type_inferred_ = nullptr;
 
     // Put type params in scope for the duration of the function body
-    push_type_params(fn.type_params);
+    push_type_params(type_params);
     // Type-param uniqueness on fn (B-gn-01 family)
-    check_unique_names(fn.type_params,
+    check_unique_names(type_params,
                        [](auto& tp) -> std::string_view { return tp.name; },
                        "type parameter", "fn " + mangled);
 
@@ -674,7 +638,7 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                                     }
                                 }
                             }
-                            fn.params.push_back({synth, pt, false});
+                            params.push_back({synth, pt, false});
                             // The actual body-prologue let synthesis happens
                             // at lower_fn time (see fn_pat_params below).
                             fn_pat_params.push_back({synth, pt, pnode});
@@ -711,7 +675,7 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                                             define(users[k], elems[k]);
                                 }
                                 fn_tuple_params.push_back({std::move(users), synth, pt});
-                                fn.params.push_back({synth, pt, false});
+                                params.push_back({synth, pt, false});
                                 continue;
                             }
                         }
@@ -767,10 +731,10 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                         // value into the user local; if synth were a tracked
                         // scope var it would also get drop glue → double-free on
                         // move types. mlir-gen still binds scope_[synth] from
-                        // fn.params, so the prologue's var_ref(synth) resolves.
+                        // params, so the prologue's var_ref(synth) resolves.
                         define(std::string(pname), pt, /*is_mut=*/true);  // body sees mutable local
                         fn_mut_params.push_back({std::string(pname), synth, pt});
-                        fn.params.push_back({synth, pt, false});
+                        params.push_back({synth, pt, false});
                         continue;
                     }
                     define(pname, pt);
@@ -790,14 +754,14 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                             vit->second.owning_dyn = true;
                         p_owning_box_dyn = true;
                     }
-                    fn.params.push_back({std::string(pname), pt, p_variadic, p_owning_box_dyn});
-                    fn.params.back().slot = lookup_slot(pname);  // Phase-1
+                    params.push_back({std::string(pname), pt, p_variadic, p_owning_box_dyn});
+                    params.back().slot = lookup_slot(pname);  // Phase-1
                 }
             }
         }
     }
     // Param-name uniqueness (closes B-fn-02)
-    check_unique_names(fn.params,
+    check_unique_names(params,
                        [](auto& p) -> std::string_view { return p.name; },
                        "parameter", "fn " + mangled);
     // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing parameter is rejected in
@@ -844,10 +808,10 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
             for (auto e : TypeRef(t).tuple_elems()) n += count_ref_positions(e);
             return n;
         };
-        if (fn.ret_type && has_elided_ref(fn.ret_type)) {
+        if (ret_type && has_elided_ref(ret_type)) {
             int input_lts = 0;
             bool has_self_ref = false;
-            for (auto& p : fn.params) {
+            for (auto& p : params) {
                 if (!p.type) continue;
                 input_lts += count_ref_positions(p.type);
                 if (p.name == "self") {
@@ -871,11 +835,16 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
     }
 
     // B65: outlives bounds — capture explicit + implied + where-clause +
-    // type-outlives. Placed AFTER fn.params + fn.ret_type so the implied-
+    // type-outlives. Placed AFTER params + ret_type so the implied-
     // bounds walker sees the resolved signature.
-    compute_fn_lifetime_outlives(node, fn.name, fn.lifetime_params, fn.params,
-                                 fn.ret_type, fn.type_params, fn.lifetime_outlives);
-    current_outlives_ = fn.lifetime_outlives;  // B64/B65: visible to coercion sites
+    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
+    compute_fn_lifetime_outlives(node, fn_name, lifetime_params, params,
+                                 ret_type, type_params, lifetime_outlives);
+    if (!lifetime_outlives.empty()) {
+        auto a = fn.array(dk::LIFETIME_OUTLIVES);
+        for (auto& pr : lifetime_outlives) { a.push_str(pr.first); a.push_str(pr.second); }
+    }
+    current_outlives_ = lifetime_outlives;  // B64/B65: visible to coercion sites
 
     // unsafe fn body is implicitly an unsafe context
     bool was_unsafe = inside_unsafe_;
@@ -919,9 +888,9 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
     bool skip_body = metaprog_mode_
                   && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob)
                   && (struct_ctx.empty() || impl_target_unresolved)
-                  && !fn_is_metaprog_handler(fn.name)
-                  && !fn_is_metaprog_keep(fn.name);
-    if (skip_body) fn.is_metaprog_stub = true;
+                  && !fn_is_metaprog_handler(fn_name)
+                  && !fn_is_metaprog_keep(fn_name);
+    if (skip_body) fn.flag(dk::IS_METAPROG_STUB, true);
 
     // Skeleton-only lowering for from_binary fns whose body is already
     // compiled into a linked archive's .o. Lowering the body here is pure
@@ -946,22 +915,23 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
     // Carve-outs: metaprog handlers / metaprog-keep fns can be invoked at
     // compile time and need bodies. Specializations go through lower_spec_fn.
     bool skel_skip_body = cur_from_binary_
-                       && !fn.is_extern
-                       && !fn_is_metaprog_handler(fn.name)
-                       && !fn_is_metaprog_keep(fn.name)
+                       && !is_extern
+                       && !fn_is_metaprog_handler(fn_name)
+                       && !fn_is_metaprog_keep(fn_name)
                        && binary_symbols_
-                       && binary_symbols_->count(fn.name) > 0;
+                       && binary_symbols_->count(fn_name) > 0;
     if (skel_skip_body) {
         skip_body = true;
         ++skel_skip_count_;
     }
 
     // Body (extern fns have no body)
-    if (!fn.is_extern && !skip_body && node.has_key(la::BODY)) {
+    lir_view::BlockRef body;
+    if (!is_extern && !skip_body && node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
         // Detect if the last stmt in the function body is a match.
         // If so, set the flag so lower_match treats EXPR arms as return values.
-        if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void) {
+        if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::Void) {
             if (body_node.has_key(la::ITEMS)) {
                 auto stmts = arr_of(body_node.get(la::ITEMS.code));
                 // Find last non-null stmt
@@ -976,7 +946,7 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
         }
         bool saved_tail_as_return = tail_as_return_;
         tail_as_return_ = true;
-        fn.body = lower_block(body_node);
+        body = lower_block(body_node);
         tail_as_return_ = saved_tail_as_return;
         match_in_tail_position_ = false;
         // P4-pm-19: prepend `let user_k = synth.k;` for each tuple-
@@ -998,8 +968,8 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                     prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
             }
-            fn.body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
-            fn.body = lir_mirror_block(*cur_prog_, prologue);
+            body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
+            body = lir_mirror_block(*cur_prog_, prologue);
         }
         // logos-core 4.5: pattern fn-params (struct + slice) — prepend
         // a destructure-let for each binding so the body sees the user-
@@ -1049,8 +1019,8 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                 // with index reads + rest handling; deferred to a focused
                 // follow-up alongside the §4.3 multi-level binding work.
             }
-            fn.body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
-            fn.body = lir_mirror_block(*cur_prog_, prologue);
+            body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
+            body = lir_mirror_block(*cur_prog_, prologue);
         }
         // `mut x: T` params — prepend `let mut x = synth;` so the body's
         // mutable local is materialized from the (immutable) synth parameter.
@@ -1064,13 +1034,13 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
                 sl.value  = builder().var_ref(mp.synth, mp.ty);
                 prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
-            fn.body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
-            fn.body = lir_mirror_block(*cur_prog_, prologue);
+            body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
+            body = lir_mirror_block(*cur_prog_, prologue);
         }
         // Resolve impl Trait return type to the concrete type inferred from returns.
-        if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait) {
+        if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
             if (impl_ret_type_inferred_) {
-                fn.ret_type       = impl_ret_type_inferred_;
+                ret_type       = impl_ret_type_inferred_;
                 fi_ptr->ret_type  = impl_ret_type_inferred_;
                 ret_type_         = impl_ret_type_inferred_;
             } else {
@@ -1083,8 +1053,8 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
         // fn-body's transitive control flow as implicit returns.
         bool saved_check_flag = tail_as_return_;
         tail_as_return_ = true;
-        if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void &&
-            TypeRef(fn.ret_type).kind() != LogosType::Kind::Error &&
+        if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::Void &&
+            TypeRef(ret_type).kind() != LogosType::Kind::Error &&
             !block_always_returns(body_node)) {
             error("not all paths return a value");
         }
@@ -1098,7 +1068,7 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
         // (or any fn falling off the end) misses them. Emit drops for the
         // params scope here so `fn consume(_x: Move) {}` correctly drops _x.
         std::vector<lir_view::StmtRef> body_stmts;
-        fn.body.each_stmt([&](lir_view::StmtRef s){ body_stmts.push_back(s); });
+        body.each_stmt([&](lir_view::StmtRef s){ body_stmts.push_back(s); });
         bool body_terminated = false;
         if (!body_stmts.empty()) {
             auto br = stmt_ref_of(body_stmts.back());
@@ -1120,16 +1090,36 @@ FnLowerBuf SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) 
             emit_frame_drops(frame, epilogue_drops, &body_ever_moved_);
             for (auto& d : epilogue_drops)
                 body_stmts.push_back(std::move(d));
-            fn.body = lir_mirror_block(*cur_prog_, body_stmts);
+            body = lir_mirror_block(*cur_prog_, body_stmts);
         }
         body_ever_moved_.clear();
     }
 
     inside_unsafe_ = was_unsafe;
     pop_scope();
-    pop_type_params(fn.type_params);
+    pop_type_params(type_params);
+
+    // Emit the values held in working locals into the mirror, now final.
+    fn.str_always(dk::NAME, fn_name);
+    fn.type(dk::RET_TYPE, ret_type);
+    fn.block(dk::BODY, body);
     // Phase-1: total dense variable slots assigned in this function body.
-    fn.local_count = next_slot_;
+    fn.i64_if(dk::LOCAL_COUNT, (int64_t)next_slot_);
+    if (!params.empty()) {
+        auto a = fn.array(dk::PARAMS);
+        for (auto& p : params) a.push_param(p);
+    }
+    // TYPE_PARAMS: emitted here for free-fn / collected-method callers. The
+    // impl-method callers (out_type_params != null) filter method- vs impl-level
+    // params AFTER lowering and then emit TYPE_PARAMS / IMPL_TYPE_PARAMS /
+    // IMPL_TARGET_PATTERN / IS_PUB / WHERE_TYPE_BOUNDS onto this builder
+    // themselves, so we hand them the computed set and skip emitting it here.
+    if (out_type_params) {
+        *out_type_params = std::move(type_params);
+    } else if (!type_params.empty()) {
+        auto a = fn.array(dk::TYPE_PARAMS);
+        for (auto& tp : type_params) a.push_fn_tparam(tp);
+    }
     return fn;
 }
 
@@ -1298,7 +1288,7 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
             int32_t mc = code_of(method);
             if (mc == la::FN || mc == la::STATIC_FN) {
                 auto mfn = lower_fn(method, sname);
-                ma.push_ref(emit_fn_decl(*cur_prog_, mfn).view<lir_view::FunctionView>().self.addr());
+                ma.push_ref(mfn.view<lir_view::FunctionView>().self.addr());
             }
         }
         pending_doc_.clear();
@@ -2122,15 +2112,20 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             auto m = map_of(items.get(i));
             if (try_append_doc(pending_doc_, m)) continue;
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
-                auto fn = lower_fn(m, lower_target);
+                namespace dk = lir_schema::decl_keys;
+                // Direct-build: lower_fn returns the open builder; type_params are
+                // handed back so we can filter method- vs impl-level params, then
+                // emit the deferred TYPE_PARAMS / IMPL_* / IS_PUB onto it here.
+                std::vector<TypeParam> type_params;
+                auto fn = lower_fn(m, lower_target, &type_params);
                 // Trait-impl methods inherit visibility from the trait itself:
                 // if the trait is reachable, its methods are callable (Rust
                 // semantics).  The grammar does not allow `pub` on trait
                 // methods, so force is_pub=true when lowering under a trait
                 // impl block.  Inherent-impl methods (no trait_name) keep the
                 // explicit `pub fn` / private split.
-                if (!trait_name.empty()) fn.is_pub = true;
-                overridden.insert(fn.name);
+                if (!trait_name.empty()) fn.flag(dk::IS_PUB, true);
+                overridden.insert(std::string(fn.view<lir_view::FunctionView>().name()));
                 // Also track base name so overloaded explicit methods block
                 // their corresponding defaults (overloads share a base name).
                 if (!trait_name.empty() && m.has_key(la::NAME)) {
@@ -2141,25 +2136,32 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // Add to struct template so mono clones it during struct instantiation.
                     // Drop impl/struct-level type params (mono re-injects them); keep
                     // method-level ones (e.g. `fn m<H>` on an `impl<T> Trait for Foo<T>`).
-                    if (!fn.type_params.empty()) {
+                    if (!type_params.empty()) {
                         std::vector<TypeParam> kept;
-                        kept.reserve(fn.type_params.size());
-                        for (auto& tp : fn.type_params) {
+                        kept.reserve(type_params.size());
+                        for (auto& tp : type_params) {
                             bool is_impl_level = false;
                             for (auto& itp : impl_tps)
                                 if (itp.name == tp.name) { is_impl_level = true; break; }
                             if (!is_impl_level) kept.push_back(tp);
                         }
-                        fn.type_params = std::move(kept);
+                        type_params = std::move(kept);
+                    }
+                    if (!type_params.empty()) {
+                        auto a = fn.array(dk::TYPE_PARAMS);
+                        for (auto& tp : type_params) a.push_fn_tparam(tp);
                     }
                     // Preserve impl-level type params with their bounds so mono
                     // can gate instantiation on bound satisfaction.
-                    fn.impl_type_params = impl_tps;
+                    if (!impl_tps.empty()) {
+                        auto a = fn.array(dk::IMPL_TYPE_PARAMS);
+                        for (auto& tp : impl_tps) a.push_fn_tparam(tp);
+                    }
                     // Structured impl self-type (`impl<T> Pin<&T>`): mono needs
                     // the pattern to map impl-level args ([T]) to the struct's
                     // concrete args ([&T]) — positional copy mis-names specs.
-                    fn.impl_target_pattern = impl_target_typeref;
-                    lir_mirror_struct_append_method(prog, *target_struct_tmpl, emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
+                    fn.type(dk::IMPL_TARGET_PATTERN, impl_target_typeref);
+                    lir_mirror_struct_append_method(prog, *target_struct_tmpl, fn.view<lir_view::FunctionView>());
                 } else {
                     // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
                     // Result<Vec<T>, E>). Methods go to prog.functions with
@@ -2167,8 +2169,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // existing comment at mono_clone.cpp:4319). Carry the
                     // impl-target pattern so mono's instantiate_enum_templates
                     // can unify pattern↔receiver instead of positional binding.
-                    fn.impl_target_pattern = impl_target_typeref;
-                    prog.functions.push_back(emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
+                    if (!type_params.empty()) {
+                        auto a = fn.array(dk::TYPE_PARAMS);
+                        for (auto& tp : type_params) a.push_fn_tparam(tp);
+                    }
+                    fn.type(dk::IMPL_TARGET_PATTERN, impl_target_typeref);
+                    prog.functions.push_back(fn.view<lir_view::FunctionView>());
                 }
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 pending_doc_.clear();
@@ -2190,20 +2196,21 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         ? resolve_type(map_of(m.get(la::TYPE.code))) : nullptr;
                     auto val = lower_expr(map_of(m.get(la::VALUE.code)));
                     if (ctype) builder().retype_expr(val, ctype);
-                    FnLowerBuf acc;
-                    acc.name        = lower_target + "__kassoc_" + cname;
-                    acc.method_base = "kassoc_" + cname;
-                    acc.package     = cur_package_;
-                    acc.ret_type    = ctype ? ctype
-                                            : (val ? expr_type(val) : void_t());
-                    acc.is_pub      = true;
-                    acc.source_file = file_;
+                    namespace dk = lir_schema::decl_keys;
+                    DeclBuilder acc(prog, lir_schema::decl::Code::Func, /*cap=*/40);
+                    acc.str_always(dk::NAME, lower_target + "__kassoc_" + cname);
+                    acc.str(dk::METHOD_BASE, "kassoc_" + cname);
+                    acc.str(dk::PKG, cur_package_);
+                    acc.type(dk::RET_TYPE, ctype ? ctype
+                                            : (val ? expr_type(val) : void_t()));
+                    acc.flag(dk::IS_PUB, true);
+                    acc.str(dk::SOURCE_FILE, file_);
                     {
                         std::vector<lir_view::StmtRef> acc_body;
                         acc_body.push_back(builder().stmt_return(val, 0));
-                        acc.body = lir_mirror_block(*cur_prog_, acc_body);
+                        acc.block(dk::BODY, lir_mirror_block(*cur_prog_, acc_body));
                     }
-                    prog.functions.push_back(emit_fn_decl(prog, acc).view<lir_view::FunctionView>());
+                    prog.functions.push_back(acc.view<lir_view::FunctionView>());
                 }
             } else {
                 // Non-fn impl item (assoc-type). Discard any sweep doc since
@@ -2347,9 +2354,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // (may be a different module's zone for cross-module traits).
                     auto* saved_holder = holder_;
                     if (m.default_holder) holder_ = m.default_holder;
-                    auto fn = lower_fn(map_of(m.default_ast), lower_target);
+                    namespace dk = lir_schema::decl_keys;
+                    std::vector<TypeParam> type_params;
+                    auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
                     holder_ = saved_holder;
-                    fn.is_pub = true;  // default trait method inherits trait visibility
+                    fn.flag(dk::IS_PUB, true);  // default trait method inherits trait visibility
                     // §8.5: carry every per-method where-bound as a
                     // type-EXPRESSION bound, expressed in the impl's
                     // generic terms (the trait-arg `impl_trait_args[pidx]`,
@@ -2362,6 +2371,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // rejected at mono — without it, deferral would
                     // synthesise `max`/`min` for every iterator and the
                     // `iter_max` body would fail to typecheck.
+                    std::vector<std::pair<TypeRef, std::string>> where_type_bounds;
                     if (!impl_is_blanket) {
                         for (auto& wb : m.where_param_bounds) {
                             size_t pidx = SIZE_MAX;
@@ -2372,8 +2382,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             if (pidx == SIZE_MAX || pidx >= impl_trait_args.size()) continue;
                             TypeRef subj = impl_trait_args[pidx];
                             if (!subj) continue;
-                            fn.where_type_bounds.emplace_back(subj, wb.trait_name);
+                            where_type_bounds.emplace_back(subj, wb.trait_name);
                         }
+                    }
+                    if (!where_type_bounds.empty()) {
+                        auto a = fn.array(dk::WHERE_TYPE_BOUNDS);
+                        for (auto& wb : where_type_bounds) a.push_wherebound(wb);
                     }
                     // Generic impl: the default method must travel as a struct-
                     // template method so mono clones it per concrete struct
@@ -2381,24 +2395,28 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // a free fn that mono only clones on explicit callsites —
                     // and dyn-trait dispatch is NOT a callsite.
                     if (target_struct_tmpl) {
-                        if (!fn.type_params.empty()) {
+                        if (!type_params.empty()) {
                             std::vector<TypeParam> kept;
-                            kept.reserve(fn.type_params.size());
-                            for (auto& tp : fn.type_params) {
+                            kept.reserve(type_params.size());
+                            for (auto& tp : type_params) {
                                 bool is_impl_level = false;
                                 for (auto& itp : impl_tps)
                                     if (itp.name == tp.name) { is_impl_level = true; break; }
                                 if (!is_impl_level) kept.push_back(tp);
                             }
-                            fn.type_params = std::move(kept);
+                            type_params = std::move(kept);
                         }
-                        fn.impl_type_params = impl_tps;
+                        if (!type_params.empty()) {
+                            auto a = fn.array(dk::TYPE_PARAMS);
+                            for (auto& tp : type_params) a.push_fn_tparam(tp);
+                        }
+                        std::vector<TypeParam> impl_type_params = impl_tps;
                         // §8.5: propagate where-clause TRAIT-param bounds
                         // (e.g. `Item: Ord`) onto the now-final
-                        // fn.impl_type_params so mono's `method_bound_ok`
+                        // impl_type_params so mono's `method_bound_ok`
                         // rejects a clone whose substituted concrete arg
                         // doesn't implement the required trait. Must run
-                        // AFTER `fn.impl_type_params = impl_tps` (which
+                        // AFTER `impl_type_params = impl_tps` (which
                         // overwrites bounds added earlier).
                         for (auto& wb : m.where_param_bounds) {
                             size_t pidx = SIZE_MAX;
@@ -2412,7 +2430,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             TypeRef av{arg};
                             if (av.kind() != LogosType::Kind::TypeVar) continue;
                             std::string tvname(av.type_var_name());
-                            for (auto& tp : fn.impl_type_params) {
+                            for (auto& tp : impl_type_params) {
                                 if (tp.name != tvname) continue;
                                 bool dup = false;
                                 for (auto& b : tp.bounds)
@@ -2425,13 +2443,21 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 break;
                             }
                         }
-                        fn.impl_target_pattern = impl_target_typeref;
-                        lir_mirror_struct_append_method(prog, *target_struct_tmpl, emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
+                        if (!impl_type_params.empty()) {
+                            auto a = fn.array(dk::IMPL_TYPE_PARAMS);
+                            for (auto& tp : impl_type_params) a.push_fn_tparam(tp);
+                        }
+                        fn.type(dk::IMPL_TARGET_PATTERN, impl_target_typeref);
+                        lir_mirror_struct_append_method(prog, *target_struct_tmpl, fn.view<lir_view::FunctionView>());
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for
                         // trait-default methods on enum-impl path.
-                        fn.impl_target_pattern = impl_target_typeref;
-                        prog.functions.push_back(emit_fn_decl(prog, fn).view<lir_view::FunctionView>());
+                        if (!type_params.empty()) {
+                            auto a = fn.array(dk::TYPE_PARAMS);
+                            for (auto& tp : type_params) a.push_fn_tparam(tp);
+                        }
+                        fn.type(dk::IMPL_TARGET_PATTERN, impl_target_typeref);
+                        prog.functions.push_back(fn.view<lir_view::FunctionView>());
                     }
                     current_type_params_.erase("Self");
                 }

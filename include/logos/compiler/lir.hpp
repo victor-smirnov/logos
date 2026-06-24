@@ -45,7 +45,7 @@ using LBlockPtr    = lir_view::BlockRef;
 // Stage E (decl→Hermes): LFunctionPtr is a FunctionView handle over the
 // function's Hermes decl mirror (each IS its mirror, like LBlockPtr). The
 // `struct FunctionDraft` build buffer is GONE — fn decls are DIRECT-BUILT into
-// the HermesCtr (mono: DeclBuilder via clone_fn; sema: FnLowerBuf → emit_fn_decl).
+// the HermesCtr (mono: DeclBuilder via clone_fn; sema: DeclBuilder via lower_fn).
 // Stored collections (LProgram::functions/specializations, {Struct,Trait,Impl}
 // Def::methods, SemaCache) hold Views — refcount-free, arena-stable.
 using LFunctionPtr = lir_view::FunctionView;

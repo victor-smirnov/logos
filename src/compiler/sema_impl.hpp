@@ -52,42 +52,6 @@ namespace logos::compiler {
 bool types_equal(TypeRef a, TypeRef b) noexcept;
 std::string type_str(TypeRef t);
 
-// Stage E (FunctionDraft → direct-build): transient build buffer for the sema
-// fn-lowering path. `struct FunctionDraft` (lir.hpp) is gone; lower_fn /
-// lower_spec_fn fill this POD (so all intra-function read-backs + post-lower
-// caller mutations stay value-typed), then emit_fn_decl writes it into the
-// program HermesCtr via DeclBuilder, returning the open builder. Mirrors the
-// FunctionDraft field set exactly (sans the deleted mirror bridge).
-struct FnLowerBuf {
-    std::string              name;
-    std::string              method_base;
-    std::string              package;
-    std::vector<TypeParam>   type_params;
-    std::vector<std::string> lifetime_params;
-    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-    std::vector<lir::LParam> params;
-    TypeRef                  ret_type = nullptr;
-    lir_view::BlockRef       body;
-    uint32_t                 local_count = 0;
-    bool                     is_extern = false;
-    bool                     is_vararg = false;
-    bool                     is_pub    = false;
-    bool                     is_metaprog_stub = false;
-    bool                     is_specialization = false;
-    std::vector<TypeRef>     spec_patterns;
-    bool                     from_binary_module = false;
-    bool                     from_lazy_module = false;
-    std::string              source_file;
-    std::vector<TypeParam>   impl_type_params;
-    TypeRef                  impl_target_pattern = nullptr;
-    std::vector<std::pair<TypeRef, std::string>> where_type_bounds;
-    std::string              doc;
-    bool                     is_test       = false;
-    bool                     should_panic  = false;
-    bool                     ignored       = false;
-    std::string              should_panic_expected_msg;
-};
-
 // Diagnostic helper: when two types have the same bare struct/enum name but
 // different packages (B-mv-02 / B-mv-09), prepend `pkg.` so the user can see
 // which is which.  For all other cases (different bare names, no pkg, etc.)
@@ -3636,7 +3600,7 @@ private:
     bool is_specialization_fn(hermes::TinyMapView node);
     bool is_specialization_struct(hermes::TinyMapView node);
     DeclBuilder lower_spec_struct(hermes::TinyMapView node);
-    FnLowerBuf lower_spec_fn(hermes::TinyMapView node);
+    DeclBuilder lower_spec_fn(hermes::TinyMapView node);
     void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
                     std::string_view trait_ctx = {});
 
@@ -4332,11 +4296,18 @@ private:
 
     // ── lower_fn and declaration lowering ───────────────────────
 
-    // Emit `buf` as a Func decl mirror in `prog`; returns the open DeclBuilder
-    // (caller stores .view<FunctionView>() / .self.addr()).
-    DeclBuilder emit_fn_decl(lir::LProgram& prog, const FnLowerBuf& buf);
-
-    FnLowerBuf lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
+    // Direct-build the Func decl mirror STRAIGHT into the program HermesCtr and
+    // return the open DeclBuilder (caller stores .view<FunctionView>() /
+    // .self.addr()). No heap accumulator. When `out_type_params` is non-null,
+    // lower_fn does NOT emit TYPE_PARAMS / IMPL_TYPE_PARAMS / IMPL_TARGET_PATTERN
+    // / IS_PUB / WHERE_TYPE_BOUNDS into the builder — those are deferred to the
+    // impl-method callers (which filter type_params, set impl-level params, the
+    // target pattern, trait-method visibility, and per-method where-bounds AFTER
+    // lowering) — and instead writes the computed sema-side type_params into
+    // `*out_type_params`. When null (free fns / collected struct methods), the
+    // builder is complete on return.
+    DeclBuilder lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
+                         std::vector<TypeParam>* out_type_params = nullptr);
     // Derive `lifetime_outlives` from the fn's params/return implied bounds
     // plus its where-clause (and merge where-clause type-param lifetime
     // bounds). Reads `node` + the fn's signature locals; appends to

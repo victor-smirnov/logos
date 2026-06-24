@@ -4354,7 +4354,7 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
             auto method = map_of(methods.get(m));
             if (code_of(method) == la::FN) {
                 auto mfn = lower_fn(method, sname);
-                ma.push_ref(emit_fn_decl(*cur_prog_, mfn).view<lir_view::FunctionView>().self.addr());
+                ma.push_ref(mfn.view<lir_view::FunctionView>().self.addr());
             }
         }
     }
@@ -4370,20 +4370,23 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
 // Like lower_fn but for specialisation definitions.
 // Populates spec_patterns and routes the result to prog.specialisations.
 
-FnLowerBuf SemaChecker::lower_spec_fn(TinyMapView node) {
+DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
+    namespace dk = lir_schema::decl_keys;
     auto raw_name = str_of(node.get(la::NAME.code));
     ctx_ = std::format("fn {} (specialization)", raw_name);
     node_line_ = get_line(node);
 
-    FnLowerBuf fn;
-    fn.name = std::string(raw_name);
-    fn.doc  = take_pending_doc();
-    fn.is_specialization = true;
-    fn.from_binary_module = cur_from_binary_;
-    fn.from_lazy_module   = cur_from_lazy_;
+    // Direct-build the Func decl mirror STRAIGHT into the program HermesCtr.
+    DeclBuilder fn(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);
+    fn.str_always(dk::NAME, std::string(raw_name));
+    fn.str(dk::DOC, take_pending_doc());
+    fn.flag(dk::IS_SPECIALIZATION, true);
+    if (cur_from_binary_) fn.flag(dk::FROM_BINARY_MODULE, true);
+    if (cur_from_lazy_)   fn.flag(dk::FROM_LAZY_MODULE, true);
 
-    // Parse spec type-param list: populate fn.spec_patterns and scope TypeVars.
+    // Parse spec type-param list: populate spec_patterns and scope TypeVars.
     std::vector<TypeParam> pattern_tvars;
+    std::vector<TypeRef> spec_patterns;
     if (node.has_key(la::TYPE_PARAMS)) {
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (!tpav.is_null()) {
@@ -4398,7 +4401,7 @@ FnLowerBuf SemaChecker::lower_spec_fn(TinyMapView node) {
                     if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
                         // Structured pattern: extract TypeVars then resolve.
                         extract_typevars_from_type_node(tpnode, pattern_tvars);
-                        fn.spec_patterns.push_back(resolve_type(tpnode));
+                        spec_patterns.push_back(resolve_type(tpnode));
 
                     } else if (tc == la::TYPE_PARAM) {
                         auto name = str_of(tpnode.get(la::NAME.code));
@@ -4416,17 +4419,17 @@ FnLowerBuf SemaChecker::lower_spec_fn(TinyMapView node) {
                                         {std::string(str_of(bn.get(la::NAME.code))), {}, {}});
                             }
                             pattern_tvars.push_back(std::move(tp));
-                            fn.spec_patterns.push_back(make_typevar(name));
+                            spec_patterns.push_back(make_typevar(name));
                         } else {
                             // Plain IDENT: known type → concrete; else → TypeVar.
                             auto known = try_resolve_as_known_type(name);
                             if (known) {
-                                fn.spec_patterns.push_back(known);
+                                spec_patterns.push_back(known);
                             } else {
                                 current_type_params_[std::string(name)] =
                                     make_typevar(name);
                                 pattern_tvars.push_back({std::string(name), {}});
-                                fn.spec_patterns.push_back(make_typevar(name));
+                                spec_patterns.push_back(make_typevar(name));
                             }
                         }
                     }
@@ -4434,16 +4437,22 @@ FnLowerBuf SemaChecker::lower_spec_fn(TinyMapView node) {
             }
         }
     }
+    if (!spec_patterns.empty()) {
+        auto a = fn.array(dk::SPEC_PATTERNS);
+        for (auto& t : spec_patterns) a.push_type(t);
+    }
 
     // Resolve params and return type (TypeVars from patterns are now in scope).
-    fn.ret_type = node.has_key(la::RET_TYPE)
+    TypeRef ret_type = node.has_key(la::RET_TYPE)
         ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
         : void_t();
-    ret_type_ = fn.ret_type;
+    ret_type_ = ret_type;
+    fn.type(dk::RET_TYPE, ret_type);
 
     scope_.clear();
     push_scope();
 
+    std::vector<lir::LParam> params;
     if (node.has_key(la::PARAMS)) {
         auto params_av = node.get(la::PARAMS.code);
         if (params_av.is_pointer()) {
@@ -4464,21 +4473,25 @@ FnLowerBuf SemaChecker::lower_spec_fn(TinyMapView node) {
                         ptype = resolve_type(map_of(p.get(la::TYPE.code)));
                     }
                     define(pname, ptype);
-                    fn.params.push_back({std::string(pname), ptype});
+                    params.push_back({std::string(pname), ptype});
                 }
             }
         }
     }
+    if (!params.empty()) {
+        auto a = fn.array(dk::PARAMS);
+        for (auto& p : params) a.push_param(p);
+    }
 
-    if (!fn.is_extern && node.has_key(la::BODY)) {
+    if (node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
         // B-fn-06: TAIL_EXPR acts as implicit return inside fn-body lowering
         // and the reachability check.
         bool saved_tail = tail_as_return_;
         tail_as_return_ = true;
-        fn.body = lower_block(body_node);
-        if (fn.ret_type && TypeRef(fn.ret_type).kind() != LogosType::Kind::Void &&
-            TypeRef(fn.ret_type).kind() != LogosType::Kind::Error &&
+        fn.block(dk::BODY, lower_block(body_node));
+        if (ret_type && TypeRef(ret_type).kind() != LogosType::Kind::Void &&
+            TypeRef(ret_type).kind() != LogosType::Kind::Error &&
             !block_always_returns(body_node)) {
             error("not all paths return a value");
         }

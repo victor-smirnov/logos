@@ -7769,10 +7769,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             }
             if (is_specialization_fn(item)) {
                 auto fp = lower_spec_fn(item);
-                prog.specializations.push_back(emit_fn_decl(prog, fp).view<lir_view::FunctionView>());
+                prog.specializations.push_back(fp.view<lir_view::FunctionView>());
             } else {
                 auto fp = lower_fn(item);
-                prog.functions.push_back(emit_fn_decl(prog, fp).view<lir_view::FunctionView>());
+                prog.functions.push_back(fp.view<lir_view::FunctionView>());
             }
         }
         else if (c == la::CONST_DEF) {
