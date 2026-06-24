@@ -76,10 +76,19 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
     ffo_canon_index_.clear();
     ffo_canon_ambig_.clear();
     ffo_symtab_.clear();
+    ffo_base_first_.clear();
     for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
         auto nm = fn.getName();
         // Direct name → FuncOp (a symbol name is unique, so last-wins == only).
         ffo_symtab_[std::string(nm)] = fn;
+        // base = name up to the "__f__"/"__g__" method marker → first FuncOp.
+        {
+            llvm::StringRef nr = nm;
+            size_t mk = nr.find("__f__");
+            if (mk == llvm::StringRef::npos) mk = nr.find("__g__");
+            if (mk != llvm::StringRef::npos)
+                ffo_base_first_.emplace(std::string(nr.substr(0, mk)), fn);  // first-wins
+        }
         // Canonical (sig-stripped / pkg-stripped) → FuncOp, ambiguous-aware.
         std::string c = ffo_canonical(nm);
         if (ffo_canon_ambig_.count(c)) continue;
@@ -2623,14 +2632,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     // chokepoint), so the EXACT overload binds before the signature-blind suffix
     // fallbacks below — no per-site qualification needed here.
     auto callee_fn   = find_func_op(parent_mod, callee_name);
+    // O(1) via the base→first-FuncOp index (was an O(funcs) find_fn_matching
+    // prefix scan, called up to 3× per unresolved method). first-wins matches
+    // the old find_fn_matching (first module-order hit).
     auto walk_prefix = [&](const std::string& cn) -> mlir::func::FuncOp {
-        std::string generic_prefix = cn + "__g__";
-        std::string fn_prefix = cn + "__f__";
-        return find_fn_matching(parent_mod,
-            [&](mlir::func::FuncOp f) {
-                llvm::StringRef n = f.getName();
-                return n.starts_with(generic_prefix) || n.starts_with(fn_prefix);
-            });
+        ensure_ffo_canon_index(parent_mod);
+        if (auto it = ffo_base_first_.find(cn); it != ffo_base_first_.end())
+            return it->second;
+        return {};
     };
     if (!callee_fn) callee_fn = walk_prefix(callee_name);
     if (!callee_fn && !resolved_symbol.empty()) {

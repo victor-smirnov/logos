@@ -649,6 +649,11 @@ private:
     // — MLIR's lookupSymbolIn is an O(funcs) LINEAR SCAN reading each sym_name
     // (getInherentAttr). This makes both the direct and qualified lookups O(1).
     mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_symtab_;
+    // base (name up to "__f__"/"__g__") → FIRST FuncOp with that base. Drives
+    // walk_prefix (the overload-ambiguous method fallback) in O(1) instead of an
+    // O(funcs) find_fn_matching prefix scan. First-wins (matches find_fn_matching
+    // returning the first module-order hit); built in the same dirty-gated pass.
+    mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_base_first_;
     // Set true whenever a func::FuncOp is added to the module (mark_funcs_dirty
     // at every create site). ensure_ffo_canon_index rebuilds only when dirty —
     // replacing the per-call O(funcs) staleness recount. A stale-by-miss index
