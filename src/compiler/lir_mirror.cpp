@@ -435,8 +435,14 @@ public:
             for (auto av : elems) array_push(arr_off, av);
             put(map_off, stk::FIELDS, mref_addr(arr_off));
         }
-        // methods (each element = address of an already-emitted func decl map)
-        if (!sd.methods.empty()) {
+        // methods (each element = address of an already-emitted func decl map).
+        // ALWAYS create the METHODS array (even when empty) so it has a stable
+        // ObjectArray HEADER: struct methods are appended in place across sema
+        // (impl blocks + re-attachment) and mono (lazy drain_method_worklist)
+        // AFTER the struct is stored. grow() re-points only the array's internal
+        // buffer, never the header, so the map's METHODS ref stays valid —
+        // see lir_mirror_struct_append_method.
+        {
             std::vector<hermes::AnyVal> elems; elems.reserve(sd.methods.size());
             for (auto& m : sd.methods) elems.push_back(mref_addr(m.self.addr()));
             auto arr_off = make_array(elems.size());
@@ -476,6 +482,31 @@ public:
         // spec_patterns (Array<RelPtr<LogosType>>)
         { auto a = type_array(sd.spec_patterns); if (!a.is_null()) put(map_off, stk::SPEC_PATTERNS, a); }
         return map_off;
+    }
+    // Append a method (its already-emitted func decl map) to a stored struct's
+    // mutable METHODS array IN PLACE. Sound because the ObjectArray header is
+    // stable (grow re-points only the internal buffer — see object_array.hpp).
+    // Used by the sema impl-block/re-attachment passes and mono's lazy
+    // drain_method_worklist, which collect methods AFTER the struct is stored.
+    void struct_append_method_direct(lir_view::StructView sv, lir_view::FunctionView m) {
+        auto* map = const_cast<hermes::TinyObjectMap*>(sv.self.mirror());
+        auto cur = map->get(lir_schema::struct_keys::METHODS.code);
+        LOGOS_ASSERT(!cur.is_null(), "LIR-MIRROR-STRUCT-METHODS",
+                     "struct mirror has no METHODS array (emit_struct_def_direct "
+                     "always creates it)");
+        auto* arr_addr = reinterpret_cast<const uint8_t*>(cur.as_ptr<const hermes::ObjectArray>());
+        array_push(arr_addr, mref_addr(m.self.addr()));
+    }
+    // Replace a stored struct's METHODS array with a fresh one holding exactly
+    // `ms` (used by the SemaCache reset's filter_methods, which keeps only
+    // binary-origin methods). The old array becomes garbage — rare path.
+    void struct_set_methods_direct(lir_view::StructView sv,
+                                   const std::vector<lir_view::FunctionView>& ms) {
+        std::vector<hermes::AnyVal> elems; elems.reserve(ms.size());
+        for (auto m : ms) elems.push_back(mref_addr(m.self.addr()));
+        auto arr_off = make_array(elems.size());
+        for (auto av : elems) array_push(arr_off, av);
+        put(sv.self.addr(), lir_schema::struct_keys::METHODS, mref_addr(arr_off));
     }
     const uint8_t* emit_enum_def_direct(const lir::EnumDraft& ed) {
         auto map_off = make_map(hermes::schema::lir_stmt(
@@ -2014,6 +2045,22 @@ lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
     sd.mirror_ptr_   = p;
     sd.mirror_arena_ = prog.type_pool.arena();
     return sd.view();
+}
+
+void lir_mirror_struct_append_method(lir::LProgram& prog,
+                                     lir_view::StructView sv,
+                                     lir_view::FunctionView m) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    em.struct_append_method_direct(sv, m);
+}
+
+void lir_mirror_struct_set_methods(lir::LProgram& prog,
+                                   lir_view::StructView sv,
+                                   const std::vector<lir_view::FunctionView>& ms) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    em.struct_set_methods_direct(sv, ms);
 }
 
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {

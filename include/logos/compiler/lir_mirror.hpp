@@ -80,6 +80,20 @@ lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
 lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
                                                  lir::LStructDef& sd);
 
+// Append a method (already-emitted FunctionView) to a stored struct's mutable
+// METHODS array IN PLACE — for the sema/mono passes that collect struct methods
+// AFTER the struct is stored. Sound: the ObjectArray header is stable across
+// grow(). Replaces `target->methods.push_back(fn)` once structs are StructViews.
+void lir_mirror_struct_append_method(lir::LProgram& prog,
+                                     lir_view::StructView sv,
+                                     lir_view::FunctionView m);
+
+// Replace a stored struct's METHODS array with exactly `ms` (SemaCache reset's
+// filter_methods, which keeps only binary-origin methods). Old array → garbage.
+void lir_mirror_struct_set_methods(lir::LProgram& prog,
+                                   lir_view::StructView sv,
+                                   const std::vector<lir_view::FunctionView>& ms);
+
 // Run the full emit driver but extend an existing table rather than create a
 // fresh one. Used by mono as a fixup pass to cover items not reached via the
 // per-function path (consts, impls, struct methods of non-instantiated
