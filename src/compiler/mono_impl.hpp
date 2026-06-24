@@ -325,6 +325,17 @@ private:
                                   const std::string& tmpl_prefix,
                                   const std::string& concrete, TypeRef candidate_t);
 
+    // Prefilter: only `$blanket$…__method` template fns can ever match a
+    // tmpl_prefix, yet they are a tiny fraction of in_.functions. The eager
+    // blanket pass calls enqueue_blanket_concrete once per (blanket × candidate
+    // type) — without a prefilter each call re-scans EVERY function. Build the
+    // (pkg-stripped-name, fn) list of `$blanket$` templates ONCE (in_.functions
+    // is stable through the whole blanket pass); the scan iterates it instead.
+    // string_view points into the fn's stable arena name storage.
+    std::vector<std::pair<std::string_view, lir_view::FunctionView>> blanket_tmpl_fns_;
+    bool blanket_tmpl_built_ = false;
+    void ensure_blanket_tmpl_index();
+
     // Set of (trait::type) keys: concrete types that implement each trait.
     // Populated from out_.impls (non-blanket) so the blanket fallback can
     // verify a concrete type satisfies the bound.

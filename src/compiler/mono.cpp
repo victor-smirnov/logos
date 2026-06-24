@@ -24,6 +24,18 @@
 
 namespace logos::compiler {
 
+void Mono::ensure_blanket_tmpl_index() {
+    if (blanket_tmpl_built_) return;
+    blanket_tmpl_built_ = true;
+    for (auto& tfn : in_.functions) {
+        std::string_view tn = tfn.name();
+        if (auto dot = tn.rfind('.'); dot != std::string_view::npos)
+            tn = tn.substr(dot + 1);
+        if (tn.rfind("$blanket$", 0) == 0)
+            blanket_tmpl_fns_.emplace_back(tn, tfn);
+    }
+}
+
 void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
                                     const std::string& tmpl_prefix,
                                     const std::string& concrete, TypeRef candidate_t) {
@@ -41,13 +53,11 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
         for (auto& ed : out_.enums)
             if (ed.name() == concrete) { concrete_pkg = std::string(ed.pkg()); break; }
     std::string concrete_q = concrete + type_module_suffix(concrete_pkg);
-    for (auto& tfn : in_.functions) {
-        // Strip pkg prefix (`pkg.`) before matching the synthetic
-        // `$blanket$...` template prefix. string_view — no per-function alloc
-        // (the scan is O(functions) and most don't match).
-        std::string_view tn = tfn.name();
-        if (auto dot = tn.rfind('.'); dot != std::string_view::npos)
-            tn = tn.substr(dot + 1);
+    // Scan only `$blanket$` templates (built once) — not all in_.functions.
+    ensure_blanket_tmpl_index();
+    for (auto& [tn, tfn] : blanket_tmpl_fns_) {
+        // tn is the pkg-stripped name (precomputed). Match the synthetic
+        // `$blanket$...` template prefix for THIS blanket impl.
         if (tn.rfind(tmpl_prefix, 0) != 0) continue;
         // Method may carry `__f__sig` / `__g__sig`. Preserve sig in dest so
         // subsequent enqueues that mangle with type_args produce matching names.
@@ -64,7 +74,7 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
         bool all_tp_bound = true;
         for (auto& tp : tfn.type_params()) {
             if (tp.is_variadic()) continue;
-            if (!subst.count(std::string(tp.name()))) { all_tp_bound = false; break; }
+            if (!subst.count(tp.name())) { all_tp_bound = false; break; }   // transparent
         }
         if (!all_tp_bound) continue;
         WorkItem wi;

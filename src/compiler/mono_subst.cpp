@@ -26,7 +26,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     // field is local by construction. Reads through foreign TypeRefs
     // are safe — lir_view's accessors are cross-arena-aware.
     if (tv.kind() == LogosType::Kind::TypeVar || tv.kind() == LogosType::Kind::ConstVar) {
-        auto it = s.find(std::string(tv.type_var_name()));
+        auto it = s.find(tv.type_var_name());   // transparent: no std::string
         if (it != s.end()) return it->second;
         return tv;
     }
@@ -415,7 +415,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                     }
                 }
                 if (!all_extra) continue;
-                auto bait = bi.assoc_types.find(std::string(tv.assoc_type_name()));
+                auto bait = bi.assoc_types.find(tv.assoc_type_name());   // transparent
                 if (bait == bi.assoc_types.end()) continue;
                 SubstMap bsubst;
                 bsubst[bi.target_typevar] = subbed_base;
