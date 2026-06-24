@@ -1376,41 +1376,73 @@ std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView no
     return {std::move(name), type};
 }
 
-lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
+// Stage E direct-build: builds the trait decl mirror STRAIGHT into the program's
+// HermesCtr via DeclBuilder — no C++ LTraitDef Draft. Returns the open builder so
+// the caller (apply_annots_to_trait + doc) writes the remaining fields into the
+// same mirror in place before pushing the TraitView.
+DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
+    namespace tk  = lir_schema::trait_keys;
+    namespace atk = lir_schema::assoc_type_keys;
+    namespace tmk = lir_schema::trait_method_keys;
+    constexpr uint64_t ASSOC_SCHEMA  = lir_schema::stmt::Count + 13;
+    constexpr uint64_t METHOD_SCHEMA = lir_schema::stmt::Count + 14;
+
     auto tname = std::string(str_of(node.get(la::NAME.code)));
-    lir::LTraitDef td;
-    td.name = tname;
+    DeclBuilder b(*cur_prog_, lir_schema::decl::Code::Trait, /*cap=*/16);
+    b.str_always(tk::NAME, tname);
     auto tit = traits_.find(tname);
     if (tit != traits_.end()) {
-        for (auto& at : tit->second.assoc_types)
-            td.assoc_types.push_back({at.name, at.bounds, at.doc});
-        for (auto& m : tit->second.methods) {
-            lir::LTraitMethodSig sig;
-            sig.name     = m.name;
-            sig.ret_type = m.ret_type;
-            sig.doc      = m.doc;
-            // We don't lower params here since they may contain Self
-            td.methods.push_back(std::move(sig));
+        if (!tit->second.assoc_types.empty()) {
+            auto arr = b.array(tk::ASSOC_TYPES);
+            for (auto& at : tit->second.assoc_types) {
+                auto sub = arr.submap(ASSOC_SCHEMA, /*cap=*/8);
+                sub.str_always(atk::AT_NAME, at.name);
+                if (!at.bounds.empty()) {
+                    auto barr = sub.array(atk::AT_BOUNDS);
+                    for (auto& tb : at.bounds) barr.push_tbound(tb);
+                }
+                sub.str(atk::AT_DOC, at.doc);
+            }
+        }
+        if (!tit->second.methods.empty()) {
+            auto arr = b.array(tk::METHODS);
+            for (auto& m : tit->second.methods) {
+                // Params NOT lowered for trait sigs (may contain Self).
+                auto sub = arr.submap(METHOD_SCHEMA, /*cap=*/8);
+                sub.str_always(tmk::TM_NAME, m.name);
+                sub.type(tmk::TM_RET_TYPE, m.ret_type);
+                sub.str(tmk::TM_DOC, m.doc);
+            }
         }
     }
-    td.pkg = std::string(cur_package_);
+    b.str(tk::PKG, cur_package_);
     if (tit != traits_.end()) {
-        td.is_auto = tit->second.is_auto;
-        for (auto& s : tit->second.supertraits)
-            if (s.trait_name != "Copy") td.supertraits.push_back(s.trait_name);
+        b.flag(tk::IS_AUTO, tit->second.is_auto);
+        {
+            auto arr = b.array(tk::SUPERTRAITS);
+            for (auto& s : tit->second.supertraits)
+                if (s.trait_name != "Copy") arr.push_str(s.trait_name);
+        }
         // Single-source the supertrait-closure vtable layout (slot order +
         // ordered upcast targets) for mlir-gen to consume verbatim.
         std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
-        trait_vtable_layout(tname, vtab, td.upcast_supertraits);
-        for (auto& [owner, mptr] : vtab)
-            td.vtable_method_order.push_back({owner, mptr->name});
+        std::vector<std::string> upcast;
+        trait_vtable_layout(tname, vtab, upcast);
+        {
+            auto arr = b.array(tk::UPCAST_SUPERTRAITS);
+            for (auto& u : upcast) arr.push_str(u);
+        }
+        {
+            auto arr = b.array(tk::VTABLE_METHOD_ORDER);
+            for (auto& [owner, mptr] : vtab) { arr.push_str(owner); arr.push_str(mptr->name); }
+        }
     }
     if (node.has_key(la::TYPE_PARAMS)) {
         auto tps = read_type_params(node);
-        for (auto& tp : tps)
-            td.type_params.push_back(tp.name);
+        auto arr = b.array(tk::TYPE_PARAMS);
+        for (auto& tp : tps) arr.push_str(tp.name);
     }
-    return td;
+    return b;
 }
 
 void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
@@ -1649,7 +1681,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // their identity from the logical datatype family.
     if (!trait_name.empty() && !target.empty()) {
         for (const auto& td : prog.traits) {
-            if (td.name != trait_name || td.type_code == 0) continue;
+            if (td.name() != trait_name || td.type_code() == 0) continue;
+            uint64_t td_type_code = td.type_code();
             bool applied = false;
             for (auto& sd : prog.structs) {
                 if (sd.name() != target) continue;
@@ -1657,10 +1690,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // auto-assigned at eidos lowering time.  An explicit
                 // `#[type_code]` on the eidos itself would normally also
                 // win, but we don't allow both at the moment.
-                lir_mirror_struct_set_type_code(prog, sd, td.type_code);
+                lir_mirror_struct_set_type_code(prog, sd, td_type_code);
                 auto fqn = cur_package_.empty() ? std::string(sd.name())
                                                  : cur_package_ + "::" + std::string(sd.name());
-                explicit_type_codes_[fqn] = td.type_code;
+                explicit_type_codes_[fqn] = td_type_code;
                 applied = true;
                 break;
             }
@@ -1673,7 +1706,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (!applied && target.find("$G") != std::string::npos) {
                 lir::LInstAnnotation ia;
                 ia.mangled_name = target;
-                ia.type_code    = td.type_code;
+                ia.type_code    = td_type_code;
                 ia.struct_type  = target_resolved;  // for mono struct demand
                 // Derive canonical "pkg::BaseName<Args>" from the target type
                 // (use target_resolved captured earlier — always set when the
@@ -1685,7 +1718,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     else if (auto* ssi_tr = get_struct_si(target_resolved)) pkg = ssi_tr->package;
                     if (pkg.empty()) pkg = cur_package_;
                     ia.canonical_name = pkg + "::" + type_str(target_resolved);
-                    explicit_type_codes_[ia.canonical_name] = td.type_code;
+                    explicit_type_codes_[ia.canonical_name] = td_type_code;
                 }
                 // Also register the mangled-form key ("pkg::Array$G1$AnyVal")
                 // so the dispatch-entry emission code (which looks up by mangled
@@ -1693,7 +1726,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 {
                     std::string p = pkg.empty() ? std::string(cur_package_) : pkg;
                     std::string mangled_fqn = p.empty() ? target : p + "::" + target;
-                    explicit_type_codes_[mangled_fqn] = td.type_code;
+                    explicit_type_codes_[mangled_fqn] = td_type_code;
                 }
                 prog.inst_annotations.push_back(std::move(ia));
             }
@@ -2267,7 +2300,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (!trait_name.empty() && impl_tps.empty()) {
         std::string tag_system;
         for (auto& td : prog.traits) {
-            if (td.name == trait_name) { tag_system = td.tag_dispatch_system; break; }
+            if (td.name() == trait_name) { tag_system = std::string(td.tag_dispatch_system()); break; }
         }
         if (!tag_system.empty()) {
             // Prefer the type_code from prog.structs (which has annotation-applied codes,

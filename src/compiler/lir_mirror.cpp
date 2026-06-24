@@ -28,7 +28,6 @@ using lir::EClosure;
 using lir::FunctionDraft;
 using lir::StructDraft;
 using lir::LImplBlock;
-using lir::LTraitDef;
 
 namespace {
 
@@ -1534,8 +1533,9 @@ public:
         return map_off;
     }
 
-private:
-    // ── primitive helpers ───────────────────────────────────────────────────
+public:
+    // ── primitive helpers (exposed for DeclBuilder direct-build factory) ─────
+    // Member fields stay private (declared above the first `public:`).
 
     // Raw arena access is encapsulated in views. The view re-resolves obj from
     // the offset against the holder's base on construction, so it stays valid
@@ -2078,6 +2078,84 @@ void lir_mirror_struct_set_type_code(lir::LProgram& prog,
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     em.struct_set_type_code_direct(sv, code);
+}
+
+// ── DeclBuilder — direct-Hermes decl factory ────────────────────────────────
+struct DeclBuilder::Impl {
+    hermes::HermesCtr&   ctr;
+    LirMirrorTable&      table;
+    TypePool&            pool;
+    LirMirrorEmitter     em;
+    const uint8_t*       map;
+    const hermes::Arena* arena;
+    Impl(hermes::HermesCtr& c, LirMirrorTable& t, TypePool& p,
+         const uint8_t* m, const hermes::Arena* a)
+        : ctr(c), table(t), pool(p), em(c, t, p), map(m), arena(a) {}
+};
+
+DeclBuilder::DeclBuilder(lir::LProgram& prog, lir_schema::decl::Code kind, uint64_t cap) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    p_ = std::make_unique<Impl>(ctr, *prog.mirror_table, prog.type_pool,
+                                nullptr, prog.type_pool.arena());
+    p_->map = p_->em.make_map(hermes::schema::lir_stmt(int32_t(kind)), cap);
+}
+DeclBuilder::DeclBuilder(lir::LProgram& prog, const uint8_t* existing_map) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    p_ = std::make_unique<Impl>(ctr, *prog.mirror_table, prog.type_pool,
+                                existing_map, prog.type_pool.arena());
+}
+DeclBuilder::DeclBuilder(std::unique_ptr<Impl> p) noexcept : p_(std::move(p)) {}
+DeclBuilder::~DeclBuilder() = default;
+DeclBuilder::DeclBuilder(DeclBuilder&&) noexcept = default;
+DeclBuilder& DeclBuilder::operator=(DeclBuilder&&) noexcept = default;
+
+void DeclBuilder::str(lir_schema::Key key, std::string_view v) {
+    if (!v.empty()) p_->em.put(p_->map, key, p_->em.put_string(v));
+}
+void DeclBuilder::str_always(lir_schema::Key key, std::string_view v) {
+    p_->em.put(p_->map, key, p_->em.put_string(v));
+}
+void DeclBuilder::i64(lir_schema::Key key, int64_t v) {
+    p_->em.put(p_->map, key, p_->em.put_i64(v));
+}
+void DeclBuilder::i64_if(lir_schema::Key key, int64_t v) {
+    if (v) p_->em.put(p_->map, key, p_->em.put_i64(v));
+}
+void DeclBuilder::flag(lir_schema::Key key, bool v) {
+    if (v) p_->em.put(p_->map, key, p_->em.put_bool(true));
+}
+void DeclBuilder::type(lir_schema::Key key, TypeRef t) {
+    if (t) p_->em.put(p_->map, key, p_->em.type_av(t));
+}
+DeclArrayBuilder DeclBuilder::array(lir_schema::Key key) {
+    auto arr = p_->em.make_array(0);
+    p_->em.put(p_->map, key, p_->em.mref_addr(arr));
+    return DeclArrayBuilder(p_.get(), arr);
+}
+const uint8_t* DeclBuilder::addr() const noexcept { return p_->map; }
+const hermes::Arena* DeclBuilder::arena() const noexcept { return p_->arena; }
+
+void DeclArrayBuilder::push_str(std::string_view v) {
+    owner_->em.array_push(arr_, owner_->em.put_string(v));
+}
+void DeclArrayBuilder::push_type(TypeRef t) {
+    if (t) owner_->em.array_push(arr_, owner_->em.type_av(t));
+}
+void DeclArrayBuilder::push_ref(const uint8_t* child_addr) {
+    owner_->em.array_push(arr_, owner_->em.mref_addr(child_addr));
+}
+void DeclArrayBuilder::push_tbound(const TraitBound& tb) {
+    owner_->em.array_push(arr_, owner_->em.tbound_av(tb));
+}
+void DeclArrayBuilder::push_param(const lir::LParam& p) {
+    owner_->em.array_push(arr_, owner_->em.param_av(p));
+}
+DeclBuilder DeclArrayBuilder::submap(uint64_t schema_code, uint64_t cap) {
+    auto sub = owner_->em.make_map(schema_code, cap);
+    owner_->em.array_push(arr_, owner_->em.mref_addr(sub));
+    auto p = std::make_unique<DeclBuilder::Impl>(owner_->ctr, owner_->table,
+                                                 owner_->pool, sub, owner_->arena);
+    return DeclBuilder(std::move(p));
 }
 
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {

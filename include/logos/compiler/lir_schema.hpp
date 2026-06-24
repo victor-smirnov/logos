@@ -561,6 +561,37 @@ inline constexpr Key AV_ENUM_VARIANT {"AV_ENUM_VARIANT", 6};  // Varchar (Enum)
 inline constexpr Key AV_ARR          {"AV_ARR",          7};  // Array<RelPtr<annval sub-map>> (Array — RECURSIVE)
 } // namespace annval_keys
 
+// ── LTraitDef (Code::Trait) decl keys — OWN key space ────────────────────────
+namespace trait_keys {
+inline constexpr Key NAME                {"NAME",                1};  // Varchar
+inline constexpr Key PKG                 {"PKG",                 2};  // Varchar
+inline constexpr Key DOC                 {"DOC",                 3};  // Varchar
+inline constexpr Key TYPE_PARAMS         {"TYPE_PARAMS",         4};  // Array<Varchar> — PLAIN names (not fn_tparam)
+inline constexpr Key TAG_DISPATCH_SYSTEM {"TAG_DISPATCH_SYSTEM", 5};  // Varchar
+inline constexpr Key TYPE_CODE           {"TYPE_CODE",           6};  // i64 (sparse: omit when 0)
+inline constexpr Key IS_AUTO             {"IS_AUTO",             7};  // bool (sparse)
+inline constexpr Key ASSOC_TYPES         {"ASSOC_TYPES",         8};  // Array<RelPtr<assoc_type sub-map>>
+inline constexpr Key METHODS             {"METHODS",             9};  // Array<RelPtr<trait_method sub-map>>
+inline constexpr Key SUPERTRAITS         {"SUPERTRAITS",         10}; // Array<Varchar>
+inline constexpr Key VTABLE_METHOD_ORDER {"VTABLE_METHOD_ORDER", 11}; // Array<Varchar> flat pairs (2i=owner, 2i+1=method)
+inline constexpr Key UPCAST_SUPERTRAITS  {"UPCAST_SUPERTRAITS",  12}; // Array<Varchar>
+} // namespace trait_keys
+
+// LAssocTypeDef sub-map keys (own space — element schema of ASSOC_TYPES).
+namespace assoc_type_keys {
+inline constexpr Key AT_NAME   {"AT_NAME",   1};  // Varchar
+inline constexpr Key AT_BOUNDS {"AT_BOUNDS", 2};  // Array<RelPtr<tbound sub-map>> (REUSE fn_tbound)
+inline constexpr Key AT_DOC    {"AT_DOC",    3};  // Varchar
+} // namespace assoc_type_keys
+
+// LTraitMethodSig sub-map keys (own space — element schema of trait METHODS).
+// Params are intentionally NOT lowered for trait sigs (may contain Self).
+namespace trait_method_keys {
+inline constexpr Key TM_NAME     {"TM_NAME",     1};  // Varchar
+inline constexpr Key TM_RET_TYPE {"TM_RET_TYPE", 2};  // RelPtr<LogosType>
+inline constexpr Key TM_DOC      {"TM_DOC",      3};  // Varchar
+} // namespace trait_method_keys
+
 // ── Pattern sparse keys ───────────────────────────────────────────────────
 
 namespace pat_keys {

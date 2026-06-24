@@ -975,54 +975,11 @@ struct EnumDraft {
 // lir_mirror_emit_enum_def writes the mirror and the caller stores an EnumView.
 
 // ── Trait definition ──────────────────────────────────────────────────────
-
-struct LTraitMethodSig {
-    std::string              name;
-    std::vector<LParam>      params;
-    TypeRef         ret_type = nullptr;
-    std::string              doc;     // Phase A.2: outer `///` doc-comment
-};
-
-struct LAssocTypeDef {
-    std::string              name;    // e.g. "Item"
-    std::vector<TraitBound>  bounds;  // e.g. [Ord, Clone]
-    std::string              doc;     // Phase A.3: outer `///` doc-comment
-};
-
-struct LTraitDef {
-    std::string                    name;
-    std::string                    pkg;                 // package that declares this trait/genos
-    std::vector<LAssocTypeDef>     assoc_types;        // associated type declarations
-    std::vector<LTraitMethodSig>   methods;
-    std::vector<std::string>       type_params;         // empty for non-generic traits
-    std::string                    tag_dispatch_system; // #[tag_dispatch(system_name)]; empty = none
-    uint64_t                       type_code = 0;       // #[type_code=N] — Hermes-tagged trait identity;
-                                                        // propagates to each eidos via `impl Trait for Eidos`
-    bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
-    // Outer doc-comment on the trait declaration.
-    std::string                    doc;
-
-    // ── Supertrait / trait-object dispatch + upcasting metadata ──────────
-    // Single-sourced in sema (compute_supertrait_vtable_layout) and read by
-    // mlir-gen, so the vtable slot ordering cannot drift between phases.
-    //
-    // `supertraits` — direct supertrait names (`trait Dog: Animal + Pet` →
-    //   ["Animal","Pet"]); informational.
-    // `vtable_method_order` — the FLATTENED transitive method-slot order for
-    //   `dyn <this trait>`: each supertrait's methods (deepest-first, deduped)
-    //   followed by this trait's own methods. A method's index here is its
-    //   vtable slot (the `+3` drop/size/align header is added at codegen). This
-    //   makes a supertrait method callable through `&dyn Sub` (it has a real
-    //   slot) and lets sema and mlir-gen agree on every slot.
-    // `upcast_supertraits` — ordered transitive supertraits (deepest-first,
-    //   deduped, EXCLUDING this trait). One stored super-vtable pointer slot is
-    //   emitted per entry, AFTER the method slots; an upcast `&dyn Sub → &dyn
-    //   Super` loads the slot at index_of(Super) to recover Super's vtable
-    //   (Rust trait-upcasting; handles multiple supertraits / diamonds).
-    std::vector<std::string>       supertraits;
-    std::vector<std::pair<std::string,std::string>> vtable_method_order; // (owner_trait, method)
-    std::vector<std::string>       upcast_supertraits;
-};
+//
+// Stage E: structs LTraitDef / LAssocTypeDef / LTraitMethodSig DELETED — traits
+// live ONLY as Hermes mirror nodes (lir_schema::decl::Code::Trait), built
+// directly via DeclBuilder in lower_trait_def and read via lir_view::TraitView
+// (with AssocTypeDefView / TraitMethodSigView sub-views). No C++ mirror struct.
 
 struct LImplBlock {
     std::string              trait_name;
@@ -1173,7 +1130,7 @@ struct LProgram {
     std::vector<LFunctionPtr>    specializations;  // fn specialisations (consumed by mono)
     std::vector<lir_view::ConstView> consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
-    std::vector<LTraitDef>       traits;
+    std::vector<lir_view::TraitView> traits;
     std::vector<LImplBlock>      impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
     std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries

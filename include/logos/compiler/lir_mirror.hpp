@@ -18,11 +18,74 @@
 // during the transitional period.
 
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/lir_schema.hpp>
 #include <logos/hermes/compat.hpp>
 
+#include <memory>
+#include <string_view>
 #include <unordered_map>
 
 namespace logos::compiler {
+
+class DeclArrayBuilder;
+
+// Direct-Hermes decl factory (Stage E, Victor's direct-build). Builds a decl
+// mirror map STRAIGHT into prog's HermesCtr — no C++ Draft heap buffer. Typed
+// setters + array builders; the map stays open so multi-step construction (e.g.
+// lower_trait_def then apply_annots_to_trait) writes into the same mirror in
+// place (Hermes objects are mutable; collection headers are stable across grow).
+// Sparse setters skip empty/zero/false. finish via addr() / view<V>().
+class DeclBuilder {
+public:
+    // Create a new decl map of `kind` (cap = max key count, see make_map).
+    DeclBuilder(lir::LProgram& prog, lir_schema::decl::Code kind, uint64_t cap);
+    // Re-open an existing decl map to add/overwrite fields in place.
+    DeclBuilder(lir::LProgram& prog, const uint8_t* existing_map);
+    ~DeclBuilder();
+    DeclBuilder(DeclBuilder&&) noexcept;
+    DeclBuilder& operator=(DeclBuilder&&) noexcept;
+    DeclBuilder(const DeclBuilder&) = delete;
+
+    void str(lir_schema::Key key, std::string_view v);   // skip when empty
+    void str_always(lir_schema::Key key, std::string_view v);
+    void i64(lir_schema::Key key, int64_t v);            // always
+    void i64_if(lir_schema::Key key, int64_t v);         // skip when 0
+    void flag(lir_schema::Key key, bool v);              // sparse — only when true
+    void type(lir_schema::Key key, TypeRef t);           // skip when null
+    DeclArrayBuilder array(lir_schema::Key key);         // create empty array under key
+
+    const uint8_t* addr() const noexcept;
+    const hermes::Arena* arena() const noexcept;
+    template <class V> V view() const noexcept {
+        return V{lir_view::DeclRef(arena(), addr())};
+    }
+private:
+    struct Impl;
+    DeclBuilder(std::unique_ptr<Impl> p) noexcept;
+    std::unique_ptr<Impl> p_;
+    friend class DeclArrayBuilder;
+};
+
+// Builds the elements of one array created via DeclBuilder::array().
+class DeclArrayBuilder {
+public:
+    void push_str(std::string_view v);
+    void push_type(TypeRef t);                 // skip when null
+    void push_ref(const uint8_t* child_addr);  // push an existing mirror by address
+    // Create a sub-map element of `schema_code` (use stmt::Count+N), push it,
+    // and return a builder to populate it.
+    DeclBuilder submap(uint64_t schema_code, uint64_t cap);
+    // Reuse the emitter's canonical sub-map encoders (so bounds/params match
+    // the schema used elsewhere).
+    void push_tbound(const TraitBound& tb);
+    void push_param(const lir::LParam& p);
+private:
+    DeclArrayBuilder(DeclBuilder::Impl* owner, const uint8_t* arr_addr) noexcept
+        : owner_(owner), arr_(arr_addr) {}
+    DeclBuilder::Impl* owner_;
+    const uint8_t*     arr_;
+    friend class DeclBuilder;
+};
 
 // Side table populated by lir_mirror_emit. Read-only after emit completes.
 // Forward maps only: C++ node pointer → its TinyObjectMap mirror ADDRESS in the

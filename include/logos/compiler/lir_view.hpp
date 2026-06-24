@@ -1089,6 +1089,124 @@ struct StructView {
     }
 };
 
+// ── Stage E: LTraitDef decl views (Code::Trait map + assoc/method sub-maps) ──
+
+// LAssocTypeDef sub-map view { AT_NAME, AT_BOUNDS: Array<tbound>, AT_DOC }.
+struct AssocTypeDefView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::assoc_type_keys::AT_NAME.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::assoc_type_keys::AT_DOC.code);
+    }
+    template <class F>
+    void each_bound(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::assoc_type_keys::AT_BOUNDS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(FnTraitBoundView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
+// LTraitMethodSig sub-map view { TM_NAME, TM_RET_TYPE, TM_DOC } (no params).
+struct TraitMethodSigView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::trait_method_keys::TM_NAME.code);
+    }
+    TypeRef ret_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::trait_method_keys::TM_RET_TYPE.code, pool);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::trait_method_keys::TM_DOC.code);
+    }
+};
+
+// LTraitDef decl view.
+struct TraitView {
+    DeclRef self;
+    bool valid() const noexcept { return self.addr() != nullptr; }
+    explicit operator bool() const noexcept { return self.addr() != nullptr; }
+
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::trait_keys::NAME.code);
+    }
+    std::string_view pkg() const noexcept {
+        return detail::read_string(self, lir_schema::trait_keys::PKG.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::trait_keys::DOC.code);
+    }
+    std::string_view tag_dispatch_system() const noexcept {
+        return detail::read_string(self, lir_schema::trait_keys::TAG_DISPATCH_SYSTEM.code);
+    }
+    uint64_t type_code() const noexcept {
+        return static_cast<uint64_t>(detail::read_i64(self, lir_schema::trait_keys::TYPE_CODE.code));
+    }
+    bool is_auto() const noexcept {
+        return detail::read_bool(self, lir_schema::trait_keys::IS_AUTO.code);
+    }
+    std::vector<std::string_view> type_params() const noexcept {
+        return detail::read_string_array(self, lir_schema::trait_keys::TYPE_PARAMS.code);
+    }
+    std::vector<std::string_view> supertraits() const noexcept {
+        return detail::read_string_array(self, lir_schema::trait_keys::SUPERTRAITS.code);
+    }
+    std::vector<std::string_view> upcast_supertraits() const noexcept {
+        return detail::read_string_array(self, lir_schema::trait_keys::UPCAST_SUPERTRAITS.code);
+    }
+    // flat array (2i=owner, 2i+1=method) → pairs.
+    std::vector<std::pair<std::string_view, std::string_view>> vtable_method_order() const noexcept {
+        std::vector<std::pair<std::string_view, std::string_view>> out;
+        auto av = self.mirror()->get(lir_schema::trait_keys::VTABLE_METHOD_ORDER.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i + 1 < arr->size(); i += 2) {
+            auto a = arr->get(i); auto b = arr->get(i + 1);
+            out.emplace_back(a.is_null() ? std::string_view{} : a.as_ptr<const hermes::ArenaString>()->view(),
+                             b.is_null() ? std::string_view{} : b.as_ptr<const hermes::ArenaString>()->view());
+        }
+        return out;
+    }
+    bool assoc_types_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::trait_keys::ASSOC_TYPES.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_assoc_type(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::trait_keys::ASSOC_TYPES.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(AssocTypeDefView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    uint64_t method_count() const noexcept {
+        auto av = self.mirror()->get(lir_schema::trait_keys::METHODS.code);
+        if (av.is_null()) return 0;
+        return av.as_ptr<const hermes::ObjectArray>()->size();
+    }
+    template <class F>
+    void each_method(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::trait_keys::METHODS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(TraitMethodSigView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

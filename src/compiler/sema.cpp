@@ -334,7 +334,7 @@ struct LirBundle {
     std::vector<lir::LFunctionPtr>    specializations;
     std::vector<lir_view::ConstView>  consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
-    std::vector<lir::LTraitDef>       traits;
+    std::vector<lir_view::TraitView>  traits;
     std::vector<lir::LImplBlock>      impls;
     std::vector<lir::LInstAnnotation> inst_annotations;
     std::vector<lir::LDispatchEntry>  dispatch_entries;
@@ -7283,7 +7283,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         sd.borrow_carrying |= f.borrow_carrying;
     };
 
-    auto apply_annots_to_trait = [&](lir::LTraitDef& td) {
+    // Stage E direct-build: writes annotation-derived fields straight into the
+    // open trait mirror (DeclBuilder) — in-place put, no Draft.
+    auto apply_annots_to_trait = [&](DeclBuilder& td) {
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if (aname == "tag_dispatch" && ann.has_key(la::ARGS)) {
@@ -7292,14 +7294,16 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 if (args_map.has_key(la::ITEMS)) {
                     auto arr = arr_of(args_map.get(la::ITEMS.code));
                     if (arr.size() > 0)
-                        td.tag_dispatch_system = std::string(str_of(map_of(arr.get(0)).get(la::NAME.code)));
+                        td.str(lir_schema::trait_keys::TAG_DISPATCH_SYSTEM,
+                               str_of(map_of(arr.get(0)).get(la::NAME.code)));
                 }
             }
             // #[type_code=N] on a trait makes it a genos: the code identifies
             // the logical datatype family, and each `impl Trait for Eidos`
             // propagates the code to its target struct during lowering.
             else if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                td.type_code = read_annotation_u64(ann);
+                td.i64(lir_schema::trait_keys::TYPE_CODE,
+                       (int64_t)read_annotation_u64(ann));
             }
         }
     };
@@ -7897,20 +7901,22 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             } else {
                 auto td = lower_trait_def(item);
                 apply_annots_to_trait(td);
+                auto tv = td.view<lir_view::TraitView>();
                 // Reject #[type_code] on a template genos (type_params present).
                 // It would collide at dispatch-table level: every concrete
                 // specialization would land in the same tag-system slot.
-                if (td.type_code != 0) {
-                    auto tit = traits_.find(td.name);
+                if (tv.type_code() != 0) {
+                    auto tit = traits_.find(std::string(tv.name()));
                     if (tit != traits_.end() && !tit->second.type_params.empty())
                         error(std::format("genos '{}': #[type_code] on a template "
                                           "(parametric) genos is forbidden — "
                                           "attach it to a concrete specialization "
                                           "(e.g. `#[type_code=N] genos {}<T>;`)",
-                                          td.name, td.name));
+                                          tv.name(), tv.name()));
                 }
-                td.doc = take_pending_doc();
-                prog.traits.push_back(std::move(td));
+                auto trait_doc = take_pending_doc();
+                td.str(lir_schema::trait_keys::DOC, trait_doc);
+                prog.traits.push_back(td.view<lir_view::TraitView>());
             }
         }
         else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);

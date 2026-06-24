@@ -3509,9 +3509,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string tname(TypeRef(nrt).trait_name());
                     int slot = -1;
                     for (auto& td : out_.traits) {
-                        if (td.name != tname) continue;
-                        for (size_t mi = 0; mi < td.methods.size(); ++mi)
-                            if (td.methods[mi].name == method) { slot = (int)mi; break; }
+                        if (td.name() != tname) continue;
+                        int mi = 0;
+                        td.each_method([&](lir_view::TraitMethodSigView m) {
+                            if (slot < 0 && m.name() == method) slot = mi;
+                            ++mi;
+                        });
                         break;
                     }
                     if (slot >= 0) {
@@ -5148,7 +5151,7 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
             }
             bool is_auto = false;
             for (auto& td : out_.traits)
-                if (td.name == tb.trait_name) { is_auto = td.is_auto; break; }
+                if (td.name() == tb.trait_name) { is_auto = td.is_auto(); break; }
             if (is_auto) {
                 StrSet visited;
                 if (!is_auto_satisfied(concrete, tb.trait_name, visited))
@@ -6099,8 +6102,8 @@ void Mono::instantiate_enum_templates() {
                         // Auto-trait check parity with method_bound_ok.
                         bool is_auto = false;
                         for (auto& td : out_.traits)
-                            if (td.name == tb.trait_name) {
-                                is_auto = td.is_auto; break;
+                            if (td.name() == tb.trait_name) {
+                                is_auto = td.is_auto(); break;
                             }
                         if (is_auto) {
                             StrSet visited;

@@ -822,12 +822,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (impl.trait_name.empty()) continue;
                 if (impl.target_type != base) continue;
                 for (auto& td : out_.traits) {
-                    if (td.name != impl.trait_name) continue;
-                    for (auto& tm : td.methods) {
-                        std::string sym = sd_name + "__" + tm.name;
+                    if (td.name() != impl.trait_name) continue;
+                    td.each_method([&](lir_view::TraitMethodSigView tm) {
+                        std::string mname(tm.name());
+                        std::string sym = sd_name + "__" + mname;
                         pinned_method_roots_.insert(sym);
-                        enqueue_method_inst(cit->second, tm.name);
-                    }
+                        enqueue_method_inst(cit->second, mname);
+                    });
                 }
                 // `Drop` is special: its `drop` is invoked IMPLICITLY by
                 // drop-glue (SDrop), which scan_fn does not demand-pin — and
@@ -887,14 +888,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // Find tag_system for this trait.
             std::string tag_system;
             for (auto& td : out_.traits)
-                if (td.name == impl.trait_name) { tag_system = td.tag_dispatch_system; break; }
+                if (td.name() == impl.trait_name) { tag_system = std::string(td.tag_dispatch_system()); break; }
             if (tag_system.empty()) continue;
             // Emit entries for each method of the trait that's present as
             // a cloned method on the concrete struct.
             for (auto& td : out_.traits) {
-                if (td.name != impl.trait_name) continue;
-                for (auto& tm : td.methods) {
-                    std::string sym = sd_name + "__" + tm.name;
+                if (td.name() != impl.trait_name) continue;
+                td.each_method([&](lir_view::TraitMethodSigView tm) {
+                    std::string mname(tm.name());
+                    std::string sym = sd_name + "__" + mname;
                     // Only emit if the method actually exists (cloned by mono).
                     // Capture the actual (pkg-qualified, sig-suffixed) symbol
                     // so the dispatch table init resolves correctly.
@@ -907,25 +909,25 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         for (auto& f : out_.functions)
                             if (bare_fn_name(f.name()) == sym) { actual_sym = std::string(f.name()); break; }
                     }
-                    if (actual_sym.empty()) continue;
+                    if (actual_sym.empty()) return;
                     // Dedup: skip if an equivalent entry already exists (sema
                     // may have emitted one for a concrete specialization).
                     bool dup = false;
                     for (auto& e : out_.dispatch_entries)
                         if (e.tag_system == tag_system && e.trait_name == impl.trait_name &&
-                            e.method_name == tm.name && e.type_code == sd.type_code())
+                            e.method_name == mname && e.type_code == sd.type_code())
                             { dup = true; break; }
-                    if (dup) continue;
+                    if (dup) return;
                     lir::LDispatchEntry de;
                     de.tag_system     = tag_system;
                     de.trait_name     = impl.trait_name;
-                    de.method_name    = tm.name;
+                    de.method_name    = mname;
                     de.fn_symbol      = std::move(actual_sym);
                     de.impl_type_name = sd_name;
                     de.type_code      = sd.type_code();
                     out_.dispatch_entries.push_back(std::move(de));
                     ++stats_.dispatch_entries;
-                }
+                });
             }
         }
     }

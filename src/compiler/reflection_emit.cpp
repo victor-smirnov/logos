@@ -197,14 +197,14 @@ static std::string reflect_symbol(const std::array<uint8_t, 23>& hash) {
     return sym;
 }
 
-static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, const lir::LTraitDef& td) {
+static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, lir_view::TraitView td) {
     auto doc = logos::hermes::make_doc_single_chunk(65536).get();
     uint32_t root = begin_map(doc, 3);
-    map_put(doc, root, "name", hval_str(doc, td.name));
-    map_put(doc, root, "pkg",  hval_str(doc, td.pkg));
+    map_put(doc, root, "name", hval_str(doc, std::string(td.name())));
+    map_put(doc, root, "pkg",  hval_str(doc, std::string(td.pkg())));
     map_put(doc, root, "kind", hval_i64(doc, 3));
-    if (td.type_code != 0)
-        map_put(doc, root, "type_code", hval_u64(doc, td.type_code));
+    if (td.type_code() != 0)
+        map_put(doc, root, "type_code", hval_u64(doc, td.type_code()));
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
     auto packed = compactify(doc).get();
     auto& arena = HermesAccess::arena(packed);
@@ -258,10 +258,11 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
 
     // Emit TypeInfo for Hermes-tagged traits (have #[type_code]) or reflect-requested.
     for (auto& td : prog.traits) {
-        std::string fqn = td.pkg.empty() ? td.name : td.pkg + "::" + td.name;
+        std::string fqn = td.pkg().empty() ? std::string(td.name())
+                                           : std::string(td.pkg()) + "::" + std::string(td.name());
         bool requested = to_emit.count(fqn) > 0;
-        if (td.type_code == 0 && !requested) continue;
-        if (!td.type_params.empty()) continue; // generic template, skip
+        if (td.type_code() == 0 && !requested) continue;
+        if (!td.type_params().empty()) continue; // generic template, skip
         // Compute type_hash from fqn (same algorithm as for structs).
         auto hash = type_hash_23(fqn);
         auto sym = reflect_symbol(hash);

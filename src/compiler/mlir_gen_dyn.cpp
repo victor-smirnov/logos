@@ -815,27 +815,34 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
     // through the blanket (the blanket impl block registers the typevar
     // target, not each concrete instantiation).
     for (auto& td : prog.traits) {
-        auto& mn = trait_method_names_[td.name];
+        std::string tname(td.name());
+        auto& mn = trait_method_names_[tname];
         mn.clear();
         // Full supertrait-closure slot order (sema single-sourced this in
         // vtable_method_order); supertrait methods get real slots so they are
         // dispatchable through `&dyn Sub`. Falls back to own methods for a
         // trait with no supertraits (identical to the old behaviour).
-        if (!td.vtable_method_order.empty())
-            for (auto& [owner, mname] : td.vtable_method_order) mn.push_back(mname);
+        auto vmo = td.vtable_method_order();
+        if (!vmo.empty())
+            for (auto& [owner, mname] : vmo) mn.push_back(std::string(mname));
         else
-            for (auto& m : td.methods) mn.push_back(m.name);
-        trait_upcast_supers_[td.name] = td.upcast_supertraits;
+            td.each_method([&](lir_view::TraitMethodSigView m) { mn.push_back(std::string(m.name())); });
+        {
+            auto& us = trait_upcast_supers_[tname];
+            us.clear();
+            for (auto sv : td.upcast_supertraits()) us.push_back(std::string(sv));
+        }
         for (auto& ib : prog.impls)
-            if (ib.trait_name == td.name && ib.is_blanket) {
-                blanket_traits_.insert(td.name);
+            if (ib.trait_name == tname && ib.is_blanket) {
+                blanket_traits_.insert(tname);
                 break;
             }
     }
 
     for (auto& td : prog.traits) {
+        std::string td_name(td.name());
         for (auto& ib : prog.impls) {
-            if (ib.trait_name != td.name) continue;
+            if (ib.trait_name != td_name) continue;
 
             // Resolve method-symbol given a TARGET (bare or concrete).
             //
@@ -863,10 +870,11 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                 // a supertrait method (provided by `impl Super for Concrete`)
                 // gets its slot; falls back to own methods when no supertraits.
                 std::vector<std::string> slot_names;
-                if (!td.vtable_method_order.empty())
-                    for (auto& on : td.vtable_method_order) slot_names.push_back(on.second);
+                auto vmo2 = td.vtable_method_order();
+                if (!vmo2.empty())
+                    for (auto& on : vmo2) slot_names.push_back(std::string(on.second));
                 else
-                    for (auto& m : td.methods) slot_names.push_back(m.name);
+                    td.each_method([&](lir_view::TraitMethodSigView m) { slot_names.push_back(std::string(m.name())); });
                 for (auto& mname : slot_names) {
                     std::string sym;
                     auto try_match = [&](lir_view::FunctionView fn) -> bool {
@@ -929,7 +937,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
 
             // Bare-target entry — used by non-generic impls and as a default
             // fallback. For non-generic structs, this is also the lookup key.
-            dyn_vtable_methods_[td.name + "::" + ib.target_type] =
+            dyn_vtable_methods_[td_name + "::" + ib.target_type] =
                 resolve_methods(ib.target_type);
 
             // Concrete-target entries — for generic impls, register one
@@ -949,7 +957,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             if (auto g = target_base.find("$G"); g != std::string_view::npos)
                 target_base = target_base.substr(0, g);
             for (auto& concrete : collect_concrete_targets(std::string(target_base))) {
-                dyn_vtable_methods_[td.name + "::" + concrete] =
+                dyn_vtable_methods_[td_name + "::" + concrete] =
                     resolve_methods(concrete);
             }
         }

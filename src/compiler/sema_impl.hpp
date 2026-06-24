@@ -4305,7 +4305,7 @@ private:
     lir::EnumDraft lower_enum_def(hermes::TinyMapView node);
     lir::ConstDraft lower_const_def(hermes::TinyMapView node);
     std::pair<std::string, TypeRef> lower_type_alias_def(hermes::TinyMapView node);
-    lir::LTraitDef lower_trait_def(hermes::TinyMapView node);
+    DeclBuilder lower_trait_def(hermes::TinyMapView node);
     void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);
     void lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog);
     void lower_module_items(hermes::TinyMapView mod, lir::LProgram& prog);
