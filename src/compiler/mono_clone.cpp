@@ -3132,11 +3132,13 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                 TypeRef at = a ? a.type(out_.type_pool.impl()) : TypeRef{};
                                                 if (!a || !at) continue;
                                                 for (auto& impl : out_.impls) {
-                                                    if (impl.is_blanket || impl.trait_type_args.empty())
+                                                    auto impl_tta = impl.trait_type_args(out_.type_pool.impl());
+                                                    if (impl.is_blanket() || impl_tta.empty())
                                                         continue;
                                                     SubstMap sm;
-                                                    if (impl.target_typeref) {
-                                                        if (!unify_impl_target(at, impl.target_typeref, sm))
+                                                    TypeRef impl_ttref = impl.target_typeref(out_.type_pool.impl());
+                                                    if (impl_ttref) {
+                                                        if (!unify_impl_target(at, impl_ttref, sm))
                                                             continue;
                                                     } else {
                                                         std::string an;
@@ -3147,9 +3149,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                         else if (k2==LogosType::Kind::Enum)
                                                             an = std::string(at.enum_name());
                                                         else an = type_str(at);
-                                                        if (an != impl.target_type) continue;
+                                                        if (an != impl.target_type()) continue;
                                                     }
-                                                    arg_tokens.insert(mangle_args(impl.trait_type_args, sm));
+                                                    arg_tokens.insert(mangle_args(impl_tta, sm));
                                                 }
                                             }
                                             // STEP 3: pick the unique candidate whose token an
@@ -5017,41 +5019,42 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
     // target_typeref (the partial-spec pattern signal) — those
     // are non-generic concrete impls that already passed the
     // step-1 check.
+    const TypePoolImpl* impl_pool = out_.type_pool.impl();
     for (auto& cand : out_.impls) {
-        if (cand.trait_name  != trait_name) continue;
-        if (cand.target_type != cname)      continue;
-        if (cand.impl_type_params.empty())  return true;   // direct concrete
-        TypeRef pat{cand.target_typeref};
+        if (cand.trait_name()  != trait_name) continue;
+        if (cand.target_type() != cname)      continue;
+        if (cand.impl_type_params_empty())  return true;   // direct concrete
+        TypeRef pat{cand.target_typeref(impl_pool)};
         if (!pat) continue;
 
         SubstMap subst;
         if (!unify_impl_target(concrete, pat, subst)) continue;
 
         bool all_ok = true;
-        for (auto& itp : cand.impl_type_params) {
-            if (itp.bounds.empty()) continue;
-            auto sit = subst.find(itp.name);
-            if (sit == subst.end()) continue;        // not directly type-arg
+        cand.each_impl_type_param([&](lir_view::FnTParamView itp) {
+            if (!all_ok) return;
+            if (itp.bounds_empty()) return;
+            auto sit = subst.find(std::string(itp.name()));
+            if (sit == subst.end()) return;        // not directly type-arg
             TypeRef inner{sit->second};
-            for (auto& tb : itp.bounds) {
+            itp.each_bound([&](lir_view::FnTraitBoundView tb) {
+                if (!all_ok) return;
                 // Fn-family shorthand: any callable shape passes
                 // (mirrors method_bound_ok's intrinsic branch).
-                if (tb.is_fn_family) {
+                if (tb.is_fn_family()) {
                     auto k = TypeRef(inner).kind();
                     if (LogosType::is_fn_value_kind(k) ||
                         k == LogosType::Kind::Closure ||
                         k == LogosType::Kind::TypeVar ||
                         k == LogosType::Kind::Struct ||
                         k == LogosType::Kind::ZonedStruct)
-                        continue;
-                    all_ok = false; break;
+                        return;
+                    all_ok = false; return;
                 }
-                if (!mono_concrete_satisfies_bound(tb.trait_name, inner, seen)) {
-                    all_ok = false; break;
-                }
-            }
-            if (!all_ok) break;
-        }
+                if (!mono_concrete_satisfies_bound(std::string(tb.trait_name()), inner, seen))
+                    all_ok = false;
+            });
+        });
         if (all_ok) return true;
     }
     return false;
@@ -5165,15 +5168,19 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
             // skolem↔impl-region mapping must be 1-1. See sema_collect.cpp's
             // region_ok for the full rule.
             if (!tb.type_args.empty()) {
-                const lir::LImplBlock* ib = nullptr;
+                lir_view::ImplView ib{};
                 for (auto& cand : out_.impls) {
-                    if (cand.trait_name == tb.trait_name &&
-                        cand.target_type == cname) { ib = &cand; break; }
+                    if (cand.trait_name() == tb.trait_name &&
+                        cand.target_type() == cname) { ib = cand; break; }
                 }
-                if (ib && !ib->trait_type_args.empty()) {
+                auto ib_tta = ib ? ib.trait_type_args(mbo_pool) : std::vector<TypeRef>{};
+                auto ib_lt_params = ib ? ib.impl_lifetime_params() : std::vector<std::string_view>{};
+                auto ib_outlives = ib ? ib.lifetime_outlives()
+                                      : std::vector<std::pair<std::string_view, std::string_view>>{};
+                if (ib && !ib_tta.empty()) {
                     std::unordered_map<std::string, std::string> i2s;
                     auto univ = [&](const std::string& lt) {
-                        for (auto& nm : ib->impl_lifetime_params)
+                        for (auto& nm : ib_lt_params)
                             if (nm == lt) return true;
                         return false;
                     };
@@ -5219,10 +5226,10 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
                         return true;
                     };
                     size_t n = std::min(tb.type_args.size(),
-                                        ib->trait_type_args.size());
+                                        ib_tta.size());
                     for (size_t i = 0; i < n; ++i)
                         if (!walk(TypeRef(tb.type_args[i]),
-                                  TypeRef(ib->trait_type_args[i]))) return false;
+                                  TypeRef(ib_tta[i]))) return false;
                     // B85: skolemization-aware impl-where check. After the
                     // unify pass, i2s maps each impl-lt that's bound to a
                     // bound-side lifetime. If the impl has a where-clause
@@ -5237,9 +5244,9 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
                             if (b == lt) return true;
                         return false;
                     };
-                    for (auto& [longi, shorti] : ib->lifetime_outlives) {
-                        auto lit = i2s.find(longi);
-                        auto sit = i2s.find(shorti);
+                    for (auto& [longi, shorti] : ib_outlives) {
+                        auto lit = i2s.find(std::string(longi));
+                        auto sit = i2s.find(std::string(shorti));
                         if (lit == i2s.end() || sit == i2s.end()) continue;
                         if (lit->second == sit->second) continue;  // refl
                         if (is_binder_lt(lit->second) && is_binder_lt(sit->second))

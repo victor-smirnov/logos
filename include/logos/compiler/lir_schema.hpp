@@ -592,6 +592,40 @@ inline constexpr Key TM_RET_TYPE {"TM_RET_TYPE", 2};  // RelPtr<LogosType>
 inline constexpr Key TM_DOC      {"TM_DOC",      3};  // Varchar
 } // namespace trait_method_keys
 
+// ── LImplBlock (Code::Impl) decl keys — OWN key space ─────────────────────────
+// Stage E: struct LImplBlock built directly via DeclBuilder; only the live
+// (read-post-store) fields are schematized. The DEAD fields (is_unsafe, methods,
+// doc, trait_lifetime_args) are NOT mirrored.
+namespace impl_keys {
+inline constexpr Key TRAIT_NAME           {"TRAIT_NAME",           1};  // Varchar
+inline constexpr Key TARGET_TYPE          {"TARGET_TYPE",          2};  // Varchar
+inline constexpr Key IS_BLANKET           {"IS_BLANKET",           3};  // bool (sparse)
+inline constexpr Key IS_NEGATIVE          {"IS_NEGATIVE",          4};  // bool (sparse)
+inline constexpr Key BOUND_TRAIT          {"BOUND_TRAIT",          5};  // Varchar
+inline constexpr Key EXTRA_BOUNDS         {"EXTRA_BOUNDS",         6};  // Array<Varchar>
+inline constexpr Key TARGET_TYPEREF       {"TARGET_TYPEREF",       7};  // RelPtr<LogosType>
+inline constexpr Key TRAIT_TYPE_ARGS      {"TRAIT_TYPE_ARGS",      8};  // Array<RelPtr<LogosType>>
+inline constexpr Key ASSOC_TYPES          {"ASSOC_TYPES",          9};  // Array<RelPtr<assoc_entry sub-map>>
+inline constexpr Key PRIMARY_ASSOC_EQS    {"PRIMARY_ASSOC_EQS",    10}; // Array<RelPtr<assoc_entry sub-map>>
+inline constexpr Key EXTRA_ASSOC_EQS      {"EXTRA_ASSOC_EQS",      11}; // Array<RelPtr<extra_eq sub-map>>
+inline constexpr Key IMPL_TYPE_PARAMS     {"IMPL_TYPE_PARAMS",     12}; // Array<RelPtr<fn_tparam sub-map>>
+inline constexpr Key IMPL_LIFETIME_PARAMS {"IMPL_LIFETIME_PARAMS", 13}; // Array<Varchar>
+inline constexpr Key LIFETIME_OUTLIVES    {"LIFETIME_OUTLIVES",    14}; // Array<Varchar> flat pairs (2i=long, 2i+1=short)
+} // namespace impl_keys
+
+// assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS
+// / extra_eq's EE_EQS). Maps an assoc-type NAME → its TYPE. Schema code Count+15.
+namespace assoc_entry_keys {
+inline constexpr Key AE_NAME {"AE_NAME", 1};  // Varchar
+inline constexpr Key AE_TYPE {"AE_TYPE", 2};  // RelPtr<LogosType>
+} // namespace assoc_entry_keys
+
+// extra_eq sub-map keys (own space — element of EXTRA_ASSOC_EQS). Schema Count+16.
+namespace extra_eq_keys {
+inline constexpr Key EE_TRAIT {"EE_TRAIT", 1};  // Varchar
+inline constexpr Key EE_EQS   {"EE_EQS",   2};  // Array<RelPtr<assoc_entry sub-map>>
+} // namespace extra_eq_keys
+
 // ── Pattern sparse keys ───────────────────────────────────────────────────
 
 namespace pat_keys {

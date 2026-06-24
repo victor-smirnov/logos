@@ -100,8 +100,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             register_drop_symbol(m.name());
         });
     for (auto& impl : prog.impls)
-        if (impl.trait_name == "Copy")
-            ts.copy_types.insert(impl.target_type);
+        if (impl.trait_name() == "Copy")
+            ts.copy_types.insert(std::string(impl.target_type()));
     // strip_generic: ONLY for DIRECT (attribute) marks — the spec's flag is
     // a verbatim copy of the template's (mono_clone), so registering the
     // `$G`-stripped template base is exact. The MAIN borrow check runs
@@ -668,7 +668,7 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     {   // post-mono this indexes thousands of fns; reserve to skip the rehashes.
         size_t cnt = prog.functions.size() + prog.specializations.size();
         for (auto& sd : prog.structs) cnt += sd.methods().size();
-        for (auto& im : prog.impls)   cnt += im.methods.size();
+        // Stage E: LImplBlock.methods was always empty (never populated) — gone.
         idx.by_name.reserve(cnt);
     }
     auto add = [&](const LFunctionPtr& f) {
@@ -679,7 +679,8 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     for (auto& f  : prog.functions)       add(f);
     for (auto& f  : prog.specializations) add(f);
     for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { add(m); });
-    for (auto& im : prog.impls)   for (auto& m : im.methods) add(m);  // trait-impl methods (Index, Deref, …)
+    // Stage E: impl-block methods were never stored on LImplBlock (always empty);
+    // trait-impl methods (Index, Deref, …) live on prog.functions / struct methods.
     return idx;
 }
 

@@ -27,7 +27,6 @@ using lir::HermesVal;
 using lir::EClosure;
 using lir::FunctionDraft;
 using lir::StructDraft;
-using lir::LImplBlock;
 
 namespace {
 
@@ -2149,6 +2148,9 @@ void DeclArrayBuilder::push_tbound(const TraitBound& tb) {
 }
 void DeclArrayBuilder::push_param(const lir::LParam& p) {
     owner_->em.array_push(arr_, owner_->em.param_av(p));
+}
+void DeclArrayBuilder::push_fn_tparam(const TypeParam& tp) {
+    owner_->em.array_push(arr_, owner_->em.fn_tparam_av(tp));
 }
 DeclBuilder DeclArrayBuilder::submap(uint64_t schema_code, uint64_t cap) {
     auto sub = owner_->em.make_map(schema_code, cap);

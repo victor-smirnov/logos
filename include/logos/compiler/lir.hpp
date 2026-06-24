@@ -981,46 +981,11 @@ struct EnumDraft {
 // directly via DeclBuilder in lower_trait_def and read via lir_view::TraitView
 // (with AssocTypeDefView / TraitMethodSigView sub-views). No C++ mirror struct.
 
-struct LImplBlock {
-    std::string              trait_name;
-    std::string               target_type;  // concrete type name (e.g. "Point")
-    std::vector<LFunctionPtr> methods;
-    // Associated type definitions: "Item" → i32
-    StrMap<TypeRef> assoc_types;
-    bool                     is_unsafe = false;  // declared as `unsafe impl`
-    bool                     is_negative = false; // `impl !Trait for X {}`
-
-    // Blanket impl support: `impl<T: Bound> Trait for T` — target_type is a
-    // type-parameter name; applies to every concrete type implementing Bound.
-    bool        is_blanket   = false;
-    std::string bound_trait;    // primary bound (first); used for mangling.
-    std::vector<std::string> extra_bounds;  // additional bounds beyond bounds[0]
-                                            // for `impl<T: A + B + C> Trait for T`.
-                                            // mono uses these to filter concrete
-                                            // impls that don't satisfy every bound.
-    // ADR 0008: associated-type equality clauses on the primary/extra bounds.
-    // Parallel to bound_trait/extra_bounds.
-    std::vector<std::pair<std::string, TypeRef>> primary_assoc_eqs;
-    std::vector<std::pair<std::string,
-        std::vector<std::pair<std::string, TypeRef>>>> extra_assoc_eqs;
-
-    // For generic-target impls: full target pattern (`Mutex<T>`) and impl-level
-    // type params with their bounds.  Empty for non-generic impls and blanket
-    // impls (those use bound_trait/extra_bounds above).
-    TypeRef                target_typeref = nullptr;
-    std::vector<TypeParam> impl_type_params;
-    // B62: trait-position args from `impl Trait<&'a U> for X` plus the
-    // impl's own lifetime params (`'a` in `impl<'a, T>`). Used by
-    // method_bound_ok to detect HRTB satisfaction mismatch (impl provides
-    // concrete region where bound demands universal).
-    std::vector<TypeRef>          trait_type_args;
-    std::vector<std::string>      trait_lifetime_args;
-    std::vector<std::string>      impl_lifetime_params;
-    // B65: outlives bounds from `impl<'a, 'b: 'a> ...`.
-    std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-    // Outer doc-comment on the impl block.
-    std::string doc;
-};
+// Stage E: struct LImplBlock DELETED — impl blocks live ONLY as Hermes mirror
+// nodes (lir_schema::decl::Code::Impl), built directly via DeclBuilder in
+// lower_impl_block and read via lir_view::ImplView (with AssocEntryView /
+// ExtraEqView sub-views). Only the live (read-post-store) fields are mirrored;
+// the dead ones (is_unsafe, methods, doc, trait_lifetime_args) are gone.
 
 // Stage E: struct LConst deleted — consts/statics live ONLY as Hermes mirror
 // nodes (lir_schema::decl::Code::Const), read via lir_view::ConstView. The
@@ -1131,7 +1096,7 @@ struct LProgram {
     std::vector<lir_view::ConstView> consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir_view::TraitView> traits;
-    std::vector<LImplBlock>      impls;
+    std::vector<lir_view::ImplView> impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
     std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
 

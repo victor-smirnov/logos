@@ -833,7 +833,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             for (auto sv : td.upcast_supertraits()) us.push_back(std::string(sv));
         }
         for (auto& ib : prog.impls)
-            if (ib.trait_name == tname && ib.is_blanket) {
+            if (ib.trait_name() == tname && ib.is_blanket()) {
                 blanket_traits_.insert(tname);
                 break;
             }
@@ -842,7 +842,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
     for (auto& td : prog.traits) {
         std::string td_name(td.name());
         for (auto& ib : prog.impls) {
-            if (ib.trait_name != td_name) continue;
+            if (ib.trait_name() != td_name) continue;
 
             // Resolve method-symbol given a TARGET (bare or concrete).
             //
@@ -877,13 +877,8 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                     td.each_method([&](lir_view::TraitMethodSigView m) { slot_names.push_back(std::string(m.name())); });
                 for (auto& mname : slot_names) {
                     std::string sym;
-                    auto try_match = [&](lir_view::FunctionView fn) -> bool {
-                        return fn.method_base() == mname && belongs_to_target(fn.name());
-                    };
-                    for (auto& fp : ib.methods) {
-                        if (!fp) continue;
-                        if (try_match(fp)) { sym = link_name(fp); break; }
-                    }
+                    // Stage E: LImplBlock.methods was always empty — method
+                    // resolution goes straight through the method_base index.
                     if (sym.empty()) {
                         if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
@@ -937,8 +932,9 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
 
             // Bare-target entry — used by non-generic impls and as a default
             // fallback. For non-generic structs, this is also the lookup key.
-            dyn_vtable_methods_[td_name + "::" + ib.target_type] =
-                resolve_methods(ib.target_type);
+            std::string ib_target(ib.target_type());
+            dyn_vtable_methods_[td_name + "::" + ib_target] =
+                resolve_methods(ib_target);
 
             // Concrete-target entries — for generic impls, register one
             // vtable per concrete struct instantiation found in mono's
@@ -953,7 +949,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             // `Foo$G1$A`). Strip the `$G…` suffix to recover the bare base so
             // `&dyn Clam<i64>` over a `Foo<i64>` finds its `Foo$G1$i64` vtable
             // (otherwise: no entry → null vtable slot → SIGSEGV; G158-10).
-            std::string_view target_base = ib.target_type;
+            std::string_view target_base = ib_target;
             if (auto g = target_base.find("$G"); g != std::string_view::npos)
                 target_base = target_base.substr(0, g);
             for (auto& concrete : collect_concrete_targets(std::string(target_base))) {

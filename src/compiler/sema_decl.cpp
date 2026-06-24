@@ -1637,35 +1637,65 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         }
     }
-    lir::LImplBlock ib;
-    ib.trait_name   = trait_name;
-    ib.target_type  = target;
+    // Stage E direct-build: the impl decl mirror is built STRAIGHT into prog's
+    // HermesCtr via DeclBuilder — no C++ LImplBlock Draft. Only the live
+    // (read-post-store) fields are written; dead fields (is_unsafe/methods/doc/
+    // trait_lifetime_args) are dropped. Intra-function reads of is_blanket /
+    // bound_trait / target_typeref go through plain locals (the mirror is
+    // write-only here).
+    namespace ik  = lir_schema::impl_keys;
+    namespace aek = lir_schema::assoc_entry_keys;
+    namespace eek = lir_schema::extra_eq_keys;
+    constexpr uint64_t ASSOC_ENTRY_SCHEMA = lir_schema::stmt::Count + 15;
+    constexpr uint64_t EXTRA_EQ_SCHEMA    = lir_schema::stmt::Count + 16;
+
+    DeclBuilder ib(prog, lir_schema::decl::Code::Impl, /*cap=*/16);
+    bool    impl_is_blanket = false;
+    std::string impl_bound_trait;
+    TypeRef impl_target_typeref = target_resolved;
+
+    ib.str(ik::TRAIT_NAME, trait_name);
+    ib.str(ik::TARGET_TYPE, target);
     // CP-cm-16 follow-up: full impl-target pattern with TypeVars unsubstituted.
     // Set for generic-target impls (`impl<T,E> ... for Foo<Vec<T>, E>`) so
     // mono can pattern-unify against the concrete receiver. Null for the
     // concrete + non-generic + primitive + special-target cases (only
     // GENERIC_INST + non-empty impl_tps populates target_resolved on
     // this path; mono falls back to positional binding when null).
-    ib.target_typeref = target_resolved;
-    ib.impl_type_params = impl_tps;
+    ib.type(ik::TARGET_TYPEREF, target_resolved);
+    if (!impl_tps.empty()) {
+        auto a = ib.array(ik::IMPL_TYPE_PARAMS);
+        for (auto& tp : impl_tps) a.push_fn_tparam(tp);
+    }
     // B62: copy trait-arg region info captured by collect_impl, so mono's
     // method_bound_ok can detect HRTB satisfaction mismatch.
     if (!trait_name.empty()) {
         auto it = impls_.find(trait_name + "::" + target);
         if (it != impls_.end()) {
-            ib.trait_type_args      = it->second.trait_type_args;
-            ib.trait_lifetime_args  = it->second.trait_lifetime_args;
-            ib.impl_lifetime_params = it->second.impl_lifetime_params;
-            ib.lifetime_outlives    = it->second.impl_lifetime_outlives;  // B65
+            if (!it->second.trait_type_args.empty()) {
+                auto a = ib.array(ik::TRAIT_TYPE_ARGS);
+                for (auto t : it->second.trait_type_args) a.push_type(t);
+            }
+            // trait_lifetime_args: DEAD (never read post-store) — not mirrored.
+            if (!it->second.impl_lifetime_params.empty()) {
+                auto a = ib.array(ik::IMPL_LIFETIME_PARAMS);
+                for (auto& lp : it->second.impl_lifetime_params) a.push_str(lp);
+            }
+            if (!it->second.impl_lifetime_outlives.empty()) {  // B65
+                auto a = ib.array(ik::LIFETIME_OUTLIVES);
+                for (auto& [lng, sht] : it->second.impl_lifetime_outlives) {
+                    a.push_str(lng); a.push_str(sht);
+                }
+            }
             // Validate impl-level outlives names against declared impl_lifetime_params.
-            std::unordered_set<std::string> declared(ib.impl_lifetime_params.begin(),
-                                                     ib.impl_lifetime_params.end());
+            std::unordered_set<std::string> declared(it->second.impl_lifetime_params.begin(),
+                                                     it->second.impl_lifetime_params.end());
             auto known = [&](std::string_view lt) {
                 if (lt.empty()) return true;
                 if (lt == "'static" || lt == "static") return true;
                 return declared.count(std::string(lt)) > 0;
             };
-            for (auto& [lng, sht] : ib.lifetime_outlives) {
+            for (auto& [lng, sht] : it->second.impl_lifetime_outlives) {
                 if (!known(lng))
                     error(std::format("impl {} for {}: use of undeclared lifetime name '{}' in outlives clause",
                                       trait_name, target, lng));
@@ -1737,24 +1767,42 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (!trait_name.empty()) {
         for (auto& tp : impl_tps) {
             if (tp.name == target) {
-                ib.is_blanket = true;
+                impl_is_blanket = true;
+                ib.flag(ik::IS_BLANKET, true);
                 if (!tp.bounds.empty()) {
-                    ib.bound_trait = tp.bounds[0].trait_name;
-                    ib.primary_assoc_eqs = tp.bounds[0].assoc_eqs;
-                    for (size_t bi = 1; bi < tp.bounds.size(); ++bi) {
-                        ib.extra_bounds.push_back(tp.bounds[bi].trait_name);
-                        ib.extra_assoc_eqs.emplace_back(
-                            tp.bounds[bi].trait_name, tp.bounds[bi].assoc_eqs);
+                    impl_bound_trait = tp.bounds[0].trait_name;
+                    ib.str(ik::BOUND_TRAIT, tp.bounds[0].trait_name);
+                    if (!tp.bounds[0].assoc_eqs.empty()) {
+                        auto a = ib.array(ik::PRIMARY_ASSOC_EQS);
+                        for (auto& [n, t] : tp.bounds[0].assoc_eqs) {
+                            auto e = a.submap(ASSOC_ENTRY_SCHEMA, 4);
+                            e.str_always(aek::AE_NAME, n);
+                            e.type(aek::AE_TYPE, t);
+                        }
+                    }
+                    if (tp.bounds.size() > 1) {
+                        auto eb = ib.array(ik::EXTRA_BOUNDS);
+                        auto ee = ib.array(ik::EXTRA_ASSOC_EQS);
+                        for (size_t bi = 1; bi < tp.bounds.size(); ++bi) {
+                            eb.push_str(tp.bounds[bi].trait_name);
+                            auto m = ee.submap(EXTRA_EQ_SCHEMA, 4);
+                            m.str_always(eek::EE_TRAIT, tp.bounds[bi].trait_name);
+                            if (!tp.bounds[bi].assoc_eqs.empty()) {
+                                auto a = m.array(eek::EE_EQS);
+                                for (auto& [n, t] : tp.bounds[bi].assoc_eqs) {
+                                    auto e = a.submap(ASSOC_ENTRY_SCHEMA, 4);
+                                    e.str_always(aek::AE_NAME, n);
+                                    e.type(aek::AE_TYPE, t);
+                                }
+                            }
+                        }
                     }
                 }
                 break;
             }
         }
     }
-    if (node.has_key(la::IS_UNSAFE)) {
-        AnyVal av = node.get(la::IS_UNSAFE);
-        ib.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-    }
+    // is_unsafe: DEAD (never read post-store) — consumed but not mirrored.
     // Resolve trait type args and push into scope
     std::vector<TypeRef> impl_trait_args;
     if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) {
@@ -1785,9 +1833,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // impls_["Trait::Target"], which for two `Trait<T>` impls of one type holds
     // only the LAST-inserted impl's args (coherence map is last-wins). Override
     // with THIS impl's own resolved args so mono keys the assoc-type impls under
-    // the correct `Trait$G..$Args` suffix.
-    if (!impl_trait_args.empty())
-        ib.trait_type_args = impl_trait_args;
+    // the correct `Trait$G..$Args` suffix. ib.array() re-creates a fresh empty
+    // array under the key, overwriting the collect-seeded one above.
+    if (!impl_trait_args.empty()) {
+        auto a = ib.array(ik::TRAIT_TYPE_ARGS);
+        for (auto t : impl_trait_args) a.push_type(t);
+    }
     // Propagate type_code from a genos-specialization decl:
     // `#[type_code=100] pub genos Array<AnyVal>;` + `impl Array<AnyVal> for E`
     // → E inherits type_code 100.  Only fires if the direct trait didn't
@@ -1868,8 +1919,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     StrSet overridden;
     // Blanket impls lower methods under a synthetic target name so they don't
     // collide with `T::method` for any other generic `T` in the program.
-    std::string lower_target = ib.is_blanket
-        ? ("$blanket$" + trait_name + "$" + ib.bound_trait + "$" + target)
+    std::string lower_target = impl_is_blanket
+        ? ("$blanket$" + trait_name + "$" + impl_bound_trait + "$" + target)
         : target;
     // Phase 1B-11: when target_resolved holds an unsized self-type kind
     // (UnsizedSlice / UnsizedDyn), seed `Self` before lower_fn so the
@@ -1916,7 +1967,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                  impl_tps.empty() && !TypeRef(target_resolved).type_args().empty())
             seed_self = target_resolved;  // concrete-type-arg, no impl param
     }
-    if (!seed_self && ib.is_blanket && !impl_tps.empty())
+    if (!seed_self && impl_is_blanket && !impl_tps.empty())
         seed_self = make_typevar(target);  // blanket on a bound type-var
     bool _restore_tuple_self = false;
     TypeRef _saved_tuple_self = nullptr;
@@ -1976,7 +2027,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // Structured impl self-type (`impl<T> Pin<&T>`): mono needs
                     // the pattern to map impl-level args ([T]) to the struct's
                     // concrete args ([&T]) — positional copy mis-names specs.
-                    fn.impl_target_pattern = ib.target_typeref;
+                    fn.impl_target_pattern = impl_target_typeref;
                     lir_mirror_struct_append_method(prog, *target_struct_tmpl, lir_mirror_emit_fn_view(prog, fn));
                 } else {
                     // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
@@ -1985,7 +2036,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // existing comment at mono_clone.cpp:4319). Carry the
                     // impl-target pattern so mono's instantiate_enum_templates
                     // can unify pattern↔receiver instead of positional binding.
-                    fn.impl_target_pattern = ib.target_typeref;
+                    fn.impl_target_pattern = impl_target_typeref;
                     prog.functions.push_back(lir_mirror_emit_fn_view(prog, fn));
                 }
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
@@ -2058,7 +2109,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // concrete is unknown at sema, so synthesise the
                     // default template and let mono error if needed.
                     bool gate_skip = false;
-                    if (!ib.is_blanket && !m.where_param_bounds.empty()) {
+                    if (!impl_is_blanket && !m.where_param_bounds.empty()) {
                         // A trait-arg that still mentions a TypeVar anywhere
                         // (`&T`, `Option<T>`, `(T,U)`, …) is NOT decidable at
                         // sema — the concrete is only known after mono
@@ -2108,7 +2159,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (gate_skip) continue;
                     // Push Self → target type; for generic impls include type params as TypeVars.
                     TypeRef self_type = nullptr;
-                    if (ib.is_blanket) {
+                    if (impl_is_blanket) {
                         self_type = make_typevar(target);
                     } else {
                         auto [spkg2, ssi2] = find_struct_by_name(target);
@@ -2125,14 +2176,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             return false;
                         };
                         if (ssi2) {
-                            if (ib.target_typeref && _shaped_target(ib.target_typeref)) {
+                            if (impl_target_typeref && _shaped_target(impl_target_typeref)) {
                                 // Shaped generic impl (`impl<I,T> … for
                                 // CopiedIter<I, &T>`): Self must be the impl's
                                 // structured TARGET PATTERN, not base-name +
                                 // positional impl params (CopiedIter<I, T>) —
                                 // the positional shape mis-unified self at
                                 // every call (`.max()` inferred T=&i32).
-                                self_type = ib.target_typeref;
+                                self_type = impl_target_typeref;
                             } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
@@ -2142,8 +2193,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 self_type = make_struct_type(target, spkg2);
                             }
                         } else if (dsi2) {
-                            if (ib.target_typeref && _shaped_target(ib.target_typeref)) {
-                                self_type = ib.target_typeref;  // same shape rule
+                            if (impl_target_typeref && _shaped_target(impl_target_typeref)) {
+                                self_type = impl_target_typeref;  // same shape rule
                             } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
@@ -2180,7 +2231,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // rejected at mono — without it, deferral would
                     // synthesise `max`/`min` for every iterator and the
                     // `iter_max` body would fail to typecheck.
-                    if (!ib.is_blanket) {
+                    if (!impl_is_blanket) {
                         for (auto& wb : m.where_param_bounds) {
                             size_t pidx = SIZE_MAX;
                             for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
@@ -2243,12 +2294,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 break;
                             }
                         }
-                        fn.impl_target_pattern = ib.target_typeref;
+                        fn.impl_target_pattern = impl_target_typeref;
                         lir_mirror_struct_append_method(prog, *target_struct_tmpl, lir_mirror_emit_fn_view(prog, fn));
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for
                         // trait-default methods on enum-impl path.
-                        fn.impl_target_pattern = ib.target_typeref;
+                        fn.impl_target_pattern = impl_target_typeref;
                         prog.functions.push_back(lir_mirror_emit_fn_view(prog, fn));
                     }
                     current_type_params_.erase("Self");
@@ -2275,8 +2326,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // synthetic `$blanket$...` name (see sema_collect) so the prefix must
     // reflect that to pick up the right entries.
     if (!trait_name.empty()) {
-        std::string stored_target = ib.is_blanket
-            ? ("$blanket$" + trait_name + "$" + ib.bound_trait + "$" + target)
+        std::string stored_target = impl_is_blanket
+            ? ("$blanket$" + trait_name + "$" + impl_bound_trait + "$" + target)
             : target;
         // G156-1: assoc-type impls are registered under a trait-arg-suffixed key
         // (e.g. "Producer$G1$i64::Gen::Item"); for two `Trait<T>` impls of one
@@ -2284,15 +2335,19 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         // prefix. Empty suffix (non-generic trait) → bare prefix, unchanged.
         auto prefix = trait_name + trait_targ_suffix(impl_trait_args)
                     + "::" + stored_target + "::";
+        DeclArrayBuilder at_arr = ib.array(ik::ASSOC_TYPES);
         for (auto& [key, entry] : assoc_type_impls_) {
             if (key.rfind(prefix, 0) == 0) {
                 auto assoc_name = key.substr(prefix.size());
-                ib.assoc_types[assoc_name] = entry.type;
+                auto e = at_arr.submap(ASSOC_ENTRY_SCHEMA, 4);
+                e.str_always(aek::AE_NAME, assoc_name);
+                e.type(aek::AE_TYPE, entry.type);
             }
         }
     }
-    ib.doc = std::move(impl_doc);
-    prog.impls.push_back(std::move(ib));
+    // doc: DEAD (never read post-store) — impl_doc consumed above, not mirrored.
+    (void)impl_doc;
+    prog.impls.push_back(ib.view<lir_view::ImplView>());
 
     // ── Tag-dispatch: emit LDispatchEntry records ─────────────────────────
     // Conditions: trait has #[tag_dispatch(TS)], target is a concrete (non-generic)

@@ -210,16 +210,27 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index associated type impls for subst_type resolution.
     // Also split blanket impls into a separate table for fallback lookup.
+    const TypePoolImpl* impl_pool = out_.type_pool.impl();
     for (auto& impl : out_.impls) {
-        if (impl.is_blanket) {
+        if (impl.is_blanket()) {
             BlanketImplInfo info;
-            info.trait_name     = impl.trait_name;
-            info.bound_trait    = impl.bound_trait;
-            info.extra_bounds   = impl.extra_bounds;
-            info.target_typevar = impl.target_type;
-            info.assoc_types    = impl.assoc_types;
-            info.primary_assoc_eqs = impl.primary_assoc_eqs;
-            info.extra_assoc_eqs = impl.extra_assoc_eqs;
+            info.trait_name     = std::string(impl.trait_name());
+            info.bound_trait    = std::string(impl.bound_trait());
+            for (auto sv : impl.extra_bounds()) info.extra_bounds.emplace_back(sv);
+            info.target_typevar = std::string(impl.target_type());
+            impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
+                info.assoc_types[std::string(ae.name())] = ae.type(impl_pool);
+            });
+            impl.each_primary_assoc_eq([&](lir_view::AssocEntryView ae) {
+                info.primary_assoc_eqs.emplace_back(std::string(ae.name()), ae.type(impl_pool));
+            });
+            impl.each_extra_assoc_eq([&](lir_view::ExtraEqView ee) {
+                std::vector<std::pair<std::string, TypeRef>> eqs;
+                ee.each_eq([&](lir_view::AssocEntryView ae) {
+                    eqs.emplace_back(std::string(ae.name()), ae.type(impl_pool));
+                });
+                info.extra_assoc_eqs.emplace_back(std::string(ee.trait()), std::move(eqs));
+            });
             blanket_impls_.push_back(std::move(info));
         } else {
             // G156-1: index assoc types by the trait's concrete type-args
@@ -228,10 +239,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // keep the plain key (first-wins) for bare / non-generic
             // projections. Suffix format is byte-identical to sema's
             // SemaChecker::trait_targ_suffix.
+            std::string impl_trait(impl.trait_name());
+            std::string impl_target(impl.target_type());
+            auto trait_args = impl.trait_type_args(impl_pool);
             std::string targ_sfx;
-            if (!impl.trait_type_args.empty()) {
-                targ_sfx = "$G" + std::to_string(impl.trait_type_args.size());
-                for (auto a : impl.trait_type_args) {
+            if (!trait_args.empty()) {
+                targ_sfx = "$G" + std::to_string(trait_args.size());
+                for (auto a : trait_args) {
                     targ_sfx += "$";
                     std::string ts = a ? type_str(a) : std::string("?");
                     for (char& c : ts)
@@ -239,13 +253,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     targ_sfx += ts;
                 }
             }
-            for (auto& [aname, atype] : impl.assoc_types) {
-                assoc_impls_[impl.trait_name + targ_sfx + "::" + impl.target_type + "::" + aname] = atype;
+            impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
+                std::string aname(ae.name());
+                TypeRef atype = ae.type(impl_pool);
+                assoc_impls_[impl_trait + targ_sfx + "::" + impl_target + "::" + aname] = atype;
                 if (!targ_sfx.empty())
-                    assoc_impls_.emplace(impl.trait_name + "::" + impl.target_type + "::" + aname, atype);
-            }
-            if (!impl.trait_name.empty())
-                concrete_impls_.insert(impl.trait_name + "::" + impl.target_type);
+                    assoc_impls_.emplace(impl_trait + "::" + impl_target + "::" + aname, atype);
+            });
+            if (!impl_trait.empty())
+                concrete_impls_.insert(impl_trait + "::" + impl_target);
         }
     }
 
@@ -383,9 +399,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         } else {
             // Direct concrete impls of bound_trait.
             for (auto& impl : out_.impls) {
-                if (impl.is_blanket) continue;
-                if (impl.trait_name != bi.bound_trait) continue;
-                candidates.push_back(impl.target_type);
+                if (impl.is_blanket()) continue;
+                if (impl.trait_name() != bi.bound_trait) continue;
+                candidates.push_back(std::string(impl.target_type()));
             }
             // Chain-satisfiers: types whose bound_trait impl is itself
             // derived from a blanket (e.g. Foo blanket on Container, where
@@ -818,11 +834,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto cit = concrete_struct_types_.find(sd_name);
             if (cit == concrete_struct_types_.end()) continue;
             for (auto& impl : out_.impls) {
-                if (impl.is_blanket) continue;
-                if (impl.trait_name.empty()) continue;
-                if (impl.target_type != base) continue;
+                if (impl.is_blanket()) continue;
+                std::string impl_trait(impl.trait_name());
+                if (impl_trait.empty()) continue;
+                if (impl.target_type() != base) continue;
                 for (auto& td : out_.traits) {
-                    if (td.name() != impl.trait_name) continue;
+                    if (td.name() != impl_trait) continue;
                     td.each_method([&](lir_view::TraitMethodSigView tm) {
                         std::string mname(tm.name());
                         std::string sym = sd_name + "__" + mname;
@@ -837,7 +854,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // nothing. Without this, a generic struct's `impl Drop` (the
                 // common `Box`/`Vec` shape) never instantiates `drop` in lazy
                 // mode and the destructor silently never runs. Pin it directly.
-                if (impl.trait_name == "Drop") {
+                if (impl_trait == "Drop") {
                     pinned_method_roots_.insert(sd_name + "__drop");
                     enqueue_method_inst(cit->second, "drop");
                 }
@@ -882,18 +899,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (auto p = base.find("$G"); p != std::string::npos)
             base = base.substr(0, p);
         for (auto& impl : out_.impls) {
-            if (impl.is_blanket) continue;  // those use a different path
-            if (impl.trait_name.empty()) continue;
-            if (impl.target_type != base) continue;
+            if (impl.is_blanket()) continue;  // those use a different path
+            std::string impl_trait(impl.trait_name());
+            if (impl_trait.empty()) continue;
+            if (impl.target_type() != base) continue;
             // Find tag_system for this trait.
             std::string tag_system;
             for (auto& td : out_.traits)
-                if (td.name() == impl.trait_name) { tag_system = std::string(td.tag_dispatch_system()); break; }
+                if (td.name() == impl_trait) { tag_system = std::string(td.tag_dispatch_system()); break; }
             if (tag_system.empty()) continue;
             // Emit entries for each method of the trait that's present as
             // a cloned method on the concrete struct.
             for (auto& td : out_.traits) {
-                if (td.name() != impl.trait_name) continue;
+                if (td.name() != impl_trait) continue;
                 td.each_method([&](lir_view::TraitMethodSigView tm) {
                     std::string mname(tm.name());
                     std::string sym = sd_name + "__" + mname;
@@ -914,13 +932,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     // may have emitted one for a concrete specialization).
                     bool dup = false;
                     for (auto& e : out_.dispatch_entries)
-                        if (e.tag_system == tag_system && e.trait_name == impl.trait_name &&
+                        if (e.tag_system == tag_system && e.trait_name == impl_trait &&
                             e.method_name == mname && e.type_code == sd.type_code())
                             { dup = true; break; }
                     if (dup) return;
                     lir::LDispatchEntry de;
                     de.tag_system     = tag_system;
-                    de.trait_name     = impl.trait_name;
+                    de.trait_name     = impl_trait;
                     de.method_name    = mname;
                     de.fn_symbol      = std::move(actual_sym);
                     de.impl_type_name = sd_name;

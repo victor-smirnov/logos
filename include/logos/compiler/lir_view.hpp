@@ -1207,6 +1207,153 @@ struct TraitView {
     }
 };
 
+// ── Stage E: LImplBlock decl views (Code::Impl map + assoc/extra-eq sub-maps) ──
+
+// assoc_entry sub-map view { AE_NAME, AE_TYPE } — one (name → type) pair.
+struct AssocEntryView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::assoc_entry_keys::AE_NAME.code);
+    }
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::assoc_entry_keys::AE_TYPE.code, pool);
+    }
+};
+
+// extra_eq sub-map view { EE_TRAIT, EE_EQS: Array<assoc_entry> }.
+struct ExtraEqView {
+    DeclRef self;
+    std::string_view trait() const noexcept {
+        return detail::read_string(self, lir_schema::extra_eq_keys::EE_TRAIT.code);
+    }
+    template <class F>
+    void each_eq(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::extra_eq_keys::EE_EQS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(AssocEntryView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
+// LImplBlock decl view.
+struct ImplView {
+    DeclRef self;
+    bool valid() const noexcept { return self.addr() != nullptr; }
+    explicit operator bool() const noexcept { return self.addr() != nullptr; }
+
+    std::string_view trait_name() const noexcept {
+        return detail::read_string(self, lir_schema::impl_keys::TRAIT_NAME.code);
+    }
+    std::string_view target_type() const noexcept {
+        return detail::read_string(self, lir_schema::impl_keys::TARGET_TYPE.code);
+    }
+    std::string_view bound_trait() const noexcept {
+        return detail::read_string(self, lir_schema::impl_keys::BOUND_TRAIT.code);
+    }
+    bool is_blanket() const noexcept {
+        return detail::read_bool(self, lir_schema::impl_keys::IS_BLANKET.code);
+    }
+    bool is_negative() const noexcept {
+        return detail::read_bool(self, lir_schema::impl_keys::IS_NEGATIVE.code);
+    }
+    std::vector<std::string_view> extra_bounds() const noexcept {
+        return detail::read_string_array(self, lir_schema::impl_keys::EXTRA_BOUNDS.code);
+    }
+    TypeRef target_typeref(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::impl_keys::TARGET_TYPEREF.code, pool);
+    }
+    std::vector<TypeRef> trait_type_args(const TypePoolImpl* pool) const noexcept {
+        return detail::read_type_array(self, lir_schema::impl_keys::TRAIT_TYPE_ARGS.code, pool);
+    }
+    std::vector<std::string_view> impl_lifetime_params() const noexcept {
+        return detail::read_string_array(self, lir_schema::impl_keys::IMPL_LIFETIME_PARAMS.code);
+    }
+    // flat array (2i=long, 2i+1=short) → pairs.
+    std::vector<std::pair<std::string_view, std::string_view>> lifetime_outlives() const noexcept {
+        std::vector<std::pair<std::string_view, std::string_view>> out;
+        auto av = self.mirror()->get(lir_schema::impl_keys::LIFETIME_OUTLIVES.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i + 1 < arr->size(); i += 2) {
+            auto a = arr->get(i); auto b = arr->get(i + 1);
+            out.emplace_back(a.is_null() ? std::string_view{} : a.as_ptr<const hermes::ArenaString>()->view(),
+                             b.is_null() ? std::string_view{} : b.as_ptr<const hermes::ArenaString>()->view());
+        }
+        return out;
+    }
+    bool impl_type_params_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::IMPL_TYPE_PARAMS.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_impl_type_param(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::IMPL_TYPE_PARAMS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(FnTParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    bool assoc_types_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::ASSOC_TYPES.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_assoc_type(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::ASSOC_TYPES.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(AssocEntryView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    // Linear scan over assoc_types; returns the first matching type, else null.
+    TypeRef find_assoc_type(std::string_view nm, const TypePoolImpl* pool) const noexcept {
+        TypeRef found{};
+        each_assoc_type([&](AssocEntryView ae) {
+            if (!found && ae.name() == nm) found = ae.type(pool);
+        });
+        return found;
+    }
+    bool primary_assoc_eqs_empty() const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::PRIMARY_ASSOC_EQS.code);
+        if (av.is_null()) return true;
+        return av.as_ptr<const hermes::ObjectArray>()->size() == 0;
+    }
+    template <class F>
+    void each_primary_assoc_eq(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::PRIMARY_ASSOC_EQS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(AssocEntryView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    template <class F>
+    void each_extra_assoc_eq(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::EXTRA_ASSOC_EQS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(ExtraEqView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

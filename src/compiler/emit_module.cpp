@@ -487,13 +487,16 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
             if (!fn.type_params_empty())
                 out_exports->fn_templates.push_back(std::string(fn.name()));
         for (auto& impl : prog.impls) {
-            if (impl.is_negative) continue;
-            if (impl.is_blanket) {
+            if (impl.is_negative()) continue;
+            if (impl.is_blanket()) {
+                std::vector<std::string> eb;
+                for (auto sv : impl.extra_bounds()) eb.emplace_back(sv);
                 out_exports->blanket_impls.push_back({
-                    impl.trait_name, impl.bound_trait, impl.extra_bounds});
+                    std::string(impl.trait_name()), std::string(impl.bound_trait()),
+                    std::move(eb)});
             } else {
                 out_exports->concrete_impls.push_back({
-                    impl.trait_name, impl.target_type});
+                    std::string(impl.trait_name()), std::string(impl.target_type())});
             }
         }
     }

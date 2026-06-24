@@ -79,6 +79,7 @@ public:
     // the schema used elsewhere).
     void push_tbound(const TraitBound& tb);
     void push_param(const lir::LParam& p);
+    void push_fn_tparam(const TypeParam& tp);
 private:
     DeclArrayBuilder(DeclBuilder::Impl* owner, const uint8_t* arr_addr) noexcept
         : owner_(owner), arr_(arr_addr) {}

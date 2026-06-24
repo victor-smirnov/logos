@@ -335,7 +335,7 @@ struct LirBundle {
     std::vector<lir_view::ConstView>  consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir_view::TraitView>  traits;
-    std::vector<lir::LImplBlock>      impls;
+    std::vector<lir_view::ImplView>   impls;
     std::vector<lir::LInstAnnotation> inst_annotations;
     std::vector<lir::LDispatchEntry>  dispatch_entries;
     std::vector<std::pair<std::string, std::string>> module_inner_docs;
