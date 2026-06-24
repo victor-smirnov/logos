@@ -223,12 +223,13 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     if (!prog.binary_symbols.empty()) {
         std::map<std::string, bool> sys_all_binary;
         for (auto& de : prog.dispatch_entries) {
-            if (de.tag_system.empty() || de.type_code == 0) continue;
-            auto it = sys_all_binary.find(de.tag_system);
+            std::string ts(de.tag_system());
+            if (ts.empty() || de.type_code() == 0) continue;
+            auto it = sys_all_binary.find(ts);
             if (it == sys_all_binary.end())
-                sys_all_binary[de.tag_system] = true;
-            if (!prog.binary_symbols.count(link_name_str(de.fn_symbol)))
-                sys_all_binary[de.tag_system] = false;
+                sys_all_binary[ts] = true;
+            if (!prog.binary_symbols.count(link_name_str(std::string(de.fn_symbol()))))
+                sys_all_binary[ts] = false;
         }
         for (auto& [sys, all_bin] : sys_all_binary)
             if (all_bin) binary_tag_systems.insert(sys);
@@ -244,10 +245,11 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         auto i64_t = builder_.getI64Type();
         std::set<std::string> decl_emitted;
         for (auto& de : prog.dispatch_entries) {
-            if (!binary_tag_systems.count(de.tag_system)) continue;
-            if (de.type_code == 0) continue;
-            auto base = de.tag_system + "__" + de.trait_name + "__" + de.method_name;
-            if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
+            std::string ts(de.tag_system());
+            if (!binary_tag_systems.count(ts)) continue;
+            if (de.type_code() == 0) continue;
+            auto base = ts + "__" + std::string(de.trait_name()) + "__" + std::string(de.method_name());
+            if (de.type_code() < static_cast<uint64_t>(kTier1Size)) {
                 auto tname = "__logos_tag_dispatch__" + base;
                 if (decl_emitted.insert(tname).second && !mod.lookupSymbol(tname)) {
                     builder_.setInsertionPointToEnd(mod.getBody());
@@ -285,7 +287,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     if (!binary_tag_systems.empty()) {
         bool all_binary = true;
         for (auto& de : prog.dispatch_entries)
-            if (!de.tag_system.empty() && !binary_tag_systems.count(de.tag_system))
+            if (!de.tag_system().empty() && !binary_tag_systems.count(std::string(de.tag_system())))
                 { all_binary = false; break; }
         if (all_binary) return;
     }
@@ -298,22 +300,23 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     std::map<std::string, std::vector<Entry>> tier2_valid_entries;
 
     for (auto& de : prog.dispatch_entries) {
+        std::string ts(de.tag_system());
         // Skip dispatch entries from fully-binary tag systems.
-        if (binary_tag_systems.count(de.tag_system)) continue;
+        if (binary_tag_systems.count(ts)) continue;
         // type_code == 0 is unset (no impl registered yet); skip.
         // Codes 1-127 are valid for inline AnyVal slots; 128-255 for tier-1 zone types.
-        if (de.type_code == 0) continue;
+        if (de.type_code() == 0) continue;
         // Use "__" as separator to avoid ambiguity when tag_system or trait_name
         // contains a single underscore (e.g. "My_System__Trait__method" is
         // unambiguous; "My_System_Trait_method" is not).
-        auto base = de.tag_system + "__" + de.trait_name + "__" + de.method_name;
+        auto base = ts + "__" + std::string(de.trait_name()) + "__" + std::string(de.method_name());
         // Module system: dispatch entry stores a bare-module method symbol;
         // qualify it to the emitted link name so the table references resolve.
-        auto fsym = link_name_str(de.fn_symbol);
-        if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
-            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code, fsym});
+        auto fsym = link_name_str(std::string(de.fn_symbol()));
+        if (de.type_code() < static_cast<uint64_t>(kTier1Size)) {
+            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code(), fsym});
         } else {
-            tier2_tables["__logos_tier2__" + base].push_back({de.type_code, fsym});
+            tier2_tables["__logos_tier2__" + base].push_back({de.type_code(), fsym});
         }
     }
     if (tier1_tables.empty() && tier2_tables.empty()) return;
@@ -328,9 +331,10 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         auto one_attr = mlir::IntegerAttr::get(i8_t, 1);
         std::set<std::string> emitted;
         for (auto& de : prog.dispatch_entries) {
-            if (de.type_code == 0) continue;
-            if (binary_tag_systems.count(de.tag_system)) continue;
-            auto sym = collision_sym_name(de.tag_system, de.trait_name, de.type_code);
+            if (de.type_code() == 0) continue;
+            if (binary_tag_systems.count(std::string(de.tag_system()))) continue;
+            auto sym = collision_sym_name(std::string(de.tag_system()),
+                                          std::string(de.trait_name()), de.type_code());
             if (!emitted.insert(sym).second) continue;    // already emitted this triple
             // Type-check the existing symbol: only skip if it is already the
             // expected i8 sentinel.  Any other symbol with the same name
@@ -341,7 +345,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                         "warning: collision-sentinel name '%s' shadowed by "
                         "a non-global symbol; dispatch collision detection "
                         "for type_code 0x%llx may be suppressed\n",
-                        sym.c_str(), (unsigned long long)de.type_code);
+                        sym.c_str(), (unsigned long long)de.type_code());
                 continue;
             }
             builder_.setInsertionPointToEnd(mod.getBody());

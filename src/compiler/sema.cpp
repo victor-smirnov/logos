@@ -336,8 +336,8 @@ struct LirBundle {
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir_view::TraitView>  traits;
     std::vector<lir_view::ImplView>   impls;
-    std::vector<lir::LInstAnnotation> inst_annotations;
-    std::vector<lir::LDispatchEntry>  dispatch_entries;
+    std::vector<lir_view::InstAnnotView>     inst_annotations;
+    std::vector<lir_view::DispatchEntryView> dispatch_entries;
     std::vector<std::pair<std::string, std::string>> module_inner_docs;
     StrSet                            reflect_requests;
     bool                              valid = false;
@@ -2346,16 +2346,17 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     {
         StrMap<std::string> seen;
         for (const auto& de : prog.dispatch_entries) {
-            if (de.type_code == 0) continue;
-            auto key = de.tag_system + "#" + std::to_string(de.type_code);
-            auto [it, inserted] = seen.emplace(std::move(key), de.impl_type_name);
-            if (!inserted && it->second != de.impl_type_name) {
+            if (de.type_code() == 0) continue;
+            auto key = std::string(de.tag_system()) + "#" + std::to_string(de.type_code());
+            auto impl_type_name = std::string(de.impl_type_name());
+            auto [it, inserted] = seen.emplace(std::move(key), impl_type_name);
+            if (!inserted && it->second != impl_type_name) {
                 ctx_.clear();
                 error(std::format(
                     "two eide register for genos type_code {} in tag system '{}': "
                     "'{}' and '{}' — only one eidos per (genos, tag-system) is allowed",
-                    de.type_code, de.tag_system,
-                    it->second, de.impl_type_name));
+                    de.type_code(), de.tag_system(),
+                    it->second, impl_type_name));
             }
         }
     }
@@ -7418,24 +7419,27 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                                       "'instantiate' only applies to generic templates",
                                       nm));
                 } else {
-                    lir::LInstAnnotation ia;
-                    ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                    namespace iak = lir_schema::inst_annot_keys;
+                    DeclBuilder ia(prog, lir_schema::decl::Code::InstAnnot, /*cap=*/8);
+                    ia.str(iak::CANONICAL_NAME,
+                           std::string(cur_package_) + "::" + type_str(resolved));
                     if ((TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                          TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) &&
                         !TypeRef(resolved).type_args().empty()) {
-                        ia.mangled_name = concrete_struct_name(resolved);
+                        ia.str(iak::MANGLED_NAME, concrete_struct_name(resolved));
                     } else if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                                TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
-                        ia.mangled_name = TypeRef(resolved).struct_name();
+                        ia.str(iak::MANGLED_NAME, TypeRef(resolved).struct_name());
                     } else {
-                        ia.mangled_name = TypeRef(resolved).enum_name();
+                        ia.str(iak::MANGLED_NAME, TypeRef(resolved).enum_name());
                     }
-                    ia.struct_type = resolved;
-                    ia.is_root_pin = true;
-                    ia.is_pub_reexport = item.has_key(la::IS_PUB) &&
-                                         item.get(la::IS_PUB.code).is_value() &&
-                                         item.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-                    prog.inst_annotations.push_back(std::move(ia));
+                    ia.type(iak::STRUCT_TYPE, resolved);
+                    ia.flag(iak::IS_ROOT_PIN, true);
+                    ia.flag(iak::IS_PUB_REEXPORT,
+                            item.has_key(la::IS_PUB) &&
+                            item.get(la::IS_PUB.code).is_value() &&
+                            item.get(la::IS_PUB.code).as_value<uint8_t>() != 0);
+                    prog.inst_annotations.push_back(ia.view<lir_view::InstAnnotView>());
                 }
             }
             pending_annots.clear();
@@ -7537,26 +7541,33 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         continue;
                     }
                     if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
-                        lir::LInstAnnotation ia;
-                        ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                        namespace iak = lir_schema::inst_annot_keys;
+                        std::string ia_canonical =
+                            std::string(cur_package_) + "::" + type_str(resolved);
+                        std::string ia_mangled;
                         if ((TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                              TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) &&
                             !TypeRef(resolved).type_args().empty()) {
-                            ia.mangled_name = concrete_struct_name(resolved);
+                            ia_mangled = concrete_struct_name(resolved);
                         } else if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                                    TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
-                            ia.mangled_name = TypeRef(resolved).struct_name();
+                            ia_mangled = TypeRef(resolved).struct_name();
                         }
+                        uint64_t ia_type_code = 0;
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                                ia.type_code = read_annotation_u64(ann);
+                                ia_type_code = read_annotation_u64(ann);
                             }
                         }
-                        if (ia.type_code != 0)
-                            explicit_type_codes_[ia.canonical_name] = ia.type_code;
-                        ia.struct_type = resolved;
-                        prog.inst_annotations.push_back(std::move(ia));
+                        if (ia_type_code != 0)
+                            explicit_type_codes_[ia_canonical] = ia_type_code;
+                        DeclBuilder ia(prog, lir_schema::decl::Code::InstAnnot, /*cap=*/8);
+                        ia.str(iak::CANONICAL_NAME, ia_canonical);
+                        ia.str(iak::MANGLED_NAME, ia_mangled);
+                        ia.i64(iak::TYPE_CODE, (int64_t)ia_type_code);
+                        ia.type(iak::STRUCT_TYPE, resolved);
+                        prog.inst_annotations.push_back(ia.view<lir_view::InstAnnotView>());
                     }
                 }
                 pending_annots.clear();
@@ -7615,32 +7626,39 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     auto type_node = map_of(item.get(la::TYPE.code));
                     TypeRef resolved = resolve_type(type_node);
                     if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
-                        lir::LInstAnnotation ia;
+                        namespace iak = lir_schema::inst_annot_keys;
                         // Include package prefix for a globally unique canonical name.
-                        ia.canonical_name = std::string(cur_package_) + "::" + type_str(resolved);
+                        std::string ia_canonical =
+                            std::string(cur_package_) + "::" + type_str(resolved);
                         // Mangled name for matching against monomorphized struct defs.
+                        std::string ia_mangled;
                         if ((TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                              TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) &&
                             !TypeRef(resolved).type_args().empty()) {
-                            ia.mangled_name = concrete_struct_name(resolved);
+                            ia_mangled = concrete_struct_name(resolved);
                         } else if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
                                    TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct) {
-                            ia.mangled_name = TypeRef(resolved).struct_name();
+                            ia_mangled = TypeRef(resolved).struct_name();
                         }
+                        uint64_t ia_type_code = 0;
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                                ia.type_code = read_annotation_u64(ann);
+                                ia_type_code = read_annotation_u64(ann);
                             }
                         }
                         // Register into explicit_type_codes_ so sema-time queries
                         // (`type_code_of::<Foo<i32>>()`) resolve to the annotated code.
-                        if (ia.type_code != 0)
-                            explicit_type_codes_[ia.canonical_name] = ia.type_code;
+                        if (ia_type_code != 0)
+                            explicit_type_codes_[ia_canonical] = ia_type_code;
                         // Store resolved type so mono can demand struct instantiation
                         // even when no Logos code references this type directly.
-                        ia.struct_type = resolved;
-                        prog.inst_annotations.push_back(std::move(ia));
+                        DeclBuilder ia(prog, lir_schema::decl::Code::InstAnnot, /*cap=*/8);
+                        ia.str(iak::CANONICAL_NAME, ia_canonical);
+                        ia.str(iak::MANGLED_NAME, ia_mangled);
+                        ia.i64(iak::TYPE_CODE, (int64_t)ia_type_code);
+                        ia.type(iak::STRUCT_TYPE, resolved);
+                        prog.inst_annotations.push_back(ia.view<lir_view::InstAnnotView>());
                     }
                 }
             } else if (is_specialization_struct(item)) {
@@ -7844,8 +7862,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                     if (!arg_ok) {
                         error(std::format("genos '{}': cannot resolve type arguments", tname));
                     } else {
-                        lir::LInstAnnotation ia;
-                        ia.canonical_name = canon;
+                        namespace iak = lir_schema::inst_annot_keys;
+                        std::string ia_canonical = canon;
+                        std::string ia_mangled;
+                        uint64_t ia_type_code = 0;
                         // Also compute the mangled eidos name ("Map$G2$Bitmap$AnyVal")
                         // for an eidos with the same name as the genos — this is the
                         // typical case where `genos Foo<X>` specialization's type_code
@@ -7872,20 +7892,20 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                                 like_eidos = make_generic_struct(tname, resolved_args);
                         }
                         if (like_eidos)
-                            ia.mangled_name = concrete_struct_name(like_eidos);
+                            ia_mangled = concrete_struct_name(like_eidos);
                         for (auto& ann : pending_annots) {
                             auto aname = std::string(str_of(ann.get(la::NAME.code)));
                             if (aname == "type_code" && ann.has_key(la::VALUE)) {
-                                ia.type_code = read_annotation_u64(ann);
+                                ia_type_code = read_annotation_u64(ann);
                             }
                         }
-                        if (ia.type_code != 0) {
-                            explicit_type_codes_[ia.canonical_name] = ia.type_code;
+                        if (ia_type_code != 0) {
+                            explicit_type_codes_[ia_canonical] = ia_type_code;
                             // Register mangled fqn key too so the dispatch-entry
                             // emission (sema_decl.cpp) can find the type_code via
                             // mangled-target lookup.
-                            if (!ia.mangled_name.empty())
-                                explicit_type_codes_[std::string(cur_package_) + "::" + ia.mangled_name] = ia.type_code;
+                            if (!ia_mangled.empty())
+                                explicit_type_codes_[std::string(cur_package_) + "::" + ia_mangled] = ia_type_code;
                             // Also register under the *template's* package, for both
                             // the canonical-name and mangled keys.  Every lookup site
                             // (dispatch-entry emission in sema_decl.cpp, type_code_of
@@ -7905,19 +7925,23 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             { auto [pkg, dsi] = find_datatype_by_name(tname); if (dsi) tmpl_pkg = dsi->package; }
                             if (tmpl_pkg.empty()) { auto [pkg, ssi] = find_struct_by_name(tname); if (ssi) tmpl_pkg = ssi->package; }
                             if (!tmpl_pkg.empty() && tmpl_pkg != cur_package_) {
-                                // Canonical form: "pkg::Name<Args>".  ia.canonical_name
+                                // Canonical form: "pkg::Name<Args>".  ia_canonical
                                 // was built from cur_package_ at the top of this block
                                 // (`canon = cur_package_ + "::" + tname + "<…>"`) so we
                                 // reconstruct the template-package form by substring.
-                                auto colon2 = ia.canonical_name.find("::");
+                                auto colon2 = ia_canonical.find("::");
                                 if (colon2 != std::string::npos) {
-                                    explicit_type_codes_[tmpl_pkg + ia.canonical_name.substr(colon2)] = ia.type_code;
+                                    explicit_type_codes_[tmpl_pkg + ia_canonical.substr(colon2)] = ia_type_code;
                                 }
-                                if (!ia.mangled_name.empty())
-                                    explicit_type_codes_[tmpl_pkg + "::" + ia.mangled_name] = ia.type_code;
+                                if (!ia_mangled.empty())
+                                    explicit_type_codes_[tmpl_pkg + "::" + ia_mangled] = ia_type_code;
                             }
                         }
-                        prog.inst_annotations.push_back(std::move(ia));
+                        DeclBuilder ia(prog, lir_schema::decl::Code::InstAnnot, /*cap=*/8);
+                        ia.str(iak::CANONICAL_NAME, ia_canonical);
+                        ia.str(iak::MANGLED_NAME, ia_mangled);
+                        ia.i64(iak::TYPE_CODE, (int64_t)ia_type_code);
+                        prog.inst_annotations.push_back(ia.view<lir_view::InstAnnotView>());
                     }
                 }
             } else {

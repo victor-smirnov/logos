@@ -1855,10 +1855,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             // and also register the canonical name in explicit_type_codes_
             // so sema-time queries (`type_code_of::<Array<AnyVal>>()`) hit.
             if (!applied && target.find("$G") != std::string::npos) {
-                lir::LInstAnnotation ia;
-                ia.mangled_name = target;
-                ia.type_code    = td_type_code;
-                ia.struct_type  = target_resolved;  // for mono struct demand
+                namespace iak = lir_schema::inst_annot_keys;
+                DeclBuilder ia(prog, lir_schema::decl::Code::InstAnnot, /*cap=*/8);
+                ia.str(iak::MANGLED_NAME, target);
+                ia.i64(iak::TYPE_CODE, (int64_t)td_type_code);
+                ia.type(iak::STRUCT_TYPE, target_resolved);  // for mono struct demand
                 // Derive canonical "pkg::BaseName<Args>" from the target type
                 // (use target_resolved captured earlier — always set when the
                 // target is a concrete generic instantiation, i.e. this path).
@@ -1868,8 +1869,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     if (auto* dsi_tr = get_datatype_si(target_resolved)) pkg = dsi_tr->package;
                     else if (auto* ssi_tr = get_struct_si(target_resolved)) pkg = ssi_tr->package;
                     if (pkg.empty()) pkg = cur_package_;
-                    ia.canonical_name = pkg + "::" + type_str(target_resolved);
-                    explicit_type_codes_[ia.canonical_name] = td_type_code;
+                    std::string canonical = pkg + "::" + type_str(target_resolved);
+                    ia.str(iak::CANONICAL_NAME, canonical);
+                    explicit_type_codes_[canonical] = td_type_code;
                 }
                 // Also register the mangled-form key ("pkg::Array$G1$AnyVal")
                 // so the dispatch-entry emission code (which looks up by mangled
@@ -1879,7 +1881,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     std::string mangled_fqn = p.empty() ? target : p + "::" + target;
                     explicit_type_codes_[mangled_fqn] = td_type_code;
                 }
-                prog.inst_annotations.push_back(std::move(ia));
+                prog.inst_annotations.push_back(ia.view<lir_view::InstAnnotView>());
             }
             break;
         }
@@ -2582,14 +2584,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             }
                         }
 
-                        lir::LDispatchEntry de;
-                        de.tag_system     = tag_system;
-                        de.trait_name     = trait_name;
-                        de.method_name    = m.name;
-                        de.fn_symbol      = std::move(actual_sym);
-                        de.impl_type_name = target;
-                        de.type_code      = tcode;
-                        prog.dispatch_entries.push_back(std::move(de));
+                        namespace dpk = lir_schema::dispatch_keys;
+                        DeclBuilder de(prog, lir_schema::decl::Code::DispatchEntry, /*cap=*/8);
+                        de.str(dpk::TAG_SYSTEM, tag_system);
+                        de.str(dpk::TRAIT_NAME, trait_name);
+                        de.str(dpk::METHOD_NAME, m.name);
+                        de.str(dpk::FN_SYMBOL, actual_sym);
+                        de.str(dpk::IMPL_TYPE_NAME, target);
+                        de.i64(dpk::TYPE_CODE, (int64_t)tcode);
+                        prog.dispatch_entries.push_back(de.view<lir_view::DispatchEntryView>());
                     }
                 }
             }

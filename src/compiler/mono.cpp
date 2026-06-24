@@ -707,10 +707,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Array<T>`) get cloned into those structs so tag-dispatch entries can be emitted
     // for blob-literal types like @<I32>[...] (which are produced at C++ level without
     // ever instantiating the Logos struct in user code).
-    for (auto& ia : out_.inst_annotations) {
-        if (ia.struct_type && !ia.mangled_name.empty() &&
-                ia.mangled_name.find("$G") != std::string::npos) {
-            record_needed_struct(ia.struct_type);
+    {
+        const TypePoolImpl* iapool = out_.type_pool.impl();
+        for (auto& ia : out_.inst_annotations) {
+            TypeRef st = ia.struct_type(iapool);
+            if (st && !ia.mangled_name().empty() &&
+                    ia.mangled_name().find("$G") != std::string_view::npos) {
+                record_needed_struct(st);
+            }
         }
     }
 
@@ -726,22 +730,24 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // `template class Foo<int>;` analog. In eager mode it's a no-op (every
     // method was already cloned).
     if (lazy_methods_) {
+        const TypePoolImpl* iapool = out_.type_pool.impl();
         for (auto& ia : out_.inst_annotations) {
-            if (!ia.is_root_pin) continue;
-            if (!ia.struct_type) continue;
-            auto kind = TypeRef(ia.struct_type).kind();
+            if (!ia.is_root_pin()) continue;
+            TypeRef st = ia.struct_type(iapool);
+            if (!st) continue;
+            auto kind = TypeRef(st).kind();
             if (kind != LogosType::Kind::Struct &&
                 kind != LogosType::Kind::ZonedStruct)
                 continue;
-            std::string base{TypeRef(ia.struct_type).struct_name()};
-            std::string ia_pkg{TypeRef(ia.struct_type).pkg_name()};
+            std::string base{TypeRef(st).struct_name()};
+            std::string ia_pkg{TypeRef(st).pkg_name()};
             // Pkg-aware: prefer pkg-qualified method-template lookup. If the
             // struct exists in this pkg (template registered) but has no
             // methods, accept that — don't fall back to bare which would
             // pull in another pkg's same-named struct's methods.
             auto* sit_inner = find_struct_method_templates_guarded(ia_pkg, base);
             if (!sit_inner) continue;
-            std::string concrete = concrete_struct_name(ia.struct_type);
+            std::string concrete = concrete_struct_name(st);
             // Strip overload-disambiguation suffix `__g__<sig>` so the dest
             // name matches what user call sites produce (and what eager-mode
             // clone_struct_def emits). enqueue_method_inst's match loop picks
@@ -753,7 +759,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     short_name.resize(p);
                 if (!seen_short.insert(short_name).second) continue;
                 pinned_method_roots_.insert(concrete + "__" + short_name);
-                enqueue_method_inst(ia.struct_type, short_name);
+                enqueue_method_inst(st, short_name);
             }
         }
     }
@@ -935,18 +941,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     // may have emitted one for a concrete specialization).
                     bool dup = false;
                     for (auto& e : out_.dispatch_entries)
-                        if (e.tag_system == tag_system && e.trait_name == impl_trait &&
-                            e.method_name == mname && e.type_code == sd.type_code())
+                        if (e.tag_system() == tag_system && e.trait_name() == impl_trait &&
+                            e.method_name() == mname && e.type_code() == sd.type_code())
                             { dup = true; break; }
                     if (dup) return;
-                    lir::LDispatchEntry de;
-                    de.tag_system     = tag_system;
-                    de.trait_name     = impl_trait;
-                    de.method_name    = mname;
-                    de.fn_symbol      = std::move(actual_sym);
-                    de.impl_type_name = sd_name;
-                    de.type_code      = sd.type_code();
-                    out_.dispatch_entries.push_back(std::move(de));
+                    namespace dpk = lir_schema::dispatch_keys;
+                    DeclBuilder de(out_, lir_schema::decl::Code::DispatchEntry, /*cap=*/8);
+                    de.str(dpk::TAG_SYSTEM, tag_system);
+                    de.str(dpk::TRAIT_NAME, impl_trait);
+                    de.str(dpk::METHOD_NAME, mname);
+                    de.str(dpk::FN_SYMBOL, actual_sym);
+                    de.str(dpk::IMPL_TYPE_NAME, sd_name);
+                    de.i64(dpk::TYPE_CODE, (int64_t)sd.type_code());
+                    out_.dispatch_entries.push_back(de.view<lir_view::DispatchEntryView>());
                     ++stats_.dispatch_entries;
                 });
             }

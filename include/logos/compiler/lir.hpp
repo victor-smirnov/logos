@@ -763,55 +763,9 @@ struct LAnnotationInstance {
 // program graph point into type_pool or into the string arena — do not
 // outlive LProgram.
 
-// Metadata bound to a generic instantiation via an explicit instantiation declaration.
-// E.g.: #[type_code=42] datatype Array<i32>;
-struct LInstAnnotation {
-    std::string       canonical_name;  // fully-qualified canonical type string, e.g. "pkg::Array<i32>"
-    std::string       mangled_name;    // concrete struct name after monomorphization, e.g. "Array$G1$i32"
-    uint64_t          type_code = 0;   // 0 = not specified
-    // Pointer to the concrete LogosType for this instantiation (owned by type_pool).
-    // Non-null when the annotation was created from a #[type_code=N] eidos Foo<T>;
-    // declaration that had a resolved target type available at sema time.
-    // Used by mono to demand struct instantiation even when no Logos code references
-    // Foo<T> directly (e.g. blob literals like @<I32>[...] produce type_code-tagged
-    // objects at C++ level without instantiating the Logos struct).
-    TypeRef  struct_type = nullptr;
-    // True when this annotation came from `instantiate Foo<T>;` (or pub form) —
-    // i.e. it's a *root pin* requesting all methods of the instance, not just a
-    // type_code binding. In the current eager mono scheme this is redundant
-    // (every demanded struct gets full method clone anyway); under L1's lazy
-    // collector it will additionally pin every inherent + trait method as a
-    // worklist root, giving the C++ `template class Foo<int>;` semantics.
-    bool     is_root_pin = false;
-    // True when declared with `pub instantiate ...`. Lib-site re-export marker
-    // for downstream packages once separate codegen lands; semantically a no-op
-    // until then.
-    bool     is_pub_reexport = false;
-};
-
-// One entry in a tag-based dispatch table.
-// Emitted by sema when `impl Trait for SomeDatatype` is lowered and the Trait
-// carries a `#[tag_dispatch(TagSystemName)]` annotation.
-//
-// Tier-1 (type_code 128-222): contributes to a static [223 x ptr] array
-//   global named `__logos_tag_dispatch_<tag_system>_<trait>_<method>`.
-// Tier-2 (type_code 223+): contributes to a cuckoo hash (future work);
-//   only a collision-detection symbol is emitted for now.
-struct LDispatchEntry {
-    std::string tag_system;       // e.g. "DataTypeTagSystem"
-    std::string trait_name;       // e.g. "Stringify"
-    std::string method_name;      // e.g. "stringify"  (unmangled trait method name)
-    std::string fn_symbol;        // mangled impl fn, e.g. "Point__stringify"
-    std::string impl_type_name;   // e.g. "Point"  (for diagnostics / collision symbol)
-    uint64_t    type_code = 0;    // the datatype's type_code
-};
-
-// TypeInfo rodata global for reflect::<T>() intrinsic.
-// symbol = "__logos_reflect__<type_hash_hex>", blob = packed Hermes doc (with 8-byte size prefix).
-struct LReflectGlobal {
-    std::string           symbol;
-    std::vector<uint8_t>  blob;   // [u64 size_le][hermes_doc bytes...]
-};
+// LInstAnnotation / LDispatchEntry / LReflectGlobal: Stage E — migrated to
+// Hermes mirrors. See lir_view::InstAnnotView / DispatchEntryView /
+// ReflectGlobalView (built via DeclBuilder). The C++ structs are gone.
 
 } // namespace logos::compiler::lir
 namespace logos::compiler { struct LirMirrorTable; }
@@ -853,8 +807,8 @@ struct LProgram {
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir_view::TraitView> traits;
     std::vector<lir_view::ImplView> impls;
-    std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
-    std::vector<LDispatchEntry>  dispatch_entries; // tag-dispatch table entries
+    std::vector<lir_view::InstAnnotView> inst_annotations; // explicit instantiation declarations (Stage E: decl mirrors)
+    std::vector<lir_view::DispatchEntryView> dispatch_entries; // tag-dispatch table entries (Stage E: decl mirrors)
 
     // Phase A.3: inner doc-comments (`//!`) collected from all source modules.
     // Each entry: { source_file, joined_doc_text }. Append-only; downstream
@@ -865,7 +819,7 @@ struct LProgram {
     StrSet reflect_requests; // fqn of types to reflect
 
     // Populated by reflection_emit pass; consumed by mlir_gen.
-    std::vector<LReflectGlobal> reflection_globals;
+    std::vector<lir_view::ReflectGlobalView> reflection_globals;  // Stage E: decl mirrors
 
     // Phase 7 slice 12: trigger-name → handler-fn-name. Hook fns annotated
     // `#[metaprog_handler("trigger")]` register here; user items carrying

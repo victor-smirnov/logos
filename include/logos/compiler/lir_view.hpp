@@ -1354,6 +1354,68 @@ struct ImplView {
     }
 };
 
+// ── Stage E: LInstAnnotation / LDispatchEntry / LReflectGlobal decl views ─────
+
+// LInstAnnotation { canonical_name, mangled_name: Varchar; type_code: u64;
+//   struct_type: RelPtr<LogosType>; is_root_pin, is_pub_reexport: bool }.
+struct InstAnnotView {
+    DeclRef self;
+    std::string_view canonical_name() const noexcept {
+        return detail::read_string(self, lir_schema::inst_annot_keys::CANONICAL_NAME.code);
+    }
+    std::string_view mangled_name() const noexcept {
+        return detail::read_string(self, lir_schema::inst_annot_keys::MANGLED_NAME.code);
+    }
+    uint64_t type_code() const noexcept {
+        return detail::read_u64(self, lir_schema::inst_annot_keys::TYPE_CODE.code);
+    }
+    TypeRef struct_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::inst_annot_keys::STRUCT_TYPE.code, pool);
+    }
+    bool is_root_pin() const noexcept {
+        return detail::read_bool(self, lir_schema::inst_annot_keys::IS_ROOT_PIN.code);
+    }
+    bool is_pub_reexport() const noexcept {
+        return detail::read_bool(self, lir_schema::inst_annot_keys::IS_PUB_REEXPORT.code);
+    }
+};
+
+// LDispatchEntry { tag_system, trait_name, method_name, fn_symbol,
+//   impl_type_name: Varchar; type_code: u64 }.
+struct DispatchEntryView {
+    DeclRef self;
+    std::string_view tag_system() const noexcept {
+        return detail::read_string(self, lir_schema::dispatch_keys::TAG_SYSTEM.code);
+    }
+    std::string_view trait_name() const noexcept {
+        return detail::read_string(self, lir_schema::dispatch_keys::TRAIT_NAME.code);
+    }
+    std::string_view method_name() const noexcept {
+        return detail::read_string(self, lir_schema::dispatch_keys::METHOD_NAME.code);
+    }
+    std::string_view fn_symbol() const noexcept {
+        return detail::read_string(self, lir_schema::dispatch_keys::FN_SYMBOL.code);
+    }
+    std::string_view impl_type_name() const noexcept {
+        return detail::read_string(self, lir_schema::dispatch_keys::IMPL_TYPE_NAME.code);
+    }
+    uint64_t type_code() const noexcept {
+        return detail::read_u64(self, lir_schema::dispatch_keys::TYPE_CODE.code);
+    }
+};
+
+// LReflectGlobal { symbol: Varchar; blob: Varchar (raw bytes) }.
+struct ReflectGlobalView {
+    DeclRef self;
+    std::string_view symbol() const noexcept {
+        return detail::read_string(self, lir_schema::reflect_keys::SYMBOL.code);
+    }
+    // Raw bytes of the TypeInfo blob, length-prefixed (NUL-safe).
+    std::string_view blob() const noexcept {
+        return detail::read_string(self, lir_schema::reflect_keys::BLOB.code);
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

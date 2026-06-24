@@ -1170,8 +1170,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             { code = sd.type_code(); break; }
                     if (code == 0)
                         for (auto& ia : out_.inst_annotations)
-                            if (ia.mangled_name == mangled && ia.type_code != 0)
-                                { code = ia.type_code; break; }
+                            if (ia.mangled_name() == mangled && ia.type_code() != 0)
+                                { code = ia.type_code(); break; }
                 }
                 if (code == 0) {
                     auto hash = type_hash_23(type_str(resolved));
@@ -5768,8 +5768,8 @@ void Mono::instantiate_struct_templates() {
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
             for (auto& ia : out_.inst_annotations) {
-                if (ia.mangled_name == cname && ia.type_code != 0) {
-                    inst.i64(lir_schema::struct_keys::TYPE_CODE, (int64_t)ia.type_code);
+                if (ia.mangled_name() == cname && ia.type_code() != 0) {
+                    inst.i64(lir_schema::struct_keys::TYPE_CODE, (int64_t)ia.type_code());
                     break;
                 }
             }

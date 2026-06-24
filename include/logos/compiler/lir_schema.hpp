@@ -395,8 +395,37 @@ enum class Code : int32_t {
     Enum      = DECL_BASE + 4,
     Trait     = DECL_BASE + 5,
     Impl      = DECL_BASE + 6,
+    InstAnnot     = DECL_BASE + 7,
+    DispatchEntry = DECL_BASE + 8,
+    ReflectGlobal = DECL_BASE + 9,
 };
 } // namespace decl
+
+// ── LInstAnnotation (Code::InstAnnot) decl keys — OWN key space ──────────────
+namespace inst_annot_keys {
+inline constexpr Key CANONICAL_NAME  {"CANONICAL_NAME",  1};  // Varchar
+inline constexpr Key MANGLED_NAME    {"MANGLED_NAME",    2};  // Varchar
+inline constexpr Key TYPE_CODE       {"TYPE_CODE",       3};  // u64
+inline constexpr Key STRUCT_TYPE     {"STRUCT_TYPE",     4};  // RelPtr<LogosType>
+inline constexpr Key IS_ROOT_PIN     {"IS_ROOT_PIN",     5};  // bool (sparse)
+inline constexpr Key IS_PUB_REEXPORT {"IS_PUB_REEXPORT", 6};  // bool (sparse)
+} // namespace inst_annot_keys
+
+// ── LDispatchEntry (Code::DispatchEntry) decl keys — OWN key space ───────────
+namespace dispatch_keys {
+inline constexpr Key TAG_SYSTEM     {"TAG_SYSTEM",     1};  // Varchar
+inline constexpr Key TRAIT_NAME     {"TRAIT_NAME",     2};  // Varchar
+inline constexpr Key METHOD_NAME    {"METHOD_NAME",    3};  // Varchar
+inline constexpr Key FN_SYMBOL      {"FN_SYMBOL",      4};  // Varchar
+inline constexpr Key IMPL_TYPE_NAME {"IMPL_TYPE_NAME", 5};  // Varchar
+inline constexpr Key TYPE_CODE      {"TYPE_CODE",      6};  // u64
+} // namespace dispatch_keys
+
+// ── LReflectGlobal (Code::ReflectGlobal) decl keys — OWN key space ───────────
+namespace reflect_keys {
+inline constexpr Key SYMBOL {"SYMBOL", 1};  // Varchar
+inline constexpr Key BLOB   {"BLOB",   2};  // Varchar (raw bytes; length-prefixed → NUL-safe)
+} // namespace reflect_keys
 
 // ── Declaration sparse keys (shared across decl kinds; grows per kind) ───────
 namespace decl_keys {

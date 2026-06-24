@@ -491,15 +491,17 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         auto i8 = builder_.getIntegerType(8);
         builder_.setInsertionPointToEnd(mod.getBody());
         for (auto& rg : prog.reflection_globals) {
+            std::string rg_symbol(rg.symbol());
+            std::string_view rg_blob = rg.blob();
             // Avoid duplicate emission (e.g. stdlib pre-compiled + current TU).
-            if (mod.lookupSymbol(rg.symbol)) continue;
-            auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, rg.blob.size());
+            if (mod.lookupSymbol(rg_symbol)) continue;
+            auto arr_type = mlir::LLVM::LLVMArrayType::get(i8, rg_blob.size());
             auto blob_attr = builder_.getStringAttr(
-                llvm::StringRef(reinterpret_cast<const char*>(rg.blob.data()), rg.blob.size()));
+                llvm::StringRef(rg_blob.data(), rg_blob.size()));
             // WeakODR: multiple TUs can emit the same symbol; linker keeps one.
             builder_.create<mlir::LLVM::GlobalOp>(
                 loc_, arr_type, /*isConstant=*/true, mlir::LLVM::Linkage::WeakODR,
-                rg.symbol, blob_attr);
+                rg_symbol, blob_attr);
         }
     }
     pt.tick("pass1d reflection_globals");
@@ -549,9 +551,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             std::set<std::string> seen_systems;
             std::vector<std::string> init_fns;
             for (auto& de : prog.dispatch_entries) {
-                if (de.tag_system.empty()) continue;
-                if (!seen_systems.insert(de.tag_system).second) continue;
-                init_fns.push_back("__logos_tag_dispatch_init__" + de.tag_system);
+                std::string ts(de.tag_system());
+                if (ts.empty()) continue;
+                if (!seen_systems.insert(ts).second) continue;
+                init_fns.push_back("__logos_tag_dispatch_init__" + ts);
             }
             // Forward-declare any init fn not yet in the module (binary archive provides it).
             auto void_fn_type = mlir::FunctionType::get(builder_.getContext(), {}, {});

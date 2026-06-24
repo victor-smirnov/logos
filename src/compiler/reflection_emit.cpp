@@ -253,7 +253,14 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         if (!emitted.insert(sym).second) continue;  // already done
 
         auto blob = build_type_info_blob(prog, sd);
-        prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
+        {
+            namespace rk = lir_schema::reflect_keys;
+            DeclBuilder rg(prog, lir_schema::decl::Code::ReflectGlobal, /*cap=*/4);
+            rg.str(rk::SYMBOL, sym);
+            rg.str_always(rk::BLOB,
+                std::string_view(reinterpret_cast<const char*>(blob.data()), blob.size()));
+            prog.reflection_globals.push_back(rg.view<lir_view::ReflectGlobalView>());
+        }
     }
 
     // Emit TypeInfo for Hermes-tagged traits (have #[type_code]) or reflect-requested.
@@ -268,7 +275,14 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         auto sym = reflect_symbol(hash);
         if (!emitted.insert(sym).second) continue;
         auto blob = build_genos_info_blob(prog, td);
-        prog.reflection_globals.push_back({std::move(sym), std::move(blob)});
+        {
+            namespace rk = lir_schema::reflect_keys;
+            DeclBuilder rg(prog, lir_schema::decl::Code::ReflectGlobal, /*cap=*/4);
+            rg.str(rk::SYMBOL, sym);
+            rg.str_always(rk::BLOB,
+                std::string_view(reinterpret_cast<const char*>(blob.data()), blob.size()));
+            prog.reflection_globals.push_back(rg.view<lir_view::ReflectGlobalView>());
+        }
     }
 
     return prog;
