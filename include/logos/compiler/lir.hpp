@@ -987,16 +987,11 @@ struct EnumDraft {
 // ExtraEqView sub-views). Only the live (read-post-store) fields are mirrored;
 // the dead ones (is_unsafe, methods, doc, trait_lifetime_args) are gone.
 
-// Stage E: struct LConst deleted — consts/statics live ONLY as Hermes mirror
-// nodes (lir_schema::decl::Code::Const), read via lir_view::ConstView. The
-// transient fields lower_const_def computes (name/type/value) are returned in
-// this small draft; the push site adds doc + the static-path flags/sym, emits
-// the mirror, and stores a ConstView.
-struct ConstDraft {
-    std::string      name;
-    TypeRef          type;
-    LExprPtr         value = {};
-};
+// Stage E: struct LConst + ConstDraft deleted — consts/statics live ONLY as
+// Hermes mirror nodes (lir_schema::decl::Code::Const), read via lir_view::
+// ConstView. lower_const_def DIRECT-BUILDS the mirror via DeclBuilder (no Draft)
+// and returns the open builder + the value ExprRef; the push site adds VALUE/
+// DOC/static-path flags and stores a ConstView.
 
 // Stage E: struct LTypeAlias deleted — type aliases live ONLY as Hermes mirror
 // nodes (lir_schema::decl::Code::TypeAlias), read via lir_view::TypeAliasView.

@@ -52,6 +52,8 @@ public:
     void i64_if(lir_schema::Key key, int64_t v);         // skip when 0
     void flag(lir_schema::Key key, bool v);              // sparse — only when true
     void type(lir_schema::Key key, TypeRef t);           // skip when null
+    void expr(lir_schema::Key key, lir_view::ExprRef e); // RelPtr<LExpr> — skip when null
+    void block(lir_schema::Key key, lir_view::BlockRef b);// RelPtr<block> — skip when null
     DeclArrayBuilder array(lir_schema::Key key);         // create empty array under key
 
     const uint8_t* addr() const noexcept;
@@ -188,10 +190,6 @@ const uint8_t* lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::s
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 
 // Stage E — declaration-layer mirror writers.
-const uint8_t* lir_mirror_emit_const(lir::LProgram& prog, std::string_view name,
-                                     TypeRef type, lir_view::ExprRef value,
-                                     std::string_view doc, bool is_static,
-                                     bool is_mut, bool is_extern, std::string_view sym);
 const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,
                                           TypeRef type, std::string_view doc);
 const uint8_t* lir_mirror_emit_enum_def(lir::LProgram& prog, const lir::EnumDraft& ed);

@@ -7755,36 +7755,37 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             }
         }
         else if (c == la::CONST_DEF) {
-            // Stage E: emit the const's Hermes mirror and store a ConstView
-            // (struct LConst is gone — the mirror is the sole representation).
-            auto cd = lower_const_def(item);
-            auto doc = take_pending_doc();
-            auto mp = lir_mirror_emit_const(prog, cd.name, cd.type, cd.value, doc,
-                                            /*is_static=*/false, /*is_mut=*/false,
-                                            /*is_extern=*/false, /*sym=*/{});
-            prog.consts.push_back(
-                lir_view::ConstView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
+            // Stage E direct-build: lower_const_def built NAME+TYPE into the
+            // mirror; add VALUE + DOC here and store the ConstView (no Draft).
+            namespace dk = lir_schema::decl_keys;
+            auto [cb, value] = lower_const_def(item);
+            cb.expr(dk::VALUE, value);
+            cb.str(dk::DOC, take_pending_doc());
+            prog.consts.push_back(cb.view<lir_view::ConstView>());
         }
         else if (c == la::STATIC_DEF) {
             // §6.2 statics (S25): real global storage. mlir-gen emits one
             // llvm.mlir.global per item (keyed by sym) instead of inlining
             // the value at each use like a const.
-            auto cd = lower_const_def(item);
-            auto doc = take_pending_doc();
+            namespace dk = lir_schema::decl_keys;
+            auto [cb, value] = lower_const_def(item);
             bool is_mut    = item.has_key(la::IS_MUT);
             bool is_extern = !item.has_key(la::VALUE);
-            // External: no initializer (empty ExprRef == old null LConst.value).
-            lir_view::ExprRef value = is_extern ? lir_view::ExprRef{} : cd.value;
+            std::string cname(cb.view<lir_view::ConstView>().name());
+            cb.flag(dk::IS_STATIC, true);
+            if (is_mut)    cb.flag(dk::IS_MUT, true);
+            if (is_extern) cb.flag(dk::IS_EXTERN, true);
+            // External: no initializer (omit VALUE == old null LConst.value).
+            if (!is_extern) cb.expr(dk::VALUE, value);
             // Symbol was registered (module-qualified) in module_statics_ during
             // collect; non-static-collected statics fall back to pkg$name.
-            auto sit = module_statics_.find(cd.name);
+            auto sit = module_statics_.find(cname);
             std::string sym = sit != module_statics_.end()
                 ? sit->second
-                : std::string(cur_package_) + "$" + cd.name;
-            auto mp = lir_mirror_emit_const(prog, cd.name, cd.type, value, doc,
-                                            /*is_static=*/true, is_mut, is_extern, sym);
-            prog.consts.push_back(
-                lir_view::ConstView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
+                : std::string(cur_package_) + "$" + cname;
+            cb.str(dk::SYM, sym);
+            cb.str(dk::DOC, take_pending_doc());
+            prog.consts.push_back(cb.view<lir_view::ConstView>());
         }
         else if (c == la::TYPE_ALIAS) {
             // Stage E: emit the alias's Hermes mirror and store a TypeAliasView

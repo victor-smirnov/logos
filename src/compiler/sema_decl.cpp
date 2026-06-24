@@ -1311,12 +1311,16 @@ lir::EnumDraft SemaChecker::lower_enum_def(TinyMapView node) {
 }
 
 
-lir::ConstDraft SemaChecker::lower_const_def(TinyMapView node) {
+std::pair<DeclBuilder, lir_view::ExprRef>
+SemaChecker::lower_const_def(TinyMapView node) {
+    namespace dk = lir_schema::decl_keys;
     auto name = std::string(str_of(node.get(la::NAME.code)));
-    lir::ConstDraft lc;
-    lc.name = name;
+    DeclBuilder lc(*cur_prog_, lir_schema::decl::Code::Const, /*cap=*/12);
+    lc.str_always(dk::NAME, name);
     auto cit = module_consts_.find(name);
-    lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
+    TypeRef lc_type = (cit != module_consts_.end()) ? cit->second : error_t();
+    lc.type(dk::TYPE_REF, lc_type);
+    lir_view::ExprRef lc_value;
     // Const arrays/tuples: mlir-gen's EVarRef-for-const path re-
     // evaluates the const's value at each use-site, so a literal like
     // `["a", "b"]` materialises a fresh on-stack array each access.
@@ -1339,30 +1343,30 @@ lir::ConstDraft SemaChecker::lower_const_def(TinyMapView node) {
         }
     }
     if (node.has_key(la::VALUE)) {
-        lc.value = lower_expr(map_of(node.get(la::VALUE.code)));
+        lc_value = lower_expr(map_of(node.get(la::VALUE.code)));
         // B-ca-02: typecheck initializer against declared const type at sema
         // so the diagnostic surfaces here rather than at MLIR-verifier time.
-        if (lc.type && lc.value && expr_type(lc.value) &&
-            TypeRef(lc.type).kind() != LogosType::Kind::Error &&
-            TypeRef(expr_type(lc.value)).kind() != LogosType::Kind::Error &&
-            !types_compatible(expr_type(lc.value), lc.type)) {
+        if (lc_type && lc_value && expr_type(lc_value) &&
+            TypeRef(lc_type).kind() != LogosType::Kind::Error &&
+            TypeRef(expr_type(lc_value)).kind() != LogosType::Kind::Error &&
+            !types_compatible(expr_type(lc_value), lc_type)) {
             // HermesStatic special-case: literal evaluates to HStaticLit,
             // which is treated as compatible with HermesStatic at higher level.
-            bool hs_ok = TypeRef(lc.type).kind() == LogosType::Kind::Struct &&
-                         is_hermes_static(lc.type) &&
-                         TypeRef(expr_type(lc.value)).kind() == LogosType::Kind::HStaticLit;
+            bool hs_ok = TypeRef(lc_type).kind() == LogosType::Kind::Struct &&
+                         is_hermes_static(lc_type) &&
+                         TypeRef(expr_type(lc_value)).kind() == LogosType::Kind::HStaticLit;
             if (!hs_ok) {
-                auto [es, gs] = type_str_pair(lc.type, expr_type(lc.value));
+                auto [es, gs] = type_str_pair(lc_type, expr_type(lc_value));
                 error(std::format(
                     "const '{}': initializer type mismatch — expected {}, got {}",
                     name, es, gs));
             }
         }
     } else {
-        lc.value = error_expr();
+        lc_value = error_expr();
     }
     for (auto& n : pushed_params) current_type_params_.erase(n);
-    return lc;
+    return {std::move(lc), lc_value};
 }
 
 // Stage E: returns (name, type); the caller adds the doc-comment, emits the

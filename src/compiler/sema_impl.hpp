@@ -4303,7 +4303,11 @@ private:
     void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::FunctionDraft& fn);
     lir::StructDraft lower_struct_def(hermes::TinyMapView node);
     lir::EnumDraft lower_enum_def(hermes::TinyMapView node);
-    lir::ConstDraft lower_const_def(hermes::TinyMapView node);
+    // Stage E direct-build: builds NAME+TYPE_REF into a Const DeclBuilder (in
+    // the program HermesCtr, no Draft) and returns it + the value ExprRef. The
+    // caller adds VALUE/DOC/IS_STATIC/etc. (the static path overrides VALUE for
+    // externals) and pushes a ConstView.
+    std::pair<DeclBuilder, lir_view::ExprRef> lower_const_def(hermes::TinyMapView node);
     std::pair<std::string, TypeRef> lower_type_alias_def(hermes::TinyMapView node);
     DeclBuilder lower_trait_def(hermes::TinyMapView node);
     void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);
