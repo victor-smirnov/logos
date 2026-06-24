@@ -188,12 +188,12 @@ private:
             if (sd.name != bare_struct) continue;
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
-                if (matches(mp->name)) return mp->name;
+                if (matches(mp.name())) return std::string(mp.name());
             }
         }
         for (auto& fn : prog_->functions) {
             if (!fn) continue;
-            if (matches(fn->name)) return fn->name;
+            if (matches(fn.name())) return std::string(fn.name());
         }
         return base;
     }
@@ -616,8 +616,8 @@ private:
     }
     // Module system (symbol-mangle rewrite, emission boundary): qualified LINK
     // symbol of a def (methods gain `<module>..`; free fns unchanged).
-    std::string link_name(const LFunction& fn) const {
-        if (!prog_) return fn.name;
+    std::string link_name(lir_view::FunctionView fn) const {
+        if (!prog_) return std::string(fn.name());
         return sym::link_name(fn, prog_->pkg_module_ids);
     }
     // Qualify a (bare-module) method-CALL callee STRING to its exact link symbol
@@ -956,13 +956,13 @@ private:
     }
 
     // ── Function type from LFunction ─────────────────────────────
-    mlir::FunctionType make_fn_type(const LFunction& fn);
+    mlir::FunctionType make_fn_type(lir_view::FunctionView fn);
     // When `is_binary_skip` is true, the FuncOp is created private so the
     // module ends up with a declaration-only entry (no body, matching the
     // archive-resident implementation).
-    void forward_declare(mlir::ModuleOp mod, const LFunction& fn,
+    void forward_declare(mlir::ModuleOp mod, lir_view::FunctionView fn,
                           bool is_binary_skip = false);
-    bool gen_function_body(mlir::func::FuncOp func, const LFunction& fn);
+    bool gen_function_body(mlir::func::FuncOp func, lir_view::FunctionView fn);
 
     // ── Block ─────────────────────────────────────────────────────
     // Stage 3g.3: BlockRef / StmtRef in signatures so the dispatcher no

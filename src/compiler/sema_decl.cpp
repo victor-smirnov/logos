@@ -1198,8 +1198,10 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
             auto method = map_of(methods.get(m));
             if (try_append_doc(pending_doc_, method)) continue;
             int32_t mc = code_of(method);
-            if (mc == la::FN || mc == la::STATIC_FN)
-                sd.methods.push_back(std::make_unique<lir::LFunction>(lower_fn(method, sname)));
+            if (mc == la::FN || mc == la::STATIC_FN) {
+                auto mfn = lower_fn(method, sname);
+                sd.methods.push_back(lir_mirror_emit_fn_view(*cur_prog_, mfn));
+            }
         }
         pending_doc_.clear();
     }
@@ -1940,7 +1942,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // the pattern to map impl-level args ([T]) to the struct's
                     // concrete args ([&T]) — positional copy mis-names specs.
                     fn.impl_target_pattern = ib.target_typeref;
-                    target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                    target_struct_tmpl->methods.push_back(lir_mirror_emit_fn_view(prog, fn));
                 } else {
                     // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
                     // Result<Vec<T>, E>). Methods go to prog.functions with
@@ -1949,7 +1951,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // impl-target pattern so mono's instantiate_enum_templates
                     // can unify pattern↔receiver instead of positional binding.
                     fn.impl_target_pattern = ib.target_typeref;
-                    prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                    prog.functions.push_back(lir_mirror_emit_fn_view(prog, fn));
                 }
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 pending_doc_.clear();
@@ -1984,8 +1986,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         acc_body.push_back(builder().stmt_return(val, 0));
                         acc.body = lir_mirror_block(*cur_prog_, acc_body);
                     }
-                    prog.functions.push_back(
-                        std::make_unique<lir::LFunction>(std::move(acc)));
+                    prog.functions.push_back(lir_mirror_emit_fn_view(prog, acc));
                 }
             } else {
                 // Non-fn impl item (assoc-type). Discard any sweep doc since
@@ -2208,12 +2209,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             }
                         }
                         fn.impl_target_pattern = ib.target_typeref;
-                        target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                        target_struct_tmpl->methods.push_back(lir_mirror_emit_fn_view(prog, fn));
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for
                         // trait-default methods on enum-impl path.
                         fn.impl_target_pattern = ib.target_typeref;
-                        prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
+                        prog.functions.push_back(lir_mirror_emit_fn_view(prog, fn));
                     }
                     current_type_params_.erase("Self");
                 }

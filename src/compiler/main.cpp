@@ -2474,7 +2474,7 @@ int run_metaprog_dispatch(
         }
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
-                [](const auto& f) { return f->is_metaprog_stub; }),
+                [](const auto& f) { return f.is_metaprog_stub(); }),
             meta_prog.functions.end());
         // Pass binary_symbols through so the metaprog JIT's mlir_gen skips
         // body emission for fns already provided by the JIT's archive
@@ -2527,14 +2527,14 @@ int run_metaprog_dispatch(
         // get re-emitted across iters → ORC duplicate-definition.
         for (auto& fp : meta_prog.functions) {
             if (!fp) continue;
-            auto ln = sym::link_name(*fp, meta_prog.pkg_module_ids);
+            auto ln = sym::link_name(fp, meta_prog.pkg_module_ids);
             if (!meta_prog.binary_symbols.count(ln))
                 m6_prev_emitted_fns.insert(std::move(ln));
         }
         for (auto& sd : meta_prog.structs) {
             for (auto& m : sd.methods) {
                 if (!m) continue;
-                auto ln = sym::link_name(*m, meta_prog.pkg_module_ids);
+                auto ln = sym::link_name(m, meta_prog.pkg_module_ids);
                 if (!meta_prog.binary_symbols.count(ln))
                     m6_prev_emitted_fns.insert(std::move(ln));
             }
@@ -2644,8 +2644,8 @@ int run_metaprog_dispatch(
                 any_handler = true;
                 std::string lookup_name = mh.hook_fn;
                 for (const auto& f : meta_prog.functions) {
-                    if (bare_fn_name(f->name) == mh.hook_fn) {
-                        lookup_name = f->name;
+                    if (bare_fn_name(f.name()) == mh.hook_fn) {
+                        lookup_name = std::string(f.name());
                         break;
                     }
                 }
@@ -3970,19 +3970,19 @@ int main(int argc, char** argv) {
         for (const auto& t : tests) seen_names.insert(t.name);
         for (const auto& fp : prog.functions) {
             if (!fp) continue;
-            if (!fp->is_test) continue;
+            if (!fp.is_test()) continue;
             // Filter to user-package fns only — stdlib modules also
             // contain `#[test]` fns (placeholders, internal smoke
             // tests) that would otherwise leak into the runner.
-            if (fp->from_binary_module) continue;
-            if (!entry_pkg.empty() && fp->package != entry_pkg) continue;
+            if (fp.from_binary_module()) continue;
+            if (!entry_pkg.empty() && fp.package() != entry_pkg) continue;
             // The runner calls test fns by their source name. fp->name
             // carries the post-collect mangled form (`pkg$base__f__sig`);
             // use the shared bare_fn_name helper to recover the base.
-            std::string nm(logos::compiler::bare_fn_name(fp->name));
+            std::string nm(logos::compiler::bare_fn_name(fp.name()));
             if (seen_names.insert(nm).second) {
-                tests.push_back({nm, fp->should_panic, fp->ignored,
-                                 fp->should_panic_expected_msg});
+                tests.push_back({nm, fp.should_panic(), fp.ignored(),
+                                 std::string(fp.should_panic_expected_msg())});
             }
         }
         if (tests.empty()) {
@@ -4279,7 +4279,7 @@ int main(int argc, char** argv) {
         prog.functions.erase(
             std::remove_if(prog.functions.begin(), prog.functions.end(),
                 [&](const auto& f) {
-                    return hook_names.count(std::string(logos::compiler::bare_fn_name(f->name))) > 0;
+                    return hook_names.count(std::string(logos::compiler::bare_fn_name(f.name()))) > 0;
                 }),
             prog.functions.end());
     }
@@ -4323,7 +4323,7 @@ int main(int argc, char** argv) {
     prog.functions.erase(
         std::remove_if(prog.functions.begin(), prog.functions.end(),
             [](const auto& f) {
-                return f && f->name.rfind("__metacall_thunk_", 0) == 0;
+                return f && f.name().rfind("__metacall_thunk_", 0) == 0;
             }),
         prog.functions.end());
 

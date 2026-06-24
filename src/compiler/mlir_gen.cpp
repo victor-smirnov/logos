@@ -205,8 +205,8 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // binary-module templates are NOT in the archive and must be
     // compiled, so we use binary_symbols rather than the
     // from_binary_module flag (mono erases the flag during clone).
-    auto is_binary_skip = [&prog, this](const lir::LFunction& fn) -> bool {
-        if (fn.is_extern || prog.binary_symbols.empty()) return false;
+    auto is_binary_skip = [&prog, this](lir_view::FunctionView fn) -> bool {
+        if (fn.is_extern() || prog.binary_symbols.empty()) return false;
         // Module system: archive nm carries QUALIFIED link symbols → match on link_name.
         return prog.binary_symbols.count(link_name(fn)) > 0;
     };
@@ -224,26 +224,27 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // that hits this can extend the walker; today's stdlib fixtures don't).
     std::unordered_set<std::string> lazy_emit;
     bool any_lazy = false;
-    for (auto& fn : prog.functions) if (fn && fn->from_lazy_module) { any_lazy = true; break; }
+    for (auto& fn : prog.functions) if (fn && fn.from_lazy_module()) { any_lazy = true; break; }
     if (!any_lazy)
         for (auto& sd : prog.structs)
-            for (auto& m : sd.methods) if (m && m->from_lazy_module) { any_lazy = true; break; }
+            for (auto& m : sd.methods) if (m && m.from_lazy_module()) { any_lazy = true; break; }
 
     if (any_lazy) {
         // Index all fn definitions for cheap callee→fn lookup.
-        std::unordered_map<std::string, const lir::LFunction*> by_name;
-        for (auto& fn : prog.functions) if (fn) by_name[fn->name] = fn.get();
+        std::unordered_map<std::string, lir_view::FunctionView> by_name;
+        for (auto& fn : prog.functions) if (fn) by_name[std::string(fn.name())] = fn;
         for (auto& sd : prog.structs)
-            for (auto& m : sd.methods) if (m) by_name[m->name] = m.get();
+            for (auto& m : sd.methods) if (m) by_name[std::string(m.name())] = m;
 
         std::deque<std::string> worklist;
-        auto seed_root = [&](const lir::LFunction& fn) {
-            if (fn.from_lazy_module) return;     // not a root
-            if (lazy_emit.insert(fn.name).second) worklist.push_back(fn.name);
+        auto seed_root = [&](lir_view::FunctionView fn) {
+            if (fn.from_lazy_module()) return;     // not a root
+            std::string nm(fn.name());
+            if (lazy_emit.insert(nm).second) worklist.push_back(nm);
         };
-        for (auto& fn : prog.functions) if (fn) seed_root(*fn);
+        for (auto& fn : prog.functions) if (fn) seed_root(fn);
         for (auto& sd : prog.structs)
-            for (auto& m : sd.methods) if (m) seed_root(*m);
+            for (auto& m : sd.methods) if (m) seed_root(m);
 
         // prog is const; use the const arena() accessor (returns nullptr if
         // the pool was never initialised — in that case there are no bodies
@@ -412,23 +413,24 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             worklist.pop_front();
             auto it = by_name.find(name);
             if (it == by_name.end()) continue;
-            auto& fn = *it->second;
-            if (!fn.body) continue;
-            walk_block(fn.body);
+            auto fn = it->second;
+            auto fb = fn.body();
+            if (!fb) continue;
+            walk_block(fb);
         }
 
         if (std::getenv("LOGOS_TRACE_PHASES")) {
             size_t lazy_total = 0, lazy_kept = 0;
             for (auto& fn : prog.functions)
-                if (fn && fn->from_lazy_module) {
+                if (fn && fn.from_lazy_module()) {
                     ++lazy_total;
-                    if (lazy_emit.count(fn->name)) ++lazy_kept;
+                    if (lazy_emit.count(std::string(fn.name()))) ++lazy_kept;
                 }
             for (auto& sd : prog.structs)
                 for (auto& m : sd.methods)
-                    if (m && m->from_lazy_module) {
+                    if (m && m.from_lazy_module()) {
                         ++lazy_total;
-                        if (lazy_emit.count(m->name)) ++lazy_kept;
+                        if (lazy_emit.count(std::string(m.name()))) ++lazy_kept;
                     }
             std::fprintf(stderr,
                 "mlir_gen: lazy reach = %zu/%zu kept (%zu pruned)\n",
@@ -436,16 +438,16 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         }
     }
 
-    auto is_lazy_skip = [&](const lir::LFunction& fn) -> bool {
+    auto is_lazy_skip = [&](lir_view::FunctionView fn) -> bool {
         if (!any_lazy) return false;
-        if (!fn.from_lazy_module) return false;
-        return lazy_emit.find(fn.name) == lazy_emit.end();
+        if (!fn.from_lazy_module()) return false;
+        return lazy_emit.find(std::string(fn.name())) == lazy_emit.end();
     };
 
     if (std::getenv("LOGOS_TRACE_PHASES")) {
         size_t total = 0, skipped = 0;
-        for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(*m)) ++skipped; }
-        for (auto& fn : prog.functions) { ++total; if (is_binary_skip(*fn)) ++skipped; }
+        for (auto& sd : prog.structs) for (auto& m : sd.methods) { ++total; if (is_binary_skip(m)) ++skipped; }
+        for (auto& fn : prog.functions) { ++total; if (is_binary_skip(fn)) ++skipped; }
         std::fprintf(stderr, "mlir_gen: %zu functions total, %zu binary-skip\n", total, skipped);
     }
 
@@ -460,13 +462,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // there's nothing to link against.
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods) {
-            if (is_lazy_skip(*m)) continue;
-            forward_declare(mod, *m, is_binary_skip(*m));
+            if (is_lazy_skip(m)) continue;
+            forward_declare(mod, m, is_binary_skip(m));
         }
 
     for (auto& fn : prog.functions) {
-        if (is_lazy_skip(*fn)) continue;
-        forward_declare(mod, *fn, is_binary_skip(*fn));
+        if (is_lazy_skip(fn)) continue;
+        forward_declare(mod, fn, is_binary_skip(fn));
     }
     pt.tick("pass1 forward_declare");
 
@@ -507,16 +509,16 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     size_t fn_bodies = 0;
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
-            if (is_binary_skip(*m) || is_lazy_skip(*m)) continue;
-            auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(*m));
-            if (!gen_function_body(func, *m)) return nullptr;
+            if (is_binary_skip(m) || is_lazy_skip(m)) continue;
+            auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(m));
+            if (!gen_function_body(func, m)) return nullptr;
             ++method_bodies; ++bodies_emitted;
         }
     }
     for (auto& fn : prog.functions) {
-        if (fn->is_extern || is_binary_skip(*fn) || is_lazy_skip(*fn)) continue;
-        auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(*fn));
-        if (!gen_function_body(func, *fn)) return nullptr;
+        if (fn.is_extern() || is_binary_skip(fn) || is_lazy_skip(fn)) continue;
+        auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(fn));
+        if (!gen_function_body(func, fn)) return nullptr;
         ++fn_bodies; ++bodies_emitted;
     }
     pt.tick("pass2 body emit");

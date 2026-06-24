@@ -317,9 +317,10 @@ TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 // lose those cross-AST methods. A single post-loop bundle captures the
 // fully-assembled binary contribution.
 //
-// LFunction bodies are shared across LPrograms via shared_ptr<LFunction>
-// (Step 6a); splice is a refcount-bump per method. Other aggregates are
-// value-copied; their nested method vectors refcount-bump too.
+// Stage E: functions cross LPrograms as FunctionView handles (each IS its
+// Hermes decl mirror); splice is a value-copy of the cheap handle. The mirror
+// arenas stay alive via the SemaCache-held type_pools. Other aggregates are
+// value-copied; their nested method View vectors copy handles too.
 //
 // from_binary_module flag (present on LStructDef + LFunction) drives the
 // per-item filter for structs/functions; for unflagged vectors (impls,
@@ -515,17 +516,17 @@ void SemaCache::reset_user_state() {
         return !sd.from_binary_module;
     });
     only_binary_vec(b.functions, [](const lir::LFunctionPtr& fp) {
-        return !fp || !fp->from_binary_module;
+        return !fp || !fp.from_binary_module();
     });
     only_binary_vec(b.specializations, [](const lir::LFunctionPtr& fp) {
-        return !fp || !fp->from_binary_module;
+        return !fp || !fp.from_binary_module();
     });
     auto filter_methods = [](std::vector<lir::LStructDef>& v) {
         for (auto& sd : v) {
             sd.methods.erase(
                 std::remove_if(sd.methods.begin(), sd.methods.end(),
                     [](const lir::LFunctionPtr& m) {
-                        return !m || !m->from_binary_module;
+                        return !m || !m.from_binary_module();
                     }),
                 sd.methods.end());
         }
@@ -2373,15 +2374,17 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
             // fn twice would call it twice, which is the user's bug.
             // mh.hook_fn was captured as the bare AST name; the actual
             // emitted symbol may carry `pkg$base__f__sig` mangling.
-            const lir::LFunction* fn = nullptr;
+            auto* mph_pool = prog.type_pool.impl();
+            lir_view::FunctionView fn;
             for (const auto& f : prog.functions)
-                if (bare_fn_name(f->name) == mh.hook_fn) { fn = f.get(); break; }
+                if (bare_fn_name(f.name()) == mh.hook_fn) { fn = f; break; }
             if (!fn) { error("#[metaprog_handler] not a free fn"); continue; }
-            if (fn->is_extern)
+            if (fn.is_extern())
                 error("#[metaprog_handler] cannot be applied to extern fn");
-            if (!fn->type_params.empty())
+            if (!fn.type_params_empty())
                 error("#[metaprog_handler] hook must not be generic");
-            if (fn->params.size() != 1) {
+            auto fn_params = fn.params();
+            if (fn_params.size() != 1) {
                 error("#[metaprog_handler] hook must take exactly one parameter (target_offset: u32)");
                 continue;
             }
@@ -2389,10 +2392,11 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
             // within the module's Hermes doc. Hooks reconstruct the
             // node via AnyVal::from_offset(target_offset) + existing
             // HermesView/OView API.
-            auto pt = TypeRef(fn->params[0].type);
+            auto pt = TypeRef(fn_params[0].type(mph_pool));
             if (pt.kind() != LogosType::Kind::U32)
                 error("#[metaprog_handler] hook param must be u32 (offset of triggered item)");
-            if (fn->ret_type && TypeRef(fn->ret_type).kind() != LogosType::Kind::Void)
+            TypeRef fn_ret = fn.ret_type(mph_pool);
+            if (fn_ret && TypeRef(fn_ret).kind() != LogosType::Kind::Void)
                 error("#[metaprog_handler] hook must return ()");
         }
     }
@@ -2404,21 +2408,21 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     {
         std::set<std::string> generic_bases;
         for (auto& f : prog.functions) {
-            if (!f->type_params.empty())
-                generic_bases.insert(std::string(bare_fn_name(f->name)));
+            if (!f.type_params_empty())
+                generic_bases.insert(std::string(bare_fn_name(f.name())));
         }
         for (auto& s : prog.specializations) {
             // s->name is the bare base (e.g. "helper" / "describe").
-            if (!generic_bases.count(std::string(bare_fn_name(s->name)))) {
-                ctx_  = std::format("fn {}", s->name);
-                file_ = s->source_file;
+            if (!generic_bases.count(std::string(bare_fn_name(s.name())))) {
+                ctx_  = std::format("fn {}", s.name());
+                file_ = std::string(s.source_file());
                 node_line_ = 0;
                 error(std::format(
                     "specialisation 'fn {}<...>' has no generic counterpart "
                     "'fn {}<T>' to specialise on. If you meant a regular "
                     "free fn, rename the type parameter so it doesn't shadow "
                     "an existing type.",
-                    s->name, s->name));
+                    s.name(), s.name()));
             }
         }
     }
@@ -6972,7 +6976,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         kept.reserve(prog.functions.size());
         for (auto& fp : prog.functions) {
             if (!fp) continue;
-            auto base = is_impl_method_shape(fp->name);
+            auto base = is_impl_method_shape(std::string(fp.name()));
             lir::LStructDef* host = nullptr;
             if (!base.empty()) {
                 auto it = templates_by_name.find(std::string(base));
@@ -6983,8 +6987,8 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                     // `Rc<T>`) must NOT move it. Prefer exact-pkg; if the method
                     // carries no package, fall back to a sole candidate.
                     for (auto* cand : it->second)
-                        if (cand->pkg == fp->package) { host = cand; break; }
-                    if (!host && fp->package.empty() && it->second.size() == 1)
+                        if (cand->pkg == fp.package()) { host = cand; break; }
+                    if (!host && fp.package().empty() && it->second.size() == 1)
                         host = it->second.front();
                 }
             }
@@ -7032,7 +7036,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             std::vector<lir::LFunctionPtr> dst;
             dst.reserve(src.size());
             for (auto& m : src)
-                if (m && (keep_user || m->from_binary_module)) dst.push_back(m);
+                if (m && (keep_user || m.from_binary_module())) dst.push_back(m);
             return dst;
         };
         for (auto& sd : prog.structs) {
@@ -7048,9 +7052,9 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             b.struct_specializations.push_back(std::move(copy));
         }
         for (auto& fp : prog.functions)
-            if (fp && (keep_user || fp->from_binary_module)) b.functions.push_back(fp);
+            if (fp && (keep_user || fp.from_binary_module())) b.functions.push_back(fp);
         for (auto& fp : prog.specializations)
-            if (fp && (keep_user || fp->from_binary_module)) b.specializations.push_back(fp);
+            if (fp && (keep_user || fp.from_binary_module())) b.specializations.push_back(fp);
         // Unflagged vectors: per-AST range emit. Binary first (to set the
         // boundary), then user. On non-first call (keep_user mode only,
         // bundle already valid), the boundary stays at its first-call value.
@@ -7741,11 +7745,11 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 }
             }
             if (is_specialization_fn(item)) {
-                auto fp = std::make_unique<lir::LFunction>(lower_spec_fn(item));
-                prog.specializations.push_back(std::move(fp));
+                auto fp = lower_spec_fn(item);
+                prog.specializations.push_back(lir_mirror_emit_fn_view(prog, fp));
             } else {
-                auto fp = std::make_unique<lir::LFunction>(lower_fn(item));
-                prog.functions.push_back(std::move(fp));
+                auto fp = lower_fn(item);
+                prog.functions.push_back(lir_mirror_emit_fn_view(prog, fp));
             }
         }
         else if (c == la::CONST_DEF) {

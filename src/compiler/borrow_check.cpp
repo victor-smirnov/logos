@@ -91,13 +91,13 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     };
     auto scan_fns = [&](const std::vector<LFunctionPtr>& fns) {
         for (auto& fn : fns)
-            register_drop_symbol(fn->name);
+            register_drop_symbol(fn.name());
     };
     scan_fns(prog.functions);
     scan_fns(prog.specializations);
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)
-            register_drop_symbol(m->name);
+            register_drop_symbol(m.name());
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
@@ -657,8 +657,8 @@ static void merge_moves(StateMap& base, StateMap& other) {
 // (It used to be a per-instance `mutable` map rebuilt lazily inside each of the
 // N BorrowCheckers → O(N × total_fns) rebuild storm, the top malloc cost.)
 struct FnIndex {
-    std::unordered_map<std::string, const LFunction*>              by_name;
-    std::unordered_map<std::string, std::vector<const LFunction*>> by_base;
+    std::unordered_map<std::string, lir_view::FunctionView>              by_name;
+    std::unordered_map<std::string, std::vector<lir_view::FunctionView>> by_base;
 };
 
 static FnIndex build_fn_index(const lir::LProgram& prog) {
@@ -671,8 +671,8 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     }
     auto add = [&](const LFunctionPtr& f) {
         if (!f) return;
-        idx.by_name.emplace(f->name, f.get());
-        if (!f->method_base.empty()) idx.by_base[f->method_base].push_back(f.get());
+        idx.by_name.emplace(std::string(f.name()), f);
+        if (!f.method_base().empty()) idx.by_base[std::string(f.method_base())].push_back(f);
     };
     for (auto& f  : prog.functions)       add(f);
     for (auto& f  : prog.specializations) add(f);
@@ -1530,15 +1530,18 @@ class BorrowChecker {
     // `&self`)? A method with explicit lifetimes MAY tie its result to an arg
     // (`fn pick<'a>(&self, x:&'a T)->&'a T`) → NOT self-borrowing (avoids the
     // over-borrow that broke persistent_showcase). See escape-analysis §4(a).
-    bool is_self_borrowing(const LFunction* f) const {
+    bool is_self_borrowing(lir_view::FunctionView f) const {
         // Elision: `&self -> &T` borrows self. SO DOES `&self -> <BC type>`
         // (iter()/iter_mut() returning a borrowing iterator, HAny views):
         // the returned VALUE carries the receiver borrow (adversarial #2
         // f12 — two live iter_mut() were accepted, aliasing &mut).
-        return f && !f->params.empty() && is_ref_kind(f->params[0].type) &&
-               f->lifetime_params.empty() &&
-               (is_ref_kind(f->ret_type) ||
-                is_borrow_carrying_type(f->ret_type));
+        if (!f) return false;
+        auto* pool = prog_.type_pool.impl();
+        auto params = f.params();
+        return !params.empty() && is_ref_kind(params[0].type(pool)) &&
+               f.lifetime_params().empty() &&
+               (is_ref_kind(f.ret_type(pool)) ||
+                is_borrow_carrying_type(f.ret_type(pool)));
     }
 
     // Does this method-call's RESULT reference borrow its receiver (by elision)?
@@ -1553,7 +1556,7 @@ class BorrowChecker {
         // same-named method, or no match, → false.
         if (auto it = fn_index_.by_base.find(std::string(v.method()));
             it != fn_index_.by_base.end() && !it->second.empty()) {
-            for (const LFunction* f : it->second)
+            for (lir_view::FunctionView f : it->second)
                 if (!is_self_borrowing(f)) return false;
             return true;
         }
@@ -1565,23 +1568,28 @@ class BorrowChecker {
     // (all same-named methods must agree, else 0). Used to conflict-check bare-
     // place (VarRef) receivers, which the AddrOfTemp path doesn't see.
     int method_self_kind(lir_view::EMethodCallView v) const {
-        const LFunction* f = nullptr;
+        auto* pool = prog_.type_pool.impl();
+        lir_view::FunctionView f;
         if (auto it = fn_index_.by_name.find(std::string(v.resolved_symbol()));
             it != fn_index_.by_name.end())
             f = it->second;
         else if (auto it = fn_index_.by_base.find(std::string(v.method()));
                  it != fn_index_.by_base.end() && !it->second.empty()) {
             f = it->second.front();
-            auto kind0 = f->params.empty() ? LogosType::Kind::Void
-                                           : f->params[0].type.kind();
-            for (const LFunction* g : it->second) {
-                auto k = g->params.empty() ? LogosType::Kind::Void
-                                           : g->params[0].type.kind();
+            auto f_params = f.params();
+            auto kind0 = f_params.empty() ? LogosType::Kind::Void
+                                          : f_params[0].type(pool).kind();
+            for (lir_view::FunctionView g : it->second) {
+                auto g_params = g.params();
+                auto k = g_params.empty() ? LogosType::Kind::Void
+                                          : g_params[0].type(pool).kind();
                 if (k != kind0) return 0;  // ambiguous
             }
         }
-        if (!f || f->params.empty()) return 0;
-        auto k = f->params[0].type.kind();
+        if (!f) return 0;
+        auto f_params = f.params();
+        if (f_params.empty()) return 0;
+        auto k = f_params[0].type(pool).kind();
         if (k == LogosType::Kind::MutRef) return 2;
         if (k == LogosType::Kind::Ref)    return 1;
         return 0;
@@ -3174,12 +3182,14 @@ public:
     // concrete moves are fully checked on the monomorphized specializations.
     bool exclusivity_only_ = false;
 
-    void check(const LFunction& fn) {
+    void check(lir_view::FunctionView fn) {
+        auto* fn_pool = prog_.type_pool.impl();
         // No body mirror ⇒ a body-less function (extern / metaprog stub /
         // from_binary_module — emit_function skips these). Nothing to borrow-check;
         // skip before any block walk so block_ref(fn.body) is never a null view.
-        if (!fn.body) return;
-        states_.reset(fn.local_count);  // Phase-1: size the dense slot vector
+        auto fn_body = fn.body();
+        if (!fn_body) return;
+        states_.reset(fn.local_count());  // Phase-1: size the dense slot vector
         scopes_.clear();
         prov_.clear();
         param_names_.clear();
@@ -3205,23 +3215,34 @@ public:
         // is_move_type's TypeVar leaf so the partial-move tracker fires on
         // `s.a: T` in generic templates (Tier 1). See DIVERGENCES §B1.
         copy_tvs_.clear();
-        for (auto& tp : fn.type_params)
-            for (auto& b : tp.bounds)
-                if (b.trait_name == "Copy") { copy_tvs_.insert(tp.name); break; }
-        fn_lifetime_params_ = fn.lifetime_params;
-        outlives_adj_ = outlives_adj(fn.lifetime_outlives);
-        ret_type_ = fn.ret_type;
+        fn.each_type_param([&](lir_view::FnTParamView tp) {
+            std::string tpname(tp.name());
+            tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                if (b.trait_name() == "Copy") copy_tvs_.insert(tpname);
+            });
+        });
+        fn_lifetime_params_.clear();
+        for (auto lp : fn.lifetime_params()) fn_lifetime_params_.push_back(std::string(lp));
+        {
+            std::vector<std::pair<std::string, std::string>> lo;
+            for (auto& [a, b] : fn.lifetime_outlives())
+                lo.emplace_back(std::string(a), std::string(b));
+            outlives_adj_ = outlives_adj(lo);
+        }
+        ret_type_ = fn.ret_type(fn_pool);
 
-        scan_uses_block(fn.body);
+        scan_uses_block(fn_body);
 
         push_scope();  // function scope
-        for (auto& p : fn.params) {
-            declare_var(p.name, p.slot);  // Phase-1
-            param_names_.insert(p.name);
-            if (is_ref_kind(p.type)) {
-                param_lifetimes_[p.name] = std::string(TypeRef(p.type).lifetime());
+        for (auto& p : fn.params()) {
+            std::string pname(p.name());
+            TypeRef ptype = p.type(fn_pool);
+            declare_var(pname, p.slot());  // Phase-1
+            param_names_.insert(pname);
+            if (is_ref_kind(ptype)) {
+                param_lifetimes_[pname] = std::string(TypeRef(ptype).lifetime());
                 // B86: capture inner-struct lifetime_args.
-                auto pointee = TypeRef(p.type).pointee();
+                auto pointee = TypeRef(ptype).pointee();
                 if (pointee && (pointee.kind() == LogosType::Kind::Struct ||
                                 pointee.kind() == LogosType::Kind::ZonedStruct ||
                                 pointee.kind() == LogosType::Kind::Enum)) {
@@ -3233,12 +3254,12 @@ public:
                     // structure" in check_return_value.
                     std::vector<std::string> lts;
                     for (auto& lt : pointee.lifetime_args()) lts.push_back(lt);
-                    param_inner_lifetimes_[p.name] = std::move(lts);
+                    param_inner_lifetimes_[pname] = std::move(lts);
                 }
             }
         }
 
-        visit_block(fn.body);
+        visit_block(fn_body);
         pop_scope();
     }
 };
@@ -3761,16 +3782,16 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     // per-function BorrowChecker below (was a per-instance map rebuilt N times).
     const FnIndex fn_index = build_fn_index(prog);
 
-    auto check = [&](const LFunction& fn) {
-        if (fn.is_extern)             return;
+    auto check = [&](lir_view::FunctionView fn) {
+        if (fn.is_extern())           return;
         // Skip functions loaded from a precompiled binary module (.hermes0 in a
         // `-L` archive): they were already borrow-checked when THEIR layer was
         // built, so re-checking them on every downstream/user compile is pure
         // waste — and the pre-mono generic-template pass re-checking the WHOLE
         // loaded stdlib's generics was the dominant per-compile cost. User code +
         // user-side generic INSTANTIATIONS (from_binary_module=false) still run.
-        if (fn.from_binary_module)    return;
-        bool is_generic = !fn.type_params.empty();
+        if (fn.from_binary_module())  return;
+        bool is_generic = !fn.type_params_empty();
         // P2-10: a dedicated PRE-mono pass (generic_templates_only) checks generic
         // fn bodies directly — so a generic that is never instantiated (no
         // specialization) is still borrow-checked (Rust parity). It runs in
@@ -3788,12 +3809,12 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         RegionInferer ri;
         if (!generic_templates_only)
             ri.analyze(fn, prog);
-        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)),
+        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name())),
                       prog, ts, fn_index, /*exclusivity_only=*/generic_templates_only,
                       generic_templates_only ? nullptr : &ri).check(fn);
         if (generic_templates_only) return;
         if (std::getenv("LOGOS_DUMP_REGIONS"))
-            ri.dump(std::string(bare_fn_name(fn.name)));
+            ri.dump(std::string(bare_fn_name(fn.name())));
         // B72/B73: region-based conflict diagnostics. Phrased in
         // Rust-style so they read naturally alongside B61's lexical
         // messages. The "later" borrow (by source line) is the
@@ -3811,7 +3832,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
             if (target_label.starts_with("<temp")) target_label = "temporary";
             Diag d;
             d.level   = Diag::Level::Error;
-            d.context = "fn " + std::string(bare_fn_name(fn.name));
+            d.context = "fn " + std::string(bare_fn_name(fn.name()));
             d.message = std::format(
                 "cannot borrow '{}' as {}: {} borrow still in scope here "
                 "(first borrowed at line {}, conflicting use at line {})",
@@ -3822,10 +3843,10 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         }
     };
 
-    for (auto& fn : prog.functions)       check(*fn);
-    for (auto& fn : prog.specializations) check(*fn);
+    for (auto& fn : prog.functions)       check(fn);
+    for (auto& fn : prog.specializations) check(fn);
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods)        check(*m);
+        for (auto& m : sd.methods)        check(m);
 
     // P2-10: a generic template and each of its monomorphizations are checked
     // separately and report the SAME borrow error (same context/line/message —

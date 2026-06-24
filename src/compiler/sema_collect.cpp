@@ -4337,8 +4337,10 @@ lir::LStructDef SemaChecker::lower_spec_struct(TinyMapView node) {
         auto methods = arr_of(node.get(la::ITEMS.code));
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
-            if (code_of(method) == la::FN)
-                sd.methods.push_back(std::make_unique<lir::LFunction>(lower_fn(method, sname)));
+            if (code_of(method) == la::FN) {
+                auto mfn = lower_fn(method, sname);
+                sd.methods.push_back(lir_mirror_emit_fn_view(*cur_prog_, mfn));
+            }
         }
     }
 

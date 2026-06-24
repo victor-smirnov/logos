@@ -625,6 +625,14 @@ struct FnTraitBoundView {
     std::vector<TypeRef> type_args(const TypePoolImpl* pool) const noexcept {
         return detail::read_type_array(self, lir_schema::fn_tbound_keys::TB_TYPE_ARGS.code, pool);
     }
+    std::vector<std::string_view> hrtb_binders() const noexcept {
+        return detail::read_string_array(self, lir_schema::fn_tbound_keys::TB_HRTB_BINDERS.code);
+    }
+    // Derived (not stored): trait is one of Fn / FnMut / FnOnce.
+    bool is_fn_family() const noexcept {
+        auto t = trait_name();
+        return t == "Fn" || t == "FnMut" || t == "FnOnce";
+    }
 };
 
 // Function TypeParam sub-map view (richer than enum's).

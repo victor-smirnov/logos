@@ -674,7 +674,7 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     // emits EXTERNAL declarations only and no initializer; the exe provides both.
     bool is_library = true;
     for (auto& f : prog.functions)
-        if (f && f->name == "main") { is_library = false; break; }
+        if (f && f.name() == "main") { is_library = false; break; }
 
     auto set_end = [&]{ builder_.setInsertionPointToEnd(mod.getBody()); };
 
@@ -763,21 +763,21 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
     // prog.functions linearly. Without the index, the loop is quadratic over
     // (n_impls × n_methods × n_functions); for stdlib that's ~50ms per
     // mlir_gen invocation.
-    std::unordered_map<std::string, std::vector<const lir::LFunction*>>
+    std::unordered_map<std::string, std::vector<lir_view::FunctionView>>
         method_base_idx;
     method_base_idx.reserve(256);
     for (auto& fp : prog.functions)
-        if (fp && !fp->method_base.empty())
-            method_base_idx[fp->method_base].push_back(fp.get());
+        if (fp && !fp.method_base().empty())
+            method_base_idx[std::string(fp.method_base())].push_back(fp);
     // Also build a per-struct method_base index (used as the last fallback).
     std::unordered_map<std::string,
-        std::unordered_map<std::string, std::vector<const lir::LFunction*>>>
+        std::unordered_map<std::string, std::vector<lir_view::FunctionView>>>
         struct_method_idx;
     for (auto& sd : prog.structs) {
         auto& sm = struct_method_idx[sd.name];
         for (auto& mp : sd.methods)
-            if (mp && !mp->method_base.empty())
-                sm[mp->method_base].push_back(mp.get());
+            if (mp && !mp.method_base().empty())
+                sm[std::string(mp.method_base())].push_back(mp);
     }
 
     // Pre-walk all fns/methods once to build `target_base → set<concrete>`
@@ -798,9 +798,9 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             std::string concrete{name.substr(0, end)};
             concrete_targets_by_base[std::move(base)].insert(std::move(concrete));
         };
-        for (auto& fp : prog.functions) if (fp) scan(fp->name);
+        for (auto& fp : prog.functions) if (fp) scan(fp.name());
         for (auto& sd : prog.structs)
-            for (auto& mp : sd.methods) if (mp) scan(mp->name);
+            for (auto& mp : sd.methods) if (mp) scan(mp.name());
     }
     auto collect_concrete_targets = [&](const std::string& target_base)
         -> const std::set<std::string>& {
@@ -869,19 +869,19 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                     for (auto& m : td.methods) slot_names.push_back(m.name);
                 for (auto& mname : slot_names) {
                     std::string sym;
-                    auto try_match = [&](const lir::LFunction& fn) -> bool {
-                        return fn.method_base == mname && belongs_to_target(fn.name);
+                    auto try_match = [&](lir_view::FunctionView fn) -> bool {
+                        return fn.method_base() == mname && belongs_to_target(fn.name());
                     };
                     for (auto& fp : ib.methods) {
                         if (!fp) continue;
-                        if (try_match(*fp)) { sym = link_name(*fp); break; }
+                        if (try_match(fp)) { sym = link_name(fp); break; }
                     }
                     if (sym.empty()) {
                         if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
-                            for (auto* fp : it->second) {
-                                if (belongs_to_target(fp->name)) {
-                                    sym = link_name(*fp); break;
+                            for (auto fp : it->second) {
+                                if (belongs_to_target(fp.name())) {
+                                    sym = link_name(fp); break;
                                 }
                             }
                         }
@@ -891,9 +891,9 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                             sit != struct_method_idx.end()) {
                             if (auto it = sit->second.find(mname);
                                 it != sit->second.end()) {
-                                for (auto* mp : it->second) {
-                                    if (belongs_to_target(mp->name)) {
-                                        sym = link_name(*mp); break;
+                                for (auto mp : it->second) {
+                                    if (belongs_to_target(mp.name())) {
+                                        sym = link_name(mp); break;
                                     }
                                 }
                             }
@@ -910,8 +910,8 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                         bool any_generic  = false;
                         if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
-                            for (auto* fp : it->second) {
-                                if (fp->impl_type_params.empty()) any_concrete = true;
+                            for (auto fp : it->second) {
+                                if (fp.impl_type_params_empty()) any_concrete = true;
                                 else                              any_generic  = true;
                             }
                         }
@@ -1318,8 +1318,8 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
             if (sd.name != v.tag_system()) continue;
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
-                if (try_match(mp->name)) {
-                    rtc_sym = link_name(*mp);  // module-qualified emitted name
+                if (try_match(std::string(mp.name()))) {
+                    rtc_sym = link_name(mp);  // module-qualified emitted name
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }
@@ -1329,8 +1329,8 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
         if (!rtc_fn) {
             for (auto& fn : prog_->functions) {
                 if (!fn) continue;
-                if (try_match(fn->name)) {
-                    rtc_sym = link_name(*fn);  // module-qualified emitted name
+                if (try_match(std::string(fn.name()))) {
+                    rtc_sym = link_name(fn);  // module-qualified emitted name
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }

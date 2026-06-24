@@ -35,13 +35,13 @@ std::vector<size_t> Mono::const_intrinsic_positions(const std::string& name) {
     return it == reg.end() ? std::vector<size_t>{} : it->second;
 }
 
-const lir::LFunction* Mono::find_fn_def_by_base(const std::string& base) {
+lir_view::FunctionView Mono::find_fn_def_by_base(const std::string& base) {
     for (auto& f : in_.functions)
-        if (f && f->name == base) return f.get();
+        if (f && f.name() == base) return f;
     for (auto& sd : in_.structs)
         for (auto& m : sd.methods)
-            if (m && m->name == base) return m.get();
-    return nullptr;
+            if (m && m.name() == base) return m;
+    return {};
 }
 
 namespace {
@@ -71,10 +71,11 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
     std::vector<size_t> result;
     if (auto reg = const_intrinsic_positions(base); !reg.empty()) {
         result = std::move(reg);
-    } else if (const lir::LFunction* fn = find_fn_def_by_base(base);
-               fn && (bool)fn->body) {
+    } else if (lir_view::FunctionView fn = find_fn_def_by_base(base);
+               fn && (bool)fn.body()) {
+        auto fn_params = fn.params();
         std::unordered_map<std::string, size_t> pidx;
-        for (size_t i = 0; i < fn->params.size(); ++i) pidx[fn->params[i].name] = i;
+        for (size_t i = 0; i < fn_params.size(); ++i) pidx[std::string(fn_params[i].name())] = i;
         std::set<size_t> want;
         auto& arena = out_.type_pool.arena_or_init();
 
@@ -136,7 +137,7 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
             b.each_stmt([&](lir_view::StmtRef s) { visit_stmt(s); });
         };
 
-        visit_block(fn->body);
+        visit_block(fn.body());
         result.assign(want.begin(), want.end());
     }
 
@@ -157,19 +158,20 @@ std::string Mono::const_specialize_callee(
     if (!const_intrinsic_positions(callee).empty()) return callee;
     const auto& cw = compute_const_want(callee);
     if (cw.empty()) return callee;
-    const lir::LFunction* fn = find_fn_def_by_base(callee);
-    if (!fn || !fn->body)
+    lir_view::FunctionView fn = find_fn_def_by_base(callee);
+    if (!fn || !fn.body())
         return callee;  // extern / bodyless / unknown — can't clone
 
+    auto fn_params = fn.params();
     std::vector<std::pair<std::string, ConstArgVal>> binds;
     std::string suffix = "__cv";
     auto& arena = out_.type_pool.arena_or_init();
     for (size_t p : cw) {
-        if (p >= args.size() || p >= fn->params.size() || !args[p]) continue;
+        if (p >= args.size() || p >= fn_params.size() || !args[p]) continue;
         lir_view::ExprRef aref(&arena, args[p].addr());
         ConstArgVal cv;
         if (!try_read_const_arg(aref, cv)) continue;  // runtime arg → no spec
-        binds.emplace_back(fn->params[p].name, cv);
+        binds.emplace_back(std::string(fn_params[p].name()), cv);
         suffix += "_" + std::to_string(p) + "_"
                 + (cv.is_enum ? cv.enum_name : std::string("i"))
                 + std::to_string(cv.ival);

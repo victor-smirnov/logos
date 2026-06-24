@@ -243,14 +243,14 @@ static void apply_only_file_filter(lir::LProgram& prog,
             return true;
         return false;
     };
-    auto add = [&](const lir::LFunction& fn) {
-        if (fn.is_extern) return;
-        if (fits(fn.source_file)) return;
-        prog.binary_symbols.insert(fn.name);
+    auto add = [&](lir_view::FunctionView fn) {
+        if (fn.is_extern()) return;
+        if (fits(std::string(fn.source_file()))) return;
+        prog.binary_symbols.insert(std::string(fn.name()));
     };
     for (auto& sd : prog.structs)
-        for (auto& m : sd.methods) add(*m);
-    for (auto& fn : prog.functions) add(*fn);
+        for (auto& m : sd.methods) add(m);
+    for (auto& fn : prog.functions) add(fn);
 }
 
 static bool compile_to_object(std::vector<hermes::Hermes>& asts,
@@ -444,8 +444,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     };
     std::vector<TemplateEntry> generic_fn_templates;
     std::vector<TemplateEntry> generic_method_templates;
-    auto stash_template = [](std::vector<TemplateEntry>& dst, const lir::LFunction& fn) {
-        if (fn.is_extern) return;
+    auto stash_template = [](std::vector<TemplateEntry>& dst, lir_view::FunctionView fn) {
+        if (fn.is_extern()) return;
         // Phase 5.B step 3 (Phase 5.C close-out): the prior
         // `if (fn.from_binary_module) return` here was wrong during the
         // stdlib build for ast_only files (e.g. std.compiler.metaprog) —
@@ -454,16 +454,17 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         // archive providing them. The mirror_ptr_ guard below catches
         // the genuine "already published" case (mirror missing means
         // body never lowered locally → nothing to publish).
-        if (!fn.body) return;
-        dst.push_back({fn.name, fn.body.addr()});
+        auto b = fn.body();
+        if (!b) return;
+        dst.push_back({std::string(fn.name()), b.addr()});
     };
     for (auto& fn : prog.functions) {
-        if (fn && !fn->type_params.empty()) stash_template(generic_fn_templates, *fn);
+        if (fn && !fn.type_params_empty()) stash_template(generic_fn_templates, fn);
     }
     for (auto& sd : prog.structs) {
         if (sd.type_params.empty()) continue;
         for (auto& m : sd.methods) {
-            if (m) stash_template(generic_method_templates, *m);
+            if (m) stash_template(generic_method_templates, m);
         }
     }
 
@@ -482,8 +483,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                 out_exports->enum_templates.push_back(
                     {std::string(ed.pkg()), std::string(ed.name())});
         for (auto& fn : prog.functions)
-            if (!fn->type_params.empty())
-                out_exports->fn_templates.push_back(fn->name);
+            if (!fn.type_params_empty())
+                out_exports->fn_templates.push_back(std::string(fn.name()));
         for (auto& impl : prog.impls) {
             if (impl.is_negative) continue;
             if (impl.is_blanket) {
@@ -576,25 +577,26 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                     const_cast<uint8_t*>(addr)), holder)
                                 .put(lir_schema::stmt_keys::EXPORT_ID.code, av);
                         };
-                        auto try_publish = [&](const lir::LFunction& fn) {
-                            if (fn.is_extern) return;
-                            if (fn.is_specialization) return;
-                            if (!fn.type_params.empty()) return;
-                            if (fn.from_binary_module) return;
-                            if (!fn.body) return;
-                            hermes::AnyVal av; av.set_ref(fn.body.addr());
-                            if (auto r = hermes::arena_publish_named(*bld, fn.name, av)) {
-                                stamp_export_id(fn.body.addr(), *r);
+                        auto try_publish = [&](lir_view::FunctionView fn) {
+                            if (fn.is_extern()) return;
+                            if (fn.is_specialization()) return;
+                            if (!fn.type_params_empty()) return;
+                            if (fn.from_binary_module()) return;
+                            auto fb = fn.body();
+                            if (!fb) return;
+                            hermes::AnyVal av; av.set_ref(fb.addr());
+                            if (auto r = hermes::arena_publish_named(*bld, std::string(fn.name()), av)) {
+                                stamp_export_id(fb.addr(), *r);
                                 ++published;
                             }
                         };
                         for (auto& fn : prog.functions) {
-                            if (fn) try_publish(*fn);
+                            if (fn) try_publish(fn);
                         }
                         for (auto& sd : prog.structs) {
                             if (!sd.type_params.empty()) continue;  // generic struct
                             for (auto& m : sd.methods) {
-                                if (m) try_publish(*m);
+                                if (m) try_publish(m);
                             }
                         }
                         // Phase 5.B: also publish generic template bodies (free

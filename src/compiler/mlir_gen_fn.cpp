@@ -87,10 +87,12 @@ mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
     return logos_to_mlir(ret_type);
 }
 
-mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
+mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
+    const auto* mft_pool = pool_impl();
+    TypeRef fn_ret = fn.ret_type(mft_pool);
     llvm::SmallVector<mlir::Type> param_types;
-    for (auto& p : fn.params) {
-        TypeRef pt{p.type};
+    for (auto& p : fn.params()) {
+        TypeRef pt = p.type(mft_pool);
         if (is_anyval(pt)) {
             param_types.push_back(builder_.getI32Type());
             continue;
@@ -99,24 +101,24 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
         if (pt && pt.kind() == LogosType::Kind::Array)
             param_types.push_back(ptr_type());
         else {
-            auto t = logos_to_mlir(p.type);
+            auto t = logos_to_mlir(pt);
             if (t) param_types.push_back(t);
         }
     }
     llvm::SmallVector<mlir::Type> ret_types;
-    if (fn.ret_type) {
-        TypeRef rv{fn.ret_type};
+    if (fn_ret) {
+        TypeRef rv{fn_ret};
         if (is_anyval(rv)) {
             ret_types.push_back(builder_.getI32Type());
         } else
         // Tuples and structs are returned by value (as LLVM struct), not by pointer.
         // Returning a pointer to a local alloca would be a dangling pointer after return.
         if (rv.kind() == LogosType::Kind::Tuple) {
-            auto rt = tuple_llvm_type(fn.ret_type);
+            auto rt = tuple_llvm_type(fn_ret);
             if (rt) ret_types.push_back(rt);
         } else if (rv.kind() == LogosType::Kind::Struct ||
                    rv.kind() == LogosType::Kind::ZonedStruct) {
-            auto cname = mlir_struct_key(fn.ret_type);
+            auto cname = mlir_struct_key(fn_ret);
             auto sit = struct_types_.find(cname);
             if (sit != struct_types_.end())
                 ret_types.push_back(sit->second.llvm_type);
@@ -124,7 +126,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
                 ret_types.push_back(ptr_type()); // fallback (struct not yet registered)
         } else if (rv.kind() == LogosType::Kind::Enum) {
             // Tagged enums must also be returned by value (aggregate), not by pointer.
-            auto* te = resolve_tagged_enum(std::string(rv.enum_name()), fn.ret_type);
+            auto* te = resolve_tagged_enum(std::string(rv.enum_name()), fn_ret);
             if (te)
                 ret_types.push_back(te->llvm_type);
             else {
@@ -137,7 +139,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
             // → 8B value ptr) — mirrors fn_call_ret_llvm_type.
             ret_types.push_back(repr_return_type(rk));
         } else {
-            auto rt = logos_to_mlir(fn.ret_type);
+            auto rt = logos_to_mlir(fn_ret);
             if (rt) ret_types.push_back(rt);
         }
     }
@@ -148,8 +150,11 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
 // Forward declare
 // ---------------------------------------------------------------------------
 
-void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
+void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, lir_view::FunctionView fn,
                                     bool is_binary_skip) {
+    const auto* fd_pool = pool_impl();
+    std::string fn_name(fn.name());
+    TypeRef fn_ret = fn.ret_type(fd_pool);
     // Dup-check via declared_fn_names_ instead of mod.lookupSymbol:
     // MLIR's symbol table cache is invalidated by every push_back, so each
     // lookupSymbol re-walks the module — O(n) per call, O(n²) across the
@@ -159,14 +164,14 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
     // key off `link`; only the diagnostic keeps the raw fn.name.
     const std::string link = link_name(fn);
     if (!declared_fn_names_.insert(link).second) return;
-    if (fn.is_vararg) {
+    if (fn.is_vararg()) {
         // Vararg extern fns use llvm.func (func dialect doesn't support varargs)
         llvm::SmallVector<mlir::Type> param_types;
-        for (auto& p : fn.params) {
-            auto t = logos_to_mlir(p.type);
+        for (auto& p : fn.params()) {
+            auto t = logos_to_mlir(p.type(fd_pool));
             if (t) param_types.push_back(t);
         }
-        mlir::Type ret = fn.ret_type ? logos_to_mlir(fn.ret_type) : nullptr;
+        mlir::Type ret = fn_ret ? logos_to_mlir(fn_ret) : nullptr;
         if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types,
                                                                 /*isVarArg=*/true);
@@ -179,21 +184,21 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
     auto f = mlir::func::FuncOp::create(loc_, link, make_fn_type(fn));
     // Binary-skip and extern fns are declaration-only — set private at
     // creation time to avoid the separate setPrivate-by-name pass.
-    if (fn.is_extern || is_binary_skip) f.setPrivate();
+    if (fn.is_extern() || is_binary_skip) f.setPrivate();
     mod.push_back(f);
     // Record Logos-level param types for dyn coercion at call sites.
     std::vector<TypeRef> ptypes;
     std::vector<bool> powning;
-    for (auto& p : fn.params) { ptypes.push_back(p.type); powning.push_back(p.owning_box_dyn); }
+    for (auto& p : fn.params()) { ptypes.push_back(p.type(fd_pool)); powning.push_back(p.owning_box_dyn()); }
     // Module system: key the Logos-level param maps by BOTH the qualified link
     // name (the FuncOp's actual name) AND the bare fn.name. Bodies reference
     // BARE callees during emission (the canonical() bridge only fixes call names
     // post-hoc), so call-arg coercion (fn_param_types_.find(callee)) must hit on
     // the bare key too — else args are passed un-coerced (e.g. a by-value enum
     // word not spilled to its ptr param → operand type mismatch).
-    if (link != fn.name) {
-        fn_param_types_[fn.name] = ptypes;
-        fn_param_owning_box_dyn_[fn.name] = powning;
+    if (link != fn_name) {
+        fn_param_types_[fn_name] = ptypes;
+        fn_param_owning_box_dyn_[fn_name] = powning;
     }
     fn_param_types_[link] = std::move(ptypes);
     fn_param_owning_box_dyn_[link] = std::move(powning);
@@ -203,7 +208,11 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
 // Function body
 // ---------------------------------------------------------------------------
 
-bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn) {
+bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionView fn) {
+    const auto* gfb_pool = pool_impl();
+    auto fn_params = fn.params();
+    auto fn_body = fn.body();
+    TypeRef fn_ret = fn.ret_type(gfb_pool);
     // Guard: two distinct LFunctions producing the same mangled name would
     // otherwise both call addEntryBlock on the same FuncOp, resulting in a
     // single function with two unrelated bodies stitched together. Bug
@@ -218,7 +227,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
             "functions resolved to the same mangled name — likely a "
             "private fn in one package shadowed by a pub fn of the same "
             "base name in an imported package. Rename one to disambiguate.\n",
-            fn.name.c_str());
+            std::string(fn.name()).c_str());
         return false;
     }
     auto* entry = func.addEntryBlock();
@@ -246,9 +255,11 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     loop_stack_.clear();
 
     // Bind parameters.
-    for (size_t i = 0; i < fn.params.size(); ++i) {
-        auto& p = fn.params[i];
-        scope_[p.name] = entry->getArgument(i);
+    for (size_t i = 0; i < fn_params.size(); ++i) {
+        auto& p = fn_params[i];
+        std::string pname(p.name());
+        TypeRef ptype = p.type(gfb_pool);
+        scope_[pname] = entry->getArgument(i);
         // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
         // pointer VALUE, so `&p` is the address of the param's own slot — record
         // them so EAddrOf spills (scalars are caught there by an SSA-type check;
@@ -257,13 +268,13 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         // by logos kind only (no MLIR-arg query — safe for zero-size/`!` params
         // that are elided from the signature). Ref/MutRef additionally rebind
         // for `&&mut T` write-through.
-        if (p.type) {
-            auto pk = TypeRef(p.type).kind();
+        if (ptype) {
+            auto pk = ptype.kind();
             if (pk == LogosType::Kind::Ptr || pk == LogosType::Kind::Ref ||
                 pk == LogosType::Kind::MutRef)
-                ptr_family_param_.insert(p.name);
+                ptr_family_param_.insert(pname);
             if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
-                ref_param_names_.insert(p.name);
+                ref_param_names_.insert(pname);
         }
 
         // Track subscript element type for pointer / reference parameters.
@@ -272,8 +283,8 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                    k == LogosType::Kind::Ref ||
                    k == LogosType::Kind::MutRef;
         };
-        if (p.type) {
-            TypeRef pv{p.type};
+        if (ptype) {
+            TypeRef pv{ptype};
             if (is_ptr_kind(pv.kind()) && pv.pointee()) {
                 // For ptr-to-struct, the subscript stride must be
                 // sizeof(struct), not sizeof(ptr) — `logos_to_mlir(Struct)`
@@ -297,7 +308,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                     if (sit != struct_types_.end()) et = sit->second.llvm_type;
                 }
                 if (!et) et = logos_to_mlir(pe);
-                if (et) var_subscript_[p.name] = et;
+                if (et) var_subscript_[pname] = et;
             } else if (pv.kind() == LogosType::Kind::Slice && pv.elem()) {
                 // G162-2: a `&[T]` / `&mut [T]` slice param arrives as a
                 // pointer to the fat `{ptr, len}` descriptor. Indexed
@@ -314,7 +325,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                     if (sit != struct_types_.end()) et = sit->second.llvm_type;
                 }
                 if (!et) et = logos_to_mlir(se);
-                if (et) var_slice_[p.name] = et;
+                if (et) var_slice_[pname] = et;
             } else if (pv.kind() == LogosType::Kind::Array && pv.elem()) {
                 // Array params arrive as `ptr` (per make_fn_type). Without an
                 // explicit subscript entry, gen_index_read's
@@ -338,7 +349,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                     if (sit != struct_types_.end()) et = sit->second.llvm_type;
                 }
                 if (!et) et = logos_to_mlir(ae);
-                if (et) var_subscript_[p.name] = et;
+                if (et) var_subscript_[pname] = et;
             }
         }
 
@@ -349,8 +360,8 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         // scalar branch (which allocas the handle and then mis-GEPs it as the
         // fat pair → SIGSEGV). Var-ref returns it->second either way, so this
         // doesn't change the direct path.
-        if (p.type) {
-            TypeRef pv{p.type};
+        if (ptype) {
+            TypeRef pv{ptype};
             TypeRef trait_t;
             if (pv.kind() == LogosType::Kind::TraitObject)
                 trait_t = pv;
@@ -360,7 +371,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                      TypeRef(pv.pointee()).kind() == LogosType::Kind::TraitObject)
                 trait_t = pv.pointee();
             if (trait_t) {
-                var_dyn_trait_[p.name] = std::string(TypeRef(trait_t).trait_name());
+                var_dyn_trait_[pname] = std::string(TypeRef(trait_t).trait_name());
                 // A `*const/*mut dyn Trait` PARAM holds the raw trait-object fat
                 // pointer (the handle) by value — the Rust raw-fat-ptr, not a
                 // pointer-to-handle — so `*p` is the no-op default in EDeref
@@ -370,17 +381,17 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
         }
 
         // Track struct type for parameters (including 'self').
-        if (p.type) {
-            TypeRef pv{p.type};
+        if (ptype) {
+            TypeRef pv{ptype};
             std::string sname;
             if (pv.kind() == LogosType::Kind::Struct ||
                 pv.kind() == LogosType::Kind::ZonedStruct)
-                sname = mlir_struct_key(p.type);
+                sname = mlir_struct_key(ptype);
             else if (is_ptr_kind(pv.kind()) && pv.pointee() &&
                      (pv.pointee().kind() == LogosType::Kind::Struct ||
                       pv.pointee().kind() == LogosType::Kind::ZonedStruct))
                 sname = mlir_struct_key(pv.pointee());
-            if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
+            if (!sname.empty()) { var_struct_[pname] = std::move(sname); continue; }
 
             // G157-1: a by-value TAGGED-enum param (e.g. `x: Option<i64>`)
             // arrives as the heap ptr (one level). Register it like a local
@@ -393,7 +404,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
             // gate on a resolvable TaggedEnumInfo.
             if (pv.kind() == LogosType::Kind::Enum &&
                 resolve_tagged_enum(std::string(pv.enum_name()), pv)) {
-                var_tagged_enum_.insert(p.name);
+                var_tagged_enum_.insert(pname);
                 continue;
             }
         }
@@ -401,7 +412,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
 
     auto ret_types = func.getFunctionType().getResults();
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
-    cur_fn_ret_logos_type_ = fn.ret_type;
+    cur_fn_ret_logos_type_ = fn_ret;
     cur_fn_name_ = link_name(fn);
 
     // B8 drop elaboration: decide which declared-uninit vars need a runtime drop
@@ -409,9 +420,9 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     // maintain its flag from its very first assignment, which is lowered before
     // we'd otherwise discover a later conditional assignment.
     { std::unordered_map<std::string, int> decl_depth;
-      prescan_uninit_flags(fn.body, 0, decl_depth); }
+      prescan_uninit_flags(fn_body, 0, decl_depth); }
 
-    gen_block(fn.body);
+    gen_block(fn_body);
 
     if (!is_terminated(builder_.getBlock())) {
         if (ret_types.empty()) {

@@ -44,12 +44,13 @@ using LExprPtr     = lir_view::ExprRef;
 // Stage D: blocks are eager-emitted mirror VIEWS. LBlockPtr is a BlockRef
 // handle (each IS its mirror); complete a block via lir_mirror_block(prog, vec).
 using LBlockPtr    = lir_view::BlockRef;
-// M5 step 6: shared_ptr so SemaCache can hold per-binary-AST cached
-// LFunctions across sema_lower invocations. Refcount-cheap copy on
-// install (no per-fn deep-clone). All call sites that `push_back`
-// `std::make_unique<LFunction>(...)` continue to compile — shared_ptr
-// has an implicit converting constructor from unique_ptr.
-using LFunctionPtr = std::shared_ptr<LFunction>;
+// Stage E (decl→Hermes): LFunctionPtr is a FunctionView handle over the
+// function's Hermes decl mirror (each IS its mirror, like LBlockPtr). The
+// C++ `struct LFunction` survives only as a transient BUILD BUFFER: code
+// builds one, emits it (lir_mirror_emit_fn_view), stores the View. Stored
+// collections (LProgram::functions/specializations, {Struct,Trait,Impl}Def::
+// methods, SemaCache) hold Views — refcount-free, arena-stable.
+using LFunctionPtr = lir_view::FunctionView;
 
 // ── Patterns (for match arms) ─────────────────────────────────────────────
 //
@@ -1384,6 +1385,20 @@ inline std::string link_name(const Fn& fn,
     std::string prefix = fn.package + ".";
     if (fn.name.rfind(prefix, 0) == 0) return it->second + ".." + fn.name;
     return fn.name;
+}
+
+// FunctionView overload (Stage E: LFunction storage is a Hermes mirror View).
+// String fields are method-accessed; same logic as the struct template above.
+inline std::string link_name(lir_view::FunctionView fn,
+                             const std::unordered_map<std::string, std::string>& pkg_module_ids) {
+    std::string pkg(fn.package());
+    std::string nm(fn.name());
+    if (pkg.empty()) return nm;
+    auto it = pkg_module_ids.find(pkg);
+    if (it == pkg_module_ids.end() || it->second.empty()) return nm;
+    std::string prefix = pkg + ".";
+    if (nm.rfind(prefix, 0) == 0) return it->second + ".." + nm;
+    return nm;
 }
 
 } // namespace sym

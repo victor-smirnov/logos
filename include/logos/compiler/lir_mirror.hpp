@@ -66,6 +66,13 @@ void lir_mirror_emit_function(lir::LProgram& prog,
                               LirMirrorTable& table,
                               lir::LFunction& fn);
 
+// Stage E convenience: emit `fn`'s decl mirror into `prog` and return a
+// FunctionView over it. Used at the storage push sites (vector<FunctionView>):
+//   coll.push_back(lir_mirror_emit_fn_view(prog, fn));
+// The View points at the arena mirror, so `fn` may be discarded afterwards.
+lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
+                                               lir::LFunction& fn);
+
 // Run the full emit driver but extend an existing table rather than create a
 // fresh one. Used by mono as a fixup pass to cover items not reached via the
 // per-function path (consts, impls, struct methods of non-instantiated

@@ -94,8 +94,12 @@ public:
     // its own map. Idempotent enough — segments never move, maps are append.
     void emit_function(LFunction& f) {
         if (dry_run_) return;  // back-fill mode: keep existing bridge intact
+        // The function decl writes up to ~28 sparse keys (NAME=1 … BODY_EXTERNAL_REF=37);
+        // a TinyObjectMap has FIXED capacity and silently drops puts past it, so size
+        // the map for the full key set (was the default cap=8 → PARAMS/TYPE_PARAMS and
+        // every later field were dropped, making FunctionView read 0 params).
         auto map_off = make_map(hermes::schema::lir_stmt(
-            int32_t(lir_schema::decl::Code::Func)));
+            int32_t(lir_schema::decl::Code::Func)), /*cap=*/40);
         put(map_off, dk::NAME, put_string(f.name));
         if (!f.method_base.empty()) put(map_off, dk::METHOD_BASE, put_string(f.method_base));
         if (!f.package.empty())     put(map_off, dk::PKG,         put_string(f.package));
@@ -298,6 +302,11 @@ public:
         put(map_off, tbk::TB_TRAIT_NAME, put_string(tb.trait_name));
         auto a = type_array(tb.type_args);
         if (!a.is_null()) put(map_off, tbk::TB_TYPE_ARGS, a);
+        if (!tb.hrtb_binders.empty()) {
+            auto arr_off = make_array(tb.hrtb_binders.size());
+            for (auto& s : tb.hrtb_binders) array_push(arr_off, put_string(s));
+            put(map_off, tbk::TB_HRTB_BINDERS, mref_addr(arr_off));
+        }
         return mref_addr(map_off);
     }
     // TYPE_PARAMS / IMPL_TYPE_PARAMS array element (fn TypeParam sub-map; richer
@@ -1811,27 +1820,12 @@ const uint8_t* LirMirrorEmitter::emit_pat(const Pattern& p) {
 // ──────────────────────────────────────────────────────────────────────────
 
 void LirMirrorEmitter::run(lir::LProgram& prog) {
-    auto walk_fn = [&](LFunction& f) {
-        // Stage E: emit the function DECL mirror for EVERY function (incl.
-        // extern + metaprog stubs — their name/is_extern/flags are read).
-        // Body sub-nodes were already eager-mirrored at sema (Stage D); this
-        // only builds the decl map + bridge.
-        emit_function(f);
-    };
-    for (auto& f : prog.functions)        walk_fn(*f);
-    for (auto& f : prog.specializations)  walk_fn(*f);
-    for (auto& s : prog.structs)
-        for (auto& m : s.methods) walk_fn(*m);
-    for (auto& s : prog.struct_specializations)
-        for (auto& m : s.methods) walk_fn(*m);
-    for (auto& i : prog.impls)
-        for (auto& m : i.methods) walk_fn(*m);
-    for (auto& t : prog.traits) {
-        // Trait method signatures don't carry bodies in LIR yet — skip.
-        (void)t;
-    }
-    for (auto& c : prog.consts)
-        (void)c;  // const value mirrors are eager-emitted (ExprRef); nothing to walk
+    // Stage E: functions are now stored as FunctionViews (their decl mirror is
+    // emitted eagerly at each push via lir_mirror_emit_fn_view). Nothing to
+    // emit here — body sub-nodes were eager-mirrored at sema (Stage D); const
+    // value mirrors are eager ExprRefs. run() is retained as the post-sema
+    // entry point but has no remaining per-item emit work.
+    (void)prog;
 }
 
 } // namespace
@@ -1866,6 +1860,12 @@ void lir_mirror_emit_function(lir::LProgram& prog,
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, table, prog.type_pool);
     em.emit_function(fn);
+}
+
+lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
+                                               lir::LFunction& fn) {
+    lir_mirror_emit_function(prog, *prog.mirror_table, fn);
+    return fn.view();
 }
 
 void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table) {
@@ -2364,11 +2364,10 @@ void lir_mirror_retype_expr(lir::LProgram& prog,
 }
 
 void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, table, prog.type_pool);
-    for (auto& i : prog.impls)
-        for (auto& m : i.methods) em.emit_function(*m);
-    // const value mirrors are eager-emitted (ExprRef); nothing to re-walk.
+    // Stage E: impl methods are FunctionViews (decl mirror eager-emitted at
+    // push); their bridge IS the mirror pointer, so a std::move carries them
+    // intact — nothing to back-fill. const value mirrors are eager ExprRefs.
+    (void)prog; (void)table;
 }
 
 // ── Per-node entry points (Stage 3g.1) ────────────────────────────────────

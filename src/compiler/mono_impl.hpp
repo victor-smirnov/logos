@@ -146,8 +146,8 @@ protected:
     }
 private:
 
-    StrMap<const lir::LFunction*>  templates_;
-    StrMap<std::vector<const lir::LFunction*>> specs_;
+    StrMap<lir_view::FunctionView>  templates_;
+    StrMap<std::vector<lir_view::FunctionView>> specs_;
     StrMap<const lir::LStructDef*> struct_templates_;
     // ALL structs (generic templates AND non-generic), by bare + pkg-qualified
     // name. struct_templates_ holds GENERICS ONLY, so the `*mut DstStruct`→DstRef
@@ -367,7 +367,7 @@ private:
 
     struct WorkItem {
         std::string                mangled;
-        const lir::LFunction*      tmpl;
+        lir_view::FunctionView     tmpl;
         SubstMap                   subst;
         PackMap                    packs;
         int                        depth;
@@ -395,7 +395,7 @@ private:
     //
     // Index: base struct/enum name → method name → method template fn (lives
     // in the input struct's sd.methods, heap-stable through unique_ptr).
-    StrMap<StrMap<const lir::LFunction*>> struct_method_templates_;
+    StrMap<StrMap<lir_view::FunctionView>> struct_method_templates_;
     // M2: centralized struct_method_templates_ outer lookup. Tries
     // `pkg.base` first; falls back to bare `base` ONLY if the struct
     // isn't registered in this pkg at all (the pkg_struct_exists guard
@@ -410,7 +410,7 @@ private:
     // pkg_struct_exists guard for historical reasons (mono_clone.cpp
     // :2338). Tries the full string first; on miss, if there's a dot
     // present, retries with the portion after the last dot.
-    const StrMap<const lir::LFunction*>*
+    const StrMap<lir_view::FunctionView>*
     find_struct_method_templates_unguarded(std::string_view qkey) const noexcept {
         if (auto it = struct_method_templates_.find(std::string(qkey));
             it != struct_method_templates_.end())
@@ -423,7 +423,7 @@ private:
         }
         return nullptr;
     }
-    const StrMap<const lir::LFunction*>*
+    const StrMap<lir_view::FunctionView>*
     find_struct_method_templates_guarded(std::string_view pkg, std::string_view base) const noexcept {
         bool pkg_exists = has_struct_template_pkg(pkg, base);
         if (!pkg.empty()) {
@@ -446,7 +446,7 @@ private:
         std::string             struct_pkg;      // pkg of receiver struct (for cross-pkg disambig)
         std::string             base_struct;     // e.g. "Foo"
         std::string             method_name;     // short name (e.g. "bar"), used as dest suffix
-        const lir::LFunction*   tmpl;            // resolved template (overload-aware)
+        lir_view::FunctionView  tmpl;            // resolved template (overload-aware)
         SubstMap                subst;
         PackMap                 packs;
         int                     depth;
@@ -488,7 +488,7 @@ private:
     // Prune-mode (entry_points_ non-empty) free-fn reachability worklist.
     // free_fn_index_ maps every non-generic free fn's name to its template;
     // enqueue_free_fn pushes a name once; drain_free_fn_queue clones each.
-    std::unordered_map<std::string, const lir::LFunction*> free_fn_index_;
+    std::unordered_map<std::string, lir_view::FunctionView> free_fn_index_;
     std::vector<std::string> free_fn_queue_;
     StrSet free_fn_queued_;
     void enqueue_free_fn(const std::string& name);
@@ -820,7 +820,7 @@ private:
         return lir_mirror_block(out_, nb);
     }
 
-    lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s,
+    lir::LFunction clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                              const PackMap& packs = {});
 
     // Signature-only clone for binary-symbol fast path: copies name/flags
@@ -829,7 +829,7 @@ private:
     // mlir_gen skips body emission for binary_symbols fns anyway. Caller
     // must NOT call lir_mirror_emit_function / scan_fn on the result;
     // body.mirror_ptr_ stays default, and scan_fn early-returns on that.
-    lir::LFunction clone_fn_signature(const lir::LFunction& fn, const SubstMap& s,
+    lir::LFunction clone_fn_signature(lir_view::FunctionView fn, const SubstMap& s,
                                        const PackMap& packs = {});
 
     // Auto-trait structural check.  Mirrors sema_auto_trait.cpp::is_auto_trait_satisfied
@@ -841,7 +841,7 @@ private:
     // L1.4: bound gate, factored out of clone_struct_def for re-use in
     // drain_method_worklist. Returns false when method `m`'s impl_type_params
     // bounds are not satisfied under substitution `s`.
-    bool method_bound_ok(const lir::LFunction& m, const SubstMap& s);
+    bool method_bound_ok(lir_view::FunctionView m, const SubstMap& s);
 
     // Recursive trait-satisfaction at mono-time: does `concrete_name`
     // implement `trait_name` directly via concrete_impls_, or transitively
@@ -888,6 +888,7 @@ private:
     // requires lir_mirror_emit_function to have been called for `fn`
     // before scan_fn — see clone+push_back sites in mono.cpp.
     void scan_fn(const lir::LFunction& fn);
+    void scan_fn(lir_view::FunctionView fn);
     void scan_block(lir_view::BlockRef b);
     void scan_stmt(lir_view::StmtRef s);
     void scan_expr(lir_view::ExprRef e);
@@ -1039,7 +1040,7 @@ private:
     }
 
     // ── Spec selection (defined in mono_scan.cpp) ─────────────────────────
-    const lir::LFunction*  find_best_spec(const std::string& base_name,
+    lir_view::FunctionView find_best_spec(const std::string& base_name,
                                           const std::vector<TypeRef>& type_args);
     const lir::LStructDef* find_best_struct_spec(const std::string& base_name,
                                                   const std::vector<TypeRef>& type_args);
@@ -1059,7 +1060,7 @@ private:
     //    forwarding analysis / spec clone — free fns + struct methods in in_.
     static std::vector<size_t> const_intrinsic_positions(const std::string& name);
     const std::vector<size_t>& compute_const_want(const std::string& base);
-    const lir::LFunction* find_fn_def_by_base(const std::string& base);
+    lir_view::FunctionView find_fn_def_by_base(const std::string& base);
     // Try to read a compile-time constant out of a (cloned) call argument.
     bool try_read_const_arg(lir_view::ExprRef arg, ConstArgVal& out);
     // At a finalized call: if the callee has const-want params filled with
@@ -1080,12 +1081,12 @@ private:
                              const std::string& method_name);
 
     // Drain method_worklist_: clone each pending method under its struct's
-    // substitution, rename to "<concrete>__<method>", append to the matching
-    // LStructDef in out_.structs (heap-stable through shared_ptr<LFunction>),
-    // mirror-emit, and scan for further calls.
+    // substitution, rename to "<concrete>__<method>", emit its decl mirror and
+    // append the FunctionView to the matching LStructDef in out_.structs
+    // (arena-stable mirror), and scan for further calls.
     void drain_method_worklist();
 
-    lir::LFunction instantiate_fn(const lir::LFunction& tmpl,
+    lir::LFunction instantiate_fn(lir_view::FunctionView tmpl,
                                    const std::string& mangled_name,
                                    const SubstMap& subst,
                                    const PackMap& packs = {}) {

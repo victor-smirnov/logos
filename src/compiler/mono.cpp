@@ -28,11 +28,10 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
                                     const std::string& tmpl_prefix,
                                     const std::string& concrete, TypeRef candidate_t) {
     if (!candidate_t) return;
-    for (auto& tfn_up : in_.functions) {
-        auto& tfn = *tfn_up;
+    for (auto& tfn : in_.functions) {
         // Strip pkg prefix (`pkg.`) before matching the synthetic
         // `$blanket$...` template prefix.
-        std::string tn = tfn.name;
+        std::string tn = std::string(tfn.name());
         if (auto dot = tn.rfind('.'); dot != std::string::npos)
             tn = tn.substr(dot + 1);
         if (tn.rfind(tmpl_prefix, 0) != 0) continue;
@@ -59,14 +58,14 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
         // supply (e.g. the OUTPUT `D` in `impl<S, D: From<S>> Into<D> for S`) —
         // those instantiate at the real call site with full type_args.
         bool all_tp_bound = true;
-        for (auto& tp : tfn.type_params) {
-            if (tp.is_variadic) continue;
-            if (!subst.count(tp.name)) { all_tp_bound = false; break; }
+        for (auto& tp : tfn.type_params()) {
+            if (tp.is_variadic()) continue;
+            if (!subst.count(std::string(tp.name()))) { all_tp_bound = false; break; }
         }
         if (!all_tp_bound) continue;
         WorkItem wi;
         wi.mangled = dest;
-        wi.tmpl    = &tfn;
+        wi.tmpl    = tfn;
         wi.subst   = std::move(subst);
         wi.depth   = 0;
         worklist_.push_back(std::move(wi));
@@ -95,24 +94,22 @@ void Mono::drain_free_fn_queue() {
         free_fn_queue_.pop_back();
         auto it = free_fn_index_.find(name);
         if (it == free_fn_index_.end()) continue;
-        const lir::LFunction& fn = *it->second;
-        if (has_prev_out_ && done_.count(fn.name)) continue;
+        lir_view::FunctionView fn = it->second;
+        if (has_prev_out_ && done_.count(std::string(fn.name()))) continue;
         // Binary-symbol fast path (mirrors the eager loop): the body lives in
         // a linked archive, so emit a signature-only stub and skip the scan —
         // the archive is self-contained for this fn's transitive closure.
-        if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
+        if (!in_.binary_symbols.empty() && in_.binary_symbols.count(std::string(fn.name()))) {
             auto stub = clone_fn_signature(fn, {}, {});
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
-            if (has_prev_out_) done_.insert(fn.name);
+            out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+            if (has_prev_out_) done_.insert(std::string(fn.name()));
             ++stats_.fn_clones;
             continue;
         }
         auto cloned = clone_fn(fn, {});
-        out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
-        auto& fn_ref = *out_.functions.back();
-        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-        scan_fn(fn_ref);
-        if (has_prev_out_) done_.insert(fn.name);
+        out_.functions.push_back(lir_mirror_emit_fn_view(out_, cloned));
+        scan_fn(cloned);
+        if (has_prev_out_) done_.insert(std::string(fn.name()));
         ++stats_.fn_clones;
     }
 }
@@ -180,17 +177,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // pkg::name for structs/enums). For struct methods we also seed
         // done_methods_ from each struct's .methods vector.
         for (auto& fp : out_.functions)
-            if (fp) done_.insert(fp->name);
+            if (fp) done_.insert(std::string(fp.name()));
         for (auto& fp : out_.specializations)
-            if (fp) done_.insert(fp->name);
+            if (fp) done_.insert(std::string(fp.name()));
         for (auto& sd : out_.structs) {
             auto qkey = sd.pkg.empty() ? sd.name : (sd.pkg + "." + sd.name);
             struct_done_.insert(qkey);
             struct_done_.insert(sd.name);
             for (auto& m : sd.methods) {
                 if (!m) continue;
-                done_methods_.insert(sd.name + "__" + m->name);
-                done_.insert(m->name);
+                done_methods_.insert(sd.name + "__" + std::string(m.name()));
+                done_.insert(std::string(m.name()));
             }
         }
         for (auto& sd : out_.struct_specializations) {
@@ -199,8 +196,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             struct_done_.insert(sd.name);
             for (auto& m : sd.methods) {
                 if (!m) continue;
-                done_methods_.insert(sd.name + "__" + m->name);
-                done_.insert(m->name);
+                done_methods_.insert(sd.name + "__" + std::string(m.name()));
+                done_.insert(std::string(m.name()));
             }
         }
         for (auto& ed : out_.enums) {
@@ -273,8 +270,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // by finding `Base__` and reading until next `__`.
         std::string prefix = sd.name + "__";
         for (auto& m : sd.methods) {
+            std::string m_name(m.name());
             std::string short_name;
-            auto p = m->name.find(prefix);
+            auto p = m_name.find(prefix);
             if (p != std::string::npos) {
                 size_t start = p + prefix.size();
                 // The mangled tail looks like `<short>__[fg]__<sig>` (or just
@@ -285,32 +283,32 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // overload-disambig boundary instead, falling back to plain
                 // `__` only when neither is present.
                 auto find_sig_boundary = [&](size_t from) -> size_t {
-                    auto pf = m->name.find("__f__", from);
-                    auto pg = m->name.find("__g__", from);
+                    auto pf = m_name.find("__f__", from);
+                    auto pg = m_name.find("__g__", from);
                     if (pf == std::string::npos) return pg;
                     if (pg == std::string::npos) return pf;
                     return std::min(pf, pg);
                 };
                 auto end = find_sig_boundary(start);
                 if (end == std::string::npos)
-                    end = m->name.find("__", start);
+                    end = m_name.find("__", start);
                 // Overloaded generic methods (`__g__<sig>` tail): keep the
                 // full tail as the key — a short-name key is one slot and
                 // silently drops all but the last overload (Pin<&T>::new vs
                 // Pin<&mut T>::new vs Pin<Box<T>>::new). Every lookup site
                 // already prefix-matches `<short>__g__*`.
                 if (end != std::string::npos &&
-                    m->name.compare(end, 5, "__g__") == 0)
+                    m_name.compare(end, 5, "__g__") == 0)
                     end = std::string::npos;
                 short_name = (end == std::string::npos)
-                             ? m->name.substr(start)
-                             : m->name.substr(start, end - start);
+                             ? m_name.substr(start)
+                             : m_name.substr(start, end - start);
             } else {
-                short_name = m->name;
+                short_name = m_name;
             }
             if (!sd.pkg.empty())
-                struct_method_templates_[sd.pkg + "." + sd.name][short_name] = m.get();
-            struct_method_templates_[sd.name][short_name] = m.get();
+                struct_method_templates_[sd.pkg + "." + sd.name][short_name] = m;
+            struct_method_templates_[sd.name][short_name] = m;
         }
     }
     // Move non-generic structs to output.
@@ -346,8 +344,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index generic fn templates.
     for (auto& fn : in_.functions) {
-        if (!fn->type_params.empty())
-            templates_[fn->name] = fn.get();
+        if (!fn.type_params_empty())
+            templates_[std::string(fn.name())] = fn;
     }
 
     // Eagerly instantiate blanket-impl methods for every concrete type that
@@ -526,7 +524,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Index fn specialisations.
     for (auto& spec : in_.specializations)
-        specs_[spec->name].push_back(spec.get());
+        specs_[std::string(spec.name())].push_back(spec);
 
     // Index struct specialisations.
     for (auto& ss : in_.struct_specializations)
@@ -550,20 +548,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // a macro thunk, are simply never cloned.
     if (!entry_points_.empty()) {
         for (auto& fn_up : in_.functions) {
-            if (!fn_up || !fn_up->type_params.empty()) continue;
-            free_fn_index_.emplace(fn_up->name, fn_up.get());
+            if (!fn_up || !fn_up.type_params_empty()) continue;
+            free_fn_index_.emplace(std::string(fn_up.name()), fn_up);
         }
         for (auto& ep : entry_points_) enqueue_free_fn(ep);
         drain_free_fn_queue();
     } else {
-        for (auto& fn_up : in_.functions) {
-            auto& fn = *fn_up;
-            if (!fn.type_params.empty()) continue;
+        for (auto& fn : in_.functions) {
+            if (!fn.type_params_empty()) continue;
             // M6.2: skip when prev_out_ already cloned this fn (done_ seed).
             // Gated on has_prev_out_ so the default-mode walk doesn't acquire
             // the new done_ insert side-effect (which would shift state for
             // unrelated code paths consulting done_ later).
-            if (has_prev_out_ && done_.count(fn.name)) continue;
+            if (has_prev_out_ && done_.count(std::string(fn.name()))) continue;
             // Binary-symbol fast path: the body lives in liblstdlib.a (or a
             // user -L archive). mlir_gen would skip body emission anyway, so
             // the deep body clone + mirror emit + scan_fn are pure waste here.
@@ -571,19 +568,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // are already pre-baked in the same archive (otherwise the archive
             // wouldn't link), so dropping the scan can't leave the worklist
             // missing a required instantiation.
-            if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
+            if (!in_.binary_symbols.empty() && in_.binary_symbols.count(std::string(fn.name()))) {
                 auto stub = clone_fn_signature(fn, {}, {});
-                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
-                if (has_prev_out_) done_.insert(fn.name);
+                out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
+                if (has_prev_out_) done_.insert(std::string(fn.name()));
                 ++stats_.fn_clones;
                 continue;
             }
             auto cloned = clone_fn(fn, {});
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
-            auto& fn_ref = *out_.functions.back();
-            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-            scan_fn(fn_ref);
-            if (has_prev_out_) done_.insert(fn.name);
+            out_.functions.push_back(lir_mirror_emit_fn_view(out_, cloned));
+            scan_fn(cloned);
+            if (has_prev_out_) done_.insert(std::string(fn.name()));
             ++stats_.fn_clones;
         }
     }
@@ -602,10 +597,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // + scan_fn to save the deep body walk.
         if (!in_.binary_symbols.empty() &&
             in_.binary_symbols.count(item.mangled)) {
-            auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+            auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
             stub.name = item.mangled;
             stub.type_params.clear();
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
             ++stats_.fn_instances;
             note_fn_worklist_size(worklist_.size());
             continue;
@@ -614,12 +609,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // exposing them to subst_expr's VarRef case for the body walk only.
         current_const_args_.clear();
         for (auto& [pn, cv] : item.const_args) current_const_args_[pn] = cv;
-        auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+        auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
         current_const_args_.clear();
-        out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
-        auto& fn_ref = *out_.functions.back();
-        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-        scan_fn(fn_ref);
+        out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
+        scan_fn(inst);
         ++stats_.fn_instances;
         note_fn_worklist_size(worklist_.size());
     }
@@ -674,16 +667,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             worklist_.pop_back();
             depth_ = item.depth;
             if (!in_.binary_symbols.empty() && in_.binary_symbols.count(item.mangled)) {
-                auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+                auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                 stub.name = item.mangled; stub.type_params.clear();
-                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
                 continue;
             }
-            auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
-            auto& fn_ref = *out_.functions.back();
-            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-            scan_fn(fn_ref);
+            auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
+            out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
+            scan_fn(inst);
         }
         depth_ = 0;
     }
@@ -782,17 +773,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             depth_ = item.depth;
             if (!in_.binary_symbols.empty() &&
                 in_.binary_symbols.count(item.mangled)) {
-                auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+                auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                 stub.name = item.mangled;
                 stub.type_params.clear();
-                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
                 continue;
             }
-            auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
-            auto& fn_ref = *out_.functions.back();
-            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-            scan_fn(fn_ref);
+            auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
+            out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
+            scan_fn(inst);
         }
         if (!needed_struct_insts_.empty()) instantiate_struct_templates();
         instantiate_enum_templates();
@@ -859,17 +848,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 depth_ = item.depth;
                 if (!in_.binary_symbols.empty() &&
                     in_.binary_symbols.count(item.mangled)) {
-                    auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+                    auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                     stub.name = item.mangled;
                     stub.type_params.clear();
-                    out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                    out_.functions.push_back(lir_mirror_emit_fn_view(out_, stub));
                     continue;
                 }
-                auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
-                auto& fn_ref = *out_.functions.back();
-                lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-                scan_fn(fn_ref);
+                auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
+                out_.functions.push_back(lir_mirror_emit_fn_view(out_, inst));
+                scan_fn(inst);
             }
             if (!needed_struct_insts_.empty()) instantiate_struct_templates();
             instantiate_enum_templates();
@@ -908,10 +895,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                     // so the dispatch table init resolves correctly.
                     std::string actual_sym;
                     for (auto& sm : sd.methods)
-                        if (bare_fn_name(sm->name) == sym) { actual_sym = sm->name; break; }
+                        if (bare_fn_name(sm.name()) == sym) { actual_sym = std::string(sm.name()); break; }
                     if (actual_sym.empty()) {
                         for (auto& f : out_.functions)
-                            if (bare_fn_name(f->name) == sym) { actual_sym = f->name; break; }
+                            if (bare_fn_name(f.name()) == sym) { actual_sym = std::string(f.name()); break; }
                     }
                     if (actual_sym.empty()) continue;
                     // Dedup: skip if an equivalent entry already exists (sema

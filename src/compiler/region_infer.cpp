@@ -25,10 +25,11 @@ bool is_mut_ref_type(TypeRef t) {
 
 } // namespace
 
-void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog) {
+void RegionInferer::analyze(lir_view::FunctionView fn, const lir::LProgram& prog) {
     // Body-less function (extern / stub / from_binary) — no mirror, nothing to
     // infer; skip so the BlockRef built from fn.body is never null.
-    if (!fn.body) return;
+    auto fn_body = fn.body();
+    if (!fn_body) return;
     cfg_.blocks.clear();
     borrows_.clear();
     constraints_.clear();
@@ -48,10 +49,12 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     // keyed) and region_infer's semantic constraint graph. Downstream
     // passes (HRTB instantiation, dropck, default trait-object lifetime)
     // consume named_region(name) → RegionId.
-    for (auto& lp : fn.lifetime_params)
-        if (!lp.empty()) named_regions_[lp] = fresh_region();
-    outlives_pairs_ = fn.lifetime_outlives;
-    for (auto& [longer, shorter] : fn.lifetime_outlives) {
+    for (auto lp : fn.lifetime_params())
+        if (!lp.empty()) named_regions_[std::string(lp)] = fresh_region();
+    outlives_pairs_.clear();
+    for (auto& [a, b] : fn.lifetime_outlives())
+        outlives_pairs_.emplace_back(std::string(a), std::string(b));
+    for (auto& [longer, shorter] : outlives_pairs_) {
         // Skip outlives clauses that mention an unknown lifetime — that
         // is a sema-level error already reported (region_infer is best-
         // effort here, not the diagnostic site).
@@ -67,7 +70,7 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     }
 
     cfg_.blocks.emplace_back();
-    walk_block(fn.body, /*blk_id=*/0, prog);
+    walk_block(fn_body, /*blk_id=*/0, prog);
     // After CFG construction, also walk every block one more time to
     // populate use_/def_ per StmtPoint. This is independent of the
     // borrow-walker (which targets AddrOf nodes only).

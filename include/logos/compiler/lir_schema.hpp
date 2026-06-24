@@ -466,8 +466,9 @@ inline constexpr Key FTP_LIFETIME_OUTLIVES {"FTP_LIFETIME_OUTLIVES", 7};  // Arr
 
 // TraitBound sub-map keys (own space) — element schema of FTP_BOUNDS.
 namespace fn_tbound_keys {
-inline constexpr Key TB_TRAIT_NAME {"TB_TRAIT_NAME", 1};  // Varchar
-inline constexpr Key TB_TYPE_ARGS  {"TB_TYPE_ARGS",  2};  // Array<RelPtr<LogosType>>
+inline constexpr Key TB_TRAIT_NAME   {"TB_TRAIT_NAME",   1};  // Varchar
+inline constexpr Key TB_TYPE_ARGS    {"TB_TYPE_ARGS",    2};  // Array<RelPtr<LogosType>>
+inline constexpr Key TB_HRTB_BINDERS {"TB_HRTB_BINDERS", 3};  // Array<Varchar> — for<'a> binders
 } // namespace fn_tbound_keys
 
 // where_type_bounds sub-map keys (own space) — pair (subject type, trait name).

@@ -29,6 +29,13 @@ void Mono::scan_fn(const lir::LFunction& fn) {
     scan_block(fn.body);
 }
 
+void Mono::scan_fn(lir_view::FunctionView fn) {
+    auto b = fn.body();
+    if (!b) return;
+    auto& arena = out_.type_pool.arena_or_init();
+    scan_block(b);
+}
+
 void Mono::scan_block(lir_view::BlockRef b) {
     if (!b) return;
     b.each_stmt([&](lir_view::StmtRef s) { scan_stmt(s); });
@@ -398,7 +405,7 @@ void Mono::scan_expr(lir_view::ExprRef e) {
 // ── Pattern matching (static, inline in mono_impl.hpp) ───────────
 
 // Return the most specific specialisation that matches type_args, or nullptr.
-const lir::LFunction* Mono::find_best_spec(
+lir_view::FunctionView Mono::find_best_spec(
     const std::string& base_name,
     const std::vector<TypeRef>& type_args) {
     auto sit = specs_.find(base_name);
@@ -416,23 +423,25 @@ const lir::LFunction* Mono::find_best_spec(
             raw = raw.substr(d + 1);
         sit = specs_.find(raw);
     }
-    if (sit == specs_.end()) return nullptr;
+    if (sit == specs_.end()) return {};
 
-    const lir::LFunction* best      = nullptr;
+    auto* fbs_pool = out_.type_pool.impl();
+    lir_view::FunctionView best;
     std::vector<int>      best_vec;
     bool                  ambiguous = false;
 
-    for (auto* spec : sit->second) {
-        if (spec->spec_patterns.size() != type_args.size()) continue;
+    for (auto spec : sit->second) {
+        auto sp = spec.spec_patterns(fbs_pool);
+        if (sp.size() != type_args.size()) continue;
         SubstMap dummy;
         bool ok = true;
         for (size_t i = 0; i < type_args.size(); ++i) {
-            if (!match_type(type_args[i], spec->spec_patterns[i], dummy)) {
+            if (!match_type(type_args[i], sp[i], dummy)) {
                 ok = false; break;
             }
         }
         if (!ok) continue;
-        auto svec = specificity_vec(spec->spec_patterns);
+        auto svec = specificity_vec(sp);
         if (!best || svec > best_vec) {
             best_vec  = svec;
             best      = spec;
@@ -490,7 +499,8 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
             // emit may carry only the bare struct name. struct_method_templates_
             // keys both pkg-qualified and bare.
             auto* smt_inner = find_struct_method_templates_unguarded(struct_part);
-            const lir::LFunction* tmpl = nullptr;
+            auto* mscan_pool = out_.type_pool.impl();
+            lir_view::FunctionView tmpl;
             if (smt_inner) {
                 auto mit = smt_inner->find(method_name);
                 if (mit == smt_inner->end()) {
@@ -566,9 +576,10 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                         // to an `llvm.unreachable` stub. See
                         // docs/track3-gaps/cross-package-impl-method-mono.md.
                         std::vector<std::string> impl_tvs;
-                        if (tmpl->type_params.empty() && tmpl->impl_target_pattern)
+                        TypeRef tmpl_itp = tmpl.impl_target_pattern(mscan_pool);
+                        if (tmpl.type_params_empty() && tmpl_itp)
                             collect_pattern_typevars(
-                                TypeRef(tmpl->impl_target_pattern), impl_tvs);
+                                TypeRef(tmpl_itp), impl_tvs);
                         if (!impl_tvs.empty() && impl_tvs.size() == type_args.size()) {
                             SubstMap subst;
                             for (size_t i = 0; i < impl_tvs.size(); ++i)
@@ -586,13 +597,14 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                             for (size_t i = 0; i < n_struct && i < type_args.size(); ++i)
                                 subst[sd_tpars[i].name] = type_args[i];
                             size_t i_meth = 0;
-                            for (auto& mtp : tmpl->type_params) {
+                            for (auto& mtp : tmpl.type_params()) {
+                                std::string mtp_name(mtp.name());
                                 bool is_struct = false;
                                 for (auto& stp : sd_tpars)
-                                    if (stp.name == mtp.name) { is_struct = true; break; }
+                                    if (stp.name == mtp_name) { is_struct = true; break; }
                                 if (is_struct) continue;
                                 if (n_struct + i_meth < type_args.size())
-                                    subst[mtp.name] = type_args[n_struct + i_meth];
+                                    subst[mtp_name] = type_args[n_struct + i_meth];
                                 ++i_meth;
                             }
                             done_.insert(mangled_callee);
@@ -618,10 +630,12 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     done_.insert(mangled_callee);
 
     // Prefer the most-specific matching specialisation over the generic template.
-    if (auto* spec = find_best_spec(orig_name, type_args)) {
+    auto* mscan_pool2 = out_.type_pool.impl();
+    if (auto spec = find_best_spec(orig_name, type_args)) {
+        auto sp = spec.spec_patterns(mscan_pool2);
         SubstMap subst;
-        for (size_t i = 0; i < spec->spec_patterns.size(); ++i)
-            match_type(type_args[i], spec->spec_patterns[i], subst);
+        for (size_t i = 0; i < sp.size(); ++i)
+            match_type(type_args[i], sp[i], subst);
         worklist_.push_back({mangled_callee, spec, std::move(subst), {}, depth_ + 1});
         return;
     }
@@ -629,12 +643,13 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     // Generic template fallback.
     auto tit = templates_.find(orig_name);
     if (tit == templates_.end()) return;
-    const lir::LFunction* tmpl = tit->second;
+    lir_view::FunctionView tmpl = tit->second;
 
     SubstMap subst;
     PackMap  packs;
-    bool has_variadic = !tmpl->type_params.empty() && tmpl->type_params.back().is_variadic;
-    size_t non_variadic_count = tmpl->type_params.size() - (has_variadic ? 1 : 0);
+    auto tmpl_tparams = tmpl.type_params();
+    bool has_variadic = !tmpl_tparams.empty() && tmpl_tparams.back().is_variadic();
+    size_t non_variadic_count = tmpl_tparams.size() - (has_variadic ? 1 : 0);
     // CP-cm-16 follow-up: partial-spec impl-target unification (parallel to
     // finish_generic_call in sema_expr.cpp). When the template is a method
     // of `impl<T,E> Trait for Foo<Vec<T>, E>`, the receiver-positional
@@ -643,8 +658,9 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     // bind T=i32, then layer any method-level type_args positionally.
     size_t impl_level_n = 0;
     bool used_impl_pattern = false;
-    if (tmpl->impl_target_pattern) {
-        auto pat = TypeRef(tmpl->impl_target_pattern);
+    TypeRef tmpl_itp2 = tmpl.impl_target_pattern(mscan_pool2);
+    if (tmpl_itp2) {
+        auto pat = TypeRef(tmpl_itp2);
         auto pa = pat.type_args();
         if (!pa.empty() && pa.size() <= type_args.size()) {
             SubstMap impl_bind;
@@ -653,8 +669,8 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                 if (!unify_impl_target(type_args[i], pa[i], impl_bind))
                     { ok = false; break; }
             if (ok) {
-                for (size_t i = 0; i < pa.size() && i < tmpl->type_params.size(); ++i) {
-                    auto it = impl_bind.find(tmpl->type_params[i].name);
+                for (size_t i = 0; i < pa.size() && i < tmpl_tparams.size(); ++i) {
+                    auto it = impl_bind.find(std::string(tmpl_tparams[i].name()));
                     if (it == impl_bind.end()) { ok = false; break; }
                 }
                 if (ok) {
@@ -667,26 +683,27 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     }
     for (size_t i = used_impl_pattern ? impl_level_n : 0;
          i < non_variadic_count && i < type_args.size(); ++i)
-        subst[tmpl->type_params[i].name] = type_args[i];
+        subst[std::string(tmpl_tparams[i].name())] = type_args[i];
     if (has_variadic) {
-        auto& vtp = tmpl->type_params.back();
+        auto vtp = tmpl_tparams.back();
+        std::string vtp_name(vtp.name());
         std::vector<TypeRef> pack_types;
         for (size_t i = non_variadic_count; i < type_args.size(); ++i) {
             // Const-pack: wrap each scalar as a ConstVar carrying the param's
             // numeric type in `pointee` so PACK_EXPAND in mono_clone has the
             // info to emit a typed `lit_int(N, i64)` expression.
-            if (vtp.is_const && type_args[i] && type_args[i].const_val()) {
+            if (vtp.is_const() && type_args[i] && type_args[i].const_val()) {
                 LogosTypeBuilder cv;
                 cv.kind = LogosType::Kind::ConstVar;
-                cv.type_var_name = vtp.name;
-                cv.pointee = vtp.const_type;
+                cv.type_var_name = vtp_name;
+                cv.pointee = vtp.const_type(mscan_pool2);
                 cv.const_val = *type_args[i].const_val();
                 pack_types.push_back(out_.type_pool.alloc(std::move(cv)));
             } else {
                 pack_types.push_back(type_args[i]);
             }
         }
-        packs[vtp.name] = std::move(pack_types);
+        packs[vtp_name] = std::move(pack_types);
     }
     worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs), depth_ + 1});
 }
@@ -719,7 +736,8 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     // Match every entry whose short-name equals `method_name` exactly, or
     // begins with `method_name + "__g__"`. Each match enqueues separately
     // (overloads keep their distinct signatures).
-    std::vector<std::pair<std::string, const lir::LFunction*>> matches;
+    auto* lmi_pool = out_.type_pool.impl();
+    std::vector<std::pair<std::string, lir_view::FunctionView>> matches;
     for (auto& [sn, fp] : *sit_inner) {
         if (sn == method_name ||
             (sn.size() > method_name.size() + 5 &&
@@ -744,10 +762,11 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         // Real call sites enqueue via subst_expr's MethodCall path with
         // a SubstMap that includes the method-tparam binding.
         bool has_method_tparam = false;
-        for (auto& tp : fp->type_params) {
+        for (auto& tp : fp.type_params()) {
+            std::string tp_name(tp.name());
             bool is_struct_tparam = false;
             for (auto& stp : tpars)
-                if (stp.name == tp.name) { is_struct_tparam = true; break; }
+                if (stp.name == tp_name) { is_struct_tparam = true; break; }
             if (!is_struct_tparam) { has_method_tparam = true; break; }
         }
         if (has_method_tparam) continue;
@@ -776,8 +795,9 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         // method on a Pin<Box<…>> spec). Unify the impl pattern's args
         // against the concrete struct args: mismatch → skip the overload,
         // success → merge the impl-level bindings.
-        if (fp->impl_target_pattern) {
-            auto pa = TypeRef(fp->impl_target_pattern).type_args();
+        TypeRef fp_itp = fp.impl_target_pattern(lmi_pool);
+        if (fp_itp) {
+            auto pa = TypeRef(fp_itp).type_args();
             if (!pa.empty() && pa.size() == tpars.size() &&
                 pa.size() <= type_args.size()) {
                 bool mismatch = false;
@@ -808,7 +828,7 @@ void Mono::drain_method_worklist() {
         auto item = std::move(method_worklist_.back());
         method_worklist_.pop_back();
 
-        const lir::LFunction* tmpl = item.tmpl;
+        lir_view::FunctionView tmpl = item.tmpl;
 
         // Find the target struct in out_.structs (it must already exist —
         // struct shells are emitted before any method enqueue can fire).
@@ -830,7 +850,7 @@ void Mono::drain_method_worklist() {
         // be `[pkg.]Concrete__method__[fg]__sig`.
         std::string sig;
         {
-            std::string tn = tmpl->name;
+            std::string tn = std::string(tmpl.name());
             // Pkg may have inner dots; split at LAST dot.
             if (auto dot = tn.rfind('.'); dot != std::string::npos)
                 tn = tn.substr(dot + 1);
@@ -858,18 +878,18 @@ void Mono::drain_method_worklist() {
                                 : item.struct_pkg + "." + bare_dest;
         bool exists = false;
         for (auto& m : target->methods)
-            if (m->name == dest_name) { exists = true; break; }
+            if (m.name() == dest_name) { exists = true; break; }
         if (exists) continue;
         // Specialization: a non-generic `impl Foo<Concrete>` lowers to a
         // free-fn under this exact mangled name. Don't clone the blanket
         // body — the passthrough free-fn path emits the correct one.
         for (auto& fn : in_.functions) {
-            if (!fn->type_params.empty()) continue;
-            if (fn->name == dest_name) { exists = true; break; }
+            if (!fn.type_params_empty()) continue;
+            if (fn.name() == dest_name) { exists = true; break; }
         }
         if (exists) continue;
 
-        if (!method_bound_ok(*tmpl, item.subst)) continue;
+        if (!method_bound_ok(tmpl, item.subst)) continue;
 
         depth_ = item.depth;
         // Binary-symbol fast path: pre-baked struct-method instance in the
@@ -877,22 +897,20 @@ void Mono::drain_method_worklist() {
         // it; skip the deep body clone + scan_fn.
         if (!in_.binary_symbols.empty() &&
             in_.binary_symbols.count(dest_name)) {
-            auto stub = clone_fn_signature(*tmpl, item.subst, item.packs);
+            auto stub = clone_fn_signature(tmpl, item.subst, item.packs);
             stub.name = dest_name;
             stub.type_params.clear();
-            target->methods.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            target->methods.push_back(lir_mirror_emit_fn_view(out_, stub));
             ++stats_.method_instances;
             note_method_worklist_size(method_worklist_.size());
             continue;
         }
-        auto cloned = clone_fn(*tmpl, item.subst, item.packs);
+        auto cloned = clone_fn(tmpl, item.subst, item.packs);
         cloned.name = dest_name;
         cloned.type_params.clear();
 
-        target->methods.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
-        auto& fn_ref = *target->methods.back();
-        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-        scan_fn(fn_ref);
+        target->methods.push_back(lir_mirror_emit_fn_view(out_, cloned));
+        scan_fn(cloned);
         ++stats_.method_instances;
         note_method_worklist_size(method_worklist_.size());
     }

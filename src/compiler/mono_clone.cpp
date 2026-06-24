@@ -884,7 +884,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto concrete_pfx = struct_name + "__" + mname;
                     for (auto& fn : in_.functions) {
                         if (!fn) continue;
-                        const auto& fname = fn->name;
+                        std::string_view fname = fn.name();
                         // Match `[pkg.]<base|concrete>__<m>[__f__sig|__g__sig]?`
                         auto p = fname.rfind('.');
                         std::string_view tail = (p == std::string::npos)
@@ -2536,10 +2536,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 return pos == 0 || full[pos - 1] == '.';
                             };
                             for (auto& fn : out_.functions)
-                                if (contains_prefix(fn->name)) { callee_sym = fn->name; break; }
+                                if (contains_prefix(std::string(fn.name()))) { callee_sym = std::string(fn.name()); break; }
                             if (callee_sym.empty()) {
                                 for (auto& fn : in_.functions)
-                                    if (contains_prefix(fn->name)) { callee_sym = fn->name; break; }
+                                    if (contains_prefix(std::string(fn.name()))) { callee_sym = std::string(fn.name()); break; }
                             }
                             if (callee_sym.empty()) callee_sym = type_str(et) + "__eq";
                             // For Slice elems (str), pass by-value — the
@@ -2588,8 +2588,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         size_t p = full.find(prefix);
                         return p != std::string::npos && (p == 0 || full[p - 1] == '.');
                     };
-                    for (auto& fn : out_.functions) if (has(fn->name)) return fn->name;
-                    for (auto& fn : in_.functions)  if (has(fn->name)) return fn->name;
+                    for (auto& fn : out_.functions) if (has(std::string(fn.name()))) return std::string(fn.name());
+                    for (auto& fn : in_.functions)  if (has(std::string(fn.name()))) return std::string(fn.name());
                     return base;
                 };
                 std::string seq_sym    = resolve_fn("fmt_seq");
@@ -2606,8 +2606,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             size_t p = full.find(prefix);
                             return p != std::string::npos && (p == 0 || full[p - 1] == '.');
                         };
-                        for (auto& fn : out_.functions) if (has(fn->name)) return fn->name;
-                        for (auto& fn : in_.functions)  if (has(fn->name)) return fn->name;
+                        for (auto& fn : out_.functions) if (has(std::string(fn.name()))) return std::string(fn.name());
+                        for (auto& fn : in_.functions)  if (has(std::string(fn.name()))) return std::string(fn.name());
                     }
                     return en + "__fmt";
                 };
@@ -2998,7 +2998,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 // fall back to templates_ keys that match
                                 // `[pkg.]<base>__<method>[__g__sig]` (for primitive
                                 // receivers — `impl Sum<i32> for i32` lives there).
-                                const lir::LFunction* tmpl = nullptr;
+                                lir_view::FunctionView tmpl;
                                 // M2: unguarded pkg-first-then-bare via the
                                 // composite-key helper (build the qkey here).
                                 std::string smt_qkey = struct_pkg.empty()
@@ -3056,10 +3056,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         // Only the genuinely-AMBIGUOUS case (>1 distinct
                                         // trait-arg token) needs the projection below — this
                                         // keeps the common single-impl path untouched.
-                                        struct Cand { std::string gtok, key; const lir::LFunction* fp; bool is_tmpl; };
+                                        struct Cand { std::string gtok, key; lir_view::FunctionView fp; bool is_tmpl; };
                                         std::vector<Cand> cands;
                                         std::set<std::string> cand_gtoks;
-                                        auto consider = [&](std::string_view full, const lir::LFunction* fp,
+                                        auto consider = [&](std::string_view full, lir_view::FunctionView fp,
                                                             bool is_tmpl) {
                                             auto dot = full.rfind('.');
                                             std::string_view bare =
@@ -3085,8 +3085,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         // prefer the template. (Bug: SliceIter.sum mis-dispatched
                                         // only when a sibling TakeIter.sum spec already existed.)
                                         for (auto& [kn,fp]:templates_) consider(kn, fp, /*is_tmpl=*/true);
-                                        for (auto& f:in_.functions)  if (f) consider(f->name, f.get(), false);
-                                        for (auto& f:out_.functions) if (f) consider(f->name, f.get(), false);
+                                        for (auto& f:in_.functions)  if (f) consider(f.name(), f, false);
+                                        for (auto& f:out_.functions) if (f) consider(f.name(), f, false);
                                         if (cand_gtoks.size() > 1) {
                                             // STEP 2: ASSOCIATED-TYPE PROJECTION — the set of
                                             // trait-arg tokens the args carry. For each arg
@@ -3139,7 +3139,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                             // STEP 3: pick the unique candidate whose token an
                                             // arg carries.
                                             std::set<std::string> ok_gtoks;
-                                            std::string picked_key; const lir::LFunction* picked_fp = nullptr;
+                                            std::string picked_key; lir_view::FunctionView picked_fp;
                                             bool picked_tmpl = false;
                                             for (auto& c : cands)
                                                 if (arg_tokens.count(c.gtok)) {
@@ -3202,8 +3202,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         };
                                         for (auto& [kn, fp] : templates_) { (void)fp; consider(kn); }
                                         for (auto& [kn, v] : specs_) { (void)v; consider(kn); }
-                                        for (auto& f : in_.functions)  if (f) consider(f->name);
-                                        for (auto& f : out_.functions) if (f) consider(f->name);
+                                        for (auto& f : in_.functions)  if (f) consider(f.name());
+                                        for (auto& f : out_.functions) if (f) consider(f.name());
                                         if (n_match > 1 && !exact_key.empty())
                                             nc.callee = exact_key;
                                     }
@@ -3237,36 +3237,40 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                 });
                                         }
                                         {
-                                            std::vector<const TypeParam*> meth_tps;
-                                            for (auto& tp : tmpl->type_params) {
+                                            auto* tpool = out_.type_pool.impl();
+                                            auto tmpl_tparams = tmpl.type_params();
+                                            auto tmpl_params  = tmpl.params();
+                                            std::vector<std::string> meth_tps;
+                                            for (auto& tp : tmpl_tparams) {
                                                 bool is_struct = false;
                                                 for (auto& stp : sd_tpar_names)
-                                                    if (stp == tp.name) {
+                                                    if (stp == tp.name()) {
                                                         is_struct = true;
                                                         break;
                                                     }
                                                 if (!is_struct)
-                                                    meth_tps.push_back(&tp);
+                                                    meth_tps.push_back(std::string(tp.name()));
                                             }
                                             if (!meth_tps.empty()) {
                                                 SubstMap inferred;
                                                 size_t pn = std::min(
-                                                    tmpl->params.size(),
+                                                    tmpl_params.size(),
                                                     nc.args.size());
                                                 for (size_t i = 0; i < pn; ++i) {
                                                     TypeRef ai_t = nc.args[i] ? nc.args[i].type(out_.type_pool.impl()) : TypeRef{};
-                                                    if (!tmpl->params[i].type ||
+                                                    TypeRef pi_t = tmpl_params[i].type(tpool);
+                                                    if (!pi_t ||
                                                         !nc.args[i] ||
                                                         !ai_t)
                                                         continue;
                                                     match_type(ai_t,
-                                                               tmpl->params[i].type,
+                                                               pi_t,
                                                                inferred);
                                                 }
                                                 bool all_bound = true;
                                                 std::vector<TypeRef> method_args;
-                                                for (auto* tp : meth_tps) {
-                                                    auto fit = inferred.find(tp->name);
+                                                for (auto& tpn : meth_tps) {
+                                                    auto fit = inferred.find(tpn);
                                                     if (fit == inferred.end()) {
                                                         all_bound = false;
                                                         break;
@@ -3288,11 +3292,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                     // positional when unification
                                                     // fails / no pattern recorded.
                                                     bool used_pattern = false;
-                                                    if (tmpl->impl_target_pattern && t) {
+                                                    TypeRef tmpl_itp = tmpl.impl_target_pattern(tpool);
+                                                    if (tmpl_itp && t) {
                                                         SubstMap impl_bind;
                                                         if (unify_impl_target(
                                                                 t,
-                                                                tmpl->impl_target_pattern,
+                                                                tmpl_itp,
                                                                 impl_bind)) {
                                                             std::vector<TypeRef> ia;
                                                             bool ok = true;
@@ -3302,9 +3307,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                             // at sema-collect time).
                                                             for (size_t i = 0;
                                                                  i < sd_tpar_names.size() &&
-                                                                 i < tmpl->type_params.size();
+                                                                 i < tmpl_tparams.size();
                                                                  ++i) {
-                                                                auto& nm = tmpl->type_params[i].name;
+                                                                std::string nm(tmpl_tparams[i].name());
                                                                 auto it_b = impl_bind.find(nm);
                                                                 if (it_b == impl_bind.end()) {
                                                                     ok = false; break;
@@ -3383,17 +3388,18 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // the substituted PATTERN args ([&T]{T:=Pt} = &Pt)
                             // — positional copy would name `Pin$G1$Pt` while
                             // the spec instantiates as `Pin$G1$ref_Pt`.
-                            const lir::LFunction* mt = nullptr;
+                            lir_view::FunctionView mt;
                             if (auto* smt = find_struct_method_templates_unguarded(
                                     struct_part)) {
                                 // Match by the FULL mangled fn name — short-
                                 // name keys can't disambiguate overloads.
                                 for (auto& [mk, mf] : *smt)
-                                    if (mf && mf->name == nc.callee)
+                                    if (mf && mf.name() == nc.callee)
                                         { mt = mf; break; }
                             }
-                            if (mt && mt->impl_target_pattern) {
-                                auto pat = TypeRef(mt->impl_target_pattern);
+                            TypeRef mt_itp = mt ? mt.impl_target_pattern(out_.type_pool.impl()) : TypeRef{};
+                            if (mt && mt_itp) {
+                                auto pat = TypeRef(mt_itp);
                                 auto pa = pat.type_args();
                                 if (!pa.empty()) {
                                     // Impl-level params are STRIPPED from the
@@ -3402,12 +3408,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     // carry [impl-level..., method-level...].
                                     SubstMap ib;
                                     size_t ai = 0;
-                                    for (auto& tp : mt->impl_type_params)
+                                    for (auto& tp : mt.impl_type_params())
                                         if (ai < nc.type_args.size())
-                                            ib[tp.name] = nc.type_args[ai++];
-                                    for (auto& tp : mt->type_params)
+                                            ib[std::string(tp.name())] = nc.type_args[ai++];
+                                    for (auto& tp : mt.type_params())
                                         if (ai < nc.type_args.size())
-                                            ib[tp.name] = nc.type_args[ai++];
+                                            ib[std::string(tp.name())] = nc.type_args[ai++];
                                     std::vector<TypeRef> pargs;
                                     bool resolved = true;
                                     for (auto a : pa) {
@@ -3574,10 +3580,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         bool ptr_exists = templates_.count(ptr_fn) || specs_.count(ptr_fn);
                         if (!ptr_exists)
                             for (auto& f : in_.functions)
-                                if (bare_fn_name(f->name) == ptr_fn) { ptr_exists = true; break; }
+                                if (bare_fn_name(f.name()) == ptr_fn) { ptr_exists = true; break; }
                         if (!ptr_exists)
                             for (auto& f : out_.functions)
-                                if (bare_fn_name(f->name) == ptr_fn) { ptr_exists = true; break; }
+                                if (bare_fn_name(f.name()) == ptr_fn) { ptr_exists = true; break; }
                         cname = ptr_exists ? ptr_cname : type_str(TypeRef(rt).pointee());
                     }
                 }
@@ -3619,9 +3625,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             if (kn.rfind(p, 0) == 0 ||
                                 kn.find(p_dot) != std::string::npos) return true;
                         for (auto& f : in_.functions)
-                            if (bare_fn_name(f->name) == fn) return true;
+                            if (bare_fn_name(f.name()) == fn) return true;
                         for (auto& f : out_.functions)
-                            if (bare_fn_name(f->name) == fn) return true;
+                            if (bare_fn_name(f.name()) == fn) return true;
                         return false;
                     };
                     if (has(concrete_full))      cname = concrete_full;
@@ -3648,8 +3654,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         if (!exists) {
                             std::string p = fn + "__";
                             for (auto& [kn, _] : templates_) if (kn.rfind(p, 0) == 0 || kn.find("." + p) != std::string::npos) { exists = true; break; }
-                            if (!exists) for (auto& f : in_.functions)  { auto t = bare_fn_name(f->name); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
-                            if (!exists) for (auto& f : out_.functions) { auto t = bare_fn_name(f->name); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
+                            if (!exists) for (auto& f : in_.functions)  { auto t = bare_fn_name(f.name()); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
+                            if (!exists) for (auto& f : out_.functions) { auto t = bare_fn_name(f.name()); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
                         }
                         if (exists) cname = k;
                     }
@@ -3672,11 +3678,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto sym_exists = [&](const std::string& fb) -> bool {
                         if (templates_.count(fb) || specs_.count(fb)) return true;
                         for (auto& f : in_.functions)
-                            if (bare_fn_name(f->name) == fb ||
-                                bare_fn_name(f->name).rfind(fb + "__", 0) == 0) return true;
+                            if (bare_fn_name(f.name()) == fb ||
+                                bare_fn_name(f.name()).rfind(fb + "__", 0) == 0) return true;
                         for (auto& f : out_.functions)
-                            if (bare_fn_name(f->name) == fb ||
-                                bare_fn_name(f->name).rfind(fb + "__", 0) == 0) return true;
+                            if (bare_fn_name(f.name()) == fb ||
+                                bare_fn_name(f.name()).rfind(fb + "__", 0) == 0) return true;
                         return false;
                     };
                     std::string refc =
@@ -3696,11 +3702,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto base_exists = [&](const std::string& fb) -> bool {
                         if (templates_.count(fb) || specs_.count(fb)) return true;
                         for (auto& f : in_.functions) {
-                            auto t = bare_fn_name(f->name);
+                            auto t = bare_fn_name(f.name());
                             if (t == fb || t.rfind(fb + "__", 0) == 0) return true;
                         }
                         for (auto& f : out_.functions) {
-                            auto t = bare_fn_name(f->name);
+                            auto t = bare_fn_name(f.name());
                             if (t == fb || t.rfind(fb + "__", 0) == 0) return true;
                         }
                         return false;
@@ -3804,12 +3810,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             std::string full_prefix = "$blanket$" + bi.trait_name
                                 + "$" + bi.bound_trait + "$" + bi.target_typevar + "__";
                             std::string tprefix = full_prefix + method;
-                            const lir::LFunction* btmpl = nullptr;
+                            lir_view::FunctionView btmpl;
                             std::string method_tail;
                             std::string btmpl_pkg;
                             for (auto& fp : in_.functions) {
                                 if (!fp) continue;
-                                std::string bn = fp->name, pk;
+                                std::string bn(fp.name()), pk;
                                 if (auto d = bn.rfind('.'); d != std::string::npos)
                                     { pk = bn.substr(0, d); bn = bn.substr(d + 1); }
                                 if (bn.rfind(tprefix, 0) != 0) continue;
@@ -3817,7 +3823,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 if (!rest.empty() &&
                                     rest.compare(0, 5, "__g__") != 0 &&
                                     rest.compare(0, 5, "__f__") != 0) continue;
-                                btmpl = fp.get();
+                                btmpl = fp;
                                 method_tail = bn.substr(full_prefix.size());
                                 btmpl_pkg = pk;
                                 break;
@@ -3899,16 +3905,18 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     // would compare/format just a prefix. Track the flag and
                     // skip the resize when the template is variadic.
                     bool tmpl_has_variadic = false;
-                    auto note_variadic = [&](const std::vector<TypeParam>& tps) {
-                        for (auto& tp : tps) if (tp.is_variadic) { tmpl_has_variadic = true; break; }
+                    auto note_variadic = [&](lir_view::FunctionView fv) {
+                        fv.each_type_param([&](lir_view::FnTParamView tp) {
+                            if (tp.is_variadic()) tmpl_has_variadic = true;
+                        });
                     };
                     if (auto tit = templates_.find(tmpl_key); tit != templates_.end()) {
-                        tmpl_tparam_count = tit->second->type_params.size();
-                        note_variadic(tit->second->type_params);
+                        tmpl_tparam_count = tit->second.type_param_count();
+                        note_variadic(tit->second);
                     } else if (auto sit = specs_.find(tmpl_key);
                                sit != specs_.end() && !sit->second.empty()) {
-                        tmpl_tparam_count = sit->second.front()->type_params.size();
-                        note_variadic(sit->second.front()->type_params);
+                        tmpl_tparam_count = sit->second.front().type_param_count();
+                        note_variadic(sit->second.front());
                     } else if (auto* smt = find_struct_method_templates_unguarded(cname)) {
                         // Trait-default / inherent method-generic methods live in
                         // struct_method_templates_ keyed by the bare method name
@@ -3924,8 +3932,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     k.compare(method.size(), 5, "__g__") == 0)
                                     { mit = smt->find(k); break; }
                         if (mit != smt->end() && mit->second) {
-                            tmpl_tparam_count = mit->second->type_params.size();
-                            note_variadic(mit->second->type_params);
+                            tmpl_tparam_count = mit->second.type_param_count();
+                            note_variadic(mit->second);
                         }
                     }
                     if (tmpl_tparam_count == 0) nc.type_args.clear();
@@ -4021,7 +4029,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         return {};
                     };
                     std::string mono_base = pick_mono_template_key();
-                    if (auto* spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
+                    if (auto spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
                                                     combined_args)) {
                         std::vector<lir_view::ExprRef> args;
                         args.push_back(nm.receiver);
@@ -4029,7 +4037,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             args.push_back(subst_child_expr(ar));
                         });
                         mp_ = lir_mirror_emit_call(
-                            out_, rt_, spec->name, {}, args);
+                            out_, rt_, std::string(spec.name()), {}, args);
                         rewritten = true;
                     } else if (!combined_args.empty() && !mono_base.empty()) {
                         std::string callee = mangle(mono_base, combined_args);
@@ -4083,7 +4091,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     if (auto g = mt.find("__g__"); g != std::string::npos)
                         rs_method = mt.substr(0, g);
                 }
-                const lir::LFunction* tmpl = nullptr;
+                lir_view::FunctionView tmpl;
                 if (all_concrete && !rs_struct.empty() && !rs_method.empty()) {
                     if (auto* smt = find_struct_method_templates_unguarded(rs_struct)) {
                         auto mit = smt->find(rs_method);
@@ -4094,7 +4102,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                 }
                 // Only the method-generic case (template has its own tparams).
-                if (tmpl && !tmpl->type_params.empty()) {
+                if (tmpl && !tmpl.type_params_empty()) {
                     std::string callee = mangle(resolved_symbol, nm.type_args);
                     enqueue_if_needed(callee, nm.type_args);
                     std::vector<lir_view::ExprRef> args;
@@ -4715,16 +4723,20 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
 
 // ── Clone a function with substitution (empty SubstMap = verbatim copy) ─
 
-lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
+lir::LFunction Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
                          const PackMap& packs) {
     cur_packs_ = packs;  // make available to subst_expr
+    // Stage E: read the template via its FunctionView mirror. Type reads MUST
+    // use out_.type_pool.impl() — mono moved in_.type_pool into out_ at run()
+    // start, so in_ is moved-from (the same gotcha that bit clone_enum_def).
+    const TypePoolImpl* pool = out_.type_pool.impl();
     lir::LFunction nf;
-    nf.name               = fn.name;
-    nf.method_base        = fn.method_base;
-    nf.package            = fn.package;
-    nf.is_extern          = fn.is_extern;
-    nf.local_count        = fn.local_count;   // Phase-1: preserve slot count.
-    nf.is_vararg          = fn.is_vararg;
+    nf.name               = std::string(fn.name());
+    nf.method_base        = std::string(fn.method_base());
+    nf.package            = std::string(fn.package());
+    nf.is_extern          = fn.is_extern();
+    nf.local_count        = fn.local_count();   // Phase-1: preserve slot count.
+    nf.is_vararg          = fn.is_vararg();
     // Never propagate from_binary_module to cloned functions: clone_fn is
     // called by mono to create instantiations, which are new functions not
     // present in the binary archive. The archive contains only the pre-compiled
@@ -4733,25 +4745,26 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     // archive ships only parsed AST, so cloned items are still "originating
     // from a lazy module" — their bodies need the same reach-based emit
     // filter that mlir_gen applies to the originals.
-    nf.from_lazy_module  = fn.from_lazy_module;
-    nf.ret_type  = subst_type(fn.ret_type, s);
+    nf.from_lazy_module  = fn.from_lazy_module();
+    nf.ret_type  = subst_type(fn.ret_type(pool), s);
     // B65: lifetime params + outlives bounds are preserved verbatim through
     // mono. Lifetime substitution is identity (lifetimes are not in the
     // SubstMap), so the original pairs remain valid on the cloned signature.
-    nf.lifetime_params   = fn.lifetime_params;
-    nf.lifetime_outlives = fn.lifetime_outlives;
-    for (auto& p : fn.params) {
-        if (p.is_variadic) {
+    for (auto lp : fn.lifetime_params()) nf.lifetime_params.emplace_back(lp);
+    for (auto& [a, b] : fn.lifetime_outlives())
+        nf.lifetime_outlives.emplace_back(std::string(a), std::string(b));
+    for (auto p : fn.params()) {
+        if (p.is_variadic()) {
             // Expand variadic param into N concrete params.
             // Find the pack type for this param's TypeVar name.
             std::string pack_name;
-            TypeRef pt(p.type);
+            TypeRef pt = p.type(pool);
             if (pt && pt.kind() == LogosType::Kind::TypeVar)
                 pack_name = std::string(pt.type_var_name());
             auto pit = packs.find(pack_name);
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
-                    auto expanded_name = make_pack_arg_name(p.name, i);
+                    auto expanded_name = make_pack_arg_name(std::string(p.name()), i);
                     // Phase 5.C: localize foreign pack entries so the
                     // cloned fn's params don't hold offsets into a remote
                     // arena (mlir_gen reads via TypeRef accessors which
@@ -4763,7 +4776,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
                 }
             }
         } else {
-            nf.params.push_back({p.name, subst_type(p.type, s), p.is_variadic, p.owning_box_dyn, p.slot});
+            nf.params.push_back({std::string(p.name()), subst_type(p.type(pool), s), p.is_variadic(), p.owning_box_dyn(), p.slot()});
         }
     }
     // Phase 5.B step 2: cross-arena body source. When sema skipped this fn's
@@ -4777,17 +4790,18 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     // (the legacy path: body was lowered locally by this run's sema).
     lir_view::BlockRef src_body;
     const hermes::Arena* saved_src_arena = src_arena_;
-    if (fn.body_external_ref.arena_id().is_valid()) {
-        auto resolved = hermes::resolve_external_ref(fn.body_external_ref);
+    auto body_ext = fn.body_external_ref();
+    if (body_ext.arena_id().is_valid()) {
+        auto resolved = hermes::resolve_external_ref(body_ext);
         if (resolved.ok()) {
             src_arena_ = &resolved.mem->arena();
             src_body = lir_view::BlockRef(
                 src_arena_, resolved.offset(),
-                fn.body_external_ref.arena_id());
+                body_ext.arena_id());
         }
     }
     if (!src_body) {
-        src_body = fn.body;
+        src_body = fn.body();
     }
     nf.body = subst_block(src_body, s, packs);
     src_arena_ = saved_src_arena;
@@ -4804,31 +4818,33 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
 // would be skipped anyway. Caller must not run lir_mirror_emit_function
 // or scan_fn on the result — body.mirror_ptr_ stays default-zero, so
 // scan_fn's mirror_offset guard short-circuits if accidentally invoked.
-lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
+lir::LFunction Mono::clone_fn_signature(lir_view::FunctionView fn,
                                          const SubstMap& s,
                                          const PackMap& packs) {
     cur_packs_ = packs;
+    const TypePoolImpl* pool = out_.type_pool.impl();  // see clone_fn (moved-pool)
     lir::LFunction nf;
-    nf.name               = fn.name;
-    nf.method_base        = fn.method_base;
-    nf.package            = fn.package;
-    nf.is_extern          = fn.is_extern;
-    nf.local_count        = fn.local_count;   // Phase-1: preserve slot count.
-    nf.is_vararg          = fn.is_vararg;
-    nf.from_lazy_module   = fn.from_lazy_module;  // Phase 6 — see clone_fn.
-    nf.ret_type           = subst_type(fn.ret_type, s);
-    nf.lifetime_params    = fn.lifetime_params;
-    nf.lifetime_outlives  = fn.lifetime_outlives;
-    for (auto& p : fn.params) {
-        if (p.is_variadic) {
+    nf.name               = std::string(fn.name());
+    nf.method_base        = std::string(fn.method_base());
+    nf.package            = std::string(fn.package());
+    nf.is_extern          = fn.is_extern();
+    nf.local_count        = fn.local_count();   // Phase-1: preserve slot count.
+    nf.is_vararg          = fn.is_vararg();
+    nf.from_lazy_module   = fn.from_lazy_module();  // Phase 6 — see clone_fn.
+    nf.ret_type           = subst_type(fn.ret_type(pool), s);
+    for (auto lp : fn.lifetime_params()) nf.lifetime_params.emplace_back(lp);
+    for (auto& [a, b] : fn.lifetime_outlives())
+        nf.lifetime_outlives.emplace_back(std::string(a), std::string(b));
+    for (auto p : fn.params()) {
+        if (p.is_variadic()) {
             std::string pack_name;
-            TypeRef pt(p.type);
+            TypeRef pt = p.type(pool);
             if (pt && pt.kind() == LogosType::Kind::TypeVar)
                 pack_name = std::string(pt.type_var_name());
             auto pit = packs.find(pack_name);
             if (pit != packs.end()) {
                 for (size_t i = 0; i < pit->second.size(); ++i) {
-                    auto expanded_name = make_pack_arg_name(p.name, i);
+                    auto expanded_name = make_pack_arg_name(std::string(p.name()), i);
                     // Phase 5.C: localize foreign pack entries (see
                     // matching site in clone_fn for rationale).
                     nf.params.push_back({expanded_name,
@@ -4836,7 +4852,7 @@ lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
                 }
             }
         } else {
-            nf.params.push_back({p.name, subst_type(p.type, s), p.is_variadic, p.owning_box_dyn, p.slot});
+            nf.params.push_back({std::string(p.name()), subst_type(p.type(pool), s), p.is_variadic(), p.owning_box_dyn(), p.slot()});
         }
     }
     return nf;
@@ -5020,25 +5036,29 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
     return false;
 }
 
-bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
+bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
+    auto* mbo_pool = out_.type_pool.impl();
     // §8.5: type-EXPRESSION where-bounds (`fn max() where Item: Ord` on
     // `impl<T> Iterator<&T> for VecIter<T>` → subject `&T`). Substitute the
     // subject with this clone's args and check satisfaction. This is the
     // gate sema deferred for compound Items: it admits `&i32: Ord` (VecIter)
     // and rejects `EnumPair<i32>: Ord` / `[i32;0]: Ord` (EnumIter /
     // ArrayChunksIter) so their `max`/`min` are never synthesised.
-    for (auto& wb : m.where_type_bounds) {
-        TypeRef subj = subst_type(wb.first, s);
-        if (!subj) continue;
+    bool wbad = false;
+    m.each_where_bound([&](lir_view::FnWhereBoundView wb) {
+        if (wbad) return;
+        TypeRef subj = subst_type(wb.subject(mbo_pool), s);
+        if (!subj) return;
         // Still-abstract after subst (nested call where the impl param is
         // itself a TypeVar): defer — an outer mono pass resolves it.
-        if (contains_typevar(subj)) continue;
+        if (contains_typevar(subj)) return;
         StrSet seen;
-        if (!mono_concrete_satisfies_bound(wb.second, subj, seen)) return false;
-    }
-    for (auto& itp : m.impl_type_params) {
-        if (itp.bounds.empty()) continue;
-        auto sit = s.find(itp.name);
+        if (!mono_concrete_satisfies_bound(std::string(wb.trait()), subj, seen)) wbad = true;
+    });
+    if (wbad) return false;
+    for (auto& itp : m.impl_type_params()) {
+        if (itp.bounds_empty()) continue;
+        auto sit = s.find(std::string(itp.name()));
         if (sit == s.end()) continue;
         TypeRef concrete = sit->second;
         if (!concrete) continue;
@@ -5068,7 +5088,22 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             StrSet seen;
             return mono_concrete_satisfies_bound(trait, concrete, seen);
         };
-        for (auto& tb : itp.bounds) {
+        struct MBound {
+            std::string trait_name;
+            bool is_fn_family;
+            std::vector<TypeRef> type_args;
+            std::vector<std::string> hrtb_binders;
+        };
+        std::vector<MBound> itp_bounds;
+        itp.each_bound([&](lir_view::FnTraitBoundView tbv) {
+            MBound mb;
+            mb.trait_name = std::string(tbv.trait_name());
+            mb.is_fn_family = tbv.is_fn_family();
+            mb.type_args = tbv.type_args(mbo_pool);
+            for (auto b : tbv.hrtb_binders()) mb.hrtb_binders.push_back(std::string(b));
+            itp_bounds.push_back(std::move(mb));
+        });
+        for (auto& tb : itp_bounds) {
             // Fn / FnMut / FnOnce parenthesized bounds are compiler-
             // intrinsic — satisfied by any fn-pointer or closure type
             // (per sema_collect.cpp:982; mono's trait engine has no
@@ -5255,8 +5290,8 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     // will clone methods on demand (from L1.1 call-site hook, L1.2 dispatch
     // pin, L1.3 is_root_pin). The bound gate runs there too.
     if (lazy_methods_ && !tmpl.type_params.empty()) return nd;
-    for (auto& m_up : tmpl.methods) {
-        auto& m = *m_up;
+    auto* csd_pool = out_.type_pool.impl();
+    for (auto& m : tmpl.methods) {
         // Structured impl self-type (`impl<T> Pin<&T>` on `struct Pin<P>`):
         // the impl-level params don't share names with the struct's own, so
         // the struct subst alone leaves them unbound. Bind them by unifying
@@ -5266,8 +5301,9 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         SubstMap ms;
         const SubstMap* msel = &s;
         bool pattern_mismatch = false;
-        if (m.impl_target_pattern) {
-            auto pa = TypeRef(m.impl_target_pattern).type_args();
+        TypeRef m_itp = m.impl_target_pattern(csd_pool);
+        if (m_itp) {
+            auto pa = TypeRef(m_itp).type_args();
             if (!pa.empty() && pa.size() == tmpl.type_params.size()) {
                 ms = s;
                 bool extended = false;
@@ -5293,9 +5329,9 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
 
         // Compute the final renamed method name first so the binary-symbol
         // fast path below can consult it.
-        std::string final_name = m.name;
+        std::string final_name = std::string(m.name());
         {
-            std::string mn = m.name;
+            std::string mn = std::string(m.name());
             std::string mn_pkg;
             if (auto dot = mn.rfind('.'); dot != std::string::npos) {
                 mn_pkg = mn.substr(0, dot);
@@ -5316,8 +5352,8 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         // with the correct body.
         bool overridden = false;
         for (auto& fn : in_.functions) {
-            if (!fn->type_params.empty()) continue;
-            if (bare_fn_name(fn->name) == final_name) { overridden = true; break; }
+            if (!fn.type_params_empty()) continue;
+            if (bare_fn_name(fn.name()) == final_name) { overridden = true; break; }
         }
         if (overridden) continue;
 
@@ -5328,15 +5364,14 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
             in_.binary_symbols.count(final_name)) {
             auto nm = clone_fn_signature(m, *msel, packs);
             nm.name = final_name;
-            nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
+            nd.methods.push_back(lir_mirror_emit_fn_view(out_, nm));
             continue;
         }
 
         auto nm = clone_fn(m, *msel, packs);
         nm.name = final_name;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
-        nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
-        lir_mirror_emit_function(out_, *out_.mirror_table, *nd.methods.back());
+        nd.methods.push_back(lir_mirror_emit_fn_view(out_, nm));
     }
     return nd;
 }
@@ -5384,12 +5419,13 @@ const lir::LStructDef* Mono::find_best_struct_spec(
 // Walk all output functions collecting generic struct instantiations needed.
 void Mono::collect_struct_needs_from_output() {
     auto& arena = out_.type_pool.arena_or_init();
+    auto* csn_pool = out_.type_pool.impl();
     for (auto& fn : out_.functions) {
-        collect_type_for_structs(fn->ret_type);
-        for (auto& p : fn->params) collect_type_for_structs(p.type);
-        if ((bool)fn->body)
+        collect_type_for_structs(fn.ret_type(csn_pool));
+        for (auto& p : fn.params()) collect_type_for_structs(p.type(csn_pool));
+        if ((bool)fn.body())
             collect_struct_needs_from_block(
-                fn->body);
+                fn.body());
     }
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)
@@ -5645,9 +5681,7 @@ void Mono::instantiate_struct_templates() {
             //       heap-stable even when `inst` is later moved into out_.structs.
             // subst_stmt deliberately returns LStmt with mirror_ptr_=0 — emitting
             // mid-clone would point the mirror at a transient vector slot.
-            for (auto& m : inst.methods)
-                lir_mirror_emit_function(out_, *out_.mirror_table, *m);
-            for (auto& m : inst.methods) scan_fn(*m);
+            for (auto& m : inst.methods) scan_fn(m);
             // Apply explicit instantiation annotation if present (sets type_code
             // on a specific generic instantiation, e.g. `#[type_code=100] eidos Array<AnyVal>;`).
             for (auto& ia : out_.inst_annotations) {
@@ -5670,15 +5704,11 @@ void Mono::instantiate_struct_templates() {
             worklist_.pop_back();
             depth_ = item.depth;
             note_depth(depth_);
-            auto fn_inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
-            // Same two-step stabilization as the struct-method case above:
-            // (a) instantiate_fn's recursive subst_block push_backs have ended
-            //     so stmt-vector buffers are fixed; (b) make_unique parks the
-            //     LFunction at a heap-stable address before emit walks it.
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn_inst)));
-            auto& fn_ref = *out_.functions.back();
-            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-            scan_fn(fn_ref);
+            auto fn_inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
+            // Emit the decl mirror for the freshly-built transient, store the
+            // View, then scan the transient (still alive this iteration).
+            out_.functions.push_back(lir_mirror_emit_fn_view(out_, fn_inst));
+            scan_fn(fn_inst);
             ++stats_.fn_instances;
             note_fn_worklist_size(worklist_.size());
         }
@@ -5840,7 +5870,8 @@ void Mono::instantiate_enum_templates() {
                 };
                 return walk_tv(t);
             };
-            auto is_self_referential = [&](const lir::LFunction& fn) -> bool {
+            auto* iet_pool = out_.type_pool.impl();
+            auto is_self_referential = [&](lir_view::FunctionView fn) -> bool {
                 auto self_ref_type = [&](TypeRef t) -> bool {
                     if (!t) return false;
                     auto k = t.kind();
@@ -5866,24 +5897,44 @@ void Mono::instantiate_enum_templates() {
                     for (auto a : t.type_args()) if (walk(a)) return true;
                     return false;
                 };
-                for (auto& p : fn.params) if (walk(p.type)) return true;
-                if (walk(fn.ret_type)) return true;
+                for (auto& p : fn.params()) if (walk(p.type(iet_pool))) return true;
+                if (walk(fn.ret_type(iet_pool))) return true;
                 return false;
             };
             std::string prefix = base + "__";
-            for (auto& fn_up : in_.functions) {
-                auto& fn = *fn_up;
-                if (fn.type_params.empty()) continue;
+            for (auto& fn : in_.functions) {
+                if (fn.type_params_empty()) continue;
                 // Strip pkg prefix (`pkg.`) before matching the bare base name.
-                std::string_view bare = fn.name;
+                std::string_view bare = fn.name();
                 std::string fn_pkg;
                 if (auto dot = bare.rfind('.'); dot != std::string_view::npos) {
                     fn_pkg = std::string(bare.substr(0, dot));
                     bare = bare.substr(dot + 1);
                 }
                 if (bare.substr(0, prefix.size()) != prefix) continue;
+                // Materialize the fn's type-params (with bounds) once so the
+                // per-tp accesses below (was struct field iteration) work off
+                // a stable local rather than re-reading the View each time.
+                struct IetTBound {
+                    std::string trait_name;
+                };
+                struct IetTParam {
+                    std::string name;
+                    bool is_variadic;
+                    std::vector<IetTBound> bounds;
+                };
+                std::vector<IetTParam> fn_tparams;
+                fn.each_type_param([&](lir_view::FnTParamView tpv) {
+                    IetTParam tpe;
+                    tpe.name = std::string(tpv.name());
+                    tpe.is_variadic = tpv.is_variadic();
+                    tpv.each_bound([&](lir_view::FnTraitBoundView tbv) {
+                        tpe.bounds.push_back({std::string(tbv.trait_name())});
+                    });
+                    fn_tparams.push_back(std::move(tpe));
+                });
                 // Match type params to subst keys
-                bool matches = fn.type_params.size() == tps.size();
+                bool matches = fn_tparams.size() == tps.size();
                 if (!matches) continue;
                 // A generic enum method has TWO mangled-name conventions
                 // depending on its call site, and instantiate_enum_templates
@@ -5944,8 +5995,9 @@ void Mono::instantiate_enum_templates() {
                 // tparams, so the unified bindings cover all of
                 // fn.type_params for impl-target-bearing impls.
                 bool used_pattern = false;
-                if (fn.impl_target_pattern) {
-                    TypeRef pat = fn.impl_target_pattern;
+                TypeRef fn_itp = fn.impl_target_pattern(iet_pool);
+                if (fn_itp) {
+                    TypeRef pat = fn_itp;
                     if (pat.kind() == LogosType::Kind::Enum &&
                         std::string(pat.enum_name()) == base) {
                         auto pa = pat.type_args();
@@ -5958,7 +6010,7 @@ void Mono::instantiate_enum_templates() {
                                 }
                             }
                             if (ok) {
-                                for (auto& tp : fn.type_params) {
+                                for (auto& tp : fn_tparams) {
                                     auto it_b = impl_bind.find(tp.name);
                                     if (it_b == impl_bind.end()) { ok = false; break; }
                                     fn_subst[tp.name] = it_b->second;
@@ -5970,13 +6022,13 @@ void Mono::instantiate_enum_templates() {
                 }
                 if (!used_pattern) {
                     // Override type params with the enum's type param names if different
-                    for (size_t i = 0, j = 0; i < fn.type_params.size(); ++i) {
-                        if (fn.type_params[i].is_variadic) {
+                    for (size_t i = 0, j = 0; i < fn_tparams.size(); ++i) {
+                        if (fn_tparams[i].is_variadic) {
                              std::vector<TypeRef> pack;
                              while (j < args.size()) pack.push_back(args[j++]);
-                             fn_packs[fn.type_params[i].name] = std::move(pack);
+                             fn_packs[fn_tparams[i].name] = std::move(pack);
                         } else if (j < args.size()) {
-                            fn_subst[fn.type_params[i].name] = args[j++];
+                            fn_subst[fn_tparams[i].name] = args[j++];
                         }
                     }
                 }
@@ -5994,7 +6046,7 @@ void Mono::instantiate_enum_templates() {
                 // type_params at sema-collect time). Mirror method_bound_ok
                 // logic against type_params.
                 bool bounds_ok = true;
-                for (auto& tp : fn.type_params) {
+                for (auto& tp : fn_tparams) {
                     if (tp.bounds.empty()) continue;
                     auto sit = fn_subst.find(tp.name);
                     if (sit == fn_subst.end()) continue;
@@ -6048,7 +6100,7 @@ void Mono::instantiate_enum_templates() {
                 // lower. The real call site (record_needed with full type_args
                 // incl. the return-inferred D) emits the correct spec.
                 bool fully_bound = true;
-                for (auto& tp : fn.type_params) {
+                for (auto& tp : fn_tparams) {
                     if (tp.is_variadic) continue;
                     if (!fn_subst.count(tp.name) && !fn_packs.count(tp.name)) {
                         fully_bound = false; break;
@@ -6065,24 +6117,20 @@ void Mono::instantiate_enum_templates() {
                     auto alias = nm;            // deep copy of the cloned body
                     alias.name = alias_name;
                     done_.insert(alias_name);
-                    out_.functions.push_back(
-                        std::make_unique<lir::LFunction>(std::move(alias)));
-                    lir_mirror_emit_function(out_, *out_.mirror_table,
-                                             *out_.functions.back());
+                    out_.functions.push_back(lir_mirror_emit_fn_view(out_, alias));
                     // Scan the cloned enum-method body for nested generic calls
                     // (mirrors the struct-method path's `scan_fn(*m)`). Without
                     // this, a method like `Option::take` that calls a generic FREE
                     // fn (`mem::replace_ref::<Option<T>>`) never enqueues that
                     // specialization → mlir-gen "does not reference a valid
                     // function". The enclosing fixpoint drains anything enqueued.
-                    scan_fn(*out_.functions.back());
+                    scan_fn(alias);
                 }
                 if (need_primary) {
                     nm.name = inst_name;
                     done_.insert(inst_name);
-                    out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
-                    lir_mirror_emit_function(out_, *out_.mirror_table, *out_.functions.back());
-                    scan_fn(*out_.functions.back());
+                    out_.functions.push_back(lir_mirror_emit_fn_view(out_, nm));
+                    scan_fn(nm);
                 }
             }
             out_.enums.push_back(std::move(inst));
