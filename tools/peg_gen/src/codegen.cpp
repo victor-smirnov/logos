@@ -1229,13 +1229,23 @@ private:
                     // the character after the match must not be alnum/underscore.
                     bool is_word = std::all_of(pat.begin(), pat.end(),
                         [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'; });
-                    w.fmt("if (source_.substr(pos_, {0}).size() == {0} &&", pat.size());
+                    // Bounds-guard + direct fixed-length memcmp: char_traits
+                    // compare(p, "pat", N) lowers to a single memcmp of the
+                    // COMPILE-TIME length N — no runtime strlen, no substr/
+                    // string_view temporaries. (string_view::compare(pos,N,s)
+                    // calls traits::length(s) per keyword per token; the old
+                    // substr-twice idiom built two views.) The `pos_+N <= size`
+                    // guard must precede the memcmp so it never reads past EOF.
                     if (is_word) {
-                        w.fmt("    source_.substr(pos_, {}) == \"{}\" &&", pat.size(), pat);
-                        w.fmt("    (pos_ + {} >= source_.size() || (!std::isalnum(source_[pos_ + {}]) && source_[pos_ + {}] != '_'))) {{",
-                              pat.size(), pat.size(), pat.size());
+                        w.fmt("if (pos_ + {0} <= source_.size() &&", pat.size());
+                        w.fmt("    std::char_traits<char>::compare(source_.data() + pos_, \"{1}\", {0}) == 0 &&",
+                              pat.size(), pat);
+                        w.fmt("    (pos_ + {0} >= source_.size() || (!std::isalnum(source_[pos_ + {0}]) && source_[pos_ + {0}] != '_'))) {{",
+                              pat.size());
                     } else {
-                        w.fmt("    source_.substr(pos_, {}) == \"{}\") {{", pat.size(), pat);
+                        w.fmt("if (pos_ + {0} <= source_.size() &&", pat.size());
+                        w.fmt("    std::char_traits<char>::compare(source_.data() + pos_, \"{1}\", {0}) == 0) {{",
+                              pat.size(), pat);
                     }
                     w.fmt("    pos_ += {}; return {{TK::{}, source_.substr(start, {}), start_line_}}; }}",
                           pat.size(), safe_tok_name(t->name), pat.size());
