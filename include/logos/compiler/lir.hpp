@@ -846,7 +846,16 @@ struct LAnnotationInstance {
     std::vector<std::pair<std::string, LAnnotationValue>> kv;
 };
 
-struct LStructDef {
+// Stage E: `struct LStructDef` is DELETED. Structs live ONLY as Hermes decl
+// mirror nodes (lir_schema::decl::Code::Struct + field/annotation sub-maps),
+// read via lir_view::StructView (the stored handle in LProgram::structs). The
+// METHODS array is mutated in place (lir_mirror_struct_append_method) for the
+// sema/mono passes that collect methods after the struct is stored. StructDraft
+// is the TRANSIENT BUILD BUFFER — never stored: sema (lower_struct_def/
+// lower_spec_struct) and mono (clone_struct_def) build one, emit it
+// (lir_mirror_emit_struct_view), store the View, discard the draft. EnumDraft
+// / FunctionDraft pattern.
+struct StructDraft {
     std::string              name;
     std::string              pkg;            // package that declares this struct/datatype
     std::vector<TypeParam>   type_params;    // empty for non-generic structs

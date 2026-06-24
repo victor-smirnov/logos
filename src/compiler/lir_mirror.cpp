@@ -26,7 +26,7 @@ using lir::Pattern;
 using lir::HermesVal;
 using lir::EClosure;
 using lir::FunctionDraft;
-using lir::LStructDef;
+using lir::StructDraft;
 using lir::LImplBlock;
 using lir::LTraitDef;
 
@@ -345,7 +345,7 @@ public:
         return mref_addr(map_off);
     }
 
-    // ── LStructDef decl sub-map builders (Stage E struct migration) ───────────
+    // ── StructDraft decl sub-map builders (Stage E struct migration) ───────────
     // FIELDS array element (LField sub-map; schema code stmt::Count+9). Own space.
     hermes::AnyVal field_av(const lir::LField& fld) {
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 9));
@@ -396,9 +396,9 @@ public:
         }
         return mref_addr(map_off);
     }
-    // Top-level LStructDef → Code::Struct decl map. Stage E infrastructure
+    // Top-level StructDraft → Code::Struct decl map. Stage E infrastructure
     // (UNUSED by real code for now — defines schema+emitter only).
-    const uint8_t* emit_struct_def_direct(const lir::LStructDef& sd) {
+    const uint8_t* emit_struct_def_direct(const lir::StructDraft& sd) {
         auto map_off = make_map(hermes::schema::lir_stmt(
             int32_t(lir_schema::decl::Code::Struct)), /*cap=*/40);
         put(map_off, stk::NAME, put_string(sd.name));
@@ -2047,7 +2047,7 @@ lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
 }
 
 lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
-                                                 lir::LStructDef& sd) {
+                                                 lir::StructDraft& sd) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     auto p = em.emit_struct_def_direct(sd);

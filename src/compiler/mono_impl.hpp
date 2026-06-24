@@ -873,7 +873,7 @@ private:
                                        StrSet& seen);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
-    lir::LStructDef clone_struct_def(lir_view::StructView tmpl,
+    lir::StructDraft clone_struct_def(lir_view::StructView tmpl,
                                       const SubstMap& s,
                                       const PackMap& packs,
                                       const std::string& new_name);
@@ -1082,7 +1082,7 @@ private:
 
     // Drain method_worklist_: clone each pending method under its struct's
     // substitution, rename to "<concrete>__<method>", emit its decl mirror and
-    // append the FunctionView to the matching LStructDef in out_.structs
+    // append the FunctionView to the matching StructDraft in out_.structs
     // (arena-stable mirror), and scan for further calls.
     void drain_method_worklist();
 

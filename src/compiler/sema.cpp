@@ -322,7 +322,7 @@ TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 // arenas stay alive via the SemaCache-held type_pools. Other aggregates are
 // value-copied; their nested method View vectors copy handles too.
 //
-// from_binary_module flag (present on LStructDef + LFunction) drives the
+// from_binary_module flag (present on StructDraft + LFunction) drives the
 // per-item filter for structs/functions; for unflagged vectors (impls,
 // enums, consts, ...) the capture walks per-AST [start,end) ranges
 // recorded during the iter-0 loop.
@@ -7005,7 +7005,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
 
     // ── M5 step 6: bundle-assembly (populator run only) ─────────────
     // Walk the assembled prog and copy binary-origin items into the
-    // cache bundle. For LStructDef/LFunctionPtr we use the
+    // cache bundle. For StructDraft/LFunctionPtr we use the
     // `from_binary_module` flag (survives re-attachment and matches
     // both prog.functions orphans and struct.methods early-bindings).
     // For unflagged vectors (impls, enums, consts, ...) we use the
@@ -7240,7 +7240,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // Annotations accumulate until the next non-annotation item, then are consumed.
     std::vector<TinyMapView> pending_annots;
 
-    auto apply_annots_to_struct = [&](lir::LStructDef& sd) {
+    auto apply_annots_to_struct = [&](lir::StructDraft& sd) {
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if (aname == "type_code" && ann.has_key(la::VALUE)) {
@@ -7269,12 +7269,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
     // Apply the STRUCTURAL boolean flags (#[zone_mut], #[zoned2], #[rel_ptr],
     // #[self_describing], #[borrow_carrying]) from the pending annotations onto an
-    // LStructDef. For regular structs these flow collect → structs_ → lower_struct_def;
-    // SPECIALISATIONS bypass structs_ (lower_spec_struct builds the LStructDef directly),
+    // StructDraft. For regular structs these flow collect → structs_ → lower_struct_def;
+    // SPECIALISATIONS bypass structs_ (lower_spec_struct builds the StructDraft directly),
     // so without this they silently lose every struct-level attribute — e.g. a
     // `#[zone_mut] struct HMap<HString,V>` spec would clone with zone_mut=false, making
     // ref_repr_of treat `&mut` as thin and corrupting the zone-carrying receiver.
-    auto apply_struct_flags = [&](lir::LStructDef& sd) {
+    auto apply_struct_flags = [&](lir::StructDraft& sd) {
         auto f = parse_struct_attr_flags(pending_annots);
         sd.zone_mut        |= f.zone_mut;
         sd.zoned2          |= f.zoned;

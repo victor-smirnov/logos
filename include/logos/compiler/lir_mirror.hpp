@@ -78,7 +78,7 @@ lir_view::FunctionView lir_mirror_emit_fn_view(lir::LProgram& prog,
 // Mirrors lir_mirror_emit_fn_view. UNUSED by real code for now — this stage
 // only defines the struct schema/emitter/view infrastructure.
 lir_view::StructView lir_mirror_emit_struct_view(lir::LProgram& prog,
-                                                 lir::LStructDef& sd);
+                                                 lir::StructDraft& sd);
 
 // Append a method (already-emitted FunctionView) to a stored struct's mutable
 // METHODS array IN PLACE — for the sema/mono passes that collect struct methods

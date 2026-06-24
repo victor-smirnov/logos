@@ -2412,7 +2412,7 @@ private:
                             std::string package;
                             std::string module_id;  // owning-module id (mangle key); empty = no module
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
-                            bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
+                            bool is_annotation_type = false;  // #[annotation] datatype (see StructDraft::is_annotation_type)
                             bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
                             bool no_auto_drop = false;  // `#[no_auto_drop]` — compiler emits NO auto-Drop (user drop + field drop) for this struct. ManuallyDrop<T> lang-item shape.
                             // Phase 1B-13: custom DST — the LAST field has
@@ -3599,7 +3599,7 @@ private:
                                          std::vector<TypeParam>& out);
     bool is_specialization_fn(hermes::TinyMapView node);
     bool is_specialization_struct(hermes::TinyMapView node);
-    lir::LStructDef lower_spec_struct(hermes::TinyMapView node);
+    lir::StructDraft lower_spec_struct(hermes::TinyMapView node);
     lir::FunctionDraft lower_spec_fn(hermes::TinyMapView node);
     void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
                     std::string_view trait_ctx = {});
@@ -4301,7 +4301,7 @@ private:
     // plus its where-clause (and merge where-clause type-param lifetime
     // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
     void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::FunctionDraft& fn);
-    lir::LStructDef lower_struct_def(hermes::TinyMapView node);
+    lir::StructDraft lower_struct_def(hermes::TinyMapView node);
     lir::EnumDraft lower_enum_def(hermes::TinyMapView node);
     lir::ConstDraft lower_const_def(hermes::TinyMapView node);
     std::pair<std::string, TypeRef> lower_type_alias_def(hermes::TinyMapView node);

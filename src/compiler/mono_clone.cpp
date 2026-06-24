@@ -5251,7 +5251,7 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
 
 // Clone a struct def with substitution; rename to new_name.
 // Method names are rewritten from "Base__method" to "new_name__method".
-lir::LStructDef Mono::clone_struct_def(lir_view::StructView tmpl,
+lir::StructDraft Mono::clone_struct_def(lir_view::StructView tmpl,
                                   const SubstMap& s,
                                   const PackMap& packs,
                                   const std::string& new_name) {
@@ -5259,7 +5259,7 @@ lir::LStructDef Mono::clone_struct_def(lir_view::StructView tmpl,
     // into out_ at run() start, so in_'s pool is moved-from. (Same gotcha that
     // bit clone_enum_def.)
     const TypePoolImpl* pool = out_.type_pool.impl();
-    lir::LStructDef nd;
+    lir::StructDraft nd;
     nd.name = new_name;
     nd.pkg  = std::string(tmpl.pkg());
     nd.is_zoned = tmpl.is_zoned();

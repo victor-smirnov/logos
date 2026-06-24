@@ -1067,9 +1067,9 @@ lir::FunctionDraft SemaChecker::lower_fn(TinyMapView node, std::string_view stru
     return fn;
 }
 
-lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
+lir::StructDraft SemaChecker::lower_struct_def(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
-    lir::LStructDef sd;
+    lir::StructDraft sd;
     sd.name               = sname;
     sd.pkg                = cur_package_;
     sd.from_binary_module = cur_from_binary_;

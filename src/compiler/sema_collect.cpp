@@ -4272,11 +4272,11 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
     return false;
 }
 
-lir::LStructDef SemaChecker::lower_spec_struct(TinyMapView node) {
+lir::StructDraft SemaChecker::lower_spec_struct(TinyMapView node) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("struct {} (specialization)", sname);
 
-    lir::LStructDef sd;
+    lir::StructDraft sd;
     sd.name = sname;
     sd.pkg  = cur_package_;
     sd.is_specialization = true;
