@@ -944,6 +944,34 @@ inline std::string_view bare_fn_name(std::string_view nm) noexcept {
     return nm;
 }
 
+// Test whether `src` begins with / equals the concatenation of `parts...`
+// WITHOUT materialising the concatenated string. Replaces the
+// `src.rfind(a + b, 0) == 0` / `src == a + b` idioms, each of which
+// heap-allocates `a + b` on every call — hot in the mono/codegen name scans
+// that compare a candidate symbol against `<base> + "__" + <sig>` shaped keys.
+// Each part may be string_view / std::string / const char*.
+template <typename... Parts>
+inline bool starts_with_parts(std::string_view src, Parts&&... parts) noexcept {
+    std::string_view ps[] = { std::string_view(parts)... };
+    std::size_t off = 0;
+    for (std::string_view part : ps) {
+        if (part.size() > src.size() - off) return false;   // off ≤ src.size() invariant
+        if (std::char_traits<char>::compare(src.data() + off, part.data(), part.size()) != 0)
+            return false;
+        off += part.size();
+    }
+    return true;
+}
+
+template <typename... Parts>
+inline bool equals_parts(std::string_view src, Parts&&... parts) noexcept {
+    std::string_view ps[] = { std::string_view(parts)... };
+    std::size_t total = 0;
+    for (std::string_view p : ps) total += p.size();
+    if (total != src.size()) return false;
+    return starts_with_parts(src, std::forward<Parts>(parts)...);
+}
+
 // ── Module-qualified package encoding (docs/module-system/mangling.md) ──────
 // Qualified package = `[<module_id>..]<pkg>`. The `..` sentinel separates the
 // module-id from the package; packages have no empty segments, so `..` is

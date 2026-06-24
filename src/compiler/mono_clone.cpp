@@ -3674,7 +3674,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         bool exists = templates_.count(fn) || specs_.count(fn);
                         if (!exists) {
                             std::string p = fn + "__";
-                            for (auto& [kn, _] : templates_) if (kn.rfind(p, 0) == 0 || kn.find("." + p) != std::string::npos) { exists = true; break; }
+                            std::string dotp = "." + p;
+                            for (auto& [kn, _] : templates_) if (kn.rfind(p, 0) == 0 || kn.find(dotp) != std::string::npos) { exists = true; break; }
                             if (!exists) for (auto& f : in_.functions)  { auto t = bare_fn_name(f.name()); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
                             if (!exists) for (auto& f : out_.functions) { auto t = bare_fn_name(f.name()); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
                         }
@@ -3699,11 +3700,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto sym_exists = [&](const std::string& fb) -> bool {
                         if (templates_.count(fb) || specs_.count(fb)) return true;
                         for (auto& f : in_.functions)
-                            if (bare_fn_name(f.name()) == fb ||
-                                bare_fn_name(f.name()).rfind(fb + "__", 0) == 0) return true;
+                            if (auto t = bare_fn_name(f.name());
+                                t == fb || starts_with_parts(t, fb, "__")) return true;
                         for (auto& f : out_.functions)
-                            if (bare_fn_name(f.name()) == fb ||
-                                bare_fn_name(f.name()).rfind(fb + "__", 0) == 0) return true;
+                            if (auto t = bare_fn_name(f.name());
+                                t == fb || starts_with_parts(t, fb, "__")) return true;
                         return false;
                     };
                     std::string refc =
@@ -3724,11 +3725,11 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         if (templates_.count(fb) || specs_.count(fb)) return true;
                         for (auto& f : in_.functions) {
                             auto t = bare_fn_name(f.name());
-                            if (t == fb || t.rfind(fb + "__", 0) == 0) return true;
+                            if (t == fb || starts_with_parts(t, fb, "__")) return true;
                         }
                         for (auto& f : out_.functions) {
                             auto t = bare_fn_name(f.name());
-                            if (t == fb || t.rfind(fb + "__", 0) == 0) return true;
+                            if (t == fb || starts_with_parts(t, fb, "__")) return true;
                         }
                         return false;
                     };
@@ -4118,7 +4119,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto mit = smt->find(rs_method);
                         if (mit == smt->end())
                             for (auto& [k, fn] : *smt)
-                                if (k.rfind(rs_method + "__g__", 0) == 0) { mit = smt->find(k); break; }
+                                if (starts_with_parts(k, rs_method, "__g__")) { mit = smt->find(k); break; }
                         if (mit != smt->end()) tmpl = mit->second;
                     }
                 }
