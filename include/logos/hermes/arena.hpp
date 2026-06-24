@@ -108,6 +108,13 @@ public:
     // thread that observes is_sealed() == true (acquire load).
     void seal() noexcept;
 
+    // Reopen a sealed arena for further allocation. Used when seal() was issued
+    // only to snapshot the arena (e.g. publish a LirArenaRoot + compactify a
+    // copy for the .hermes0 blob) but the SAME live arena must keep growing for
+    // downstream codegen. Safe single-threaded; do NOT call while other threads
+    // hold the sealed arena as shared-immutable.
+    void unseal() noexcept { sealed_.store(false, std::memory_order_release); }
+
     // True after seal() has been called.  Acquire ordering ensures all arena
     // content written before seal() is visible to the caller.
     bool is_sealed() const noexcept {

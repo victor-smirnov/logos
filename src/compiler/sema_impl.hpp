@@ -1977,6 +1977,7 @@ private:
     // How many from_binary fn bodies were skeleton-skipped this run. Surfaced
     // under LOGOS_SEMA_PHASE_TIMING as an observability hook for the skip path.
     size_t skel_skip_count_         = 0;
+    size_t tmpl_ext_ref_count_      = 0;  // generic templates routed to a published blob body
 
     // M5: optional cache for binary-AST sema state, shared across
     // multiple sema_lower invocations in one compile session.

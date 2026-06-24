@@ -595,15 +595,14 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                 ++published;
                             }
                         };
-                        for (auto& fn : prog.functions) {
-                            if (fn) try_publish(fn);
-                        }
-                        for (auto& sd : prog.structs) {
-                            if (!sd.type_params_empty()) continue;  // generic struct
-                            for (auto& m : sd.methods()) {
-                                if (m) try_publish(m);
-                            }
-                        }
+                        // NOTE (precompile-generics revival): non-generic bodies
+                        // are NOT published — the consumer already skips re-lowering
+                        // them via skeleton-skip + links them from this layer's .o
+                        // (binary_symbols). Only GENERIC TEMPLATES (below) can't be
+                        // linked (only their instantiations land in the .o), so they
+                        // are the only bodies a consumer must read cross-arena. This
+                        // keeps the blob to template bodies + their reachable types.
+                        (void) try_publish;
                         // Phase 5.B: also publish generic template bodies (free
                         // fns + generic-struct methods). Mono dropped them from
                         // post-mono prog, but their mirror offsets stayed valid
@@ -697,6 +696,11 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                 }
                 out_lir_blob->assign(chunk.data(), chunk.data() + chunk.used);
             }
+            // lir_arena_root_finalize sealed the live type-pool arena to snapshot
+            // it for the blob (compactify produced an independent copy above).
+            // Downstream mlir_gen/codegen still allocates into this same arena, so
+            // reopen it now that the blob bytes are captured.
+            if (arena->is_sealed()) arena->unseal();
         }
     }
 
@@ -987,7 +991,7 @@ bool emit_module(const ModuleManifest& manifest,
         std::string module_id = module_effective_id(manifest, output_path);
         if (!compile_to_object(asts, filenames, ast_only_flags,
                                from_binary_module_flags, obj_path,
-                               only_file_canon, &exports, /*out_lir_blob=*/nullptr,
+                               only_file_canon, &exports, /*out_lir_blob=*/&lir_blob,
                                /*module_name=*/manifest.name,
                                /*module_id=*/module_id,
                                /*implicit_prelude=*/manifest.prelude,
@@ -1147,7 +1151,7 @@ bool emit_module(const ModuleManifest& manifest,
     // live in the dep .o and are linked; the consumer's sema skeleton-skips
     // them via binary_symbols.
     if (!write_hermes0(h0_path, own_modules_for_h0,
-                       /*exports=*/nullptr, /*lir_blob=*/nullptr,
+                       /*exports=*/&exports, /*lir_blob=*/&lir_blob,
                        mflags)) {
         std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
         return false;

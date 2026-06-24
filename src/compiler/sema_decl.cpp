@@ -2,6 +2,8 @@
 
 #include "sema_impl.hpp"
 
+#include <logos/hermes/external_ref.hpp>   // global_arena_pool, lookup_export, ExternalRef
+
 #include <cstdio>
 #include <format>
 #include <functional>
@@ -923,6 +925,25 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     if (skel_skip_body) {
         skip_body = true;
         ++skel_skip_count_;
+    }
+
+    // Precompile-generics (Phase 5.B revival): a from_binary GENERIC template's
+    // body is published in the dep's LIR blob — only its INSTANTIATIONS land in
+    // the .o, not the template, so skel_skip_body (gated on binary_symbols) never
+    // catches it and it would be re-lowered AST→LIR in every consumer. If the
+    // published body is registered (loader registered the dep's LIR arena), route
+    // mono to it cross-arena via body_external_ref and skip re-lowering. The
+    // SIGNATURE is still lowered above (mono needs param/return types); only the
+    // body block is replaced by the external ref.
+    if (cur_from_binary_ && !is_extern && !skip_body && !type_params.empty()
+        && !fn_is_metaprog_handler(fn_name) && !fn_is_metaprog_keep(fn_name)) {
+        auto look = hermes::global_arena_pool().lookup_export(fn_name);
+        if (look.ok()) {
+            fn.ext_ref(dk::BODY_EXTERNAL_REF,
+                       hermes::ExternalRef{look.arena_id, look.obj_id});
+            skip_body = true;
+            ++tmpl_ext_ref_count_;
+        }
     }
 
     // Body (extern fns have no body)

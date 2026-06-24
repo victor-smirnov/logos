@@ -6980,7 +6980,8 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         // (their symbol is in a linked .o, so the body is forward-declared
         // + linked rather than lowered).
         std::fprintf(stderr,
-            "[sema-lower] skel_skip_count=%zu\n", skel_skip_count_);
+            "[sema-lower] skel_skip_count=%zu tmpl_ext_ref_count=%zu\n",
+            skel_skip_count_, tmpl_ext_ref_count_);
     }
     cur_package_ = {};
     cur_imports_ = {};
