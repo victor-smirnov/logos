@@ -72,9 +72,7 @@ static std::string ffo_canonical(std::string_view in) {
 // (Re)build the canonical→FuncOp index if the module's FuncOp set changed.
 // Canonicalises every def name once (vs find_func_op's former per-call walk).
 void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
-    long n = 0;
-    for (auto fn : mod.getOps<mlir::func::FuncOp>()) { (void)fn; ++n; }
-    if (n == ffo_canon_built_n_) return;
+    if (!ffo_canon_dirty_) return;   // O(1) — no per-call FuncOp recount
     ffo_canon_index_.clear();
     ffo_canon_ambig_.clear();
     for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
@@ -86,7 +84,7 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
             ffo_canon_index_.erase(it);
         }
     }
-    ffo_canon_built_n_ = n;
+    ffo_canon_dirty_ = false;
 }
 
 // find_func_op — THE callee-resolution chokepoint. Resolve a callee symbol to

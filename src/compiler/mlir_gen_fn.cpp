@@ -19,12 +19,14 @@ void MLIRGenImpl::ensure_malloc_free(mlir::ModuleOp mod) {
         auto fn = mlir::func::FuncOp::create(loc_, "malloc", fn_type);
         fn.setPrivate();
         mod.push_back(fn);
+        mark_funcs_dirty();
     }
     if (declared_fn_names_.insert("free").second) {
         auto fn_type = builder_.getFunctionType({ptr_type()}, {});
         auto fn = mlir::func::FuncOp::create(loc_, "free", fn_type);
         fn.setPrivate();
         mod.push_back(fn);
+        mark_funcs_dirty();
     }
 }
 
@@ -186,6 +188,7 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, lir_view::FunctionView fn,
     // creation time to avoid the separate setPrivate-by-name pass.
     if (fn.is_extern() || is_binary_skip) f.setPrivate();
     mod.push_back(f);
+    mark_funcs_dirty();   // invalidate the canonical-resolution index
     // Record Logos-level param types for dyn coercion at call sites.
     std::vector<TypeRef> ptypes;
     std::vector<bool> powning;

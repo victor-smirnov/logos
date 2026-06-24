@@ -644,7 +644,13 @@ private:
     // canonicalising walk.
     mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_canon_index_;
     mutable std::unordered_set<std::string> ffo_canon_ambig_;
-    mutable long ffo_canon_built_n_ = -1;
+    // Set true whenever a func::FuncOp is added to the module (mark_funcs_dirty
+    // at every create site). ensure_ffo_canon_index rebuilds only when dirty —
+    // replacing the per-call O(funcs) staleness recount. A stale-by-miss index
+    // is self-correcting via L4: a canonical-fallback callee would fail to
+    // resolve, breaking a cross-module test.
+    mutable bool ffo_canon_dirty_ = true;
+    void mark_funcs_dirty() const noexcept { ffo_canon_dirty_ = true; }
     void ensure_ffo_canon_index(mlir::ModuleOp mod) const;
 
     std::string link_name_str(const std::string& callee) const {

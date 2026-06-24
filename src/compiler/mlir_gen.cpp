@@ -563,6 +563,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                     builder_.setInsertionPointToEnd(mod.getBody());
                     auto decl = builder_.create<mlir::func::FuncOp>(loc_, fn_name, void_fn_type);
                     decl.setPrivate();
+                    mark_funcs_dirty();
                 }
             }
             // Inject calls at the start of main.
