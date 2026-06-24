@@ -580,6 +580,7 @@ private:
         w.line();
         w.line("#include <string_view>");
         w.line("#include <unordered_map>");
+        w.line("#include <vector>");
         w.line("#include <utility>");
         w.line("#include <logos/core/named_code.hpp>");
         w.line("#include <logos/hermes/compat.hpp>");
@@ -715,9 +716,20 @@ private:
         }
         // Packrat memo caches: start_pos → (AST, end_pos).  AST AnyVals
         // remain valid because emit_alt no longer rolls back the arena.
+        //
+        // Indexed by byte offset (the key is `pos_`, dense in 0..source.size())
+        // rather than hashed: a flat vector sized once in the ctor kills the
+        // per-insert node malloc + rehash churn that an unordered_map incurs on
+        // the expr-precedence ladder (every atom is memoized through ~10 layers).
+        // `.second == kMemoEmpty` marks an unfilled slot — parse FAILURES are
+        // memoized too (null AnyVal is a valid result), so the end-pos sentinel,
+        // not the value, signals emptiness.
+        if (std::any_of(g_.rules.begin(), g_.rules.end(),
+                        [&](const auto& r){ return is_memoized(r.name); }))
+            w.line("static constexpr size_t kMemoEmpty = static_cast<size_t>(-1);");
         for (const auto& r : g_.rules) {
             if (!is_memoized(r.name)) continue;
-            w.fmt("std::unordered_map<size_t, std::pair<logos::hermes::AnyVal, size_t>> memo_{}_;", r.name);
+            w.fmt("std::vector<std::pair<logos::hermes::AnyVal, size_t>> memo_{}_;", r.name);
         }
         if (!g_.prec.empty()) {
             w.line();
@@ -818,7 +830,17 @@ private:
         w.line();
 
         // next / peek / try / expect
-        w.fmt("{0}::{0}(std::string_view source) : source_(source) {{}}", parser_class_);
+        // Size the packrat memo vectors once: keys are byte offsets in
+        // 0..source.size(), so one slot per offset covers every possible start.
+        w.fmt("{0}::{0}(std::string_view source) : source_(source) {{", parser_class_);
+        w.indent();
+        for (const auto& r : g_.rules) {
+            if (!is_memoized(r.name)) continue;
+            w.fmt("memo_{}_.assign(source.size() + 1, {{logos::hermes::AnyVal{{}}, kMemoEmpty}});",
+                  r.name);
+        }
+        w.dedent();
+        w.line("}");
         w.line();
         w.fmt("{0}::Token {0}::next_token() {{", parser_class_);
         w.indent();
@@ -1727,17 +1749,17 @@ private:
             w.indent();
             w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
             w.line("size_t start = pos_;");
-            w.fmt("auto it = memo_{}_.find(start);", rule.name);
-            w.fmt("if (it != memo_{}_.end()) {{", rule.name);
+            w.fmt("auto& slot = memo_{}_[start];", rule.name);
+            w.line("if (slot.second != kMemoEmpty) {");
             w.indent();
-            w.line("pos_ = it->second.second;");
+            w.line("pos_ = slot.second;");
             w.line("have_la_ = false;");
-            w.line("return it->second.first;");
+            w.line("return slot.first;");
             w.dedent();
             w.line("}");
             w.fmt("AnyVal result = rule_{}_impl();", rule.name);
             w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
-            w.fmt("memo_{}_.emplace(start, std::make_pair(result, pos_));", rule.name);
+            w.fmt("memo_{}_[start] = std::make_pair(result, pos_);", rule.name);
             w.line("return result;");
             w.dedent();
             w.line("}");
