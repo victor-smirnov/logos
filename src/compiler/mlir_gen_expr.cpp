@@ -75,8 +75,13 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
     if (!ffo_canon_dirty_) return;   // O(1) — no per-call FuncOp recount
     ffo_canon_index_.clear();
     ffo_canon_ambig_.clear();
+    ffo_symtab_.clear();
     for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
-        std::string c = ffo_canonical(fn.getName());
+        auto nm = fn.getName();
+        // Direct name → FuncOp (a symbol name is unique, so last-wins == only).
+        ffo_symtab_[std::string(nm)] = fn;
+        // Canonical (sig-stripped / pkg-stripped) → FuncOp, ambiguous-aware.
+        std::string c = ffo_canonical(nm);
         if (ffo_canon_ambig_.count(c)) continue;
         auto [it, ins] = ffo_canon_index_.emplace(c, fn);
         if (!ins && it->second != fn) {
@@ -105,9 +110,14 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
     std::string key(name);
     if (auto it = find_func_op_cache_.find(key); it != find_func_op_cache_.end())
         return it->second;
+    // Build the dirty-gated name→FuncOp + canonical indices once (O(1) when
+    // clean), so the lookups below are O(1) hash hits instead of O(funcs)
+    // mod.lookupSymbol linear scans.
+    ensure_ffo_canon_index(mod);
     // Direct symbol-table hit (free fns — already qualified in the LIR — and
     // intra-module bare names). The common case; now memoised like the rest.
-    if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name)) {
+    if (auto it = ffo_symtab_.find(key); it != ffo_symtab_.end()) {
+        auto fn = it->second;
         find_func_op_cache_.emplace(std::move(key), fn);
         return fn;
     }
@@ -125,8 +135,8 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         // distinct-signature defs onto the wrong one (String::from→new, or
         // set(_,HAny) for an i64 arg).
         if (auto q = link_name_str(key); q != name)
-            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(q))
-                return fn;
+            if (auto it = ffo_symtab_.find(q); it != ffo_symtab_.end())
+                return it->second;
         // (The former exact-name / exact-qualified find_fn_matching walks here
         // were O(n) and redundant: lookupSymbol above and at the top of
         // find_func_op already resolve those exact names in O(1) — a
@@ -146,9 +156,8 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         // Indexed: canonicalising every def name on every call was O(calls ×
         // functions) — ~5M string-builds / 1.1s on a 56-test batch. Build a
         // canonical→FuncOp index (with an ambiguous-key set) ONCE and reuse it;
-        // it's rebuilt only if the module's FuncOp count changes (it doesn't
-        // during body-gen — pass 1 forward-declared everything).
-        ensure_ffo_canon_index(mod);
+        // it's rebuilt only if the module's FuncOp set changes (dirty-gated;
+        // already built at the top of find_func_op).
         auto cname = ffo_canonical(name);
         if (ffo_canon_ambig_.count(cname)) return {};
         if (auto it = ffo_canon_index_.find(cname); it != ffo_canon_index_.end())

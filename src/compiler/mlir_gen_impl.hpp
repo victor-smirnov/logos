@@ -644,6 +644,11 @@ private:
     // canonicalising walk.
     mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_canon_index_;
     mutable std::unordered_set<std::string> ffo_canon_ambig_;
+    // Direct symbol-name → FuncOp index, built in the SAME dirty-gated pass as
+    // the canonical index. Replaces find_func_op's mod.lookupSymbol(name) calls
+    // — MLIR's lookupSymbolIn is an O(funcs) LINEAR SCAN reading each sym_name
+    // (getInherentAttr). This makes both the direct and qualified lookups O(1).
+    mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_symtab_;
     // Set true whenever a func::FuncOp is added to the module (mark_funcs_dirty
     // at every create site). ensure_ffo_canon_index rebuilds only when dirty —
     // replacing the per-call O(funcs) staleness recount. A stale-by-miss index
