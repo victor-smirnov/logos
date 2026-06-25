@@ -360,6 +360,10 @@ void MLIRGenImpl::gen_stmt(lir_view::StmtRef sr) {
         std::fprintf(stderr, "mlir_gen: gen_stmt called without LIR mirror\n");
         return;
     }
+    // -g: stamp every op emitted for this statement with its source line (fused
+    // with the current fn's DISubprogram). No-op / unknown loc when debug is off.
+    // Not restored afterwards — locations are hints; the next stmt re-stamps.
+    if (debug_info_ && di_subprogram_) loc_ = dbg_loc(sr.line());
     using C = lir_schema::stmt::Code;
     switch (sr.kind()) {
     case C::Let:             gen_stmt_kind(lir_view::SLetView{sr}); return;

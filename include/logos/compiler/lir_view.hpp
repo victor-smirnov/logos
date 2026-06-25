@@ -341,6 +341,12 @@ public:
             int32_t(hermes::schema::variant_of(schema_type_code())));
     }
 
+    // Source line (1-based) recorded by sema's lower_stmt via stmt_common::LINE.
+    // 0 = no line info (synthetic stmt). Drives DWARF FileLineColLoc in mlir-gen.
+    uint32_t line() const noexcept {
+        return detail::read_u32(*this, lir_schema::stmt_common::LINE.code);
+    }
+
     StmtRef sub_stmt(uint8_t key) const noexcept;
     ExprRef sub_expr(uint8_t key) const noexcept;
 };

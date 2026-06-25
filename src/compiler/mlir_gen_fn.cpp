@@ -237,6 +237,11 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     builder_.setInsertionPointToStart(entry);
     cur_entry_block_ = entry;
 
+    // -g: open this function's DWARF scope (DISubprogram + fused debug loc).
+    // No-op unless debug_info_. Prologue/param-binding ops below inherit the
+    // function-scope location set here.
+    begin_fn_debug(func, fn);
+
     scope_.clear();
     let_vars_.clear();
     uninit_drop_flag_.clear();
@@ -442,6 +447,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
         }
     }
 
+    end_fn_debug();  // -g: close this function's DWARF scope.
     return true;
 }
 

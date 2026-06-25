@@ -2931,7 +2931,7 @@ static int abi_diff(const std::string& old_path, const std::string& new_path) {
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm] [--diag-format=text|json] [--stats]\n");
+        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [-g] [--emit-mlir] [--emit-llvm] [--diag-format=text|json] [--stats]\n");
         return EXIT_USAGE;
     }
 
@@ -2943,6 +2943,7 @@ int main(int argc, char** argv) {
     const char* output_path = "output.o";
     bool emit_mlir = false;
     bool emit_llvm = false;
+    bool debug_g   = false;                      // -g / --debug: emit DWARF debug info (line tables, subprograms, locals, types) for gdb/lldb
     bool jit_run   = false;                      // --jit: compile and run main() in-process
     bool expand_only = false;                    // --expand: run metaprog dispatch over input + render result back to Logos source (no codegen). Avoids stdlib build's circular-dep when derives reference each other (debt #22 alt B).
     bool test_mode   = false;                    // --test: build a test binary (synthesise main() that runs every `#[test]` fn under panic-recovery and prints a Rust-style summary).
@@ -3072,6 +3073,7 @@ int main(int argc, char** argv) {
         else if (arg == "--stats") { stats_flag = true; }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
+        else if (arg == "-g" || arg == "--debug") { debug_g = true; }
         else if (arg == "--jit") { jit_run = true; }
         else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
@@ -4600,6 +4602,8 @@ int main(int argc, char** argv) {
         lopts.function_sections = true;
         lopts.emit_mlir         = emit_mlir;
         lopts.emit_llvm         = emit_llvm;
+        lopts.debug_info        = debug_g;
+        lopts.source_path       = input_path ? input_path : "";
         lopts.dump_metaprog_dir = dump_metaprog_dir;
         std::unique_ptr<llvm::Module> jit_module;
         if (jit_run) lopts.jit_module_out = &jit_module;

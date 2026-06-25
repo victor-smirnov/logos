@@ -975,6 +975,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
 // drop-less type the body is an empty no-op — still emitted so slot 0 is valid.
 std::string MLIRGenImpl::emit_drop_in_place_glue(std::string_view type_name,
                                                   TypeRef ty) {
+    DebugScopeSuspend _dbg(this);  // -g: its own function, not the caller's scope
     std::string key(type_name);
     if (auto it = dyn_drop_glue_.find(key); it != dyn_drop_glue_.end())
         return it->second;
@@ -1005,6 +1006,7 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
         const std::vector<TypeRef>& capture_field_types,
         const std::vector<bool>& capture_drops,
         bool heap_env) {
+    DebugScopeSuspend _dbg(this);  // -g: its own function, not the caller's scope
     if (auto it = closure_drop_glue_.find(closure_id);
         it != closure_drop_glue_.end())
         return it->second;
@@ -1613,6 +1615,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
+    DebugScopeSuspend _dbg(this);  // -g: closure body is its own function, not the caller's scope
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     auto save_pt = builder_.saveInsertionPoint();
 

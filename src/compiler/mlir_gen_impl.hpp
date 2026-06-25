@@ -24,6 +24,7 @@
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/LLVMIR/LLVMAttrs.h>   // DWARF debug-info attributes
 
 #include <unordered_map>
 #include <unordered_set>
@@ -129,9 +130,60 @@ public:
 
     mlir::OwningOpRef<mlir::ModuleOp> generate(const LProgram& prog);
 
+    // -g: enable DWARF debug-info emission. Set before generate().
+    void set_debug_info(bool v) { debug_info_ = v; }
+    // Primary input source path (DWARF CU file + per-fn fallback). Before generate().
+    void set_main_source(std::string_view s) { main_source_.assign(s); }
+
 private:
     mlir::OpBuilder builder_;
     mlir::Location  loc_;
+
+    // ── DWARF debug info (-g) ─────────────────────────────────────────────
+    // Path: per-stmt FileLineColLoc fused with the current fn's DISubprogram →
+    // translateModuleToLLVMIR emits DWARF. Locations are only debug-fused while
+    // emitting a TOP-LEVEL function body; nested compiler-generated functions
+    // (closures, drop glue, ctors) suspend the scope via DebugScopeSuspend so a
+    // single DISubprogram never leaks onto two LLVM functions.
+    bool                              debug_info_ = false;
+    std::string                       main_source_;      // primary input path (CU file + fallback)
+    mlir::LLVM::DICompileUnitAttr     di_cu_;            // one per module (lazy)
+    mlir::LLVM::DISubprogramAttr      di_subprogram_;    // current fn (null outside a body)
+    mlir::LLVM::DIFileAttr            di_file_;          // current fn's file
+    uint32_t                          di_scope_line_ = 0;// current fn's decl/scope line
+    std::unordered_map<std::string, mlir::LLVM::DIFileAttr> di_files_;  // path → DIFile cache
+
+    // DIFile for `path` (split dir/name), cached.
+    mlir::LLVM::DIFileAttr di_file_for(std::string_view path);
+    // The single module compile unit, created on first use against `file`.
+    mlir::LLVM::DICompileUnitAttr ensure_di_cu(mlir::LLVM::DIFileAttr file);
+    // Build (and install in di_subprogram_/di_file_) the DISubprogram for `fn`,
+    // attach it to `func`'s location so the translator sets its subprogram.
+    // No-op unless debug_info_. Returns false on nothing-to-do.
+    void begin_fn_debug(mlir::func::FuncOp func, lir_view::FunctionView fn);
+    // Clear current-fn debug scope (loc_ → unknown, di_subprogram_ → null).
+    void end_fn_debug();
+    // Fused (FileLineColLoc, di_subprogram_) location for `line`; falls back to
+    // the scope line for line==0. Returns unknown loc when debug is inactive.
+    mlir::Location dbg_loc(uint32_t line);
+
+    // RAII: suspend the active debug scope while emitting a nested compiler-
+    // generated function (its FuncOp + body must NOT inherit the caller's
+    // DISubprogram). Restores on scope exit.
+    struct DebugScopeSuspend {
+        MLIRGenImpl* self;
+        mlir::LLVM::DISubprogramAttr saved_sp;
+        mlir::Location               saved_loc;
+        explicit DebugScopeSuspend(MLIRGenImpl* s)
+            : self(s), saved_sp(s->di_subprogram_), saved_loc(s->loc_) {
+            self->di_subprogram_ = {};
+            self->loc_ = self->builder_.getUnknownLoc();
+        }
+        ~DebugScopeSuspend() {
+            self->di_subprogram_ = saved_sp;
+            self->loc_ = saved_loc;
+        }
+    };
 
     // Set in generate(); used by view-ref helpers below to resolve LExpr*/LStmt*/Pattern*
     // back to mirror offsets so callers can read fields through lir_view types.

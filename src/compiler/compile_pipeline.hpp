@@ -21,6 +21,9 @@ namespace logos::compiler {
 struct LowerEmitOpts {
     int  opt_level         = 0;     // 0 = no opt-pipeline, 1..3 → O1/O2/O3
     bool function_sections = true;  // per-fn / per-data sections (--gc-sections)
+    bool debug_info        = false; // -g: emit DWARF (line tables, subprograms,
+                                    // locals, types) via MLIR LLVM-dialect DI attrs.
+    std::string source_path;        // primary input path → DWARF compile-unit file.
     bool emit_mlir         = false; // print MLIR text to stdout, return 0
     bool emit_llvm         = false; // print LLVM IR to stdout, return 0
     // When set, the LLVM module is moved into *jit_module_out instead of

@@ -1170,10 +1170,14 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
 // ---------------------------------------------------------------------------
 
 mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
-                                            const LProgram& prog) noexcept
+                                            const LProgram& prog,
+                                            bool debug_info,
+                                            std::string_view main_source) noexcept
 {
     auto t0 = std::chrono::steady_clock::now();
     MLIRGenImpl gen(ctx);
+    gen.set_debug_info(debug_info);
+    gen.set_main_source(main_source);
     auto t_ctor = std::chrono::steady_clock::now();
     auto mod = gen.generate(prog);
     auto t_gen = std::chrono::steady_clock::now();
