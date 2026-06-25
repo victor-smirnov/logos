@@ -9381,3 +9381,14 @@ sym	u8__store_remove_at__g__pmut_PrimVec$G1$DT::Prim__u64
 sym	u8__store_set__g__pmut_PrimVec$G1$DT::Prim__u64__DT::Prim
 sym	u8__to_string__g__T
 sym	usize__to_string__g__T
+type	logos::hermes::AnyVal	size=8 align=8
+type	logos::hermes::ArenaString	size=1 align=1
+type	logos::hermes::Chunk	size=24 align=8
+type	logos::hermes::DocumentHeader	size=8 align=8
+type	logos::hermes::ExternalRef	size=8 align=4
+type	logos::hermes::ImportEntry	size=64 align=8
+type	logos::hermes::MapEntry	size=16 align=8
+type	logos::hermes::ObjectArray	size=24 align=8
+type	logos::hermes::ObjectMap	size=24 align=8
+type	logos::hermes::TinyObjectMap	size=24 align=8
+type	logos::hermes::TypeTag	size=8 align=8

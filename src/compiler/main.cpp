@@ -2743,6 +2743,30 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     records.insert("schema\tlir_arena_root\t"
         + std::to_string(logos::hermes::lir_arena_root::CURRENT_VERSION));
 
+    // cat 4: layout of the Hermes types the compiler bakes into binary artifacts
+    // (the .hermes0 / LIR-blob / arena format). A size/alignment change to any of
+    // these breaks every previously-written blob — record sizeof+alignof so the
+    // analyzer flags it. logosc links Hermes, so it emits these directly (no
+    // separate offsetof tool). "everything from Hermes the compiler uses" = the
+    // value encodings, headers, in-arena container headers, and table entries that
+    // define the on-disk format.
+    {
+#define LOGOS_ABI_TYPE(T) records.insert("type\t" #T "\tsize=" \
+        + std::to_string(sizeof(T)) + " align=" + std::to_string(alignof(T)))
+        LOGOS_ABI_TYPE(logos::hermes::AnyVal);          // the 8-byte tagged value word
+        LOGOS_ABI_TYPE(logos::hermes::ExternalRef);     // decoded cross-arena (arena_id, obj_id)
+        LOGOS_ABI_TYPE(logos::hermes::TypeTag);         // per-object in-arena tag
+        LOGOS_ABI_TYPE(logos::hermes::DocumentHeader);  // blob root header
+        LOGOS_ABI_TYPE(logos::hermes::Chunk);           // arena chunk header
+        LOGOS_ABI_TYPE(logos::hermes::ArenaString);     // in-arena string header
+        LOGOS_ABI_TYPE(logos::hermes::ObjectArray);     // in-arena array header
+        LOGOS_ABI_TYPE(logos::hermes::ObjectMap);       // in-arena map header
+        LOGOS_ABI_TYPE(logos::hermes::TinyObjectMap);   // in-arena tiny-map (schema objects)
+        LOGOS_ABI_TYPE(logos::hermes::MapEntry);        // map slot layout
+        LOGOS_ABI_TYPE(logos::hermes::ImportEntry);     // .imp table entry
+#undef LOGOS_ABI_TYPE
+    }
+
     // cat 1: stdlib exported symbols. nm -p (no sort — we sort canonically via
     // the set). The mangled name encodes the signature, so a removal/signature
     // change surfaces as a dropped line.
