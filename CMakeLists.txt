@@ -9,6 +9,29 @@ cmake_minimum_required(VERSION 3.28)
 
 project(logos VERSION 0.1.0 LANGUAGES CXX C ASM)
 
+# ── Version & parallel-install slot ──────────────────────────────────────
+# Single source of truth: project(VERSION) above + the pre-release marker
+# below. Three language-development stages read off the version:
+#   preview     LOGOS_VERSION_PRE=pre, major 0  → 0.Y.Z-pre  (nothing guaranteed)
+#   stabilising LOGOS_VERSION_PRE="",  major 0  → 0.Y.Z      (tools stable, lang fluid)
+#   stable      major >= 1                        → X.Y.Z      (full guarantees)
+# `-pre` is ORTHOGONAL — it attaches to any version, a version-safe space for
+# experiments.
+set(LOGOS_VERSION_PRE "pre" CACHE STRING
+    "Pre-release marker appended as -<PRE> (empty = released). Orthogonal to X.Y.Z.")
+
+# FULL = X.Y.Z[-pre] — reported by --version, CPack package version.
+# SLOT = X.Y[-pre]   — the parallel-install / ABI-compat boundary users pin to
+#        (minor bump = ABI break; see memory project_versioning_abi). Drives the
+#        versioned binary `logosc-<SLOT>` and stdlib dir `lib/logos/<SLOT>/`.
+set(LOGOS_VERSION_FULL "${PROJECT_VERSION}")
+set(LOGOS_VERSION_SLOT "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
+if(LOGOS_VERSION_PRE)
+    set(LOGOS_VERSION_FULL "${LOGOS_VERSION_FULL}-${LOGOS_VERSION_PRE}")
+    set(LOGOS_VERSION_SLOT "${LOGOS_VERSION_SLOT}-${LOGOS_VERSION_PRE}")
+endif()
+message(STATUS "Logos ${LOGOS_VERSION_FULL}  (install slot logosc-${LOGOS_VERSION_SLOT})")
+
 # Default to an optimised build when the user hasn't explicitly picked one.
 # Single-config generators (Ninja, Make) leave CMAKE_BUILD_TYPE empty by
 # default, which gets no `-O` flags and makes the compiler ~6× slower —
@@ -121,25 +144,44 @@ add_subdirectory(tests/logos)
 #   <P>/lib/logos/liblstdlib_rt.a        — native runtime support
 #   <P>/lib/logos/liblstdlib_uring.a     — liburing wrappers
 #
-# The compiler resolves its system module library via a suffix baked at
-# build time (LOGOS_LIB_RELDIR), realpath'd off /proc/self/exe — the
-# same suffix works for the build tree and the install tree, so no
-# absolute path is hard-coded into the binary.
+# Versioned (parallel) install, GCC/Clang-style:
+#   <P>/bin/logosc-<SLOT>          — the versioned driver (logosc-0.1-pre)
+#   <P>/bin/logosc                 — symlink to the slot (default; update-
+#                                    alternatives manages it in the .deb)
+#   <P>/lib/logos/<SLOT>/*.a       — stdlib beside its own compiler
+# The binary resolves its stdlib by readlinking /proc/self/exe and trying
+# <dir>/../lib/logos/<SLOT> (this versioned tree) before the flat fallback,
+# so no absolute path is baked and versions never collide.
+# Unversioned bin/logosc as a plain symlink: ON for `make install` (a single
+# dev install), OFF for the .deb — there update-alternatives owns /usr/bin/logosc
+# (postinst/prerm below) so two slot-packages can coexist without a file clash.
+option(LOGOS_INSTALL_UNVERSIONED_SYMLINK
+    "Install bin/logosc -> logosc-<SLOT> as a file (OFF for coexisting packages; alternatives instead)" ON)
 install(TARGETS logosc
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# Rename the installed binary to logosc-<SLOT>; optionally drop the unversioned
+# symlink.
+install(CODE "
+    set(_bindir \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+    file(RENAME \"\${_bindir}/logosc\" \"\${_bindir}/logosc-${LOGOS_VERSION_SLOT}\")
+    if(${LOGOS_INSTALL_UNVERSIONED_SYMLINK})
+        execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
+            \"logosc-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logosc\")
+    endif()
+")
 install(FILES
     ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-    DESTINATION ${LOGOS_LIB_RELDIR})
+    DESTINATION ${LOGOS_LIB_RELDIR}/${LOGOS_VERSION_SLOT})
 # liblstdlib_uring.a is the bundled static liburing — only present on distros
 # that ship a static liburing.a (see stdlib/rt/CMakeLists.txt). Where absent
 # (Fedora), consumers link the shared -luring.
 if(LOGOS_BUNDLE_URING_STATIC)
     install(FILES ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
-        DESTINATION ${LOGOS_LIB_RELDIR})
+        DESTINATION ${LOGOS_LIB_RELDIR}/${LOGOS_VERSION_SLOT})
 endif()
 
 # ── Packaging (.deb / .rpm via CPack) ────────────────────────────────────
@@ -147,8 +189,11 @@ endif()
 # `cpack -G DEB` (Debian/Ubuntu) or `cpack -G RPM` (Fedora/RHEL), run from a
 # build dir configured against the distro's stock LLVM. Installs logosc + the
 # modular stdlib archives under /usr. Needs `dpkg-dev` resp. `rpm-build`.
-set(CPACK_PACKAGE_NAME    "logos")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+# Per-slot package name so versions coexist on one system: apt installs
+# `logosc-0.1-pre` and `logosc-0.2` side by side (each owns bin/logosc-<SLOT>
+# + lib/logos/<SLOT>/; the unversioned bin/logosc is an alternatives link).
+set(CPACK_PACKAGE_NAME    "logosc-${LOGOS_VERSION_SLOT}")
+set(CPACK_PACKAGE_VERSION "${LOGOS_VERSION_FULL}")
 set(CPACK_PACKAGE_VENDOR  "Victor Smirnov")
 set(CPACK_PACKAGE_CONTACT "Victor Smirnov <aist11@gmail.com>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
@@ -174,7 +219,23 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS
 # A built Logos program is linked with `cc`/`ld` against the static stdlib
 # archives, so the toolchain wants a C compiler present.
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "gcc | clang")
-set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)  # logos_0.1.0_amd64.deb
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)  # logosc-0.1-pre_0.1.0-pre_amd64.deb
+
+# update-alternatives: the unversioned /usr/bin/logosc selector. Priority orders
+# slots so a newer one wins by default, and a released slot beats its -pre twin.
+# Build the .deb with -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF so the symlink is
+# NOT a packaged file (alternatives owns it) — that's what lets slots coexist.
+math(EXPR LOGOS_ALT_PRIORITY
+     "${PROJECT_VERSION_MAJOR} * 1000 + ${PROJECT_VERSION_MINOR} * 10 + 1")
+if(LOGOS_VERSION_PRE)
+    math(EXPR LOGOS_ALT_PRIORITY "${LOGOS_ALT_PRIORITY} - 1")  # -pre below released
+endif()
+configure_file(${CMAKE_SOURCE_DIR}/packaging/deb/postinst.in
+               ${CMAKE_BINARY_DIR}/packaging/deb/postinst @ONLY)
+configure_file(${CMAKE_SOURCE_DIR}/packaging/deb/prerm.in
+               ${CMAKE_BINARY_DIR}/packaging/deb/prerm @ONLY)
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_BINARY_DIR}/packaging/deb/postinst;${CMAKE_BINARY_DIR}/packaging/deb/prerm")
 
 # ── RPM ──
 # Fedora keeps its libs on standard /usr/lib64, so rpm's automatic

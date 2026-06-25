@@ -170,7 +170,11 @@ endif()
 
 # Bake the bin-relative system library path into the binary. Resolving
 # /proc/self/exe at runtime + appending this gives both the build-tree
-# and install-tree directories with the same compiled-in suffix.
+# and install-tree directories with the same compiled-in suffix. The
+# resolver tries `<reldir>/<SLOT>` first (versioned install tree) then
+# `<reldir>` (flat build tree), so one binary serves both layouts.
 target_compile_definitions(logosc PRIVATE
-    LOGOS_LIB_RELDIR="../${LOGOS_LIB_RELDIR}")
+    LOGOS_LIB_RELDIR="../${LOGOS_LIB_RELDIR}"
+    LOGOS_VERSION_FULL="${LOGOS_VERSION_FULL}"
+    LOGOS_VERSION_SLOT="${LOGOS_VERSION_SLOT}")
 

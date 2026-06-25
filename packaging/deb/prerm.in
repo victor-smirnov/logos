@@ -1,0 +1,9 @@
+#!/bin/sh
+# logosc-@LOGOS_VERSION_SLOT@ — deregister this slot from the /usr/bin/logosc
+# alternatives group on removal; alternatives re-points to the next-best slot.
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
+    update-alternatives --remove logosc /usr/bin/logosc-@LOGOS_VERSION_SLOT@
+fi
+#DEBHELPER#
+exit 0

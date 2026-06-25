@@ -2782,12 +2782,19 @@ int main(int argc, char** argv) {
         ssize_t n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
         if (n > 0) {
             exe[n] = '\0';
-            std::string p(exe);
-            if (auto slash = p.rfind('/'); slash != std::string::npos)
-                p.resize(slash);
-            p += "/" LOGOS_LIB_RELDIR;
+            std::string base(exe);
+            if (auto slash = base.rfind('/'); slash != std::string::npos)
+                base.resize(slash);
+            base += "/" LOGOS_LIB_RELDIR;          // <exe_dir>/../lib/logos
             char real[PATH_MAX];
-            if (::realpath(p.c_str(), real)) return real;
+            // Versioned install tree first: <reldir>/<SLOT> (logosc-<SLOT> ships
+            // its stdlib under lib/logos/<SLOT>/ so versions coexist). Fall back
+            // to the flat <reldir> used by the build tree (build/lib/logos).
+#ifdef LOGOS_VERSION_SLOT
+            std::string versioned = base + "/" LOGOS_VERSION_SLOT;
+            if (::realpath(versioned.c_str(), real)) return real;
+#endif
+            if (::realpath(base.c_str(), real)) return real;
         }
 #endif
         return {};
@@ -2904,10 +2911,15 @@ int main(int argc, char** argv) {
     }
 
     if (print_version) {
-        // Single source of truth for the compiler version. Bump on
-        // releases; lforge's `requires_logos` floor (B5) compares against
-        // this string segment-by-segment.
+        // Version is baked from CMake (LOGOS_VERSION_FULL = X.Y.Z[-pre]),
+        // the single source of truth. lforge's `requires_logos` floor (B5)
+        // compares against this segment-by-segment (the -pre tail is ignored
+        // by its numeric cmp_tags).
+#ifdef LOGOS_VERSION_FULL
+        std::printf("logosc %s\n", LOGOS_VERSION_FULL);
+#else
         std::printf("logosc 0.1.0\n");
+#endif
         return 0;
     }
 
