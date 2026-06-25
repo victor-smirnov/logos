@@ -2783,6 +2783,96 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     return 0;
 }
 
+// ── ABI semantic differ (`--abi-diff <old.abi> <new.abi>`) ───────────────────
+// Qualify the change between two ABI specs as ABI-preserving (patchset) or
+// ABI-breaking (minor bump). NOT a raw line diff: pairs records by (category,
+// key) and applies per-category compatibility rules. Exit 0 = preserving,
+// 1 = breaking (the minor-bump CI gate), 2 = usage/IO error.
+//   git usage: logosc --abi-diff <(git show v0.1:abi/logos.abi) abi/logos.abi
+static int abi_diff(const std::string& old_path, const std::string& new_path) {
+    // Parse a spec into (category,key) -> detail. Records are "<cat>\t<key>[\t<detail>]".
+    auto load = [](const std::string& p,
+                   std::map<std::pair<std::string,std::string>, std::string>& out) -> bool {
+        FILE* f = std::fopen(p.c_str(), "r");
+        if (!f) { std::fprintf(stderr, "logosc: --abi-diff: cannot open '%s'\n", p.c_str()); return false; }
+        char line[2048];
+        while (std::fgets(line, sizeof(line), f)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+            if (sv.empty() || sv.front() == '#') continue;
+            auto t1 = sv.find('\t');
+            if (t1 == std::string_view::npos) continue;
+            std::string cat(sv.substr(0, t1));
+            std::string_view rest = sv.substr(t1 + 1);
+            auto t2 = rest.find('\t');
+            std::string key(t2 == std::string_view::npos ? rest : rest.substr(0, t2));
+            std::string det(t2 == std::string_view::npos ? std::string_view{} : rest.substr(t2 + 1));
+            out[{cat, key}] = det;
+        }
+        std::fclose(f);
+        return true;
+    };
+    std::map<std::pair<std::string,std::string>, std::string> a, b;
+    if (!load(old_path, a) || !load(new_path, b)) return 2;
+
+    // Per-category verdict for a record that was removed or whose detail changed.
+    // Returns true if the change BREAKS ABI.
+    auto removal_breaks = [](const std::string& cat) {
+        // sym: a dropped external symbol can't be linked → break.
+        // schema: a dropped format version → break.
+        // (future cats type/vtable: removal/incompatible-change → break.)
+        return cat == "sym" || cat == "schema" || cat == "type" || cat == "vtable";
+    };
+    auto change_breaks = [](const std::string& cat, const std::string& oldd, const std::string& newd) {
+        if (cat == "schema") {
+            // Forward-readable by design: a version INCREASE is compatible (newer
+            // compiler reads older artifacts); a decrease breaks.
+            long ov = std::strtol(oldd.c_str(), nullptr, 10);
+            long nv = std::strtol(newd.c_str(), nullptr, 10);
+            return nv < ov;
+        }
+        // sym has no detail (key is the whole symbol). type/vtable layout change → break.
+        return true;
+    };
+
+    std::vector<std::string> removed, changed_break, changed_compat, added;
+    for (const auto& [k, det] : a) {
+        auto it = b.find(k);
+        if (it == b.end()) {
+            std::string rec = k.first + " " + k.second;
+            removed.push_back(rec + (removal_breaks(k.first) ? "  [BREAKING]" : ""));
+            continue;
+        }
+        if (it->second != det) {
+            std::string rec = k.first + " " + k.second + "  (" + det + " -> " + it->second + ")";
+            (change_breaks(k.first, det, it->second) ? changed_break : changed_compat).push_back(rec);
+        }
+    }
+    for (const auto& [k, det] : b)
+        if (!a.count(k)) added.push_back(k.first + " " + k.second);
+
+    size_t n_break = 0;
+    for (const auto& r : removed) if (r.find("[BREAKING]") != std::string::npos) ++n_break;
+    n_break += changed_break.size();
+
+    auto dump = [](const char* title, const std::vector<std::string>& v) {
+        if (v.empty()) return;
+        std::printf("%s (%zu):\n", title, v.size());
+        for (const auto& r : v) std::printf("  %s\n", r.c_str());
+    };
+    std::printf("ABI diff: %s -> %s\n", old_path.c_str(), new_path.c_str());
+    dump("REMOVED", removed);
+    dump("CHANGED (breaking)", changed_break);
+    dump("CHANGED (compatible)", changed_compat);
+    std::printf("ADDED: %zu record(s)\n", added.size());
+    if (n_break) {
+        std::printf("VERDICT: ABI-BREAKING — minor bump required (%zu breaking change(s))\n", n_break);
+        return 1;
+    }
+    std::printf("VERDICT: ABI-PRESERVING — additive only, patchset OK\n");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [--emit-mlir] [--emit-llvm] [--diag-format=text|json] [--stats]\n");
@@ -2803,6 +2893,8 @@ int main(int argc, char** argv) {
     bool stats_flag  = false;                    // --stats: print per-phase compile-time summary at end (also turns on inline phase trace).
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     bool        emit_abi_flag = false;            // --emit-abi: dump ABI surface spec
+    const char* abi_diff_old = nullptr;           // --abi-diff <old> <new>: qualify ABI change
+    const char* abi_diff_new = nullptr;
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
     std::string dump_metaprog_filter;             // --dump-metaprog-filter <pat>: comma-separated patterns (`*` / callee substring / `file:line`); empty or `*` = match all
@@ -2921,6 +3013,7 @@ int main(int argc, char** argv) {
         else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
         else if (arg == "--emit-abi") { emit_abi_flag = true; }
+        else if (arg == "--abi-diff" && i + 2 < argc) { abi_diff_old = argv[++i]; abi_diff_new = argv[++i]; }
         else if (arg.rfind("--dump-metaprog=", 0) == 0) {
             std::string_view v = arg;
             v.remove_prefix(16);
@@ -3016,6 +3109,8 @@ int main(int argc, char** argv) {
                                                                        : std::string(output_path);
         return emit_abi_spec(search_paths, explicit_lib_files, abi_out);
     }
+    if (abi_diff_old && abi_diff_new)
+        return abi_diff(abi_diff_old, abi_diff_new);
 
     // ── emit-module mode ────────────────────────────────────────────
     if (emit_module_manifest) {
