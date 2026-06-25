@@ -45,11 +45,11 @@ pub fn per_file_dir(profile: str, lib_name: str) -> String {
 // `<dir>/<stem>` — basename of source without `.logos` extension, joined
 // with the per-lib output dir. Caller appends `.o` / `.hermes0`.
 pub fn per_file_prefix(dir: &String, src_path: &String) -> String {
-    let stem_str: String = stem(str_from_raw(src_path.as_ptr(), src_path.len()));
+    let stem_str: String = stem(src_path.as_str());
     let mut p: String = String::new();
-    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_str(dir.as_str());
     p.push_u8(47 as u8);
-    p.push_bytes(stem_str.as_ptr(), stem_str.len());
+    p.push_str(stem_str.as_str());
     return p;
 }
 
@@ -57,11 +57,11 @@ pub fn per_file_prefix(dir: &String, src_path: &String) -> String {
 // basename including extension goes into the object name so foo.c and
 // foo.S don't collide with each other or with foo.logos's foo.o.
 pub fn native_obj_path(dir: &String, src_path: &String) -> String {
-    let bn_str: String = basename(str_from_raw(src_path.as_ptr(), src_path.len()));
+    let bn_str: String = basename(src_path.as_str());
     let mut p: String = String::new();
-    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_str(dir.as_str());
     p.push_u8(47 as u8);
-    p.push_bytes(bn_str.as_ptr(), bn_str.len());
+    p.push_str(bn_str.as_str());
     p.push_str(".o");
     return p;
 }

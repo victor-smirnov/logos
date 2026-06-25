@@ -19,7 +19,7 @@ pub fn push_arg(args: &mut Vec<String>, s: str) {
 
 pub fn push_string_arg(args: &mut Vec<String>, s: &String) {
     let mut a: String = String::new();
-    a.push_bytes(s.as_ptr(), s.len());
+    a.push_str(s.as_str());
     args.push(a);
 }
 
@@ -50,14 +50,14 @@ pub fn run_child(argv_strs: &Vec<String>) -> i32 {
         let mut lr_out: LineReader = child.stdout_lines();
         loop {
             match lr_out.next() {
-                Option::Some(line) => { println_str(1, str_from_raw(line.as_ptr(), line.len())); }
+                Option::Some(line) => { println_str(1, line.as_str()); }
                 Option::None       => { break; }
             }
         }
         let mut lr_err: LineReader = child.stderr_lines();
         loop {
             match lr_err.next() {
-                Option::Some(line) => { println_str(2, str_from_raw(line.as_ptr(), line.len())); }
+                Option::Some(line) => { println_str(2, line.as_str()); }
                 Option::None       => { break; }
             }
         }
@@ -84,7 +84,7 @@ pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
             match lr_out.next() {
                 Option::Some(line) => {
                     if out.len() > 0 as i64 { out.push_u8(10 as u8); }
-                    out.push_bytes(line.as_ptr(), line.len());
+                    out.push_str(line.as_str());
                 }
                 Option::None => { break; }
             }
@@ -92,7 +92,7 @@ pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
         let mut lr_err: LineReader = child.stderr_lines();
         loop {
             match lr_err.next() {
-                Option::Some(line) => { println_str(2, str_from_raw(line.as_ptr(), line.len())); }
+                Option::Some(line) => { println_str(2, line.as_str()); }
                 Option::None       => { break; }
             }
         }

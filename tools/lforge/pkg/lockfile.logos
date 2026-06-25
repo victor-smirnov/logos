@@ -60,32 +60,29 @@ pub fn read_lockfile_or_empty(path: str) -> Vec<LockEntry> {
 }
 
 pub fn lookup_lock_sha(lock: &Vec<LockEntry>, project: str, expected_tag: str) -> String {
-    unsafe {
-        let n: i64 = lock.length();
-    let lp: *const Vec<LockEntry> = lock as *const Vec<LockEntry>;
+    let n: i64 = lock.length();
     let mut i: i64 = 0 as i64;
     while i < n {
-        let le: *const LockEntry = lp.at_const(i);
-        let pv: str = str_from_raw((*le).project.as_ptr(), (*le).project.len());
+        let le: &LockEntry = lock.borrow(i);
+        let pv: str = le.project.as_str();
         if str_eq_local(pv, project) {
             // If expected_tag is non-empty, require it match the locked tag.
             // Empty expected_tag means "branch or sha" form -- accept any.
             if expected_tag.len() == 0 as i64 {
                 let mut s: String = String::new();
-                s.push_bytes((*le).sha.as_ptr(), (*le).sha.len());
+                s.push_str(le.sha.as_str());
                 return s;
             }
-            let tv: str = str_from_raw((*le).tag.as_ptr(), (*le).tag.len());
+            let tv: str = le.tag.as_str();
             if str_eq_local(tv, expected_tag) {
                 let mut s: String = String::new();
-                s.push_bytes((*le).sha.as_ptr(), (*le).sha.len());
+                s.push_str(le.sha.as_str());
                 return s;
             }
         }
         i = i + 1 as i64;
     }
     return String::new();
-    }
 }
 
 pub fn write_lockfile(path: str, entries: &Vec<LockEntry>) -> i32 {
@@ -190,17 +187,15 @@ pub fn cmp_tags(a: str, b: str) -> i32 {
 //  -1  → already a winner with LOWER tag — current request would upgrade,
 //        which v1 doesn't support; caller errors out.
 pub fn check_git_winner(winners: &Vec<GitWinner>, display: str, tag: str, sha: str) -> i32 {
-    unsafe {
-        let n: i64 = winners.length();
-    let wp: *const Vec<GitWinner> = winners as *const Vec<GitWinner>;
+    let n: i64 = winners.length();
     let mut i: i64 = 0 as i64;
     while i < n {
-        let w: *const GitWinner = wp.at_const(i);
-        let dv: str = str_from_raw((*w).display.as_ptr(), (*w).display.len());
+        let w: &GitWinner = winners.borrow(i);
+        let dv: str = w.display.as_str();
         if str_eq_local(dv, display) {
-            let sv: str = str_from_raw((*w).sha.as_ptr(), (*w).sha.len());
+            let sv: str = w.sha.as_str();
             if str_eq_local(sv, sha) { return 1 as i32; }
-            let tv: str = str_from_raw((*w).tag.as_ptr(), (*w).tag.len());
+            let tv: str = w.tag.as_str();
             let cmp: i32 = cmp_tags(tv, tag);
             if cmp >= 0 as i32 { return 2 as i32; }
             return 0 as i32 - 1 as i32;
@@ -208,5 +203,4 @@ pub fn check_git_winner(winners: &Vec<GitWinner>, display: str, tag: str, sha: s
         i = i + 1 as i64;
     }
     return 0 as i32;
-    }
 }

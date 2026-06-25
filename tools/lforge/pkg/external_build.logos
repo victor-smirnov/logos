@@ -27,25 +27,22 @@ use lforge.build_cache;
 // B5: lookup a replace entry by canonicalised project display id. Returns
 // the absolute substitute path on hit, or empty String on miss.
 fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> String {
-    unsafe {
-        let n: i64 = replaces.length();
-    let rp: *const Vec<ReplaceEntry> = replaces as *const Vec<ReplaceEntry>;
+    let n: i64 = replaces.length();
     let mut i: i64 = 0 as i64;
     while i < n {
-        let e: *const ReplaceEntry = rp.at_const(i);
-        let pv: str = str_from_raw((*e).project.as_ptr(), (*e).project.len());
+        let e: &ReplaceEntry = replaces.borrow(i);
+        let pv: str = e.project.as_str();
         let pair: (String, String) = canonical_url(pv);
         let disp: String = pair.0;
-        let dview: str = str_from_raw(disp.as_ptr(), disp.len());
+        let dview: str = disp.as_str();
         if str_eq_local(dview, project_canonical) {
             let mut out: String = String::new();
-            out.push_bytes((*e).path.as_ptr(), (*e).path.len());
+            out.push_str(e.path.as_str());
             return out;
         }
         i = i + 1 as i64;
     }
     return String::new();
-    }
 }
 
 pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
@@ -64,17 +61,17 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     // set in the first place. Replaces don't apply to local-path deps.
     let mut effective_path: String = String::new();
     if dep.path.len() == 0 as i64 && dep.project.len() > 0 as i64 && replaces.length() > 0 as i64 {
-        let proj_view: str = str_from_raw(dep.project.as_ptr(), dep.project.len());
+        let proj_view: str = dep.project.as_str();
         let pair: (String, String) = canonical_url(proj_view);
         let disp: String = pair.0;
-        let dview: str = str_from_raw(disp.as_ptr(), disp.len());
+        let dview: str = disp.as_str();
         let hit: String = replace_lookup(replaces, dview);
         if hit.len() > 0 as i64 {
-            effective_path.push_bytes(hit.as_ptr(), hit.len());
+            effective_path.push_str(hit.as_str());
             print_str(1, "lforge: replace ");
             print_str(1, dview);
             print_str(1, " -> ");
-            println_str(1, str_from_raw(effective_path.as_ptr(), effective_path.len()));
+            println_str(1, effective_path.as_str());
         }
     }
 
@@ -88,9 +85,9 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     let mut resolved_sha: String = String::new();
     let mut resolved_tag: String = String::new();
     if dep.path.len() > 0 as i64 {
-        resolved_path.push_bytes(dep.path.as_ptr(), dep.path.len());
+        resolved_path.push_str(dep.path.as_str());
     } else if effective_path.len() > 0 as i64 {
-        resolved_path.push_bytes(effective_path.as_ptr(), effective_path.len());
+        resolved_path.push_str(effective_path.as_str());
     } else {
         match resolve_git_dep(dep, lock_in, lock_out) {
             Result::Err(rc) => { return Result::Err(rc); }
@@ -101,11 +98,11 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
             }
         }
         if dep.tag.len() > 0 as i64 {
-            resolved_tag.push_bytes(dep.tag.as_ptr(), dep.tag.len());
+            resolved_tag.push_str(dep.tag.as_str());
         }
-        let dview: str = str_from_raw(resolved_display.as_ptr(), resolved_display.len());
-        let tview: str = str_from_raw(resolved_tag.as_ptr(),     resolved_tag.len());
-        let sview: str = str_from_raw(resolved_sha.as_ptr(),     resolved_sha.len());
+        let dview: str = resolved_display.as_str();
+        let tview: str = resolved_tag.as_str();
+        let sview: str = resolved_sha.as_str();
         let verdict: i32 = check_git_winner(&(*winners), dview, tview, sview);
         if verdict == 2 as i32 || verdict == 1 as i32 {
             // 1 = same SHA already a winner (transitive dup). 2 = higher
@@ -124,35 +121,34 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
             return Result::Err(1);
         }
         let mut display_c: String = String::new();
-        display_c.push_bytes(resolved_display.as_ptr(), resolved_display.len());
+        display_c.push_str(resolved_display.as_str());
         let mut tag_c: String = String::new();
-        tag_c.push_bytes(resolved_tag.as_ptr(), resolved_tag.len());
+        tag_c.push_str(resolved_tag.as_str());
         let mut sha_c: String = String::new();
-        sha_c.push_bytes(resolved_sha.as_ptr(), resolved_sha.len());
+        sha_c.push_str(resolved_sha.as_str());
         winners.push(GitWinner { display: display_c, tag: tag_c, sha: sha_c });
     }
 
     // Cycle / duplicate guard: skip if we've already built this absolute
     // path. Returns empty Vec — modules already produced earlier in the
     // walk are visible via the parent's externals accumulator.
-    let abs_path: String = make_absolute(str_from_raw(resolved_path.as_ptr(), resolved_path.len()));
-    let abs_view: str = str_from_raw(abs_path.as_ptr(), abs_path.len());
+    let abs_path: String = make_absolute(resolved_path.as_str());
+    let abs_view: str = abs_path.as_str();
     let vn: i64 = (*visited).length();
-    let vp: *const Vec<String> = visited as *const Vec<String>;
     let mut vi: i64 = 0 as i64;
     while vi < vn {
-        let s: *const String = vp.at_const(vi);
-        let sv: str = str_from_raw((*s).as_ptr(), (*s).len());
+        let s: &String = (*visited).borrow(vi);
+        let sv: str = s.as_str();
         if str_eq_local(sv, abs_view) {
             return Result::Ok(vec_new::<ExternalLib>());
         }
         vi = vi + 1 as i64;
     }
     let mut abs_copy: String = String::new();
-    abs_copy.push_bytes(abs_path.as_ptr(), abs_path.len());
+    abs_copy.push_str(abs_path.as_str());
     visited.push(abs_copy);
 
-    let path_view: str = str_from_raw(resolved_path.as_ptr(), resolved_path.len());
+    let path_view: str = resolved_path.as_str();
     if chdir_str(path_view) != 0 {
         let mut msg: String = String::new();
         msg.push_str("lforge: cannot chdir into external dep ");
@@ -166,8 +162,8 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
             print_str(2, "lforge: external dep ");
             print_str(2, path_view);
             print_str(2, ": ");
-            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
-            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            println_str(2, e.message.as_str());
+            chdir_str(saved.as_str());
             return Result::Err(1);
         }
         Result::Ok(m) => { m }
@@ -181,21 +177,20 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     if m.deps.length() > 0 as i64 {
         match build_all_externals(&m.deps, profile, logosc, lock_in, lock_out, visited, winners, replaces) {
             Result::Err(rc) => {
-                chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+                chdir_str(saved.as_str());
                 return Result::Err(rc);
             }
             Result::Ok(sublibs) => {
                 let sn: i64 = sublibs.length();
-                let sp: *const Vec<ExternalLib> = (&sublibs) as *const Vec<ExternalLib>;
                 let mut si: i64 = 0 as i64;
                 while si < sn {
-                    let lb: *const ExternalLib = sp.at_const(si);
+                    let lb: &ExternalLib = sublibs.borrow(si);
                     let mut nm_c: String = String::new();
-                    nm_c.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
+                    nm_c.push_str(lb.name.as_str());
                     let mut ap_c: String = String::new();
-                    ap_c.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+                    ap_c.push_str(lb.archive_path.as_str());
                     let mut ck_c: String = String::new();
-                    ck_c.push_bytes((*lb).cache_key.as_ptr(), (*lb).cache_key.len());
+                    ck_c.push_str(lb.cache_key.as_str());
                     outp.push(ExternalLib { name: nm_c, archive_path: ap_c, cache_key: ck_c });
                     si = si + 1 as i64;
                 }
@@ -212,13 +207,12 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     let sdk_p: *mut Vec<String> = (&mut sub_dep_keys) as *mut Vec<String>;
     if cache_eligible {
         let on: i64 = out.length();
-        let op: *const Vec<ExternalLib> = (&out) as *const Vec<ExternalLib>;
         let mut oi: i64 = 0 as i64;
         while oi < on {
-            let lb: *const ExternalLib = op.at_const(oi);
-            if (*lb).cache_key.len() > 0 as i64 {
+            let lb: &ExternalLib = out.borrow(oi);
+            if lb.cache_key.len() > 0 as i64 {
                 let mut k_copy: String = String::new();
-                k_copy.push_bytes((*lb).cache_key.as_ptr(), (*lb).cache_key.len());
+                k_copy.push_str(lb.cache_key.as_str());
                 sdk_p.push(k_copy);
             }
             oi = oi + 1 as i64;
@@ -228,11 +222,10 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     // Build only the requested modules. Each one must exist as a `kind: lib`
     // target in the external manifest.
     let mn: i64 = dep.modules.length();
-    let mp: *const Vec<String> = (&dep.modules) as *const Vec<String>;
     let mut i: i64 = 0 as i64;
     while i < mn {
-        let nm: *const String = mp.at_const(i);
-        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+        let nm: &String = dep.modules.borrow(i);
+        let nm_view: str = nm.as_str();
 
         // Cache lookup before we even consult the local manifest. Hits
         // skip find_target_index + build_lib entirely.
@@ -241,18 +234,18 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         archive_basename.push_str("lib");
         archive_basename.push_str(nm_view);
         archive_basename.push_str(".a");
-        let ab_view: str = str_from_raw(archive_basename.as_ptr(), archive_basename.len());
+        let ab_view: str = archive_basename.as_str();
         if cache_eligible {
-            let dview: str = str_from_raw(resolved_display.as_ptr(), resolved_display.len());
-            let sview: str = str_from_raw(resolved_sha.as_ptr(),     resolved_sha.len());
+            let dview: str = resolved_display.as_str();
+            let sview: str = resolved_sha.as_str();
             ck = compute_key(dview, sview, nm_view, profile, lc_mtime, &sub_dep_keys);
-            let ck_view: str = str_from_raw(ck.as_ptr(), ck.len());
+            let ck_view: str = ck.as_str();
             let hit_path: String = cache_lookup(ck_view, ab_view);
             if hit_path.len() > 0 as i64 {
                 let mut nm_copy: String = String::new();
-                nm_copy.push_bytes((*nm).as_ptr(), (*nm).len());
+                nm_copy.push_str(nm.as_str());
                 let mut ck_copy: String = String::new();
-                ck_copy.push_bytes(ck.as_ptr(), ck.len());
+                ck_copy.push_str(ck.as_str());
                 outp.push(ExternalLib {
                     name: nm_copy,
                     archive_path: hit_path,
@@ -269,12 +262,11 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
             print_str(2, path_view);
             print_str(2, ": no lib target named ");
             println_str(2, nm_view);
-            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            chdir_str(saved.as_str());
             return Result::Err(1);
         }
-        let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
-        let t: *const Target = tp.at_const(idx);
-        match (*t).kind {
+        let t: &Target = m.targets.borrow(idx);
+        match t.kind {
             TargetKind::Lib => { }
             TargetKind::Bin => {
                 print_str(2, "lforge: external dep ");
@@ -282,7 +274,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                 print_str(2, ": '");
                 print_str(2, nm_view);
                 println_str(2, "' is a bin target — only libs can be exported");
-                chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+                chdir_str(saved.as_str());
                 return Result::Err(1);
             }
         }
@@ -293,28 +285,28 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         // debugging). Empty dump_dir disables the flag.
         let no_dump: String = String::new();
         let no_filter: String = String::new();
-        let rc: i32 = build_lib(&(*t), profile, logosc, &out, &no_dump, &no_filter);
+        let rc: i32 = build_lib(t, profile, logosc, &out, &no_dump, &no_filter);
         if rc != 0 {
             print_str(2, "lforge: external dep ");
             print_str(2, path_view);
             print_str(2, ": build of '");
             print_str(2, nm_view);
             println_str(2, "' failed");
-            chdir_str(str_from_raw(saved.as_ptr(), saved.len()));
+            chdir_str(saved.as_str());
             return Result::Err(rc);
         }
         // Resolve the produced archive to an absolute path so the consumer
         // can reference it after we chdir back.
         let rel_arch: String = lib_archive_path(profile, nm_view);
-        let abs_arch: String = make_absolute(str_from_raw(rel_arch.as_ptr(), rel_arch.len()));
+        let abs_arch: String = make_absolute(rel_arch.as_str());
 
         // Populate cache for git deps. On failure: warn and continue with
         // the per-source archive — caching is an optimisation, not load-
         // bearing for correctness.
         if cache_eligible {
-            let dview: str = str_from_raw(resolved_display.as_ptr(), resolved_display.len());
-            let sview: str = str_from_raw(resolved_sha.as_ptr(),     resolved_sha.len());
-            let ck_view: str = str_from_raw(ck.as_ptr(), ck.len());
+            let dview: str = resolved_display.as_str();
+            let sview: str = resolved_sha.as_str();
+            let ck_view: str = ck.as_str();
             let prc: i32 = cache_populate(ck_view, &abs_arch, ab_view,
                                           dview, sview, nm_view, profile, lc_mtime);
             if prc != 0 {
@@ -323,9 +315,9 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         }
 
         let mut nm_copy: String = String::new();
-        nm_copy.push_bytes((*nm).as_ptr(), (*nm).len());
+        nm_copy.push_str(nm.as_str());
         let mut ck_copy: String = String::new();
-        ck_copy.push_bytes(ck.as_ptr(), ck.len());
+        ck_copy.push_str(ck.as_str());
         outp.push(ExternalLib {
             name: nm_copy,
             archive_path: abs_arch,
@@ -334,7 +326,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         i = i + 1 as i64;
     }
 
-    if chdir_str(str_from_raw(saved.as_ptr(), saved.len())) != 0 {
+    if chdir_str(saved.as_str()) != 0 {
         println_str(2, "lforge: cannot restore cwd after building external dep");
         return Result::Err(1);
     }
@@ -350,24 +342,22 @@ pub fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &Strin
                                   replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> { unsafe {    let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
     let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
     let n: i64 = deps.length();
-    let dp: *const Vec<ExternalDep> = deps as *const Vec<ExternalDep>;
     let mut i: i64 = 0 as i64;
     while i < n {
-        let d: *const ExternalDep = dp.at_const(i);
-        match build_external(&(*d), profile, logosc, lock_in, lock_out, visited, winners, replaces) {
+        let d: &ExternalDep = deps.borrow(i);
+        match build_external(d, profile, logosc, lock_in, lock_out, visited, winners, replaces) {
             Result::Err(rc) => { return Result::Err(rc); }
             Result::Ok(libs) => {
                 let m: i64 = libs.length();
-                let lp: *const Vec<ExternalLib> = (&libs) as *const Vec<ExternalLib>;
                 let mut j: i64 = 0 as i64;
                 while j < m {
-                    let lb: *const ExternalLib = lp.at_const(j);
+                    let lb: &ExternalLib = libs.borrow(j);
                     let mut nm_copy: String = String::new();
-                    nm_copy.push_bytes((*lb).name.as_ptr(), (*lb).name.len());
+                    nm_copy.push_str(lb.name.as_str());
                     let mut ap_copy: String = String::new();
-                    ap_copy.push_bytes((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+                    ap_copy.push_str(lb.archive_path.as_str());
                     let mut ck_copy: String = String::new();
-                    ck_copy.push_bytes((*lb).cache_key.as_ptr(), (*lb).cache_key.len());
+                    ck_copy.push_str(lb.cache_key.as_str());
                     allp.push(ExternalLib { name: nm_copy, archive_path: ap_copy, cache_key: ck_copy });
                     j = j + 1 as i64;
                 }

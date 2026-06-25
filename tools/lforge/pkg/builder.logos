@@ -20,12 +20,12 @@ use lforge.spawn_helpers;
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
-                        dump_filter: &String) -> i32 { unsafe {    let lib_name_view: str = str_from_raw(t.name.as_ptr(), t.name.len());
+                        dump_filter: &String) -> i32 { unsafe {    let lib_name_view: str = t.name.as_str();
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
     let mut sources: Vec<String> = vec_new::<String>();
     if t.src.len() > 0 as i64 {
-        let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
+        let src_view: str = t.src.as_str();
         sources = collect_logos_files(src_view);
     }
     let n_src: i64 = sources.length();
@@ -34,21 +34,21 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     if n_src == 0 as i64 && n_c == 0 as i64 && n_asm == 0 as i64 {
         let mut msg: String = String::new();
         msg.push_str("lforge: lib ");
-        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(t.name.as_str());
         msg.push_str(": no Logos / C / asm sources");
         println_string(2, &msg);
         return 1;
     }
 
     let pf_dir: String = per_file_dir(profile, lib_name_view);
-    let pf_dir_view: str = str_from_raw(pf_dir.as_ptr(), pf_dir.len());
+    let pf_dir_view: str = pf_dir.as_str();
     match mkdir_p(pf_dir_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create _files dir"); return 1; }
         Result::Ok(_)  => { }
     }
 
     let od: String = out_dir_for(profile);
-    let od_view: str = str_from_raw(od.as_ptr(), od.len());
+    let od_view: str = od.as_str();
     match mkdir_p(od_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
         Result::Ok(_)  => { }
@@ -59,22 +59,22 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     let mut man_path: String = String::new();
     if n_src > 0 as i64 {
         let gd: String = gen_dir_for(profile);
-        let gd_view: str = str_from_raw(gd.as_ptr(), gd.len());
+        let gd_view: str = gd.as_str();
         match mkdir_p(gd_view) {
             Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }
             Result::Ok(_)  => { }
         }
         let mut man: String = String::new();
         man.push_str("module ");
-        man.push_bytes(t.name.as_ptr(), t.name.len());
+        man.push_str(t.name.as_str());
         man.push_u8(10 as u8);
         man.push_str("version 0.1\n");
         man.push_str("root ");
-        man.push_bytes(t.src.as_ptr(), t.src.len());
+        man.push_str(t.src.as_str());
         man.push_u8(10 as u8);
-        man_path.push_bytes(gd.as_ptr(), gd.len());
+        man_path.push_str(gd.as_str());
         man_path.push_u8(47 as u8);
-        man_path.push_bytes(t.name.as_ptr(), t.name.len());
+        man_path.push_str(t.name.as_str());
         man_path.push_str(".module");
         match write_string(man_path.as_str(), &man) {
             Result::Err(_) => { println_str(2, "lforge: cannot write generated .module"); return 1; }
@@ -84,7 +84,6 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
 
     // ── For each source: determine whether per-file .o is up-to-date.   ──
     // Spawn the rebuilds in parallel; collect Child handles to wait on.
-    let sp: *const Vec<String> = (&sources) as *const Vec<String>;
     let cp_arr: *const Vec<String> = (&t.c_sources) as *const Vec<String>;
     let ap_arr: *const Vec<String> = (&t.asm_sources) as *const Vec<String>;
     let mut children: Vec<Child> = vec_new::<Child>();
@@ -94,13 +93,13 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     // Logos files via logosc --only-file
     let mut i: i64 = 0 as i64;
     while i < n_src {
-        let src_p: *const String = sp.at_const(i);
+        let src_p: &String = sources.borrow(i);
         i = i + 1 as i64;
-        let src_view2: str = str_from_raw((*src_p).as_ptr(), (*src_p).len());
+        let src_view2: str = src_p.as_str();
 
-        let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
+        let prefix: String = per_file_prefix(&pf_dir, src_p);
         let mut obj_path: String = String::new();
-        obj_path.push_bytes(prefix.as_ptr(), prefix.len());
+        obj_path.push_str(prefix.as_str());
         obj_path.push_str(".o");
 
         let src_mt: i64 = match mtime_ns(src_view2) {
@@ -115,7 +114,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         push_arg(argv_p, "--emit-module");
         push_string_arg(argv_p, &man_path);
         push_arg(argv_p, "--only-file");
-        push_string_arg(argv_p, &(*src_p));
+        push_string_arg(argv_p, src_p);
         push_arg(argv_p, "-o");
         push_string_arg(argv_p, &prefix);
         if dump_dir.len() > 0 as i64 {
@@ -130,12 +129,11 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         // resolve `use <pkg>` statements that reference symbols outside
         // this project.
         let en_lib: i64 = externals.length();
-        let ep_lib: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
         let mut ei_lib: i64 = 0 as i64;
         while ei_lib < en_lib {
-            let lb: *const ExternalLib = ep_lib.at_const(ei_lib);
+            let lb: &ExternalLib = externals.borrow(ei_lib);
             push_arg(argv_p, "-l");
-            push_string_arg(argv_p, &(*lb).archive_path);
+            push_string_arg(argv_p, &lb.archive_path);
             ei_lib = ei_lib + 1 as i64;
         }
 
@@ -158,18 +156,18 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         nl = nl + 1 as i64;
         let mut k: i64 = 0 as i64;
         while k < cnt {
-            let src_p: *const String = lst.at_const(k);
+            let src_p: &String = (*lst).borrow(k);
             k = k + 1 as i64;
-            let src_view2: str = str_from_raw((*src_p).as_ptr(), (*src_p).len());
+            let src_view2: str = src_p.as_str();
 
-            let obj_path: String = native_obj_path(&pf_dir, &(*src_p));
+            let obj_path: String = native_obj_path(&pf_dir, src_p);
             let src_mt: i64 = match mtime_ns(src_view2) {
                 Result::Ok(v)  => { v }
                 Result::Err(_) => { 0 as i64 }
             };
             if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
-            let child: Child = spawn_native_compile(&(*src_p), &obj_path);
+            let child: Child = spawn_native_compile(src_p, &obj_path);
             if child.pid() < 0 {
                 println_str(2, "lforge: cc spawn failed");
                 return 1;
@@ -183,7 +181,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     if rebuilt_count > 0 {
         let mut msg: String = String::new();
         msg.push_str("lforge: build lib ");
-        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(t.name.as_str());
         msg.push_str(" — compiling ");
         msg.push_i64(rebuilt_count as i64);
         msg.push_str(" file(s) in parallel");
@@ -214,7 +212,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     }
 
     // ── Re-archive if anything was rebuilt or the .a is missing/stale ───
-    let arch_view: str = str_from_raw(arch.as_ptr(), arch.len());
+    let arch_view: str = arch.as_str();
     let mut need_ar: bool = rebuilt_count > 0;
     if !need_ar {
         // Check archive freshness against every per-file artifact —
@@ -222,9 +220,9 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         let mut max_pf: i64 = 0 as i64;
         let mut k: i64 = 0 as i64;
         while k < n_src {
-            let src_p: *const String = sp.at_const(k);
+            let src_p: &String = sources.borrow(k);
             k = k + 1 as i64;
-            let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
+            let prefix: String = per_file_prefix(&pf_dir, src_p);
             let mut obj_p: String = String::new();
             obj_p.push_str(prefix.as_str());
             obj_p.push_str(".o");
@@ -240,9 +238,9 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             nl2 = nl2 + 1 as i64;
             let mut k2: i64 = 0 as i64;
             while k2 < cnt {
-                let src_p: *const String = lst.at_const(k2);
+                let src_p: &String = (*lst).borrow(k2);
                 k2 = k2 + 1 as i64;
-                let obj_p: String = native_obj_path(&pf_dir, &(*src_p));
+                let obj_p: String = native_obj_path(&pf_dir, src_p);
                 match mtime_ns(obj_p.as_str()) {
                     Result::Ok(v)  => { if v > max_pf { max_pf = v; } }
                     Result::Err(_) => { }
@@ -255,7 +253,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     if !need_ar {
         let mut msg: String = String::new();
         msg.push_str("lforge: lib ");
-        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(t.name.as_str());
         msg.push_str(" up-to-date");
         println_string(1, &msg);
         return 0;
@@ -269,14 +267,14 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     push_string_arg(aap, &arch);
     let mut j: i64 = 0 as i64;
     while j < n_src {
-        let src_p: *const String = sp.at_const(j);
+        let src_p: &String = sources.borrow(j);
         j = j + 1 as i64;
-        let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
+        let prefix: String = per_file_prefix(&pf_dir, src_p);
         let mut o: String = String::new();
-        o.push_bytes(prefix.as_ptr(), prefix.len());
+        o.push_str(prefix.as_str());
         o.push_str(".o");
         let mut h: String = String::new();
-        h.push_bytes(prefix.as_ptr(), prefix.len());
+        h.push_str(prefix.as_str());
         h.push_str(".hm0");
         aap.push(o);
         aap.push(h);
@@ -289,9 +287,9 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         nl3 = nl3 + 1 as i64;
         let mut k3: i64 = 0 as i64;
         while k3 < cnt {
-            let src_p: *const String = lst.at_const(k3);
+            let src_p: &String = (*lst).borrow(k3);
             k3 = k3 + 1 as i64;
-            let o: String = native_obj_path(&pf_dir, &(*src_p));
+            let o: String = native_obj_path(&pf_dir, src_p);
             aap.push(o);
         }
     }
@@ -330,7 +328,7 @@ pub fn build_bin(t: &Target,
         return 1;
     }
     let od: String = out_dir_for(profile);
-    let od_view: str = str_from_raw(od.as_ptr(), od.len());
+    let od_view: str = od.as_str();
     match mkdir_p(od_view) {
         Result::Err(_) => { println_str(2, "lforge: cannot create out dir"); return 1; }
         Result::Ok(_)  => { }
@@ -338,27 +336,26 @@ pub fn build_bin(t: &Target,
 
     // Incremental skip: if the linked binary is newer than every input
     // (the bin's own .logos files + every dep .a archive), skip the action.
-    let src_view: str = str_from_raw(t.src.as_ptr(), t.src.len());
+    let src_view: str = t.src.as_str();
     let mut all_inputs: Vec<String> = collect_logos_files(src_view);
     let alp: *mut Vec<String> = (&mut all_inputs) as *mut Vec<String>;
     let dep_archs_for_check: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
-    let dap_check: *const Vec<String> = (&dep_archs_for_check) as *const Vec<String>;
     let dnc: i64 = dep_archs_for_check.length();
     let mut di: i64 = 0 as i64;
     while di < dnc {
-        let s: *const String = dap_check.at_const(di);
+        let s: &String = dep_archs_for_check.borrow(di);
         let mut copy: String = String::new();
-        copy.push_bytes((*s).as_ptr(), (*s).len());
+        copy.push_str(s.as_str());
         alp.push(copy);
         di = di + 1 as i64;
     }
     let max_mt: i64 = newest_mtime(&all_inputs);
-    let bp_check: String = bin_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
-    let bp_check_view: str = str_from_raw(bp_check.as_ptr(), bp_check.len());
+    let bp_check: String = bin_path(profile, t.name.as_str());
+    let bp_check_view: str = bp_check.as_str();
     if output_is_fresh(bp_check_view, max_mt) {
         let mut msg: String = String::new();
         msg.push_str("lforge: bin ");
-        msg.push_bytes(t.name.as_ptr(), t.name.len());
+        msg.push_str(t.name.as_str());
         msg.push_str(" up-to-date");
         println_string(1, &msg);
         return 0;
@@ -366,21 +363,21 @@ pub fn build_bin(t: &Target,
 
     // Compose entry path: <src>/<entry>.logos
     let mut entry_path: String = String::new();
-    entry_path.push_bytes(t.src.as_ptr(), t.src.len());
+    entry_path.push_str(t.src.as_str());
     let elen: i64 = entry_path.len();
     if elen > 0 as i64 && (entry_path.as_ptr()[elen - 1 as i64] as i32) != 47 {
         entry_path.push_u8(47 as u8);
     }
-    entry_path.push_bytes(t.entry.as_ptr(), t.entry.len());
+    entry_path.push_str(t.entry.as_str());
     entry_path.push_str(".logos");
 
     let mut obj_path: String = String::new();
-    obj_path.push_bytes(od.as_ptr(), od.len());
+    obj_path.push_str(od.as_str());
     obj_path.push_u8(47 as u8);
-    obj_path.push_bytes(t.name.as_ptr(), t.name.len());
+    obj_path.push_str(t.name.as_str());
     obj_path.push_str(".o");
 
-    let bp: String = bin_path(profile, str_from_raw(t.name.as_ptr(), t.name.len()));
+    let bp: String = bin_path(profile, t.name.as_str());
 
     // Resolve dep archives.
     let dep_archs: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
@@ -391,32 +388,29 @@ pub fn build_bin(t: &Target,
     let mut all_archs: Vec<String> = vec_new::<String>();
     let aap: *mut Vec<String> = (&mut all_archs) as *mut Vec<String>;
     let mut di: i64 = 0 as i64;
-    let dap_v: *const Vec<String> = (&dep_archs) as *const Vec<String>;
     while di < dep_archs.length() {
-        let s: *const String = dap_v.at_const(di);
+        let s: &String = dep_archs.borrow(di);
         let mut c: String = String::new();
-        c.push_bytes((*s).as_ptr(), (*s).len());
+        c.push_str(s.as_str());
         aap.push(c);
         di = di + 1 as i64;
     }
     let en: i64 = externals.length();
-    let ep: *const Vec<ExternalLib> = externals as *const Vec<ExternalLib>;
     let mut ei: i64 = 0 as i64;
     while ei < en {
-        let lb: *const ExternalLib = ep.at_const(ei);
-        let lbv: str = str_from_raw((*lb).archive_path.as_ptr(), (*lb).archive_path.len());
+        let lb: &ExternalLib = externals.borrow(ei);
+        let lbv: str = lb.archive_path.as_str();
         let mut already: bool = false;
         let mut ai: i64 = 0 as i64;
-        let aap_v: *const Vec<String> = (&all_archs) as *const Vec<String>;
         while ai < all_archs.length() {
-            let s: *const String = aap_v.at_const(ai);
-            let sv: str = str_from_raw((*s).as_ptr(), (*s).len());
+            let s: &String = all_archs.borrow(ai);
+            let sv: str = s.as_str();
             if str_eq_local(sv, lbv) { already = true; ai = all_archs.length(); }
             else                     { ai = ai + 1 as i64; }
         }
         if already == false {
             let mut c: String = String::new();
-            c.push_bytes(lbv.as_ptr(), lbv.len());
+            c.push_str(lbv.as_str());
             aap.push(c);
         }
         ei = ei + 1 as i64;
@@ -438,18 +432,17 @@ pub fn build_bin(t: &Target,
         }
     }
     let dn: i64 = all_archs.length();
-    let dap: *const Vec<String> = (&all_archs) as *const Vec<String>;
     let mut i: i64 = 0 as i64;
     while i < dn {
-        let s: *const String = dap.at_const(i);
+        let s: &String = all_archs.borrow(i);
         push_arg(argv_p, "-l");
-        push_string_arg(argv_p, &(*s));
+        push_string_arg(argv_p, s);
         i = i + 1 as i64;
     }
 
     let mut prefix: String = String::new();
     prefix.push_str("lforge: build bin ");
-    prefix.push_bytes(t.name.as_ptr(), t.name.len());
+    prefix.push_str(t.name.as_str());
     println_string(1, &prefix);
     let rc: i32 = run_child(&argv);
     if rc != 0 {
@@ -470,11 +463,11 @@ pub fn build_bin(t: &Target,
     push_string_arg(largv_p, &obj_path);
     let mut k: i64 = 0 as i64;
     while k < dn {
-        let s: *const String = dap.at_const(k);
-        push_string_arg(largv_p, &(*s));
+        let s: &String = all_archs.borrow(k);
+        push_string_arg(largv_p, s);
         k = k + 1 as i64;
     }
-    let lib_view: str = str_from_raw(lib_dir.as_ptr(), lib_dir.len());
+    let lib_view: str = lib_dir.as_str();
     // Three modular stdlib layers, each carrying only its own codegen
     // (emit_module's layer dedup forward-declares whatever a lower layer
     // already defines). They cross-reference (std→mem→lang + mono
@@ -502,7 +495,7 @@ pub fn build_bin(t: &Target,
 
     let mut prefix2: String = String::new();
     prefix2.push_str("lforge: link bin ");
-    prefix2.push_bytes(t.name.as_ptr(), t.name.len());
+    prefix2.push_str(t.name.as_str());
     println_string(1, &prefix2);
     return run_child(&largv);
     }

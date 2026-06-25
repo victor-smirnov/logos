@@ -71,18 +71,18 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
         while top > 0 as i64 && !have_err {
             let cur: i64 = work_idx[top - 1 as i64];
             let cur_dep: i64 = work_cur[top - 1 as i64];
-            let t: *const Target = tp.at_const(cur);
-            let dn: i64 = (*t).deps.length();
+            let t: &Target = tp.borrow(cur);
+            let dn: i64 = t.deps.length();
             if cur_dep < dn {
-                let dp: *const Vec<String> = (&(*t).deps) as *const Vec<String>;
-                let dnm: *const String = dp.at_const(cur_dep);
-                let dnms: str = str_from_raw((*dnm).as_ptr(), (*dnm).len());
+                let dp: &Vec<String> = &t.deps;
+                let dnm: &String = dp.borrow(cur_dep);
+                let dnms: str = dnm.as_str();
                 // Inline resolve dep name → target index.
                 let mut didx: i64 = 0 as i64 - 1 as i64;
                 let mut ri: i64 = 0 as i64;
                 while ri < n {
-                    let rt: *const Target = tp.at_const(ri);
-                    let rtnm: str = str_from_raw((*rt).name.as_ptr(), (*rt).name.len());
+                    let rt: &Target = tp.borrow(ri);
+                    let rtnm: str = rt.name.as_str();
                     if str_eq_local(rtnm, dnms) { didx = ri; ri = n; }
                     else { ri = ri + 1 as i64; }
                 }
@@ -95,13 +95,13 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
                     } else {
                         have_err = true;
                         err_buf.push_str("manifest: unknown dep '");
-                        err_buf.push_bytes((*dnm).as_ptr(), (*dnm).len());
+                        err_buf.push_str(dnm.as_str());
                         err_buf.push_str("'");
                     }
                 } else if state[didx] == 1 as u8 {
                     have_err = true;
                     err_buf.push_str("manifest: dependency cycle involving '");
-                    err_buf.push_bytes((*t).name.as_ptr(), (*t).name.len());
+                    err_buf.push_str(t.name.as_str());
                     err_buf.push_str("'");
                 } else if state[didx] == 0 as u8 {
                     work_idx[top] = didx;

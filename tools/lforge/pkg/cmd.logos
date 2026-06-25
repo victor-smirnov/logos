@@ -33,7 +33,7 @@ pub fn get_logosc_version(logosc: &String) -> String {
     let rc:  i32 = res.0;
     let out: String = res.1;
     if rc != 0 { return String::new(); }
-    let view: str = str_from_raw(out.as_ptr(), out.len());
+    let view: str = out.as_str();
     // First line, after the prefix "logosc ".
     let mut start: i64 = 0 as i64;
     let prefix: str = "logosc ";
@@ -70,8 +70,8 @@ pub fn check_requires_logos(m: &Manifest) -> i32 {
         println_str(2, "lforge: warning: could not determine logosc version; skipping requires_logos check");
         return 0;
     }
-    let hv: str = str_from_raw(have.as_ptr(), have.len());
-    let nv: str = str_from_raw(m.requires_logos.as_ptr(), m.requires_logos.len());
+    let hv: str = have.as_str();
+    let nv: str = m.requires_logos.as_str();
     let cmp: i32 = cmp_tags(hv, nv);
     if cmp < 0 as i32 {
         print_str(2, "lforge: error: this manifest requires logosc >= ");
@@ -126,7 +126,7 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
     let full_order: Vec<i64> = match topo_order(&m.targets, &externals) {
         Result::Err(e) => {
             print_str(2, "lforge: ");
-            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            println_str(2, e.message.as_str());
             return 1;
         }
         Result::Ok(o) => { o }
@@ -146,20 +146,19 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
         // Iterate to fixed point: for any wanted target, mark its deps
         // wanted too.
         want[selected_idx] = 1 as u8;
-        let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
         let mut changed: bool = true;
         while changed {
             changed = false;
             let mut k: i64 = 0 as i64;
             while k < nt {
                 if want[k] == 1 as u8 {
-                    let t: *const Target = tp.at_const(k);
-                    let dn: i64 = (*t).deps.length();
-                    let dp: *const Vec<String> = (&(*t).deps) as *const Vec<String>;
+                    let t: &Target = m.targets.borrow(k);
+                    let dn: i64 = t.deps.length();
+                    let dp: &Vec<String> = &t.deps;
                     let mut di: i64 = 0 as i64;
                     while di < dn {
-                        let nm: *const String = dp.at_const(di);
-                        let nm_view: str = str_from_raw((*nm).as_ptr(), (*nm).len());
+                        let nm: &String = dp.borrow(di);
+                        let nm_view: str = nm.as_str();
                         let didx: i64 = find_target_index(&m.targets, nm_view);
                         if didx >= 0 as i64 && want[didx] == 0 as u8 {
                             want[didx] = 1 as u8;
@@ -174,16 +173,14 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
     }
 
     let n_ord: i64 = full_order.length();
-    let op: *const Vec<i64> = (&full_order) as *const Vec<i64>;
-    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
     let mut i: i64 = 0 as i64;
     let mut built: i32 = 0;
     while i < n_ord {
-        let idx_p: *const i64 = op.at_const(i);
+        let idx_p: &i64 = full_order.borrow(i);
         let idx: i64 = *idx_p;
         i = i + 1 as i64;
         if want[idx] == 0 as u8 { continue; }
-        let t: *const Target = tp.at_const(idx);
+        let t: &Target = m.targets.borrow(idx);
         // Per-target dump dir: .lforge/<profile>/dump/<target>/. logosc
         // creates per-metacall subdirs by callee + file:line. The selector
         // value (`*` / callee / file:line) is passed verbatim to logosc as
@@ -194,11 +191,11 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
             dump_dir.push_str(".lforge/");
             dump_dir.push_str(profile);
             dump_dir.push_str("/dump/");
-            dump_dir.push_bytes((*t).name.as_ptr(), (*t).name.len());
+            dump_dir.push_str(t.name.as_str());
         }
-        let rc: i32 = match (*t).kind {
-            TargetKind::Lib => { build_lib(&(*t), profile, &logosc, &externals, &dump_dir, dump_metacall_sel) }
-            TargetKind::Bin => { build_bin(&(*t), &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel) }
+        let rc: i32 = match t.kind {
+            TargetKind::Lib => { build_lib(t, profile, &logosc, &externals, &dump_dir, dump_metacall_sel) }
+            TargetKind::Bin => { build_bin(t, &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel) }
         };
         if rc != 0 {
             dealloc(want);
@@ -226,16 +223,14 @@ pub fn cmd_update(m: &Manifest, profile: str) -> i32 {
 
 // Find the first bin target's name (for `lforge run`).
 pub fn first_bin_name(m: &Manifest) -> String {
-    unsafe {
-        let n: i64 = m.targets.length();
-    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
+    let n: i64 = m.targets.length();
     let mut i: i64 = 0 as i64;
     while i < n {
-        let t: *const Target = tp.at_const(i);
-        match (*t).kind {
+        let t: &Target = m.targets.borrow(i);
+        match t.kind {
             TargetKind::Bin => {
                 let mut out: String = String::new();
-                out.push_bytes((*t).name.as_ptr(), (*t).name.len());
+                out.push_str(t.name.as_str());
                 return out;
             }
             TargetKind::Lib => { }
@@ -243,7 +238,6 @@ pub fn first_bin_name(m: &Manifest) -> String {
         i = i + 1 as i64;
     }
     return String::new();
-    }
 }
 
 // Build (selected target if name non-empty) and run the bin target. If no
@@ -271,16 +265,15 @@ pub fn cmd_run_named(m: &Manifest, profile: str,
     let rc: i32 = cmd_build_selected(m, profile, sel_idx, true, &empty);
     if rc != 0 { return rc; }
 
-    let bp: String = bin_path(profile, str_from_raw(bin_nm.as_ptr(), bin_nm.len()));
+    let bp: String = bin_path(profile, bin_nm.as_str());
     let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
     push_string_arg(argv_p, &bp);
     let an: i64 = run_args.length();
-    let rp: *const Vec<String> = run_args as *const Vec<String>;
     let mut i: i64 = 0 as i64;
     while i < an {
-        let s: *const String = rp.at_const(i);
-        push_string_arg(argv_p, &(*s));
+        let s: &String = run_args.borrow(i);
+        push_string_arg(argv_p, s);
         i = i + 1 as i64;
     }
     return run_child(&argv);
@@ -328,13 +321,12 @@ fn read_prefix() -> String {
 }
 
 pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
-    unsafe {
-        // Build first.
+    // Build first.
     let rc: i32 = cmd_build(m, profile);
     if rc != 0 { return rc; }
 
     let prefix: String = read_prefix();
-    let pview: str = str_from_raw(prefix.as_ptr(), prefix.len());
+    let pview: str = prefix.as_str();
 
     let mut bin_dir: String = String::new();
     bin_dir.push_str(pview); append_path(&mut bin_dir, "bin");
@@ -342,21 +334,20 @@ pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
     lib_dir.push_str(pview); append_path(&mut lib_dir, "lib");
 
     let nt: i64 = m.targets.length();
-    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
     let mut i: i64 = 0 as i64;
     while i < nt {
-        let t: *const Target = tp.at_const(i);
+        let t: &Target = m.targets.borrow(i);
         i = i + 1 as i64;
-        let nm_view: str = str_from_raw((*t).name.as_ptr(), (*t).name.len());
-        match (*t).kind {
+        let nm_view: str = t.name.as_str();
+        match t.kind {
             TargetKind::Bin => {
                 let src: String = bin_path(profile, nm_view);
                 let mut dst: String = String::new();
-                dst.push_bytes(bin_dir.as_ptr(), bin_dir.len());
+                dst.push_str(bin_dir.as_str());
                 append_path(&mut dst, nm_view);
                 let mut msg: String = String::new();
                 msg.push_str("lforge: install ");
-                msg.push_bytes(dst.as_ptr(), dst.len());
+                msg.push_str(dst.as_str());
                 println_string(1, &msg);
                 let rci: i32 = install_one(&src, &dst, "0755");
                 if rci != 0 {
@@ -367,15 +358,15 @@ pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
             TargetKind::Lib => {
                 let src: String = lib_archive_path(profile, nm_view);
                 let mut dst: String = String::new();
-                dst.push_bytes(lib_dir.as_ptr(), lib_dir.len());
+                dst.push_str(lib_dir.as_str());
                 let mut leaf: String = String::new();
                 leaf.push_str("lib");
                 leaf.push_str(nm_view);
                 leaf.push_str(".a");
-                append_path(&mut dst, str_from_raw(leaf.as_ptr(), leaf.len()));
+                append_path(&mut dst, leaf.as_str());
                 let mut msg: String = String::new();
                 msg.push_str("lforge: install ");
-                msg.push_bytes(dst.as_ptr(), dst.len());
+                msg.push_str(dst.as_str());
                 println_string(1, &msg);
                 let rci: i32 = install_one(&src, &dst, "0644");
                 if rci != 0 {
@@ -387,7 +378,6 @@ pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
     }
     println_str(1, "lforge: install OK");
     return 0;
-    }
 }
 
 // ── lforge test ───────────────────────────────────────────────────────────
@@ -409,35 +399,34 @@ fn build_test_bin(test_logos: &String,
     td.push_str(".lforge/");
     td.push_str(profile);
     td.push_str("/test");
-    let td_view: str = str_from_raw(td.as_ptr(), td.len());
+    let td_view: str = td.as_str();
     match mkdir_p(td_view) {
         Result::Err(_) => { return 1; }
         Result::Ok(_)  => { }
     }
 
     let mut obj_path: String = String::new();
-    obj_path.push_bytes(td.as_ptr(), td.len());
+    obj_path.push_str(td.as_str());
     obj_path.push_u8(47 as u8);
-    obj_path.push_bytes(test_name.as_ptr(), test_name.len());
+    obj_path.push_str(test_name.as_str());
     obj_path.push_str(".o");
 
     let mut bin_p: String = String::new();
-    bin_p.push_bytes(td.as_ptr(), td.len());
+    bin_p.push_str(td.as_str());
     bin_p.push_u8(47 as u8);
-    bin_p.push_bytes(test_name.as_ptr(), test_name.len());
+    bin_p.push_str(test_name.as_str());
 
     // Tests link against every lib target in the project (mimics
     // ctest pattern: tests are top-level consumers of the libs).
     let mut all_lib_archs: Vec<String> = vec_new::<String>();
     let alp: *mut Vec<String> = (&mut all_lib_archs) as *mut Vec<String>;
     let nt: i64 = targets.length();
-    let tp: *const Vec<Target> = targets as *const Vec<Target>;
     let mut ti: i64 = 0 as i64;
     while ti < nt {
-        let tt: *const Target = tp.at_const(ti);
-        match (*tt).kind {
+        let tt: &Target = targets.borrow(ti);
+        match tt.kind {
             TargetKind::Lib => {
-                let nm_view: str = str_from_raw((*tt).name.as_ptr(), (*tt).name.len());
+                let nm_view: str = tt.name.as_str();
                 let p: String = lib_archive_path(profile, nm_view);
                 alp.push(p);
             }
@@ -454,12 +443,11 @@ fn build_test_bin(test_logos: &String,
     push_arg(argv_p, "-o");
     push_string_arg(argv_p, &obj_path);
     let lan: i64 = all_lib_archs.length();
-    let lap: *const Vec<String> = (&all_lib_archs) as *const Vec<String>;
     let mut li: i64 = 0 as i64;
     while li < lan {
-        let s: *const String = lap.at_const(li);
+        let s: &String = all_lib_archs.borrow(li);
         push_arg(argv_p, "-l");
-        push_string_arg(argv_p, &(*s));
+        push_string_arg(argv_p, s);
         li = li + 1 as i64;
     }
     let rc: i32 = run_child(&argv);
@@ -478,11 +466,11 @@ fn build_test_bin(test_logos: &String,
     push_string_arg(largv_p, &obj_path);
     let mut lk: i64 = 0 as i64;
     while lk < lan {
-        let s: *const String = lap.at_const(lk);
-        push_string_arg(largv_p, &(*s));
+        let s: &String = all_lib_archs.borrow(lk);
+        push_string_arg(largv_p, s);
         lk = lk + 1 as i64;
     }
-    let lib_view: str = str_from_raw(lib_dir.as_ptr(), lib_dir.len());
+    let lib_view: str = lib_dir.as_str();
     let mut p1: String = String::new();
     p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv_p.push(p1);
     let mut p2: String = String::new();
@@ -548,24 +536,22 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
     let order: Vec<i64> = match topo_order(&m.targets, &no_externals) {
         Result::Err(e) => {
             print_str(2, "lforge: ");
-            println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));
+            println_str(2, e.message.as_str());
             return 1;
         }
         Result::Ok(o) => { o }
     };
     let n_ord: i64 = order.length();
-    let op: *const Vec<i64> = (&order) as *const Vec<i64>;
-    let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
     let mut k: i64 = 0 as i64;
     while k < n_ord {
-        let idx_p: *const i64 = op.at_const(k);
+        let idx_p: &i64 = order.borrow(k);
         let idx: i64 = *idx_p;
-        let t: *const Target = tp.at_const(idx);
-        match (*t).kind {
+        let t: &Target = m.targets.borrow(idx);
+        match t.kind {
             TargetKind::Lib => {
                 let no_dump: String = String::new();
                 let no_filter: String = String::new();
-                let rc: i32 = build_lib(&(*t), profile, &logosc, &no_externals, &no_dump, &no_filter);
+                let rc: i32 = build_lib(t, profile, &logosc, &no_externals, &no_dump, &no_filter);
                 if rc != 0 {
                     println_str(2, "lforge: lib target failed; aborting test run");
                     return rc;
@@ -583,17 +569,16 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
     }
 
     let entries: Vec<DirEntry> = walk_dir("tests");
-    let ep: *const Vec<DirEntry> = (&entries) as *const Vec<DirEntry>;
     let en: i64 = entries.length();
 
     let mut pass_n: i32 = 0;
     let mut fail_n: i32 = 0;
     let mut ei: i64 = 0 as i64;
     while ei < en {
-        let de: *const DirEntry = ep.at_const(ei);
+        let de: &DirEntry = entries.borrow(ei);
         ei = ei + 1 as i64;
-        if (*de).is_dir { continue; }
-        let pview: str = str_from_raw((*de).name.as_ptr(), (*de).name.len());
+        if de.is_dir { continue; }
+        let pview: str = de.name.as_str();
         let pn: i64 = pview.len();
         if pn < 6 as i64 { continue; }
         // Quick suffix check: ".logos"
@@ -614,7 +599,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
 
         let mut prefix: String = String::new();
         prefix.push_str("lforge: test ");
-        prefix.push_bytes(stem.as_ptr(), stem.len());
+        prefix.push_str(stem.as_str());
         println_string(1, &prefix);
 
         let rc: i32 = build_test_bin(&path_str, &stem, &m.targets, profile, &logosc, &lib_dir);
@@ -629,7 +614,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
         bin_p.push_str(".lforge/");
         bin_p.push_str(profile);
         bin_p.push_str("/test/");
-        bin_p.push_bytes(stem.as_ptr(), stem.len());
+        bin_p.push_str(stem.as_str());
 
         let mut argv: Vec<String> = vec_new::<String>();
         let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;

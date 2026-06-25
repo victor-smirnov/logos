@@ -60,7 +60,7 @@ pub fn compute_key(project: str, sha: str, module: str, profile: str,
     let mut i: i64 = 0 as i64;
     while i < n {
         let s: &String = dep_keys.borrow(i);
-        buf.push_bytes(s.as_ptr(), s.len());
+        buf.push_str(s.as_str());
         buf.push_u8(1 as u8);
         i = i + 1 as i64;
     }
@@ -73,7 +73,7 @@ pub fn cache_dir_for(key: str) -> String {
     let root: String = cache_root();
     if root.len() == 0 as i64 { return String::new(); }
     let mut out: String = String::new();
-    out.push_bytes(root.as_ptr(), root.len());
+    out.push_str(root.as_str());
     append_path(&mut out, key);
     return out;
 }
@@ -104,7 +104,7 @@ pub fn cache_populate(key: str, src_archive: &String, archive_basename: str,
     // Copy via /bin/cp -f for predictable semantics (overwrite existing,
     // preserve mode). Avoids pulling in a Logos-side splice loop.
     let mut dst: String = String::new();
-    dst.push_bytes(dir.as_ptr(), dir.len());
+    dst.push_str(dir.as_str());
     append_path(&mut dst, archive_basename);
     let mut argv: Vec<String> = vec_new::<String>();
     push_arg(&mut argv, "cp");

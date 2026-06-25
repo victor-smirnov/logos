@@ -79,7 +79,7 @@ fn parse_target(t_av: HAny) -> Result<Target, ManifestError> {
         Result::Ok(s)  => { s }
     };
     let mut k: TargetKind = TargetKind::Bin;
-    let kv: str = str_from_raw(kind_s.as_ptr(), kind_s.len());
+    let kv: str = kind_s.as_str();
     if str_eq_local(kv, "lib") {
         k = TargetKind::Lib;
     } else if !str_eq_local(kv, "bin") {
@@ -159,7 +159,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
             Result::Ok(s)  => { s }
         };
         let mut nm: String = String::new();
-        nm.push_bytes(name_s.as_ptr(), name_s.len());
+        nm.push_str(name_s.as_str());
         let synth: Target = Target {
             kind:  TargetKind::Bin,
             name:  nm,
