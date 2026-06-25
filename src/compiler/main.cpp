@@ -2794,6 +2794,23 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     for (const auto& f : lib_files)
         add_syms("nm --defined-only --extern-only -p -j " + f + " 2>/dev/null");
 
+    // cat 2 (Logos type layouts) + cat 3 (vtables): merge the *.abi-layout
+    // sidecars emit_module wrote next to the stdlib objects (it has the decl
+    // views post-sema; --emit-abi does not). Each line is already a canonical
+    // record, so just fold it into the set.
+    auto add_layout_dir = [&](const std::string& d) {
+        FILE* pipe = ::popen(("cat " + d + "/*.abi-layout 2>/dev/null").c_str(), "r");
+        if (!pipe) return;
+        char line[4096];
+        while (std::fgets(line, sizeof(line), pipe)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+            if (!sv.empty()) records.insert(std::string(sv));
+        }
+        ::pclose(pipe);
+    };
+    for (const auto& d : lib_dirs) add_layout_dir(d);
+
     FILE* out = out_path.empty() ? stdout : std::fopen(out_path.c_str(), "w");
     if (!out) {
         std::fprintf(stderr, "logosc: --emit-abi: cannot open '%s'\n", out_path.c_str());

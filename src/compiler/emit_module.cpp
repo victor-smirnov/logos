@@ -17,6 +17,7 @@
 
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
+#include <logos/compiler/sema.hpp>   // type_str (ABI layout sidecar)
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
 #include <logos/hermes/compat.hpp>
@@ -267,7 +268,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                const std::string& implicit_prelude = "",
                                const std::vector<std::string>& dep_archives = {},
                                const std::vector<std::string>& per_ast_module_ids = {},
-                               const std::unordered_map<std::string, std::string>& module_name_to_id = {}) {
+                               const std::unordered_map<std::string, std::string>& module_name_to_id = {},
+                               const std::string& abi_layout_path = "") {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -429,6 +431,55 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // ── ABI layout sidecar (cat-2 type layouts + cat-3 vtables) ──────────────
+    // sema_lower gives prog.structs/enums/traits as decl views right here. Emit
+    // the layout-DETERMINING signature — a struct's ordered field types, an
+    // enum's variants, a trait's vtable slot order — to <obj>.abi-layout, which
+    // `logosc --emit-abi` globs and merges. A reorder/retype/add/remove changes
+    // the record, so the ABI differ flags the break (symbols alone miss a field
+    // reorder). Non-generic only: a template's layout is per-instantiation.
+    if (!module_name.empty() && !abi_layout_path.empty()) {
+        const auto* pool = prog.type_pool.impl();
+        auto qual = [](std::string_view pkg, std::string_view name) {
+            return pkg.empty() ? std::string(name)
+                               : std::string(pkg) + "." + std::string(name);
+        };
+        std::ofstream af(abi_layout_path);
+        for (auto& sd : prog.structs) {
+            if (!sd.type_params_empty()) continue;
+            std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
+            bool first = true;
+            for (auto f : sd.fields()) {
+                if (!first) rec += ",";
+                rec += std::string(f.name()) + ":" + type_str(f.type(pool));
+                first = false;
+            }
+            af << rec << "]\n";
+        }
+        for (auto& ed : prog.enums) {
+            if (!ed.type_params_empty()) continue;
+            std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
+            bool first = true;
+            ed.each_variant([&](lir_view::EnumVariantView v) {
+                if (!first) rec += ",";
+                rec += std::string(v.name());
+                first = false;
+            });
+            af << rec << "]\n";
+        }
+        for (auto& td : prog.traits) {
+            std::string rec = "vtable\t" + qual(td.pkg(), td.name()) + "\tslots=[";
+            bool first = true;
+            for (auto& [owner, mname] : td.vtable_method_order()) {
+                (void)owner;
+                if (!first) rec += ",";
+                rec += std::string(mname);
+                first = false;
+            }
+            af << rec << "]\n";
+        }
+    }
 
     // Phase 5.B: snapshot generic template names + body mirror offsets
     // BEFORE mono_pass moves prog into its in_. Mono drops templates after
@@ -997,7 +1048,8 @@ bool emit_module(const ModuleManifest& manifest,
                                /*implicit_prelude=*/manifest.prelude,
                                /*dep_archives=*/all_lib_files,
                                /*per_ast_module_ids=*/per_ast_module_ids,
-                               /*module_name_to_id=*/module_name_to_id)) {
+                               /*module_name_to_id=*/module_name_to_id,
+                               /*abi_layout_path=*/output_path + ".abi-layout")) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }
