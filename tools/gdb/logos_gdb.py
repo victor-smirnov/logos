@@ -383,3 +383,11 @@ class _Printer(gdb.printing.PrettyPrinter):
 import gdb.printing  # noqa: E402
 register(None)
 print("logos: pretty-printers loaded (String, Vec, slice, Box)")
+
+# Also load the Hermes container decoder from the same directory.
+try:
+    import os
+    _here = os.path.dirname(os.path.abspath(__file__))
+    gdb.execute("source %s/logos_hermes_gdb.py" % _here)
+except Exception:
+    pass

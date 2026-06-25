@@ -24,6 +24,8 @@ gdb ./prog
 | `print p`, `info args` | params (struct-by-ptr → declare; scalar/ptr → value) |
 | `print s.field`, `ptype T` | struct fields + offsets (x86-64 ABI) |
 | pretty-printers | `String`→`"…"`, `Vec<T>`→`{…}`, `&[T]`/`str`, `Box<T>` |
+| enums | `Some(42)` / `None` / `Circle(5)` / `Rect(3, 4)` (incl. stdlib Option/Result) |
+| Hermes | `logos-hermes <expr>` decodes AnyVal/containers; AnyVal auto-printer |
 
 `print *v.ptr@N` works (typed pointers); gdb reads `String.data` as a C string even without the printer.
 
@@ -56,12 +58,29 @@ emits DWARF. (`-g` threads `LowerEmitOpts.debug_info` + `source_path` →
   subprogram correlated by address.
 - Verify any DWARF change: `opt-20 -passes=verify` on `-g --emit-llvm`.
 
+## Enums
+
+MLIR 20 can't express DWARF variant parts, so `logosc -g` emits a
+`__logos_debug_meta` global (section `.logos_debug_meta`, JSON keyed by DWARF
+type name): per-enum disc offset/size, payload offset, and per-variant
+{disc, name, payload types}; niche-packed enums (null-ptr / low-bit) too. The
+gdb printer reads it from the objfile (raw ELF parse — works on cores) and
+renders the variant + payload. Loaded automatically by logos_gdb.py.
+
+## Hermes containers
+
+[tools/gdb/logos_hermes_gdb.py](../../tools/gdb/logos_hermes_gdb.py) decodes the
+Hermes format (self-relative `RelativePtr`, tagged `AnyVal`, `TypeTag`,
+ObjectArray/TinyObjectMap/ObjectMap/ArenaString/Decimal/TypedArray, boxed
+scalars). Use `logos-hermes <expr>` on an AnyVal value/address; `AnyVal`-typed
+values auto-print. Has a no-gdb self-test: `python3 tools/gdb/logos_hermes_gdb.py`.
+The compiler's own IR (LProgram/AST) is Hermes, so this also helps debug logosc.
+Live alternative: `call (char*)logos::hermes::stringify_value(av)` if the symbol
+is linked (`src/hermes/stringify.cpp`).
+
 ## Not yet
 
-- **Enum** variant-name display (`Some(42)`): MLIR 20 lacks `DIEnumeratorAttr` /
-  variant-part DI, so native DWARF enums aren't expressible — needs a
-  compiler-emitted metadata section consumed by the printer.
-- **Hermes containers**: format is decodable (self-relative ptrs, `AnyVal` tags,
-  `stringify_value` runtime dump) — printer pending the same metadata channel.
 - No **columns** (lexer doesn't track) → line-accurate, col 0.
 - Nested compiler-generated functions carry no debug info.
+- Arrays as `DW_TAG_array_type` (currently opaque sized).
+- `--gc-sections` may strip `__logos_debug_meta` (link debug builds without it).
