@@ -22,11 +22,13 @@ WORKDIR /src
 COPY . .
 # Fedora keeps the LLVM/MLIR cmake config on the standard /usr/lib64; point at
 # it explicitly (the /usr/lib/llvm-NN auto-discovery is Debian-only).
+ARG LOGOS_RELEASE=OFF
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
         -DLOGOS_LLVM_DIR=/usr/lib64/cmake/llvm \
         -DLOGOS_MLIR_DIR=/usr/lib64/cmake/mlir \
         -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF \
+        -DLOGOS_RELEASE=${LOGOS_RELEASE} \
     && cmake --build build -j"$(nproc)" \
     && cd build && cpack -G RPM
 

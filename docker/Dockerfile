@@ -27,9 +27,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 COPY . .
+ARG LOGOS_RELEASE=OFF
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 \
         -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF \
+        -DLOGOS_RELEASE=${LOGOS_RELEASE} \
     && cmake --build build -j"$(nproc)" \
     && cd build && cpack -G DEB
 
