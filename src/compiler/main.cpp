@@ -2193,6 +2193,30 @@ build_jit_from_module(const llvm::Module& src_module, const char* who,
     return jit;
 }
 
+// Inert stub for the fiber scheduler/reactor TLS hooks in the metacall JIT.
+// The compiler's metacall handlers run on the HOST thread, never inside a Logos
+// fiber, so these hooks are dead in that context — but the std stdlib layer
+// still carries references to them (from its async/channel/spawn code), and
+// their only real definitions live in liblstdlib_fibers.a, which the JIT must
+// filter out (its fiber_ctx.S uses initial-exec TLS / R_X86_64_GOTTPOFF that
+// ORC's RuntimeDyld can't relocate). Defining these names as host stubs lets
+// materialization link without pulling fiber_ctx.S.o. They must never actually
+// fire at compile time; if one does, that's a real bug — fail loudly.
+extern "C" void logos_metajit_fiber_hook_stub() {
+    std::fprintf(stderr, "logosc: internal error: a compile-time metacall "
+                         "invoked a fiber scheduler/reactor hook — handlers "
+                         "must not use fibers/async\n");
+    std::abort();
+}
+
+// The fiber-runtime hooks the std layer references but the metacall JIT must
+// satisfy without loading liblstdlib_fibers.a. See logos_metajit_fiber_hook_stub.
+static constexpr const char* kMetajitFiberHookStubs[] = {
+    "logos_thread_get",  "logos_thread_set",
+    "logos_sched_get",   "logos_sched_set",
+    "logos_reactor_get", "logos_reactor_set",
+};
+
 // Structured exit codes. lforge depends on these to classify failure
 // kinds without parsing diagnostic text.
 //
@@ -2596,6 +2620,11 @@ int run_metaprog_dispatch(
             if (!bind_sym("logos_holder_release",             reinterpret_cast<void*>(&logos_holder_release))) return 1;
             if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
             if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
+            // Fiber scheduler/reactor hooks: inert stubs so the std layer links
+            // without the GOTTPOFF-bearing liblstdlib_fibers.a (host metaprog
+            // handlers never run inside a fiber). See logos_metajit_fiber_hook_stub.
+            for (const char* s : kMetajitFiberHookStubs)
+                if (!bind_sym(s, reinterpret_cast<void*>(&logos_metajit_fiber_hook_stub))) return 1;
         }
         if (!m6_meta_jit->add_module(std::move(meta_llvm), std::move(meta_llvm_ctx_ptr))) {
             std::fprintf(stderr, "logosc-metaprog: jit add_module: %s\n",
@@ -3958,6 +3987,12 @@ int main(int argc, char** argv) {
                                                 /*with_process_symbols=*/true,
                                                 &archive_paths);
             if (!mc_jit) return 1;
+            // Satisfy the std layer's fiber scheduler/reactor hook references
+            // with inert host stubs so the JIT links without pulling the
+            // GOTTPOFF-bearing liblstdlib_fibers.a (see the stub comment).
+            for (const char* s : kMetajitFiberHookStubs)
+                mc_jit->define_symbol(
+                    s, reinterpret_cast<void*>(&logos_metajit_fiber_hook_stub));
             mc_stat_step(_mc_t, "jit_build", mi);
 
             // Slice 7 of metaprog-quote derisk: bind the hand-built BIN_OP
