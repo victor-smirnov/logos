@@ -32,7 +32,7 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${LOGOS_LANG_MANIFEST}
             -o ${LOGOS_LANG_BIN}
-    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES}
+    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES} logos_rt logos_fibers
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building stdlib layer: liblogos-lang.a"
 )
@@ -42,7 +42,7 @@ add_custom_command(
             --emit-module ${LOGOS_MEM_MANIFEST}
             -L ${STDLIB_BIN_DIR}
             -o ${LOGOS_MEM_BIN}
-    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_MEM_MANIFEST} ${LOGOS_MEM_SOURCES} ${LOGOS_LANG_BIN}
+    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_MEM_MANIFEST} ${LOGOS_MEM_SOURCES} ${LOGOS_LANG_BIN} logos_rt logos_fibers
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building stdlib layer: liblogos-mem.a (depends logos-lang via manifest)"
 )
@@ -52,7 +52,7 @@ add_custom_command(
             --emit-module ${LOGOS_STD_MANIFEST}
             -L ${STDLIB_BIN_DIR}
             -o ${LOGOS_STD_BIN}
-    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_STD_MANIFEST} ${LOGOS_STD_SOURCES} ${LOGOS_MEM_BIN} ${LOGOS_LANG_BIN}
+    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_STD_MANIFEST} ${LOGOS_STD_SOURCES} ${LOGOS_MEM_BIN} ${LOGOS_LANG_BIN} logos_rt logos_fibers
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building stdlib layer: liblogos-std.a (depends logos-mem + logos-lang via manifest)"
 )
