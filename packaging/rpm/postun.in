@@ -1,0 +1,4 @@
+# $1 = number of this package's versions left after the op; 0 = final removal.
+if [ "$1" = 0 ]; then
+    alternatives --remove logosc /usr/bin/logosc-@LOGOS_VERSION_SLOT@
+fi

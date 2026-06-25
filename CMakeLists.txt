@@ -256,11 +256,34 @@ set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
 # Fedora keeps its libs on standard /usr/lib64, so rpm's automatic
 # dependency generator (autoreqprov) resolves the shared-lib Requires
 # correctly — no explicit list needed.
+#
+# RPM uses '-' as the NEVRA delimiter, so the .deb's slot name (logosc-0.1-pre)
+# is invalid as an RPM Name/Version. Follow the Fedora compat-package convention
+# (llvm17, gcc14): a hyphen-free concatenated name, and '~' for the pre-release
+# tag in the version (RPM sorts X.Y.Z~pre before X.Y.Z). Per-slot name so RPMs
+# coexist. The installed file names (bin/logosc-<SLOT>, lib/logos/<SLOT>/) are
+# unchanged — only the package's own Name/Version differ.
+string(REGEX REPLACE "[^a-zA-Z0-9]" "" LOGOS_VERSION_SLOT_RPM "${LOGOS_VERSION_SLOT}")
+string(REPLACE "-" "~" LOGOS_VERSION_RPM "${LOGOS_VERSION_FULL}")
+set(CPACK_RPM_PACKAGE_NAME    "logosc${LOGOS_VERSION_SLOT_RPM}")  # logosc01pre
+set(CPACK_RPM_PACKAGE_VERSION "${LOGOS_VERSION_RPM}")             # 0.1.0~pre
 set(CPACK_RPM_PACKAGE_LICENSE  "Apache-2.0 OR MIT")
 set(CPACK_RPM_PACKAGE_GROUP    "Development/Languages")
 set(CPACK_RPM_PACKAGE_URL      "https://github.com/victor-smirnov/logos")
 set(CPACK_RPM_PACKAGE_SUMMARY  "Logos compiler (logosc) and standard library")
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 set(CPACK_RPM_PACKAGE_SUGGESTS "gcc, liburing-devel")
-set(CPACK_RPM_FILE_NAME RPM-DEFAULT)   # logos-0.1.0-1.x86_64.rpm
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)   # logosc01pre-0.1.0~pre-1.x86_64.rpm
+# update-alternatives equivalent for the unversioned /usr/bin/logosc selector.
+# CPack RPM's auto-%files does not capture an install(CODE)-created symlink (unlike
+# CPack DEB, which tars the whole staging tree), so — as with the .deb — the .rpm
+# ships only logosc-<SLOT> (build with -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF) and
+# Fedora's `alternatives` owns /usr/bin/logosc in post/postun scriptlets.
+set(CPACK_RPM_PACKAGE_REQUIRES "alternatives")
+configure_file(${CMAKE_SOURCE_DIR}/packaging/rpm/post.in
+               ${CMAKE_BINARY_DIR}/packaging/rpm/post @ONLY)
+configure_file(${CMAKE_SOURCE_DIR}/packaging/rpm/postun.in
+               ${CMAKE_BINARY_DIR}/packaging/rpm/postun @ONLY)
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE   "${CMAKE_BINARY_DIR}/packaging/rpm/post")
+set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE "${CMAKE_BINARY_DIR}/packaging/rpm/postun")
 include(CPack)

@@ -26,21 +26,22 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
         -DLOGOS_LLVM_DIR=/usr/lib64/cmake/llvm \
         -DLOGOS_MLIR_DIR=/usr/lib64/cmake/mlir \
+        -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF \
     && cmake --build build -j"$(nproc)" \
     && cd build && cpack -G RPM
 
 FROM scratch AS rpm
-COPY --from=builder /src/build/logos-*.rpm /
+COPY --from=builder /src/build/logosc*.rpm /
 
 FROM fedora:43 AS runtime
-COPY --from=builder /src/build/logos-*.rpm /tmp/
+COPY --from=builder /src/build/logosc*.rpm /tmp/
 # gcc + liburing-devel give a built Logos program its final link (cc + -luring;
 # Fedora has no static liburing so the shared one is used). The .rpm's own
 # Requires pull libLLVM/libMLIR/libstdc++.
-RUN dnf install -y /tmp/logos-*.rpm gcc liburing-devel \
-    && dnf clean all && rm -f /tmp/logos-*.rpm
+RUN dnf install -y /tmp/logosc*.rpm gcc liburing-devel \
+    && dnf clean all && rm -f /tmp/logosc*.rpm
 RUN printf 'package smoke;\nfn main() -> i32 { return 0; }\n' > /tmp/s.logos \
     && logosc /tmp/s.logos -o /tmp/s.o \
-    && cc /tmp/s.o /usr/lib/logos/lib*.a -lpthread -lm -luring -o /tmp/s \
+    && cc /tmp/s.o /usr/lib/logos/*/lib*.a -lpthread -lm -luring -o /tmp/s \
     && /tmp/s && echo "logos toolchain OK"
 ENTRYPOINT ["logosc"]
