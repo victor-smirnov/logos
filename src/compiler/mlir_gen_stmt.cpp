@@ -1392,6 +1392,13 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
 // ---------------------------------------------------------------------------
 
 void MLIRGenImpl::gen_let(lir_view::SLetView v) {
+    gen_let_inner(v);
+    // -g: after the binding's slot is set in scope_, attach DWARF local-var info.
+    if (debug_info_ && di_subprogram_)
+        emit_local_dbg_declare(v.name(), v.type(pool_impl()), v.self.line());
+}
+
+void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     auto val_le = v.value();
     if (!val_le) {
         // B3-bg-01 / B3-bg-02: declare-without-init (`let v: T;`).

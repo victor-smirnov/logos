@@ -418,6 +418,19 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
         }
     }
 
+    // -g: emit DWARF parameter debug info (info args / print <param>). Uses the
+    // calling-convention arg SSA directly (entry args), not scope_ (which later
+    // branches may remap).
+    if (debug_info_ && di_subprogram_) {
+        for (size_t i = 0; i < fn_params.size(); ++i) {
+            if (i >= entry->getNumArguments()) break;
+            emit_param_dbg_declare(std::string(fn_params[i].name()),
+                                   fn_params[i].type(gfb_pool),
+                                   entry->getArgument(i), (unsigned)i + 1,
+                                   di_scope_line_);
+        }
+    }
+
     auto ret_types = func.getFunctionType().getResults();
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn_ret;

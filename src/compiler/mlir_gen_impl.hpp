@@ -167,6 +167,20 @@ private:
     // the scope line for line==0. Returns unknown loc when debug is inactive.
     mlir::Location dbg_loc(uint32_t line);
 
+    // ── DI type builder (Stage 2) ─────────────────────────────────────────
+    // LogosType → DWARF DITypeAttr. Scalars→DIBasicType, ptr/ref→DIDerivedType
+    // (pointer), struct/tuple→DICompositeType with members+offsets; aggregates
+    // not yet modelled get an opaque sized composite. Cached by TypeRef offset;
+    // di_struct_inprogress_ guards self-referential structs (via pointer fields).
+    std::unordered_map<hermes::arena_offset_t, mlir::LLVM::DITypeAttr> di_type_cache_;
+    std::unordered_set<std::string> di_struct_inprogress_;
+    mlir::LLVM::DITypeAttr di_type(TypeRef t);
+    mlir::LLVM::DITypeAttr di_struct_type(std::string_view mlir_key,
+                                          std::string_view display_name);
+    mlir::LLVM::DITypeAttr di_leaf_from_mlir(mlir::Type t);
+    // Build the DISubroutineType (ret + param DI types) for a function.
+    mlir::LLVM::DISubroutineTypeAttr di_subroutine_type(lir_view::FunctionView fn);
+
     // RAII: suspend the active debug scope while emitting a nested compiler-
     // generated function (its FuncOp + body must NOT inherit the caller's
     // DISubprogram). Restores on scope exit.
@@ -1103,6 +1117,16 @@ private:
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);
 
     void gen_let(lir_view::SLetView v);
+    void gen_let_inner(lir_view::SLetView v);
+    // -g: emit a DbgDeclare for a memory-backed local. Safe rule — only when the
+    // slot is an AllocaOp whose element size == the variable's ABI size (rejects
+    // ref aliases / SSA bindings). name's slot read from scope_.
+    void emit_local_dbg_declare(std::string_view name, TypeRef ty, uint32_t line);
+    // -g: emit DWARF info for a parameter. Aggregate-by-pointer args (struct/
+    // enum/array arriving as ptr) → DbgDeclare(arg); scalar/pointer/by-value
+    // args → DbgValue(arg). arg_no is 1-based.
+    void emit_param_dbg_declare(std::string_view name, TypeRef ty,
+                                mlir::Value arg, unsigned arg_no, uint32_t line);
     void gen_assign(lir_view::SAssignView v);
     void gen_return(lir_view::SReturnView v);
     void gen_if(lir_view::SIfView v);
