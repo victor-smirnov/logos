@@ -1,2 +1,3 @@
 alternatives --install /usr/bin/logosc logosc /usr/bin/logosc-@LOGOS_VERSION_SLOT@ @LOGOS_ALT_PRIORITY@ \
-    --slave /usr/bin/logos-gdb logos-gdb /usr/bin/logos-gdb-@LOGOS_VERSION_SLOT@
+    --slave /usr/bin/logos-gdb logos-gdb /usr/bin/logos-gdb-@LOGOS_VERSION_SLOT@ \
+    --slave /usr/bin/lforge lforge /usr/bin/lforge-@LOGOS_VERSION_SLOT@

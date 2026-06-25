@@ -12,6 +12,7 @@ use logos.std.io.fs;
 use lforge.schema;
 use lforge.util;
 use lforge.topo;
+use lforge.proc;
 
 extern fn getenv(name: *const u8) -> *const u8;
 
@@ -41,6 +42,31 @@ pub fn resolve_logos_lib_dir() -> String {
             return out;
         }
         i = i + 1 as i64;
+    }
+    // Installed slot tree (lib/logos/<slot>/lib/): ask the resolved logosc where
+    // its stdlib lives (--print-lib-dir), so the lib dir always matches the
+    // exact compiler lforge uses — no path guessing.
+    let logosc: String = resolve_logosc_path();
+    let mut argv: Vec<String> = vec_new::<String>();
+    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
+    push_string_arg(argv_p, &logosc);
+    push_arg(argv_p, "--print-lib-dir");
+    let res: (i32, String) = run_child_capture_stdout(&argv);
+    if res.0 == 0 as i32 {
+        let raw: String = res.1;
+        let view: str = str_from_raw(raw.as_ptr(), raw.len());
+        let mut end: i64 = raw.len();
+        while end > 0 as i64 {
+            let cc: i32 = view[end - 1 as i64] as i32;
+            if cc == 10 as i32 || cc == 13 as i32 || cc == 32 as i32 || cc == 9 as i32 {
+                end = end - 1 as i64;
+            } else { break; }
+        }
+        if end > 0 as i64 {
+            let mut s: String = String::new();
+            s.push_bytes(raw.as_ptr(), end);
+            return s;
+        }
     }
     return String::new();
     }

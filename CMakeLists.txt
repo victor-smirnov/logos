@@ -244,6 +244,11 @@ configure_file(${CMAKE_SOURCE_DIR}/tools/gdb/logos-gdb
                ${CMAKE_BINARY_DIR}/bin/logos-gdb COPYONLY)
 install(PROGRAMS tools/gdb/logos-gdb DESTINATION ${LOGOS_TREE_RELDIR}/bin)
 
+# lforge — the primary Logos build tool (cargo-style; drives logosc). Installed
+# beside logosc in the slot tree; exposed on PATH as an alternatives slave so it
+# always tracks the selected logosc, and finds its sibling logosc via /proc/self/exe.
+install(PROGRAMS ${CMAKE_BINARY_DIR}/bin/lforge DESTINATION ${LOGOS_TREE_RELDIR}/bin)
+
 # Versioned PATH symlink bin/logosc-<SLOT> -> ../lib/logos/<SLOT>/bin/logosc.
 # Staged as a real symlink + install(DIRECTORY) so it is TRACKED by BOTH CPack
 # generators (install(CODE) symlinks are invisible to CPack RPM's %files).
@@ -257,6 +262,9 @@ file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logosc"
 # logos-gdb-<SLOT> -> ../lib/logos/<SLOT>/bin/logos-gdb (versioned PATH entry).
 file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logos-gdb"
      "${CMAKE_BINARY_DIR}/_pkglinks/logos-gdb-${LOGOS_VERSION_SLOT}" SYMBOLIC)
+# lforge-<SLOT> -> ../lib/logos/<SLOT>/bin/lforge (versioned PATH entry).
+file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/lforge"
+     "${CMAKE_BINARY_DIR}/_pkglinks/lforge-${LOGOS_VERSION_SLOT}" SYMBOLIC)
 install(DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks/" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Unversioned bin/logosc -> logosc-<SLOT> (make install only; packages use
