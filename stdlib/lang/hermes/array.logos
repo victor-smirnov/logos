@@ -221,6 +221,12 @@ impl HAnyMut {
 impl HAny {
     // A nested array as a heterogeneous value (Ref to the child's header).
     pub fn from(a: &HArray<HAny>) -> HAny { return HAny::ref_to(a as *const HArray<HAny> as *const u8); }
+
+    // Resolve a Ref cursor to a borrowed `&HArray<HAny>` (read-only). Check
+    // is_array() first. Encapsulates the resolve()+cast so callers stay safe.
+    pub fn as_array(self: &HAny) -> &HArray<HAny> {
+        return unsafe { &*(self.resolve() as *const HArray<HAny>) };
+    }
 }
 
 // ── Typed array surface (HArray<T>, T a primitive) — Hermes1 typed Array<T> ────

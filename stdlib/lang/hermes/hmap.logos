@@ -283,6 +283,12 @@ impl HAnyMut {
 impl HAny {
     // A map as a heterogeneous value — a Ref to its header.
     pub fn from(m: &HMap<HString, HAny>) -> HAny { return HAny::ref_to(m as *const HMap<HString, HAny> as *const u8); }
+
+    // Resolve a Ref cursor to a borrowed `&HMap<HString, HAny>` (read-only). Check
+    // is_map() first. Encapsulates the resolve()+cast so callers stay unsafe-free.
+    pub fn as_map(self: &HAny) -> &HMap<HString, HAny> {
+        return unsafe { &*(self.resolve() as *const HMap<HString, HAny>) };
+    }
 }
 
 // ── Bitmap-indexed spec: 6-bit keys (HMap<Hu6, V>) — Hermes1 TinyObjectMap ─────

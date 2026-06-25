@@ -59,7 +59,6 @@ pub fn resolve_logos_lib_dir() -> String {
         }
         i = i + 1 as i64;
     }
-    unsafe {
     // Installed slot tree (lib/logos/<slot>/lib/): query the resolved logosc for
     // ALL its metadata as a Hermes doc (--print-metadata) and read lib_dir. The
     // dir always matches the exact compiler lforge uses — no path guessing — and
@@ -71,7 +70,7 @@ pub fn resolve_logos_lib_dir() -> String {
     let res: (i32, String) = run_child_capture_stdout(&argv);
     if res.0 == 0 as i32 {
         let raw: String = res.1;
-        let view: str = str_from_raw(raw.as_ptr(), raw.len());
+        let view: str = raw.as_str();
         let ctr: Rc<Hermes> = hermes_rc(8192 as i64);
         let h: &Hermes = ctr.deref();
         let root: HAny = parse(h, view);
@@ -81,7 +80,6 @@ pub fn resolve_logos_lib_dir() -> String {
         }
     }
     return String::new();
-    }
 }
 
 pub fn resolve_logosc_path() -> String {

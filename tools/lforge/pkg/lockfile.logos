@@ -22,11 +22,10 @@ use lforge.hermes_io;
 
 fn lf_get(root: HAny, key: str) -> HAny {
     if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
-    return unsafe { (&*(root.resolve() as *const HMap<HString, HAny>)).get(key) };
+    return root.as_map().get(key);
 }
 
 pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
-    unsafe {
     let ctr: Rc<Hermes> = hermes_rc(32768);
     let h: &Hermes = ctr.deref();
     let root: HAny = parse(h, text);
@@ -34,10 +33,10 @@ pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
     let pinned_av: HAny = lf_get(root, "pinned");
     if !pinned_av.is_array() { return vec_new::<LockEntry>(); }
     let mut out: Vec<LockEntry> = vec_new::<LockEntry>();
-    let n: u64 = (&*(pinned_av.resolve() as *const HArray<HAny>)).len() as u64;
+    let n: u64 = pinned_av.as_array().len() as u64;
     let mut i: u64 = 0 as u64;
     while i < n {
-        let e_av: HAny = (&*(pinned_av.resolve() as *const HArray<HAny>)).get(i as i64);
+        let e_av: HAny = pinned_av.as_array().get(i as i64);
         i = i + 1 as u64;
         if !e_av.is_map() { continue; }
         let proj: String = read_str_opt(e_av, "project");
@@ -47,7 +46,6 @@ pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
         out.push(LockEntry { project: proj, tag: tag, sha: sha });
     }
     return out;
-    }
 }
 
 pub fn read_lockfile_or_empty(path: str) -> Vec<LockEntry> {

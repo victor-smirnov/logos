@@ -95,4 +95,10 @@ impl HString {
 impl HAny {
     // An interned string as a heterogeneous value — a Ref to its header.
     pub fn from(s: &HString) -> HAny { return HAny::ref_to(s as *const HString as *const u8); }
+
+    // Resolve a Ref cursor to a borrowed `&HString` (read-only). Check is_string()
+    // first. Encapsulates the resolve()+cast so callers stay unsafe-free.
+    pub fn as_string(self: &HAny) -> &HString {
+        return unsafe { &*(self.resolve() as *const HString) };
+    }
 }
