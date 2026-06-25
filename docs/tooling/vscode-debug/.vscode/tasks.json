@@ -1,0 +1,14 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-logos",
+            "type": "shell",
+            "command": "${workspaceFolder}/build.sh",
+            "args": ["${workspaceFolder}/show.logos"],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent" }
+        }
+    ]
+}
