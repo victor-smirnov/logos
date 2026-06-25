@@ -23,27 +23,27 @@ pub fn push_string_arg(args: &mut Vec<String>, s: &String) {
     args.push(a);
 }
 
-// Build a NUL-terminated argv buffer from `argv_strs`. Returned pointer
-// owns alloc'd memory; caller is responsible for `dealloc`.
-unsafe fn build_argv_buf(argv_strs: &Vec<String>) -> *mut *const u8 {
+// Build a NUL-terminated argv buffer from `argv_strs` as an owning
+// `Vec<*const u8>` — the Vec owns the pointer array and frees it on drop
+// (no manual alloc/dealloc). The stored pointers borrow `argv_strs`, which
+// the caller keeps alive for the whole spawn. Pass `buf.as_ptr()` to spawn.
+fn build_argv_buf(argv_strs: &Vec<String>) -> Vec<*const u8> {
     let n: i64 = argv_strs.length();
-    let buf: *mut *const u8 = alloc((n + 1 as i64) * 8 as i64) as *mut *const u8;
+    let mut buf: Vec<*const u8> = vec_new::<*const u8>();
     let mut i: i64 = 0 as i64;
     while i < n {
-        let s: &String = argv_strs.borrow(i);
-        buf[i] = s.as_ptr();
+        buf.push(argv_strs.borrow(i).as_ptr());
         i = i + 1 as i64;
     }
-    buf[n] = 0 as *const u8;
+    buf.push(0 as *const u8);
     return buf;
 }
 
 pub fn run_child(argv_strs: &Vec<String>) -> i32 {
+    let argv_buf: Vec<*const u8> = build_argv_buf(argv_strs);
     unsafe {
-        let argv_buf: *mut *const u8 = build_argv_buf(argv_strs);
-        let mut child: Child = spawn(argv_buf as *const *const u8, false, true, true);
+        let mut child: Child = spawn(argv_buf.as_ptr() as *const *const u8, false, true, true);
         if child.pid() < 0 {
-            dealloc(argv_buf as *mut u8);
             return 0 - 1;
         }
 
@@ -62,7 +62,6 @@ pub fn run_child(argv_strs: &Vec<String>) -> i32 {
             }
         }
         let st: ExitStatus = child.wait();
-        dealloc(argv_buf as *mut u8);
         return st.code();
     }
 }
@@ -70,11 +69,10 @@ pub fn run_child(argv_strs: &Vec<String>) -> i32 {
 // Spawn `argv` and capture stdout into a String. Stderr is forwarded to the
 // parent's stderr. Used for short-output commands like `git ls-remote`.
 pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
+    let argv_buf: Vec<*const u8> = build_argv_buf(argv_strs);
     unsafe {
-        let argv_buf: *mut *const u8 = build_argv_buf(argv_strs);
-        let mut child: Child = spawn(argv_buf as *const *const u8, false, true, true);
+        let mut child: Child = spawn(argv_buf.as_ptr() as *const *const u8, false, true, true);
         if child.pid() < 0 {
-            dealloc(argv_buf as *mut u8);
             return (0 - 1, String::new());
         }
 
@@ -97,7 +95,6 @@ pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
             }
         }
         let st: ExitStatus = child.wait();
-        dealloc(argv_buf as *mut u8);
         return (st.code(), out);
     }
 }

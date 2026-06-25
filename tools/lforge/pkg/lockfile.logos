@@ -118,21 +118,20 @@ pub fn write_lockfile(path: str, entries: &Vec<LockEntry>) -> i32 {
 // fall back to lexical compare. For tags that don't fit the shape, we
 // just compare strings.
 pub fn cmp_tags(a: str, b: str) -> i32 {
-    unsafe {
-        if a.len() == 0 as i64 && b.len() == 0 as i64 { return 0 as i32; }
+    if a.len() == 0 as i64 && b.len() == 0 as i64 { return 0 as i32; }
     if a.len() == 0 as i64 { return 0 as i32 - 1 as i32; }
     if b.len() == 0 as i64 { return 1 as i32; }
     let mut ai: i64 = 0 as i64;
     let mut bi: i64 = 0 as i64;
-    if a.as_ptr()[0] == 118 as u8 { ai = 1 as i64; }   // 'v'
-    if b.as_ptr()[0] == 118 as u8 { bi = 1 as i64; }
+    if str_byte_at(a, 0) == 118 as u8 { ai = 1 as i64; }   // 'v'
+    if str_byte_at(b, 0) == 118 as u8 { bi = 1 as i64; }
     let an: i64 = a.len();
     let bn: i64 = b.len();
     loop {
         let mut av: i64 = 0 as i64;
         let mut have_a: bool = false;
         while ai < an {
-            let cc: i32 = a.as_ptr()[ai] as i32;
+            let cc: i32 = str_byte_at(a, ai) as i32;
             if cc < 48 as i32 || cc > 57 as i32 { break; }
             av = av * 10 as i64 + (cc - 48 as i32) as i64;
             have_a = true;
@@ -141,7 +140,7 @@ pub fn cmp_tags(a: str, b: str) -> i32 {
         let mut bv: i64 = 0 as i64;
         let mut have_b: bool = false;
         while bi < bn {
-            let cc: i32 = b.as_ptr()[bi] as i32;
+            let cc: i32 = str_byte_at(b, bi) as i32;
             if cc < 48 as i32 || cc > 57 as i32 { break; }
             bv = bv * 10 as i64 + (cc - 48 as i32) as i64;
             have_b = true;
@@ -155,8 +154,8 @@ pub fn cmp_tags(a: str, b: str) -> i32 {
             let mut lim: i64 = ar;
             if br < ar { lim = br; }
             while i < lim {
-                let ca: i32 = a.as_ptr()[ai + i] as i32;
-                let cb: i32 = b.as_ptr()[bi + i] as i32;
+                let ca: i32 = str_byte_at(a, ai + i) as i32;
+                let cb: i32 = str_byte_at(b, bi + i) as i32;
                 if ca < cb { return 0 as i32 - 1 as i32; }
                 if ca > cb { return 1 as i32; }
                 i = i + 1 as i64;
@@ -170,11 +169,10 @@ pub fn cmp_tags(a: str, b: str) -> i32 {
         if av < bv { return 0 as i32 - 1 as i32; }
         if av > bv { return 1 as i32; }
         // Skip a `.` separator on each side if present.
-        if ai < an && a.as_ptr()[ai] == 46 as u8 { ai = ai + 1 as i64; }
-        if bi < bn && b.as_ptr()[bi] == 46 as u8 { bi = bi + 1 as i64; }
+        if ai < an && str_byte_at(a, ai) == 46 as u8 { ai = ai + 1 as i64; }
+        if bi < bn && str_byte_at(b, bi) == 46 as u8 { bi = bi + 1 as i64; }
     }
     return 0 as i32;
-    }
 }
 
 // Returns:

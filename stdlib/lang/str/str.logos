@@ -45,6 +45,14 @@ pub fn str_len(s: *const u8) -> i64 {
     return n;
 }
 
+// Bounds-checked byte accessor: the i-th UTF-8 byte of `s`, or 0 if `i` is out
+// of range (mirrors reading past the implicit terminator). Safe wrapper that
+// encapsulates the raw index so callers don't need `unsafe` for byte scans.
+pub fn str_byte_at(s: str, i: i64) -> u8 {
+    if i < 0 as i64 || i >= s.len() { return 0 as u8; }
+    return unsafe { s.as_ptr()[i] };
+}
+
 pub fn mem_copy(dst: *mut u8, dst_off: i64, src: *const u8, n: i64) {
     let mut i: i64 = 0;
     while i < n {

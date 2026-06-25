@@ -129,6 +129,17 @@ impl<T> Vec<T> {
         return self.len;
     }
 
+    // Raw pointer to the contiguous element buffer (Rust's `Vec::as_ptr`).
+    // Returning the pointer is safe; only dereferencing it is unsafe. Valid
+    // until the next growth/realloc. Handy for handing the buffer to C/FFI.
+    pub fn as_ptr(&self) -> *const T {
+        return self.ptr as *const T;
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        return self.ptr;
+    }
+
     // §2 Wave 9 — Rust API parity: `len()` is the canonical name. The
     // existing `length()` stays as a Logos-specific alias.
     pub fn len(&self) -> i64 {
