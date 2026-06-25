@@ -76,10 +76,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         man_path.push_u8(47 as u8);
         man_path.push_bytes(t.name.as_ptr(), t.name.len());
         man_path.push_str(".module");
-        let man_path_cs: *mut u8 = cstr(str_from_raw(man_path.as_ptr(), man_path.len()));
-        let wr: Result<i32, i32> = write_string(man_path_cs as *const u8, &man);
-        dealloc(man_path_cs);
-        match wr {
+        match write_string(man_path.as_str(), &man) {
             Result::Err(_) => { println_str(2, "lforge: cannot write generated .module"); return 1; }
             Result::Ok(_)  => { }
         }
@@ -106,14 +103,11 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         obj_path.push_bytes(prefix.as_ptr(), prefix.len());
         obj_path.push_str(".o");
 
-        let src_cs: *mut u8 = cstr(src_view2);
-        let src_mt: i64 = match mtime_ns(src_cs as *const u8) {
+        let src_mt: i64 = match mtime_ns(src_view2) {
             Result::Ok(v)  => { v }
             Result::Err(_) => { 0 as i64 }
         };
-        dealloc(src_cs);
-        let obj_view: str = str_from_raw(obj_path.as_ptr(), obj_path.len());
-        if output_is_fresh(obj_view, src_mt) { continue; }
+        if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
         let mut argv: Vec<String> = vec_new::<String>();
         let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
@@ -169,14 +163,11 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             let src_view2: str = str_from_raw((*src_p).as_ptr(), (*src_p).len());
 
             let obj_path: String = native_obj_path(&pf_dir, &(*src_p));
-            let src_cs: *mut u8 = cstr(src_view2);
-            let src_mt: i64 = match mtime_ns(src_cs as *const u8) {
+            let src_mt: i64 = match mtime_ns(src_view2) {
                 Result::Ok(v)  => { v }
                 Result::Err(_) => { 0 as i64 }
             };
-            dealloc(src_cs);
-            let obj_view: str = str_from_raw(obj_path.as_ptr(), obj_path.len());
-            if output_is_fresh(obj_view, src_mt) { continue; }
+            if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
             let child: Child = spawn_native_compile(&(*src_p), &obj_path);
             if child.pid() < 0 {
@@ -235,12 +226,9 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             k = k + 1 as i64;
             let prefix: String = per_file_prefix(&pf_dir, &(*src_p));
             let mut obj_p: String = String::new();
-            obj_p.push_bytes(prefix.as_ptr(), prefix.len());
+            obj_p.push_str(prefix.as_str());
             obj_p.push_str(".o");
-            let cs: *mut u8 = cstr(str_from_raw(obj_p.as_ptr(), obj_p.len()));
-            let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
-            dealloc(cs);
-            match mt {
+            match mtime_ns(obj_p.as_str()) {
                 Result::Ok(v)  => { if v > max_pf { max_pf = v; } }
                 Result::Err(_) => { }
             }
@@ -255,10 +243,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
                 let src_p: *const String = lst.at_const(k2);
                 k2 = k2 + 1 as i64;
                 let obj_p: String = native_obj_path(&pf_dir, &(*src_p));
-                let cs: *mut u8 = cstr(str_from_raw(obj_p.as_ptr(), obj_p.len()));
-                let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
-                dealloc(cs);
-                match mt {
+                match mtime_ns(obj_p.as_str()) {
                     Result::Ok(v)  => { if v > max_pf { max_pf = v; } }
                     Result::Err(_) => { }
                 }
@@ -313,9 +298,10 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
 
     // Remove a stale archive first; ar would otherwise append rather than
     // replace and dead members would linger.
-    let arch_cs: *mut u8 = cstr(arch_view);
-    unlink(arch_cs as *const u8);
-    dealloc(arch_cs);
+    match unlink(arch_view) {
+        Result::Ok(_)  => { }
+        Result::Err(_) => { }
+    }
 
     let ar_child: Child = spawn_inherit(&ar_argv);
     if ar_child.pid() < 0 {

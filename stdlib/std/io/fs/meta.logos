@@ -186,6 +186,15 @@ pub fn unlink(path: *const u8) -> Result<i32, i32> {
     return Result::Ok(0);
 }
 
+// Safe str form: the null-terminate + C interop is encapsulated.
+pub fn unlink(path: str) -> Result<i32, i32> {
+    let mut c: String = String::new();
+    c.push_str(path); c.push_u8(0 as u8);
+    let r: i32 = unsafe { logos_unlink(c.as_ptr()) };
+    if r < 0 { return Result::Err(r); }
+    return Result::Ok(0);
+}
+
 // Recursive rm -rf semantics. Removes path and everything under it. Returns
 // the first error encountered (if any). A non-existent path is not an error.
 pub fn rm_rf(path: str) -> Result<i32, i32> {
