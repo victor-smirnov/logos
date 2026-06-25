@@ -184,6 +184,21 @@ if(LOGOS_BUNDLE_URING_STATIC)
         DESTINATION ${LOGOS_LIB_RELDIR}/${LOGOS_VERSION_SLOT})
 endif()
 
+# ── ABI spec (versioning + ABI tracking) ─────────────────────────────────
+# Regenerate the committed abi/logos.abi from the freshly-built stdlib. Its git
+# history IS the ABI changelog; `abi-analyze` diffs two revisions to qualify
+# changes as ABI-preserving vs ABI-breaking (the minor-bump gate). Not built by
+# ALL — run `cmake --build <dir> --target logos-abi` after changing the surface.
+add_custom_target(logos-abi
+    COMMAND $<TARGET_FILE:logosc> --emit-abi -L ${LOGOS_BUILD_LIB_DIR}
+            -o ${CMAKE_SOURCE_DIR}/abi/logos.abi
+    DEPENDS logosc
+            ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
+            ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+            ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
+    COMMENT "Regenerating abi/logos.abi (ABI spec)"
+    VERBATIM)
+
 # ── Packaging (.deb / .rpm via CPack) ────────────────────────────────────
 #
 # `cpack -G DEB` (Debian/Ubuntu) or `cpack -G RPM` (Fedora/RHEL), run from a
