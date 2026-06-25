@@ -2952,6 +2952,7 @@ int main(int argc, char** argv) {
     bool        emit_abi_flag = false;            // --emit-abi: dump ABI surface spec
     bool        print_prefix  = false;            // --print-prefix:  this version's tree root
     bool        print_lib_dir = false;            // --print-lib-dir: this version's stdlib dir
+    bool        print_metadata = false;           // --print-metadata: all of the above as a Hermes doc
     const char* abi_diff_old = nullptr;           // --abi-diff <old> <new>: qualify ABI change
     const char* abi_diff_new = nullptr;
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
@@ -3080,6 +3081,7 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-abi") { emit_abi_flag = true; }
         else if (arg == "--print-prefix")  { print_prefix  = true; }
         else if (arg == "--print-lib-dir") { print_lib_dir = true; }
+        else if (arg == "--print-metadata") { print_metadata = true; }
         else if (arg == "--abi-diff" && i + 2 < argc) { abi_diff_old = argv[++i]; abi_diff_new = argv[++i]; }
         else if (arg.rfind("--dump-metaprog=", 0) == 0) {
             std::string_view v = arg;
@@ -3149,6 +3151,30 @@ int main(int argc, char** argv) {
         std::string root = exe_dir() + "/..";   // <tree>/bin/.. = <tree>
         if (!::realpath(root.c_str(), real)) { std::fprintf(stderr, "logosc: --print-prefix: cannot resolve\n"); return 1; }
         std::printf("%s\n", real);
+        return 0;
+    }
+    // The general "give me all your metadata" query: a Hermes-SDN document (the
+    // same text form lforge parses for lforge.hermes). lforge queries this once
+    // — especially when driving a DIFFERENT-version logosc, where it cannot assume
+    // the layout. Extensible: add fields without breaking parsers.
+    if (print_metadata) {
+        std::string lib = resolve_system_lib_dir();
+        char real[PATH_MAX];
+        std::string prefix = ::realpath((exe_dir() + "/..").c_str(), real) ? std::string(real) : std::string{};
+        auto esc = [](const std::string& s) {
+            std::string o; for (char c : s) { if (c == '"' || c == '\\') o += '\\'; o += c; } return o;
+        };
+#ifdef LOGOS_VERSION_FULL
+        const char* ver = LOGOS_VERSION_FULL; const char* slot = LOGOS_VERSION_SLOT;
+#else
+        const char* ver = "0.1.0"; const char* slot = "0.1";
+#endif
+        std::printf("{\n");
+        std::printf("    version: \"%s\",\n", esc(ver).c_str());
+        std::printf("    slot:    \"%s\",\n", esc(slot).c_str());
+        std::printf("    prefix:  \"%s\",\n", esc(prefix).c_str());
+        std::printf("    lib_dir: \"%s\"\n",  esc(lib).c_str());
+        std::printf("}\n");
         return 0;
     }
 

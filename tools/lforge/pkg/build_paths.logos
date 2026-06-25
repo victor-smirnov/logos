@@ -13,6 +13,13 @@ use lforge.schema;
 use lforge.util;
 use lforge.topo;
 use lforge.proc;
+use lforge.hermes_io;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.container;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.parser;
+use logos.lang.rc;
 
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn readlink(path: *const u8, buf: *mut u8, bufsiz: u64) -> i64;
@@ -75,29 +82,25 @@ pub fn resolve_logos_lib_dir() -> String {
         }
         i = i + 1 as i64;
     }
-    // Installed slot tree (lib/logos/<slot>/lib/): ask the resolved logosc where
-    // its stdlib lives (--print-lib-dir), so the lib dir always matches the
-    // exact compiler lforge uses — no path guessing.
+    // Installed slot tree (lib/logos/<slot>/lib/): query the resolved logosc for
+    // ALL its metadata as a Hermes doc (--print-metadata) and read lib_dir. The
+    // dir always matches the exact compiler lforge uses — no path guessing — and
+    // works even when driving a different-version logosc (no layout assumption).
     let logosc: String = resolve_logosc_path();
     let mut argv: Vec<String> = vec_new::<String>();
     let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
     push_string_arg(argv_p, &logosc);
-    push_arg(argv_p, "--print-lib-dir");
+    push_arg(argv_p, "--print-metadata");
     let res: (i32, String) = run_child_capture_stdout(&argv);
     if res.0 == 0 as i32 {
         let raw: String = res.1;
         let view: str = str_from_raw(raw.as_ptr(), raw.len());
-        let mut end: i64 = raw.len();
-        while end > 0 as i64 {
-            let cc: i32 = view[end - 1 as i64] as i32;
-            if cc == 10 as i32 || cc == 13 as i32 || cc == 32 as i32 || cc == 9 as i32 {
-                end = end - 1 as i64;
-            } else { break; }
-        }
-        if end > 0 as i64 {
-            let mut s: String = String::new();
-            s.push_bytes(raw.as_ptr(), end);
-            return s;
+        let ctr: Rc<Hermes> = hermes_rc(8192 as i64);
+        let h: &Hermes = ctr.deref();
+        let root: HAny = parse(h, view);
+        if root.is_map() {
+            let lib: String = read_str_opt(root, "lib_dir");
+            if lib.len() > 0 as i64 { return lib; }
         }
     }
     return String::new();
