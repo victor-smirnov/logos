@@ -189,16 +189,15 @@ pub fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
     }
 
     let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_arg(argv_p, "git");
-    push_arg(argv_p, "ls-remote");
-    push_arg(argv_p, "--exit-code");
+    push_arg(&mut argv, "git");
+    push_arg(&mut argv, "ls-remote");
+    push_arg(&mut argv, "--exit-code");
     let mut url_s: String = String::new();
     url_s.push_str(fetch_url);
-    push_string_arg(argv_p, &url_s);
+    push_string_arg(&mut argv, &url_s);
     let mut ref_s: String = String::new();
     ref_s.push_str(ref_str);
-    push_string_arg(argv_p, &ref_s);
+    push_string_arg(&mut argv, &ref_s);
 
     let res: (i32, String) = run_child_capture_stdout(&argv);
     let rc:  i32 = res.0;
@@ -235,26 +234,24 @@ pub fn git_resolve_sha(fetch_url: str, ref_str: str) -> Result<String, i32> {
 pub fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
     unsafe {
         let mut a1: Vec<String> = vec_new::<String>();
-    let a1p: *mut Vec<String> = (&mut a1) as *mut Vec<String>;
-    push_arg(a1p, "git");
-    push_arg(a1p, "clone");
-    push_arg(a1p, "--quiet");
+    push_arg(&mut a1, "git");
+    push_arg(&mut a1, "clone");
+    push_arg(&mut a1, "--quiet");
     let mut url_s: String = String::new(); url_s.push_str(fetch_url);
-    push_string_arg(a1p, &url_s);
+    push_string_arg(&mut a1, &url_s);
     let mut dst_s: String = String::new(); dst_s.push_str(dest_dir);
-    push_string_arg(a1p, &dst_s);
+    push_string_arg(&mut a1, &dst_s);
     let rc1: i32 = run_child(&a1);
     if rc1 != 0 { return rc1; }
 
     let mut a2: Vec<String> = vec_new::<String>();
-    let a2p: *mut Vec<String> = (&mut a2) as *mut Vec<String>;
-    push_arg(a2p, "git");
-    push_arg(a2p, "-C");
-    push_string_arg(a2p, &dst_s);
-    push_arg(a2p, "checkout");
-    push_arg(a2p, "--quiet");
+    push_arg(&mut a2, "git");
+    push_arg(&mut a2, "-C");
+    push_string_arg(&mut a2, &dst_s);
+    push_arg(&mut a2, "checkout");
+    push_arg(&mut a2, "--quiet");
     let mut sha_s: String = String::new(); sha_s.push_str(sha);
-    push_string_arg(a2p, &sha_s);
+    push_string_arg(&mut a2, &sha_s);
     return run_child(&a2);
     }
 }
@@ -267,7 +264,7 @@ pub fn git_clone_at_sha(fetch_url: str, sha: str, dest_dir: str) -> i32 {
 // `lock_out` so the freshly written lockfile reflects the build.
 pub fn resolve_git_dep(dep:  &ExternalDep,
                               lock_in:  &Vec<LockEntry>,
-                              lock_out: *mut Vec<LockEntry>) -> Result<(String, String, String), i32> { unsafe {    let proj_view: str = dep.project.as_str();
+                              lock_out: &mut Vec<LockEntry>) -> Result<(String, String, String), i32> { unsafe {    let proj_view: str = dep.project.as_str();
     let pair: (String, String) = canonical_url(proj_view);
     let display: String = pair.0;
     let fetch:   String = pair.1;

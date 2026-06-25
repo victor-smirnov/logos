@@ -47,9 +47,9 @@ fn replace_lookup(replaces: &Vec<ReplaceEntry>, project_canonical: str) -> Strin
 
 pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                              lock_in: &Vec<LockEntry>,
-                             lock_out: *mut Vec<LockEntry>,
-                             visited: *mut Vec<String>,
-                             winners: *mut Vec<GitWinner>,
+                             lock_out: &mut Vec<LockEntry>,
+                             visited: &mut Vec<String>,
+                             winners: &mut Vec<GitWinner>,
                              replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> { unsafe {    let saved: String = save_cwd();
     if saved.len() == 0 as i64 {
         println_str(2, "lforge: getcwd failed");
@@ -173,7 +173,6 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     // We're currently chdir'd in the external; child resolutions chdir
     // further and restore back to here.
     let mut out: Vec<ExternalLib> = vec_new::<ExternalLib>();
-    let outp: *mut Vec<ExternalLib> = (&mut out) as *mut Vec<ExternalLib>;
     if m.deps.length() > 0 as i64 {
         match build_all_externals(&m.deps, profile, logosc, lock_in, lock_out, visited, winners, replaces) {
             Result::Err(rc) => {
@@ -191,7 +190,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                     ap_c.push_str(lb.archive_path.as_str());
                     let mut ck_c: String = String::new();
                     ck_c.push_str(lb.cache_key.as_str());
-                    outp.push(ExternalLib { name: nm_c, archive_path: ap_c, cache_key: ck_c });
+                    out.push(ExternalLib { name: nm_c, archive_path: ap_c, cache_key: ck_c });
                     si = si + 1 as i64;
                 }
             }
@@ -204,7 +203,6 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
     let cache_eligible: bool = resolved_sha.len() > 0 as i64;
     let lc_mtime: i64 = logosc_mtime(logosc);
     let mut sub_dep_keys: Vec<String> = vec_new::<String>();
-    let sdk_p: *mut Vec<String> = (&mut sub_dep_keys) as *mut Vec<String>;
     if cache_eligible {
         let on: i64 = out.length();
         let mut oi: i64 = 0 as i64;
@@ -213,7 +211,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
             if lb.cache_key.len() > 0 as i64 {
                 let mut k_copy: String = String::new();
                 k_copy.push_str(lb.cache_key.as_str());
-                sdk_p.push(k_copy);
+                sub_dep_keys.push(k_copy);
             }
             oi = oi + 1 as i64;
         }
@@ -246,7 +244,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
                 nm_copy.push_str(nm.as_str());
                 let mut ck_copy: String = String::new();
                 ck_copy.push_str(ck.as_str());
-                outp.push(ExternalLib {
+                out.push(ExternalLib {
                     name: nm_copy,
                     archive_path: hit_path,
                     cache_key: ck_copy,
@@ -318,7 +316,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         nm_copy.push_str(nm.as_str());
         let mut ck_copy: String = String::new();
         ck_copy.push_str(ck.as_str());
-        outp.push(ExternalLib {
+        out.push(ExternalLib {
             name: nm_copy,
             archive_path: abs_arch,
             cache_key: ck_copy,
@@ -336,11 +334,10 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
 
 pub fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &String,
                                   lock_in: &Vec<LockEntry>,
-                                  lock_out: *mut Vec<LockEntry>,
-                                  visited:  *mut Vec<String>,
-                                  winners:  *mut Vec<GitWinner>,
+                                  lock_out: &mut Vec<LockEntry>,
+                                  visited:  &mut Vec<String>,
+                                  winners:  &mut Vec<GitWinner>,
                                   replaces: &Vec<ReplaceEntry>) -> Result<Vec<ExternalLib>, i32> { unsafe {    let mut all: Vec<ExternalLib> = vec_new::<ExternalLib>();
-    let allp: *mut Vec<ExternalLib> = (&mut all) as *mut Vec<ExternalLib>;
     let n: i64 = deps.length();
     let mut i: i64 = 0 as i64;
     while i < n {
@@ -358,7 +355,7 @@ pub fn build_all_externals(deps: &Vec<ExternalDep>, profile: str, logosc: &Strin
                     ap_copy.push_str(lb.archive_path.as_str());
                     let mut ck_copy: String = String::new();
                     ck_copy.push_str(lb.cache_key.as_str());
-                    allp.push(ExternalLib { name: nm_copy, archive_path: ap_copy, cache_key: ck_copy });
+                    all.push(ExternalLib { name: nm_copy, archive_path: ap_copy, cache_key: ck_copy });
                     j = j + 1 as i64;
                 }
             }

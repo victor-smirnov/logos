@@ -66,9 +66,8 @@ pub fn resolve_logos_lib_dir() -> String {
     // works even when driving a different-version logosc (no layout assumption).
     let logosc: String = resolve_logosc_path();
     let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_string_arg(argv_p, &logosc);
-    push_arg(argv_p, "--print-metadata");
+    push_string_arg(&mut argv, &logosc);
+    push_arg(&mut argv, "--print-metadata");
     let res: (i32, String) = run_child_capture_stdout(&argv);
     if res.0 == 0 as i32 {
         let raw: String = res.1;

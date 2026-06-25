@@ -87,7 +87,6 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     let cp_arr: *const Vec<String> = (&t.c_sources) as *const Vec<String>;
     let ap_arr: *const Vec<String> = (&t.asm_sources) as *const Vec<String>;
     let mut children: Vec<Child> = vec_new::<Child>();
-    let cp: *mut Vec<Child> = (&mut children) as *mut Vec<Child>;
     let mut rebuilt_count: i32 = 0;
 
     // Logos files via logosc --only-file
@@ -109,20 +108,19 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
         let mut argv: Vec<String> = vec_new::<String>();
-        let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-        push_string_arg(argv_p, logosc);
-        push_arg(argv_p, "--emit-module");
-        push_string_arg(argv_p, &man_path);
-        push_arg(argv_p, "--only-file");
-        push_string_arg(argv_p, src_p);
-        push_arg(argv_p, "-o");
-        push_string_arg(argv_p, &prefix);
+        push_string_arg(&mut argv, logosc);
+        push_arg(&mut argv, "--emit-module");
+        push_string_arg(&mut argv, &man_path);
+        push_arg(&mut argv, "--only-file");
+        push_string_arg(&mut argv, src_p);
+        push_arg(&mut argv, "-o");
+        push_string_arg(&mut argv, &prefix);
         if dump_dir.len() > 0 as i64 {
-            push_arg(argv_p, "--dump-metaprog");
-            push_string_arg(argv_p, dump_dir);
+            push_arg(&mut argv, "--dump-metaprog");
+            push_string_arg(&mut argv, dump_dir);
             if dump_filter.len() > 0 as i64 {
-                push_arg(argv_p, "--dump-metaprog-filter");
-                push_string_arg(argv_p, dump_filter);
+                push_arg(&mut argv, "--dump-metaprog-filter");
+                push_string_arg(&mut argv, dump_filter);
             }
         }
         // External archives so logosc can load their .hermes0 modules and
@@ -132,8 +130,8 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         let mut ei_lib: i64 = 0 as i64;
         while ei_lib < en_lib {
             let lb: &ExternalLib = externals.borrow(ei_lib);
-            push_arg(argv_p, "-l");
-            push_string_arg(argv_p, &lb.archive_path);
+            push_arg(&mut argv, "-l");
+            push_string_arg(&mut argv, &lb.archive_path);
             ei_lib = ei_lib + 1 as i64;
         }
 
@@ -142,7 +140,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             println_str(2, "lforge: spawn failed");
             return 1;
         }
-        cp.push(child);
+        children.push(child);
         rebuilt_count = rebuilt_count + 1;
     }
 
@@ -172,7 +170,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
                 println_str(2, "lforge: cc spawn failed");
                 return 1;
             }
-            cp.push(child);
+            children.push(child);
             rebuilt_count = rebuilt_count + 1;
         }
     }
@@ -193,10 +191,9 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     let mut waited: i64 = 0 as i64;
     let nch: i64 = children.length();
     while waited < nch {
-        let cgp: *mut Vec<Child> = (&mut children) as *mut Vec<Child>;
         // Pop yields children in reverse spawn order; we just need every
         // one to be reaped.
-        match cgp.pop() {
+        match children.pop() {
             Option::None       => { waited = nch; }
             Option::Some(c)    => {
                 let mut child_local: Child = c;
@@ -261,10 +258,9 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
 
     // Build `ar rcs <arch> <logos_obj> <logos_hermes0> ... <native_obj> ...`
     let mut ar_argv: Vec<String> = vec_new::<String>();
-    let aap: *mut Vec<String> = (&mut ar_argv) as *mut Vec<String>;
-    push_arg(aap, "ar");
-    push_arg(aap, "rcs");
-    push_string_arg(aap, &arch);
+    push_arg(&mut ar_argv, "ar");
+    push_arg(&mut ar_argv, "rcs");
+    push_string_arg(&mut ar_argv, &arch);
     let mut j: i64 = 0 as i64;
     while j < n_src {
         let src_p: &String = sources.borrow(j);
@@ -276,8 +272,8 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         let mut h: String = String::new();
         h.push_str(prefix.as_str());
         h.push_str(".hm0");
-        aap.push(o);
-        aap.push(h);
+        ar_argv.push(o);
+        ar_argv.push(h);
     }
     // Native (C/asm) .o files.
     let mut nl3: i64 = 0 as i64;
@@ -290,7 +286,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             let src_p: &String = (*lst).borrow(k3);
             k3 = k3 + 1 as i64;
             let o: String = native_obj_path(&pf_dir, src_p);
-            aap.push(o);
+            ar_argv.push(o);
         }
     }
 
@@ -338,7 +334,6 @@ pub fn build_bin(t: &Target,
     // (the bin's own .logos files + every dep .a archive), skip the action.
     let src_view: str = t.src.as_str();
     let mut all_inputs: Vec<String> = collect_logos_files(src_view);
-    let alp: *mut Vec<String> = (&mut all_inputs) as *mut Vec<String>;
     let dep_archs_for_check: Vec<String> = dep_archive_paths(targets, &t.deps, profile, externals);
     let dnc: i64 = dep_archs_for_check.length();
     let mut di: i64 = 0 as i64;
@@ -346,7 +341,7 @@ pub fn build_bin(t: &Target,
         let s: &String = dep_archs_for_check.borrow(di);
         let mut copy: String = String::new();
         copy.push_str(s.as_str());
-        alp.push(copy);
+        all_inputs.push(copy);
         di = di + 1 as i64;
     }
     let max_mt: i64 = newest_mtime(&all_inputs);
@@ -386,13 +381,12 @@ pub fn build_bin(t: &Target,
     // be visible to logosc and cc, so the consumer's source can resolve
     // symbols across the whole closure. Dedupe against dep_archs.
     let mut all_archs: Vec<String> = vec_new::<String>();
-    let aap: *mut Vec<String> = (&mut all_archs) as *mut Vec<String>;
     let mut di: i64 = 0 as i64;
     while di < dep_archs.length() {
         let s: &String = dep_archs.borrow(di);
         let mut c: String = String::new();
         c.push_str(s.as_str());
-        aap.push(c);
+        all_archs.push(c);
         di = di + 1 as i64;
     }
     let en: i64 = externals.length();
@@ -411,32 +405,31 @@ pub fn build_bin(t: &Target,
         if already == false {
             let mut c: String = String::new();
             c.push_str(lbv.as_str());
-            aap.push(c);
+            all_archs.push(c);
         }
         ei = ei + 1 as i64;
     }
 
     // logosc <entry> -o <obj> [-l <dep_arch>]...
     let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_string_arg(argv_p, logosc);
-    push_string_arg(argv_p, &entry_path);
-    push_arg(argv_p, "-o");
-    push_string_arg(argv_p, &obj_path);
+    push_string_arg(&mut argv, logosc);
+    push_string_arg(&mut argv, &entry_path);
+    push_arg(&mut argv, "-o");
+    push_string_arg(&mut argv, &obj_path);
     if dump_dir.len() > 0 as i64 {
-        push_arg(argv_p, "--dump-metaprog");
-        push_string_arg(argv_p, dump_dir);
+        push_arg(&mut argv, "--dump-metaprog");
+        push_string_arg(&mut argv, dump_dir);
         if dump_filter.len() > 0 as i64 {
-            push_arg(argv_p, "--dump-metaprog-filter");
-            push_string_arg(argv_p, dump_filter);
+            push_arg(&mut argv, "--dump-metaprog-filter");
+            push_string_arg(&mut argv, dump_filter);
         }
     }
     let dn: i64 = all_archs.length();
     let mut i: i64 = 0 as i64;
     while i < dn {
         let s: &String = all_archs.borrow(i);
-        push_arg(argv_p, "-l");
-        push_string_arg(argv_p, s);
+        push_arg(&mut argv, "-l");
+        push_string_arg(&mut argv, s);
         i = i + 1 as i64;
     }
 
@@ -457,14 +450,13 @@ pub fn build_bin(t: &Target,
 
     // cc <obj> [<dep_arch>...] <stdlib_archives> -lpthread -lm -o <bin>
     let mut largv: Vec<String> = vec_new::<String>();
-    let largv_p: *mut Vec<String> = (&mut largv) as *mut Vec<String>;
-    push_arg(largv_p, "cc");
-    push_arg(largv_p, "-Wl,--gc-sections");
-    push_string_arg(largv_p, &obj_path);
+    push_arg(&mut largv, "cc");
+    push_arg(&mut largv, "-Wl,--gc-sections");
+    push_string_arg(&mut largv, &obj_path);
     let mut k: i64 = 0 as i64;
     while k < dn {
         let s: &String = all_archs.borrow(k);
-        push_string_arg(largv_p, s);
+        push_string_arg(&mut largv, s);
         k = k + 1 as i64;
     }
     let lib_view: str = lib_dir.as_str();
@@ -473,25 +465,25 @@ pub fn build_bin(t: &Target,
     // already defines). They cross-reference (std→mem→lang + mono
     // instantiations either way), so wrap them in --start-group/--end-group
     // to let ld resolve in any order.
-    push_arg(largv_p, "-Wl,--start-group");
+    push_arg(&mut largv, "-Wl,--start-group");
     let mut p1: String = String::new();
-    p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv_p.push(p1);
+    p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv.push(p1);
     let mut p1b: String = String::new();
-    p1b.push_str(lib_view); append_path(&mut p1b, "liblogos-mem.a"); largv_p.push(p1b);
+    p1b.push_str(lib_view); append_path(&mut p1b, "liblogos-mem.a"); largv.push(p1b);
     let mut p1c: String = String::new();
-    p1c.push_str(lib_view); append_path(&mut p1c, "liblogos-lang.a"); largv_p.push(p1c);
-    push_arg(largv_p, "-Wl,--end-group");
+    p1c.push_str(lib_view); append_path(&mut p1c, "liblogos-lang.a"); largv.push(p1c);
+    push_arg(&mut largv, "-Wl,--end-group");
     let mut p2: String = String::new();
-    p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv_p.push(p2);
+    p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv.push(p2);
     let mut p3: String = String::new();
-    p3.push_str(lib_view); append_path(&mut p3, "liblstdlib_rt.a"); largv_p.push(p3);
+    p3.push_str(lib_view); append_path(&mut p3, "liblstdlib_rt.a"); largv.push(p3);
     let mut p4: String = String::new();
-    p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv_p.push(p4);
-    push_arg(largv_p, "-lpthread");
-    push_arg(largv_p, "-lm");
-    push_arg(largv_p, "-lstdc++");
-    push_arg(largv_p, "-o");
-    push_string_arg(largv_p, &bp);
+    p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv.push(p4);
+    push_arg(&mut largv, "-lpthread");
+    push_arg(&mut largv, "-lm");
+    push_arg(&mut largv, "-lstdc++");
+    push_arg(&mut largv, "-o");
+    push_string_arg(&mut largv, &bp);
 
     let mut prefix2: String = String::new();
     prefix2.push_str("lforge: link bin ");

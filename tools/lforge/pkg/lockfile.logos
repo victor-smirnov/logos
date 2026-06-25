@@ -34,7 +34,6 @@ pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
     let pinned_av: HAny = lf_get(root, "pinned");
     if !pinned_av.is_array() { return vec_new::<LockEntry>(); }
     let mut out: Vec<LockEntry> = vec_new::<LockEntry>();
-    let outp: *mut Vec<LockEntry> = (&mut out) as *mut Vec<LockEntry>;
     let n: u64 = (&*(pinned_av.resolve() as *const HArray<HAny>)).len() as u64;
     let mut i: u64 = 0 as u64;
     while i < n {
@@ -45,7 +44,7 @@ pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
         let tag:  String = read_str_opt(e_av, "tag");
         let sha:  String = read_str_opt(e_av, "sha");
         if proj.len() == 0 as i64 || sha.len() == 0 as i64 { continue; }
-        outp.push(LockEntry { project: proj, tag: tag, sha: sha });
+        out.push(LockEntry { project: proj, tag: tag, sha: sha });
     }
     return out;
     }

@@ -133,7 +133,6 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
 
     // Targets: prefer explicit targets[]; fall back to legacy {src, entry}.
     let mut targets: Vec<Target> = vec_new::<Target>();
-    let tp: *mut Vec<Target> = (&mut targets) as *mut Vec<Target>;
     let targets_av: HAny = h2io_get(root, "targets");
     let mut have_legacy: bool = false;
     if targets_av.is_array() {
@@ -143,7 +142,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
             let t_av: HAny = (&*(targets_av.resolve() as *const HArray<HAny>)).get(i as i64);
             match parse_target(t_av) {
                 Result::Err(e) => { return Result::Err(e); }
-                Result::Ok(t)  => { tp.push(t); }
+                Result::Ok(t)  => { targets.push(t); }
             }
             i = i + 1 as u64;
         }
@@ -169,7 +168,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
             c_sources:   vec_new::<String>(),
             asm_sources: vec_new::<String>(),
         };
-        tp.push(synth);
+        targets.push(synth);
     }
 
     if targets.length() == 0 as i64 {
@@ -178,7 +177,6 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
 
     // Project-level deps: [{ path: "...", modules: [...] }, ...] (B2).
     let mut deps: Vec<ExternalDep> = vec_new::<ExternalDep>();
-    let dp: *mut Vec<ExternalDep> = (&mut deps) as *mut Vec<ExternalDep>;
     let deps_av: HAny = h2io_get(root, "deps");
     if deps_av.is_array() {
         let nd: u64 = (&*(deps_av.resolve() as *const HArray<HAny>)).len() as u64;
@@ -187,7 +185,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
             let d_av: HAny = (&*(deps_av.resolve() as *const HArray<HAny>)).get(j as i64);
             match parse_external_dep(d_av) {
                 Result::Err(e) => { return Result::Err(e); }
-                Result::Ok(d)  => { dp.push(d); }
+                Result::Ok(d)  => { deps.push(d); }
             }
             j = j + 1 as u64;
         }
@@ -200,7 +198,6 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     // when a downstream dep matches `project`, lforge uses the given path
     // instead of fetching from git. Only the root manifest's replaces apply.
     let mut replace: Vec<ReplaceEntry> = vec_new::<ReplaceEntry>();
-    let rp_v: *mut Vec<ReplaceEntry> = (&mut replace) as *mut Vec<ReplaceEntry>;
     let replace_av: HAny = h2io_get(root, "replace");
     if replace_av.is_array() {
         let nr: u64 = (&*(replace_av.resolve() as *const HArray<HAny>)).len() as u64;
@@ -216,7 +213,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
             if proj_s.len() == 0 as i64 || path_s.len() == 0 as i64 {
                 return Result::Err(err_msg("manifest: replace[] entry needs both 'project' and 'path'"));
             }
-            rp_v.push(ReplaceEntry { project: proj_s, path: path_s });
+            replace.push(ReplaceEntry { project: proj_s, path: path_s });
         }
     }
 

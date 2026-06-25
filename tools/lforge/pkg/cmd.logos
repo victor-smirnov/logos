@@ -26,9 +26,8 @@ use lforge.external_build;
 pub fn get_logosc_version(logosc: &String) -> String {
     unsafe {
         let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_string_arg(argv_p, logosc);
-    push_arg(argv_p, "--version");
+    push_string_arg(&mut argv, logosc);
+    push_arg(&mut argv, "--version");
     let res: (i32, String) = run_child_capture_stdout(&argv);
     let rc:  i32 = res.0;
     let out: String = res.1;
@@ -109,9 +108,9 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
     let externals: Vec<ExternalLib> = match build_all_externals(
         &m.deps, profile, &logosc,
         &lock_in,
-        (&mut lock_out) as *mut Vec<LockEntry>,
-        (&mut visited) as *mut Vec<String>,
-        (&mut winners) as *mut Vec<GitWinner>,
+        &mut lock_out,
+        &mut visited,
+        &mut winners,
         &m.replace) {
         Result::Err(rc) => { return rc; }
         Result::Ok(libs) => { libs }
@@ -267,13 +266,12 @@ pub fn cmd_run_named(m: &Manifest, profile: str,
 
     let bp: String = bin_path(profile, bin_nm.as_str());
     let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_string_arg(argv_p, &bp);
+    push_string_arg(&mut argv, &bp);
     let an: i64 = run_args.length();
     let mut i: i64 = 0 as i64;
     while i < an {
         let s: &String = run_args.borrow(i);
-        push_string_arg(argv_p, s);
+        push_string_arg(&mut argv, s);
         i = i + 1 as i64;
     }
     return run_child(&argv);
@@ -300,13 +298,12 @@ pub fn cmd_clean() -> i32 {
 fn install_one(src: &String, dst: &String, mode: str) -> i32 {
     unsafe {
         let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_arg(argv_p, "install");
-    push_arg(argv_p, "-D");
-    push_arg(argv_p, "-m");
-    push_arg(argv_p, mode);
-    push_string_arg(argv_p, src);
-    push_string_arg(argv_p, dst);
+    push_arg(&mut argv, "install");
+    push_arg(&mut argv, "-D");
+    push_arg(&mut argv, "-m");
+    push_arg(&mut argv, mode);
+    push_string_arg(&mut argv, src);
+    push_string_arg(&mut argv, dst);
     return run_child(&argv);
     }
 }
@@ -419,7 +416,6 @@ fn build_test_bin(test_logos: &String,
     // Tests link against every lib target in the project (mimics
     // ctest pattern: tests are top-level consumers of the libs).
     let mut all_lib_archs: Vec<String> = vec_new::<String>();
-    let alp: *mut Vec<String> = (&mut all_lib_archs) as *mut Vec<String>;
     let nt: i64 = targets.length();
     let mut ti: i64 = 0 as i64;
     while ti < nt {
@@ -428,7 +424,7 @@ fn build_test_bin(test_logos: &String,
             TargetKind::Lib => {
                 let nm_view: str = tt.name.as_str();
                 let p: String = lib_archive_path(profile, nm_view);
-                alp.push(p);
+                all_lib_archs.push(p);
             }
             TargetKind::Bin => { }
         }
@@ -437,17 +433,16 @@ fn build_test_bin(test_logos: &String,
 
     // logosc <test_logos> -o <obj> [-l <lib>]...
     let mut argv: Vec<String> = vec_new::<String>();
-    let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-    push_string_arg(argv_p, logosc);
-    push_string_arg(argv_p, test_logos);
-    push_arg(argv_p, "-o");
-    push_string_arg(argv_p, &obj_path);
+    push_string_arg(&mut argv, logosc);
+    push_string_arg(&mut argv, test_logos);
+    push_arg(&mut argv, "-o");
+    push_string_arg(&mut argv, &obj_path);
     let lan: i64 = all_lib_archs.length();
     let mut li: i64 = 0 as i64;
     while li < lan {
         let s: &String = all_lib_archs.borrow(li);
-        push_arg(argv_p, "-l");
-        push_string_arg(argv_p, s);
+        push_arg(&mut argv, "-l");
+        push_string_arg(&mut argv, s);
         li = li + 1 as i64;
     }
     let rc: i32 = run_child(&argv);
@@ -460,30 +455,29 @@ fn build_test_bin(test_logos: &String,
 
     // cc <obj> [<lib>...] <stdlib_archives> -lpthread -lm -o <bin>
     let mut largv: Vec<String> = vec_new::<String>();
-    let largv_p: *mut Vec<String> = (&mut largv) as *mut Vec<String>;
-    push_arg(largv_p, "cc");
-    push_arg(largv_p, "-Wl,--gc-sections");
-    push_string_arg(largv_p, &obj_path);
+    push_arg(&mut largv, "cc");
+    push_arg(&mut largv, "-Wl,--gc-sections");
+    push_string_arg(&mut largv, &obj_path);
     let mut lk: i64 = 0 as i64;
     while lk < lan {
         let s: &String = all_lib_archs.borrow(lk);
-        push_string_arg(largv_p, s);
+        push_string_arg(&mut largv, s);
         lk = lk + 1 as i64;
     }
     let lib_view: str = lib_dir.as_str();
     let mut p1: String = String::new();
-    p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv_p.push(p1);
+    p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv.push(p1);
     let mut p2: String = String::new();
-    p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv_p.push(p2);
+    p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv.push(p2);
     let mut p3: String = String::new();
-    p3.push_str(lib_view); append_path(&mut p3, "liblstdlib_rt.a"); largv_p.push(p3);
+    p3.push_str(lib_view); append_path(&mut p3, "liblstdlib_rt.a"); largv.push(p3);
     let mut p4: String = String::new();
-    p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv_p.push(p4);
-    push_arg(largv_p, "-lpthread");
-    push_arg(largv_p, "-lm");
-    push_arg(largv_p, "-lstdc++");
-    push_arg(largv_p, "-o");
-    push_string_arg(largv_p, &bin_p);
+    p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv.push(p4);
+    push_arg(&mut largv, "-lpthread");
+    push_arg(&mut largv, "-lm");
+    push_arg(&mut largv, "-lstdc++");
+    push_arg(&mut largv, "-o");
+    push_string_arg(&mut largv, &bin_p);
     return run_child(&largv);
     }
 }
@@ -617,8 +611,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
         bin_p.push_str(stem.as_str());
 
         let mut argv: Vec<String> = vec_new::<String>();
-        let argv_p: *mut Vec<String> = (&mut argv) as *mut Vec<String>;
-        push_string_arg(argv_p, &bin_p);
+        push_string_arg(&mut argv, &bin_p);
         let exit_rc: i32 = run_child(&argv);
         if exit_rc == 0 {
             println_str(1, "  PASS");

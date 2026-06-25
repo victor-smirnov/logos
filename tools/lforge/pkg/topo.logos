@@ -40,7 +40,6 @@ pub fn external_lookup(externals: &Vec<ExternalLib>, name: str) -> i64 {
 pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result<Vec<i64>, ManifestError> {
     unsafe {
         let n: i64 = targets.length();
-    let tp: *const Vec<Target> = targets as *const Vec<Target>;
 
     // state: 0 = unvisited, 1 = visiting (on stack), 2 = done.
     let state: *mut u8 = alloc(n);
@@ -48,7 +47,6 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
     while s_init < n { state[s_init] = 0 as u8; s_init = s_init + 1 as i64; }
 
     let mut order: Vec<i64> = vec_new::<i64>();
-    let order_p: *mut Vec<i64> = (&mut order) as *mut Vec<i64>;
 
     // Recursion helper. Returns Err on cycle / unknown.
     let mut err_buf: String = String::new();
@@ -71,7 +69,7 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
         while top > 0 as i64 && !have_err {
             let cur: i64 = work_idx[top - 1 as i64];
             let cur_dep: i64 = work_cur[top - 1 as i64];
-            let t: &Target = tp.borrow(cur);
+            let t: &Target = targets.borrow(cur);
             let dn: i64 = t.deps.length();
             if cur_dep < dn {
                 let dp: &Vec<String> = &t.deps;
@@ -81,7 +79,7 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
                 let mut didx: i64 = 0 as i64 - 1 as i64;
                 let mut ri: i64 = 0 as i64;
                 while ri < n {
-                    let rt: &Target = tp.borrow(ri);
+                    let rt: &Target = targets.borrow(ri);
                     let rtnm: str = rt.name.as_str();
                     if str_eq_local(rtnm, dnms) { didx = ri; ri = n; }
                     else { ri = ri + 1 as i64; }
@@ -111,7 +109,7 @@ pub fn topo_order(targets: &Vec<Target>, externals: &Vec<ExternalLib>) -> Result
                 }
             } else {
                 state[cur] = 2 as u8;
-                order_p.push(cur);
+                order.push(cur);
                 top = top - 1 as i64;
             }
         }
