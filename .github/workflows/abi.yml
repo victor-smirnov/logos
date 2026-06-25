@@ -1,0 +1,56 @@
+# ABI gate — fails a PR that breaks the binary ABI without bumping the version.
+#
+# Builds logosc + stdlib (stock LLVM/MLIR 20 on Ubuntu, same toolchain as
+# docker/Dockerfile), regenerates abi/logos.abi, then runs scripts/abi-check.sh
+# against the base branch: it (1) requires the committed spec to be up to date,
+# (2) qualifies the change as ABI-preserving/breaking, and (3) if breaking,
+# requires a higher major/minor in CMakeLists project(VERSION).
+#
+# At the preview (0.x-pre) stage breaking changes are expected; keep this check
+# NON-required in branch protection so it informs rather than blocks. Make it
+# required once the language stabilises.
+name: ABI gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  abi-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history: abi-check needs `git show <base>:…`
+
+      - name: Install toolchain (stock LLVM/MLIR 20)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 lld-20 llvm-20-dev libmlir-20-dev mlir-20-tools g++-14 \
+            cmake ninja-build pkg-config liburing-dev zlib1g-dev libzstd-dev
+
+      - name: Configure & build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20
+          cmake --build build -j"$(nproc)"
+
+      - name: Regenerate ABI spec
+        run: cmake --build build --target logos-abi
+
+      - name: ABI gate
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.ref }}"
+          else
+            BASE="HEAD^"            # push to main: compare against the parent commit
+          fi
+          case "$BASE" in
+            HEAD*) REF="$BASE" ;;
+            *)     git fetch --depth=1 origin "$BASE" >/dev/null 2>&1 || true
+                   REF="origin/$BASE" ;;
+          esac
+          echo "Comparing ABI against: $REF"
+          LOGOSC=build/bin/logosc scripts/abi-check.sh "$REF"
