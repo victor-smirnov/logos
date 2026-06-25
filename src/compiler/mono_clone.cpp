@@ -3870,7 +3870,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 bsubst[bi.target_typevar] = inner_rt;
                                 done_.insert(dest);
                                 worklist_.push_back({dest, btmpl,
-                                                     std::move(bsubst), {}, depth_ + 1});
+                                                     std::move(bsubst), {}, depth_ + 1, {}});
                             }
                             tmpl_key = dest;
                             break;
@@ -5127,10 +5127,6 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
         // Cycle-guard + per-attempt seen semantics live in
         // mono_has_impl_recursive (factored for reuse at mono_subst.cpp's
         // assoc-type fallback).
-        auto has_impl = [&](const std::string& trait, const std::string& cn) {
-            StrSet seen;
-            return mono_has_impl_recursive(trait, cn, seen);
-        };
         // Deeper variant: when the concrete type has type-args, the
         // bare-name lookup above can lie ("Vec impls Debug" without
         // checking T satisfies its own bound). Recurse via
@@ -5344,11 +5340,11 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
                 for (size_t i = 0; i < pit->second.size(); ++i) {
                     // Phase 5.C: localize pack entries (see clone_fn).
                     fields.push_back({std::string(f.name()) + "_" + std::to_string(i),
-                                      localize_type(pit->second[i])});
+                                      localize_type(pit->second[i]), false, {}});
                 }
             }
         } else {
-            fields.push_back({std::string(f.name()), subst_type(f.type(pool), s)});
+            fields.push_back({std::string(f.name()), subst_type(f.type(pool), s), false, {}});
         }
     }
     // Phase 1B-15: DST inheritance through generic instantiation. If the
@@ -5504,7 +5500,7 @@ lir_view::StructView Mono::find_best_struct_spec(
 
 // Walk all output functions collecting generic struct instantiations needed.
 void Mono::collect_struct_needs_from_output() {
-    auto& arena = out_.type_pool.arena_or_init();
+    out_.type_pool.arena_or_init();
     auto* csn_pool = out_.type_pool.impl();
     for (auto& fn : out_.functions) {
         collect_type_for_structs(fn.ret_type(csn_pool));

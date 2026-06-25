@@ -3725,7 +3725,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
                           target_resolved, impl_tps,
                           trait_type_args, trait_lt_args, impl_lt_params,
-                          impl_lt_outlives, impl_doc};
+                          impl_lt_outlives, impl_doc, {}};
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
         // params and no impl lifetime params): two `impl<T> ... for Map<K,V>`
@@ -3781,7 +3781,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             SemaImplInfo alias{trait_name, "&[u8]", impl_is_unsafe, impl_is_negative,
                                target_resolved, impl_tps,
                                trait_type_args, trait_lt_args, impl_lt_params,
-                               impl_lt_outlives, impl_doc};
+                               impl_lt_outlives, impl_doc, {}};
             impls_[trait_name + "::&[u8]"] = alias;
             impls_all_[trait_name + "::&[u8]"].push_back(std::move(alias));
         }
@@ -3818,7 +3818,7 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
                         } else {
                             // Partial spec — skip for sema registration.
                             current_type_params_[std::string(name)] = make_typevar(name);
-                            pattern_tvars.push_back({std::string(name), {}});
+                            pattern_tvars.push_back({std::string(name), {}, false, false, nullptr, nullptr, {}});
                             spec_patterns.push_back(make_typevar(name));
                         }
                     }
@@ -4190,7 +4190,7 @@ void SemaChecker::extract_typevars_from_type_node(TinyMapView node,
         if (!is_known_type_name(name) &&
             !current_type_params_.count(std::string(name))) {
             current_type_params_[std::string(name)] = make_typevar(name);
-            out_tvars.push_back({std::string(name), {}});
+            out_tvars.push_back({std::string(name), {}, false, false, nullptr, nullptr, {}});
         }
     }
 }
@@ -4317,7 +4317,7 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
                                 spec_patterns.push_back(known);
                             } else {
                                 current_type_params_[std::string(name)] = make_typevar(name);
-                                pattern_tvars.push_back({std::string(name), {}});
+                                pattern_tvars.push_back({std::string(name), {}, false, false, nullptr, nullptr, {}});
                                 spec_patterns.push_back(make_typevar(name));
                             }
                         }
@@ -4340,7 +4340,7 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
                 auto fnode = map_of(fields.get(i));
                 auto fname = str_of(fnode.get(la::NAME.code));
                 auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
-                lir::LField fld{std::string(fname), ftype};
+                lir::LField fld{std::string(fname), ftype, false, {}};
                 fa.push_field(fld);
             }
         }
@@ -4416,7 +4416,7 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
                                 auto bn = map_of(bounds.get(b));
                                 if (code_of(bn) == la::TRAIT_BOUND)
                                     tp.bounds.push_back(
-                                        {std::string(str_of(bn.get(la::NAME.code))), {}, {}});
+                                        {std::string(str_of(bn.get(la::NAME.code))), {}, {}, {}, {}, {}});
                             }
                             pattern_tvars.push_back(std::move(tp));
                             spec_patterns.push_back(make_typevar(name));
@@ -4428,7 +4428,7 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
                             } else {
                                 current_type_params_[std::string(name)] =
                                     make_typevar(name);
-                                pattern_tvars.push_back({std::string(name), {}});
+                                pattern_tvars.push_back({std::string(name), {}, false, false, nullptr, nullptr, {}});
                                 spec_patterns.push_back(make_typevar(name));
                             }
                         }

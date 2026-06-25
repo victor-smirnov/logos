@@ -2162,7 +2162,7 @@ private:
             w.line("{");
             w.indent();
             w.line("size_t la_pos_ = pos_; bool la_la_ = have_la_; Token la_tok_ = la_; uint32_t la_line_ = line_;");
-            w.line("size_t la_doc_ = doc_.arena_checkpoint();");
+            w.line("[[maybe_unused]] size_t la_doc_ = doc_.arena_checkpoint();");
             w.line("{");
             w.indent();
             if (!item.sub_items.empty()) {

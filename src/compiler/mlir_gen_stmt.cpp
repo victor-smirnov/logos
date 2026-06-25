@@ -616,7 +616,6 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr,
     auto align  = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_t, alignp);
     // off = (8 + align - 1) & ~(align - 1) = (7 + align) & ~(align - 1)
     auto c3   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 7, 64);
-    auto c1   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
     auto cN1  = builder_.create<mlir::arith::ConstantIntOp>(loc_, -1, 64);
     auto a3   = builder_.create<mlir::arith::AddIOp>(loc_, align, c3);
     auto am1  = builder_.create<mlir::arith::AddIOp>(loc_, align, cN1);

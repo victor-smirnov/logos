@@ -663,7 +663,7 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
                          path.c_str(), archive_path.c_str());
             return {};
         }
-        result.push_back({path, pkg, std::move(*decoded)});
+        result.push_back({path, pkg, std::move(*decoded), false, {}, {}});
     }
     // M3: v3 has a trailing exports section (u64 length + bytes). Skip it
     // here — consumers needing the exports pull them via
@@ -1624,7 +1624,7 @@ std::vector<ParsedModule> load_modules(
                 pending.push_back({file, std::move(ast)});
             }
             for (const auto& u : pkg_uses) visit_package(u.first, u.second);
-            for (auto& p : pending) modules.push_back({std::move(p.path), pkg, std::move(p.ast)});
+            for (auto& p : pending) modules.push_back({std::move(p.path), pkg, std::move(p.ast), false, {}, {}});
             return;
         }
 
@@ -1656,13 +1656,13 @@ std::vector<ParsedModule> load_modules(
                     auto [sast, suses] = parse_one(sib);
                     if (sast.is_null()) continue;
                     for (const auto& u : suses) visit_package(u.first, u.second);
-                    modules.push_back({sib, declared_pkg, std::move(sast)});
+                    modules.push_back({sib, declared_pkg, std::move(sast), false, {}, {}});
                 }
             }
         }
         // Recurse into this file's own uses (post-order).
         for (const auto& u : uses) visit_package(u.first, u.second);
-        modules.push_back({canonical, declared_pkg, std::move(ast)});
+        modules.push_back({canonical, declared_pkg, std::move(ast), false, {}, {}});
     };
 
     // Kick off traversal at the root file.

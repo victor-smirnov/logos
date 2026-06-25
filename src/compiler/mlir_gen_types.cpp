@@ -161,6 +161,9 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
                      base_s.c_str(), std::string(tv.trait_name()).c_str(), std::string(tv.assoc_type_name()).c_str());
         return nullptr;
     }
+    case LogosType::Kind::InferredType:
+        std::fprintf(stderr, "mlir_gen: unresolved InferredType '_' — sema/mono_pass required\n");
+        return nullptr;
     case LogosType::Kind::Error:       return nullptr;
     case LogosType::Kind::ImplTrait:   return nullptr;
     case LogosType::Kind::Generic:     return nullptr;

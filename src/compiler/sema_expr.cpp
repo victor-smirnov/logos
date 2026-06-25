@@ -698,7 +698,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     // Struct → struct unsize coercion (Rust CoerceUnsized): `Rc<A> as Rc<dyn
     // Tr>` rebuilds the target struct, unsizing the changed field. Shared with
     // the implicit coercion points via try_struct_unsize_coerce.
-    if (try_struct_unsize_coerce(inner, target)) return std::move(inner);
+    if (try_struct_unsize_coerce(inner, target)) return inner;
 
     // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
     if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
@@ -2880,7 +2880,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // type-param) — autoderef-invoke it. Peel a single ref wrapper for the
     // bound lookup; the var_ref keeps the ref type and the call derefs through
     // it (the reference points straight at the closure {fn_ptr, env_ptr}).
-    bool fn_bound_via_ref = false;
     TypeRef fn_bound_recv_type = callee_type;   // possibly the `&F` ref type
     TypeRef fn_bound_inner = callee_type;
     if (fn_bound_inner &&
@@ -2889,7 +2888,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         TypeRef(fn_bound_inner).pointee() &&
         TypeRef(TypeRef(fn_bound_inner).pointee()).kind() == LogosType::Kind::TypeVar) {
         fn_bound_inner = TypeRef(fn_bound_inner).pointee();
-        fn_bound_via_ref = true;
     }
     if (fn_bound_inner && TypeRef(fn_bound_inner).kind() == LogosType::Kind::TypeVar) {
         std::string tvname(TypeRef(fn_bound_inner).type_var_name());
@@ -17092,7 +17090,6 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         using hermes::TagDescriptor;
         using hermes::TypeTag;
         std::vector<TinyMapView> stack;
-        const uint8_t* base_ = holder_->base();
         std::function<void(AnyVal)> push_av = [&](AnyVal av) {
             if (!av.is_pointer()) return;
             const uint8_t* obj = av.resolve();
@@ -17186,7 +17183,6 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     if (!ic_is_call) {
         using hermes::TagDescriptor;
         using hermes::TypeTag;
-        const uint8_t* base_ = holder_->base();
         std::set<std::string> defined_inside;
 
         std::function<void(TinyMapView)> collect_defs = [&](TinyMapView n) {
@@ -18942,7 +18938,6 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
                     auto blk_doc = p2.parse_module();
                     if (!blk_doc.is_null() && p2.at_eof()) {
                         // MODULE → ITEMS[0]=FN → BODY=BLOCK → ITEMS[0]=LET → VALUE = our block
-                        const uint8_t* b2 = HermesAccess::base(blk_doc);
                         auto root = blk_doc.root_object().as_tiny_map();
                         if (!root.is_null()) {
                             auto bh = blk_doc.holder();

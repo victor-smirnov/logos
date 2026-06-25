@@ -1012,7 +1012,7 @@ bool emit_module(const ModuleManifest& manifest,
     std::unordered_map<std::string, std::string> module_name_to_id;  // §B-coex: NAME→id for `from`
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
-        modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
+        modules_for_h0.push_back({m.path, m.package, m.ast, false, {}, {}});  // Hermes is copy-on-write safe
         bool ao = is_ast_only_path(m.path);
         filenames.push_back(m.path);
         ast_only_flags.push_back(ao);
@@ -1127,7 +1127,7 @@ bool emit_module(const ModuleManifest& manifest,
                 }
             }
         }
-        modules_for_h0.push_back({path, pkg, asts[i]});
+        modules_for_h0.push_back({path, pkg, asts[i], false, {}, {}});
     }
 
     // .hermes0: in per-file mode, contains only the target file's AST.

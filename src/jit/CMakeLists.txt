@@ -21,6 +21,9 @@ add_library(logos_jit STATIC
 
 target_include_directories(logos_jit PUBLIC
     ${CMAKE_SOURCE_DIR}/include
+)
+# SYSTEM: silence third-party LLVM header deprecations (AlignOf.h via Expected<T>).
+target_include_directories(logos_jit SYSTEM PUBLIC
     ${LLVM_INCLUDE_DIRS}
 )
 

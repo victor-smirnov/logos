@@ -95,6 +95,10 @@ set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp")
 target_include_directories(logosc PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_CURRENT_BINARY_DIR}   # generated logos_parser.hpp
+)
+# SYSTEM: third-party LLVM/MLIR headers — silence their internal deprecations
+# (e.g. AlignedCharArrayUnion in AlignOf.h, pulled in via llvm::Expected<T>).
+target_include_directories(logosc SYSTEM PRIVATE
     ${LLVM_INCLUDE_DIRS}
     ${MLIR_INCLUDE_DIRS}
 )

@@ -1078,7 +1078,6 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     // by construction). Captures the variant/enum info for the dedicated
     // lowering below.
     bool is_single_variant_struct_pat = false;
-    const SemaEnumInfo* sve_einfo = nullptr;
     const SemaVariantInfo* sve_vinfo = nullptr;
     std::string sve_ename;
     std::string sve_vname;
@@ -1102,7 +1101,6 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                         if (v.name == pvname_l) { sve_vinfo = &v; break; }
                     if (sve_vinfo && sve_vinfo->is_struct_shape) {
                         is_single_variant_struct_pat = true;
-                        sve_einfo  = _einfo;
                         sve_ename  = pename_l;
                         sve_vname  = pvname_l;
                     }
@@ -5280,7 +5278,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         std::vector<lir_view::StmtRef>& out_stmts,
         std::vector<HermesPatBinding>& out_bindings) {
     TypeRef ptr_t_outer = make_ptr(false, scrut_type);
-    TypeRef u8_ptr_t_outer = make_ptr(false, prim(LogosType::Kind::U8));
+    make_ptr(false, prim(LogosType::Kind::U8));  // intern u8-ptr type into the pool
     TypeRef u64_t = prim(LogosType::Kind::U64);
     auto mk_true = [&]() {
         return builder().lit_bool(true, bool_t());
@@ -5299,7 +5297,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return nullptr;
 
         TypeRef ptr_t = ptr_t_outer;
-        TypeRef u8_ptr_t = u8_ptr_t_outer;
 
         const char* helper = nullptr;
         size_t want_arity = 1;

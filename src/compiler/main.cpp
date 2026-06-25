@@ -478,7 +478,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     }
 
     // Substitute placeholders. Root is MODULE TOM with ITEMS array.
-    auto& arena = HermesAccess::arena(doc);
     auto root_off = HermesAccess::root_offset(doc);
     auto root_ptr = [&]() {
         return TinyMapView(arena_offset_t(root_off.value()), doc.holder());
@@ -499,7 +498,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                std::function<void(uint32_t)> replace_in_parent)
             -> bool {
         if (blobs_count == 0) return false;
-        uint8_t* dbase = HermesAccess::base(doc);
         auto ctom = logos::hermes::TinyMapView(arena_offset_t(child_off), doc.holder());
         if (!ctom.has_key(la::NAME_VAR.code)) return false;
         AnyVal nv = ctom.get(la::NAME_VAR.code);
@@ -734,7 +732,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // REPEAT_GROUP expanded N times (via deep-copy + cursor substitution)
     // and returns the new array's offset; otherwise returns 0.
     auto try_expand_array_repeats = [&](uint32_t arr_off) -> uint32_t {
-        uint8_t* dbase = HermesAccess::base(doc);
         auto arr = logos::hermes::ArrayView(arena_offset_t(arr_off), doc.holder());
         bool any_repeat = false;
         uint64_t n_src = arr.size();
@@ -917,7 +914,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 uint8_t key = cref.key;
                 bool spliced = try_blob_splice(cref.coff,
                     [&](uint32_t new_off) {
-                        uint8_t* db = HermesAccess::base(doc);
                         auto t = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
                         (void)t.put(key,
                             AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)));
@@ -933,7 +929,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 if (subst_failed) return;
                 if (expanded != 0) {
                     // Replace parent's slot with the new array.
-                    uint8_t* db = HermesAccess::base(doc);
                     auto t = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
                     (void)t.put(cref.key,
                         AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(expanded)));
@@ -956,7 +951,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 if (subst_failed) return;
                 bool spliced = try_blob_splice(eoff,
                     [&](uint32_t new_off) {
-                        uint8_t* db = HermesAccess::base(doc);
                         auto a = logos::hermes::ArrayView(arena_offset_t(arr_off), doc.holder());
                         a.set(ei,
                                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off))
@@ -1061,7 +1055,6 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             AnyVal user_uses_av = user_root.get(la::USES.code);
             if (!user_uses_av.is_null() && user_uses_av.is_pointer()) {
                 auto* user_holder = user_ast.holder();
-                auto* user_base = user_holder->base();
                 auto user_uses = as_array(user_uses_av, user_holder);
                 uint64_t un = user_uses.size();
                 // Locate (or create) the synth module's USES array.
@@ -1524,7 +1517,6 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                           logos::hermes::ArenaMode::GrowableSingleChunk);
     if (!dst_e) return nullptr;
     auto dst_doc = std::move(dst_e).get();
-    auto& dst_arena = HermesAccess::arena(dst_doc);
 
     // Cursor index when inside a REPEAT_GROUP iteration (-1 outside).
     int64_t cursor_i = -1;
@@ -2071,7 +2063,6 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
                                           logos::hermes::ArenaMode::GrowableSingleChunk);
     if (!doc_e) return nullptr;
     auto doc = std::move(doc_e).get();
-    auto& arena = HermesAccess::arena(doc);
 
     auto build_lit_int = [&](int64_t v) -> uint32_t {
         auto tm_e = doc.make_tiny_map_view( 4);
@@ -2208,11 +2199,11 @@ build_jit_from_module(const llvm::Module& src_module, const char* who,
 // holds for sema failures (the 99% case) so `EXIT_USER_ERROR == 1` keeps
 // the existing test surface intact.
 constexpr int EXIT_OK         = 0;
-constexpr int EXIT_USER_ERROR = 1;
+[[maybe_unused]] constexpr int EXIT_USER_ERROR = 1;
 constexpr int EXIT_USAGE      = 2;
-constexpr int EXIT_CODEGEN    = 3;
+[[maybe_unused]] constexpr int EXIT_CODEGEN    = 3;
 constexpr int EXIT_LINK_IO    = 4;
-constexpr int EXIT_ICE        = 5;
+[[maybe_unused]] constexpr int EXIT_ICE        = 5;
 
 namespace logos::compiler {
 
