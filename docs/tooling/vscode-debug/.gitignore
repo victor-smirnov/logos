@@ -1,3 +1,0 @@
-# build.sh is a kit SOURCE file — re-include it (the repo-root .gitignore has a
-# broad `build*` pattern that would otherwise ignore it).
-!build.sh
