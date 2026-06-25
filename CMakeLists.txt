@@ -247,8 +247,10 @@ install(PROGRAMS tools/gdb/logos-gdb DESTINATION ${LOGOS_TREE_RELDIR}/bin)
 # Versioned PATH symlink bin/logosc-<SLOT> -> ../lib/logos/<SLOT>/bin/logosc.
 # Staged as a real symlink + install(DIRECTORY) so it is TRACKED by BOTH CPack
 # generators (install(CODE) symlinks are invisible to CPack RPM's %files).
-file(REMOVE "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}")
-file(REMOVE "${CMAKE_BINARY_DIR}/_pkglinks/logos-gdb-${LOGOS_VERSION_SLOT}")
+# Clear the WHOLE staging dir (not just this slot's link): reconfiguring an
+# existing build dir to a different slot would otherwise leave stale versioned
+# symlinks here for install(DIRECTORY) to ship as dangling links.
+file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/_pkglinks")
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks")
 file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logosc"
      "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}" SYMBOLIC)
