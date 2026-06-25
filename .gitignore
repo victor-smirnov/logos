@@ -29,6 +29,7 @@ tools/peg_gen/hermes_parser.hpp
 bench/bin
 bench/results
 sandbox
+/dist/*
 
 # Test artifacts
 *.sqlite
