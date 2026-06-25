@@ -20,7 +20,8 @@ use lforge.spawn_helpers;
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
-                        dump_filter: &String) -> i32 { unsafe {    let lib_name_view: str = t.name.as_str();
+                        dump_filter: &String) -> i32 {
+    let lib_name_view: str = t.name.as_str();
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
     let mut sources: Vec<String> = vec_new::<String>();
@@ -307,7 +308,6 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         return 1;
     }
     return 0;
-    }
 }
 
 pub fn build_bin(t: &Target,
@@ -317,10 +317,12 @@ pub fn build_bin(t: &Target,
                         lib_dir: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
-                        dump_filter: &String) -> i32 { unsafe {    if t.entry.len() == 0 as i64 {
+                        dump_filter: &String) -> i32 {
+    if t.entry.len() == 0 as i64 {
         println_str(2, "lforge: bin target missing 'entry'");
         return 1;
     }
+    
     let od: String = out_dir_for(profile);
     let od_view: str = od.as_str();
     match mkdir_p(od_view) {
@@ -357,11 +359,7 @@ pub fn build_bin(t: &Target,
     // Compose entry path: <src>/<entry>.logos
     let mut entry_path: String = String::new();
     entry_path.push_str(t.src.as_str());
-    let elen: i64 = entry_path.len();
-    if elen > 0 as i64 && (entry_path.as_ptr()[elen - 1 as i64] as i32) != 47 {
-        entry_path.push_u8(47 as u8);
-    }
-    entry_path.push_str(t.entry.as_str());
+    append_path(&mut entry_path, t.entry.as_str());
     entry_path.push_str(".logos");
 
     let mut obj_path: String = String::new();
@@ -488,5 +486,4 @@ pub fn build_bin(t: &Target,
     prefix2.push_str(t.name.as_str());
     println_string(1, &prefix2);
     return run_child(&largv);
-    }
 }
