@@ -18,7 +18,8 @@ use lforge.util;
 
 fn map_get2(root: HAny, key: str) -> HAny {
     if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
-    return root.as_map().get(key);
+    let m: &HMap<HString, HAny> = root.as_map();
+    return m.get(key);
 }
 
 pub fn read_str_field(root: HAny, key: str) -> Result<String, ManifestError> {

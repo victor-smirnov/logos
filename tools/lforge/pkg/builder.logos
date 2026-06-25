@@ -400,7 +400,7 @@ pub fn build_bin(t: &Target,
         }
         if already == false {
             let mut c: String = String::new();
-            c.push_str(lbv.as_str());
+            c.push_str(lbv);
             all_archs.push(c);
         }
         ei = ei + 1 as i64;
