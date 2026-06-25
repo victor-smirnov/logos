@@ -314,23 +314,18 @@ pub fn resolve_git_dep(dep:  &ExternalDep,
 
     // Full cache dir = parent / sha.
     let mut full: String = String::new();
-    full.push_bytes(parent.as_ptr(), parent.len());
-    append_path(&mut full, str_from_raw(sha.as_ptr(), sha.len()));
+    full.push_str(parent.as_str());
+    append_path(&mut full, sha.as_str());
 
     // Cache hit: <full>/lforge.hermes already there.
     let mut manifest_path: String = String::new();
-    manifest_path.push_bytes(full.as_ptr(), full.len());
+    manifest_path.push_str(full.as_str());
     append_path(&mut manifest_path, "lforge.hermes");
-    let mc_cs: *mut u8 = cstr(str_from_raw(manifest_path.as_ptr(), manifest_path.len()));
-    let cache_hit: bool = is_file(mc_cs as *const u8);
-    dealloc(mc_cs);
+    let cache_hit: bool = is_file(manifest_path.as_str());
 
     if cache_hit == false {
-        let full_view: str = str_from_raw(full.as_ptr(), full.len());
-        let cs_full: *mut u8 = cstr(full_view);
-        let exists: bool = is_dir(cs_full as *const u8);
-        dealloc(cs_full);
-        if exists {
+        let full_view: str = full.as_str();
+        if is_dir(full_view) {
             match rm_rf(full_view) {
                 Result::Err(_) => {
                     println_str(2, "lforge: cannot wipe stale cache dir");

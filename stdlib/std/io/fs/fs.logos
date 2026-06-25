@@ -110,6 +110,13 @@ pub fn read_to_string(path: *const u8) -> Result<String, i32> {
     return Result::Ok(out);
 }
 
+// Safe str form: null-terminate the path, then read the whole file.
+pub fn read_to_string(path: str) -> Result<String, i32> {
+    let mut c: String = String::new();
+    c.push_str(path); c.push_u8(0 as u8);
+    return read_to_string(c.as_ptr());
+}
+
 // ── Convenience: write String to file (overwrite) ────────────────────────
 
 pub fn write_string(path: *const u8, s: &String) -> Result<i32, i32> {
@@ -124,4 +131,11 @@ pub fn write_string(path: *const u8, s: &String) -> Result<i32, i32> {
     f.close();
     if nw < 0 { return Result::Err(nw); }
     return Result::Ok(nw);
+}
+
+// Safe str form: null-terminate the path, then overwrite the file with `s`.
+pub fn write_string(path: str, s: &String) -> Result<i32, i32> {
+    let mut c: String = String::new();
+    c.push_str(path); c.push_u8(0 as u8);
+    return write_string(c.as_ptr(), s);
 }

@@ -577,10 +577,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
     }
 
     // 2. Walk tests/ for .logos files.
-    let cs_tests: *mut u8 = cstr("tests");
-    let exists_tests: bool = is_dir(cs_tests as *const u8);
-    dealloc(cs_tests);
-    if !exists_tests {
+    if !is_dir("tests") {
         println_str(1, "lforge: no tests/ dir, nothing to test");
         return 0;
     }

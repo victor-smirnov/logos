@@ -40,10 +40,7 @@ pub fn cache_root() -> String {
 }
 
 pub fn logosc_mtime(logosc: &String) -> i64 {
-    let cs: *mut u8 = cstr(logosc.as_str());
-    let mt: Result<i64, i32> = mtime_ns(cs as *const u8);
-    dealloc(cs);
-    match mt {
+    match mtime_ns(logosc.as_str()) {
         Result::Ok(v)  => { return v; }
         Result::Err(_) => { return 0 as i64; }
     }
@@ -86,12 +83,9 @@ pub fn cache_lookup(key: str, archive_basename: str) -> String {
     let dir: String = cache_dir_for(key);
     if dir.len() == 0 as i64 { return String::new(); }
     let mut p: String = String::new();
-    p.push_bytes(dir.as_ptr(), dir.len());
+    p.push_str(dir.as_str());
     append_path(&mut p, archive_basename);
-    let cs: *mut u8 = cstr(p.as_str());
-    let exists: bool = is_file(cs as *const u8);
-    dealloc(cs);
-    if exists { return p; }
+    if is_file(p.as_str()) { return p; }
     return String::new();
 }
 
@@ -135,12 +129,9 @@ pub fn cache_populate(key: str, src_archive: &String, archive_basename: str,
     meta_buf.push_i64(mtime_ns_val);
     meta_buf.push_str("\n}\n");
     let mut meta_path: String = String::new();
-    meta_path.push_bytes(dir.as_ptr(), dir.len());
+    meta_path.push_str(dir.as_str());
     append_path(&mut meta_path, "meta.hermes");
-    let cs: *mut u8 = cstr(meta_path.as_str());
-    let wr: Result<i32, i32> = write_string(cs as *const u8, &meta_buf);
-    dealloc(cs);
-    match wr {
+    match write_string(meta_path.as_str(), &meta_buf) {
         Result::Err(_) => { return 0 - 1; }
         Result::Ok(_)  => { return 0; }
     }

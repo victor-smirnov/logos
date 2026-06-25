@@ -232,16 +232,8 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
 }
 
 pub fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
-    unsafe {
-        let cs: *mut u8 = cstr(p);
-    let body: Result<String, i32> = read_to_string(cs as *const u8);
-    dealloc(cs);
-    match body {
+    match read_to_string(p) {
         Result::Err(_) => { return Result::Err(err_msg("lforge.hermes: cannot read")); }
-        Result::Ok(s)  => {
-            let view: str = str_from_raw(s.as_ptr(), s.len());
-            return parse_manifest(view);
-        }
-    }
+        Result::Ok(s)  => { return parse_manifest(s.as_str()); }
     }
 }
