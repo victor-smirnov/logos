@@ -4,45 +4,32 @@ package lforge.cwd;
 
 use logos.mem.string;
 use logos.lang.str;
+use logos.lang.option;
+use logos.std.env;
+use logos.std.io.fs.path;
 use lforge.util;
 
-extern fn chdir(path: *const u8) -> i32;
-extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
-
 pub fn save_cwd() -> String {
-    let cap: u64 = 4096 as u64;
-    let buf: *mut u8 = alloc(cap as i64);
-    let mut out: String = String::new();
-    unsafe {
-        let r: *mut u8 = getcwd(buf, cap);
-        if r != 0 as *mut u8 {
-            out.push_str(str_from_cstr(r as *const u8));
-        }
+    match current_dir() {
+        Option::Some(d) => { return d; }
+        Option::None    => { return String::new(); }
     }
-    dealloc(buf);
-    return out;
 }
 
 pub fn chdir_str(path: str) -> i32 {
-    let cs: *mut u8 = cstr(path);
-    let rc: i32 = unsafe { chdir(cs as *const u8) };
-    dealloc(cs);
-    return rc;
+    return set_current_dir(path);
 }
 
 // Concatenate cwd + "/" + rel into an absolute path (no normalisation —
 // the kernel handles `.` / `..` fine and lockfile/cache canonicalisation
 // is a future-step concern).
 pub fn make_absolute(rel: str) -> String {
-    let n: i64 = rel.len();
-    if n > 0 as i64 && unsafe { rel.as_ptr()[0 as i64] as i32 } == 47 {
+    if is_absolute(rel) {
         let mut out: String = String::new();
         out.push_str(rel);
         return out;
     }
-    let cwd: String = save_cwd();
-    let mut out: String = String::new();
-    out.push_bytes(cwd.as_ptr(), cwd.len());
+    let mut out: String = save_cwd();
     append_path(&mut out, rel);
     return out;
 }

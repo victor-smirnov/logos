@@ -19,24 +19,20 @@ use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
 use logos.std.io.fs;
+use logos.std.env;
 use logos.std.crypto;
 
 use lforge.util;
 use lforge.proc;
 
-extern fn getenv(name: *const u8) -> *const u8;
-
 pub fn cache_root() -> String {
-    let key: *mut u8 = cstr("HOME");
-    let home_view: str = unsafe {
-        let val: *const u8 = getenv(key as *const u8);
-        if val == 0 as *const u8 { str_from_raw(0 as *const u8, 0 as i64) }
-        else                     { str_from_cstr(val) }
+    let home: String = match var("HOME") {
+        Option::Some(h) => { h }
+        Option::None    => { return String::new(); }
     };
-    dealloc(key);
-    if home_view.len() == 0 as i64 { return String::new(); }
+    if home.len() == 0 as i64 { return String::new(); }
     let mut out: String = String::new();
-    out.push_str(home_view);
+    out.push_str(home.as_str());
     append_path(&mut out, ".cache");
     append_path(&mut out, "lforge");
     append_path(&mut out, "build");
