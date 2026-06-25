@@ -26,7 +26,7 @@ using SCode = lir_schema::stmt::Code;
 void Mono::scan_fn(lir_view::FunctionView fn) {
     auto b = fn.body();
     if (!b) return;
-    auto& arena = out_.type_pool.arena_or_init();
+    out_.type_pool.arena_or_init();   // ensure the out type-pool is live before scan
     scan_block(b);
 }
 
@@ -582,7 +582,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                             done_.insert(mangled_callee);
                             worklist_.push_back({mangled_callee, tmpl,
                                                  std::move(subst), {},
-                                                 depth_ + 1});
+                                                 depth_ + 1, {}});
                             return;
                         }
                         if (type_args.size() >= n_struct) {
@@ -605,7 +605,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                             done_.insert(mangled_callee);
                             worklist_.push_back({mangled_callee, tmpl,
                                                  std::move(subst), {},
-                                                 depth_ + 1});
+                                                 depth_ + 1, {}});
                             return;
                         }
                     }
@@ -631,7 +631,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
         SubstMap subst;
         for (size_t i = 0; i < sp.size(); ++i)
             match_type(type_args[i], sp[i], subst);
-        worklist_.push_back({mangled_callee, spec, std::move(subst), {}, depth_ + 1});
+        worklist_.push_back({mangled_callee, spec, std::move(subst), {}, depth_ + 1, {}});
         return;
     }
 
@@ -700,7 +700,7 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
         }
         packs[vtp_name] = std::move(pack_types);
     }
-    worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs), depth_ + 1});
+    worklist_.push_back({mangled_callee, tmpl, std::move(subst), std::move(packs), depth_ + 1, {}});
 }
 
 // ── L1: lazy method instantiation (infrastructure) ────────────────────────

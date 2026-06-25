@@ -81,7 +81,7 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
         std::unordered_map<std::string, size_t> pidx;
         for (size_t i = 0; i < fn_params.size(); ++i) pidx[std::string(fn_params[i].name())] = i;
         std::set<size_t> want;
-        auto& arena = out_.type_pool.arena_or_init();
+        out_.type_pool.arena_or_init();   // ensure the out type-pool is live
 
         // Visit every Call expr reachable through the common forwarding shapes.
         std::function<void(lir_view::ExprRef)> visit_expr =
