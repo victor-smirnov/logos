@@ -5,7 +5,7 @@
             "label": "build-logos",
             "type": "shell",
             "command": "${workspaceFolder}/build.sh",
-            "args": ["${workspaceFolder}/show.logos"],
+            "args": ["${file}"],
             "group": { "kind": "build", "isDefault": true },
             "problemMatcher": [],
             "presentation": { "reveal": "silent" }

@@ -1,17 +1,20 @@
 {
     // Logos debugging in VSCode via the C/C++ extension (ms-vscode.cpptools),
     // gdb backend (cppdbg). The Logos binary carries standard DWARF (logosc -g),
-    // and setupCommands loads the Logos pretty-printers so the Variables pane
+    // and setupCommands load the Logos pretty-printers so the Variables pane
     // shows Vec(len=3)={…}, "string", Some(42), Rect(5,6), etc.
+    //
+    // Operates on the CURRENTLY OPEN .logos file: build-logos compiles it, then
+    // its sibling executable (same name, no extension) is launched.
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Logos (gdb)",
+            "name": "Debug current Logos file (gdb)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/show",
+            "program": "${fileDirname}/${fileBasenameNoExtension}",
             "args": [],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${fileDirname}",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
