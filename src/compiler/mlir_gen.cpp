@@ -618,6 +618,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         mod->setAttr("logos.vtable_specs", builder_.getArrayAttr(specs));
     }
 
+    // -g: emit the enum pretty-print metadata global (collected during di_type).
+    emit_debug_metadata(mod);
+
     if (mlir::failed(mlir::verify(mod))) {
         std::fprintf(stderr, "mlir_gen: module verification failed\n");
         mod.dump();

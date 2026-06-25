@@ -28,6 +28,7 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <map>
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -179,6 +180,14 @@ private:
     mlir::LLVM::DITypeAttr di_leaf_from_mlir(mlir::Type t);
     // Build the DISubroutineType (ret + param DI types) for a function.
     mlir::LLVM::DISubroutineTypeAttr di_subroutine_type(lir_view::FunctionView fn);
+
+    // Enum pretty-print metadata: MLIR 20 can't express DWARF variant parts, so
+    // per-enum-instance layout (disc / variant names / payload types / niche) is
+    // collected here (keyed by the DWARF type name = type_str) as JSON and
+    // emitted as the `__logos_debug_meta` global, which the gdb printer reads.
+    std::map<std::string, std::string> di_enum_meta_;
+    void collect_enum_meta(TypeRef t);
+    void emit_debug_metadata(mlir::ModuleOp mod);
 
     // RAII: suspend the active debug scope while emitting a nested compiler-
     // generated function (its FuncOp + body must NOT inherit the caller's

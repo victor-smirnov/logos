@@ -69,6 +69,30 @@ inline uint64_t abi_align_bytes(mlir::Type t) {
         return abi_align_bytes(at.getElementType());
     return 1;
 }
+
+// x86-64 alloc size (bytes) — mirrors LLVM's real layout (mlir::DataLayout's
+// no-spec defaults disagree: no inter-field padding, e.g. {i32,i64} → 12 not 16).
+inline uint64_t abi_size_bytes(mlir::Type t) {
+    if (auto it = mlir::dyn_cast<mlir::IntegerType>(t)) {
+        uint64_t b = (it.getWidth() + 7) / 8;
+        return align_up(b, abi_align_bytes(t));
+    }
+    if (mlir::isa<mlir::Float32Type>(t)) return 4;
+    if (mlir::isa<mlir::Float64Type>(t)) return 8;
+    if (mlir::isa<mlir::LLVM::LLVMPointerType>(t)) return 8;
+    if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t)) {
+        uint64_t off = 0, maxa = 1;
+        for (auto e : st.getBody()) {
+            uint64_t a = abi_align_bytes(e);
+            maxa = std::max(maxa, a);
+            off = align_up(off, a) + abi_size_bytes(e);
+        }
+        return align_up(off, maxa);
+    }
+    if (auto at = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(t))
+        return at.getNumElements() * abi_size_bytes(at.getElementType());
+    return 1;
+}
 } // namespace
 
 mlir::LLVM::DIFileAttr MLIRGenImpl::di_file_for(std::string_view path) {
@@ -206,11 +230,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_leaf_from_mlir(mlir::Type t) {
             /*sizeInBits=*/64, /*alignInBits=*/64, /*offsetInBits=*/0,
             /*dwarfAddressSpace=*/std::nullopt, /*extraData=*/mlir::LLVM::DINodeAttr{});
     // Aggregate (struct/array/...) → opaque, correctly sized.
-    uint64_t bits = 0;
-    {
-        mlir::DataLayout dl(builder_.getBlock()->getParentOp()->getParentOfType<mlir::ModuleOp>());
-        bits = dl.getTypeSizeInBits(t);
-    }
+    uint64_t bits = abi_size_bytes(t) * 8;
     std::string nm;
     if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t); st && st.isIdentified())
         nm = st.getName().str();
@@ -245,9 +265,8 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
         std::unordered_set<std::string> seen;
         return opaque(logos_abi_byte_size(t, seen) * 8);
     }
-    mlir::DataLayout dl(builder_.getBlock()->getParentOp()->getParentOfType<mlir::ModuleOp>());
     if (di_struct_inprogress_.count(key))
-        return opaque(dl.getTypeSizeInBits(sit->second.llvm_type));
+        return opaque(abi_size_bytes(sit->second.llvm_type) * 8);
     di_struct_inprogress_.insert(key);
 
     // name → Logos field type (typed pointers / signedness for members).
@@ -264,7 +283,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
     llvm::SmallVector<mlir::LLVM::DINodeAttr> members;
     uint64_t off = 0;
     for (auto& f : sit->second.fields) {
-        uint64_t fbits = dl.getTypeSizeInBits(f.type);
+        uint64_t fbits = abi_size_bytes(f.type) * 8;
         uint64_t falign = abi_align_bytes(f.type);                     // bytes (x86-64)
         off = align_up(off, falign * 8);
         mlir::LLVM::DITypeAttr base;
@@ -278,7 +297,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
             /*offsetInBits=*/off, std::nullopt, mlir::LLVM::DINodeAttr{}));
         off += fbits;
     }
-    uint64_t total = dl.getTypeSizeInBits(sit->second.llvm_type);
+    uint64_t total = abi_size_bytes(sit->second.llvm_type) * 8;
     di_struct_inprogress_.erase(key);
     return mlir::LLVM::DICompositeTypeAttr::get(
         ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, disp), di_file_,
@@ -358,6 +377,9 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_type(TypeRef t) {
                 mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{});
             break;
         }
+        case K::Enum:
+            collect_enum_meta(t);   // record variant/layout metadata for the printer
+            [[fallthrough]];
         default: {
             // Tuple/Array/Enum/Slice/TraitObject/… → opaque, correctly sized.
             std::unordered_set<std::string> seen;
@@ -389,11 +411,11 @@ void MLIRGenImpl::emit_local_dbg_declare(std::string_view name, TypeRef ty,
     // Size guard: the alloca's element must be the same ABI size as the
     // variable's type. Rejects `let r = &s` (slot = s's alloca, sizes differ)
     // while accepting scalars, structs/enums/arrays/tuples, and mut-ref slots
-    // (alloca-of-ptr, ptr-sized == &T size).
+    // (alloca-of-ptr, ptr-sized == &T size). x86-64 abi_size_bytes — mlir's
+    // default DataLayout under-reports (no inter-field padding).
     std::unordered_set<std::string> seen;
     uint64_t ty_bytes = logos_abi_byte_size(ty, seen);
-    mlir::DataLayout dl(builder_.getBlock()->getParentOp()->getParentOfType<mlir::ModuleOp>());
-    uint64_t slot_bytes = dl.getTypeSize(alloca.getElemType());
+    uint64_t slot_bytes = abi_size_bytes(alloca.getElemType());
     if (ty_bytes == 0 || ty_bytes != slot_bytes) return;
 
     auto dty = di_type(ty);
@@ -431,6 +453,134 @@ void MLIRGenImpl::emit_param_dbg_declare(std::string_view name, TypeRef ty,
         builder_.create<mlir::LLVM::DbgDeclareOp>(loc, arg, var);
     else
         builder_.create<mlir::LLVM::DbgValueOp>(loc, arg, var);
+}
+
+namespace {
+std::string json_esc(std::string_view s) {
+    std::string o;
+    for (char c : s) { if (c == '"' || c == '\\') o += '\\'; o += c; }
+    return o;
+}
+} // namespace
+
+void MLIRGenImpl::collect_enum_meta(TypeRef t) {
+    if (!t || t.kind() != LogosType::Kind::Enum) return;
+    std::string key = type_str(t);
+    if (di_enum_meta_.count(key)) return;
+    std::string ename(t.enum_name());
+
+    // disc → variant name, from the EnumView (base or instance keyed).
+    std::map<int64_t, std::string> names;
+    auto find_ev = [&](const std::string& nm) {
+        auto it = enum_types_.find(nm);
+        if (it != enum_types_.end()) return it;
+        auto lt = nm.find('<');
+        return lt != std::string::npos ? enum_types_.find(nm.substr(0, lt))
+                                       : enum_types_.end();
+    };
+    auto* te = resolve_tagged_enum(ename, t);
+    // Generic enum instances are registered in enum_types_ under the mono-mangled
+    // name (e.g. `Option__i64`), not the bare `Option` from type_str — so prefer
+    // te->name (the instance key) for the variant-name lookup.
+    auto evit = te ? find_ev(te->name) : enum_types_.end();
+    if (evit == enum_types_.end()) evit = find_ev(ename);
+    if (evit == enum_types_.end()) evit = find_ev(key);
+    if (evit != enum_types_.end())
+        evit->second.each_variant([&](lir_view::EnumVariantView v) {
+            names[v.disc()] = std::string(v.name());
+        });
+
+    // disc → concrete payload field types (from the instance's TaggedEnumInfo).
+    std::map<int64_t, std::vector<TypeRef>> payloads;
+    if (te)
+        for (auto& vp : te->variants) payloads[vp.disc] = vp.logos_types;
+
+    auto field_json = [&](int64_t disc) {
+        std::string o = "[";
+        bool first = true;
+        auto it = payloads.find(disc);
+        if (it != payloads.end())
+            for (auto& lt : it->second) {
+                if (!lt) continue;
+                if (!first) o += ",";
+                first = false;
+                o += "\"" + json_esc(type_str(lt)) + "\"";
+            }
+        o += "]";
+        return o;
+    };
+    auto name_of = [&](int64_t d) {
+        auto it = names.find(d);
+        return it != names.end() ? it->second : ("v" + std::to_string(d));
+    };
+
+    std::string rec;
+    if (te && te->niche.kind != TaggedEnumInfo::Niche::NoNiche) {
+        if (te->niche.kind == TaggedEnumInfo::Niche::NullPtr) {
+            rec = "{\"kind\":\"niche_nullptr\",\"none\":\"" +
+                  json_esc(name_of(te->niche.none_disc)) + "\",\"some\":\"" +
+                  json_esc(name_of(te->niche.some_disc)) + "\",\"some_f\":" +
+                  field_json(te->niche.some_disc) + "}";
+        } else {  // LowBit
+            rec = "{\"kind\":\"niche_lowbit\",\"ptr_n\":\"" +
+                  json_esc(name_of(te->niche.ptr_disc)) + "\",\"val_n\":\"" +
+                  json_esc(name_of(te->niche.val_disc)) + "\",\"val_bits\":" +
+                  std::to_string(te->niche.val_bits) + ",\"val_signed\":" +
+                  (te->niche.val_signed ? "true" : "false") + ",\"val_raw\":" +
+                  (te->niche.val_raw ? "true" : "false") + "}";
+        }
+    } else if (te) {
+        uint64_t pa = te->payload_align ? te->payload_align : 1;
+        uint64_t payload_off = align_up(4, pa);
+        if (payload_off < 4) payload_off = 4;
+        rec = "{\"kind\":\"tagged\",\"disc_off\":0,\"disc_size\":4,\"payload_off\":" +
+              std::to_string(payload_off) + ",\"variants\":[";
+        bool first = true;
+        for (auto& [d, n] : names) {
+            if (!first) rec += ",";
+            first = false;
+            rec += "{\"d\":" + std::to_string(d) + ",\"n\":\"" + json_esc(n) +
+                   "\",\"f\":" + field_json(d) + "}";
+        }
+        rec += "]}";
+    } else {
+        // C-like enum (no payload) — disc value → name.
+        rec = "{\"kind\":\"c\",\"disc_off\":0,\"disc_size\":4,\"variants\":[";
+        bool first = true;
+        for (auto& [d, n] : names) {
+            if (!first) rec += ",";
+            first = false;
+            rec += "{\"d\":" + std::to_string(d) + ",\"n\":\"" + json_esc(n) + "\"}";
+        }
+        rec += "]}";
+    }
+    di_enum_meta_[key] = std::move(rec);
+}
+
+void MLIRGenImpl::emit_debug_metadata(mlir::ModuleOp mod) {
+    if (!debug_info_ || di_enum_meta_.empty()) return;
+    if (mod.lookupSymbol("__logos_debug_meta")) return;
+    std::string json = "{";
+    bool first = true;
+    for (auto& [k, rec] : di_enum_meta_) {
+        if (!first) json += ",";
+        first = false;
+        json += "\"" + json_esc(k) + "\":" + rec;
+    }
+    json += "}";
+    json.push_back('\0');  // NUL-terminate so gdb Value.string() stops cleanly.
+
+    auto i8 = builder_.getIntegerType(8);
+    mlir::OpBuilder::InsertionGuard guard(builder_);
+    builder_.setInsertionPointToEnd(mod.getBody());
+    auto arr = mlir::LLVM::LLVMArrayType::get(i8, json.size());
+    auto attr = builder_.getStringAttr(llvm::StringRef(json.data(), json.size()));
+    // WeakODR + a section the linker keeps even under --gc-sections. The printer
+    // reads the symbol via parse_and_eval.
+    auto g = builder_.create<mlir::LLVM::GlobalOp>(
+        builder_.getUnknownLoc(), arr, /*isConstant=*/true,
+        mlir::LLVM::Linkage::WeakODR, "__logos_debug_meta", attr);
+    g.setSection(".logos_debug_meta");
 }
 
 mlir::LLVM::DISubroutineTypeAttr
