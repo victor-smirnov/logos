@@ -218,6 +218,25 @@ if(LOGOS_BUNDLE_URING_STATIC)
         DESTINATION ${LOGOS_TREE_RELDIR}/lib)
 endif()
 
+# ── gdb/lldb pretty-printers (debugging Logos binaries built with `logosc -g`) ──
+# Installed PER SLOT: the enum-metadata schema and Hermes layout the printers
+# decode are version-coupled to the compiler, so each version ships matching
+# printers under its own tree. Locate at runtime via:
+#   source "$(logosc --print-prefix)/share/gdb/logos_gdb.py"
+# (logos_gdb.py auto-loads logos_hermes_gdb.py from the same dir.) Tracked by
+# both CPack DEB and RPM (plain install(FILES), unlike install(CODE) symlinks).
+set(LOGOS_GDB_SCRIPTS
+    tools/gdb/logos_gdb.py
+    tools/gdb/logos_hermes_gdb.py)
+# Build-tree mirror so `$(logosc --print-prefix)/share/gdb` resolves pre-install
+# too (build prefix = CMAKE_BINARY_DIR). COPYONLY re-copies when a script changes.
+foreach(_gdb_script ${LOGOS_GDB_SCRIPTS})
+    get_filename_component(_gdb_name ${_gdb_script} NAME)
+    configure_file(${CMAKE_SOURCE_DIR}/${_gdb_script}
+                   ${CMAKE_BINARY_DIR}/share/gdb/${_gdb_name} COPYONLY)
+endforeach()
+install(FILES ${LOGOS_GDB_SCRIPTS} DESTINATION ${LOGOS_TREE_RELDIR}/share/gdb)
+
 # Versioned PATH symlink bin/logosc-<SLOT> -> ../lib/logos/<SLOT>/bin/logosc.
 # Staged as a real symlink + install(DIRECTORY) so it is TRACKED by BOTH CPack
 # generators (install(CODE) symlinks are invisible to CPack RPM's %files).

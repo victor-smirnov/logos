@@ -8,8 +8,14 @@
 logosc prog.logos -g -o prog.o
 cc prog.o <stdlib archives> -o prog        # normal link
 gdb ./prog
-(gdb) source <logos>/tools/gdb/logos_gdb.py   # optional pretty-printers
+(gdb) source $(logosc --print-prefix)/share/gdb/logos_gdb.py   # pretty-printers
 ```
+
+The printers ship **per compiler version** under `$(logosc --print-prefix)/share/gdb/`
+(the enum-metadata schema + Hermes layout they decode are version-coupled), so
+coexisting `logosc-<slot>` installs each carry matching printers. `logos_gdb.py`
+auto-loads `logos_hermes_gdb.py` from the same dir. In a build tree the same path
+resolves to `<build>/share/gdb/`. Source line in `~/.gdbinit` to make it permanent.
 
 `-g` (alias `--debug`) is opt-in; off ⇒ zero DWARF, zero codegen change.
 
