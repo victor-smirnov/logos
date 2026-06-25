@@ -223,35 +223,65 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_leaf_from_mlir(mlir::Type t) {
         mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{});
 }
 
-// Struct DICompositeType with members + byte offsets, from the registered LLVM
-// struct layout. Members' types come from di_leaf_from_mlir (recursion-free).
-mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(std::string_view mlir_key,
-                                                   std::string_view display_name) {
+// Struct DICompositeType with members + byte offsets. Offsets/sizes come from
+// the registered LLVM struct layout; member BASE types come from the Logos field
+// types (so a `*mut T` member is a typed pointer-to-T, not void*, and signedness
+// is preserved) — matched to the LLVM fields by name. di_struct_inprogress_
+// breaks self-referential structs (e.g. `Node { next: *mut Node }`): the
+// back-edge returns an opaque sized stub.
+mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
     auto* ctx = builder_.getContext();
-    auto sit = struct_types_.find(std::string(mlir_key));
-    if (sit == struct_types_.end())
+    std::string key = mlir_struct_key(t);
+    std::string disp = type_str(t);
+    auto opaque = [&](uint64_t sizeBits) {
         return mlir::LLVM::DICompositeTypeAttr::get(
-            ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, display_name), di_file_,
+            ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, disp), di_file_,
             0, mlir::LLVM::DIScopeAttr{}, mlir::LLVM::DITypeAttr{}, mlir::LLVM::DIFlags::Zero,
-            0, 0, llvm::ArrayRef<mlir::LLVM::DINodeAttr>{}, mlir::LLVM::DIExpressionAttr{},
+            sizeBits, 0, llvm::ArrayRef<mlir::LLVM::DINodeAttr>{}, mlir::LLVM::DIExpressionAttr{},
             mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{});
-
+    };
+    auto sit = struct_types_.find(key);
+    if (sit == struct_types_.end()) {
+        std::unordered_set<std::string> seen;
+        return opaque(logos_abi_byte_size(t, seen) * 8);
+    }
     mlir::DataLayout dl(builder_.getBlock()->getParentOp()->getParentOfType<mlir::ModuleOp>());
+    if (di_struct_inprogress_.count(key))
+        return opaque(dl.getTypeSizeInBits(sit->second.llvm_type));
+    di_struct_inprogress_.insert(key);
+
+    // name → Logos field type (typed pointers / signedness for members).
+    std::unordered_map<std::string, TypeRef> logos_fields;
+    {
+        auto svit = all_struct_defs_.find(key);
+        if (svit == all_struct_defs_.end()) svit = all_struct_defs_.find(disp);
+        if (svit != all_struct_defs_.end())
+            svit->second.each_field([&](lir_view::LFieldView f) {
+                logos_fields[std::string(f.name())] = f.type(pool_impl());
+            });
+    }
+
     llvm::SmallVector<mlir::LLVM::DINodeAttr> members;
     uint64_t off = 0;
     for (auto& f : sit->second.fields) {
         uint64_t fbits = dl.getTypeSizeInBits(f.type);
         uint64_t falign = abi_align_bytes(f.type);                     // bytes (x86-64)
         off = align_up(off, falign * 8);
+        mlir::LLVM::DITypeAttr base;
+        if (auto lit = logos_fields.find(f.name);
+            lit != logos_fields.end() && lit->second)
+            base = di_type(lit->second);
+        if (!base) base = di_leaf_from_mlir(f.type);
         members.push_back(mlir::LLVM::DIDerivedTypeAttr::get(
             ctx, DW_TAG_member, mlir::StringAttr::get(ctx, f.name),
-            di_leaf_from_mlir(f.type), fbits, /*alignInBits=*/(uint32_t)(falign * 8),
+            base, fbits, /*alignInBits=*/(uint32_t)(falign * 8),
             /*offsetInBits=*/off, std::nullopt, mlir::LLVM::DINodeAttr{}));
         off += fbits;
     }
     uint64_t total = dl.getTypeSizeInBits(sit->second.llvm_type);
+    di_struct_inprogress_.erase(key);
     return mlir::LLVM::DICompositeTypeAttr::get(
-        ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, display_name), di_file_,
+        ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, disp), di_file_,
         /*line=*/0, mlir::LLVM::DIScopeAttr{}, mlir::LLVM::DITypeAttr{}, mlir::LLVM::DIFlags::Zero,
         /*sizeInBits=*/total, /*alignInBits=*/0, members,
         mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{},
@@ -307,8 +337,27 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_type(TypeRef t) {
             result = ptr_to(mlir::LLVM::DITypeAttr{});
             break;
         case K::Struct: case K::ZonedStruct:
-            result = di_struct_type(mlir_struct_key(t), type_str(t));
+            result = di_struct_type(t);
             break;
+        case K::Slice: {
+            // Fat pointer { ptr: *elem, len: i64 } — gives &[T] / str inspectable
+            // members and lets the Vec/slice pretty-printer iterate elements.
+            auto i64ty = basic("i64", 64, DW_ATE_signed);
+            auto elemdi = t.elem() ? di_type(t.elem()) : mlir::LLVM::DITypeAttr{};
+            llvm::SmallVector<mlir::LLVM::DINodeAttr> m;
+            m.push_back(mlir::LLVM::DIDerivedTypeAttr::get(
+                ctx, DW_TAG_member, mlir::StringAttr::get(ctx, "ptr"), ptr_to(elemdi),
+                64, 64, /*offset=*/0, std::nullopt, mlir::LLVM::DINodeAttr{}));
+            m.push_back(mlir::LLVM::DIDerivedTypeAttr::get(
+                ctx, DW_TAG_member, mlir::StringAttr::get(ctx, "len"), i64ty,
+                64, 64, /*offset=*/64, std::nullopt, mlir::LLVM::DINodeAttr{}));
+            result = mlir::LLVM::DICompositeTypeAttr::get(
+                ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, type_str(t)), di_file_,
+                0, mlir::LLVM::DIScopeAttr{}, mlir::LLVM::DITypeAttr{}, mlir::LLVM::DIFlags::Zero,
+                /*sizeInBits=*/128, 0, m, mlir::LLVM::DIExpressionAttr{},
+                mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{}, mlir::LLVM::DIExpressionAttr{});
+            break;
+        }
         default: {
             // Tuple/Array/Enum/Slice/TraitObject/… → opaque, correctly sized.
             std::unordered_set<std::string> seen;

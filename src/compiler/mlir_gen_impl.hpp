@@ -175,8 +175,7 @@ private:
     std::unordered_map<hermes::arena_offset_t, mlir::LLVM::DITypeAttr> di_type_cache_;
     std::unordered_set<std::string> di_struct_inprogress_;
     mlir::LLVM::DITypeAttr di_type(TypeRef t);
-    mlir::LLVM::DITypeAttr di_struct_type(std::string_view mlir_key,
-                                          std::string_view display_name);
+    mlir::LLVM::DITypeAttr di_struct_type(TypeRef t);
     mlir::LLVM::DITypeAttr di_leaf_from_mlir(mlir::Type t);
     // Build the DISubroutineType (ret + param DI types) for a function.
     mlir::LLVM::DISubroutineTypeAttr di_subroutine_type(lir_view::FunctionView fn);
