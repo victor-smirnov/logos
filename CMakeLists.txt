@@ -30,7 +30,51 @@ if(LOGOS_VERSION_PRE)
     set(LOGOS_VERSION_FULL "${LOGOS_VERSION_FULL}-${LOGOS_VERSION_PRE}")
     set(LOGOS_VERSION_SLOT "${LOGOS_VERSION_SLOT}-${LOGOS_VERSION_PRE}")
 endif()
-message(STATUS "Logos ${LOGOS_VERSION_FULL}  (install slot logosc-${LOGOS_VERSION_SLOT})")
+
+# Release vs snapshot. A release is created EXPLICITLY (-DLOGOS_RELEASE=ON, set by
+# the release flow once the ABI check has fixed the version): it owns the clean
+# slot X.Y[-pre]. EVERY other build is a SNAPSHOT and gets a git discriminator
+# (branch + short commit [+ -dirty]) appended to the slot, so it installs into its
+# OWN slot and can never masquerade as / collide with a release or another build:
+#   - `cpack` straight off main HEAD          → ...-main-g<sha>      (caught by default)
+#   - a feature branch / an uncontrolled fork → ...-<branch>-g<sha>
+#   - a dirty working tree                    → ...-g<sha>-dirty
+# Default OFF means an accidental release-shaped package is impossible without opt-in.
+option(LOGOS_RELEASE
+    "Official release build → clean X.Y[-pre] install slot. OFF (default) = snapshot, slot git-disambiguated." OFF)
+if(LOGOS_RELEASE)
+    message(STATUS "Logos ${LOGOS_VERSION_FULL}  [RELEASE]  install slot: logosc-${LOGOS_VERSION_SLOT}")
+else()
+    set(_disc "snapshot")   # no-git fallback (e.g. tarball) — still distinct from any release slot
+    find_package(Git QUIET)
+    if(Git_FOUND AND IS_DIRECTORY ${CMAKE_SOURCE_DIR}/.git)
+        execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short=8 HEAD
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_sha
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_branch
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        execute_process(COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR} OUTPUT_VARIABLE _git_dirty
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if(_git_sha)
+            string(TOLOWER "${_git_branch}" _git_branch)
+            string(REGEX REPLACE "[^a-z0-9]+" "-" _git_branch "${_git_branch}")  # slot/package-name safe
+            string(REGEX REPLACE "^-+|-+$" "" _git_branch "${_git_branch}")
+            if(NOT _git_branch OR _git_branch STREQUAL "head")
+                set(_git_branch "detached")
+            endif()
+            set(_disc "${_git_branch}-g${_git_sha}")
+            if(_git_dirty)
+                set(_disc "${_disc}-dirty")
+            endif()
+        endif()
+    endif()
+    set(LOGOS_VERSION_SLOT "${LOGOS_VERSION_SLOT}-${_disc}")
+    set(LOGOS_VERSION_FULL "${LOGOS_VERSION_FULL}+${_disc}")   # semver build-metadata
+    message(STATUS "Logos ${LOGOS_VERSION_FULL}  [SNAPSHOT — not a release]  install slot: logosc-${LOGOS_VERSION_SLOT}")
+    message(STATUS "  snapshot installs into its own slot; pass -DLOGOS_RELEASE=ON for an official release build")
+endif()
 
 # Default to an optimised build when the user hasn't explicitly picked one.
 # Single-config generators (Ninja, Make) leave CMAKE_BUILD_TYPE empty by
