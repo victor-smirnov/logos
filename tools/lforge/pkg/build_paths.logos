@@ -15,6 +15,38 @@ use lforge.topo;
 use lforge.proc;
 
 extern fn getenv(name: *const u8) -> *const u8;
+extern fn readlink(path: *const u8, buf: *mut u8, bufsiz: u64) -> i64;
+
+// The sibling tool `<name>` next to THIS lforge binary, found via /proc/self/exe
+// (which resolves the alternatives/versioned symlink chain to the real file in
+// the slot tree). Empty if it doesn't exist. So lforge-<slot> binds to its OWN
+// slot's logosc, not whatever `logosc` happens to be the PATH default.
+fn sibling_tool(name: str) -> String {
+    unsafe {
+    let buf: *mut u8 = alloc(4096 as i64);
+    let selfp: *mut u8 = cstr("/proc/self/exe");
+    let n: i64 = readlink(selfp as *const u8, buf, 4095 as u64);
+    dealloc(selfp);
+    if n <= 0 as i64 { dealloc(buf); return String::new(); }
+    let mut slash: i64 = 0 as i64 - 1 as i64;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        if buf[i] == 47 as u8 { slash = i; }   // '/'
+        i = i + 1 as i64;
+    }
+    if slash < 0 as i64 { dealloc(buf); return String::new(); }
+    let mut out: String = String::new();
+    out.push_bytes(buf as *const u8, slash + 1 as i64);   // "<dir>/"
+    dealloc(buf);
+    out.push_str(name);                                    // "<dir>/<name>"
+    let view: str = str_from_raw(out.as_ptr(), out.len());
+    let cs: *mut u8 = cstr(view);
+    let ok: bool = is_file(cs as *const u8);
+    dealloc(cs);
+    if ok { return out; }
+    return String::new();
+    }
+}
 
 // ── Tool resolution ───────────────────────────────────────────────────────
 
@@ -83,6 +115,10 @@ pub fn resolve_logosc_path() -> String {
         out.push_str(s);
         return out;
     }
+    // DEFAULT: the logosc sibling in THIS lforge's slot tree (predictable —
+    // lforge-<slot> uses logosc-<slot>, not the PATH-default alternative).
+    let sib: String = sibling_tool("logosc");
+    if sib.len() > 0 as i64 { return sib; }
     let cs: *mut u8 = cstr("./build/bin/logosc");
     let ok: bool = is_file(cs as *const u8);
     dealloc(cs);
