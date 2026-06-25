@@ -446,8 +446,12 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                : std::string(pkg) + "." + std::string(name);
         };
         std::ofstream af(abi_layout_path);
+        // Structs (generic templates INCLUDED): a template's ordered field types
+        // — expressed in its type-var names (Vec<T> → ptr:*mut T,len:u64,…) —
+        // determine every instantiation's layout, so a reorder/retype of the
+        // template is the ABI break at its source. Field offsets need LLVM
+        // materialisation, but the field-type list is the layout determinant.
         for (auto& sd : prog.structs) {
-            if (!sd.type_params_empty()) continue;
             std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
             bool first = true;
             for (auto f : sd.fields()) {
@@ -457,13 +461,24 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
             }
             af << rec << "]\n";
         }
+        // Enums (templates included): variant name + payload types (a payload
+        // type change, e.g. Some(i32)→Some(i64), changes the layout).
         for (auto& ed : prog.enums) {
-            if (!ed.type_params_empty()) continue;
             std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
             bool first = true;
             ed.each_variant([&](lir_view::EnumVariantView v) {
                 if (!first) rec += ",";
                 rec += std::string(v.name());
+                if (v.has_payload()) {
+                    rec += "(";
+                    bool pf = true;
+                    for (auto pt : v.payload_types(pool)) {
+                        if (!pf) rec += ",";
+                        rec += type_str(pt);
+                        pf = false;
+                    }
+                    rec += ")";
+                }
                 first = false;
             });
             af << rec << "]\n";

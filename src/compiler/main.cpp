@@ -2765,6 +2765,21 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
         LOGOS_ABI_TYPE(logos::hermes::MapEntry);        // map slot layout
         LOGOS_ABI_TYPE(logos::hermes::ImportEntry);     // .imp table entry
 #undef LOGOS_ABI_TYPE
+        // Field offsets for the public-field format structs — a reorder at
+        // constant size (invisible to size/align) is caught here. The container
+        // headers (AnyVal/ObjectMap/…) have private members so offsetof can't
+        // reach them; their size/align above is their load-bearing invariant.
+        auto off_rec = [&](const char* name, const std::string& fields) {
+            records.insert("type\t" + std::string(name) + "::offsets\t[" + fields + "]");
+        };
+        off_rec("logos::hermes::ExternalRef",
+            "aid@" + std::to_string(offsetof(logos::hermes::ExternalRef, aid)) +
+            ",oid@" + std::to_string(offsetof(logos::hermes::ExternalRef, oid)));
+        off_rec("logos::hermes::DocumentHeader",
+            "root@" + std::to_string(offsetof(logos::hermes::DocumentHeader, root)));
+        off_rec("logos::hermes::MapEntry",
+            "key@" + std::to_string(offsetof(logos::hermes::MapEntry, key)) +
+            ",val@" + std::to_string(offsetof(logos::hermes::MapEntry, val)));
     }
 
     // cat 1: stdlib exported symbols. nm -p (no sort — we sort canonically via
