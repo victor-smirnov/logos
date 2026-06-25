@@ -1068,7 +1068,8 @@ ar_read_members_streaming(const std::string& archive_path,
 static std::vector<std::string>
 parse_pkgi_member(const std::vector<uint8_t>& data,
                   std::string* out_module_name = nullptr,
-                  std::string* out_module_id   = nullptr) {
+                  std::string* out_module_id   = nullptr,
+                  std::string* out_abi_version = nullptr) {
     std::vector<std::string> out;
     std::string line;
     auto handle = [&](std::string& ln) {
@@ -1081,6 +1082,10 @@ parse_pkgi_member(const std::vector<uint8_t>& data,
             if (out_module_id)   *out_module_id   = id;
             return;
         }
+        if (ln.rfind("@abi ", 0) == 0) {   // builder's version stamp
+            if (out_abi_version) *out_abi_version = ln.substr(5);
+            return;
+        }
         if (ln[0] == '@') return;   // unknown directive — forward-compat skip
         out.push_back(std::move(ln));
     };
@@ -1090,6 +1095,52 @@ parse_pkgi_member(const std::vector<uint8_t>& data,
     }
     handle(line);
     return out;
+}
+
+// Runtime ABI reuse check: may THIS compiler use a binary library built by
+// `lib_ver`? One-directional compat — a newer minor reads libraries built by
+// older minors of the SAME major (a major bump is a new language). Pre-release
+// (`-pre`) / snapshot (`+meta`) builds carry NO ABI guarantee → require an EXACT
+// version match, else just warn. Returns 0 OK / 1 warned / 2 incompatible
+// (caller should not use the archive). Disable with LOGOS_NO_ABI_CHECK=1.
+static int check_abi_reuse(std::string_view lib_ver, const std::string& archive) {
+#ifndef LOGOS_VERSION_FULL
+    (void)lib_ver; (void)archive; return 0;
+#else
+    if (std::getenv("LOGOS_NO_ABI_CHECK")) return 0;
+    if (lib_ver.empty()) return 0;              // legacy archive (no stamp) — don't enforce
+    const std::string self = LOGOS_VERSION_FULL;
+    if (lib_ver == self) return 0;              // identical build — always fine
+    auto parse = [](std::string_view v, int& maj, int& min, bool& stable) {
+        stable = v.find('-') == std::string_view::npos && v.find('+') == std::string_view::npos;
+        size_t i = 0;
+        auto num = [&](int& o){ o = 0; while (i < v.size() && v[i] >= '0' && v[i] <= '9') o = o*10 + (v[i++]-'0'); };
+        num(maj); min = 0; if (i < v.size() && v[i] == '.') { ++i; num(min); }
+    };
+    int lmaj, lmin, cmaj, cmin; bool lstable, cstable;
+    parse(lib_ver, lmaj, lmin, lstable);
+    parse(self, cmaj, cmin, cstable);
+    const std::string lv(lib_ver);
+    if (lmaj != cmaj) {
+        std::fprintf(stderr, "logosc: error: %s was built with logos %s — incompatible "
+            "language major (this compiler is %s); they cannot be mixed\n",
+            archive.c_str(), lv.c_str(), self.c_str());
+        return 2;
+    }
+    if (lstable && cstable) {
+        if (lmin > cmin) {
+            std::fprintf(stderr, "logosc: error: %s was built with logos %s (newer ABI); "
+                "this compiler is %s — upgrade the compiler or rebuild the library\n",
+                archive.c_str(), lv.c_str(), self.c_str());
+            return 2;
+        }
+        return 0;                                // older-or-equal minor → readable
+    }
+    std::fprintf(stderr, "logosc: warning: %s was built with logos %s but this compiler is "
+        "%s — pre-release/snapshot builds offer no ABI guarantee; result may be unstable\n",
+        archive.c_str(), lv.c_str(), self.c_str());
+    return 1;
+#endif
 }
 
 // Scan search paths for lib*.a files. Returns map: package_name → archive_path.
@@ -1126,8 +1177,12 @@ build_binary_index(const std::vector<std::string>& search_paths,
                 for (auto& m : pkgi_members) {
                     bytes_read += m.size();
                     auto unwrapped = unwrap_elf_section(m, ".lpkgindex");
-                    std::string mod_name;  // §B-coex: capture @module name
-                    for (auto& pkg : parse_pkgi_member(unwrapped, &mod_name))
+                    std::string mod_name, abi_ver;  // §B-coex name + ABI stamp
+                    auto pkgs = parse_pkgi_member(unwrapped, &mod_name, nullptr, &abi_ver);
+                    // Runtime reuse check: skip indexing an ABI-incompatible
+                    // archive so its packages aren't used (error already printed).
+                    if (check_abi_reuse(abi_ver, archive) == 2) continue;
+                    for (auto& pkg : pkgs)
                         if (!idx.count(pkg)) idx[pkg] = archive;
                     if (module_archives && !mod_name.empty())
                         module_archives->emplace(mod_name, archive);

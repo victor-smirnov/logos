@@ -1276,6 +1276,14 @@ bool emit_module(const ModuleManifest& manifest,
         if (!manifest.name.empty())
             f << "@module " << manifest.name << " "
               << module_effective_id(manifest, output_path) << "\n";
+        // ABI stamp: the version of the compiler that built this archive. The
+        // consumer's runtime reuse check (module_loader) refuses to use a binary
+        // library built by a newer minor (one-directional compat) and exact-
+        // matches pre-release/snapshot builds. `@`-sigil keeps it out of the
+        // package list (parse_pkgi_member skips @-lines).
+#ifdef LOGOS_VERSION_FULL
+        f << "@abi " << LOGOS_VERSION_FULL << "\n";
+#endif
         std::set<std::string> seen;
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];
