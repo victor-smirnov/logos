@@ -51,6 +51,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # In-image smoke: compile, link and run a trivial program.
 RUN printf 'package smoke;\nfn main() -> i32 { return 0; }\n' > /tmp/s.logos \
     && logosc /tmp/s.logos -o /tmp/s.o \
-    && cc /tmp/s.o /usr/lib/logos/*/lib*.a -lpthread -lm -luring -o /tmp/s \
+    && cc /tmp/s.o $(logosc --print-lib-dir)/*.a -lpthread -lm -luring -o /tmp/s \
     && /tmp/s && echo "logos toolchain OK"
 ENTRYPOINT ["logosc"]

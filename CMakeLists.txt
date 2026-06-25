@@ -181,51 +181,60 @@ add_subdirectory(tests/logos)
 
 # ── Install rules ────────────────────────────────────────────────────────
 #
-# `cmake --install <build> --prefix <P>` produces a relocatable layout:
+# Self-contained versioned tree (LLVM-style): every file of a version lives under
+# ONE directory; the system dirs carry only symlinks. `cmake --install <build>
+# --prefix <P>`:
 #
-#   <P>/bin/logosc                       — compiler binary
-#   <P>/lib/logos/liblogos-{lang,mem,std}.a — modular stdlib (.o + .hermes0)
-#   <P>/lib/logos/liblstdlib_rt.a        — native runtime support
-#   <P>/lib/logos/liblstdlib_uring.a     — liburing wrappers
+#   <P>/lib/logos/<SLOT>/bin/logosc      — the real compiler binary
+#   <P>/lib/logos/<SLOT>/lib/*.a         — its stdlib + runtime archives
+#   <P>/bin/logosc-<SLOT> -> ../lib/logos/<SLOT>/bin/logosc   — versioned PATH entry
+#   <P>/bin/logosc        -> logosc-<SLOT>                    — unversioned selector
+#                                          (symlink for make install;
+#                                           update-alternatives in the .deb/.rpm)
 #
-# Versioned (parallel) install, GCC/Clang-style:
-#   <P>/bin/logosc-<SLOT>          — the versioned driver (logosc-0.1-pre)
-#   <P>/bin/logosc                 — symlink to the slot (default; update-
-#                                    alternatives manages it in the .deb)
-#   <P>/lib/logos/<SLOT>/*.a       — stdlib beside its own compiler
-# The binary resolves its stdlib by readlinking /proc/self/exe and trying
-# <dir>/../lib/logos/<SLOT> (this versioned tree) before the flat fallback,
-# so no absolute path is baked and versions never collide.
-# Unversioned bin/logosc as a plain symlink: ON for `make install` (a single
-# dev install), OFF for the .deb — there update-alternatives owns /usr/bin/logosc
-# (postinst/prerm below) so two slot-packages can coexist without a file clash.
+# The binary finds its stdlib relative to itself (<exe_dir>/../lib), so the tree
+# is relocatable and `rm -rf <P>/lib/logos/<SLOT>` removes a version cleanly.
+# Future per-version docs/resources for AI agents live under the SAME tree (e.g.
+# <P>/lib/logos/<SLOT>/share/…) and are located via `logosc --print-prefix`.
+set(LOGOS_TREE_RELDIR "${LOGOS_LIB_RELDIR}/${LOGOS_VERSION_SLOT}")  # lib/logos/<SLOT>
+
+# Unversioned bin/logosc as a plain symlink: ON for `make install` (single dev
+# install), OFF for packages — there alternatives owns /usr/bin/logosc so slots
+# coexist without a file clash.
 option(LOGOS_INSTALL_UNVERSIONED_SYMLINK
     "Install bin/logosc -> logosc-<SLOT> as a file (OFF for coexisting packages; alternatives instead)" ON)
-install(TARGETS logosc
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-# Rename the installed binary to logosc-<SLOT>; optionally drop the unversioned
-# symlink.
-install(CODE "
-    set(_bindir \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
-    file(RENAME \"\${_bindir}/logosc\" \"\${_bindir}/logosc-${LOGOS_VERSION_SLOT}\")
-    if(${LOGOS_INSTALL_UNVERSIONED_SYMLINK})
-        execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
-            \"logosc-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logosc\")
-    endif()
-")
+
+# Real binary + stdlib into the versioned tree.
+install(TARGETS logosc RUNTIME DESTINATION ${LOGOS_TREE_RELDIR}/bin)
 install(FILES
     ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-    DESTINATION ${LOGOS_LIB_RELDIR}/${LOGOS_VERSION_SLOT})
-# liblstdlib_uring.a is the bundled static liburing — only present on distros
-# that ship a static liburing.a (see stdlib/rt/CMakeLists.txt). Where absent
-# (Fedora), consumers link the shared -luring.
+    DESTINATION ${LOGOS_TREE_RELDIR}/lib)
 if(LOGOS_BUNDLE_URING_STATIC)
     install(FILES ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
-        DESTINATION ${LOGOS_LIB_RELDIR}/${LOGOS_VERSION_SLOT})
+        DESTINATION ${LOGOS_TREE_RELDIR}/lib)
+endif()
+
+# Versioned PATH symlink bin/logosc-<SLOT> -> ../lib/logos/<SLOT>/bin/logosc.
+# Staged as a real symlink + install(DIRECTORY) so it is TRACKED by BOTH CPack
+# generators (install(CODE) symlinks are invisible to CPack RPM's %files).
+file(REMOVE "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks")
+file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logosc"
+     "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}" SYMBOLIC)
+install(DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks/" DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Unversioned bin/logosc -> logosc-<SLOT> (make install only; packages use
+# alternatives via the post/postun scriptlets below).
+if(LOGOS_INSTALL_UNVERSIONED_SYMLINK)
+    install(CODE "
+        set(_bindir \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+        execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
+            \"logosc-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logosc\")
+    ")
 endif()
 
 # ── ABI spec (versioning + ABI tracking) ─────────────────────────────────

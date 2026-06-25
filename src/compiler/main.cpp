@@ -2893,6 +2893,8 @@ int main(int argc, char** argv) {
     bool stats_flag  = false;                    // --stats: print per-phase compile-time summary at end (also turns on inline phase trace).
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     bool        emit_abi_flag = false;            // --emit-abi: dump ABI surface spec
+    bool        print_prefix  = false;            // --print-prefix:  this version's tree root
+    bool        print_lib_dir = false;            // --print-lib-dir: this version's stdlib dir
     const char* abi_diff_old = nullptr;           // --abi-diff <old> <new>: qualify ABI change
     const char* abi_diff_new = nullptr;
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
@@ -2927,28 +2929,33 @@ int main(int argc, char** argv) {
     // The result is appended to `search_paths` after CLI parsing so user
     // -L flags still take precedence over the system path during module
     // resolution.
-    auto resolve_system_lib_dir = []() -> std::string {
-        if (const char* env = std::getenv("LOGOS_LIB_DIR")) return env;
-#ifdef LOGOS_LIB_RELDIR
+    // Directory holding this binary, resolved through /proc/self/exe (follows
+    // the alternatives/versioned symlink chain to the real file in the tree).
+    auto exe_dir = []() -> std::string {
         char exe[PATH_MAX];
         ssize_t n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-        if (n > 0) {
-            exe[n] = '\0';
-            std::string base(exe);
-            if (auto slash = base.rfind('/'); slash != std::string::npos)
-                base.resize(slash);
-            base += "/" LOGOS_LIB_RELDIR;          // <exe_dir>/../lib/logos
+        if (n <= 0) return {};
+        exe[n] = '\0';
+        std::string d(exe);
+        if (auto slash = d.rfind('/'); slash != std::string::npos) d.resize(slash);
+        return d;
+    };
+    auto resolve_system_lib_dir = [&exe_dir]() -> std::string {
+        if (const char* env = std::getenv("LOGOS_LIB_DIR")) return env;
+        std::string dir = exe_dir();
+        if (dir.empty()) return {};
+        // Candidate stdlib dirs by layout, each validated by the presence of a
+        // stdlib archive so a bare dir (e.g. build/lib) is never mistaken for it:
+        //   ../lib        — installed tree: binary at <tree>/bin, stdlib at <tree>/lib
+        //   ../lib/logos  — flat build tree: build/bin/logosc, build/lib/logos
+        for (const char* suffix : {"/../lib", "/../lib/logos"}) {
             char real[PATH_MAX];
-            // Versioned install tree first: <reldir>/<SLOT> (logosc-<SLOT> ships
-            // its stdlib under lib/logos/<SLOT>/ so versions coexist). Fall back
-            // to the flat <reldir> used by the build tree (build/lib/logos).
-#ifdef LOGOS_VERSION_SLOT
-            std::string versioned = base + "/" LOGOS_VERSION_SLOT;
-            if (::realpath(versioned.c_str(), real)) return real;
-#endif
-            if (::realpath(base.c_str(), real)) return real;
+            std::string cand = dir + suffix;
+            if (::realpath(cand.c_str(), real)) {
+                std::string probe = std::string(real) + "/liblogos-lang.a";
+                if (::access(probe.c_str(), F_OK) == 0) return real;
+            }
         }
-#endif
         return {};
     };
 
@@ -3013,6 +3020,8 @@ int main(int argc, char** argv) {
         else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
         else if (arg == "--emit-abi") { emit_abi_flag = true; }
+        else if (arg == "--print-prefix")  { print_prefix  = true; }
+        else if (arg == "--print-lib-dir") { print_lib_dir = true; }
         else if (arg == "--abi-diff" && i + 2 < argc) { abi_diff_old = argv[++i]; abi_diff_new = argv[++i]; }
         else if (arg.rfind("--dump-metaprog=", 0) == 0) {
             std::string_view v = arg;
@@ -3061,6 +3070,27 @@ int main(int argc, char** argv) {
     if (print_system_libdir) {
         auto sys = resolve_system_lib_dir();
         std::printf("%s\n", sys.c_str());
+        return 0;
+    }
+
+    // Resource locator (foundation for per-version docs/resources for AI agents):
+    //   --print-lib-dir  this version's stdlib dir (linker/consumer search path;
+    //                     alias of --print-system-libdir)
+    //   --print-prefix   this version's tree root  (<...>/lib/logos/<SLOT>)
+    // The binary self-locates via /proc/self/exe, so these answer "where are this
+    // exact version's files" regardless of how it was invoked (versioned symlink,
+    // alternatives, or the build tree).
+    if (print_lib_dir) {
+        std::string d = resolve_system_lib_dir();
+        if (d.empty()) { std::fprintf(stderr, "logosc: --print-lib-dir: stdlib not found\n"); return 1; }
+        std::printf("%s\n", d.c_str());
+        return 0;
+    }
+    if (print_prefix) {
+        char real[PATH_MAX];
+        std::string root = exe_dir() + "/..";   // <tree>/bin/.. = <tree>
+        if (!::realpath(root.c_str(), real)) { std::fprintf(stderr, "logosc: --print-prefix: cannot resolve\n"); return 1; }
+        std::printf("%s\n", real);
         return 0;
     }
 
