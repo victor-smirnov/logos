@@ -29,25 +29,26 @@ WORKDIR /src
 COPY . .
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 \
+        -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF \
     && cmake --build build -j"$(nproc)" \
     && cd build && cpack -G DEB
 
 # ── Stage 2: the .deb as a build artifact ────────────────────────────────────
 FROM scratch AS deb
-COPY --from=builder /src/build/logos_*.deb /
+COPY --from=builder /src/build/logosc-*.deb /
 
 # ── Stage 3: minimal runtime with logosc installed from the .deb ─────────────
 FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-COPY --from=builder /src/build/logos_*.deb /tmp/
+COPY --from=builder /src/build/logosc-*.deb /tmp/
 # `gcc` + liburing-dev give the final-link step (cc + -luring) a Logos program
 # needs; the .deb's own Depends pull libllvm/libmlir/libstdc++/…
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        /tmp/logos_*.deb gcc liburing-dev \
-    && rm -rf /var/lib/apt/lists/* /tmp/logos_*.deb
+        /tmp/logosc-*.deb gcc liburing-dev \
+    && rm -rf /var/lib/apt/lists/* /tmp/logosc-*.deb
 # In-image smoke: compile, link and run a trivial program.
 RUN printf 'package smoke;\nfn main() -> i32 { return 0; }\n' > /tmp/s.logos \
     && logosc /tmp/s.logos -o /tmp/s.o \
-    && cc /tmp/s.o /usr/lib/logos/lib*.a -lpthread -lm -luring -o /tmp/s \
+    && cc /tmp/s.o /usr/lib/logos/*/lib*.a -lpthread -lm -luring -o /tmp/s \
     && /tmp/s && echo "logos toolchain OK"
 ENTRYPOINT ["logosc"]

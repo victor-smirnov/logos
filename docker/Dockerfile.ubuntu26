@@ -23,20 +23,21 @@ WORKDIR /src
 COPY . .
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+        -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF \
     && cmake --build build -j"$(nproc)" \
     && cd build && cpack -G DEB
 
 FROM scratch AS deb
-COPY --from=builder /src/build/logos_*.deb /
+COPY --from=builder /src/build/logosc-*.deb /
 
 FROM ubuntu:26.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-COPY --from=builder /src/build/logos_*.deb /tmp/
+COPY --from=builder /src/build/logosc-*.deb /tmp/
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        /tmp/logos_*.deb gcc liburing-dev \
-    && rm -rf /var/lib/apt/lists/* /tmp/logos_*.deb
+        /tmp/logosc-*.deb gcc liburing-dev \
+    && rm -rf /var/lib/apt/lists/* /tmp/logosc-*.deb
 RUN printf 'package smoke;\nfn main() -> i32 { return 0; }\n' > /tmp/s.logos \
     && logosc /tmp/s.logos -o /tmp/s.o \
-    && cc /tmp/s.o /usr/lib/logos/lib*.a -lpthread -lm -luring -o /tmp/s \
+    && cc /tmp/s.o /usr/lib/logos/*/lib*.a -lpthread -lm -luring -o /tmp/s \
     && /tmp/s && echo "logos toolchain OK"
 ENTRYPOINT ["logosc"]
