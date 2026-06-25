@@ -84,8 +84,6 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
 
     // ── For each source: determine whether per-file .o is up-to-date.   ──
     // Spawn the rebuilds in parallel; collect Child handles to wait on.
-    let cp_arr: *const Vec<String> = (&t.c_sources) as *const Vec<String>;
-    let ap_arr: *const Vec<String> = (&t.asm_sources) as *const Vec<String>;
     let mut children: Vec<Child> = vec_new::<Child>();
     let mut rebuilt_count: i32 = 0;
 
@@ -145,16 +143,16 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     }
 
     // C and asm files via cc -c
-    let mut native_lists: [*const Vec<String>; 2] = [cp_arr, ap_arr];
+    let native_lists: [&Vec<String>; 2] = [&t.c_sources, &t.asm_sources];
     let mut native_counts: [i64; 2] = [n_c, n_asm];
     let mut nl: i64 = 0 as i64;
     while nl < 2 as i64 {
-        let lst: *const Vec<String> = native_lists[nl];
+        let lst: &Vec<String> = native_lists[nl];
         let cnt: i64 = native_counts[nl];
         nl = nl + 1 as i64;
         let mut k: i64 = 0 as i64;
         while k < cnt {
-            let src_p: &String = (*lst).borrow(k);
+            let src_p: &String = lst.borrow(k);
             k = k + 1 as i64;
             let src_view2: str = src_p.as_str();
 
@@ -230,12 +228,12 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         }
         let mut nl2: i64 = 0 as i64;
         while nl2 < 2 as i64 {
-            let lst: *const Vec<String> = native_lists[nl2];
+            let lst: &Vec<String> = native_lists[nl2];
             let cnt: i64 = native_counts[nl2];
             nl2 = nl2 + 1 as i64;
             let mut k2: i64 = 0 as i64;
             while k2 < cnt {
-                let src_p: &String = (*lst).borrow(k2);
+                let src_p: &String = lst.borrow(k2);
                 k2 = k2 + 1 as i64;
                 let obj_p: String = native_obj_path(&pf_dir, src_p);
                 match mtime_ns(obj_p.as_str()) {
@@ -278,12 +276,12 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     // Native (C/asm) .o files.
     let mut nl3: i64 = 0 as i64;
     while nl3 < 2 as i64 {
-        let lst: *const Vec<String> = native_lists[nl3];
+        let lst: &Vec<String> = native_lists[nl3];
         let cnt: i64 = native_counts[nl3];
         nl3 = nl3 + 1 as i64;
         let mut k3: i64 = 0 as i64;
         while k3 < cnt {
-            let src_p: &String = (*lst).borrow(k3);
+            let src_p: &String = lst.borrow(k3);
             k3 = k3 + 1 as i64;
             let o: String = native_obj_path(&pf_dir, src_p);
             ar_argv.push(o);
