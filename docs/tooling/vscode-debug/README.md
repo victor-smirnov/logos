@@ -52,5 +52,4 @@ printers ship per compiler version, so this keeps them matched to `logosc`.
 - For the **full pretty-printed** experience use the gdb backend (cppdbg). The
   CodeLLDB extension also debugs the DWARF (breakpoints/stepping/raw values) but
   our printers are gdb-Python, so enums/`Vec` show as raw structs there.
-- Line accuracy: see [../debugging.md](../debugging.md). (A `match` earlier in a
-  file currently shifts following line numbers — a parser bug, being fixed.)
+- Line accuracy: see [../debugging.md](../debugging.md).
