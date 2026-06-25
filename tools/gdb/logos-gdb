@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# logos-gdb — gdb with the Logos pretty-printers preloaded (cf. rust-gdb).
+#
+#   logos-gdb ./my_program          # then break/run/print as usual
+#   logos-gdb --args ./prog a b     # forwards all args to gdb
+#
+# Self-locates this compiler version's printers relative to the wrapper
+# (<slot>/bin/logos-gdb → <slot>/share/gdb/), so the printers always match the
+# logosc that produced the binary. Falls back to a logosc on PATH. Override the
+# debugger with $LOGOS_GDB (e.g. a specific gdb build).
+set -euo pipefail
+
+selfdir=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+script="$selfdir/../share/gdb/logos_gdb.py"
+
+if [ ! -f "$script" ] && command -v logosc >/dev/null 2>&1; then
+    script="$(logosc --print-prefix)/share/gdb/logos_gdb.py"
+fi
+
+GDB=${LOGOS_GDB:-gdb}
+if [ ! -f "$script" ]; then
+    echo "logos-gdb: pretty-printers not found ($script); launching plain $GDB" >&2
+    exec "$GDB" "$@"
+fi
+
+# `source` is exempt from auto-load safe-path (that governs auto-load only), so
+# no add-auto-load-safe-path is needed; -iex runs before the inferior loads.
+exec "$GDB" -iex "source $script" "$@"

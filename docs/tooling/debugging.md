@@ -7,15 +7,41 @@
 ```
 logosc prog.logos -g -o prog.o
 cc prog.o <stdlib archives> -o prog        # normal link
-gdb ./prog
-(gdb) source $(logosc --print-prefix)/share/gdb/logos_gdb.py   # pretty-printers
+logos-gdb ./prog                            # gdb + printers, one command
 ```
+
+`logos-gdb` is a `rust-gdb`-style wrapper installed beside `logosc` (on `PATH`
+as `logos-gdb` / `logos-gdb-<slot>`). It self-locates **this compiler version's**
+printers in its own slot tree and sources them before launching gdb. Override the
+debugger with `$LOGOS_GDB`.
+
+### Connecting the printers to a plain `gdb` session
 
 The printers ship **per compiler version** under `$(logosc --print-prefix)/share/gdb/`
 (the enum-metadata schema + Hermes layout they decode are version-coupled), so
 coexisting `logosc-<slot>` installs each carry matching printers. `logos_gdb.py`
-auto-loads `logos_hermes_gdb.py` from the same dir. In a build tree the same path
-resolves to `<build>/share/gdb/`. Source line in `~/.gdbinit` to make it permanent.
+auto-loads `logos_hermes_gdb.py` from the same dir.
+
+- **One session** (the shell expands `$(...)`, gdb's `source` does NOT):
+  ```
+  gdb -ex "source $(logosc --print-prefix)/share/gdb/logos_gdb.py" ./prog
+  ```
+- **Persistent** — add to `~/.gdbinit` (auto-discovers via `logosc` on PATH):
+  ```
+  python
+  import subprocess, os
+  try:
+      p = subprocess.check_output(["logosc", "--print-prefix"]).decode().strip()
+      s = os.path.join(p, "share", "gdb", "logos_gdb.py")
+      if os.path.exists(s): gdb.execute("source " + s)
+  except Exception: pass
+  end
+  ```
+- Inside a running gdb, use the **literal** path (no `$(...)`):
+  `source /usr/lib/logos/<slot>/share/gdb/logos_gdb.py`.
+
+In a build tree the same `--print-prefix` path resolves to `<build>/share/gdb/`,
+and `<build>/bin/logos-gdb` works too.
 
 `-g` (alias `--debug`) is opt-in; off ⇒ zero DWARF, zero codegen change.
 

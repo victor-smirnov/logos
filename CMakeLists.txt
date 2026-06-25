@@ -237,13 +237,24 @@ foreach(_gdb_script ${LOGOS_GDB_SCRIPTS})
 endforeach()
 install(FILES ${LOGOS_GDB_SCRIPTS} DESTINATION ${LOGOS_TREE_RELDIR}/share/gdb)
 
+# logos-gdb launcher (rust-gdb style): self-locates the printers in its own slot
+# tree (<slot>/bin/logos-gdb → <slot>/share/gdb). Installed beside logosc in the
+# slot bin/, mirrored to the build tree, and exposed on PATH like logosc below.
+configure_file(${CMAKE_SOURCE_DIR}/tools/gdb/logos-gdb
+               ${CMAKE_BINARY_DIR}/bin/logos-gdb COPYONLY)
+install(PROGRAMS tools/gdb/logos-gdb DESTINATION ${LOGOS_TREE_RELDIR}/bin)
+
 # Versioned PATH symlink bin/logosc-<SLOT> -> ../lib/logos/<SLOT>/bin/logosc.
 # Staged as a real symlink + install(DIRECTORY) so it is TRACKED by BOTH CPack
 # generators (install(CODE) symlinks are invisible to CPack RPM's %files).
 file(REMOVE "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}")
+file(REMOVE "${CMAKE_BINARY_DIR}/_pkglinks/logos-gdb-${LOGOS_VERSION_SLOT}")
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks")
 file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logosc"
      "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}" SYMBOLIC)
+# logos-gdb-<SLOT> -> ../lib/logos/<SLOT>/bin/logos-gdb (versioned PATH entry).
+file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logos-gdb"
+     "${CMAKE_BINARY_DIR}/_pkglinks/logos-gdb-${LOGOS_VERSION_SLOT}" SYMBOLIC)
 install(DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks/" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Unversioned bin/logosc -> logosc-<SLOT> (make install only; packages use
@@ -253,6 +264,8 @@ if(LOGOS_INSTALL_UNVERSIONED_SYMLINK)
         set(_bindir \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
         execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
             \"logosc-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logosc\")
+        execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
+            \"logos-gdb-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logos-gdb\")
     ")
 endif()
 
