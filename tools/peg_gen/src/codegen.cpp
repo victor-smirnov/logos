@@ -725,11 +725,19 @@ private:
         // memoized too (null AnyVal is a valid result), so the end-pos sentinel,
         // not the value, signals emptiness.
         if (std::any_of(g_.rules.begin(), g_.rules.end(),
-                        [&](const auto& r){ return is_memoized(r.name); }))
+                        [&](const auto& r){ return is_memoized(r.name); })) {
             w.line("static constexpr size_t kMemoEmpty = static_cast<size_t>(-1);");
+            // Memo cell carries the END line as well as the end position: a cache
+            // HIT jumps pos_ to `end` and so must also restore line_ to the line
+            // AT that end, or every newline the cached parse spanned goes
+            // uncounted (line_ undercounts → SRC_LINE skews for everything after
+            // a memoized multi-line rule, e.g. a `match`). `.end == kMemoEmpty`
+            // still marks an unfilled slot (failures are memoized too).
+            w.line("struct MemoCell { logos::hermes::AnyVal first; size_t end; uint32_t line; };");
+        }
         for (const auto& r : g_.rules) {
             if (!is_memoized(r.name)) continue;
-            w.fmt("std::vector<std::pair<logos::hermes::AnyVal, size_t>> memo_{}_;", r.name);
+            w.fmt("std::vector<MemoCell> memo_{}_;", r.name);
         }
         if (!g_.prec.empty()) {
             w.line();
@@ -836,7 +844,7 @@ private:
         w.indent();
         for (const auto& r : g_.rules) {
             if (!is_memoized(r.name)) continue;
-            w.fmt("memo_{}_.assign(source.size() + 1, {{logos::hermes::AnyVal{{}}, kMemoEmpty}});",
+            w.fmt("memo_{}_.assign(source.size() + 1, {{logos::hermes::AnyVal{{}}, kMemoEmpty, 0}});",
                   r.name);
         }
         w.dedent();
@@ -1760,16 +1768,17 @@ private:
             w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
             w.line("size_t start = pos_;");
             w.fmt("auto& slot = memo_{}_[start];", rule.name);
-            w.line("if (slot.second != kMemoEmpty) {");
+            w.line("if (slot.end != kMemoEmpty) {");
             w.indent();
-            w.line("pos_ = slot.second;");
+            w.line("pos_ = slot.end;");
+            w.line("line_ = slot.line;   // restore line at end (else newlines spanned by the cached parse go uncounted)");
             w.line("have_la_ = false;");
             w.line("return slot.first;");
             w.dedent();
             w.line("}");
             w.fmt("AnyVal result = rule_{}_impl();", rule.name);
             w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
-            w.fmt("memo_{}_[start] = std::make_pair(result, pos_);", rule.name);
+            w.fmt("memo_{}_[start] = MemoCell{{result, pos_, line_}};", rule.name);
             w.line("return result;");
             w.dedent();
             w.line("}");
