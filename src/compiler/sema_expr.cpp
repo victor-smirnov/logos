@@ -962,7 +962,20 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     return builder().cast(std::move(inner), target);
 }
 
+// Restore node_line_ after lowering an expression, so a multi-line value
+// (e.g. a `match`/`if`/block expression) does not leak its inner sub-node line
+// into the enclosing statement's recorded line — that line drives DWARF source
+// locations and diagnostics, which must point at the statement, not an arm. The
+// inner node_line_ updates remain in effect *during* lowering for sub-expr
+// diagnostics; only the post-return value is restored.
 lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
+    uint32_t saved_line = node_line_;
+    auto r = lower_expr_inner(expr);
+    node_line_ = saved_line;
+    return r;
+}
+
+lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     if (expr.is_null()) return error_expr();
     node_line_ = get_line(expr);
     int32_t c = code_of(expr);
