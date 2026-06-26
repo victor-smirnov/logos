@@ -18,8 +18,8 @@
 #include <logos/compiler/lir_view.hpp> // ExprRef/StmtRef/BlockRef (Stage D bridge)
 #include <deque>
 #include <logos/compiler/str_map.hpp>
-#include <logos/hermes/compat.hpp>    // arena_offset_t
-#include <logos/hermes/compat.hpp>  // ExternalRef, resolve_external_ref (cross-arena body refs)
+#include <logos/writ/compat.hpp>    // arena_offset_t
+#include <logos/writ/compat.hpp>  // ExternalRef, resolve_external_ref (cross-arena body refs)
 #include <unordered_set>
 #include <string>
 
@@ -1082,7 +1082,7 @@ inline std::string link_name(lir_view::FunctionView fn,
 
 // ── Entry point ───────────────────────────────────────────────────────────
 
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 namespace logos::compiler {
 
@@ -1159,7 +1159,7 @@ struct SemaOptions {
 // `lowering lazy` archive. Lazy fns get FunctionDraft.from_lazy_module=true and
 // participate in post-mono reach analysis (mlir-gen skips unreached lazy
 // bodies). Default: empty → no lazy modules (back-compat).
-lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
+lir::LProgram sema_lower(const std::vector<writ::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {},
                           SemaOptions opts = {},

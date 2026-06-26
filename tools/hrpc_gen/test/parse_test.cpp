@@ -4,10 +4,10 @@
 
 #include "hrpc_idl_parser.hpp"
 
-#include <logos/hermes/document.hpp>
-#include <logos/hermes/view.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/stringify.hpp>
+#include <logos/writ/document.hpp>
+#include <logos/writ/view.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/stringify.hpp>
 
 #include <fstream>
 #include <iostream>
@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     auto doc = parser.parse_file();
 
     // Stringify the Hermes document to see the AST.
-    std::string json = logos::hermes::stringify(doc);
+    std::string json = logos::writ::stringify(doc);
     std::cout << json << "\n";
 
     // Basic sanity checks.

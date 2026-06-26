@@ -10,11 +10,11 @@
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_schema.hpp>
 #include <logos/compiler/lir_view.hpp>  // header-compile smoke until 3d uses it
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 #include <logos/verification/assert.hpp>
 
 #include <variant>
@@ -51,7 +51,7 @@ namespace pdk = lir_schema::ptrdiff_keys;
 class LirMirrorEmitter {
     // THE document handle: all object creation goes through ctr_ (make_string /
     // make_array / make_tiny_map); raw arena access is encapsulated in views.
-    hermes::HermesCtr& ctr_;
+    writ::HermesCtr& ctr_;
     LirMirrorTable& table_;
     // Phase 5.B step 3: optional pool ref used by type_av to intern foreign
     // TypeRefs before writing their offsets into mirrors. Set by the public
@@ -67,18 +67,18 @@ class LirMirrorEmitter {
     bool dry_run_ = false;
 
 public:
-    LirMirrorEmitter(hermes::HermesCtr& c, LirMirrorTable& t)
+    LirMirrorEmitter(writ::HermesCtr& c, LirMirrorTable& t)
         : ctr_(c), table_(t) {}
-    LirMirrorEmitter(hermes::HermesCtr& c, LirMirrorTable& t, TypePool& p)
+    LirMirrorEmitter(writ::HermesCtr& c, LirMirrorTable& t, TypePool& p)
         : ctr_(c), table_(t), pool_(&p) {}
 
-    hermes::MemHolder* holder() const noexcept { return ctr_.holder(); }
+    writ::MemHolder* holder() const noexcept { return ctr_.holder(); }
 
     // Reference a child by its absolute mirror ADDRESS (self-relative, no base).
     // Every emitter object handle (make_map/make_array/emit_* result) is now an
     // address — segments never move, so the pointer is a stable child reference.
-    hermes::AnyVal mref_addr(const uint8_t* p) const noexcept {
-        hermes::AnyVal a; if (p) a.set_ref(p); return a;
+    writ::AnyVal mref_addr(const uint8_t* p) const noexcept {
+        writ::AnyVal a; if (p) a.set_ref(p); return a;
     }
 
     void run(lir::LProgram& prog);
@@ -94,13 +94,13 @@ public:
     // LirBuilder / mono_clone after Stage 2 retires the variant alternative
     // for that kind.
     const uint8_t* emit_lit_bool_direct(TypeRef ty, bool v) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitBool));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::LitBool));
         put(map_off, ek::LIT_BOOL, put_bool(v));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_lit_int_direct(TypeRef ty, int64_t v) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitInt));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::LitInt));
         put(map_off, ek::LIT_I64, put_i64(v));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -108,21 +108,21 @@ public:
     // 128-bit variant: low half in LIT_I64, high half in LIT_I64_HI (omitted
     // when 0, so 64-bit-fitting values stay byte-identical to the i64 path).
     const uint8_t* emit_lit_int_direct_128(TypeRef ty, uint64_t lo, uint64_t hi) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitInt));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::LitInt));
         put(map_off, ek::LIT_I64, put_i64((int64_t)lo));
         if (hi != 0) put(map_off, ek::LIT_I64_HI, put_i64((int64_t)hi));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_lit_float_direct(TypeRef ty, double v) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitFloat));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::LitFloat));
         put(map_off, ek::LIT_F64, put_f64(v));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_lit_str_direct(TypeRef ty, std::string_view v) {
         auto s_av = put_string(v);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitStr));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::LitStr));
         put(map_off, ek::LIT_STR, s_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -130,7 +130,7 @@ public:
     const uint8_t* emit_var_ref_direct(TypeRef ty, std::string_view name,
                                                uint32_t slot = 0xFFFFFFFFu) {
         auto n_av = put_string(name);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::VarRef));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::VarRef));
         put(map_off, ek::NAME, n_av);
         if (slot != 0xFFFFFFFFu) put(map_off, ek::VAR_SLOT, put_i64((int64_t)slot));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -138,7 +138,7 @@ public:
     }
     const uint8_t* emit_addr_of_direct(TypeRef ty, std::string_view var_name) {
         auto n_av = put_string(var_name);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AddrOf));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::AddrOf));
         put(map_off, ek::NAME, n_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -148,8 +148,8 @@ public:
     const uint8_t* emit_type_alias_direct(std::string_view name, TypeRef type,
                                           std::string_view doc) {
         auto n_av = put_string(name);
-        auto d_av = doc.empty() ? hermes::AnyVal{} : put_string(doc);
-        auto map_off = make_map(hermes::schema::lir_stmt(
+        auto d_av = doc.empty() ? writ::AnyVal{} : put_string(doc);
+        auto map_off = make_map(writ::schema::lir_stmt(
             int32_t(lir_schema::decl::Code::TypeAlias)));
         put(map_off, dk::NAME, n_av);
         if (type) put(map_off, dk::TYPE_REF, type_av(type));
@@ -158,8 +158,8 @@ public:
     }
     // ── Function decl sub-map builders (Stage E FunctionDraft migration) ──────
     // PARAMS array element (LParam sub-map). Own key space.
-    hermes::AnyVal param_av(const lir::LParam& p) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 5));
+    writ::AnyVal param_av(const lir::LParam& p) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 5));
         put(map_off, pmk::P_NAME, put_string(p.name));
         if (p.type)           put(map_off, pmk::P_TYPE,           type_av(p.type));
         if (p.is_variadic)    put(map_off, pmk::P_IS_VARIADIC,    put_bool(true));
@@ -168,8 +168,8 @@ public:
         return mref_addr(map_off);
     }
     // FTP_BOUNDS array element (TraitBound sub-map). Own key space.
-    hermes::AnyVal tbound_av(const TraitBound& tb) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 7));
+    writ::AnyVal tbound_av(const TraitBound& tb) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 7));
         put(map_off, tbk::TB_TRAIT_NAME, put_string(tb.trait_name));
         auto a = type_array(tb.type_args);
         if (!a.is_null()) put(map_off, tbk::TB_TYPE_ARGS, a);
@@ -182,15 +182,15 @@ public:
     }
     // TYPE_PARAMS / IMPL_TYPE_PARAMS array element (fn TypeParam sub-map; richer
     // than enum's — carries bounds/const/default). Own key space.
-    hermes::AnyVal fn_tparam_av(const TypeParam& tp) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 6));
+    writ::AnyVal fn_tparam_av(const TypeParam& tp) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 6));
         put(map_off, ftpk::FTP_NAME, put_string(tp.name));
         if (tp.is_variadic)  put(map_off, ftpk::FTP_IS_VARIADIC, put_bool(true));
         if (tp.is_const)     put(map_off, ftpk::FTP_IS_CONST,    put_bool(true));
         if (tp.const_type)   put(map_off, ftpk::FTP_CONST_TYPE,  type_av(tp.const_type));
         if (tp.default_type) put(map_off, ftpk::FTP_DEFAULT_TYPE,type_av(tp.default_type));
         if (!tp.bounds.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(tp.bounds.size());
+            std::vector<writ::AnyVal> elems; elems.reserve(tp.bounds.size());
             for (auto& tb : tp.bounds) elems.push_back(tbound_av(tb));
             auto arr_off = make_array(elems.size());
             for (auto av : elems) array_push(arr_off, av);
@@ -204,8 +204,8 @@ public:
         return mref_addr(map_off);
     }
     // WHERE_TYPE_BOUNDS array element (subject type + trait name). Own key space.
-    hermes::AnyVal wherebound_av(const std::pair<TypeRef, std::string>& wb) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 8));
+    writ::AnyVal wherebound_av(const std::pair<TypeRef, std::string>& wb) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 8));
         if (wb.first) put(map_off, wbk::WB_TYPE, type_av(wb.first));
         put(map_off, wbk::WB_TRAIT, put_string(wb.second));
         return mref_addr(map_off);
@@ -213,8 +213,8 @@ public:
 
     // ── StructDraft decl sub-map builders (Stage E struct migration) ───────────
     // FIELDS array element (LField sub-map; schema code stmt::Count+9). Own space.
-    hermes::AnyVal field_av(const lir::LField& fld) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 9));
+    writ::AnyVal field_av(const lir::LField& fld) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 9));
         put(map_off, fldk::F_NAME, put_string(fld.name));
         if (fld.type)        put(map_off, fldk::F_TYPE,        type_av(fld.type));
         if (fld.is_variadic) put(map_off, fldk::F_IS_VARIADIC, put_bool(true));
@@ -223,8 +223,8 @@ public:
     }
     // ANNOTATIONS value sub-map (LAnnotationValue; stmt::Count+12). RECURSIVE.
     // Reader keys off AV_KIND; value fields emitted only when non-default.
-    hermes::AnyVal annval_av(const lir::LAnnotationValue& v) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 12));
+    writ::AnyVal annval_av(const lir::LAnnotationValue& v) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 12));
         put(map_off, avk::AV_KIND, put_i64((int64_t)v.kind));
         if (v.i != 0)               put(map_off, avk::AV_I,            put_i64(v.i));
         if (v.f != 0.0)             put(map_off, avk::AV_F,            put_f64(v.f));
@@ -232,7 +232,7 @@ public:
         if (!v.enum_name.empty())   put(map_off, avk::AV_ENUM_NAME,    put_string(v.enum_name));
         if (!v.enum_variant.empty())put(map_off, avk::AV_ENUM_VARIANT, put_string(v.enum_variant));
         if (!v.arr.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(v.arr.size());
+            std::vector<writ::AnyVal> elems; elems.reserve(v.arr.size());
             for (auto& child : v.arr) elems.push_back(annval_av(child));
             auto arr_off = make_array(elems.size());
             for (auto av : elems) array_push(arr_off, av);
@@ -241,20 +241,20 @@ public:
         return mref_addr(map_off);
     }
     // A_KV array element (annotation kv-pair sub-map; stmt::Count+11). Own space.
-    hermes::AnyVal annkv_av(const std::pair<std::string, lir::LAnnotationValue>& kv) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 11));
+    writ::AnyVal annkv_av(const std::pair<std::string, lir::LAnnotationValue>& kv) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 11));
         put(map_off, akvk::KV_NAME,  put_string(kv.first));
         put(map_off, akvk::KV_VALUE, annval_av(kv.second));
         return mref_addr(map_off);
     }
     // ANNOTATIONS array element (LAnnotationInstance sub-map; stmt::Count+10).
-    hermes::AnyVal annot_av(const lir::LAnnotationInstance& ai) {
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 10));
+    writ::AnyVal annot_av(const lir::LAnnotationInstance& ai) {
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 10));
         put(map_off, ank::A_NAME, put_string(ai.ann_name));
         if (!ai.ann_pkg.empty()) put(map_off, ank::A_PKG, put_string(ai.ann_pkg));
         if (!ai.ann_fqn.empty()) put(map_off, ank::A_FQN, put_string(ai.ann_fqn));
         if (!ai.kv.empty()) {
-            std::vector<hermes::AnyVal> elems; elems.reserve(ai.kv.size());
+            std::vector<writ::AnyVal> elems; elems.reserve(ai.kv.size());
             for (auto& kv : ai.kv) elems.push_back(annkv_av(kv));
             auto arr_off = make_array(elems.size());
             for (auto av : elems) array_push(arr_off, av);
@@ -268,12 +268,12 @@ public:
     // Used by the sema impl-block/re-attachment passes and mono's lazy
     // drain_method_worklist, which collect methods AFTER the struct is stored.
     void struct_append_method_direct(lir_view::StructView sv, lir_view::FunctionView m) {
-        auto* map = const_cast<hermes::TinyObjectMap*>(sv.self.mirror());
+        auto* map = const_cast<writ::TinyObjectMap*>(sv.self.mirror());
         auto cur = map->get(lir_schema::struct_keys::METHODS.code);
         LOGOS_ASSERT(!cur.is_null(), "LIR-MIRROR-STRUCT-METHODS",
                      "struct mirror has no METHODS array (lower_struct_def / "
                      "lower_spec_struct / clone_struct_def always create it)");
-        auto* arr_addr = reinterpret_cast<const uint8_t*>(cur.as_ptr<const hermes::ObjectArray>());
+        auto* arr_addr = reinterpret_cast<const uint8_t*>(cur.as_ptr<const writ::ObjectArray>());
         array_push(arr_addr, mref_addr(m.self.addr()));
     }
     // Replace a stored struct's METHODS array with a fresh one holding exactly
@@ -281,7 +281,7 @@ public:
     // binary-origin methods). The old array becomes garbage — rare path.
     void struct_set_methods_direct(lir_view::StructView sv,
                                    const std::vector<lir_view::FunctionView>& ms) {
-        std::vector<hermes::AnyVal> elems; elems.reserve(ms.size());
+        std::vector<writ::AnyVal> elems; elems.reserve(ms.size());
         for (auto m : ms) elems.push_back(mref_addr(m.self.addr()));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
@@ -298,19 +298,19 @@ public:
     }
     const uint8_t* emit_pack_expand_direct(TypeRef ty, std::string_view var_name) {
         auto n_av = put_string(var_name);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PackExpand));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::PackExpand));
         put(map_off, ek::NAME, n_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_size_of_direct(TypeRef ty, TypeRef elem) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SizeOf));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::SizeOf));
         put(map_off, ek::ELEM_TYPE, type_av(elem));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_align_of_direct(TypeRef ty, TypeRef elem) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AlignOf));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::AlignOf));
         put(map_off, ek::ELEM_TYPE, type_av(elem));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -320,20 +320,20 @@ public:
                                                     const std::vector<TypeRef>& type_args) {
         auto cn_av = put_string(name);
         auto ta_av = type_array(type_args);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::GenericRef));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::GenericRef));
         put(map_off, ek::CALLEE,    cn_av);
         put(map_off, ek::TYPE_ARGS, ta_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_type_code_of_direct(TypeRef ty, TypeRef elem) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TypeCodeOf));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::TypeCodeOf));
         put(map_off, ek::ELEM_TYPE, type_av(elem));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_reflect_of_direct(TypeRef ty, TypeRef elem) {
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ReflectOf));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ReflectOf));
         put(map_off, ek::ELEM_TYPE, type_av(elem));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -343,7 +343,7 @@ public:
     // have their own mirror_ptr_ set (cache-hit fast path inside expr_av).
     const uint8_t* emit_deref_direct(TypeRef ty, lir_view::ExprRef operand) {
         auto o_av = expr_av(operand);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Deref));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Deref));
         put(map_off, ek::OPERAND, o_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -351,10 +351,10 @@ public:
     const uint8_t* emit_cast_direct(TypeRef ty, lir_view::ExprRef operand,
                                              std::string_view hermes_build_fn) {
         auto o_av = expr_av(operand);
-        hermes::AnyVal hbf_av;
+        writ::AnyVal hbf_av;
         bool has_hbf = !hermes_build_fn.empty();
         if (has_hbf) hbf_av = put_string(hermes_build_fn);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Cast));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Cast));
         put(map_off, ek::OPERAND, o_av);
         if (has_hbf) put(map_off, ek::HERMES_BUILD_FN, hbf_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -363,7 +363,7 @@ public:
     const uint8_t* emit_try_direct(TypeRef ty, lir_view::ExprRef inner,
                                             int32_t ok_disc, int32_t err_disc) {
         auto in_av = expr_av(inner);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Try));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Try));
         put(map_off, ek::INNER,    in_av);
         put(map_off, ek::OK_DISC,  put_i32(ok_disc));
         put(map_off, ek::ERR_DISC, put_i32(err_disc));
@@ -374,7 +374,7 @@ public:
                                                   lir_view::ExprRef len) {
         auto b_av = expr_av(base);
         auto l_av = expr_av(len);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SliceLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::SliceLit));
         put(map_off, ek::BASE_PTR, b_av);
         put(map_off, ek::LEN,      l_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -384,7 +384,7 @@ public:
                                                     lir_view::ExprRef index) {
         auto s_av = expr_av(slice);
         auto i_av = expr_av(index);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SliceIndex));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::SliceIndex));
         put(map_off, ek::SLICE, s_av);
         put(map_off, ek::INDEX, i_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -392,14 +392,14 @@ public:
     }
     const uint8_t* emit_slice_len_direct(TypeRef ty, lir_view::ExprRef slice) {
         auto s_av = expr_av(slice);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SliceLen));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::SliceLen));
         put(map_off, ek::SLICE, s_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
     const uint8_t* emit_slice_ptr_direct(TypeRef ty, lir_view::ExprRef slice) {
         auto s_av = expr_av(slice);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::SlicePtr));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::SlicePtr));
         put(map_off, ek::SLICE, s_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -407,7 +407,7 @@ public:
     const uint8_t* emit_addr_of_temp_direct(TypeRef ty, lir_view::ExprRef inner,
                                                      bool is_mut) {
         auto in_av = expr_av(inner);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AddrOfTemp));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::AddrOfTemp));
         put(map_off, ek::INNER,  in_av);
         put(map_off, ek::IS_MUT, put_bool(is_mut));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -425,9 +425,9 @@ public:
         auto cap_ex  = expr_array(capture_exprs);
         auto cap_ty  = type_array(capture_types);
         auto blob_av = static_blob.empty()
-                       ? hermes::AnyVal{}
+                       ? writ::AnyVal{}
                        : put_string(static_blob);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::HermesLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::HermesLit));
         put(map_off, hl::ROOT,                  root_av);
         put(map_off, hl::HAS_CAPTURES,          put_bool(has_captures));
         put(map_off, hl::CAPTURE_EXPRS,         cap_ex);
@@ -443,7 +443,7 @@ public:
                                                  int64_t disc) {
         auto en_av = put_string(enum_name);
         auto vr_av = put_string(variant);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::EnumLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::EnumLit));
         put(map_off, ek::ENUM_NAME, en_av);
         put(map_off, ek::VARIANT,   vr_av);
         put(map_off, ek::DISC,      put_i64(disc));
@@ -459,7 +459,7 @@ public:
         auto en_av = put_string(enum_name);
         auto vr_av = put_string(variant);
         auto pl_av = expr_array(payload);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::EnumLitData));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::EnumLitData));
         put(map_off, ek::ENUM_NAME, en_av);
         put(map_off, ek::VARIANT,   vr_av);
         put(map_off, ek::DISC,      put_i64(disc));
@@ -473,7 +473,7 @@ public:
                                                    const FieldVec& fields) {
         auto n_av = put_string(name);
         auto fa   = struct_fields(fields);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::StructLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::StructLit));
         put(map_off, ek::STRUCT_NAME,  n_av);
         put(map_off, ek::FIELD_NAMES,  fa.names);
         put(map_off, ek::FIELD_VALUES, fa.values);
@@ -488,7 +488,7 @@ public:
         auto cn_av = put_string(callee);
         auto ta_av = type_array(type_args);
         auto ar_av = expr_array(args);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Call));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Call));
         put(map_off, ek::CALLEE,    cn_av);
         put(map_off, ek::TYPE_ARGS, ta_av);
         put(map_off, ek::ARGS,      ar_av);
@@ -510,7 +510,7 @@ public:
         auto m_av    = put_string(method);
         auto ta_av   = type_array(type_args);
         auto ar_av   = expr_array(args);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::MethodCall));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::MethodCall));
         put(map_off, ek::RECEIVER,     recv_av);
         put(map_off, ek::METHOD,       m_av);
         put(map_off, ek::TYPE_ARGS,    ta_av);
@@ -531,7 +531,7 @@ public:
                                               lir_view::ExprRef operand) {
         auto op_av = put_string(op);
         auto o_av  = expr_av(operand);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::Unary));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Unary));
         put(map_off, ek::OP,      op_av);
         put(map_off, ek::OPERAND, o_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -543,7 +543,7 @@ public:
         auto op_av = put_string(op);
         auto l_av  = expr_av(lhs);
         auto r_av  = expr_av(rhs);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::BinOp));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::BinOp));
         put(map_off, ek::OP,  op_av);
         put(map_off, ek::LHS, l_av);
         put(map_off, ek::RHS, r_av);
@@ -555,7 +555,7 @@ public:
                                                    std::string_view field) {
         auto r_av = expr_av(receiver);
         auto f_av = put_string(field);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FieldRead));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::FieldRead));
         put(map_off, ek::RECEIVER, r_av);
         put(map_off, ek::NAME,     f_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -566,7 +566,7 @@ public:
                                                    lir_view::ExprRef index) {
         auto r_av = expr_av(receiver);
         auto i_av = expr_av(index);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::IndexRead));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::IndexRead));
         put(map_off, ek::RECEIVER, r_av);
         put(map_off, ek::INDEX,    i_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -577,7 +577,7 @@ public:
                                                   lir_view::ExprRef offset) {
         auto p_av = expr_av(ptr);
         auto o_av = expr_av(offset);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PtrArith));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::PtrArith));
         put(map_off, ek::PTR_ARITH_OP, put_u8(op));
         put(map_off, ek::BASE_PTR,     p_av);
         put(map_off, ek::OFFSET,       o_av);
@@ -589,7 +589,7 @@ public:
                                                  lir_view::ExprRef rhs) {
         auto l_av = expr_av(lhs);
         auto r_av = expr_av(rhs);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::PtrDiff));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::PtrDiff));
         put(map_off, pdk::BY_BYTE, put_bool(by_byte));
         put(map_off, ek::LHS,      l_av);
         put(map_off, ek::RHS,      r_av);
@@ -603,7 +603,7 @@ public:
         auto c_av = expr_av(cond);
         auto t_av = expr_av(then_val);
         auto e_av = expr_av(else_val);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::IfExpr));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::IfExpr));
         put(map_off, ek::COND,     c_av);
         put(map_off, ek::THEN_VAL, t_av);
         put(map_off, ek::ELSE_VAL, e_av);
@@ -613,7 +613,7 @@ public:
     const uint8_t* emit_tuple_lit_direct(TypeRef ty,
                                          const std::vector<lir_view::ExprRef>& elems) {
         auto el_av = expr_array(elems);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::TupleLit));
         put(map_off, ek::ELEMS, el_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -622,7 +622,7 @@ public:
                                                     lir_view::ExprRef receiver,
                                                     uint32_t index) {
         auto r_av = expr_av(receiver);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::TupleIndex));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::TupleIndex));
         put(map_off, ek::RECEIVER,        r_av);
         put(map_off, ek::TUPLE_INDEX_VAL, put_u32(index));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -632,7 +632,7 @@ public:
     const uint8_t* emit_arr_lit_direct(TypeRef ty,
                                                 const ExprVec& elems) {
         auto el_av = expr_array(elems);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ArrLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ArrLit));
         put(map_off, ek::ELEMS, el_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -640,9 +640,9 @@ public:
     const uint8_t* emit_block_expr_direct(TypeRef ty,
                                                    lir_view::BlockRef block,
                                                    lir_view::ExprRef result) {
-        auto b_av = block ? mref_addr(block.addr()) : hermes::AnyVal{};
+        auto b_av = block ? mref_addr(block.addr()) : writ::AnyVal{};
         auto r_av = expr_av(result);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::BlockExpr));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::BlockExpr));
         put(map_off, ek::BLOCK,  b_av);
         put(map_off, ek::RESULT, r_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -654,7 +654,7 @@ public:
                                                      const ExprVec& args) {
         auto c_av = expr_av(callee);
         auto a_av = expr_array(args);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureCall));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ClosureCall));
         put(map_off, ek::CALLEE, c_av);
         put(map_off, ek::ARGS,   a_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -666,7 +666,7 @@ public:
                                                     const ExprVec& args) {
         auto c_av = expr_av(callee);
         auto a_av = expr_array(args);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FnPtrCall));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::FnPtrCall));
         put(map_off, ek::CALLEE, c_av);
         put(map_off, ek::ARGS,   a_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -677,7 +677,7 @@ public:
                                                    const std::vector<lir::EMatchArm>& arms) {
         auto sc_av = expr_av(scrut);
         auto ar_av = expr_arm_array(arms);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::MatchExpr));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::MatchExpr));
         put(map_off, ek::SCRUT, sc_av);
         put(map_off, ek::ARMS,  ar_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -688,7 +688,7 @@ public:
                                                    const std::vector<lir::EMatchArmView>& arms) {
         auto sc_av = expr_av(scrut);
         auto ar_av = expr_arm_array(arms);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::MatchExpr));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::MatchExpr));
         put(map_off, ek::SCRUT, sc_av);
         put(map_off, ek::ARMS,  ar_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
@@ -702,7 +702,7 @@ public:
         auto f_av  = expr_av(fmt);
         auto a_av  = expr_array(args);
         auto at_av = type_array(arg_types);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::FormatCall));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::FormatCall));
         put(map_off, ek::FMT,       f_av);
         put(map_off, ek::ARGS,      a_av);
         put(map_off, ek::ARG_TYPES, at_av);
@@ -714,8 +714,8 @@ public:
         // Closure body / captures live inside `inner`; emit_closure walks the
         // sub-tree (block + captures + params) and yields the closure's mirror
         // offset, which we attach as ek::CLOSURE.
-        auto cl_av = inner ? closure_av(*inner) : hermes::AnyVal{};
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox));
+        auto cl_av = inner ? closure_av(*inner) : writ::AnyVal{};
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ClosureBox));
         put(map_off, ek::CLOSURE, cl_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
@@ -732,7 +732,7 @@ public:
                                             bool is_mut, uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = put_string(name);
         auto val_av  = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Let));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Let));
         put(map_off, sk::NAME,   name_av);
         put(map_off, sk::TYPE,   type_av(ty));
         put(map_off, sk::VALUE,  val_av);
@@ -746,7 +746,7 @@ public:
                                                bool drop_old = false) {
         auto name_av = put_string(name);
         auto val_av  = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Assign));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Assign));
         put(map_off, sk::NAME,  name_av);
         put(map_off, sk::VALUE, val_av);
         if (drop_old) put(map_off, sk::DROP_OLD, put_bool(true));
@@ -755,7 +755,7 @@ public:
     }
     const uint8_t* emit_return_direct(uint32_t line, lir_view::ExprRef value) {
         auto val_av = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Return));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Return));
         put(map_off, sk::VALUE, val_av);
         put_line(map_off, line);
         return map_off;
@@ -765,10 +765,10 @@ public:
                                                 lir_view::BlockRef then_blk,
                                                 lir_view::BlockRef else_blk) {
         auto cond_av = expr_av(cond);
-        auto then_av = then_blk ? mref_addr(then_blk.addr()) : hermes::AnyVal{};
-        hermes::AnyVal else_av;
+        auto then_av = then_blk ? mref_addr(then_blk.addr()) : writ::AnyVal{};
+        writ::AnyVal else_av;
         if (else_blk) else_av = mref_addr(else_blk.addr());
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::If));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::If));
         put(map_off, sk::COND,       cond_av);
         put(map_off, sk::THEN_BLOCK, then_av);
         put(map_off, sk::ELSE_BLOCK, else_av);
@@ -780,10 +780,10 @@ public:
                                               lir_view::BlockRef body,
                                               std::string_view label) {
         auto cond_av = expr_av(cond);
-        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
-        hermes::AnyVal label_av;
+        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
+        writ::AnyVal label_av;
         if (!label.empty()) label_av = put_string(label);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::While));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::While));
         put(map_off, sk::COND,  cond_av);
         put(map_off, sk::BODY,  body_av);
         put(map_off, sk::LABEL, label_av);
@@ -801,10 +801,10 @@ public:
         auto var_av  = put_string(var);
         auto lo_av   = expr_av(lo);
         auto hi_av   = expr_av(hi);
-        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
-        hermes::AnyVal label_av;
+        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
+        writ::AnyVal label_av;
         if (!label.empty()) label_av = put_string(label);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::For));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::For));
         put(map_off, sk::VAR,       var_av);
         put(map_off, sk::LO,        lo_av);
         put(map_off, sk::HI,        hi_av);
@@ -820,11 +820,11 @@ public:
                                              std::string_view label,
                                              std::string_view break_slot,
                                              TypeRef result_type) {
-        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
-        hermes::AnyVal label_av, slot_av;
+        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
+        writ::AnyVal label_av, slot_av;
         if (!label.empty())      label_av = put_string(label);
         if (!break_slot.empty()) slot_av  = put_string(break_slot);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Loop));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Loop));
         put(map_off, sk::BODY,        body_av);
         put(map_off, sk::LABEL,       label_av);
         put(map_off, sk::BREAK_SLOT,  slot_av);
@@ -836,9 +836,9 @@ public:
                                               lir_view::ExprRef value,
                                               std::string_view label) {
         auto val_av = expr_av(value);
-        hermes::AnyVal label_av;
+        writ::AnyVal label_av;
         if (!label.empty()) label_av = put_string(label);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Break));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Break));
         put(map_off, sk::VALUE, val_av);
         put(map_off, sk::LABEL, label_av);
         put_line(map_off, line);
@@ -846,17 +846,17 @@ public:
     }
     const uint8_t* emit_continue_direct(uint32_t line,
                                                  std::string_view label) {
-        hermes::AnyVal label_av;
+        writ::AnyVal label_av;
         if (!label.empty()) label_av = put_string(label);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Continue));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Continue));
         put(map_off, sk::LABEL, label_av);
         put_line(map_off, line);
         return map_off;
     }
     const uint8_t* emit_block_stmt_direct(uint32_t line,
                                                    lir_view::BlockRef body) {
-        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Block));
+        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Block));
         put(map_off, sk::BODY, body_av);
         put_line(map_off, line);
         return map_off;
@@ -868,7 +868,7 @@ public:
         auto recv_av  = put_string(receiver);
         auto field_av = put_string(field);
         auto val_av   = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::FieldWrite));
         put(map_off, sk::RECEIVER, recv_av);
         put(map_off, sk::FIELD,    field_av);
         put(map_off, sk::VALUE,    val_av);
@@ -882,7 +882,7 @@ public:
         auto arr_av  = put_string(arr);
         auto idx_av  = expr_av(index);
         auto val_av  = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::IndexWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::IndexWrite));
         put(map_off, sk::NAME,  arr_av);
         put(map_off, sk::INDEX, idx_av);
         put(map_off, sk::VALUE, val_av);
@@ -898,7 +898,7 @@ public:
         auto field_av = put_string(field);
         auto idx_av   = expr_av(index);
         auto val_av   = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::FieldIndexWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::FieldIndexWrite));
         put(map_off, sk::RECEIVER, recv_av);
         put(map_off, sk::FIELD,    field_av);
         put(map_off, sk::INDEX,    idx_av);
@@ -909,7 +909,7 @@ public:
     const uint8_t* emit_expr_stmt_direct(uint32_t line,
                                                   lir_view::ExprRef expr) {
         auto expr_avv = expr_av(expr);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ExprStmt));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ExprStmt));
         put(map_off, sk::EXPR, expr_avv);
         put_line(map_off, line);
         return map_off;
@@ -919,7 +919,7 @@ public:
                                                    const std::vector<lir::LMatchArm>& arms) {
         auto scrut_av = expr_av(scrut);
         auto arms_av  = arm_array(arms);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Match));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Match));
         put(map_off, sk::SCRUT, scrut_av);
         put(map_off, sk::ARMS,  arms_av);
         put_line(map_off, line);
@@ -935,8 +935,8 @@ public:
                                                  uint32_t slot = 0xFFFFFFFFu) {
         auto var_av  = put_string(var);
         auto iter_av = expr_av(iter);
-        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
+        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
         put(map_off, sk::VAR,       var_av);
         put(map_off, sk::ITER,      iter_av);
         put(map_off, sk::ELEM_TYPE, type_av(elem_type));
@@ -953,7 +953,7 @@ public:
                                                     bool drop_old = false) {
         auto ptr_av = expr_av(ptr);
         auto val_av = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::DerefWrite));
         put(map_off, sk::PTR,   ptr_av);
         put(map_off, sk::VALUE, val_av);
         if (drop_old) put(map_off, sk::DROP_OLD, put_bool(true));
@@ -967,11 +967,11 @@ public:
                                              bool drop_fields,
                                              const std::vector<std::string>& moved_fields) {
         auto var_av = put_string(var_name);
-        hermes::AnyVal drop_av;
+        writ::AnyVal drop_av;
         if (!drop_fn.empty()) drop_av = put_string(drop_fn);
-        hermes::AnyVal moved_av;
+        writ::AnyVal moved_av;
         if (!moved_fields.empty()) moved_av = string_array(moved_fields);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Drop));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Drop));
         put(map_off, sk::NAME,         var_av);
         put(map_off, sk::DROP_FN,      drop_av);
         put(map_off, sk::TYPE,         type_av(ty));
@@ -990,7 +990,7 @@ public:
         auto type_avv = put_string(type_name);
         auto field_av = put_string(field);
         auto val_av   = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefFieldWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::DerefFieldWrite));
         put(map_off, sk::RECEIVER,   recv_av);
         put(map_off, sk::TYPE_NAME,  type_avv);
         put(map_off, sk::FIELD,      field_av);
@@ -1005,7 +1005,7 @@ public:
                                                     TypeRef recv_type) {
         auto recv_av = put_string(receiver);
         auto val_av  = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::TupleWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::TupleWrite));
         put(map_off, sk::RECEIVER,        recv_av);
         put(map_off, sk::TUPLE_INDEX_VAL, put_u32(index));
         put(map_off, sk::VALUE,           val_av);
@@ -1020,8 +1020,8 @@ public:
                                                  const std::vector<lir::LExprPtr>& guards) {
         auto pat_off  = emit_pat(pat);
         auto scrut_av = expr_av(scrut);
-        auto eb_av    = else_block ? mref_addr(else_block.addr()) : hermes::AnyVal{};
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
+        auto eb_av    = else_block ? mref_addr(else_block.addr()) : writ::AnyVal{};
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
         put(map_off, sk::PAT,           mref_addr(pat_off));
         put(map_off, sk::SCRUT,         scrut_av);
         put(map_off, sk::ELSE_DIVERGE,  eb_av);
@@ -1041,7 +1041,7 @@ public:
         auto extras_av = string_array(extras);
         auto fld_av    = put_string(field);
         auto val_av    = expr_av(value);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ChainFieldWrite));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::ChainFieldWrite));
         put(map_off, sk::RECEIVER,   recv_av);
         put(map_off, sk::MID_FIELD,  mid_av);
         if (!extras.empty())
@@ -1060,32 +1060,32 @@ public:
     static constexpr int32_t HV_BASE_DIRECT = 200;
 
     const uint8_t* emit_hv_null_direct() {
-        return make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 0));
+        return make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 0));
     }
     const uint8_t* emit_hv_bool_direct(bool value) {
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 1));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 1));
         put(map_off, hk::BOOL_VALUE, put_bool(value));
         return map_off;
     }
     const uint8_t* emit_hv_int_direct(int64_t value) {
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 2));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 2));
         put(map_off, hk::INT_VALUE, put_i64(value));
         return map_off;
     }
     const uint8_t* emit_hv_float_direct(double value) {
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 3));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 3));
         put(map_off, hk::FLOAT_VALUE, put_f64(value));
         return map_off;
     }
     const uint8_t* emit_hv_str_direct(std::string_view value) {
         auto s_av = put_string(value);
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 4));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 4));
         put(map_off, hk::STR_VALUE, s_av);
         return map_off;
     }
     const uint8_t* emit_hv_map_direct(const std::vector<lir::HVMapEntry>& entries,
                                                std::string_view key_type) {
-        std::vector<hermes::AnyVal> key_strs, key_ints, val_avs;
+        std::vector<writ::AnyVal> key_strs, key_ints, val_avs;
         key_strs.reserve(entries.size());
         key_ints.reserve(entries.size());
         val_avs.reserve(entries.size());
@@ -1096,7 +1096,7 @@ public:
                 key_ints.push_back(put_i64(std::get<int64_t>(e.key)));
             val_avs.push_back(hv_av(e.val));
         }
-        hermes::AnyVal keys_av;
+        writ::AnyVal keys_av;
         if (!key_strs.empty()) {
             auto off = make_array(key_strs.size());
             for (auto av : key_strs) array_push(off, av);
@@ -1106,13 +1106,13 @@ public:
             for (auto av : key_ints) array_push(off, av);
             keys_av = mref_addr(off);
         }
-        hermes::AnyVal vals_av;
+        writ::AnyVal vals_av;
         if (!val_avs.empty()) {
             auto off = make_array(val_avs.size());
             for (auto av : val_avs) array_push(off, av);
             vals_av = mref_addr(off);
         }
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 5));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 5));
         put(map_off, hk::MAP_KEYS,   keys_av);
         put(map_off, hk::MAP_VALUES, vals_av);
         if (!key_type.empty())
@@ -1121,30 +1121,30 @@ public:
     }
     const uint8_t* emit_hv_array_direct(const std::vector<lir::HermesValPtr>& elements,
                                                  std::string_view elem_type) {
-        std::vector<hermes::AnyVal> elems;
+        std::vector<writ::AnyVal> elems;
         elems.reserve(elements.size());
         for (auto& e : elements) elems.push_back(hv_av(e));
-        hermes::AnyVal arr_av;
+        writ::AnyVal arr_av;
         if (!elems.empty()) {
             auto off = make_array(elems.size());
             for (auto av : elems) array_push(off, av);
             arr_av = mref_addr(off);
         }
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 6));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 6));
         put(map_off, hk::ELEMS, arr_av);
         if (!elem_type.empty())
             put(map_off, hk::TYPE_NAME, put_string(elem_type));
         return map_off;
     }
     const uint8_t* emit_hv_capture_direct(uint32_t param_index, uint32_t value_index) {
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 7));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 7));
         put(map_off, hk::PARAM_INDEX, put_u32(param_index));
         put(map_off, hk::VALUE_INDEX, put_u32(value_index));
         return map_off;
     }
     const uint8_t* emit_hv_type_direct(uint32_t kind, uint64_t uid, std::string_view name) {
         auto name_av = put_string(name);
-        auto map_off = make_map(hermes::schema::lir_expr(HV_BASE_DIRECT + 8));
+        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 8));
         put(map_off, hk::STR_VALUE, name_av);
         put(map_off, hk::TYPE_KIND, put_u32(kind));
         put(map_off, hk::TYPE_UID,  put_u64(uid));
@@ -1160,26 +1160,26 @@ public:
                                                     int64_t disc) {
         auto enum_av    = put_string(enum_name);
         auto variant_av = put_string(variant);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Variant));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Variant));
         put(map_off, pk::ENUM_NAME, enum_av);
         put(map_off, pk::VARIANT,   variant_av);
         put(map_off, pk::DISC,      put_i64(disc));
         return map_off;
     }
     const uint8_t* emit_pat_int_direct(int64_t value) {
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Int));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Int));
         put(map_off, pk::INT_VALUE, put_i64(value));
         return map_off;
     }
     const uint8_t* emit_pat_bool_direct(bool value) {
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Bool));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Bool));
         put(map_off, pk::BOOL_VALUE, put_bool(value));
         return map_off;
     }
     const uint8_t* emit_pat_wild_direct(std::string_view name,
                                                 uint32_t slot = 0xFFFFFFFFu) {
-        auto name_av = name.empty() ? hermes::AnyVal{} : put_string(name);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Wild));
+        auto name_av = name.empty() ? writ::AnyVal{} : put_string(name);
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Wild));
         put(map_off, pk::NAME, name_av);
         if (slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)slot));
         return map_off;
@@ -1195,7 +1195,7 @@ public:
         auto bindings_av = string_array(bindings);
         auto btypes_av   = type_array(binding_types);
         auto slots_av    = u32_array(bind_slots);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::VariantData));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::VariantData));
         put(map_off, pk::ENUM_NAME,      enum_av);
         put(map_off, pk::VARIANT,        variant_av);
         put(map_off, pk::DISC,           put_i64(disc));
@@ -1206,7 +1206,7 @@ public:
     }
     const uint8_t* emit_pat_or_direct(const std::vector<lir::Pattern>& alts) {
         auto subs_av = pat_array(alts);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Or));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Or));
         put(map_off, pk::SUBS, subs_av);
         return map_off;
     }
@@ -1218,7 +1218,7 @@ public:
         auto btypes_av   = type_array(binding_types);
         auto subs_av     = pat_array(subs);
         auto slots_av    = u32_array(bind_slots);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Tuple));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Tuple));
         put(map_off, pk::BINDINGS,      bindings_av);
         put(map_off, pk::BINDING_TYPES, btypes_av);
         put(map_off, pk::SUBS,          subs_av);
@@ -1226,7 +1226,7 @@ public:
         return map_off;
     }
     const uint8_t* emit_pat_range_direct(int64_t lo, int64_t hi) {
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Range));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Range));
         put(map_off, pk::LO, put_i64(lo));
         put(map_off, pk::HI, put_i64(hi));
         return map_off;
@@ -1236,7 +1236,7 @@ public:
                                                    bool has_rest) {
         auto name_av   = put_string(struct_name);
         auto fields_av = field_binding_array(fields);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Struct));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Struct));
         put(map_off, pk::STRUCT_NAME, name_av);
         put(map_off, pk::FIELDS,      fields_av);
         put(map_off, pk::HAS_REST,    put_bool(has_rest));
@@ -1248,7 +1248,7 @@ public:
         auto pre_av  = pat_array(prefix);
         auto rest_av = pat_array(rest);
         auto suf_av  = pat_array(suffix);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Slice));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Slice));
         put(map_off, pk::PREFIX, pre_av);
         put(map_off, pk::REST,   rest_av);
         put(map_off, pk::SUFFIX, suf_av);
@@ -1259,7 +1259,7 @@ public:
                                                TypeRef type, uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = put_string(name);
         auto sub_av  = pat_array(sub);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::At));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::At));
         put(map_off, pk::NAME, name_av);
         put(map_off, pk::SUB,  sub_av);
         put(map_off, pk::TYPE, type_av(type));
@@ -1270,7 +1270,7 @@ public:
                                                      bool is_mut,
                                                      TypeRef bind_type, uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = put_string(name);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefBind));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::RefBind));
         put(map_off, pk::NAME,      name_av);
         put(map_off, pk::IS_MUT,    put_bool(is_mut));
         put(map_off, pk::BIND_TYPE, type_av(bind_type));
@@ -1280,7 +1280,7 @@ public:
     const uint8_t* emit_pat_ref_pat_direct(const std::vector<lir::Pattern>& inner,
                                                     bool is_mut) {
         auto inner_av = pat_array(inner);
-        auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefPat));
+        auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::RefPat));
         put(map_off, pk::INNER,  inner_av);
         put(map_off, pk::IS_MUT, put_bool(is_mut));
         return map_off;
@@ -1294,53 +1294,53 @@ public:
     // the offset against the holder's base on construction, so it stays valid
     // across reallocs as long as it isn't held past the next allocation (same
     // discipline as the old raw refetch — Stage C / MultiChunk removes it).
-    hermes::TinyMapView tom_at(const uint8_t* addr) noexcept {
-        return hermes::TinyMapView(
-            reinterpret_cast<hermes::TinyObjectMap*>(const_cast<uint8_t*>(addr)),
+    writ::TinyMapView tom_at(const uint8_t* addr) noexcept {
+        return writ::TinyMapView(
+            reinterpret_cast<writ::TinyObjectMap*>(const_cast<uint8_t*>(addr)),
             holder());
     }
-    hermes::ArrayView arr_at(const uint8_t* addr) noexcept {
-        return hermes::ArrayView(
-            reinterpret_cast<hermes::ObjectArray*>(const_cast<uint8_t*>(addr)),
+    writ::ArrayView arr_at(const uint8_t* addr) noexcept {
+        return writ::ArrayView(
+            reinterpret_cast<writ::ObjectArray*>(const_cast<uint8_t*>(addr)),
             holder());
     }
 
-    hermes::AnyVal put_string(std::string_view s) {
+    writ::AnyVal put_string(std::string_view s) {
         auto v = ctr_.make_string(s);
         LOGOS_ASSERT(v.has_value(), "LIR-MIRROR-001", "ArenaString alloc failed");
         return v->to_anyval();
     }
-    hermes::AnyVal put_i64(int64_t v) {
+    writ::AnyVal put_i64(int64_t v) {
         auto av = ctr_.box<int64_t>(v);
         LOGOS_ASSERT(av.has_value(), "LIR-MIRROR-002", "i64 anyval put failed");
         return *av;
     }
-    hermes::AnyVal put_u64(uint64_t v) {
+    writ::AnyVal put_u64(uint64_t v) {
         auto av = ctr_.box<uint64_t>(v);
         LOGOS_ASSERT(av.has_value(), "LIR-MIRROR-002", "u64 anyval put failed");
         return *av;
     }
-    hermes::AnyVal put_f64(double v) {
+    writ::AnyVal put_f64(double v) {
         auto av = ctr_.box<double>(v);
         LOGOS_ASSERT(av.has_value(), "LIR-MIRROR-002", "f64 anyval put failed");
         return *av;
     }
-    hermes::AnyVal put_bool(bool v) {
-        return hermes::AnyVal::from_value<uint8_t>(
-            v ? 1 : 0, hermes::type_hash::Bool);
+    writ::AnyVal put_bool(bool v) {
+        return writ::AnyVal::from_value<uint8_t>(
+            v ? 1 : 0, writ::type_hash::Bool);
     }
-    hermes::AnyVal put_i32(int32_t v) {
-        return hermes::AnyVal::from_value<int32_t>(v);
+    writ::AnyVal put_i32(int32_t v) {
+        return writ::AnyVal::from_value<int32_t>(v);
     }
-    hermes::AnyVal put_u32(uint32_t v) {
-        return hermes::AnyVal::from_value<uint32_t>(v);
+    writ::AnyVal put_u32(uint32_t v) {
+        return writ::AnyVal::from_value<uint32_t>(v);
     }
-    hermes::AnyVal put_u8(uint8_t v) {
-        return hermes::AnyVal::from_value<uint8_t>(v);
+    writ::AnyVal put_u8(uint8_t v) {
+        return writ::AnyVal::from_value<uint8_t>(v);
     }
 
-    hermes::AnyVal type_av(TypeRef t) {
-        if (!t) return hermes::AnyVal{};
+    writ::AnyVal type_av(TypeRef t) {
+        if (!t) return writ::AnyVal{};
         // Phase 5.B step 3: foreign TypeRef → intern into local pool before
         // referencing it. The mirror's TYPE field is interpreted in the local
         // arena, so a foreign reference here would read garbage later.
@@ -1353,18 +1353,18 @@ public:
 
     // Stage D: EXPR children are eagerly direct-emitted, so their mirror_ptr_ is
     // already set — reference by address via the view (no emit_expr re-walk).
-    hermes::AnyVal expr_av(lir_view::ExprRef e)  { return e ? mref_addr(e.addr()) : hermes::AnyVal{}; }
-    hermes::AnyVal pat_av(const Pattern& p) {
+    writ::AnyVal expr_av(lir_view::ExprRef e)  { return e ? mref_addr(e.addr()) : writ::AnyVal{}; }
+    writ::AnyVal pat_av(const Pattern& p) {
         return mref_addr(emit_pat(p));
     }
-    hermes::AnyVal hv_av(const lir::HermesValPtr& v) {
-        if (!v) return hermes::AnyVal{};
+    writ::AnyVal hv_av(const lir::HermesValPtr& v) {
+        if (!v) return writ::AnyVal{};
         return mref_addr(emit_hv(*v));
     }
-    hermes::AnyVal arm_av(const LMatchArm& a) {
+    writ::AnyVal arm_av(const LMatchArm& a) {
         return mref_addr(emit_arm(a));
     }
-    hermes::AnyVal closure_av(const EClosure& c) {
+    writ::AnyVal closure_av(const EClosure& c) {
         return mref_addr(emit_closure(c));
     }
 
@@ -1376,58 +1376,58 @@ public:
         LOGOS_ASSERT(arr.has_value(), "LIR-MIRROR-003", "ObjectArray alloc failed");
         return reinterpret_cast<const uint8_t*>(arr->ptr());
     }
-    void array_push(const uint8_t* arr_addr, hermes::AnyVal v) {
+    void array_push(const uint8_t* arr_addr, writ::AnyVal v) {
         if (dry_run_) return;
         auto r = arr_at(arr_addr).push_back(v);
         LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-003", "ObjectArray push failed");
     }
 
     // Stage D: elements as mirror views (the eager-emitted expr mirrors).
-    hermes::AnyVal expr_array(const std::vector<lir_view::ExprRef>& v) {
-        if (v.empty()) return hermes::AnyVal{};
-        std::vector<hermes::AnyVal> elems;
+    writ::AnyVal expr_array(const std::vector<lir_view::ExprRef>& v) {
+        if (v.empty()) return writ::AnyVal{};
+        std::vector<writ::AnyVal> elems;
         elems.reserve(v.size());
         for (auto& e : v) elems.push_back(expr_av(e));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
         return mref_addr(arr_off);
     }
-    hermes::AnyVal type_array(const std::vector<TypeRef>& v) {
-        if (v.empty()) return hermes::AnyVal{};
+    writ::AnyVal type_array(const std::vector<TypeRef>& v) {
+        if (v.empty()) return writ::AnyVal{};
         auto arr_off = make_array(v.size());
         for (auto t : v) array_push(arr_off, type_av(t));
         return mref_addr(arr_off);
     }
-    hermes::AnyVal string_array(const std::vector<std::string>& v) {
-        if (v.empty()) return hermes::AnyVal{};
-        std::vector<hermes::AnyVal> elems;
+    writ::AnyVal string_array(const std::vector<std::string>& v) {
+        if (v.empty()) return writ::AnyVal{};
+        std::vector<writ::AnyVal> elems;
         elems.reserve(v.size());
         for (auto& s : v) elems.push_back(put_string(s));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
         return mref_addr(arr_off);
     }
-    hermes::AnyVal pat_array(const std::vector<Pattern>& v) {
-        if (v.empty()) return hermes::AnyVal{};
-        std::vector<hermes::AnyVal> elems;
+    writ::AnyVal pat_array(const std::vector<Pattern>& v) {
+        if (v.empty()) return writ::AnyVal{};
+        std::vector<writ::AnyVal> elems;
         elems.reserve(v.size());
         for (auto& p : v) elems.push_back(pat_av(p));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
         return mref_addr(arr_off);
     }
-    hermes::AnyVal u32_array(const std::vector<uint32_t>& v) {
-        if (v.empty()) return hermes::AnyVal{};
-        std::vector<hermes::AnyVal> elems;
+    writ::AnyVal u32_array(const std::vector<uint32_t>& v) {
+        if (v.empty()) return writ::AnyVal{};
+        std::vector<writ::AnyVal> elems;
         elems.reserve(v.size());
         for (auto x : v) elems.push_back(put_u32(x));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
         return mref_addr(arr_off);
     }
-    hermes::AnyVal arm_array(const std::vector<LMatchArm>& v) {
-        if (v.empty()) return hermes::AnyVal{};
-        std::vector<hermes::AnyVal> elems;
+    writ::AnyVal arm_array(const std::vector<LMatchArm>& v) {
+        if (v.empty()) return writ::AnyVal{};
+        std::vector<writ::AnyVal> elems;
         elems.reserve(v.size());
         for (auto& a : v) elems.push_back(arm_av(a));
         auto arr_off = make_array(elems.size());
@@ -1437,21 +1437,21 @@ public:
 
     // EMatchExpr arms have a different shape than LMatchArm (value vs body) —
     // emit each as a small TinyObjectMap and return an array of AnyVal.
-    hermes::AnyVal expr_arm_array(const std::vector<lir::EMatchArm>& v);
-    hermes::AnyVal expr_arm_array(const std::vector<lir::EMatchArmView>& v);
+    writ::AnyVal expr_arm_array(const std::vector<lir::EMatchArm>& v);
+    writ::AnyVal expr_arm_array(const std::vector<lir::EMatchArmView>& v);
     const uint8_t* emit_expr_arm(const lir::EMatchArmView& a);
 
     // EStructLit fields: emit FIELD_NAMES + FIELD_VALUES parallel arrays
     // and write them to the parent map. Returns the two arrays as a pair.
     struct FieldArrays {
-        hermes::AnyVal names;
-        hermes::AnyVal values;
+        writ::AnyVal names;
+        writ::AnyVal values;
     };
     template <class FieldVec>
     FieldArrays struct_fields(const FieldVec& fields) {
         FieldArrays out;
         if (fields.empty()) return out;
-        std::vector<hermes::AnyVal> name_elems, value_elems;
+        std::vector<writ::AnyVal> name_elems, value_elems;
         name_elems.reserve(fields.size());
         value_elems.reserve(fields.size());
         for (auto& [n, v] : fields) {
@@ -1468,7 +1468,7 @@ public:
     }
 
     // PatFieldBinding array (for PatStruct).
-    hermes::AnyVal field_binding_array(
+    writ::AnyVal field_binding_array(
         const std::vector<lir::PatFieldBinding>& v);
 
     // ── map creation + put helpers ─────────────────────────────────────────
@@ -1482,7 +1482,7 @@ public:
         return reinterpret_cast<const uint8_t*>(m->ptr());
     }
     void put(const uint8_t* map_addr,
-             const lir_schema::Key& key, hermes::AnyVal val) {
+             const lir_schema::Key& key, writ::AnyVal val) {
         if (dry_run_) return;
         if (val.is_null()) return;
         auto r = tom_at(map_addr).put(key.code, val);
@@ -1496,15 +1496,15 @@ public:
     // stmt-ref vector (the core of emit_block, no husk/cache). Called at each
     // block's completion point via lir_mirror_block.
     const uint8_t* emit_block_stmts(const std::vector<lir_view::StmtRef>& stmts) {
-        std::vector<hermes::AnyVal> elems; elems.reserve(stmts.size());
+        std::vector<writ::AnyVal> elems; elems.reserve(stmts.size());
         for (auto& s : stmts) elems.push_back(mref_addr(s.addr()));
-        hermes::AnyVal stmts_av;
+        writ::AnyVal stmts_av;
         if (!elems.empty()) {
             auto arr_off = make_array(elems.size());
             for (auto av : elems) array_push(arr_off, av);
             stmts_av = mref_addr(arr_off);
         }
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count));
+        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count));
         if (!stmts_av.is_null()) put(map_off, sk::ARMS, stmts_av);
         return map_off;
     }
@@ -1527,10 +1527,10 @@ public:
 const uint8_t* LirMirrorEmitter::emit_arm(const LMatchArm& a) {
     auto pat_off    = emit_pat(a.pat);
     auto body_off   = a.body.addr();   // Stage D: arm body pre-emitted BlockRef
-    hermes::AnyVal guard_av;
+    writ::AnyVal guard_av;
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
-    auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 1));
+    auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 1));
     put(map_off, ak::PAT,   mref_addr(pat_off));
     put(map_off, ak::BODY,  mref_addr(body_off));
     put(map_off, ak::GUARD, guard_av);
@@ -1540,21 +1540,21 @@ const uint8_t* LirMirrorEmitter::emit_arm(const LMatchArm& a) {
 const uint8_t* LirMirrorEmitter::emit_expr_arm(const lir::EMatchArm& a) {
     auto pat_off    = emit_pat(a.pat);
     auto value_off  = a.value.addr();
-    hermes::AnyVal guard_av;
+    writ::AnyVal guard_av;
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
-    auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 2));
+    auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 2));
     put(map_off, ak::PAT,   mref_addr(pat_off));
     put(map_off, ak::VALUE, mref_addr(value_off));
     put(map_off, ak::GUARD, guard_av);
     return map_off;
 }
 
-hermes::AnyVal LirMirrorEmitter::expr_arm_array(
+writ::AnyVal LirMirrorEmitter::expr_arm_array(
     const std::vector<lir::EMatchArm>& v)
 {
-    if (v.empty()) return hermes::AnyVal{};
-    std::vector<hermes::AnyVal> elems;
+    if (v.empty()) return writ::AnyVal{};
+    std::vector<writ::AnyVal> elems;
     elems.reserve(v.size());
     for (auto& a : v) elems.push_back(
         mref_addr(emit_expr_arm(a)));
@@ -1566,21 +1566,21 @@ hermes::AnyVal LirMirrorEmitter::expr_arm_array(
 const uint8_t* LirMirrorEmitter::emit_expr_arm(const lir::EMatchArmView& a) {
     auto pat_off    = emit_pat(a.pat);
     auto value_off  = expr_av(a.value);   // already-emitted mirror
-    hermes::AnyVal guard_av;
+    writ::AnyVal guard_av;
     if (a.guard) guard_av = expr_av(a.guard);
 
-    auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count + 2));
+    auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 2));
     put(map_off, ak::PAT,   mref_addr(pat_off));
     put(map_off, ak::VALUE, value_off);
     put(map_off, ak::GUARD, guard_av);
     return map_off;
 }
 
-hermes::AnyVal LirMirrorEmitter::expr_arm_array(
+writ::AnyVal LirMirrorEmitter::expr_arm_array(
     const std::vector<lir::EMatchArmView>& v)
 {
-    if (v.empty()) return hermes::AnyVal{};
-    std::vector<hermes::AnyVal> elems;
+    if (v.empty()) return writ::AnyVal{};
+    std::vector<writ::AnyVal> elems;
     elems.reserve(v.size());
     for (auto& a : v) elems.push_back(
         mref_addr(emit_expr_arm(a)));
@@ -1595,18 +1595,18 @@ const uint8_t* LirMirrorEmitter::emit_field_binding(
     auto name_av = put_string(fb.field_name);
     auto subs_av = pat_array(fb.sub);
 
-    auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Count));
+    auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Count));
     put(map_off, pk::FIELD_NAME, name_av);
     put(map_off, pk::SUB,        subs_av);
     if (fb.slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)fb.slot));
     return map_off;
 }
 
-hermes::AnyVal LirMirrorEmitter::field_binding_array(
+writ::AnyVal LirMirrorEmitter::field_binding_array(
     const std::vector<lir::PatFieldBinding>& v)
 {
-    if (v.empty()) return hermes::AnyVal{};
-    std::vector<hermes::AnyVal> elems;
+    if (v.empty()) return writ::AnyVal{};
+    std::vector<writ::AnyVal> elems;
     elems.reserve(v.size());
     for (auto& fb : v) elems.push_back(
         mref_addr(emit_field_binding(fb)));
@@ -1624,14 +1624,14 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
     auto captures_av  = string_array(c.captures);
 
     // Param names + types as parallel arrays.
-    hermes::AnyVal param_names_av, param_types_av;
+    writ::AnyVal param_names_av, param_types_av;
     if (!c.params.empty()) {
-        std::vector<hermes::AnyVal> n_elems, t_elems;
+        std::vector<writ::AnyVal> n_elems, t_elems;
         n_elems.reserve(c.params.size());
         t_elems.reserve(c.params.size());
         for (auto& p : c.params) {
             n_elems.push_back(put_string(p.name));
-            t_elems.push_back(p.type ? type_av(p.type) : hermes::AnyVal{});
+            t_elems.push_back(p.type ? type_av(p.type) : writ::AnyVal{});
         }
         auto n_off = make_array(n_elems.size());
         for (auto av : n_elems) array_push(n_off, av);
@@ -1643,7 +1643,7 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
 
     // 10 keys (block, name, cap-types, cap-names, param-names, param-types,
     // ret-type, is-move, as-fn-ptr, mut-captures) — default cap=8 overflows.
-    auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
+    auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
                             | (1ULL << 47),
                             /*cap=*/12);
     put(map_off, ck::BLOCK,         mref_addr(body_off));
@@ -1663,7 +1663,7 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
     bool any_mut = false;
     for (auto m : c.mut_captures) if (m) { any_mut = true; break; }
     if (any_mut && c.mut_captures.size() == c.captures.size()) {
-        std::vector<hermes::AnyVal> m_elems;
+        std::vector<writ::AnyVal> m_elems;
         m_elems.reserve(c.mut_captures.size());
         for (bool m : c.mut_captures) m_elems.push_back(put_bool(m));
         auto m_off = make_array(m_elems.size());
@@ -1677,7 +1677,7 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
         for (size_t i = 0; i < c.captures.size(); ++i)
             if (c.capture_paths[i] != c.captures[i]) { any_narrow = true; break; }
         if (any_narrow) {
-            std::vector<hermes::AnyVal> p_elems;
+            std::vector<writ::AnyVal> p_elems;
             p_elems.reserve(c.capture_paths.size());
             for (auto& p : c.capture_paths) p_elems.push_back(put_string(p));
             auto p_off = make_array(p_elems.size());
@@ -1811,14 +1811,14 @@ void lir_mirror_struct_set_type_code(lir::LProgram& prog,
 
 // ── DeclBuilder — direct-Hermes decl factory ────────────────────────────────
 struct DeclBuilder::Impl {
-    hermes::HermesCtr&   ctr;
+    writ::HermesCtr&   ctr;
     LirMirrorTable&      table;
     TypePool&            pool;
     LirMirrorEmitter     em;
     const uint8_t*       map;
-    const hermes::Arena* arena;
-    Impl(hermes::HermesCtr& c, LirMirrorTable& t, TypePool& p,
-         const uint8_t* m, const hermes::Arena* a)
+    const writ::Arena* arena;
+    Impl(writ::HermesCtr& c, LirMirrorTable& t, TypePool& p,
+         const uint8_t* m, const writ::Arena* a)
         : ctr(c), table(t), pool(p), em(c, t, p), map(m), arena(a) {}
 };
 
@@ -1826,7 +1826,7 @@ DeclBuilder::DeclBuilder(lir::LProgram& prog, lir_schema::decl::Code kind, uint6
     auto& ctr = prog.type_pool.ctr_or_init();
     p_ = std::make_unique<Impl>(ctr, *prog.mirror_table, prog.type_pool,
                                 nullptr, prog.type_pool.arena());
-    p_->map = p_->em.make_map(hermes::schema::lir_stmt(int32_t(kind)), cap);
+    p_->map = p_->em.make_map(writ::schema::lir_stmt(int32_t(kind)), cap);
 }
 DeclBuilder::DeclBuilder(lir::LProgram& prog, const uint8_t* existing_map) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -1865,9 +1865,9 @@ void DeclBuilder::expr(lir_schema::Key key, lir_view::ExprRef e) {
 void DeclBuilder::block(lir_schema::Key key, lir_view::BlockRef b) {
     if (b) p_->em.put(p_->map, key, p_->em.mref_addr(b.addr()));
 }
-void DeclBuilder::ext_ref(lir_schema::Key key, hermes::ExternalRef r) {
+void DeclBuilder::ext_ref(lir_schema::Key key, writ::ExternalRef r) {
     if (r.arena_id().is_valid())
-        p_->em.put(p_->map, key, hermes::external_ref_av(r));
+        p_->em.put(p_->map, key, writ::external_ref_av(r));
 }
 DeclArrayBuilder DeclBuilder::array(lir_schema::Key key) {
     auto arr = p_->em.make_array(0);
@@ -1875,7 +1875,7 @@ DeclArrayBuilder DeclBuilder::array(lir_schema::Key key) {
     return DeclArrayBuilder(p_.get(), arr);
 }
 const uint8_t* DeclBuilder::addr() const noexcept { return p_->map; }
-const hermes::Arena* DeclBuilder::arena() const noexcept { return p_->arena; }
+const writ::Arena* DeclBuilder::arena() const noexcept { return p_->arena; }
 
 void DeclArrayBuilder::push_str(std::string_view v) {
     owner_->em.array_push(arr_, owner_->em.put_string(v));
@@ -1914,10 +1914,10 @@ DeclBuilder DeclArrayBuilder::submap(uint64_t schema_code, uint64_t cap) {
 
 // ── ObjectMapRef put helpers (Stage E working-state maps) ───────────────────
 // Create the ObjectMap in prog's arena on first put, then insert key→value.
-static hermes::ObjectMap* ensure_obj_map(lir::LProgram& prog, lir_view::ObjectMapRef& ref) {
+static writ::ObjectMap* ensure_obj_map(lir::LProgram& prog, lir_view::ObjectMapRef& ref) {
     auto& arena = prog.type_pool.arena_or_init();
     if (!ref.valid()) {
-        auto exp = hermes::ObjectMap::create(arena, 8);
+        auto exp = writ::ObjectMap::create(arena, 8);
         LOGOS_ASSERT(exp.has_value(), "LIR-MIRROR-MAP", "ObjectMap create failed");
         ref.arena_ = &arena;
         ref.addr_  = reinterpret_cast<const uint8_t*>(*exp);   // operator* — Err is move-only
@@ -1928,16 +1928,16 @@ void lir_mirror_map_put_str(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
                             std::string_view key, std::string_view val) {
     auto& arena = prog.type_pool.arena_or_init();
     auto* m = ensure_obj_map(prog, ref);
-    auto exp = hermes::ArenaString::create(arena, val);
+    auto exp = writ::ArenaString::create(arena, val);
     LOGOS_ASSERT(exp.has_value(), "LIR-MIRROR-MAP", "value string alloc failed");
-    hermes::AnyVal av; av.set_ref(reinterpret_cast<const uint8_t*>(*exp));
+    writ::AnyVal av; av.set_ref(reinterpret_cast<const uint8_t*>(*exp));
     auto r = m->put(key, av, arena); LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
 }
 void lir_mirror_map_put_ref(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
                             std::string_view key, const uint8_t* val_addr) {
     auto& arena = prog.type_pool.arena_or_init();
     auto* m = ensure_obj_map(prog, ref);
-    hermes::AnyVal av;
+    writ::AnyVal av;
     if (val_addr) av.set_ref(val_addr);
     auto r = m->put(key, av, arena); LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
 }
@@ -1945,7 +1945,7 @@ void lir_mirror_map_put_null(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
                              std::string_view key) {
     auto& arena = prog.type_pool.arena_or_init();
     auto* m = ensure_obj_map(prog, ref);
-    auto r = m->put(key, hermes::AnyVal{}, arena);   // membership set (null value)
+    auto r = m->put(key, writ::AnyVal{}, arena);   // membership set (null value)
     LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "put failed");
 }
 
@@ -1958,17 +1958,17 @@ void lir_mirror_macro_arg_put(lir::LProgram& prog, lir_view::ObjectMapRef& ref,
                               const std::vector<std::vector<uint8_t>>& blobs) {
     auto& arena = prog.type_pool.arena_or_init();
     auto* m = ensure_obj_map(prog, ref);
-    auto arrExp = hermes::ObjectArray::create(arena, blobs.empty() ? 1 : blobs.size());
+    auto arrExp = writ::ObjectArray::create(arena, blobs.empty() ? 1 : blobs.size());
     LOGOS_ASSERT(arrExp.has_value(), "LIR-MIRROR-MAP", "macro-arg array create failed");
     auto* arr = *arrExp;
     for (auto& b : blobs) {
-        auto sExp = hermes::ArenaString::create(
+        auto sExp = writ::ArenaString::create(
             arena, std::string_view(reinterpret_cast<const char*>(b.data()), b.size()));
         LOGOS_ASSERT(sExp.has_value(), "LIR-MIRROR-MAP", "macro-arg blob alloc failed");
-        hermes::AnyVal av; av.set_ref(reinterpret_cast<const uint8_t*>(*sExp));
+        writ::AnyVal av; av.set_ref(reinterpret_cast<const uint8_t*>(*sExp));
         auto r = arr->push_back(av, arena); LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "macro-arg push failed");
     }
-    hermes::AnyVal arrAv; arrAv.set_ref(reinterpret_cast<const uint8_t*>(arr));
+    writ::AnyVal arrAv; arrAv.set_ref(reinterpret_cast<const uint8_t*>(arr));
     auto r = m->put(std::to_string(site_id), arrAv, arena);
     LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-MAP", "macro-arg map put failed");
 }
@@ -1980,11 +1980,11 @@ const uint8_t* lir_mirror_macro_arg_get(const lir_view::ObjectMapRef& ref,
     if (!ref.valid()) return nullptr;
     auto site_av = ref.get(std::to_string(site_id));
     if (site_av.is_null()) return nullptr;
-    auto* arr = reinterpret_cast<const hermes::ObjectArray*>(site_av.resolve());
+    auto* arr = reinterpret_cast<const writ::ObjectArray*>(site_av.resolve());
     if (!arr || arg_idx >= arr->size()) return nullptr;
     auto blob_av = arr->get(arg_idx);
     if (blob_av.is_null()) return nullptr;
-    auto* s = reinterpret_cast<const hermes::ArenaString*>(blob_av.resolve());
+    auto* s = reinterpret_cast<const writ::ArenaString*>(blob_av.resolve());
     if (!s || s->view().size() < 8) return nullptr;
     return reinterpret_cast<const uint8_t*>(s->view().data()) + 8;
 }
@@ -2459,10 +2459,10 @@ void lir_mirror_retype_expr(lir::LProgram& prog,
                             TypeRef new_ty) {
     if (expr_addr == nullptr) return;
     auto& ctr = prog.type_pool.ctr_or_init();
-    auto tom = hermes::TinyMapView(
-        reinterpret_cast<hermes::TinyObjectMap*>(const_cast<uint8_t*>(expr_addr)),
+    auto tom = writ::TinyMapView(
+        reinterpret_cast<writ::TinyObjectMap*>(const_cast<uint8_t*>(expr_addr)),
         ctr.holder());
-    hermes::AnyVal av;
+    writ::AnyVal av;
     if (new_ty) av.set_ref(new_ty.addr());
     if (av.is_null()) return;
     auto r = tom.put(lir_schema::expr_common::TYPE.code, av);

@@ -6,7 +6,7 @@
 #
 # Covers String, Vec<T>, slices (&[T] / str), and Box<T>. These read fields
 # emitted in DWARF by Stage 2-4 (typed pointers + members). Enum and Hermes
-# container printers are driven by separate metadata (see logos_hermes_gdb.py).
+# container printers are driven by separate metadata (see logos_writ_gdb.py).
 
 import re
 import json
@@ -388,6 +388,6 @@ print("logos: pretty-printers loaded (String, Vec, slice, Box)")
 try:
     import os
     _here = os.path.dirname(os.path.abspath(__file__))
-    gdb.execute("source %s/logos_hermes_gdb.py" % _here)
+    gdb.execute("source %s/logos_writ_gdb.py" % _here)
 except Exception:
     pass

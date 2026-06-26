@@ -9,7 +9,7 @@ target_include_directories(logos_hrpc PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 target_link_libraries(logos_hrpc PUBLIC
     logos_reactor
-    logos_hermes
+    logos_writ
     logos_verification
 )
 

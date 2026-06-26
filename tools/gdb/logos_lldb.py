@@ -264,7 +264,7 @@ class SliceChildren(_SeqChildren):
 
 
 # ── `logos-hermes <expr>` : decode the Hermes container format ────────────────
-# (Compact mirror of logos_hermes_gdb.py's decoder.)
+# (Compact mirror of logos_writ_gdb.py's decoder.)
 def _hermes_decode(proc, addr, depth=0, live=True):
     def u(a, s):
         return _u(_read_mem(proc, a, s))

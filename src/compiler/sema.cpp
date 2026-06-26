@@ -18,14 +18,14 @@
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/sema_schema.hpp>
 #include <logos/compiler/move_classify.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 #include <logos/verification/assert.hpp>
 
 #include <chrono>
@@ -56,15 +56,15 @@ public:
     // (StringView et al.) take additional refs via Own<>. The arena moves on
     // grow() — never cache base pointers; always re-fetch via ctr_.arena().
     // Encapsulates what was a hand-rolled MemHolder + manual DocumentHeader.
-    hermes::HermesCtr                                      ctr_;
+    writ::HermesCtr                                      ctr_;
 
     // Phase 7 lite: latch so the 3.5 GB warning fires at most once per
     // TypePool instance (TypePool::alloc is the hot path).
     bool                                                   size_warned_ = false;
 
-    hermes::Arena&       arena()       noexcept { return ctr_.arena(); }
-    const hermes::Arena& arena() const noexcept { return ctr_.arena(); }
-    hermes::MemHolder*   holder() const noexcept { return ctr_.holder(); }
+    writ::Arena&       arena()       noexcept { return ctr_.arena(); }
+    const writ::Arena& arena() const noexcept { return ctr_.arena(); }
+    writ::MemHolder*   holder() const noexcept { return ctr_.holder(); }
 
     // 2c.5.4: intern table keyed by TypeUID (32-byte SHA-256-derived).
     // Bucket walk via builder_equals_typeref preserves byte-strict equality
@@ -93,13 +93,13 @@ public:
 
     // Attach this pool to a child mirror addressed by a value-form Ref
     // (av.resolve(), no base) — the base-free navigation path.
-    TypeRef ref(hermes::AnyVal av) const noexcept {
+    TypeRef ref(writ::AnyVal av) const noexcept {
         return TypeRef{&arena(), av, this};
     }
     // Rebuild a TypeRef from a stable mirror address (the intern-bucket key /
     // freshly-minted type). Self-relative, MultiChunk-safe.
     TypeRef ref_at(const uint8_t* p) const noexcept {
-        hermes::AnyVal a; a.set_ref(p);
+        writ::AnyVal a; a.set_ref(p);
         return TypeRef{&arena(), a, this};
     }
 
@@ -115,8 +115,8 @@ public:
         // HermesCtr-internal, used for compactification.) The initial chunk is
         // sized generously so small/medium compiles stay single-chunk (locality);
         // larger ones append transparently.
-        auto c = hermes::HermesCtr::make(64ull * 1024 * 1024,
-                                         hermes::ArenaMode::MultiChunk);
+        auto c = writ::HermesCtr::make(64ull * 1024 * 1024,
+                                         writ::ArenaMode::MultiChunk);
         if (!c) {
             tag.fail(std::move(c.error()));
             return;
@@ -138,9 +138,9 @@ public:
 
     // Raw arena access encapsulated in a view, addressed by the object's stable
     // absolute pointer (segments never move) — no base+offset, MultiChunk-safe.
-    hermes::TinyMapView at(const uint8_t* addr) noexcept {
-        return hermes::TinyMapView(
-            reinterpret_cast<hermes::TinyObjectMap*>(const_cast<uint8_t*>(addr)),
+    writ::TinyMapView at(const uint8_t* addr) noexcept {
+        return writ::TinyMapView(
+            reinterpret_cast<writ::TinyObjectMap*>(const_cast<uint8_t*>(addr)),
             ctr_.holder());
     }
 
@@ -148,7 +148,7 @@ public:
     // creation goes through the HermesCtr producer API — never ArenaString::
     // create(arena()) directly (that would break encapsulation by pulling the
     // raw arena). make_string's view yields the self-relative AnyVal directly.
-    hermes::AnyVal put_string(std::string_view s) {
+    writ::AnyVal put_string(std::string_view s) {
         auto v = ctr_.make_string(s);
         LOGOS_ASSERT(v.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
         return v->to_anyval();
@@ -156,8 +156,8 @@ public:
 
     // Translate a TypeRef to an AnyVal pointing at its mirror. Self-relative
     // (set_ref on the stable mirror address) — no base+offset, MultiChunk-safe.
-    hermes::AnyVal ptr_to_mirror(TypeRef p) {
-        hermes::AnyVal a;
+    writ::AnyVal ptr_to_mirror(TypeRef p) {
+        writ::AnyVal a;
         if (p) a.set_ref(p.addr());
         return a;
     }
@@ -166,7 +166,7 @@ public:
     // the HermesCtr producer API (not ObjectArray::create(arena())). The array is
     // pre-sized to the exact element count and ptr_to_mirror does NOT allocate, so
     // no arena growth happens between pushes — the array view stays valid.
-    hermes::AnyVal put_type_vec(const std::vector<TypeRef>& v) {
+    writ::AnyVal put_type_vec(const std::vector<TypeRef>& v) {
         auto arr = ctr_.make_array(v.empty() ? 1 : v.size());
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
         for (auto elem : v) {
@@ -180,7 +180,7 @@ public:
     // the HermesCtr producer API. Strings are built FIRST, tracking their stable
     // addresses (segments never move); then the pre-sized array is created and the
     // strings referenced self-relatively (set_ref) — no base+offset, MultiChunk-safe.
-    hermes::AnyVal put_string_vec(const std::vector<std::string>& v) {
+    writ::AnyVal put_string_vec(const std::vector<std::string>& v) {
         std::vector<const uint8_t*> addrs;
         addrs.reserve(v.size());
         for (const auto& s : v) {
@@ -191,7 +191,7 @@ public:
         auto arr = ctr_.make_array(v.empty() ? 1 : v.size());
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
         for (auto addr : addrs) {
-            hermes::AnyVal av; av.set_ref(addr);
+            writ::AnyVal av; av.set_ref(addr);
             auto r = arr->push_back(av);
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
@@ -208,12 +208,12 @@ public:
         // Pre-allocate all sub-values first (each may grow the arena and
         // invalidate `map`); re-fetch the map pointer before every put via
         // the at(map_off) helper.
-        hermes::AnyVal v_mut_ptr, v_arr_size, v_const_val;
-        hermes::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret;
-        hermes::AnyVal v_lifetime, v_arr_size_var, v_struct_name, v_enum_name;
-        hermes::AnyVal v_pkg_name, v_trait_name, v_type_var_name, v_assoc_type_name;
-        hermes::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
-        hermes::AnyVal v_lifetime_args;
+        writ::AnyVal v_mut_ptr, v_arr_size, v_const_val;
+        writ::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret;
+        writ::AnyVal v_lifetime, v_arr_size_var, v_struct_name, v_enum_name;
+        writ::AnyVal v_pkg_name, v_trait_name, v_type_var_name, v_assoc_type_name;
+        writ::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
+        writ::AnyVal v_lifetime_args;
 
         // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef), &mut [T] vs
         // &[T] (Slice — B6/P2-11). (TraitObject's owning kind rides in const_val
@@ -222,7 +222,7 @@ public:
         if ((t.kind == LogosType::Kind::Ptr ||
              t.kind == LogosType::Kind::DstRef ||
              t.kind == LogosType::Kind::Slice) && t.mut_ptr) {
-            v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(1, hermes::type_hash::Bool);
+            v_mut_ptr = writ::AnyVal::from_value<uint8_t>(1, writ::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
             auto av = ctr_.box<uint64_t>(t.arr_size);
@@ -260,10 +260,10 @@ public:
         auto map_exp = ctr_.make_tiny_map_view(/*capacity=*/8);
         LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
             "TinyObjectMap allocation failed");
-        map_exp->set_schema_type_code(hermes::schema::type(int32_t(t.kind)));
+        map_exp->set_schema_type_code(writ::schema::type(int32_t(t.kind)));
         const uint8_t* map_addr = reinterpret_cast<const uint8_t*>(map_exp->ptr());
 
-        auto put = [&](const sema_schema::Key& key, hermes::AnyVal val) {
+        auto put = [&](const sema_schema::Key& key, writ::AnyVal val) {
             if (val.is_null()) return;
             auto r = at(map_addr).put(key.code, val);
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003",
@@ -405,7 +405,7 @@ public:
     StrSet persisted_user_trait_keys;
     StrSet persisted_user_type_alias_keys;
     StrSet persisted_user_blanket_mangled;
-    std::unordered_set<const hermes::MemHolder*> persisted_user_holders;
+    std::unordered_set<const writ::MemHolder*> persisted_user_holders;
 };
 
 SemaCache::SemaCache() : impl_(std::make_unique<SemaCacheImpl>()) {}
@@ -1057,21 +1057,21 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
 
 } // namespace
 
-hermes::Arena* TypePool::arena() noexcept {
+writ::Arena* TypePool::arena() noexcept {
     return impl_ ? &impl_->arena() : nullptr;
 }
-const hermes::Arena* TypePool::arena() const noexcept {
+const writ::Arena* TypePool::arena() const noexcept {
     return impl_ ? &impl_->arena() : nullptr;
 }
-hermes::Arena& TypePool::arena_or_init() {
+writ::Arena& TypePool::arena_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->arena();
 }
-hermes::HermesCtr& TypePool::ctr_or_init() {
+writ::HermesCtr& TypePool::ctr_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->ctr_;
 }
-hermes::MemHolder* TypePool::holder() noexcept {
+writ::MemHolder* TypePool::holder() noexcept {
     return impl_ ? impl_->holder() : nullptr;
 }
 LogosType::TypeUID TypePool::uid_of(TypeRef t) const noexcept {
@@ -1176,7 +1176,7 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
 
     // Single-arena fast path: AnyVal points at a normal mirror node in the
     // same arena. This branch covers ~100% of current single-arena work.
-    if (!hermes::is_external_ref_av(av)) [[likely]] {
+    if (!writ::is_external_ref_av(av)) [[likely]] {
         if (self.pool()) {
             return self.pool()->ref(av);
         }
@@ -1192,9 +1192,9 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     // via global ArenaPool. Returned TypeRef has pool_ = nullptr — caller
     // gets read-only access; further pool-dependent accessors degrade
     // gracefully (return null StringView etc.).
-    auto* ref = reinterpret_cast<const hermes::ExternalRef*>(
+    auto* ref = reinterpret_cast<const writ::ExternalRef*>(
         av.resolve());
-    auto r = hermes::resolve_external_ref(*ref);
+    auto r = writ::resolve_external_ref(*ref);
     if (!r.ok()) return {};
     return TypeRef(&r.mem->arena(), r.offset(), /*pool=*/nullptr, ref->arena_id());
 }
@@ -1212,32 +1212,32 @@ TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sem
 // yield a working StringView; only fully synthetic TypeRefs (no pool, no
 // arena_id) degrade to a null view.
 namespace {
-hermes::MemHolder* holder_for(const TypeRef& self) noexcept {
+writ::MemHolder* holder_for(const TypeRef& self) noexcept {
     if (self.pool()) return self.pool()->holder();
     if (self.arena_id().is_valid()) {
-        return hermes::global_arena_pool().get(self.arena_id());
+        return writ::global_arena_pool().get(self.arena_id());
     }
     return nullptr;
 }
-hermes::StringView ostr_via_mirror(const TypeRef& self,
+writ::StringView ostr_via_mirror(const TypeRef& self,
                                     sema_schema::Key key) noexcept {
     if (!self) return {};
     auto* holder = holder_for(self);
     if (!holder) return {};
     auto av = self.mirror()->get(key.code);
     if (av.is_null()) return {};
-    return hermes::StringView(av, holder);
+    return writ::StringView(av, holder);
 }
 } // namespace
 
-hermes::StringView TypeRef::lifetime()        const noexcept { return ostr_via_mirror(*this, sema_schema::LIFETIME);        }
-hermes::StringView TypeRef::struct_name()     const noexcept { return ostr_via_mirror(*this, sema_schema::STRUCT_NAME);     }
-hermes::StringView TypeRef::enum_name()       const noexcept { return ostr_via_mirror(*this, sema_schema::ENUM_NAME);       }
-hermes::StringView TypeRef::pkg_name()        const noexcept { return ostr_via_mirror(*this, sema_schema::PKG_NAME);        }
-hermes::StringView TypeRef::trait_name()      const noexcept { return ostr_via_mirror(*this, sema_schema::TRAIT_NAME);      }
-hermes::StringView TypeRef::type_var_name()   const noexcept { return ostr_via_mirror(*this, sema_schema::TYPE_VAR_NAME);   }
-hermes::StringView TypeRef::assoc_type_name() const noexcept { return ostr_via_mirror(*this, sema_schema::ASSOC_TYPE_NAME); }
-hermes::StringView TypeRef::arr_size_var()    const noexcept { return ostr_via_mirror(*this, sema_schema::ARR_SIZE_VAR);    }
+writ::StringView TypeRef::lifetime()        const noexcept { return ostr_via_mirror(*this, sema_schema::LIFETIME);        }
+writ::StringView TypeRef::struct_name()     const noexcept { return ostr_via_mirror(*this, sema_schema::STRUCT_NAME);     }
+writ::StringView TypeRef::enum_name()       const noexcept { return ostr_via_mirror(*this, sema_schema::ENUM_NAME);       }
+writ::StringView TypeRef::pkg_name()        const noexcept { return ostr_via_mirror(*this, sema_schema::PKG_NAME);        }
+writ::StringView TypeRef::trait_name()      const noexcept { return ostr_via_mirror(*this, sema_schema::TRAIT_NAME);      }
+writ::StringView TypeRef::type_var_name()   const noexcept { return ostr_via_mirror(*this, sema_schema::TYPE_VAR_NAME);   }
+writ::StringView TypeRef::assoc_type_name() const noexcept { return ostr_via_mirror(*this, sema_schema::ASSOC_TYPE_NAME); }
+writ::StringView TypeRef::arr_size_var()    const noexcept { return ostr_via_mirror(*this, sema_schema::ARR_SIZE_VAR);    }
 
 // 2c.4e.3.0/.1: vector accessors via mirror ObjectArray, sourced from
 // TypeRef's base/off/pool fat pointer.
@@ -1254,10 +1254,10 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     if (!self) return result;
     auto av = self.mirror()->get(key.code);
     if (av.is_null()) return result;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>();
+    auto* arr = av.as_ptr<const writ::ObjectArray>();
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto e = const_cast<hermes::ObjectArray*>(arr)->get(i);
+        auto e = const_cast<writ::ObjectArray*>(arr)->get(i);
         // Phase 2.B: a vec ELEMENT can itself be a cross-arena ExternalRef
         // (e.g. a `dyn Trait<CFG>` type-arg where CFG is a HermesStatic const
         // interned in another arena). Resolve it through the global ArenaPool
@@ -1265,9 +1265,9 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
         // `TypeRef(self.arena(), <external-ref AnyVal>, …)`, a malformed ref
         // (wrong/null arena) that segfaults the moment kind()/to_builder reads
         // its mirror (mono interning `Arc<dyn Trait<const>>` hit exactly this).
-        if (hermes::is_external_ref_av(e)) {
-            auto* ref = reinterpret_cast<const hermes::ExternalRef*>(e.resolve());
-            auto r = hermes::resolve_external_ref(*ref);
+        if (writ::is_external_ref_av(e)) {
+            auto* ref = reinterpret_cast<const writ::ExternalRef*>(e.resolve());
+            auto r = writ::resolve_external_ref(*ref);
             if (!r.ok()) { result.push_back({}); continue; }
             result.push_back(TypeRef(&r.mem->arena(), r.offset(),
                                      /*pool=*/nullptr, ref->arena_id()));
@@ -1286,11 +1286,11 @@ std::vector<std::string> string_vec_via_mirror(const TypeRef& self,
     if (!self) return result;
     auto av = self.mirror()->get(key.code);
     if (av.is_null()) return result;
-    auto* arr = av.as_ptr<const hermes::ObjectArray>();
+    auto* arr = av.as_ptr<const writ::ObjectArray>();
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto e = const_cast<hermes::ObjectArray*>(arr)->get(i);
-        auto* s = e.as_ptr<const hermes::ArenaString>();
+        auto e = const_cast<writ::ObjectArray*>(arr)->get(i);
+        auto* s = e.as_ptr<const writ::ArenaString>();
         result.emplace_back(s->view());
     }
     return result;
@@ -1334,11 +1334,11 @@ LogosTypeBuilder TypeRef::to_builder() const {
 }
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using writ::TinyMapView;
+using writ::ArrayView;
+using writ::StringView;
+using writ::AnyVal;
+using writ::MemHolder;
 
 // ── types_equal ─────────────────────────────────────────────────────────────
 
@@ -1699,7 +1699,7 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     return out;
 }
 
-bool SemaChecker::is_divergent_call_node(hermes::TinyMapView node) {
+bool SemaChecker::is_divergent_call_node(writ::TinyMapView node) {
     int32_t cc = code_of(node);
     if (cc != la::CALL.code && cc != la::FN_MACRO_CALL.code) return false;
     auto callee = str_of(node.get(la::CALLEE.code));
@@ -2249,7 +2249,7 @@ std::string type_str(TypeRef t) {
 
 // ── SemaChecker method definitions ───────────────────────────────────────────
 
-lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
+lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
                                 const std::vector<std::string>& filenames,
                                 const std::vector<bool>& from_binary) {
     filenames_ = &filenames;
@@ -2354,9 +2354,9 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
         // field, not in SemaChecker). With pools shared above the LExpr*
         // entries here stay alive for the next call.
         {
-            const hermes::Arena* arena = prog.type_pool.arena();
+            const writ::Arena* arena = prog.type_pool.arena();
             prog.hstatic_registry_.for_each(
-                [&](std::string_view key, hermes::AnyVal av) {
+                [&](std::string_view key, writ::AnyVal av) {
                     if (av.is_null()) return;
                     uint64_t hash = std::strtoull(std::string(key).c_str(), nullptr, 10);
                     cache_->impl()->snapshot->hstatic_registry[hash] =
@@ -3582,14 +3582,14 @@ static bool parse_and_eval_cfg(CfgLexer& lex,
     return match_cfg_flag(ident, features);
 }
 
-bool SemaChecker::evaluate_cfg_node(hermes::TinyMapView /*pred_node*/) {
+bool SemaChecker::evaluate_cfg_node(writ::TinyMapView /*pred_node*/) {
     // Currently unused — cfg!() ARGS go through evaluate_cfg_predicate
     // which parses RAW_TEXT directly. Keeping the prototype for the
     // forthcoming #[cfg(...)] attribute path which has parsed-AST args.
     return false;
 }
 
-bool SemaChecker::evaluate_cfg_predicate(hermes::TinyMapView node) {
+bool SemaChecker::evaluate_cfg_predicate(writ::TinyMapView node) {
     if (!node.has_key(la::RAW_TEXT)) return false;
     std::string raw(str_of(node.get(la::RAW_TEXT.code)));
     CfgLexer lex{raw};
@@ -3612,16 +3612,16 @@ bool SemaChecker::match_cfg_predicate_flag(std::string_view name) {
 // collection gated, so a cfg-false fn was dropped from funcs_ but still
 // LOWERED, and the cfg(unix)/cfg(windows) same-name platform idiom died
 // with "duplicate function body" at mlir-gen.
-bool SemaChecker::cfg_attrs_drop_item(std::vector<hermes::TinyMapView>& pending_annots) {
+bool SemaChecker::cfg_attrs_drop_item(std::vector<writ::TinyMapView>& pending_annots) {
     // cfg_attr activation. Self-referential activation is bounded because
     // the appended wrapped attrs are visited only by the subsequent cfg
     // loop, not re-fed into cfg_attr.
-    std::vector<hermes::TinyMapView> appended;
+    std::vector<writ::TinyMapView> appended;
     auto it = pending_annots.begin();
     while (it != pending_annots.end()) {
         if (str_of(it->get(la::NAME.code)) != "cfg_attr") { ++it; continue; }
         bool active = false;
-        std::vector<hermes::TinyMapView> wrapped;
+        std::vector<writ::TinyMapView> wrapped;
         if (it->has_key(la::ARGS)) {
             auto args_av = it->get(la::ARGS.code);
             if (!args_av.is_null()) {
@@ -3651,7 +3651,7 @@ bool SemaChecker::cfg_attrs_drop_item(std::vector<hermes::TinyMapView>& pending_
     return false;
 }
 
-bool SemaChecker::evaluate_cfg_annotation(hermes::TinyMapView ann) {
+bool SemaChecker::evaluate_cfg_annotation(writ::TinyMapView ann) {
     // §6.8: cfg combinators in attribute position via ANNOT_CALL.
     // `#[cfg(all(unix, target_arch = "x86_64"))]` parses with the
     // first arg as ANNOT_CALL{NAME:"all", ARGS:[bare-NAME unix,
@@ -3675,7 +3675,7 @@ bool SemaChecker::evaluate_cfg_annotation(hermes::TinyMapView ann) {
 // §6.8: shared evaluator for one annot_args entry — handles
 // `ANNOT_KV` (key=lit), `ANNOT_CALL` (combinator), and the legacy
 // bare-NAME flag form. Recurses through nested combinators.
-bool SemaChecker::evaluate_cfg_arg(hermes::TinyMapView arg) {
+bool SemaChecker::evaluate_cfg_arg(writ::TinyMapView arg) {
     int32_t code = code_of(arg);
     if (code == la::ANNOT_CALL && arg.has_key(la::NAME) && arg.has_key(la::ARGS)) {
         std::string head(str_of(arg.get(la::NAME.code)));
@@ -4319,19 +4319,19 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
 // True when `t` contains a `_` (InferredType) hole at any depth.
 logos::expected<logos::compiler::ctfe::CtfeValue,
                 logos::compiler::ctfe::CtfeError>
-SemaChecker::ctfe_eval_const(hermes::TinyMapView node,
-                             hermes::MemHolder* h) noexcept {
+SemaChecker::ctfe_eval_const(writ::TinyMapView node,
+                             writ::MemHolder* h) noexcept {
     // ConstResolver over module_const_values_ — a bare-ident const PATH
     // (`metacall { N }`) folds to its RHS value (T2-14 / K10-co-06).
     struct R final : logos::compiler::ctfe::ConstResolver {
-        const logos::compiler::StrMap<hermes::TinyMapView>& consts;
-        hermes::MemHolder* hh;
-        R(const logos::compiler::StrMap<hermes::TinyMapView>& m,
-          hermes::MemHolder* holder) : consts(m), hh(holder) {}
-        hermes::TinyMapView lookup_const(std::string_view name,
-                                         hermes::MemHolder** out) override {
+        const logos::compiler::StrMap<writ::TinyMapView>& consts;
+        writ::MemHolder* hh;
+        R(const logos::compiler::StrMap<writ::TinyMapView>& m,
+          writ::MemHolder* holder) : consts(m), hh(holder) {}
+        writ::TinyMapView lookup_const(std::string_view name,
+                                         writ::MemHolder** out) override {
             auto it = consts.find(name);
-            if (it == consts.end()) return hermes::TinyMapView{};
+            if (it == consts.end()) return writ::TinyMapView{};
             if (out) *out = hh;
             return it->second;
         }
@@ -6149,7 +6149,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // const-eval at this position.
         if (node.has_key(la::BODY)) {
             auto blk = map_of(node.get(la::BODY.code));
-            hermes::TinyMapView tail{};
+            writ::TinyMapView tail{};
             bool have_tail = false;
             if (blk.has_key(la::ITEMS)) {
                 auto items = arr_of(blk.get(la::ITEMS.code));
@@ -6410,8 +6410,8 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
             for (char c : s) h = fnv_byte(h, (uint8_t)c);
             return h;
         };
-        std::function<uint64_t(hermes::TinyMapView, uint64_t)> walk;
-        walk = [&](hermes::TinyMapView n, uint64_t h) -> uint64_t {
+        std::function<uint64_t(writ::TinyMapView, uint64_t)> walk;
+        walk = [&](writ::TinyMapView n, uint64_t h) -> uint64_t {
             int32_t c = code_of(n);
             h = fnv_u64(h, (uint64_t)(int64_t)c);
             if (c == la::HERMES_MAP.code || c == la::HERMES_ARRAY.code) {
@@ -6657,7 +6657,7 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
 
 // ── lower_program and lower_module_items ─────────────────────────────────────
 
-void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog) {
+void SemaChecker::lower_program(const std::vector<writ::Hermes>& asts, lir::LProgram& prog) {
     using namespace ast;
     const bool phase_dbg = []{
         const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
@@ -6750,7 +6750,7 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     StrSet m5_refl0;
     if (m5_capture_active)
         prog.reflect_requests.for_each(
-            [&](std::string_view fqn, hermes::AnyVal) { m5_refl0.insert(std::string(fqn)); });
+            [&](std::string_view fqn, writ::AnyVal) { m5_refl0.insert(std::string(fqn)); });
     for (size_t i = 0; i < asts.size(); ++i) {
         // M6.1: delta mode — this AST was processed in a prior sema_lower
         // call within this compile session. Its prog contributions are
@@ -8262,7 +8262,7 @@ void SemaChecker::compute_variances() {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
+lir::LProgram sema_lower(const std::vector<logos::writ::Hermes>& asts,
                           const std::vector<std::string>& filenames,
                           const std::vector<bool>& from_binary,
                           SemaOptions opts,

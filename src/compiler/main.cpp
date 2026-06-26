@@ -25,18 +25,18 @@
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_mirror.hpp>  // lir_mirror_macro_arg_get (metacall shim)
 #include <logos/compiler/mono.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
 
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 #include <logos/compiler/ast.hpp>
 
 // MLIR
@@ -102,11 +102,11 @@
 //
 // Splicing whole documents (vs in-place mutation of asts[0]) reuses
 // the parser, sidesteps cross-arena pointer concerns, and stays
-// trivially compactable via per-document hermes::clone().
+// trivially compactable via per-document writ::clone().
 namespace {
 std::set<std::string>*               g_emit_seen   = nullptr;
 bool*                                g_any_emitted = nullptr;
-std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
+std::vector<logos::writ::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
 // Module system: per-AST owning-module id, parallel to g_from_binary. New
@@ -213,7 +213,7 @@ extern "C" void logos_get_module_ast_oview(void**           out_holder,
 
 extern "C" void logos_holder_release(void* h) {
     if (!h) return;
-    static_cast<logos::hermes::MemHolder*>(h)->unref();
+    static_cast<logos::writ::MemHolder*>(h)->unref();
 }
 
 // Phase 7 diagnostics: structured error from a metaprog hook.
@@ -243,8 +243,8 @@ extern "C" void logos_metaprog_error_at(uint32_t target_offset,
     if (target_offset != 0
         && g_asts && g_asts->size() > g_user_root_idx
         && g_filenames && g_filenames->size() > g_user_root_idx) {
-        auto tom = logos::hermes::TinyMapView(
-            logos::hermes::arena_offset_t(target_offset),
+        auto tom = logos::writ::TinyMapView(
+            logos::writ::arena_offset_t(target_offset),
             (*g_asts)[g_user_root_idx].holder());
         // SRC_LINE = key 24, u32 inline.
         auto line_av = tom.get(24);
@@ -302,7 +302,7 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     static std::set<std::string> blob_seen;
     std::string key(reinterpret_cast<const char*>(data), size);
     if (!blob_seen.insert(key).second) return 0;
-    auto doc = logos::hermes::from_bytes_copy(data, size);
+    auto doc = logos::writ::from_bytes_copy(data, size);
     if (!doc) {
         std::fprintf(stderr, "logos_emit_item_blob: from_bytes_copy failed\n");
         blob_seen.erase(key);
@@ -337,18 +337,18 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         || !blob_ptr) return 0;
 
     namespace la = logos::compiler::ast;
-    using logos::hermes::AnyVal;
-    using logos::hermes::ArenaString;
-    using logos::hermes::HermesAccess;
-    using logos::hermes::ObjectArray;
-    using logos::hermes::TinyObjectMap;
-    using logos::hermes::TinyMapView;
-    using logos::hermes::ArrayView;
-    using logos::hermes::MapView;
-    using logos::hermes::as_tinymap;
-    using logos::hermes::as_array;
-    using logos::hermes::arena_offset_t;
-    using logos::hermes::copy_object_into;
+    using logos::writ::AnyVal;
+    using logos::writ::ArenaString;
+    using logos::writ::HermesAccess;
+    using logos::writ::ObjectArray;
+    using logos::writ::TinyObjectMap;
+    using logos::writ::TinyMapView;
+    using logos::writ::ArrayView;
+    using logos::writ::MapView;
+    using logos::writ::as_tinymap;
+    using logos::writ::as_array;
+    using logos::writ::arena_offset_t;
+    using logos::writ::copy_object_into;
 
     struct IdentPod { const uint8_t* ptr; uint64_t len; };
     struct BlobEntry { uint64_t offset; uint64_t size; };
@@ -438,7 +438,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return 0;
     }
 
-    auto doc_e = logos::hermes::from_bytes_copy(blob->template_ptr,
+    auto doc_e = logos::writ::from_bytes_copy(blob->template_ptr,
                                                 blob->template_size);
     if (!doc_e) {
         std::fprintf(stderr,
@@ -486,7 +486,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // replaced by NAME(string) drawn from idents[idx]. Mirrors the dst
     // walker in lower_quote_item, so placeholders at any nesting depth
     // (struct field name, fn arg name, type ref name, …) are resolved.
-    namespace lh = logos::hermes;
+    namespace lh = logos::writ;
     bool subst_failed = false;
 
     // Splice helper: if `child_off` is a TOM placeholder with NAME_VAR(neg
@@ -498,7 +498,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                std::function<void(uint32_t)> replace_in_parent)
             -> bool {
         if (blobs_count == 0) return false;
-        auto ctom = logos::hermes::TinyMapView(arena_offset_t(child_off), doc.holder());
+        auto ctom = logos::writ::TinyMapView(arena_offset_t(child_off), doc.holder());
         if (!ctom.has_key(la::NAME_VAR.code)) return false;
         AnyVal nv = ctom.get(la::NAME_VAR.code);
         if (!nv.is_value()) return false;
@@ -519,7 +519,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 (unsigned long long)bidx);
             subst_failed = true; return true;
         }
-        auto inner_e = logos::hermes::from_bytes_copy(
+        auto inner_e = logos::writ::from_bytes_copy(
             blob->blobs_blob + be.offset, be.size);
         if (!inner_e) {
             std::fprintf(stderr,
@@ -551,7 +551,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     std::function<void(uint32_t, uint64_t)> expand_cursor_in_subtree;
     expand_cursor_in_subtree = [&](uint32_t off, uint64_t iter) {
         uint8_t* dbase = HermesAccess::base(doc);
-        auto tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+        auto tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         if (tom.has_key(la::NAME_VAR.code)) {
             AnyVal nv = tom.get(la::NAME_VAR.code);
             if (nv.is_value()) {
@@ -605,7 +605,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                             if (str_e) {
                                 uint32_t name_off = str_e->offset().value();
                                 dbase = HermesAccess::base(doc);
-                                tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+                                tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                                 // LIT_STR placeholder (`##field`) → ident text
                                 // into VALUE (str label); VAR_REF → NAME.
                                 // (T2-22 str-position antiquot, repeat path.)
@@ -618,7 +618,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                 (void)tom.put(is_strlit ? la::VALUE.code : la::NAME.code,
                                     AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)));
                                 dbase = HermesAccess::base(doc);
-                                tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+                                tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                                 tom.remove(la::NAME_VAR.code);
                             }
                         }
@@ -629,7 +629,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         // Snapshot children before recursion (puts may have rebased).
         std::vector<std::pair<bool, uint32_t>> children;
         dbase = HermesAccess::base(doc);
-        tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+        tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         uint64_t bm = tom.bitmap();
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
@@ -650,7 +650,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 continue;
             }
             uint8_t* db2 = HermesAccess::base(doc);
-            auto arr = logos::hermes::ArrayView(arena_offset_t(coff), doc.holder());
+            auto arr = logos::writ::ArrayView(arena_offset_t(coff), doc.holder());
             std::vector<uint32_t> elem_offs;
             for (uint64_t i = 0; i < arr.size(); ++i) {
                 AnyVal e = arr.get(i);
@@ -672,7 +672,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     std::function<uint64_t(uint32_t)> find_cursor_count_in_body;
     find_cursor_count_in_body = [&](uint32_t off) -> uint64_t {
         uint8_t* dbase = HermesAccess::base(doc);
-        auto tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+        auto tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         if (tom.has_key(la::NAME_VAR.code)) {
             AnyVal nv = tom.get(la::NAME_VAR.code);
             if (nv.is_value()) {
@@ -732,14 +732,14 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // REPEAT_GROUP expanded N times (via deep-copy + cursor substitution)
     // and returns the new array's offset; otherwise returns 0.
     auto try_expand_array_repeats = [&](uint32_t arr_off) -> uint32_t {
-        auto arr = logos::hermes::ArrayView(arena_offset_t(arr_off), doc.holder());
+        auto arr = logos::writ::ArrayView(arena_offset_t(arr_off), doc.holder());
         bool any_repeat = false;
         uint64_t n_src = arr.size();
         for (uint64_t i = 0; i < n_src; ++i) {
             AnyVal e = arr.get(i);
             if (!e.is_pointer()) continue;
             uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
-            auto etom = logos::hermes::TinyMapView(arena_offset_t(eoff), doc.holder());
+            auto etom = logos::writ::TinyMapView(arena_offset_t(eoff), doc.holder());
             int32_t cd = 0;
             if (etom.has_key(la::CODE.code)) {
                 AnyVal cav = etom.get(la::CODE.code);
@@ -770,7 +770,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             }
             src_nonptr.push_back(AnyVal{});
             uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
-            auto etom = logos::hermes::TinyMapView(arena_offset_t(eoff), doc.holder());
+            auto etom = logos::writ::TinyMapView(arena_offset_t(eoff), doc.holder());
             int32_t cd = 0;
             if (etom.has_key(la::CODE.code)) {
                 AnyVal cav = etom.get(la::CODE.code);
@@ -832,7 +832,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     std::function<void(uint32_t)> subst_walk = [&](uint32_t off) {
         if (subst_failed) return;
         uint8_t* dbase = HermesAccess::base(doc);
-        auto tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+        auto tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         if (tom.has_key(la::NAME_VAR.code)) {
             AnyVal idx_av = tom.get(la::NAME_VAR.code);
             if (idx_av.is_value()) {
@@ -869,7 +869,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 uint32_t name_off = static_cast<uint32_t>(
                     str_e->offset().value());
                 dbase = HermesAccess::base(doc);
-                tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+                tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                 // `##name` antiquot parses as a LIT_STR node carrying
                 // NAME_VAR; the substituted ident text is the string's
                 // VALUE (a string-literal label), not its NAME. Plain
@@ -883,7 +883,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 (void)tom.put(is_strlit ? la::VALUE.code : la::NAME.code,
                     AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)));
                 dbase = HermesAccess::base(doc);
-                tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+                tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                 tom.remove(la::NAME_VAR.code);
             }
         }
@@ -893,7 +893,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         struct ChildRef { bool is_arr; uint8_t key; uint32_t coff; };
         std::vector<ChildRef> children;
         dbase = HermesAccess::base(doc);
-        tom = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+        tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         uint64_t bm = tom.bitmap();
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
@@ -914,7 +914,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 uint8_t key = cref.key;
                 bool spliced = try_blob_splice(cref.coff,
                     [&](uint32_t new_off) {
-                        auto t = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+                        auto t = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                         (void)t.put(key,
                             AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)));
                     });
@@ -929,14 +929,14 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 if (subst_failed) return;
                 if (expanded != 0) {
                     // Replace parent's slot with the new array.
-                    auto t = logos::hermes::TinyMapView(arena_offset_t(off), doc.holder());
+                    auto t = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                     (void)t.put(cref.key,
                         AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(expanded)));
                     arr_off = expanded;
                 }
             }
             uint8_t* dbase2 = HermesAccess::base(doc);
-            auto arr = logos::hermes::ArrayView(arena_offset_t(arr_off), doc.holder());
+            auto arr = logos::writ::ArrayView(arena_offset_t(arr_off), doc.holder());
             std::vector<std::pair<uint64_t, uint32_t>> elems;
             for (uint64_t i = 0; i < arr.size(); ++i) {
                 AnyVal e = arr.get(i);
@@ -951,7 +951,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 if (subst_failed) return;
                 bool spliced = try_blob_splice(eoff,
                     [&](uint32_t new_off) {
-                        auto a = logos::hermes::ArrayView(arena_offset_t(arr_off), doc.holder());
+                        auto a = logos::writ::ArrayView(arena_offset_t(arr_off), doc.holder());
                         a.set(ei,
                                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off))
                                );
@@ -998,7 +998,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         if (user_root_pkg.has_key(la::NAME.code)) {
             AnyVal nm_av = user_root_pkg.get(la::NAME.code);
             if (!nm_av.is_null() && nm_av.is_pointer()) {
-                auto user_name = logos::hermes::StringView(
+                auto user_name = logos::writ::StringView(
                     nm_av, user_holder_pkg).view();
                 auto sv_e = doc.make_string( std::string_view(user_name));
                 if (sv_e) {
@@ -1086,7 +1086,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     if (unode.has_key(la::NAME.code)) {
                         AnyVal nm_av = unode.get(la::NAME.code);
                         if (!nm_av.is_null() && nm_av.is_pointer()) {
-                            dotted = std::string(logos::hermes::StringView(
+                            dotted = std::string(logos::writ::StringView(
                                 nm_av, user_holder).view());
                         }
                     }
@@ -1102,7 +1102,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                 AnyVal nv = part.get(la::NAME.code);
                                 if (nv.is_null() || !nv.is_pointer()) continue;
                                 if (!dotted.empty()) dotted += '.';
-                                dotted += std::string(logos::hermes::StringView(
+                                dotted += std::string(logos::writ::StringView(
                                     nv, user_holder).view());
                             }
                         }
@@ -1119,7 +1119,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         if (!snode.has_key(la::NAME.code)) continue;
                         AnyVal sn_av = snode.get(la::NAME.code);
                         if (sn_av.is_null() || !sn_av.is_pointer()) continue;
-                        std::string s_existing(logos::hermes::StringView(
+                        std::string s_existing(logos::writ::StringView(
                             sn_av, doc.holder()).view());
                         if (s_existing == dotted) { already = true; break; }
                     }
@@ -1400,7 +1400,7 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
 // single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
 // the prefix — the same wire shape as HermesStatic; driver reads *(ptr-8)).
 extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
-    using logos::hermes::AnyVal;
+    using logos::writ::AnyVal;
     // The Logos side passes the VALUE-form word (Pod tagged / ABSOLUTE pointer).
     // C++ AnyVal is the AT-REST form (self-relative Ref) — from_raw(absolute)
     // would resolve relative to the stack slot. Re-anchor Refs via set_ref.
@@ -1410,7 +1410,7 @@ extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
     } else if (root_word != 0) {
         root.set_ref(reinterpret_cast<const void*>(root_word));     // Ref: re-anchor
     }
-    auto packed_r = logos::hermes::compactify_root(root);
+    auto packed_r = logos::writ::compactify_root(root);
     if (!packed_r) return nullptr;
     auto& arena = packed_r->arena();
     const uint8_t* data = arena.head().data();
@@ -1446,19 +1446,19 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         const uint8_t* tpl, uint64_t tpl_size,
         const void* idents_ptr, uint64_t idents_count) {
     namespace la = logos::compiler::ast;
-    using logos::hermes::AnyVal;
-    using logos::hermes::ArenaString;
-    using logos::hermes::HermesAccess;
-    using logos::hermes::ObjectArray;
-    using logos::hermes::TinyObjectMap;
-    using logos::hermes::TinyMapView;
-    using logos::hermes::ArrayView;
-    using logos::hermes::MapView;
-    using logos::hermes::as_tinymap;
-    using logos::hermes::as_array;
-    using logos::hermes::arena_offset_t;
-    using logos::hermes::clone;
-    using logos::hermes::make_doc;
+    using logos::writ::AnyVal;
+    using logos::writ::ArenaString;
+    using logos::writ::HermesAccess;
+    using logos::writ::ObjectArray;
+    using logos::writ::TinyObjectMap;
+    using logos::writ::TinyMapView;
+    using logos::writ::ArrayView;
+    using logos::writ::MapView;
+    using logos::writ::as_tinymap;
+    using logos::writ::as_array;
+    using logos::writ::arena_offset_t;
+    using logos::writ::clone;
+    using logos::writ::make_doc;
 
     if (!tpl || tpl_size == 0) return nullptr;
 
@@ -1485,7 +1485,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         };
     };
 
-    auto src_e = logos::hermes::from_bytes_copy(tpl, tpl_size);
+    auto src_e = logos::writ::from_bytes_copy(tpl, tpl_size);
     if (!src_e) {
         std::fprintf(stderr,
             "logos_quote_expr_subst: from_bytes_copy failed\n");
@@ -1495,7 +1495,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     const uint8_t* src_base = HermesAccess::base(src_doc);
 
     auto wrapper_off = HermesAccess::root_offset(src_doc);
-    auto wrapper = logos::hermes::TinyMapView(arena_offset_t(wrapper_off.value()), src_doc.holder());
+    auto wrapper = logos::writ::TinyMapView(arena_offset_t(wrapper_off.value()), src_doc.holder());
     if (!wrapper.has_key(la::VALUE.code)) {
         std::fprintf(stderr,
             "logos_quote_expr_subst: malformed wrapper TOM\n");
@@ -1514,7 +1514,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // by base(doc)+off; a MultiChunk doc would scatter that across chunks once the
     // expansion outgrows the first chunk. Pre-size past any realloc (lazy-zero → cheap).
     auto dst_e = make_doc(std::max<size_t>(tpl_size + 256, size_t(8) * 1024 * 1024),
-                          logos::hermes::ArenaMode::GrowableSingleChunk);
+                          logos::writ::ArenaMode::GrowableSingleChunk);
     if (!dst_e) return nullptr;
     auto dst_doc = std::move(dst_e).get();
 
@@ -1545,10 +1545,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // Used by REPEAT_GROUP body to determine N before expansion.
     std::function<uint64_t(uint32_t)> find_cursor_count;
     find_cursor_count = [&](uint32_t off) -> uint64_t {
-        auto tag0 = logos::hermes::TypeTag::read_before(src_base + off);
+        auto tag0 = logos::writ::TypeTag::read_before(src_base + off);
         uint64_t tc0 = tag0.type_code();
         if (tc0 == 100) {
-            auto arr = logos::hermes::ArrayView(arena_offset_t(off), src_doc.holder());
+            auto arr = logos::writ::ArrayView(arena_offset_t(off), src_doc.holder());
             uint64_t n = arr.size();
             for (uint64_t i = 0; i < n; ++i) {
                 AnyVal el = arr.get(i);
@@ -1561,7 +1561,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         }
         if (tc0 == 130) return 0;
         // Treat as TOM. Check for NAME_VAR(int idx) on this node.
-        auto tt = logos::hermes::TinyMapView(arena_offset_t(off), src_doc.holder());
+        auto tt = logos::writ::TinyMapView(arena_offset_t(off), src_doc.holder());
         if (tt.has_key(la::NAME_VAR.code)) {
             AnyVal iv = tt.get(la::NAME_VAR.code);
             if (!iv.is_null() && !iv.is_pointer()) {
@@ -1592,27 +1592,27 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // + ArenaString) from an arbitrary source base into dst_doc, with no
     // antiquot substitution. Used to splice the body of a captured
     // ExprBlob into the outer template at a `#name` placeholder.
-    std::function<uint32_t(logos::hermes::MemHolder*, uint32_t)> copy_node_raw;
-    copy_node_raw = [&](logos::hermes::MemHolder* sh, uint32_t off) -> uint32_t {
+    std::function<uint32_t(logos::writ::MemHolder*, uint32_t)> copy_node_raw;
+    copy_node_raw = [&](logos::writ::MemHolder* sh, uint32_t off) -> uint32_t {
         const uint8_t* sb = sh->base();
-        auto tag = logos::hermes::TypeTag::read_before(sb + off);
+        auto tag = logos::writ::TypeTag::read_before(sb + off);
         uint64_t tc = tag.type_code();
         if (tc == 130) {
             auto se = dst_doc.make_string(
-                logos::hermes::StringView(arena_offset_t(off), sh).view());
+                logos::writ::StringView(arena_offset_t(off), sh).view());
             if (!se) return 0;
             return static_cast<uint32_t>(
                 se->offset().value());
         }
         if (tc == 100) {
-            auto arr = logos::hermes::ArrayView(arena_offset_t(off), sh);
+            auto arr = logos::writ::ArrayView(arena_offset_t(off), sh);
             uint64_t n = arr.size();
             auto dst_e = dst_doc.make_array( std::max<uint64_t>(4, n));
             if (!dst_e) return 0;
             uint32_t dst_off = static_cast<uint32_t>(
                 dst_e->offset().value());
             auto dst_arr = [&]() {
-                return logos::hermes::ArrayView(arena_offset_t(dst_off), dst_doc.holder());
+                return logos::writ::ArrayView(arena_offset_t(dst_off), dst_doc.holder());
             };
             for (uint64_t i = 0; i < n; ++i) {
                 AnyVal el = arr.get(i);
@@ -1629,7 +1629,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             return dst_off;
         }
         // TOM (tag 98 or untagged AST node).
-        auto tom = logos::hermes::TinyMapView(arena_offset_t(off), sh);
+        auto tom = logos::writ::TinyMapView(arena_offset_t(off), sh);
         uint8_t cap = static_cast<uint8_t>(tom.capacity());
         if (cap < 4) cap = 4;
         auto dst_e = dst_doc.make_tiny_map_view( cap);
@@ -1637,7 +1637,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         uint32_t dst_off = static_cast<uint32_t>(
             dst_e->offset().value());
         auto dst_tom = [&]() {
-            return logos::hermes::TinyMapView(arena_offset_t(dst_off), dst_doc.holder());
+            return logos::writ::TinyMapView(arena_offset_t(dst_off), dst_doc.holder());
         };
         if (tom.schema_type_code() != 0) {
             dst_tom().set_schema_type_code(tom.schema_type_code());
@@ -1660,7 +1660,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 
     // Inner ExprBlob docs deserialised at splice time must outlive the
     // copy_node_raw recursion (their bytes back the src_base pointer).
-    std::vector<logos::hermes::Hermes> inner_blob_docs;
+    std::vector<logos::writ::Hermes> inner_blob_docs;
 
     // Expand REPEAT_GROUP body into a left-leaning BinOp tree of "&&".
     // For N==0 returns 0 (caller treats as null). For N==1 returns the
@@ -1678,7 +1678,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             uint32_t bin_off = static_cast<uint32_t>(
                 bin_e->offset().value());
             auto bin = [&]() {
-                return logos::hermes::TinyMapView(arena_offset_t(bin_off), dst_doc.holder());
+                return logos::writ::TinyMapView(arena_offset_t(bin_off), dst_doc.holder());
             };
             (void)bin().put(la::CODE.code,
                 AnyVal::from_value<int32_t>(la::BINOP.code));
@@ -1693,7 +1693,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             (void)bin().put(la::RHS.code,
                 AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(rhs)));
             bin().set_schema_type_code(
-                logos::hermes::schema::ast(la::BINOP.code));
+                logos::writ::schema::ast(la::BINOP.code));
             acc = bin_off;
         }
         cursor_i = -1;
@@ -1703,7 +1703,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // Recursive copy: src_off (in src_doc) → fresh dst offset (in dst_doc),
     // applying placeholder substitution and REPEAT_GROUP expansion.
     copy_expr = [&](uint32_t src_off) -> uint32_t {
-        auto src_tom = logos::hermes::TinyMapView(arena_offset_t(src_off), src_doc.holder());
+        auto src_tom = logos::writ::TinyMapView(arena_offset_t(src_off), src_doc.holder());
         int32_t cd = 0;
         if (src_tom.has_key(la::CODE.code)) {
             AnyVal cav = src_tom.get(la::CODE.code);
@@ -1778,7 +1778,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                         }
                         uint64_t blob_size = 0;
                         std::memcpy(&blob_size, blob_data - 8, 8);
-                        auto inner_e = logos::hermes::from_bytes_copy(
+                        auto inner_e = logos::writ::from_bytes_copy(
                             blob_data, blob_size);
                         if (!inner_e) {
                             std::fprintf(stderr,
@@ -1803,7 +1803,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         uint32_t dst_off = static_cast<uint32_t>(
             dst_e->offset().value());
         auto dst_tom = [&]() {
-            return logos::hermes::TinyMapView(arena_offset_t(dst_off), dst_doc.holder());
+            return logos::writ::TinyMapView(arena_offset_t(dst_off), dst_doc.holder());
         };
         if (src_tom.schema_type_code() != 0) {
             dst_tom().set_schema_type_code(src_tom.schema_type_code());
@@ -1892,12 +1892,12 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             }
             uint32_t child_off =
                 static_cast<uint32_t>(av.to_offset(src_base).value());
-            auto tag = logos::hermes::TypeTag::read_before(
+            auto tag = logos::writ::TypeTag::read_before(
                 src_base + child_off);
             uint64_t tc = tag.type_code();
 
             if (tc == 130) {
-                auto se = dst_doc.make_string(logos::hermes::StringView(arena_offset_t(child_off), src_doc.holder()).view());
+                auto se = dst_doc.make_string(logos::writ::StringView(arena_offset_t(child_off), src_doc.holder()).view());
                 if (!se) return 0;
                 uint32_t s_off = static_cast<uint32_t>(
                     se->offset().value());
@@ -1923,14 +1923,14 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // substituted bodies spliced inline as siblings; sep=2 (`&&*`) collapses
     // to a single BinOp tree (handled by copy_expr).
     copy_array = [&](uint32_t src_off) -> uint32_t {
-        auto src_arr = logos::hermes::ArrayView(arena_offset_t(src_off), src_doc.holder());
+        auto src_arr = logos::writ::ArrayView(arena_offset_t(src_off), src_doc.holder());
         uint64_t n_src = src_arr.size();
         auto dst_e = dst_doc.make_array( std::max<uint64_t>(4, n_src));
         if (!dst_e) return 0;
         uint32_t dst_off = static_cast<uint32_t>(
             dst_e->offset().value());
         auto dst_arr = [&]() {
-            return logos::hermes::ArrayView(arena_offset_t(dst_off), dst_doc.holder());
+            return logos::writ::ArrayView(arena_offset_t(dst_off), dst_doc.holder());
         };
         for (uint64_t i = 0; i < n_src; ++i) {
             AnyVal el = src_arr.get(i);
@@ -1940,7 +1940,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             }
             uint32_t el_off =
                 static_cast<uint32_t>(el.to_offset(src_base).value());
-            auto el_tom = logos::hermes::TinyMapView(arena_offset_t(el_off), src_doc.holder());
+            auto el_tom = logos::writ::TinyMapView(arena_offset_t(el_off), src_doc.holder());
             int32_t el_cd = 0;
             if (el_tom.has_key(la::CODE.code)) {
                 AnyVal cav = el_tom.get(la::CODE.code);
@@ -2017,7 +2017,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 // logos_emit_item_blob with those bytes. Goes away once Slice 4's
 // quote_item! lands and produces the same shape from in-Logos code.
 namespace {
-std::vector<logos::hermes::Hermes> g_test_blob_keepalive;
+std::vector<logos::writ::Hermes> g_test_blob_keepalive;
 }
 extern "C" int32_t logos_metaprog_test_module_blob(
         const char* src, uint64_t src_len,
@@ -2047,20 +2047,20 @@ extern "C" int32_t logos_metaprog_test_module_blob(
 // ExprBlob (returns ptr past an 8-byte size prefix). The buffer is leaked
 // intentionally — single-shot per metacall, lifetime is the compile run.
 extern "C" const uint8_t* logos_test_make_bin_op_blob() {
-    using logos::hermes::HermesAccess;
-    using logos::hermes::ArenaString;
-    using logos::hermes::AnyVal;
-    using logos::hermes::TinyObjectMap;
-    using logos::hermes::TinyMapView;
-    using logos::hermes::ArrayView;
-    using logos::hermes::arena_offset_t;
-    using logos::hermes::clone;
+    using logos::writ::HermesAccess;
+    using logos::writ::ArenaString;
+    using logos::writ::AnyVal;
+    using logos::writ::TinyObjectMap;
+    using logos::writ::TinyMapView;
+    using logos::writ::ArrayView;
+    using logos::writ::arena_offset_t;
+    using logos::writ::clone;
     namespace la = logos::compiler::ast;
 
     // GrowableSingleChunk (single segment for base(doc)+off addressing), pre-sized
     // past any realloc — lazy-zero keeps the reserve cheap.
-    auto doc_e = logos::hermes::make_doc(size_t(8) * 1024 * 1024,
-                                          logos::hermes::ArenaMode::GrowableSingleChunk);
+    auto doc_e = logos::writ::make_doc(size_t(8) * 1024 * 1024,
+                                          logos::writ::ArenaMode::GrowableSingleChunk);
     if (!doc_e) return nullptr;
     auto doc = std::move(doc_e).get();
 
@@ -2081,7 +2081,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
         (void)tm().put(la::SRC_LINE.code,
                         AnyVal::from_value<int32_t>(1));
         tm().set_schema_type_code(
-            logos::hermes::schema::ast(la::LIT_INT.code));
+            logos::writ::schema::ast(la::LIT_INT.code));
         return tm_off;
     };
 
@@ -2110,7 +2110,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     (void)root().put(la::SRC_LINE.code,
                       AnyVal::from_value<int32_t>(1));
     root().set_schema_type_code(
-        logos::hermes::schema::ast(la::BINOP.code));
+        logos::writ::schema::ast(la::BINOP.code));
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
 
@@ -2218,7 +2218,7 @@ namespace logos::compiler {
 // g_any_emitted/g_metaprog_diags/g_ast_provenance from the args;
 // restores prior values on exit.
 int run_metaprog_dispatch(
-    std::vector<hermes::Hermes>& asts,
+    std::vector<writ::Hermes>& asts,
     std::vector<std::string>&    filenames,
     std::vector<bool>&           from_binary,
     std::size_t                  entry_ast_idx,
@@ -2238,7 +2238,7 @@ int run_metaprog_dispatch(
     auto* prev_any_emitted    = g_any_emitted;
     struct ScopedRestore {
         std::set<std::string>**             es;
-        std::vector<hermes::Hermes>**       a;
+        std::vector<writ::Hermes>**       a;
         std::vector<std::string>**          fn;
         std::vector<bool>**                 fb;
         size_t*                             uri;
@@ -2246,7 +2246,7 @@ int run_metaprog_dispatch(
         std::vector<std::optional<EmitProvenance>>** ap;
         bool**                              ae;
         std::set<std::string>*              p_es;
-        std::vector<hermes::Hermes>*        p_a;
+        std::vector<writ::Hermes>*        p_a;
         std::vector<std::string>*           p_fn;
         std::vector<bool>*                  p_fb;
         size_t                              p_uri;
@@ -2641,14 +2641,14 @@ int run_metaprog_dispatch(
                     std::string target_name;
                     if (tgt.ast_idx() < asts.size()) {
                         auto* h    = asts[tgt.ast_idx()].holder();
-                        auto tom   = hermes::TinyMapView(
-                                        hermes::arena_offset_t(tgt.item_offset()), h);
+                        auto tom   = writ::TinyMapView(
+                                        writ::arena_offset_t(tgt.item_offset()), h);
                         auto av = tom.get(ast::SRC_LINE.code);
                         if (!av.is_null() && av.is_value())
                             line = static_cast<int>(av.as_value<uint32_t>());
                         auto nm_av = tom.get(ast::NAME.code);
                         if (!nm_av.is_null()) {
-                            auto sv = hermes::StringView(
+                            auto sv = writ::StringView(
                                 nm_av, h).view();
                             target_name = std::string(sv);
                         }
@@ -2685,10 +2685,10 @@ int run_metaprog_dispatch(
             reinterpret_cast<void (*)()>(sym)();
             auto& doc = asts[site.ast_idx()];
             auto* h    = doc.holder();
-            auto tom  = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
+            auto tom  = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
             if (auto r = tom.put(
                     ast::CODE.code,
-                    hermes::AnyVal::from_value<int32_t>(
+                    writ::AnyVal::from_value<int32_t>(
                         ast::METACALL_ITEM_DONE.code)
                     ); !r) {
                 std::fprintf(stderr,
@@ -2732,7 +2732,7 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     // cat 5: serialization-format versions (single source: these constants).
     records.insert("schema\thermes0_format\t3");
     records.insert("schema\tlir_arena_root\t"
-        + std::to_string(logos::hermes::lir_arena_root::CURRENT_VERSION));
+        + std::to_string(logos::writ::lir_arena_root::CURRENT_VERSION));
 
     // cat 4: layout of the Hermes types the compiler bakes into binary artifacts
     // (the .hermes0 / LIR-blob / arena format). A size/alignment change to any of
@@ -2744,17 +2744,17 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     {
 #define LOGOS_ABI_TYPE(T) records.insert("type\t" #T "\tsize=" \
         + std::to_string(sizeof(T)) + " align=" + std::to_string(alignof(T)))
-        LOGOS_ABI_TYPE(logos::hermes::AnyVal);          // the 8-byte tagged value word
-        LOGOS_ABI_TYPE(logos::hermes::ExternalRef);     // decoded cross-arena (arena_id, obj_id)
-        LOGOS_ABI_TYPE(logos::hermes::TypeTag);         // per-object in-arena tag
-        LOGOS_ABI_TYPE(logos::hermes::DocumentHeader);  // blob root header
-        LOGOS_ABI_TYPE(logos::hermes::Chunk);           // arena chunk header
-        LOGOS_ABI_TYPE(logos::hermes::ArenaString);     // in-arena string header
-        LOGOS_ABI_TYPE(logos::hermes::ObjectArray);     // in-arena array header
-        LOGOS_ABI_TYPE(logos::hermes::ObjectMap);       // in-arena map header
-        LOGOS_ABI_TYPE(logos::hermes::TinyObjectMap);   // in-arena tiny-map (schema objects)
-        LOGOS_ABI_TYPE(logos::hermes::MapEntry);        // map slot layout
-        LOGOS_ABI_TYPE(logos::hermes::ImportEntry);     // .imp table entry
+        LOGOS_ABI_TYPE(logos::writ::AnyVal);          // the 8-byte tagged value word
+        LOGOS_ABI_TYPE(logos::writ::ExternalRef);     // decoded cross-arena (arena_id, obj_id)
+        LOGOS_ABI_TYPE(logos::writ::TypeTag);         // per-object in-arena tag
+        LOGOS_ABI_TYPE(logos::writ::DocumentHeader);  // blob root header
+        LOGOS_ABI_TYPE(logos::writ::Chunk);           // arena chunk header
+        LOGOS_ABI_TYPE(logos::writ::ArenaString);     // in-arena string header
+        LOGOS_ABI_TYPE(logos::writ::ObjectArray);     // in-arena array header
+        LOGOS_ABI_TYPE(logos::writ::ObjectMap);       // in-arena map header
+        LOGOS_ABI_TYPE(logos::writ::TinyObjectMap);   // in-arena tiny-map (schema objects)
+        LOGOS_ABI_TYPE(logos::writ::MapEntry);        // map slot layout
+        LOGOS_ABI_TYPE(logos::writ::ImportEntry);     // .imp table entry
 #undef LOGOS_ABI_TYPE
         // Field offsets for the public-field format structs — a reorder at
         // constant size (invisible to size/align) is caught here. The container
@@ -2763,14 +2763,14 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
         auto off_rec = [&](const char* name, const std::string& fields) {
             records.insert("type\t" + std::string(name) + "::offsets\t[" + fields + "]");
         };
-        off_rec("logos::hermes::ExternalRef",
-            "aid@" + std::to_string(offsetof(logos::hermes::ExternalRef, aid)) +
-            ",oid@" + std::to_string(offsetof(logos::hermes::ExternalRef, oid)));
-        off_rec("logos::hermes::DocumentHeader",
-            "root@" + std::to_string(offsetof(logos::hermes::DocumentHeader, root)));
-        off_rec("logos::hermes::MapEntry",
-            "key@" + std::to_string(offsetof(logos::hermes::MapEntry, key)) +
-            ",val@" + std::to_string(offsetof(logos::hermes::MapEntry, val)));
+        off_rec("logos::writ::ExternalRef",
+            "aid@" + std::to_string(offsetof(logos::writ::ExternalRef, aid)) +
+            ",oid@" + std::to_string(offsetof(logos::writ::ExternalRef, oid)));
+        off_rec("logos::writ::DocumentHeader",
+            "root@" + std::to_string(offsetof(logos::writ::DocumentHeader, root)));
+        off_rec("logos::writ::MapEntry",
+            "key@" + std::to_string(offsetof(logos::writ::MapEntry, key)) +
+            ",val@" + std::to_string(offsetof(logos::writ::MapEntry, val)));
     }
 
     // cat 1: stdlib exported symbols. nm -p (no sort — we sort canonically via
@@ -2973,7 +2973,7 @@ int main(int argc, char** argv) {
 
     // Initialize Hermes TypeOps registry; the @-literal builder uses
     // clone() which dispatches per-type via this registry.
-    logos::hermes::hermes_init();
+    logos::writ::hermes_init();
 
     const char* input_path = nullptr;
     const char* output_path = "output.o";
@@ -3323,7 +3323,7 @@ int main(int argc, char** argv) {
     }
 
     // Collect ASTs and source paths.
-    std::vector<logos::hermes::Hermes> asts;
+    std::vector<logos::writ::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
     std::vector<bool> is_lazy;
@@ -3482,10 +3482,10 @@ int main(int argc, char** argv) {
 
     if (test_mode) {
         namespace la = logos::compiler::ast;
-        using logos::hermes::AnyVal;
-        using logos::hermes::TinyMapView;
-        using logos::hermes::ArrayView;
-        using logos::hermes::StringView;
+        using logos::writ::AnyVal;
+        using logos::writ::TinyMapView;
+        using logos::writ::ArrayView;
+        using logos::writ::StringView;
 
         auto entry_idx = asts.empty() ? 0 : asts.size() - 1;
         // Helper: compute the dotted package name of a parsed module AST.
@@ -3778,7 +3778,7 @@ int main(int argc, char** argv) {
         std::string entry_body;
         if (entry_idx < asts.size()) {
             auto* h = asts[entry_idx].holder();
-            auto root_off = logos::hermes::HermesAccess::root_offset(asts[entry_idx]);
+            auto root_off = logos::writ::HermesAccess::root_offset(asts[entry_idx]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
             split_rendered(r, entry_header, entry_uses, entry_body);
             strip_consumed_annots(entry_body);
@@ -3793,7 +3793,7 @@ int main(int argc, char** argv) {
             const std::string& fn = filenames[i];
             if (fn != "<metaprog-blob-subst>" && fn != "<metaprog>") continue;
             auto* h = asts[i].holder();
-            auto root_off = logos::hermes::HermesAccess::root_offset(asts[i]);
+            auto root_off = logos::writ::HermesAccess::root_offset(asts[i]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
             std::string s_hdr, s_body;
             std::vector<std::string> s_uses;
@@ -4117,7 +4117,7 @@ int main(int argc, char** argv) {
                         int line = 0;
                         if (site.ast_idx() < asts.size()) {
                             auto* h    = asts[site.ast_idx()].holder();
-                            auto tom  = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
+                            auto tom  = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
                             auto av = tom.get(logos::compiler::ast::SRC_LINE.code);
                             if (!av.is_null() && av.is_value())
                                 line = static_cast<int>(av.as_value<uint32_t>());
@@ -4132,7 +4132,7 @@ int main(int argc, char** argv) {
                     g_current_emit_ctx_valid = false;
                     auto& doc = asts[site.ast_idx()];
                     auto* h   = doc.holder();
-                    auto tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
+                    auto tom = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
                     // Determine the DONE marker from the current CODE
                     // — metacall_item and fn_macro_call_item share the
                     // ItemBlob splice path but have distinct grammar
@@ -4148,7 +4148,7 @@ int main(int argc, char** argv) {
                     }
                     if (auto r = tom.put(
                             logos::compiler::ast::CODE.code,
-                            logos::hermes::AnyVal::from_value<int32_t>(done_code)
+                            logos::writ::AnyVal::from_value<int32_t>(done_code)
                             ); !r) {
                         std::fprintf(stderr,
                             "logosc: metacall item-splice: CODE put failed\n");
@@ -4246,11 +4246,11 @@ int main(int argc, char** argv) {
 
                 auto& doc = asts[site.ast_idx()];
                 auto* h = doc.holder();
-                auto tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
+                auto tom = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
 
-                logos::hermes::AnyVal value_av;
+                logos::writ::AnyVal value_av;
                 if (is_bool) {
-                    value_av = logos::hermes::AnyVal::from_value<uint8_t>(b_val ? 1 : 0);
+                    value_av = logos::writ::AnyVal::from_value<uint8_t>(b_val ? 1 : 0);
                 } else {
                     auto str_exp = doc.make_string(lit_text);
                     if (!str_exp) {
@@ -4258,18 +4258,18 @@ int main(int argc, char** argv) {
                         return 1;
                     }
                     value_av = str_exp->to_anyval();
-                    tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
+                    tom = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
                 }
 
                 if (auto r = tom.put(logos::compiler::ast::CODE.code,
-                                      logos::hermes::AnyVal::from_value<int32_t>(new_code)
+                                      logos::writ::AnyVal::from_value<int32_t>(new_code)
                                       ); !r) {
                     std::fprintf(stderr, "logosc: metacall splice: CODE put failed\n");
                     return 1;
                 }
-                tom = logos::hermes::TinyMapView(logos::hermes::arena_offset_t(site.expr_offset()), h);
+                tom = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
                 tom.set_schema_type_code(
-                    logos::hermes::schema::ast(static_cast<int32_t>(new_code)));
+                    logos::writ::schema::ast(static_cast<int32_t>(new_code)));
                 if (auto r = tom.put(logos::compiler::ast::VALUE.code, value_av); !r) {
                     std::fprintf(stderr, "logosc: metacall splice: VALUE put failed\n");
                     return 1;
@@ -4558,7 +4558,7 @@ int main(int argc, char** argv) {
             mkdir_p(dir);
 
             auto* h = asts[i].holder();
-            auto root_off = logos::hermes::HermesAccess::root_offset(asts[i]);
+            auto root_off = logos::writ::HermesAccess::root_offset(asts[i]);
             std::string body =
                 logos::compiler::render_module_source_for_dump(h, root_off);
             auto fn_names =

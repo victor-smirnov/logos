@@ -17,7 +17,7 @@
 // This avoids needing an extra "forward from local channel to wire" fiber.
 
 #include <logos/hrpc/session.hpp>
-#include <logos/hermes/binary_codec.hpp>
+#include <logos/writ/binary_codec.hpp>
 #include <logos/reactor/scheduler.hpp>
 #include <logos/verification/assert.hpp>
 
@@ -25,8 +25,8 @@
 
 namespace logos::hrpc {
 
-using logos::hermes::binary_encode;
-using logos::hermes::binary_decode;
+using logos::writ::binary_encode;
+using logos::writ::binary_decode;
 using logos::reactor::Scheduler;
 
 // ---------------------------------------------------------------------------

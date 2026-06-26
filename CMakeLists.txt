@@ -171,7 +171,7 @@ enable_testing()
 # Modules
 add_subdirectory(src/verification)
 add_subdirectory(src/core)
-add_subdirectory(src/hermes)
+add_subdirectory(src/writ)
 
 # The following subtrees consume the C++ Hermes API and are temporarily
 # disabled while Hermes/C++ is being brought byte-for-byte in line with the
@@ -238,11 +238,11 @@ endif()
 # decode are version-coupled to the compiler, so each version ships matching
 # printers under its own tree. Locate at runtime via:
 #   source "$(logosc --print-prefix)/share/gdb/logos_gdb.py"
-# (logos_gdb.py auto-loads logos_hermes_gdb.py from the same dir.) Tracked by
+# (logos_gdb.py auto-loads logos_writ_gdb.py from the same dir.) Tracked by
 # both CPack DEB and RPM (plain install(FILES), unlike install(CODE) symlinks).
 set(LOGOS_GDB_SCRIPTS
     tools/gdb/logos_gdb.py
-    tools/gdb/logos_hermes_gdb.py)
+    tools/gdb/logos_writ_gdb.py)
 # Build-tree mirror so `$(logosc --print-prefix)/share/gdb` resolves pre-install
 # too (build prefix = CMAKE_BINARY_DIR). COPYONLY re-copies when a script changes.
 foreach(_gdb_script ${LOGOS_GDB_SCRIPTS})

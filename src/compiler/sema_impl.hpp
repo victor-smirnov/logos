@@ -22,11 +22,11 @@
 #include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <cctype>
 #include <cstdint>
@@ -97,11 +97,11 @@ inline bool can_widen_int(LogosType::Kind from, LogosType::Kind to) noexcept;
 // Placed here so all sema_*.cpp files get them automatically.
 namespace sema_detail {
     namespace la = logos::compiler::ast;
-    using hermes::TinyMapView;
-    using hermes::ArrayView;
-    using hermes::StringView;
-    using hermes::AnyVal;
-    using hermes::MemHolder;
+    using writ::TinyMapView;
+    using writ::ArrayView;
+    using writ::StringView;
+    using writ::AnyVal;
+    using writ::MemHolder;
 }
 
 // M5 step 3b: snapshot of all collect()-mutated symbol tables + the
@@ -126,7 +126,7 @@ class SemaChecker {
 public:
     friend class SemaCheckerSnapshot;
 
-    lir::LProgram run(const std::vector<hermes::Hermes>& asts,
+    lir::LProgram run(const std::vector<writ::Hermes>& asts,
                       const std::vector<std::string>& filenames,
                       const std::vector<bool>& from_binary = {});
 
@@ -714,28 +714,28 @@ private:
     // target_os, target_endian, target_family) resolved against
     // compile-target metadata. `feature = "name"` resolved against
     // `cfg_features_` (populated from --cfg flags / lforge manifest).
-    bool evaluate_cfg_predicate(hermes::TinyMapView fn_macro_call_node);
+    bool evaluate_cfg_predicate(writ::TinyMapView fn_macro_call_node);
     // The single ARG of the cfg!() call is a predicate AST node — could
     // be a parenthesised IDENT (`target_os`), a key=value (e.g.
     // `target_os = "linux"`), or a combinator call (`all(...)`).
     // This helper interprets one predicate node.
-    bool evaluate_cfg_node(hermes::TinyMapView pred_node);
+    bool evaluate_cfg_node(writ::TinyMapView pred_node);
     // Phase 2-2: evaluate `#[cfg(...)]` attached to an item. Annotation
     // args parsed by the annotation grammar (ANNOT_KV / bare IDENT only
     // for MVP — combinators like `all(...)` not supported in attribute
     // form yet). Multi-arg list treats as conjunction.
-    bool evaluate_cfg_annotation(hermes::TinyMapView annotation_node);
+    bool evaluate_cfg_annotation(writ::TinyMapView annotation_node);
     // §6.8: shared per-arg evaluator. Handles ANNOT_CALL (all/any/not
     // combinators — recursive), ANNOT_KV (key=lit), and bare-NAME
     // (flag). Called by evaluate_cfg_annotation for each entry of the
     // top-level annot_args list, and by itself for the children of an
     // ANNOT_CALL.
-    bool evaluate_cfg_arg(hermes::TinyMapView arg_node);
+    bool evaluate_cfg_arg(writ::TinyMapView arg_node);
     // §6.8 / T0-6: the single conditional-compilation gate for an item's
     // accumulated annotation list — cfg_attr activation (mutates the list)
     // followed by cfg evaluation. Returns true when the item must be
     // dropped. Shared by the collection AND lowering walks.
-    bool cfg_attrs_drop_item(std::vector<hermes::TinyMapView>& pending_annots);
+    bool cfg_attrs_drop_item(std::vector<writ::TinyMapView>& pending_annots);
     // logos-core 1.3: fill `_` holes in a let-annotation from the RHS type.
     TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
     // True when t contains a `_` (InferredType) hole at any depth.
@@ -747,7 +747,7 @@ private:
     // ctfe::eval_expr — the resolver is what closes K10-co-06's PATH folding.
     logos::expected<logos::compiler::ctfe::CtfeValue,
                     logos::compiler::ctfe::CtfeError>
-    ctfe_eval_const(hermes::TinyMapView node, hermes::MemHolder* h) noexcept;
+    ctfe_eval_const(writ::TinyMapView node, writ::MemHolder* h) noexcept;
 
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a
@@ -760,8 +760,8 @@ private:
     // bind the same variable names. AST-level check, fired for TOP-LEVEL
     // match-arm alternations (`Some(x) | None => …`) from both match
     // lowering paths; the nested PatOr builder has its own equivalent.
-    void check_or_alt_binding_consistency(hermes::TinyMapView pat_or);
-    void collect_ast_pat_bindings(hermes::TinyMapView pat,
+    void check_or_alt_binding_consistency(writ::TinyMapView pat_or);
+    void collect_ast_pat_bindings(writ::TinyMapView pat,
                                   std::vector<std::string>& out);
 
     // T1-7 (audit-v2): capture types per interned closure type, recorded at
@@ -1127,7 +1127,7 @@ private:
 
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
-    uint32_t get_line(hermes::TinyMapView node) noexcept {
+    uint32_t get_line(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
         if (node.is_null()) return 0;
         AnyVal av = node.get(la::SRC_LINE.code);
@@ -1140,7 +1140,7 @@ private:
 
     // ── Hermes helpers ───────────────────────────────────────────
 
-    hermes::MemHolder* holder_ = nullptr;
+    writ::MemHolder* holder_ = nullptr;
 
     // Slice 7 of metaprog-quote: lower_hermes_blob may build a Hermes doc
     // from blob bytes (when the blob carries an AST fragment) and recurse
@@ -1148,22 +1148,22 @@ private:
     // The Hermes objects must outlive the recursion AND any LIR mirror
     // back-fill that runs later — keep them alive for the SemaChecker's
     // lifetime by stashing here.
-    std::vector<hermes::Hermes> blob_docs_;
+    std::vector<writ::Hermes> blob_docs_;
 
-    int32_t code_of(hermes::TinyMapView node) noexcept {
+    int32_t code_of(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
         if (node.is_null()) return -1;
         AnyVal av = node.get(la::CODE.code);
         return av.is_null() ? -1 : av.as_value<int32_t>();
     }
 
-    std::string_view str_of(hermes::AnyVal av) noexcept {
+    std::string_view str_of(writ::AnyVal av) noexcept {
         using namespace sema_detail;
         if (av.is_null()) return {};
         return StringView(av, holder_).view();
     }
 
-    hermes::TinyMapView map_of(hermes::AnyVal av) noexcept {
+    writ::TinyMapView map_of(writ::AnyVal av) noexcept {
         using namespace sema_detail;
         if (av.is_null()) return TinyMapView{};
         return TinyMapView(av, holder_);
@@ -1173,7 +1173,7 @@ private:
     // VIS sub-node (set by the grammar `pub_vis` rule). Returns true for
     // `pub(module)` (module-linkage); false for plain `pub` / no VIS / non-pub.
     // Validates the contextual word == "module" (errors on e.g. `pub(crate)`).
-    bool read_module_vis(hermes::TinyMapView node) {
+    bool read_module_vis(writ::TinyMapView node) {
         using namespace sema_detail;
         if (!node.has_key(la::VIS)) return false;
         auto vav = node.get(la::VIS.code);
@@ -1190,7 +1190,7 @@ private:
         return true;
     }
 
-    hermes::ArrayView arr_of(hermes::AnyVal av) noexcept {
+    writ::ArrayView arr_of(writ::AnyVal av) noexcept {
         using namespace sema_detail;
         return ArrayView(av, holder_);
     }
@@ -1207,9 +1207,9 @@ private:
     // apply their own lowering policy (lower_expr vs lower_arg_with_hint).
     // The shape probe order (ITEMS first, else pointer-array) matches the
     // historical inline logic exactly.
-    std::vector<hermes::TinyMapView> collect_arg_asts(hermes::TinyMapView node) noexcept {
+    std::vector<writ::TinyMapView> collect_arg_asts(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
-        std::vector<hermes::TinyMapView> out;
+        std::vector<writ::TinyMapView> out;
         if (!node.has_key(la::ARGS)) return out;
         auto args_av = node.get(la::ARGS.code);
         if (args_av.is_null()) return out;
@@ -1228,7 +1228,7 @@ private:
 
     // collect_arg_asts + lower each via lower_expr. Replaces the common
     // "parse the args and lower them" idiom (no per-arg type hint).
-    std::vector<lir::LExprPtr> lower_call_args(hermes::TinyMapView node) {
+    std::vector<lir::LExprPtr> lower_call_args(writ::TinyMapView node) {
         std::vector<lir::LExprPtr> args;
         for (auto an : collect_arg_asts(node)) args.push_back(lower_expr(an));
         return args;
@@ -1369,7 +1369,7 @@ private:
     //   #[name = 123]           → VALUE: { CODE: LIT_INT, VALUE: "123" }
     //   #[name = Enum::Variant] → VALUE: { CODE: ENUM_LIT, NAME: "Enum", FIELD: "Variant" }
     // Caller must have verified ann.has_key(la::VALUE).
-    uint64_t read_annotation_u64(hermes::TinyMapView ann) {
+    uint64_t read_annotation_u64(writ::TinyMapView ann) {
         using namespace sema_detail;
         auto vmap = map_of(ann.get(la::VALUE.code));
         int32_t vc = code_of(vmap);
@@ -1753,7 +1753,7 @@ private:
 
     void check_annotations(AttrTarget target, std::string_view target_name,
                            bool has_type_params,
-                           const std::vector<hermes::TinyMapView>& annots) {
+                           const std::vector<writ::TinyMapView>& annots) {
         using namespace sema_detail;
         unsigned target_bit = 1u << unsigned(target);
         for (auto& ann : annots) {
@@ -1816,7 +1816,7 @@ private:
     // True iff the pattern is an unconditional catch-all (`_` or bare
     // identifier binding without a guard).  Used by reachability lint
     // (Sprint 5.2 — closes B-pt-07: arm-after-catchall).
-    bool is_catchall_pat(hermes::TinyMapView arm) {
+    bool is_catchall_pat(writ::TinyMapView arm) {
         using namespace sema_detail;
         if (arm.has_key(ast::GUARD)) return false;
         if (!arm.has_key(ast::LHS)) return false;
@@ -1833,7 +1833,7 @@ private:
     }
 
     // True iff the item AST node carries a non-empty TYPE_PARAMS list.
-    bool item_has_type_params(hermes::TinyMapView node) {
+    bool item_has_type_params(writ::TinyMapView node) {
         using namespace sema_detail;
         if (!node.has_key(la::TYPE_PARAMS)) return false;
         auto av = node.get(la::TYPE_PARAMS.code);
@@ -1994,7 +1994,7 @@ private:
     // loop in collect() checks this set and skips already-processed
     // holders (re-walking would just be deduped by the existing ODR
     // logic, but the walk itself is the cost we want to avoid).
-    std::unordered_set<const hermes::MemHolder*> collected_holders_;
+    std::unordered_set<const writ::MemHolder*> collected_holders_;
 
     // M5 step 5c: packages declared by non-binary (user) ASTs. Used
     // by take_snapshot to drop user-pkg entries before persisting —
@@ -2018,12 +2018,12 @@ private:
     StrSet user_blanket_mangled_;        // BlanketImpl.mangled_name from user code
     // M6.1: user holders added to collected_holders_ under keep_user_state
     // mode (so reset_user_state can drop them again).
-    std::unordered_set<const hermes::MemHolder*> user_holders_;
+    std::unordered_set<const writ::MemHolder*> user_holders_;
 
     // Current AST root, set by lower_program at each iteration. Used by
     // sema-side intrinsics (e.g. `template_of::<X>()`) that need to walk
     // the user-root MODULE's ITEMS to bake an AST-node arena offset.
-    hermes::TinyMapView cur_root_;
+    writ::TinyMapView cur_root_;
 
     bool fn_is_metaprog_handler(std::string_view name) const {
         auto base = bare_fn_name(name);
@@ -2611,8 +2611,8 @@ private:
             std::string trait_name;   // the required trait (Ord)
         };
         std::vector<ParamBound> where_param_bounds;
-        hermes::AnyVal default_ast{};    // AST node for default method (valid when has_default)
-        hermes::MemHolder* default_holder = nullptr;  // zone that owns default_ast
+        writ::AnyVal default_ast{};    // AST node for default method (valid when has_default)
+        writ::MemHolder* default_holder = nullptr;  // zone that owns default_ast
         std::string doc;     // Phase A.2: outer `///` doc-comment
     };
     struct SemaAssocTypeInfo {
@@ -2629,7 +2629,7 @@ private:
         // T2-14: the default value's AST node (when has_default) — projected
         // into `assoc_const_impls_` for each `impl Trait for T {}` that omits
         // the const, so `T::CONST` resolves to the trait default.
-        hermes::AnyVal   default_value_ast;
+        writ::AnyVal   default_value_ast;
         std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaTraitInfo {
@@ -2763,7 +2763,7 @@ private:
     // Phase A.4: try to consume a doc-node (DOC_LINE_LIT or DOC_BLOCK_LIT)
     // into the supplied buffer. Returns true on consume; callers use this
     // in iteration loops where doc-nodes are interleaved with real members.
-    bool try_append_doc(std::string& buf, hermes::TinyMapView node) {
+    bool try_append_doc(std::string& buf, writ::TinyMapView node) {
         int32_t c = code_of(node);
         if (c == sema_detail::la::DOC_LINE_LIT) {
             append_doc_line(buf, str_of(node.get(sema_detail::la::VALUE.code)));
@@ -2876,7 +2876,7 @@ private:
     // `match x { CONST => … }` can ctfe-eval CONST and lower as a value
     // pattern (PAT_INT/PAT_BOOL/PAT_CHAR) instead of silently binding
     // the scrutinee to a fresh local named CONST.
-    logos::compiler::StrMap<hermes::TinyMapView> module_const_values_;
+    logos::compiler::StrMap<writ::TinyMapView> module_const_values_;
     // §6.2: names of `static mut` items declared in this module —
     // var-reads and place-assigns require an enclosing `unsafe` block
     // per Rust spec `items.static.mut.safety`. Populated by
@@ -2941,8 +2941,8 @@ private:
     // per-instantiation HStaticLit identity.
     struct GenericConstEntry {
         std::vector<TypeParam>  type_params;
-        hermes::TinyMapView     value_node;   // AST of the RHS hermes_lit
-        hermes::MemHolder*      holder = nullptr;  // module-of-decl holder
+        writ::TinyMapView     value_node;   // AST of the RHS hermes_lit
+        writ::MemHolder*      holder = nullptr;  // module-of-decl holder
     };
     logos::compiler::StrMap<GenericConstEntry> generic_consts_;
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
@@ -2973,7 +2973,7 @@ private:
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
         TypeRef  type;
-        hermes::AnyVal    value_ast;  // AST expr node for the constant value
+        writ::AnyVal    value_ast;  // AST expr node for the constant value
         mutable lir::LExprPtr cached_value = nullptr;  // lowered once, reused at every access site
         std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
@@ -3232,19 +3232,19 @@ private:
     // using `#i` (type param i) and `@i` (lifetime param i) as keys.
     void compute_variances();
 
-    std::vector<std::string> read_lifetime_params(hermes::TinyMapView node);
+    std::vector<std::string> read_lifetime_params(writ::TinyMapView node);
     // B65: read declared outlives bounds. Returns (long, short) pairs from
     // `'long: 'short` clauses (in fn/struct/enum/impl header or where).
     // Scans node.TYPE_PARAMS items (LIFETIME_PARAM with non-empty ITEMS).
     std::vector<std::pair<std::string, std::string>>
-        read_lifetime_outlives(hermes::TinyMapView node);
+        read_lifetime_outlives(writ::TinyMapView node);
     std::vector<std::pair<std::string, std::string>>
-        read_lifetime_outlives_from(hermes::TinyMapView node, int32_t field_code);
-    std::vector<TypeParam> read_type_params_from(hermes::TinyMapView node, int32_t field_code);
-    std::vector<TypeParam> read_type_params(hermes::TinyMapView node);
+        read_lifetime_outlives_from(writ::TinyMapView node, int32_t field_code);
+    std::vector<TypeParam> read_type_params_from(writ::TinyMapView node, int32_t field_code);
+    std::vector<TypeParam> read_type_params(writ::TinyMapView node);
     // Read type_args + assoc_eqs from a TRAIT_BOUND node's TYPE_PARAMS slot.
     // ASSOC_EQ_BIND items go to assoc_eqs; everything else is resolved as a type.
-    void read_trait_bound_args(hermes::TinyMapView bnode, TraitBound& tb);
+    void read_trait_bound_args(writ::TinyMapView bnode, TraitBound& tb);
     // Phase 1: post-process collected bounds. Walks `tp.bounds` and:
     //   - for each bound with `is_relaxed=true`, validates `trait_name=="Sized"`
     //     (otherwise emits an error: only `?Sized` is permitted);
@@ -3548,17 +3548,17 @@ private:
 
     // ── Type resolution ──────────────────────────────────────────
 
-    TypeRef resolve_type(hermes::TinyMapView node);
+    TypeRef resolve_type(writ::TinyMapView node);
     // Hash a bare hermes_lit AST (HERMES_MAP / _ARRAY / scalars) and register
     // its lowered LIR HermesVal in cur_prog_->hstatic_registry_; return the
     // corresponding HStaticLit TypeRef. Shared between the LIT_HSTATIC type-
     // arg handler in resolve_type and `pub const X: HermesStatic = @{...};`
     // recognition in collect_const.
-    TypeRef resolve_hstatic_value(hermes::TinyMapView val_node);
+    TypeRef resolve_hstatic_value(writ::TinyMapView val_node);
 
     // ── Collection phase ─────────────────────────────────────────
 
-    void collect(const std::vector<hermes::Hermes>& asts);
+    void collect(const std::vector<writ::Hermes>& asts);
     void simplify_all_types();
     void check_supertrait_impls();
     // Supertrait-closure vtable layout — single source of truth for dyn-Trait
@@ -3567,7 +3567,7 @@ private:
         const std::string& trait,
         std::vector<std::pair<std::string, const SemaTraitMethodInfo*>>& method_order,
         std::vector<std::string>& upcast_supers);
-    std::string read_package_name(hermes::TinyMapView mod);
+    std::string read_package_name(writ::TinyMapView mod);
     void check_pub_access(bool is_pub, const std::string& def_package,
                           std::string_view item_name,
                           bool is_module_only = false,
@@ -3594,24 +3594,24 @@ private:
                                  const std::string& concrete,
                                  const std::string& concrete_alt,
                                  logos::compiler::StrSet& seen);
-    void collect_module(hermes::TinyMapView mod, int phase);
-    void collect_enum(hermes::TinyMapView node);
-    void collect_type_alias(hermes::TinyMapView node);
-    void collect_const(hermes::TinyMapView node);
-    void collect_trait(hermes::TinyMapView node);
-    void collect_impl(hermes::TinyMapView node);
-    void collect_struct_spec(hermes::TinyMapView node);
-    void collect_struct(hermes::TinyMapView node);
-    void collect_datatype(hermes::TinyMapView node, bool is_annotation_type = false);
+    void collect_module(writ::TinyMapView mod, int phase);
+    void collect_enum(writ::TinyMapView node);
+    void collect_type_alias(writ::TinyMapView node);
+    void collect_const(writ::TinyMapView node);
+    void collect_trait(writ::TinyMapView node);
+    void collect_impl(writ::TinyMapView node);
+    void collect_struct_spec(writ::TinyMapView node);
+    void collect_struct(writ::TinyMapView node);
+    void collect_datatype(writ::TinyMapView node, bool is_annotation_type = false);
     TypeRef try_resolve_as_known_type(std::string_view name);
     bool is_known_type_name(std::string_view name) const;
-    void extract_typevars_from_type_node(hermes::TinyMapView node,
+    void extract_typevars_from_type_node(writ::TinyMapView node,
                                          std::vector<TypeParam>& out);
-    bool is_specialization_fn(hermes::TinyMapView node);
-    bool is_specialization_struct(hermes::TinyMapView node);
-    DeclBuilder lower_spec_struct(hermes::TinyMapView node);
-    DeclBuilder lower_spec_fn(hermes::TinyMapView node);
-    void collect_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
+    bool is_specialization_fn(writ::TinyMapView node);
+    bool is_specialization_struct(writ::TinyMapView node);
+    DeclBuilder lower_spec_struct(writ::TinyMapView node);
+    DeclBuilder lower_spec_fn(writ::TinyMapView node);
+    void collect_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
                     std::string_view trait_ctx = {});
 
     // ── Auto trait satisfaction ───────────────────────────────────
@@ -3717,23 +3717,23 @@ private:
     }
     // Reconstruct the dotted package from a qualified-call node's
     // RECEIVER (first segment) + PATH_PARTS (the rest). "" if not qualified.
-    std::string extract_pkg_qualifier(hermes::TinyMapView node);
+    std::string extract_pkg_qualifier(writ::TinyMapView node);
 
     // ── Return reachability ───────────────────────────────────────
 
-    bool stmt_always_returns(hermes::TinyMapView stmt);
-    bool block_always_returns(hermes::TinyMapView block);
+    bool stmt_always_returns(writ::TinyMapView stmt);
+    bool block_always_returns(writ::TinyMapView block);
     // Like *_always_returns, but also treats `break`/`continue` as diverging.
     // Used where we need to know "does the tail expression run?" — e.g. match
     // arm body: `{ ...; break; }` never reaches a tail expression.
-    bool stmt_always_diverts(hermes::TinyMapView stmt);
-    bool block_always_diverts(hermes::TinyMapView block);
+    bool stmt_always_diverts(writ::TinyMapView stmt);
+    bool block_always_diverts(writ::TinyMapView block);
     // logos-core 1.1: callee-body always diverges (panic-tail / loop{}-tail).
     // STRICTER than *_returns — RETURN normal-paths return false. Used by
     // `infer_type_args` to fall back unbound type-params to `!`
     // (Rust-2024 `!`-fallback rule, narrowed to: var unbound AND callee
     // body always diverges).
-    bool body_always_diverges_simple(hermes::TinyMapView body_node);
+    bool body_always_diverges_simple(writ::TinyMapView body_node);
 
     // ── Lowering helpers ─────────────────────────────────────────
 
@@ -3793,7 +3793,7 @@ private:
     // historical hand-coded `callee == "panic"` carve-outs once the Never
     // type became real (logos-core 1.1). `panic`/`abort`/`exit`/user
     // `fn foo() -> !` all qualify.
-    bool is_divergent_call_node(hermes::TinyMapView node);
+    bool is_divergent_call_node(writ::TinyMapView node);
     const SemaFuncInfo* resolve_function_call(std::string_view base_name,
                                               const std::vector<lir::LExprPtr>& arg_exprs,
                                               bool allow_generic = true,
@@ -3801,31 +3801,31 @@ private:
 
     // ── lower_expr ───────────────────────────────────────────────
 
-    lir::LExprPtr lower_expr(hermes::TinyMapView expr);
-    lir::LExprPtr lower_expr_inner(hermes::TinyMapView expr);
-    lir::LExprPtr lower_offset_of(hermes::TinyMapView node);  // offset_of!(Type, field)
-    lir::LExprPtr lower_binop(hermes::TinyMapView node);
-    lir::LExprPtr lower_unary(hermes::TinyMapView node);
-    lir::LExprPtr lower_deref(hermes::TinyMapView node);
+    lir::LExprPtr lower_expr(writ::TinyMapView expr);
+    lir::LExprPtr lower_expr_inner(writ::TinyMapView expr);
+    lir::LExprPtr lower_offset_of(writ::TinyMapView node);  // offset_of!(Type, field)
+    lir::LExprPtr lower_binop(writ::TinyMapView node);
+    lir::LExprPtr lower_unary(writ::TinyMapView node);
+    lir::LExprPtr lower_deref(writ::TinyMapView node);
     // Box DerefMove: lowers `*box_var` (move-typed Box) to `box_take(b)`.
     // Returns null when not applicable (operand isn't a bare Box var, or its
     // element is Copy) — caller falls through to the normal deref path.
-    lir::LExprPtr try_lower_box_deref_move(hermes::TinyMapView deref_node);
-    lir::LExprPtr lower_call(hermes::TinyMapView node);
+    lir::LExprPtr try_lower_box_deref_move(writ::TinyMapView deref_node);
+    lir::LExprPtr lower_call(writ::TinyMapView node);
     // lower_expr literal/cast sub-handlers, factored out of its switch so every
     // case delegates uniformly. Each lowers one expr kind from `expr` + members.
-    lir::LExprPtr lower_int_lit(hermes::TinyMapView expr);
+    lir::LExprPtr lower_int_lit(writ::TinyMapView expr);
     lir::LExprPtr lit_int_from_text(std::string_view sv, bool negate);
-    lir::LExprPtr lower_char_lit(hermes::TinyMapView expr);
-    lir::LExprPtr lower_bytes_lit(hermes::TinyMapView expr);
-    lir::LExprPtr lower_var_ref(hermes::TinyMapView expr);
-    lir::LExprPtr lower_cast(hermes::TinyMapView expr);
+    lir::LExprPtr lower_char_lit(writ::TinyMapView expr);
+    lir::LExprPtr lower_bytes_lit(writ::TinyMapView expr);
+    lir::LExprPtr lower_var_ref(writ::TinyMapView expr);
+    lir::LExprPtr lower_cast(writ::TinyMapView expr);
     // resolve_type sub-handlers, factored out of the resolve_type tc-dispatch.
     // Each lowers one type-syntax kind (keyed by node's CODE) to a TypeRef and
     // depends only on `node` + members (no state shared across branches).
-    TypeRef resolve_type_generic_inst(hermes::TinyMapView node);
-    TypeRef resolve_type_assoc_ref(hermes::TinyMapView node);
-    TypeRef resolve_type_cfg_slot(hermes::TinyMapView node);
+    TypeRef resolve_type_generic_inst(writ::TinyMapView node);
+    TypeRef resolve_type_assoc_ref(writ::TinyMapView node);
+    TypeRef resolve_type_cfg_slot(writ::TinyMapView node);
     void unify_types(TypeRef formal, TypeRef actual,
                      logos::compiler::StrMap<TypeRef>& bindings);
     bool infer_type_args(const SemaFuncInfo& fi,
@@ -3837,46 +3837,46 @@ private:
                                       const SemaFuncInfo& fi,
                                       std::vector<TypeRef> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs);
-    lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_generic_call(writ::TinyMapView node);
     // The leading magic-builtin / type-trait intrinsic dispatch of
     // lower_generic_call (is_same, type_of, has_trait, typelist_*, tuple_*, …).
     // Returns the lowered call when `callee` is such an intrinsic; nullopt to
     // fall through to lower_generic_call's general generic-resolution path.
     std::optional<lir::LExprPtr> lower_type_intrinsic(
-        hermes::TinyMapView node, std::string_view callee);
+        writ::TinyMapView node, std::string_view callee);
     // Helpers shared by the type-intrinsic handlers (promoted from lambdas).
-    std::vector<TypeRef> collect_type_args(hermes::TinyMapView node);
+    std::vector<TypeRef> collect_type_args(writ::TinyMapView node);
     lir::LExprPtr bool_lit(bool v);
     // Individual large intrinsic handlers split out of lower_type_intrinsic's
     // flat callee-dispatch (each terminal; uses node + members only).
-    lir::LExprPtr lower_intrinsic_tuple_all_eq(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_type_code_of(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_generic_of(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_template_of(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_has_trait_of(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_dst_from_raw_parts(hermes::TinyMapView node, std::string_view callee);
-    lir::LExprPtr lower_intrinsic_zone_mut_ref(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_reflect(hermes::TinyMapView node);
-    lir::LExprPtr lower_intrinsic_get_annotation(hermes::TinyMapView node);
-    lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
-    lir::LExprPtr lower_method_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_tuple_all_eq(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_type_code_of(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_generic_of(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_template_of(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_has_trait_of(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_dst_from_raw_parts(writ::TinyMapView node, std::string_view callee);
+    lir::LExprPtr lower_intrinsic_zone_mut_ref(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_reflect(writ::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_get_annotation(writ::TinyMapView node);
+    lir::LExprPtr lower_generic_ref(writ::TinyMapView node);
+    lir::LExprPtr lower_method_call(writ::TinyMapView node);
     // Per-receiver-shape method-dispatch handlers, factored out of the
     // lower_method_call cascade. Each checks its own receiver-type guard and
     // returns nullopt to fall through to the next shape; `recv` is threaded by
     // reference so a handler's coercions persist across fall-through exactly as
     // in the original inline code.
     std::optional<lir::LExprPtr> try_method_on_tuple(
-        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_slice(
-        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dstref(
-        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dyn(
-        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_raw_ptr(
-        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_tagged(
-        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     // Move-tracking shared by the method-dispatch handlers: mark by-value
     // move-type args / receiver as moved so scope-end auto-Drop doesn't fire
     // on ownership the call has transferred. (Promoted from local lambdas.)
@@ -3895,31 +3895,31 @@ private:
         std::vector<lir::LExprPtr>& arg_exprs,
         std::string_view method_name,
         const std::string& type_name);
-    lir::LExprPtr lower_invoke_expr(hermes::TinyMapView node);
-    lir::LExprPtr lower_field_read(hermes::TinyMapView node);
-    lir::LExprPtr lower_struct_lit(hermes::TinyMapView node);
-    lir::LExprPtr lower_index_read(hermes::TinyMapView node);
+    lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
+    lir::LExprPtr lower_field_read(writ::TinyMapView node);
+    lir::LExprPtr lower_struct_lit(writ::TinyMapView node);
+    lir::LExprPtr lower_index_read(writ::TinyMapView node);
     // `&f[i]` / `&mut f[i]` over a user Index/IndexMut struct: dispatch to
     // index()/index_mut() and return the resulting place reference DIRECTLY
     // (no deref, no temp). Returns nullptr if `node` is not an INDEX_READ
     // over a user-Index type, so the caller falls through to its generic
     // address-of path. is_mut selects index_mut (requires IndexMut).
-    lir::LExprPtr lower_index_place(hermes::TinyMapView node, bool is_mut);
-    lir::LExprPtr lower_arr_lit(hermes::TinyMapView node);
-    lir::LExprPtr lower_arr_fill_lit(hermes::TinyMapView node);
-    lir::LExprPtr lower_list_comp(hermes::TinyMapView node);
-    lir::LExprPtr lower_map_comp(hermes::TinyMapView node);
-    lir::LExprPtr lower_hermes_list_comp(hermes::TinyMapView node);
-    lir::LExprPtr lower_hermes_map_comp(hermes::TinyMapView node);
+    lir::LExprPtr lower_index_place(writ::TinyMapView node, bool is_mut);
+    lir::LExprPtr lower_arr_lit(writ::TinyMapView node);
+    lir::LExprPtr lower_arr_fill_lit(writ::TinyMapView node);
+    lir::LExprPtr lower_list_comp(writ::TinyMapView node);
+    lir::LExprPtr lower_map_comp(writ::TinyMapView node);
+    lir::LExprPtr lower_hermes_list_comp(writ::TinyMapView node);
+    lir::LExprPtr lower_hermes_map_comp(writ::TinyMapView node);
     lir::LExprPtr coerce_to_hermes_anyval(lir::LExprPtr val,
                                           const std::string& ctr_var,
                                           TypeRef ctr_t,
                                           std::string_view context);
-    lir::LExprPtr lower_hermes_lit(hermes::TinyMapView node);
-    lir::LExprPtr lower_hermes_blob(hermes::TinyMapView node);
-    lir::LExprPtr lower_quote_item(hermes::TinyMapView node);
-    lir::LExprPtr lower_quote_expr(hermes::TinyMapView node);
-    lir::LExprPtr lower_quote_ty(hermes::TinyMapView node);
+    lir::LExprPtr lower_hermes_lit(writ::TinyMapView node);
+    lir::LExprPtr lower_hermes_blob(writ::TinyMapView node);
+    lir::LExprPtr lower_quote_item(writ::TinyMapView node);
+    lir::LExprPtr lower_quote_expr(writ::TinyMapView node);
+    lir::LExprPtr lower_quote_ty(writ::TinyMapView node);
 
     // Capture context: non-null while lowering a hermes literal that has $-captures.
     // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
@@ -3932,9 +3932,9 @@ private:
     };
     HermesCapCtx* hermes_cap_ctx_ = nullptr;
 
-    lir::HermesValPtr lower_hermes_val(hermes::TinyMapView node);
-    lir::LExprPtr lower_enum_lit(hermes::TinyMapView node);
-    lir::LExprPtr lower_enum_lit_data(hermes::TinyMapView node);
+    lir::HermesValPtr lower_hermes_val(writ::TinyMapView node);
+    lir::LExprPtr lower_enum_lit(writ::TinyMapView node);
+    lir::LExprPtr lower_enum_lit_data(writ::TinyMapView node);
     // g9/B121: `T::CONST` where T is an abstract type-param whose bound trait
     // declares `const CONST`. Returns a zero-arg accessor call
     // `T__kassoc_CONST()` (mono rewrites `T__` → concrete; lower_impl_block
@@ -3958,8 +3958,8 @@ private:
     // parameter types. Returns the inner callable type, or null.
     TypeRef peel_to_callable(TypeRef t);
     lir::LExprPtr lower_enum_lit_data_from_static(
-            hermes::TinyMapView node, std::string_view ename, std::string_view vname);
-    lir::LExprPtr lower_static_call(hermes::TinyMapView node);
+            writ::TinyMapView node, std::string_view ename, std::string_view vname);
+    lir::LExprPtr lower_static_call(writ::TinyMapView node);
     // Trait-static method dispatch through a bound type-param: `Z::m(args)` /
     // `Z::m::<T..>(args)` where Z: SomeTrait declares static `m`. Substitutes
     // Self→Z and the method's OWN type-params (explicit turbofish, else inferred
@@ -3969,20 +3969,20 @@ private:
         const std::string& cname, const std::string& mname,
         std::vector<TypeRef> explicit_targs,
         std::vector<lir::LExprPtr> arg_exprs);
-    lir::LExprPtr lower_metacall   (hermes::TinyMapView node);
+    lir::LExprPtr lower_metacall   (writ::TinyMapView node);
     // Function-style macro `name!(args)` / `name![args]` (slice 1 of
     // fn-macros). Resolves CALLEE against #[fn_macro] fns; ARGs are
     // captured as ExprBlobs and passed through the metacall JIT thunk.
-    lir::LExprPtr lower_fn_macro_call(hermes::TinyMapView node);
+    lir::LExprPtr lower_fn_macro_call(writ::TinyMapView node);
     // The leading compiler-built-in macro dispatch of lower_fn_macro_call
     // (cfg!, line!, column!, file!, include!, include_str!/_bytes!, env!,
     // concat!, concat_bytes!, stringify!, compile_error!). Returns the lowered
     // result when `callee_name` is a built-in; nullopt to fall through to the
     // user-defined #[fn_macro] resolution path.
     std::optional<lir::LExprPtr> lower_builtin_macro(
-        hermes::TinyMapView node, const std::string& callee_name);
+        writ::TinyMapView node, const std::string& callee_name);
     // Large individual built-in macro handlers split out of lower_builtin_macro.
-    lir::LExprPtr lower_macro_include(hermes::TinyMapView node);
+    lir::LExprPtr lower_macro_include(writ::TinyMapView node);
     // Parse `wrap_body` as the tail expression of a synthetic
     // `fn __f() -> i32 { <wrap_body> }`, then lower that expression in the
     // current context (holder swapped to the freshly-parsed doc). Used by
@@ -3990,22 +3990,22 @@ private:
     // call. Returns error_expr() (after a diagnostic) on parse failure.
     lir::LExprPtr lower_reparsed_tail_expr(const std::string& wrap_body,
                                            std::string_view err_ctx);
-    lir::LExprPtr lower_macro_concat(hermes::TinyMapView node);
-    lir::LExprPtr lower_macro_concat_bytes(hermes::TinyMapView node);
+    lir::LExprPtr lower_macro_concat(writ::TinyMapView node);
+    lir::LExprPtr lower_macro_concat_bytes(writ::TinyMapView node);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
     // as an expr whose value is the tail expression (or void if absent).
-    lir::LExprPtr lower_block_expr(hermes::TinyMapView node);
+    lir::LExprPtr lower_block_expr(writ::TinyMapView node);
     // Item-position metacall (MC1.1). Synthesises a void thunk that wraps
     // the inner callee — `let __b = call(); logos_emit_item_blob_subst(&__b);`
     // — and registers a MetacallSite with ret_tag = ItemBlob. Caller
     // (sema.cpp item dispatch) supplies the AST offset of the METACALL_ITEM
     // node so the driver can mark it consumed (CODE → METACALL_ITEM_DONE).
-    void          lower_metacall_item(hermes::TinyMapView node, lir::LProgram& prog);
+    void          lower_metacall_item(writ::TinyMapView node, lir::LProgram& prog);
     // Slice 6 of fn-macros — `name!{...}` at module item position.
     // Mirrors lower_metacall_item but resolves callee against
     // #[fn_macro] markers and routes args through the per-site
     // arg-blob shim (slice 3 raw-capture path).
-    void          lower_fn_macro_call_item(hermes::TinyMapView node,
+    void          lower_fn_macro_call_item(writ::TinyMapView node,
                                            lir::LProgram& prog);
 
 public:
@@ -4016,13 +4016,13 @@ public:
     // metafn-generated AST documents as readable Logos source. Pure walks;
     // do not modify sema state. Public so dump-driver code outside the
     // class can render arbitrary sub-trees.
-    std::string render_expr_src(hermes::TinyMapView node);
-    std::string render_stmt_src(hermes::TinyMapView node);
-    std::string render_block_src(hermes::TinyMapView node);
-    std::string render_type_src(hermes::TinyMapView node);
-    std::string render_pat_src(hermes::TinyMapView node);
-    std::string render_item_src(hermes::TinyMapView node);
-    std::string render_module_src(hermes::TinyMapView node);
+    std::string render_expr_src(writ::TinyMapView node);
+    std::string render_stmt_src(writ::TinyMapView node);
+    std::string render_block_src(writ::TinyMapView node);
+    std::string render_type_src(writ::TinyMapView node);
+    std::string render_pat_src(writ::TinyMapView node);
+    std::string render_item_src(writ::TinyMapView node);
+    std::string render_module_src(writ::TinyMapView node);
 
     // For the --dump-metaprog driver: temporarily point this checker at a
     // foreign Hermes doc so render_*_src can walk it without running full
@@ -4031,26 +4031,26 @@ public:
     // bypasses resolve_type and walks TYPE_REF / GENERIC_INST / PTR_TYPE /
     // etc. structurally — necessary for fresh checkers that have empty
     // type pools (no user struct/alias is registered).
-    void set_holder_for_render(hermes::MemHolder* h) { holder_ = h; }
+    void set_holder_for_render(writ::MemHolder* h) { holder_ = h; }
     void set_render_syntactic(bool on) { dump_syntactic_types_ = on; }
 private:
     // Item-rendering sub-helpers (sema_render.cpp Stage 2).
-    std::string render_path_parts_(hermes::TinyMapView node);
-    std::string render_type_param_src_(hermes::TinyMapView node);
-    std::string render_type_param_list_(hermes::TinyMapView node);
-    std::string render_param_src_(hermes::TinyMapView node);
-    std::string render_param_list_(hermes::TinyMapView node);
-    std::string render_field_def_src_(hermes::TinyMapView node);
-    std::string render_variant_def_src_(hermes::TinyMapView node);
+    std::string render_path_parts_(writ::TinyMapView node);
+    std::string render_type_param_src_(writ::TinyMapView node);
+    std::string render_type_param_list_(writ::TinyMapView node);
+    std::string render_param_src_(writ::TinyMapView node);
+    std::string render_param_list_(writ::TinyMapView node);
+    std::string render_field_def_src_(writ::TinyMapView node);
+    std::string render_variant_def_src_(writ::TinyMapView node);
     // Syntactic type walk used when dump_syntactic_types_ is on (fresh
     // checker with empty type pool — resolve_type would fail).
-    std::string render_type_src_syntactic_(hermes::TinyMapView node);
+    std::string render_type_src_syntactic_(writ::TinyMapView node);
     // Inner Hermes literal renderer — used recursively from
     // render_expr_src for HERMES_MAP entries / HERMES_ARRAY elements.
     // Omits the `@` prefix on scalars (grammar's hermes_val production
     // doesn't accept `@4` / `@"x"` at this position; outer hermes_lit
     // does).
-    std::string render_hermes_val_inner_(hermes::TinyMapView node);
+    std::string render_hermes_val_inner_(writ::TinyMapView node);
     bool dump_syntactic_types_ = false;
 
     // Render a CTFE-evaluated value as a Logos source literal. Used by both
@@ -4075,44 +4075,44 @@ private:
     // the call site to upgrade to a dedicated LIR opcode (one helper, one
     // mlir-gen case).
     lir::LExprPtr make_metacall_placeholder_expr(TypeRef ty);
-    lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
+    lir::LExprPtr lower_if_expr(writ::TinyMapView node);
     // §6.4: let-chain desugar. Recursively builds nested `if let`/
     // `if` LIR over the seg list, with the ELSE branch duplicated at
     // each fall-through site (matches Rust's classic desugar; user-
     // visible side effects in ELSE are dup'd, which is an accepted
     // limitation of the simple expansion).
-    lir::LExprPtr lower_if_let_chain(hermes::TinyMapView node);
-    lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
+    lir::LExprPtr lower_if_let_chain(writ::TinyMapView node);
+    lir::LExprPtr lower_closure_expr(writ::TinyMapView node);
 
     // ── lower_stmt and friends ───────────────────────────────────
 
-    lir_view::StmtRef lower_stmt(hermes::TinyMapView stmt);
-    lir_view::StmtRef lower_stmt_inner(hermes::TinyMapView stmt);
-    lir_view::BlockRef lower_block(hermes::TinyMapView block);
-    lir_view::StmtRef lower_let_destruct(hermes::TinyMapView node);
-    lir_view::StmtRef lower_let_pat(hermes::TinyMapView node);
-    lir_view::StmtRef lower_let(hermes::TinyMapView node);
-    lir_view::StmtRef lower_let_else(hermes::TinyMapView node);
-    lir_view::StmtRef lower_nested_fn(hermes::TinyMapView node);
-    lir_view::StmtRef lower_compound_assign(hermes::TinyMapView node);
-    lir_view::StmtRef lower_place_compound_assign(hermes::TinyMapView node,
-                                           hermes::TinyMapView place_node,
+    lir_view::StmtRef lower_stmt(writ::TinyMapView stmt);
+    lir_view::StmtRef lower_stmt_inner(writ::TinyMapView stmt);
+    lir_view::BlockRef lower_block(writ::TinyMapView block);
+    lir_view::StmtRef lower_let_destruct(writ::TinyMapView node);
+    lir_view::StmtRef lower_let_pat(writ::TinyMapView node);
+    lir_view::StmtRef lower_let(writ::TinyMapView node);
+    lir_view::StmtRef lower_let_else(writ::TinyMapView node);
+    lir_view::StmtRef lower_nested_fn(writ::TinyMapView node);
+    lir_view::StmtRef lower_compound_assign(writ::TinyMapView node);
+    lir_view::StmtRef lower_place_compound_assign(writ::TinyMapView node,
+                                           writ::TinyMapView place_node,
                                            const std::string& base_op);
-    std::string render_place_node(hermes::TinyMapView n);
-    lir_view::StmtRef lower_assign(hermes::TinyMapView node);
-    lir_view::StmtRef lower_destructure_assign(hermes::TinyMapView node);
-    lir_view::StmtRef lower_return(hermes::TinyMapView node);
-    lir::Pattern build_pattern(hermes::TinyMapView pnode, TypeRef scrut_type);
+    std::string render_place_node(writ::TinyMapView n);
+    lir_view::StmtRef lower_assign(writ::TinyMapView node);
+    lir_view::StmtRef lower_destructure_assign(writ::TinyMapView node);
+    lir_view::StmtRef lower_return(writ::TinyMapView node);
+    lir::Pattern build_pattern(writ::TinyMapView pnode, TypeRef scrut_type);
     // Internal: build_pattern's body without eager mirror emit. Recurses via
     // build_pattern (so sub-patterns get their own eager emit).
-    lir::Pattern build_pattern_impl(hermes::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_impl(writ::TinyMapView pnode, TypeRef scrut_type);
     // build_pattern_impl sub-handlers, factored out of its pc-keyed dispatch.
     // Each lowers one pattern kind; depends only on pnode/scrut_type/members
     // (recurses via build_pattern), no state shared across branches.
-    lir::Pattern build_pattern_variant(hermes::TinyMapView pnode, TypeRef scrut_type);
-    lir::Pattern build_pattern_variant_data(hermes::TinyMapView pnode, TypeRef scrut_type);
-    lir::Pattern build_pattern_bytes(hermes::TinyMapView pnode, TypeRef scrut_type);
-    lir::Pattern build_pattern_or(hermes::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_variant(writ::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_variant_data(writ::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_bytes(writ::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_or(writ::TinyMapView pnode, TypeRef scrut_type);
     // Helper for inline PatWild construction with eager mirror emit.
     lir::Pattern make_pat_wild(std::string_view name);
     // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
@@ -4122,7 +4122,7 @@ private:
         std::string name;        // user-visible binding name in arm body
         std::string av_var;      // AnyVal local holding the value
     };
-    lir::LExprPtr build_hermes_pat_guard(hermes::TinyMapView pnode,
+    lir::LExprPtr build_hermes_pat_guard(writ::TinyMapView pnode,
                                          const std::string& scrut_var,
                                          TypeRef scrut_type,
                                          const std::string& base_var,
@@ -4159,7 +4159,7 @@ private:
     // entries when building the arm body.
     struct NestedPatSub {
         std::string                synth_name;
-        hermes::TinyMapView        sub_pat_node;
+        writ::TinyMapView        sub_pat_node;
     };
     std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
     // B170-E: when ≥0, build_pattern_variant selects this alternative index of a
@@ -4174,7 +4174,7 @@ private:
     // scope. Recurses for deeper nesting. The owning arm's guard already
     // ensured the match, so the else block is dead.
     void emit_nested_variant_lets(const std::string& synth_name, TypeRef synth_t,
-                                  hermes::TinyMapView sub_pat,
+                                  writ::TinyMapView sub_pat,
                                   std::vector<lir_view::StmtRef>& out);
     // Emit body-prologue `let` destructures for the nested sub-patterns
     // collected in `nested_subs` (tuple/struct/variant payloads). Shared by
@@ -4189,7 +4189,7 @@ private:
     // diagnostic) for a pattern shape not yet supported in for-position. A bare
     // single binding is handled by the caller (NAME fast-path) and never reaches
     // here.
-    bool emit_for_pattern_destructure(hermes::TinyMapView pat,
+    bool emit_for_pattern_destructure(writ::TinyMapView pat,
                                       const std::string& src_var, TypeRef src_type,
                                       std::vector<lir_view::StmtRef>& out);
     // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
@@ -4197,7 +4197,7 @@ private:
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
     // verifies coverage on the original AST patterns, descending into each
     // variant's single payload. `pats` are the unguarded arm LHS nodes.
-    bool ast_patterns_exhaustive(std::vector<hermes::TinyMapView> pats, TypeRef ty);
+    bool ast_patterns_exhaustive(std::vector<writ::TinyMapView> pats, TypeRef ty);
     // P4-pm-12: names from `mut x` patterns (`match scrut { mut z =>
     // … }`). PatWild's LIR mirror doesn't carry the mut flag, so
     // build_pattern_impl appends to this side-channel and
@@ -4253,32 +4253,32 @@ private:
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
-    lir_view::StmtRef lower_if(hermes::TinyMapView node);
-    lir_view::StmtRef lower_while(hermes::TinyMapView node);
-    lir_view::StmtRef lower_for(hermes::TinyMapView node);
-    lir_view::StmtRef lower_for_each(hermes::TinyMapView node);
-    lir_view::StmtRef lower_loop(hermes::TinyMapView node);
-    lir_view::StmtRef lower_place_assign(hermes::TinyMapView node);
-    bool place_write_supported(hermes::TinyMapView place);
-    bool check_place_writable(hermes::TinyMapView place);
-    TypeRef resolve_place_type(hermes::TinyMapView place);
+    lir_view::StmtRef lower_if(writ::TinyMapView node);
+    lir_view::StmtRef lower_while(writ::TinyMapView node);
+    lir_view::StmtRef lower_for(writ::TinyMapView node);
+    lir_view::StmtRef lower_for_each(writ::TinyMapView node);
+    lir_view::StmtRef lower_loop(writ::TinyMapView node);
+    lir_view::StmtRef lower_place_assign(writ::TinyMapView node);
+    bool place_write_supported(writ::TinyMapView place);
+    bool check_place_writable(writ::TinyMapView place);
+    TypeRef resolve_place_type(writ::TinyMapView place);
     std::optional<lir_view::StmtRef> try_index_mut_assign(
         const std::string& arr_name, TypeRef arr_type,
-        hermes::TinyMapView idx_node, hermes::TinyMapView val_node);
+        writ::TinyMapView idx_node, writ::TinyMapView val_node);
     std::optional<lir_view::StmtRef> try_dataref_field_write(
         const std::string& recv_name, const std::string& field_name,
-        hermes::TinyMapView val_node);
-    bool place_recv_is_simple(hermes::TinyMapView recv);
-    bool place_field_base_ok(hermes::TinyMapView recv);
-    hermes::TinyMapView unwrap_paren_node(hermes::TinyMapView n);
-    lir_view::StmtRef lower_match(hermes::TinyMapView node);
-    lir::LExprPtr lower_match_expr(hermes::TinyMapView node);
+        writ::TinyMapView val_node);
+    bool place_recv_is_simple(writ::TinyMapView recv);
+    bool place_field_base_ok(writ::TinyMapView recv);
+    writ::TinyMapView unwrap_paren_node(writ::TinyMapView n);
+    lir_view::StmtRef lower_match(writ::TinyMapView node);
+    lir::LExprPtr lower_match_expr(writ::TinyMapView node);
     // G156-2: mark a by-value move-type match scrutinee var as moved when an
     // unguarded arm binds+moves it (whole-binding / struct / tuple / variant
     // payload). Shared by the statement and expression match paths so the
     // enum's scope-exit Drop doesn't double-free a value a binding/result owns.
     void mark_match_scrutinee_moved(const lir::LExprPtr& scrut, TypeRef scrut_type,
-                                    hermes::TinyMapView node);
+                                    writ::TinyMapView node);
     // G156-1: mangle an impl's concrete trait type-args into a `$G<n>$<a1>$…`
     // suffix appended to a trait name in a qualified method base
     // (`X__Trait$G1$u64__m`). Uses the `$G` generic-marker scheme so
@@ -4317,7 +4317,7 @@ private:
     // lowering) — and instead writes the computed sema-side type_params into
     // `*out_type_params`. When null (free fns / collected struct methods), the
     // builder is complete on return.
-    DeclBuilder lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {},
+    DeclBuilder lower_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
                          std::vector<TypeParam>* out_type_params = nullptr);
     // Derive `lifetime_outlives` from the fn's params/return implied bounds
     // plus its where-clause (and merge where-clause type-param lifetime
@@ -4325,32 +4325,32 @@ private:
     // `lifetime_outlives` and mutates `type_params[].lifetime_outlives`.
     // Factored out of lower_fn (Stage E: takes locals, not a Draft).
     void compute_fn_lifetime_outlives(
-        hermes::TinyMapView node,
+        writ::TinyMapView node,
         std::string_view fn_name,
         const std::vector<std::string>& lifetime_params,
         const std::vector<lir::LParam>& params,
         TypeRef ret_type,
         std::vector<TypeParam>& type_params,
         std::vector<std::pair<std::string, std::string>>& lifetime_outlives);
-    DeclBuilder lower_struct_def(hermes::TinyMapView node);
+    DeclBuilder lower_struct_def(writ::TinyMapView node);
     // Stage E direct-build: builds the whole enum mirror (NAME/PKG/DOC/flags/
     // backing/variants/type_params) STRAIGHT into the program HermesCtr via
     // DeclBuilder (no Draft) and returns an EnumView. DOC is consumed here via
     // take_pending_doc(); the caller just pushes the View.
-    lir_view::EnumView lower_enum_def(hermes::TinyMapView node);
+    lir_view::EnumView lower_enum_def(writ::TinyMapView node);
     // Stage E direct-build: builds NAME+TYPE_REF into a Const DeclBuilder (in
     // the program HermesCtr, no Draft) and returns it + the value ExprRef. The
     // caller adds VALUE/DOC/IS_STATIC/etc. (the static path overrides VALUE for
     // externals) and pushes a ConstView.
-    std::pair<DeclBuilder, lir_view::ExprRef> lower_const_def(hermes::TinyMapView node);
-    std::pair<std::string, TypeRef> lower_type_alias_def(hermes::TinyMapView node);
-    DeclBuilder lower_trait_def(hermes::TinyMapView node);
-    void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);
-    void lower_program(const std::vector<hermes::Hermes>& asts, lir::LProgram& prog);
-    void lower_module_items(hermes::TinyMapView mod, lir::LProgram& prog);
-    lir::LAnnotationValue parse_annot_literal(hermes::TinyMapView v);
+    std::pair<DeclBuilder, lir_view::ExprRef> lower_const_def(writ::TinyMapView node);
+    std::pair<std::string, TypeRef> lower_type_alias_def(writ::TinyMapView node);
+    DeclBuilder lower_trait_def(writ::TinyMapView node);
+    void lower_impl_block(writ::TinyMapView node, lir::LProgram& prog);
+    void lower_program(const std::vector<writ::Hermes>& asts, lir::LProgram& prog);
+    void lower_module_items(writ::TinyMapView mod, lir::LProgram& prog);
+    lir::LAnnotationValue parse_annot_literal(writ::TinyMapView v);
     std::optional<lir::LAnnotationInstance>
-        build_annotation_instance(hermes::TinyMapView ann,
+        build_annotation_instance(writ::TinyMapView ann,
                                   std::string_view ann_name,
                                   std::string_view ann_pkg,
                                   const SemaStructInfo& ann_info);
@@ -4864,7 +4864,7 @@ public:
     StrMap<std::vector<std::string>>       generic_overloads;
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
-    StrMap<hermes::TinyMapView>            module_const_values;
+    StrMap<writ::TinyMapView>            module_const_values;
     StrMap<SemaChecker::GenericConstEntry> generic_consts;
     StrMap<SemaChecker::SemaTraitInfo>    traits;
     StrMap<SemaChecker::SemaImplInfo>     impls;
@@ -4882,7 +4882,7 @@ public:
     // tables. SemaChecker's per-AST loops skip walks for holders in
     // this set — re-walking would be deduped but the walk itself is
     // the cost we want to skip.
-    std::unordered_set<const hermes::MemHolder*> collected_holders;
+    std::unordered_set<const writ::MemHolder*> collected_holders;
 
     // Cached HStaticLit registry contributions. Populated by sema when
     // LIT_HSTATIC nodes are encountered at type-arg position; held on

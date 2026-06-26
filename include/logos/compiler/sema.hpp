@@ -18,14 +18,14 @@
 #include <string>
 #include <string_view>
 
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <logos/compiler/sema_schema.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 #include <logos/verification/assert.hpp>
 
 namespace logos::compiler {
@@ -163,7 +163,7 @@ struct LogosType {
 
 };
 
-class TypePoolImpl;  // PIMPL — owns hermes::Arena and offset mapping
+class TypePoolImpl;  // PIMPL — owns writ::Arena and offset mapping
 
 struct LogosTypeBuilder;  // defined below TypeRef
 
@@ -175,7 +175,7 @@ struct LogosTypeBuilder;  // defined below TypeRef
 // the same mirror node.
 
 class TypeRef {
-    const hermes::Arena*      arena_ = nullptr;
+    const writ::Arena*      arena_ = nullptr;
     // Stage B (self-relative handles): the interned type's mirror is addressed by
     // its ABSOLUTE pointer, resolved once at construction (self-relative AnyVal::
     // resolve() — no base threading). arena_ is retained for offset() (the type
@@ -190,31 +190,31 @@ class TypeRef {
     // the target arena is registered with global_arena_pool() at the indicated
     // id. Single-arena code paths leave this default (INVALID) and behave
     // exactly as before. See docs/internals/multi-arena-ir.md §3.1.
-    hermes::arena_id_t        arena_id_ = hermes::INVALID_ARENA_ID;
+    writ::arena_id_t        arena_id_ = writ::INVALID_ARENA_ID;
 
-    static const uint8_t* ptr_from_off(const hermes::Arena* a,
-                                       hermes::arena_offset_t o) noexcept {
-        return (a && o != hermes::NULL_OFFSET) ? a->head().data() + o.value() : nullptr;
+    static const uint8_t* ptr_from_off(const writ::Arena* a,
+                                       writ::arena_offset_t o) noexcept {
+        return (a && o != writ::NULL_OFFSET) ? a->head().data() + o.value() : nullptr;
     }
 public:
     constexpr TypeRef() noexcept = default;
     constexpr TypeRef(std::nullptr_t) noexcept {}
     // (arena, offset) — resolve against the single-chunk base (the interning/root
     // path: TypePoolImpl::ref(off) and cross-arena r.offset() both feed offsets).
-    TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
+    TypeRef(const writ::Arena* a, writ::arena_offset_t off,
             const TypePoolImpl* p) noexcept
         : arena_(a), ptr_(ptr_from_off(a, off)), pool_(p) {}
     // Cross-arena constructor: explicit arena_id of the (typically remote)
     // arena. Used by ptr_via_mirror's ExternalRef dispatch path.
-    TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
-            const TypePoolImpl* p, hermes::arena_id_t aid) noexcept
+    TypeRef(const writ::Arena* a, writ::arena_offset_t off,
+            const TypePoolImpl* p, writ::arena_id_t aid) noexcept
         : arena_(a), ptr_(ptr_from_off(a, off)), pool_(p), arena_id_(aid) {}
     // AnyVal constructors — self-relative resolve (no base): av.resolve() gives the
     // absolute mirror address directly. Chunk-agnostic (ready for MultiChunk).
-    TypeRef(const hermes::Arena* a, hermes::AnyVal av, const TypePoolImpl* p) noexcept
+    TypeRef(const writ::Arena* a, writ::AnyVal av, const TypePoolImpl* p) noexcept
         : arena_(a), ptr_(av.is_ref() ? av.resolve() : nullptr), pool_(p) {}
-    TypeRef(const hermes::Arena* a, hermes::AnyVal av, const TypePoolImpl* p,
-            hermes::arena_id_t aid) noexcept
+    TypeRef(const writ::Arena* a, writ::AnyVal av, const TypePoolImpl* p,
+            writ::arena_id_t aid) noexcept
         : arena_(a), ptr_(av.is_ref() ? av.resolve() : nullptr),
           pool_(p), arena_id_(aid) {}
 
@@ -222,10 +222,10 @@ public:
         return ptr_ != nullptr;
     }
 
-    hermes::arena_offset_t offset() const noexcept {
+    writ::arena_offset_t offset() const noexcept {
         auto* b = mirror_base();
-        return (ptr_ && b) ? hermes::arena_offset_t(static_cast<uint32_t>(ptr_ - b))
-                           : hermes::NULL_OFFSET;
+        return (ptr_ && b) ? writ::arena_offset_t(static_cast<uint32_t>(ptr_ - b))
+                           : writ::NULL_OFFSET;
     }
 
     friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept {
@@ -241,8 +241,8 @@ public:
     uint8_t* mirror_base() const noexcept {
         return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
     }
-    const hermes::TinyObjectMap* mirror() const noexcept {
-        return reinterpret_cast<const hermes::TinyObjectMap*>(ptr_);
+    const writ::TinyObjectMap* mirror() const noexcept {
+        return reinterpret_cast<const writ::TinyObjectMap*>(ptr_);
     }
     // Absolute mirror address — the in-process type-identity key (segments never
     // move, so the pointer is stable and unique). Used to key TypePoolImpl::
@@ -250,17 +250,17 @@ public:
     // first-chunk-base is unsigned and breaks under MultiChunk; the address does
     // not). offset() is reserved for .hermes0 serialization (single rigid segment).
     const uint8_t* addr() const noexcept { return ptr_; }
-    const hermes::Arena* arena() const noexcept { return arena_; }
+    const writ::Arena* arena() const noexcept { return arena_; }
     const TypePoolImpl* pool() const noexcept { return pool_; }
     // Phase 2.B: arena_id of this TypeRef's arena. INVALID = single-arena
     // (local) fast path; consumers can ignore this field unless they need
     // cross-arena awareness.
-    hermes::arena_id_t  arena_id() const noexcept { return arena_id_; }
+    writ::arena_id_t  arena_id() const noexcept { return arena_id_; }
     bool                is_external() const noexcept { return arena_id_.is_valid(); }
 
     LogosType::Kind kind() const noexcept {
         return LogosType::Kind(
-            hermes::schema::variant_of(mirror()->schema_type_code()));
+            writ::schema::variant_of(mirror()->schema_type_code()));
     }
 
     TypeRef pointee()      const noexcept;
@@ -348,14 +348,14 @@ public:
     // String accessors return realloc-safe owning views (refcounted MemHolder).
     // Implementation is out-of-line in sema.cpp because it needs MemHolder*,
     // which is reachable only through TypePoolImpl (PIMPL).
-    hermes::StringView lifetime()        const noexcept;
-    hermes::StringView struct_name()     const noexcept;
-    hermes::StringView enum_name()       const noexcept;
-    hermes::StringView pkg_name()        const noexcept;
-    hermes::StringView trait_name()      const noexcept;
-    hermes::StringView type_var_name()   const noexcept;
-    hermes::StringView assoc_type_name() const noexcept;
-    hermes::StringView arr_size_var()    const noexcept;
+    writ::StringView lifetime()        const noexcept;
+    writ::StringView struct_name()     const noexcept;
+    writ::StringView enum_name()       const noexcept;
+    writ::StringView pkg_name()        const noexcept;
+    writ::StringView trait_name()      const noexcept;
+    writ::StringView type_var_name()   const noexcept;
+    writ::StringView assoc_type_name() const noexcept;
+    writ::StringView arr_size_var()    const noexcept;
 
     std::vector<TypeRef> type_args()      const noexcept;
     std::vector<TypeRef> tuple_elems()    const noexcept;
@@ -502,8 +502,8 @@ std::string type_str(TypeRef t);
 // (TYPE_REF/GENERIC_INST/etc. walked structurally). Holder owns the
 // arena bytes; the call is read-only. Returns rendered source ending
 // with a newline.
-std::string render_module_source_for_dump(hermes::MemHolder* holder,
-                                          hermes::arena_offset_t root_offset);
+std::string render_module_source_for_dump(writ::MemHolder* holder,
+                                          writ::arena_offset_t root_offset);
 
 // Walk a metafn-emitted AST document and collect "navigable" function
 // names — bare fn names plus `Type__method` for impl-block members.
@@ -511,8 +511,8 @@ std::string render_module_source_for_dump(hermes::MemHolder* holder,
 // grep these names in the global post-mono MLIR / post-mlirgen LLVM
 // IR snapshots. The names are pre-mangling (sema later prefixes pkg
 // or type qualifiers); user-facing grep fans out via substring match.
-std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
-                                                   hermes::arena_offset_t root_offset);
+std::vector<std::string> collect_fn_names_for_dump(writ::MemHolder* holder,
+                                                   writ::arena_offset_t root_offset);
 
 // Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
 // Used by mono and mlir_gen to look up instantiated struct definitions.
@@ -622,18 +622,18 @@ public:
     // offsets stored on L-IR nodes, sub-expression offsets, etc.) all live in
     // a single offset space. Returns nullptr if the pool has not yet allocated
     // (no calls to alloc()).
-    hermes::Arena*       arena() noexcept;
-    const hermes::Arena* arena() const noexcept;
+    writ::Arena*       arena() noexcept;
+    const writ::Arena* arena() const noexcept;
 
     // Phase 3b: ensure the pool's arena is initialised (allocates the empty
     // arena if no types have been interned yet). Used by the L-IR mirror
     // emitter when the program contains no LogosType allocations.
-    hermes::Arena&       arena_or_init();
+    writ::Arena&       arena_or_init();
 
     // The pool's Hermes document, initialising it if needed. THE handle for all
     // object creation (ctr.make_string / make_array / make_tiny_map …) — callers
     // route producer work through this instead of pulling the raw arena.
-    hermes::HermesCtr&   ctr_or_init();
+    writ::HermesCtr&   ctr_or_init();
 
     // Phase 3d: expose the impl pointer so lir_view callers can wrap a raw
     // arena offset into a TypeRef (TypeRef stores pool* for trait/method
@@ -641,10 +641,10 @@ public:
     const TypePoolImpl* impl() const noexcept { return impl_.get(); }
 
     // Multi-arena IR Phase 3: expose the underlying MemHolder so consumers
-    // can wrap the arena as a hermes::Hermes view for publish-phase work
+    // can wrap the arena as a writ::Hermes view for publish-phase work
     // (lir_arena_root_begin etc.). Returns nullptr if the pool hasn't yet
     // allocated (no calls to alloc()).
-    hermes::MemHolder* holder() noexcept;
+    writ::MemHolder* holder() noexcept;
 
     // Component-metaprog slice 1B: public access to per-type 32-byte UID.
     LogosType::TypeUID uid_of(TypeRef t) const noexcept;

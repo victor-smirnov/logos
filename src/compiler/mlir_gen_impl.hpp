@@ -173,7 +173,7 @@ private:
     // (pointer), struct/tuple→DICompositeType with members+offsets; aggregates
     // not yet modelled get an opaque sized composite. Cached by TypeRef offset;
     // di_struct_inprogress_ guards self-referential structs (via pointer fields).
-    std::unordered_map<hermes::arena_offset_t, mlir::LLVM::DITypeAttr> di_type_cache_;
+    std::unordered_map<writ::arena_offset_t, mlir::LLVM::DITypeAttr> di_type_cache_;
     std::unordered_set<std::string> di_struct_inprogress_;
     mlir::LLVM::DITypeAttr di_type(TypeRef t);
     mlir::LLVM::DITypeAttr di_struct_type(TypeRef t);
@@ -289,7 +289,7 @@ private:
     // re-computes the MLIR Type for each occurrence. Offsets are
     // stable for the lifetime of a single mlir_gen invocation (the
     // LProgram's type_pool arena isn't mutated by mlir_gen).
-    std::unordered_map<hermes::arena_offset_t, mlir::Type> logos_to_mlir_cache_;
+    std::unordered_map<writ::arena_offset_t, mlir::Type> logos_to_mlir_cache_;
 
     // Names already forward-declared in the current generate() pass.
     // Replaces `mod.lookupSymbol(name)` as a duplicate-declaration guard:

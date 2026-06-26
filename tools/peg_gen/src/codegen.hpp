@@ -12,10 +12,10 @@
 //
 // Generated parser interface (example for grammar named "hermes"):
 //
-//   namespace logos::hermes {
+//   namespace logos::writ {
 //
 //   // Field keys and node codes from %fields / %nodes
-//   namespace hermes_ast {
+//   namespace writ_ast {
 //       using Key  = logos::NamedCode<uint8_t>;
 //       using Code = logos::NamedCode<int32_t>;
 //       inline constexpr Key  NAME  {"NAME",  0};
@@ -28,8 +28,8 @@
 //       explicit HermesParser(std::string_view source);
 //
 //       // One method per %export-ed rule.
-//       logos::hermes::Hermes parse_value();
-//       logos::hermes::Hermes parse_map();
+//       logos::writ::Hermes parse_value();
+//       logos::writ::Hermes parse_map();
 //
 //   private:
 //       // Generated rule methods (one per grammar rule).
@@ -46,7 +46,7 @@
 //       ...
 //   };
 //
-//   } // namespace logos::hermes
+//   } // namespace logos::writ
 
 #pragma once
 

@@ -7,20 +7,20 @@
 #include <format>
 #include <functional>
 
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using writ::TinyMapView;
+using writ::ArrayView;
+using writ::StringView;
+using writ::AnyVal;
+using writ::MemHolder;
 
 // MC2.5: ODR-style structural equality between two AST sub-trees rooted at
 // AnyVal pointers. Used to dedup item-level definitions emitted from multiple
@@ -29,15 +29,15 @@ using hermes::MemHolder;
 // HermesString by view; conservative on unknown Data-tag objects.
 namespace {
 bool ast_anyval_equal(AnyVal a, AnyVal b,
-                      hermes::MemHolder* ha, hermes::MemHolder* hb);
+                      writ::MemHolder* ha, writ::MemHolder* hb);
 
-bool ast_tom_equal(hermes::TinyMapView a, hermes::TinyMapView b,
-                   hermes::MemHolder* ha, hermes::MemHolder* hb) {
+bool ast_tom_equal(writ::TinyMapView a, writ::TinyMapView b,
+                   writ::MemHolder* ha, writ::MemHolder* hb) {
     // SRC_LINE is purely diagnostic; ignore it in ODR equality so items
     // emitted from quote_item! at different source lines still dedup.
     constexpr uint64_t skip_mask = 1ULL << la::SRC_LINE.code;
     if ((a.bitmap() & ~skip_mask) != (b.bitmap() & ~skip_mask)) return false;
-    for (uint8_t k = 0; k < hermes::TinyObjectMap::MAX_KEYS; ++k) {
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k) {
         if (!a.has_key(k) || k == la::SRC_LINE.code) continue;
         if (!ast_anyval_equal(a.get(k), b.get(k), ha, hb))
             return false;
@@ -45,8 +45,8 @@ bool ast_tom_equal(hermes::TinyMapView a, hermes::TinyMapView b,
     return true;
 }
 
-bool ast_array_equal(hermes::ArrayView a, hermes::ArrayView b,
-                     hermes::MemHolder* ha, hermes::MemHolder* hb) {
+bool ast_array_equal(writ::ArrayView a, writ::ArrayView b,
+                     writ::MemHolder* ha, writ::MemHolder* hb) {
     if (a.size() != b.size()) return false;
     for (uint64_t i = 0; i < a.size(); ++i) {
         if (!ast_anyval_equal(a.get(i), b.get(i), ha, hb))
@@ -56,20 +56,20 @@ bool ast_array_equal(hermes::ArrayView a, hermes::ArrayView b,
 }
 
 bool ast_anyval_equal(AnyVal a, AnyVal b,
-                      hermes::MemHolder* ha, hermes::MemHolder* hb) {
+                      writ::MemHolder* ha, writ::MemHolder* hb) {
     if (a.is_null() && b.is_null()) return true;
     if (a.is_null() || b.is_null()) return false;
     if (a.is_value() != b.is_value()) return false;
     if (a.is_value()) return a.raw() == b.raw();
-    auto ta = hermes::TypeTag::read_before(a.resolve());
-    auto tb = hermes::TypeTag::read_before(b.resolve());
+    auto ta = writ::TypeTag::read_before(a.resolve());
+    auto tb = writ::TypeTag::read_before(b.resolve());
     if (ta.type_code() != tb.type_code()) return false;
-    if (ta.type_code() == hermes::type_hash::TinyObjectMap)
-        return ast_tom_equal(hermes::as_tinymap(a, ha), hermes::as_tinymap(b, hb), ha, hb);
-    if (ta.type_code() == hermes::type_hash::Array)
-        return ast_array_equal(hermes::as_array(a, ha), hermes::as_array(b, hb), ha, hb);
-    if (ta.type_code() == hermes::type_hash::HermesString)
-        return hermes::StringView(a, ha).view() == hermes::StringView(b, hb).view();
+    if (ta.type_code() == writ::type_hash::TinyObjectMap)
+        return ast_tom_equal(writ::as_tinymap(a, ha), writ::as_tinymap(b, hb), ha, hb);
+    if (ta.type_code() == writ::type_hash::Array)
+        return ast_array_equal(writ::as_array(a, ha), writ::as_array(b, hb), ha, hb);
+    if (ta.type_code() == writ::type_hash::HermesString)
+        return writ::StringView(a, ha).view() == writ::StringView(b, hb).view();
     // Unknown data tag — be conservative and treat as not equal.
     return false;
 }
@@ -77,7 +77,7 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
 
 // Symbol-collection phase: populate SemaChecker symbol tables.
 
-void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
+void SemaChecker::collect(const std::vector<writ::Hermes>& asts) {
     // Helper: build ImportScope (wildcard_packages) from a module's USES array.
     auto build_import_scope = [&](TinyMapView root) -> ImportScope {
         ImportScope scope;
@@ -267,17 +267,17 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
     // MC2.5: per-name first-seen item record for ODR dedup. On a name
     // collision we deep-compare the new item's AST sub-tree against the
     // first-seen one; equal → silently skip (dedup), differ → "duplicate".
-    struct FirstSeen { hermes::MemHolder* holder; uint32_t off; };
+    struct FirstSeen { writ::MemHolder* holder; uint32_t off; };
     std::unordered_map<std::string, FirstSeen> first_struct;
     std::unordered_map<std::string, FirstSeen> first_datatype;
     std::unordered_map<std::string, FirstSeen> first_enum;
     auto item_off = [](TinyMapView t) -> uint32_t {
         return static_cast<uint32_t>(t.offset().value());
     };
-    auto items_equal = [](FirstSeen a, hermes::MemHolder* hb, uint32_t off_b) {
+    auto items_equal = [](FirstSeen a, writ::MemHolder* hb, uint32_t off_b) {
         return ast_tom_equal(
-            hermes::TinyMapView(hermes::arena_offset_t(a.off), a.holder),
-            hermes::TinyMapView(hermes::arena_offset_t(off_b), hb),
+            writ::TinyMapView(writ::arena_offset_t(a.off), a.holder),
+            writ::TinyMapView(writ::arena_offset_t(off_b), hb),
             a.holder, hb);
     };
 
@@ -1331,7 +1331,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
     // whether they came in flat or grouped.
     std::vector<TinyMapView> flat_items;
     flat_items.reserve(items.size());
-    auto validate_abi = [&](std::string_view raw, hermes::TinyMapView at_node) {
+    auto validate_abi = [&](std::string_view raw, writ::TinyMapView at_node) {
         // Strip optional enclosing quotes.
         std::string_view s = raw;
         if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
@@ -2001,7 +2001,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         // MP-mc-01: `Variant = metacall { <expr> }`. Block
                         // tail expression evaluated via ctfe; integer
                         // result becomes the discriminant.
-                        hermes::TinyMapView tail{};
+                        writ::TinyMapView tail{};
                         bool have_tail = false;
                         if (blk.has_key(la::ITEMS)) {
                             auto sitems = arr_of(blk.get(la::ITEMS.code));

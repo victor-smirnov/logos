@@ -8,23 +8,23 @@
 #pragma once
 
 #include <logos/hrpc/common.hpp>
-#include <logos/hermes/document.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/view.hpp>
-#include <logos/hermes/any_val.hpp>
+#include <logos/writ/document.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/view.hpp>
+#include <logos/writ/any_val.hpp>
 #include <logos/core/named_code.hpp>
-#include <logos/hermes/binary_codec.hpp>
-#include <logos/hermes/arena_string.hpp>
+#include <logos/writ/binary_codec.hpp>
+#include <logos/writ/arena_string.hpp>
 
 #include <string_view>
 #include <cstdint>
 
 namespace logos::hrpc {
 
-using logos::hermes::Hermes;
-using logos::hermes::HermesView;
-using logos::hermes::TinyMapView;
-using logos::hermes::AnyVal;
+using logos::writ::Hermes;
+using logos::writ::HermesView;
+using logos::writ::TinyMapView;
+using logos::writ::AnyVal;
 using logos::NamedCode;
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ struct Request {
     // Create a new empty Request document.
     [[nodiscard]] static logos::expected<Request> make() noexcept {
         Request rq;
-        LOGOS_TRY(rq.doc, logos::hermes::make_doc());
+        LOGOS_TRY(rq.doc, logos::writ::make_doc());
         LOGOS_TRY(auto tiny_raw, rq.doc.make_tiny_map(4));
         TinyMapView tiny(tiny_raw, rq.doc.holder());
         rq.doc.set_root(tiny.to_anyval());
@@ -142,7 +142,7 @@ struct Response {
     // Successful response with no result value.
     [[nodiscard]] static logos::expected<Response> ok() noexcept {
         Response rs;
-        LOGOS_TRY(rs.doc, logos::hermes::make_doc());
+        LOGOS_TRY(rs.doc, logos::writ::make_doc());
         LOGOS_TRY(auto tiny_raw, rs.doc.make_tiny_map(4));
         TinyMapView tiny(tiny_raw, rs.doc.holder());
         rs.doc.set_root(tiny.to_anyval());
@@ -162,7 +162,7 @@ struct Response {
     // Error response with a human-readable description.
     [[nodiscard]] static logos::expected<Response> error(std::string_view description) noexcept {
         Response rs;
-        LOGOS_TRY(rs.doc, logos::hermes::make_doc());
+        LOGOS_TRY(rs.doc, logos::writ::make_doc());
         LOGOS_TRY(auto root_raw, rs.doc.make_tiny_map(4));
         TinyMapView root(root_raw, rs.doc.holder());
         rs.doc.set_root(root.to_anyval());
@@ -213,7 +213,7 @@ struct Response {
         if (desc_val.is_null()) return {};
 
         // desc_val is a pointer to ArenaString.
-        logos::hermes::StringView sv(desc_val, doc.holder());
+        logos::writ::StringView sv(desc_val, doc.holder());
         return sv.view();
     }
 };
@@ -231,7 +231,7 @@ struct StreamMessage {
 
     [[nodiscard]] static logos::expected<StreamMessage> make(AnyVal data) noexcept {
         StreamMessage msg;
-        LOGOS_TRY(msg.doc, logos::hermes::make_doc());
+        LOGOS_TRY(msg.doc, logos::writ::make_doc());
         LOGOS_TRY(auto tiny_raw, msg.doc.make_tiny_map(2));
         TinyMapView tiny(tiny_raw, msg.doc.holder());
         msg.doc.set_root(tiny.to_anyval());
@@ -266,7 +266,7 @@ struct ConnectionMetadata {
 
     [[nodiscard]] static logos::expected<ConnectionMetadata> make(uint64_t buffer_size = 1024 * 1024) noexcept {
         ConnectionMetadata meta;
-        LOGOS_TRY(meta.doc, logos::hermes::make_doc());
+        LOGOS_TRY(meta.doc, logos::writ::make_doc());
         LOGOS_TRY(auto tiny_raw, meta.doc.make_tiny_map(2));
         TinyMapView tiny(tiny_raw, meta.doc.holder());
         meta.doc.set_root(tiny.to_anyval());

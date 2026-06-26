@@ -19,9 +19,9 @@
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
 
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -33,8 +33,8 @@
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::AnyVal;
+using writ::TinyMapView;
+using writ::AnyVal;
 
 namespace {
 
@@ -1743,9 +1743,9 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
 // touch the (empty) type pool, and dispatches by the root node's
 // CODE — MODULE renders the whole package; anything else (a single
 // item from a quote_item! splice) falls through to render_item_src.
-std::string render_module_source_for_dump(hermes::MemHolder* holder,
-                                          hermes::arena_offset_t root_offset) {
-    if (!holder || root_offset == hermes::NULL_OFFSET) return {};
+std::string render_module_source_for_dump(writ::MemHolder* holder,
+                                          writ::arena_offset_t root_offset) {
+    if (!holder || root_offset == writ::NULL_OFFSET) return {};
     SemaChecker checker;
     checker.set_holder_for_render(holder);
     checker.set_render_syntactic(true);
@@ -1757,27 +1757,27 @@ std::string render_module_source_for_dump(hermes::MemHolder* holder,
     return checker.render_item_src(root_view);
 }
 
-std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
-                                                   hermes::arena_offset_t root_offset) {
+std::vector<std::string> collect_fn_names_for_dump(writ::MemHolder* holder,
+                                                   writ::arena_offset_t root_offset) {
     std::vector<std::string> out;
-    if (!holder || root_offset == hermes::NULL_OFFSET) return out;
+    if (!holder || root_offset == writ::NULL_OFFSET) return out;
     auto* base = holder->base();
 
-    auto map_at = [&](hermes::arena_offset_t off) {
-        return hermes::TinyMapView(off, holder);
+    auto map_at = [&](writ::arena_offset_t off) {
+        return writ::TinyMapView(off, holder);
     };
-    auto str_at = [&](hermes::AnyVal av) -> std::string {
+    auto str_at = [&](writ::AnyVal av) -> std::string {
         if (av.is_null()) return {};
-        // String values point at hermes::ArenaString (length-prefixed bytes).
+        // String values point at writ::ArenaString (length-prefixed bytes).
         // Reuse the same StringView wrapper sema uses.
-        auto sv = hermes::StringView(av, holder).view();
+        auto sv = writ::StringView(av, holder).view();
         return std::string(sv);
     };
-    auto arr_at = [&](hermes::AnyVal av) {
-        return hermes::ArrayView(av, holder);
+    auto arr_at = [&](writ::AnyVal av) {
+        return writ::ArrayView(av, holder);
     };
 
-    auto get_fn_or_impl_items = [&](hermes::TinyMapView tom, std::string prefix) {
+    auto get_fn_or_impl_items = [&](writ::TinyMapView tom, std::string prefix) {
         auto code_av = tom.get(la::CODE.code);
         int32_t c = (!code_av.is_null() && code_av.is_value())
                     ? code_av.as_value<int32_t>() : -1;
@@ -1799,8 +1799,8 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
     int32_t rc = (!root_code.is_null() && root_code.is_value())
                  ? root_code.as_value<int32_t>() : -1;
 
-    std::function<void(hermes::TinyMapView, std::string)> walk_items =
-        [&](hermes::TinyMapView tom, std::string prefix) {
+    std::function<void(writ::TinyMapView, std::string)> walk_items =
+        [&](writ::TinyMapView tom, std::string prefix) {
         auto items_av = tom.get(la::ITEMS.code);
         if (items_av.is_null()) return;
         auto items = arr_at(items_av);

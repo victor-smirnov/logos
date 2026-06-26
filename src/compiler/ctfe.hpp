@@ -17,9 +17,9 @@
 
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/sema.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 #include <logos/core/expected.hpp>
 
 #include <cstdint>
@@ -57,15 +57,15 @@ struct ConstResolver {
     // that owns it (may differ from the caller's holder for cross-
     // package consts). Returns null view when the name doesn't
     // resolve to a const-evaluable item.
-    virtual hermes::TinyMapView lookup_const(std::string_view name,
-                                             hermes::MemHolder** out_holder) = 0;
+    virtual writ::TinyMapView lookup_const(std::string_view name,
+                                             writ::MemHolder** out_holder) = 0;
 };
 
 // Evaluate one AST expression node. `holder` is the doc that owns `node`.
 // `resolver` is consulted on VAR_REF nodes (may be null — disables
 // path-to-const resolution).
 logos::expected<CtfeValue, CtfeError>
-eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder,
+eval_expr(writ::TinyMapView node, writ::MemHolder* holder,
           ConstResolver* resolver = nullptr) noexcept;
 
 } // namespace logos::compiler::ctfe

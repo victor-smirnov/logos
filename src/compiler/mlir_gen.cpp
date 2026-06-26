@@ -254,7 +254,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // prog is const; use the const arena() accessor (returns nullptr if
         // the pool was never initialised — in that case there are no bodies
         // to walk, so we early-out below).
-        const hermes::Arena* walk_arena_p = prog.type_pool.arena();
+        const writ::Arena* walk_arena_p = prog.type_pool.arena();
         std::function<void(lir_view::BlockRef)> walk_block;
         std::function<void(lir_view::StmtRef)>  walk_stmt;
         std::function<void(lir_view::ExprRef)>  walk_expr;
@@ -318,7 +318,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 auto recurse_arr = [&](uint8_t key) {
                     auto av = e.mirror()->get(key);
                     if (av.is_null()) return;
-                    auto* arr = av.as_ptr<const hermes::ObjectArray>();
+                    auto* arr = av.as_ptr<const writ::ObjectArray>();
                     for (uint64_t i = 0; i < arr->size(); ++i) {
                         auto el = arr->get(i);
                         if (!el.is_null())
@@ -345,7 +345,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 {
                     auto av = e.mirror()->get(ek::ARMS.code);
                     if (!av.is_null()) {
-                        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+                        auto* arr = av.as_ptr<const writ::ObjectArray>();
                         for (uint64_t i = 0; i < arr->size(); ++i) {
                             auto el = arr->get(i);
                             if (el.is_null()) continue;

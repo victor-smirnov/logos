@@ -4827,10 +4827,10 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     // Falls back to the local body_ref when body_external_ref is INVALID
     // (the legacy path: body was lowered locally by this run's sema).
     lir_view::BlockRef src_body;
-    const hermes::Arena* saved_src_arena = src_arena_;
+    const writ::Arena* saved_src_arena = src_arena_;
     auto body_ext = fn.body_external_ref();
     if (body_ext.arena_id().is_valid()) {
-        auto resolved = hermes::resolve_external_ref(body_ext);
+        auto resolved = writ::resolve_external_ref(body_ext);
         if (resolved.ok()) {
             src_arena_ = &resolved.mem->arena();
             src_body = lir_view::BlockRef(

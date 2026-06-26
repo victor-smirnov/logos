@@ -2,7 +2,7 @@
 
 #include "sema_impl.hpp"
 
-#include <logos/hermes/external_ref.hpp>   // global_arena_pool, lookup_export, ExternalRef
+#include <logos/writ/external_ref.hpp>   // global_arena_pool, lookup_export, ExternalRef
 
 #include <cstdio>
 #include <format>
@@ -12,11 +12,11 @@
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using writ::TinyMapView;
+using writ::ArrayView;
+using writ::StringView;
+using writ::AnyVal;
+using writ::MemHolder;
 
 // Declaration lowering methods
 
@@ -937,10 +937,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // body block is replaced by the external ref.
     if (cur_from_binary_ && !is_extern && !skip_body && !type_params.empty()
         && !fn_is_metaprog_handler(fn_name) && !fn_is_metaprog_keep(fn_name)) {
-        auto look = hermes::global_arena_pool().lookup_export(fn_name);
+        auto look = writ::global_arena_pool().lookup_export(fn_name);
         if (look.ok()) {
             fn.ext_ref(dk::BODY_EXTERNAL_REF,
-                       hermes::ExternalRef{look.arena_id, look.obj_id});
+                       writ::ExternalRef{look.arena_id, look.obj_id});
             skip_body = true;
             ++tmpl_ext_ref_count_;
         }

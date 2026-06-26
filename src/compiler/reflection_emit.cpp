@@ -11,26 +11,26 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sha256.hpp>
 
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 namespace logos::compiler {
 
-using logos::hermes::Hermes;
-using logos::hermes::HermesAccess;
-using logos::hermes::ArenaString;
-using logos::hermes::MapView;
-using logos::hermes::ArrayView;
-using logos::hermes::AnyVal;
-using logos::hermes::arena_offset_t;
-using logos::hermes::make_doc;
-using logos::hermes::clone;
+using logos::writ::Hermes;
+using logos::writ::HermesAccess;
+using logos::writ::ArenaString;
+using logos::writ::MapView;
+using logos::writ::ArrayView;
+using logos::writ::AnyVal;
+using logos::writ::arena_offset_t;
+using logos::writ::make_doc;
+using logos::writ::clone;
 
 namespace {
 
@@ -147,7 +147,7 @@ static AnyVal build_field_map(Hermes& doc, lir_view::LFieldView f,
 
 static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, lir_view::StructView sd) {
     const TypePoolImpl* pool = prog.type_pool.impl();
-    auto doc = logos::hermes::make_doc_single_chunk(131072).get();
+    auto doc = logos::writ::make_doc_single_chunk(131072).get();
 
     // Root map — log2=4 → 16 buckets.
     uint32_t root = begin_map(doc, 4);
@@ -198,7 +198,7 @@ static std::string reflect_symbol(const std::array<uint8_t, 23>& hash) {
 }
 
 static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, lir_view::TraitView td) {
-    auto doc = logos::hermes::make_doc_single_chunk(65536).get();
+    auto doc = logos::writ::make_doc_single_chunk(65536).get();
     uint32_t root = begin_map(doc, 3);
     map_put(doc, root, "name", hval_str(doc, std::string(td.name())));
     map_put(doc, root, "pkg",  hval_str(doc, std::string(td.pkg())));
@@ -227,7 +227,7 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
     // - Annotated datatypes (always emit so runtime can read annotations)
     std::unordered_set<std::string> to_emit;
     prog.reflect_requests.for_each(
-        [&](std::string_view fqn, hermes::AnyVal) { to_emit.insert(std::string(fqn)); });
+        [&](std::string_view fqn, writ::AnyVal) { to_emit.insert(std::string(fqn)); });
     for (auto& sd : prog.structs) {
         if (sd.is_zoned() && !sd.annotations_empty()) {
             std::string fqn = sd.pkg().empty() ? std::string(sd.name())

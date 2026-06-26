@@ -20,12 +20,12 @@
 #include <logos/compiler/sema.hpp>   // type_str (ABI layout sidecar)
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/mono.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <cstdio>
 #include <cstdint>
@@ -69,7 +69,7 @@ namespace fs = std::filesystem;
 //                                   — raw bytes of mono's post-mono
 //                                     prog.type_pool.arena() head chunk.
 //                                     Includes DocumentHeader at offset 0.
-//                                     Load via hermes::from_bytes_copy. The
+//                                     Load via writ::from_bytes_copy. The
 //                                     blob holds the LIR Hermes mirror
 //                                     (LStructDef / LFunction / LExpr / …)
 //                                     so user-side sema/mono can skip
@@ -155,7 +155,7 @@ static bool write_hermes0(const std::string& path,
     write_u32(f, static_cast<uint32_t>(modules.size()));
 
     for (auto& mod : modules) {
-        auto enc = hermes::binary_encode(mod.ast);
+        auto enc = writ::binary_encode(mod.ast);
         if (!enc) {
             std::fprintf(stderr, "emit_module: binary_encode failed for %s\n",
                          mod.path.c_str());
@@ -255,7 +255,7 @@ static void apply_only_file_filter(lir::LProgram& prog,
     for (auto& fn : prog.functions) add(fn);
 }
 
-static bool compile_to_object(std::vector<hermes::Hermes>& asts,
+static bool compile_to_object(std::vector<writ::Hermes>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
                                const std::vector<bool>& from_binary_module_flags,
@@ -601,7 +601,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     // blob section. This is the post-mono LIR Hermes mirror — every
     // template/struct/fn/expr/stmt that mono produced lives here with its
     // mirror_ptr_ value referencing offsets in these very bytes. Loaded
-    // user-side via hermes::from_bytes_copy; future M4 steps add the cross-
+    // user-side via writ::from_bytes_copy; future M4 steps add the cross-
     // arena lookup so sema/mono skip re-lowering stdlib AST.
     //
     // Done before apply_only_file_filter so per-file-mode invocations still
@@ -625,8 +625,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
             if (!module_name.empty()) {
                 auto* holder = prog.type_pool.holder();
                 if (holder) {
-                    auto doc = hermes::Hermes(hermes::HermesView(holder));
-                    if (auto bld = hermes::lir_arena_root_begin(
+                    auto doc = writ::Hermes(writ::HermesView(holder));
+                    if (auto bld = writ::lir_arena_root_begin(
                             doc, module_name, /*deps=*/{})) {
                         // Phase 4.B: publish each non-generic, non-extern,
                         // non-specialization fn body whose mirror was emitted
@@ -650,10 +650,10 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         auto stamp_export_id =
                             [&](const uint8_t* addr, uint32_t oid) {
                             if (addr == nullptr) return;
-                            auto av = hermes::AnyVal::from_value<uint32_t>(
-                                oid, static_cast<uint8_t>(hermes::type_hash::U24));
-                            (void) hermes::TinyMapView(
-                                reinterpret_cast<hermes::TinyObjectMap*>(
+                            auto av = writ::AnyVal::from_value<uint32_t>(
+                                oid, static_cast<uint8_t>(writ::type_hash::U24));
+                            (void) writ::TinyMapView(
+                                reinterpret_cast<writ::TinyObjectMap*>(
                                     const_cast<uint8_t*>(addr)), holder)
                                 .put(lir_schema::stmt_keys::EXPORT_ID.code, av);
                         };
@@ -664,8 +664,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                             if (fn.from_binary_module()) return;
                             auto fb = fn.body();
                             if (!fb) return;
-                            hermes::AnyVal av; av.set_ref(fb.addr());
-                            if (auto r = hermes::arena_publish_named(*bld, std::string(fn.name()), av)) {
+                            writ::AnyVal av; av.set_ref(fb.addr());
+                            if (auto r = writ::arena_publish_named(*bld, std::string(fn.name()), av)) {
                                 stamp_export_id(fb.addr(), *r);
                                 ++published;
                             }
@@ -688,15 +688,15 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         // template's body in stdlib's arena, walks via lir_view
                         // through that arena, substitutes into user's arena.
                         for (auto& tmpl : generic_fn_templates) {
-                            hermes::AnyVal av; av.set_ref(tmpl.body_addr);
-                            if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
+                            writ::AnyVal av; av.set_ref(tmpl.body_addr);
+                            if (auto r = writ::arena_publish_named(*bld, tmpl.name, av)) {
                                 stamp_export_id(tmpl.body_addr, *r);
                                 ++published_tmpl;
                             }
                         }
                         for (auto& tmpl : generic_method_templates) {
-                            hermes::AnyVal av; av.set_ref(tmpl.body_addr);
-                            if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
+                            writ::AnyVal av; av.set_ref(tmpl.body_addr);
+                            if (auto r = writ::arena_publish_named(*bld, tmpl.name, av)) {
                                 stamp_export_id(tmpl.body_addr, *r);
                                 ++published_tmpl;
                             }
@@ -707,7 +707,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                 "template body export(s) for module '%s'\n",
                                 published, published_tmpl, module_name.c_str());
                         }
-                        auto fin = hermes::lir_arena_root_finalize(*bld);
+                        auto fin = writ::lir_arena_root_finalize(*bld);
                         (void) fin;
                     }
                 }
@@ -732,8 +732,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
             bool dumped = false;
             if (!module_name.empty()) {
                 if (auto* h = prog.type_pool.holder()) {
-                    auto src_view = hermes::HermesView(h);
-                    if (auto cl = hermes::compactify(src_view)) {
+                    auto src_view = writ::HermesView(h);
+                    if (auto cl = writ::compactify(src_view)) {
                         const auto& cchunk = cl->holder()->arena().head();
                         out_lir_blob->assign(cchunk.data(),
                                              cchunk.data() + cchunk.used);
@@ -1013,7 +1013,7 @@ bool emit_module(const ModuleManifest& manifest,
     // We stamp ast_only with from_binary=true after dispatch so sema's
     // post-dispatch pass treats those items as already-emitted (no
     // codegen for host-extern-using fns).
-    std::vector<hermes::Hermes> asts;
+    std::vector<writ::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool>        ast_only_flags;       // parallel to asts
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
@@ -1111,24 +1111,24 @@ bool emit_module(const ModuleManifest& manifest,
             if (root_map.has_key(logos::compiler::ast::NAME)) {
                 auto nm = root_map.get(logos::compiler::ast::NAME.code);
                 if (!nm.is_null() && nm.is_pointer()) {
-                    pkg = std::string(hermes::StringView(
+                    pkg = std::string(writ::StringView(
                         nm, asts[i].holder()).view());
                 }
             }
             if (root_map.has_key(logos::compiler::ast::mod::PATH_PARTS)) {
                 auto pp = root_map.get(logos::compiler::ast::mod::PATH_PARTS.code);
                 if (!pp.is_null() && pp.is_pointer()) {
-                    auto arr = hermes::as_array(pp, asts[i].holder());
+                    auto arr = writ::as_array(pp, asts[i].holder());
                     for (uint64_t j = 0; j < arr.size(); ++j) {
                         auto part_av = arr.get(j);
                         if (!part_av.is_pointer()) continue;
-                        auto part_map = hermes::TinyMapView(
+                        auto part_map = writ::TinyMapView(
                             part_av, asts[i].holder());
                         if (part_map.has_key(logos::compiler::ast::NAME)) {
                             auto nm = part_map.get(logos::compiler::ast::NAME.code);
                             if (!nm.is_null() && nm.is_pointer()) {
                                 pkg += ".";
-                                pkg += std::string(hermes::StringView(
+                                pkg += std::string(writ::StringView(
                                     nm, asts[i].holder()).view());
                             }
                         }
@@ -1343,12 +1343,12 @@ bool emit_module(const ModuleManifest& manifest,
     // document per .hermes0; multi-doc reserved).
     std::string imp_obj_path;
     {
-        std::vector<hermes::ImportEntry> imports;
+        std::vector<writ::ImportEntry> imports;
         imports.reserve(import_dep_archives.size());
         for (const auto& a : import_dep_archives) {
             imports.push_back({fs::path(a).filename().string(), std::string()});
         }
-        auto blob = hermes::build_import_table_blob(manifest.name, imports);
+        auto blob = writ::build_import_table_blob(manifest.name, imports);
         if (!blob) {
             std::fprintf(stderr, "emit_module: import-table build failed\n");
             return false;

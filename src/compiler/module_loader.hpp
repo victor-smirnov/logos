@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <string>
 #include <string_view>
@@ -17,7 +17,7 @@ namespace logos::compiler {
 struct ParsedModule {
     std::string    path;
     std::string    package;               // dotted package name (e.g. "std.io"); may be empty
-    hermes::Hermes ast;
+    writ::Hermes ast;
     bool           from_binary_module = false;  // loaded from a .hermes0 in a .a archive
 
     // Owning MODULE identity (the unit of distribution this file belongs to).
@@ -113,7 +113,7 @@ StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths
 
 // M4 step 1: extract the raw LIR-mirror blob from a .hermes0 v3 archive.
 // Returns the bytes as written by emit_module (a complete Hermes arena
-// segment — load via hermes::from_bytes_copy to wrap as a Hermes view).
+// segment — load via writ::from_bytes_copy to wrap as a Hermes view).
 // Returns empty for v2 archives, archives without the lir_blob section
 // (M3-era writes), or zero-length blobs. Returns nullopt on truncation.
 struct LirBlobOpt {

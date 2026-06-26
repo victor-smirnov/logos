@@ -144,7 +144,7 @@ else()
 endif()
 
 target_link_libraries(logosc PRIVATE
-    logos_hermes
+    logos_writ
     logos_jit
     ${LOGOS_MLIR_LLVM_LIBS}
 )

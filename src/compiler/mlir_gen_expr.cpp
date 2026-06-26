@@ -6,17 +6,17 @@
 #include "llvm_compat.hpp"
 
 #include <logos/compiler/sha256.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <cstring>
 
@@ -5693,17 +5693,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
 
 namespace {
 
-using logos::hermes::AnyVal;
-using logos::hermes::Arena;
-using logos::hermes::ArenaMode;
-using logos::hermes::ArenaString;
-using logos::hermes::HermesAccess;
-using logos::hermes::ObjectArray;
-using logos::hermes::ObjectMap;
-using logos::hermes::TypedArray;
-using logos::hermes::arena_offset_t;
-using logos::hermes::anyval_put;
-using logos::hermes::make_doc;
+using logos::writ::AnyVal;
+using logos::writ::Arena;
+using logos::writ::ArenaMode;
+using logos::writ::ArenaString;
+using logos::writ::HermesAccess;
+using logos::writ::ObjectArray;
+using logos::writ::ObjectMap;
+using logos::writ::TypedArray;
+using logos::writ::arena_offset_t;
+using logos::writ::anyval_put;
+using logos::writ::make_doc;
 
 struct HermesZoneBuild {
     std::vector<uint8_t>                        blob;
@@ -5717,7 +5717,7 @@ struct HermesZoneBuild {
 // strings/arrays/maps/types). NOT the Hermes1 u32 base-relative "raw" — that made
 // from_raw(off) resolve to &slot+off = garbage.
 static AnyVal build_hermes_val(lir_view::HermesValRef v,
-                               logos::hermes::Hermes& doc);
+                               logos::writ::Hermes& doc);
 
 // Self-relative Ref to an in-arena object (single-segment doc → base+off is absolute).
 static AnyVal ptr_anyval(const void* obj) {
@@ -5725,12 +5725,12 @@ static AnyVal ptr_anyval(const void* obj) {
 }
 
 static uint32_t build_object_array(lir_view::HVArrayView arr,
-                                   logos::hermes::Hermes& doc) {
+                                   logos::writ::Hermes& doc) {
     uint64_t n = arr.size();
     uint32_t a_off = doc.make_array(n ? n : uint64_t{4}).get().offset().value();
     for (uint64_t i = 0; i < n; ++i) {
         AnyVal elem_av = build_hermes_val(arr.elem(i), doc);   // may alloc → re-fetch view
-        logos::hermes::ArrayView(arena_offset_t(a_off), doc.holder())
+        logos::writ::ArrayView(arena_offset_t(a_off), doc.holder())
             .push_back(elem_av).get();
     }
     return a_off;
@@ -5738,7 +5738,7 @@ static uint32_t build_object_array(lir_view::HVArrayView arr,
 
 template <typename T>
 static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
-                                         logos::hermes::Hermes& doc) {
+                                         logos::writ::Hermes& doc) {
     uint64_t n = arr.size();
     auto* a = doc.make_typed<TypedArray<T>>(n ? n : uint64_t{4}).get();
     uint32_t a_off = static_cast<uint32_t>(
@@ -5757,7 +5757,7 @@ static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
 }
 
 static uint32_t build_array(lir_view::HVArrayView arr,
-                            logos::hermes::Hermes& doc) {
+                            logos::writ::Hermes& doc) {
     auto et = arr.elem_type();
     if (et == "I8")  return build_typed_array_scalar<int8_t>(arr, doc);
     if (et == "U8")  return build_typed_array_scalar<uint8_t>(arr, doc);
@@ -5773,7 +5773,7 @@ static uint32_t build_array(lir_view::HVArrayView arr,
 }
 
 static uint32_t build_object_map(lir_view::HVMapView map,
-                                 logos::hermes::Hermes& doc) {
+                                 logos::writ::Hermes& doc) {
     uint64_t n = map.size();
     uint32_t cap = 8;
     while (cap < n * 2 || cap < 8) cap <<= 1;
@@ -5783,7 +5783,7 @@ static uint32_t build_object_map(lir_view::HVMapView map,
             ? std::to_string(map.int_key(i))
             : std::string(map.str_key(i));
         AnyVal val_av = build_hermes_val(map.value(i), doc);
-        logos::hermes::MapView(arena_offset_t(m_off), doc.holder())
+        logos::writ::MapView(arena_offset_t(m_off), doc.holder())
             .put(key_str, val_av).get();
     }
     return m_off;
@@ -5791,7 +5791,7 @@ static uint32_t build_object_map(lir_view::HVMapView map,
 
 template <typename Map, typename K>
 static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
-                                       logos::hermes::Hermes& doc) {
+                                       logos::writ::Hermes& doc) {
     uint64_t n = map.size();
     uint32_t cap = n == 0 ? 1 : static_cast<uint32_t>(n);
     auto* m = doc.make_typed<Map>(cap).get();
@@ -5808,17 +5808,17 @@ static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
 }
 
 static uint32_t build_map(lir_view::HVMapView map,
-                          logos::hermes::Hermes& doc) {
+                          logos::writ::Hermes& doc) {
     auto kt = map.key_type();
-    if (kt == "I32") return build_typed_map_anyval<logos::hermes::TypedMap<int32_t>, int32_t>(map, doc);
-    if (kt == "U32") return build_typed_map_anyval<logos::hermes::TypedMap<uint32_t>, uint32_t>(map, doc);
-    if (kt == "I64") return build_typed_map_anyval<logos::hermes::TypedMap<int64_t>, int64_t>(map, doc);
-    if (kt == "U64") return build_typed_map_anyval<logos::hermes::TypedMap<uint64_t>, uint64_t>(map, doc);
+    if (kt == "I32") return build_typed_map_anyval<logos::writ::TypedMap<int32_t>, int32_t>(map, doc);
+    if (kt == "U32") return build_typed_map_anyval<logos::writ::TypedMap<uint32_t>, uint32_t>(map, doc);
+    if (kt == "I64") return build_typed_map_anyval<logos::writ::TypedMap<int64_t>, int64_t>(map, doc);
+    if (kt == "U64") return build_typed_map_anyval<logos::writ::TypedMap<uint64_t>, uint64_t>(map, doc);
     return build_object_map(map, doc);
 }
 
 static AnyVal build_hermes_val(lir_view::HermesValRef v,
-                               logos::hermes::Hermes& doc) {
+                               logos::writ::Hermes& doc) {
     if (!v) return AnyVal::null();
     using HC = lir_schema::hermes_val::Code;
     switch (v.kind()) {
@@ -5859,7 +5859,7 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
         //   key 2: name (ArenaString ptr-mode AnyVal)
         lir_view::HVTypeView tv{v};
         auto mv = doc.make_tiny_map_view(/*cap=*/4).get();
-        mv.set_schema_type_code(logos::hermes::type_hash::Type);
+        mv.set_schema_type_code(logos::writ::type_hash::Type);
         uint32_t m_off = mv.offset().value();
 
         AnyVal kind_av = AnyVal::from_value<uint32_t>(tv.kind());
@@ -5869,7 +5869,7 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
         // Re-fetch the map by offset each put (a build_*/box alloc above may have
         // relocated under GrowableSingleChunk); the TinyMapView wraps the resolve.
         auto map_at = [&] {
-            return logos::hermes::TinyMapView(arena_offset_t(m_off), doc.holder());
+            return logos::writ::TinyMapView(arena_offset_t(m_off), doc.holder());
         };
         map_at().put(0, kind_av).get();
         map_at().put(1, uid_av).get();
@@ -5934,7 +5934,7 @@ static void collect_param_slots(
             collect_param_slots(base, used,
                                 elems + i * stride + first_elem_delta, out, visited);
     };
-    using namespace logos::hermes;
+    using namespace logos::writ;
     switch (tc) {
     case tc::ARRAY: {  // ObjectArray {size,cap,data→AnyVal[]}
         uint64_t n = *reinterpret_cast<const uint64_t*>(base + obj);
@@ -5972,11 +5972,11 @@ static void collect_param_slots(
 }
 
 static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
-    auto doc = logos::hermes::make_doc_single_chunk().get();
+    auto doc = logos::writ::make_doc_single_chunk().get();
     AnyVal root_av = build_hermes_val(e.root(), doc);
     HermesAccess::set_root_offset(doc, root_av);   // AnyVal overload (no offset)
 
-    auto packed = logos::hermes::compactify(doc).get();
+    auto packed = logos::writ::compactify(doc).get();
 
     auto& packed_arena = HermesAccess::arena(packed);
     const uint8_t* data = packed_arena.head().data();

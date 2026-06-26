@@ -123,9 +123,9 @@ protected:
     // body_external_ref points into stdlib's published arena), it sets this
     // to that arena's pointer for the duration of the body walk.
     // nullptr → "use out_.type_pool.arena()" (legacy default).
-    const hermes::Arena* src_arena_ = nullptr;
+    const writ::Arena* src_arena_ = nullptr;
 
-    const hermes::Arena* effective_src_arena() const noexcept {
+    const writ::Arena* effective_src_arena() const noexcept {
         return src_arena_ ? src_arena_ : out_.type_pool.arena();
     }
 

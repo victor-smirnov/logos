@@ -123,7 +123,7 @@ public:
 
 // ---------------------------------------------------------------------------
 // Convenience: build a scalar Err from a typed code enum/constant.
-// Usage:  return logos::err(hermes::ErrCode::not_found);
+// Usage:  return logos::err(writ::ErrCode::not_found);
 // ---------------------------------------------------------------------------
 template<typename Code>
 [[gnu::always_inline]] inline

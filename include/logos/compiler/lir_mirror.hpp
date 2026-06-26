@@ -19,7 +19,7 @@
 
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_schema.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <memory>
 #include <string_view>
@@ -56,11 +56,11 @@ public:
     void expr(lir_schema::Key key, lir_view::ExprRef e); // RelPtr<LExpr> — skip when null
     void block(lir_schema::Key key, lir_view::BlockRef b);// RelPtr<block> — skip when null
     // ExternalRef Pod niche — skip when the ref's arena_id is invalid.
-    void ext_ref(lir_schema::Key key, hermes::ExternalRef r);
+    void ext_ref(lir_schema::Key key, writ::ExternalRef r);
     DeclArrayBuilder array(lir_schema::Key key);         // create empty array under key
 
     const uint8_t* addr() const noexcept;
-    const hermes::Arena* arena() const noexcept;
+    const writ::Arena* arena() const noexcept;
     template <class V> V view() const noexcept {
         return V{lir_view::DeclRef(arena(), addr())};
     }

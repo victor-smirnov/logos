@@ -11,7 +11,7 @@
 //   %meta {
 //       name:      "hermes"
 //       version:   "1.0"
-//       namespace: "logos::hermes"
+//       namespace: "logos::writ"
 //       output:    "hermes_parser"     // base name for generated files
 //   }
 //
@@ -65,18 +65,18 @@
 
 #include <optional>
 #include <string>
-#include <logos/hermes/view.hpp>
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/view.hpp>
+#include <logos/writ/compat.hpp>
 
 namespace logos::peg_gen {
 
 // Parse a .peg grammar file into a Hermes document (grammar_ast schema).
 // Returns nullopt and prints error to stderr on failure.
-std::optional<logos::hermes::Hermes> parse_grammar(const std::string& path);
+std::optional<logos::writ::Hermes> parse_grammar(const std::string& path);
 
 // Parse grammar from an in-memory string (useful for tests).
 // source_name is used in error messages.
-std::optional<logos::hermes::Hermes>
+std::optional<logos::writ::Hermes>
 parse_grammar_string(std::string_view source, std::string_view source_name = "<string>");
 
 } // namespace logos::peg_gen

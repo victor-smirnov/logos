@@ -4,7 +4,7 @@
 #include "ctfe.hpp"
 #include "logos/compiler/subtype.hpp"
 
-#include <logos/hermes/compat.hpp>
+#include <logos/writ/compat.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -16,11 +16,11 @@
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using writ::TinyMapView;
+using writ::ArrayView;
+using writ::StringView;
+using writ::AnyVal;
+using writ::MemHolder;
 
 // Statement lowering methods
 
@@ -31,7 +31,7 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     // through. Hand-recognised by callee name today since Logos has no
     // `!`/Never type kind. Returning true from stmt_always_returns makes
     // the fn-body return-reachability check accept a `panic(msg)` tail.
-    auto is_divergent_call = [&](hermes::TinyMapView node) -> bool {
+    auto is_divergent_call = [&](writ::TinyMapView node) -> bool {
         int32_t cc = code_of(node);
         // Direct call `panic(...)` or macro-style `panic!(...)`. The macro
         // shape parses to FN_MACRO_CALL with CALLEE = "panic" before
@@ -1229,7 +1229,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     if (is_array_slice_pat) {
         auto elem_t = TypeRef(rhs_type).elem();
         size_t arr_n = (size_t)TypeRef(rhs_type).arr_size();
-        std::vector<hermes::TinyMapView> sub_pats;
+        std::vector<writ::TinyMapView> sub_pats;
         bool has_rest = false;
         if (pat_node.has_key(la::ITEMS)) {
             auto items_av = pat_node.get(la::ITEMS.code);
@@ -2366,7 +2366,7 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
 // Render a place AST node to its source-like form (`p.x`, `arr[i]`, `t.0`,
 // `b.data[i]`, `(*p).x`) for diagnostics. Mirrors the names the former per-shape
 // compound lowerings produced.
-std::string SemaChecker::render_place_node(hermes::TinyMapView n) {
+std::string SemaChecker::render_place_node(writ::TinyMapView n) {
     if (n.is_null()) return "<place>";
     int32_t c = code_of(n);
     if (c == la::PAREN_EXPR && n.has_key(la::VALUE))
@@ -4157,7 +4157,7 @@ void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
                                            std::vector<std::string>& out) {
     if (pat.is_null()) return;
     int32_t c = code_of(pat);
-    auto recurse_list = [&](hermes::TinyMapView node, uint8_t key) {
+    auto recurse_list = [&](writ::TinyMapView node, uint8_t key) {
         if (!node.has_key(key)) return;
         auto av = node.get(key);
         if (av.is_null()) return;
@@ -4168,7 +4168,7 @@ void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
         for (uint64_t i = 0; i < items.size(); ++i)
             collect_ast_pat_bindings(map_of(items.get(i)), out);
     };
-    auto recurse_items = [&](hermes::TinyMapView node) {
+    auto recurse_items = [&](writ::TinyMapView node) {
         recurse_list(node, la::ITEMS.code);
     };
     if (c == la::PAT_WILD) {
@@ -4486,7 +4486,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // `(a, .., c)` with arity 4 becomes `(a, _, _, c)`.
         size_t tuple_arity = TypeRef(tst).tuple_elems().size();
         AnyVal items_av = pnode.get(la::ITEMS.code);
-        std::vector<hermes::TinyMapView> raw_elems;
+        std::vector<writ::TinyMapView> raw_elems;
         size_t rest_pos = SIZE_MAX;
         if (!items_av.is_null() && items_av.is_pointer()) {
             auto items_arr = arr_of(items_av);
@@ -4505,7 +4505,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         }
         // Build the final element list. If rest is present, pad with
         // PAT_WILD("_") at rest_pos to reach tuple_arity.
-        std::vector<std::optional<hermes::TinyMapView>> expanded;
+        std::vector<std::optional<writ::TinyMapView>> expanded;
         if (rest_pos == SIZE_MAX) {
             for (auto& e : raw_elems) expanded.push_back(e);
         } else {
@@ -5525,7 +5525,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         if (pc == la::PAT_HERMES_ARR) {
             uint64_t n_total = 0;
             bool has_rest = false;
-            hermes::TinyMapView arr_wrap;
+            writ::TinyMapView arr_wrap;
             if (p.has_key(la::ITEMS)) {
                 arr_wrap = map_of(p.get(la::ITEMS.code));
                 auto items = arr_of(arr_wrap.get(la::ITEMS.code));
@@ -5561,7 +5561,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return acc;
         }
         if (pc == la::PAT_HERMES_TYPED_ARR) {
-            namespace th = logos::hermes::type_hash;
+            namespace th = logos::writ::type_hash;
             auto tname = std::string(str_of(p.get(la::TYPE.code)));
             static const std::map<std::string, uint64_t> arr_tcs = {
                 {"I8",     th::ArrayI8},
@@ -5587,7 +5587,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return emit_has_type_code(sv, it->second);
         }
         if (pc == la::PAT_HERMES_TYPED_MAP) {
-            namespace th = logos::hermes::type_hash;
+            namespace th = logos::writ::type_hash;
             auto kname = std::string(str_of(p.get(la::TYPE.code)));
             std::string vname;
             if (p.has_key(la::RET_TYPE))
@@ -6350,7 +6350,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
     // Bind a synthetic element var and destructure the pattern from it as a
     // body prologue (see emit_for_pattern_destructure + the per-path wiring).
     bool for_has_pat = false;
-    hermes::TinyMapView for_pat{};
+    writ::TinyMapView for_pat{};
     std::string var_name;
     if (node.has_key(la::PAT)) {
         for_pat = map_of(node.get(la::PAT.code));
@@ -6895,12 +6895,12 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
 // limitation, so they're rejected with a clean diagnostic instead of a crash.
 // Strip a `( … )` PAREN_EXPR wrapper (the lowered LExpr is transparent, but
 // the AST keeps the grouping node — e.g. `(*p).0` is TUPLE_INDEX(PAREN_EXPR(*p))).
-hermes::TinyMapView SemaChecker::unwrap_paren_node(hermes::TinyMapView n) {
+writ::TinyMapView SemaChecker::unwrap_paren_node(writ::TinyMapView n) {
     while (code_of(n) == la::PAREN_EXPR && n.has_key(la::VALUE))
         n = map_of(n.get(la::VALUE.code));
     return n;
 }
-bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
+bool SemaChecker::place_recv_is_simple(writ::TinyMapView recv) {
     int32_t code = code_of(unwrap_paren_node(recv));
     return code == la::VAR_REF || code == la::DEREF;
 }
@@ -6909,7 +6909,7 @@ bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
 // struct-ARRAY element (`a[i].x`, `g.rows[i].cells[j].v`). The struct-element
 // stride is now handled (gen_lvalue_addr + gen_index_read inline slot), so
 // index-then-field places lower correctly.
-bool SemaChecker::place_field_base_ok(hermes::TinyMapView recv) {
+bool SemaChecker::place_field_base_ok(writ::TinyMapView recv) {
     recv = unwrap_paren_node(recv);
     int32_t c = code_of(recv);
     if (c == la::VAR_REF || c == la::DEREF) return true;
@@ -7059,7 +7059,7 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
 // Best-effort static type of an AST place expression (read-only; mirrors the
 // type logic in lower_expr without emitting LIR). Used by check_place_writable
 // to decide whether a field/index access crosses a pointer boundary.
-TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
+TypeRef SemaChecker::resolve_place_type(writ::TinyMapView place) {
     place = unwrap_paren_node(place);
     int32_t c = code_of(place);
     if (c == la::VAR_REF)
@@ -7105,7 +7105,7 @@ TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
 
 std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     const std::string& arr_name, TypeRef arr_type,
-    hermes::TinyMapView idx_node, hermes::TinyMapView val_node) {
+    writ::TinyMapView idx_node, writ::TinyMapView val_node) {
     if (!arr_type || TypeRef(arr_type).kind() != LogosType::Kind::Struct)
         return std::nullopt;
     auto type_name = concrete_struct_name(arr_type);
@@ -7169,7 +7169,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
 // lower_field_write.
 std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
     const std::string& recv_name, const std::string& field_name,
-    hermes::TinyMapView val_node) {
+    writ::TinyMapView val_node) {
     TypeRef recv_type = lookup(recv_name);
     if (!recv_type || TypeRef(recv_type).kind() != LogosType::Kind::Struct ||
         !is_dataref(recv_type) || TypeRef(recv_type).type_args().size() != 1)
@@ -7582,7 +7582,7 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
 
 void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                                               TypeRef scrut_type,
-                                              hermes::TinyMapView node) {
+                                              writ::TinyMapView node) {
     namespace ec = lir_schema::expr;
     // The scrutinee may be a plain VAR (`match o`) or a PLACE — a struct field
     // (`match s.o`) / tuple element (`match a.1`). Enum value-repr makes the
@@ -7730,8 +7730,8 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                     // the payload is consumed and the scrutinee must be marked
                     // moved (else its scope-exit enum Drop double-frees the
                     // moved-out element — the G154-4 double-free, enum+nested half).
-                    std::function<bool(hermes::TinyMapView)> binds_by_value =
-                        [&](hermes::TinyMapView sp) -> bool {
+                    std::function<bool(writ::TinyMapView)> binds_by_value =
+                        [&](writ::TinyMapView sp) -> bool {
                         auto c = code_of(sp);
                         if (c == la::PAT_OR && sp.has_key(la::ITEMS)) {
                             auto alts = arr_of(sp.get(la::ITEMS.code));
@@ -7768,7 +7768,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                         }
                         return false;
                     };
-                    auto scan_subs = [&](hermes::AnyVal items_av) {
+                    auto scan_subs = [&](writ::AnyVal items_av) {
                         if (items_av.is_null()) return;
                         auto subs = arr_of(items_av);
                         for (uint64_t si = 0; si < subs.size() && !moves; ++si) {
@@ -7822,7 +7822,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
 
 void SemaChecker::emit_nested_variant_lets(
         const std::string& synth_name, TypeRef synth_t,
-        hermes::TinyMapView sub_pat, std::vector<lir_view::StmtRef>& out) {
+        writ::TinyMapView sub_pat, std::vector<lir_view::StmtRef>& out) {
     namespace ps = lir_schema::pat;
     // Build `let <sub_pat> = synth else { loop {} }`. Capture any DEEPER
     // refutable-inner guards / nested subs locally — the guards are dead
@@ -7891,7 +7891,7 @@ void SemaChecker::emit_nested_variant_lets(
 }
 
 bool SemaChecker::ast_patterns_exhaustive(
-        std::vector<hermes::TinyMapView> pats, TypeRef ty) {
+        std::vector<writ::TinyMapView> pats, TypeRef ty) {
     using K = LogosType::Kind;
     // Peel references.
     TypeRef t = ty;
@@ -8026,9 +8026,9 @@ void SemaChecker::emit_nested_pat_destructure(
         // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
         // so a tuple-payload binding was left undefined.
         if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
-            std::function<void(lir::LExprPtr, TypeRef, hermes::TinyMapView)>
+            std::function<void(lir::LExprPtr, TypeRef, writ::TinyMapView)>
             emit_tuple_lets =
-                [&](lir::LExprPtr src, TypeRef tty, hermes::TinyMapView tnode) {
+                [&](lir::LExprPtr src, TypeRef tty, writ::TinyMapView tnode) {
                 if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
                 if (!tnode.has_key(la::ITEMS)) return;
                 auto items = arr_of(tnode.get(la::ITEMS.code));
@@ -8125,7 +8125,7 @@ void SemaChecker::emit_nested_pat_destructure(
 }
 
 bool SemaChecker::emit_for_pattern_destructure(
-        hermes::TinyMapView pat, const std::string& src_var, TypeRef src_type,
+        writ::TinyMapView pat, const std::string& src_var, TypeRef src_type,
         std::vector<lir_view::StmtRef>& out) {
     // Unwrap the grammar's single-alt PAT_OR wrapper.
     if (code_of(pat) == la::PAT_OR && pat.has_key(la::ITEMS)) {
@@ -8450,7 +8450,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         // normal single-arm path with its own refutable-inner guard
         // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
         // and same-variant-with-bindings or-patterns stay merged.
-        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
+        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
         // An or-pattern alternative is "merge-safe" only if it is a pure
         // scalar literal that binds nothing (PAT_INT / PAT_BOOL / PAT_CHAR).
         // The merged PatOr codegen treats each alt as a scalar discriminant
@@ -8463,7 +8463,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
-        auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
+        auto or_needs_fanout = [&](writ::TinyMapView lhs) -> bool {
             if (code_of(lhs) != la::PAT_OR) return false;
             if (!lhs.has_key(la::ITEMS)) return false;
             auto a = arr_of(lhs.get(la::ITEMS.code));
@@ -8480,7 +8480,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         // a single payload arg (the realistic class); a multi-arg variant with
         // ors in several positions would need a cartesian product — out of
         // scope, left to the merged path / a clean reject downstream.
-        auto variant_payload_or_alts = [&](hermes::TinyMapView lhs) -> int {
+        auto variant_payload_or_alts = [&](writ::TinyMapView lhs) -> int {
             // The grammar wraps a whole arm pattern in a single-alt PAT_OR
             // (`pat_single (PIPE …)*`); unwrap it to reach the variant.
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
@@ -8532,7 +8532,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             }
             eff_arms.push_back({arm, -1});
         }
-        auto effective_lhs = [&](hermes::TinyMapView arm, int32_t alt_idx) {
+        auto effective_lhs = [&](writ::TinyMapView arm, int32_t alt_idx) {
             if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
             auto lhs = map_of(arm.get(la::LHS.code));
             return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
@@ -8600,7 +8600,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             lir::LExprPtr str_arm_guard = nullptr;
             lir::Pattern pat;
             // Unwrap a single-alt PAT_OR (the grammar wraps each arm pattern).
-            hermes::TinyMapView str_eff;
+            writ::TinyMapView str_eff;
             bool is_str_arm = false;
             if (has_str_hoist && arm.has_key(la::LHS)) {
                 str_eff = effective_lhs(arm, alt_idx);
@@ -8833,7 +8833,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     // since the desugar's synth guards defeat the LIR-level variant check.
     bool ast_exh = false;
     if (node.has_key(la::ITEMS)) {
-        std::vector<hermes::TinyMapView> lhs_pats;
+        std::vector<writ::TinyMapView> lhs_pats;
         auto arms_l = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < arms_l.size(); ++i) {
             auto arm = map_of(arms_l.get(i));
@@ -9080,11 +9080,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // or-patterns (`1|2|3`) stay merged. Without this, the merged tuple/
         // variant codegen mishandled bindings — e.g. dispatched on the
         // scrutinee pointer (`arith.cmpi ptr, 0`).
-        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
+        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
-        auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
+        auto or_needs_fanout = [&](writ::TinyMapView lhs) -> bool {
             if (code_of(lhs) != la::PAT_OR) return false;
             if (!lhs.has_key(la::ITEMS)) return false;
             auto a = arr_of(lhs.get(la::ITEMS.code));
@@ -9095,7 +9095,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         };
         // B170-E: variant whose single payload arg is a multi-alt PAT_OR — see
         // the lower_match twin for the rationale (or-distribution fan-out).
-        auto variant_payload_or_alts = [&](hermes::TinyMapView lhs) -> int {
+        auto variant_payload_or_alts = [&](writ::TinyMapView lhs) -> int {
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
                 auto a = arr_of(lhs.get(la::ITEMS.code));
                 if (a.size() == 1) lhs = map_of(a.get(0));
@@ -9140,7 +9140,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
             eff_arms.push_back({arm, -1});
         }
-        auto effective_lhs = [&](hermes::TinyMapView arm, int32_t alt_idx) {
+        auto effective_lhs = [&](writ::TinyMapView arm, int32_t alt_idx) {
             if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
             auto lhs = map_of(arm.get(la::LHS.code));
             return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
@@ -9193,7 +9193,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // G172-1: top-level string-literal arm → wildcard + str_eq guard.
             lir::LExprPtr str_arm_guard = nullptr;
             lir::Pattern pat;
-            hermes::TinyMapView str_eff;
+            writ::TinyMapView str_eff;
             bool is_str_arm = false;
             if (has_str_hoist && arm.has_key(la::LHS)) {
                 str_eff = effective_lhs(arm, alt_idx);
@@ -9252,9 +9252,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
                 // so a tuple-payload binding was left undefined.
                 if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
-                    std::function<void(lir::LExprPtr, TypeRef, hermes::TinyMapView)>
+                    std::function<void(lir::LExprPtr, TypeRef, writ::TinyMapView)>
                     emit_tuple_lets =
-                        [&](lir::LExprPtr src, TypeRef tty, hermes::TinyMapView tnode) {
+                        [&](lir::LExprPtr src, TypeRef tty, writ::TinyMapView tnode) {
                         if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
                         if (!tnode.has_key(la::ITEMS)) return;
                         auto items = arr_of(tnode.get(la::ITEMS.code));
@@ -9604,7 +9604,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // K4: prove nested-enum-pattern exhaustiveness at the AST level.
         bool ast_exh = false;
         if (node.has_key(la::ITEMS)) {
-            std::vector<hermes::TinyMapView> lhs_pats;
+            std::vector<writ::TinyMapView> lhs_pats;
             auto arms_l = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < arms_l.size(); ++i) {
                 auto arm = map_of(arms_l.get(i));
