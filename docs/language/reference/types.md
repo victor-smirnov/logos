@@ -76,7 +76,7 @@ Use raw pointers at FFI boundaries, in `unsafe` blocks, and inside types impleme
 - An `IDENT` previously bound by `<const N: ...>`: `[T; N]`.
 - The pack-size form `sizeof...(P)` — the compiler keeps the size symbolic at sema time and substitutes the pack's length during monomorphisation.
 
-Arrays are value types — they live where they're declared (stack, struct field, etc.) and are copied by value when small. Element access is `arr[i]` (bounds checked at runtime in safe code). Slice from an array via `&arr` (whole) or `&arr[..]` (planned, see [Roadmap](roadmap.md)).
+Arrays are value types — they live where they're declared (stack, struct field, etc.) and are copied by value when small. Element access is `arr[i]` (bounds checked at runtime in safe code). Slice from an array via `&arr` (whole) or `&arr[..]` (planned, see [Roadmap](#roadmap)).
 
 ## Tuples
 
@@ -170,6 +170,6 @@ Inside a generic context, several forms appear that are *not* concrete types but
 
 ## Roadmap
 
-- **Mixed packs** — combining `<T...>` and `<const N...: U>` in one signature. Currently rejected by `mono_scan`. See [Roadmap](roadmap.md#generics).
+- **Mixed packs** — combining `<T...>` and `<const N...: U>` in one signature. Currently rejected by `mono_scan`. See [Generics & Traits → Roadmap](generics-traits.md#roadmap).
 - **Slice-from-array `&arr[..]`** — currently a grammar gap; whole-array borrow `&arr` works.
 - **Higher-kinded polymorphism** — generic over `GenericType` without explicit arity. Out of scope.

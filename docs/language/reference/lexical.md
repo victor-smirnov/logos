@@ -6,7 +6,7 @@ This page describes the surface tokens produced by the Logos lexer. The authorit
 
 Logos source files are byte sequences. The lexer is currently **ASCII-only** outside of string literals — non-ASCII bytes (including in line comments) are rejected. Inside a string literal, bytes are passed through verbatim, so UTF-8 string contents work today; UTF-8 source-level support (identifiers, comments) is planned.
 
-See [Roadmap](roadmap.md#lexical) for status.
+See [Roadmap](#roadmap) for status.
 
 ## Whitespace and Comments
 

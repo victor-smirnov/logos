@@ -147,8 +147,6 @@ The same algorithm applies to functions (`find_fn_by_name`), enums, traits, and 
 - **Wildcard exclusion**: `use foo.{a, b};` and `use foo::*;` — not parsed (always wildcard implicitly).
 - **Nested module declarations**: `mod sub { ... }` — Logos has no in-file sub-modules. Each package is exactly one file, or one directory under one manifest.
 
-The roadmap for these features is in [docs/language/reference/roadmap.md](roadmap.md).
-
 ## Common pitfalls
 
 - **Same-name structs in two imported packages** silently resolve to whichever was imported first (see "first-import-wins" above). The compiler doesn't warn. Until `pkg.Type` qualified syntax lands, the workaround is to ensure name uniqueness across imports.

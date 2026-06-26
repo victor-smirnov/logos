@@ -37,7 +37,7 @@ let MAX: i32 = 1024;
 
 Module-level constants are introduced with `let NAME: type = expr;` — the right-hand side is compile-time evaluated. There is no `const` keyword for value bindings; `const` is reserved for `<const N: T>` generic parameters and for `*const T` pointers.
 
-> See [memory: pub const not supported end-to-end](roadmap.md#items) — `pub` on module-level `let` is not yet wired through the import system.
+> `pub` on a module-level `let` is not yet wired through the import system — cross-package reads of a `pub let` constant are not supported end-to-end; expose a `pub fn` accessor for that case.
 
 ## `type` aliases
 

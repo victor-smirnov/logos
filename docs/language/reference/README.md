@@ -2,7 +2,7 @@
 
 This is the reference for the Logos language. It is organised by surface form: lexer → types → items → expressions → statements → patterns, with cross-cutting topics (generics, ownership, metaprogramming, Hermes, attributes) grouped after.
 
-The reference describes both **the language as it is today** (what `logos.peg` and `src/compiler/sema*.cpp` actually accept and lower) and **roadmap items** (what is planned but not yet wired through). Roadmap items are called out per-page and collected in [Roadmap](roadmap.md).
+The reference describes both **the language as it is today** (what `logos.peg` and `src/compiler/sema*.cpp` actually accept and lower) and **roadmap items** (what is planned but not yet wired through). Roadmap items are called out per-page, in each page's own `## Roadmap` section.
 
 The reference is fact-and-link — for design rationale see the per-feature notes linked from individual pages.
 
@@ -25,10 +25,6 @@ The reference is fact-and-link — for design rationale see the per-feature note
 - **[Metaprogramming](metaprog.md)** — typelevel handles, `metacall`, quote forms, `template`, sema-side intrinsics.
 - **[Hermes](hermes.md)** — Hermes literals, datatypes, view types, tag-dispatched pointers, schemas, type-codes.
 - **[Attributes](attributes.md)** — `#[...]` annotations on items.
-
-### Status
-
-- **[Roadmap](roadmap.md)** — known gaps and planned features collected from across the reference.
 
 ## Sources
 
