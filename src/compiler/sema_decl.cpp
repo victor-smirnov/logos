@@ -1299,18 +1299,76 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     // METHODS array ALWAYS created (even empty) so in-place appends work later.
     auto ma = sd.array(stk::METHODS);
     if (node.has_key(la::ITEMS)) {
+        namespace dk = lir_schema::decl_keys;
         auto methods = arr_of(node.get(la::ITEMS.code));
         // Phase A.2: doc-comments in the method stream prime pending_doc_
         // for the next lower_fn invocation.
         pending_doc_.clear();
+        // For a GENERIC struct, inline body methods must be lowered with the
+        // same generic context an `impl<T> Struct<T>` block establishes
+        // (lower_impl): `Self` bound to the generic self-type and the struct's
+        // type params recorded as the method's IMPL_TYPE_PARAMS / target
+        // pattern. Without it, `-> Self` stays the literal template type
+        // `Struct<T...>` and mono never substitutes it at instantiation, so a
+        // call like `Pair::<i32,i32>::make(..)` fails with
+        // "expected Pair<i32,i32>, got Pair<A,B>". Non-generic structs keep the
+        // simple path (lower_fn emits the method's own TYPE_PARAMS directly).
+        const bool struct_is_generic = !type_params.empty();
+        bool had_self = current_type_params_.count("Self") > 0;
+        TypeRef saved_self = had_self ? current_type_params_["Self"] : nullptr;
+        std::vector<TypeParam> saved_impl_tps = impl_type_params_;
+        TypeRef struct_self = nullptr;
+        if (struct_is_generic) {
+            std::vector<TypeRef> tv_args;
+            tv_args.reserve(type_params.size());
+            for (auto& tp : type_params) tv_args.push_back(make_typevar(tp.name));
+            struct_self = make_generic_struct(
+                sname, std::move(tv_args),
+                std::vector<std::string>(lifetime_params), cur_package_);
+            current_type_params_["Self"] = struct_self;
+            impl_type_params_ = type_params;
+        }
         for (uint64_t m = 0; m < methods.size(); ++m) {
             auto method = map_of(methods.get(m));
             if (try_append_doc(pending_doc_, method)) continue;
             int32_t mc = code_of(method);
-            if (mc == la::FN || mc == la::STATIC_FN) {
+            if (mc != la::FN && mc != la::STATIC_FN) continue;
+            if (!struct_is_generic) {
                 auto mfn = lower_fn(method, sname);
                 ma.push_ref(mfn.view<lir_view::FunctionView>().self.addr());
+                continue;
             }
+            // Generic: mirror lower_impl's struct-template method handling.
+            std::vector<TypeParam> mtps;
+            auto mfn = lower_fn(method, sname, &mtps);
+            // Drop struct-level params (mono re-injects them); keep method-level.
+            if (!mtps.empty()) {
+                std::vector<TypeParam> kept;
+                kept.reserve(mtps.size());
+                for (auto& tp : mtps) {
+                    bool is_struct_level = false;
+                    for (auto& stp : type_params)
+                        if (stp.name == tp.name) { is_struct_level = true; break; }
+                    if (!is_struct_level) kept.push_back(tp);
+                }
+                mtps = std::move(kept);
+            }
+            if (!mtps.empty()) {
+                auto a = mfn.array(dk::TYPE_PARAMS);
+                for (auto& tp : mtps) a.push_fn_tparam(tp);
+            }
+            // Struct-level params (with bounds) so mono can gate + re-inject them.
+            {
+                auto a = mfn.array(dk::IMPL_TYPE_PARAMS);
+                for (auto& tp : type_params) a.push_fn_tparam(tp);
+            }
+            mfn.type(dk::IMPL_TARGET_PATTERN, struct_self);
+            ma.push_ref(mfn.view<lir_view::FunctionView>().self.addr());
+        }
+        if (struct_is_generic) {
+            if (had_self) current_type_params_["Self"] = saved_self;
+            else current_type_params_.erase("Self");
+            impl_type_params_ = std::move(saved_impl_tps);
         }
         pending_doc_.clear();
     }

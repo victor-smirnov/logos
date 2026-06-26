@@ -1,0 +1,30 @@
+package struct_inline_methods;
+
+// Inline methods declared in the struct body (not an `impl` block), for both
+// non-generic and generic structs. Exercises the `&self` shorthand, `-> Self`
+// return types, call-site type-arg deduction, and a method-level generic on a
+// generic struct. Regression for the collect_struct Self/impl_type_params_
+// binding + lower_struct_def template-attach (IMPL_TYPE_PARAMS / target pattern).
+
+struct Point {
+    x: i32,
+    y: i32,
+    fn sum(&self) -> i32 { return self.x + self.y; }
+    static fn make(x: i32, y: i32) -> Self { return Point { x: x, y: y }; }
+}
+
+struct Pair<A, B> {
+    a: A,
+    b: B,
+    static fn make(a: A, b: B) -> Self { return Pair { a: a, b: b }; }
+    fn first(&self) -> &A { return &self.a; }
+    fn id<U>(&self, u: U) -> U { return u; }
+}
+
+fn main() -> i32 {
+    let p: Point = Point::make(10, 20);          // sum -> 30
+    let q: Pair<i32, i32> = Pair::make(5, 7);     // call-site deduction
+    let r: i32 = *q.first() + q.b;                // 5 + 7 = 12
+    let z: i32 = q.id::<i32>(0);                  // method-level generic -> 0
+    return p.sum() + r + z;                       // 30 + 12 + 0 = 42
+}

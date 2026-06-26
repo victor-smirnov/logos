@@ -4081,6 +4081,34 @@ void SemaChecker::collect_struct(TinyMapView node) {
     }
     auto skey = sema_key(cur_package_, sname);
     structs_[skey] = std::move(info);
+    // Methods declared inline in the struct body (grammar: `method_def_or_doc*`)
+    // are collected exactly like impl methods — so they need the same `Self`
+    // binding the impl path establishes (collect_impl, above). Without it,
+    // `-> Self` return types fail with "unknown type 'Self'" and the
+    // `&self`/`self` receiver shorthand fails with "receiver is not a struct".
+    bool had_self = current_type_params_.count("Self") > 0;
+    TypeRef saved_self = had_self ? current_type_params_["Self"] : nullptr;
+    std::vector<TypeParam> saved_impl_tps = impl_type_params_;
+    {
+        const auto& sinfo = structs_[skey];
+        TypeRef self_type;
+        if (!sinfo.type_params.empty()) {
+            std::vector<TypeRef> tv_args;
+            for (auto& tp : sinfo.type_params)
+                tv_args.push_back(make_typevar(tp.name));
+            std::vector<std::string> lt_args = sinfo.lifetime_params;
+            self_type = make_generic_struct(sname, std::move(tv_args),
+                                            std::move(lt_args), cur_package_);
+            // collect_fn keys genericity on impl_type_params_ (it combines them
+            // into the method's type_params) and routes generic methods to
+            // generic_funcs_ — so the static-call resolver substitutes the
+            // struct's params at `Pair::<i32,i32>::make()`. Mirror collect_impl.
+            impl_type_params_ = sinfo.type_params;
+        } else {
+            self_type = make_struct_type(sname, cur_package_);
+        }
+        current_type_params_["Self"] = self_type;
+    }
     // Methods must be collected with the struct's type params in scope.
     if (node.has_key(la::ITEMS)) {
         auto methods = arr_of(node.get(la::ITEMS.code));
@@ -4095,6 +4123,9 @@ void SemaChecker::collect_struct(TinyMapView node) {
             if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
         }
     }
+    if (had_self) current_type_params_["Self"] = saved_self;
+    else current_type_params_.erase("Self");
+    impl_type_params_ = std::move(saved_impl_tps);
     pop_type_params(structs_[skey].type_params);
 }
 
