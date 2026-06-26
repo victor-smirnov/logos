@@ -1,4 +1,5 @@
 module logos-std
+id logos-std
 version 0.1
 root stdlib/std/
 tier std

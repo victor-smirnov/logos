@@ -1,4 +1,5 @@
 module logos-mem
+id logos-mem
 version 0.1
 root stdlib/mem/
 tier mem

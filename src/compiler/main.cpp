@@ -2786,7 +2786,11 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
                 sv.remove_suffix(1);
             // Skip archive/path lines and assembler-local labels (.L.str, .Ltmp):
             // the ABI surface is the EXTERNAL defined symbols a consumer links.
-            if (!sv.empty() && sv.front() != '/' && sv.front() != '.')
+            // Also skip `_binary_*` ld embedding markers (start/end/size for the
+            // embedded .hermes0): their names encode the /tmp emit PATH, so they
+            // are build-location-dependent — not a portable ABI record.
+            if (!sv.empty() && sv.front() != '/' && sv.front() != '.'
+                && sv.rfind("_binary_", 0) != 0)
                 records.insert("sym\t" + std::string(sv));
         }
         ::pclose(pipe);
