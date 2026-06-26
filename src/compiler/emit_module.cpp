@@ -347,9 +347,16 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                     for (auto& ent : fs::directory_iterator(d, dec)) {
                         if (!ent.is_regular_file()) continue;
                         auto fn = ent.path().filename().string();
+                        // Exclude *_fibers.a: fiber_ctx.S carries initial-exec
+                        // TLS relocations (R_X86_64_GOTTPOFF) that ORC's
+                        // RuntimeDyld can't relocate. The metaprog JIT resolves
+                        // the fiber hooks from liblstdlib_rt.a's weak stubs
+                        // (metaprog_stubs.c) instead. (Mirrors is_jit_unsafe_archive
+                        // in main.cpp — the metacall path filtered, this one didn't.)
                         if ((fn.rfind("liblstdlib", 0) == 0 ||
                              fn.rfind("liblogos-", 0) == 0) &&
-                            ent.path().extension() == ".a") {
+                            ent.path().extension() == ".a" &&
+                            fn.find("_fibers.a") == std::string::npos) {
                             mopts.archive_paths.push_back(ent.path().string());
                         }
                     }
@@ -379,9 +386,11 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         for (auto& ent : fs::directory_iterator(d, dec)) {
                             if (!ent.is_regular_file()) continue;
                             auto fn = ent.path().filename().string();
+                            // Exclude *_fibers.a (GOTTPOFF; see above).
                             if ((fn.rfind("liblstdlib", 0) == 0 ||
                                  fn.rfind("liblogos-", 0) == 0) &&
-                                ent.path().extension() == ".a") {
+                                ent.path().extension() == ".a" &&
+                                fn.find("_fibers.a") == std::string::npos) {
                                 mopts.archive_paths.push_back(ent.path().string());
                             }
                         }
