@@ -1,19 +1,19 @@
 // hstatic_const_generic_uid.logos — first slice of hstatic-as-const-
-// generic. `Foo<const CFG: HermesStatic>` accepts `@{...}` literals
+// generic. `Foo<const CFG: WritStatic>` accepts `@{...}` literals
 // at turbofish position; the identity of the resulting type is a
 // byte-hash over the literal's AST (content only, position-free).
 //
 // This unblocks the component-metaprog assembler arc: now the
 // configuration carried by a Configuration becomes part of the type
-// name, so `PMapView<const CFG: HermesStatic>` compiled with two
+// name, so `PMapView<const CFG: WritStatic>` compiled with two
 // different cfgs will produce distinct types — the bedrock of the
 // constructive read/update split, override resolution, and
 // diagnostic-driven assembly.
 //
 // Pieces wired together:
-//   • Grammar: hermes_lit accepted as type_or_lt_arg → LIT_HSTATIC.
+//   • Grammar: writ_lit accepted as type_or_lt_arg → LIT_HSTATIC.
 //   • LogosType::Kind::HStaticLit, identity = const_val (byte-hash).
-//   • Sema: schema-aware FNV-1a walk of the parsed hermes_lit AST,
+//   • Sema: schema-aware FNV-1a walk of the parsed writ_lit AST,
 //     skipping SRC_LINE so identical content at different positions
 //     hashes the same.
 //   • TypeUID composition: HStaticLit kind adds const_val to the
@@ -24,9 +24,9 @@
 package hstatic_const_generic_uid;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
-pub struct Foo<const CFG: HermesStatic> { pub x: i32, }
+pub struct Foo<const CFG: WritStatic> { pub x: i32, }
 
 unsafe fn main() -> i32 {
     let a: Type = type_of::<Foo<@{"k": 1}>>();

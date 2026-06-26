@@ -25,8 +25,8 @@ use logos.lang.result;
 use logos.lang.fabric;
 use logos.lang.drop;
 use logos.lang.str;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.dview;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.dview;
 use logos.mem.string;
 
 use logos.std.data.persistent.bt.node;
@@ -36,14 +36,14 @@ use logos.std.data.persistent.handle;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name":     "dyn",
     "ctr_id":   <type:u64>,
     "snp_id":   <type:u64>,
     "block_id": <type:u64>,
 };
 // One CFG, used for BOTH maps below — the container is runtime-typed via DView.
-pub const DvCfg: HermesStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 8 };
+pub const DvCfg: WritStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 8 };
 
 fn section(label: str) {
     unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }

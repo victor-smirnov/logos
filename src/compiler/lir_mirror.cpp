@@ -1,11 +1,11 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Phase 3b — Hermes mirror emitter for L-IR.
+// Phase 3b — Writ mirror emitter for L-IR.
 //
 // Walks every function/const initializer in an LProgram and writes a
 // TinyObjectMap mirror per node into the program's TypePool arena. Mirrors
 // are not consumed yet (Phase 3d does that); for now the emitter validates
-// that every L-IR variant has a faithful Hermes representation.
+// that every L-IR variant has a faithful Writ representation.
 
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_schema.hpp>
@@ -23,7 +23,7 @@ namespace logos::compiler {
 
 using lir::LMatchArm;
 using lir::Pattern;
-using lir::HermesVal;
+using lir::WritVal;
 using lir::EClosure;
 
 namespace {
@@ -43,7 +43,7 @@ namespace akvk = lir_schema::annkv_keys;
 namespace avk  = lir_schema::annval_keys;
 namespace pk = lir_schema::pat_keys;
 namespace ak = lir_schema::arm_keys;
-namespace hl = lir_schema::hermes_lit_keys;
+namespace hl = lir_schema::writ_lit_keys;
 namespace hk = lir_schema::hv_keys;
 namespace ck = lir_schema::closure_keys;
 namespace pdk = lir_schema::ptrdiff_keys;
@@ -51,7 +51,7 @@ namespace pdk = lir_schema::ptrdiff_keys;
 class LirMirrorEmitter {
     // THE document handle: all object creation goes through ctr_ (make_string /
     // make_array / make_tiny_map); raw arena access is encapsulated in views.
-    writ::HermesCtr& ctr_;
+    writ::WritCtr& ctr_;
     LirMirrorTable& table_;
     // Phase 5.B step 3: optional pool ref used by type_av to intern foreign
     // TypeRefs before writing their offsets into mirrors. Set by the public
@@ -67,9 +67,9 @@ class LirMirrorEmitter {
     bool dry_run_ = false;
 
 public:
-    LirMirrorEmitter(writ::HermesCtr& c, LirMirrorTable& t)
+    LirMirrorEmitter(writ::WritCtr& c, LirMirrorTable& t)
         : ctr_(c), table_(t) {}
-    LirMirrorEmitter(writ::HermesCtr& c, LirMirrorTable& t, TypePool& p)
+    LirMirrorEmitter(writ::WritCtr& c, LirMirrorTable& t, TypePool& p)
         : ctr_(c), table_(t), pool_(&p) {}
 
     writ::MemHolder* holder() const noexcept { return ctr_.holder(); }
@@ -87,7 +87,7 @@ public:
     // lir_mirror_emit_*_node free functions; idempotent via table cache.
     const uint8_t* emit_block_stmts_public(const std::vector<lir_view::StmtRef>& s) { return emit_block_stmts(s); }
     const uint8_t* emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
-    const uint8_t* emit_hv_public   (const HermesVal& v){ return emit_hv(v); }
+    const uint8_t* emit_hv_public   (const WritVal& v){ return emit_hv(v); }
 
     // Stage 2 — variant-free direct mirror writers. Allocate a fresh map for
     // a single expr kind without reading from a variant payload. Used by
@@ -349,11 +349,11 @@ public:
         return map_off;
     }
     const uint8_t* emit_cast_direct(TypeRef ty, lir_view::ExprRef operand,
-                                             std::string_view hermes_build_fn) {
+                                             std::string_view writ_build_fn) {
         auto o_av = expr_av(operand);
         writ::AnyVal hbf_av;
-        bool has_hbf = !hermes_build_fn.empty();
-        if (has_hbf) hbf_av = put_string(hermes_build_fn);
+        bool has_hbf = !writ_build_fn.empty();
+        if (has_hbf) hbf_av = put_string(writ_build_fn);
         auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Cast));
         put(map_off, ek::OPERAND, o_av);
         if (has_hbf) put(map_off, ek::HERMES_BUILD_FN, hbf_av);
@@ -414,8 +414,8 @@ public:
         return map_off;
     }
     template <class ExprVec>
-    const uint8_t* emit_hermes_lit_direct(TypeRef ty,
-                                                   const lir::HermesValPtr& root,
+    const uint8_t* emit_writ_lit_direct(TypeRef ty,
+                                                   const lir::WritValPtr& root,
                                                    bool has_captures,
                                                    const ExprVec& capture_exprs,
                                                    const std::vector<TypeRef>& capture_types,
@@ -427,7 +427,7 @@ public:
         auto blob_av = static_blob.empty()
                        ? writ::AnyVal{}
                        : put_string(static_blob);
-        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::HermesLit));
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::WritLit));
         put(map_off, hl::ROOT,                  root_av);
         put(map_off, hl::HAS_CAPTURES,          put_bool(has_captures));
         put(map_off, hl::CAPTURE_EXPRS,         cap_ex);
@@ -1052,10 +1052,10 @@ public:
         return map_off;
     }
 
-    // ── Stage B.6 — HermesVal direct mirror writers ─────────────────────────
+    // ── Stage B.6 — WritVal direct mirror writers ─────────────────────────
     // Each mirrors the corresponding branch of emit_hv's std::visit but
-    // allocates from primitive args, never reading HermesVal::kind. Children
-    // (HermesValPtr) must already have their own mirror_ptr_; hv_av will
+    // allocates from primitive args, never reading WritVal::kind. Children
+    // (WritValPtr) must already have their own mirror_ptr_; hv_av will
     // back-fill the cache via the field-as-truth path.
     static constexpr int32_t HV_BASE_DIRECT = 200;
 
@@ -1119,7 +1119,7 @@ public:
             put(map_off, hk::TYPE_NAME, put_string(key_type));
         return map_off;
     }
-    const uint8_t* emit_hv_array_direct(const std::vector<lir::HermesValPtr>& elements,
+    const uint8_t* emit_hv_array_direct(const std::vector<lir::WritValPtr>& elements,
                                                  std::string_view elem_type) {
         std::vector<writ::AnyVal> elems;
         elems.reserve(elements.size());
@@ -1357,7 +1357,7 @@ public:
     writ::AnyVal pat_av(const Pattern& p) {
         return mref_addr(emit_pat(p));
     }
-    writ::AnyVal hv_av(const lir::HermesValPtr& v) {
+    writ::AnyVal hv_av(const lir::WritValPtr& v) {
         if (!v) return writ::AnyVal{};
         return mref_addr(emit_hv(*v));
     }
@@ -1509,7 +1509,7 @@ public:
         return map_off;
     }
     const uint8_t* emit_pat(const Pattern& p);
-    const uint8_t* emit_hv(const HermesVal& v);
+    const uint8_t* emit_hv(const WritVal& v);
     const uint8_t* emit_arm(const LMatchArm& a);
     const uint8_t* emit_closure(const EClosure& c);
     const uint8_t* emit_expr_arm(const lir::EMatchArm& a);
@@ -1699,25 +1699,25 @@ const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// HermesVal mirror
+// WritVal mirror
 // ──────────────────────────────────────────────────────────────────────────
 
-const uint8_t* LirMirrorEmitter::emit_hv(const HermesVal& v) {
-    // B.6 Stage 3.5 step 6: mirror_ptr_ is field-as-truth. All HermesVal
+const uint8_t* LirMirrorEmitter::emit_hv(const WritVal& v) {
+    // B.6 Stage 3.5 step 6: mirror_ptr_ is field-as-truth. All WritVal
     // construction sites (sema alloc_hv_emit, mono clone_hv) eagerly emit
     // and set mirror_ptr_ via per-kind direct emitters; nested children
     // are registered transitively. The bulk std::visit fallback is now
     // unreachable.
     LOGOS_ASSERT(v.mirror_ptr_ != nullptr,
                  "B6.S35.S6",
-                 "emit_hv: HermesVal reached without mirror_ptr_ set "
+                 "emit_hv: WritVal reached without mirror_ptr_ set "
                  "(construction site missed direct-emit migration)");
-    if (auto it = table_.hermes_val.find(&v); it != table_.hermes_val.end()) {
+    if (auto it = table_.writ_val.find(&v); it != table_.writ_val.end()) {
         if (it->second == v.mirror_ptr_) return it->second;
         it->second = v.mirror_ptr_;
         return v.mirror_ptr_;
     }
-    table_.hermes_val[&v] = v.mirror_ptr_;
+    table_.writ_val[&v] = v.mirror_ptr_;
     return v.mirror_ptr_;
 }
 
@@ -1809,15 +1809,15 @@ void lir_mirror_struct_set_type_code(lir::LProgram& prog,
     em.struct_set_type_code_direct(sv, code);
 }
 
-// ── DeclBuilder — direct-Hermes decl factory ────────────────────────────────
+// ── DeclBuilder — direct-Writ decl factory ────────────────────────────────
 struct DeclBuilder::Impl {
-    writ::HermesCtr&   ctr;
+    writ::WritCtr&   ctr;
     LirMirrorTable&      table;
     TypePool&            pool;
     LirMirrorEmitter     em;
     const uint8_t*       map;
     const writ::Arena* arena;
-    Impl(writ::HermesCtr& c, LirMirrorTable& t, TypePool& p,
+    Impl(writ::WritCtr& c, LirMirrorTable& t, TypePool& p,
          const uint8_t* m, const writ::Arena* a)
         : ctr(c), table(t), pool(p), em(c, t, p), map(m), arena(a) {}
 };
@@ -2117,20 +2117,20 @@ const uint8_t* lir_mirror_emit_index_read(lir::LProgram& prog, TypeRef ty, lir_v
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_index_read_direct(ty, receiver, index);
 }
-const uint8_t* lir_mirror_emit_hermes_lit(lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir_view::ExprRef>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob) {
+const uint8_t* lir_mirror_emit_writ_lit(lir::LProgram& prog, TypeRef ty, const lir::WritValPtr& root, bool has_captures, const std::vector<lir_view::ExprRef>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_hermes_lit_direct(ty, root, has_captures, capture_exprs, capture_types, capture_param_count, static_blob);
+    return em.emit_writ_lit_direct(ty, root, has_captures, capture_exprs, capture_types, capture_param_count, static_blob);
 }
 const uint8_t* lir_mirror_emit_deref(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef operand) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_deref_direct(ty, operand);
 }
-const uint8_t* lir_mirror_emit_cast(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef operand, std::string_view hermes_build_fn) {
+const uint8_t* lir_mirror_emit_cast(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef operand, std::string_view writ_build_fn) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_cast_direct(ty, operand, hermes_build_fn);
+    return em.emit_cast_direct(ty, operand, writ_build_fn);
 }
 const uint8_t* lir_mirror_emit_try(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, int32_t ok_disc, int32_t err_disc) {
     auto& ctr = prog.type_pool.ctr_or_init();
@@ -2340,7 +2340,7 @@ const uint8_t* lir_mirror_emit_chain_field_write(lir::LProgram& prog, uint32_t l
     return em.emit_chain_field_write_direct(line, receiver, mid_field, extras, field, value);
 }
 
-// ── Stage B.6 — HermesVal direct mirror writers ──────────────────────────
+// ── Stage B.6 — WritVal direct mirror writers ──────────────────────────
 const uint8_t* lir_mirror_emit_hv_null(lir::LProgram& prog) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
@@ -2371,7 +2371,7 @@ const uint8_t* lir_mirror_emit_hv_map(lir::LProgram& prog, const std::vector<lir
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_map_direct(entries, key_type);
 }
-const uint8_t* lir_mirror_emit_hv_array(lir::LProgram& prog, const std::vector<lir::HermesValPtr>& elements, std::string_view elem_type) {
+const uint8_t* lir_mirror_emit_hv_array(lir::LProgram& prog, const std::vector<lir::WritValPtr>& elements, std::string_view elem_type) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_array_direct(elements, elem_type);
@@ -2499,7 +2499,7 @@ const uint8_t* lir_mirror_emit_pat_node(lir::LProgram& prog, const lir::Pattern&
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_public(p);
 }
-const uint8_t* lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::HermesVal& v) {
+const uint8_t* lir_mirror_emit_hv_node(lir::LProgram& prog, const lir::WritVal& v) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_public(v);

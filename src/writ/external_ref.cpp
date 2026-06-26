@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ExternalRef resolution (Hermes). See external_ref.hpp. Walks the pool dispatch
+// ExternalRef resolution (Writ). See external_ref.hpp. Walks the pool dispatch
 // arena_id → MemHolder → LirArenaRoot → DIRECTORY[obj_id] → target object. Every
 // step degenerates to ok()=false (no UB) on a missing/out-of-range reference.
 

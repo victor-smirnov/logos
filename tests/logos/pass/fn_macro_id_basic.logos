@@ -3,7 +3,7 @@
 // unchanged, so the splice replaces the call site with the original
 // expression. Validates: #[fn_macro] dispatch, ARG → ExprBlob
 // serialisation, per-site arg-blob table, host shim, thunk synthesis,
-// ExprBlob splice through lower_hermes_blob.
+// ExprBlob splice through lower_writ_blob.
 package fn_macro_id_basic;
 
 use logos.std.compiler.metaprog;

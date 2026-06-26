@@ -241,7 +241,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         }
     }
 
-    // Direct-build the Func decl mirror STRAIGHT into the program HermesCtr — no
+    // Direct-build the Func decl mirror STRAIGHT into the program WritCtr — no
     // heap accumulator. A few working locals hold the values the lowering logic
     // genuinely reads back during construction (name / type_params / ret_type /
     // params / a handful of flags); everything else is emitted directly the
@@ -1144,8 +1144,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     return fn;
 }
 
-// Stage E direct-build: builds the struct/datatype's Hermes mirror STRAIGHT into
-// the program HermesCtr via DeclBuilder (no Draft; struct StructDraft is gone)
+// Stage E direct-build: builds the struct/datatype's Writ mirror STRAIGHT into
+// the program WritCtr via DeclBuilder (no Draft; struct StructDraft is gone)
 // and returns a DeclBuilder the caller finalizes (pkg/doc/flags/type_hash) and
 // pushes as a StructView. Local validation still uses the full TypeParam /
 // lifetime / field sets (kept as locals); only the fields written into the
@@ -1184,17 +1184,17 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     std::vector<std::string> lifetime_params = sinfo->lifetime_params;
     // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
     if (sinfo->is_dst) sd.flag(stk::IS_DST, true);
-    // Hermes / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
+    // Writ / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
     // canonicalisation in mono_subst can keep `*Self` thin for this struct.
     if (sinfo->self_describing) sd.flag(stk::SELF_DESCRIBING, true);
-    // Hermes: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
+    // Writ: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
     // {data, zone} reference carrying its allocator.
     if (sinfo->zone_mut) sd.flag(stk::ZONE_MUT, true);
-    if (sinfo->zoned2) sd.flag(stk::ZONED2, true);   // hermes2: auto-relative pointer fields (RelOffset)
+    if (sinfo->zoned2) sd.flag(stk::ZONED2, true);   // writ2: auto-relative pointer fields (RelOffset)
     // RefRepr RelOffset: propagate `#[rel_ptr]` so mlir-gen's ref_repr_of can
     // classify this type as a self-relative pointer (8B offset storage).
     if (sinfo->rel_ptr) sd.flag(stk::REL_PTR, true);
-    // hermes2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
+    // writ2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
     // values of this type (HAny) like references.
     if (sinfo->borrow_carrying) sd.flag(stk::BORROW_CARRYING, true);
     // `#[non_null]`: single non-null ptr wrapper → Option<T> NullPtr niche in mlir-gen.
@@ -1379,8 +1379,8 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     return sd;
 }
 
-// Stage E direct-build: builds the enum's Hermes mirror STRAIGHT into the
-// program HermesCtr via DeclBuilder (no Draft; struct LEnumDef + EnumDraft are
+// Stage E direct-build: builds the enum's Writ mirror STRAIGHT into the
+// program WritCtr via DeclBuilder (no Draft; struct LEnumDef + EnumDraft are
 // gone), consumes the pending doc-comment, and returns an EnumView the caller
 // pushes. Local validation still uses the full TypeParam set (`tparams`); only
 // the fields READ post-construction (name/is_variadic) are stored in the mirror.
@@ -1546,10 +1546,10 @@ SemaChecker::lower_const_def(TinyMapView node) {
             TypeRef(lc_type).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(lc_value)).kind() != LogosType::Kind::Error &&
             !types_compatible(expr_type(lc_value), lc_type)) {
-            // HermesStatic special-case: literal evaluates to HStaticLit,
-            // which is treated as compatible with HermesStatic at higher level.
+            // WritStatic special-case: literal evaluates to HStaticLit,
+            // which is treated as compatible with WritStatic at higher level.
             bool hs_ok = TypeRef(lc_type).kind() == LogosType::Kind::Struct &&
-                         is_hermes_static(lc_type) &&
+                         is_writ_static(lc_type) &&
                          TypeRef(expr_type(lc_value)).kind() == LogosType::Kind::HStaticLit;
             if (!hs_ok) {
                 auto [es, gs] = type_str_pair(lc_type, expr_type(lc_value));
@@ -1566,7 +1566,7 @@ SemaChecker::lower_const_def(TinyMapView node) {
 }
 
 // Stage E: returns (name, type); the caller adds the doc-comment, emits the
-// Hermes mirror, and stores a TypeAliasView (struct LTypeAlias is gone).
+// Writ mirror, and stores a TypeAliasView (struct LTypeAlias is gone).
 std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     auto ait = type_aliases_.find(name);
@@ -1577,7 +1577,7 @@ std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView no
 }
 
 // Stage E direct-build: builds the trait decl mirror STRAIGHT into the program's
-// HermesCtr via DeclBuilder — no C++ LTraitDef Draft. Returns the open builder so
+// WritCtr via DeclBuilder — no C++ LTraitDef Draft. Returns the open builder so
 // the caller (apply_annots_to_trait + doc) writes the remaining fields into the
 // same mirror in place before pushing the TraitView.
 DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
@@ -1838,7 +1838,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         }
     }
     // Stage E direct-build: the impl decl mirror is built STRAIGHT into prog's
-    // HermesCtr via DeclBuilder — no C++ LImplBlock Draft. Only the live
+    // WritCtr via DeclBuilder — no C++ LImplBlock Draft. Only the live
     // (read-post-store) fields are written; dead fields (is_unsafe/methods/doc/
     // trait_lifetime_args) are dropped. Intra-function reads of is_blanket /
     // bound_trait / target_typeref go through plain locals (the mirror is
@@ -1905,7 +1905,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         }
     }
-    // Propagate genos type_code: `impl Varchar for HermesString` on a
+    // Propagate genos type_code: `impl Varchar for WritString` on a
     // trait that carries #[type_code=N] sets the target struct's type_code
     // (if the struct hasn't got one already).  This is how eide inherit
     // their identity from the logical datatype family.
@@ -2612,8 +2612,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // Also check explicit_type_codes_ for types annotated but not yet in prog.structs.
                 // Keys are fully-qualified ("pkg::Name"). Try the current package first
                 // (for same-file impls), then the target type's own package (for impls
-                // on foreign types, e.g. `impl HermesEqual for HermesString` in
-                // package hermes.equal — HermesString was annotated in hermes.string).
+                // on foreign types, e.g. `impl WritEqual for WritString` in
+                // package writ.equal — WritString was annotated in writ.string).
                 auto target_fqn = cur_package_.empty() ? target : cur_package_ + "::" + target;
                 auto eit = explicit_type_codes_.find(target_fqn);
                 if (eit == explicit_type_codes_.end()) {

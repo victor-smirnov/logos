@@ -5,7 +5,7 @@
 # or add that line to ~/.gdbinit. Requires a binary built with `logosc -g`.
 #
 # Covers String, Vec<T>, slices (&[T] / str), and Box<T>. These read fields
-# emitted in DWARF by Stage 2-4 (typed pointers + members). Enum and Hermes
+# emitted in DWARF by Stage 2-4 (typed pointers + members). Enum and Writ
 # container printers are driven by separate metadata (see logos_writ_gdb.py).
 
 import re
@@ -384,7 +384,7 @@ import gdb.printing  # noqa: E402
 register(None)
 print("logos: pretty-printers loaded (String, Vec, slice, Box)")
 
-# Also load the Hermes container decoder from the same directory.
+# Also load the Writ container decoder from the same directory.
 try:
     import os
     _here = os.path.dirname(os.path.abspath(__file__))

@@ -1,0 +1,21 @@
+// writ_lit_parse.logos — @-literals return WritStatic (C8e).
+// Type is inferred; test just verifies the program compiles and runs.
+
+package writ_lit_parse;
+
+use logos.lang.writ.hstatic;
+
+pub unsafe fn main() -> i32 {
+    // map literal
+    let _m = @{"name": "Alice", "age": 42};
+    // array literal
+    let _a = @[1, 2, 3];
+    // scalar literals
+    let _s = @"hello";
+    let _i = @42;
+    let _b = @true;
+    let _n = @null;
+    // nested
+    let _nested = @{"items": [1, 2], "flag": true};
+    return 0;
+}

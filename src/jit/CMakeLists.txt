@@ -4,7 +4,7 @@
 # logos_jit — reusable LLVM ORC LLJIT wrapper.
 #
 # Phase 4 / Slice 1: minimal compile-and-run for hand-rolled LLVM IR.
-# No Hermes integration, no Logos-pipeline integration, no split-stack —
+# No Writ integration, no Logos-pipeline integration, no split-stack —
 # just enough surface to bring up ORC and prove the link works.
 
 # LOGOS_LLVM_DIR is discovered (or -D-overridden) at the top-level CMakeLists.

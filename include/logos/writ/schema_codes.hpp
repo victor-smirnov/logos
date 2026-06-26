@@ -1,8 +1,8 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Schema-code category scheme for TinyObjectMap.schema_type_code (Hermes port).
+// Schema-code category scheme for TinyObjectMap.schema_type_code (Writ port).
 // A schema_type_code packs a 16-bit category (AST / TYPE / LIR_* / …) in bits[48:63]
-// and a 48-bit variant code in the low bits. Ported verbatim from the Hermes1
+// and a 48-bit variant code in the low bits. Ported verbatim from the Writ1
 // schema_codes.hpp (only the namespace changed) — the compiler's AST/LIR/type nodes
 // share this discriminator scheme.
 

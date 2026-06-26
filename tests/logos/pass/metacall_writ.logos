@@ -1,0 +1,38 @@
+package metacall_writ;
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.lang.writ.hstatic;
+use logos.lang.rc;
+
+unsafe fn build_cfg() -> Rc<Writ> {
+    let arr: [i32; 4] = [10, 20, 30, 40];
+    return @{"k": x for x in arr};
+}
+
+unsafe fn main() -> i32 {
+    // Compile-time: metacall JITs build_cfg, freezes the Rc<Writ> into a
+    // WritStatic rodata blob.
+    let cfg_meta: WritStatic = metacall build_cfg();
+    let vm: HView2 = hview2_from_ptr(cfg_meta.ptr);
+    let mroot: HAny = vm.root();
+    if mroot.is_null() { return 1; }
+    let mk: HAny = vm.map_get(mroot, "k");
+    if !mk.is_int() { return 2; }
+
+    // Runtime: same builder, read through the container.
+    let cfg_rt: Rc<Writ> = build_cfg();
+    let h: &Writ = cfg_rt.deref();
+    let rroot: HAny = h.root();
+    if rroot.is_null() { return 3; }
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    let rk: HAny = v0.map_get(rroot, "k");
+    if !rk.is_int() { return 4; }
+
+    // The comprehension's constant key overwrites per iteration -> k == 40 both sides.
+    if vm.get_int(mk) != 40i64 { return 5; }
+    if v0.get_int(rk) != 40i64 { return 6; }
+
+    return 42;
+}

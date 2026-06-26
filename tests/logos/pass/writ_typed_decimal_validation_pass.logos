@@ -1,0 +1,30 @@
+// @Decimal(P,S) validation accepts well-formed strings; both prefix and
+// postfix spellings parse and render to the canonical postfix form.
+package writ_typed_decimal_validation_pass;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
+
+    let v1: HAny = parse(h, "@Decimal(10,2)=\"123.45\"");
+    if v1.is_null() { return 1; }
+    let s1: String = stringify(v1);
+    if !s1.eq_str("\"123.45\"@Decimal(10,2)") { return 2; }
+
+    let v2: HAny = parse(h, "\"123.45\"@Decimal(10,2)");
+    if v2.is_null() { return 3; }
+    let s2: String = stringify(v2);
+    if !s2.eq_str("\"123.45\"@Decimal(10,2)") { return 4; }
+
+    // Scale below the ceiling is fine; zero & negative values too.
+    if parse(h, "@Decimal(10,2)=\"1\"").is_null() { return 5; }
+    if parse(h, "@Decimal(10,2)=\"-0.5\"").is_null() { return 6; }
+    return 0;
+}

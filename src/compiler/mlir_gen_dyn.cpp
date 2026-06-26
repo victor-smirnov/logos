@@ -541,7 +541,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     //
     // The wrapper checks tier-1 (if present) and falls back to tier-2 (if
     // present). Returns null when neither table has an entry. stdlib can
-    // call this to expose `hermes_fn_<trait>_<method>(code)` as a registry API
+    // call this to expose `writ_fn_<trait>_<method>(code)` as a registry API
     // for reflection / deferred invocation.
     {
         std::set<std::string> all_bases;
@@ -669,7 +669,7 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     // storage or runtime initialization — only the final executable does. The
     // exe that links this archive re-emits + initializes every transitively-used
     // static (it has them in its prog.consts, lowered from the imported
-    // .hermes0) inside ITS own `__logos_static_init`, called from `main`. If a
+    // .writ0) inside ITS own `__logos_static_init`, called from `main`. If a
     // library ALSO emitted defined globals + its own `__logos_static_init`, the
     // two collide under the linker's `--allow-multiple-definition`: two
     // `__logos_static_init` symbols and two definitions of each static — the

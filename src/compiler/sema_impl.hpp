@@ -114,7 +114,7 @@ namespace sema_detail {
 class SemaCheckerSnapshot;
 
 // Stage E: the LProgram::MetaprogHandler / MetaprogTarget structs were deleted
-// (those tables now live as Hermes mirror views — MetaprogHandlerView /
+// (those tables now live as Writ mirror views — MetaprogHandlerView /
 // MetaprogTargetView). Sema still needs transient C++ staging buffers while
 // collecting handlers/targets (no LProgram host handy at collection time); the
 // views are direct-built at the move-into-prog point. These PODs are
@@ -126,7 +126,7 @@ class SemaChecker {
 public:
     friend class SemaCheckerSnapshot;
 
-    lir::LProgram run(const std::vector<writ::Hermes>& asts,
+    lir::LProgram run(const std::vector<writ::Writ>& asts,
                       const std::vector<std::string>& filenames,
                       const std::vector<bool>& from_binary = {});
 
@@ -847,7 +847,7 @@ private:
 
     // Stage 3f L-IR builder. Bound to cur_prog_ when sema is lowering a
     // module. ADR 0005: variant write-path verbatim today; Stage 3g
-    // re-implementation flips this to direct Hermes-zone emission with no
+    // re-implementation flips this to direct Writ-zone emission with no
     // caller change.
     LirBuilder builder() {
         return LirBuilder(*cur_prog_);
@@ -866,7 +866,7 @@ private:
     lir_view::StmtRef stmt_ref_of(const lir_view::StmtRef& s) const noexcept {
         return s;
     }
-    // Stage D4.1 chokepoint: the type of an L-IR expression read from its Hermes
+    // Stage D4.1 chokepoint: the type of an L-IR expression read from its Writ
     // mirror (replaces the husk LExpr::type cache field, which goes away with the
     // skeleton). Null-safe via lir::eref. The single place to memoize if the
     // per-read TinyObjectMap lookup ever shows up in a profile ("optimize later").
@@ -1039,7 +1039,7 @@ private:
     }
 
     template<typename K>
-    lir::HermesValPtr alloc_hv_emit(K&& k) {
+    lir::WritValPtr alloc_hv_emit(K&& k) {
         using KT = std::decay_t<K>;
         auto& p = *cur_prog_;
         const uint8_t* mo = nullptr;
@@ -1062,10 +1062,10 @@ private:
         } else if constexpr (std::is_same_v<KT, lir::HVType>) {
             mo = lir_mirror_emit_hv_type(p, k.kind, k.uid, k.name);
         } else {
-            static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown HermesVal payload");
+            static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown WritVal payload");
         }
         (void)k;  // payload consumed by per-kind dispatch above
-        auto* hv = lir::alloc_hermes_val(*cur_prog_);
+        auto* hv = lir::alloc_writ_val(*cur_prog_);
         hv->mirror_ptr_ = mo;
         return hv;
     }
@@ -1138,17 +1138,17 @@ private:
     // ── meta @{} helpers ─────────────────────────────────────────
 
 
-    // ── Hermes helpers ───────────────────────────────────────────
+    // ── Writ helpers ───────────────────────────────────────────
 
     writ::MemHolder* holder_ = nullptr;
 
-    // Slice 7 of metaprog-quote: lower_hermes_blob may build a Hermes doc
+    // Slice 7 of metaprog-quote: lower_writ_blob may build a Writ doc
     // from blob bytes (when the blob carries an AST fragment) and recurse
     // into lower_expr while pointing holder_ at the new doc's holder.
-    // The Hermes objects must outlive the recursion AND any LIR mirror
+    // The Writ objects must outlive the recursion AND any LIR mirror
     // back-fill that runs later — keep them alive for the SemaChecker's
     // lifetime by stashing here.
-    std::vector<writ::Hermes> blob_docs_;
+    std::vector<writ::Writ> blob_docs_;
 
     int32_t code_of(writ::TinyMapView node) noexcept {
         using namespace sema_detail;
@@ -1271,8 +1271,8 @@ private:
         return pkg.empty() || pkg == "logos.mem.boxed";
     }
     static bool is_anyval(TypeRef t)         { return is_named_struct(t, "AnyVal"); }
-    static bool is_hermes_static(TypeRef t)  { return is_named_struct(t, "HermesStatic"); }
-    static bool is_hermes(TypeRef t)         { return is_named_struct(t, "Hermes"); }
+    static bool is_writ_static(TypeRef t)  { return is_named_struct(t, "WritStatic"); }
+    static bool is_writ(TypeRef t)         { return is_named_struct(t, "Writ"); }
     static bool is_string_view(TypeRef t)    { return is_named_struct(t, "StringView"); }
     static bool is_ident(TypeRef t)          { return is_named_struct(t, "Ident"); }
     static bool is_exprblob(TypeRef t)       { return is_named_struct(t, "ExprBlob"); }
@@ -1575,7 +1575,7 @@ private:
             ctx_ = std::format("fn {}", fi.base_name);
             for (auto& tp : fi.type_params) {
                 if (tp.is_variadic) continue;
-                // const-generic params (e.g. `const CFG: HermesStatic`) are
+                // const-generic params (e.g. `const CFG: WritStatic`) are
                 // typically consumed in the body via expression-level uses
                 // (`CFG.as_view()`, `f::<CFG>(...)`) which the
                 // signature-walking check doesn't track. Skipping them
@@ -2449,18 +2449,18 @@ private:
                             // in place and materialised explicitly to a movable value
                             // form. Non-movable itself (unlike #[rel_ptr], whose value
                             // form is the resolved absolute pointer). Drives the
-                            // is_non_movable_type pin check. (hermes2 minimal-container)
+                            // is_non_movable_type pin check. (writ2 minimal-container)
                             bool pinned = false;
                             // `#[zone_mut]`: a `&mut T` to this type is a FAT ref
-                            // {data, zone=*mut Allocator} carrying its Hermes zone, so
+                            // {data, zone=*mut Allocator} carrying its Writ zone, so
                             // grow methods reach the allocator from &mut self. Read
-                            // `&T` stays thin. (hermes2-zone-mut-fat-ref §)
+                            // `&T` stays thin. (writ2-zone-mut-fat-ref §)
                             bool zone_mut = false;
                             // `#[zoned2]`: all thin pointer fields of this struct are
                             // stored SELF-RELATIVE (RelOffset i64) and materialize to
                             // absolute pointers in compute — the untagged zoned-ref
                             // case (ref-repr §6). Non-movable (can't be stack-allocated;
-                            // offsets are anchored to the slot). (hermes2 ptr foundation)
+                            // offsets are anchored to the slot). (writ2 ptr foundation)
                             bool zoned2 = false;
                             // `#[borrow_carrying]`: a value type whose value may
                             // contain a borrow — an absolute Ref into an arena (e.g.
@@ -2468,7 +2468,7 @@ private:
                             // like a reference: a method/ctor returning one ties the
                             // result to its ref receiver/arg, so returning it past
                             // the source's scope is rejected unless laundered through
-                            // a holder (HeldAny). (hermes2 HAny escape safety)
+                            // a holder (HeldAny). (writ2 HAny escape safety)
                             bool borrow_carrying = false;
                             // `#[non_null]`: this struct is a single 8-byte pointer
                             // wrapper whose pointer is GUARANTEED non-null (Box/Rc/Arc).
@@ -2644,10 +2644,10 @@ private:
         std::vector<TraitBound> supertraits;  // e.g. [{Display,[]}, {Into,[i32]}] for trait Foo: Display + Into<i32>
         bool is_unsafe = false;               // declared as `unsafe trait`
         bool is_auto   = false;               // declared with `auto trait`
-        bool is_hermes = false;               // trait carries #[type_code] —
-                                              // Hermes-tagged datatype family;
+        bool is_writ = false;               // trait carries #[type_code] —
+                                              // Writ-tagged datatype family;
                                               // reflect::<T>() routes through
-                                              // Hermes path
+                                              // Writ path
         std::string doc;     // outer `///` doc-comment
         // Three-layer split fix: pass0 pre-registers trait NAMES (predeclared=true)
         // so collect_impl in pass2 finds them regardless of iteration order
@@ -2827,9 +2827,9 @@ private:
         }
     }
     // Set true when the trait being collected has a `#[type_code]` annotation.
-    // collect_trait reads + clears it; SemaTraitInfo.is_hermes carries the
+    // collect_trait reads + clears it; SemaTraitInfo.is_writ carries the
     // result through to reflect::<T>() dispatch.
-    bool pending_trait_is_hermes_ = false;
+    bool pending_trait_is_writ_ = false;
     // Mangled name of the currently-being-lowered fn. Used by make_drop_stmt
     // to skip auto-drop on the `self` parameter of a Drop fn (would be
     // infinite self-recursion).
@@ -2840,7 +2840,7 @@ private:
     logos::compiler::StrMap<std::vector<std::string>> pkg_reexports_;
 
     logos::compiler::StrMap<SemaStructInfo>   structs_;
-    logos::compiler::StrMap<SemaStructInfo>   datatypes_;  // Hermes datatypes
+    logos::compiler::StrMap<SemaStructInfo>   datatypes_;  // Writ datatypes
     // Explicit type_code from #[type_code=N] annotations; populated in lower_module_items.
     logos::compiler::StrMap<uint64_t>         explicit_type_codes_;
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
@@ -2931,7 +2931,7 @@ private:
         return *synth_field_name_pool_[i];
     }
 
-    // Generic compile-time consts: `pub const X<T1, T2, …>: HermesStatic =
+    // Generic compile-time consts: `pub const X<T1, T2, …>: WritStatic =
     // @{ … <type:T1> … };`. Stores the templated value-AST node + type-params
     // declaration. At each use-site `X<concrete1, concrete2>` sema pushes the
     // type-args into current_type_params_ and re-resolves the value-AST under
@@ -2941,7 +2941,7 @@ private:
     // per-instantiation HStaticLit identity.
     struct GenericConstEntry {
         std::vector<TypeParam>  type_params;
-        writ::TinyMapView     value_node;   // AST of the RHS hermes_lit
+        writ::TinyMapView     value_node;   // AST of the RHS writ_lit
         writ::MemHolder*      holder = nullptr;  // module-of-decl holder
     };
     logos::compiler::StrMap<GenericConstEntry> generic_consts_;
@@ -3549,16 +3549,16 @@ private:
     // ── Type resolution ──────────────────────────────────────────
 
     TypeRef resolve_type(writ::TinyMapView node);
-    // Hash a bare hermes_lit AST (HERMES_MAP / _ARRAY / scalars) and register
-    // its lowered LIR HermesVal in cur_prog_->hstatic_registry_; return the
+    // Hash a bare writ_lit AST (HERMES_MAP / _ARRAY / scalars) and register
+    // its lowered LIR WritVal in cur_prog_->hstatic_registry_; return the
     // corresponding HStaticLit TypeRef. Shared between the LIT_HSTATIC type-
-    // arg handler in resolve_type and `pub const X: HermesStatic = @{...};`
+    // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
     // recognition in collect_const.
     TypeRef resolve_hstatic_value(writ::TinyMapView val_node);
 
     // ── Collection phase ─────────────────────────────────────────
 
-    void collect(const std::vector<writ::Hermes>& asts);
+    void collect(const std::vector<writ::Writ>& asts);
     void simplify_all_types();
     void check_supertrait_impls();
     // Supertrait-closure vtable layout — single source of truth for dyn-Trait
@@ -3745,7 +3745,7 @@ private:
                k == LogosType::Kind::FloatLit ||
                k == LogosType::Kind::TypeVar ||
                // Cfg-slot types are deferred until mono resolves them
-               // through the bound HermesStatic. Accept here on the trust
+               // through the bound WritStatic. Accept here on the trust
                // that mono will substitute a numeric primitive (or fail
                // there with a precise error). Mirrors TypeVar treatment.
                k == LogosType::Kind::CfgSlotType ||
@@ -3909,30 +3909,30 @@ private:
     lir::LExprPtr lower_arr_fill_lit(writ::TinyMapView node);
     lir::LExprPtr lower_list_comp(writ::TinyMapView node);
     lir::LExprPtr lower_map_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_hermes_list_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_hermes_map_comp(writ::TinyMapView node);
-    lir::LExprPtr coerce_to_hermes_anyval(lir::LExprPtr val,
+    lir::LExprPtr lower_writ_list_comp(writ::TinyMapView node);
+    lir::LExprPtr lower_writ_map_comp(writ::TinyMapView node);
+    lir::LExprPtr coerce_to_writ_anyval(lir::LExprPtr val,
                                           const std::string& ctr_var,
                                           TypeRef ctr_t,
                                           std::string_view context);
-    lir::LExprPtr lower_hermes_lit(writ::TinyMapView node);
-    lir::LExprPtr lower_hermes_blob(writ::TinyMapView node);
+    lir::LExprPtr lower_writ_lit(writ::TinyMapView node);
+    lir::LExprPtr lower_writ_blob(writ::TinyMapView node);
     lir::LExprPtr lower_quote_item(writ::TinyMapView node);
     lir::LExprPtr lower_quote_expr(writ::TinyMapView node);
     lir::LExprPtr lower_quote_ty(writ::TinyMapView node);
 
-    // Capture context: non-null while lowering a hermes literal that has $-captures.
-    // lower_hermes_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
-    struct HermesCapCtx {
+    // Capture context: non-null while lowering a writ literal that has $-captures.
+    // lower_writ_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
+    struct WritCapCtx {
         std::vector<lir::LExprPtr>               exprs;       // unique capture expressions
         std::vector<TypeRef>             types;       // corresponding types
         uint32_t                                  next_slot = 0; // next param_index
         // dedup: symbol binding name → value_index (for pure EIdent captures)
         logos::compiler::StrMap<uint32_t> ident_dedup;
     };
-    HermesCapCtx* hermes_cap_ctx_ = nullptr;
+    WritCapCtx* writ_cap_ctx_ = nullptr;
 
-    lir::HermesValPtr lower_hermes_val(writ::TinyMapView node);
+    lir::WritValPtr lower_writ_val(writ::TinyMapView node);
     lir::LExprPtr lower_enum_lit(writ::TinyMapView node);
     lir::LExprPtr lower_enum_lit_data(writ::TinyMapView node);
     // g9/B121: `T::CONST` where T is an abstract type-param whose bound trait
@@ -4025,7 +4025,7 @@ public:
     std::string render_module_src(writ::TinyMapView node);
 
     // For the --dump-metaprog driver: temporarily point this checker at a
-    // foreign Hermes doc so render_*_src can walk it without running full
+    // foreign Writ doc so render_*_src can walk it without running full
     // sema. Caller is responsible for keeping the holder alive across
     // render calls. When `dump_syntactic_types_` is set, render_type_src
     // bypasses resolve_type and walks TYPE_REF / GENERIC_INST / PTR_TYPE /
@@ -4045,12 +4045,12 @@ private:
     // Syntactic type walk used when dump_syntactic_types_ is on (fresh
     // checker with empty type pool — resolve_type would fail).
     std::string render_type_src_syntactic_(writ::TinyMapView node);
-    // Inner Hermes literal renderer — used recursively from
+    // Inner Writ literal renderer — used recursively from
     // render_expr_src for HERMES_MAP entries / HERMES_ARRAY elements.
-    // Omits the `@` prefix on scalars (grammar's hermes_val production
-    // doesn't accept `@4` / `@"x"` at this position; outer hermes_lit
+    // Omits the `@` prefix on scalars (grammar's writ_val production
+    // doesn't accept `@4` / `@"x"` at this position; outer writ_lit
     // does).
-    std::string render_hermes_val_inner_(writ::TinyMapView node);
+    std::string render_writ_val_inner_(writ::TinyMapView node);
     bool dump_syntactic_types_ = false;
 
     // Render a CTFE-evaluated value as a Logos source literal. Used by both
@@ -4115,22 +4115,22 @@ private:
     lir::Pattern build_pattern_or(writ::TinyMapView pnode, TypeRef scrut_type);
     // Helper for inline PatWild construction with eager mirror emit.
     lir::Pattern make_pat_wild(std::string_view name);
-    // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
+    // If pnode is a Writ scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.
-    struct HermesPatBinding {
+    struct WritPatBinding {
         std::string name;        // user-visible binding name in arm body
         std::string av_var;      // AnyVal local holding the value
     };
-    lir::LExprPtr build_hermes_pat_guard(writ::TinyMapView pnode,
+    lir::LExprPtr build_writ_pat_guard(writ::TinyMapView pnode,
                                          const std::string& scrut_var,
                                          TypeRef scrut_type,
                                          const std::string& base_var,
                                          std::vector<lir_view::StmtRef>& out_stmts,
-                                         std::vector<HermesPatBinding>& out_bindings);
-    // Returns the "inner" (ref-stripped) view type if `t` is Hermes,
-    // HermesView<'_>, or HermesStatic (possibly behind &/&mut). nullptr otherwise.
-    TypeRef hermes_view_inner(TypeRef t) const {
+                                         std::vector<WritPatBinding>& out_bindings);
+    // Returns the "inner" (ref-stripped) view type if `t` is Writ,
+    // WritView<'_>, or WritStatic (possibly behind &/&mut). nullptr otherwise.
+    TypeRef writ_view_inner(TypeRef t) const {
         TypeRef tr(t);
         if (!tr) return nullptr;
         TypeRef inner = tr;
@@ -4140,17 +4140,17 @@ private:
         if (!inner) return nullptr;
         if ((inner.kind() == LogosType::Kind::Struct ||
              inner.kind() == LogosType::Kind::ZonedStruct) &&
-            (inner.struct_name() == "Hermes" ||
-             inner.struct_name() == "HermesView" ||
-             inner.struct_name() == "HermesStatic" ||
-             inner.struct_name() == "Rc"))   // hermes2 runtime container Rc<Hermes>
+            (inner.struct_name() == "Writ" ||
+             inner.struct_name() == "WritView" ||
+             inner.struct_name() == "WritStatic" ||
+             inner.struct_name() == "Rc"))   // writ2 runtime container Rc<Writ>
             return inner;
         return nullptr;
     }
-    // True while lowering match arms where Hermes scalar patterns are
+    // True while lowering match arms where Writ scalar patterns are
     // explicitly handled by the caller (desugared to guard). Outside this
     // context, PAT_HERMES_* in build_pattern is a diagnostic.
-    bool in_match_hermes_ctx_ = false;
+    bool in_match_writ_ctx_ = false;
     // P4-pm-02: side channel for build_pattern to register nested
     // sub-pats that need irrefutable destructure in the arm-body prologue
     // (e.g. `Some(A { foo: _x })` → synth `__pat_pld_*` binding for the
@@ -4307,7 +4307,7 @@ private:
 
     // ── lower_fn and declaration lowering ───────────────────────
 
-    // Direct-build the Func decl mirror STRAIGHT into the program HermesCtr and
+    // Direct-build the Func decl mirror STRAIGHT into the program WritCtr and
     // return the open DeclBuilder (caller stores .view<FunctionView>() /
     // .self.addr()). No heap accumulator. When `out_type_params` is non-null,
     // lower_fn does NOT emit TYPE_PARAMS / IMPL_TYPE_PARAMS / IMPL_TARGET_PATTERN
@@ -4334,19 +4334,19 @@ private:
         std::vector<std::pair<std::string, std::string>>& lifetime_outlives);
     DeclBuilder lower_struct_def(writ::TinyMapView node);
     // Stage E direct-build: builds the whole enum mirror (NAME/PKG/DOC/flags/
-    // backing/variants/type_params) STRAIGHT into the program HermesCtr via
+    // backing/variants/type_params) STRAIGHT into the program WritCtr via
     // DeclBuilder (no Draft) and returns an EnumView. DOC is consumed here via
     // take_pending_doc(); the caller just pushes the View.
     lir_view::EnumView lower_enum_def(writ::TinyMapView node);
     // Stage E direct-build: builds NAME+TYPE_REF into a Const DeclBuilder (in
-    // the program HermesCtr, no Draft) and returns it + the value ExprRef. The
+    // the program WritCtr, no Draft) and returns it + the value ExprRef. The
     // caller adds VALUE/DOC/IS_STATIC/etc. (the static path overrides VALUE for
     // externals) and pushes a ConstView.
     std::pair<DeclBuilder, lir_view::ExprRef> lower_const_def(writ::TinyMapView node);
     std::pair<std::string, TypeRef> lower_type_alias_def(writ::TinyMapView node);
     DeclBuilder lower_trait_def(writ::TinyMapView node);
     void lower_impl_block(writ::TinyMapView node, lir::LProgram& prog);
-    void lower_program(const std::vector<writ::Hermes>& asts, lir::LProgram& prog);
+    void lower_program(const std::vector<writ::Writ>& asts, lir::LProgram& prog);
     void lower_module_items(writ::TinyMapView mod, lir::LProgram& prog);
     lir::LAnnotationValue parse_annot_literal(writ::TinyMapView v);
     std::optional<lir::LAnnotationInstance>
@@ -4519,7 +4519,7 @@ inline TypeRef unify_numeric(TypeRef a, TypeRef b) noexcept {
 // ExprRef overload — view-based traversal for callers that already hold
 // an ExprRef (e.g. element iteration via EArrLitView/ETupleLitView). Walks
 // the same shape (BlockExpr.result → Unary/-/LitInt) but reads from the
-// Hermes mirror so it composes with view-migrated read sites without an
+// Writ mirror so it composes with view-migrated read sites without an
 // LExpr*/ExprRef impedance mismatch.
 inline std::optional<int64_t> get_intlit_value(lir_view::ExprRef e) noexcept {
     if (!e) return std::nullopt;

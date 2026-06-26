@@ -31,7 +31,7 @@ use logos.lang.mem;
 use logos.lang.cmp;
 use logos.lang.drop;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 use logos.mem.sync;        // Arc<dyn BTreeNode> is the node handle
 
 // ── Public aliases for STORE_CFG slot types ───────────────────────────
@@ -39,8 +39,8 @@ use logos.mem.sync;        // Arc<dyn BTreeNode> is the node handle
 // hundreds of times across the persistent stack. Aliases keep
 // signatures readable; sema resolves them transparently per
 // monomorphisation.
-pub type SnpId<const STORE_CFG: HermesStatic>   = <type:STORE_CFG.snp_id>;
-pub type BlockId<const STORE_CFG: HermesStatic> = <type:STORE_CFG.block_id>;
+pub type SnpId<const STORE_CFG: WritStatic>   = <type:STORE_CFG.snp_id>;
+pub type BlockId<const STORE_CFG: WritStatic> = <type:STORE_CFG.block_id>;
 
 // ── NodeBase — uniform header per-store ───────────────────────────────────
 // Layout: STORE_CFG-typed ids + leaf flag + physical block_code. The refcount
@@ -48,7 +48,7 @@ pub type BlockId<const STORE_CFG: HermesStatic> = <type:STORE_CFG.block_id>;
 // come from the store config so different stores can pick u128 / opaque tokens
 // for block_id / snp_id without changing the source. All field reads are by
 // name (layout-driven), so an i64 → struct ID widening needs no offset edits.
-pub struct NodeBase<const STORE_CFG: HermesStatic> {
+pub struct NodeBase<const STORE_CFG: WritStatic> {
     pub id:          BlockId<STORE_CFG>,    // persistent block id
     pub snapshot_id: SnpId<STORE_CFG>,      // creating snapshot — CoW skip key
     pub is_leaf:     bool,                  // branch/leaf discriminator
@@ -74,7 +74,7 @@ pub struct NodeBase<const STORE_CFG: HermesStatic> {
 //                       source of truth: the vtable method and the on-disk
 //                       header agree by construction.
 
-pub trait BTreeNode<const STORE_CFG: HermesStatic> {
+pub trait BTreeNode<const STORE_CFG: WritStatic> {
     fn cfg_hash(&self) -> u64;
     fn block_type_hash(&self) -> u64;
 
@@ -107,12 +107,12 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
 // ── NodeARC — shared owning handle ────────────────────────────────────
 // A standard atomic `Arc<dyn BTreeNode<STORE_CFG>>`. Clone = atomic strong
 // bump; drop the last share = recursive destructor via the vtable + free.
-pub type NodeARC<const STORE_CFG: HermesStatic> = Arc<dyn BTreeNode<STORE_CFG>>;
+pub type NodeARC<const STORE_CFG: WritStatic> = Arc<dyn BTreeNode<STORE_CFG>>;
 
 // Helper: the data ptr = the object's base address (where NodeBase sits).
 // `Arc::data_u8` returns the data half of the fat value pointer as a plain
 // raw value, so consumers can reinterpret it as a concrete node type.
-pub unsafe fn node_arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
+pub unsafe fn node_arc_data_ptr<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
     let p: *mut NodeARC<STORE_CFG> = arc as *const NodeARC<STORE_CFG> as *mut NodeARC<STORE_CFG>;
     return p.data_u8();
 }
@@ -124,7 +124,7 @@ pub unsafe fn node_arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STO
 // sits at `data - 8`; we reassemble the fat `*mut ArcInner<dyn>` = {inner_base,
 // vtable} and take a NEW strong share (rc++). Existing handles stay valid. This
 // is the Arc-model analog of the old intrusive `node_arc_wrap`.
-pub unsafe fn node_arc_from_parts<const STORE_CFG: HermesStatic>(
+pub unsafe fn node_arc_from_parts<const STORE_CFG: WritStatic>(
     data: *mut u8, vtable: *const u8,
 ) -> NodeARC<STORE_CFG> {
     let inner_base: *mut u8 = (data as i64 - 8i64) as *mut u8;
@@ -140,7 +140,7 @@ pub unsafe fn node_arc_from_parts<const STORE_CFG: HermesStatic>(
 
 // Identity: do two handles point at the same block? (Used by writeback to
 // skip a no-op slot update.)
-pub unsafe fn node_arc_same<const STORE_CFG: HermesStatic>(a: &NodeARC<STORE_CFG>, b: &NodeARC<STORE_CFG>) -> bool {
+pub unsafe fn node_arc_same<const STORE_CFG: WritStatic>(a: &NodeARC<STORE_CFG>, b: &NodeARC<STORE_CFG>) -> bool {
     return node_arc_data_ptr::<STORE_CFG>(a) == node_arc_data_ptr::<STORE_CFG>(b);
 }
 
@@ -151,7 +151,7 @@ pub unsafe fn node_arc_same<const STORE_CFG: HermesStatic>(a: &NodeARC<STORE_CFG
 // Useful as a foundation for save/load (writer needs to visit every
 // block), integrity checks, and dump tooling. Doesn't touch refcounts
 // — caller's NodeARC keeps the tree alive for the duration.
-pub unsafe fn for_each_block_rec<const STORE_CFG: HermesStatic>(
+pub unsafe fn for_each_block_rec<const STORE_CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, counter: *mut u64,
 ) {
     let nc: u64 = arc.deref().child_count();
@@ -169,7 +169,7 @@ pub unsafe fn for_each_block_rec<const STORE_CFG: HermesStatic>(
 // later auto-drop on it is a no-op. Used by iterators / views that own
 // NodeARC slots and need to clear them mid-life (e.g. iter step transitioning
 // from one leaf to another, or iter exhaustion).
-pub unsafe fn arc_release_in_slot<const STORE_CFG: HermesStatic>(
+pub unsafe fn arc_release_in_slot<const STORE_CFG: WritStatic>(
     slot: *mut NodeARC<STORE_CFG>,
 ) {
     slot.drop_arc();
@@ -180,7 +180,7 @@ pub unsafe fn arc_release_in_slot<const STORE_CFG: HermesStatic>(
 // own drop (atomic rc-- + recursive release if last). We move the old handle
 // out first (take_arc nulls the slot), then store the new one raw, so neither
 // path double-drops.
-pub unsafe fn arc_replace_in_slot<const STORE_CFG: HermesStatic>(
+pub unsafe fn arc_replace_in_slot<const STORE_CFG: WritStatic>(
     slot:    *mut NodeARC<STORE_CFG>,
     new_arc: NodeARC<STORE_CFG>,
 ) {
@@ -194,7 +194,7 @@ pub unsafe fn arc_replace_in_slot<const STORE_CFG: HermesStatic>(
 // a different snapshot, CoW-clone it via vtable dispatch and return a
 // fresh NodeARC. Otherwise return the original (caller can mutate in
 // place). Keys on snapshot_id (Memoria-style ownership stamping).
-pub unsafe fn make_unique<const STORE_CFG: HermesStatic>(
+pub unsafe fn make_unique<const STORE_CFG: WritStatic>(
     arc:             &mut NodeARC<STORE_CFG>,
     cur_snapshot_id: SnpId<STORE_CFG>,
     id_ctr_p:        *mut BlockId<STORE_CFG>,

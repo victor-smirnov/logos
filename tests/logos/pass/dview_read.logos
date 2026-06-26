@@ -8,7 +8,7 @@ package dview_read;
 use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.fabric;
-use logos.lang.hermes.dview;
+use logos.lang.writ.dview;
 use logos.mem.string;
 
 fn main() -> i32 {

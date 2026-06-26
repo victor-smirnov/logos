@@ -22,7 +22,7 @@ use logos.mem.collections.vec;
 
 extern fn logos_emit_source(src: *const u8) -> i32;
 
-// Slice 3 of metaprog-quote: receive a complete Hermes-arena snapshot
+// Slice 3 of metaprog-quote: receive a complete Writ-arena snapshot
 // (one module document) and splice it into the entry-file ast list.
 // Slice 4's `quote_item!` will produce these bytes; for now they come
 // from logos_metaprog_test_module_blob which parses an inline source.
@@ -87,7 +87,7 @@ extern fn logos_quote_expr_subst(tpl: *const u8, tpl_size: u64,
                                  idents_count: u64) -> *const u8;
 
 // Test fixture for Slice 3. Parses `src` (NUL-terminated) and writes the
-// resulting Hermes arena's base+size into out-params. The blob keepalive
+// resulting Writ arena's base+size into out-params. The blob keepalive
 // lives on the host side, valid through the rest of compilation.
 extern fn logos_metaprog_test_module_blob(src: *const u8, src_len: u64,
                                           out_data: *mut *const u8,

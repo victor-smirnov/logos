@@ -44,23 +44,23 @@ static int32_t int_field(AnyVal v) {
 }
 
 // Get top-level section (root is ObjectMap, string-keyed).
-static AnyVal section(const logos::writ::Hermes& doc, std::string_view key) {
+static AnyVal section(const logos::writ::Writ& doc, std::string_view key) {
     if (doc.root().is_null()) return AnyVal{};
     return doc.root_object().as_map().get(key);
 }
 
 // Section helpers that return typed views.
-static TinyMapView meta_of(const logos::writ::Hermes& doc) {
+static TinyMapView meta_of(const logos::writ::Writ& doc) {
     return TinyMapView(section(doc, "meta"), doc.holder());
 }
 
-static ArrayView array_section(const logos::writ::Hermes& doc, std::string_view key) {
+static ArrayView array_section(const logos::writ::Writ& doc, std::string_view key) {
     AnyVal v = section(doc, key);
     LOGOS_ASSERT(!v.is_null(), "PEGEN-TEST-NAV", "section '{}' missing", key);
     return ArrayView(v, doc.holder());
 }
 
-static TinyMapView tiny_elem(const logos::writ::Hermes& doc, AnyVal v) {
+static TinyMapView tiny_elem(const logos::writ::Writ& doc, AnyVal v) {
     return TinyMapView(v, doc.holder());
 }
 
@@ -581,7 +581,7 @@ static void test_action_literal_node_code() {
 static void test_import_parsed() {
     auto doc = parse_grammar_string(R"(
         %meta   { name: "r" namespace: "ns" output: "r" }
-        %import "hermes.peg" as hermes
+        %import "writ.peg" as writ
         %import "sql.peg"    as sql
     )");
     LOGOS_ASSERT(doc.has_value(), "PEGEN-TEST-IMP-001", "parse failed");
@@ -591,9 +591,9 @@ static void test_import_parsed() {
         "expected 2 imports, got {}", imports.size());
 
     auto imp0 = tiny_elem(*doc, imports.get(0));
-    LOGOS_ASSERT(str_field(imp0.get(uint8_t(ast::PATH)),  h) == "hermes.peg",
+    LOGOS_ASSERT(str_field(imp0.get(uint8_t(ast::PATH)),  h) == "writ.peg",
         "PEGEN-TEST-IMP-001", "import[0] path");
-    LOGOS_ASSERT(str_field(imp0.get(uint8_t(ast::ALIAS)), h) == "hermes",
+    LOGOS_ASSERT(str_field(imp0.get(uint8_t(ast::ALIAS)), h) == "writ",
         "PEGEN-TEST-IMP-001", "import[0] alias");
 
     auto imp1 = tiny_elem(*doc, imports.get(1));
@@ -905,29 +905,29 @@ static void test_codegen_generates_files() {
     std::println("  [OK] test_codegen_generates_files");
 }
 
-static void test_codegen_hermes_grammar() {
-    // Run codegen on the real hermes.peg grammar and verify compilation.
-    auto hermes_peg = fs::path(PEGEN_GRAMMARS_DIR) / "hermes.peg";
-    if (!fs::exists(hermes_peg)) {
-        std::println("  [SKIP] test_codegen_hermes_grammar: hermes.peg not found at {}",
-            hermes_peg.string());
+static void test_codegen_writ_grammar() {
+    // Run codegen on the real writ.peg grammar and verify compilation.
+    auto writ_peg = fs::path(PEGEN_GRAMMARS_DIR) / "writ.peg";
+    if (!fs::exists(writ_peg)) {
+        std::println("  [SKIP] test_codegen_writ_grammar: writ.peg not found at {}",
+            writ_peg.string());
         return;
     }
 
-    auto tmp = fs::temp_directory_path() / "peg_test_hermes_out";
+    auto tmp = fs::temp_directory_path() / "peg_test_writ_out";
     fs::create_directories(tmp);
 
-    auto mods = resolve_modules(hermes_peg.string());
-    LOGOS_ASSERT(mods.has_value(), "PEGEN-TEST-CG-002", "hermes.peg resolve failed");
-    LOGOS_ASSERT(mods->size() == 1, "PEGEN-TEST-CG-002", "hermes.peg: 1 module");
+    auto mods = resolve_modules(writ_peg.string());
+    LOGOS_ASSERT(mods.has_value(), "PEGEN-TEST-CG-002", "writ.peg resolve failed");
+    LOGOS_ASSERT(mods->size() == 1, "PEGEN-TEST-CG-002", "writ.peg: 1 module");
 
     codegen(*mods, CodegenOptions{ .output_dir = tmp });
 
-    LOGOS_ASSERT(fs::exists(tmp / "hermes_parser.hpp"), "PEGEN-TEST-CG-002", "hpp generated");
-    LOGOS_ASSERT(fs::exists(tmp / "hermes_parser.cpp"), "PEGEN-TEST-CG-002", "cpp generated");
+    LOGOS_ASSERT(fs::exists(tmp / "writ_parser.hpp"), "PEGEN-TEST-CG-002", "hpp generated");
+    LOGOS_ASSERT(fs::exists(tmp / "writ_parser.cpp"), "PEGEN-TEST-CG-002", "cpp generated");
 
     // Check that all exported rules are present in the header.
-    std::ifstream hdr(tmp / "hermes_parser.hpp");
+    std::ifstream hdr(tmp / "writ_parser.hpp");
     std::string content((std::istreambuf_iterator<char>(hdr)),
                          std::istreambuf_iterator<char>());
     for (const char* entry : {"parse_value", "parse_map", "parse_array", "parse_typed_value"})
@@ -935,7 +935,7 @@ static void test_codegen_hermes_grammar() {
             "PEGEN-TEST-CG-002", "header has {}", entry);
 
     fs::remove_all(tmp);
-    std::println("  [OK] test_codegen_hermes_grammar");
+    std::println("  [OK] test_codegen_writ_grammar");
 }
 
 static void test_codegen_safe_token_names() {
@@ -1202,7 +1202,7 @@ int main() {
     std::println();
     std::println("── codegen ────────────────────────────────────────────────");
     test_codegen_generates_files();
-    test_codegen_hermes_grammar();
+    test_codegen_writ_grammar();
     test_codegen_safe_token_names();
     test_codegen_lookahead_neg_ahead();
     test_codegen_int_lit_action();

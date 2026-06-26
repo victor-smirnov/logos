@@ -1,12 +1,12 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Arena publish helpers (Hermes) — build a LirArenaRoot in a document, publish
+// Arena publish helpers (Writ) — build a LirArenaRoot in a document, publish
 // externally-visible objects to its DIRECTORY (obj_id = index) + EXPORTS (name →
 // obj_id), then finalize (set as doc root + seal). After finalize the arena is
 // immutable; consumer arenas reference {arena_id, obj_id} via an ExternalRef Pod.
 //
 // Flow (emit_module):
-//   1. Build the LIR objects in a HermesCtr (sema + mono + borrow).
+//   1. Build the LIR objects in a WritCtr (sema + mono + borrow).
 //   2. auto b = lir_arena_root_begin(doc, "stdlib", {"alloc", "coremeta"});
 //   3. auto oid = arena_publish_named(b, mangled_name, object_av);   // per export
 //   4. lir_arena_root_finalize(b);                                    // seal
@@ -33,7 +33,7 @@ namespace logos::writ {
 // root map / directory / exports — stable because the never-move (MultiChunk) arena
 // keeps object headers fixed across further allocations.
 struct ArenaPublishBuilder {
-    HermesCtr*     doc       = nullptr;   // borrowed (caller keeps it alive)
+    WritCtr*     doc       = nullptr;   // borrowed (caller keeps it alive)
     TinyObjectMap* root_map  = nullptr;   // schema_type_code == LirArenaRoot
     ObjectArray*   directory = nullptr;
     ObjectMap*     exports   = nullptr;
@@ -46,7 +46,7 @@ struct ArenaPublishBuilder {
 // directory (obj_id 0 = null sentinel pre-populated), module-name string, deps
 // array, and exports map; wires them into the root's fields.
 [[nodiscard]] logos::expected<ArenaPublishBuilder>
-lir_arena_root_begin(HermesCtr&                       doc,
+lir_arena_root_begin(WritCtr&                       doc,
                      std::string_view                module_name,
                      const std::vector<std::string>& dep_names) noexcept;
 
@@ -74,6 +74,6 @@ lir_arena_root_finalize(ArenaPublishBuilder& b) noexcept;
 // Inspect `doc` for a LirArenaRoot at its root and register it with the pool
 // (extracts MODULE_NAME + DEPS, calls register_module). Idempotent on name.
 [[nodiscard]] logos::expected<ModuleHandle>
-register_lir_arena(HermesCtr& doc, ArenaPool& pool = global_arena_pool()) noexcept;
+register_lir_arena(WritCtr& doc, ArenaPool& pool = global_arena_pool()) noexcept;
 
 } // namespace logos::writ

@@ -10,8 +10,8 @@ package main;
 
 use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
-use logos.lang.hermes.anyval;     // HAny (metaprog AST API)
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.anyval;     // HAny (metaprog AST API)
+use logos.lang.writ.hstatic;
 
 #[metaprog_handler("derive_const_g")]
 fn derive_const_g_hook(target_offset: u32) -> () {
@@ -27,7 +27,7 @@ fn derive_const_g_hook(target_offset: u32) -> () {
     let cg:    Ident = Ident { ptr: cg_sv.ptr, len: cg_sv.len };
 
     let blob: QuoteItemBlob = quote_item! {
-        pub struct DerivedCG<const #cg: HermesStatic> {
+        pub struct DerivedCG<const #cg: WritStatic> {
             pub n: u64,
         }
     };
@@ -35,10 +35,10 @@ fn derive_const_g_hook(target_offset: u32) -> () {
     return;
 }
 
-pub const SomeCfg: HermesStatic = @{ "tag": "x" };
+pub const SomeCfg: WritStatic = @{ "tag": "x" };
 
 #[derive_const_g]
-pub struct LeafCG<const SCFG: HermesStatic> {
+pub struct LeafCG<const SCFG: WritStatic> {
     pub n: u64,
 }
 

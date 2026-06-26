@@ -2,7 +2,7 @@
 //
 // CTFE — pure-AST compile-time expression evaluator for metacall args.
 //
-// Operates over Hermes TinyMapView nodes. No type-pool / sema dependency:
+// Operates over Writ TinyMapView nodes. No type-pool / sema dependency:
 // values carry a LogosType::Kind tag derived from literal suffixes (or
 // IntLit/FloatLit when unsuffixed) and from operator type rules.
 //

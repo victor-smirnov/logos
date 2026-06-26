@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Arena publish helpers (Hermes) — implementation. See arena_publish.hpp.
+// Arena publish helpers (Writ) — implementation. See arena_publish.hpp.
 
 #include <logos/writ/arena_publish.hpp>
 #include <logos/writ/lir_arena_root.hpp>
@@ -17,7 +17,7 @@ inline AnyVal ref_to(const void* p) noexcept { AnyVal a; a.set_ref(p); return a;
 }  // namespace
 
 logos::expected<ArenaPublishBuilder>
-lir_arena_root_begin(HermesCtr&                       doc,
+lir_arena_root_begin(WritCtr&                       doc,
                      std::string_view                module_name,
                      const std::vector<std::string>& dep_names) noexcept
 {
@@ -102,7 +102,7 @@ lir_arena_root_finalize(ArenaPublishBuilder& b) noexcept
 }
 
 logos::expected<ModuleHandle>
-register_lir_arena(HermesCtr& doc, ArenaPool& pool) noexcept
+register_lir_arena(WritCtr& doc, ArenaPool& pool) noexcept
 {
     AnyVal root = doc.root();
     if (!root.is_ref())

@@ -1,8 +1,8 @@
 package reflect_basic;
 
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.static_view;  // HView2 — hermes2 reader for the blob
-use logos.lang.hermes.anyval;       // HAny
+use logos.lang.writ.hstatic;
+use logos.lang.writ.static_view;  // HView2 — writ2 reader for the blob
+use logos.lang.writ.anyval;       // HAny
 
 #[annotation]
 #[datatype] struct Deprecated {
@@ -17,8 +17,8 @@ use logos.lang.hermes.anyval;       // HAny
 }
 
 unsafe fn main() -> i32 {
-    // reflect::<T>() returns HermesStatic
-    let info: HermesStatic = reflect::<MyPoint>();
+    // reflect::<T>() returns WritStatic
+    let info: WritStatic = reflect::<MyPoint>();
     let v: HView2 = hview2_from_ptr(info.ptr);
 
     // Read root and verify it's a valid pointer (non-null map).

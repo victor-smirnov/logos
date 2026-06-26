@@ -13,21 +13,21 @@ use logos.std.compiler.metaprog;
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.shuttle;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 use logos.lang.mem;
 
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name": "demo", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
 };
-pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
-pub const MyOps: HermesStatic = @[
+pub const MyOps: WritStatic = @[
     @{ "field": "sizes", "type": "u64", "kind": "SUM" },
     @{ "field": "maxes", "type": "u64", "kind": "MAX" },
 ];
 
 #[derive_branch_node(ops = "MyOps")]
-pub struct LeafShape<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+pub struct LeafShape<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic> {
     pub base: NodeBase<STORE_CFG>,
     pub keys: Buffer<K>,
     pub vals: Buffer<V>,

@@ -2,17 +2,17 @@
 //
 // grammar_parser: hand-written recursive descent parser for .peg files.
 //
-// Produces a Hermes document conforming to the grammar_ast.hpp schema.
+// Produces a Writ document conforming to the grammar_ast.hpp schema.
 //
 // ── .peg file format ────────────────────────────────────────────────────────
 //
 //   // Line comments.
 //
 //   %meta {
-//       name:      "hermes"
+//       name:      "writ"
 //       version:   "1.0"
 //       namespace: "logos::writ"
-//       output:    "hermes_parser"     // base name for generated files
+//       output:    "writ_parser"     // base name for generated files
 //   }
 //
 //   %import "other.peg" as other       // grammar module import
@@ -70,13 +70,13 @@
 
 namespace logos::peg_gen {
 
-// Parse a .peg grammar file into a Hermes document (grammar_ast schema).
+// Parse a .peg grammar file into a Writ document (grammar_ast schema).
 // Returns nullopt and prints error to stderr on failure.
-std::optional<logos::writ::Hermes> parse_grammar(const std::string& path);
+std::optional<logos::writ::Writ> parse_grammar(const std::string& path);
 
 // Parse grammar from an in-memory string (useful for tests).
 // source_name is used in error messages.
-std::optional<logos::writ::Hermes>
+std::optional<logos::writ::Writ>
 parse_grammar_string(std::string_view source, std::string_view source_name = "<string>");
 
 } // namespace logos::peg_gen

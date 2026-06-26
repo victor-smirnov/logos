@@ -6,10 +6,10 @@
 //      with distinct behaviour at runtime.
 //   2. fn-pointers can be stored in a uniform-typed array and dispatched
 //      by index (the "registry lookup → call" shape).
-//   3. HermesStatic-keyed instantiation works the same way.
+//   3. WritStatic-keyed instantiation works the same way.
 package generic_ref_registry_shape;
 
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 // (1) Const-generic thunks — distinct N values yield distinct functions.
 fn add_n<const N: i64>(x: i32) -> i32 {
@@ -21,10 +21,10 @@ fn mul_n<const N: i64>(x: i32) -> i32 {
     return x * (N as i32);
 }
 
-// (3) HermesStatic-keyed thunk. CFG identity = byte-hash; two distinct CFGs
+// (3) WritStatic-keyed thunk. CFG identity = byte-hash; two distinct CFGs
 // produce two distinct symbols. The body need not reference CFG directly —
 // monomorphisation already separates them by mangled name.
-fn cfg_thunk<const CFG: HermesStatic>(x: i32) -> i32 {
+fn cfg_thunk<const CFG: WritStatic>(x: i32) -> i32 {
     return x;
 }
 
@@ -42,7 +42,7 @@ fn main() -> i32 {
     if r2 != 25 { return 2; }
     if r3 != 15 { return 3; }
 
-    // (3) HermesStatic-keyed: distinct CFGs → distinct symbols. Just verify
+    // (3) WritStatic-keyed: distinct CFGs → distinct symbols. Just verify
     // the fn-pointers are callable; identity (≠ across CFGs) is guaranteed
     // by mangling — same path as add_n::<N>.
     let c1: fn(i32) -> i32 = cfg_thunk::<@{ "tag": "alpha" }>;

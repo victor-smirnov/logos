@@ -13,12 +13,12 @@ use logos.std.data.persistent.bt.cow;
 use logos.std.data.persistent.bt.descent;
 use logos.std.data.persistent.bt.mutate;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name": "blockwalk", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
 };
-pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn count_blocks(arc: &NodeARC<StoreCfg>) -> u64 {
     let mut c = 0u64;

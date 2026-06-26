@@ -1,7 +1,7 @@
 // Slice 4 of metaprog-quote (~/.claude/plans/metaprog-quote.md).
 //
 // `quote_item! { item* }` lowers in sema to a `QuoteItemBlob` value
-// bundling a Hermes template blob and a (possibly-empty) idents array.
+// bundling a Writ template blob and a (possibly-empty) idents array.
 // The hook hands the blob to logos_emit_item_blob_subst and the host
 // substitutes `#name` placeholders before splicing the items as a
 // fresh entry-ast. Main then uses the injected struct at runtime.
@@ -9,7 +9,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 #[metaprog_handler("quote_inject")]
 fn quote_inject_hook(target_offset: u32) -> () {

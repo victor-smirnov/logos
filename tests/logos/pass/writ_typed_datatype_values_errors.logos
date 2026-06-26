@@ -1,0 +1,19 @@
+// Malformed @Type forms parse to null (writ2): missing '=', unclosed
+// params, missing name.
+package writ_typed_datatype_values_errors;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
+    if !parse(h, "@I64 42").is_null() { return 1; }            // no '='
+    if !parse(h, "\"12\"@Decimal(10,2").is_null() { return 2; } // unclosed '('
+    if !parse(h, "@=1").is_null() { return 3; }                 // no name
+    if !parse(h, "@I64(=1").is_null() { return 4; }             // bad params
+    // A good form still parses after errors.
+    if parse(h, "@I64=1").is_null() { return 5; }
+    return 0;
+}

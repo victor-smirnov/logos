@@ -23,7 +23,7 @@ for f in atomic_ops.S env.c fiber_ctx.S fmt_native.c fs_meta.c metaprog_stubs.c 
     ln -s "$RT_SRC/$f" "$PROJ/rt/$f"
 done
 
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "stdlib_native",
     version: "0.1.0",

@@ -2,7 +2,7 @@
 //
 // Logos AST node codes and field keys.
 //
-// Every AST node is a Hermes TinyObjectMap. The CODE field (key 0) is the
+// Every AST node is a Writ TinyObjectMap. The CODE field (key 0) is the
 // node type discriminant. Remaining fields are node-specific.
 //
 // This file defines the constants — no runtime logic, no includes beyond
@@ -218,7 +218,7 @@ inline constexpr Code DEREF_FIELD_COMPOUND_ASSIGN {"DEREF_FIELD_COMPOUND_ASSIGN"
 inline constexpr Code TUPLE_FIELD_COMPOUND_ASSIGN {"TUPLE_FIELD_COMPOUND_ASSIGN", 146}; // var.N op= expr
 inline constexpr Code FIELD_INDEX_COMPOUND_ASSIGN {"FIELD_INDEX_COMPOUND_ASSIGN", 147}; // s.field[i] op= expr
 
-// Hermes datatypes
+// Writ datatypes
 inline constexpr Code DATATYPE    {"DATATYPE",    148};  // datatype definition (C POD layout)
 
 // Annotations
@@ -241,16 +241,16 @@ inline constexpr Code PAT_FIELD   {"PAT_FIELD",   159};  // named field in struc
 inline constexpr Code PAT_REST    {"PAT_REST",    160};  // .. rest in struct/slice pattern
 inline constexpr Code CHAIN_FIELD_WRITE          {"CHAIN_FIELD_WRITE",          161};  // a.b.c = val
 inline constexpr Code CHAIN_FIELD_COMPOUND_ASSIGN{"CHAIN_FIELD_COMPOUND_ASSIGN", 162};  // a.b.c op= val
-inline constexpr Code HERMES_MAP   {"HERMES_MAP",   163};  // @{k:v,...} Hermes map literal
-inline constexpr Code HERMES_ARRAY {"HERMES_ARRAY", 164};  // @[v,...] Hermes array literal
-inline constexpr Code HERMES_STR   {"HERMES_STR",   165};  // string value in Hermes literal
-inline constexpr Code HERMES_INT   {"HERMES_INT",   166};  // integer value in Hermes literal
-inline constexpr Code HERMES_FLOAT {"HERMES_FLOAT", 167};  // float value in Hermes literal
-inline constexpr Code HERMES_BOOL  {"HERMES_BOOL",  168};  // bool value in Hermes literal
-inline constexpr Code HERMES_NULL  {"HERMES_NULL",  169};  // null in Hermes literal
-inline constexpr Code HERMES_ENTRY        {"HERMES_ENTRY",        170};  // key:val pair in Hermes map
+inline constexpr Code HERMES_MAP   {"HERMES_MAP",   163};  // @{k:v,...} Writ map literal
+inline constexpr Code HERMES_ARRAY {"HERMES_ARRAY", 164};  // @[v,...] Writ array literal
+inline constexpr Code HERMES_STR   {"HERMES_STR",   165};  // string value in Writ literal
+inline constexpr Code HERMES_INT   {"HERMES_INT",   166};  // integer value in Writ literal
+inline constexpr Code HERMES_FLOAT {"HERMES_FLOAT", 167};  // float value in Writ literal
+inline constexpr Code HERMES_BOOL  {"HERMES_BOOL",  168};  // bool value in Writ literal
+inline constexpr Code HERMES_NULL  {"HERMES_NULL",  169};  // null in Writ literal
+inline constexpr Code HERMES_ENTRY        {"HERMES_ENTRY",        170};  // key:val pair in Writ map
 inline constexpr Code HERMES_TYPED_ARRAY  {"HERMES_TYPED_ARRAY",  171};  // @<ElemType>[v,...] typed array literal
-inline constexpr Code HERMES_NEG_INT      {"HERMES_NEG_INT",      172};  // negative integer in Hermes literal: @-42
+inline constexpr Code HERMES_NEG_INT      {"HERMES_NEG_INT",      172};  // negative integer in Writ literal: @-42
 inline constexpr Code HERMES_TYPED_MAP    {"HERMES_TYPED_MAP",    173};  // @<K,V>{...} typed map literal
 inline constexpr Code HERMES_CAP_IDENT   {"HERMES_CAP_IDENT",    174};  // $x capture of identifier; NAME(1) = var name
 inline constexpr Code HERMES_CAP_EXPR    {"HERMES_CAP_EXPR",     175};  // ${expr} capture of expression; VALUE(7) = expr
@@ -274,17 +274,17 @@ inline constexpr Code OFFSET_OF            {"OFFSET_OF",           255}; // offs
 inline constexpr Code ANNOT_KV             {"ANNOT_KV",            192}; // named annotation arg: #[A(key=lit)]; NAME(1)=key, VALUE(7)=literal node
 inline constexpr Code ANNOT_POS            {"ANNOT_POS",           193}; // positional annotation arg: #[A(lit)]; VALUE(7)=literal node
 inline constexpr Code ANNOT_ARR            {"ANNOT_ARR",           194}; // annotation array literal [lit,...]; ITEMS(2)=sub-literal nodes
-inline constexpr Code META_BLOCK           {"META_BLOCK",          195}; // meta @{...} block; VALUE(7)=hermes_lit node
+inline constexpr Code META_BLOCK           {"META_BLOCK",          195}; // meta @{...} block; VALUE(7)=writ_lit node
 inline constexpr Code GENOS_DEF            {"GENOS_DEF",           196}; // genos declaration; same structure as TRAIT_DEF
 inline constexpr Code BLOCK_STMT           {"BLOCK_STMT",          197}; // bare scoping block { stmts... }; BODY = block
 inline constexpr Code METACALL             {"METACALL",            198}; // metacall <call_expr>; VALUE = inner call AST
-inline constexpr Code HERMES_BLOB          {"HERMES_BLOB",         199}; // sema-internal: pre-serialised Hermes static blob (driver splice from metacall HermesStatic return); VALUE = raw blob bytes (Varchar)
-inline constexpr Code QUOTE_ITEM           {"QUOTE_ITEM",          200}; // Slice 4 of metaprog-quote: `quote_item! { item* }`. ITEMS = array of parsed item AST nodes; sema deep-clones them into a fresh module, serialises bytes, and rewrites the node into a HermesStatic literal whose &str value is the splice-ready blob.
-inline constexpr Code QUOTE_EXPR           {"QUOTE_EXPR",          201}; // Slice 7 of metaprog-quote: `quote_expr! { expr }`. VALUE = parsed expr AnyVal; sema deep-clones it as the root of a fresh Hermes doc, sets schema_type_code=ast(CODE), and emits an ExprBlob.
+inline constexpr Code HERMES_BLOB          {"HERMES_BLOB",         199}; // sema-internal: pre-serialised Writ static blob (driver splice from metacall WritStatic return); VALUE = raw blob bytes (Varchar)
+inline constexpr Code QUOTE_ITEM           {"QUOTE_ITEM",          200}; // Slice 4 of metaprog-quote: `quote_item! { item* }`. ITEMS = array of parsed item AST nodes; sema deep-clones them into a fresh module, serialises bytes, and rewrites the node into a WritStatic literal whose &str value is the splice-ready blob.
+inline constexpr Code QUOTE_EXPR           {"QUOTE_EXPR",          201}; // Slice 7 of metaprog-quote: `quote_expr! { expr }`. VALUE = parsed expr AnyVal; sema deep-clones it as the root of a fresh Writ doc, sets schema_type_code=ast(CODE), and emits an ExprBlob.
 inline constexpr Code REPEAT_GROUP         {"REPEAT_GROUP",        202}; // Slice 8 of metaprog-quote: `#(body)sep*` inside quote_*! body. VALUE = body expr; OP = separator (0=none, 1=`,`, 2=`&&`). Outside a quote_*! body the sema rejects it.
-inline constexpr Code HERMES_TYPE_LIT      {"HERMES_TYPE_LIT",     211}; // `<type:T>` inside @-literal. TYPE(3) = simple_type AST child (TYPE_REF or GENERIC_INST) — supports primitives, bare structs, type-params in scope, and generic instantiations like Vec<u8> (3a'). Sema resolves through the type system and embeds the resolved type as a first-class Hermes Type value (kind, uid, canonical name).
-inline constexpr Code LIT_HSTATIC          {"LIT_HSTATIC",         212}; // HermesStatic literal at type-arg position: Foo::<@{...}>. VALUE(2) = nested hermes_lit AST. Sema lowers to Kind::HStaticLit with byte-hash identity over the AST (content-only, position-free).
-inline constexpr Code CFG_SLOT_TYPE        {"CFG_SLOT_TYPE",       213}; // Type-position `<type:CFG.SLOT>`: extract the type at top-level slot SLOT of HermesStatic-typed CFG (const-generic param or type alias). NAME(1) = CFG ident, KEY(51) = slot ident. Sema lowers to Kind::CfgSlotType; mono_subst resolves once CFG is bound.
+inline constexpr Code HERMES_TYPE_LIT      {"HERMES_TYPE_LIT",     211}; // `<type:T>` inside @-literal. TYPE(3) = simple_type AST child (TYPE_REF or GENERIC_INST) — supports primitives, bare structs, type-params in scope, and generic instantiations like Vec<u8> (3a'). Sema resolves through the type system and embeds the resolved type as a first-class Writ Type value (kind, uid, canonical name).
+inline constexpr Code LIT_HSTATIC          {"LIT_HSTATIC",         212}; // WritStatic literal at type-arg position: Foo::<@{...}>. VALUE(2) = nested writ_lit AST. Sema lowers to Kind::HStaticLit with byte-hash identity over the AST (content-only, position-free).
+inline constexpr Code CFG_SLOT_TYPE        {"CFG_SLOT_TYPE",       213}; // Type-position `<type:CFG.SLOT>`: extract the type at top-level slot SLOT of WritStatic-typed CFG (const-generic param or type alias). NAME(1) = CFG ident, KEY(51) = slot ident. Sema lowers to Kind::CfgSlotType; mono_subst resolves once CFG is bound.
 inline constexpr Code GENERIC_REF          {"GENERIC_REF",         214};
 inline constexpr Code PAT_UNIT             {"PAT_UNIT",            149}; // `()` unit pattern in let-destruct / match
 inline constexpr Code PAT_FLOAT            {"PAT_FLOAT",           215}; // float literal pattern: `match x { 3.14 => ... }`. VALUE(7) = float source text.
@@ -353,7 +353,7 @@ inline constexpr Key PATH      {"PATH",      22};            // sub-node {ITEMS:
 inline constexpr Key NAME_VAR  {"NAME_VAR",  38};            // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot)
 // VARIANT_DEF reuses LO_NEG (49) as "discriminant is negative" flag.
 // PAT_HERMES_INT reuses LO_NEG (49) as "integer is negative" flag — same semantics.
-// HERMES_ENTRY reuses LO_NEG (49) as "negation flag" (hermes entries never have LO_NEG).
+// HERMES_ENTRY reuses LO_NEG (49) as "negation flag" (writ entries never have LO_NEG).
 // HERMES_TYPED_MAP reuses TYPE (3) for key type and RET_TYPE (6) for val type.
 inline constexpr Key IMPL_TYPE_PARAMS{"IMPL_TYPE_PARAMS", 41}; // impl<T> own type params
 inline constexpr Key HRTB_BINDERS    {"HRTB_BINDERS",     41}; // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node {ITEMS:[LIFETIME str,...]}.

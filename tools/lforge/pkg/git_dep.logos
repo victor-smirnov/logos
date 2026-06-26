@@ -314,10 +314,10 @@ pub fn resolve_git_dep(dep:  &ExternalDep,
     full.push_str(parent.as_str());
     append_path(&mut full, sha.as_str());
 
-    // Cache hit: <full>/lforge.hermes already there.
+    // Cache hit: <full>/lforge.writ already there.
     let mut manifest_path: String = String::new();
     manifest_path.push_str(full.as_str());
-    append_path(&mut manifest_path, "lforge.hermes");
+    append_path(&mut manifest_path, "lforge.writ");
     let cache_hit: bool = is_file(manifest_path.as_str());
 
     if cache_hit == false {

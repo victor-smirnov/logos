@@ -56,7 +56,7 @@ pub enum Infallible {}
 // reference (which carries the length) in order to recover the length. Returns
 // the tail's ELEMENT count (not byte size). Stronger than stable Rust, whose
 // only thin custom DST (`extern type`) is opaque-sized; mirrors the
-// Hermes/zoned self-describing model (ref-repr §6, zoned-types §4).
+// Writ/zoned self-describing model (ref-repr §6, zoned-types §4).
 pub trait SelfDescribing {
     fn dst_len(self: *const Self) -> i64;
 }

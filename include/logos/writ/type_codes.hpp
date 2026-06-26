@@ -6,14 +6,14 @@
 
 namespace logos::writ {
 
-// Hermes wire/in-band type codes — the SINGLE source of truth shared with the
-// Logos stdlib (stdlib/lang/hermes2/anyval.logos H2_*/HA_*/HT_* and the container
+// Writ wire/in-band type codes — the SINGLE source of truth shared with the
+// Logos stdlib (stdlib/lang/writ2/anyval.logos H2_*/HA_*/HT_* and the container
 // HArrTag/HIntKeyTag codes). C++ and Logos read the same bytes, so these MUST stay
 // identical to the Logos constants.
 //
-// NOTE — string code divergence: Logos hermes2 uses H2_STRING = 130, whereas the
-// historical Hermes1 / HermesTag uses HermesString = 28. We follow the Logos value
-// (the layout spec). If the canonical Hermes string code should be 28, change it on
+// NOTE — string code divergence: Logos writ2 uses H2_STRING = 130, whereas the
+// historical Writ1 / WritTag uses WritString = 28. We follow the Logos value
+// (the layout spec). If the canonical Writ string code should be 28, change it on
 // the Logos side first and update here in lockstep.
 namespace tc {
 
@@ -28,7 +28,7 @@ inline constexpr uint64_t HT_U16  = 24;
 inline constexpr uint64_t HT_U24  = 25;
 
 // ── Ref (tagged arena object) codes ──
-inline constexpr uint64_t STRING     = 130;   // HString  (Logos H2_STRING; Hermes1 used 28)
+inline constexpr uint64_t STRING     = 130;   // HString  (Logos H2_STRING; Writ1 used 28)
 inline constexpr uint64_t ARRAY      = 100;   // HArray<HAny>      (ObjectArray)
 inline constexpr uint64_t MAP        = 101;   // HMap<HString,HAny> (ObjectMap)
 inline constexpr uint64_t TINYMAP    = 98;    // HMap<Hu6,HAny>     (TinyObjectMap)

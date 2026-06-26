@@ -2166,7 +2166,7 @@ class BorrowChecker {
                     // iter_mut() aliased &mut without this; f13 — `&*b` then
                     // move of the Box). EXCEPT Rc/Arc roots: shared-ownership
                     // handles are the blessed interior-mutability domain
-                    // (mutable Hermes = Rc root owner; `h.array()` then
+                    // (mutable Writ = Rc root owner; `h.array()` then
                     // `hold(&mut h, root)` is the residency escape pattern —
                     // the holder machinery launders the alias).
                     BorrowPlace bp = extract_borrow_place(recv, pool);
@@ -3787,7 +3787,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
 
     auto check = [&](lir_view::FunctionView fn) {
         if (fn.is_extern())           return;
-        // Skip functions loaded from a precompiled binary module (.hermes0 in a
+        // Skip functions loaded from a precompiled binary module (.writ0 in a
         // `-L` archive): they were already borrow-checked when THEIR layer was
         // built, so re-checking them on every downstream/user compile is pure
         // waste — and the pre-mono generic-template pass re-checking the WHOLE

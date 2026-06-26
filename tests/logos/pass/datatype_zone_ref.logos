@@ -1,16 +1,16 @@
-// Typed holder handle (hermes2 successor of DataRef): Held<T> pins the
+// Typed holder handle (writ2 successor of DataRef): Held<T> pins the
 // container while reads flow through a plain &T.
 package datatype_zone_ref;
-use logos.lang.hermes.container;
+use logos.lang.writ.container;
 use logos.lang.rc;
 
 struct Point { x: i32, y: i32 }
 
 unsafe fn main() -> i32 {
-    let mut rc: Rc<Hermes> = hermes_rc(4096);
-    let h: &Hermes = rc.deref();
-    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
-    let p: *mut Point = hermes_alloc::<Point>(hp);
+    let mut rc: Rc<Writ> = writ_rc(4096);
+    let h: &Writ = rc.deref();
+    let hp: *mut Writ = h as *const Writ as *mut Writ;
+    let p: *mut Point = writ_alloc::<Point>(hp);
     p.x = 19;
     p.y = 23;
     let held: Held<Point> = hold::<Point>(&mut rc, &*p);

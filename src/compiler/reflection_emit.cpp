@@ -1,7 +1,7 @@
 // reflection_emit.cpp — post-sema pass that builds TypeInfo rodata blobs
 // for types referenced by reflect::<T>() and types with user annotations.
 //
-// For each requested type, builds a Hermes ObjectMap document with:
+// For each requested type, builds a Writ ObjectMap document with:
 //   { name, pkg, type_code, kind, is_data_plain, fields: [...], annotations: [...] }
 // Serializes to a blob with an 8-byte little-endian size prefix.
 // Symbol: "__logos_reflect__<type_hash_hex>" with WeakODR linkage.
@@ -22,8 +22,8 @@
 
 namespace logos::compiler {
 
-using logos::writ::Hermes;
-using logos::writ::HermesAccess;
+using logos::writ::Writ;
+using logos::writ::WritAccess;
 using logos::writ::ArenaString;
 using logos::writ::MapView;
 using logos::writ::ArrayView;
@@ -34,55 +34,55 @@ using logos::writ::clone;
 
 namespace {
 
-// ── Hermes building helpers ───────────────────────────────────────────────
+// ── Writ building helpers ───────────────────────────────────────────────
 
-static AnyVal hval_str(Hermes& doc, std::string_view s) {
+static AnyVal hval_str(Writ& doc, std::string_view s) {
     // make_string yields a self-relative StringView; to_anyval() is its Ref.
     return doc.make_string(s).get().to_anyval();
 }
 
 // u64: store in arena with U64 tag (type_code=27); readable via get_u64().
-static AnyVal hval_u64(Hermes& doc, uint64_t v) {
+static AnyVal hval_u64(Writ& doc, uint64_t v) {
     return doc.box<uint64_t>(v).get();
 }
 
 // i64: inline if fits in i24, else arena.
-static AnyVal hval_i64(Hermes& doc, int64_t v) {
+static AnyVal hval_i64(Writ& doc, int64_t v) {
     if (v >= -8388608LL && v <= 8388607LL)
         return AnyVal::from_value<int32_t>(static_cast<int32_t>(v));
     return doc.box<int64_t>(v).get();
 }
 
 // bool: type_hash=37, inline value mode.
-static AnyVal hval_bool([[maybe_unused]] Hermes& doc, bool v) {
+static AnyVal hval_bool([[maybe_unused]] Writ& doc, bool v) {
     return AnyVal::from_value<uint8_t>(v ? 1u : 0u, 37);
 }
 
-static uint32_t begin_map(Hermes& doc, uint8_t log2 = 3) {
+static uint32_t begin_map(Writ& doc, uint8_t log2 = 3) {
     return doc.make_object_map(log2).get().offset().value();
 }
 
-static void map_put(Hermes& doc, uint32_t m_off, std::string_view key, AnyVal val) {
+static void map_put(Writ& doc, uint32_t m_off, std::string_view key, AnyVal val) {
     MapView(arena_offset_t(m_off), doc.holder()).put(key, val).get();
 }
 
-static uint32_t begin_array(Hermes& doc) {
+static uint32_t begin_array(Writ& doc) {
     return doc.make_array(4).get().offset().value();
 }
 
-static void array_push(Hermes& doc, uint32_t a_off, AnyVal val) {
+static void array_push(Writ& doc, uint32_t a_off, AnyVal val) {
     ArrayView(arena_offset_t(a_off), doc.holder()).push_back(val).get();
 }
 
 // Self-relative Ref to an in-arena object at byte offset `off` (the arena is a
 // single segment, so base(doc)+off is the absolute address). NOT from_raw(off).
-static AnyVal as_ptr(Hermes& doc, uint32_t off) {
-    AnyVal r; r.set_ref(HermesAccess::base(doc) + off); return r;
+static AnyVal as_ptr(Writ& doc, uint32_t off) {
+    AnyVal r; r.set_ref(WritAccess::base(doc) + off); return r;
 }
 
 // ── Annotation value serializer ───────────────────────────────────────────
 
-static AnyVal annot_val_to_hval(Hermes& doc, lir_view::AnnotValueView v) {
+static AnyVal annot_val_to_hval(Writ& doc, lir_view::AnnotValueView v) {
     using K = lir::LAnnotationValue::Kind;
     switch (static_cast<K>(v.kind())) {
     case K::Int:   return hval_i64(doc, v.i());
@@ -101,9 +101,9 @@ static AnyVal annot_val_to_hval(Hermes& doc, lir_view::AnnotValueView v) {
     return AnyVal{};
 }
 
-// ── Build one annotation instance as a Hermes map ────────────────────────
+// ── Build one annotation instance as a Writ map ────────────────────────
 
-static AnyVal build_annotation_map(Hermes& doc, lir_view::AnnotInstanceView inst) {
+static AnyVal build_annotation_map(Writ& doc, lir_view::AnnotInstanceView inst) {
     uint32_t m = begin_map(doc);
     std::string_view type_key = inst.ann_fqn().empty() ? inst.ann_name() : inst.ann_fqn();
     map_put(doc, m, "type", hval_str(doc, type_key));
@@ -133,7 +133,7 @@ static std::string type_name_of(TypeRef t) {
     }
 }
 
-static AnyVal build_field_map(Hermes& doc, lir_view::LFieldView f,
+static AnyVal build_field_map(Writ& doc, lir_view::LFieldView f,
                               const TypePoolImpl* pool) {
     uint32_t m = begin_map(doc, 2);  // 4 buckets
     map_put(doc, m, "name",      hval_str(doc, f.name()));
@@ -172,15 +172,15 @@ static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, lir_view::
     });
     map_put(doc, root, "annotations", as_ptr(doc, annots_arr));
 
-    HermesAccess::set_root_offset(doc, arena_offset_t(root));
+    WritAccess::set_root_offset(doc, arena_offset_t(root));
 
     // Compact the document
     auto packed = compactify(doc).get();
-    auto& arena = HermesAccess::arena(packed);
+    auto& arena = WritAccess::arena(packed);
     const uint8_t* data = arena.head().data();
     size_t used = arena.total_used();
 
-    // Prepend 8-byte LE size so HermesStatic::size() works.
+    // Prepend 8-byte LE size so WritStatic::size() works.
     std::vector<uint8_t> blob(8 + used);
     for (int k = 0; k < 8; ++k)
         blob[k] = static_cast<uint8_t>((used >> (k * 8)) & 0xFF);
@@ -205,9 +205,9 @@ static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, lir_view:
     map_put(doc, root, "kind", hval_i64(doc, 3));
     if (td.type_code() != 0)
         map_put(doc, root, "type_code", hval_u64(doc, td.type_code()));
-    HermesAccess::set_root_offset(doc, arena_offset_t(root));
+    WritAccess::set_root_offset(doc, arena_offset_t(root));
     auto packed = compactify(doc).get();
-    auto& arena = HermesAccess::arena(packed);
+    auto& arena = WritAccess::arena(packed);
     const uint8_t* data = arena.head().data();
     size_t used = arena.total_used();
     std::vector<uint8_t> blob(8 + used);
@@ -263,7 +263,7 @@ lir::LProgram reflection_emit(lir::LProgram prog) {
         }
     }
 
-    // Emit TypeInfo for Hermes-tagged traits (have #[type_code]) or reflect-requested.
+    // Emit TypeInfo for Writ-tagged traits (have #[type_code]) or reflect-requested.
     for (auto& td : prog.traits) {
         std::string fqn = td.pkg().empty() ? std::string(td.name())
                                            : std::string(td.pkg()) + "::" + std::string(td.name());

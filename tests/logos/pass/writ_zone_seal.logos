@@ -1,0 +1,36 @@
+// Holder liveness through typed allocations (writ2 successor of the Writ1
+// zone_seal test): objects allocated in a container stay valid while a holder
+// handle (Held<T> / the Rc) is alive; the never-move arena needs no seal step —
+// immutability-of-the-past is structural.
+package writ_zone_seal;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.rc;
+
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+unsafe fn main() -> i32 {
+    let mut rc: Rc<Writ> = writ_rc(4096);
+    let h: &Writ = rc.deref();
+    let hp: *mut Writ = h as *const Writ as *mut Writ;
+
+    // Two typed allocations in the never-move arena.
+    let p1: *mut Pair = writ_alloc::<Pair>(hp);
+    let p2: *mut Pair = writ_alloc::<Pair>(hp);
+    p1.a = 7;  p1.b = 3;
+    p2.a = 20; p2.b = 12;
+
+    // Pin through holder handles: Held keeps the container alive type-safely.
+    let h1: Held<Pair> = hold::<Pair>(&mut rc, &*p1);
+    let h2: Held<Pair> = hold::<Pair>(&mut rc, &*p2);
+
+    // Reads through the holds (objects never move; addresses stay).
+    let r1: &Pair = h1.get();
+    let r2: &Pair = h2.get();
+    let result: i32 = r1.a + r1.b + r2.a + r2.b;   // 7+3+20+12 = 42
+
+    return result;   // 42; Held/Rc drops release the holder at scope end
+}

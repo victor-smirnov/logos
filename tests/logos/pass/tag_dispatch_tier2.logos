@@ -1,6 +1,6 @@
 package tag_dispatch_tier2;
 
-use logos.mem.hermes.tag_system;
+use logos.mem.writ.tag_system;
 // Tests Layer 6 tier-2: &tagged<TS> Trait dispatch for auto-hash type_codes
 // (type_code >= 223 — multi-byte TypeTag, binary-search lookup table).
 //

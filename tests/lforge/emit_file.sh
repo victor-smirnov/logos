@@ -2,7 +2,7 @@
 # B1.7: per-file emit mode for logosc.
 #
 # Validates that:
-#   - `logosc --emit-module M --only-file F -o P` writes only P.o + P.hermes0
+#   - `logosc --emit-module M --only-file F -o P` writes only P.o + P.writ0
 #   - per-file objects, aggregated by `ar`, link into a working library
 #   - the result is observably equivalent to a monolithic --emit-module build
 #
@@ -46,17 +46,17 @@ mkdir -p "$PROJ/perfile"
 
 # Each invocation writes exactly two files with the requested prefix.
 [ -f "$PROJ/perfile/a.o" ]       || { echo "FAIL: a.o missing"; exit 1; }
-[ -f "$PROJ/perfile/a.hermes0" ] || { echo "FAIL: a.hermes0 missing"; exit 1; }
+[ -f "$PROJ/perfile/a.writ0" ] || { echo "FAIL: a.writ0 missing"; exit 1; }
 [ -f "$PROJ/perfile/a.hm0" ]     || { echo "FAIL: a.hm0 missing"; exit 1; }
 [ -f "$PROJ/perfile/b.o" ]       || { echo "FAIL: b.o missing"; exit 1; }
-[ -f "$PROJ/perfile/b.hermes0" ] || { echo "FAIL: b.hermes0 missing"; exit 1; }
+[ -f "$PROJ/perfile/b.writ0" ] || { echo "FAIL: b.writ0 missing"; exit 1; }
 [ -f "$PROJ/perfile/b.hm0" ]     || { echo "FAIL: b.hm0 missing"; exit 1; }
 
 # Per-file emit must NOT produce a .a (no `ar` step).
 [ ! -f "$PROJ/perfile/a.a" ] || { echo "FAIL: per-file emitted a .a"; exit 1; }
 
 # ── Aggregate per-file outputs into a library archive ──────────────────────
-# Use the ELF-wrapped .hm0 (not the raw .hermes0) so ld.lld doesn't warn
+# Use the ELF-wrapped .hm0 (not the raw .writ0) so ld.lld doesn't warn
 # about non-ET_REL archive members at downstream link time.
 ar rcs "$PROJ/per.a" \
     "$PROJ/perfile/a.o" "$PROJ/perfile/a.hm0" \

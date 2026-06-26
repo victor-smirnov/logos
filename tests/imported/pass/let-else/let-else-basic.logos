@@ -2,7 +2,7 @@
 // Original path: tests/ui/let-else/let-else-bindings.rs (heavily
 // trimmed)
 // Modifications: only the Some-binding half of the test is kept —
-// Logos has no Result<T, E> stdlib (one exists for hermes/ctr but
+// Logos has no Result<T, E> stdlib (one exists for writ/ctr but
 // not in std.lang). Tests `let Option::Some(y) = expr else { … };`
 // shape — confirms let-else works as in Rust.
 package let_else_basic;

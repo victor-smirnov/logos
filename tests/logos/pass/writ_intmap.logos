@@ -1,0 +1,30 @@
+// HIntMap<K> — dense int-keyed map (Writ port of Writ1 Map<K,AnyVal>, codes
+// MapI32AnyVal=3101..MapU64AnyVal=3104). Fixed-cap, linear lookup, plain K[] keys +
+// *zoned HAny[] values. Exercises i32 insert/update/absent + the 3101 tag, and a
+// u64-keyed map (large key, code 3104).
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.hmap;
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let m: &mut HIntMap<i32> = h.intmap::<i32>(8i64);
+    m.set(100i32, HAny::from(11i8));
+    m.set(-5i32,  HAny::from(22i8));
+    m.set(100i32, HAny::from(33i8));     // update existing
+    if m.size() != 2i64 { return 1i32; }
+    if m.get(100i32).as_i8() != 33i8 { return 2i32; }
+    if m.get(-5i32).as_i8()  != 22i8 { return 3i32; }
+    if !m.contains(-5i32) || m.contains(7i32) { return 4i32; }
+    if !m.get(7i32).is_null() { return 5i32; }
+    let hdr: *const u8 = m as *const HIntMap<i32> as *const u8;
+    if unsafe { h2_type_code(hdr) } != 3101u64 { return 6i32; }   // MapI32AnyVal
+    // u64-keyed (code 3104), large key
+    let n: &mut HIntMap<u64> = h.intmap::<u64>(4i64);
+    n.set(9000000000000000000u64, HAny::from(true));
+    if !n.get(9000000000000000000u64).as_bool() { return 7i32; }
+    if n.get(1u64).as_bool() { return 8i32; }                     // absent → null → as_bool false
+    let nhdr: *const u8 = n as *const HIntMap<u64> as *const u8;
+    if unsafe { h2_type_code(nhdr) } != 3104u64 { return 9i32; }
+    return 0i32;
+}

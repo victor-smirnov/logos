@@ -3,7 +3,7 @@
 #
 # logosc — Logos compiler (iteration 1).
 #
-# Pipeline: .logos source → PEG parser → Hermes AST → MLIR → LLVM IR → native.
+# Pipeline: .logos source → PEG parser → Writ AST → MLIR → LLVM IR → native.
 # Requires MLIR/LLVM dev libraries from the Jenny toolchain.
 
 # LOGOS_LLVM_DIR / LOGOS_MLIR_DIR are discovered (or -D-overridden) at the
@@ -149,7 +149,7 @@ target_link_libraries(logosc PRIVATE
     ${LOGOS_MLIR_LLVM_LIBS}
 )
 
-# Note: MLIR/LLVM built without RTTI, but Hermes requires it.
+# Note: MLIR/LLVM built without RTTI, but Writ requires it.
 # We compile with RTTI enabled — MLIR's public API doesn't use RTTI
 # (no dynamic_cast across boundary).  If linking fails, we'll need
 # to split into separate TUs.

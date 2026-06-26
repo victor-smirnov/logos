@@ -1,7 +1,7 @@
-// HAny basics (hermes2 successor of the Hermes1 AnyVal basics test):
+// HAny basics (writ2 successor of the Writ1 AnyVal basics test):
 // Ref/null/Pod forms, the 8-byte niche word, i56 + bool encodings.
 package anyval_basic;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.anyval;
 
 unsafe fn main() -> i32 {
     // --- Ref mode (absolute pointer in the value form) ---

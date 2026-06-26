@@ -550,7 +550,7 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         // (a Ptr-to-TraitObject field is an 8B thin slot; a bare TraitObject
         // field is the 16B inline fat pair).
         // `&mut T` to a #[zone_mut] type is a FAT ref {data, zone=*mut Allocator}
-        // carrying its Hermes zone (the allocator rides the &mut → grow methods
+        // carrying its Writ zone (the allocator rides the &mut → grow methods
         // reach it from &mut self). Shared `&T` / `*T` stay thin (read never grows).
         case K::MutRef: {
             TypeRef p = TypeRef(t).pointee();
@@ -825,7 +825,7 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
                 auto k = TypeRef(ft).kind();
                 // Pointer arm: `&T`/`&mut T` to an align≥2 pointee guarantees low
                 // bit 0. A `#[zoned2]` enum additionally TRUSTS a raw `*T` (its Ref
-                // invariant — Hermes zone objects are ≥2-aligned by the allocator),
+                // invariant — Writ zone objects are ≥2-aligned by the allocator),
                 // so HAny's type-erased `*u8` Ref qualifies despite u8's align 1.
                 bool is_ptr = ((k == K::Ref || k == K::MutRef) &&
                                TypeRef(ft).pointee() &&

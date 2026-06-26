@@ -21,7 +21,7 @@ use logos.lang.mem;
 use logos.lang.cmp;
 use logos.lang.panic;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
@@ -32,7 +32,7 @@ use logos.std.data.persistent.bt.shuttle;
 // subtree the iter currently occupies. branch_arc owns an rc share —
 // the block can't be deallocated while this frame is alive. branch_p
 // is the typed-pointer view (derived from branch_arc's data ptr).
-pub struct IterFrame<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+pub struct IterFrame<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic> {
     pub branch_arc: NodeARC<STORE_CFG>,
     pub branch_p:   *mut BranchNode<K, STORE_CFG, CFG>,
     pub idx:        u64,
@@ -49,7 +49,7 @@ pub struct IterFrame<K: Container + ContainerOrd, const STORE_CFG: HermesStatic,
 // container). The iter still PINS its frozen view via NodeARC clones, so this
 // is a Rust-model exclusivity rule layered over the already-safe snapshot.
 #[borrow_carrying]
-pub struct BtIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+pub struct BtIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic> {
     pub path:     Vec<IterFrame<K, STORE_CFG, CFG>>,
     pub leaf_arc: NodeARC<STORE_CFG>,
     pub leaf_p:   *mut LeafNode<K, V, STORE_CFG, CFG>,
@@ -59,7 +59,7 @@ pub struct BtIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: He
 // Descend leftmost from `start`, pushing branch frames into `path` and
 // returning the leaf as a NodeARC clone (rc bumped on every visited
 // branch + the leaf). Caller takes ownership of the returned NodeARC.
-unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     start: &NodeARC<STORE_CFG>,
     path:  *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
 ) -> NodeARC<STORE_CFG> {
@@ -81,7 +81,7 @@ unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STOR
 // each branch's last child idx in the path. Used by step_back when a
 // frame has its idx decremented and we need to position at the end of
 // the new subtree. (And by iter_back_open for a future reverse iter.)
-unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     start: &NodeARC<STORE_CFG>,
     path:  *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
 ) -> NodeARC<STORE_CFG> {
@@ -106,7 +106,7 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
 // frames as it descends — so step/step_back work from the new position.
 //
 // On out-of-range (n >= total): returns an invalid iter (valid()==false).
-pub unsafe fn bt_iter_open_at<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_iter_open_at<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64,
 ) -> BtIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
@@ -152,7 +152,7 @@ pub unsafe fn bt_iter_open_at<K: Container + ContainerOrd, V: Container, const S
 // rooted at `arc`. The iter pins its view via NodeARC clones — `arc`'s
 // container can be dropped, mutated, or commit'd; the iter still walks
 // the snapshot observed at iter-open time.
-pub unsafe fn bt_iter_open<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_iter_open<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>,
 ) -> BtIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
@@ -174,7 +174,7 @@ pub unsafe fn bt_iter_open<K: Container + ContainerOrd, V: Container, const STOR
 // is the same check (an empty tree yields a 0-key leaf → cursor 0 →
 // valid()==false). This is the entry point the reverse machinery
 // (descend_rightmost / step_back) was always missing.
-pub unsafe fn bt_iter_open_back<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_iter_open_back<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>,
 ) -> BtIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
@@ -192,7 +192,7 @@ pub unsafe fn bt_iter_open_back<K: Container + ContainerOrd, V: Container, const
     };
 }
 
-impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BtIter<K, V, STORE_CFG, CFG> {
+impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic> BtIter<K, V, STORE_CFG, CFG> {
     pub fn valid(&self) -> bool {
         unsafe {
             if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> { return false; }

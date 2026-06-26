@@ -2,7 +2,7 @@
 //
 // mono_scan.cpp — Function scanning and generic call enqueueing.
 //
-// Phase 3d: walks the L-IR Hermes mirror via lir_view types instead of the
+// Phase 3d: walks the L-IR Writ mirror via lir_view types instead of the
 // std::variant tree. Mirror entries for the function being scanned must be
 // emitted via lir_mirror_emit_function before scan_fn runs — call-site
 // ordering in mono.cpp / mono_clone.cpp guarantees this.
@@ -228,13 +228,13 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::Cast: {
         lir_view::ECastView cv{e};
         scan_expr(cv.operand());
-        // Prune mode: a Hermes container cast (`&[T] as <I32>[]`, comprehension
+        // Prune mode: a Writ container cast (`&[T] as <I32>[]`, comprehension
         // `@{...}` with captures) lowers to a call to a named builder fn
-        // (hermes_build_map_*/hermes_build_arr_*) — see mlir_gen's ECast path.
+        // (writ_build_map_*/writ_build_arr_*) — see mlir_gen's ECast path.
         // It's not a Call node, so make it reachable explicitly or the JIT
         // calls a forward-decl-only symbol → NULL.
         if (!entry_points_.empty()) {
-            auto bf = cv.hermes_build_fn();
+            auto bf = cv.writ_build_fn();
             if (!bf.empty()) enqueue_free_fn(std::string(bf));
         }
         // `&prim as &dyn Trait` / `box prim as Box<dyn Trait>`: record the
@@ -300,12 +300,12 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         scan_block(lir_view::EClosureBoxView{e}.body());
         break;
     }
-    case ECode::HermesLit:
+    case ECode::WritLit:
         // Captured runtime sub-expressions of a `@{...}` literal (e.g. the
         // values folded into the blob) may themselves contain calls; scan them
         // so prune mode keeps their callees. (The builder fn for the capture
         // path is enqueued at the wrapping ECast — see above.)
-        lir_view::EHermesLitView{e}.each_capture_expr(
+        lir_view::EWritLitView{e}.each_capture_expr(
             [&](lir_view::ExprRef c) { scan_expr(c); });
         break;
     case ECode::ClosureCall: {

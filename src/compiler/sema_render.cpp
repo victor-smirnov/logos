@@ -447,18 +447,18 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::LIT_HSTATIC: {
-        // Hermes literal — out of scope for renderer (would need a full
-        // hermes-to-source dump). Leave as a sentinel; capture-detector will
+        // Writ literal — out of scope for renderer (would need a full
+        // writ-to-source dump). Leave as a sentinel; capture-detector will
         // never reach here for value-position consts because module-level
         // hstatic refs are already inlined elsewhere.
         return "/* render_expr: LIT_HSTATIC unsupported in metacall block */";
     }
 
-    // ── Hermes literal expressions ──
+    // ── Writ literal expressions ──
     // Outer-position: prefix `@` (`@{...}`, `@[...]`, `@4`, `@"x"`,
     // `@true`, `@null`). Inner positions (HERMES_MAP entry VALUEs,
-    // HERMES_ARRAY items) call render_hermes_val_inner_ which omits
-    // the `@` for scalars (grammar rejects `@4` at hermes_val position;
+    // HERMES_ARRAY items) call render_writ_val_inner_ which omits
+    // the `@` for scalars (grammar rejects `@4` at writ_val position;
     // map/array can go either way, we omit for cleanliness).
     case la::HERMES_NULL: return "@null";
     case la::HERMES_BOOL: {
@@ -488,7 +488,7 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
                     s += std::string(key);
                     s += ": ";
                     if (entry.has_key(la::VALUE))
-                        s += render_hermes_val_inner_(map_of(entry.get(la::VALUE.code)));
+                        s += render_writ_val_inner_(map_of(entry.get(la::VALUE.code)));
                 }
             }
         }
@@ -501,21 +501,21 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) s += ", ";
-                s += render_hermes_val_inner_(map_of(items.get(i)));
+                s += render_writ_val_inner_(map_of(items.get(i)));
             }
         }
         s += "]";
         return s;
     }
     case la::HERMES_TYPE_LIT: {
-        // `<type:T>` — a Logos type embedded in a Hermes literal.
+        // `<type:T>` — a Logos type embedded in a Writ literal.
         std::string s = "<type:";
         if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
         s += ">";
         return s;
     }
     case la::CFG_SLOT_TYPE: {
-        // `<type:CFG.SLOT>` — extract slot of HermesStatic-typed const-generic.
+        // `<type:CFG.SLOT>` — extract slot of WritStatic-typed const-generic.
         std::string s = "<type:";
         if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
         if (node.has_key(la::ITEMS)) {
@@ -1202,7 +1202,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         }
         if (node.has_key(la::VALUE)) {
             s += " = ";
-            // VALUE may be an expr or a HermesStatic literal. Use expr renderer;
+            // VALUE may be an expr or a WritStatic literal. Use expr renderer;
             // unsupported shapes (LIT_HSTATIC) are tagged as such.
             s += render_expr_src(map_of(node.get(la::VALUE.code)));
         }
@@ -1473,7 +1473,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 }
 
-std::string SemaChecker::render_hermes_val_inner_(TinyMapView node) {
+std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {
     if (node.is_null()) return "null";
     int32_t c = code_of(node);
     switch (c) {
@@ -1504,7 +1504,7 @@ std::string SemaChecker::render_hermes_val_inner_(TinyMapView node) {
                     s += std::string(str_of(entry.get(la::KEY.code)));
                     s += ": ";
                     if (entry.has_key(la::VALUE))
-                        s += render_hermes_val_inner_(map_of(entry.get(la::VALUE.code)));
+                        s += render_writ_val_inner_(map_of(entry.get(la::VALUE.code)));
                 }
             }
         }
@@ -1517,7 +1517,7 @@ std::string SemaChecker::render_hermes_val_inner_(TinyMapView node) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) s += ", ";
-                s += render_hermes_val_inner_(map_of(items.get(i)));
+                s += render_writ_val_inner_(map_of(items.get(i)));
             }
         }
         s += "]";
@@ -1736,7 +1736,7 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
     }
 }
 
-// Free entry point for `--dump-metaprog`: renders an entire Hermes
+// Free entry point for `--dump-metaprog`: renders an entire Writ
 // document as Logos source through Stage 2 of the AST pretty-printer.
 // Builds a throwaway SemaChecker, points its holder_ at the foreign
 // doc, flips dump_syntactic_types_ so type-position rendering doesn't

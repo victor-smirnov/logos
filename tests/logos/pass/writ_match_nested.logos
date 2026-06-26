@@ -1,0 +1,24 @@
+// Test: Writ nested structural patterns.
+
+package writ_match_nested;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.hstatic;
+
+unsafe fn classify(d: &WritStatic) -> i32 {
+    match d {
+        @{"data": @[@1, @2]}              => 1,
+        @{"data": @{"inner": @"x"}}       => 2,
+        @[@{"k": @1}, @{"k": @2}]         => 3,
+        _                                 => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = @{"data": [1, 2]};
+    let b: WritStatic = @{"data": {"inner": "x"}};
+    let c: WritStatic = @[{"k": 1}, {"k": 2}];
+    let d: WritStatic = @{"data": [1, 2, 3]};
+    // 1 + 2 + 3 + 0 = 6
+    return classify(&a) + classify(&b) + classify(&c) + classify(&d);
+}

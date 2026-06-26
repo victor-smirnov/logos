@@ -1,0 +1,38 @@
+// C8f (writ2): read a LIVE runtime container through the value-form root —
+// the writ2 analog of WritView (non-owning read of a live Writ).
+package writ_ctr_view;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    // Build a small document (capture literal = runtime container).
+    let x: i32 = 1;
+    let y: i32 = 2;
+    let ctr: Rc<Writ> = @{"x": $x, "y": $y};
+    let h: &Writ = ctr.deref();
+    let root: HAny = h.root();
+    if root.is_null() { return 2; }
+
+    // stringify via the live root (open-addressing key order is hash-dependent).
+    let text: String = stringify(root);
+    if text.len() != 16i64 { return 3; }
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    if v0.get_int(v0.map_get(root, "x")) != 1i64 { return 31; }
+    if v0.get_int(v0.map_get(root, "y")) != 2i64 { return 32; }
+
+    // Reads through HView2 helpers on the same live root.
+    let id: i32 = 99;
+    let doc: Rc<Writ> = @{"id": $id};
+    let dh: &Writ = doc.deref();
+    let dr: HAny = dh.root();
+    if dr.is_null() { return 4; }
+    if v0.get_int(v0.map_get(dr, "id")) != 99i64 { return 5; }
+
+    return 0;
+}

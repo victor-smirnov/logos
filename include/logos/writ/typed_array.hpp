@@ -15,12 +15,12 @@
 namespace logos::writ {
 
 // TypedArray<T> — dense packed array of a trivially-copyable primitive T.
-// BYTE-IDENTICAL to the Logos stdlib HArray<T> (stdlib/lang/hermes2/array.logos):
+// BYTE-IDENTICAL to the Logos stdlib HArray<T> (stdlib/lang/writ2/array.logos):
 //   { size_/len : u64, capacity_/cap : u64, data_ : self-relative ptr to T[] }  (24B)
 //
 // Unlike ObjectArray, the elements are PLAIN values (position-independent), so
 // growth is a straight memcpy — no per-element re-anchor (there are no self-
-// relative Refs in the buffer). Ported from Hermes1's TypedArray onto the self-
+// relative Refs in the buffer). Ported from Writ1's TypedArray onto the self-
 // relative RelativePtr: no `base` threaded, header never moves (MultiChunk).
 template <typename T>
 class TypedArray {
@@ -48,7 +48,7 @@ public:
         if (index < size_) elements()[index] = value;
     }
 
-    // Concrete Hermes wire code per T (ArrayU8..ArrayF64 = 2101..2110).
+    // Concrete Writ wire code per T (ArrayU8..ArrayF64 = 2101..2110).
     static constexpr uint64_t type_code_for() noexcept {
         if constexpr (std::is_same_v<T, uint8_t>)  return tc::ARRAY_U8;
         if constexpr (std::is_same_v<T, uint16_t>) return tc::ARRAY_U16;

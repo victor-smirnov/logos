@@ -13,7 +13,7 @@
 //
 // Usage:
 //   logos-audit -p <build-dir> <files...>
-//   logos-audit -p build src/hermes/template.cpp
+//   logos-audit -p build src/writ/template.cpp
 //   run-clang-tidy -clang-tidy-binary logos-audit   # over whole project
 
 #include "clang/ASTMatchers/ASTMatchFinder.h"
@@ -227,7 +227,7 @@ static cl::OptionCategory AuditCategory("logos-audit options");
 static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
 static cl::extrahelp MoreHelp(
     "Examples:\n"
-    "  logos-audit -p build src/hermes/template.cpp\n"
+    "  logos-audit -p build src/writ/template.cpp\n"
     "  logos-audit -p build include/logos/hrpc/schema.hpp\n"
 );
 

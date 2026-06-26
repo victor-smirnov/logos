@@ -1,0 +1,12 @@
+package writ_map_comp_guard_bad;
+
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.rc;
+
+fn main() -> i32 {
+    let xs: [i32; 2] = [1, 2];
+    let d: Rc<Writ> = @{"k": x for x in xs if x + 1};
+    return 0;
+}

@@ -1,0 +1,164 @@
+// Logos Writ stdlib — mem.writ2.hbs
+//
+// HBS2 — binary serialization of a Writ document: doc ⇄ bytes. The Writ
+// port of writ.hbs_write / hbs_read, simplified to a self-contained value
+// stream (no zone-id dedup yet — every reference is written by value).
+//
+// Each value = a lead byte + payload, dispatching on HAny::type_code:
+//   0x00 null   0x01 false   0x02 true
+//   0x10 i56    → 8-byte i64 LE
+//   0x30 string → vlen(len) + UTF-8 bytes
+//   0x40 array  → vlen(count) + count values
+//   0x41 map    → vlen(count) + count × ( vlen(klen) + key bytes + value )
+//
+// write builds a Vec<u8>; read reconstructs into a caller-supplied Writ arena
+// (new strings/arrays/maps are allocated there) and returns the root HAny.
+
+package logos.mem.writ.hbs;
+
+use logos.lang.writ.container;     // Writ
+use logos.lang.writ.anyval;        // HAny, HA_I56
+use logos.lang.writ.array;         // HArray<HAny>
+use logos.lang.writ.hmap;          // HMap<HString, HAny>
+use logos.lang.writ.hstring;       // HString
+use logos.lang.str;                   // str, str_from_raw
+use logos.lang.vlen;                  // vlen_read, vlen_prefix_size
+use logos.lang.ptr;                   // byte_add
+use logos.mem.collections.vec;        // Vec<u8>
+
+// ── write ──────────────────────────────────────────────────────────────────
+unsafe fn put_vlen(out: &mut Vec<u8>, value: u64) {
+    if value < 249u64 { out.push(value as u8); return; }
+    let mut n: u32 = 0u32; let mut v: u64 = value;
+    while v > 0u64 { v = v >> 8u64; n = n + 1u32; }
+    if n > 7u32 { n = 7u32; }
+    out.push((248u32 + n) as u8);
+    let mut i: u32 = 0u32; let mut rem: u64 = value;
+    while i < n { out.push((rem & 0xFFu64) as u8); rem = rem >> 8u64; i = i + 1u32; }
+}
+unsafe fn put_i64(out: &mut Vec<u8>, x: i64) {
+    let mut i: i64 = 0i64;
+    while i < 8i64 { out.push(((x >> (i * 8i64)) & 0xFFi64) as u8); i = i + 1i64; }
+}
+unsafe fn put_bytes(out: &mut Vec<u8>, p: *const u8, n: i64) {
+    let mut i: i64 = 0i64;
+    while i < n { out.push(*p.byte_add(i)); i = i + 1i64; }
+}
+unsafe fn put_f64(out: &mut Vec<u8>, x: f64) {
+    let tmp: f64 = x;
+    let p: *const u8 = &tmp as *const f64 as *const u8;   // reinterpret bytes (no bitcast)
+    let mut i: i64 = 0i64;
+    while i < 8i64 { out.push(*p.byte_add(i)); i = i + 1i64; }
+}
+unsafe fn put_str(out: &mut Vec<u8>, s: str) {
+    put_vlen(out, s.len() as u64);
+    put_bytes(out, s.as_ptr(), s.len());
+}
+
+unsafe fn write_val(out: &mut Vec<u8>, v: HAny) {
+    if v.is_null() { out.push(0u8); return; }
+    if v.is_bool() { out.push(if v.as_bool() { 2u8 } else { 1u8 }); return; }
+    if v.is_float() { out.push(0x18u8); put_f64(out, v.as_f64()); return; }
+    if v.is_int()   { out.push(0x10u8); put_i64(out, v.as_i64()); return; }   // i56 Pod or boxed i64
+    if v.is_string() {
+        let hs: &HString = &*(v.resolve() as *const HString);
+        out.push(0x30u8); put_str(out, hs.as_str()); return;
+    }
+    if v.is_array() {
+        let a: &HArray<HAny> = &*(v.resolve() as *const HArray<HAny>);
+        out.push(0x40u8); put_vlen(out, a.len() as u64);
+        let mut i: i64 = 0i64;
+        while i < a.len() { write_val(out, a.get(i)); i = i + 1i64; }
+        return;
+    }
+    if v.is_map() {
+        let m: &HMap<HString, HAny> = &*(v.resolve() as *const HMap<HString, HAny>);
+        out.push(0x41u8); put_vlen(out, m.len() as u64);
+        let mut i: i64 = 0i64;
+        while i < m.slots() {
+            let k: HAny = m.key_at(i);
+            if !k.is_null() {
+                let ks: &HString = &*(k.resolve() as *const HString);
+                put_str(out, ks.as_str());
+                write_val(out, m.val_at(i));
+            }
+            i = i + 1i64;
+        }
+        return;
+    }
+    out.push(0u8);
+}
+
+// Serialize `v` (and its transitive references) to a fresh byte buffer.
+pub fn hbs_write(v: HAny) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    unsafe { write_val(&mut out, v); }
+    return out;
+}
+
+// ── read ───────────────────────────────────────────────────────────────────
+unsafe fn rd_u8(data: *const u8, pos: *mut i64) -> u8 {
+    let b: u8 = *data.byte_add(*pos); *pos = *pos + 1i64; return b;
+}
+unsafe fn rd_vlen(data: *const u8, pos: *mut i64) -> u64 {
+    let p: *const u8 = data.byte_add(*pos);
+    let v: u64 = vlen_read(p);
+    *pos = *pos + (vlen_prefix_size(p) as i64);
+    return v;
+}
+unsafe fn rd_i64(data: *const u8, pos: *mut i64) -> i64 {
+    let mut x: i64 = 0i64; let mut i: i64 = 0i64;
+    while i < 8i64 { x = x | (((*data.byte_add(*pos + i)) as i64) << (i * 8i64)); i = i + 1i64; }
+    *pos = *pos + 8i64; return x;
+}
+unsafe fn rd_f64(data: *const u8, pos: *mut i64) -> f64 {
+    let mut tmp: f64 = 0.0f64;
+    let dp: *mut u8 = &mut tmp as *mut f64 as *mut u8;
+    let mut i: i64 = 0i64;
+    while i < 8i64 { *dp.byte_add(i) = *data.byte_add(*pos + i); i = i + 1i64; }
+    *pos = *pos + 8i64;
+    return tmp;
+}
+unsafe fn rd_str(data: *const u8, pos: *mut i64) -> str {
+    let len: i64 = rd_vlen(data, pos) as i64;
+    let p: *const u8 = data.byte_add(*pos);
+    *pos = *pos + len;
+    return str_from_raw(p, len);
+}
+
+unsafe fn read_val(h: &Writ, data: *const u8, pos: *mut i64) -> HAny {
+    let lead: u8 = rd_u8(data, pos);
+    if lead == 0u8    { return HAny::ref_to(0i64 as *const u8); }
+    if lead == 1u8    { return HAny::from(false); }
+    if lead == 2u8    { return HAny::from(true); }
+    if lead == 0x10u8 { return h.int(rd_i64(data, pos)); }     // i64 (Pod if it fits, else boxed)
+    if lead == 0x18u8 { return h.float(rd_f64(data, pos)); }   // f64 (boxed)
+    if lead == 0x30u8 { return HAny::from(h.hstring(rd_str(data, pos))); }
+    if lead == 0x40u8 {
+        let cnt: i64 = rd_vlen(data, pos) as i64;
+        let a: &mut HArray<HAny> = h.array(if cnt < 1i64 { 1i64 } else { cnt });
+        let mut i: i64 = 0i64;
+        while i < cnt { a.push(read_val(h, data, pos)); i = i + 1i64; }
+        return HAny::from(&*a);
+    }
+    if lead == 0x41u8 {
+        let cnt: i64 = rd_vlen(data, pos) as i64;
+        let m: &mut HMap<HString, HAny> = h.map(if cnt < 1i64 { 1i64 } else { cnt });
+        let mut i: i64 = 0i64;
+        while i < cnt {
+            let key: str = rd_str(data, pos);
+            let val: HAny = read_val(h, data, pos);
+            m.set(key, val);
+            i = i + 1i64;
+        }
+        return HAny::from(&*m);
+    }
+    return HAny::ref_to(0i64 as *const u8);
+}
+
+// Reconstruct a document from `len` bytes at `data` into the arena `h`; returns
+// the root HAny (strings/arrays/maps newly allocated in `h`).
+pub fn hbs_read(h: &Writ, data: *const u8, len: i64) -> HAny {
+    let mut pos: i64 = 0i64;
+    return unsafe { read_val(h, data, &mut pos as *mut i64) };
+}

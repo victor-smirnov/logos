@@ -1,8 +1,8 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ImportTable (Hermes port) — a module's import-table document.
+// ImportTable (Writ port) — a module's import-table document.
 //
-// Shipped as a SEPARATE Hermes document (its own `.imp` archive member) so a tool
+// Shipped as a SEPARATE Writ document (its own `.imp` archive member) so a tool
 // can read just that small member to inspect which libraries a module imports.
 //
 // Root is a TinyObjectMap whose schema_type_code == import_table::SCHEMA_CODE. It
@@ -52,7 +52,7 @@ struct ImportEntry {
     std::string doc_name;
 };
 
-// Build a standalone import-table Hermes blob (compacted, single-segment) from
+// Build a standalone import-table Writ blob (compacted, single-segment) from
 // `imports` (ordered; arena_id = index + 1, slot 0 = null sentinel). Ready to write
 // to a file / wrap into a `.imp` member.
 [[nodiscard]] logos::expected<std::vector<uint8_t>>

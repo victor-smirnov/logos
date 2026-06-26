@@ -1,14 +1,14 @@
-// Decimal addition on hermes2 (u64-coefficient model; successor of the limb
+// Decimal addition on writ2 (u64-coefficient model; successor of the limb
 // bignum test): digit-boundary carries, scale alignment, signs, overflow guard.
 package dec_arithmetic;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.decimal;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.decimal;
 use logos.lang.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(8192);
-    let h: &Hermes = rc.deref();
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
 
     // 1. Carry across the 10^9 boundary: 999999999 + 1 = 1000000000.
     let a1: HAny = hdec_from_str(h, "999999999");
@@ -38,7 +38,7 @@ unsafe fn main() -> i32 {
     let s5: HAny = hdec_add(h, hdec_from_str(h, "-2.5"), hdec_from_str(h, "2.5"));
     if s5.as_decimal().coeff() != 0u64 { return 11; }
 
-    // 6. u64 overflow → null (the hermes2 bound; limb growth is retired).
+    // 6. u64 overflow → null (the writ2 bound; limb growth is retired).
     let big: HAny = hdec_from_str(h, "9999999999999999999");   // 19 nines
     if big.is_null() { return 12; }
     let s6: HAny = hdec_add(h, big, big);

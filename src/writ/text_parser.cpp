@@ -175,8 +175,8 @@ struct Parser {
 
 } // namespace
 
-logos::expected<HermesCtr> text_parse(std::string_view text) noexcept {
-    LOGOS_TRY(auto ctr, HermesCtr::make());
+logos::expected<WritCtr> text_parse(std::string_view text) noexcept {
+    LOGOS_TRY(auto ctr, WritCtr::make());
     Parser ps{text.data(), text.data() + text.size(), ctr.arena()};
     AnyVal root = ps.value();
     ps.skip_ws();

@@ -27,8 +27,8 @@ Import when:
 
 Write from scratch when:
 
-* Logos has different semantic primitives (Hermes for tagged data;
-  fibers for concurrency; const-generic-over-HermesStatic).
+* Logos has different semantic primitives (Writ for tagged data;
+  fibers for concurrency; const-generic-over-WritStatic).
 * The Rust implementation leans on rustc-internal lang items,
   `#[lang]` attributes, or specialization.
 * The code is simple enough that direct authorship is faster than
@@ -64,7 +64,7 @@ The tradeoff against an in-place layout:
 A package may have files in BOTH `stdlib/std/` and
 `stdlib/imported/std/` — Logos accepts multi-file modules and
 merges them transparently. This is the natural shape when an
-imported algorithm gains Logos-native extensions (e.g. Hermes-zone
+imported algorithm gains Logos-native extensions (e.g. Writ-zone
 integration): the imported file stays under `stdlib/imported/`,
 the extensions live next to it under `stdlib/std/`.
 
@@ -107,7 +107,7 @@ one function, a couple of methods). Two patterns:
    // Original path: library/alloc/src/collections/btree/node.rs
    // Original copyright: The Rust Project Developers (Apache 2.0 / MIT).
    // Modifications: ported core `Node` layout + split logic; the
-   // Hermes-zone integration below this line is Logos-native.
+   // Writ-zone integration below this line is Logos-native.
 
    // ── Imported region (Rust-derived) ───────────────────────────
    pub struct Node<K, V> { ... }
@@ -116,7 +116,7 @@ one function, a couple of methods). Two patterns:
    // ── End imported region ──────────────────────────────────────
 
    // Native Logos-specific code follows.
-   pub fn node_to_hermes_blob(...) { ... }
+   pub fn node_to_writ_blob(...) { ... }
    ```
 
    Use `// ── Imported region (Rust-derived) ─` / `// ── End

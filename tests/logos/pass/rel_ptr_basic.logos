@@ -2,7 +2,7 @@
 // i64 byte-offset from the FIELD's own address; materialized to an absolute thin
 // pointer on read (slot + load_i64(slot)); lowered on write (store target − slot).
 // Position-independent w.r.t. a COHERENT block move (pointer + target relocate
-// together by the same delta). The hermes2 zone's `Hermes::Ptr<T>`.
+// together by the same delta). The writ2 zone's `Writ::Ptr<T>`.
 // (zone-as-parameter Step 2 — the one real codegen item.)
 package rel_ptr_basic;
 use logos.lang.ptr;

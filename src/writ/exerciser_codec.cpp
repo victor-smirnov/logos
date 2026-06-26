@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes binary codec conformance — encode a document to a portable byte stream and
+// Writ binary codec conformance — encode a document to a portable byte stream and
 // decode it into a FRESH holder, verifying the tree round-trips intact (including a
 // re-encode producing identical bytes).
 
@@ -22,9 +22,9 @@ using namespace logos::writ;
 #define CHECK(cond, code) do { if (!(cond)) { std::printf("FAIL %d: %s\n", (code), #cond); return (code); } } while (0)
 
 int main() {
-    auto doc_exp = HermesCtr::make();
+    auto doc_exp = WritCtr::make();
     CHECK(doc_exp.has_value(), 1);
-    HermesCtr doc = std::move(*doc_exp);
+    WritCtr doc = std::move(*doc_exp);
     Arena& a = doc.arena();
 
     // root = { "name": "Ada", "age": 36, "flag": true, "nums": [1,2,3],
@@ -50,7 +50,7 @@ int main() {
     auto enc = binary_encode(doc); CHECK(enc.has_value(), 7);
     CHECK(!enc->empty(), 8);
     auto dec_doc = binary_decode(enc->data(), enc->size()); CHECK(dec_doc.has_value(), 9);
-    HermesCtr d2 = std::move(*dec_doc);
+    WritCtr d2 = std::move(*dec_doc);
 
     MapView mv = as_map(d2.root(), d2.holder());
     CHECK(mv.size() == 6, 10);
@@ -76,6 +76,6 @@ int main() {
     auto bad = binary_decode(enc->data(), enc->size() / 2);
     CHECK(!bad.has_value(), 21);
 
-    std::printf("hermes binary codec (encode/decode roundtrip + idempotent + bounds): OK\n");
+    std::printf("writ binary codec (encode/decode roundtrip + idempotent + bounds): OK\n");
     return 0;
 }

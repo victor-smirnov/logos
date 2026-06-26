@@ -9,7 +9,7 @@
 # providers for String, Vec<T>, slices (&[T] / str), Box<T>, and enums. Enum
 # layout/variant-name metadata is read from the `__logos_debug_meta` section the
 # compiler emits (MLIR 20 can't express DWARF variant parts). Also adds a
-# `logos-hermes <expr>` command decoding the Hermes container format.
+# `logos-writ <expr>` command decoding the Writ container format.
 
 import json
 import re
@@ -263,9 +263,9 @@ class SliceChildren(_SeqChildren):
     pass
 
 
-# ── `logos-hermes <expr>` : decode the Hermes container format ────────────────
+# ── `logos-writ <expr>` : decode the Writ container format ────────────────
 # (Compact mirror of logos_writ_gdb.py's decoder.)
-def _hermes_decode(proc, addr, depth=0, live=True):
+def _writ_decode(proc, addr, depth=0, live=True):
     def u(a, s):
         return _u(_read_mem(proc, a, s))
 
@@ -367,15 +367,15 @@ def _hermes_decode(proc, addr, depth=0, live=True):
     return anyval(addr, depth, live)
 
 
-def cmd_hermes(debugger, command, result, internal_dict):
-    """logos-hermes <expr> — decode the Hermes AnyVal at &<expr> (or an address)."""
+def cmd_writ(debugger, command, result, internal_dict):
+    """logos-writ <expr> — decode the Writ AnyVal at &<expr> (or an address)."""
     target = debugger.GetSelectedTarget()
     frame = target.GetProcess().GetSelectedThread().GetSelectedFrame()
     v = frame.EvaluateExpression(command.strip())
     addr = v.GetLoadAddress()
     if addr == lldb.LLDB_INVALID_ADDRESS:
         addr = v.GetValueAsUnsigned()
-    result.AppendMessage(_hermes_decode(target.GetProcess(), addr))
+    result.AppendMessage(_writ_decode(target.GetProcess(), addr))
 
 
 # ── registration ─────────────────────────────────────────────────────────────
@@ -408,6 +408,6 @@ def __lldb_init_module(debugger, internal_dict):
     cmd(r'type synthetic add -x "^&?\[" -l %s.SliceChildren -w %s' % (m, c))
     _register_enums(debugger)  # enums by exact name from __logos_debug_meta
     cmd("type category enable %s" % c)
-    cmd("command script add -f %s.cmd_hermes logos-hermes" % m)
+    cmd("command script add -f %s.cmd_writ logos-writ" % m)
     cmd("command script add -f %s.cmd_register logos-register" % m)
-    print("logos: lldb formatters loaded (String, Vec, slice, Box, enums; logos-hermes)")
+    print("logos: lldb formatters loaded (String, Vec, slice, Box, enums; logos-writ)")

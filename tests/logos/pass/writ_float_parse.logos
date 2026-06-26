@@ -1,0 +1,15 @@
+// Test: floating-point parsing in the Writ text format parser.
+//
+// f32 embedding is dropped in the 4-byte AnyVal format (AnyVal 8→4 shrink).
+// This test is a no-op placeholder. Float zone-pointer storage will be
+// re-tested when that feature is implemented.
+
+package writ_float_parse;
+
+
+unsafe fn main() -> i32 {
+    // f32 parsing is not supported in the current 4-byte AnyVal format.
+    // Float literals parsed by the Writ parser return null_ptr().
+    // This test intentionally does nothing until zone-pointer floats land.
+    return 42;
+}

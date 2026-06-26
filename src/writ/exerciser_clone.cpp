@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes clone / compaction conformance — deep_copy + DeepCopyState dedup. The two
+// Writ clone / compaction conformance — deep_copy + DeepCopyState dedup. The two
 // things that must hold: SHARED subgraphs stay shared in the clone (copied once),
 // and CYCLES terminate (and stay cycles). Plus independence (a separate holder).
 
@@ -138,6 +138,6 @@ int main() {
     cl.holder->unref();
     cc.holder->unref();
     src->unref();
-    std::printf("hermes clone/compaction (shared + cycle + independence + leaf types): OK\n");
+    std::printf("writ clone/compaction (shared + cycle + independence + leaf types): OK\n");
     return 0;
 }

@@ -1,9 +1,9 @@
-// Sibling impls in one DataTypeTagSystem dispatch space (hermes2 successor of
+// Sibling impls in one DataTypeTagSystem dispatch space (writ2 successor of
 // the TinyObjectMap-sibling test): two concrete #[datatype] datatypes register in
 // the SAME tagged-trait table; codes are distinct and impls resolve directly.
 package tag_dispatch_sibling_concrete;
-use logos.lang.hermes.anyval;
-use logos.mem.hermes.tag_system;
+use logos.lang.writ.anyval;
+use logos.mem.writ.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

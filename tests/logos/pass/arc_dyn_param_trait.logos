@@ -9,16 +9,16 @@
 package arc_dyn_param_trait;
 
 use logos.mem.sync;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
-trait Node<const CFG: HermesStatic> { fn kind(self: &Self) -> i64; }
+trait Node<const CFG: WritStatic> { fn kind(self: &Self) -> i64; }
 
 struct Leaf { tag: i64, }
-impl<const CFG: HermesStatic> Node<CFG> for Leaf { fn kind(self: &Leaf) -> i64 { return self.tag; } }
+impl<const CFG: WritStatic> Node<CFG> for Leaf { fn kind(self: &Leaf) -> i64 { return self.tag; } }
 unsafe impl Send for Leaf {}
 unsafe impl Sync for Leaf {}
 
-pub const CFG: HermesStatic = @{ "fanout": 4 };
+pub const CFG: WritStatic = @{ "fanout": 4 };
 
 // fn parameter typed Arc<dyn Node<CFG>> (this alone used to ICE).
 fn dispatch(a: &Arc<dyn Node<CFG>>) -> i64 { return a.deref().kind(); }

@@ -136,7 +136,7 @@ struct alignas(8) MessageHeader {
         return kBaseSize + extra;
     }
 
-    // Size of the payload (Hermes document bytes) following the header.
+    // Size of the payload (Writ document bytes) following the header.
     size_t payload_size() const noexcept {
         size_t hdr = header_size();
         if (static_cast<size_t>(message_size) <= hdr) return 0;

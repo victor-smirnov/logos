@@ -1,17 +1,17 @@
-// Container RAII (hermes2 successor of the MemHolder custom-destroyer test):
-// a Hermes container owns its arena; values live until the holder drops at
+// Container RAII (writ2 successor of the MemHolder custom-destroyer test):
+// a Writ container owns its arena; values live until the holder drops at
 // scope end (RAII Drop), including through an Rc share.
 package mem_holder_custom_destroyer;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
 use logos.lang.rc;
 
 struct Blob { sentinel: u8, n: i64 }
 
-unsafe fn sum_in(c: &Rc<Hermes>) -> i64 {
-    let h: &Hermes = c.deref();
-    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
-    let b: *mut Blob = hermes_alloc::<Blob>(hp);
+unsafe fn sum_in(c: &Rc<Writ>) -> i64 {
+    let h: &Writ = c.deref();
+    let hp: *mut Writ = h as *const Writ as *mut Writ;
+    let b: *mut Blob = writ_alloc::<Blob>(hp);
     b.sentinel = 0xEE as u8;
     b.n = 41;
     if b.sentinel != 0xEE as u8 { return -1; }
@@ -22,8 +22,8 @@ unsafe fn main() -> i32 {
     // Inner scope: container + share are created and dropped (RAII).
     let mut got: i64 = 0;
     {
-        let rc: Rc<Hermes> = hermes_rc(4096);
-        let rc2: Rc<Hermes> = rc.clone();
+        let rc: Rc<Writ> = writ_rc(4096);
+        let rc2: Rc<Writ> = rc.clone();
         got = sum_in(&rc2);
     }   // both handles drop -> arena freed exactly once (valgrind-clean suite)
     if got != 42 { return 1; }

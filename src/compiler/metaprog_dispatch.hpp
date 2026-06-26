@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include <logos/writ/compat.hpp>  // writ::Hermes (= Own<HermesView>)
+#include <logos/writ/compat.hpp>  // writ::Writ (= Own<WritView>)
 #include <logos/compiler/str_map.hpp>
 
 namespace logos::compiler {
@@ -105,7 +105,7 @@ struct MetaprogDispatchOpts {
 // args; restores prior values on exit. Caller need only own the
 // asts/filenames/from_binary vectors (which may grow).
 int run_metaprog_dispatch(
-    std::vector<writ::Hermes>& asts,
+    std::vector<writ::Writ>& asts,
     std::vector<std::string>&    filenames,
     std::vector<bool>&           from_binary,
     std::size_t                  entry_ast_idx,

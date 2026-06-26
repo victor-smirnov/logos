@@ -16,7 +16,7 @@ PROJ=$(mktemp -d)
 trap 'rm -rf "$PROJ"' EXIT
 
 mkdir -p "$PROJ/src"
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "dump_smoke",
     version: "0.1.0",

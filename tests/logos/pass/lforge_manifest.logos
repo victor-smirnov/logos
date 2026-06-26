@@ -1,12 +1,12 @@
-// B0.3: SDN manifest schema for lforge, on the hermes2 parser.
+// B0.3: SDN manifest schema for lforge, on the writ2 parser.
 // { name: "...", version: "...", src: "...", entry: "..." } — required string
 // fields; unknown fields ignored; missing/badly-typed fields are errors.
 package lforge_manifest;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.hmap;
-use logos.lang.hermes.hstring;
-use logos.mem.hermes.parser;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.mem.writ.parser;
 use logos.lang.rc;
 use logos.mem.string;
 use logos.lang.str;
@@ -51,7 +51,7 @@ unsafe fn read_str_field(m: &HMap<HString, HAny>, key: str) -> Result<String, Ma
     return Result::Ok(out);
 }
 
-pub unsafe fn parse_manifest(h: &Hermes, text: str) -> Result<Manifest, ManifestError> {
+pub unsafe fn parse_manifest(h: &Writ, text: str) -> Result<Manifest, ManifestError> {
     let root: HAny = parse(h, text);
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));
@@ -82,8 +82,8 @@ pub unsafe fn parse_manifest(h: &Hermes, text: str) -> Result<Manifest, Manifest
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(32768);
-    let h: &Hermes = rc.deref();
+    let rc: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = rc.deref();
 
     // 1. Well-formed manifest.
     let s1: str = "{ name: \"my-project\", version: \"0.1.0\", src: \"src\", entry: \"main\" }";

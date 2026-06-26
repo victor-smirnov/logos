@@ -1,0 +1,40 @@
+// HTypedValue — Writ SDN datatype instantiation `@Type(params?) = init`
+// (Writ1 TypedValue, code 4115). Build one with + without params; read back the
+// type name, the (round-tripped) init value, and params presence; check dispatch.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.typed_value;
+use logos.lang.writ.array;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(64i64);
+
+    // @Date = 1717948800  (no params)
+    let nullv: HAny = HAny::ref_to(0i64 as *const u8);
+    let tv: HAny = h.typed_value("Date", nullv, h.int(1717948800i64));
+
+    if !tv.is_typed_value() { return 1; }
+    let t: &HTypedValue = tv.as_typed_value();
+    if !str_eq(t.type_name_str(), "Date") { return 2; }
+    if t.init().as_i56() != 1717948800i64 { return 3; }
+    if t.has_params() { return 4; }                       // no params
+    if !t.params().is_null() { return 5; }
+
+    // @Point(2) = 3   (params = an array holding one element)
+    let p: &mut HArray<HAny> = h.array(2i64);
+    p.push(2i64);
+    let tv2: HAny = h.typed_value("Point", HAny::from(&*p), h.int(3i64));
+    let t2: &HTypedValue = tv2.as_typed_value();
+    if !str_eq(t2.type_name_str(), "Point") { return 6; }
+    if t2.init().as_i56() != 3i64 { return 7; }
+    if !t2.has_params() { return 8; }                     // params present
+    let pa: &HArray<HAny> = h.array_of(t2.params());
+    if pa.len() != 1i64 { return 9; }
+    if pa.get(0i64).as_i56() != 2i64 { return 10; }
+
+    // a non-typed-value HAny is not misdetected
+    if h.int(5i64).is_typed_value() { return 11; }
+    return 0;
+}

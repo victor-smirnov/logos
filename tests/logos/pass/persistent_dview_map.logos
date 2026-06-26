@@ -10,15 +10,15 @@ use logos.lang.option;
 use logos.lang.cmp;
 use logos.lang.fabric;
 use logos.lang.drop;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.dview;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.dview;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
 use logos.std.data.persistent.store;
 use logos.std.data.persistent.handle;
 
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name":     "dv",
     "ctr_id":   <type:u64>,
     "snp_id":   <type:u64>,
@@ -26,7 +26,7 @@ pub const StoreCfg: HermesStatic = @{
 };
 
 // Both key and value are the datum view.
-pub const DvCfg: HermesStatic = @{
+pub const DvCfg: WritStatic = @{
     "key":    <type:DView>,
     "value":  <type:DView>,
     "fanout": 8,

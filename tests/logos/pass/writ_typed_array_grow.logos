@@ -1,0 +1,31 @@
+// Typed-array growth in the never-move arena (writ2): elements survive the
+// data-buffer re-allocation; the header address never changes.
+package writ_typed_array_grow;
+use logos.lang.writ.container;
+use logos.lang.writ.array;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(16384);
+    let h: &Writ = rc.deref();
+    let arr: &mut HArray<i32> = h.tarray::<i32>(4);
+    let hdr0: i64 = (&*arr as *const HArray<i32>) as i64;
+
+    let mut i: i64 = 0;
+    while i < 20 {
+        arr.push(i as i32);
+        i = i + 1;
+    }
+    // Header never moved (the at-rest world's stability guarantee).
+    if ((&*arr as *const HArray<i32>) as i64) != hdr0 { return 1; }
+    if arr.len() != 20i64 { return 2; }
+    // Values survived 4 -> 8 -> 16 -> 32 growth copies.
+    let mut sum: i64 = 0;
+    i = 0;
+    while i < 20 {
+        sum = sum + arr.get(i) as i64;
+        i = i + 1;
+    }
+    if sum != 190i64 { return 3; }    // 0+..+19
+    return 0;
+}

@@ -7,7 +7,7 @@
 package meta_template_handle_smoke;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.anyval;
 
 fn make_template() -> Template {
     return Template { raw: HAny::Ref(0i64 as *const u8) };

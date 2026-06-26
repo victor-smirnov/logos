@@ -1,5 +1,5 @@
-// Probe: trait with a const-generic HermesStatic parameter — required
-// for `BTreeNode<const STORE_CFG: HermesStatic>` in the persistent
+// Probe: trait with a const-generic WritStatic parameter — required
+// for `BTreeNode<const STORE_CFG: WritStatic>` in the persistent
 // rearch. Verifies impl resolution + method dispatch under a const-
 // generic trait header, and that distinct STORE_CFGs produce distinct
 // dyn-trait-object types (i.e. the type system distinguishes them).
@@ -7,12 +7,12 @@
 package zz_trait_const_generic_probe;
 
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
-pub const StoreA: HermesStatic = @{ "name": "A", "tag": <type:u64> };
-pub const StoreB: HermesStatic = @{ "name": "B", "tag": <type:u64> };
+pub const StoreA: WritStatic = @{ "name": "A", "tag": <type:u64> };
+pub const StoreB: WritStatic = @{ "name": "B", "tag": <type:u64> };
 
-pub trait Marker<const STORE_CFG: HermesStatic> {
+pub trait Marker<const STORE_CFG: WritStatic> {
     fn store_hash(&self) -> u64;
     fn double(&self, x: u64) -> u64;
 }

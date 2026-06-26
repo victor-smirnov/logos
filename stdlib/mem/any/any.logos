@@ -1,5 +1,5 @@
 //
-// Typed wrappers over the HermesStatic TypeInfo blobs emitted by reflect::<T>().
+// Typed wrappers over the WritStatic TypeInfo blobs emitted by reflect::<T>().
 //
 // Usage:
 //   use std.reflect;
@@ -14,8 +14,8 @@
 //   }
 //
 // STEP 5 (cut-over): reflect::<T>() emits the TypeInfo blob in HERMES2 format, so
-// the reads go through the hermes2 reader HView2 (lang.hermes2.static_view) rather
-// than the Hermes1 HermesView. The public API (HermesStatic handle in, StringView
+// the reads go through the writ2 reader HView2 (lang.writ2.static_view) rather
+// than the Writ1 WritView. The public API (WritStatic handle in, StringView
 // out) is unchanged. The node handle is stashed in the view structs as the raw
 // HAny word (i64) — a plain value, sidestepping the borrow-checker treating the
 // Ref raw-ptr as a borrow of a local — and rebuilt via hany_from_word on use.
@@ -23,12 +23,12 @@
 
 package logos.mem.any;
 
-use logos.lang.hermes.hstatic;     // HermesStatic (reflect::<T>() return type), StringView
-use logos.lang.hermes.static_view;  // HView2 / hview2_from_ptr / hany_from_word / SView2
-use logos.lang.hermes.anyval;       // HAny
+use logos.lang.writ.hstatic;     // WritStatic (reflect::<T>() return type), StringView
+use logos.lang.writ.static_view;  // HView2 / hview2_from_ptr / hany_from_word / SView2
+use logos.lang.writ.anyval;       // HAny
 use logos.lang.str;
 
-// Convert a hermes2 SView2 to the public StringView (same {ptr,len} shape).
+// Convert a writ2 SView2 to the public StringView (same {ptr,len} shape).
 fn sview2_to_stringview(sv: SView2) -> StringView {
     return StringView { ptr: sv.ptr, len: sv.len };
 }
@@ -36,7 +36,7 @@ fn sview2_to_stringview(sv: SView2) -> StringView {
 // ── TypeInfo ─────────────────────────────────────────────────────────────────
 
 pub struct TypeInfo {
-    inner: HermesStatic,
+    inner: WritStatic,
 }
 
 impl TypeInfo {
@@ -110,7 +110,7 @@ impl TypeInfo {
 // The array node is stashed as the raw HAny word (i64) and rebuilt on use.
 
 pub struct FieldsView {
-    info:     HermesStatic,
+    info:     WritStatic,
     arr_bits: i64,
 }
 
@@ -130,7 +130,7 @@ impl FieldsView {
 // ── FieldInfo ─────────────────────────────────────────────────────────────────
 
 pub struct FieldInfo {
-    info:     HermesStatic,
+    info:     WritStatic,
     map_bits: i64,
 }
 
@@ -151,7 +151,7 @@ impl FieldInfo {
 // ── AnnotationsView ───────────────────────────────────────────────────────────
 
 pub struct AnnotationsView {
-    info:     HermesStatic,
+    info:     WritStatic,
     arr_bits: i64,
 }
 
@@ -171,7 +171,7 @@ impl AnnotationsView {
 // ── AnnotationInfo ────────────────────────────────────────────────────────────
 
 pub struct AnnotationInfo {
-    info:     HermesStatic,
+    info:     WritStatic,
     map_bits: i64,
 }
 

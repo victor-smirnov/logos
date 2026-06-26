@@ -12,7 +12,7 @@
 package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.anyval;
 use logos.lang.cmp;
 
 #[metaprog_handler("derive_partial_ord")]

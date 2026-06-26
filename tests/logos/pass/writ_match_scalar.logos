@@ -1,0 +1,39 @@
+// Test: Writ scalar match patterns — scrutinee is a view.
+
+package writ_match_scalar;
+
+use logos.lang.writ.anyval;
+use logos.lang.writ.pat;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn mk(v: HAny) -> Rc<Writ> {
+    let rc: Rc<Writ> = writ_rc(1024);
+    let h: &Writ = rc.deref();
+    h.set_root(v);
+    return rc;
+}
+
+unsafe fn classify(d: &Rc<Writ>) -> i32 {
+    match d {
+        @null  => { return 1; }
+        @true  => { return 2; }
+        @false => { return 3; }
+        @42    => { return 4; }
+        @-7    => { return 5; }
+        _      => { return 0; }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: Rc<Writ> = mk(HAny::Ref(0 as *const u8));
+    let b: Rc<Writ> = mk(HAny::from(true));
+    let c: Rc<Writ> = mk(HAny::from(false));
+    let d: Rc<Writ> = mk(HAny::from(42 as i56));
+    let e: Rc<Writ> = mk(HAny::from(-7 as i56));
+    let f: Rc<Writ> = mk(HAny::from(99 as i56));
+
+    // 1+2+3+4+5+0 = 15
+    return classify(&a) + classify(&b) + classify(&c)
+         + classify(&d) + classify(&e) + classify(&f);
+}

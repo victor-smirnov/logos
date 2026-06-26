@@ -1,5 +1,5 @@
 // Custom-DST WRITE through `&mut DstStruct`: prefix-field write (s.used) and
-// tail write (s.data[i]) — the foundation the real zoned objects (HermesString,
+// tail write (s.data[i]) — the foundation the real zoned objects (WritString,
 // Array) build on. A `&mut Foo` for a custom-DST Foo is a fat DstRef; writing
 // through it must be allowed (it carries its own mutability), exactly like
 // `&mut Sized`.

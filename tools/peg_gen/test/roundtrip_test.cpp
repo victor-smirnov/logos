@@ -1,9 +1,9 @@
 //
-// hermes_parser roundtrip test: parses Hermes strings via the generated parser
+// writ_parser roundtrip test: parses Writ strings via the generated parser
 // and verifies the resulting AST structure.
-// Generated hermes_parser.hpp/cpp come from peg_gen run as a build step.
+// Generated writ_parser.hpp/cpp come from peg_gen run as a build step.
 
-#include "hermes_parser.hpp"
+#include "writ_parser.hpp"
 
 #include <logos/verification/assert.hpp>
 #include <logos/writ/view.hpp>
@@ -11,19 +11,19 @@
 #include <print>
 #include <string_view>
 
-using logos::writ::HermesParser;
-using logos::writ::Hermes;
+using logos::writ::WritParser;
+using logos::writ::Writ;
 using logos::writ::TinyMapView;
 using logos::writ::ArrayView;
 using logos::writ::StringView;
 using logos::writ::MemHolder;
 using logos::writ::AnyVal;
-namespace ha = logos::writ::hermes_ast;
+namespace ha = logos::writ::writ_ast;
 
 // ── Navigation helpers ───────────────────────────────────────────────────────
 
 // Root node of a parsed document as TinyMapView.
-static TinyMapView root_node(Hermes& doc) {
+static TinyMapView root_node(Writ& doc) {
     return doc.root_object().as_tiny_map();
 }
 
@@ -48,7 +48,7 @@ static ArrayView node_items(TinyMapView n, MemHolder* h) {
 // ── Scalar tests ─────────────────────────────────────────────────────────────
 
 static void test_integer() {
-    HermesParser p("42");
+    WritParser p("42");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-001", "code=INTEGER");
@@ -57,7 +57,7 @@ static void test_integer() {
 }
 
 static void test_negative_integer() {
-    HermesParser p("-7");
+    WritParser p("-7");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-002", "code=INTEGER");
@@ -66,7 +66,7 @@ static void test_negative_integer() {
 }
 
 static void test_float() {
-    HermesParser p("3.14");
+    WritParser p("3.14");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-003", "code=FLOAT");
@@ -75,7 +75,7 @@ static void test_float() {
 }
 
 static void test_float_sci() {
-    HermesParser p("1.5e10");
+    WritParser p("1.5e10");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-004", "code=FLOAT");
@@ -85,7 +85,7 @@ static void test_float_sci() {
 
 static void test_string() {
     // Lexer returns token text verbatim including the surrounding quotes.
-    HermesParser p(R"("hello world")");
+    WritParser p(R"("hello world")");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::STRING), "ROUND-005", "code=STRING");
@@ -95,7 +95,7 @@ static void test_string() {
 }
 
 static void test_string_escapes() {
-    HermesParser p(R"("a\"b\\c")");
+    WritParser p(R"("a\"b\\c")");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::STRING), "ROUND-006", "code=STRING");
@@ -103,7 +103,7 @@ static void test_string_escapes() {
 }
 
 static void test_bool_true() {
-    HermesParser p("true");
+    WritParser p("true");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::BOOLEAN), "ROUND-007", "code=BOOLEAN");
@@ -113,7 +113,7 @@ static void test_bool_true() {
 }
 
 static void test_bool_false() {
-    HermesParser p("false");
+    WritParser p("false");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::BOOLEAN), "ROUND-008", "code=BOOLEAN");
@@ -122,7 +122,7 @@ static void test_bool_false() {
 }
 
 static void test_null() {
-    HermesParser p("null");
+    WritParser p("null");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::NULL_VAL), "ROUND-009", "code=NULL_VAL");
@@ -132,7 +132,7 @@ static void test_null() {
 // ── Map tests ─────────────────────────────────────────────────────────────────
 
 static void test_empty_map() {
-    HermesParser p("{}");
+    WritParser p("{}");
     auto doc = p.parse_map();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::MAP), "ROUND-010", "code=MAP");
@@ -142,7 +142,7 @@ static void test_empty_map() {
 }
 
 static void test_single_entry_map() {
-    HermesParser p(R"({"x": 1})");
+    WritParser p(R"({"x": 1})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto root = root_node(doc);
@@ -161,7 +161,7 @@ static void test_single_entry_map() {
 }
 
 static void test_multi_entry_map() {
-    HermesParser p(R"({"a": 1, "b": 2, "c": 3})");
+    WritParser p(R"({"a": 1, "b": 2, "c": 3})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -179,7 +179,7 @@ static void test_multi_entry_map() {
 }
 
 static void test_ident_key_map() {
-    HermesParser p("{x: 42, y: -1}");
+    WritParser p("{x: 42, y: -1}");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -196,7 +196,7 @@ static void test_ident_key_map() {
 }
 
 static void test_map_trailing_comma() {
-    HermesParser p(R"({"a": 1, "b": 2,})");
+    WritParser p(R"({"a": 1, "b": 2,})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -205,7 +205,7 @@ static void test_map_trailing_comma() {
 }
 
 static void test_map_mixed_value_types() {
-    HermesParser p(R"({"n": 1, "s": "hi", "b": true, "nil": null})");
+    WritParser p(R"({"n": 1, "s": "hi", "b": true, "nil": null})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -226,7 +226,7 @@ static void test_map_mixed_value_types() {
 // ── Array tests ───────────────────────────────────────────────────────────────
 
 static void test_empty_array() {
-    HermesParser p("[]");
+    WritParser p("[]");
     auto doc = p.parse_array();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::ARRAY), "ROUND-020", "code=ARRAY");
@@ -236,7 +236,7 @@ static void test_empty_array() {
 }
 
 static void test_integer_array() {
-    HermesParser p("[1, 2, 3]");
+    WritParser p("[1, 2, 3]");
     auto doc = p.parse_array();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -252,7 +252,7 @@ static void test_integer_array() {
 }
 
 static void test_array_trailing_comma() {
-    HermesParser p("[1, 2,]");
+    WritParser p("[1, 2,]");
     auto doc = p.parse_array();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -261,7 +261,7 @@ static void test_array_trailing_comma() {
 }
 
 static void test_mixed_array() {
-    HermesParser p(R"([1, "two", true, null])");
+    WritParser p(R"([1, "two", true, null])");
     auto doc = p.parse_array();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -280,7 +280,7 @@ static void test_mixed_array() {
 // ── Nesting tests ─────────────────────────────────────────────────────────────
 
 static void test_nested_map_in_array() {
-    HermesParser p(R"([{"x": 1}, {"y": 2}])");
+    WritParser p(R"([{"x": 1}, {"y": 2}])");
     auto doc = p.parse_array();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -297,7 +297,7 @@ static void test_nested_map_in_array() {
 }
 
 static void test_array_in_map() {
-    HermesParser p(R"({"items": [1, 2], "count": 2})");
+    WritParser p(R"({"items": [1, 2], "count": 2})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto top = node_items(root_node(doc), h);
@@ -317,7 +317,7 @@ static void test_array_in_map() {
 // ── Typed value tests ─────────────────────────────────────────────────────────
 
 static void test_typed_value_simple() {
-    HermesParser p(R"(Date("2026-01-01"))");
+    WritParser p(R"(Date("2026-01-01"))");
     auto doc = p.parse_typed_value();
     auto h = doc.holder();
     auto root = root_node(doc);
@@ -333,7 +333,7 @@ static void test_typed_value_simple() {
 }
 
 static void test_typed_value_integer_arg() {
-    HermesParser p("Meters(100)");
+    WritParser p("Meters(100)");
     auto doc = p.parse_typed_value();
     auto h = doc.holder();
     auto root = root_node(doc);
@@ -351,7 +351,7 @@ static void test_typed_value_integer_arg() {
 // ── Whitespace and comments ───────────────────────────────────────────────────
 
 static void test_whitespace_tolerance() {
-    HermesParser p("  {  \"a\"  :  1  ,  \"b\"  :  2  }  ");
+    WritParser p("  {  \"a\"  :  1  ,  \"b\"  :  2  }  ");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -360,7 +360,7 @@ static void test_whitespace_tolerance() {
 }
 
 static void test_comment_skipped() {
-    HermesParser p("// ignored\n42");
+    WritParser p("// ignored\n42");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-051", "comment skipped");
@@ -369,7 +369,7 @@ static void test_comment_skipped() {
 }
 
 static void test_block_comment_skipped() {
-    HermesParser p("/* leading */ 99 /* trailing */");
+    WritParser p("/* leading */ 99 /* trailing */");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-052", "block comment skipped");
@@ -379,7 +379,7 @@ static void test_block_comment_skipped() {
 
 static void test_block_comment_inline() {
     // Block comment mid-expression: key /* ignored */ : value
-    HermesParser p(R"({/* c */ "k" /* c */: /* c */ 1 /* c */})");
+    WritParser p(R"({/* c */ "k" /* c */: /* c */ 1 /* c */})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -392,7 +392,7 @@ static void test_block_comment_inline() {
 // ── Number edge cases ────────────────────────────────────────────────────────
 
 static void test_negative_float() {
-    HermesParser p("-3.14");
+    WritParser p("-3.14");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-060", "code=FLOAT");
@@ -402,7 +402,7 @@ static void test_negative_float() {
 
 static void test_float_dot_leading() {
     // FLOAT regex allows [0-9]* before dot, so .5 is valid.
-    HermesParser p(".5");
+    WritParser p(".5");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-061", "code=FLOAT");
@@ -411,7 +411,7 @@ static void test_float_dot_leading() {
 }
 
 static void test_float_sci_neg_exp() {
-    HermesParser p("1.5e-3");
+    WritParser p("1.5e-3");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-062", "code=FLOAT");
@@ -420,7 +420,7 @@ static void test_float_sci_neg_exp() {
 }
 
 static void test_zero() {
-    HermesParser p("0");
+    WritParser p("0");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-063", "code=INTEGER");
@@ -431,7 +431,7 @@ static void test_zero() {
 // ── Typed integer suffixes ────────────────────────────────────────────────────
 
 static void test_integer_u8() {
-    HermesParser p("255_u8");
+    WritParser p("255_u8");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-064", "code=INTEGER");
@@ -440,7 +440,7 @@ static void test_integer_u8() {
 }
 
 static void test_integer_s64() {
-    HermesParser p("-100_s64");
+    WritParser p("-100_s64");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-065", "code=INTEGER");
@@ -449,7 +449,7 @@ static void test_integer_s64() {
 }
 
 static void test_integer_ull() {
-    HermesParser p("100ull");
+    WritParser p("100ull");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-066", "code=INTEGER");
@@ -458,7 +458,7 @@ static void test_integer_ull() {
 }
 
 static void test_integer_ll() {
-    HermesParser p("100ll");
+    WritParser p("100ll");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-067", "code=INTEGER");
@@ -467,7 +467,7 @@ static void test_integer_ll() {
 }
 
 static void test_integer_u() {
-    HermesParser p("42u");
+    WritParser p("42u");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-068", "code=INTEGER");
@@ -478,7 +478,7 @@ static void test_integer_u() {
 // ── Hex / binary / octal ─────────────────────────────────────────────────────
 
 static void test_hex_integer() {
-    HermesParser p("0xFF");
+    WritParser p("0xFF");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-073", "code=INTEGER");
@@ -487,7 +487,7 @@ static void test_hex_integer() {
 }
 
 static void test_hex_with_suffix() {
-    HermesParser p("0xFF_u32");
+    WritParser p("0xFF_u32");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-074", "code=INTEGER");
@@ -496,7 +496,7 @@ static void test_hex_with_suffix() {
 }
 
 static void test_binary_integer() {
-    HermesParser p("0b1010");
+    WritParser p("0b1010");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-075", "code=INTEGER");
@@ -505,7 +505,7 @@ static void test_binary_integer() {
 }
 
 static void test_binary_with_suffix() {
-    HermesParser p("0b1010_u16");
+    WritParser p("0b1010_u16");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-076", "code=INTEGER");
@@ -514,7 +514,7 @@ static void test_binary_with_suffix() {
 }
 
 static void test_octal_integer() {
-    HermesParser p("0o17");
+    WritParser p("0o17");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::INTEGER), "ROUND-077", "code=INTEGER");
@@ -525,7 +525,7 @@ static void test_octal_integer() {
 // ── Float suffixes ───────────────────────────────────────────────────────────
 
 static void test_float_f_suffix() {
-    HermesParser p("3.14f");
+    WritParser p("3.14f");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-078", "code=FLOAT");
@@ -534,7 +534,7 @@ static void test_float_f_suffix() {
 }
 
 static void test_float_d_suffix() {
-    HermesParser p("2.718d");
+    WritParser p("2.718d");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-079", "code=FLOAT");
@@ -543,7 +543,7 @@ static void test_float_d_suffix() {
 }
 
 static void test_float_sci_f_suffix() {
-    HermesParser p("1.5e10f");
+    WritParser p("1.5e10f");
     auto doc = p.parse_value();
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::FLOAT), "ROUND-079b", "code=FLOAT");
@@ -555,7 +555,7 @@ static void test_float_sci_f_suffix() {
 
 static void test_keyword_prefix_ident() {
     // "trueish" must lex as IDENT, not TRUE + IDENT("ish")
-    HermesParser p("{trueish: 1}");
+    WritParser p("{trueish: 1}");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -567,7 +567,7 @@ static void test_keyword_prefix_ident() {
 
 static void test_keyword_prefix_null() {
     // "nullify" must lex as IDENT, not NULL + IDENT("ify")
-    HermesParser p("{nullify: 1}");
+    WritParser p("{nullify: 1}");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -581,7 +581,7 @@ static void test_keyword_prefix_null() {
 
 static void test_typed_value_single_param() {
     // List<Int>(42)
-    HermesParser p("List<Int>(42)");
+    WritParser p("List<Int>(42)");
     auto doc = p.parse_typed_value();
     auto h = doc.holder();
     auto root = root_node(doc);
@@ -603,7 +603,7 @@ static void test_typed_value_single_param() {
 
 static void test_typed_value_multi_param() {
     // Map<String, Int>({"a": 1})
-    HermesParser p(R"(Map<String, Int>({"a": 1}))");
+    WritParser p(R"(Map<String, Int>({"a": 1}))");
     auto doc = p.parse_typed_value();
     auto h = doc.holder();
     auto root = root_node(doc);
@@ -624,7 +624,7 @@ static void test_typed_value_multi_param() {
 
 static void test_typed_value_nested_param() {
     // Map<String, List<Int>>({"a": [1]})
-    HermesParser p(R"(Map<String, List<Int>>({"a": [1]}))");
+    WritParser p(R"(Map<String, List<Int>>({"a": [1]}))");
     auto doc = p.parse_typed_value();
     auto h = doc.holder();
     auto root = root_node(doc);
@@ -649,7 +649,7 @@ static void test_typed_value_nested_param() {
 // ── Typed values in compound contexts ────────────────────────────────────────
 
 static void test_typed_value_in_map() {
-    HermesParser p(R"({"d": Date("2026-01-01"), "n": 42})");
+    WritParser p(R"({"d": Date("2026-01-01"), "n": 42})");
     auto doc = p.parse_map();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -666,7 +666,7 @@ static void test_typed_value_in_map() {
 }
 
 static void test_typed_value_in_array() {
-    HermesParser p(R"([Date("2026-01-01"), Meters(100)])");
+    WritParser p(R"([Date("2026-01-01"), Meters(100)])");
     auto doc = p.parse_array();
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
@@ -682,7 +682,7 @@ static void test_typed_value_in_array() {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main() {
-    std::println("── hermes_parser roundtrip ──────────────────────────────");
+    std::println("── writ_parser roundtrip ──────────────────────────────");
 
     std::println("scalars:");
     test_integer();

@@ -1,0 +1,37 @@
+// Test: typed-container patterns @<T>[..] / @<K,V>{..} match by type_code.
+
+package writ_match_typed;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.hstatic;
+
+unsafe fn kind(d: &WritStatic) -> i32 {
+    match d {
+        @<I32>[..]            => 1,
+        @<U64>[..]             => 2,
+        @<Varchar, AnyVal>{..} => 3,
+        @<I32, AnyVal>{..}     => 4,
+        @[..]                  => 10,   // untyped ObjectArray
+        @{}                    => 20,   // any map (fallback — shouldn't reach for typed map)
+        _                      => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let i32_arr: WritStatic = @<I32>[1, 2, 3];
+    let u64_arr: WritStatic = @<U64>[10, 20];
+    let any_arr: WritStatic = @[1, "two", 3];
+    let str_map: WritStatic = @{"a": 1, "b": 2};
+    let i32_map: WritStatic = @<I32, AnyVal>{1: 10, 2: 20};
+    let scalar:  WritStatic = @42;
+
+    // 1 + 2 + 10 + 3 + 4 + 0 = 20; add offset → 123
+    let s: i32 =
+        kind(&i32_arr) +
+        kind(&u64_arr) +
+        kind(&any_arr) +
+        kind(&str_map) +
+        kind(&i32_map) +
+        kind(&scalar);
+    return s + 103;
+}

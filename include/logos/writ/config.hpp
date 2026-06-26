@@ -9,7 +9,7 @@
 namespace logos::writ {
 
 // ---------------------------------------------------------------------------
-// Hermes scalar error codes (range 0x0001'0000 … 0x0001'FFFF).
+// Writ scalar error codes (range 0x0001'0000 … 0x0001'FFFF).
 // ---------------------------------------------------------------------------
 enum class ErrCode : uint64_t {
     parse_error    = 0x0001'0001,  // text parser or path parser failure

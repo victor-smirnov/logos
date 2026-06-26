@@ -1,4 +1,4 @@
-// Fat `&mut` zone reference (hermes2-zone-mut-fat-ref). A `&mut T` to a #[zone_mut]
+// Fat `&mut` zone reference (writ2-zone-mut-fat-ref). A `&mut T` to a #[zone_mut]
 // type is a fat {data, zone} pair: `zone_mut_ref` builds it (bundling a zone ptr),
 // `zone_of` recovers the zone. Verifies field read/write + method (fat self) +
 // zone cascade inside a method + a RETURNABLE fat &mut (no dangling).

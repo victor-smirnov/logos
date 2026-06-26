@@ -43,7 +43,7 @@ pub fn per_file_dir(profile: str, lib_name: str) -> String {
 }
 
 // `<dir>/<stem>` — basename of source without `.logos` extension, joined
-// with the per-lib output dir. Caller appends `.o` / `.hermes0`.
+// with the per-lib output dir. Caller appends `.o` / `.writ0`.
 pub fn per_file_prefix(dir: &String, src_path: &String) -> String {
     let stem_str: String = stem(src_path.as_str());
     let mut p: String = String::new();

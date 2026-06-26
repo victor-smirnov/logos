@@ -1,0 +1,32 @@
+// String buffer growth during stringify (successor of the Writ1 StringBuf
+// grow test): render a document much larger than the initial String capacity.
+package writ_stringbuf_grow;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.hstring;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(65536);
+    let h: &Writ = rc.deref();
+    let arr: &mut HArray<HAny> = h.array(8);
+    let mut i: i64 = 0;
+    while i < 100 {
+        arr.push(HAny::from(&*(h.hstring("growing-element-payload") as *const HString)));
+        i = i + 1;
+    }
+    let ap: *const HArray<HAny> = arr as *const HArray<HAny>;
+    let text: String = stringify(HAny::ref_to(ap as *const u8));
+    // 100 * ("growing-element-payload"+quotes=25) + 99*", " + "[]" = 2500+198+2.
+    if text.len() != 2700i64 { return 1; }
+    let tp: *const u8 = text.as_str().as_ptr();
+    if *tp != 91 as u8 { return 2; }                       // '['
+    if *((tp as i64 + 1) as *const u8) != 34 as u8 { return 3; }   // '"'
+    if *((tp as i64 + 2) as *const u8) != 103 as u8 { return 4; }  // 'g'
+
+    return 42;
+}

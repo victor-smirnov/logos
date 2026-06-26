@@ -1,10 +1,10 @@
 #pragma once
 
-// Hermes schema keys for compiler-internal type and generics objects.
+// Writ schema keys for compiler-internal type and generics objects.
 //
-// Phase 2 of the compiler-on-Hermes migration (see plans/snappy-knitting-kay.md).
+// Phase 2 of the compiler-on-Writ migration (see plans/snappy-knitting-kay.md).
 // These Key constants describe the on-zone layout of LogosType / TraitBound /
-// TypeParam when they live as TinyObjectMap nodes inside a Hermes document.
+// TypeParam when they live as TinyObjectMap nodes inside a Writ document.
 //
 // The variant discriminator for a LogosType node is stored in the TinyObjectMap
 // header via `set_schema_type_code(schema::type(int32_t(kind)))` — no KIND key

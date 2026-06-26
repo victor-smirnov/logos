@@ -26,15 +26,15 @@ namespace logos::hrpc_gen {
 // ---------------------------------------------------------------------------
 class CodeGen {
 public:
-    // ast     — Hermes document returned by HrpcIdlParser::parse_file()
+    // ast     — Writ document returned by HrpcIdlParser::parse_file()
     // src_path — original .hrpc file path (for comment in generated files)
-    CodeGen(logos::writ::Hermes ast, std::string_view src_path);
+    CodeGen(logos::writ::Writ ast, std::string_view src_path);
 
     void emit_header(std::ostream& out, std::string_view header_guard) const;
     void emit_source(std::ostream& out, std::string_view include_name) const;
 
 private:
-    logos::writ::Hermes ast_;
+    logos::writ::Writ ast_;
     std::string              src_path_;
     std::string              package_;     // "echo" or "foo.bar"
     std::string              cpp_ns_;      // "echo" or "foo::bar"

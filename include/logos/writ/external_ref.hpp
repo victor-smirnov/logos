@@ -1,16 +1,16 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ExternalRef (Hermes) — the cross-arena reference handle for the multi-arena IR.
+// ExternalRef (Writ) — the cross-arena reference handle for the multi-arena IR.
 //
-// HERMES2 CHANGE vs Hermes1: an ExternalRef is now an AnyVal **Pod niche**, not a
+// HERMES2 CHANGE vs Writ1: an ExternalRef is now an AnyVal **Pod niche**, not a
 // separately-allocated 7-byte tagged arena object. The 8-byte self-relative AnyVal
 // Pod arm carries a 56-bit value — EXACTLY arena_id(24) + obj_id(32). So the whole
 // reference fits inline with NO allocation:
 //
 //   AnyVal::pod( (arena_id << 32) | obj_id , EXTERNAL_REF_CODE )
 //
-// This is strictly better than the Hermes1 tagged-object form (which only existed
-// because Hermes1's 4-byte AnyVal had a mere 3-byte inline payload):
+// This is strictly better than the Writ1 tagged-object form (which only existed
+// because Writ1's 4-byte AnyVal had a mere 3-byte inline payload):
 //   • no arena object to allocate / address;
 //   • clone/compactify copy Pods VERBATIM, which is exactly right for a cross-arena
 //     reference (it is a LOGICAL id, not a physical pointer — it must NOT be
@@ -33,7 +33,7 @@ namespace logos::writ {
 
 class MemHolder;
 
-// The Pod type code identifying an ExternalRef niche (7-bit; matches the Hermes1
+// The Pod type code identifying an ExternalRef niche (7-bit; matches the Writ1
 // type_hash::ExternalRef number for continuity). Distinct from every scalar Pod code.
 inline constexpr uint8_t EXTERNAL_REF_CODE = 110;
 
@@ -45,7 +45,7 @@ struct ExternalRef {
 
     static ExternalRef make(arena_id_t a, uint32_t o) noexcept { return ExternalRef{a, o}; }
 
-    // Hermes1-spelling accessors.
+    // Writ1-spelling accessors.
     arena_id_t arena_id() const noexcept { return aid; }
     uint32_t   obj_id()   const noexcept { return oid; }
 

@@ -38,7 +38,7 @@ static std::string_view read_str(AnyVal val, MemHolder* h) {
 }
 
 static std::vector<ImportEntry>
-collect_imports(const logos::writ::HermesView& grammar) {
+collect_imports(const logos::writ::WritView& grammar) {
     std::vector<ImportEntry> result;
     if (grammar.root().is_null()) return result;
 

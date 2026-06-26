@@ -26,7 +26,7 @@ using writ::MemHolder;
 // AnyVal pointers. Used to dedup item-level definitions emitted from multiple
 // metacalls (e.g. two metafns each emitting `struct Synth { x: i32 }` should
 // not collide). Walks TinyObjectMap by bitmap key, ObjectArray by index, and
-// HermesString by view; conservative on unknown Data-tag objects.
+// WritString by view; conservative on unknown Data-tag objects.
 namespace {
 bool ast_anyval_equal(AnyVal a, AnyVal b,
                       writ::MemHolder* ha, writ::MemHolder* hb);
@@ -68,7 +68,7 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
         return ast_tom_equal(writ::as_tinymap(a, ha), writ::as_tinymap(b, hb), ha, hb);
     if (ta.type_code() == writ::type_hash::Array)
         return ast_array_equal(writ::as_array(a, ha), writ::as_array(b, hb), ha, hb);
-    if (ta.type_code() == writ::type_hash::HermesString)
+    if (ta.type_code() == writ::type_hash::WritString)
         return writ::StringView(a, ha).view() == writ::StringView(b, hb).view();
     // Unknown data tag — be conservative and treat as not equal.
     return false;
@@ -77,7 +77,7 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
 
 // Symbol-collection phase: populate SemaChecker symbol tables.
 
-void SemaChecker::collect(const std::vector<writ::Hermes>& asts) {
+void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     // Helper: build ImportScope (wildcard_packages) from a module's USES array.
     auto build_import_scope = [&](TinyMapView root) -> ImportScope {
         ImportScope scope;
@@ -329,7 +329,7 @@ void SemaChecker::collect(const std::vector<writ::Hermes>& asts) {
         auto& ast = asts[pass0_ai];
         // M5 step 3b+5: skip ONLY cached BINARY holders. User asts
         // re-walk so the strict-mode final sema still validates them
-        // (e.g. catches "unknown type 'HermesStatic'" when the user
+        // (e.g. catches "unknown type 'WritStatic'" when the user
         // file doesn't `use` it). Cached binary asts are safe to skip
         // because they're processed identically in every mode.
         bool is_bin = (from_binary_ && pass0_ai < from_binary_->size())
@@ -1841,12 +1841,12 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                       item_has_type_params(item), pending_annots);
                 }
                 // Peek `#[type_code]` annotation so collect_trait can flag
-                // is_hermes for the Hermes-datatype-family identification
+                // is_writ for the Writ-datatype-family identification
                 // that reflect::<T>() and reflection emission consult.
-                pending_trait_is_hermes_ = false;
+                pending_trait_is_writ_ = false;
                 for (auto& ann : pending_annots) {
                     if (str_of(ann.get(la::NAME.code)) == "type_code") {
-                        pending_trait_is_hermes_ = true;
+                        pending_trait_is_writ_ = true;
                         break;
                     }
                 }
@@ -2174,7 +2174,7 @@ void SemaChecker::collect_const(TinyMapView node) {
     // B-ca-01 P0 SEGFAULT — sema would substitute X for X recursively).
     // Conservative shallow check: catches the direct cycle `const X = X`
     // and the common arithmetic shape `const X = X + N`.  Deeper structural
-    // walks (through hermes literals, blocks, calls) require a robust
+    // walks (through writ literals, blocks, calls) require a robust
     // AST-walker that respects schema; deferred to Phase 5 fact-base.
     if (node.has_key(la::VALUE)) {
         auto val_av = node.get(la::VALUE.code);
@@ -2213,8 +2213,8 @@ void SemaChecker::collect_const(TinyMapView node) {
             // not a constant). Reject anything else with a specific message.
             //
             // Allowed shapes: LIT_*, METACALL, BINOP/UNARY/PAREN_EXPR with
-            // const-evaluable children, CAST of const-evaluable, hermes-lit
-            // (already handled below as HermesStatic).
+            // const-evaluable children, CAST of const-evaluable, writ-lit
+            // (already handled below as WritStatic).
             std::function<bool(TinyMapView)> is_const_evaluable;
             is_const_evaluable = [&](TinyMapView v) -> bool {
                 int32_t vc = code_of(v);
@@ -2227,7 +2227,7 @@ void SemaChecker::collect_const(TinyMapView node) {
                     vc == la::HERMES_STR.code  || vc == la::HERMES_INT.code  ||
                     vc == la::HERMES_NEG_INT.code || vc == la::HERMES_FLOAT.code ||
                     vc == la::HERMES_BOOL.code || vc == la::HERMES_NULL.code)
-                    return true;  // HermesStatic literal — handled separately
+                    return true;  // WritStatic literal — handled separately
                 if (vc == la::METACALL) return true;
                 if (vc == la::CAST) {
                     if (!v.has_key(la::VALUE)) return false;
@@ -2328,37 +2328,37 @@ void SemaChecker::collect_const(TinyMapView node) {
         }
     }
 
-    // `pub const X: HermesStatic = @{...};` semantically replaces the legacy
-    // `pub type X = @{...};` form. The literal is a HermesStatic value, not
+    // `pub const X: WritStatic = @{...};` semantically replaces the legacy
+    // `pub type X = @{...};` form. The literal is a WritStatic value, not
     // a type — but at type-arg positions it functions as a const-generic
     // value with byte-hash identity. Register X as a type alias to that
     // HStaticLit so call-site lookups resolve uniformly with legacy aliases
     // until that path is fully migrated. Generic constants
-    // (`pub const X<T1, T2>: HermesStatic = @{… <type:T1> …}`) are recorded
+    // (`pub const X<T1, T2>: WritStatic = @{… <type:T1> …}`) are recorded
     // separately in generic_consts_ and instantiated per use-site.
     if (node.has_key(la::VALUE) && t &&
         TypeRef(t).kind() == LogosType::Kind::Struct &&
-        is_hermes_static(t)) {
+        is_writ_static(t)) {
         auto val_av = node.get(la::VALUE.code);
         if (val_av.is_pointer()) {
             auto val_node = map_of(val_av);
             auto vc = code_of(val_node);
-            // hermes_lit produces LIT_HSTATIC at expression position when
+            // writ_lit produces LIT_HSTATIC at expression position when
             // the literal flows through a type-arg slot; here the value-AST
-            // IS the hermes literal (HERMES_MAP / HERMES_ARRAY / scalar).
+            // IS the writ literal (HERMES_MAP / HERMES_ARRAY / scalar).
             // resolve_type's hstatic-lit handling expects a LIT_HSTATIC
             // wrapper. The legacy path went through hstatic_lit_type which
-            // emitted LIT_HSTATIC; const_def's value is the bare hermes_lit
+            // emitted LIT_HSTATIC; const_def's value is the bare writ_lit
             // node, so we synthesise a LIT_HSTATIC view by resolving via
             // the LIT_HSTATIC/HERMES_* code path directly.
             //
-            // Easiest: detect bare hermes_lit AST codes and route them
+            // Easiest: detect bare writ_lit AST codes and route them
             // through the existing LIT_HSTATIC handler in resolve_type by
             // synthesising the same shape.
             (void)vc;
             // Attempt resolve: if VALUE node has LIT_HSTATIC code already,
             // resolve_type accepts it. Otherwise, the value is a primary
-            // hermes_lit AST and we need to detect that here.
+            // writ_lit AST and we need to detect that here.
             //
             // Generic case: defer to per-use-site instantiation.
             bool has_type_params = false;
@@ -2424,8 +2424,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
     }
     info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     info.doc = take_pending_doc();
-    info.is_hermes = pending_trait_is_hermes_;
-    pending_trait_is_hermes_ = false;
+    info.is_writ = pending_trait_is_writ_;
+    pending_trait_is_writ_ = false;
     // Read auto marker
     if (node.has_key(la::IS_AUTO)) {
         AnyVal av = node.get(la::IS_AUTO);
@@ -3065,7 +3065,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // Copy and Drop are built-in marker traits — not always visible through
     // the dependency-graph (pub trait + use isn't enough when the target
     // type's own package re-imports a different non-pub Drop, e.g. std.string
-    // and hermes.zone both used to declare local `trait Drop`). Treating Drop
+    // and writ.zone both used to declare local `trait Drop`). Treating Drop
     // as a built-in matches Copy and lets the impl resolve via name alone.
     if (!trait_name.empty() && trait_name != "Copy" && trait_name != "Drop"
         && !traits_.count(trait_name))
@@ -3913,8 +3913,8 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                     case LogosType::Kind::Struct: {
                         // A #[rel_ptr] self-relative pointer (RelAny / RelPtr<T>) is
                         // POD — an 8-byte offset (target − &field) — and a valid
-                        // Hermes datatype field: it reaches another tagged object
-                        // self-relatively, the never-move-arena analog of Hermes1's
+                        // Writ datatype field: it reaches another tagged object
+                        // self-relatively, the never-move-arena analog of Writ1's
                         // base-relative inner pointer. Other plain structs stay
                         // disallowed (may carry heap/abs pointers).
                         auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(t).struct_name()));
@@ -4132,7 +4132,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
 TypeRef SemaChecker::try_resolve_as_known_type(std::string_view name) {
     // Type-params bound in current scope (generic-const instantiation, generic
     // fn body, generic struct method) win over global lookups. Ensures that
-    // `<type:K>` inside `pub const PMap<K, V>: HermesStatic = @{...}` resolves
+    // `<type:K>` inside `pub const PMap<K, V>: WritStatic = @{...}` resolves
     // to the substituted concrete type at each use site.
     {
         auto it = current_type_params_.find(std::string(name));
@@ -4304,7 +4304,7 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
 }
 
 // Stage E direct-build: like lower_struct_def but for specialization defs.
-// Builds the spec's struct mirror STRAIGHT into the program HermesCtr via
+// Builds the spec's struct mirror STRAIGHT into the program WritCtr via
 // DeclBuilder (no Draft) and returns a DeclBuilder the caller finalizes
 // (doc/flags/type_code) and pushes into prog.struct_specializations.
 DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
@@ -4407,7 +4407,7 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
     ctx_ = std::format("fn {} (specialization)", raw_name);
     node_line_ = get_line(node);
 
-    // Direct-build the Func decl mirror STRAIGHT into the program HermesCtr.
+    // Direct-build the Func decl mirror STRAIGHT into the program WritCtr.
     DeclBuilder fn(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);
     fn.str_always(dk::NAME, std::string(raw_name));
     fn.str(dk::DOC, take_pending_doc());

@@ -1,8 +1,8 @@
-// Self-relative links inside a hermes2 arena (successor of the Hermes1
+// Self-relative links inside a writ2 arena (successor of the Writ1
 // RelPtr<Node> test): node.next stores (target - &field) as i64; resolving is
 // pure pointer math — valid because the arena never moves.
 package datatype_relptr;
-use logos.lang.hermes.container;
+use logos.lang.writ.container;
 use logos.lang.rc;
 
 struct Node {
@@ -23,12 +23,12 @@ unsafe fn get_next(n: *const Node) -> *const Node {
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(4096);
-    let h: &Hermes = rc.deref();
-    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
+    let rc: Rc<Writ> = writ_rc(4096);
+    let h: &Writ = rc.deref();
+    let hp: *mut Writ = h as *const Writ as *mut Writ;
 
-    let a: *mut Node = hermes_alloc::<Node>(hp);
-    let b: *mut Node = hermes_alloc::<Node>(hp);
+    let a: *mut Node = writ_alloc::<Node>(hp);
+    let b: *mut Node = writ_alloc::<Node>(hp);
     a.value = 7; b.value = 23;
     b.next = 0i64;
     set_next(a, b as *const Node);

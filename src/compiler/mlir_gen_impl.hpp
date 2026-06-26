@@ -388,15 +388,15 @@ private:
     std::vector<LoopBlocks> loop_stack_;
 
     int str_counter_ = 0;
-    int hermes_lit_counter_ = 0;
+    int writ_lit_counter_ = 0;
 
-    // Memoize EHermesLit codegen by content. Identical blob bytes resolve to
+    // Memoize EWritLit codegen by content. Identical blob bytes resolve to
     // the same rodata global so multiple accesses to the same const-value
     // expression (e.g. an associated constant) preserve pointer identity at
     // -O0, where LLVM's ConstantMerge is not running. Keyed by the final
     // rodata bytes (size prefix included for the static path), value is the
     // emitted global symbol name.
-    std::unordered_map<std::string, std::string> hermes_lit_global_cache_;
+    std::unordered_map<std::string, std::string> writ_lit_global_cache_;
 
     // "Trait::Type" → mangled method names in vtable slot order
     std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
@@ -792,7 +792,7 @@ private:
         RelOffset,      // self-relative pointer — storage = i64 byte offset from
                         // the slot's own address; compute = absolute thin ptr.
                         // materialize = slot + load_i64(slot); lower = store(slot,
-                        // target − slot). The hermes2 / #[rel_ptr] zoned pointer.
+                        // target − slot). The writ2 / #[rel_ptr] zoned pointer.
     };
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
@@ -1198,13 +1198,13 @@ private:
     mlir::Value gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EBlockExprView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::ETryView v, TypeRef type);
-    mlir::Value gen_expr_kind(lir_view::EHermesLitView v, TypeRef);
+    mlir::Value gen_expr_kind(lir_view::EWritLitView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EPtrArithView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EPtrDiffView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EReflectOfView v, TypeRef);
-    // Coerce a Logos runtime value to AnyVal.raw (u32) for hermes capture substitution.
+    // Coerce a Logos runtime value to AnyVal.raw (u32) for writ capture substitution.
     mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
-    // hermes2: coerce a scalar capture to an 8-byte value-form HAny word.
+    // writ2: coerce a scalar capture to an 8-byte value-form HAny word.
     mlir::Value coerce_to_hany_raw(mlir::Value v, TypeRef t);
 
     // ── Struct helpers ────────────────────────────────────────────

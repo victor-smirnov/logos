@@ -34,7 +34,7 @@ using writ::StringView;
 using writ::AnyVal;
 using writ::MemHolder;
 
-// Stage E: LProgram::MetacallSite was migrated to a Hermes mirror view
+// Stage E: LProgram::MetacallSite was migrated to a Writ mirror view
 // (lir_view::MetacallSiteView). Sema collects each site into this transient
 // POD first (fields filled incrementally), then direct-builds the view via
 // push_metacall_site() at the push point (the host LProgram is in scope there).
@@ -713,10 +713,10 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     // the implicit coercion points via try_struct_unsize_coerce.
     if (try_struct_unsize_coerce(inner, target)) return inner;
 
-    // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
+    // ── Writ typed container casts: &[T] as <I32>[] → Writ. ──────
     if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
-        (TypeRef(target).struct_name() == "HermesArr" || TypeRef(target).struct_name() == "HermesMap")) {
-        if (TypeRef(target).struct_name() == "HermesArr") {
+        (TypeRef(target).struct_name() == "WritArr" || TypeRef(target).struct_name() == "WritMap")) {
+        if (TypeRef(target).struct_name() == "WritArr") {
             auto src = expr_type(inner);
             if (!src || TypeRef(src).kind() != LogosType::Kind::Slice) {
                 error(std::format(
@@ -745,40 +745,40 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             }
             // Pick the stdlib builder function name.
             std::string build_fn;
-            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
+            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "writ_build_array_i8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "writ_build_array_u8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "writ_build_array_i16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "writ_build_array_u16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "writ_build_array_u32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "writ_build_array_i32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "writ_build_array_i64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "writ_build_array_u64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "writ_build_array_f32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "writ_build_array_f64";
             else {
                 error(std::format("'as <T>[]': unsupported element type '{}'; "
                                   "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
                                   type_str(elem_t)));
                 return error_expr();
             }
-            // Result type: Rc<Hermes> (the builder fn's return type).
+            // Result type: Rc<Writ> (the builder fn's return type).
             TypeRef ctr_t = nullptr;
             for (auto* c : find_func_candidates(build_fn))
                 if (c->param_types.size() == 2) { ctr_t = c->ret_type; break; }
             if (!ctr_t) {
-                error("'as <T>[]' requires `use logos.lang.hermes.typed_arr;`");
+                error("'as <T>[]' requires `use logos.lang.writ.typed_arr;`");
                 return error_expr();
             }
-            return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
+            return builder().writ_cast(std::move(inner), std::move(build_fn), ctr_t);
         }
-        // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
-        if (TypeRef(target).struct_name() != "HermesMap") {
-            error("internal: unexpected hermes container type in map cast path");
+        // fix5: explicit guard — outer if allows WritArr||WritMap; must be WritMap here.
+        if (TypeRef(target).struct_name() != "WritMap") {
+            error("internal: unexpected writ container type in map cast path");
             return error_expr();
         }
-        // hermes2: MapSlice* sources carry value-form &[HAny] values
-        // (lang.hermes.typed_arr); builders return Rc<Hermes>.
-        // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
+        // writ2: MapSlice* sources carry value-form &[HAny] values
+        // (lang.writ.typed_arr); builders return Rc<Writ>.
+        // WritMap: source must be MapSliceI32 for <I32,AnyVal>{}.
         {
             auto src = expr_type(inner);
             TypeRef key_t = !TypeRef(target).type_args().empty()
@@ -795,10 +795,10 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             std::string map_fn;
             struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
             static const MapVariant map_variants[] = {
-                {LogosType::Kind::I32, "MapSliceI32", "hermes_build_map_i32_anyval"},
-                {LogosType::Kind::U32, "MapSliceU32", "hermes_build_map_u32_anyval"},
-                {LogosType::Kind::I64, "MapSliceI64", "hermes_build_map_i64_anyval"},
-                {LogosType::Kind::U64, "MapSliceU64", "hermes_build_map_u64_anyval"},
+                {LogosType::Kind::I32, "MapSliceI32", "writ_build_map_i32_anyval"},
+                {LogosType::Kind::U32, "MapSliceU32", "writ_build_map_u32_anyval"},
+                {LogosType::Kind::I64, "MapSliceI64", "writ_build_map_i64_anyval"},
+                {LogosType::Kind::U64, "MapSliceU64", "writ_build_map_u64_anyval"},
             };
             bool found_map = false;
             if (val_is_anyval) {
@@ -831,10 +831,10 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             for (auto* c : find_func_candidates(map_fn))
                 if (c->param_types.size() == 3) { ctr_t = c->ret_type; break; }
             if (!ctr_t) {
-                error("'as <K,AnyVal>{}' requires `use logos.lang.hermes.typed_arr;`");
+                error("'as <K,AnyVal>{}' requires `use logos.lang.writ.typed_arr;`");
                 return error_expr();
             }
-            return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
+            return builder().writ_cast(std::move(inner), std::move(map_fn), ctr_t);
         }
     }
 
@@ -1470,8 +1470,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
     case la::LIST_COMP:    return lower_list_comp(expr);
     case la::MAP_COMP:     return lower_map_comp(expr);
-    case la::HERMES_LIST_COMP: return lower_hermes_list_comp(expr);
-    case la::HERMES_MAP_COMP:  return lower_hermes_map_comp(expr);
+    case la::HERMES_LIST_COMP: return lower_writ_list_comp(expr);
+    case la::HERMES_MAP_COMP:  return lower_writ_map_comp(expr);
     case la::HERMES_MAP:
     case la::HERMES_ARRAY:
     case la::HERMES_TYPED_ARRAY:
@@ -1481,13 +1481,13 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::HERMES_INT:
     case la::HERMES_FLOAT:
     case la::HERMES_BOOL:
-    case la::HERMES_NULL:  return lower_hermes_lit(expr);
-    case la::HERMES_BLOB:  return lower_hermes_blob(expr);
+    case la::HERMES_NULL:  return lower_writ_lit(expr);
+    case la::HERMES_BLOB:  return lower_writ_blob(expr);
     case la::QUOTE_ITEM:   return lower_quote_item(expr);
     case la::QUOTE_EXPR:   return lower_quote_expr(expr);
     case la::QUOTE_TY:     return lower_quote_ty(expr);
     // C1 bug fix: $-capture nodes must not appear as standalone expressions;
-    // they are only valid inside hermes_val (within lower_hermes_val).
+    // they are only valid inside writ_val (within lower_writ_val).
     case la::HERMES_CAP_IDENT:
     case la::HERMES_CAP_EXPR:
         error("$-capture is not valid as a standalone expression");
@@ -3126,7 +3126,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call_v(std::move(ec), str_t);
     }
 
-    // `zone_of(r: &mut T) -> *mut u8` — recover the Hermes zone (allocator)
+    // `zone_of(r: &mut T) -> *mut u8` — recover the Writ zone (allocator)
     // carried by a fat `&mut T`: the metadata half of the fat pair (slice_len),
     // reinterpreted as a pointer. The dual of zone_mut_ref. (No type arg → handled
     // in this early builtin section, using the pre-lowered arg_exprs.)
@@ -3618,7 +3618,7 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
 
     if (formal.kind() == LogosType::Kind::TypeVar ||
         formal.kind() == LogosType::Kind::ConstVar) {
-        // Const-generic params (e.g. `<const CFG: HermesStatic>`) appear at
+        // Const-generic params (e.g. `<const CFG: WritStatic>`) appear at
         // type-arg position as ConstVar with the same type_var_name slot.
         // Bind from the actual's HStaticLit / scalar value just like for
         // type-generics — finish_generic_call's subst map already accepts
@@ -4602,7 +4602,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
             auto item = map_of(raw);
             if (!item.has_key(la::NAME)) continue;
             if (str_of(item.get(la::NAME.code)) == sname) {
-                // hermes2: holder-relative node offset (raw.raw() is an at-rest
+                // writ2: holder-relative node offset (raw.raw() is an at-rest
                 // word, not an offset) — same model as metaprog_targets_.
                 found_offset = static_cast<uint32_t>(item.offset().value());
                 break;
@@ -4614,7 +4614,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
               "' in this file");
         return error_expr();
     }
-    // hermes2: Template.raw is a value-form HAny — the offset must be anchored
+    // writ2: Template.raw is a value-form HAny — the offset must be anchored
     // to the hook's OView base at RUNTIME. Lower to the stdlib shim
     // template_of_at(off) (= Template { raw: oview_module_ast().node_at(off) }).
     const SemaFuncInfo* fi = nullptr;
@@ -4813,7 +4813,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_dst_from_raw_parts(TinyMapView node, 
 }
 
 // `zone_mut_ref::<T>(ptr: *mut T, zone: *mut u8) -> &mut T` — build a FAT `&mut T`
-// {data=ptr, zone} for a #[zone_mut] type T, bundling the Hermes zone (allocator)
+// {data=ptr, zone} for a #[zone_mut] type T, bundling the Writ zone (allocator)
 // onto the reference. Reuses the {data,meta} fat-pair construction (slice_lit):
 // the meta slot carries the zone pointer (as i64). ref_repr_of(&mut zone_mut T) =
 // FatZoneMut, so slice_lit emits the 16-byte pair and it returns by value.
@@ -4859,13 +4859,13 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
                 if (tnode.has_key(la::NAME)) {
                     std::string tname(str_of(tnode.get(la::NAME.code)));
                     auto tit = traits_.find(tname);
-                    if (tit != traits_.end() && tit->second.is_hermes) {
+                    if (tit != traits_.end() && tit->second.is_writ) {
                         if (cur_prog_) {
                             std::string pkg = std::string(cur_package_);
                             std::string fqn = pkg.empty() ? tname : pkg + "::" + tname;
                             lir_mirror_map_put_null(*cur_prog_, cur_prog_->reflect_requests, fqn);
                         }
-                        auto hs_type = make_struct_type("HermesStatic");
+                        auto hs_type = make_struct_type("WritStatic");
                         // Synthesize a ZonedStruct type for EReflectOf codegen.
                         TypeRef gtp = make_datatype_type(tname, cur_package_);
                         return builder().reflect_of(gtp, hs_type);
@@ -4882,7 +4882,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
     TypeRef T = ts[0];
     if (TypeRef(T).kind() == LogosType::Kind::TypeVar) {
         // Inside a generic function — defer; mono will resolve and register.
-        auto hs_type = make_struct_type("HermesStatic");
+        auto hs_type = make_struct_type("WritStatic");
         return builder().reflect_of(T, hs_type);
     }
     if (TypeRef(T).kind() != LogosType::Kind::ZonedStruct || !TypeRef(T).type_args().empty()) {
@@ -4894,7 +4894,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
         std::string fqn = pkg.empty() ? std::string(TypeRef(T).struct_name()) : pkg + "::" + std::string(TypeRef(T).struct_name());
         lir_mirror_map_put_null(*cur_prog_, cur_prog_->reflect_requests, fqn);
     }
-    auto hs_type = make_struct_type("HermesStatic");
+    auto hs_type = make_struct_type("WritStatic");
     return builder().reflect_of(T, hs_type);
 }
 
@@ -5056,7 +5056,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         return builder().call_v(std::move(ec), slice_t);
     }
 
-    // hstatic_hash_of::<CFG>() — byte-hash identity of a HermesStatic value
+    // hstatic_hash_of::<CFG>() — byte-hash identity of a WritStatic value
     // as u64. Mono folds after substitution: nc.type_args[0] is HStaticLit
     // post-subst, with const_val carrying the hash. Inside a generic body
     // CFG is still a const-generic param at sema time, so the call is
@@ -5730,7 +5730,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         return builder().align_of(elem, prim(LogosType::Kind::I64));
     }
 
-    // type_code_of::<T>() — returns the Hermes type_code of a concrete datatype as u64.
+    // type_code_of::<T>() — returns the Writ type_code of a concrete datatype as u64.
     // For concrete (non-generic) datatypes: SHA-256 of "package::Name" truncated to 56 bits,
     // shifted to >= 128 if needed (codes 1-127 are reserved for inline AnyVal).
     // For non-datatype T: returns 0.
@@ -5778,7 +5778,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         return builder().lit_int(is_plain ? 1LL : 0LL, prim(LogosType::Kind::Bool));
     }
 
-    // reflect::<T>() -> HermesStatic — compile-time request for TypeInfo rodata.
+    // reflect::<T>() -> WritStatic — compile-time request for TypeInfo rodata.
     // Adds T to reflect_requests so reflection_emit pass builds the TypeInfo global.
     // Returns EReflectOf{T}; mlir_gen lowers it to AddressOf(__logos_reflect__<hash>) + offset 8.
     if (callee == "reflect") return lower_intrinsic_reflect(node);
@@ -6661,7 +6661,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_raw_ptr(
     if (method_name == "is_null") {
         // Defer to a user-defined inherent `is_null(self: *T)` when the pointee
         // declares one. Logos lets a `fn is_null(self: *const Struct)` be called
-        // on a `*const Struct` receiver, and the hermes stdlib uses that
+        // on a `*const Struct` receiver, and the writ stdlib uses that
         // pervasively (AnyVal/RelPtr/Rc/Arc check their *contents*, not the
         // pointer). Only synthesize the builtin pointer-null check when the
         // pointee has no such method (e.g. `*mut Segment`, `*mut i64`).
@@ -11089,13 +11089,13 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), hm_t);
 }
 
-// Hermes list comprehension:  @[expr for x in iter_expr (if guard)?]
-// Desugars to a block that builds a Hermes whose root is an
+// Writ list comprehension:  @[expr for x in iter_expr (if guard)?]
+// Desugars to a block that builds a Writ whose root is an
 // ObjectArray of AnyVals, iterating over iter_expr and optionally
 // filtering by guard.  Element expression must evaluate to AnyVal
 // (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
-// Requires `use logos.mem.hermes.ctr;` in scope.
-lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
+// Requires `use logos.mem.writ.ctr;` in scope.
+lir::LExprPtr SemaChecker::lower_writ_list_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
     lir::LExprPtr iter = node.has_key(la::ITER)
@@ -11117,24 +11117,24 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         is_slice  = true;
     } else {
         error(std::format(
-            "hermes list comprehension: only array/slice iteration supported (got {})",
+            "writ list comprehension: only array/slice iteration supported (got {})",
             type_str(iter_type)));
         return error_expr();
     }
 
-    // hermes2 builder: yields Rc<Hermes> (see lang.hermes.comp_builder).
-    auto new_cands  = find_func_candidates("hermes_list_comp_new");
-    auto push_cands = find_func_candidates("hermes_list_comp_push");
+    // writ2 builder: yields Rc<Writ> (see lang.writ.comp_builder).
+    auto new_cands  = find_func_candidates("writ_list_comp_new");
+    auto push_cands = find_func_candidates("writ_list_comp_push");
     const SemaFuncInfo* new_fi  = nullptr;
     const SemaFuncInfo* push_fi = nullptr;
     for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
     for (auto* fi : push_cands) if (fi->param_types.size() == 2) { push_fi = fi; break; }
     if (!new_fi || !push_fi) {
-        error("hermes list comprehension requires `use logos.lang.hermes.comp_builder;`");
+        error("writ list comprehension requires `use logos.lang.writ.comp_builder;`");
         return error_expr();
     }
 
-    // The container type is whatever the builder returns (Rc<Hermes>).
+    // The container type is whatever the builder returns (Rc<Writ>).
     TypeRef ctr_t = new_fi->ret_type;
 
     std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
@@ -11149,9 +11149,9 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     pop_scope();
 
     // Coerce VALUE to AnyVal (no-op if already AnyVal).
-    val_expr_body = coerce_to_hermes_anyval(
+    val_expr_body = coerce_to_writ_anyval(
         std::move(val_expr_body), ctr_var, ctr_t,
-        "hermes list comprehension element");
+        "writ list comprehension element");
     if (!val_expr_body || TypeRef(expr_type(val_expr_body)).kind() == LogosType::Kind::Error)
         return error_expr();
 
@@ -11165,14 +11165,14 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
             return error_expr();
         if (gk != LogosType::Kind::Bool) {
             error(std::format(
-                "hermes list comprehension: guard must be bool (got {})",
+                "writ list comprehension: guard must be bool (got {})",
                 type_str(expr_type(guard_body))));
             return error_expr();
         }
     }
 
-    // SLet: let mut __hlc_c = hermes_list_comp_new(128);
-    std::string new_sym = new_fi->symbol_name.empty() ? "hermes_list_comp_new"
+    // SLet: let mut __hlc_c = writ_list_comp_new(128);
+    std::string new_sym = new_fi->symbol_name.empty() ? "writ_list_comp_new"
                                                       : new_fi->symbol_name;
     std::vector<lir::LExprPtr> new_args;
     int64_t cap_hint = arr_size > 0 ? (arr_size * 8 + 128) : 128;
@@ -11184,10 +11184,10 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     let_c.is_mut = true;
     let_c.value  = std::move(call_new);
 
-    // hermes_list_comp_push(&mut __hlc_c, val);
-    std::string push_sym = push_fi->symbol_name.empty() ? "hermes_list_comp_push"
+    // writ_list_comp_push(&mut __hlc_c, val);
+    std::string push_sym = push_fi->symbol_name.empty() ? "writ_list_comp_push"
                                                         : push_fi->symbol_name;
-    // push takes `&Rc<Hermes>` (shared) — was `&mut Hermes`.
+    // push takes `&Rc<Writ>` (shared) — was `&mut Writ`.
     auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));
     std::vector<lir::LExprPtr> push_args;
     push_args.push_back(std::move(recv));
@@ -11225,10 +11225,10 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), ctr_t);
 }
 
-// Hermes map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
+// Writ map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
 // v1: string keys only (`str`); values must be AnyVal.
-// Requires `use logos.mem.hermes.ctr;` in scope.
-lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
+// Requires `use logos.mem.writ.ctr;` in scope.
+lir::LExprPtr SemaChecker::lower_writ_map_comp(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
     lir::LExprPtr iter = node.has_key(la::ITER)
@@ -11250,24 +11250,24 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         is_slice  = true;
     } else {
         error(std::format(
-            "hermes map comprehension: only array/slice iteration supported (got {})",
+            "writ map comprehension: only array/slice iteration supported (got {})",
             type_str(iter_type)));
         return error_expr();
     }
 
-    // hermes2 builder: yields Rc<Hermes> (see lang.hermes.comp_builder).
-    auto new_cands = find_func_candidates("hermes_map_comp_new");
-    auto put_cands = find_func_candidates("hermes_map_comp_put");
+    // writ2 builder: yields Rc<Writ> (see lang.writ.comp_builder).
+    auto new_cands = find_func_candidates("writ_map_comp_new");
+    auto put_cands = find_func_candidates("writ_map_comp_put");
     const SemaFuncInfo* new_fi = nullptr;
     const SemaFuncInfo* put_fi = nullptr;
     for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
     for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
     if (!new_fi || !put_fi) {
-        error("hermes map comprehension requires `use logos.lang.hermes.comp_builder;`");
+        error("writ map comprehension requires `use logos.lang.writ.comp_builder;`");
         return error_expr();
     }
 
-    // The container type is whatever the builder returns (Rc<Hermes>).
+    // The container type is whatever the builder returns (Rc<Writ>).
     TypeRef ctr_t = new_fi->ret_type;
 
     std::string ctr_var = "__hmc_c_" + std::to_string(tmp_var_count_++);
@@ -11290,15 +11290,15 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     if (!(kt && TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem()
               && TypeRef(kt).elem().kind() == LogosType::Kind::U8)) {
         error(std::format(
-            "hermes map comprehension: key expression must be str (got {})",
+            "writ map comprehension: key expression must be str (got {})",
             type_str(kt)));
         return error_expr();
     }
 
     // Coerce VALUE to AnyVal (no-op if already AnyVal).
-    val_expr = coerce_to_hermes_anyval(
+    val_expr = coerce_to_writ_anyval(
         std::move(val_expr), ctr_var, ctr_t,
-        "hermes map comprehension value");
+        "writ map comprehension value");
     if (!val_expr || TypeRef(expr_type(val_expr)).kind() == LogosType::Kind::Error)
         return error_expr();
 
@@ -11311,13 +11311,13 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
             return error_expr();
         if (gk != LogosType::Kind::Bool) {
             error(std::format(
-                "hermes map comprehension: guard must be bool (got {})",
+                "writ map comprehension: guard must be bool (got {})",
                 type_str(expr_type(guard_body))));
             return error_expr();
         }
     }
 
-    std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
+    std::string new_sym = new_fi->symbol_name.empty() ? "writ_map_comp_new"
                                                       : new_fi->symbol_name;
     // Byte-cap hint for zone, and slot-count hint for map buckets.
     // For slices (arr_size==0 at compile time) we don't know iter length, so
@@ -11335,9 +11335,9 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     let_c.is_mut = true;
     let_c.value  = std::move(call_new);
 
-    std::string put_sym = put_fi->symbol_name.empty() ? "hermes_map_comp_put"
+    std::string put_sym = put_fi->symbol_name.empty() ? "writ_map_comp_put"
                                                       : put_fi->symbol_name;
-    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Hermes>
+    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Writ>
     std::vector<lir::LExprPtr> put_args;
     put_args.push_back(std::move(recv));
     put_args.push_back(std::move(key_expr));
@@ -11375,11 +11375,11 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), ctr_t);
 }
 
-// Coerce an arbitrary value to AnyVal for use inside a Hermes comprehension.
+// Coerce an arbitrary value to AnyVal for use inside a Writ comprehension.
 // Returns the original expr if already AnyVal; otherwise wraps in a call to
-// one of the `hermes_coerce_*` helpers in hermes/ctr.logos. String coercion
+// one of the `writ_coerce_*` helpers in writ/ctr.logos. String coercion
 // requires `&mut ctr_var` because the string is copied into the zone.
-lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
+lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
         lir::LExprPtr val,
         const std::string& ctr_var,
         TypeRef ctr_t,
@@ -11391,12 +11391,12 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
     // emitting an additional "cannot auto-coerce <error>" diagnostic.
     if (TypeRef(t).kind() == LogosType::Kind::Error) return val;
 
-    // HAny passthrough (hermes2): an element already produced as an HAny value.
+    // HAny passthrough (writ2): an element already produced as an HAny value.
     if (TypeRef(t).kind() == LogosType::Kind::Enum
         && TypeRef(t).enum_name() == "HAny") {
         return val;
     }
-    // AnyVal passthrough (Hermes1 datatype/struct form) — legacy.
+    // AnyVal passthrough (Writ1 datatype/struct form) — legacy.
     if ((TypeRef(t).kind() == LogosType::Kind::Struct
          || TypeRef(t).kind() == LogosType::Kind::ZonedStruct)
         && is_anyval(t)) {
@@ -11407,20 +11407,20 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
     bool needs_ctr = false;
     using K = LogosType::Kind;
     switch (TypeRef(t).kind()) {
-        case K::Bool: helper = "hermes_coerce_bool"; break;
-        case K::I8:   helper = "hermes_coerce_i8";   break;
-        case K::I16:  helper = "hermes_coerce_i16";  break;
+        case K::Bool: helper = "writ_coerce_bool"; break;
+        case K::I8:   helper = "writ_coerce_i8";   break;
+        case K::I16:  helper = "writ_coerce_i16";  break;
         case K::I32:  case K::IntLit:
-                      helper = "hermes_coerce_i32"; break;
-        case K::U8:   helper = "hermes_coerce_u8";   break;
-        case K::U16:  helper = "hermes_coerce_u16";  break;
-        case K::U32:  helper = "hermes_coerce_u32"; break;
+                      helper = "writ_coerce_i32"; break;
+        case K::U8:   helper = "writ_coerce_u8";   break;
+        case K::U16:  helper = "writ_coerce_u16";  break;
+        case K::U32:  helper = "writ_coerce_u32"; break;
         // i64/u64/i24/u24/i56/u56/i128/u128 intentionally omitted: embedding
         // them via i32 would silently truncate high bits.  User must cast
         // explicitly (e.g. `x as i32`) or wrap with HAny::from.
         case K::Slice:
             if (TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) {
-                helper = "hermes_coerce_str";
+                helper = "writ_coerce_str";
                 needs_ctr = true;
             }
             break;
@@ -11442,7 +11442,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
         if (c->param_types.size() == want_arity) { fi = c; break; }
     }
     if (!fi) {
-        error(std::format("{}: {} not found; `use logos.mem.hermes.ctr;`",
+        error(std::format("{}: {} not found; `use logos.mem.writ.ctr;`",
                           context, helper));
         return error_expr();
     }
@@ -11450,7 +11450,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
 
     std::vector<lir::LExprPtr> args;
     if (needs_ctr) {
-        auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Hermes>
+        auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Writ>
         args.push_back(std::move(recv));
     }
     args.push_back(std::move(val));
@@ -13202,7 +13202,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     if (find_trait_iter_scoped(std::string(class_name)) != traits_.end() &&
         !arg_exprs.empty() && !enums_.count(std::string(class_name)) &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
-        // A datatype (Hermes) sharing the trait's name (e.g. `Array`) has its
+        // A datatype (Writ) sharing the trait's name (e.g. `Array`) has its
         // own static methods (`Array::init`) — don't hijack those as a
         // trait-UFCS instance dispatch on the first arg's type (G159-2 guard).
         find_datatype_by_name(std::string(class_name)).second == nullptr) {
@@ -14678,10 +14678,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 if (auto b = v.block()) scan_block_v(b);
                 scan_captures_v(v.result()); break;
             }
-            case EC::HermesLit:
+            case EC::WritLit:
                 // C2 bug fix: scan capture_exprs so closures that use $-captures
                 // correctly include those outer variables in their capture list.
-                lir_view::EHermesLitView{e}.each_capture_expr([&](lir_view::ExprRef ce){
+                lir_view::EWritLitView{e}.each_capture_expr([&](lir_view::ExprRef ce){
                     scan_captures_v(ce);
                 });
                 break;
@@ -14928,20 +14928,20 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
 
 
 // ---------------------------------------------------------------------------
-// Hermes SDN literal lowering
+// Writ SDN literal lowering
 // ---------------------------------------------------------------------------
 
-lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
+lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
     int32_t c = code_of(node);
 
     if (c == la::HERMES_TYPE_LIT.code) {
-        // Embed a Logos Type as a first-class Hermes value. Grammar (3a')
+        // Embed a Logos Type as a first-class Writ value. Grammar (3a')
         // hands us a simple_type child (TYPE_REF or GENERIC_INST), so we
         // route the whole subtree through resolve_type — that handles
         // primitives, bare structs, type-params in scope, and generic
         // instantiations like Vec<u8> uniformly. type_str then prints the
         // canonical name (e.g. "Vec<u8>") which becomes the HVType label
-        // and feeds parametric HermesStatic byte-hash identity.
+        // and feeds parametric WritStatic byte-hash identity.
         TypeRef t;
         std::string name;
         auto type_av = node.get(la::TYPE.code);
@@ -14961,7 +14961,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                     error(std::format(
                         "<type:{}>: '{}' is not a known type and is not a type-param "
                         "in scope; the enclosing const must declare it as a type-param "
-                        "(`pub const X<{}>: HermesStatic = ...`) or use a concrete type",
+                        "(`pub const X<{}>: WritStatic = ...`) or use a concrete type",
                         name, name, name));
                 }
             } else {
@@ -14980,10 +14980,10 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     }
 
     if (c == la::CFG_SLOT_TYPE.code) {
-        // <type:CFG.path> at hermes-value position. For now, eager
+        // <type:CFG.path> at writ-value position. For now, eager
         // resolution only — CFG must resolve to a top-level alias whose
-        // HermesStatic mirror is already registered. Const-generic-param
-        // CFGs would require parametric HermesStatic literals (literal
+        // WritStatic mirror is already registered. Const-generic-param
+        // CFGs would require parametric WritStatic literals (literal
         // identity changing per outer instantiation), which is a larger
         // infrastructure piece tracked separately.
         auto cfg_t = resolve_type(node);  // walks the path eagerly
@@ -14994,7 +14994,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             // will fail with a clearer diagnostic than parse error.
             error("<type:CFG.path> inside @{...} requires CFG to be a "
                   "concrete top-level alias today (const-generic param "
-                  "needs parametric Hermes literals — deferred)");
+                  "needs parametric Writ literals — deferred)");
             return alloc_hv_emit(lir::HVType{0, 0, std::string("<unresolved>")});
         }
         uint32_t kind = 0;
@@ -15093,7 +15093,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 auto entry = map_of(items.get(i));
                 auto key_raw = str_of(entry.get(la::KEY.code));
                 auto val_node = map_of(entry.get(la::VALUE.code));
-                auto hv = lower_hermes_val(val_node);
+                auto hv = lower_writ_val(val_node);
                 if (!hv) return nullptr;
                 lir::HVMapEntry e;
                 if (!key_raw.empty() && key_raw[0] == '"') {
@@ -15134,7 +15134,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto elem = map_of(items.get(i));
-                auto hv = lower_hermes_val(elem);
+                auto hv = lower_writ_val(elem);
                 if (!hv) return nullptr;
                 a.elements.push_back(std::move(hv));
             }
@@ -15144,7 +15144,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
 
     if (c == la::HERMES_TYPED_ARRAY.code) {
         // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
-        // The corresponding Array<T> struct must be in scope (use hermes.array).
+        // The corresponding Array<T> struct must be in scope (use writ.array).
         struct ElemInfo { std::string struct_name; uint64_t type_code; };
         static const std::map<std::string, ElemInfo> known = {
             {"I8",  {"ArrayI8",  logos::writ::type_hash::ArrayI8}},
@@ -15166,9 +15166,9 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 "I8, U8, I16, U16, I32, U32, I64, U64, F32, F64", type_name));
             return nullptr;
         }
-        // hermes2: the blob is built by the C++ hermes2 TypedArray writer —
-        // no stdlib struct needs to be in scope (the Hermes1 ArrayI32-eidos
-        // scope probe is retired with Hermes1).
+        // writ2: the blob is built by the C++ writ2 TypedArray writer —
+        // no stdlib struct needs to be in scope (the Writ1 ArrayI32-eidos
+        // scope probe is retired with Writ1).
         lir::HVArray a;
         a.elem_type = type_name;
         if (node.has_key(la::ITEMS)) {
@@ -15185,12 +15185,12 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                         type_name, type_name));
                     return nullptr;
                 }
-                auto hv = lower_hermes_val(elem);
+                auto hv = lower_writ_val(elem);
                 if (!hv) return nullptr;
                 // Bounds-check I32 elements at compile time.
                 if (type_name == "I32") {
-                    lir_view::HermesValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_ptr_);
-                    if (hvref && hvref.kind() == lir_schema::hermes_val::Code::Int) {
+                    lir_view::WritValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_ptr_);
+                    if (hvref && hvref.kind() == lir_schema::writ_val::Code::Int) {
                         int64_t hv_val = lir_view::HVIntView{hvref}.value();
                         if (hv_val < -2147483648LL || hv_val > 2147483647LL) {
                             error(std::format(
@@ -15238,8 +15238,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         };
         std::string lir_key_type;
         if (auto kit = known_keys.find(key_type); kit != known_keys.end()) {
-            // hermes2: the blob is built by the C++ hermes2 TypedMap writer —
-            // no stdlib Map eidos needs to be in scope (Hermes1 probe retired).
+            // writ2: the blob is built by the C++ writ2 TypedMap writer —
+            // no stdlib Map eidos needs to be in scope (Writ1 probe retired).
             lir_key_type = kit->second.lir;
         } else if (key_type == "Varchar") {
             lir_key_type = "";  // same as untyped ObjectMap
@@ -15258,7 +15258,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 auto entry = map_of(items.get(i));
                 auto key_raw = str_of(entry.get(la::KEY.code));
                 auto val_node = map_of(entry.get(la::VALUE.code));
-                auto hv = lower_hermes_val(val_node);
+                auto hv = lower_writ_val(val_node);
                 if (!hv) return nullptr;
                 lir::HVMapEntry e;
                 if (!key_raw.empty() && key_raw[0] == '"') {
@@ -15317,7 +15317,7 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
     }
 
     if (c == la::HERMES_CAP_IDENT.code || c == la::HERMES_CAP_EXPR.code) {
-        if (!hermes_cap_ctx_) {
+        if (!writ_cap_ctx_) {
             error("$-capture used outside of a capturable @-literal context");
             return nullptr;
         }
@@ -15366,17 +15366,17 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 return nullptr;
             }
             // Deduplicate: same identifier → same value_index.
-            auto it = hermes_cap_ctx_->ident_dedup.find(name);
+            auto it = writ_cap_ctx_->ident_dedup.find(name);
             uint32_t value_idx;
-            if (it != hermes_cap_ctx_->ident_dedup.end()) {
+            if (it != writ_cap_ctx_->ident_dedup.end()) {
                 value_idx = it->second;
             } else {
-                value_idx = static_cast<uint32_t>(hermes_cap_ctx_->exprs.size());
-                hermes_cap_ctx_->exprs.push_back(builder().var_ref(name, var_type));
-                hermes_cap_ctx_->types.push_back(var_type);
-                hermes_cap_ctx_->ident_dedup[name] = value_idx;
+                value_idx = static_cast<uint32_t>(writ_cap_ctx_->exprs.size());
+                writ_cap_ctx_->exprs.push_back(builder().var_ref(name, var_type));
+                writ_cap_ctx_->types.push_back(var_type);
+                writ_cap_ctx_->ident_dedup[name] = value_idx;
             }
-            uint32_t param_idx = hermes_cap_ctx_->next_slot++;
+            uint32_t param_idx = writ_cap_ctx_->next_slot++;
             return alloc_hv_emit(lir::HVCapture{param_idx, value_idx});
         } else {
             // HERMES_CAP_EXPR: ${expr} — always fresh (no dedup: may have side effects).
@@ -15392,35 +15392,35 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                     type_str(expr_type)));
                 return nullptr;
             }
-            uint32_t value_idx = static_cast<uint32_t>(hermes_cap_ctx_->exprs.size());
-            uint32_t param_idx = hermes_cap_ctx_->next_slot++;
-            hermes_cap_ctx_->exprs.push_back(std::move(cap_expr));
-            hermes_cap_ctx_->types.push_back(expr_type);
+            uint32_t value_idx = static_cast<uint32_t>(writ_cap_ctx_->exprs.size());
+            uint32_t param_idx = writ_cap_ctx_->next_slot++;
+            writ_cap_ctx_->exprs.push_back(std::move(cap_expr));
+            writ_cap_ctx_->types.push_back(expr_type);
             return alloc_hv_emit(lir::HVCapture{param_idx, value_idx});
         }
     }
 
-    error("unexpected Hermes literal node kind");
+    error("unexpected Writ literal node kind");
     return nullptr;
 }
 
-lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
+lir::LExprPtr SemaChecker::lower_writ_lit(TinyMapView node) {
     // First pass: probe for captures without collecting (cheap walk).
     // We do a full walk with a capture context: if any $-captures exist they'll
     // be collected; if not, ctx.exprs stays empty and we use the static path.
     //
-    // C1/C2 bug fix: save and restore hermes_cap_ctx_ so that a static @-literal
+    // C1/C2 bug fix: save and restore writ_cap_ctx_ so that a static @-literal
     // inside a ${expr} capture (e.g. @{"a": ${fn(@[1,2,3])}, "b": $x}) doesn't
-    // clobber the outer context.  Without the save/restore, the inner lower_hermes_lit
-    // call sets hermes_cap_ctx_ = nullptr, causing a null-deref on subsequent $-captures.
-    HermesCapCtx* saved_cap_ctx = hermes_cap_ctx_;
-    HermesCapCtx ctx;
-    hermes_cap_ctx_ = &ctx;
-    auto val = lower_hermes_val(node);
-    hermes_cap_ctx_ = saved_cap_ctx;
+    // clobber the outer context.  Without the save/restore, the inner lower_writ_lit
+    // call sets writ_cap_ctx_ = nullptr, causing a null-deref on subsequent $-captures.
+    WritCapCtx* saved_cap_ctx = writ_cap_ctx_;
+    WritCapCtx ctx;
+    writ_cap_ctx_ = &ctx;
+    auto val = lower_writ_val(node);
+    writ_cap_ctx_ = saved_cap_ctx;
     if (!val) return error_expr();
 
-    lir::EHermesLit lit;
+    lir::EWritLit lit;
     lit.root = std::move(val);
     if (!ctx.exprs.empty()) {
         lit.has_captures = true;
@@ -15428,25 +15428,25 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
         lit.capture_types = std::move(ctx.types);
         lit.capture_param_count = ctx.next_slot;
     }
-    // Type: HermesStatic for static blobs; Rc<Hermes> for captures (the hermes2
+    // Type: WritStatic for static blobs; Rc<Writ> for captures (the writ2
     // template-patch path — probe the builder fn for the concrete Rc type).
     TypeRef result_type = nullptr;
     if (lit.has_captures) {
-        for (auto* c : find_func_candidates("hermes_build_from_template"))
+        for (auto* c : find_func_candidates("writ_build_from_template"))
             if (c->ret_type) { result_type = c->ret_type; break; }
         if (!result_type) {
-            error("@-literal with $-captures requires `use logos.lang.hermes.tmpl;`");
+            error("@-literal with $-captures requires `use logos.lang.writ.tmpl;`");
             return error_expr();
         }
     } else {
-        result_type = make_struct_type("HermesStatic");
+        result_type = make_struct_type("WritStatic");
     }
-    return builder().hermes_lit_v(std::move(lit), result_type);
+    return builder().writ_lit_v(std::move(lit), result_type);
 }
 
 // QUOTE_ITEM — `quote_item! { item* }`. Slice 5a.1 of metaprog-quote.
 //
-// Sema builds a fresh Hermes document representing a synthetic
+// Sema builds a fresh Writ document representing a synthetic
 // `package main; <items>;` module by deep-cloning each parsed item
 // AnyVal into the new arena. For items that carry a `#name` antiquot
 // at the struct-name position (Slice 5a.0 grammar: `NAME_VAR` field
@@ -15461,7 +15461,7 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
 // `[Ident; N]` array populated from the antiquot var refs. For a quote
 // without `#name` placeholders, idents_count is 0 and idents_ptr is null.
 lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::ObjectArray;
     using logos::writ::ArenaString;
     using logos::writ::TinyObjectMap;
@@ -15571,7 +15571,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             if (!nv.is_null() && nv.is_pointer()) {
                 const uint8_t* pointee = nv.resolve();
                 lh::TypeTag tag = lh::TypeTag::read_before(pointee);
-                if (tag.type_code() == lh::type_hash::HermesString) {
+                if (tag.type_code() == lh::type_hash::WritString) {
                     // Shortcut form: #name — lookup in scope.
                     std::string vname(writ::StringView(nv, holder_).view());
                     TypeRef vt = lookup(vname);
@@ -15670,7 +15670,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         return error_expr();
     }
     auto doc = std::move(doc_e).get();
-    auto& dst_arena = HermesAccess::arena(doc);
+    auto& dst_arena = WritAccess::arena(doc);
 
     // Build ITEMS array in dst, deep-copying each item AnyVal.
     auto items_arr_e = doc.make_array(
@@ -15720,7 +15720,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 if (!nv.is_null() && nv.is_pointer()) {
                     const uint8_t* pointee = nv.resolve();
                     lh::TypeTag tag = lh::TypeTag::read_before(pointee);
-                    if (tag.type_code() == lh::type_hash::HermesString
+                    if (tag.type_code() == lh::type_hash::WritString
                         || tag.type_code() == lh::type_hash::TinyObjectMap) {
                         // Encode placeholder index by kind:
                         //   ident sites  → positive idx (counts only idents)
@@ -15788,11 +15788,11 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             }
             void* dst_obj = cp_e.get();
             uint32_t dst_off = static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+                reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
             AnyVal dst_av; dst_av.set_ref(dst_obj);
             walk_dst(dst_av);
             (void)writ::ArrayView(arena_offset_t(items_off), doc.holder())
-                .push_back(AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(dst_off)));
+                .push_back(AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(dst_off)));
         }
         if (next_idx != placeholders.size()) {
             error("quote_item!: placeholder walk mismatch (src="
@@ -15865,13 +15865,13 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     uint32_t name_off = name_e->offset().value();
 
     // Root TinyObjectMap — fields: CODE, NAME, PATH_PARTS, USES, ITEMS, SRC_LINE.
-    auto root_e = HermesAccess::raw_tiny_map(doc, 8);
+    auto root_e = WritAccess::raw_tiny_map(doc, 8);
     if (!root_e) {
         error("quote_item!: root tom alloc failed");
         return error_expr();
     }
     uint32_t root_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(root_e.get()) - HermesAccess::base(doc));
+        reinterpret_cast<uint8_t*>(root_e.get()) - WritAccess::base(doc));
     // root pointer must be re-derived after every put() since put can grow.
     auto root = [&]() {
         return TinyMapView(arena_offset_t(root_off), doc.holder());
@@ -15891,7 +15891,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     root().set_schema_type_code(
         logos::writ::schema::ast(static_cast<int32_t>(la::MODULE.code)));
 
-    HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
+    WritAccess::set_root_offset(doc, arena_offset_t(root_off));
 
     // Compact + snapshot bytes.
     auto packed_e = compactify(doc);
@@ -15900,17 +15900,17 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         return error_expr();
     }
     auto packed = std::move(packed_e).get();
-    auto& packed_arena = HermesAccess::arena(packed);
+    auto& packed_arena = WritAccess::arena(packed);
     const uint8_t* data = packed_arena.head().data();
     size_t used = packed_arena.total_used();
 
-    lir::EHermesLit lit;
+    lir::EWritLit lit;
     lit.static_blob.assign(data, data + used);
-    auto hs_t = make_struct_type("HermesStatic");
-    auto template_lit = builder().hermes_lit_v(std::move(lit), hs_t);
+    auto hs_t = make_struct_type("WritStatic");
+    auto template_lit = builder().writ_lit_v(std::move(lit), hs_t);
 
     // ── Build block expr returning QuoteItemBlob ──────────────────────
-    //   let __qib_t_N: HermesStatic = <template_lit>;
+    //   let __qib_t_N: WritStatic = <template_lit>;
     //   [if N>0] let __qib_i_N: [Ident; N] = [<#name var_refs>];
     //   QuoteItemBlob { template_ptr: __qib_t.ptr, template_size: used,
     //                   idents_ptr: &__qib_i as *const Ident (or null),
@@ -16146,10 +16146,10 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 
 // QUOTE_EXPR — `quote_expr! { expr }`. Slice 7 of metaprog-quote.
 //
-// Deep-copy the parsed expr AnyVal into a fresh Hermes doc as the root
+// Deep-copy the parsed expr AnyVal into a fresh Writ doc as the root
 // TOM, set the root's schema_type_code from CODE so position-aware
-// lower_hermes_blob recurses into lower_expr at splice time, pack and
-// emit as ExprBlob (HermesStatic-shaped marker).
+// lower_writ_blob recurses into lower_expr at splice time, pack and
+// emit as ExprBlob (WritStatic-shaped marker).
 //
 // Antiquot (Slice 5c, parity port from quote_item):
 //   `#name` inside the body parses as VAR_REF{NAME_VAR=name}. We walk
@@ -16160,7 +16160,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 //   an Ident array from `#x` var refs and calls
 //   `logos_quote_expr_subst(template, idents, n)` which substitutes
 //   NAME_VAR(idx) → NAME(ident.name), re-roots to the inner expr, and
-//   returns a freshly-malloc'd HermesStatic-shaped ExprBlob ptr.
+//   returns a freshly-malloc'd WritStatic-shaped ExprBlob ptr.
 // QUOTE_TY — `quote_ty! { type }`. Slice 1 of the quote_ty epic.
 // MVP without antiquotation: parse the inner type expression, resolve
 // to a TypeRef, and emit the same Type{kind,name,size} struct literal
@@ -16384,7 +16384,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::ObjectArray;
     using logos::writ::ArenaString;
     using logos::writ::TinyObjectMap;
@@ -16428,7 +16428,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         return error_expr();
     }
     auto doc = std::move(doc_e).get();
-    auto& dst_arena = HermesAccess::arena(doc);
+    auto& dst_arena = WritAccess::arena(doc);
 
     auto cp_e = copy_object_into(src_tom.ptr(), src_holder->base(), doc);
     if (!cp_e) {
@@ -16437,7 +16437,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     }
     void* dst_obj = cp_e.get();
     uint32_t root_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+        reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
 
     writ::TinyMapView(arena_offset_t{root_off}, doc.holder())
         .set_schema_type_code(logos::writ::schema::ast(code));
@@ -16580,7 +16580,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t.has_key(key)) return true;
             AnyVal av = t.get(key);
             if (av.is_null() || !av.is_pointer()) return true;
-            return walk(static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value()));
+            return walk(static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value()));
         };
 
         if (cd == la::VAR_REF.code) {
@@ -16641,7 +16641,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (t.has_key(la::ARGS.code)) {
                 AnyVal av = t.get(la::ARGS.code);
                 if (av.is_pointer()) {
-                    uint32_t arr_off = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
+                    uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
                     uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
                     // Refresh base+arr each iter: walk() can grow the arena via
                     // register_name_var->put(), staling `b` and `arr`.
@@ -16650,7 +16650,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
                         AnyVal el = arr2.get(i);
                         if (!el.is_pointer()) continue;
                         if (!walk(static_cast<uint32_t>(
-                                el.to_offset(HermesAccess::base(doc)).value()))) {
+                                el.to_offset(WritAccess::base(doc)).value()))) {
                             return false;
                         }
                     }
@@ -16667,13 +16667,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t.has_key(la::ITEMS.code)) return true;
             AnyVal av = t.get(la::ITEMS.code);
             if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
             uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
             for (uint64_t i = 0; i < n; ++i) {
                 auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
                 AnyVal el = arr2.get(i);
                 if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value())))
+                if (!walk(static_cast<uint32_t>(el.to_offset(WritAccess::base(doc)).value())))
                     return false;
             }
             return true;
@@ -16695,13 +16695,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t.has_key(la::ITEMS.code)) return true;
             AnyVal av = t.get(la::ITEMS.code);
             if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
             uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
             for (uint64_t i = 0; i < n; ++i) {
                 auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
                 AnyVal el = arr2.get(i);
                 if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value())))
+                if (!walk(static_cast<uint32_t>(el.to_offset(WritAccess::base(doc)).value())))
                     return false;
             }
             return true;
@@ -16770,18 +16770,18 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         // value after clone.
         for (auto& ph : placeholders) {
             (void)ArrayView(arena_offset_t(ph_off), doc.holder()).push_back(
-                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(ph.dst_offset)));
+                AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(ph.dst_offset)));
         }
 
         // Wrapper TOM. CODE absent (signals "wrapped" to the runtime shim).
-        auto wrapper_e = HermesAccess::raw_tiny_map(doc, 4);
+        auto wrapper_e = WritAccess::raw_tiny_map(doc, 4);
         if (!wrapper_e) {
             error("quote_expr!: wrapper tom alloc failed");
             return error_expr();
         }
         outer_root_off = static_cast<uint32_t>(
             reinterpret_cast<uint8_t*>(wrapper_e.get())
-            - HermesAccess::base(doc));
+            - WritAccess::base(doc));
         auto wrapper = [&]() {
             return TinyMapView(arena_offset_t(outer_root_off), doc.holder());
         };
@@ -16791,7 +16791,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
                 AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(ph_off)));
     }
 
-    HermesAccess::set_root_offset(doc, arena_offset_t(outer_root_off));
+    WritAccess::set_root_offset(doc, arena_offset_t(outer_root_off));
 
     auto packed_e = compactify(doc);
     if (!packed_e) {
@@ -16799,7 +16799,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         return error_expr();
     }
     auto packed = std::move(packed_e).get();
-    auto& packed_arena = HermesAccess::arena(packed);
+    auto& packed_arena = WritAccess::arena(packed);
     const uint8_t* data = packed_arena.head().data();
     size_t used = packed_arena.total_used();
 
@@ -16807,13 +16807,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
 
     if (N == 0) {
         // Simple path: no antiquot. Emit static rodata + ExprBlob{ptr}.
-        lir::EHermesLit lit;
+        lir::EWritLit lit;
         lit.static_blob.assign(data, data + used);
-        return builder().hermes_lit_v(std::move(lit), eb_t);
+        return builder().writ_lit_v(std::move(lit), eb_t);
     }
 
     // Antiquot path: build a block expression that
-    //   let __qet: HermesStatic = <static template bytes>;
+    //   let __qet: WritStatic = <static template bytes>;
     //   let __qes_0: IdentSpan = IdentSpan { ptr: &v0_ptr, count: c0 };
     //   ...
     //   let __qei: [IdentSpan; N] = [__qes_0, __qes_1, ...];
@@ -16824,10 +16824,10 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     // For scalar Ident the ptr is `&v` (cast from &Ident to *const Ident),
     // count=1. For cursor `[Ident; M]`, ptr is `&v[0]` (cast from
     // *const [Ident; M] to *const Ident), count=M.
-    auto hs_t = make_struct_type("HermesStatic");
-    lir::EHermesLit lit;
+    auto hs_t = make_struct_type("WritStatic");
+    lir::EWritLit lit;
     lit.static_blob.assign(data, data + used);
-    auto template_lit = builder().hermes_lit_v(std::move(lit), hs_t);
+    auto template_lit = builder().writ_lit_v(std::move(lit), hs_t);
 
     push_scope();
     std::vector<lir_view::StmtRef> blk;
@@ -16982,14 +16982,14 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
 }
 
 // HERMES_BLOB — sema-internal node spliced by the metacall driver after
-// invoking a thunk whose return type is HermesStatic / Hermes / ExprBlob.
-// VALUE is the raw Hermes blob bytes (Varchar).
+// invoking a thunk whose return type is WritStatic / Writ / ExprBlob.
+// VALUE is the raw Writ blob bytes (Varchar).
 //
 // Two paths:
 //
 // 1. Data blob (default): root TOM has no AST/LIR schema_type_code (or
-//    isn't an AST node). Lower to EHermesLit{static_blob=bytes,
-//    root=null, has_captures=false}, type=HermesStatic; mlir_gen emits
+//    isn't an AST node). Lower to EWritLit{static_blob=bytes,
+//    root=null, has_captures=false}, type=WritStatic; mlir_gen emits
 //    the bytes directly into rodata.
 //
 // 2. AST-fragment blob (Slice 7 of metaprog-quote): root TOM's
@@ -17000,17 +17000,17 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
 //    only — the others slot in when their grammar lands).
 //
 // Dispatch happens here rather than in lower_metacall because the
-// blob's root code is the authoritative signal: a HermesStatic-typed
+// blob's root code is the authoritative signal: a WritStatic-typed
 // metafn might be returning data OR a fragment, and we can only know
 // after reading the bytes. Pass-1 metacall typing (`is_expr_blob`) is
 // a hint that lets `let X: T = metacall ...` defer type-check; pass-2
 // here actually completes the lowering with the right type.
-lir::LExprPtr SemaChecker::lower_hermes_blob(TinyMapView node) {
+lir::LExprPtr SemaChecker::lower_writ_blob(TinyMapView node) {
     auto bytes = str_of(node.get(la::VALUE.code));
 
     // Peek at the root's schema_type_code without copying the whole blob
     // unless we have to. Use from_bytes_copy: it owns its own arena and
-    // remains valid as long as we keep the resulting Hermes alive.
+    // remains valid as long as we keep the resulting Writ alive.
     auto doc_e = logos::writ::from_bytes_copy(
         reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
     if (doc_e) {
@@ -17053,11 +17053,11 @@ lir::LExprPtr SemaChecker::lower_hermes_blob(TinyMapView node) {
         }
     }
 
-    // Fallback: opaque HermesStatic data blob.
-    lir::EHermesLit lit;
+    // Fallback: opaque WritStatic data blob.
+    lir::EWritLit lit;
     lit.static_blob.assign(bytes.data(), bytes.size());
-    auto result_type = make_struct_type("HermesStatic");
-    return builder().hermes_lit_v(std::move(lit), result_type);
+    auto result_type = make_struct_type("WritStatic");
+    return builder().writ_lit_v(std::move(lit), result_type);
 }
 
 // ── metacall <call_expr> ─────────────────────────────────────────────────
@@ -17272,7 +17272,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     return;
                 }
             }
-            // Recurse via Hermes tags.
+            // Recurse via Writ tags.
             auto desc = [&](AnyVal av) {
                 if (!av.is_pointer() || has_capture) return;
                 const uint8_t* obj = av.resolve();
@@ -17392,12 +17392,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     }
     auto rt = lowered ? expr_type(lowered) : nullptr;
     auto rk = TypeRef(rt).kind();
-    bool rt_is_hermes_static = is_hermes_static(rt);
-    // hermes2: the runtime container is Rc<Hermes> (capture-@{} / comprehensions);
-    // it freezes to a HermesStatic blob exactly like the legacy Hermes.
-    bool rt_is_hermes        = is_hermes(rt)
-        || (is_named_struct(rt, "Rc") && type_str(rt).find("Hermes") != std::string::npos);
-    // Slice 7 of metaprog-quote: ExprBlob is a HermesStatic-shaped marker
+    bool rt_is_writ_static = is_writ_static(rt);
+    // writ2: the runtime container is Rc<Writ> (capture-@{} / comprehensions);
+    // it freezes to a WritStatic blob exactly like the legacy Writ.
+    bool rt_is_writ        = is_writ(rt)
+        || (is_named_struct(rt, "Rc") && type_str(rt).find("Writ") != std::string::npos);
+    // Slice 7 of metaprog-quote: ExprBlob is a WritStatic-shaped marker
     // signalling that the metafunction returns an AST expression fragment.
     // Driver splices identically (CODE→HERMES_BLOB, VALUE=bytes); pass-2
     // sema reads the blob's root schema_type_code and recurses into
@@ -17419,9 +17419,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         // &str / Slice<u8>
         (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
          TypeRef(rt).elem().kind() == LogosType::Kind::U8);
-    bool ok_ret = prim_ok || rt_is_hermes_static || rt_is_hermes || is_expr_blob;
+    bool ok_ret = prim_ok || rt_is_writ_static || rt_is_writ || is_expr_blob;
     if (rt && !ok_ret)
-        error("metacall: ret type must be primitive scalar, HermesStatic, Hermes, or ExprBlob");
+        error("metacall: ret type must be primitive scalar, WritStatic, Writ, or ExprBlob");
 
     // Record site for the eventual driver-side splice (M.1 Stage 2).
     if (cur_prog_ && rt && ok_ret) {
@@ -17451,8 +17451,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         case LogosType::Kind::FloatLit: site.ret_tag = RT::F64; break;
         case LogosType::Kind::Slice: site.ret_tag = RT::Str; break;
         case LogosType::Kind::Struct:
-            site.ret_tag = rt_is_hermes_static ? RT::HermesStatic
-                         : rt_is_hermes        ? RT::Hermes
+            site.ret_tag = rt_is_writ_static ? RT::WritStatic
+                         : rt_is_writ        ? RT::Writ
                          : is_expr_blob     ? RT::ExprBlob
                                             : RT::I64;
             break;
@@ -17534,49 +17534,49 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             }
             std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
             using RT2 = lir::MetacallRetTag;
-            if (site.ret_tag == RT2::Hermes) {
-                // Hermes ret: wrap in __metacall_freeze, which copies the
+            if (site.ret_tag == RT2::Writ) {
+                // Writ ret: wrap in __metacall_freeze, which copies the
                 // live-zone bytes into a malloc'd [u64 size][bytes] buffer
                 // and returns a pointer past the size prefix. Driver reads
-                // *(ptr-8) for size and splices identically to HermesStatic.
-                // The temporary Hermes drops at end-of-thunk; the freeze
+                // *(ptr-8) for size and splices identically to WritStatic.
+                // The temporary Writ drops at end-of-thunk; the freeze
                 // helper has already copied bytes out.
-                // Hermes ret is supported only for the call form — the
-                // freeze helper expects a single Hermes-typed expression.
+                // Writ ret is supported only for the call form — the
+                // freeze helper expects a single Writ-typed expression.
                 if (!ic_is_call) {
-                    error("metacall: Hermes return type currently supported "
+                    error("metacall: Writ return type currently supported "
                           "only on the call form (`metacall foo()`)");
                     ok = false;
                 }
                 if (ok) {
-                    // hermes2: the callee returns Rc<Hermes>; freeze via the
+                    // writ2: the callee returns Rc<Writ>; freeze via the
                     // host shim logos_metacall_freeze2 (deep-copy the root into
                     // a malloc'd [u64 size][bytes] compact blob, ptr past the
-                    // prefix — same wire shape as HermesStatic).
+                    // prefix — same wire shape as WritStatic).
                     site.thunk_source = std::format(
                         "package {};\n"
-                        "use logos.lang.hermes.container;\n"
-                        "use logos.lang.hermes.anyval;\n"
+                        "use logos.lang.writ.container;\n"
+                        "use logos.lang.writ.anyval;\n"
                         "use logos.lang.rc;\n"
                         "extern fn logos_metacall_freeze2(w: u64) -> *const u8;\n"
                         "unsafe fn {}() -> *const u8 {{\n"
-                        "    let __h: Rc<Hermes> = {};\n"
-                        "    let __hh: &Hermes = __h.deref();\n"
+                        "    let __h: Rc<Writ> = {};\n"
+                        "    let __hh: &Writ = __h.deref();\n"
                         "    return logos_metacall_freeze2(__hh.root().raw() as u64);\n"
                         "}}\n",
                         pkg, site.thunk_name, call_text);
                 }
             } else {
-                // HermesStatic ret needs the HermesStatic struct in scope.
+                // WritStatic ret needs the WritStatic struct in scope.
                 // After the three-layer split, the struct lives in
-                // logos.lang.hermes.view; the trait surface still in
-                // std.hermes.view. Include both for safety.
+                // logos.lang.writ.view; the trait surface still in
+                // std.writ.view. Include both for safety.
                 // ExprBlob ret additionally needs std.compiler.metaprog.
                 const char* extra_uses =
-                    (site.ret_tag == RT2::HermesStatic)
-                    ? "use logos.lang.hermes.hstatic;\n"
+                    (site.ret_tag == RT2::WritStatic)
+                    ? "use logos.lang.writ.hstatic;\n"
                     : (site.ret_tag == RT2::ExprBlob)
-                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.hermes.hstatic;\n"
+                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.writ.hstatic;\n"
                     : "";
                 // Body shape:
                 //   call/expr forms → `{ return <text>; }`
@@ -17594,12 +17594,12 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         }
         push_metacall_site(*cur_prog_, site);
 
-        // Post-splice the AST node becomes HERMES_BLOB (typed HermesStatic).
+        // Post-splice the AST node becomes HERMES_BLOB (typed WritStatic).
         // Override the lowered expr's type so sema sees the post-splice shape
-        // even when the callee returns Hermes (mutable) — auto-freeze copies
-        // bytes into a static blob, so user code consumes HermesStatic.
-        if (rt_is_hermes && lowered) {
-            builder().retype_expr(lowered, make_struct_type("HermesStatic"));
+        // even when the callee returns Writ (mutable) — auto-freeze copies
+        // bytes into a static blob, so user code consumes WritStatic.
+        if (rt_is_writ && lowered) {
+            builder().retype_expr(lowered, make_struct_type("WritStatic"));
         }
     }
 
@@ -17685,7 +17685,7 @@ lir::LExprPtr SemaChecker::lower_offset_of(TinyMapView node) {
 
 lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     using logos::writ::make_doc;
     using logos::writ::copy_object_into;
@@ -17786,7 +17786,7 @@ lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body,
                                                     std::string_view err_ctx) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     std::string wrap_src = std::format(
         "package __reparsed_expr;\nfn __f() -> i32 {{ {} }}\n", wrap_body);
@@ -17835,7 +17835,7 @@ lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body
 
 lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     using logos::writ::make_doc;
     using logos::writ::copy_object_into;
@@ -17921,7 +17921,7 @@ lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
 
 lir::LExprPtr SemaChecker::lower_macro_concat_bytes(TinyMapView node) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     using logos::writ::make_doc;
     using logos::writ::copy_object_into;
@@ -18111,7 +18111,7 @@ static std::vector<std::string> split_top_level_commas(const std::string& s) {
 
 std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, const std::string& callee_name) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     using logos::writ::make_doc;
     using logos::writ::copy_object_into;
@@ -18475,7 +18475,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
 
 lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     using logos::writ::make_doc;
     using logos::writ::copy_object_into;
@@ -18614,8 +18614,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         site.callee_name = macro_info->base_name;
         push_metacall_site(*cur_prog_, site);
 
-        lir::EHermesLit lit;
-        return builder().hermes_lit_v(std::move(lit), macro_info->ret_type);
+        lir::EWritLit lit;
+        return builder().writ_lit_v(std::move(lit), macro_info->ret_type);
     }
 
     std::string wrap_src = std::format(
@@ -19025,7 +19025,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     uint64_t site_id = metacall_site_id(
         cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
 
-    // Serialise each ARG sub-tree into a fresh Hermes doc, prefix with
+    // Serialise each ARG sub-tree into a fresh Writ doc, prefix with
     // [u64 size], and store under macro_arg_blobs[site_id][arg_idx].
     std::vector<std::vector<uint8_t>> blobs;
     blobs.resize(arg_avs.size());
@@ -19036,7 +19036,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         }
         auto src_tom = writ::as_tinymap(arg_avs[i], src_holder);
         // Read CODE so we can re-stamp schema_type_code on the cloned
-        // root — lower_hermes_blob dispatches via that field.
+        // root — lower_writ_blob dispatches via that field.
         int32_t code = 0;
         if (src_tom.has_key(la::CODE.code)) {
             AnyVal cav = src_tom.get(la::CODE.code);
@@ -19061,15 +19061,15 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         }
         void* dst_obj = cp_e.get();
         uint32_t root_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+            reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
         writ::TinyMapView(logos::writ::arena_offset_t{root_off}, doc.holder())
             .set_schema_type_code(logos::writ::schema::ast(code));
         // Promote the cloned subtree to the doc's root — without this
         // `from_bytes_copy` on the resulting blob sees a null root and
-        // lower_hermes_blob falls through to the HermesStatic path.
-        HermesAccess::set_root_offset(doc,
+        // lower_writ_blob falls through to the WritStatic path.
+        WritAccess::set_root_offset(doc,
             logos::writ::arena_offset_t{root_off});
-        auto& arena = HermesAccess::arena(doc);
+        auto& arena = WritAccess::arena(doc);
         const uint8_t* data = arena.head().data();
         size_t used = arena.total_used();
         blobs[i].resize(8 + used);
@@ -19089,7 +19089,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         thunk_src = std::format(
             "package {};\n"
             "use logos.std.compiler.metaprog;\n"
-            "use logos.mem.hermes.view;\n"
+            "use logos.mem.writ.view;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
             "    return {}(e0);\n"
@@ -19105,7 +19105,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         thunk_src = std::format(
             "package {};\n"
             "use logos.std.compiler.metaprog;\n"
-            "use logos.mem.hermes.view;\n"
+            "use logos.mem.writ.view;\n"
             "use logos.mem.collections.vec;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let mut v: Vec<ExprBlob> = vec_new::<ExprBlob>();\n"
@@ -19128,8 +19128,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     // driver splices HERMES_BLOB over this node before the final sema
     // pass, so this LIR never reaches mlir_gen. The let-stmt path
     // recognises ExprBlob RHS and adopts the user's annotation type.
-    lir::EHermesLit lit;
-    return builder().hermes_lit_v(std::move(lit), macro_info->ret_type);
+    lir::EWritLit lit;
+    return builder().writ_lit_v(std::move(lit), macro_info->ret_type);
 }
 
 // ── name!{...} at module item position (slice 6 of fn-macros) ────────────
@@ -19142,7 +19142,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
 void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                             lir::LProgram& prog) {
     using logos::writ::AnyVal;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
     using logos::writ::make_doc;
     using logos::writ::copy_object_into;
@@ -19301,12 +19301,12 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         if (!cp_e) { error("fn_macro item: copy_object_into failed"); return; }
         void* dst_obj = cp_e.get();
         uint32_t root_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+            reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
         writ::TinyMapView(logos::writ::arena_offset_t{root_off}, doc.holder())
             .set_schema_type_code(logos::writ::schema::ast(code));
-        HermesAccess::set_root_offset(doc,
+        WritAccess::set_root_offset(doc,
             logos::writ::arena_offset_t{root_off});
-        auto& arena = HermesAccess::arena(doc);
+        auto& arena = WritAccess::arena(doc);
         const uint8_t* data = arena.head().data();
         size_t used = arena.total_used();
         blobs[i].resize(8 + used);
@@ -19347,7 +19347,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "package {};\n"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
-            "use logos.mem.hermes.view;\n"
+            "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
@@ -19374,7 +19374,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "package {};\n"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
-            "use logos.mem.hermes.view;\n"
+            "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
@@ -19488,8 +19488,8 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
     }
     if (!rt) return;  // earlier diag already emitted
 
-    // Render a hermes_lit AST back to Logos source — needed when the
-    // type-arg is a HermesStatic literal (`Foo::<@{...}>`). type_str()
+    // Render a writ_lit AST back to Logos source — needed when the
+    // type-arg is a WritStatic literal (`Foo::<@{...}>`). type_str()
     // renders HStaticLit as `@hs_<hex>` which doesn't parse; for the
     // metacall thunk we must reconstruct the original `@{...}` source.
     std::function<std::string(TinyMapView)> render_hstatic;
@@ -19639,7 +19639,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             "package {};\n"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
-            "use logos.mem.hermes.view;\n"
+            "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
@@ -19665,7 +19665,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
         site.thunk_source = std::format(
             "package {};\n"
             "use logos.std.compiler.metaprog;\n"
-            "use logos.mem.hermes.view;\n"
+            "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"

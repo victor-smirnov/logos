@@ -2,7 +2,7 @@
 //
 // vlen_u64_56 — a variable-length unsigned-integer codec (a general byte-stream
 // primitive, not string-specific; lives here so any subsystem can use it without
-// depending on Hermes). Wire-format §4:
+// depending on Writ). Wire-format §4:
 //   value < 249   → 1 byte  = value
 //   value >= 249  → 1 byte  = 248 + N (data-byte count), then N bytes LE
 // Values >= 2^56 (8+ data bytes) are not representable (the marker 248+N would

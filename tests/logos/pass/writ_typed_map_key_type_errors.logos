@@ -1,0 +1,17 @@
+// Typed-map key type errors -> null (writ2): quoted/bare/float keys in an
+// integer-keyed map.
+package writ_typed_map_key_type_errors;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
+    if !parse(h, "<I32>{\"a\":1}").is_null() { return 1; }
+    if !parse(h, "<I32>{abc:1}").is_null() { return 2; }
+    if !parse(h, "<I32>{1.5:1}").is_null() { return 3; }
+    if parse(h, "<I32>{1:1}").is_null() { return 4; }
+    return 0;
+}

@@ -133,7 +133,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
                 push_string_arg(&mut argv, dump_filter);
             }
         }
-        // External archives so logosc can load their .hermes0 modules and
+        // External archives so logosc can load their .writ0 modules and
         // resolve `use <pkg>` statements that reference symbols outside
         // this project.
         let en_lib: i64 = externals.length();
@@ -266,7 +266,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         return 0;
     }
 
-    // Build `ar rcs <arch> <logos_obj> <logos_hermes0> ... <native_obj> ...`
+    // Build `ar rcs <arch> <logos_obj> <logos_writ0> ... <native_obj> ...`
     let mut ar_argv: Vec<String> = vec_new::<String>();
     push_arg(&mut ar_argv, "ar");
     push_arg(&mut ar_argv, "rcs");

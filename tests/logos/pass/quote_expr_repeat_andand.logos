@@ -9,7 +9,7 @@
 package quote_expr_repeat_andand;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 fn build_expr() -> ExprBlob {
     let s_a: str = "a";

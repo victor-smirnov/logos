@@ -20,7 +20,7 @@
 //   - Request document is moved to the server reactor (zero-copy).
 //   - Response document is moved back to the client reactor (zero-copy).
 //   - No serialization / deserialization — documents cross reactor boundaries
-//     as moved Own<Hermes> with atomic refcount only.
+//     as moved Own<Writ> with atomic refcount only.
 //   - The calling fiber is suspended for the duration of the handler.
 
 #pragma once

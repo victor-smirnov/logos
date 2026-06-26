@@ -27,17 +27,17 @@ struct ModuleManifest {
 
     std::string root;      // directory containing .logos files (relative or absolute)
     std::vector<std::string> depends;  // other module names (for future use)
-    std::vector<std::string> excludes; // path-prefixes to drop from the archive entirely (no .o, no .hermes0)
-    std::vector<std::string> ast_only; // path-prefixes included as .hermes0 only — codegen skipped (host-extern bodies invalid for user link)
+    std::vector<std::string> excludes; // path-prefixes to drop from the archive entirely (no .o, no .writ0)
+    std::vector<std::string> ast_only; // path-prefixes included as .writ0 only — codegen skipped (host-extern bodies invalid for user link)
 
     // Multi-arena IR Phase 6 — hybrid lazy mode.
     //
     // eager (default): emit_module runs full sema+mono+codegen, writes
-    //   NAME.o + .hermes0 (with parsed AST + LIR blob). Consumer-side
+    //   NAME.o + .writ0 (with parsed AST + LIR blob). Consumer-side
     //   compile uses pre-built .o for linking and the LIR blob for
     //   cross-arena generic instantiation (Phase 5.B).
     //
-    // lazy: emit_module writes ONLY .hermes0 with parsed AST. No .o, no
+    // lazy: emit_module writes ONLY .writ0 with parsed AST. No .o, no
     //   LIR blob, no exports trailer. Consumer-side sema loads the AST
     //   and lowers any referenced items into the consumer's own arena
     //   on demand (item bodies become user-code-equivalent in the

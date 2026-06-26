@@ -4,7 +4,7 @@
 # Validates:
 #   - manifest carries c_sources / asm_sources arrays
 #   - cc -c is invoked per native source, in parallel with logosc
-#   - native .o files are folded into the lib archive alongside .o + .hermes0
+#   - native .o files are folded into the lib archive alongside .o + .writ0
 #   - bin can call into the C symbols via Logos extern fn
 #   - touching one C file rebuilds only that file
 #   - pure-native lib (no Logos sources) is allowed
@@ -21,7 +21,7 @@ trap 'rm -rf "$PROJ"' EXIT
 mkdir -p "$PROJ/src/core" "$PROJ/src" "$PROJ/native"
 
 # A mixed-source lib: Logos wrappers + C implementations.
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "demo",
     version: "0.1.0",
@@ -75,7 +75,7 @@ grep -q "compiling 3 file(s) in parallel" "$PROJ/b1.log" || {
 
 # Per-file artifacts.
 [ -f "$PROJ/.lforge/debug/_files/core/wrap.o" ]      || { echo "FAIL: wrap.o missing"; exit 1; }
-[ -f "$PROJ/.lforge/debug/_files/core/wrap.hermes0" ] || { echo "FAIL: wrap.hermes0 missing"; exit 1; }
+[ -f "$PROJ/.lforge/debug/_files/core/wrap.writ0" ] || { echo "FAIL: wrap.writ0 missing"; exit 1; }
 [ -f "$PROJ/.lforge/debug/_files/core/wrap.hm0" ]     || { echo "FAIL: wrap.hm0 missing"; exit 1; }
 [ -f "$PROJ/.lforge/debug/_files/core/answer.c.o" ]  || { echo "FAIL: answer.c.o missing"; exit 1; }
 [ -f "$PROJ/.lforge/debug/_files/core/triple.S.o" ]  || { echo "FAIL: triple.S.o missing"; exit 1; }
@@ -115,7 +115,7 @@ after_c=$(stat -c%Y     "$PROJ/.lforge/debug/_files/core/answer.c.o")
 
 # ── Pure-native lib (no Logos sources) ─────────────────────────────────────
 mkdir -p "$PROJ/pure_proj/native"
-cat > "$PROJ/pure_proj/lforge.hermes" <<'EOF'
+cat > "$PROJ/pure_proj/lforge.writ" <<'EOF'
 {
     name:    "puredemo",
     version: "0.1.0",

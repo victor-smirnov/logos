@@ -1,14 +1,14 @@
-// Decimal edge cases on hermes2: zero forms, negative zero, max coefficient,
+// Decimal edge cases on writ2: zero forms, negative zero, max coefficient,
 // deep fractional scales, add identities.
 package dec_edge_cases;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.decimal;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.decimal;
 use logos.lang.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(8192);
-    let h: &Hermes = rc.deref();
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
 
     // Zero in several spellings — all value-equal.
     let z1: HAny = hdec_from_str(h, "0");

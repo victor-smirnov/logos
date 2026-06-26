@@ -1,0 +1,104 @@
+// logos.lang.writ.comp_builder — writ2 runtime builders for @{}/@[]
+// comprehensions and capture-@{}.
+//
+// STEP 5 (cut-over): the compiler lowers Writ COMPREHENSIONS (`@[e for x in it]`,
+// `@{k:v for ...}`) and capture-`@{}` to a RUNTIME Writ container built via these
+// helpers. The legacy path used logos.mem.writ.ctr (Writ1 4-byte) so the blob
+// the compiler then reads (lower_writ_blob, writ2) mismatched -> SIGSEGV. These
+// build a writ2 `Writ` container instead, matching the compiler's read.
+//
+// Mirror of mem.writ.ctr::writ_{list,map}_comp_{new,push,put} + writ_coerce_*,
+// AnyVal -> HAny.
+//
+// OWNERSHIP (the never-move + Rc-holder design): the comprehension yields an
+// `Rc<Writ>`. `Writ` owns its `Allocator` by value and is a non-movable
+// "stable root" — so the container is heap-pinned inside the Rc, and we build the
+// array/map root ONLY AFTER it is in the Rc (the move into Rc is the last move;
+// allocations then capture the STABLE Rc-heap allocator address that zone_of
+// recovers). Returning the Rc moves only the Rc handle, never the Writ.
+
+package logos.lang.writ.comp_builder;
+
+use logos.lang.writ.anyval;       // HAny
+use logos.lang.writ.container;    // Writ, writ_new
+use logos.lang.writ.array;        // HArray<HAny>, Writ.array, HArray.push
+use logos.lang.writ.hmap;         // HMap<HString,HAny>, Writ.map, HMap.set
+use logos.lang.writ.hstring;      // HString (key type in the map annotation)
+use logos.lang.rc;                    // Rc — heap-pin the non-movable Writ
+use logos.lang.str;
+
+// КОСТЫЛЬ / TODO(deref): we use explicit `&*rc` because `*rc` / auto-deref of
+// a user `Deref` impl (Rc) does NOT kick in for method calls or the `*` operator yet
+// (`rc.array()`/`*rc` fail; `&*rc` works). Once Logos auto-invokes user Deref
+// (Rust-conformant), drop the explicit `.deref()` here and call methods on the Rc
+// directly. Tracked as a compiler deref-coercion gap.
+
+// ── List comprehension: @[expr for x in iter (if guard)?] ──────────────────────
+pub fn writ_list_comp_new(cap: i64) -> Rc<Writ> {
+    let rc: Rc<Writ> = rc_new(writ_new(cap));    // Writ pinned in Rc heap
+    let h: &Writ = &*rc;
+    let arr: &mut HArray<HAny> = h.array(8);           // allocate AFTER the pin (stable zone)
+    // КОСТЫЛЬ / TODO(fat-thin): `let a: &HArray = h.array(8); HAny::from(a)` stores the
+    // WRONG word — the &mut(fat,zone-carrying) -> &(thin) coercion picks the zone word,
+    // not the data ptr. So extract the DATA ptr explicitly from the fat &mut and rebuild
+    // a clean thin & from it. Fix the fat->thin & coercion in the compiler, then drop this.
+    let aptr: *const HArray<HAny> = arr as *const HArray<HAny>;
+    h.set_root(HAny::from(unsafe { &*aptr }));
+    return rc;
+}
+
+pub fn writ_list_comp_push(c: &Rc<Writ>, v: HAny) {
+    let h: &Writ = &**c;
+    let root: HAny = h.root();
+    unsafe {
+        let hp: *mut Writ = h as *const Writ as *mut Writ;
+        // Rebuild a FAT &mut carrying the container's zone (allocator), so push/grow
+        // recover it via zone_of(self) — a thin &mut from the raw ptr loses the zone.
+        let arr: &mut HArray<HAny> = zone_mut_ref::<HArray<HAny>>(
+            root.resolve() as *mut HArray<HAny>, &mut hp.allocator as *mut u8);
+        arr.push(v);
+    }
+}
+
+// ── Map comprehension: @{kexpr: vexpr for x in iter (if guard)?} ───────────────
+pub fn writ_map_comp_new(cap: i64, slot_hint: i64) -> Rc<Writ> {
+    let rc: Rc<Writ> = rc_new(writ_new(cap));    // Writ pinned in Rc heap
+    let h: &Writ = &*rc;
+    // Round slot_hint up to next power of two (min 8) — open-addressing masking.
+    let mut slots: i64 = 8;
+    let mut want:  i64 = slot_hint * 2;
+    if want < 8 { want = 8; }
+    while slots < want { slots = slots * 2; }
+    let m: &mut HMap<HString, HAny> = h.map(slots);    // allocate AFTER the pin (stable zone)
+    let mptr: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
+    h.set_root(HAny::from(unsafe { &*mptr }));
+    return rc;
+}
+
+pub fn writ_map_comp_put(c: &Rc<Writ>, k: str, v: HAny) {
+    let h: &Writ = &**c;
+    let root: HAny = h.root();
+    unsafe {
+        let hp: *mut Writ = h as *const Writ as *mut Writ;
+        let m: &mut HMap<HString, HAny> = zone_mut_ref::<HMap<HString, HAny>>(
+            root.resolve() as *mut HMap<HString, HAny>, &mut hp.allocator as *mut u8);
+        m.set(k, v);
+    }
+}
+
+// String coercion allocates an HString in the CONTAINER's zone (needs_ctr form:
+// the compiler passes &Rc<Writ> first).
+pub fn writ_coerce_str(c: &Rc<Writ>, s: str) -> HAny {
+    let h: &Writ = &**c;
+    let hs: &HString = h.hstring(s);
+    return HAny::from(hs);
+}
+
+// ── Scalar → HAny coercion (compiler auto-wraps the element expr by Logos type) ─
+pub fn writ_coerce_bool(v: bool) -> HAny { return HAny::from(v); }
+pub fn writ_coerce_i8(v: i8)   -> HAny { return HAny::from(v); }
+pub fn writ_coerce_i16(v: i16) -> HAny { return HAny::from(v); }
+pub fn writ_coerce_i32(v: i32) -> HAny { return HAny::from(v as i56); }
+pub fn writ_coerce_u8(v: u8)   -> HAny { return HAny::from(v); }
+pub fn writ_coerce_u16(v: u16) -> HAny { return HAny::from(v); }
+pub fn writ_coerce_u32(v: u32) -> HAny { return HAny::from(v as i56); }

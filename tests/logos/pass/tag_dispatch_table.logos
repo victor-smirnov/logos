@@ -1,6 +1,6 @@
 package tag_dispatch_table;
-use logos.lang.hermes.anyval;
-use logos.mem.hermes.tag_system;
+use logos.lang.writ.anyval;
+use logos.mem.writ.tag_system;
 // Tests Layer 3: #[tag_dispatch(DataTypeTagSystem)] annotation on a trait
 // causes the compiler to populate the tier-1 dispatch table.
 //

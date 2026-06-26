@@ -1,0 +1,12 @@
+// Fail: as <I32>[] with non-slice source.
+package writ_as_array_not_slice;
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let x: i32 = 5;
+    let ctr: Rc<Writ> = x as <I32>[];
+    return 0;
+}

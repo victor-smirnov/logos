@@ -36,9 +36,9 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.static_view;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
 
 pub trait HasId    { fn id()    -> i64; }
 pub trait HasName  { fn name()  -> str; }
@@ -56,13 +56,13 @@ fn dele_id<P:    HasId>()    -> i64 { return P::id(); }
 fn dele_name<P:  HasName>()  -> str { return P::name(); }
 fn dele_count<P: HasCount>() -> i64 { return P::count(); }
 
-fn assemble<const CFG: HermesStatic>() -> QuoteItemBlob {
+fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
     unsafe {
         let v: HView2 = hview2_from_ptr(CFG.ptr);
         let arr: HAny = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
 
-        // Inlined pick: closures-over-HermesView aren't usable inside
+        // Inlined pick: closures-over-WritView aren't usable inside
         // a metacall JIT because user-defined helper fns aren't in the
         // JIT scope. So we open-code the (method-name → last part) walk
         // three times. Repetitive but JIT-safe; a stdlib helper will

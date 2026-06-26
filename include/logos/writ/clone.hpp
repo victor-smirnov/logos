@@ -20,7 +20,7 @@ namespace logos::writ {
 // dst pointers are stable (no realloc) and the map stores them directly — no
 // AddrResolver needed. (The single-segment-immutable variant that reallocs the dst
 // will swap this map's value for an AddrResolver<void>, re-resolved after each
-// alloc; see project_hermes_cpp_migration.)
+// alloc; see project_writ_cpp_migration.)
 class DeepCopyState {
 public:
     explicit DeepCopyState(MemHolder* dst) noexcept : dst_(dst) {}
@@ -63,12 +63,12 @@ struct ClonedDoc {
 // relocatable blob. The dst arena is a GROWABLE_SINGLE_CHUNK pre-sized to a safe
 // upper bound (2× the source's used bytes + slack) so NO realloc happens during the
 // copy (which would dangle the never-move container pointers). The result's
-// blob_data()/blob_size() can be dumped and reloaded with HermesCtr::from_bytes.
-[[nodiscard]] logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept;
+// blob_data()/blob_size() can be dumped and reloaded with WritCtr::from_bytes.
+[[nodiscard]] logos::expected<WritCtr> compactify(const WritCtr& src) noexcept;
 
 // Compactify the tree reachable from a bare value-form root (no source container
-// needed — the root may live in any arena, e.g. a metacall JIT's Rc<Hermes>).
+// needed — the root may live in any arena, e.g. a metacall JIT's Rc<Writ>).
 // Clone once to measure the live set, then copy right-sized.
-[[nodiscard]] logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept;
+[[nodiscard]] logos::expected<WritCtr> compactify_root(AnyVal root) noexcept;
 
 } // namespace logos::writ

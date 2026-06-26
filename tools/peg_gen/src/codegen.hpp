@@ -10,7 +10,7 @@
 //   sql_parser.hpp  ─── NamedCode constants + Parser class declaration
 //   sql_parser.cpp  ─── recursive descent methods + Pratt expression parser
 //
-// Generated parser interface (example for grammar named "hermes"):
+// Generated parser interface (example for grammar named "writ"):
 //
 //   namespace logos::writ {
 //
@@ -23,13 +23,13 @@
 //       ...
 //   }
 //
-//   class HermesParser {
+//   class WritParser {
 //   public:
-//       explicit HermesParser(std::string_view source);
+//       explicit WritParser(std::string_view source);
 //
 //       // One method per %export-ed rule.
-//       logos::writ::Hermes parse_value();
-//       logos::writ::Hermes parse_map();
+//       logos::writ::Writ parse_value();
+//       logos::writ::Writ parse_map();
 //
 //   private:
 //       // Generated rule methods (one per grammar rule).

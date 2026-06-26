@@ -18,7 +18,7 @@
 package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.anyval;
 
 #[metaprog_handler("derive_copy")]
 fn derive_copy_hook(target_offset: u32) -> () {

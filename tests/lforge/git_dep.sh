@@ -22,7 +22,7 @@ trap 'rm -rf "$ROOT" "$CACHE_HOME"' EXIT
 
 # ── External "remote" project (a real git repo on the local fs).
 mkdir -p "$ROOT/upstream/src/util"
-cat > "$ROOT/upstream/lforge.hermes" <<'EOF'
+cat > "$ROOT/upstream/lforge.writ" <<'EOF'
 {
     name:    "upstream",
     version: "0.1.0",
@@ -47,7 +47,7 @@ TAG_SHA=$(git rev-parse HEAD)
 
 # ── Consumer pulls upstream by tag via file:// URL.
 mkdir -p "$ROOT/app/src"
-cat > "$ROOT/app/lforge.hermes" <<EOF
+cat > "$ROOT/app/lforge.writ" <<EOF
 {
     name:    "myapp",
     version: "0.1.0",
@@ -82,11 +82,11 @@ grep -q "lforge: fetching" "$ROOT/b1.log" || {
 "$ROOT/app/.lforge/debug/out/app" && rc=$? || rc=$?
 [ "$rc" = "42" ] || { echo "FAIL: tag-pinned app returned $rc, want 42"; exit 1; }
 
-# Cache layout: ~/.cache/lforge/src/<dirname>/<sha>/lforge.hermes
+# Cache layout: ~/.cache/lforge/src/<dirname>/<sha>/lforge.writ
 # dirname = display_to_dirname(canonical_url(...).0). For file:// it strips
 # the scheme, so display = "$ROOT/upstream", and `/` → `_`.
 DIRNAME=$(printf '%s' "$ROOT/upstream" | tr '/' '_')
-[ -f "$CACHE_HOME/.cache/lforge/src/$DIRNAME/$TAG_SHA/lforge.hermes" ] || {
+[ -f "$CACHE_HOME/.cache/lforge/src/$DIRNAME/$TAG_SHA/lforge.writ" ] || {
     echo "FAIL: cached clone manifest not at $CACHE_HOME/.cache/lforge/src/$DIRNAME/$TAG_SHA/"
     ls -R "$CACHE_HOME/.cache/lforge/src/" || true
     exit 1
@@ -103,7 +103,7 @@ grep -q "lforge: fetching" "$ROOT/b2.log" && {
 
 # ── SHA-pinned form
 mkdir -p "$ROOT/app2/src"
-cat > "$ROOT/app2/lforge.hermes" <<EOF
+cat > "$ROOT/app2/lforge.writ" <<EOF
 {
     name:    "myapp2",
     version: "0.1.0",
@@ -133,7 +133,7 @@ grep -q "lforge: fetching" "$ROOT/b3.log" && {
 
 # ── Negative: both 'path' and 'project' present.
 mkdir -p "$ROOT/bad/src"
-cat > "$ROOT/bad/lforge.hermes" <<EOF
+cat > "$ROOT/bad/lforge.writ" <<EOF
 {
     name: "bad", version: "0.1.0",
     deps: [

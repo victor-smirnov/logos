@@ -24,7 +24,7 @@ trap 'rm -rf "$ROOT" "$CACHE_HOME"' EXIT
 
 # Upstream tagged v1.0.0.
 mkdir -p "$ROOT/upstream/src/util"
-cat > "$ROOT/upstream/lforge.hermes" <<'EOF'
+cat > "$ROOT/upstream/lforge.writ" <<'EOF'
 {
     name: "upstream", version: "0.1.0",
     targets: [{ kind: "lib", name: "util", src: "src/util" }]
@@ -43,7 +43,7 @@ git tag v1.0.0
 
 # Consumer A.
 mkdir -p "$ROOT/appA/src"
-cat > "$ROOT/appA/lforge.hermes" <<EOF
+cat > "$ROOT/appA/lforge.writ" <<EOF
 {
     name: "appA", version: "0.1.0",
     deps: [
@@ -69,11 +69,11 @@ HOME="$CACHE_HOME" LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$ROO
 # Cache populated.
 cache_a=$(find "$CACHE_HOME/.cache/lforge/build" -name 'libutil.a' | head -1)
 [ -n "$cache_a" ] || { echo "FAIL: cache miss after appA build"; ls -R "$CACHE_HOME/.cache/lforge/build" || true; exit 1; }
-[ -f "${cache_a%/*}/meta.hermes" ] || { echo "FAIL: meta.hermes missing"; exit 1; }
+[ -f "${cache_a%/*}/meta.writ" ] || { echo "FAIL: meta.writ missing"; exit 1; }
 
 # Consumer B (same dep).
 mkdir -p "$ROOT/appB/src"
-cat > "$ROOT/appB/lforge.hermes" <<EOF
+cat > "$ROOT/appB/lforge.writ" <<EOF
 {
     name: "appB", version: "0.1.0",
     deps: [

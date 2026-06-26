@@ -1,0 +1,13 @@
+// writ_type_lit_parse.logos — component-metaprog slice 1 step A.
+// `<type:T>` parses and lowers inside @-literal at expression position.
+// Real Type-as-value embedding lands in step B.
+
+package writ_type_lit_parse;
+
+use logos.lang.writ.hstatic;
+
+pub unsafe fn main() -> i32 {
+    let _a = @{"key_ty": <type:i64>, "val_ty": <type:u32>};
+    let _b = @[<type:i64>, <type:bool>];
+    return 0;
+}

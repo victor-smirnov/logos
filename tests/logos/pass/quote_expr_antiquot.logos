@@ -1,17 +1,17 @@
 // Slice 5c of metaprog-quote — `#name` antiquot in `quote_expr!`.
 //
 // `build_expr` constructs an Ident referring to "y" and returns
-// `quote_expr! { #foo }`. lower_quote_expr packs a wrapper Hermes
+// `quote_expr! { #foo }`. lower_quote_expr packs a wrapper Writ
 // doc whose VAR_REF carries NAME_VAR=int_idx_0; the runtime shim
 // `logos_quote_expr_subst` substitutes idents[0]→"y", re-roots to
 // the inner expr, and returns ExprBlob{ptr} bytes. The metacall
-// driver splices a HERMES_BLOB; pass-2 sema's `lower_hermes_blob`
+// driver splices a HERMES_BLOB; pass-2 sema's `lower_writ_blob`
 // recurses `lower_expr` on a `VAR_REF{NAME="y"}` TOM, resolving to
 // the local `y` in main's scope.
 package quote_expr_antiquot;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 fn build_expr() -> ExprBlob {
     let s: str = "y";

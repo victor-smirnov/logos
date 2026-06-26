@@ -1,11 +1,11 @@
-# logos_writ_gdb.py — gdb decoder/pretty-printer for the Hermes container
+# logos_writ_gdb.py — gdb decoder/pretty-printer for the Writ container
 # format (self-relative arena values). The compiler's IR (LProgram/AST) and any
-# Hermes-backed runtime data use this format.
+# Writ-backed runtime data use this format.
 #
 # Load:
 #   (gdb) source /path/to/logos/tools/gdb/logos_writ_gdb.py
 # Commands:
-#   (gdb) logos-hermes <expr>     # decode the AnyVal word at &<expr> (or an addr)
+#   (gdb) logos-writ <expr>     # decode the AnyVal word at &<expr> (or an addr)
 # Also auto-registers a pretty-printer on `logos::writ::AnyVal`.
 #
 # Format (see include/logos/writ/*.hpp):
@@ -37,8 +37,8 @@ ARRAY_U8, ARRAY_F64 = 2101, 2110
 _POD_INT = {HA_I56, HT_I8, HT_U8, HT_I16, HT_I24, HT_U16, HT_U24}
 
 
-class HermesDecoder:
-    """Decodes the Hermes format given a `read(addr, size) -> bytes` callback."""
+class WritDecoder:
+    """Decodes the Writ format given a `read(addr, size) -> bytes` callback."""
     def __init__(self, read, max_depth=12, max_items=64):
         self.read = read
         self.max_depth = max_depth
@@ -78,7 +78,7 @@ class HermesDecoder:
         n = b - 248
         return self.u(addr + 1, n), 1 + n
 
-    # Is `addr` a plausible Hermes object start (its TypeTag is a known code)?
+    # Is `addr` a plausible Writ object start (its TypeTag is a known code)?
     # Used to disambiguate a live HAny (absolute Ref) from an at-rest AnyVal
     # (self-relative Ref) at the root, and as a bad-pointer guard.
     def _is_object(self, addr):
@@ -211,7 +211,7 @@ def _selftest():
     def read(addr, size):
         return bytes(buf[addr:addr + size])
 
-    d = HermesDecoder(read)
+    d = WritDecoder(read)
 
     # ArenaString "hi" at offset 16: tag byte at 15 = STRING(130), varint len=2, "hi".
     buf[15] = 130
@@ -256,16 +256,16 @@ def _selftest():
     wr(176, (184 - 176).to_bytes(8, "little", signed=True))  # data relptr
     assert d.obj(160) == "{3: 9}", d.obj(160)
 
-    print("logos_hermes selftest: OK")
+    print("logos_writ selftest: OK")
 
 
 try:
     import gdb
 
-    class LogosHermesCmd(gdb.Command):
-        "logos-hermes <expr> — decode the Hermes AnyVal at &<expr> (or an address)."
+    class LogosWritCmd(gdb.Command):
+        "logos-writ <expr> — decode the Writ AnyVal at &<expr> (or an address)."
         def __init__(self):
-            super().__init__("logos-hermes", gdb.COMMAND_DATA)
+            super().__init__("logos-writ", gdb.COMMAND_DATA)
 
         def invoke(self, arg, from_tty):
             v = gdb.parse_and_eval(arg)
@@ -277,7 +277,7 @@ try:
             # a live word): its Ref arm is absolute. (Nested hops into the arena
             # are at-rest/self-relative; the decoder handles that automatically,
             # and falls back to self-relative if the root was actually at-rest.)
-            print(HermesDecoder(_gdb_reader()).anyval(addr, live=True))
+            print(WritDecoder(_gdb_reader()).anyval(addr, live=True))
 
     class AnyValPrinter:
         def __init__(self, val):
@@ -288,7 +288,7 @@ try:
                 a = self.val.address
                 if a is None:
                     return "<AnyVal>"
-                return HermesDecoder(_gdb_reader()).anyval(int(a))
+                return WritDecoder(_gdb_reader()).anyval(int(a))
             except Exception:
                 return "<AnyVal?>"
 
@@ -299,9 +299,9 @@ try:
             return AnyValPrinter(val)
         return None
 
-    LogosHermesCmd()
+    LogosWritCmd()
     gdb.printing.register_pretty_printer(None, _av_lookup, replace=True)
-    print("logos: Hermes decoder loaded (logos-hermes <expr>; AnyVal printer)")
+    print("logos: Writ decoder loaded (logos-writ <expr>; AnyVal printer)")
 
 except ImportError:
     # Not under gdb — run the self-test.

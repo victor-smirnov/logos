@@ -1,0 +1,29 @@
+// Typed-array push + read-back via the document root (writ2 successor of
+// build_array_i32/array_i32_push).
+package writ_typed_push;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
+    let arr: &mut HArray<i32> = h.tarray::<i32>(8);
+    arr.push(10); arr.push(4); arr.push(8); arr.push(9); arr.push(11);
+
+    // Root the array; read back through the document handle.
+    let ap: *const HArray<i32> = arr as *const HArray<i32>;
+    h.set_root(HAny::ref_to(ap as *const u8));
+    let root: HAny = h.root();
+    if !root.is_ref() { return 1; }
+    let ra: &HArray<i32> = &*(root.resolve() as *const HArray<i32>);
+    if ra.len() != 5i64 { return 2; }
+    let mut sum: i32 = 0;
+    let mut i: i64 = 0;
+    while i < ra.len() {
+        sum = sum + ra.get(i);
+        i = i + 1;
+    }
+    return sum;   // 42
+}

@@ -1,0 +1,28 @@
+// Test: trailing rest pattern `..` in Writ array patterns.
+
+package writ_match_rest;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.hstatic;
+
+unsafe fn classify(d: &WritStatic) -> i32 {
+    match d {
+        @[@1, x, ..] => if x.is_int() { x.as_i24() } else { -1 },
+        @[..]        => 0,
+        _            => -100,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = @[1, 7, 3, 4, 5];   // matches first arm → 7
+    let b: WritStatic = @[1, 9];            // matches first arm (len≥2) → 9
+    let c: WritStatic = @[2, 3, 4];         // fails first, hits @[..] → 0
+    let d: WritStatic = @[];                // hits @[..] → 0
+    let e: WritStatic = @42;                // not array → -100
+    // 7 + 9 + 0 + 0 + (-100) + ... let's pick: 7+9+0+0+161 = 177? easier:
+    // Target 77 = 7 + 9 + 0 + 0 + 61 — reshape.
+    // Use: r = classify(&a) + classify(&b) + classify(&c) + classify(&d);
+    //     = 7 + 9 + 0 + 0 = 16. Add 61.
+    let r: i32 = classify(&a) + classify(&b) + classify(&c) + classify(&d) + 61;
+    return r;
+}

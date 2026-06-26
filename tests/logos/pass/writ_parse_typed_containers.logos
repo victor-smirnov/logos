@@ -1,0 +1,37 @@
+// Typed dense containers through the writ2 SDN parser: arrays + maps,
+// whitespace tolerance, render roundtrip.
+package writ_parse_typed_containers;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn check(h: &Writ, text: str, expected: str, err: i32) -> i32 {
+    let v: HAny = parse(h, text);
+    let s: String = stringify(v);
+    if !s.eq_str(expected) { return err; }
+    return 0;
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = rc.deref();
+    let mut r: i32 = 0;
+
+    r = check(h, "<I32>[1,2,3]", "<I32> [1, 2, 3]", 1);             if r != 0 { return r; }
+    r = check(h, "<  I32 > [4,5]", "<I32> [4, 5]", 2);              if r != 0 { return r; }
+    r = check(h, "<U64>[100,200]", "<U64> [100, 200]", 3);          if r != 0 { return r; }
+    r = check(h, "<I8>[-1,0,1]", "<I8> [-1, 0, 1]", 4);             if r != 0 { return r; }
+    r = check(h, "<F64>[1.5,2.5]", "<F64> [1.5, 2.5]", 5);          if r != 0 { return r; }
+    r = check(h, "<I32>[]", "<I32> []", 6);                          if r != 0 { return r; }
+    r = check(h, "<I32,AnyVal>{1:10,2:20}", "<I32, AnyVal> {1: 10, 2: 20}", 7); if r != 0 { return r; }
+    r = check(h, "<I64>{5:50}", "<I64, AnyVal> {5: 50}", 8);        if r != 0 { return r; }
+    r = check(h, "<U32,AnyVal>{}", "<U32, AnyVal> {}", 9);          if r != 0 { return r; }
+    // Typed map values can be any SDN value.
+    r = check(h, "<I32>{1:\"s\",2:[7]}", "<I32, AnyVal> {1: \"s\", 2: [7]}", 10); if r != 0 { return r; }
+
+    return 0;
+}

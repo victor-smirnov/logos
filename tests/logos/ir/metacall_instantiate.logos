@@ -5,7 +5,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 trait BoxLike { fn weight(self: Self) -> i64; }
 

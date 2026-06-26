@@ -1,0 +1,13 @@
+// Fail: &[u64] slice cast to <I32>[] — element type mismatch.
+package writ_as_array_elem_mismatch;
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let arr: [u64; 2] = [1, 2];
+    let s: &[u64] = &arr;
+    let ctr: Rc<Writ> = s as <I32>[];
+    return 0;
+}

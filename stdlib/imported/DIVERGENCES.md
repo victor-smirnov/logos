@@ -28,7 +28,7 @@ When this file is empty, no divergences have been recorded — first divergence 
 | global / async-await | `async fn`, `.await`, `Future`, `Pin` | Native fibers + reactor at runtime level | Async machinery deferred; green stacks at language level | deferred |
 | global / `macro_rules!` | Declarative pattern-based macros | `fn`-macros over `metacall` (or compiler-internal where appropriate) | Logos metaprog is the expressive macro layer | accepted |
 | global / `#[stable]`/`#[unstable]`/`#[rustc_const_stable]` | Per-API stability tracking | Stripped on import | Logos has no stability tracking concept (yet) | accepted |
-| global / `#[lang = "..."]` | Connects type/trait to compiler internals | Distilled — replaced by Logos-side mechanism (`is_anyval`, `#[hermes_eidos]`, etc.) or fixed by adding to compiler | rustc-internal; equivalent functionality exists | accepted |
+| global / `#[lang = "..."]` | Connects type/trait to compiler internals | Distilled — replaced by Logos-side mechanism (`is_anyval`, `#[writ_eidos]`, etc.) or fixed by adding to compiler | rustc-internal; equivalent functionality exists | accepted |
 | global / `#[rustc_*]` family | rustc-internal hints | Stripped on import unless functional equivalent exists | rustc-internal | accepted |
 | global / `#[diagnostic::*]` | Custom trait diagnostics | Deferred — diagnostics handled separately, not at port time | Diagnostic divergence does not block port | deferred |
 | global / `Box<T: ?Sized>` | Heap allocation of unsized values | Not initially supported (Phase 1 ships only `?Sized` references; `Box<?Sized>` deferred to Phase 1.5) | Custom-DST + sized-via-Box layout requires extra codegen work | deferred |

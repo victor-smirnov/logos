@@ -20,7 +20,7 @@ use logos.mem.collections.vec;
 use logos.lang.cmp;
 use logos.std.sync;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 use logos.std.data.persistent.bt.node;
 
@@ -33,7 +33,7 @@ use logos.std.data.persistent.bt.node;
 // seeded by store_open), == 1 for the usual fork-and-commit chain,
 // ≥ 2 for merge commits.
 
-pub struct CommitEntry<const STORE_CFG: HermesStatic> {
+pub struct CommitEntry<const STORE_CFG: WritStatic> {
     pub root:     NodeARC<STORE_CFG>,
     pub parents:  Vec<SnpId<STORE_CFG>>,
     pub children: Vec<SnpId<STORE_CFG>>,
@@ -50,7 +50,7 @@ pub struct CommitEntry<const STORE_CFG: HermesStatic> {
 // + id allocators. NO type params on methods (would defeat dyn dispatch
 // under raw-ptr backends). v1 backend is LockingStore.
 
-pub trait IStore<const STORE_CFG: HermesStatic> {
+pub trait IStore<const STORE_CFG: WritStatic> {
     fn alloc_snapshot_id(self: *mut Self) -> SnpId<STORE_CFG>;
     fn alloc_block_id(self:    *mut Self) -> BlockId<STORE_CFG>;
 
@@ -93,7 +93,7 @@ pub trait IStore<const STORE_CFG: HermesStatic> {
 // the mutex for v1 (no concurrent Snap), but it's already there as a
 // placeholder for the queue/swmr backends.
 
-pub struct LockingStore<const STORE_CFG: HermesStatic> {
+pub struct LockingStore<const STORE_CFG: WritStatic> {
     pub dag:              Vec<CommitEntry<STORE_CFG>>,
     pub lock:             Mutex<i32>,
     pub next_block_id:    BlockId<STORE_CFG>,
@@ -103,13 +103,13 @@ pub struct LockingStore<const STORE_CFG: HermesStatic> {
 // Build a single-element parents Vec inline. Helper fn so the
 // return-stmt mark_moved walker fires on the local Vec, transferring
 // ownership cleanly into the StructLit init without a double-drop.
-fn make_parents_vec<const STORE_CFG: HermesStatic>(parent: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
+fn make_parents_vec<const STORE_CFG: WritStatic>(parent: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
     let mut v: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
     v.push(parent);
     return v;
 }
 
-pub fn locking_store_new<const STORE_CFG: HermesStatic>() -> LockingStore<STORE_CFG> {
+pub fn locking_store_new<const STORE_CFG: WritStatic>() -> LockingStore<STORE_CFG> {
     return LockingStore::<STORE_CFG> {
         dag:              vec_new::<CommitEntry<STORE_CFG>>(),
         lock:             mutex_new::<i32>(0i32),
@@ -118,7 +118,7 @@ pub fn locking_store_new<const STORE_CFG: HermesStatic>() -> LockingStore<STORE_
     };
 }
 
-impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> {
     fn alloc_snapshot_id(self: *mut LockingStore<STORE_CFG>) -> SnpId<STORE_CFG> {
         unsafe {
             self.lock.lock();
@@ -258,7 +258,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
 // protocol (make_unique) can stamp + alloc fresh ids without going
 // through Store on the per-mutation hot path.
 
-pub struct MutSnapshot<const STORE_CFG: HermesStatic> {
+pub struct MutSnapshot<const STORE_CFG: WritStatic> {
     pub root:        NodeARC<STORE_CFG>,
     pub parent_id:   SnpId<STORE_CFG>,
     pub snapshot_id: SnpId<STORE_CFG>,

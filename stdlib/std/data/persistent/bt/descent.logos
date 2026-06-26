@@ -12,26 +12,26 @@ use logos.mem.collections.vec;
 use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.static_view;   // HView2 — hermes2 reader for @{} blobs
-use logos.lang.hermes.anyval;        // HAny
+use logos.lang.writ.hstatic;
+use logos.lang.writ.static_view;   // HView2 — writ2 reader for @{} blobs
+use logos.lang.writ.anyval;        // HAny
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
 use logos.std.data.persistent.bt.shuttle;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
-unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
-    // The compiler emits @{}/HermesStatic blobs in hermes2 format, so read them
-    // with the matching hermes2 reader (HView2), not the Hermes1 HermesView.
+unsafe fn cfg_int_or<const CFG: WritStatic>(key: str, dflt: u64) -> u64 {
+    // The compiler emits @{}/WritStatic blobs in writ2 format, so read them
+    // with the matching writ2 reader (HView2), not the Writ1 WritView.
     let v: HView2 = hview2_from_ptr(CFG.ptr);
     let av: HAny = v.map_get(v.root(), key);
     if av.is_null() { return dflt; }
-    if !av.is_pod() { return dflt; }   // hermes2 inline scalar = Pod
+    if !av.is_pod() { return dflt; }   // writ2 inline scalar = Pod
     return v.get_int(av) as u64;
 }
 
-pub unsafe fn max_keys_branch<const CFG: HermesStatic>() -> u64 {
+pub unsafe fn max_keys_branch<const CFG: WritStatic>() -> u64 {
     let fb: u64 = cfg_int_or::<CFG>("fanout_branch", 0u64);
     if fb > 0u64 { return fb; }
     let f: u64 = cfg_int_or::<CFG>("fanout", 0u64);
@@ -39,7 +39,7 @@ pub unsafe fn max_keys_branch<const CFG: HermesStatic>() -> u64 {
     return 4u64;
 }
 
-pub unsafe fn max_keys_leaf<const CFG: HermesStatic>() -> u64 {
+pub unsafe fn max_keys_leaf<const CFG: WritStatic>() -> u64 {
     let fl: u64 = cfg_int_or::<CFG>("fanout_leaf", 0u64);
     if fl > 0u64 { return fl; }
     let f: u64 = cfg_int_or::<CFG>("fanout", 0u64);
@@ -53,19 +53,19 @@ pub unsafe fn max_keys_leaf<const CFG: HermesStatic>() -> u64 {
 // adjacent under-min siblings always fit into one node ≤ M). For
 // min_keys = M/2 (integer div), max combined is 2*(M/2-1) + 1 = M-1
 // for branches (incl. promoted parent key) — fits, equal at M=4.
-pub unsafe fn min_keys_branch<const CFG: HermesStatic>() -> u64 {
+pub unsafe fn min_keys_branch<const CFG: WritStatic>() -> u64 {
     let m: u64 = max_keys_branch::<CFG>();
     if m < 2u64 { return 1u64; }
     return m / 2u64;
 }
-pub unsafe fn min_keys_leaf<const CFG: HermesStatic>() -> u64 {
+pub unsafe fn min_keys_leaf<const CFG: WritStatic>() -> u64 {
     let m: u64 = max_keys_leaf::<CFG>();
     if m < 2u64 { return 1u64; }
     return m / 2u64;
 }
 
 // ── Header reads via NodeARC ──────────────────────────────────────────
-pub unsafe fn arc_is_leaf<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> bool {
+pub unsafe fn arc_is_leaf<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>) -> bool {
     // Layout-driven header read: cast the data pointer to the SHARED
     // NodeBase<STORE_CFG> view (it is the first field of every node) and read
     // the field by name. The compiler computes the offset, so STORE_CFG
@@ -77,20 +77,20 @@ pub unsafe fn arc_is_leaf<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG
     return (node_arc_data_ptr::<STORE_CFG>(arc) as *mut NodeBase<STORE_CFG>).is_leaf;
 }
 
-pub unsafe fn as_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn as_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
     return node_arc_data_ptr::<STORE_CFG>(arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
 }
 
-pub unsafe fn as_branch<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn as_branch<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> *mut BranchNode<K, STORE_CFG, CFG> {
     return node_arc_data_ptr::<STORE_CFG>(arc) as *mut BranchNode<K, STORE_CFG, CFG>;
 }
 
 // ── In-leaf find / lower_bound ────────────────────────────────────────
-pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> i64 {
     unsafe {
@@ -109,7 +109,7 @@ pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: Her
     }
 }
 
-pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
     unsafe {
@@ -129,7 +129,7 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
 
 // First in-leaf index where keys[i] > target (strict). Mirrors
 // leaf_lower_bound but with a strict-greater predicate.
-pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
     unsafe {
@@ -155,7 +155,7 @@ pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_C
 //   • read (contains/get): n means "not in tree"; return false.
 //   • insert: saturate to n−1 (descend last child, extend it); the new
 //     max bubbles up via parent.keys[i] = child.keys[last] update.
-pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     branch: *mut BranchNode<K, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
     unsafe {
@@ -174,7 +174,7 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesSt
 }
 
 // ── Recursive walks via NodeARC ───────────────────────────────────────
-pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> bool {
     unsafe {
@@ -190,7 +190,7 @@ pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CF
     }
 }
 
-pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> Option<V::ViewInStore> {
     unsafe {
@@ -219,7 +219,7 @@ pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: He
 // On success returns Some(leaf NodeARC) (rc bumped — caller drops normally)
 // and writes the leaf-relative index into *out_idx. On out-of-range, returns
 // None and writes 0 into *out_idx (Rust idiom — no null-handle sentinel).
-pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64, out_idx: *mut u64,
 ) -> Option<NodeARC<STORE_CFG>> {
     // Out-of-range guard: shuttle clamps target == total to (last_child,
@@ -271,7 +271,7 @@ pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const S
 // sum of preceding children's subtree_size column entries to convert
 // the per-level child idx into a global position offset. At leaf, add
 // leaf_lower_bound. The accumulator gives the global index.
-pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> u64 {
     let mut cur: NodeARC<STORE_CFG> = arc.clone();
@@ -318,7 +318,7 @@ pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const ST
 // that case naturally — leaf_upper_bound returns leaf.len, and the next
 // step would be to walk to the right sibling. To keep this O(depth)
 // without sibling-walk plumbing, fall back to scanning slots ourselves.
-pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> u64 {
     let mut cur: NodeARC<STORE_CFG> = arc.clone();
@@ -356,7 +356,7 @@ pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const ST
     }
 }
 
-pub fn bt_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn bt_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> u64 {
     unsafe {

@@ -16,12 +16,12 @@
 package generic_ref_registry_dispatch;
 
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 // ── Per-CFG release thunk. Mono produces one symbol per (K, V, CFG); for
 // the test we just embed a CFG-derived marker into a side-channel via the
 // hash, so the caller can verify which thunk ran.
-fn release_for<const CFG: HermesStatic>(p: *mut u64) -> () {
+fn release_for<const CFG: WritStatic>(p: *mut u64) -> () {
     unsafe {
         // Write the hash into the slot pointed to by p, so the test can
         // confirm which monomorphisation ran.
@@ -42,7 +42,7 @@ fn registry_new() -> Registry {
     };
 }
 
-fn registry_register<const CFG: HermesStatic>(r: &mut Registry) {
+fn registry_register<const CFG: WritStatic>(r: &mut Registry) {
     let h: u64 = hstatic_hash_of::<CFG>();
     let fp: fn(*mut u64) -> () = release_for::<CFG>;
     r.hashes.push(h);

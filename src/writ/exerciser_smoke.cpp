@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes foundation smoke test — the conformance gate for the bottom layer:
+// Writ foundation smoke test — the conformance gate for the bottom layer:
 // self-relative RelativePtr, the AnyVal niche (byte-identical to Logos HAny), and
 // the multi-chunk never-move Arena. Returns 0 on success, non-zero on the first
 // failed check (the code identifies which).
@@ -124,6 +124,6 @@ int main() {
         CHECK(slot->is_ref() && slot->resolve() == reinterpret_cast<uint8_t*>(p0), 48);
     }
 
-    std::printf("hermes foundation smoke: OK\n");
+    std::printf("writ foundation smoke: OK\n");
     return 0;
 }

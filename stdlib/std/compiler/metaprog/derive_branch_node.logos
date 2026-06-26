@@ -9,7 +9,7 @@
 // Slice-1e: the const-name carrying the op-list is READ from the
 // annotation's `ops = "..."` keyword arg. The user declares:
 //
-//   pub const MY_OPS: HermesStatic = @["sizes", "u64"];
+//   pub const MY_OPS: WritStatic = @["sizes", "u64"];
 //
 //   #[derive_branch_node(ops = "MY_OPS")]
 //   pub struct LeafNode<...> { ... }
@@ -17,13 +17,13 @@
 // → emit `BranchNodeMP<...> { ..., pub sizes: PrimVec<u64> }`.
 //
 // The op-list itself is still a flat alternating-pair string array
-// (slice 2 will promote to nested HermesStatic for richer per-op
+// (slice 2 will promote to nested WritStatic for richer per-op
 // specs: leaf-reduce / branch-reduce fn-name / etc.).
 
 package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.anyval;
 use logos.mem.string;
 use logos.lang.str;
 // Note (debt #13 closure): the handler used to import
@@ -126,7 +126,7 @@ unsafe fn annot_kv_value(view: &OView, ann: HAny, key: str) -> HAny {
 // In a HERMES_MAP node (AST shape: { CODE: HERMES_MAP, ITEMS: [HERMES_ENTRY{KEY,VALUE},...] }),
 // find the entry whose KEY matches `key` byte-for-byte and return its
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
-fn hermes_map_get(view: &OView, hmap: HAny, key: str) -> HAny {
+fn writ_map_get(view: &OView, hmap: HAny, key: str) -> HAny {
     let items: HAny = view.tiny_map_get(hmap, 2 as u8);          // ITEMS
     if items.is_null() { return HAny::Ref(0i64 as *const u8); }
     let n: u64 = view.array_len(items);
@@ -234,11 +234,11 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
                 while i < n {
                     let op_map: HAny = view.array_get(items, i);
                     let f_sv: SView = view.ast_lit_str_view(
-                        hermes_map_get(&view, op_map, "field"));
+                        writ_map_get(&view, op_map, "field"));
                     let t_sv: SView = view.ast_lit_str_view(
-                        hermes_map_get(&view, op_map, "type"));
+                        writ_map_get(&view, op_map, "type"));
                     let k_sv: SView = view.ast_lit_str_view(
-                        hermes_map_get(&view, op_map, "kind"));
+                        writ_map_get(&view, op_map, "kind"));
                     if f_sv.len > (0 as u64) && t_sv.len > (0 as u64) && k_sv.len > (0 as u64) {
                         let f_id: Ident = Ident { ptr: f_sv.ptr, len: f_sv.len };
                         let t_id: Ident = Ident { ptr: t_sv.ptr, len: t_sv.len };
@@ -299,7 +299,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     }
 
     let blob: QuoteItemBlob = quote_item! {
-        pub struct #branch_id<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic> {
+        pub struct #branch_id<#k: Container + ContainerOrd, const #scfg: WritStatic, const #cfg: WritStatic> {
             pub base:     NodeBase<#scfg>,
             pub keys:     Buffer<#k>,
             pub children: Vec<NodeARC<#scfg>>,
@@ -323,7 +323,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
         let cn:   Ident = unsafe { *col_names.at_const(idx) };
         let ct:   Ident = unsafe { *col_types.at_const(idx) };
         let one: QuoteItemBlob = quote_item! {
-            pub fn #(sym)<#k: Container + ContainerOrd, const #scfg: HermesStatic, const #cfg: HermesStatic>(
+            pub fn #(sym)<#k: Container + ContainerOrd, const #scfg: WritStatic, const #cfg: WritStatic>(
                 br: *const #branch_id<#k, #scfg, #cfg>, target: u64,
             ) -> ShuttleResult {
                 unsafe {

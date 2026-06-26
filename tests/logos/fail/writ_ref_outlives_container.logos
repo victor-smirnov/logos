@@ -1,0 +1,17 @@
+// Writ borrow-integration (escape analysis Fronts c+a): a reference into a
+// container must not outlive the container. Returning an array obtained from a
+// LOCAL container — `let h = writ_new(..); let a = h.array(..); return a;` — is
+// dangling (h drops at function end, freeing its segments). Caught because the
+// method receiver `h` is a frame-local value, so the result's provenance is local.
+// (A container passed by reference / held via an Rc holder is fine — see
+// writ_residency.) docs/internals/borrow-escape-analysis-design.md §7.
+package writ_ref_outlives_container;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+fn dangle<'a>() -> &'a HArray<HAny> {
+    let h: Writ = writ_new(64i64);
+    let a: &mut HArray<HAny> = h.array(4i64);
+    return a;                          // ERROR: a borrows local h → dangling
+}
+fn main() -> i32 { return 0; }

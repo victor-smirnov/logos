@@ -20,7 +20,7 @@ trap 'rm -rf "$ROOT" "$CACHE_HOME"' EXIT
 
 # ── upstream is a real git repo at v1.0.0 returning 10
 mkdir -p "$ROOT/upstream/src/util"
-cat > "$ROOT/upstream/lforge.hermes" <<'EOF'
+cat > "$ROOT/upstream/lforge.writ" <<'EOF'
 {
     name: "upstream", version: "0.1.0",
     targets: [{ kind: "lib", name: "util", src: "src/util" }]
@@ -39,7 +39,7 @@ git tag v1.0.0
 
 # ── local fork (NOT a git repo, just a directory) returning 99
 mkdir -p "$ROOT/forked/src/util"
-cat > "$ROOT/forked/lforge.hermes" <<'EOF'
+cat > "$ROOT/forked/lforge.writ" <<'EOF'
 {
     name: "upstream", version: "0.1.0-fork",
     targets: [{ kind: "lib", name: "util", src: "src/util" }]
@@ -53,7 +53,7 @@ EOF
 # ── consumer that depends on upstream@v1.0.0 BUT replaces it with the fork.
 mkdir -p "$ROOT/app/src"
 # Use a fake URL nothing can resolve — proves replace short-circuits the fetch.
-cat > "$ROOT/app/lforge.hermes" <<EOF
+cat > "$ROOT/app/lforge.writ" <<EOF
 {
     name: "app", version: "0.1.0",
     deps: [
@@ -99,7 +99,7 @@ grep -q "lforge: fetching" "$ROOT/r.log" && {
 
 # ── requires_logos: floor too HIGH → error
 mkdir -p "$ROOT/floor_high/src"
-cat > "$ROOT/floor_high/lforge.hermes" <<'EOF'
+cat > "$ROOT/floor_high/lforge.writ" <<'EOF'
 {
     name: "fh", version: "0.1.0",
     requires_logos: "999.0",
@@ -124,7 +124,7 @@ grep -q "requires logosc >=" "$ROOT/fh.log" || {
 
 # ── requires_logos: floor LOW (0.0.1) → pass
 mkdir -p "$ROOT/floor_low/src"
-cat > "$ROOT/floor_low/lforge.hermes" <<'EOF'
+cat > "$ROOT/floor_low/lforge.writ" <<'EOF'
 {
     name: "fl", version: "0.1.0",
     requires_logos: "0.0.1",

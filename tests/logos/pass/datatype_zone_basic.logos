@@ -1,15 +1,15 @@
-// Typed allocation in a hermes2 arena (successor of the Hermes1 zone basic test).
+// Typed allocation in a writ2 arena (successor of the Writ1 zone basic test).
 package datatype_zone_basic;
-use logos.lang.hermes.container;
+use logos.lang.writ.container;
 use logos.lang.rc;
 
 struct Point { x: i32, y: i32 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(4096);
-    let h: &Hermes = rc.deref();
-    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
-    let p: *mut Point = hermes_alloc::<Point>(hp);
+    let rc: Rc<Writ> = writ_rc(4096);
+    let h: &Writ = rc.deref();
+    let hp: *mut Writ = h as *const Writ as *mut Writ;
+    let p: *mut Point = writ_alloc::<Point>(hp);
     p.x = 18;
     p.y = 12;
     return p.x + p.y;   // 30

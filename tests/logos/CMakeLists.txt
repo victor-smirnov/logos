@@ -324,51 +324,51 @@ set(LOGOS_INTEGRATION_TESTS
     datatype_impl
     datatype_own
     datatype_relptr
-    hermes_string
-    hermes_typetag
-    hermes_objectmap
-    hermes_document
-    hermes_stringify
-    hermes_ex_arena
-    hermes_ex_containers
-    hermes_parse
-    hermes_round_trip
-    hermes_stringbuf_grow
-    hermes_anyval_methods
-    hermes_ctr_traversal
-    hermes_builder
-    hermes_registry_lookup
-    hermes_traits_full
-    hermes_traits_bugfix
-    hermes_scalar
-    hermes_buffer_i64
-    hermes_buffer_string
-    hermes_string_view_interop
-    hermes_zone_seal
-    hermes_memholder_rc
-    hermes_check
-    hermes_import_export
-    hermes_hbs
-    hermes_lit_parse
-    assoc_const_hermes_static
-    hermes_sdn_lit
-    hermes_typed_arr_lit
-    hermes_typed_map_lit
-    hermes_capture_scalar
-    hermes_capture_str
-    hermes_capture_f64
-    hermes_param_roundtrip
-    hermes_as_array
-    hermes_as_map
-    hermes_typed_array_variants
-    hermes_as_array_variants
-    hermes_as_map_variants
-    hermes_ctr_view
-    hermes_typed_array_all_elems
-    hermes_typed_map_all_keys
-    hermes_typed_container_clone
-    hermes_typed_container_equal
-    hermes_view_from_static hermes_typed_push hermes_list_comp_basic hermes_list_comp_edge hermes_map_comp_basic hermes_map_comp_multi hermes_comp_coerce hermes_match_scalar hermes_match_or hermes_match_str hermes_match_map hermes_match_arr hermes_match_nested hermes_match_bind hermes_match_rest hermes_match_typed hermes_match_or_struct array_i32_generic_api array_generic_push_grow hermes_typed_array_grow
+    writ_string
+    writ_typetag
+    writ_objectmap
+    writ_document
+    writ_stringify
+    writ_ex_arena
+    writ_ex_containers
+    writ_parse
+    writ_round_trip
+    writ_stringbuf_grow
+    writ_anyval_methods
+    writ_ctr_traversal
+    writ_builder
+    writ_registry_lookup
+    writ_traits_full
+    writ_traits_bugfix
+    writ_scalar
+    writ_buffer_i64
+    writ_buffer_string
+    writ_string_view_interop
+    writ_zone_seal
+    writ_memholder_rc
+    writ_check
+    writ_import_export
+    writ_hbs
+    writ_lit_parse
+    assoc_const_writ_static
+    writ_sdn_lit
+    writ_typed_arr_lit
+    writ_typed_map_lit
+    writ_capture_scalar
+    writ_capture_str
+    writ_capture_f64
+    writ_param_roundtrip
+    writ_as_array
+    writ_as_map
+    writ_typed_array_variants
+    writ_as_array_variants
+    writ_as_map_variants
+    writ_ctr_view
+    writ_typed_array_all_elems
+    writ_typed_map_all_keys
+    writ_typed_container_clone
+    writ_typed_container_equal
+    writ_view_from_static writ_typed_push writ_list_comp_basic writ_list_comp_edge writ_map_comp_basic writ_map_comp_multi writ_comp_coerce writ_match_scalar writ_match_or writ_match_str writ_match_map writ_match_arr writ_match_nested writ_match_bind writ_match_rest writ_match_typed writ_match_or_struct array_i32_generic_api array_generic_push_grow writ_typed_array_grow
     fiber_basic fiber_yield fiber_future
     fiber_thread_basic fiber_thread_future
     fiber_chan_basic fiber_latch_basic fls_tls_basic
@@ -437,8 +437,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_METAPROG_PUBLIB_USERS metacall_item_use_inherit)
     # Tests that use std.compiler.metaprog (excluded from binary stdlib;
     # metaprog_stubs in libstdlib_rt.a satisfies the link).
-    set(LOCAL_METAPROG_USERS assembler_last_wins assembler_method_set hstatic_const_generic_uid hstatic_const_generic_extract hstatic_const_generic_alias showcase_type_metaprog hermes_type_lit_roundtrip derive_debug_e2e derive_debug_enum derive_debug_generic item_list_splice metacall_item_list metaprog_gensym_smoke metaprog_type_to_ast multi_derive_e2e quote_item_smoke quote_item_antiquot quote_item_nested_antiquot quote_item_exprblob_splice quote_nested_repeat metacall_expr_blob metacall_item_smoke metacall_item_generic_smoke metacall_item_odr_dedup metacall_item_instantiate quote_expr_smoke quote_expr_antiquot quote_expr_repeat_andand quote_expr_repeat_comma quote_expr_repeat_slice quote_expr_subblob slice6_field_accessors meta_pack_basic meta_pack_search meta_kind_preds meta_field_iter meta_fold_i64 meta_field_byname meta_type_methods meta_kind_name quote_ty_smoke meta_args_count meta_tuple_intrinsics meta_has_trait meta_typelist meta_reify_type meta_apply meta_quote_ty_antiquot meta_quote_ty_tup_arr meta_variant_intrinsics meta_generic_handle meta_type_align meta_has_trait_of meta_quote_ty_pack meta_template_handle meta_typelist_a_side meta_fold_to_type meta_template_of_smoke meta_template_of_typed template_item_handle_smoke meta_transform meta_filter meta_splice_call meta_schema_recurse meta_schema_code meta_dyn_from_code quote_struct_lit_cursor derive_clone_quote derive_clone_stdlib meta_type_hash iter_cycle test_harness_coretest_iter_cycle persistent_revive_dyn)
-    set(LOCAL_HERMES_USERS hermes_type_lit_parse hermes_lit_parse datatype_zone_basic datatype_zone_ref datatype_zone_ergonomic datatype_own datatype_relptr anyval_basic hermes_containers hermes_string hermes_typetag hermes_objectmap hermes_document hermes_stringify hermes_ex_arena hermes_ex_containers hermes_parse hermes_round_trip hermes_stringbuf_grow hermes_anyval_methods hermes_ctr_traversal hermes_float_parse hermes_escape_strings hermes_builder hermes_registry_lookup hermes_traits_full hermes_traits_bugfix hermes_scalar hermes_decimal_methods hermes_decimal_limits_errors hermes_decimal_f64 hermes_compactify hermes_clone hermes_buffer_i64 hermes_buffer_string hermes_string_view_interop datatag_typecode tag_system_basic tag_dispatch_table data_plain_check tag_dispatch_call tag_dispatch_tier2 tag_dispatch_sibling_concrete hermes_zone_seal hermes_memholder_rc podref_buffer mem_holder_custom_destroyer array_i32_polymorphic hermes_parse_typed_containers hermes_typed_array_materialize hermes_typed_array_element_type_errors hermes_typed_datatype_values hermes_typed_datatype_values_errors hermes_typed_datatype_trait_coverage hermes_typed_datatype_params_overflow hermes_typed_datatype_empty_params_canonical hermes_typed_datatype_empty_params_small_zone hermes_typed_datatype_params_trailing_comma_errors hermes_typed_decimal_validation_pass hermes_typed_decimal_validation_errors hermes_typed_map_default_materialize hermes_typed_map_i32_materialize hermes_typed_map_key_type_errors hermes_typed_materialization_errors array_relptr_strings hermes_check hermes_import_export hermes_hbs dec_arithmetic dec_boundary dec_deep dec_edge_cases hermes_sdn_lit hermes_typed_arr_lit hermes_typed_map_lit hermes_typed_array_all_elems hermes_typed_map_all_keys hermes_typed_container_clone hermes_typed_container_equal hermes_capture_scalar hermes_capture_str hermes_capture_f64 hermes_param_roundtrip hermes_as_array hermes_as_map hermes_typed_array_variants hermes_as_array_variants hermes_as_map_variants hermes_ctr_view hermes_view_from_static hermes_typed_push hermes_list_comp_basic hermes_list_comp_edge hermes_map_comp_basic hermes_map_comp_multi hermes_comp_coerce hermes_match_scalar hermes_match_or hermes_match_str hermes_match_map hermes_match_arr hermes_match_nested hermes_match_bind hermes_match_rest hermes_match_typed hermes_match_or_struct array_i32_generic_api array_generic_push_grow hermes_typed_array_grow reflect_basic meta_struct meta_trait genos_reflect metacall_hermes_static metacall_hermes fiber_basic fiber_yield fiber_future fiber_thread_basic fiber_thread_future fiber_chan_basic fiber_latch_basic fls_tls_basic fiber_reactor_basic fiber_sleep_ms auto_trait_send_scalar auto_trait_send_struct auto_trait_unsafe_impl auto_trait_generic_propagation assoc_const_hermes_static
+    set(LOCAL_METAPROG_USERS assembler_last_wins assembler_method_set hstatic_const_generic_uid hstatic_const_generic_extract hstatic_const_generic_alias showcase_type_metaprog writ_type_lit_roundtrip derive_debug_e2e derive_debug_enum derive_debug_generic item_list_splice metacall_item_list metaprog_gensym_smoke metaprog_type_to_ast multi_derive_e2e quote_item_smoke quote_item_antiquot quote_item_nested_antiquot quote_item_exprblob_splice quote_nested_repeat metacall_expr_blob metacall_item_smoke metacall_item_generic_smoke metacall_item_odr_dedup metacall_item_instantiate quote_expr_smoke quote_expr_antiquot quote_expr_repeat_andand quote_expr_repeat_comma quote_expr_repeat_slice quote_expr_subblob slice6_field_accessors meta_pack_basic meta_pack_search meta_kind_preds meta_field_iter meta_fold_i64 meta_field_byname meta_type_methods meta_kind_name quote_ty_smoke meta_args_count meta_tuple_intrinsics meta_has_trait meta_typelist meta_reify_type meta_apply meta_quote_ty_antiquot meta_quote_ty_tup_arr meta_variant_intrinsics meta_generic_handle meta_type_align meta_has_trait_of meta_quote_ty_pack meta_template_handle meta_typelist_a_side meta_fold_to_type meta_template_of_smoke meta_template_of_typed template_item_handle_smoke meta_transform meta_filter meta_splice_call meta_schema_recurse meta_schema_code meta_dyn_from_code quote_struct_lit_cursor derive_clone_quote derive_clone_stdlib meta_type_hash iter_cycle test_harness_coretest_iter_cycle persistent_revive_dyn)
+    set(LOCAL_HERMES_USERS writ_type_lit_parse writ_lit_parse datatype_zone_basic datatype_zone_ref datatype_zone_ergonomic datatype_own datatype_relptr anyval_basic writ_containers writ_string writ_typetag writ_objectmap writ_document writ_stringify writ_ex_arena writ_ex_containers writ_parse writ_round_trip writ_stringbuf_grow writ_anyval_methods writ_ctr_traversal writ_float_parse writ_escape_strings writ_builder writ_registry_lookup writ_traits_full writ_traits_bugfix writ_scalar writ_decimal_methods writ_decimal_limits_errors writ_decimal_f64 writ_compactify writ_clone writ_buffer_i64 writ_buffer_string writ_string_view_interop datatag_typecode tag_system_basic tag_dispatch_table data_plain_check tag_dispatch_call tag_dispatch_tier2 tag_dispatch_sibling_concrete writ_zone_seal writ_memholder_rc podref_buffer mem_holder_custom_destroyer array_i32_polymorphic writ_parse_typed_containers writ_typed_array_materialize writ_typed_array_element_type_errors writ_typed_datatype_values writ_typed_datatype_values_errors writ_typed_datatype_trait_coverage writ_typed_datatype_params_overflow writ_typed_datatype_empty_params_canonical writ_typed_datatype_empty_params_small_zone writ_typed_datatype_params_trailing_comma_errors writ_typed_decimal_validation_pass writ_typed_decimal_validation_errors writ_typed_map_default_materialize writ_typed_map_i32_materialize writ_typed_map_key_type_errors writ_typed_materialization_errors array_relptr_strings writ_check writ_import_export writ_hbs dec_arithmetic dec_boundary dec_deep dec_edge_cases writ_sdn_lit writ_typed_arr_lit writ_typed_map_lit writ_typed_array_all_elems writ_typed_map_all_keys writ_typed_container_clone writ_typed_container_equal writ_capture_scalar writ_capture_str writ_capture_f64 writ_param_roundtrip writ_as_array writ_as_map writ_typed_array_variants writ_as_array_variants writ_as_map_variants writ_ctr_view writ_view_from_static writ_typed_push writ_list_comp_basic writ_list_comp_edge writ_map_comp_basic writ_map_comp_multi writ_comp_coerce writ_match_scalar writ_match_or writ_match_str writ_match_map writ_match_arr writ_match_nested writ_match_bind writ_match_rest writ_match_typed writ_match_or_struct array_i32_generic_api array_generic_push_grow writ_typed_array_grow reflect_basic meta_struct meta_trait genos_reflect metacall_writ_static metacall_writ fiber_basic fiber_yield fiber_future fiber_thread_basic fiber_thread_future fiber_chan_basic fiber_latch_basic fls_tls_basic fiber_reactor_basic fiber_sleep_ms auto_trait_send_scalar auto_trait_send_struct auto_trait_unsafe_impl auto_trait_generic_propagation assoc_const_writ_static
     vec_full hashset_basic vecdeque_basic btreemap_basic
     atomic_basic mutex_basic
     box_basic rc_basic arc_basic bytes_basic box_dyn_trait_basic
@@ -458,7 +458,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
 
     # Post-C2 / C3 / C4: logosc auto-discovers liblstdlib.a via its
     # baked-in argv[0]-relative path; metaprog modules ship as AST-only
-    # `.hermes0` members of the same archive, so tests no longer need
+    # `.writ0` members of the same archive, so tests no longer need
     # any -I/-L for the system stdlib. The remaining -I lookups are for
     # local test fixtures (cross-pkg coexistence — source-only).
     # pub_lib is built as a binary archive and consumed via -l (matches

@@ -163,14 +163,14 @@ logos::expected<ClonedDoc> clone(AnyVal root) noexcept {
     return ClonedDoc{holder, new_root};
 }
 
-logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept {
+logos::expected<WritCtr> compactify_root(AnyVal root) noexcept {
     // No source container to size from (the root may live in any arena —
-    // e.g. a metacall JIT's Rc<Hermes>), so clone once to measure the live
+    // e.g. a metacall JIT's Rc<Writ>), so clone once to measure the live
     // set, then compact into a right-sized single chunk.
     LOGOS_TRY(auto first, clone(root));
     size_t live = first.holder->arena().total_used();
     first.holder->unref();
-    LOGOS_TRY(auto dst, HermesCtr::make(live * 2 + 4096, ArenaMode::GrowableSingleChunk));
+    LOGOS_TRY(auto dst, WritCtr::make(live * 2 + 4096, ArenaMode::GrowableSingleChunk));
     DeepCopyState dedup(dst.holder());
     AnyVal new_root = deep_copy_anyval(root, dedup);
     dst.set_root(new_root);
@@ -179,11 +179,11 @@ logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept {
     return dst;
 }
 
-logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept {
+logos::expected<WritCtr> compactify(const WritCtr& src) noexcept {
     // Upper bound: the compact result (live objects, tight buffers) is ≤ the source's
     // used bytes; 2× + slack is a safe over-estimate, so the single chunk never reallocs.
     size_t estimate = src.arena().total_used() * 2 + 4096;
-    LOGOS_TRY(auto dst, HermesCtr::make(estimate, ArenaMode::GrowableSingleChunk));
+    LOGOS_TRY(auto dst, WritCtr::make(estimate, ArenaMode::GrowableSingleChunk));
 
     DeepCopyState dedup(dst.holder());
     AnyVal new_root = deep_copy_anyval(src.root(), dedup);

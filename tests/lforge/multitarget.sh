@@ -13,13 +13,13 @@ PROJ=$(mktemp -d)
 trap 'rm -rf "$PROJ"' EXIT
 
 # Project layout:
-#   lforge.hermes       — multi-target manifest
+#   lforge.writ       — multi-target manifest
 #   src/core/core.logos — library, exposes greet()
 #   src/main.logos      — bin, calls greet()
 
 mkdir -p "$PROJ/src/core" "$PROJ/src"
 
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "demo",
     version: "0.1.0",
@@ -73,7 +73,7 @@ LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build --release > /dev/null 2>&1
 [ -x "$PROJ/.lforge/debug/out/app" ]        || { echo "FAIL: debug profile clobbered"; exit 1; }
 
 # ── manifest validation: unknown dep ───────────────────────────────────────
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name: "demo", version: "0.1.0",
     targets: [
@@ -86,7 +86,7 @@ LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$PROJ/err.log" 2>&1 && 
 grep -q "unknown dep" "$PROJ/err.log" || { echo "FAIL: missing 'unknown dep' diagnostic"; cat "$PROJ/err.log"; exit 1; }
 
 # ── target selection: `lforge build <name>` builds only that target + deps.
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "demo",
     version: "0.1.0",
@@ -109,7 +109,7 @@ LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build no-such-target > "$PROJ/er
 grep -q "unknown target" "$PROJ/err.log" || { echo "FAIL: missing 'unknown target' diagnostic"; cat "$PROJ/err.log"; exit 1; }
 
 # ── manifest validation: cycle ─────────────────────────────────────────────
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name: "demo", version: "0.1.0",
     targets: [

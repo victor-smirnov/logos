@@ -1,0 +1,46 @@
+// Boxed wide scalars in writ2 zones (successor of the Writ1 scalar test):
+// I64/U64 beyond the inline range, boxed via the container; reads see through.
+package writ_scalar;
+use logos.lang.writ.container;
+use logos.lang.writ.allocator;
+use logos.lang.writ.anyval;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let c: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = c.deref();
+    let hp: *mut Writ = h as *const Writ as *mut Writ;
+    let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
+
+    let big_i: i64 = 9000000000i64;             // beyond i24/i32
+    let big_u: u64 = 18000000000u64;
+
+    // make_int picks inline Pod vs boxed by range.
+    let small: HAny = make_int(ap, 7i64);
+    if !small.is_pod() { return 1; }
+    if small.as_i64() != 7i64 { return 2; }
+    let bi: HAny = make_int(ap, big_i);
+    if bi.is_pod() && bi.as_i64() != big_i { return 3; }
+    if bi.as_i64() != big_i { return 4; }
+
+    let bu: HAny = box_u64(ap, big_u);
+    if bu.is_pod() { return 5; }
+    if bu.as_u64() != big_u { return 6; }
+    if h2_type_code(bu.resolve()) != H2_U64 { return 7; }
+
+    // Inside a map; stringify renders values.
+    let m: &mut HMap<HString, HAny> = h.map(8);
+    m.set("i", bi);
+    m.set("u", bu);
+    let mv: HAny = (&*(m as *const HMap<HString, HAny>)).get("i");
+    if mv.as_i64() != big_i { return 8; }
+    let s: String = stringify((&*(m as *const HMap<HString, HAny>)).get("u"));
+    if !s.eq_str("18000000000") { return 9; }
+
+    return 0;
+}

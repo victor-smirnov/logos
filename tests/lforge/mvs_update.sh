@@ -22,7 +22,7 @@ trap 'rm -rf "$ROOT" "$CACHE_HOME"' EXIT
 
 # Create upstream with two tagged versions.
 mkdir -p "$ROOT/upstream/src/util"
-cat > "$ROOT/upstream/lforge.hermes" <<'EOF'
+cat > "$ROOT/upstream/lforge.writ" <<'EOF'
 {
     name: "upstream", version: "0.1.0",
     targets: [{ kind: "lib", name: "util", src: "src/util" }]
@@ -46,7 +46,7 @@ SHA_V11=$(git rev-parse HEAD)
 
 # ── Case 2 first (simpler): cmd_update on a shifting manifest.
 mkdir -p "$ROOT/app1/src"
-cat > "$ROOT/app1/lforge.hermes" <<EOF
+cat > "$ROOT/app1/lforge.writ" <<EOF
 {
     name: "app1", version: "0.1.0",
     deps: [
@@ -72,7 +72,7 @@ grep -q "$SHA_V1" "$ROOT/app1/lforge.lock" || { echo "FAIL: lock missing v1.0.0 
 
 # Now bump tag in manifest, run `lforge update` (lockfile change WITHOUT
 # needing to wipe .lforge).
-sed -i 's/v1.0.0/v1.1.0/' "$ROOT/app1/lforge.hermes"
+sed -i 's/v1.0.0/v1.1.0/' "$ROOT/app1/lforge.writ"
 HOME="$CACHE_HOME" LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" update > "$ROOT/u2.log" 2>&1 || {
     echo "FAIL: lforge update"; cat "$ROOT/u2.log"; exit 1;
 }
@@ -91,7 +91,7 @@ grep -q "$SHA_V1" "$ROOT/app1/lforge.lock"  && {
 # upstream v1.0.0 -> winners[upstream]=v1.0.0), then come back to root's
 # direct dep upstream v1.1.0 -> upgrade required -> error.
 mkdir -p "$ROOT/mid/src/mid_lib"
-cat > "$ROOT/mid/lforge.hermes" <<EOF
+cat > "$ROOT/mid/lforge.writ" <<EOF
 {
     name: "mid", version: "0.1.0",
     deps: [
@@ -111,7 +111,7 @@ pub fn topup() -> i32 { return answer() + 1; }
 EOF
 
 mkdir -p "$ROOT/app2/src"
-cat > "$ROOT/app2/lforge.hermes" <<EOF
+cat > "$ROOT/app2/lforge.writ" <<EOF
 {
     name: "app2", version: "0.1.0",
     deps: [

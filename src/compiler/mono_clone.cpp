@@ -18,7 +18,7 @@ namespace logos::compiler {
 // (rename fields, rename struct, internal reorganisation) preserve the hash.
 // Inspired by legacy Memoria's `TypeHash<T>::Value` (compile-time MD5 over
 // type-list of constituent codes); we use FNV-1a-64 to share infrastructure
-// with HermesStatic and ObjectMap-key hashing already in stdlib.
+// with WritStatic and ObjectMap-key hashing already in stdlib.
 //
 // Tag values pick low integers so the most common tags fit in one byte mix.
 // Primitive codes mirror legacy Memoria's table for wire-format proximity:
@@ -40,7 +40,7 @@ static constexpr uint64_t TH_TAG_REF    = 0x84;  // &T
 static constexpr uint64_t TH_TAG_MUTREF = 0x85;  // &mut T
 static constexpr uint64_t TH_TAG_SLICE  = 0x86;
 static constexpr uint64_t TH_TAG_ENUM   = 0x87;
-static constexpr uint64_t TH_TAG_HSTAT  = 0x88;  // HermesStatic literal: mix const_val
+static constexpr uint64_t TH_TAG_HSTAT  = 0x88;  // WritStatic literal: mix const_val
 static constexpr uint64_t TH_TAG_FNPTR  = 0x89;
 static constexpr uint64_t TH_TAG_VOID   = 0x01;
 
@@ -126,7 +126,7 @@ uint64_t Mono::compute_type_hash(TypeRef t, StrSet& seen) noexcept {
             // wire format pins it down.
             return th_mix_u64(h, TH_TAG_FNPTR);
         case K::HStaticLit: {
-            // HermesStatic literal: identity = byte-hash of the underlying
+            // WritStatic literal: identity = byte-hash of the underlying
             // CFG value (already stored in const_val()). No structural
             // recursion — opaque to the compiler at this level.
             h = th_mix_u64(h, TH_TAG_HSTAT);
@@ -512,9 +512,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // `<const N: T>` param referenced in expression position. Two
             // lowerings depending on the param's kind:
             //   IntLit / scalar  → lit_int with the substituted value.
-            //   HStaticLit       → splice in the registered HermesStatic
-            //                       literal (same EHermesLit shape as
-            //                       inline `let s: HermesStatic = @{...};`).
+            //   HStaticLit       → splice in the registered WritStatic
+            //                       literal (same EWritLit shape as
+            //                       inline `let s: WritStatic = @{...};`).
             constexpr std::string_view CP_PFX = "__const_param:";
             if (n.compare(0, CP_PFX.size(), CP_PFX) == 0) {
                 std::string pname = n.substr(CP_PFX.size());
@@ -526,7 +526,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto rav = out_.hstatic_registry_.get(std::to_string(h));
                         if (rav.is_null()) {
                             std::fprintf(stderr,
-                                "mono: __const_param:%s — HermesStatic registry "
+                                "mono: __const_param:%s — WritStatic registry "
                                 "miss for hash %016llx\n",
                                 pname.c_str(), (unsigned long long)h);
                             // Fall through to var-ref emission so we don't crash.
@@ -733,7 +733,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         }
         case C::Cast: {
             lir_view::ECastView v{eref};
-            std::string hbf(v.hermes_build_fn());
+            std::string hbf(v.writ_build_fn());
             auto op = subst_child_expr(v.operand());
             mp_ = lir_mirror_emit_cast(
                 out_, rt_, op, hbf);
@@ -1183,15 +1183,15 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             }
             break;
         }
-        case C::HermesLit: {
-            lir_view::EHermesLitView v{eref};
-            namespace hvc = lir_schema::hermes_val;
-            std::function<lir::HermesValPtr(lir_view::HermesValRef)> clone_hv =
-                [&](lir_view::HermesValRef vref) -> lir::HermesValPtr {
-                auto out = lir::alloc_hermes_val(out_);
+        case C::WritLit: {
+            lir_view::EWritLitView v{eref};
+            namespace hvc = lir_schema::writ_val;
+            std::function<lir::WritValPtr(lir_view::WritValRef)> clone_hv =
+                [&](lir_view::WritValRef vref) -> lir::WritValPtr {
+                auto out = lir::alloc_writ_val(out_);
                 if (!vref) {
                     std::fprintf(stderr,
-                        "mono.clone_hv: null HermesValRef\n");
+                        "mono.clone_hv: null WritValRef\n");
                     std::abort();
                 }
                 switch (vref.kind()) {
@@ -1247,7 +1247,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 case hvc::Code::Array: {
                     lir_view::HVArrayView av{vref};
                     std::string elem_type(av.elem_type());
-                    std::vector<lir::HermesValPtr> elements;
+                    std::vector<lir::WritValPtr> elements;
                     elements.reserve(av.size());
                     for (uint64_t i = 0; i < av.size(); ++i)
                         elements.push_back(clone_hv(av.elem(i)));
@@ -1258,7 +1258,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 return out;
             };
-            lir::HermesValPtr root = nullptr;
+            lir::WritValPtr root = nullptr;
             if (auto root_ref = v.root()) root = clone_hv(root_ref);
             bool has_captures = v.has_captures();
             uint32_t capture_param_count = v.capture_param_count();
@@ -1274,7 +1274,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // out_), and growth invalidates the source-side string_view.
             // Same pattern used at line 908 for HVStrView.
             std::string static_blob_copy(v.static_blob());
-            mp_ = lir_mirror_emit_hermes_lit(
+            mp_ = lir_mirror_emit_writ_lit(
                 out_, rt_, root, has_captures,
                 capture_exprs, capture_types, capture_param_count,
                 static_blob_copy);
@@ -1458,7 +1458,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // type_of::<T>().uid — TypeUID = first 8 bytes of
             // SHA-256(type_str(T)) as u64. Stable identity for
             // quote_ty! reification (mono-time reverse lookup) and the
-            // shared byte source for Hermes schema_type_code / TagSystem.
+            // shared byte source for Writ schema_type_code / TagSystem.
             if (nc.callee == "__type_uid_of__") {
                 uint64_t uid = 0;
                 if (!nc.type_args.empty() && nc.type_args[0]) {
@@ -5300,11 +5300,11 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
     nd.str(stk::PKG, tmpl.pkg());
     if (tmpl.is_zoned())        nd.flag(stk::IS_ZONED, true);
     bool is_dst = tmpl.is_dst();  // Phase 1B-15: preserved; possibly upgraded below.
-    if (tmpl.self_describing())  nd.flag(stk::SELF_DESCRIBING, true);  // Hermes: thin-*Self marker preserved.
+    if (tmpl.self_describing())  nd.flag(stk::SELF_DESCRIBING, true);  // Writ: thin-*Self marker preserved.
     if (tmpl.rel_ptr())          nd.flag(stk::REL_PTR, true);          // RefRepr RelOffset marker preserved.
     if (tmpl.borrow_carrying())  nd.flag(stk::BORROW_CARRYING, true);  // HAny escape-tracking marker preserved.
-    if (tmpl.zone_mut())         nd.flag(stk::ZONE_MUT, true);         // Hermes: fat-`&mut` zone marker preserved.
-    if (tmpl.zoned2())           nd.flag(stk::ZONED2, true);           // Hermes: auto-relative ptr-field marker preserved.
+    if (tmpl.zone_mut())         nd.flag(stk::ZONE_MUT, true);         // Writ: fat-`&mut` zone marker preserved.
+    if (tmpl.zoned2())           nd.flag(stk::ZONED2, true);           // Writ: auto-relative ptr-field marker preserved.
     if (tmpl.non_null())         nd.flag(stk::NON_NULL, true);         // #[non_null]: Option<T> NullPtr-niche marker preserved.
     if (tmpl.is_union())         nd.flag(stk::IS_UNION, true);         // §6.1: preserved through mono clone.
     // is_data_plain defaults true on the (now-deleted) Draft → ALWAYS emitted.
@@ -5806,7 +5806,7 @@ void Mono::instantiate_struct_templates() {
 
 // Stage E: read the template enum via EnumView, apply subst_type / variadic-pack
 // expansion to each variant's payload EXACTLY as before, emit the substituted
-// enum's Hermes mirror into out_, and return an EnumView. Matches the old
+// enum's Writ mirror into out_, and return an EnumView. Matches the old
 // clone behaviour: only name/pkg/zoned2/variants are carried (type_params /
 // backing_type / borrow_carrying / doc are intentionally dropped on instances).
 lir_view::EnumView Mono::clone_enum_def(lir_view::EnumView tmpl,

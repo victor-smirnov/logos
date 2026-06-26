@@ -106,7 +106,7 @@ Rust offers a family of escape hatches for bit-level type punning:
   invariants only an `unsafe` block may rely on.
 
 Logos has `unsafe { }` for the bounded use-cases where bit-level
-reinterpretation is necessary, and the Hermes substrate handles
+reinterpretation is necessary, and the Writ substrate handles
 data layout / serialisation for the use-cases that motivate
 transmute in idiomatic Rust. We don't ship the four mechanisms
 above; the test directories exist primarily for the Rust-specific

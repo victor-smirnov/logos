@@ -173,7 +173,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
     out_.hstatic_registry_   = std::move(in_.hstatic_registry_);
-    out_.hermes_val_pool_    = std::move(in_.hermes_val_pool_);
+    out_.writ_val_pool_    = std::move(in_.writ_val_pool_);
     out_.closure_pool_       = std::move(in_.closure_pool_);
     out_.consts              = std::move(in_.consts);
     out_.type_aliases        = std::move(in_.type_aliases);
@@ -717,7 +717,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     // Demand instantiation of generic structs declared via #[type_code=N] eidos Foo<T>;
     // even when no Logos code directly references Foo<T> as a variable type.
-    // This ensures that blanket trait-impl methods (e.g. `impl<T> HermesStringify for
+    // This ensures that blanket trait-impl methods (e.g. `impl<T> WritStringify for
     // Array<T>`) get cloned into those structs so tag-dispatch entries can be emitted
     // for blob-literal types like @<I32>[...] (which are produced at C++ level without
     // ever instantiating the Logos struct in user code).

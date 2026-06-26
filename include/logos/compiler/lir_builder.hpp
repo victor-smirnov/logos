@@ -4,7 +4,7 @@
 //
 // Design: ADR 0005. Stage 3f writes the existing variant types
 // (lir::ELitInt, lir::EBinOp, ...) and returns owned LExprPtr/LStmtPtr.
-// Stage 3g switches the implementation to write directly into a Hermes
+// Stage 3g switches the implementation to write directly into a Writ
 // zone; only this file changes, sema callers stay put.
 //
 // The builder grows lazily — methods are added when sema sites migrate.
@@ -71,7 +71,7 @@ public:
                            int64_t disc, TypeRef ty);
     lir_view::ExprRef closure_box(lir::EClosure* inner, TypeRef ty);
     // Coerce an existing EClosureBox expr into an FnPtr-typed closure_box.
-    // Sets inner->as_fn_ptr=true and re-emits via closure_box() so the Hermes
+    // Sets inner->as_fn_ptr=true and re-emits via closure_box() so the Writ
     // mirror reflects the new type. Caller is responsible for verifying that
     // the input is an EClosureBox with no captures.
     lir_view::ExprRef closure_to_fnptr(lir_view::ExprRef arg, TypeRef new_ty);
@@ -116,11 +116,11 @@ public:
                               std::vector<TypeRef> type_args,
                               std::vector<lir_view::ExprRef> args,
                               int32_t vtable_index, TypeRef ty);
-    lir_view::ExprRef hermes_cast(lir_view::ExprRef operand, std::string build_fn,
+    lir_view::ExprRef writ_cast(lir_view::ExprRef operand, std::string build_fn,
                               TypeRef ty);
 
     // ── Post-construction retype ────────────────────────────────────────
-    // Update the type of an already-built LExpr and re-emit its Hermes
+    // Update the type of an already-built LExpr and re-emit its Writ
     // mirror so view readers see the new type. Used for literal-type
     // narrowing (FloatLit/IntLit → f32/f64/concrete) at annotation sites
     // in lower_let / lower_return / assoc-const lookup. Must only be
@@ -129,7 +129,7 @@ public:
     void retype_expr(lir_view::ExprRef e, TypeRef new_ty);
 
     // ── Statement constructors ──────────────────────────────────────────
-    // Build an LStmt and eager-emit its Hermes mirror. After this call,
+    // Build an LStmt and eager-emit its Writ mirror. After this call,
     // `stmt_ref_of(s)` is valid (mirror_ptr_ is set). Used by sub-slice
     // 2.0 to eliminate the make_stmt/eager-emit gap (gap memo
     // feat_lir_mirror_eager_emit_gaps): every kind that's safe for eager
@@ -150,13 +150,13 @@ public:
     lir_view::ExprRef call_v       (lir::ECall ec,        TypeRef ty);
     lir_view::ExprRef method_call_v(lir::EMethodCall mc,  TypeRef ty);
     lir_view::ExprRef if_expr_v    (lir::EIfExpr eif,     TypeRef ty);
-    lir_view::ExprRef hermes_lit_v (lir::EHermesLit lit,  TypeRef ty);
+    lir_view::ExprRef writ_lit_v (lir::EWritLit lit,  TypeRef ty);
     lir_view::ExprRef match_expr_v (lir::EMatchExpr me,   TypeRef ty);
 
     // … grows as sema sites migrate; do not pre-populate.
 
 private:
-    lir::LProgram& prog_;  // reserved for Stage 3g (Hermes zone access)
+    lir::LProgram& prog_;  // reserved for Stage 3g (Writ zone access)
 };
 
 } // namespace logos::compiler

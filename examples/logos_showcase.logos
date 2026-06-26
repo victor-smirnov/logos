@@ -17,7 +17,7 @@
 package logos_showcase;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.anyval;
 use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;

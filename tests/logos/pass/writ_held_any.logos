@@ -1,0 +1,30 @@
+// An HAny (a Ref into the arena) escapes its building scope via HeldAny, bound to
+// the HERMES2 holder (not the parent Array). The arena stays alive while the
+// HeldAny lives; freed when it drops.
+package t;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.rc;
+
+fn make_elem() -> HeldAny {
+    let mut h: Rc<Writ> = writ_rc(64i64);
+    let arr: &mut HArray<HAny> = h.array(2i64);
+    arr.push(HAny::from(7i64));
+    let nested: &mut HArray<HAny> = h.array(2i64);
+    nested.push(HAny::from(99i64));
+    let e: HAny = HAny::from(&*nested);     // a Ref HAny into the arena
+    return hold_any(&mut h, e);             // escape: carry the HERMES2 holder
+    // local `h` Rc drops here; HeldAny's holder keeps the arena alive
+}
+
+fn main() -> i32 {
+    let held: HeldAny = make_elem();        // HAny outlived its build scope
+    let e: HAny = held.val();
+    if !e.is_ref() { return 1; }
+    let child: &HArray<HAny> = unsafe { &*(e.resolve() as *const HArray<HAny>) };
+    if child.len() != 1i64 { return 2; }
+    if child.get(0i64).as_i56() != 99i64 { return 3; }
+    return 0;
+    // held drops → Writ holder → arena freed
+}

@@ -37,7 +37,7 @@ namespace logos::compiler {
 
 // ── TypePool PIMPL ─────────────────────────────────────────────────────────
 //
-// Owns the single Hermes arena that backs every interned type. Each unique
+// Owns the single Writ arena that backs every interned type. Each unique
 // type lives as a TinyObjectMap inside this arena; TypeRef is a fat pointer
 // {arena, offset, pool} into it.
 //
@@ -46,17 +46,17 @@ namespace logos::compiler {
 // compiler handles (TypeRef / lir_view mirror_ptr_ / uid_of_ keys) address by
 // pointer (self-relative AnyVal::resolve, never base+offset), which is exactly
 // what MultiChunk's never-move guarantee makes sound — and removes the old 4 GB
-// single-chunk offset ceiling. (GrowableSingleChunk stays HermesCtr-internal,
+// single-chunk offset ceiling. (GrowableSingleChunk stays WritCtr-internal,
 // for compactification.)
 
 class TypePoolImpl {
 public:
     // The output mirror / type-pool document. Owns its MemHolder ref (the
-    // HermesCtr holds refcount==1 at init, drops it in its dtor); views
+    // WritCtr holds refcount==1 at init, drops it in its dtor); views
     // (StringView et al.) take additional refs via Own<>. The arena moves on
     // grow() — never cache base pointers; always re-fetch via ctr_.arena().
     // Encapsulates what was a hand-rolled MemHolder + manual DocumentHeader.
-    writ::HermesCtr                                      ctr_;
+    writ::WritCtr                                      ctr_;
 
     // Phase 7 lite: latch so the 3.5 GB warning fires at most once per
     // TypePool instance (TypePool::alloc is the hot path).
@@ -104,7 +104,7 @@ public:
     }
 
     TypePoolImpl(logos::InitTag& tag) {
-        // HermesCtr::make builds the MemHolder (refcount 1, owned by ctr_) AND the
+        // WritCtr::make builds the MemHolder (refcount 1, owned by ctr_) AND the
         // DocumentHeader at offset 0 — so a zero offset reads as the canonical
         // "null" sentinel for AnyVal / RelativePtr. MultiChunk: segments NEVER
         // move — grow() appends a fresh chunk instead of reallocating, so every
@@ -112,10 +112,10 @@ public:
         // This is what makes the compiler's address-based handles (TypeRef /
         // lir_view mirror_ptr_ / uid_of_ keys) sound: no base+offset, no realloc
         // dangle, no 4 GB single-chunk ceiling. (GrowableSingleChunk stays
-        // HermesCtr-internal, used for compactification.) The initial chunk is
+        // WritCtr-internal, used for compactification.) The initial chunk is
         // sized generously so small/medium compiles stay single-chunk (locality);
         // larger ones append transparently.
-        auto c = writ::HermesCtr::make(64ull * 1024 * 1024,
+        auto c = writ::WritCtr::make(64ull * 1024 * 1024,
                                          writ::ArenaMode::MultiChunk);
         if (!c) {
             tag.fail(std::move(c.error()));
@@ -132,7 +132,7 @@ public:
         logos::InitTag tag;
         auto p = std::make_unique<TypePoolImpl>(tag);
         LOGOS_ASSERT(tag.ok(), "SEMA-TYPEPOOL-001",
-            "TypePool Hermes arena initialisation failed");
+            "TypePool Writ arena initialisation failed");
         return p;
     }
 
@@ -145,7 +145,7 @@ public:
     }
 
     // Allocate an ArenaString and return an AnyVal pointing at it. Object
-    // creation goes through the HermesCtr producer API — never ArenaString::
+    // creation goes through the WritCtr producer API — never ArenaString::
     // create(arena()) directly (that would break encapsulation by pulling the
     // raw arena). make_string's view yields the self-relative AnyVal directly.
     writ::AnyVal put_string(std::string_view s) {
@@ -163,7 +163,7 @@ public:
     }
 
     // Build an ObjectArray from a vector<TypeRef> and return AnyVal. Created via
-    // the HermesCtr producer API (not ObjectArray::create(arena())). The array is
+    // the WritCtr producer API (not ObjectArray::create(arena())). The array is
     // pre-sized to the exact element count and ptr_to_mirror does NOT allocate, so
     // no arena growth happens between pushes — the array view stays valid.
     writ::AnyVal put_type_vec(const std::vector<TypeRef>& v) {
@@ -177,7 +177,7 @@ public:
     }
 
     // Build an ObjectArray from a vector<std::string> (lifetime_args). Created via
-    // the HermesCtr producer API. Strings are built FIRST, tracking their stable
+    // the WritCtr producer API. Strings are built FIRST, tracking their stable
     // addresses (segments never move); then the pre-sized array is created and the
     // strings referenced self-relatively (set_ref) — no base+offset, MultiChunk-safe.
     writ::AnyVal put_string_vec(const std::vector<std::string>& v) {
@@ -198,7 +198,7 @@ public:
         return arr->to_anyval();
     }
 
-    // Build a Hermes mirror for `t` and return its arena offset.
+    // Build a Writ mirror for `t` and return its arena offset.
     // Every field populated on the C++ struct is also written to the mirror
     // under the key defined in sema_schema.hpp. Reads still go through the
     // raw struct pointer — Phase 2c.3 will switch TypeRef to read the mirror.
@@ -318,7 +318,7 @@ TypePool& TypePool::operator=(TypePool&&) noexcept = default;
 // fully-assembled binary contribution.
 //
 // Stage E: functions cross LPrograms as FunctionView handles (each IS its
-// Hermes decl mirror); splice is a value-copy of the cheap handle. The mirror
+// Writ decl mirror); splice is a value-copy of the cheap handle. The mirror
 // arenas stay alive via the SemaCache-held type_pools. Other aggregates are
 // value-copied; their nested method View vectors copy handles too.
 //
@@ -370,7 +370,7 @@ public:
     // step 4 the pools are shared_ptr<vector<...>>; cache must hold a
     // ref or mono's out_ destruction would drop the last refcount and
     // free the underlying vectors — dangling cached LExpr* etc.
-    std::shared_ptr<std::deque<lir::HermesVal>>  hermes_val_pool;
+    std::shared_ptr<std::deque<lir::WritVal>>  writ_val_pool;
     std::shared_ptr<std::deque<lir::EClosure>>   closure_pool;
 
     // M5 step 3b: persistent SemaChecker symbol tables. Moved out at end
@@ -1067,7 +1067,7 @@ writ::Arena& TypePool::arena_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->arena();
 }
-writ::HermesCtr& TypePool::ctr_or_init() {
+writ::WritCtr& TypePool::ctr_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->ctr_;
 }
@@ -1259,7 +1259,7 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     for (uint64_t i = 0; i < arr->size(); ++i) {
         auto e = const_cast<writ::ObjectArray*>(arr)->get(i);
         // Phase 2.B: a vec ELEMENT can itself be a cross-arena ExternalRef
-        // (e.g. a `dyn Trait<CFG>` type-arg where CFG is a HermesStatic const
+        // (e.g. a `dyn Trait<CFG>` type-arg where CFG is a WritStatic const
         // interned in another arena). Resolve it through the global ArenaPool
         // exactly like ptr_via_mirror — WITHOUT this, the element was built as
         // `TypeRef(self.arena(), <external-ref AnyVal>, …)`, a malformed ref
@@ -1478,7 +1478,7 @@ static std::string mangle_type_for_name(TypeRef t) {
     case LogosType::Kind::AssocType:
         return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
     case LogosType::Kind::HStaticLit: {
-        // hs_<hex64>: identity-stable suffix for HermesStatic value used as
+        // hs_<hex64>: identity-stable suffix for WritStatic value used as
         // const-generic argument. Two `@{...}` literals with identical bytes
         // hash to the same const_val and therefore the same suffix.
         char buf[24];
@@ -1906,7 +1906,7 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (from.kind() == LogosType::Kind::FloatLit &&
         (to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64 ||
          to.kind() == LogosType::Kind::TypeVar)) return true;
-    // Cfg-slot types are deferred placeholders for HermesStatic-bound
+    // Cfg-slot types are deferred placeholders for WritStatic-bound
     // primitives. Treat them like TypeVar at sema for coercion checks:
     // any concrete numeric (and IntLit/FloatLit) compatible-with the
     // resolved primitive — mono enforces the resolved-type compatibility
@@ -2249,7 +2249,7 @@ std::string type_str(TypeRef t) {
 
 // ── SemaChecker method definitions ───────────────────────────────────────────
 
-lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
+lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
                                 const std::vector<std::string>& filenames,
                                 const std::vector<bool>& from_binary) {
     filenames_ = &filenames;
@@ -2284,13 +2284,13 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
         // Without this, cached LExpr*/LBlock*/etc. (e.g. via
         // hstatic_registry) dangle as soon as mono's out_ pool refcount
         // drops to zero. Cache's shared_ptr holds the storage alive.
-        if (cache_->impl()->hermes_val_pool)  prog.hermes_val_pool_  = cache_->impl()->hermes_val_pool;
+        if (cache_->impl()->writ_val_pool)  prog.writ_val_pool_  = cache_->impl()->writ_val_pool;
         if (cache_->impl()->closure_pool)     prog.closure_pool_     = cache_->impl()->closure_pool;
     }
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
 
     // M5 step 3b+5a+5c: install cached symbol tables + restore the
-    // hstatic_registry. The shared block/hermes_val/closure pools keep cached
+    // hstatic_registry. The shared block/writ_val/closure pools keep cached
     // raw handles valid; Step 5b's per-binary-AST skip in collect keeps user ASTs
     // re-walking each call (so strict validation still fires) without
     // tripping ODR-less duplicate checks; Step 5c's user-pkg filter in
@@ -2306,7 +2306,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
     // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
     // type-alias rhs / supertrait bounds / etc. can register into
     // prog.hstatic_registry_ during collection. Otherwise alias-routed
-    // HermesStatic const-args produce TypeRefs whose hash is in
+    // WritStatic const-args produce TypeRefs whose hash is in
     // const_val but whose literal never lands in the registry, and
     // mono later fails to materialise `__const_param:CFG`.
     cur_prog_ = &prog;
@@ -2347,7 +2347,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
         cache_->impl()->shared_pool = prog.type_pool.shared_clone();
         // M5 step 5: keep refcounts on the LIR pools so cached
         // LExpr*/LBlock*/etc. survive past mono's out_ destruction.
-        cache_->impl()->hermes_val_pool  = prog.hermes_val_pool_;
+        cache_->impl()->writ_val_pool  = prog.writ_val_pool_;
         cache_->impl()->closure_pool     = prog.closure_pool_;
         cache_->impl()->snapshot = take_snapshot();
         // M5 step 5a: also capture prog.hstatic_registry_ (per-LProgram
@@ -2422,9 +2422,9 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
                 continue;
             }
             // Param is the AnyVal-style offset of the triggered item
-            // within the module's Hermes doc. Hooks reconstruct the
+            // within the module's Writ doc. Hooks reconstruct the
             // node via AnyVal::from_offset(target_offset) + existing
-            // HermesView/OView API.
+            // WritView/OView API.
             auto pt = TypeRef(fn_params[0].type(mph_pool));
             if (pt.kind() != LogosType::Kind::U32)
                 error("#[metaprog_handler] hook param must be u32 (offset of triggered item)");
@@ -2461,7 +2461,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Hermes>& asts,
     }
 
     prog.diags      = std::move(result_);
-    // Stage E: build the Hermes mirror views for the handler/target tables at
+    // Stage E: build the Writ mirror views for the handler/target tables at
     // the move-into-prog point (prog is the host for the decl mirrors).
     prog.metaprog_handlers.clear();
     prog.metaprog_handlers.reserve(metaprog_handlers_.size());
@@ -2965,7 +2965,7 @@ void SemaChecker::compute_auto_copy_types() {
             if (auto sep = bare.rfind("::"); sep != std::string::npos)
                 bare = bare.substr(sep + 2);
             if (copy_types_.count(bare)) continue;
-            // Spec / annotation / Hermes datatypes — leave to manual `impl Copy`.
+            // Spec / annotation / Writ datatypes — leave to manual `impl Copy`.
             if (!info.is_data_plain) continue;
             if (info.fields.empty()) continue;  // zero-sized; skip (Logos treats odd)
             if (has_drop_impl(bare)) continue;
@@ -3805,7 +3805,7 @@ bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
             auto ta = TypeRef(rp).type_args();
             // Type-erased rel_ptr (NO type arg) — an `any_object_ptr` into a
             // type-tagged object — coerces to a thin `u8` pointer (`*const u8` /
-            // `*mut u8`), the raw form the Hermes tag dispatcher reads (it
+            // `*mut u8`), the raw form the Writ tag dispatcher reads (it
             // recovers the real type from the object's vlen tag). We never
             // silently type it to `*T`; the user casts `*u8 as *T` explicitly.
             if (ta.empty()) return TypeRef(pointee).kind() == LogosType::Kind::U8;
@@ -3813,7 +3813,7 @@ bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
         }
         // (b) Abstract GAT projection `Z::Ptr<U>` (assoc base = a generic
         // type-param) ↔ `*U`: the zone's pointer form. Accept generically; mono
-        // resolves `Z::Ptr` to `*U` (Heap) or a #[rel_ptr] struct (Hermes) and the
+        // resolves `Z::Ptr` to `*U` (Heap) or a #[rel_ptr] struct (Writ) and the
         // field read/write does materialize/lower. Gated on the GAT arg matching
         // the pointee so this is the zone-pointer shape, not an arbitrary assoc.
         if (TypeRef(rp).kind() == LogosType::Kind::AssocType) {
@@ -4765,7 +4765,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (rav.is_null()) return t;
         lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
         if (eref.addr() == nullptr) return t;
-        if (eref.kind() != lir_schema::expr::Code::HermesLit) return t;
+        if (eref.kind() != lir_schema::expr::Code::WritLit) return t;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };
         std::vector<Step> steps;
@@ -4783,9 +4783,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 p = e + 1;
             }
         }
-        lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+        lir_view::WritValRef cur = lir_view::EWritLitView{eref}.root();
         for (auto& st : steps) {
-            using K = lir_schema::hermes_val::Code;
+            using K = lir_schema::writ_val::Code;
             bool found = false;
             if (st.kind == 'F' || st.kind == 'I') {
                 if (cur.kind() != K::Map) return t;
@@ -4806,7 +4806,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             }
             if (!found) return t;
         }
-        if (cur.kind() == lir_schema::hermes_val::Code::Type) {
+        if (cur.kind() == lir_schema::writ_val::Code::Type) {
             std::string tname(lir_view::HVTypeView{cur}.name());
             if (auto resolved = const_cast<SemaChecker*>(this)->try_resolve_as_known_type(tname))
                 return resolved;
@@ -4966,7 +4966,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
 
 TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
     int32_t tc = code_of(node); (void)tc;
-    // <type:CFG.path> — extract a type from a HermesStatic-typed binding
+    // <type:CFG.path> — extract a type from a WritStatic-typed binding
     // through an arbitrary path of field/index steps. Each step is an
     // AST item with OP discriminator (0=field_str, 1=field_int,
     // 2=array_idx). Two resolution paths:
@@ -4983,7 +4983,7 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
     bool is_typeparam = current_type_params_.count(cfg_name) > 0;
 
     // B-ty-06: when CFG is a generic type-param, it must be a const-
-    // generic of HermesStatic kind for cfg_slot extraction to make
+    // generic of WritStatic kind for cfg_slot extraction to make
     // sense.  Inspect current_type_params_[cfg_name] — for const params
     // push_type_params stores a ConstVar whose pointee is const_type.
     if (is_typeparam) {
@@ -4993,11 +4993,11 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
             bool ok = TypeRef(tv).kind() == LogosType::Kind::ConstVar &&
                       TypeRef(tv).pointee() &&
                       TypeRef(TypeRef(tv).pointee()).kind() == LogosType::Kind::Struct &&
-                      TypeRef(TypeRef(tv).pointee()).struct_name() == "HermesStatic";
+                      TypeRef(TypeRef(tv).pointee()).struct_name() == "WritStatic";
             if (!ok) {
                 error(std::format(
                     "'<type:{0}.…>': type-param '{0}' must be declared "
-                    "as 'const {0}: HermesStatic' for cfg_slot extraction",
+                    "as 'const {0}: WritStatic' for cfg_slot extraction",
                     cfg_name));
             }
         }
@@ -5060,12 +5060,12 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
             auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
             lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
             if (!rav.is_null() && eref.addr() != nullptr) {
-                if (eref.kind() == lir_schema::expr::Code::HermesLit) {
-                    // Walk path through the Hermes value.
-                    lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+                if (eref.kind() == lir_schema::expr::Code::WritLit) {
+                    // Walk path through the Writ value.
+                    lir_view::WritValRef cur = lir_view::EWritLitView{eref}.root();
                     bool ok = true;
                     for (auto& s : steps) {
-                        using K = lir_schema::hermes_val::Code;
+                        using K = lir_schema::writ_val::Code;
                         if (s.kind == 0 || s.kind == 1) {
                             if (cur.kind() != K::Map) { ok = false; break; }
                             auto map = lir_view::HVMapView{cur};
@@ -5089,7 +5089,7 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
                             cur = arr.elem((uint64_t)s.index);
                         }
                     }
-                    if (ok && cur.kind() == lir_schema::hermes_val::Code::Type) {
+                    if (ok && cur.kind() == lir_schema::writ_val::Code::Type) {
                         std::string tname(lir_view::HVTypeView{cur}.name());
                         if (auto resolved = try_resolve_as_known_type(tname))
                             return resolved;
@@ -5346,7 +5346,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     int32_t tc = code_of(node); (void)tc;
     auto name = str_of(node.get(la::NAME.code));
 
-    // Generic compile-time const: `pub const X<T1, T2>: HermesStatic =
+    // Generic compile-time const: `pub const X<T1, T2>: WritStatic =
     // @{...};`. Push type-args into current_type_params_ and re-resolve
     // the saved value-AST under that scope. resolve_hstatic_value walks
     // the AST and substitutes TypeVar HERMES_TYPE_LIT names through
@@ -6227,13 +6227,13 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::ASSOC_TYPE_REF) return resolve_type_assoc_ref(node);
 
-    // <ElemType>[] and <K,V>{} — Hermes typed container type-expressions.
-    // Resolved to a special Struct type: struct_name="HermesArr"/"HermesMap",
+    // <ElemType>[] and <K,V>{} — Writ typed container type-expressions.
+    // Resolved to a special Struct type: struct_name="WritArr"/"WritMap",
     // type_args[0] = elem/key type, type_args[1] = val type (map only).
-    // The result type of an `as <T>[]` cast is always Hermes (owning zone).
+    // The result type of an `as <T>[]` cast is always Writ (owning zone).
     if (tc == la::HERMES_ARR_TYPE) {
         auto elem_name = str_of(node.get(la::TYPE.code));
-        // Resolve element type — must be a known Hermes scalar type name.
+        // Resolve element type — must be a known Writ scalar type name.
         static const StrMap<const char*> arr_elem_map = {
             {"I8",  "ArrayI8"},  {"U8",  "ArrayU8"},
             {"I16", "ArrayI16"}, {"U16", "ArrayU16"},
@@ -6261,8 +6261,8 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         else if (elem_name == "F32") elem_t = prim(LogosType::Kind::F32);
         else if (elem_name == "F64") elem_t = prim(LogosType::Kind::F64);
         else elem_t = error_t();
-        // Result type: struct LogosType with special name "HermesArr".
-        return make_generic_struct("HermesArr", {elem_t});
+        // Result type: struct LogosType with special name "WritArr".
+        return make_generic_struct("WritArr", {elem_t});
     }
     if (tc == la::HERMES_MAP_TYPE) {
         auto key_name = str_of(node.get(la::TYPE.code));
@@ -6293,7 +6293,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                               "supported: AnyVal", key_name, val_name, val_name));
             return error_t();
         }
-        return make_generic_struct("HermesMap", {key_t, val_t});
+        return make_generic_struct("WritMap", {key_t, val_t});
     }
 
     if (tc == la::PACK_EXPAND) {
@@ -6368,16 +6368,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     if (tc == la::GENERIC_INST) return resolve_type_generic_inst(node);
 
     if (tc == la::LIT_HSTATIC) {
-        // HermesStatic literal at type-arg position: Foo::<@{...}>.
+        // WritStatic literal at type-arg position: Foo::<@{...}>.
         if (!node.has_key(la::VALUE)) {
-            error("HermesStatic type-arg: missing literal payload");
+            error("WritStatic type-arg: missing literal payload");
             return error_t();
         }
         return resolve_hstatic_value(map_of(node.get(la::VALUE.code)));
     }
-    // Bare hermes-lit codes also reach resolve_type when `pub const X:
-    // HermesStatic = @{...}` is being recognised in collect_const — there
-    // the value-AST is the unwrapped hermes_lit, not LIT_HSTATIC.
+    // Bare writ-lit codes also reach resolve_type when `pub const X:
+    // WritStatic = @{...}` is being recognised in collect_const — there
+    // the value-AST is the unwrapped writ_lit, not LIT_HSTATIC.
     if (tc == la::HERMES_MAP.code || tc == la::HERMES_ARRAY.code ||
         tc == la::HERMES_STR.code || tc == la::HERMES_INT.code ||
         tc == la::HERMES_NEG_INT.code || tc == la::HERMES_FLOAT.code ||
@@ -6394,7 +6394,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
     // identical `@{...}` instances at different sites produce the same TypeRef.
     {
         // FNV-1a 64-bit hash, schema-aware (content only, position-free).
-        // Walks the hermes_lit AST tree using each node CODE's known shape
+        // Walks the writ_lit AST tree using each node CODE's known shape
         // — distinguishes string-valued (HERMES_INT/STR/FLOAT) from
         // map-valued (HERMES_ENTRY's VALUE) children, so identical content
         // at different source positions hashes to the same value.
@@ -6419,7 +6419,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     auto items = arr_of(n.get(la::ITEMS.code));
                     h = fnv_u64(h, (uint64_t)items.size());
                     // B-he-02: duplicate-key check at this layer (was only done
-                    // for `pub const … = @{...}` via eval_static_hermes_lit;
+                    // for `pub const … = @{...}` via eval_static_writ_lit;
                     // hstatic literals at type-arg position skipped through here
                     // unchecked).
                     if (c == la::HERMES_MAP.code) {
@@ -6434,7 +6434,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                                 key = key.substr(1, key.size() - 2);
                             if (key.empty()) continue;
                             if (!seen_keys.insert(key).second) {
-                                error(std::format("duplicate key '{}' in Hermes map literal", key));
+                                error(std::format("duplicate key '{}' in Writ map literal", key));
                             }
                         }
                     }
@@ -6489,7 +6489,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
         // First-write-wins: identical hashes resolve to the same registered
         // LExpr (content-only identity).
         if (cur_prog_ && !cur_prog_->hstatic_registry_.has(std::to_string(hash))) {
-            auto lit = lower_hermes_lit(val_node);
+            auto lit = lower_writ_lit(val_node);
             if (lit) lir_mirror_map_put_ref(*cur_prog_, cur_prog_->hstatic_registry_,
                                             std::to_string(hash), lit.addr());
         }
@@ -6657,7 +6657,7 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
 
 // ── lower_program and lower_module_items ─────────────────────────────────────
 
-void SemaChecker::lower_program(const std::vector<writ::Hermes>& asts, lir::LProgram& prog) {
+void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgram& prog) {
     using namespace ast;
     const bool phase_dbg = []{
         const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
@@ -7087,7 +7087,7 @@ void SemaChecker::lower_program(const std::vector<writ::Hermes>& asts, lir::LPro
             b.functions.clear();
             b.specializations.clear();
         }
-        // Structs are now Hermes StructView handles over a shared mirror —
+        // Structs are now Writ StructView handles over a shared mirror —
         // value-copy the handle (no struct clone / method re-emit). Method
         // filtering for binary-only capture is handled by the bundle's
         // filter_methods on reset/next sema_lower.
@@ -7784,7 +7784,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         }
         else if (c == la::ENUM) {
             // Stage E direct-build: lower_enum_def builds the whole enum mirror
-            // (incl. DOC via take_pending_doc) STRAIGHT into prog's HermesCtr and
+            // (incl. DOC via take_pending_doc) STRAIGHT into prog's WritCtr and
             // returns the EnumView — no Draft, no separate emit.
             prog.enums.push_back(lower_enum_def(item));
         }
@@ -7876,7 +7876,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             prog.consts.push_back(cb.view<lir_view::ConstView>());
         }
         else if (c == la::TYPE_ALIAS) {
-            // Stage E: emit the alias's Hermes mirror and store a TypeAliasView
+            // Stage E: emit the alias's Writ mirror and store a TypeAliasView
             // (struct LTypeAlias is gone — the mirror is the sole representation).
             auto [aname, atype] = lower_type_alias_def(item);
             auto adoc = take_pending_doc();
@@ -7962,8 +7962,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                             // `datatypes_[base].package` — the template's package.
                             // When a genos specialisation is declared in a *different*
                             // package from its template (e.g. `genos Map<Varchar,
-                            // AnyVal>` lives in hermes.objectmap while `datatype
-                            // Map<K,V>` lives in hermes.map), lookups keyed by the
+                            // AnyVal>` lives in writ.objectmap while `datatype
+                            // Map<K,V>` lives in writ.map), lookups keyed by the
                             // template's package would otherwise miss this annotation
                             // and fall back to the auto-hashed type_code, silently
                             // producing a different code at the use site than the
@@ -8262,7 +8262,7 @@ void SemaChecker::compute_variances() {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-lir::LProgram sema_lower(const std::vector<logos::writ::Hermes>& asts,
+lir::LProgram sema_lower(const std::vector<logos::writ::Writ>& asts,
                           const std::vector<std::string>& filenames,
                           const std::vector<bool>& from_binary,
                           SemaOptions opts,

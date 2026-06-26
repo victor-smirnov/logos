@@ -3,7 +3,7 @@
 //
 // Output: libNAME.a containing
 //   NAME.o       — compiled non-generic code for the whole module
-//   NAME.hermes0 — binary AST dump (for sema on client side)
+//   NAME.writ0 — binary AST dump (for sema on client side)
 
 #include "emit_module.hpp"
 #include "compile_pipeline.hpp"
@@ -44,7 +44,7 @@ namespace logos::compiler {
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
-// .hermes0 format (version 3)
+// .writ0 format (version 3)
 //
 //   magic[8]      "HERMAST0"
 //   version       uint32_t  = 3
@@ -70,7 +70,7 @@ namespace fs = std::filesystem;
 //                                     prog.type_pool.arena() head chunk.
 //                                     Includes DocumentHeader at offset 0.
 //                                     Load via writ::from_bytes_copy. The
-//                                     blob holds the LIR Hermes mirror
+//                                     blob holds the LIR Writ mirror
 //                                     (LStructDef / LFunction / LExpr / …)
 //                                     so user-side sema/mono can skip
 //                                     re-lowering stdlib AST once the
@@ -139,7 +139,7 @@ namespace module_flag {
     constexpr uint64_t LAZY = 1ULL << 0;
 }
 
-static bool write_hermes0(const std::string& path,
+static bool write_writ0(const std::string& path,
                            const std::vector<ParsedModule>& modules,
                            const StdlibExports* exports = nullptr,
                            const std::vector<uint8_t>* lir_blob = nullptr,
@@ -255,7 +255,7 @@ static void apply_only_file_filter(lir::LProgram& prog,
     for (auto& fn : prog.functions) add(fn);
 }
 
-static bool compile_to_object(std::vector<writ::Hermes>& asts,
+static bool compile_to_object(std::vector<writ::Writ>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
                                const std::vector<bool>& from_binary_module_flags,
@@ -417,7 +417,7 @@ static bool compile_to_object(std::vector<writ::Hermes>& asts,
         bool ao = (i < ast_only_flags.size()) && ast_only_flags[i];
         // Three-layer split fix: also propagate the ParsedModule
         // from_binary_module flag (modules loaded from a .a archive's
-        // .hermes0 member). Pre-fix, this was silently set to false →
+        // .writ0 member). Pre-fix, this was silently set to false →
         // sema_collect's cur_from_binary_ never tripped for archive-
         // sourced traits/structs → the binary-cache filter
         // (only_binary_vec at sema.cpp:489) dropped them → user
@@ -587,7 +587,7 @@ static bool compile_to_object(std::vector<writ::Hermes>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
-    // Mono (also emits L-IR Hermes mirror; borrow_check reads via mirror)
+    // Mono (also emits L-IR Writ mirror; borrow_check reads via mirror)
     prog = mono_pass(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
@@ -597,8 +597,8 @@ static bool compile_to_object(std::vector<writ::Hermes>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
-    // M4 step 1: snapshot prog.type_pool arena bytes for the .hermes0 LIR
-    // blob section. This is the post-mono LIR Hermes mirror — every
+    // M4 step 1: snapshot prog.type_pool arena bytes for the .writ0 LIR
+    // blob section. This is the post-mono LIR Writ mirror — every
     // template/struct/fn/expr/stmt that mono produced lives here with its
     // mirror_ptr_ value referencing offsets in these very bytes. Loaded
     // user-side via writ::from_bytes_copy; future M4 steps add the cross-
@@ -625,7 +625,7 @@ static bool compile_to_object(std::vector<writ::Hermes>& asts,
             if (!module_name.empty()) {
                 auto* holder = prog.type_pool.holder();
                 if (holder) {
-                    auto doc = writ::Hermes(writ::HermesView(holder));
+                    auto doc = writ::Writ(writ::WritView(holder));
                     if (auto bld = writ::lir_arena_root_begin(
                             doc, module_name, /*deps=*/{})) {
                         // Phase 4.B: publish each non-generic, non-extern,
@@ -732,7 +732,7 @@ static bool compile_to_object(std::vector<writ::Hermes>& asts,
             bool dumped = false;
             if (!module_name.empty()) {
                 if (auto* h = prog.type_pool.holder()) {
-                    auto src_view = writ::HermesView(h);
+                    auto src_view = writ::WritView(h);
                     if (auto cl = writ::compactify(src_view)) {
                         const auto& cchunk = cl->holder()->arena().head();
                         out_lir_blob->assign(cchunk.data(),
@@ -758,7 +758,7 @@ static bool compile_to_object(std::vector<writ::Hermes>& asts,
                 // The raw dump ships head() bytes verbatim — only valid when the
                 // MultiChunk arena never appended (single chunk). A multi-chunk
                 // arena would truncate to the first chunk; fail loudly instead of
-                // silently corrupting the .hermes0 blob. (The compactify path above
+                // silently corrupting the .writ0 blob. (The compactify path above
                 // is the multi-chunk-safe route; the legacy no-module-root path
                 // simply doesn't support arenas that outgrew the initial chunk.)
                 if (arena->chunk_count() > 1) {
@@ -889,7 +889,7 @@ bool emit_module(const ModuleManifest& manifest,
     //   ast_only → loaded for AST emission, skipped at codegen (host-only
     //     externs make the .o invalid for user-link-time use; the AST
     //     is still needed by the metacall JIT at compile time).
-    //   regular  → both .o and .hermes0.
+    //   regular  → both .o and .writ0.
     auto all_files = collect_logos_files(root);
     std::vector<std::string> codegen_files;
     std::vector<std::string> ast_only_files;
@@ -911,7 +911,7 @@ bool emit_module(const ModuleManifest& manifest,
 
     // Resolve `depends X` manifest entries to absolute archive paths and
     // prepend them to the loader's extra-lib list, so a module being built
-    // sees its declared dependencies' .hermes0 packages before any user
+    // sees its declared dependencies' .writ0 packages before any user
     // -l files contribute. (Phase 1 of the three-layer stdlib split — see
     // docs/core-port/three-layer-split.md.)
     std::vector<std::string> all_lib_files;
@@ -989,23 +989,23 @@ bool emit_module(const ModuleManifest& manifest,
     }
 
     // Output paths. In per-file mode, write `<output_path>.o` and
-    // `<output_path>.hermes0` directly (no archive). In standard mode,
+    // `<output_path>.writ0` directly (no archive). In standard mode,
     // intermediate files go in a temp dir and `ar` builds the .a.
     std::string obj_path;
     std::string h0_path;
     if (!opts.only_file.empty()) {
         obj_path = output_path + ".o";
-        h0_path  = output_path + ".hermes0";
+        h0_path  = output_path + ".writ0";
     } else {
         auto tmp_dir = fs::temp_directory_path() / ("logos_emit_" + manifest.name);
         std::error_code ec;
         fs::create_directories(tmp_dir, ec);
         obj_path = (tmp_dir / (manifest.name + ".o")).string();
-        h0_path  = (tmp_dir / (manifest.name + ".hermes0")).string();
+        h0_path  = (tmp_dir / (manifest.name + ".writ0")).string();
     }
 
     // Build AST + filename arrays for codegen — skip ast_only modules.
-    // .hermes0 takes everything (incl. ast_only).
+    // .writ0 takes everything (incl. ast_only).
     //
     // Compile-to-object also needs ast_only modules in its asts vector
     // — the metaprog dispatch loop (#21 closure) JIT-compiles their
@@ -1013,7 +1013,7 @@ bool emit_module(const ModuleManifest& manifest,
     // We stamp ast_only with from_binary=true after dispatch so sema's
     // post-dispatch pass treats those items as already-emitted (no
     // codegen for host-extern-using fns).
-    std::vector<writ::Hermes> asts;
+    std::vector<writ::Writ> asts;
     std::vector<std::string> filenames;
     std::vector<bool>        ast_only_flags;       // parallel to asts
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
@@ -1021,7 +1021,7 @@ bool emit_module(const ModuleManifest& manifest,
     std::unordered_map<std::string, std::string> module_name_to_id;  // §B-coex: NAME→id for `from`
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
-        modules_for_h0.push_back({m.path, m.package, m.ast, false, {}, {}});  // Hermes is copy-on-write safe
+        modules_for_h0.push_back({m.path, m.package, m.ast, false, {}, {}});  // Writ is copy-on-write safe
         bool ao = is_ast_only_path(m.path);
         filenames.push_back(m.path);
         ast_only_flags.push_back(ao);
@@ -1091,7 +1091,7 @@ bool emit_module(const ModuleManifest& manifest,
     }
     // Harvest synth docs (appended by metaprog dispatch). These carry
     // derive-emitted items (e.g. cow.logos's `BranchNode`) that must
-    // appear in the .hermes0 archive — otherwise downstream consumers
+    // appear in the .writ0 archive — otherwise downstream consumers
     // re-load the binary stdlib without dispatch firing and fail to
     // resolve those symbols.
     for (size_t i = original_ast_count; i < asts.size(); ++i) {
@@ -1102,7 +1102,7 @@ bool emit_module(const ModuleManifest& manifest,
         if (path == "<metaprog>") continue;
         // Multiple synth docs share filename "<metaprog-blob-subst>" —
         // disambiguate so module_loader's visited_files dedup doesn't
-        // drop all but the first when the .hermes0 is loaded by user.
+        // drop all but the first when the .writ0 is loaded by user.
         path += "#" + std::to_string(i - original_ast_count);
         std::string pkg;
         auto root_av = asts[i].root_object();
@@ -1139,7 +1139,7 @@ bool emit_module(const ModuleManifest& manifest,
         modules_for_h0.push_back({path, pkg, asts[i], false, {}, {}});
     }
 
-    // .hermes0: in per-file mode, contains only the target file's AST.
+    // .writ0: in per-file mode, contains only the target file's AST.
     if (!opts.only_file.empty()) {
         std::vector<ParsedModule> single;
         for (auto& m : modules_for_h0) {
@@ -1163,11 +1163,11 @@ bool emit_module(const ModuleManifest& manifest,
         if (verbose) {
             std::fprintf(stderr, "emit_module: writing → %s (single file)\n", h0_path.c_str());
         }
-        if (!write_hermes0(h0_path, single, /*exports=*/nullptr, /*lir_blob=*/nullptr)) {
-            std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
+        if (!write_writ0(h0_path, single, /*exports=*/nullptr, /*lir_blob=*/nullptr)) {
+            std::fprintf(stderr, "emit_module: .writ0 write failed\n");
             return false;
         }
-        // Per-file mode also wraps .hermes0 → .hermes0.o so lforge can
+        // Per-file mode also wraps .writ0 → .writ0.o so lforge can
         // archive it without ld.lld emitting an "is neither ET_REL nor
         // LLVM bitcode" warning at downstream link time.
         // Match emit_module-mode naming: "<base>.hm0" (≤15 chars in ar).
@@ -1176,7 +1176,7 @@ bool emit_module(const ModuleManifest& manifest,
         {
             std::ostringstream cmd;
             cmd << "objcopy -I binary -O elf64-x86-64 "
-                << "--rename-section .data=.lhermes "
+                << "--rename-section .data=.lwrit "
                 << h0_path << " " << h0_obj;
             if (verbose) {
                 std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
@@ -1217,7 +1217,7 @@ bool emit_module(const ModuleManifest& manifest,
     }
     if (verbose) {
         std::fprintf(stderr,
-            "emit_module: A-AST — keeping %zu own module(s), dropped %zu dep AST(s) from .hermes0\n",
+            "emit_module: A-AST — keeping %zu own module(s), dropped %zu dep AST(s) from .writ0\n",
             own_modules_for_h0.size(), dropped_dep_asts);
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
@@ -1226,16 +1226,16 @@ bool emit_module(const ModuleManifest& manifest,
     // AST (signatures + generic templates + impls). Non-generic dep bodies
     // live in the dep .o and are linked; the consumer's sema skeleton-skips
     // them via binary_symbols.
-    if (!write_hermes0(h0_path, own_modules_for_h0,
+    if (!write_writ0(h0_path, own_modules_for_h0,
                        /*exports=*/&exports, /*lir_blob=*/&lir_blob,
                        mflags)) {
-        std::fprintf(stderr, "emit_module: .hermes0 write failed\n");
+        std::fprintf(stderr, "emit_module: .writ0 write failed\n");
         return false;
     }
 
-    // Wrap .hermes0 as a relocatable ELF object so ld.lld doesn't warn
+    // Wrap .writ0 as a relocatable ELF object so ld.lld doesn't warn
     // about a non-ET_REL archive member when downstream binaries link
-    // against this archive. The data lives in a non-ALLOC `.lhermes`
+    // against this archive. The data lives in a non-ALLOC `.lwrit`
     // section; module_loader looks for that section by name.
     // Wrap into "<basename>.hm0" (must stay <=15 chars including the
     // trailing `/` separator that ar appends, otherwise the name spills
@@ -1246,7 +1246,7 @@ bool emit_module(const ModuleManifest& manifest,
     {
         std::ostringstream cmd;
         cmd << "objcopy -I binary -O elf64-x86-64 "
-            << "--rename-section .data=.lhermes "
+            << "--rename-section .data=.lwrit "
             << h0_path << " " << h0_obj_path;
         if (verbose) {
             std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());
@@ -1263,7 +1263,7 @@ bool emit_module(const ModuleManifest& manifest,
     // alloc + zero-init + copy still costs ~40ms across 4-archive layer
     // builds). The .pkgi member ships the package list as ASCII (one
     // package per line) wrapped in an ELF .lpkgindex non-ALLOC section
-    // (mirrors the .hm0 → .lhermes wrap so ld.lld doesn't warn about
+    // (mirrors the .hm0 → .lwrit wrap so ld.lld doesn't warn about
     // non-ET_REL archive members). The streaming AR reader pulls it out
     // without touching .hm0 bytes. Member name must stay <=15 chars.
     std::string pkgi_raw_path =
@@ -1334,13 +1334,13 @@ bool emit_module(const ModuleManifest& manifest,
         }
     }
 
-    // Import-table member: a standalone Hermes doc listing the libraries this
+    // Import-table member: a standalone Writ doc listing the libraries this
     // module imports (its `depends`), one (file_name, doc_name) per local
     // arena_id. Shipped as its own `.imp` member (wrapped in a `.limports`
     // ELF section, mirroring the .hm0/.pkgi wrap) so a tool can read just this
     // small member for fast dependency inspection, and so a cross-arena
     // ExternalRef's arena_id resolves through it. doc_name is "" today (one
-    // document per .hermes0; multi-doc reserved).
+    // document per .writ0; multi-doc reserved).
     std::string imp_obj_path;
     {
         std::vector<writ::ImportEntry> imports;

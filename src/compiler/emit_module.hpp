@@ -19,12 +19,12 @@ struct EmitModuleOptions {
     //                           matches this path; all other fns become
     //                           forward-decls so the linker can resolve
     //                           them later from sibling per-file objects.
-    //   <output_path>.hermes0 — binary AST containing only this file.
+    //   <output_path>.writ0 — binary AST containing only this file.
     // No `ar` step is run. The orchestrator (lforge) parallelises N such
     // invocations and merges their outputs into the final library archive.
     std::string only_file;
 
-    // External archives whose .hermes0 modules should be loaded so `use
+    // External archives whose .writ0 modules should be loaded so `use
     // <pkg>;` statements in this module can resolve symbols from other
     // already-built lforge projects (B3 transitive deps).
     std::vector<std::string> extra_lib_files;

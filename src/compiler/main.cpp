@@ -2,7 +2,7 @@
 //
 // logosc — Logos compiler driver (iteration 1).
 //
-// Pipeline: .logos file → PEG parser → Hermes AST → MLIR → LLVM IR → .o file.
+// Pipeline: .logos file → PEG parser → Writ AST → MLIR → LLVM IR → .o file.
 
 #include "emit_module.hpp"
 #include "metaprog_dispatch.hpp"
@@ -106,7 +106,7 @@
 namespace {
 std::set<std::string>*               g_emit_seen   = nullptr;
 bool*                                g_any_emitted = nullptr;
-std::vector<logos::writ::Hermes>*  g_asts        = nullptr;
+std::vector<logos::writ::Writ>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
 // Module system: per-AST owning-module id, parallel to g_from_binary. New
@@ -125,7 +125,7 @@ const char*                          g_current_hook_name = nullptr;
 // points this at the active LProgram::macro_arg_blobs so the host shim
 // `logos_macro_arg(site_id, arg_idx)` can resolve each thunk's args.
 // Each blob is laid out as `[u64 size][bytes]`; the shim returns
-// `&blob[8]` (past the size prefix) to match the ExprBlob/HermesStatic ABI.
+// `&blob[8]` (past the size prefix) to match the ExprBlob/WritStatic ABI.
 const logos::compiler::lir_view::ObjectMapRef* g_macro_args = nullptr;
 
 // `--dump-metaprog` provenance tracking. When the metaprog driver is
@@ -137,7 +137,7 @@ const logos::compiler::lir_view::ObjectMapRef* g_macro_args = nullptr;
 //
 // Provenance is doc-level rather than item-level because the splice
 // path (logos_emit_item_blob / _subst, logos_emit_source) appends a
-// whole new Hermes document per emission; per-item stamping would
+// whole new Writ document per emission; per-item stamping would
 // require threading the context deeper into sema, which gives no
 // extra information for the dump UX (file-level granularity is what
 // users select on).
@@ -166,7 +166,7 @@ void record_emit_provenance() {
 // caller's out-params. The module loader walks dependencies in
 // post-order, so the entry file is at index `g_user_root_idx`
 // (recorded right after load_modules, before any metaprog splice).
-// Logos-side wraps the pair in `HermesView<'a>` — non-owning
+// Logos-side wraps the pair in `WritView<'a>` — non-owning
 // fat-borrow whose 'a is the hook frame's lifetime. OView
 // (RC-owning view) is the eventual API; the borrow is sound
 // because the root doc outlives every hook invocation.
@@ -191,7 +191,7 @@ extern "C" void logos_get_module_ast(const uint8_t** out_base,
 // that ref and releases it via Drop -> logos_holder_release.
 //
 // The C++ MemHolder layout (atomic ref + Arena) does not match the
-// stdlib `std.hermes.mem_holder.MemHolder` POD, so OView treats the
+// stdlib `std.writ.mem_holder.MemHolder` POD, so OView treats the
 // holder as opaque (`*mut u8`) and only ever passes it back to host
 // fns — base/size are cached in OView itself at ctor time.
 extern "C" void logos_get_module_ast_oview(void**           out_holder,
@@ -233,7 +233,7 @@ extern "C" void logos_metaprog_error(const char* msg) {
 }
 
 // Phase 7 slice 13: error with span. `target_offset` is an offset
-// into the user-root Hermes doc; host reads SRC_LINE from the node
+// into the user-root Writ doc; host reads SRC_LINE from the node
 // there and prefixes the diag with `<file>:<line>:`. offset==0 (no
 // span) falls back to the un-spanned form.
 extern "C" void logos_metaprog_error_at(uint32_t target_offset,
@@ -287,8 +287,8 @@ extern "C" int32_t logos_emit_source(const char* src) {
 }
 
 // Slice 3 of metaprog-quote (~/.claude/plans/metaprog-quote.md): item-level
-// splice via Hermes-bytes. The blob is a complete arena snapshot of a one-
-// module Hermes document (same shape as parser output). Host reconstructs
+// splice via Writ-bytes. The blob is a complete arena snapshot of a one-
+// module Writ document (same shape as parser output). Host reconstructs
 // it via from_bytes_copy and pushes onto the asts vector — sema's next
 // iteration sees it like any other source file. Slice 4 will produce these
 // bytes from quote_item! literals; for now Slice 3 has a test fixture that
@@ -339,7 +339,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     namespace la = logos::compiler::ast;
     using logos::writ::AnyVal;
     using logos::writ::ArenaString;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::ObjectArray;
     using logos::writ::TinyObjectMap;
     using logos::writ::TinyMapView;
@@ -474,11 +474,11 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         size_t bound = static_cast<size_t>(blob->template_size)
                          * (2 * total_idents + 2)
                      + static_cast<size_t>(total_str) + 65536;
-        (void)HermesAccess::arena(doc).reserve(bound);
+        (void)WritAccess::arena(doc).reserve(bound);
     }
 
     // Substitute placeholders. Root is MODULE TOM with ITEMS array.
-    auto root_off = HermesAccess::root_offset(doc);
+    auto root_off = WritAccess::root_offset(doc);
     auto root_ptr = [&]() {
         return TinyMapView(arena_offset_t(root_off.value()), doc.holder());
     };
@@ -528,8 +528,8 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             subst_failed = true; return true;
         }
         auto inner_doc = std::move(inner_e).get();
-        const uint8_t* ib = HermesAccess::base(inner_doc);
-        auto inner_root_off = HermesAccess::root_offset(inner_doc).value();
+        const uint8_t* ib = WritAccess::base(inner_doc);
+        auto inner_root_off = WritAccess::root_offset(inner_doc).value();
         const void* inner_root = ib + inner_root_off;
         auto cp_e = copy_object_into(inner_root, ib, doc);
         if (!cp_e) {
@@ -539,7 +539,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         }
         void* dst_obj = cp_e.get();
         uint32_t dst_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+            reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
         replace_in_parent(dst_off);
         return true;
     };
@@ -550,7 +550,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // ident/blob placeholders in the body remain for the outer subst_walk.
     std::function<void(uint32_t, uint64_t)> expand_cursor_in_subtree;
     expand_cursor_in_subtree = [&](uint32_t off, uint64_t iter) {
-        uint8_t* dbase = HermesAccess::base(doc);
+        uint8_t* dbase = WritAccess::base(doc);
         auto tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         if (tom.has_key(la::NAME_VAR.code)) {
             AnyVal nv = tom.get(la::NAME_VAR.code);
@@ -604,7 +604,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                     pod.len));
                             if (str_e) {
                                 uint32_t name_off = str_e->offset().value();
-                                dbase = HermesAccess::base(doc);
+                                dbase = WritAccess::base(doc);
                                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                                 // LIT_STR placeholder (`##field`) → ident text
                                 // into VALUE (str label); VAR_REF → NAME.
@@ -616,8 +616,8 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                         is_strlit = true;
                                 }
                                 (void)tom.put(is_strlit ? la::VALUE.code : la::NAME.code,
-                                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)));
-                                dbase = HermesAccess::base(doc);
+                                    AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(name_off)));
+                                dbase = WritAccess::base(doc);
                                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                                 tom.remove(la::NAME_VAR.code);
                             }
@@ -628,7 +628,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         }
         // Snapshot children before recursion (puts may have rebased).
         std::vector<std::pair<bool, uint32_t>> children;
-        dbase = HermesAccess::base(doc);
+        dbase = WritAccess::base(doc);
         tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         uint64_t bm = tom.bitmap();
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
@@ -636,7 +636,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (key == la::NAME_VAR.code) continue;
             AnyVal av = tom.get(key);
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap)
@@ -649,13 +649,13 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 expand_cursor_in_subtree(coff, iter);
                 continue;
             }
-            uint8_t* db2 = HermesAccess::base(doc);
+            uint8_t* db2 = WritAccess::base(doc);
             auto arr = logos::writ::ArrayView(arena_offset_t(coff), doc.holder());
             std::vector<uint32_t> elem_offs;
             for (uint64_t i = 0; i < arr.size(); ++i) {
                 AnyVal e = arr.get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
-                uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
+                uint32_t eoff = static_cast<uint32_t>(e.to_offset(WritAccess::base(doc)).value());
                 const uint8_t* ep = db2 + eoff;
                 lh::TypeTag etag = lh::TypeTag::read_before(ep);
                 if (etag.type_code() == lh::type_hash::TinyObjectMap)
@@ -671,7 +671,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // Errors if no cursor found (caller validated this at sema time).
     std::function<uint64_t(uint32_t)> find_cursor_count_in_body;
     find_cursor_count_in_body = [&](uint32_t off) -> uint64_t {
-        uint8_t* dbase = HermesAccess::base(doc);
+        uint8_t* dbase = WritAccess::base(doc);
         auto tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         if (tom.has_key(la::NAME_VAR.code)) {
             AnyVal nv = tom.get(la::NAME_VAR.code);
@@ -703,7 +703,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (key == la::NAME_VAR.code) continue;
             AnyVal av = tom.get(key);
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap) {
@@ -714,8 +714,8 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 for (uint64_t i = 0; i < arr.size(); ++i) {
                     AnyVal e = arr.get(i);
                     if (!e.is_pointer()) continue;
-                    uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
-                    const uint8_t* ep = HermesAccess::base(doc) + eoff;
+                    uint32_t eoff = static_cast<uint32_t>(e.to_offset(WritAccess::base(doc)).value());
+                    const uint8_t* ep = WritAccess::base(doc) + eoff;
                     lh::TypeTag etag = lh::TypeTag::read_before(ep);
                     if (etag.type_code() == lh::type_hash::TinyObjectMap) {
                         uint64_t n = find_cursor_count_in_body(eoff);
@@ -738,7 +738,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         for (uint64_t i = 0; i < n_src; ++i) {
             AnyVal e = arr.get(i);
             if (!e.is_pointer()) continue;
-            uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
+            uint32_t eoff = static_cast<uint32_t>(e.to_offset(WritAccess::base(doc)).value());
             auto etom = logos::writ::TinyMapView(arena_offset_t(eoff), doc.holder());
             int32_t cd = 0;
             if (etom.has_key(la::CODE.code)) {
@@ -769,7 +769,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 continue;
             }
             src_nonptr.push_back(AnyVal{});
-            uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
+            uint32_t eoff = static_cast<uint32_t>(e.to_offset(WritAccess::base(doc)).value());
             auto etom = logos::writ::TinyMapView(arena_offset_t(eoff), doc.holder());
             int32_t cd = 0;
             if (etom.has_key(la::CODE.code)) {
@@ -784,7 +784,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     return 0;
                 }
                 src_els.push_back({true, 0,
-                    bav.to_offset(HermesAccess::base(doc)).value()});
+                    bav.to_offset(WritAccess::base(doc)).value()});
             } else {
                 src_els.push_back({false, eoff, 0});
             }
@@ -800,7 +800,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     (void)na.push_back(src_nonptr[i]);
                 } else {
                     (void)na.push_back(
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(src_els[i].off))
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(src_els[i].off))
                         );
                 }
                 continue;
@@ -813,17 +813,17 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 subst_failed = true; return 0;
             }
             for (uint64_t j = 0; j < n; ++j) {
-                const uint8_t* base = HermesAccess::base(doc);
+                const uint8_t* base = WritAccess::base(doc);
                 const void* src_obj = base + body_off;
                 auto cp_e = copy_object_into(src_obj, base, doc);
                 if (!cp_e) { subst_failed = true; return 0; }
                 void* dst_obj = cp_e.get();
                 uint32_t copy_off = static_cast<uint32_t>(
-                    reinterpret_cast<uint8_t*>(dst_obj) - HermesAccess::base(doc));
+                    reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
                 expand_cursor_in_subtree(copy_off, j);
                 auto na2 = ArrayView(arena_offset_t(new_arr_off), doc.holder());
                 (void)na2.push_back(
-                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(copy_off)));
+                    AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(copy_off)));
             }
         }
         return new_arr_off;
@@ -831,7 +831,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
 
     std::function<void(uint32_t)> subst_walk = [&](uint32_t off) {
         if (subst_failed) return;
-        uint8_t* dbase = HermesAccess::base(doc);
+        uint8_t* dbase = WritAccess::base(doc);
         auto tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         if (tom.has_key(la::NAME_VAR.code)) {
             AnyVal idx_av = tom.get(la::NAME_VAR.code);
@@ -868,7 +868,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 }
                 uint32_t name_off = static_cast<uint32_t>(
                     str_e->offset().value());
-                dbase = HermesAccess::base(doc);
+                dbase = WritAccess::base(doc);
                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                 // `##name` antiquot parses as a LIT_STR node carrying
                 // NAME_VAR; the substituted ident text is the string's
@@ -881,8 +881,8 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         is_strlit = true;
                 }
                 (void)tom.put(is_strlit ? la::VALUE.code : la::NAME.code,
-                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)));
-                dbase = HermesAccess::base(doc);
+                    AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(name_off)));
+                dbase = WritAccess::base(doc);
                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                 tom.remove(la::NAME_VAR.code);
             }
@@ -892,7 +892,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         // blob splice can rewrite the parent's slot.
         struct ChildRef { bool is_arr; uint8_t key; uint32_t coff; };
         std::vector<ChildRef> children;
-        dbase = HermesAccess::base(doc);
+        dbase = WritAccess::base(doc);
         tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         uint64_t bm = tom.bitmap();
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
@@ -900,7 +900,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (key == la::NAME_VAR.code) continue;
             AnyVal av = tom.get(key);
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap)
@@ -916,7 +916,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     [&](uint32_t new_off) {
                         auto t = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                         (void)t.put(key,
-                            AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)));
+                            AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(new_off)));
                     });
                 if (!spliced) subst_walk(cref.coff);
                 continue;
@@ -931,17 +931,17 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     // Replace parent's slot with the new array.
                     auto t = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                     (void)t.put(cref.key,
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(expanded)));
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(expanded)));
                     arr_off = expanded;
                 }
             }
-            uint8_t* dbase2 = HermesAccess::base(doc);
+            uint8_t* dbase2 = WritAccess::base(doc);
             auto arr = logos::writ::ArrayView(arena_offset_t(arr_off), doc.holder());
             std::vector<std::pair<uint64_t, uint32_t>> elems;
             for (uint64_t i = 0; i < arr.size(); ++i) {
                 AnyVal e = arr.get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
-                uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
+                uint32_t eoff = static_cast<uint32_t>(e.to_offset(WritAccess::base(doc)).value());
                 const uint8_t* ep = dbase2 + eoff;
                 lh::TypeTag etag = lh::TypeTag::read_before(ep);
                 if (etag.type_code() == lh::type_hash::TinyObjectMap)
@@ -953,7 +953,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     [&](uint32_t new_off) {
                         auto a = logos::writ::ArrayView(arena_offset_t(arr_off), doc.holder());
                         a.set(ei,
-                               AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off))
+                               AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(new_off))
                                );
                     });
                 if (!spliced) subst_walk(eoff);
@@ -963,7 +963,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     if (root_ptr().has_key(la::ITEMS.code)) {
         AnyVal items_av = root_ptr().get(la::ITEMS.code);
         if (!items_av.is_null()) {
-            auto items_off = items_av.to_offset(HermesAccess::base(doc));
+            auto items_off = items_av.to_offset(WritAccess::base(doc));
             auto items_ptr = [&]() {
                 return ArrayView(arena_offset_t(items_off.value()), doc.holder());
             };
@@ -971,7 +971,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             for (uint64_t i = 0; i < n; ++i) {
                 AnyVal it_av = items_ptr().get(i);
                 if (it_av.is_null() || !it_av.is_pointer()) continue;
-                subst_walk(static_cast<uint32_t>(it_av.to_offset(HermesAccess::base(doc)).value()));
+                subst_walk(static_cast<uint32_t>(it_av.to_offset(WritAccess::base(doc)).value()));
                 if (subst_failed) {
                     blob_seen.erase(key); return 0;
                 }
@@ -1005,7 +1005,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     auto sv_off = static_cast<uint32_t>(
                         sv_e->offset().value());
                     (void)root_ptr().put(la::NAME.code,
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(sv_off))
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(sv_off))
                         );
                 }
             }
@@ -1030,13 +1030,13 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         auto cp_e = copy_object_into(part_obj, user_base_pkg, doc);
                         if (!cp_e) continue;
                         uint32_t cp_off = static_cast<uint32_t>(
-                            reinterpret_cast<uint8_t*>(cp_e.get()) - HermesAccess::base(doc));
+                            reinterpret_cast<uint8_t*>(cp_e.get()) - WritAccess::base(doc));
                         (void)pp_arr_ptr().push_back(
-                            AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(cp_off))
+                            AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(cp_off))
                             );
                     }
                     (void)root_ptr().put(la::mod::PATH_PARTS.code,
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(pp_off))
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(pp_off))
                         );
                 }
             }
@@ -1068,11 +1068,11 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     synth_uses_off = static_cast<uint32_t>(
                         a_e->offset().value());
                     (void)root_ptr().put(la::USES.code,
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(synth_uses_off))
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(synth_uses_off))
                         );
                 } else {
                     synth_uses_off = static_cast<uint32_t>(
-                        synth_uses_av.to_offset(HermesAccess::base(doc)).value());
+                        synth_uses_av.to_offset(WritAccess::base(doc)).value());
                 }
                 // Walk user's USE entries; for each, build the dotted
                 // package name and dedup-append a fresh USE node into
@@ -1140,11 +1140,11 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         AnyVal::from_value(static_cast<int32_t>(la::USE.code))
                         );
                     (void)utom_ptr().put(la::NAME.code,
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(pname_off))
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(pname_off))
                         );
                     auto sa = ArrayView(arena_offset_t(synth_uses_off), doc.holder());
                     (void)sa.push_back(
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(utom_off))
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(utom_off))
                         );
                 }
             }
@@ -1164,10 +1164,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
 // pointer for the (site_id, arg_idx)-th ARG of a `name!(...)` call.
 // The driver populates `g_macro_args` before invoking each metacall
 // thunk; the thunk constructs `ExprBlob { ptr: logos_macro_arg(N, i) }`
-// which the splice path then decodes via lower_hermes_blob.
+// which the splice path then decodes via lower_writ_blob.
 //
 // Returns ptr past the 8-byte `[u64 size]` prefix so the result is
-// directly usable as an `ExprBlob.ptr` / `HermesStatic.ptr`. Aborts on
+// directly usable as an `ExprBlob.ptr` / `WritStatic.ptr`. Aborts on
 // out-of-range indices — that would indicate a sema/driver mismatch.
 extern "C" const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
     if (!g_macro_args) {
@@ -1231,7 +1231,7 @@ extern "C" void logos_qib_free_idents(const uint8_t* blob) {
 // Pack a stack-local `[*const u8; N]` (one entry per `#(expr)` ExprBlob site
 // inside `quote_item!`) into a single owned heap allocation. Each input
 // pointer is an `ExprBlob.ptr` value: it points past an 8-byte length
-// prefix into the Hermes bytes. We snapshot bytes (size = *(p-8)) so the
+// prefix into the Writ bytes. We snapshot bytes (size = *(p-8)) so the
 // resulting blob owns its lifetime. Layout:
 //   [u64 N] [N × BlobEntry{offset:u64, size:u64}] [concatenated bodies]
 // `offset` is absolute-from-buffer-start; the splice shim reads
@@ -1395,10 +1395,10 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
     return p;
 }
 
-// hermes2 metacall freeze: the Hermes-returning thunk passes the Rc<Hermes>'s
+// writ2 metacall freeze: the Writ-returning thunk passes the Rc<Writ>'s
 // root as a VALUE-FORM HAny word; deep-copy the reachable tree into a compact
 // single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
-// the prefix — the same wire shape as HermesStatic; driver reads *(ptr-8)).
+// the prefix — the same wire shape as WritStatic; driver reads *(ptr-8)).
 extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
     using logos::writ::AnyVal;
     // The Logos side passes the VALUE-form word (Pod tagged / ABSOLUTE pointer).
@@ -1423,7 +1423,7 @@ extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
 }
 
 // Slice 5c+8 of metaprog-quote: substitution + repetition shim for
-// `quote_expr!`. lower_quote_expr packs a wrapper Hermes doc whose
+// `quote_expr!`. lower_quote_expr packs a wrapper Writ doc whose
 // root TOM has VALUE=expr_offset and ITEMS=placeholder-offsets array.
 // Each placeholder is a VAR_REF TOM with NAME_VAR holding an int idx
 // into the caller-supplied IdentSpan array. Spans are { ptr, count };
@@ -1440,7 +1440,7 @@ extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
 //        share count) and combine via left-leaning BinOp("&&");
 //   3. set_root_offset to the rebuilt expr;
 //   4. clone (compacts);
-//   5. malloc'd HermesStatic-shaped buffer: [u64 size][bytes], return
+//   5. malloc'd WritStatic-shaped buffer: [u64 size][bytes], return
 //      ptr+8 to match ExprBlob ABI.
 extern "C" const uint8_t* logos_quote_expr_subst(
         const uint8_t* tpl, uint64_t tpl_size,
@@ -1448,7 +1448,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     namespace la = logos::compiler::ast;
     using logos::writ::AnyVal;
     using logos::writ::ArenaString;
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::ObjectArray;
     using logos::writ::TinyObjectMap;
     using logos::writ::TinyMapView;
@@ -1492,9 +1492,9 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         return nullptr;
     }
     auto src_doc = std::move(src_e).get();
-    const uint8_t* src_base = HermesAccess::base(src_doc);
+    const uint8_t* src_base = WritAccess::base(src_doc);
 
-    auto wrapper_off = HermesAccess::root_offset(src_doc);
+    auto wrapper_off = WritAccess::root_offset(src_doc);
     auto wrapper = logos::writ::TinyMapView(arena_offset_t(wrapper_off.value()), src_doc.holder());
     if (!wrapper.has_key(la::VALUE.code)) {
         std::fprintf(stderr,
@@ -1588,7 +1588,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         return 0;
     };
 
-    // Step 5c Option B: deep-copy any Hermes node tree (TOM + ObjectArray
+    // Step 5c Option B: deep-copy any Writ node tree (TOM + ObjectArray
     // + ArenaString) from an arbitrary source base into dst_doc, with no
     // antiquot substitution. Used to splice the body of a captured
     // ExprBlob into the outer template at a `#name` placeholder.
@@ -1624,7 +1624,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     static_cast<uint32_t>(el.to_offset(sb).value()));
                 if (no == 0) return 0;
                 (void)dst_arr().push_back(
-                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(no)));
+                    AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(no)));
             }
             return dst_off;
         }
@@ -1653,14 +1653,14 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 static_cast<uint32_t>(av.to_offset(sb).value()));
             if (no == 0) return 0;
             (void)dst_tom().put(k,
-                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(no)));
+                AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(no)));
         }
         return dst_off;
     };
 
     // Inner ExprBlob docs deserialised at splice time must outlive the
     // copy_node_raw recursion (their bytes back the src_base pointer).
-    std::vector<logos::writ::Hermes> inner_blob_docs;
+    std::vector<logos::writ::Writ> inner_blob_docs;
 
     // Expand REPEAT_GROUP body into a left-leaning BinOp tree of "&&".
     // For N==0 returns 0 (caller treats as null). For N==1 returns the
@@ -1687,11 +1687,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             uint32_t op_off = static_cast<uint32_t>(
                 op_e->offset().value());
             (void)bin().put(la::OP.code,
-                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(op_off)));
+                AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(op_off)));
             (void)bin().put(la::LHS.code,
-                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(acc)));
+                AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(acc)));
             (void)bin().put(la::RHS.code,
-                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(rhs)));
+                AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(rhs)));
             bin().set_schema_type_code(
                 logos::writ::schema::ast(la::BINOP.code));
             acc = bin_off;
@@ -1788,7 +1788,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                         inner_blob_docs.push_back(std::move(inner_e).get());
                         auto& inner_doc = inner_blob_docs.back();
                         uint32_t inner_root = static_cast<uint32_t>(
-                            HermesAccess::root_offset(inner_doc).value());
+                            WritAccess::root_offset(inner_doc).value());
                         return copy_node_raw(inner_doc.holder(), inner_root);
                     }
                 }
@@ -1835,7 +1835,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             (void)dst_tom().put(la::CODE.code,
                 AnyVal::from_value<int32_t>(la::VAR_REF.code));
             (void)dst_tom().put(la::NAME.code,
-                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(name_off)));
+                AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(name_off)));
             // Copy SRC_LINE if present so error messages keep line info.
             if (src_tom.has_key(la::SRC_LINE.code)) {
                 AnyVal lav = src_tom.get(la::SRC_LINE.code);
@@ -1849,7 +1849,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         // Generic: copy each key. We dispatch by the child's TypeTag
         // (written as the byte immediately preceding the object) so the
         // shim handles arbitrary AST shapes uniformly:
-        //   - 28  (HermesString): deep-copy bytes via ArenaString::create
+        //   - 28  (WritString): deep-copy bytes via ArenaString::create
         //   - 100 (ObjectArray):  copy_array (handles REPEAT_GROUP splice)
         //   - else (98 TOM or untagged AST node): recurse copy_expr
         for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {
@@ -1879,7 +1879,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint8_t out_key = (cd == la::FIELD_READ.code)
                     ? la::FIELD.code : la::NAME.code;
                 (void)dst_tom().put(out_key,
-                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(name_off)));
+                    AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(name_off)));
                 continue;
             }
             if (av.is_null()) {
@@ -1902,17 +1902,17 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint32_t s_off = static_cast<uint32_t>(
                     se->offset().value());
                 (void)dst_tom().put(k,
-                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(s_off)));
+                    AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(s_off)));
             } else if (tc == 100) {
                 uint32_t new_off = copy_array(child_off);
                 if (new_off == 0) return 0;
                 (void)dst_tom().put(k,
-                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(new_off)));
+                    AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(new_off)));
             } else {
                 uint32_t new_off = copy_expr(child_off);
                 if (new_off == 0) return 0;
                 (void)dst_tom().put(k,
-                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(new_off)));
+                    AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(new_off)));
             }
         }
         return dst_off;
@@ -1976,14 +1976,14 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                         return 0;
                     }
                     (void)dst_arr().push_back(
-                        AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(copy_off)));
+                        AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(copy_off)));
                 }
                 cursor_i = saved;
             } else {
                 uint32_t copy_off = copy_expr(el_off);
                 if (copy_off == 0) return 0;
                 (void)dst_arr().push_back(
-                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(copy_off)));
+                    AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(copy_off)));
             }
         }
         return dst_off;
@@ -1991,7 +1991,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 
     uint32_t new_root = copy_expr(src_root_off);
     if (new_root == 0) return nullptr;
-    HermesAccess::set_root_offset(dst_doc, arena_offset_t(new_root));
+    WritAccess::set_root_offset(dst_doc, arena_offset_t(new_root));
 
     auto packed_e = compactify(dst_doc);
     if (!packed_e) {
@@ -2000,7 +2000,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         return nullptr;
     }
     auto packed = std::move(packed_e).get();
-    auto& packed_arena = HermesAccess::arena(packed);
+    auto& packed_arena = WritAccess::arena(packed);
     const uint8_t* data = packed_arena.head().data();
     size_t used = packed_arena.total_used();
 
@@ -2013,11 +2013,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 }
 
 // Slice 3 test fixture: parses an inline source string and exposes the
-// resulting Hermes arena bytes through out-params. The handler then calls
+// resulting Writ arena bytes through out-params. The handler then calls
 // logos_emit_item_blob with those bytes. Goes away once Slice 4's
 // quote_item! lands and produces the same shape from in-Logos code.
 namespace {
-std::vector<logos::writ::Hermes> g_test_blob_keepalive;
+std::vector<logos::writ::Writ> g_test_blob_keepalive;
 }
 extern "C" int32_t logos_metaprog_test_module_blob(
         const char* src, uint64_t src_len,
@@ -2043,11 +2043,11 @@ extern "C" int32_t logos_metaprog_test_module_blob(
 
 // Slice 7 of metaprog-quote: hand-built BIN_OP{LIT_INT(1), "+", LIT_INT(2)}
 // blob fixture used to derisk position-aware HERMES_BLOB lowering before the
-// real `quote_expr! { ... }` grammar lands. ABI matches HermesStatic /
+// real `quote_expr! { ... }` grammar lands. ABI matches WritStatic /
 // ExprBlob (returns ptr past an 8-byte size prefix). The buffer is leaked
 // intentionally — single-shot per metacall, lifetime is the compile run.
 extern "C" const uint8_t* logos_test_make_bin_op_blob() {
-    using logos::writ::HermesAccess;
+    using logos::writ::WritAccess;
     using logos::writ::ArenaString;
     using logos::writ::AnyVal;
     using logos::writ::TinyObjectMap;
@@ -2077,7 +2077,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
         (void)tm().put(la::CODE.code,
                         AnyVal::from_value<int32_t>(la::LIT_INT.code));
         (void)tm().put(la::VALUE.code,
-                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(str_off)));
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(str_off)));
         (void)tm().put(la::SRC_LINE.code,
                         AnyVal::from_value<int32_t>(1));
         tm().set_schema_type_code(
@@ -2102,22 +2102,22 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     (void)root().put(la::CODE.code,
                       AnyVal::from_value<int32_t>(la::BINOP.code));
     (void)root().put(la::OP.code,
-                      AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(op_off)));
+                      AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(op_off)));
     (void)root().put(la::LHS.code,
-                      AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(lhs_off)));
+                      AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(lhs_off)));
     (void)root().put(la::RHS.code,
-                      AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(rhs_off)));
+                      AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(rhs_off)));
     (void)root().put(la::SRC_LINE.code,
                       AnyVal::from_value<int32_t>(1));
     root().set_schema_type_code(
         logos::writ::schema::ast(la::BINOP.code));
 
-    HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
+    WritAccess::set_root_offset(doc, arena_offset_t(root_off));
 
     auto packed_e = compactify(doc);
     if (!packed_e) return nullptr;
     auto packed = std::move(packed_e).get();
-    auto& parena = HermesAccess::arena(packed);
+    auto& parena = WritAccess::arena(packed);
     const uint8_t* data = parena.head().data();
     uint64_t used = parena.total_used();
 
@@ -2218,7 +2218,7 @@ namespace logos::compiler {
 // g_any_emitted/g_metaprog_diags/g_ast_provenance from the args;
 // restores prior values on exit.
 int run_metaprog_dispatch(
-    std::vector<writ::Hermes>& asts,
+    std::vector<writ::Writ>& asts,
     std::vector<std::string>&    filenames,
     std::vector<bool>&           from_binary,
     std::size_t                  entry_ast_idx,
@@ -2238,7 +2238,7 @@ int run_metaprog_dispatch(
     auto* prev_any_emitted    = g_any_emitted;
     struct ScopedRestore {
         std::set<std::string>**             es;
-        std::vector<writ::Hermes>**       a;
+        std::vector<writ::Writ>**       a;
         std::vector<std::string>**          fn;
         std::vector<bool>**                 fb;
         size_t*                             uri;
@@ -2246,7 +2246,7 @@ int run_metaprog_dispatch(
         std::vector<std::optional<EmitProvenance>>** ap;
         bool**                              ae;
         std::set<std::string>*              p_es;
-        std::vector<writ::Hermes>*        p_a;
+        std::vector<writ::Writ>*        p_a;
         std::vector<std::string>*           p_fn;
         std::vector<bool>*                  p_fb;
         size_t                              p_uri;
@@ -2282,11 +2282,11 @@ int run_metaprog_dispatch(
     g_module_ids     = opts.module_ids;
     g_self_module_id = opts.self_module_id;
     // logos_emit_source()/_blob() push NEW asts onto this vector from INSIDE a
-    // metaprog handler running mid-sema_lower — which holds a `Hermes&` into `asts`.
-    // A vector realloc there moves that element (Hermes move nulls the source), so the
+    // metaprog handler running mid-sema_lower — which holds a `Writ&` into `asts`.
+    // A vector realloc there moves that element (Writ move nulls the source), so the
     // in-flight reference would see a moved-from doc (holder_=header_=0). Reserve up
-    // front (no reference held yet) so emit-driven growth never reallocs. (Hermes1's
-    // copyable handle masked this; hermes2's move-on-realloc exposes it.)
+    // front (no reference held yet) so emit-driven growth never reallocs. (Writ1's
+    // copyable handle masked this; writ2's move-on-realloc exposes it.)
     asts.reserve(asts.size() + 65536);
     filenames.reserve(filenames.size() + 65536);
     // Provenance vector: caller-provided when --dump-metaprog is on
@@ -2730,15 +2730,15 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
                          const std::string& out_path) {
     std::set<std::string> records;
     // cat 5: serialization-format versions (single source: these constants).
-    records.insert("schema\thermes0_format\t3");
+    records.insert("schema\twrit0_format\t3");
     records.insert("schema\tlir_arena_root\t"
         + std::to_string(logos::writ::lir_arena_root::CURRENT_VERSION));
 
-    // cat 4: layout of the Hermes types the compiler bakes into binary artifacts
-    // (the .hermes0 / LIR-blob / arena format). A size/alignment change to any of
+    // cat 4: layout of the Writ types the compiler bakes into binary artifacts
+    // (the .writ0 / LIR-blob / arena format). A size/alignment change to any of
     // these breaks every previously-written blob — record sizeof+alignof so the
-    // analyzer flags it. logosc links Hermes, so it emits these directly (no
-    // separate offsetof tool). "everything from Hermes the compiler uses" = the
+    // analyzer flags it. logosc links Writ, so it emits these directly (no
+    // separate offsetof tool). "everything from Writ the compiler uses" = the
     // value encodings, headers, in-arena container headers, and table entries that
     // define the on-disk format.
     {
@@ -2787,7 +2787,7 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
             // Skip archive/path lines and assembler-local labels (.L.str, .Ltmp):
             // the ABI surface is the EXTERNAL defined symbols a consumer links.
             // Also skip `_binary_*` ld embedding markers (start/end/size for the
-            // embedded .hermes0): their names encode the /tmp emit PATH, so they
+            // embedded .writ0): their names encode the /tmp emit PATH, so they
             // are build-location-dependent — not a portable ABI record.
             if (!sv.empty() && sv.front() != '/' && sv.front() != '.'
                 && sv.rfind("_binary_", 0) != 0)
@@ -2957,7 +2957,7 @@ static void print_usage(std::FILE* out) {
 "  -V, --version          print version\n"
 "  --print-prefix         print this version's tree root\n"
 "  --print-lib-dir        print this version's stdlib dir\n"
-"  --print-metadata       print version/slot/prefix/lib_dir (Hermes doc)\n"
+"  --print-metadata       print version/slot/prefix/lib_dir (Writ doc)\n"
 "  -h, --help             show this help\n"
 "\n"
 "ABI tracking:\n"
@@ -2971,9 +2971,9 @@ int main(int argc, char** argv) {
         return EXIT_USAGE;
     }
 
-    // Initialize Hermes TypeOps registry; the @-literal builder uses
+    // Initialize Writ TypeOps registry; the @-literal builder uses
     // clone() which dispatches per-type via this registry.
-    logos::writ::hermes_init();
+    logos::writ::writ_init();
 
     const char* input_path = nullptr;
     const char* output_path = "output.o";
@@ -2987,7 +2987,7 @@ int main(int argc, char** argv) {
     bool        emit_abi_flag = false;            // --emit-abi: dump ABI surface spec
     bool        print_prefix  = false;            // --print-prefix:  this version's tree root
     bool        print_lib_dir = false;            // --print-lib-dir: this version's stdlib dir
-    bool        print_metadata = false;           // --print-metadata: all of the above as a Hermes doc
+    bool        print_metadata = false;           // --print-metadata: all of the above as a Writ doc
     const char* abi_diff_old = nullptr;           // --abi-diff <old> <new>: qualify ABI change
     const char* abi_diff_new = nullptr;
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
@@ -3188,8 +3188,8 @@ int main(int argc, char** argv) {
         std::printf("%s\n", real);
         return 0;
     }
-    // The general "give me all your metadata" query: a Hermes-SDN document (the
-    // same text form lforge parses for lforge.hermes). lforge queries this once
+    // The general "give me all your metadata" query: a Writ-SDN document (the
+    // same text form lforge parses for lforge.writ). lforge queries this once
     // — especially when driving a DIFFERENT-version logosc, where it cannot assume
     // the layout. Extensible: add fields without breaking parsers.
     if (print_metadata) {
@@ -3323,7 +3323,7 @@ int main(int argc, char** argv) {
     }
 
     // Collect ASTs and source paths.
-    std::vector<logos::writ::Hermes> asts;
+    std::vector<logos::writ::Writ> asts;
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
     std::vector<bool> is_lazy;
@@ -3393,7 +3393,7 @@ int main(int argc, char** argv) {
         if (!is_jit_unsafe_archive(f)) archive_paths.push_back(f);
     }
 
-    // M3 step 3: merge .hermes0 v3 exports trailers from every archive on
+    // M3 step 3: merge .writ0 v3 exports trailers from every archive on
     // the link path. The result is name-only stdlib template catalog; future
     // M3 steps extend the trailer with mirror offsets so mono can short-
     // circuit indexing/instantiation work. For now mono just stores it.
@@ -3778,7 +3778,7 @@ int main(int argc, char** argv) {
         std::string entry_body;
         if (entry_idx < asts.size()) {
             auto* h = asts[entry_idx].holder();
-            auto root_off = logos::writ::HermesAccess::root_offset(asts[entry_idx]);
+            auto root_off = logos::writ::WritAccess::root_offset(asts[entry_idx]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
             split_rendered(r, entry_header, entry_uses, entry_body);
             strip_consumed_annots(entry_body);
@@ -3793,7 +3793,7 @@ int main(int argc, char** argv) {
             const std::string& fn = filenames[i];
             if (fn != "<metaprog-blob-subst>" && fn != "<metaprog>") continue;
             auto* h = asts[i].holder();
-            auto root_off = logos::writ::HermesAccess::root_offset(asts[i]);
+            auto root_off = logos::writ::WritAccess::root_offset(asts[i]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
             std::string s_hdr, s_body;
             std::vector<std::string> s_uses;
@@ -3928,9 +3928,9 @@ int main(int argc, char** argv) {
                 // (ExprBlob/ItemBlob): those thunks call metaprog that
                 // manipulates syntax trees, a self-contained closure we can
                 // monomorphize from the thunk roots. A value-returning
-                // expression metacall (`metacall build_cfg()` → HermesStatic,
+                // expression metacall (`metacall build_cfg()` → WritStatic,
                 // …) instead JIT-executes arbitrary USER runtime code whose
-                // dynamic-dispatch deps (vtables, Hermes TypeCode tag tables)
+                // dynamic-dispatch deps (vtables, Writ TypeCode tag tables)
                 // a static call-graph can't see — pruning there drops a
                 // dispatch target and the JIT jumps to 0x0. Leave those eager.
                 using MCRetTag = logos::compiler::lir::MetacallRetTag;
@@ -4163,9 +4163,9 @@ int main(int argc, char** argv) {
                 double   f_val = 0.0;
                 bool     b_val = false;
                 std::string s_val;
-                std::string blob_bytes;  // for HermesStatic ret
+                std::string blob_bytes;  // for WritStatic ret
                 bool is_float = false, is_bool = false, is_str = false, is_unsigned = false;
-                bool is_hermes_blob = false;
+                bool is_writ_blob = false;
                 switch (site.ret_tag()) {
                 case RT::Bool:  b_val = reinterpret_cast<bool   (*)()>(sym)(); is_bool = true; break;
                 case RT::I8:    i_val = reinterpret_cast<int8_t (*)()>(sym)(); break;
@@ -4188,35 +4188,35 @@ int main(int argc, char** argv) {
                     s_val.assign(sf.p ? sf.p : "", sf.n);
                     is_str = true; break;
                 }
-                case RT::HermesStatic:
+                case RT::WritStatic:
                 case RT::ExprBlob: {
-                    // HermesStatic = { ptr: *const u8 }, DataPlain ≤ 16B, returned in rax.
+                    // WritStatic = { ptr: *const u8 }, DataPlain ≤ 16B, returned in rax.
                     // ExprBlob: identical ABI; nominal-only marker for AST-fragment payload.
                     // Layout in meta-jit rodata: [u64 size_le][bytes]; ptr points past the prefix.
                     auto blob_ptr = reinterpret_cast<const uint8_t* (*)()>(sym)();
                     if (!blob_ptr) {
-                        std::fprintf(stderr, "logosc: metacall HermesStatic/ExprBlob thunk returned null\n");
+                        std::fprintf(stderr, "logosc: metacall WritStatic/ExprBlob thunk returned null\n");
                         return 1;
                     }
                     uint64_t size = 0;
                     std::memcpy(&size, blob_ptr - 8, 8);
                     blob_bytes.assign(reinterpret_cast<const char*>(blob_ptr), size);
-                    is_hermes_blob = true;
+                    is_writ_blob = true;
                     break;
                 }
-                case RT::Hermes: {
-                    // Hermes-returning thunk wraps callee in __metacall_freeze, which
+                case RT::Writ: {
+                    // Writ-returning thunk wraps callee in __metacall_freeze, which
                     // mallocs [u64 size][bytes] and returns ptr past prefix — same ABI
-                    // as HermesStatic from this side.
+                    // as WritStatic from this side.
                     auto blob_ptr = reinterpret_cast<const uint8_t* (*)()>(sym)();
                     if (!blob_ptr) {
-                        std::fprintf(stderr, "logosc: metacall Hermes thunk returned null\n");
+                        std::fprintf(stderr, "logosc: metacall Writ thunk returned null\n");
                         return 1;
                     }
                     uint64_t size = 0;
                     std::memcpy(&size, blob_ptr - 8, 8);
                     blob_bytes.assign(reinterpret_cast<const char*>(blob_ptr), size);
-                    is_hermes_blob = true;
+                    is_writ_blob = true;
                     break;
                 }
                 case RT::ItemBlob:
@@ -4228,7 +4228,7 @@ int main(int argc, char** argv) {
                 std::string lit_text;
                 int32_t new_code = logos::compiler::ast::LIT_INT;
                 if (is_bool) { lit_text = b_val ? "true" : "false"; new_code = logos::compiler::ast::LIT_BOOL; }
-                else if (is_hermes_blob) { lit_text = blob_bytes; new_code = logos::compiler::ast::HERMES_BLOB; }
+                else if (is_writ_blob) { lit_text = blob_bytes; new_code = logos::compiler::ast::HERMES_BLOB; }
                 else if (is_str) { lit_text = s_val; new_code = logos::compiler::ast::LIT_STR; }
                 else if (is_float) {
                     char buf[64];
@@ -4558,7 +4558,7 @@ int main(int argc, char** argv) {
             mkdir_p(dir);
 
             auto* h = asts[i].holder();
-            auto root_off = logos::writ::HermesAccess::root_offset(asts[i]);
+            auto root_off = logos::writ::WritAccess::root_offset(asts[i]);
             std::string body =
                 logos::compiler::render_module_source_for_dump(h, root_off);
             auto fn_names =
@@ -4634,7 +4634,7 @@ int main(int argc, char** argv) {
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 
-    // ── Step 2c: Monomorphization (also emits L-IR Hermes mirror) ─
+    // ── Step 2c: Monomorphization (also emits L-IR Writ mirror) ─
     {
         logos::compiler::MonoOpts mopts;
         mopts.stdlib_exports = &stdlib_exports;

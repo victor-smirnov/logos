@@ -2,7 +2,7 @@
 //
 // grammar_ast: NamedCode schema for the internal grammar IR.
 //
-// A parsed .peg file becomes a Hermes document with this structure:
+// A parsed .peg file becomes a Writ document with this structure:
 //
 //   Grammar (root ObjectMap, string-keyed):
 //     "meta"    → MetaInfo

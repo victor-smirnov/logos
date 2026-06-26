@@ -1,9 +1,9 @@
 package datatag_typecode;
-use logos.lang.hermes.anyval;
-use logos.mem.hermes.tag_system;
+use logos.lang.writ.anyval;
+use logos.mem.writ.tag_system;
 // Tests:
 // 1. type_code_of::<T>() — compile-time type_code for a concrete #[datatype] struct
-// 2. hermes.datatag write_tag / read_type_code roundtrip
+// 2. writ.datatag write_tag / read_type_code roundtrip
 // 3. tag_size for single-byte and multi-byte codes
 
 

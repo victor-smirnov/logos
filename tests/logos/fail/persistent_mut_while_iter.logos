@@ -10,9 +10,9 @@ use logos.std.data.persistent.bt.descent;
 use logos.std.data.persistent.bt.mutate;
 use logos.std.data.persistent.bt.iter;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
-pub const StoreCfg: HermesStatic = @{ "name":"m","ctr_id":<type:u64>,"snp_id":<type:u64>,"block_id":<type:u64>, };
-pub const MapCfg: HermesStatic = @{ "key":<type:u64>,"value":<type:u64>,"fanout":4 };
+use logos.lang.writ.hstatic;
+pub const StoreCfg: WritStatic = @{ "name":"m","ctr_id":<type:u64>,"snp_id":<type:u64>,"block_id":<type:u64>, };
+pub const MapCfg: WritStatic = @{ "key":<type:u64>,"value":<type:u64>,"fanout":4 };
 fn main() -> i32 {
     let mut store = store_open::<StoreCfg>();
     let mut snap = store.fork(GENESIS);

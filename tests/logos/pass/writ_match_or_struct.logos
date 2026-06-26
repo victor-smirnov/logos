@@ -1,0 +1,24 @@
+// OR-pattern with structural Writ alts (including typed-container alts).
+
+package writ_match_or_struct;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.hstatic;
+
+unsafe fn kind(d: &WritStatic) -> i32 {
+    match d {
+        @[..] | @{}         => 1,     // any array or any map
+        @<I32>[..] | @<U64>[..] => 2,  // any typed numeric array
+        _                   => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = @[1, 2, 3];
+    let b: WritStatic = @{"k": 1};
+    let c: WritStatic = @<I32>[1, 2];
+    let d: WritStatic = @<U64>[10];
+    let e: WritStatic = @42;
+    // 1 + 1 + 2 + 2 + 0 = 6
+    return kind(&a) + kind(&b) + kind(&c) + kind(&d) + kind(&e) + 100;
+}

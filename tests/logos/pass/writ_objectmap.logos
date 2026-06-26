@@ -1,0 +1,42 @@
+// ObjectMap mechanics on writ2 (successor of the Writ1 zone ObjectMap
+// test): put/get/overwrite/missing keys + interning across many entries.
+package writ_objectmap;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.lang.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = rc.deref();
+    let m: &mut HMap<HString, HAny> = h.map(8);
+
+    // put + get
+    m.set("alpha", 1i64);
+    m.set("beta", 2i64);
+    if m.get("alpha").as_i64() != 1i64 { return 1; }
+    if m.get("beta").as_i64() != 2i64 { return 2; }
+
+    // missing key → null
+    if !m.get("gamma").is_null() { return 3; }
+
+    // overwrite (last write wins; count stable)
+    m.set("alpha", 10i64);
+    if m.get("alpha").as_i64() != 10i64 { return 4; }
+    if m.len() != 2i64 { return 5; }
+
+    // string values intern in the same zone
+    m.set("s", HAny::from(&*(h.hstring("zone-str") as *const HString)));
+    let sv: HAny = m.get("s");
+    if !sv.is_string() { return 6; }
+
+    // many entries force probing/larger occupancy
+    m.set("k0", 100i64); m.set("k1", 101i64); m.set("k2", 102i64);
+    m.set("k3", 103i64); m.set("k4", 104i64);
+    if m.get("k3").as_i64() != 103i64 { return 7; }
+    if m.len() != 8i64 { return 8; }
+
+    return 42;
+}

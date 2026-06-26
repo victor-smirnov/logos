@@ -1,0 +1,17 @@
+// Typed-array element type errors -> null (writ2): strings, bools, floats
+// in integer arrays; floats OK in F64.
+package writ_typed_array_element_type_errors;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
+    if !parse(h, "<I32>[1,\"x\",3]").is_null() { return 1; }
+    if !parse(h, "<I32>[true]").is_null() { return 2; }
+    if !parse(h, "<I32>[1.25]").is_null() { return 3; }
+    if parse(h, "<F64>[1.25]").is_null() { return 4; }
+    return 0;
+}

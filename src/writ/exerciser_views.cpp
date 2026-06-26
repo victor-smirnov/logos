@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes views conformance — OWNING views carrying the MemHolder refcount, and
+// Writ views conformance — OWNING views carrying the MemHolder refcount, and
 // navigation that shares the holder across child views. Returns 0 on success.
 
 #include <logos/writ/mem_holder.hpp>
@@ -86,6 +86,6 @@ int main() {
     CHECK(holder->use_count() == 1, 26);
 
     holder->unref();   // releases the last ref → frees the holder + arena
-    std::printf("hermes views (owning + navigation): OK\n");
+    std::printf("writ views (owning + navigation): OK\n");
     return 0;
 }

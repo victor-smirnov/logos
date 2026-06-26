@@ -213,7 +213,7 @@
     DEREF_FIELD_COMPOUND_ASSIGN = 145   // (*ptr).field op= expr
     TUPLE_FIELD_COMPOUND_ASSIGN = 146   // var.N op= expr
     FIELD_INDEX_COMPOUND_ASSIGN = 147   // s.field[i] op= expr
-    DATATYPE                    = 148   // Hermes datatype definition (C POD layout)
+    DATATYPE                    = 148   // Writ datatype definition (C POD layout)
     PAT_UNIT                    = 149   // () unit pattern in match arms
     ANNOTATION                  = 150   // #[name], #[name = val], #[name(args)]
     TAGGED_TYPE                 = 151   // &tagged<TS> Trait — tag-dispatched thin pointer
@@ -228,14 +228,14 @@
     PAT_REST                    = 160   // .. rest in struct/slice pattern
     CHAIN_FIELD_WRITE           = 161   // a.b.c = val
     CHAIN_FIELD_COMPOUND_ASSIGN = 162   // a.b.c op= val
-    HERMES_MAP                  = 163   // @{k:v,...} or inner {k:v,...} Hermes map literal
-    HERMES_ARRAY                = 164   // @[v,...] or inner [v,...] Hermes array literal
-    HERMES_STR                  = 165   // string value in Hermes literal
-    HERMES_INT                  = 166   // integer value in Hermes literal
-    HERMES_FLOAT                = 167   // float value in Hermes literal
-    HERMES_BOOL                 = 168   // bool value in Hermes literal
-    HERMES_NULL                 = 169   // null value in Hermes literal
-    HERMES_ENTRY                = 170   // key:val pair in Hermes map
+    HERMES_MAP                  = 163   // @{k:v,...} or inner {k:v,...} Writ map literal
+    HERMES_ARRAY                = 164   // @[v,...] or inner [v,...] Writ array literal
+    HERMES_STR                  = 165   // string value in Writ literal
+    HERMES_INT                  = 166   // integer value in Writ literal
+    HERMES_FLOAT                = 167   // float value in Writ literal
+    HERMES_BOOL                 = 168   // bool value in Writ literal
+    HERMES_NULL                 = 169   // null value in Writ literal
+    HERMES_ENTRY                = 170   // key:val pair in Writ map
     HERMES_TYPED_ARRAY          = 171   // @<ElemType>[v,...] — typed dense array literal
     HERMES_NEG_INT              = 172   // negative integer: @-42 or inner -42 in array/map
     HERMES_TYPED_MAP            = 173   // @<K,V>{...} — typed map literal
@@ -260,7 +260,7 @@
     ANNOT_KV                    = 192   // annotation named arg: NAME=key, VALUE=literal
     ANNOT_POS                   = 193   // annotation positional arg: VALUE=literal
     ANNOT_ARR                   = 194   // annotation array literal: ITEMS=literals
-    META_BLOCK                  = 195   // meta @{...} block; VALUE=hermes_lit node
+    META_BLOCK                  = 195   // meta @{...} block; VALUE=writ_lit node
     GENOS_DEF                   = 196   // genos declaration (trait with is_genos=true)
     BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
     METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
@@ -276,9 +276,9 @@
     INSTANTIATE_DECL            = 208   // `instantiate Foo<T>;` — pre-instantiation root pin; TYPE = target type, IS_PUB? = lib-site re-export marker
     METACALL_ITEM               = 209   // `metacall <call_expr>;` at module-item position; VALUE = inner call AST. Driver runs the JIT'd callee returning QuoteItemBlob and splices its emitted items via `logos_emit_item_blob_subst`; node is marked consumed after splice.
     METACALL_ITEM_DONE          = 210   // Set by the driver after a METACALL_ITEM has been invoked; sema item-dispatch silently skips. Never parsed.
-    HERMES_TYPE_LIT             = 211   // Component-metaprog slice 1: `<type:T>` inside @-literal. NAME = bare type identifier (slice 1: IDENT only). Sema embeds it as a first-class Hermes Type value.
-    LIT_HSTATIC                 = 212   // HermesStatic literal at type-arg position: Foo::<@{...}>. VALUE = nested hermes_lit AST. Sema lowers to ConstVar(HermesStatic, hash) with byte-hash identity.
-    CFG_SLOT_TYPE               = 213   // Type-position `<type:CFG.SLOT>`: extract the type stored at top-level slot SLOT of HermesStatic CFG (a const-generic param or type alias). NAME = CFG ident, KEY = slot ident. Mono resolves to the slot's `<type:T>` value when CFG becomes concrete.
+    HERMES_TYPE_LIT             = 211   // Component-metaprog slice 1: `<type:T>` inside @-literal. NAME = bare type identifier (slice 1: IDENT only). Sema embeds it as a first-class Writ Type value.
+    LIT_HSTATIC                 = 212   // WritStatic literal at type-arg position: Foo::<@{...}>. VALUE = nested writ_lit AST. Sema lowers to ConstVar(WritStatic, hash) with byte-hash identity.
+    CFG_SLOT_TYPE               = 213   // Type-position `<type:CFG.SLOT>`: extract the type stored at top-level slot SLOT of WritStatic CFG (a const-generic param or type alias). NAME = CFG ident, KEY = slot ident. Mono resolves to the slot's `<type:T>` value when CFG becomes concrete.
     GENERIC_REF                 = 214   // `IDENT::<TARGS>` at expression position; CALLEE = ident, TYPE_PARAMS = type_arg_list.
     PAT_FLOAT                   = 215   // float-literal pattern (Sprint 4.2 — B-pt-06; rejected at sema, but parses cleanly).
     PAT_BYTES                   = 216   // byte-string-literal pattern (B-pt-03; reserved, lexer support pending).
@@ -678,9 +678,9 @@
     //   pub const X<T1,T2>: T = expr;   — generic compile-time factory.
     //                                     RHS is templated; substitution at
     //                                     each use site materialises a
-    //                                     fresh value. Common case: HermesStatic
+    //                                     fresh value. Common case: WritStatic
     //                                     literal parameterised by type args
-    //                                     (`pub const PMap<K,V>: HermesStatic =
+    //                                     (`pub const PMap<K,V>: WritStatic =
     //                                     @{"key": <type:K>, "value": <type:V>};`).
     //
     // `pub let` stays non-generic; `pub const` admits an optional type-param
@@ -821,7 +821,7 @@
 
     // `genos` keyword reserved for computable specifications (slice 3β
     // of genos-design.md). Legacy data-trait-family role migrated to
-    // `pub trait` + `#[hermes_eidos]` annotation. Keyword and
+    // `pub trait` + `#[writ_eidos]` annotation. Keyword and
     // GENOS_DEF AST code retained for the upcoming spec form.
     trait_kw <- KW_TRAIT
 
@@ -1092,7 +1092,7 @@
                    / KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN block
                   => { CODE: STATIC_FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
 
-    // ── Datatype definition (Hermes — C POD layout, no heap types) ──
+    // ── Datatype definition (Writ — C POD layout, no heap types) ──
     pub_datatype_def <- pub_vis KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
                      => { CODE: DATATYPE, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
 
@@ -1413,12 +1413,12 @@
                / KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    // hstatic_lit_type intentionally absent: `@{...}` is a HermesStatic *value*,
+    // hstatic_lit_type intentionally absent: `@{...}` is a WritStatic *value*,
     // not a type. At type-arg position (`Foo<@{...}>`) it goes through
-    // type_or_lt_arg's hermes_lit alt; at top-level naming, use
-    // `pub const X: HermesStatic = @{...};` instead of legacy
+    // type_or_lt_arg's writ_lit alt; at top-level naming, use
+    // `pub const X: WritStatic = @{...};` instead of legacy
     // `pub type X = @{...};` (the latter no longer parses).
-    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / never_type / closure_type / fn_ptr_type / tuple_type / paren_type / qualified_assoc_type / assoc_type_ref / simple_type
+    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / writ_arr_type / writ_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / never_type / closure_type / fn_ptr_type / tuple_type / paren_type / qualified_assoc_type / assoc_type_ref / simple_type
 
     // (T) — paren-wrapped type. Distinct from `()` (unit), `(T,)` (1-tuple),
     // and `(T1, T2)` (n-tuple). Sema unwraps PAREN_TYPE.TYPE to its inner.
@@ -1426,7 +1426,7 @@
                => { CODE: PAREN_TYPE, TYPE: $2 }
 
     // <type:CFG.path> — extract the type stored at the given path of a
-    // HermesStatic-typed type-level binding. Mono-time projection; the
+    // WritStatic-typed type-level binding. Mono-time projection; the
     // form needs the leading IDENT (CFG) plus at least one path step.
     // GT_TYPE on the tail lets `>>` close both this form and the
     // enclosing generic.
@@ -1450,7 +1450,7 @@
 
     // hstatic_lit_type: bare `@{...}` at type position (e.g. `type Cfg = @{...};`).
     // Sema lowers via the same LIT_HSTATIC code as the type-arg form.
-    hstatic_lit_type <- hermes_lit
+    hstatic_lit_type <- writ_lit
                      => { CODE: LIT_HSTATIC, VALUE: $1 }
 
     // $ident — antiquot in a type position, valid only inside `quote_ty! { ... }`.
@@ -1462,12 +1462,12 @@
     typeof_type <- KW_TYPEOF LPAREN expr RPAREN
                 => { CODE: TYPEOF_TYPE, VALUE: $3 }
 
-    // <ElemType>[] — Hermes typed array type expression (e.g. val as <I32>[])
-    hermes_arr_type <- LT IDENT GT_TYPE LBRACKET RBRACKET
+    // <ElemType>[] — Writ typed array type expression (e.g. val as <I32>[])
+    writ_arr_type <- LT IDENT GT_TYPE LBRACKET RBRACKET
                     => { CODE: HERMES_ARR_TYPE, TYPE: $2 }
 
-    // <K,V>{} or <K>{} — Hermes typed map type expression (e.g. m as <I32,AnyVal>{})
-    hermes_map_type <- LT IDENT COMMA IDENT GT_TYPE LBRACE RBRACE
+    // <K,V>{} or <K>{} — Writ typed map type expression (e.g. m as <I32,AnyVal>{})
+    writ_map_type <- LT IDENT COMMA IDENT GT_TYPE LBRACE RBRACE
                     => { CODE: HERMES_MAP_TYPE, TYPE: $2, RET_TYPE: $4 }
                    / LT IDENT GT_TYPE LBRACE RBRACE
                     => { CODE: HERMES_MAP_TYPE, TYPE: $2 }
@@ -1790,7 +1790,7 @@
                    => { CODE: LIT_INT, VALUE: $2, LO_NEG: true }
                     / INTEGER
                    => { CODE: LIT_INT, VALUE: $1 }
-                    / hermes_lit
+                    / writ_lit
                    => { CODE: LIT_HSTATIC, VALUE: $1 }
                     / type_ref
 
@@ -2025,19 +2025,19 @@
                     / pat_single (PIPE pat_single)*
                    => { CODE: PAT_OR, ITEMS: $... }
 
-    // Hermes map/array pattern entry lists.
-    pat_hermes_map_entry <- STRING COLON pat_single
+    // Writ map/array pattern entry lists.
+    pat_writ_map_entry <- STRING COLON pat_single
                          => { CODE: PAT_HERMES_MAP_ENTRY, KEY: $1, VALUE: $3 }
 
-    pat_hermes_map_entries <- pat_hermes_map_entry (COMMA pat_hermes_map_entry)* COMMA?
+    pat_writ_map_entries <- pat_writ_map_entry (COMMA pat_writ_map_entry)* COMMA?
                            => { ITEMS: $... }
 
     // Array elements allow a trailing `..` to match length ≥ n.
-    pat_hermes_arr_elem <- DOTDOT
+    pat_writ_arr_elem <- DOTDOT
                         => { CODE: PAT_REST }
                          / pat_single
 
-    pat_hermes_arr_elems <- pat_hermes_arr_elem (COMMA pat_hermes_arr_elem)* COMMA?
+    pat_writ_arr_elems <- pat_writ_arr_elem (COMMA pat_writ_arr_elem)* COMMA?
                          => { ITEMS: $... }
 
     // ── pat_single: all pattern alternatives ─────────────────────────────
@@ -2089,7 +2089,7 @@
     // relied on pat_binding's LPAREN RPAREN alt).
     pat_single_base :group variant: <- LPAREN RPAREN
         => { CODE: PAT_UNIT }
-        // Hermes scalar patterns: @null / @true / @false / @42 / @-42
+        // Writ scalar patterns: @null / @true / @false / @42 / @-42
         // Must precede other alternatives that could also consume AT via PAT_AT
         // (PAT_AT is `IDENT AT pat_single`, different leading token, so no conflict).
         / AT KW_NULL
@@ -2110,11 +2110,11 @@
         => { CODE: PAT_HERMES_TYPED_MAP, TYPE: $3 }
         / AT LT IDENT GT LBRACKET DOTDOT RBRACKET
         => { CODE: PAT_HERMES_TYPED_ARR, TYPE: $3 }
-        / AT LBRACE pat_hermes_map_entries RBRACE
+        / AT LBRACE pat_writ_map_entries RBRACE
         => { CODE: PAT_HERMES_MAP, ITEMS: $3 }
         / AT LBRACE RBRACE
         => { CODE: PAT_HERMES_MAP }
-        / AT LBRACKET pat_hermes_arr_elems RBRACKET
+        / AT LBRACKET pat_writ_arr_elems RBRACKET
         => { CODE: PAT_HERMES_ARR, ITEMS: $3 }
         / AT LBRACKET RBRACKET
         => { CODE: PAT_HERMES_ARR }
@@ -2513,7 +2513,7 @@
     // Falls through to plain IDENT (VAR_REF), so `if a < b { ... }` parses
     // the cond as `a < b` and the LBRACE belongs to the if-body block.
     // To use a struct literal in cond position, parenthesize: `if (Foo {x:1}.ok) { }`.
-    primary_expr_ns <- hermes_lit
+    primary_expr_ns <- writ_lit
                      / list_comp
                      / map_comp
                      / arr_fill_lit
@@ -2694,7 +2694,7 @@
             )*
 
     // ── Primary expressions (base of a postfix chain) ─────────────
-    primary_expr <- hermes_lit    // @{...} @[...] @scalar — Hermes SDN literal (before IDENT)
+    primary_expr <- writ_lit    // @{...} @[...] @scalar — Writ SDN literal (before IDENT)
                   / generic_struct_lit // IDENT::<T> { fields } — before struct_lit
                   / struct_update_lit  // IDENT { fields, ..base } — before struct_lit
                   / struct_lit       // IDENT { fields }  — before plain IDENT
@@ -2884,34 +2884,34 @@
               / LBRACE expr COLON expr KW_FOR IDENT KW_IN expr RBRACE
              => { CODE: MAP_COMP, KEY: $2, VALUE: $4, NAME: $6, ITER: $8 }
 
-    // ── Hermes SDN literals: @{k:v,...}  @[v,...]  @"s"  @42  @true  @null ──
+    // ── Writ SDN literals: @{k:v,...}  @[v,...]  @"s"  @42  @true  @null ──
     // @<ElemType>[v,...] — typed dense array (e.g. @<I32>[1,2,3])
     // @<K,V>{...} / @<K>{...} — typed map (e.g. @<I32,AnyVal>{1:42})
     // Only the outermost literal needs the @ sigil; inner values are plain.
-    hermes_typed_array <- LT IDENT GT LBRACKET (hermes_val (COMMA hermes_val)* COMMA?)? RBRACKET
+    writ_typed_array <- LT IDENT GT LBRACKET (writ_val (COMMA writ_val)* COMMA?)? RBRACKET
                        => { CODE: HERMES_TYPED_ARRAY, TYPE: $2, ITEMS: $... }
 
-    hermes_typed_map <- LT IDENT COMMA IDENT GT LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
+    writ_typed_map <- LT IDENT COMMA IDENT GT LBRACE (writ_entry (COMMA writ_entry)* COMMA?)? RBRACE
                      => { CODE: HERMES_TYPED_MAP, TYPE: $2, RET_TYPE: $4, ITEMS: $... }
-                     / LT IDENT GT LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
+                     / LT IDENT GT LBRACE (writ_entry (COMMA writ_entry)* COMMA?)? RBRACE
                      => { CODE: HERMES_TYPED_MAP, TYPE: $2, ITEMS: $... }
 
-    hermes_list_comp <- AT LBRACKET expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACKET
+    writ_list_comp <- AT LBRACKET expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACKET
                      => { CODE: HERMES_LIST_COMP, VALUE: $3, NAME: $5, ITER: $7, GUARD: $9 }
                       / AT LBRACKET expr KW_FOR IDENT KW_IN expr RBRACKET
                      => { CODE: HERMES_LIST_COMP, VALUE: $3, NAME: $5, ITER: $7 }
 
-    hermes_map_comp <- AT LBRACE expr COLON expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACE
+    writ_map_comp <- AT LBRACE expr COLON expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACE
                     => { CODE: HERMES_MAP_COMP, KEY: $3, VALUE: $5, NAME: $7, ITER: $9, GUARD: $11 }
                      / AT LBRACE expr COLON expr KW_FOR IDENT KW_IN expr RBRACE
                     => { CODE: HERMES_MAP_COMP, KEY: $3, VALUE: $5, NAME: $7, ITER: $9 }
 
-    hermes_lit <- hermes_list_comp
-               / hermes_map_comp
-               / AT hermes_typed_map
-               / AT hermes_typed_array
-               / AT hermes_map
-               / AT hermes_array
+    writ_lit <- writ_list_comp
+               / writ_map_comp
+               / AT writ_typed_map
+               / AT writ_typed_array
+               / AT writ_map
+               / AT writ_array
                / AT RAW_STRING => { CODE: HERMES_STR, VALUE: $2 }
                / AT STRING     => { CODE: HERMES_STR, VALUE: $2 }
                / AT FLOAT      => { CODE: HERMES_FLOAT, VALUE: $2 }
@@ -2921,38 +2921,38 @@
                / AT KW_FALSE   => { CODE: HERMES_BOOL, VALUE: false }
                / AT KW_NULL    => { CODE: HERMES_NULL }
 
-    hermes_map <- LBRACE (hermes_entry (COMMA hermes_entry)* COMMA?)? RBRACE
+    writ_map <- LBRACE (writ_entry (COMMA writ_entry)* COMMA?)? RBRACE
                => { CODE: HERMES_MAP, ITEMS: $... }
 
-    hermes_array <- LBRACKET (hermes_val (COMMA hermes_val)* COMMA?)? RBRACKET
+    writ_array <- LBRACKET (writ_val (COMMA writ_val)* COMMA?)? RBRACKET
                  => { CODE: HERMES_ARRAY, ITEMS: $... }
 
     // key can be a quoted string, integer, or negative integer (for TinyObjectMap-style maps)
-    hermes_entry <- STRING COLON hermes_val
+    writ_entry <- STRING COLON writ_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
-                 / MINUS INTEGER COLON hermes_val
+                 / MINUS INTEGER COLON writ_val
                  => { CODE: HERMES_ENTRY, KEY: $2, VALUE: $4, LO_NEG: true }
-                 / INTEGER COLON hermes_val
+                 / INTEGER COLON writ_val
                  => { CODE: HERMES_ENTRY, KEY: $1, VALUE: $3 }
 
     // recursive: inner values don't need the @ prefix, but accept it too
-    // (closes B-he-01 — nested `@{...}` / `@[...]` inside another hermes literal).
+    // (closes B-he-01 — nested `@{...}` / `@[...]` inside another writ literal).
     // $ident and ${expr} are runtime capture placeholders
-    // <type:T> embeds a Logos Type as a first-class Hermes value.
+    // <type:T> embeds a Logos Type as a first-class Writ value.
     // Slot extraction (CFG.path) keeps the IDENT-only head; the general
     // form accepts any simple_type so generic instantiations like
     // Vec<u8> / Result<T,E> reach sema as a structured TYPE child (3a').
-    hermes_val <- LT KW_TYPE COLON IDENT path_step path_step* GT_TYPE
+    writ_val <- LT KW_TYPE COLON IDENT path_step path_step* GT_TYPE
                => { CODE: CFG_SLOT_TYPE, NAME: $4, ITEMS: $... }
                / LT KW_TYPE COLON simple_type GT_TYPE
                => { CODE: HERMES_TYPE_LIT, TYPE: $4 }
                / DOLLAR LBRACE expr RBRACE => { CODE: HERMES_CAP_EXPR, VALUE: $3 }
                / DOLLAR IDENT              => { CODE: HERMES_CAP_IDENT, NAME: $2 }
-               / AT hermes_typed_array
-               / AT hermes_map
-               / AT hermes_array
-               / hermes_map
-               / hermes_array
+               / AT writ_typed_array
+               / AT writ_map
+               / AT writ_array
+               / writ_map
+               / writ_array
                / RAW_STRING => { CODE: HERMES_STR, VALUE: $1 }
                / STRING     => { CODE: HERMES_STR, VALUE: $1 }
                / FLOAT      => { CODE: HERMES_FLOAT, VALUE: $1 }
@@ -3045,16 +3045,16 @@
     // ── quote_item! { item* } — typed AST literal ─────────────────
     // Slice 4 of metaprog-quote (~/.claude/plans/metaprog-quote.md):
     // body parses as zero or more `item` declarations. Sema deep-clones
-    // those items into a fresh Hermes module, serialises bytes, and
-    // emits a HermesStatic literal — the expression value is the byte
+    // those items into a fresh Writ module, serialises bytes, and
+    // emits a WritStatic literal — the expression value is the byte
     // slice that Slice 3's logos_emit_item_blob consumes.
     quote_item_expr <- KW_QUOTE_ITEM BANG LBRACE item* RBRACE
                     => { CODE: QUOTE_ITEM, ITEMS: $4 }
 
     // ── quote_expr! { expr } — typed AST literal (Slice 7) ─────────
     // Body is a single expression. Sema deep-clones the parsed expr
-    // AnyVal as the root TOM of a fresh Hermes doc, sets the root's
-    // schema_type_code from CODE so position-aware lower_hermes_blob
+    // AnyVal as the root TOM of a fresh Writ doc, sets the root's
+    // schema_type_code from CODE so position-aware lower_writ_blob
     // can recurse into lower_expr at splice time, and emits an
     // ExprBlob value. Splices via metacall, like ExprBlob returns.
     quote_expr_expr <- KW_QUOTE_EXPR BANG LBRACE expr RBRACE

@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
     HrpcIdlParser parser(source);
     auto doc = parser.parse_file();
 
-    // Stringify the Hermes document to see the AST.
+    // Stringify the Writ document to see the AST.
     std::string json = logos::writ::stringify(doc);
     std::cout << json << "\n";
 

@@ -40,7 +40,7 @@ def check_coverage(spec_json_path, source_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("spec", help="Path to JSON spec (e.g. hermes-abi.json)")
+    parser.add_argument("spec", help="Path to JSON spec (e.g. writ-abi.json)")
     parser.add_argument("src", help="Source directory to check")
     args = parser.parse_args()
     

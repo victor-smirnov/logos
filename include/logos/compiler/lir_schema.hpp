@@ -1,8 +1,8 @@
 #pragma once
 
-// Hermes schema for L-IR (LExpr / LStmt / Pattern).
+// Writ schema for L-IR (LExpr / LStmt / Pattern).
 //
-// Phase 3a of the compiler-on-Hermes migration (see plans/snappy-knitting-kay.md).
+// Phase 3a of the compiler-on-Writ migration (see plans/snappy-knitting-kay.md).
 // Registers schema_type_code variants and sparse keys for the on-zone TinyObjectMap
 // representation of L-IR nodes. Currently codes-only — no mirror writers, no
 // readers. Phase 3b/3c/3d will populate and consume the mirrors.
@@ -61,7 +61,7 @@ enum class Code : int32_t {
     SizeOf        = 34,
     TypeCodeOf    = 35,
     BlockExpr     = 36,
-    HermesLit     = 37,
+    WritLit     = 37,
     PtrArith      = 38,
     PtrDiff       = 39,
     ReflectOf     = 40,
@@ -102,13 +102,13 @@ enum class Code : int32_t {
 inline constexpr int32_t Count = 23;
 } // namespace stmt
 
-// ── HermesVal variant codes ───────────────────────────────────────────────
+// ── WritVal variant codes ───────────────────────────────────────────────
 //
-// Synthetic category — HermesVal lives outside the LExpr/LStmt/Pattern enums
+// Synthetic category — WritVal lives outside the LExpr/LStmt/Pattern enums
 // but reuses the lir_expr() encoder with HV_BASE offset. See lir_mirror.cpp
 // (LirMirrorEmitter::emit_hv) for the writer side.
 
-namespace hermes_val {
+namespace writ_val {
 inline constexpr int32_t HV_BASE = 200;
 enum class Code : int32_t {
     Null    = HV_BASE + 0,
@@ -121,7 +121,7 @@ enum class Code : int32_t {
     Capture = HV_BASE + 7,
     Type    = HV_BASE + 8,
 };
-} // namespace hermes_val
+} // namespace writ_val
 
 // ── Pattern variant codes ─────────────────────────────────────────────────
 
@@ -201,7 +201,7 @@ inline constexpr Key OFFSET            {"OFFSET",          27};
 inline constexpr Key FMT               {"FMT",             28};
 inline constexpr Key RESULT            {"RESULT",          29};
 
-// Sequences (Hermes Array of RelPtr<LExpr>)
+// Sequences (Writ Array of RelPtr<LExpr>)
 inline constexpr Key ARGS              {"ARGS",            30};
 inline constexpr Key ELEMS             {"ELEMS",           31};
 inline constexpr Key PAYLOAD           {"PAYLOAD",         32};
@@ -255,19 +255,19 @@ inline constexpr Key VALUE             {"ARM_VALUE",        2};   // RelPtr<LExp
 inline constexpr Key BODY              {"ARM_BODY",         3};   // RelPtr<LBlock> (LMatchArm)
 } // namespace arm_keys
 
-// Keys for the EHermesLit LExpr variant map. expr_common::TYPE at 0 still
+// Keys for the EWritLit LExpr variant map. expr_common::TYPE at 0 still
 // applies; these start at 1.
-namespace hermes_lit_keys {
-inline constexpr Key ROOT                {"ROOT",                1};   // RelPtr<HermesVal-mirror>
+namespace writ_lit_keys {
+inline constexpr Key ROOT                {"ROOT",                1};   // RelPtr<WritVal-mirror>
 inline constexpr Key HAS_CAPTURES        {"HAS_CAPTURES",        2};   // u8
 inline constexpr Key CAPTURE_EXPRS       {"CAPTURE_EXPRS",       3};   // Array<RelPtr<LExpr>>
 inline constexpr Key CAPTURE_TYPES       {"CAPTURE_TYPES",       4};   // Array<RelPtr<LogosType>>
 inline constexpr Key CAPTURE_PARAM_COUNT {"CAPTURE_PARAM_COUNT", 5};   // u32
-inline constexpr Key STATIC_BLOB         {"STATIC_BLOB",         6};   // Varchar — pre-serialised Hermes blob (metacall HermesStatic splice). When non-empty: root/has_captures/etc are unused; codegen emits blob bytes directly into rodata with [u64 size][bytes] layout.
-} // namespace hermes_lit_keys
+inline constexpr Key STATIC_BLOB         {"STATIC_BLOB",         6};   // Varchar — pre-serialised Writ blob (metacall WritStatic splice). When non-empty: root/has_captures/etc are unused; codegen emits blob bytes directly into rodata with [u64 size][bytes] layout.
+} // namespace writ_lit_keys
 
-// Keys for HermesVal mirror maps (HVNull / HVBool / HVInt / HVFloat / HVStr /
-// HVMap / HVArray / HVCapture). HermesVal lives outside the LExpr variant
+// Keys for WritVal mirror maps (HVNull / HVBool / HVInt / HVFloat / HVStr /
+// HVMap / HVArray / HVCapture). WritVal lives outside the LExpr variant
 // space (synthetic HV_BASE category), so no expr_common::TYPE is reserved.
 namespace hv_keys {
 inline constexpr Key BOOL_VALUE        {"HV_BOOL",          0};   // u8
@@ -275,9 +275,9 @@ inline constexpr Key INT_VALUE         {"HV_I64",           1};   // i64
 inline constexpr Key FLOAT_VALUE       {"HV_F64",           2};   // f64
 inline constexpr Key STR_VALUE         {"HV_STR",           3};   // Varchar
 inline constexpr Key MAP_KEYS          {"HV_MAP_KEYS",      4};   // Array<Varchar | i64>
-inline constexpr Key MAP_VALUES        {"HV_MAP_VALUES",    5};   // Array<RelPtr<HermesVal-mirror>>
+inline constexpr Key MAP_VALUES        {"HV_MAP_VALUES",    5};   // Array<RelPtr<WritVal-mirror>>
 inline constexpr Key TYPE_NAME         {"HV_TYPE_NAME",     6};   // Varchar (HVMap key_type / HVArray elem_type)
-inline constexpr Key ELEMS             {"HV_ELEMS",         7};   // Array<RelPtr<HermesVal-mirror>>
+inline constexpr Key ELEMS             {"HV_ELEMS",         7};   // Array<RelPtr<WritVal-mirror>>
 inline constexpr Key PARAM_INDEX       {"HV_PARAM_INDEX",   8};   // u32 (HVCapture)
 inline constexpr Key VALUE_INDEX       {"HV_VALUE_INDEX",   9};   // u32 (HVCapture)
 inline constexpr Key TYPE_KIND         {"HV_TYPE_KIND",    10};   // u32 (HVType.kind)
@@ -379,12 +379,12 @@ inline constexpr Key EXPORT_ID         {"EXPORT_ID",       37};   // u32 (U24 An
 inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPtr<LExpr>>
 } // namespace stmt_keys
 
-// ── Declaration variant codes (Stage E: LProgram decl layer → Hermes mirror) ─
+// ── Declaration variant codes (Stage E: LProgram decl layer → Writ mirror) ─
 //
 // Coarse top-level declarations (LFunction/LStructDef/LEnumDef/LConst/LTraitDef/
 // LImplBlock/LTypeAlias). Encoded via the lir_stmt category with a DECL_BASE
 // offset (out-of-band of real stmt codes 0..22 and the block Count=23), the same
-// trick hermes_val uses (HV_BASE=200). Schema grows as each kind migrates.
+// trick writ_val uses (HV_BASE=200). Schema grows as each kind migrates.
 namespace decl {
 inline constexpr int32_t DECL_BASE = 300;
 enum class Code : int32_t {

@@ -17,7 +17,7 @@ enum class TagDescriptor : uint8_t {
 // TypeTag: variable-length type identifier stored in the arena bytes
 // immediately before each object.
 //
-// Wire format (byte-for-byte compatible with stdlib/hermes/datatag.logos):
+// Wire format (byte-for-byte compatible with stdlib/writ/datatag.logos):
 //
 //   obj[-1] == 0                : unset / sentinel (type_code 0, 0 bytes)
 //   obj[-1] ∈ [1, 222]          : single-byte tag; type_code == obj[-1],
@@ -68,7 +68,7 @@ public:
     constexpr TagDescriptor descriptor() const noexcept {
         switch (type_code_) {
             // Maps
-            case 98:   // Hermes / TinyObjectMap
+            case 98:   // Writ / TinyObjectMap
             case 101:  // ObjectMap
             case 3101: // MapI32AnyVal
             case 3102: // MapU32AnyVal

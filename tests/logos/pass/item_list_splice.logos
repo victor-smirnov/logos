@@ -1,7 +1,7 @@
 // Slice 3 of metaprog-quote (~/.claude/plans/metaprog-quote.md).
 //
 // Exercises the bytes path that Slice 4's `quote_item!` will use:
-// host-side test fixture parses an inline source string into a Hermes
+// host-side test fixture parses an inline source string into a Writ
 // document, the handler hands those bytes to `logos_emit_item_blob`,
 // host splices the blob in as a fresh entry-ast. Main then uses the
 // injected `InjectedFoo` / `InjectedBar` structs at runtime.

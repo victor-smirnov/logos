@@ -35,7 +35,7 @@ struct MonoOpts {
     // The two LPrograms must share the same TypePool/pools (via SemaCache);
     // mono moves prev_out into its out_ at start of run.
     lir::LProgram prev_out;
-    // M3 step 3: stdlib template catalog decoded from .hermes0 v3 trailers.
+    // M3 step 3: stdlib template catalog decoded from .writ0 v3 trailers.
     // Non-owning; the caller (main.cpp / emit_module) keeps the value alive
     // for the duration of mono_pass. Empty/null = no exports available
     // (cold-build / non-stdlib-using compile / older v2 archives only).

@@ -1,0 +1,163 @@
+// Logos Writ stdlib — writ2.allocator
+//
+// Allocator: the never-move segment arena that owns a Writ container's bytes.
+//
+// Writ never relocates live data. Growth does NOT realloc/move: when the
+// current segment is full, a fresh segment is malloc'd and APPENDED. Existing
+// segments — and every object in them — stay exactly where they are, so a
+// resolved pointer (and every self-relative zoned reference) remains valid for
+// the allocator's lifetime. Segments are freed EN MASSE when the allocator drops.
+//
+// Segment plumbing (the `next` links, the head/current cursor) uses ABSOLUTE
+// pointers: segments never move, so absolute pointers between them are stable.
+// Object references stored in the data are self-relative (compiler-derived for
+// #[zoned] fields — see docs/internals/ref-repr-design.md §6).
+//
+// (Renamed from `Holder` 2026-06-04: "Allocator" is the accurate name for the
+// segment arena, and frees "holder" for the residency root of writ2 §5-6.)
+//
+// See docs/internals/writ2-design.md §3.
+
+package logos.lang.writ.allocator;
+
+use logos.lang.panic;
+use logos.lang.ptr;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// A never-moved chunk: an inline header followed immediately by `cap` data
+// bytes (one malloc per segment). This is a real custom-DST — `data: [u8]` is
+// an inline flexible-array tail — marked `#[self_describing]` so a raw
+// `*mut Segment` stays THIN (8B): the tail length is recoverable in-band (it
+// is `cap`), so the pointer need not carry it, and the self-referential `next`
+// link is a plain thin pointer (no fat-DstRef self-reference). Without the
+// marker the `[u8]` tail would fatten `*mut Segment` to 16B and break the
+// thin-pointer plumbing below. `sizeof::<Segment>()` is the HEADER size (the
+// tail offset, a multiple of 8), so the data region starts 8-byte aligned.
+// See docs/internals/ref-repr-design.md §6 + writ2-design.md §3.
+#[self_describing]
+pub struct Segment {
+    pub next: *mut Segment,   // next segment (absolute — stable, never moves)
+    pub cap:  i64,            // data capacity in bytes (excludes this header) = data.len()
+    pub used: i64,            // bump cursor within the data region
+    pub data: [u8],           // inline data region (flexible-array tail)
+}
+
+// The `[u8]` tail length is `cap` (byte capacity == element count for u8). Lets
+// the compiler materialize a fat `&Segment` / `segment.data` slice view on
+// demand; the allocator bump-allocates via raw byte arithmetic and never needs
+// it, but the contract makes the in-band length recovery explicit.
+impl SelfDescribing for Segment {
+    fn dst_len(self: *const Segment) -> i64 { return unsafe { (*self).cap }; }
+}
+
+// Absolute address of a segment's data region (just past the inline header).
+unsafe fn seg_data(seg: *mut Segment) -> i64 {
+    return (seg as i64) + (sizeof::<Segment>() as i64);
+}
+
+// Allocate one never-moved segment chunk: header + `cap` data bytes.
+// Returns null on OOM.
+unsafe fn segment_make(cap: i64) -> *mut Segment {
+    let raw: *mut u8 = malloc((sizeof::<Segment>() as i64) + cap);
+    if raw.is_null() { return null_mut::<Segment>(); }
+    let seg: *mut Segment = raw as *mut Segment;
+    seg.next = null_mut::<Segment>();
+    seg.cap  = cap;
+    seg.used = 0;
+    return seg;
+}
+
+// Allocator — owns a singly-linked list of never-moved segments. Bump-allocates
+// within `current`, appends a new segment when full, frees all on drop.
+pub struct Allocator {
+    pub head:     *mut Segment,   // first segment (free-en-masse walk start)
+    pub current:  *mut Segment,   // segment we bump into
+    pub seg_size: i64,            // default capacity for appended segments
+}
+
+// Create an allocator with an initial segment of `seg_size` data bytes.
+// On OOM the returned allocator has a null head (allocator_alloc then returns null).
+pub unsafe fn allocator_new(seg_size: i64) -> Allocator {
+    let seg: *mut Segment = segment_make(seg_size);
+    return Allocator { head: seg, current: seg, seg_size: seg_size };
+}
+
+// Append a fresh segment with at least `min_cap` data bytes after `current`,
+// make it current. Returns the new segment, or null on OOM.
+unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
+    let cap: i64 = if a.seg_size >= min_cap { a.seg_size } else { min_cap };
+    let seg: *mut Segment = segment_make(cap);
+    if seg.is_null() { return null_mut::<Segment>(); }
+    // Reach invariant: all segments of one allocator must be within signed
+    // i64 self-relative reach. A distance >= 2^63 overflows the i64 delta and
+    // wraps negative — detect that. Cannot happen on a real 64-bit VA
+    // (≤ 2^47 / ~2^56 ≪ 2^63), so this is a defensive guard (writ2 §3).
+    let na: i64 = seg as i64;
+    let hd: i64 = a.head as i64;
+    let d: i64 = if na >= hd { na - hd } else { hd - na };
+    if d < 0 { panic("writ: segment out of i64 self-relative reach"); }
+    a.current.next = seg;
+    a.current = seg;
+    return seg;
+}
+
+// Bump-allocate `size` bytes with the requested `align` from the allocator,
+// appending a new segment if the current one is full. `align` is any power of two
+// (pass `align_of::<T>()`); the ALLOCATOR FLOOR is 2 — a 1-byte request is still
+// handed back ≥2-aligned, because a Ref'd object's low bit must be 0 (the HAny
+// Pod/Ref tag). Returns a pointer into a never-moved segment (stable for the
+// allocator's lifetime), or null on OOM.
+pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut u8 {
+    let al: i64 = if align < 2i64 { 2i64 } else { align };
+    let seg: *mut Segment = a.current;
+    let base: i64 = seg_data(seg);
+    let addr: i64 = (base + seg.used + al - 1i64) / al * al;   // align the ABSOLUTE address
+    let off: i64 = addr - base;
+    if off + size <= seg.cap {
+        seg.used = off + size;
+        return addr as *mut u8;
+    }
+    // Doesn't fit — append a segment with `al` headroom so its data region can be
+    // aligned even when seg_data isn't already `al`-aligned (seg_data is 8-aligned;
+    // for align > 8 the slack absorbs the rounding).
+    let ns: *mut Segment = allocator_append(a, size + al);
+    if ns.is_null() { return null_mut::<u8>(); }
+    let nbase: i64 = seg_data(ns);
+    let na: i64 = (nbase + al - 1i64) / al * al;
+    ns.used = (na - nbase) + size;
+    return na as *mut u8;
+}
+
+// Free all segments en masse. The allocator must not be used afterwards.
+// IDEMPOTENT: nulls head/current, so a second call (or the Drop below after an
+// explicit free) walks a null list and is a no-op — no double-free.
+pub unsafe fn allocator_free(a: *mut Allocator) {
+    let mut seg: *mut Segment = a.head;
+    while !seg.is_null() {
+        let nxt: *mut Segment = seg.next;
+        free(seg as *mut u8);
+        seg = nxt;
+    }
+    a.head    = null_mut::<Segment>();
+    a.current = null_mut::<Segment>();
+}
+
+// RAII: the Allocator owns its segments; dropping it frees them en masse. A
+// `Writ` container holds the Allocator by value, so dropping the container
+// (scope exit) auto-frees the whole never-move arena — no manual free needed.
+// Composes with an explicit `allocator_free`/`writ_free`: that call nulls
+// `head`, so this drop then walks an empty list (idempotent — no double-free).
+impl Drop for Allocator {
+    fn drop(self: Allocator) {
+        unsafe {
+            let mut seg: *mut Segment = self.head;
+            while !seg.is_null() {
+                let nxt: *mut Segment = seg.next;
+                free(seg as *mut u8);
+                seg = nxt;
+            }
+        }
+    }
+}

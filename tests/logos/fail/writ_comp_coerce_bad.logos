@@ -1,0 +1,13 @@
+package writ_comp_coerce_bad;
+
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.rc;
+
+fn main() -> i32 {
+    let xs: [i64; 2] = [1 as i64, 2 as i64];
+    // i64 is intentionally not auto-coerced to AnyVal (silent truncation).
+    let doc: Rc<Writ> = @[x for x in xs];
+    return 0;
+}

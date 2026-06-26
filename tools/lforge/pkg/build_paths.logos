@@ -15,12 +15,12 @@ use lforge.schema;
 use lforge.util;
 use lforge.topo;
 use lforge.proc;
-use lforge.hermes_io;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.container;
-use logos.lang.hermes.hmap;
-use logos.lang.hermes.hstring;
-use logos.mem.hermes.parser;
+use lforge.writ_io;
+use logos.lang.writ.anyval;
+use logos.lang.writ.container;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.mem.writ.parser;
 use logos.lang.rc;
 
 // The sibling tool `<name>` next to THIS lforge binary, found via current_exe()
@@ -60,7 +60,7 @@ pub fn resolve_logos_lib_dir() -> String {
         i = i + 1 as i64;
     }
     // Installed slot tree (lib/logos/<slot>/lib/): query the resolved logosc for
-    // ALL its metadata as a Hermes doc (--print-metadata) and read lib_dir. The
+    // ALL its metadata as a Writ doc (--print-metadata) and read lib_dir. The
     // dir always matches the exact compiler lforge uses — no path guessing — and
     // works even when driving a different-version logosc (no layout assumption).
     let logosc: String = resolve_logosc_path();
@@ -71,8 +71,8 @@ pub fn resolve_logos_lib_dir() -> String {
     if res.0 == 0 as i32 {
         let raw: String = res.1;
         let view: str = raw.as_str();
-        let ctr: Rc<Hermes> = hermes_rc(8192 as i64);
-        let h: &Hermes = ctr.deref();
+        let ctr: Rc<Writ> = writ_rc(8192 as i64);
+        let h: &Writ = ctr.deref();
         let root: HAny = parse(h, view);
         if root.is_map() {
             let lib: String = read_str_opt(root, "lib_dir");

@@ -9,8 +9,8 @@ endif()
 set(STDLIB ${CMAKE_SOURCE_DIR}/stdlib)
 set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 
-# Rebuild when any Hermes stdlib file changes.
-file(GLOB HERMES_STDLIB CONFIGURE_DEPENDS ${STDLIB}/hermes/*.logos)
+# Rebuild when any Writ stdlib file changes.
+file(GLOB HERMES_STDLIB CONFIGURE_DEPENDS ${STDLIB}/writ/*.logos)
 
 # `metaprog` examples additionally link against liblstdlib_rt.a (asm /
 # weak metaprog stubs) since some of those symbols are referenced from
@@ -63,9 +63,9 @@ function(logos_add_example NAME)
     add_custom_target(example_${NAME} ALL DEPENDS ${BIN})
 endfunction()
 
-logos_add_example(hermes_round_trip)
-logos_add_example(hermes_showcase)
-logos_add_example(hermes_container_showcase)
+logos_add_example(writ_round_trip)
+logos_add_example(writ_showcase)
+logos_add_example(writ_container_showcase)
 logos_add_example(logos_showcase METAPROG)
 logos_add_example(persistent_showcase)
 logos_add_example(dynmap_showcase)

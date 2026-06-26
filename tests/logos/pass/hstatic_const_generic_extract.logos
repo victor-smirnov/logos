@@ -1,14 +1,14 @@
 // hstatic_const_generic_extract.logos — runtime extraction of a
-// HermesStatic const-generic from inside a generic body.
+// WritStatic const-generic from inside a generic body.
 //
 // Without this, hstatic-as-const-generic only carries type identity:
 // the cfg distinguishes types but you can't read its content. With
 // this slice the cfg behaves like a real compile-time constant —
-// the body uses `CFG` like an inlined `let cfg: HermesStatic = @{...};`.
+// the body uses `CFG` like an inlined `let cfg: WritStatic = @{...};`.
 //
 // Pieces wired together (atop hstatic_const_generic_uid):
 //   • Sema, at LIT_HSTATIC resolution, also lowers the @-literal via
-//     lower_hermes_lit and registers the resulting LExpr* in
+//     lower_writ_lit and registers the resulting LExpr* in
 //     LProgram::hstatic_registry_ keyed by hash. First-write-wins —
 //     identical literals share one registered LExpr.
 //   • Mono moves hstatic_registry_ alongside expr_pool_ so cloned
@@ -16,7 +16,7 @@
 //   • Mono's VarRef clone, on a `__const_param:NAME` reference whose
 //     SubstMap entry is HStaticLit(hash=H), looks up registry[H] and
 //     deep-clones that LExpr at the use site (subst_expr with empty
-//     subst). The cloned EHermesLit emits exactly like an inline
+//     subst). The cloned EWritLit emits exactly like an inline
 //     `@{...}` would — the cfg is materialised in rodata.
 //
 // End-to-end check: read the field "k" from the cfg back as i64.
@@ -26,11 +26,11 @@
 package hstatic_const_generic_extract;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.static_view;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
 
-unsafe fn read_k<const CFG: HermesStatic>() -> i64 {
+unsafe fn read_k<const CFG: WritStatic>() -> i64 {
     let v: HView2 = hview2_from_ptr(CFG.ptr);
     let r: HAny = v.root();
     if r.is_null() { return -1i64; }

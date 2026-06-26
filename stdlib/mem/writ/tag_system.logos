@@ -1,0 +1,166 @@
+// Logos stdlib — mem.writ2.tag_system (relocated from mem.writ; the vlen
+// datatag format is shared by Writ1 and writ2 — decode = h2_type_code)
+//
+// TagSystem: abstraction over the mechanism used to read a type tag
+// from a memory object.  Different subsystems use different tag formats:
+//
+//   WritTypeTagSystem — vlen TypeTag: 1-8 bytes immediately before the object.
+//                         Codes 1-222: single byte; 223+: multi-byte.
+//                         Used by all Writ core and user datatypes.
+//   DataTypeTagSystem   — alias/synonym: same vlen format as WritTypeTagSystem.
+//                         Used by user datatypes with #[type_code=N].
+//   TomTagSystem        — type_code stored as little-endian u64 at byte
+//                         offset 0 of the object header (TinyObjectMap).
+//
+// This module defines the trait interface and both implementations.
+// The dispatch table infrastructure (one table per TagSystem×Trait pair)
+// lives in the compiler and linker layer.
+//
+// Safety note: all read_tag implementations dereference raw pointers.
+// Callers must ensure `obj` points to a valid, live, tagged object.
+
+package logos.mem.writ.tag_system;
+
+use logos.lang.writ.anyval;      // h2_type_code (the shared datatag decoder)
+use logos.lang.writ.container;   // h2_write_tag
+
+// ---------------------------------------------------------------------------
+// TagSystem trait
+// ---------------------------------------------------------------------------
+
+// Encapsulates how a type tag (type_code) is read from a raw memory object.
+// Each implementation receives a pointer to the first byte of the object;
+// it is responsible for locating the tag according to the format.
+pub trait TagSystem {
+    // The tag value type.  For all current Writ tag systems this is u64.
+    type Tag;
+
+    // Read the type tag for the object at `obj`.
+    // Safety: `obj` must point to a valid, tagged, live object.
+    fn read_tag(self: &Self, obj: *const u8) -> Self::Tag;
+}
+
+// ---------------------------------------------------------------------------
+// WritTypeTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for Writ core zone datatypes with vlen TypeTag format.
+// Tag layout: variable-length bytes immediately before the object.
+//   byte[-1] ∈ [1,222] → single-byte tag; type_code = that byte
+//   byte[-1] ∈ [223,255] → multi-byte; header + code bytes follow
+// Tag value returned is the type_code (u64).
+pub struct WritTypeTagSystem {}
+
+impl TagSystem for WritTypeTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a validly-tagged Writ zone object
+    // (allocated via zone_m_alloc_tagged with a valid type_code).
+    pub fn read_tag(self: &WritTypeTagSystem, obj: *const u8) -> u64 {
+        return unsafe { h2_type_code(obj) };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DataTypeTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for Writ zone datatypes (user datatypes with #[type_code=N]).
+// Uses the same vlen format as WritTypeTagSystem.
+// Tags are variable-length (1-8 bytes) stored immediately before the object:
+//   obj[-1] ∈ [1,222] → single-byte tag; type_code = that byte
+//   obj[-1] ∈ [223,255] → multi-byte; length = obj[-1]-223+1; code follows
+pub struct DataTypeTagSystem {}
+
+impl TagSystem for DataTypeTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a validly-tagged Writ zone object
+    // (one that was previously written with write_tag), with the tag bytes
+    // reserved in memory immediately before it.
+    pub fn read_tag(self: &DataTypeTagSystem, obj: *const u8) -> u64 {
+        return unsafe { h2_type_code(obj) };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WritTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for Writ (never-move arena) zone datatypes, reached through a
+// SELF-RELATIVE `RelAny` / `RelPtr` (offset = target − &field), not the Writ1
+// external-base model. The vlen tag FORMAT is identical to WritTypeTagSystem
+// (same `read_type_code`), but this is a SEPARATE dispatch namespace on purpose:
+// a stateful type (one with internal relative pointers) needs DIFFERENT trait
+// impls for the two memory models — Writ1 resolves its inner pointers
+// base-relative (`base + offset`), Writ resolves them self-relative. Keying
+// dispatch on (system, type_code) lets the SAME logical type_code carry the
+// Writ1 impl under WritTypeTagSystem and the Writ impl here, with no
+// collision. Plain types (no inner pointers) are model-agnostic and may register
+// in both. The dispatch site picks the model: `&tagged<WritTagSystem> Trait`.
+pub struct WritTagSystem {}
+
+impl TagSystem for WritTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a validly-tagged Writ arena object (written
+    // with write_tag), with the vlen tag bytes immediately before it.
+    pub fn read_tag(self: &WritTagSystem, obj: *const u8) -> u64 {
+        return unsafe { h2_type_code(obj) };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TomTagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for TinyObjectMap (TOM) objects.
+// The type_code is the little-endian u64 at byte offset 0 of the object.
+// Bug fix: the comment previously said "at a fixed 8-byte offset" but meant
+// the field is 8 bytes wide, not offset 8 — the field IS at offset 0.
+// Note: TomTagSystem reads raw u64 from the object header; code 0 is the
+// unset/invalid sentinel and callers should reject it if needed.
+// TODO: verify against actual TOM C++ layout when sync tool is available.
+pub struct TomTagSystem {}
+
+impl TagSystem for TomTagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a valid TOM object with at least 8 bytes
+    // of readable header. Pointer must not overflow when added to 7.
+    pub fn read_tag(self: &TomTagSystem, obj: *const u8) -> u64 {
+        // Read bytes 0..7 as little-endian u64.
+        // Individual byte loads avoid alignment requirements on the pointer.
+        let mut code: u64 = 0;
+        let mut i: i64 = 0;
+        loop {
+            if i >= 8 { break; }
+            // Bug fix: pointer arithmetic could overflow if obj + 7 > i64::MAX.
+            // Caller must ensure obj is in valid range (< i64::MAX - 7).
+            let offset_addr: i64 = obj as i64 + i;
+            if offset_addr < obj as i64 { return 0; }  // overflow detected
+            let b: u64 = unsafe { *( offset_addr as *const u8) } as u64;
+            code = code | (b << (i as u64 * 8));
+            i = i + 1;
+        }
+        return code;
+    }
+}
+
+// The vlen datatag writer (alias of lang.writ2.container::h2_write_tag —
+// tests and user datatypes write tags by this historical name).
+pub unsafe fn write_tag(obj: *mut u8, type_code: u64) {
+    h2_write_tag(obj, type_code);
+}
+
+// Byte length of the vlen datatag for `code` (0 = unset; 1 for 1..222;
+// 1 header + N little-endian code bytes for >222).
+pub fn h2_tag_size(code: u64) -> i64 {
+    if code == 0u64 { return 0i64; }
+    if code <= 222u64 { return 1i64; }
+    let mut n: i64 = 0;
+    let mut v: u64 = code;
+    while v > 0u64 { v = v >> 8u64; n = n + 1; }
+    if n > 8 { n = 8; }
+    return 1 + n;
+}

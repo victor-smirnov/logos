@@ -19,7 +19,7 @@ trap 'rm -rf "$ROOT" "$CACHE_HOME"' EXIT
 
 # Upstream: real git repo with one tagged release.
 mkdir -p "$ROOT/upstream/src/util"
-cat > "$ROOT/upstream/lforge.hermes" <<'EOF'
+cat > "$ROOT/upstream/lforge.writ" <<'EOF'
 {
     name: "upstream", version: "0.1.0",
     targets: [{ kind: "lib", name: "util", src: "src/util" }]
@@ -39,7 +39,7 @@ PINNED_SHA=$(git rev-parse HEAD)
 
 # Consumer pulls upstream by tag.
 mkdir -p "$ROOT/app/src"
-cat > "$ROOT/app/lforge.hermes" <<EOF
+cat > "$ROOT/app/lforge.writ" <<EOF
 {
     name: "myapp", version: "0.1.0",
     deps: [
@@ -103,7 +103,7 @@ grep -q "lforge: fetching" "$ROOT/b2.log" && {
 } || true
 
 # Manifest dep change → re-resolve.
-sed -i 's/v0.1.0/v0.1.0-newer/' "$ROOT/app/lforge.hermes"
+sed -i 's/v0.1.0/v0.1.0-newer/' "$ROOT/app/lforge.writ"
 rm -rf "$ROOT/app/.lforge"
 HOME="$CACHE_HOME" LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$ROOT/b3.log" 2>&1 || {
     echo "FAIL: re-resolve build"; cat "$ROOT/b3.log"; exit 1;

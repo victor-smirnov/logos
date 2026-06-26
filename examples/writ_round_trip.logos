@@ -1,0 +1,29 @@
+// writ2 SDN round-trip example: parse a document, render it back.
+package writ_example;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+use logos.std.io;
+
+fn main() -> i32 {
+    let ctr: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = ctr.deref();
+    let text: str = r#"
+        {
+            name:"widget",
+            version:42,
+            active:true,
+            tags:["fast","safe"],
+            i32_array: <I32> [1,2,3,4]
+        }
+    "#;
+    let root: HAny = unsafe { parse(h, text) };
+    if root.is_null() { return 1; }
+    let s: String = stringify(root);
+    println(s.as_str());
+    return 0;
+}

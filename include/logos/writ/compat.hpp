@@ -1,14 +1,14 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes SPELLING-compat surface for the logosc cut-over (Phase B). Provides the
-// Hermes1 NAMES the compiler uses (type code constants, the doc-handle / Object
-// spellings, a HermesAccess shim) mapped onto NATIVE hermes2 — NO base/offset model
+// Writ SPELLING-compat surface for the logosc cut-over (Phase B). Provides the
+// Writ1 NAMES the compiler uses (type code constants, the doc-handle / Object
+// spellings, a WritAccess shim) mapped onto NATIVE writ2 — NO base/offset model
 // is reintroduced (self-relative throughout). Transitional: these spellings can be
-// swept to the native tc::/HermesCtr/view forms later. Include this from compiler TUs.
+// swept to the native tc::/WritCtr/view forms later. Include this from compiler TUs.
 
 #pragma once
 
-// Umbrella — pulls in the whole hermes2 surface the compiler needs, so every
+// Umbrella — pulls in the whole writ2 surface the compiler needs, so every
 // `#include <logos/writ/*.hpp>` in logosc maps to this one header during the cut-over.
 #include <logos/writ/document.hpp>
 #include <logos/writ/view.hpp>
@@ -36,12 +36,12 @@
 
 namespace logos::writ {
 
-// ── Hermes1 type_hash:: code names → hermes2 tc:: values ────────────────────────
+// ── Writ1 type_hash:: code names → writ2 tc:: values ────────────────────────
 // Structural in-band tags + Pod codes the compiler compares against. NOTE the two
-// that CHANGED value: HermesString 28→130 and Bool 37→2 (the hermes2 wire codes).
+// that CHANGED value: WritString 28→130 and Bool 37→2 (the writ2 wire codes).
 namespace type_hash {
-inline constexpr uint64_t HermesString  = tc::STRING;     // 130 (Hermes1 used 28)
-inline constexpr uint64_t Bool          = tc::HA_BOOL;    // 2   (Hermes1 used 37)
+inline constexpr uint64_t WritString  = tc::STRING;     // 130 (Writ1 used 28)
+inline constexpr uint64_t Bool          = tc::HA_BOOL;    // 2   (Writ1 used 37)
 inline constexpr uint64_t TinyObjectMap = tc::TINYMAP;    // 98
 inline constexpr uint64_t Array         = tc::ARRAY;      // 100
 inline constexpr uint64_t ObjectMap     = tc::MAP;        // 101
@@ -63,32 +63,32 @@ inline constexpr uint64_t ArrayF32      = tc::ARRAY_F32;
 inline constexpr uint64_t ArrayF64      = tc::ARRAY_F64;
 }  // namespace type_hash
 
-// Reflection param slot (ported from Hermes1 clone.hpp).
+// Reflection param slot (ported from Writ1 clone.hpp).
 struct ParamSlot {
     uint32_t offset;
     uint32_t value_index;
 };
 
-// Hermes1's type-ops registry init — hermes2 has no per-type ops vtable (clone/
+// Writ1's type-ops registry init — writ2 has no per-type ops vtable (clone/
 // stringify dispatch directly on the TypeTag), so this is a no-op.
-inline void hermes_init() noexcept {}
+inline void writ_init() noexcept {}
 
 // ── Doc-handle spellings ─────────────────────────────────────────────────────────
-// (Object lives in view.hpp; HermesCtr::root_object() returns it.)
-using HermesView = HermesCtr;
-using Hermes     = HermesCtr;
+// (Object lives in view.hpp; WritCtr::root_object() returns it.)
+using WritView = WritCtr;
+using Writ     = WritCtr;
 
-// Load a document from a compacted blob (Hermes1 spelling of HermesCtr::from_bytes).
-[[nodiscard]] inline logos::expected<HermesCtr>
+// Load a document from a compacted blob (Writ1 spelling of WritCtr::from_bytes).
+[[nodiscard]] inline logos::expected<WritCtr>
 from_bytes_copy(const uint8_t* data, size_t size) noexcept {
-    return HermesCtr::from_bytes(data, size);
+    return WritCtr::from_bytes(data, size);
 }
 
 // Deep-copy a tagged object from another document into `dst` (the metaprog blob splice).
-// `src_base` is vestigial (hermes2 is self-relative; src_obj is an absolute pointer the
+// `src_base` is vestigial (writ2 is self-relative; src_obj is an absolute pointer the
 // deep-copy walks via resolve()). Returns the dst object pointer.
 [[nodiscard]] inline logos::expected<void*>
-copy_object_into(const void* src_obj, const uint8_t* /*src_base*/, HermesCtr& dst) noexcept {
+copy_object_into(const void* src_obj, const uint8_t* /*src_base*/, WritCtr& dst) noexcept {
     DeepCopyState st(dst.holder());
     void* d = deep_copy_object(reinterpret_cast<const uint8_t*>(src_obj), st);
     if (!d) return std::unexpected(logos::err(ErrCode::out_of_memory));
@@ -96,7 +96,7 @@ copy_object_into(const void* src_obj, const uint8_t* /*src_base*/, HermesCtr& ds
 }
 
 // Box a wide scalar (i64/u64/f32/f64 — doesn't fit the inline Pod) into the arena and
-// return a Ref AnyVal to it (Hermes1 anyval_put / arena_put). Tag = the matching tc code.
+// return a Ref AnyVal to it (Writ1 anyval_put / arena_put). Tag = the matching tc code.
 template <typename T>
 [[nodiscard]] inline logos::expected<AnyVal> anyval_put(Arena& arena, T v) noexcept {
     uint64_t code;
@@ -109,31 +109,31 @@ template <typename T>
     AnyVal a; a.set_ref(mem); return a;
 }
 
-// ── HermesAccess shim — native (no base/offset model) ───────────────────────────
-// raw_* + arena map to HermesCtr methods. base() is VESTIGIAL (the head chunk start)
+// ── WritAccess shim — native (no base/offset model) ───────────────────────────
+// raw_* + arena map to WritCtr methods. base() is VESTIGIAL (the head chunk start)
 // and is only ever fed to AnyVal::as_ptr(base)/set_pointer(target,base) call sites,
 // which IGNORE it (self-relative). Sweep those base args away in the cut-over.
-class HermesAccess {
+class WritAccess {
 public:
-    static Arena& arena(HermesCtr& d) noexcept { return d.arena(); }
-    static Arena& arena(const HermesCtr& d) noexcept { return const_cast<HermesCtr&>(d).arena(); }
-    static uint8_t* base(const HermesCtr& d) noexcept { return d.holder()->arena().head().data(); }
+    static Arena& arena(WritCtr& d) noexcept { return d.arena(); }
+    static Arena& arena(const WritCtr& d) noexcept { return const_cast<WritCtr&>(d).arena(); }
+    static uint8_t* base(const WritCtr& d) noexcept { return d.holder()->arena().head().data(); }
 
     // Root offset accessors (the mirror/TypePool address by offset within their single
     // chunk). root() returns the root AnyVal; its offset is relative to base().
-    static arena_offset_t root_offset(const HermesCtr& d) noexcept {
+    static arena_offset_t root_offset(const WritCtr& d) noexcept {
         AnyVal r = d.root();
         return r.is_ref() ? r.to_offset(base(d)) : NULL_OFFSET;
     }
-    static void set_root_offset(HermesCtr& d, arena_offset_t off) noexcept {
+    static void set_root_offset(WritCtr& d, arena_offset_t off) noexcept {
         d.set_root(off == NULL_OFFSET ? AnyVal{} : AnyVal::from_offset(base(d), off));
     }
-    static void set_root_offset(HermesCtr& d, AnyVal root) noexcept { d.set_root(root); }
+    static void set_root_offset(WritCtr& d, AnyVal root) noexcept { d.set_root(root); }
 
-    [[nodiscard]] static logos::expected<TinyObjectMap*> raw_tiny_map(HermesCtr& d, uint64_t cap = 4) noexcept { return d.make_tiny_map(cap); }
-    [[nodiscard]] static logos::expected<ArrayView>      raw_array(HermesCtr& d, uint64_t cap = 4) noexcept { return d.make_array(cap); }
-    [[nodiscard]] static logos::expected<MapView>        raw_object_map(HermesCtr& d, uint64_t cap = 8) noexcept { return d.make_object_map(cap); }
-    [[nodiscard]] static logos::expected<StringView>     raw_string(HermesCtr& d, std::string_view s) noexcept { return d.make_string(s); }
+    [[nodiscard]] static logos::expected<TinyObjectMap*> raw_tiny_map(WritCtr& d, uint64_t cap = 4) noexcept { return d.make_tiny_map(cap); }
+    [[nodiscard]] static logos::expected<ArrayView>      raw_array(WritCtr& d, uint64_t cap = 4) noexcept { return d.make_array(cap); }
+    [[nodiscard]] static logos::expected<MapView>        raw_object_map(WritCtr& d, uint64_t cap = 8) noexcept { return d.make_object_map(cap); }
+    [[nodiscard]] static logos::expected<StringView>     raw_string(WritCtr& d, std::string_view s) noexcept { return d.make_string(s); }
 };
 
 }  // namespace logos::writ

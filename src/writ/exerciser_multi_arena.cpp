@@ -1,7 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes multi-arena conformance: the cross-module reference substrate that
-// logosc's `.hermes0` LIR blobs ride on. Covers
+// Writ multi-arena conformance: the cross-module reference substrate that
+// logosc's `.writ0` LIR blobs ride on. Covers
 //   • ExternalRef as an AnyVal Pod niche — encode/decode (incl. 24+32-bit maxima),
 //     detection, and clone-preserves-verbatim (a cross-arena id must NOT be followed
 //     by deep-copy, and a Pod never is);
@@ -59,8 +59,8 @@ int main() {
     InMemoryArenaPool pool;                                 // private pool (hermetic)
 
     // Producer: publishes two strings, one of them exported by name.
-    auto prod_exp = HermesCtr::make(); CHECK(prod_exp.has_value(), 10);
-    HermesCtr prod = std::move(*prod_exp);
+    auto prod_exp = WritCtr::make(); CHECK(prod_exp.has_value(), 10);
+    WritCtr prod = std::move(*prod_exp);
     uint32_t oid_alpha = 0, oid_beta = 0;
     {
         Arena& a = prod.arena();
@@ -78,9 +78,9 @@ int main() {
         CHECK(lir_arena_root_finalize(b).has_value(), 17);
     }
 
-    // Compact to a rigid blob (the .hermes0 shape) and register the compacted holder.
+    // Compact to a rigid blob (the .writ0 shape) and register the compacted holder.
     auto compP_exp = compactify(prod); CHECK(compP_exp.has_value(), 18);
-    HermesCtr compP = std::move(*compP_exp);
+    WritCtr compP = std::move(*compP_exp);
     auto hP = register_lir_arena(compP, pool); CHECK(hP.has_value(), 19);
     arena_id_t aid_P = hP->arena_id;
     CHECK(aid_P.is_valid(), 20);
@@ -111,8 +111,8 @@ int main() {
     // A doc whose root array holds [ExternalRef, int Pod, Ref string]. After a
     // compaction the ExternalRef must decode identically (NOT followed/rewritten).
     {
-        auto d_exp = HermesCtr::make(); CHECK(d_exp.has_value(), 40);
-        HermesCtr d = std::move(*d_exp);
+        auto d_exp = WritCtr::make(); CHECK(d_exp.has_value(), 40);
+        WritCtr d = std::move(*d_exp);
         Arena& a = d.arena();
         auto arr = ObjectArray::create(a, 4); CHECK(arr.has_value(), 41);
         auto str = ArenaString::create(a, "payload"); CHECK(str.has_value(), 42);
@@ -124,7 +124,7 @@ int main() {
         d.set_root(root);
 
         auto comp_exp = compactify(d); CHECK(comp_exp.has_value(), 43);
-        HermesCtr comp = std::move(*comp_exp);
+        WritCtr comp = std::move(*comp_exp);
         ArrayView rv = as_array(comp.root(), comp.holder());
         CHECK(rv.size() == 3, 44);
         AnyVal e0 = rv.get(0);
@@ -148,15 +148,15 @@ int main() {
         CHECK((*entries)[1].file_name == "liblogos-producer.a", 54);
 
         // Register a (trivial) consumer module B and attach its import table.
-        auto cb_exp = HermesCtr::make(); CHECK(cb_exp.has_value(), 55);
-        HermesCtr consB = std::move(*cb_exp);
+        auto cb_exp = WritCtr::make(); CHECK(cb_exp.has_value(), 55);
+        WritCtr consB = std::move(*cb_exp);
         {
             auto bexp = lir_arena_root_begin(consB, "modB", {}); CHECK(bexp.has_value(), 56);
             ArenaPublishBuilder b = std::move(*bexp);
             CHECK(lir_arena_root_finalize(b).has_value(), 57);
         }
         auto compB_exp = compactify(consB); CHECK(compB_exp.has_value(), 58);
-        HermesCtr compB = std::move(*compB_exp);
+        WritCtr compB = std::move(*compB_exp);
         auto hB = register_lir_arena(compB, pool); CHECK(hB.has_value(), 59);
         arena_id_t aid_B = hB->arena_id;
         pool.set_module_imports(aid_B, "liblogos-modb.a", *entries);
@@ -171,6 +171,6 @@ int main() {
         CHECK(!resolve_external_ref_local(aid_B, ExternalRef{arena_id_t{9}, 1}, pool).ok(), 62);
     }
 
-    std::printf("hermes multi-arena (ExternalRef niche + pool + publish/resolve + import table): OK\n");
+    std::printf("writ multi-arena (ExternalRef niche + pool + publish/resolve + import table): OK\n");
     return 0;
 }

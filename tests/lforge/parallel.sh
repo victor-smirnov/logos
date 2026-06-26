@@ -2,7 +2,7 @@
 # B1.3: lforge fans out per-file lib compilation in parallel.
 #
 # Validates that:
-#   - a multi-file lib target produces one .o + .hermes0 per source file
+#   - a multi-file lib target produces one .o + .writ0 per source file
 #     under .lforge/<profile>/_files/<lib>/
 #   - the final lib<name>.a contains all per-file members
 #   - editing one file rebuilds only that file's per-file artifacts
@@ -21,7 +21,7 @@ trap 'rm -rf "$PROJ"' EXIT
 mkdir -p "$PROJ/src/core" "$PROJ/src"
 
 # A 4-file lib + a bin that exercises all of them.
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "demo",
     version: "0.1.0",
@@ -66,11 +66,11 @@ grep -q "compiling 4 file(s) in parallel" "$PROJ/b1.log" || {
 # Per-file artifacts present.
 for stem in a b c d; do
     [ -f "$PROJ/.lforge/debug/_files/core/$stem.o"       ] || { echo "FAIL: $stem.o missing"; exit 1; }
-    [ -f "$PROJ/.lforge/debug/_files/core/$stem.hermes0" ] || { echo "FAIL: $stem.hermes0 missing"; exit 1; }
+    [ -f "$PROJ/.lforge/debug/_files/core/$stem.writ0" ] || { echo "FAIL: $stem.writ0 missing"; exit 1; }
     [ -f "$PROJ/.lforge/debug/_files/core/$stem.hm0"     ] || { echo "FAIL: $stem.hm0 missing"; exit 1; }
 done
 
-# Final archive exists, contains every per-file .o and .hermes0.
+# Final archive exists, contains every per-file .o and .writ0.
 [ -f "$PROJ/.lforge/debug/out/libcore.a" ] || { echo "FAIL: libcore.a missing"; exit 1; }
 ar_list=$(ar t "$PROJ/.lforge/debug/out/libcore.a")
 for stem in a b c d; do

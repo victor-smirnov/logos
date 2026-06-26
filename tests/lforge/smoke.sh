@@ -13,7 +13,7 @@ PROJ=$(mktemp -d)
 trap 'rm -rf "$PROJ"' EXIT
 
 mkdir -p "$PROJ/src"
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "smoke",
     version: "0.1.0",
@@ -60,7 +60,7 @@ if [ -d "$PROJ/.lforge" ]; then
 fi
 
 # Missing manifest → error exit
-rm -f "$PROJ/lforge.hermes"
+rm -f "$PROJ/lforge.writ"
 LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > /dev/null 2>&1 && rc=$? || rc=$?
 if [ "$rc" = "0" ]; then
     echo "FAIL: build with no manifest should fail"

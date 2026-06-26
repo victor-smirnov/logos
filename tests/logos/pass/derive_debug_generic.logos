@@ -12,8 +12,8 @@
 
 package main;
 
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.anyval;
 use logos.std.compiler.metaprog;
 use logos.std.fmt;
 use logos.mem.string;

@@ -21,9 +21,9 @@ namespace logos::writ {
 // recurses into child values.
 
 [[nodiscard]] logos::expected<std::vector<uint8_t>>
-binary_encode(const HermesCtr& doc) noexcept;
+binary_encode(const WritCtr& doc) noexcept;
 
-[[nodiscard]] logos::expected<HermesCtr>
+[[nodiscard]] logos::expected<WritCtr>
 binary_decode(const uint8_t* data, size_t size) noexcept;
 
 } // namespace logos::writ

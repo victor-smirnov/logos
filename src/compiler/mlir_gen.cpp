@@ -5,7 +5,7 @@
 // Input: lir::LProgram (typed IR produced by sema_lower()).
 // Output: mlir::ModuleOp.
 //
-// All type information is pre-computed in L-IR — no Hermes lookups here.
+// All type information is pre-computed in L-IR — no Writ lookups here.
 //
 // This file: generate(), struct/array helpers, public mlir_gen() function.
 // Method definitions split across mlir_gen_types.cpp, mlir_gen_fn.cpp,
@@ -169,11 +169,11 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         if (!register_struct(sd)) return nullptr;
     pt.tick("pass0 register_struct");
 
-    for (auto& tav : prog.type_aliases)  // Stage E: TypeAliasView over the Hermes mirror
+    for (auto& tav : prog.type_aliases)  // Stage E: TypeAliasView over the Writ mirror
         type_aliases_[std::string(tav.name())] =
             logos_to_mlir(tav.type(prog.type_pool.impl()));
 
-    for (auto& cv : prog.consts)  // Stage E: ConstView over the Hermes mirror
+    for (auto& cv : prog.consts)  // Stage E: ConstView over the Writ mirror
         module_consts_[std::string(cv.name())] = cv;
 
     // Declare malloc and free for 'new' and 'delete'.
@@ -186,7 +186,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // definition link errors.
     //
     // Two distinct cases trigger a skip:
-    //   1. fn.from_binary_module — sema lowered this from a `.hermes0`
+    //   1. fn.from_binary_module — sema lowered this from a `.writ0`
     //      member; the matching `.o` member is right next to it.
     //   2. fn.name is in binary_symbols AND the name carries mono mangling
     //      markers (`$` for type-arg packs, `__` for type-method joins) —
@@ -887,7 +887,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
     std::string name(v.name());
     if (name == "AnyVal") {
         // AnyVal is lowered as a scalar i32 everywhere in MLIR.
-        // Hermes source still spells it as a struct literal (`AnyVal { raw: ... }`),
+        // Writ source still spells it as a struct literal (`AnyVal { raw: ... }`),
         // so treat that syntax as a constructor for the raw slot value.
         std::vector<std::pair<std::string, lir_view::ExprRef>> fields;
         v.each_field([&](std::string_view fn, lir_view::ExprRef val){

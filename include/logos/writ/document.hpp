@@ -18,52 +18,52 @@
 
 namespace logos::writ {
 
-// DocumentHeader — the untagged header at OFFSET 0 of every Hermes document arena:
+// DocumentHeader — the untagged header at OFFSET 0 of every Writ document arena:
 // it holds the document root (an at-rest AnyVal). Putting it at offset 0 means a
 // loaded blob always finds the root at the start.
 struct DocumentHeader {
     AnyVal root;
 };
 
-// HermesCtr — an OWNING handle to a Hermes document: the MemHolder (residency) plus
+// WritCtr — an OWNING handle to a Writ document: the MemHolder (residency) plus
 // its in-arena DocumentHeader (the root slot). Move-only (a unique owning Rc); the
 // holder's refcount is released on destruction.
-class HermesCtr {
+class WritCtr {
 public:
-    HermesCtr() noexcept = default;
+    WritCtr() noexcept = default;
 
     // Create an empty document (root = null) in a fresh holder.
-    [[nodiscard]] static logos::expected<HermesCtr>
+    [[nodiscard]] static logos::expected<WritCtr>
     make(size_t capacity = 4096, ArenaMode mode = ArenaMode::MultiChunk) noexcept {
         LOGOS_TRY(auto* h, MemHolder::make(capacity, mode));     // refcount 1
         auto hr = init_header(h);
         if (!hr) { h->unref(); return std::unexpected(std::move(hr.error())); }
-        return HermesCtr(h, *hr);
+        return WritCtr(h, *hr);
     }
 
     // Load a document from a rigid single-segment blob (a compactify() dump). The
     // DocumentHeader is at offset 0 of the blob.
-    [[nodiscard]] static logos::expected<HermesCtr>
+    [[nodiscard]] static logos::expected<WritCtr>
     from_bytes(const void* data, size_t size) noexcept {
         LOGOS_TRY(auto* h, MemHolder::from_bytes(data, size));   // refcount 1
         auto* hdr = reinterpret_cast<DocumentHeader*>(h->arena().head().data());
-        return HermesCtr(h, hdr);
+        return WritCtr(h, hdr);
     }
 
-    // Wrap an EXISTING holder as a shared-owning doc handle (the Hermes1
-    // `HermesView(holder)` / `Hermes(holder)` spelling): takes a +1 ref, so the
+    // Wrap an EXISTING holder as a shared-owning doc handle (the Writ1
+    // `WritView(holder)` / `Writ(holder)` spelling): takes a +1 ref, so the
     // holder outlives this handle; the header is at offset 0. Used by emit_module /
     // reflection to read/extend a holder owned elsewhere (e.g. prog.type_pool).
-    explicit HermesCtr(MemHolder* h) noexcept
+    explicit WritCtr(MemHolder* h) noexcept
         : holder_(h),
           header_(h ? reinterpret_cast<DocumentHeader*>(h->arena().head().data()) : nullptr) {
         if (holder_) holder_->ref();
     }
 
-    HermesCtr(HermesCtr&& o) noexcept : holder_(o.holder_), header_(o.header_) {
+    WritCtr(WritCtr&& o) noexcept : holder_(o.holder_), header_(o.header_) {
         o.holder_ = nullptr; o.header_ = nullptr;
     }
-    HermesCtr& operator=(HermesCtr&& o) noexcept {
+    WritCtr& operator=(WritCtr&& o) noexcept {
         if (this != &o) {
             if (holder_) holder_->unref();
             holder_ = o.holder_; header_ = o.header_;
@@ -71,14 +71,14 @@ public:
         }
         return *this;
     }
-    // COPYABLE — shared refcounted ownership (the Hermes1 `Hermes = Own<HermesView>`
+    // COPYABLE — shared refcounted ownership (the Writ1 `Writ = Own<WritView>`
     // semantics). A copy takes a +1 ref on the holder + shares the header; the doc
     // lives as long as any handle. Needed because logosc copies AST handles (into
     // module lists, caches, ParsedModule) rather than moving them.
-    HermesCtr(const HermesCtr& o) noexcept : holder_(o.holder_), header_(o.header_) {
+    WritCtr(const WritCtr& o) noexcept : holder_(o.holder_), header_(o.header_) {
         if (holder_) holder_->ref();
     }
-    HermesCtr& operator=(const HermesCtr& o) noexcept {
+    WritCtr& operator=(const WritCtr& o) noexcept {
         if (this != &o) {
             if (o.holder_) o.holder_->ref();
             if (holder_) holder_->unref();
@@ -86,7 +86,7 @@ public:
         }
         return *this;
     }
-    ~HermesCtr() noexcept { if (holder_) holder_->unref(); }
+    ~WritCtr() noexcept { if (holder_) holder_->unref(); }
 
     bool       is_null() const noexcept { return holder_ == nullptr; }
     explicit operator bool() const noexcept { return holder_ != nullptr; }
@@ -118,7 +118,7 @@ public:
     // ── Producer conveniences (build objects directly in this document's arena) ──
     // Thin wrappers over the container ::create factories. Returned pointers are
     // stable (never-move arena). Wire them into a parent via AnyVal::set_ref(ptr) /
-    // set_root(av). Mirror the Hermes1 make_tiny_map/make_array/make_string surface
+    // set_root(av). Mirror the Writ1 make_tiny_map/make_array/make_string surface
     // so the logosc producer (parser/codegen) is a near-mechanical rename.
     // Tiny map → RAW pointer (node-building: `node->put(...)`). Arrays/maps/strings →
     // OWNING views (the parser's handle style: `.push_back(av).get()`, `.to_anyval()`).
@@ -153,7 +153,7 @@ public:
     }
 
     // Box a wide scalar (i64/u64/f32/f64 — doesn't fit AnyVal's inline Pod niche)
-    // into this document and return a Ref AnyVal to it. The HermesCtr-encapsulated
+    // into this document and return a Ref AnyVal to it. The WritCtr-encapsulated
     // successor of the free anyval_put(arena, v) — producers box through the
     // document, never the raw arena.
     template <typename T>
@@ -175,7 +175,7 @@ public:
     size_t         blob_size() const noexcept { return holder_->arena().head().used; }
 
 private:
-    HermesCtr(MemHolder* h, DocumentHeader* hdr) noexcept : holder_(h), header_(hdr) {}
+    WritCtr(MemHolder* h, DocumentHeader* hdr) noexcept : holder_(h), header_(hdr) {}
 
     // Allocate the DocumentHeader at offset 0 of a fresh arena.
     static logos::expected<DocumentHeader*> init_header(MemHolder* h) noexcept {
@@ -187,22 +187,22 @@ private:
     DocumentHeader* header_ = nullptr;
 };
 
-// The DocumentHeader sits at offset 0 of a holder's head chunk (HermesCtr::make and
+// The DocumentHeader sits at offset 0 of a holder's head chunk (WritCtr::make and
 // compactify both place it there). Used by the multi-arena layer to reach a
-// registered module's root without a HermesCtr handle.
+// registered module's root without a WritCtr handle.
 inline DocumentHeader* doc_header(MemHolder* h) noexcept {
     return reinterpret_cast<DocumentHeader*>(h->arena().head().data());
 }
 
-// Hermes1-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
+// Writ1-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
 // MultiChunk arena: it grows by APPENDING chunks, so an existing object never moves and
 // the parser's held node ptrs / owning views stay valid across allocations (a
 // single-chunk realloc would dangle them). The trade-off: raw `base + offset`
 // addressing is INVALID across a chunk boundary, so metaprog code that walks the AST
 // must resolve()/follow Refs (position-independent) — never reconstruct `base + off`.
-[[nodiscard]] inline logos::expected<HermesCtr>
+[[nodiscard]] inline logos::expected<WritCtr>
 make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::MultiChunk) noexcept {
-    return HermesCtr::make(capacity, mode);
+    return WritCtr::make(capacity, mode);
 }
 
 // Single-segment doc for METAPROG producers that address the tree by raw
@@ -212,10 +212,10 @@ make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::MultiChunk) noexce
 // and held base+offset never dangle. Lazy-zero (arena.cpp) keeps the reserve cheap
 // (only touched pages commit). Parser docs do NOT use this — they hold owning views
 // and need MultiChunk never-move; they also never base+offset across a chunk.
-[[nodiscard]] inline logos::expected<HermesCtr>
+[[nodiscard]] inline logos::expected<WritCtr>
 make_doc_single_chunk(size_t min_capacity = 0) noexcept {
     constexpr size_t PRESIZE = size_t(8) * 1024 * 1024;   // 8 MiB lazy reserve
-    return HermesCtr::make(min_capacity < PRESIZE ? PRESIZE : min_capacity,
+    return WritCtr::make(min_capacity < PRESIZE ? PRESIZE : min_capacity,
                            ArenaMode::GrowableSingleChunk);
 }
 

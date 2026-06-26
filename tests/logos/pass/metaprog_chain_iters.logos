@@ -16,7 +16,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 #[metaprog_handler("chain_a")]
 fn chain_a_hook(target_offset: u32) -> () {

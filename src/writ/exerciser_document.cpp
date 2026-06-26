@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes document + compaction-to-blob + reload conformance. The headline test is
+// Writ document + compaction-to-blob + reload conformance. The headline test is
 // RIGID RELOCATION: compactify packs the doc into a single segment; dumping its
 // bytes and reloading them at a DIFFERENT address must still resolve every self-
 // relative pointer (the block moved rigidly, so all internal deltas stay valid).
@@ -23,9 +23,9 @@ using namespace logos::writ;
 
 int main() {
     // ── Build a document: root = { "name": "Ada", "nums": [1, 2, 3] } ──────────
-    auto doc_exp = HermesCtr::make();
+    auto doc_exp = WritCtr::make();
     CHECK(doc_exp.has_value(), 1);
-    HermesCtr doc = std::move(*doc_exp);
+    WritCtr doc = std::move(*doc_exp);
     Arena& a = doc.arena();
     CHECK(doc.root().is_null(), 2);                          // empty root initially
 
@@ -43,7 +43,7 @@ int main() {
     // ── Compactify → single rigid segment ──────────────────────────────────────
     auto comp_exp = compactify(doc);
     CHECK(comp_exp.has_value(), 7);
-    HermesCtr comp = std::move(*comp_exp);
+    WritCtr comp = std::move(*comp_exp);
     CHECK(comp.arena().chunk_count() == 1, 8);              // genuinely one segment
     {
         MapView m = as_map(comp.root(), comp.holder());
@@ -57,9 +57,9 @@ int main() {
     std::vector<uint8_t> blob(comp.blob_data(), comp.blob_data() + comp.blob_size());
     CHECK(!blob.empty(), 12);
 
-    auto re_exp = HermesCtr::from_bytes(blob.data(), blob.size());
+    auto re_exp = WritCtr::from_bytes(blob.data(), blob.size());
     CHECK(re_exp.has_value(), 13);
-    HermesCtr re = std::move(*re_exp);
+    WritCtr re = std::move(*re_exp);
     // The reloaded arena's base differs from the compact one — self-relative ptrs
     // must still resolve.
     CHECK(re.blob_data() != comp.blob_data(), 14);
@@ -72,6 +72,6 @@ int main() {
         CHECK(av.get(0).as_i56() == 1 && av.get(1).as_i56() == 2 && av.get(2).as_i56() == 3, 18);
     }
 
-    std::printf("hermes document + compactify + blob reload (rigid relocation): OK\n");
+    std::printf("writ document + compactify + blob reload (rigid relocation): OK\n");
     return 0;
 }

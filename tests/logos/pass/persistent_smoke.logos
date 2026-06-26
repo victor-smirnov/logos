@@ -26,25 +26,25 @@ use logos.lang.mem;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
 use logos.lang.drop;
 use logos.lang.option;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
 
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name":     "smoke",
     "ctr_id":   <type:u64>,
     "snp_id":   <type:u64>,
     "block_id": <type:u64>,
 };
 
-pub const DataCfg: HermesStatic = @{
+pub const DataCfg: WritStatic = @{
     "key":    <type:u64>,
     "value":  <type:u64>,
     "fanout": 8,
 };
 
-pub const DirCfg: HermesStatic = @{
+pub const DirCfg: WritStatic = @{
     "key":    <type:u64>,
     "fanout": 16,
 };

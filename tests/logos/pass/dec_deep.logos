@@ -1,18 +1,18 @@
-// Decimals nested inside documents on hermes2: array/map members, clone +
+// Decimals nested inside documents on writ2: array/map members, clone +
 // equal walkers see through, value-compare ignores representation.
 package dec_deep;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.array;
-use logos.lang.hermes.hmap;
-use logos.lang.hermes.hstring;
-use logos.lang.hermes.decimal;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.lang.writ.decimal;
 use logos.lang.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(16384);
-    let h: &Hermes = rc.deref();
+    let rc: Rc<Writ> = writ_rc(16384);
+    let h: &Writ = rc.deref();
 
     // Decimals as container members.
     let arr: &mut HArray<HAny> = h.array(4);

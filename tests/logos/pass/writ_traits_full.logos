@@ -1,0 +1,42 @@
+// equal + hash + stringify agree across parsed documents (writ2 successor of
+// the Writ1 traits suite): equal docs hash equal & render identically;
+// different docs differ everywhere.
+package writ_traits_full;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.mem.writ.equal;
+use logos.mem.writ.hashing;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = rc.deref();
+
+    let r1: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
+    let r2: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
+    let r3: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 4]}");
+
+    // equal: r1 == r2, r1 != r3.
+    if !writ_equal(r1, r2) { return 1; }
+    if writ_equal(r1, r3)  { return 2; }
+
+    // hash: equal docs hash equal; the different doc differs.
+    let h1: u64 = writ_hash(r1);
+    let h2: u64 = writ_hash(r2);
+    let h3: u64 = writ_hash(r3);
+    if h1 != h2 { return 3; }
+    if h1 == h3 { return 4; }
+
+    // stringify: equal docs render identically.
+    let s1: String = stringify(r1);
+    let s2: String = stringify(r2);
+    let s3: String = stringify(r3);
+    if !s1.eq_str(s2.as_str()) { return 5; }
+    if s1.eq_str(s3.as_str())  { return 6; }
+
+    return 0;
+}

@@ -9,9 +9,9 @@
 
 namespace logos::writ {
 
-// AnyVal — the Hermes heterogeneous slot. ONE 8-byte word, BYTE-IDENTICAL to the
-// Logos stdlib `HAny` (stdlib/lang/hermes2/anyval.logos) — both sides read the same
-// bytes (shared wire/disk layout). The 4-byte base-relative AnyVal of Hermes1 is
+// AnyVal — the Writ heterogeneous slot. ONE 8-byte word, BYTE-IDENTICAL to the
+// Logos stdlib `HAny` (stdlib/lang/writ2/anyval.logos) — both sides read the same
+// bytes (shared wire/disk layout). The 4-byte base-relative AnyVal of Writ1 is
 // replaced by this 8-byte self-relative niche.
 //
 //   word == 0          → null  (= Ref(0))
@@ -43,7 +43,7 @@ public:
     // ── constructors ──────────────────────────────────────────────────────────
     static AnyVal null() noexcept { return AnyVal{}; }
 
-    // Inline primitive: `code` is the 7-bit Hermes type code (1..127); `v` must fit
+    // Inline primitive: `code` is the 7-bit Writ type code (1..127); `v` must fit
     // 56 signed bits (wider primitives box into a Ref).
     static AnyVal pod(int64_t v, uint8_t code) noexcept {
         AnyVal a;
@@ -57,7 +57,7 @@ public:
     bool is_pod()  const noexcept { return (word_ & 1) == 1; }
     bool is_ref()  const noexcept { return (word_ & 1) == 0 && word_ != 0; }
 
-    // Hermes1-spelling aliases (a Ref is the self-relative successor of Hermes1's
+    // Writ1-spelling aliases (a Ref is the self-relative successor of Writ1's
     // base-relative "pointer"; a Pod is its inline "value"). Kept so the logosc
     // cut-over is a near-mechanical rename — NO base/offset model is reintroduced.
     bool is_pointer() const noexcept { return is_ref(); }
@@ -69,7 +69,7 @@ public:
     bool    as_bool()  const noexcept { return (word_ >> 8) != 0; }
 
     // Typed inline-value accessors (the i56 payload narrowed to T). `value_type_hash`
-    // is the Hermes1 spelling of `pod_code`.
+    // is the Writ1 spelling of `pod_code`.
     template <typename T>
     T as_value() const noexcept { return static_cast<T>(as_i56()); }
     uint8_t value_type_hash() const noexcept { return pod_code(); }
@@ -80,7 +80,7 @@ public:
         return pod(static_cast<int64_t>(v), code);
     }
 
-    // 1-arg from_value — deduce the Pod type code from T (the Hermes1 overload that
+    // 1-arg from_value — deduce the Pod type code from T (the Writ1 overload that
     // read TypeTraits<T>::hash). Readers narrow via as_value<T>() so the exact code is
     // not load-bearing, but match the natural width for fidelity.
     template <typename T>
@@ -114,7 +114,7 @@ public:
     }
 
     // Native typed pointer to the Ref target (NO base — self-relative resolves in
-    // place). The Hermes1 cut-over drops the old `base` argument at every call site.
+    // place). The Writ1 cut-over drops the old `base` argument at every call site.
     template <typename T> T* as_ptr() const noexcept {
         return reinterpret_cast<T*>(const_cast<uint8_t*>(resolve()));
     }
@@ -122,7 +122,7 @@ public:
     template <typename T> T* as_ptr(const void*) const noexcept { return as_ptr<T>(); }
 
     // Lower an absolute pointer into this slot's Ref (the cut-over successor of the
-    // Hermes1 base-relative `set_pointer(target, base)` — base no longer needed).
+    // Writ1 base-relative `set_pointer(target, base)` — base no longer needed).
     void set_pointer(const void* target) noexcept { set_ref(target); }
 
     // The single-segment (GrowableSingleChunk) arena offset of this Ref's target,

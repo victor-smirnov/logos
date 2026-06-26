@@ -1,7 +1,7 @@
 // Acceptance test for the zoned-types lifetime/erasure core (design doc §6,
 // docs/internals/zoned-types-design.md). A minimal type-erased storage model:
 //   - a type-erased per-block pin: `Rc<dyn Resident>`
-//   - a client `Handle` that pins its block and hands out a `HermesView`
+//   - a client `Handle` that pins its block and hands out a `WritView`
 //   - handles ESCAPE into a `Vec` (lifetime NOT tied to a `&Storage` borrow)
 //   - while the client holds a handle, `Storage` cannot free that block
 //   - per-block granularity: other blocks free independently
@@ -15,11 +15,11 @@ package test;
 
 use logos.lang.rc;
 use logos.mem.collections.vec;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
-// Local non-owning view fixture (the Hermes1 HermesView is retired; this test
-// exercises the PIN mechanics, not Hermes reads).
-struct HermesView<'a> {
+// Local non-owning view fixture (the Writ1 WritView is retired; this test
+// exercises the PIN mechanics, not Writ reads).
+struct WritView<'a> {
     base: *const u8,
     size: u64,
 }
@@ -67,8 +67,8 @@ struct Handle {
 }
 
 impl Handle {
-    fn view<'a>(self: &'a Handle) -> HermesView<'a> {
-        return HermesView { base: self.pin.base(), size: self.pin.size() };
+    fn view<'a>(self: &'a Handle) -> WritView<'a> {
+        return WritView { base: self.pin.base(), size: self.pin.size() };
     }
 }
 
@@ -106,7 +106,7 @@ fn main() -> i32 {
         held.push(st.get(0));
 
         // Read through the held view: block 0's first byte is 0xAA.
-        let v0: HermesView = held.borrow(0).view();
+        let v0: WritView = held.borrow(0).view();
         if *v0.base != 170u8 { return 1; }
 
         // Evict block 1 (nobody holds it) → freed immediately.
@@ -119,7 +119,7 @@ fn main() -> i32 {
         if pf0[0] != 0 { return 4; }   // still pinned by the held handle
 
         // Still readable through the held view after storage evicted it.
-        let v0b: HermesView = held.borrow(0).view();
+        let v0b: WritView = held.borrow(0).view();
         if *v0b.base != 170u8 { return 5; }
 
         // Drop the client's handles → last pin gone → block 0 freed.

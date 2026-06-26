@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Phase 3c — read-side view types over the L-IR Hermes mirror.
+// Phase 3c — read-side view types over the L-IR Writ mirror.
 //
 // Pattern follows TypeRef in sema.hpp: fat handle {arena*, offset} into the
 // program's TypePool arena, with kind() returning a strongly-typed schema
@@ -41,7 +41,7 @@ protected:
     // Stage B (self-relative handles): the node's mirror is addressed by its
     // ABSOLUTE pointer, resolved once at construction (self-relative AnyVal::
     // resolve() — no base threading). arena_ is retained only for offset()
-    // (the .hermes0 serialization round-trip) and ownership. nullptr = null ref.
+    // (the .writ0 serialization round-trip) and ownership. nullptr = null ref.
     const uint8_t*         ptr_ = nullptr;
     // Phase 2.B (multi-arena IR): arena_id of the arena this ref lives in.
     // INVALID_ARENA_ID = single-arena fast path (current compiler).
@@ -70,7 +70,7 @@ public:
             writ::arena_id_t aid) noexcept
         : arena_(a), ptr_(p), arena_id_(aid) {}
     // (arena, offset) — resolve against the single-chunk base (valid pre-MultiChunk;
-    // serialized .hermes0 reads + cross-arena r.offset(). Stage C/D removes the
+    // serialized .writ0 reads + cross-arena r.offset(). Stage C/D removes the
     // remaining offset sources).
     RefBase(const writ::Arena* a, writ::arena_offset_t o) noexcept
         : arena_(a), ptr_(ptr_from_off(a, o)) {}
@@ -97,7 +97,7 @@ public:
     }
     // Absolute mirror address — the stable node identity used to key the mirror
     // table's reverse (mirror→C++ node) maps. Segments never move (MultiChunk-safe);
-    // offset() is reserved for .hermes0 serialization (single rigid segment).
+    // offset() is reserved for .writ0 serialization (single rigid segment).
     const uint8_t* addr() const noexcept { return ptr_; }
     const writ::Arena*   arena()  const noexcept { return arena_; }
     // Phase 2.B accessors.
@@ -143,7 +143,7 @@ inline ChildLoc resolve_child(const RefBase& parent, writ::AnyVal av) noexcept {
         // Local ref — the child av already resolves self-relatively (no base).
         return ChildLoc{parent.arena(), av, writ::INVALID_ARENA_ID};
     }
-    // Cross-arena dispatch — hermes2 ExternalRef is an AnyVal Pod niche (no arena
+    // Cross-arena dispatch — writ2 ExternalRef is an AnyVal Pod niche (no arena
     // object): decode (arena_id, obj_id) inline and resolve via the global pool.
     writ::ExternalRef ref = writ::decode_external_ref(av);
     auto r = writ::resolve_external_ref(ref);
@@ -268,7 +268,7 @@ inline std::vector<std::string_view> read_string_array(const RefBase& r, uint8_t
 class StmtRef;
 class PatRef;
 class BlockRef;
-class HermesValRef;
+class WritValRef;
 
 // ── ExprRef ───────────────────────────────────────────────────────────────
 
@@ -364,7 +364,7 @@ public:
     }
 };
 
-// ── BlockRef / HermesValRef (opaque for now) ─────────────────────────────
+// ── BlockRef / WritValRef (opaque for now) ─────────────────────────────
 
 class BlockRef : public detail::RefBase {
 public:
@@ -377,18 +377,18 @@ public:
     void each_stmt(F&& f) const noexcept;
 };
 
-class HermesValRef : public detail::RefBase {
+class WritValRef : public detail::RefBase {
 public:
-    HermesValRef() = default;
+    WritValRef() = default;
     using RefBase::RefBase;
 
-    lir_schema::hermes_val::Code kind() const noexcept {
-        return lir_schema::hermes_val::Code(
+    lir_schema::writ_val::Code kind() const noexcept {
+        return lir_schema::writ_val::Code(
             int32_t(writ::schema::variant_of(schema_type_code())));
     }
 };
 
-// ── Declaration views (Stage E: LProgram decl layer → Hermes mirror) ────────
+// ── Declaration views (Stage E: LProgram decl layer → Writ mirror) ────────
 //
 // DeclRef is the shared fat-handle for top-level declaration mirrors; the
 // per-kind views (TypeAliasView, …) wrap it and decode sparse fields lazily,
@@ -691,7 +691,7 @@ struct FnWhereBoundView {
     }
 };
 
-// LFunction decl view — the whole declaration as a Hermes mirror map.
+// LFunction decl view — the whole declaration as a Writ mirror map.
 struct FunctionView {
     DeclRef self;
 
@@ -1431,7 +1431,7 @@ struct ReflectGlobalView {
 namespace logos::compiler::lir {
 enum class MetacallRetTag : int32_t {
     Bool, I8, I16, I24, I32, I56, I64, U8, U16, U24, U32, U56, U64,
-    F32, F64, Str, HermesStatic, Hermes, ExprBlob, ItemBlob
+    F32, F64, Str, WritStatic, Writ, ExprBlob, ItemBlob
 };
 } // namespace logos::compiler::lir
 namespace logos::compiler::lir_view {
@@ -1653,7 +1653,7 @@ struct ETupleIndexView {
 struct ECastView {
     ExprRef self;
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
-    std::string_view hermes_build_fn() const noexcept {
+    std::string_view writ_build_fn() const noexcept {
         return detail::read_string(self, ek::HERMES_BUILD_FN.code);
     }
 };
@@ -2236,44 +2236,44 @@ struct EReflectOfView {
     }
 };
 
-// ── HermesVal views ──────────────────────────────────────────────────────
+// ── WritVal views ──────────────────────────────────────────────────────
 //
-// HermesVal is the Hermes-SDN literal tree under @{...}. Each variant maps
-// to a schema_type_code in lir_schema::hermes_val::Code. Mirror writers in
+// WritVal is the Writ-SDN literal tree under @{...}. Each variant maps
+// to a schema_type_code in lir_schema::writ_val::Code. Mirror writers in
 // lir_mirror.cpp (emit_hv) populate the keys read here.
 
 namespace hvk = lir_schema::hv_keys;
 
-struct HVNullView   { HermesValRef self; };
+struct HVNullView   { WritValRef self; };
 
 struct HVBoolView {
-    HermesValRef self;
+    WritValRef self;
     bool value() const noexcept { return detail::read_bool(self, hvk::BOOL_VALUE.code); }
 };
 
 struct HVIntView {
-    HermesValRef self;
+    WritValRef self;
     int64_t value() const noexcept { return detail::read_i64(self, hvk::INT_VALUE.code); }
 };
 
 struct HVFloatView {
-    HermesValRef self;
+    WritValRef self;
     double value() const noexcept { return detail::read_f64(self, hvk::FLOAT_VALUE.code); }
 };
 
 struct HVStrView {
-    HermesValRef self;
+    WritValRef self;
     std::string_view value() const noexcept { return detail::read_string(self, hvk::STR_VALUE.code); }
 };
 
 struct HVCaptureView {
-    HermesValRef self;
+    WritValRef self;
     uint32_t param_index() const noexcept { return detail::read_u32(self, hvk::PARAM_INDEX.code); }
     uint32_t value_index() const noexcept { return detail::read_u32(self, hvk::VALUE_INDEX.code); }
 };
 
 struct HVTypeView {
-    HermesValRef self;
+    WritValRef self;
     uint32_t kind() const noexcept { return detail::read_u32(self, hvk::TYPE_KIND.code); }
     uint64_t uid()  const noexcept { return detail::read_u64(self, hvk::TYPE_UID.code); }
     std::string_view name() const noexcept { return detail::read_string(self, hvk::STR_VALUE.code); }
@@ -2281,11 +2281,11 @@ struct HVTypeView {
 
 // HVMap entries are stored as two parallel arrays:
 //   keys[i]   — Varchar (string-keyed) or i64 (int-keyed); never mixed.
-//   values[i] — RelPtr<HermesVal>.
+//   values[i] — RelPtr<WritVal>.
 // `key_type` is "" for string keys (ObjectMap) or "I32"/"U32"/"I64"/"U64"
 // for the typed-map specialisations.
 struct HVMapView {
-    HermesValRef self;
+    WritValRef self;
     std::string_view key_type() const noexcept {
         return detail::read_string(self, hvk::TYPE_NAME.code);
     }
@@ -2295,14 +2295,14 @@ struct HVMapView {
         if (av.is_null()) return 0;
         return av.as_ptr<const writ::ObjectArray>()->size();
     }
-    HermesValRef value(uint64_t i) const noexcept {
+    WritValRef value(uint64_t i) const noexcept {
         auto av = self.mirror()->get(hvk::MAP_VALUES.code);
         if (av.is_null()) return {};
         auto* arr = av.as_ptr<const writ::ObjectArray>();
         if (i >= arr->size()) return {};
         auto el = arr->get(i);
         if (el.is_null()) return {};
-        return detail::make_sub_ref<HermesValRef>(self, el);
+        return detail::make_sub_ref<WritValRef>(self, el);
     }
     std::string_view str_key(uint64_t i) const noexcept {
         auto av = self.mirror()->get(hvk::MAP_KEYS.code);
@@ -2325,7 +2325,7 @@ struct HVMapView {
 };
 
 struct HVArrayView {
-    HermesValRef self;
+    WritValRef self;
     std::string_view elem_type() const noexcept {
         return detail::read_string(self, hvk::TYPE_NAME.code);
     }
@@ -2334,25 +2334,25 @@ struct HVArrayView {
         if (av.is_null()) return 0;
         return av.as_ptr<const writ::ObjectArray>()->size();
     }
-    HermesValRef elem(uint64_t i) const noexcept {
+    WritValRef elem(uint64_t i) const noexcept {
         auto av = self.mirror()->get(hvk::ELEMS.code);
         if (av.is_null()) return {};
         auto* arr = av.as_ptr<const writ::ObjectArray>();
         if (i >= arr->size()) return {};
         auto el = arr->get(i);
         if (el.is_null()) return {};
-        return detail::make_sub_ref<HermesValRef>(self, el);
+        return detail::make_sub_ref<WritValRef>(self, el);
     }
 };
 
-namespace hl = lir_schema::hermes_lit_keys;
+namespace hl = lir_schema::writ_lit_keys;
 
-struct EHermesLitView {
+struct EWritLitView {
     ExprRef self;
-    HermesValRef root() const noexcept {
+    WritValRef root() const noexcept {
         auto av = self.mirror()->get(hl::ROOT.code);
         if (av.is_null()) return {};
-        return detail::make_sub_ref<HermesValRef>(self, av);
+        return detail::make_sub_ref<WritValRef>(self, av);
     }
     bool     has_captures()        const noexcept { return detail::read_bool(self, hl::HAS_CAPTURES.code); }
     uint32_t capture_param_count() const noexcept { return detail::read_u32(self, hl::CAPTURE_PARAM_COUNT.code); }
@@ -3039,7 +3039,7 @@ inline bool is_reborrow_shape(ExprRef e, ExprRef* out_varref = nullptr) noexcept
     return true;
 }
 
-// ── Stage E: handle to a Hermes ObjectMap held as an LProgram member ─────────
+// ── Stage E: handle to a Writ ObjectMap held as an LProgram member ─────────
 // Replaces a C++ std::unordered_map<string,…>. Like DeclRef it stores the arena
 // + the stable header address (ObjectMap::grow re-points only the internal
 // buffer, never the 24-byte header). Read-only here (get/has/for_each/size);

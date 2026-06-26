@@ -1,0 +1,41 @@
+// Trait-walker edge regressions on writ2: empty containers, null inside
+// containers, key-order independence of equal/hash, scalar/container kind walls.
+package writ_traits_bugfix;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.mem.writ.equal;
+use logos.mem.writ.hashing;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = rc.deref();
+
+    // Empty containers equal themselves, not each other.
+    let ea: HAny = parse(h, "[]");
+    let eb: HAny = parse(h, "[]");
+    let em: HAny = parse(h, "{}");
+    if !writ_equal(ea, eb) { return 1; }
+    if writ_equal(ea, em)  { return 2; }
+
+    // null inside a container participates in equality.
+    let n1: HAny = parse(h, "[null]");
+    let n2: HAny = parse(h, "[null]");
+    let n3: HAny = parse(h, "[0]");
+    if !writ_equal(n1, n2) { return 3; }
+    if writ_equal(n1, n3)  { return 4; }
+
+    // Key order does not matter for equal OR hash.
+    let m1: HAny = parse(h, "{a: 1, b: 2}");
+    let m2: HAny = parse(h, "{b: 2, a: 1}");
+    if !writ_equal(m1, m2) { return 5; }
+    if writ_hash(m1) != writ_hash(m2) { return 6; }
+
+    // Scalar / container kind walls.
+    let s: HAny = parse(h, "1");
+    if writ_equal(s, ea) { return 7; }
+    if writ_equal(s, HAny::from(true)) { return 8; }
+
+    return 0;
+}

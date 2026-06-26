@@ -11,7 +11,7 @@ PROJ=$(mktemp -d)
 trap 'rm -rf "$PROJ"' EXIT
 
 mkdir -p "$PROJ/src/core" "$PROJ/src" "$PROJ/prefix"
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "demo",
     version: "0.1.0",

@@ -1,0 +1,149 @@
+// logos.mem.writ.hashing — structural FNV-1a hashing over writ2 documents.
+//
+// writ_hash(v) folds the VALUE-SEMANTIC content of the tree (the same
+// equivalence classes as mem.writ2.equal: inline and boxed ints hash alike;
+// map entry order does not matter — entries are XOR-folded). Equal documents
+// hash equal; the converse is best-effort (FNV).
+//
+// Direct-walker foundation shared with stringify/equal (Writ1's
+// tag_dispatch WritHash table is retired).
+
+package logos.mem.writ.hashing;
+
+use logos.lang.writ.anyval;     // HAny, h2_type_code
+use logos.lang.writ.array;      // HArray<HAny>
+use logos.lang.writ.hmap;       // HMap<HString, HAny>
+use logos.lang.writ.hstring;    // HString
+use logos.lang.str;
+use logos.lang.arith;          // wrapping_mul (FNV intentionally wraps)
+
+pub fn fnv_init() -> u64 { return 14695981039346656037u64; }
+
+pub fn fnv_mix_u64(h: u64, v: u64) -> u64 {
+    let mut x: u64 = h;
+    let mut i: i64 = 0;
+    while i < 8 {
+        x = wrapping_mul(x ^ ((v >> ((i as u64) * 8u64)) & 0xFFu64), 1099511628211u64);
+        i = i + 1;
+    }
+    return x;
+}
+
+fn fnv_mix_byte(h: u64, b: u8) -> u64 {
+    return wrapping_mul(h ^ (b as u64), 1099511628211u64);
+}
+
+// Per-kind salts keep cross-kind collisions away (array vs map vs string...).
+pub fn writ_hash(v: HAny) -> u64 {
+    if v.is_null()  { return fnv_mix_u64(fnv_init(), 0u64); }
+    if v.is_bool()  { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 2u64), if v.as_bool() { 1u64 } else { 0u64 }); }
+    if v.is_int()   { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 3u64), v.as_i64() as u64); }
+    if v.is_float() { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 4u64), v.as_f64() as u64); }
+    if v.is_string() {
+        unsafe {
+            let hs: &HString = &*(v.resolve() as *const HString);
+            let s: str = hs.as_str();
+            let mut h: u64 = fnv_mix_u64(fnv_init(), 5u64);
+            h = fnv_mix_u64(h, s.len() as u64);
+            let mut i: i64 = 0;
+            while i < s.len() {
+                h = fnv_mix_byte(h, unsafe { *((s.as_ptr() as i64 + i) as *const u8) });
+                i = i + 1;
+            }
+            return h;
+        }
+    }
+    if v.is_array() {
+        unsafe {
+            let a: &HArray<HAny> = &*(v.resolve() as *const HArray<HAny>);
+            let n: i64 = a.len();
+            let mut h: u64 = fnv_mix_u64(fnv_init(), 6u64);
+            h = fnv_mix_u64(h, n as u64);
+            let mut i: i64 = 0;
+            while i < n {
+                h = fnv_mix_u64(h, writ_hash(a.get(i)));
+                i = i + 1;
+            }
+            return h;
+        }
+    }
+    if v.is_map() {
+        unsafe {
+            let m: &HMap<HString, HAny> = &*(v.resolve() as *const HMap<HString, HAny>);
+            let mut h: u64 = fnv_mix_u64(fnv_init(), 7u64);
+            h = fnv_mix_u64(h, m.len() as u64);
+            // Order-independent: XOR-fold per-entry hashes.
+            let mut acc: u64 = 0u64;
+            let slots: i64 = m.slots();
+            let mut i: i64 = 0;
+            while i < slots {
+                let k: HAny = m.key_at(i);
+                if !k.is_null() {
+                    let eh: u64 = fnv_mix_u64(writ_hash(k), writ_hash(m.val_at(i)));
+                    acc = acc ^ eh;
+                }
+                i = i + 1;
+            }
+            return fnv_mix_u64(h, acc);
+        }
+    }
+    if !v.is_ref() { return fnv_mix_u64(fnv_init(), v.raw() as u64); }
+    unsafe {
+        let p: *const u8 = v.resolve();
+        let tc: u64 = h2_type_code(p);
+        // Typed dense arrays: fold raw element bytes.
+        if tc >= 2101u64 && tc <= 2110u64 {
+            let n: u64 = *(p as *const u64);
+            let w: i64 = if tc == 2101u64 || tc == 2105u64 { 1i64 }
+                else if tc == 2102u64 || tc == 2106u64 { 2i64 }
+                else if tc == 2103u64 || tc == 2107u64 || tc == 2109u64 { 4i64 }
+                else { 8i64 };
+            let d: i64 = (p as i64) + 16;
+            let elems: i64 = d + *(d as *const i64);
+            let mut h: u64 = fnv_mix_u64(fnv_mix_u64(fnv_init(), tc), n);
+            let bytes: i64 = (n as i64) * w;
+            let mut i: i64 = 0;
+            while i < bytes {
+                h = fnv_mix_byte(h, *((elems + i) as *const u8));
+                i = i + 1;
+            }
+            return h;
+        }
+        // Typed dense maps: XOR-fold (key, val) pairs (order-independent).
+        if tc >= 3101u64 && tc <= 3104u64 {
+            let n: i64 = *(p as *const i64);
+            let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };
+            let kf: i64 = (p as i64) + 16; let keys: i64 = kf + *(kf as *const i64);
+            let vf: i64 = (p as i64) + 24; let vals: i64 = vf + *(vf as *const i64);
+            let mut acc: u64 = 0u64;
+            let mut i: i64 = 0;
+            while i < n {
+                let key_i: i64 = if kw == 4 { *((keys + i * 4) as *const i32) as i64 }
+                                 else       { *((keys + i * 8) as *const i64) };
+                acc = acc ^ fnv_mix_u64(fnv_mix_u64(fnv_init(), key_i as u64),
+                                        writ_hash(h2h_at(vals + i * 8)));
+                i = i + 1;
+            }
+            return fnv_mix_u64(fnv_mix_u64(fnv_init(), tc), acc);
+        }
+        // TypedValue: fold the three fields.
+        if tc == 4115u64 {
+            let mut h: u64 = fnv_mix_u64(fnv_init(), tc);
+            let mut f: i64 = 0;
+            while f < 3 {
+                h = fnv_mix_u64(h, writ_hash(h2h_at((p as i64) + f * 8)));
+                f = f + 1;
+            }
+            return h;
+        }
+        return fnv_mix_u64(fnv_init(), tc);
+    }
+}
+
+// Materialize the at-rest HAny word at `slot_addr`.
+unsafe fn h2h_at(slot_addr: i64) -> HAny {
+    let w: i64 = *(slot_addr as *const i64);
+    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
+    return HAny::Ref((slot_addr + w) as *const u8);
+}

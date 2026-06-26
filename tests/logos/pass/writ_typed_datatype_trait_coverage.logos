@@ -1,0 +1,39 @@
+// TypedValue across the trait walkers (writ2): stringify + equal + hash +
+// clone all traverse @Type values.
+package writ_typed_datatype_trait_coverage;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.mem.writ.stringify;
+use logos.mem.writ.equal;
+use logos.mem.writ.hashing;
+use logos.mem.writ.clone;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(16384);
+    let h: &Writ = rc.deref();
+    let v1: HAny = parse(h, "@I64=42");
+    let v2: HAny = parse(h, "@I64=42");
+    let v3: HAny = parse(h, "@I64=43");
+    if v1.is_null() { return 1; }
+
+    // stringify
+    let s: String = stringify(v1);
+    if !s.eq_str("42@I64") { return 2; }
+    // equal
+    if !writ_equal(v1, v2) { return 3; }
+    if writ_equal(v1, v3)  { return 4; }
+    // hash
+    if writ_hash(v1) != writ_hash(v2) { return 5; }
+    if writ_hash(v1) == writ_hash(v3) { return 6; }
+    // clone
+    let c: Rc<Writ> = writ_clone(v1);
+    let ch: &Writ = c.deref();
+    if !writ_equal(v1, ch.root()) { return 7; }
+    let cs: String = stringify(ch.root());
+    if !cs.eq_str("42@I64") { return 8; }
+    return 0;
+}

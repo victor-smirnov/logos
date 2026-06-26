@@ -1,5 +1,5 @@
 // Zone-as-parameter Step 3: ONE generic container `ZVec<T, Z: Zone>` instantiated
-// over BOTH the Heap zone (absolute `*mut T` buffer) and the Hermes zone
+// over BOTH the Heap zone (absolute `*mut T` buffer) and the Writ zone
 // (self-relative `#[rel_ptr] HRel<T>` buffer into a never-move arena) — from a
 // SINGLE source. The zone's pointer form is a GAT `Z::Ptr<T>`; the rel_ptr field
 // auto-lowers (store target−slot) on write and auto-materialises (slot+offset) on
@@ -12,7 +12,7 @@ extern fn malloc(size: i64) -> *mut u8;
 
 // ── Zone trait ──────────────────────────────────────────────────────────────
 trait Zone {
-    type Ptr<T>;                 // GAT: heap = *mut T (absolute); hermes = HRel<T> (rel)
+    type Ptr<T>;                 // GAT: heap = *mut T (absolute); writ = HRel<T> (rel)
     type Ctx;
     unsafe fn z_alloc<T>(ctx: Self::Ctx, n: i64) -> *mut T;   // returns ABSOLUTE ptr
 }
@@ -28,7 +28,7 @@ impl Zone for Heap {
     }
 }
 
-// ── Hermes zone — self-relative HRel<T> into a never-move arena ─────────────
+// ── Writ zone — self-relative HRel<T> into a never-move arena ─────────────
 struct Arena { base: *mut u8, used: i64 }
 unsafe fn arena_new(cap: i64) -> Arena { return Arena { base: malloc(cap), used: 0i64 }; }
 unsafe fn arena_alloc(a: *mut Arena, bytes: i64) -> *mut u8 {
@@ -38,8 +38,8 @@ unsafe fn arena_alloc(a: *mut Arena, bytes: i64) -> *mut u8 {
     return p;
 }
 #[rel_ptr] struct HRel<T> { _o: i64 }            // RefRepr RelOffset (auto-convert)
-struct Hermes { }
-impl Zone for Hermes {
+struct Writ { }
+impl Zone for Writ {
     type Ptr<T> = HRel<T>;
     type Ctx = *mut Arena;
     unsafe fn z_alloc<T>(ctx: *mut Arena, n: i64) -> *mut T {
@@ -47,18 +47,18 @@ impl Zone for Hermes {
     }
 }
 
-// ── ZVec<T, Z> — ONE source. buf is the zone's pointer form; for Hermes the
+// ── ZVec<T, Z> — ONE source. buf is the zone's pointer form; for Writ the
 //    rel_ptr field auto-lowers on store / auto-materialises on load. ─────────
 struct ZVec<T, Z: Zone> { buf: Z::Ptr<T>, len: i64 }
 impl<T, Z: Zone> ZVec<T, Z> {
     // IN-PLACE init (the rel_ptr offset anchors to buf's real address).
     unsafe fn init_at(slot: *mut ZVec<T, Z>, ctx: Z::Ctx, cap: i64) {
         let raw: *mut T = Z::z_alloc::<T>(ctx, cap);
-        slot.buf = raw;          // Heap: plain store; Hermes: auto-lower to offset
+        slot.buf = raw;          // Heap: plain store; Writ: auto-lower to offset
         slot.len = 0i64;
     }
     unsafe fn set(self: *mut ZVec<T, Z>, i: i64, v: T) {
-        let b: *mut T = self.buf;   // Hermes: auto-materialise to absolute
+        let b: *mut T = self.buf;   // Writ: auto-materialise to absolute
         b[i] = v;
     }
     unsafe fn get(self: *const ZVec<T, Z>, i: i64) -> T {
@@ -81,10 +81,10 @@ fn main() -> i32 {
         let hslot: *mut ZVec<i64, Heap> = malloc(16i64) as *mut ZVec<i64, Heap>;
         let rh: i64 = run::<Heap>(HeapCtx { }, hslot);
         if rh != 500i64 { return 1i32; }
-        // Hermes — ZVec placed IN the arena (in-place), buffer also in arena.
+        // Writ — ZVec placed IN the arena (in-place), buffer also in arena.
         let mut ar: Arena = arena_new(4096i64);
-        let zslot: *mut ZVec<i64, Hermes> = arena_alloc(&mut ar as *mut Arena, 16i64) as *mut ZVec<i64, Hermes>;
-        let rz: i64 = run::<Hermes>(&mut ar as *mut Arena, zslot);
+        let zslot: *mut ZVec<i64, Writ> = arena_alloc(&mut ar as *mut Arena, 16i64) as *mut ZVec<i64, Writ>;
+        let rz: i64 = run::<Writ>(&mut ar as *mut Arena, zslot);
         if rz != 500i64 { return 2i32; }
         return 0i32;
     }

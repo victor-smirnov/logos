@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ImportTable builder (Hermes) — see import_table.hpp.
+// ImportTable builder (Writ) — see import_table.hpp.
 
 #include <logos/writ/import_table.hpp>
 #include <logos/writ/document.hpp>
@@ -21,7 +21,7 @@ logos::expected<std::vector<uint8_t>>
 build_import_table_blob(std::string_view                module_name,
                         const std::vector<ImportEntry>& imports) noexcept
 {
-    LOGOS_TRY(auto doc, HermesCtr::make());
+    LOGOS_TRY(auto doc, WritCtr::make());
     Arena& a = doc.arena();
 
     LOGOS_TRY(auto* root, TinyObjectMap::create(a, 4));
@@ -56,7 +56,7 @@ build_import_table_blob(std::string_view                module_name,
 logos::expected<std::vector<ImportEntry>>
 read_import_table_blob(const uint8_t* data, size_t size) noexcept
 {
-    LOGOS_TRY(auto doc, HermesCtr::from_bytes(data, size));
+    LOGOS_TRY(auto doc, WritCtr::from_bytes(data, size));
 
     AnyVal root = doc.root();
     if (!root.is_ref())

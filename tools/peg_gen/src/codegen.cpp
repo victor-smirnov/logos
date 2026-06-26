@@ -28,7 +28,7 @@ namespace logos::peg_gen {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Plain C++ structs — intermediate representation extracted from grammar doc.
-// Keeps the codegen itself free of Hermes navigation.
+// Keeps the codegen itself free of Writ navigation.
 // ═══════════════════════════════════════════════════════════════════════════
 
 struct NameDecl  { std::string name; int32_t code; std::string group; };
@@ -103,7 +103,7 @@ struct GrammarInfo {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GrammarReader — navigates Hermes grammar document → GrammarInfo
+// GrammarReader — navigates Writ grammar document → GrammarInfo
 // ═══════════════════════════════════════════════════════════════════════════
 
 static std::string read_str(AnyVal val, MemHolder* h) {
@@ -128,7 +128,7 @@ static std::string to_pascal(const std::string& snake) {
 
 class GrammarReader {
 public:
-    static GrammarInfo read(const logos::writ::HermesView& doc,
+    static GrammarInfo read(const logos::writ::WritView& doc,
                             const std::vector<ResolvedModule>&  all_modules) {
         GrammarInfo g;
         MemHolder* h = doc.holder();
@@ -666,7 +666,7 @@ private:
         if (!g_.exports.empty()) {
             w.line("// Entry points for exported rules.");
             for (const auto& e : g_.exports)
-                w.fmt("logos::writ::Hermes parse_{}();", e);
+                w.fmt("logos::writ::Writ parse_{}();", e);
             w.line();
         }
 
@@ -768,7 +768,7 @@ private:
         }
 
         w.line();
-        w.line("logos::writ::Hermes doc_;");
+        w.line("logos::writ::Writ doc_;");
         w.line("std::string_view         source_;");
         w.line("size_t                   pos_ = 0;");
         w.line("uint32_t                 line_ = 1;  // current source line (1-based)");
@@ -1315,7 +1315,7 @@ private:
         // Helper lambda in generated code: try to match a suffix string.
         w.line("// Integer type suffix (longest match).");
         w.line("// A digit-run-trailing '_' followed by s/u starts a _sNN/_uNN suffix —");
-        w.line("// give it back to the suffix matcher (hermes-style _s64; harmless otherwise).");
+        w.line("// give it back to the suffix matcher (writ-style _s64; harmless otherwise).");
         w.line("if (pos_ > start && source_[pos_-1] == '_' && pos_ < source_.size() &&");
         w.line("    (source_[pos_] == 's' || source_[pos_] == 'u')) --pos_;");
         w.line("auto try_suffix = [&](std::string_view sfx) -> bool {");
@@ -1392,7 +1392,7 @@ private:
 
                 w.fmt("// {} = /{}/", t.name, pat);
                 // Leading-dot floats (.5): emitted ONLY when the grammar has no "."
-                // literal token (e.g. the hermes SDN grammar) AND the FLOAT pattern
+                // literal token (e.g. the writ SDN grammar) AND the FLOAT pattern
                 // allows an empty integer part ([0-9]*\.). With a DOT token (logos),
                 // t.1.0 must stay DOT + INTEGER + DOT + INTEGER.
                 bool grammar_has_dot_literal = false;
@@ -1707,7 +1707,7 @@ private:
         w.line("// ── Public entry points ───────────────────────────────────────────────────");
         w.line();
         for (const auto& e : g_.exports) {
-            w.fmt("logos::writ::Hermes {}::parse_{}() {{", parser_class_, e);
+            w.fmt("logos::writ::Writ {}::parse_{}() {{", parser_class_, e);
             w.indent();
             // MultiChunk (never-move: the parser holds node ptrs/views across
             // allocations + ObjectArray/Map::grow assume the header never moves; a
@@ -1723,14 +1723,14 @@ private:
             w.line("doc_ = logos::writ::make_doc(64ull * 1024 * 1024).get();");
             w.fmt("AnyVal root = rule_{}();", e);
             // Recovery instead of assertion (Meta-Sprint M0.2): parse failure
-            // returns an empty Hermes doc; the caller's ast.is_null() check
+            // returns an empty Writ doc; the caller's ast.is_null() check
             // takes the error path. Closes B-mv-05/06/07/08 and B-lx-01/02.
             w.line("if (root.is_null()) {");
             w.indent();
             w.fmt("std::fprintf(stderr, \"parse error in {}: expected {} (near line %u)\\n\",",
                   e, e);
             w.line("             next_line());");
-            w.line("return logos::writ::Hermes{};  // null doc; caller handles error");
+            w.line("return logos::writ::Writ{};  // null doc; caller handles error");
             w.dedent();
             w.line("}");
             w.line("doc_.set_root(root);");
@@ -1878,7 +1878,7 @@ private:
         w.line("have_la_  = saved_la;");
         w.line("la_       = saved_tok_;");
         w.line("line_     = saved_line_;");
-        w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
+        w.line("// arena_rollback suppressed — AST lives until Writ destruction");
         w.dedent();
         w.line("}");
         w.line();
@@ -1987,7 +1987,7 @@ private:
                 w.line("}");
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
-                w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
+                w.line("// arena_rollback suppressed — AST lives until Writ destruction");
                 w.fmt("{}: ;", done_lbl);
                 w.dedent();
                 w.line("}");
@@ -2013,7 +2013,7 @@ private:
             w.line("}");
             w.fmt("{}: ;", fail_lbl);
             w.line("pos_ = opt_pos_; have_la_ = opt_la_; la_ = opt_tok_; line_ = opt_line_;");
-            w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
+            w.line("// arena_rollback suppressed — AST lives until Writ destruction");
             w.fmt("{}: ;", done_lbl);
             w.dedent();
             w.line("}");
@@ -2054,7 +2054,7 @@ private:
                 }
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-                w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
+                w.line("// arena_rollback suppressed — AST lives until Writ destruction");
                 w.line("break;");
                 w.dedent();
                 w.line("}");
@@ -2086,7 +2086,7 @@ private:
                 }
                 w.fmt("{}: ;", fail_lbl);
                 w.line("pos_ = rep_pos_; have_la_ = rep_la_; la_ = rep_tok_; line_ = rep_line_;");
-                w.line("// arena_rollback suppressed — AST lives until Hermes destruction");
+                w.line("// arena_rollback suppressed — AST lives until Writ destruction");
                 w.line("break;");
                 w.dedent();
                 w.line("}");
@@ -2233,7 +2233,7 @@ private:
                      const std::vector<std::string>& captures,
                      const std::string& out_cap = "") {
         int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
-        w.fmt("auto* node = logos::writ::HermesAccess::raw_tiny_map(doc_, {}).get();", slot_count);
+        w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
         for (const auto& field : action.fields) {
             const auto& expr = field.expr;
@@ -2259,7 +2259,7 @@ private:
                 // rule captures hold arena object offsets.
                 size_t idx = size_t(expr.index);
                 if (idx < captures.size() && !captures[idx].empty()) {
-                    w.fmt("node->put({}, {}, logos::writ::HermesAccess::arena(doc_)).get();",
+                    w.fmt("node->put({}, {}, logos::writ::WritAccess::arena(doc_)).get();",
                           field_const, captures[idx]);
                 } else {
                     w.fmt("// {} : ${}  — capture index out of range", field.name, idx);
@@ -2270,7 +2270,7 @@ private:
             case int32_t(ast::FOLD_CAPTURE): {
                 // $0 — the fold accumulator: the result of the preceding sequence item.
                 if (!cur_fold_var_.empty()) {
-                    w.fmt("node->put({}, {}, logos::writ::HermesAccess::arena(doc_)).get();",
+                    w.fmt("node->put({}, {}, logos::writ::WritAccess::arena(doc_)).get();",
                           field_const, cur_fold_var_);
                 } else {
                     w.fmt("// {} : $0  — no fold context (FOLD_CAPTURE outside fold REP)", field.name);
@@ -2282,14 +2282,14 @@ private:
                 // $... — use the rule-captures collector built during item matching.
                 // rcap_VAR was declared before the items and populated by every RULE_REF.
                 // TOKEN_REF captures are NOT included — they're structural punctuation.
-                w.fmt("node->put({}, {}.to_anyval(), logos::writ::HermesAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, {}.to_anyval(), logos::writ::WritAccess::arena(doc_)).get();",
                       field_const, rcap_var_);
                 break;
             }
 
             case int32_t(ast::STR_LIT): {
                 // Symbolic name (e.g. MAP_NODE) → NamedCode value.
-                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::writ::HermesAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, AnyVal::from_value({}::{}), logos::writ::WritAccess::arena(doc_)).get();",
                       field_const, ast_ns_, expr.value);
                 // When writing the CODE discriminant, mirror it into the
                 // TinyObjectMap header as schema_type_code so runtime dispatch
@@ -2302,7 +2302,7 @@ private:
             }
 
             case int32_t(ast::INT_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::writ::HermesAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, AnyVal::from_value(int32_t({})), logos::writ::WritAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 if (field.name == "CODE") {
                     w.fmt("node->set_schema_type_code(logos::writ::schema::ast(int32_t({})));",
@@ -2312,7 +2312,7 @@ private:
             }
 
             case int32_t(ast::BOOL_LIT): {
-                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::writ::HermesAccess::arena(doc_)).get();",
+                w.fmt("node->put({}, AnyVal::from_value(uint8_t({})), logos::writ::WritAccess::arena(doc_)).get();",
                       field_const, expr.int_val);
                 break;
             }
@@ -2323,7 +2323,7 @@ private:
             }
         }
         // Emit SRC_LINE (source line number of the first token — always present).
-        w.fmt("node->put({}::SRC_LINE, AnyVal::from_value(first_line_), logos::writ::HermesAccess::arena(doc_)).get();",
+        w.fmt("node->put({}::SRC_LINE, AnyVal::from_value(first_line_), logos::writ::WritAccess::arena(doc_)).get();",
               ast_ns_);
         w.line("{");
         w.indent();

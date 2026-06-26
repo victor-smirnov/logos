@@ -1,0 +1,59 @@
+// Structural equality for typed writ2 containers (Array<i32> / Map<i32,AnyVal>).
+// Documents come from static @-literals; writ_equal walks by value semantics
+// (order-independent for maps, raw-byte for typed array payloads).
+package writ_typed_container_equal;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.anyval;
+use logos.mem.writ.equal;
+
+// Inlined root read (BC flags a borrow-typed HAny against the local view).
+unsafe fn root_of(hs: &WritStatic) -> HAny {
+    let base: *const u8 = hs.ptr;
+    let w: i64 = *(base as *const i64);
+    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
+    return HAny::Ref((base as i64 + w) as *const u8);
+}
+
+pub unsafe fn main() -> i32 {
+    // 1. Array<i32>: identical docs are equal.
+    let a1: WritStatic = @<I32>[1, 2, 3];
+    let b1: WritStatic = @<I32>[1, 2, 3];
+    if !writ_equal(root_of(&a1), root_of(&b1)) { return 3; }
+
+    // 2. Different last element → not equal.
+    let b2: WritStatic = @<I32>[1, 2, 4];
+    if writ_equal(root_of(&a1), root_of(&b2)) { return 6; }
+
+    // 3. Different lengths → not equal.
+    let b3: WritStatic = @<I32>[1, 2];
+    if writ_equal(root_of(&a1), root_of(&b3)) { return 9; }
+
+    // 4. Negative elements roundtrip.
+    let a4: WritStatic = @<I32>[-1, 0, 1];
+    let b4: WritStatic = @<I32>[-1, 0, 1];
+    if !writ_equal(root_of(&a4), root_of(&b4)) { return 12; }
+
+    // 5. Map<i32,AnyVal>: identical maps are equal.
+    let a5: WritStatic = @<I32, AnyVal>{1: 10, 2: 20};
+    let b5: WritStatic = @<I32, AnyVal>{1: 10, 2: 20};
+    if !writ_equal(root_of(&a5), root_of(&b5)) { return 15; }
+
+    // 6. Different value → not equal.
+    let b6: WritStatic = @<I32, AnyVal>{1: 10, 2: 99};
+    if writ_equal(root_of(&a5), root_of(&b6)) { return 18; }
+
+    // 7. Cross-kind: typed array vs typed map → not equal.
+    let a7: WritStatic = @<I32>[5, 6, 7];
+    let b7: WritStatic = @<I32, AnyVal>{5: 6};
+    if writ_equal(root_of(&a7), root_of(&b7)) { return 21; }
+
+    // 8. Untyped containers: arrays + nested maps by value.
+    let a8: WritStatic = @{"k": [1, "two", true], "n": 7};
+    let b8: WritStatic = @{"n": 7, "k": [1, "two", true]};
+    if !writ_equal(root_of(&a8), root_of(&b8)) { return 24; }
+    let b9: WritStatic = @{"n": 7, "k": [1, "two", false]};
+    if writ_equal(root_of(&a8), root_of(&b9)) { return 27; }
+
+    return 0;
+}

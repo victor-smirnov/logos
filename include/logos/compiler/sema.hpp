@@ -37,7 +37,7 @@ namespace lir_view { struct ObjectMapRef; }
 // 2c.6.6.B.6: LogosType is no longer an instantiated struct — it has no
 // data and no instances. It survives only as a namespace-class holding the
 // Kind enum and the TypeUID nested datatype. All readers use TypeRef
-// (a fat pointer over the Hermes mirror); all writers use LogosTypeBuilder.
+// (a fat pointer over the Writ mirror); all writers use LogosTypeBuilder.
 // Target pointer width (bits). Single source of truth for usize/isize size
 // and any other pointer-sized lowering. Logos ships 64-bit only today; flip
 // this constant to retarget. Lives in this header so both sema and mlir-gen
@@ -56,7 +56,7 @@ struct LogosType {
         MutRef,                   // &mut T — exclusive mutable reference (borrow-checked)
         Array,                    // [T; N]
         Struct,                   // user-defined struct
-        ZonedStruct,                 // Hermes datatype (C POD layout, no heap types)
+        ZonedStruct,                 // Writ datatype (C POD layout, no heap types)
         Enum,                     // discriminant enum (stored as i32)
         Tuple,                    // (T1, T2, ...) — anonymous product type
         Slice,                    // &[T] — fat pointer (ptr, len)
@@ -71,8 +71,8 @@ struct LogosType {
         FnPtr,                    // fn(T1, T2) -> R — bare function pointer (single ptr)
         TaggedPtr,                // &tagged<TS> Trait — thin tag-dispatched pointer (*const u8)
         Generic,                  // unapplied generic constructor (value-handle only; no pool entry)
-        HStaticLit,               // HermesStatic literal at type-arg position (Foo::<@{...}>); identity = byte-hash over AST. const_val carries the low 64 bits. Inserted after Generic so existing kinds (Generic = 37) keep their numeric IDs.
-        CfgSlotType,              // <type:CFG.SLOT> — type at top-level slot of a HermesStatic-typed binding. Carries `type_var_name` = CFG ident, `assoc_type_name` = slot key (reused fields). Resolved by mono_subst when CFG is bound to a concrete HStaticLit.
+        HStaticLit,               // WritStatic literal at type-arg position (Foo::<@{...}>); identity = byte-hash over AST. const_val carries the low 64 bits. Inserted after Generic so existing kinds (Generic = 37) keep their numeric IDs.
+        CfgSlotType,              // <type:CFG.SLOT> — type at top-level slot of a WritStatic-typed binding. Carries `type_var_name` = CFG ident, `assoc_type_name` = slot key (reused fields). Resolved by mono_subst when CFG is bound to a concrete HStaticLit.
         Usize,                    // pointer-sized unsigned int (u32 on 32-bit, u64 on 64-bit). Distinct from u32/u64 — explicit `as` to/from fixed-width.
         Isize,                    // pointer-sized signed int. Distinct from i32/i64.
         Char,                     // 4-byte Unicode scalar (Rust-style). Distinct from u32; cast required.
@@ -170,7 +170,7 @@ struct LogosTypeBuilder;  // defined below TypeRef
 // ── TypeRef ───────────────────────────────────────────────────────────────
 //
 // Non-owning view over an interned type living in a TypePool. Carries the
-// fat {arena, offset, pool} triple needed to read the Hermes mirror.
+// fat {arena, offset, pool} triple needed to read the Writ mirror.
 // Identity is the arena offset: two TypeRefs are equal iff they point at
 // the same mirror node.
 
@@ -179,7 +179,7 @@ class TypeRef {
     // Stage B (self-relative handles): the interned type's mirror is addressed by
     // its ABSOLUTE pointer, resolved once at construction (self-relative AnyVal::
     // resolve() — no base threading). arena_ is retained for offset() (the type
-    // identity key into TypePoolImpl::uid_of_ / intern_buckets_, and .hermes0
+    // identity key into TypePoolImpl::uid_of_ / intern_buckets_, and .writ0
     // serialization) and for holder lookup. nullptr = null ref. Within one arena
     // ptr_ equality ≡ offset equality, so type identity is preserved.
     const uint8_t*            ptr_ = nullptr;
@@ -248,7 +248,7 @@ public:
     // move, so the pointer is stable and unique). Used to key TypePoolImpl::
     // uid_of_ / intern_buckets_ without any base+offset round-trip (offset-from-
     // first-chunk-base is unsigned and breaks under MultiChunk; the address does
-    // not). offset() is reserved for .hermes0 serialization (single rigid segment).
+    // not). offset() is reserved for .writ0 serialization (single rigid segment).
     const uint8_t* addr() const noexcept { return ptr_; }
     const writ::Arena* arena() const noexcept { return arena_; }
     const TypePoolImpl* pool() const noexcept { return pool_; }
@@ -375,7 +375,7 @@ public:
 // ── LogosTypeBuilder ──────────────────────────────────────────────────────
 //
 // Write-side companion to TypeRef. Builder code populates fields freely and
-// hands the result to TypePool::alloc, which writes them into the Hermes
+// hands the result to TypePool::alloc, which writes them into the Writ
 // mirror and returns a TypeRef. Also what TypeRef::to_builder() returns
 // when callers need to copy-and-mutate an interned type.
 struct LogosTypeBuilder {
@@ -496,7 +496,7 @@ bool types_equal(TypeRef a, TypeRef b) noexcept;
 // Human-readable name for error messages.
 std::string type_str(TypeRef t);
 
-// Render an entire Hermes AST document back as Logos source. Used by
+// Render an entire Writ AST document back as Logos source. Used by
 // `logosc --dump-metaprog` to display metafn-generated ASTs without
 // needing a populated type pool — type-position renders are syntactic
 // (TYPE_REF/GENERIC_INST/etc. walked structurally). Holder owns the
@@ -520,7 +520,7 @@ std::string concrete_struct_name(TypeRef t);
 
 // Raw variant that takes the struct base name + concrete type args directly.
 // Used at a few call sites that would otherwise need to synthesise a stack
-// LogosType (which bypasses TypePool's Hermes mirror). The args must already
+// LogosType (which bypasses TypePool's Writ mirror). The args must already
 // be concrete — no TypeVar / IntLit.
 std::string concrete_struct_name_raw(std::string_view base_name,
                                      const std::vector<TypeRef>& type_args,
@@ -567,7 +567,7 @@ struct TypeModuleScope {
 
 // ── TypePool ───────────────────────────────────────────────────────────────
 //
-// Owns the Hermes arena that backs all interned types. Each unique type
+// Owns the Writ arena that backs all interned types. Each unique type
 // lives as a TinyObjectMap inside that arena; TypeRef is a fat pointer
 // into it. The pool is moved into LProgram so the arena stays alive for
 // the rest of the compilation pipeline.
@@ -617,7 +617,7 @@ public:
     // pointer comparison + arena_id_ test for local refs.
     TypeRef intern_foreign(TypeRef tv);
 
-    // Phase 3b: expose the underlying Hermes arena. The compiler's L-IR mirror
+    // Phase 3b: expose the underlying Writ arena. The compiler's L-IR mirror
     // shares this arena with the type mirror so cross-references (TypeRef
     // offsets stored on L-IR nodes, sub-expression offsets, etc.) all live in
     // a single offset space. Returns nullptr if the pool has not yet allocated
@@ -630,10 +630,10 @@ public:
     // emitter when the program contains no LogosType allocations.
     writ::Arena&       arena_or_init();
 
-    // The pool's Hermes document, initialising it if needed. THE handle for all
+    // The pool's Writ document, initialising it if needed. THE handle for all
     // object creation (ctr.make_string / make_array / make_tiny_map …) — callers
     // route producer work through this instead of pulling the raw arena.
-    writ::HermesCtr&   ctr_or_init();
+    writ::WritCtr&   ctr_or_init();
 
     // Phase 3d: expose the impl pointer so lir_view callers can wrap a raw
     // arena offset into a TypeRef (TypeRef stores pool* for trait/method
@@ -641,7 +641,7 @@ public:
     const TypePoolImpl* impl() const noexcept { return impl_.get(); }
 
     // Multi-arena IR Phase 3: expose the underlying MemHolder so consumers
-    // can wrap the arena as a writ::Hermes view for publish-phase work
+    // can wrap the arena as a writ::Writ view for publish-phase work
     // (lir_arena_root_begin etc.). Returns nullptr if the pool hasn't yet
     // allocated (no calls to alloc()).
     writ::MemHolder* holder() noexcept;

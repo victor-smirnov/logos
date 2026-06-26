@@ -239,14 +239,14 @@ AnyVal dec_av(Reader& r, Arena& a) {
 
 } // namespace
 
-logos::expected<std::vector<uint8_t>> binary_encode(const HermesCtr& doc) noexcept {
+logos::expected<std::vector<uint8_t>> binary_encode(const WritCtr& doc) noexcept {
     std::vector<uint8_t> out;
     enc_av(doc.root(), out);
     return out;
 }
 
-logos::expected<HermesCtr> binary_decode(const uint8_t* data, size_t size) noexcept {
-    LOGOS_TRY(auto ctr, HermesCtr::make());
+logos::expected<WritCtr> binary_decode(const uint8_t* data, size_t size) noexcept {
+    LOGOS_TRY(auto ctr, WritCtr::make());
     Reader r{data, data + size};
     AnyVal root = dec_av(r, ctr.arena());
     if (!r.ok) return std::unexpected(logos::err(ErrCode::parse_error));

@@ -288,7 +288,7 @@ lir_view::ExprRef LirBuilder::method_call(lir::LExprPtr receiver, std::string me
         });
 }
 
-lir_view::ExprRef LirBuilder::hermes_cast(lir::LExprPtr operand, std::string build_fn,
+lir_view::ExprRef LirBuilder::writ_cast(lir::LExprPtr operand, std::string build_fn,
                                        TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_cast(p, t, operand, build_fn); });
@@ -355,7 +355,7 @@ lir_view::ExprRef LirBuilder::if_expr_v(lir::EIfExpr eif, TypeRef ty) {
         [&](auto& p, TypeRef t){ return lir_mirror_emit_if_expr(p, t, cond, thn, els); });
 }
 
-lir_view::ExprRef LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {
+lir_view::ExprRef LirBuilder::writ_lit_v(lir::EWritLit lit, TypeRef ty) {
     auto root  = lit.root;
     auto hc    = lit.has_captures;
     auto cex   = std::move(lit.capture_exprs);
@@ -363,7 +363,7 @@ lir_view::ExprRef LirBuilder::hermes_lit_v(lir::EHermesLit lit, TypeRef ty) {
     auto cpc   = lit.capture_param_count;
     auto blob  = std::move(lit.static_blob);
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_hermes_lit(p, t, root, hc, cex, cty, cpc, blob); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_writ_lit(p, t, root, hc, cex, cty, cpc, blob); });
 }
 
 lir_view::ExprRef LirBuilder::match_expr_v(lir::EMatchExpr me, TypeRef ty) {

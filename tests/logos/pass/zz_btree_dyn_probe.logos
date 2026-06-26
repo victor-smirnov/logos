@@ -25,12 +25,12 @@ use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 // ── StoreCfg sketch ─────────────────────────────────────────────────────
 // v1 minimal: ctr_id / snp_id / block_id all u64. Pulled into NodeBase
 // via <type:STORE_CFG.block_id> / <type:STORE_CFG.snp_id>.
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name":     "probe-v1",
     "ctr_id":   <type:u64>,
     "snp_id":   <type:u64>,
@@ -38,7 +38,7 @@ pub const StoreCfg: HermesStatic = @{
 };
 
 // ── NodeBase — uniform header ───────────────────────────────────────────
-pub struct NodeBase<const STORE_CFG: HermesStatic> {
+pub struct NodeBase<const STORE_CFG: WritStatic> {
     pub rc:          u64,                          // offset 0 — direct field access
     pub id:          <type:STORE_CFG.block_id>,
     pub snapshot_id: <type:STORE_CFG.snp_id>,
@@ -51,7 +51,7 @@ pub struct NodeBase<const STORE_CFG: HermesStatic> {
 // per-impl by mono; `let _: Self = *p` moves Self contents into a
 // scope-local binding that auto-drops at fn exit, firing user Drop body
 // (if any) + recursive field destructors.
-pub trait BTreeNode<const STORE_CFG: HermesStatic> {
+pub trait BTreeNode<const STORE_CFG: WritStatic> {
     fn __drop_in_place(&mut self) {
         // Move `self` contents out into a scope-local binding; auto-Drop
         // at fn exit fires user `impl Drop` body (if any) + recursive
@@ -66,7 +66,7 @@ pub trait BTreeNode<const STORE_CFG: HermesStatic> {
 
 // ── LeafN — concrete leaf ───────────────────────────────────────────────
 // Drops bump the user counter; lets us assert "exactly N drops happened".
-pub struct LeafN<const STORE_CFG: HermesStatic> {
+pub struct LeafN<const STORE_CFG: WritStatic> {
     pub base:    NodeBase<STORE_CFG>,
     pub tag:     u64,
     pub counter: *mut u64,
@@ -74,13 +74,13 @@ pub struct LeafN<const STORE_CFG: HermesStatic> {
 
 // User Drop impl on LeafN — fires from auto-Drop chain triggered by
 // __drop_in_place's default body.
-impl<const STORE_CFG: HermesStatic> Drop for LeafN<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> Drop for LeafN<STORE_CFG> {
     fn drop(self: LeafN<STORE_CFG>) {
         unsafe { *self.counter = *self.counter + 1u64; }
     }
 }
 
-impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafN<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> BTreeNode<STORE_CFG> for LeafN<STORE_CFG> {
     fn block_type_hash(&self) -> u64 { return 1001u64; }
 }
 
@@ -98,20 +98,20 @@ unsafe fn leaf_new(id: u64, snap_id: u64, tag: u64, counter: *mut u64) -> *mut L
 // ── BranchN — concrete branch ───────────────────────────────────────────
 // children: Vec<NodeARC<STORE_CFG>>. release() dispatched via trait drops
 // the Vec (auto-fires per-element NodeARC.drop, recursing).
-pub struct BranchN<const STORE_CFG: HermesStatic> {
+pub struct BranchN<const STORE_CFG: WritStatic> {
     pub base:     NodeBase<STORE_CFG>,
     pub counter:  *mut u64,
     pub children: Vec<NodeARC<STORE_CFG>>,
 }
 
 // User Drop impl on BranchN — fires before auto-field-drop in the chain.
-impl<const STORE_CFG: HermesStatic> Drop for BranchN<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> Drop for BranchN<STORE_CFG> {
     fn drop(self: BranchN<STORE_CFG>) {
         unsafe { *self.counter = *self.counter + 1u64; }
     }
 }
 
-impl<const STORE_CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchN<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> BTreeNode<STORE_CFG> for BranchN<STORE_CFG> {
     fn block_type_hash(&self) -> u64 { return 2002u64; }
 }
 
@@ -127,7 +127,7 @@ unsafe fn branch_new(id: u64, snap_id: u64, counter: *mut u64) -> *mut BranchN<S
 }
 
 // ── NodeARC — shared owning fat-ptr handle ──────────────────────────────
-pub struct NodeARC<const STORE_CFG: HermesStatic> {
+pub struct NodeARC<const STORE_CFG: WritStatic> {
     p: *mut dyn BTreeNode<STORE_CFG>,
 }
 
@@ -135,11 +135,11 @@ pub struct NodeARC<const STORE_CFG: HermesStatic> {
 // `*mut dyn BTreeNode<...>` IS a 16-byte {data_ptr, vtable_ptr} pair (value =
 // a pointer to that storage); casting the fat dyn value to a thin `*mut u8`
 // extracts the data half (field 0), which holds the NodeBase header at offset 0.
-unsafe fn arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
+unsafe fn arc_data_ptr<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
     return arc.p as *mut u8;
 }
 
-impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> NodeARC<STORE_CFG> {
     // Direct rc bump via header offset 0 of the pointee — no vtable call.
     pub fn clone_arc(&self) -> NodeARC<STORE_CFG> {
         unsafe {
@@ -150,7 +150,7 @@ impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
     }
 }
 
-impl<const STORE_CFG: HermesStatic> Drop for NodeARC<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> Drop for NodeARC<STORE_CFG> {
     fn drop(self: NodeARC<STORE_CFG>) {
         unsafe {
             let data_p: *mut u8 = arc_data_ptr::<STORE_CFG>(&self);

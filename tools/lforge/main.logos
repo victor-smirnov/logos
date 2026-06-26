@@ -8,7 +8,7 @@
 //                                directly out of .lforge/<profile>/out/)
 //   lforge clean               — rm -rf .lforge/
 //
-// Manifest (Hermes-SDN, ./lforge.hermes):
+// Manifest (Writ-SDN, ./lforge.writ):
 //
 //   {
 //     name:    "my-project",
@@ -58,7 +58,7 @@ use logos.std.env;
 use lforge.version;
 use lforge.schema;
 use lforge.util;
-use lforge.hermes_io;
+use lforge.writ_io;
 use lforge.cwd;
 use lforge.manifest;
 use lforge.lockfile;
@@ -85,8 +85,8 @@ extern fn getcwd(buf: *mut u8, size: u64) -> *mut u8;
 // String / I/O helpers (cstr, str_eq_local, err_msg/2, print_str,
 // println_str, println_string, append_path) live in `lforge.util`.
 
-// Hermes-view typed field helpers (read_str_field/opt/array) live in
-// `lforge.hermes_io`.
+// Writ-view typed field helpers (read_str_field/opt/array) live in
+// `lforge.writ_io`.
 
 // Manifest parser (parse_external_dep / parse_target / parse_manifest /
 // read_manifest) lives in `lforge.manifest`.
@@ -141,7 +141,7 @@ fn main() -> i32 {
         return 0;
     }
 
-    let m: Manifest = match read_manifest("./lforge.hermes") {
+    let m: Manifest = match read_manifest("./lforge.writ") {
         Result::Err(e) => {
             print_str(2, "lforge: ");
             println_str(2, str_from_raw(e.message.as_ptr(), e.message.len()));

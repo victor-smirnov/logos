@@ -33,7 +33,7 @@ use logos.lang.result;
 use logos.lang.panic;
 use logos.lang.drop;
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
@@ -45,7 +45,7 @@ use logos.std.data.persistent.bt.iter;
 // DirCfg — directory layout. Key = ctr_id (u64), val = NodeARC (heterogeneous
 // container roots). fanout drives branch + leaf max-keys. Multi-level: dir
 // can grow into a tree when a leaf overflows.
-pub const DirCfg: HermesStatic = @{ "key": <type:u64>, "fanout": 16 };
+pub const DirCfg: WritStatic = @{ "key": <type:u64>, "fanout": 16 };
 
 // ── Dir multi-level mutate (parallel to mutate.logos but for LeafDirNode) ──
 // LeafDirNode holds NodeARC vals (heterogeneous container roots) — it
@@ -57,7 +57,7 @@ pub const DirCfg: HermesStatic = @{ "key": <type:u64>, "fanout": 16 };
 // `right_max` carries the max ctr_id in the new right subtree; the parent
 // inserts (right_max, right_arc) at i+1 and updates parent.keys[i] = the
 // new max of its left child.
-pub struct DirInsertOutcome<const STORE_CFG: HermesStatic> {
+pub struct DirInsertOutcome<const STORE_CFG: WritStatic> {
     pub split:              bool,
     pub right:              Option<NodeARC<STORE_CFG>>,   // Some iff split
     pub right_max_present:  bool,
@@ -66,7 +66,7 @@ pub struct DirInsertOutcome<const STORE_CFG: HermesStatic> {
 
 // Read max ctr_id in a dir subtree (= keys.last for both leaf and branch
 // under the max-key invariant).
-unsafe fn dir_node_max_key<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> u64 {
+unsafe fn dir_node_max_key<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>) -> u64 {
     let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
     if arc_is_leaf::<STORE_CFG>(arc) {
         let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> = dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
@@ -76,7 +76,7 @@ unsafe fn dir_node_max_key<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CF
     return br.keys.get(br.keys.len() - 1u64);
 }
 
-unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
+unsafe fn dir_split_leaf<const STORE_CFG: WritStatic>(
     leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg>,
     new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
 ) -> NodeARC<STORE_CFG> {
@@ -103,7 +103,7 @@ unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
 
 // Linear search for ctr_id in a dir leaf; returns insertion position
 // (lower_bound). Branches reuse mutate's branch_descend_idx (key=u64).
-unsafe fn dir_leaf_lower_bound<const STORE_CFG: HermesStatic>(
+unsafe fn dir_leaf_lower_bound<const STORE_CFG: WritStatic>(
     leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg>, ctr_id: u64,
 ) -> u64 {
     let n: u64 = leaf.keys.len();
@@ -118,7 +118,7 @@ unsafe fn dir_leaf_lower_bound<const STORE_CFG: HermesStatic>(
 // Memoria-style: smallest i where keys[i] >= ctr_id (subtree containing
 // the id). Returns n if id > all maxes (callers handle: read=missing,
 // insert=saturate to n-1).
-unsafe fn dir_branch_descend_idx<const STORE_CFG: HermesStatic>(
+unsafe fn dir_branch_descend_idx<const STORE_CFG: WritStatic>(
     br: *mut BranchNode<u64, STORE_CFG, DirCfg>, ctr_id: u64,
 ) -> u64 {
     let n: u64 = br.keys.len();
@@ -136,7 +136,7 @@ unsafe fn dir_branch_descend_idx<const STORE_CFG: HermesStatic>(
 // On split, returns right subtree + its max ctr_id; parent inserts
 // (right_max, right_arc) at i+1 and updates parent.keys[i] = new max
 // of left child.
-unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
+unsafe fn dir_insert_rec<const STORE_CFG: WritStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     ctr_id: u64, val_arc: NodeARC<STORE_CFG>,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
@@ -232,13 +232,13 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
     };
 }
 
-unsafe fn alloc_id_dir<const STORE_CFG: HermesStatic>(p: *mut BlockId<STORE_CFG>) -> BlockId<STORE_CFG> {
+unsafe fn alloc_id_dir<const STORE_CFG: WritStatic>(p: *mut BlockId<STORE_CFG>) -> BlockId<STORE_CFG> {
     *p = *p + 1u64;
     return *p;
 }
 
 // Top-level dir insert: descend, possibly grow root with [old_max, right_max] keys.
-pub unsafe fn dir_insert<const STORE_CFG: HermesStatic>(
+pub unsafe fn dir_insert<const STORE_CFG: WritStatic>(
     snap_dir: &mut NodeARC<STORE_CFG>,
     ctr_id: u64, val_arc: NodeARC<STORE_CFG>,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
@@ -264,7 +264,7 @@ pub unsafe fn dir_insert<const STORE_CFG: HermesStatic>(
 }
 
 // Find ctr_id in dir tree; return *mut NodeARC slot or null.
-pub unsafe fn dir_lookup<const STORE_CFG: HermesStatic>(
+pub unsafe fn dir_lookup<const STORE_CFG: WritStatic>(
     snap_dir: &NodeARC<STORE_CFG>, ctr_id: u64,
 ) -> *mut NodeARC<STORE_CFG> {
     let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(snap_dir);
@@ -292,10 +292,10 @@ pub unsafe fn dir_lookup<const STORE_CFG: HermesStatic>(
 }
 
 // ── Store<STORE_CFG> ─────────────────────────────────────────────────
-unsafe impl<const STORE_CFG: HermesStatic> Send for LockingStore<STORE_CFG> {}
-unsafe impl<const STORE_CFG: HermesStatic> Sync for LockingStore<STORE_CFG> {}
+unsafe impl<const STORE_CFG: WritStatic> Send for LockingStore<STORE_CFG> {}
+unsafe impl<const STORE_CFG: WritStatic> Sync for LockingStore<STORE_CFG> {}
 
-pub struct Store<const STORE_CFG: HermesStatic> {
+pub struct Store<const STORE_CFG: WritStatic> {
     pub arc: Arc<LockingStore<STORE_CFG>>,
 }
 
@@ -308,7 +308,7 @@ pub struct Store<const STORE_CFG: HermesStatic> {
 // on-disk serialisation when those land.
 pub const GENESIS: u64 = 0u64;
 
-pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
+pub fn store_open<const STORE_CFG: WritStatic>() -> Store<STORE_CFG> {
     let s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
     let arc: Arc<LockingStore<STORE_CFG>> = arc_new::<LockingStore<STORE_CFG>>(s);
     // Seed an empty genesis dir as commit 0. snapshot_id stamp = 0
@@ -332,7 +332,7 @@ pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
     return Store::<STORE_CFG> { arc: arc };
 }
 
-impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     // Fork a mutable snapshot off `parent_commit`. The fork sees that
     // commit's directory tree (shared via rc) and CoWs on first write.
     // Pass `GENESIS` for the empty initial dir (id 0, seeded by store_open).
@@ -376,7 +376,7 @@ impl<const STORE_CFG: HermesStatic> Store<STORE_CFG> {
 }
 
 // ── Snap<STORE_CFG> ──────────────────────────────────────────────────
-pub struct Snap<const STORE_CFG: HermesStatic> {
+pub struct Snap<const STORE_CFG: WritStatic> {
     pub dir: NodeARC<STORE_CFG>,    // directory tree root
     pub arc: Arc<LockingStore<STORE_CFG>>,
     pub snapshot_id: SnpId<STORE_CFG>,
@@ -393,7 +393,7 @@ pub struct Snap<const STORE_CFG: HermesStatic> {
 }
 
 // snap_fork — start a new mutable snapshot from a committed parent.
-pub fn snap_fork<const STORE_CFG: HermesStatic>(
+pub fn snap_fork<const STORE_CFG: WritStatic>(
     store: &mut Store<STORE_CFG>,
     parent_commit: SnpId<STORE_CFG>,
 ) -> Snap<STORE_CFG> {
@@ -409,7 +409,7 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(
     };
 }
 
-impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
     // Commit the dir tree as a new DAG entry; returns the new commit id.
     //
     // CONSUMES the snapshot (takes `self` by value). A committed snap must
@@ -497,7 +497,7 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
 // snapshot id (CoW key), the block-id allocator, and the open-container guard.
 // A specialization stores a SnapCtx + its own root/handle, and uses these
 // methods for writeback / id allocation / release.
-pub struct SnapCtx<const STORE_CFG: HermesStatic> {
+pub struct SnapCtx<const STORE_CFG: WritStatic> {
     pub dir_root_p: *mut NodeARC<STORE_CFG>,   // &Snap.dir — stable for the snap's life
     pub ctr_id:     u64,                        // this container's id within the dir
     pub snap_id:    SnpId<STORE_CFG>,           // CoW key (make_unique)
@@ -505,7 +505,7 @@ pub struct SnapCtx<const STORE_CFG: HermesStatic> {
     pub open_ctr_p: *mut u64,                    // &Snap.open_containers (commit guard)
 }
 
-impl<const STORE_CFG: HermesStatic> SnapCtx<STORE_CFG> {
+impl<const STORE_CFG: WritStatic> SnapCtx<STORE_CFG> {
     // Bump + return the next block id (for the specialization's node allocs).
     pub fn next_block_id(&self) -> BlockId<STORE_CFG> {
         unsafe {
@@ -548,12 +548,12 @@ pub enum InsertError {
     ValueType,
 }
 
-pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+pub struct ContainerRef<const STORE_CFG: WritStatic, const CFG: WritStatic> {
     pub arc: NodeARC<STORE_CFG>,    // owning rc on the container root
     pub ctx: SnapCtx<STORE_CFG>,    // shared snap-side wiring (dir / CoW / ids / guard)
 }
 
-impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> Drop for ContainerRef<STORE_CFG, CFG> {
+impl<const STORE_CFG: WritStatic, const CFG: WritStatic> Drop for ContainerRef<STORE_CFG, CFG> {
     fn drop(self: ContainerRef<STORE_CFG, CFG>) {
         // Release this snap's open-container claim (the commit guard).
         // self.arc auto-drops after this body, releasing its rc.
@@ -567,7 +567,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> Drop for ContainerR
 //
 // CoW: dir nodes touched on the descent are make_unique'd via
 // dir_insert_rec so the parent commit's dir stays untouched.
-pub fn create_ctr<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
+pub fn create_ctr<const CFG: WritStatic, const STORE_CFG: WritStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
@@ -586,7 +586,7 @@ pub fn create_ctr<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
 // open_ctr — look up ctr_id in the snapshot's dir tree. Some(ContainerRef)
 // sharing rc with the dir's slot, or None when ctr_id isn't present (Rust
 // parity — no more null-handle sentinel the caller must remember to test).
-pub fn open_ctr<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
+pub fn open_ctr<const CFG: WritStatic, const STORE_CFG: WritStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> Option<ContainerRef<STORE_CFG, CFG>> {
@@ -605,7 +605,7 @@ pub fn open_ctr<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
 // Carries the ambient snapshot_id + id allocator so insert/remove can
 // route through the mutate's CoW-aware descent without round-trip
 // through the Store.
-impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_CFG, CFG> {
+impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG, CFG> {
     pub fn len(&self) -> u64 {
         return bt_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }

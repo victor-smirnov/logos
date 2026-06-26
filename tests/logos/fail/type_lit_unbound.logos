@@ -1,8 +1,8 @@
-// B-ca-06: silent acceptance of unbound `<type:Q>` in HermesStatic literal.
+// B-ca-06: silent acceptance of unbound `<type:Q>` in WritStatic literal.
 package type_lit_unbound;
 
-use logos.lang.hermes.hstatic;
+use logos.lang.writ.hstatic;
 
-pub const X: HermesStatic = @{ "key": <type:NotAType> };
+pub const X: WritStatic = @{ "key": <type:NotAType> };
 
 pub unsafe fn main() -> i32 { return 0; }

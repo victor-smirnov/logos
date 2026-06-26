@@ -2,7 +2,7 @@
 //
 // jit.hpp — minimal LLVM ORC LLJIT wrapper.
 //
-// Slice 1 of Phase 4: standalone JIT engine. No Hermes integration, no
+// Slice 1 of Phase 4: standalone JIT engine. No Writ integration, no
 // Logos-pipeline integration, no split-stack — just compile-and-run for
 // hand-rolled LLVM IR modules. Used by the JIT smoke exerciser.
 

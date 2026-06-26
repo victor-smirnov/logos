@@ -1,0 +1,27 @@
+// Test: Writ map structural patterns @{...}.
+
+package writ_match_map;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.hstatic;
+
+unsafe fn classify(d: &WritStatic) -> i32 {
+    match d {
+        @{"kind": @"error", "code": @404} => 1,
+        @{"kind": @"error"}               => 2,
+        @{"kind": @"ok"}                  => 3,
+        @{}                               => 4,
+        _                                 => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = @{"kind": "error", "code": 404};
+    let b: WritStatic = @{"kind": "error", "code": 500};
+    let c: WritStatic = @{"kind": "ok"};
+    let d: WritStatic = @{};
+    let e: WritStatic = @42;
+    // 1 + 2 + 3 + 4 + 0 = 10
+    return classify(&a) + classify(&b) + classify(&c)
+         + classify(&d) + classify(&e);
+}

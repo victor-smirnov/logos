@@ -1,0 +1,53 @@
+// Compactify = clone of the live set into a right-sized container (writ2:
+// writ_clone IS the compactor — dead source space is dropped by walking
+// only reachable objects). Successor of the Writ1 compactify test.
+package writ_compactify;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.mem.writ.clone;
+use logos.mem.writ.equal;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    // 1. Null root: compactify of an empty container.
+    let e: Rc<Writ> = writ_rc(4096);
+    let eh: &Writ = e.deref();
+    let c1: Rc<Writ> = writ_clone(eh.root());
+    let c1h: &Writ = c1.deref();
+    let t1: String = stringify(c1h.root());
+    if !t1.eq_str("null") { return 1; }
+
+    // 2. Build a container with garbage (values replaced after insert), then
+    //    compactify: the copy holds ONLY the live tree and stays equal.
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
+    let m: &mut HMap<HString, HAny> = h.map(8);
+    m.set("k", HAny::from(&*(h.hstring("first-dead-value") as *const HString)));
+    m.set("k", HAny::from(&*(h.hstring("live") as *const HString)));   // overwrite -> garbage
+    m.set("n", 7i64);
+    let mp: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
+    h.set_root(HAny::ref_to(mp as *const u8));
+
+    let packed: Rc<Writ> = writ_clone(h.root());
+    let ph: &Writ = packed.deref();
+    if !writ_equal(h.root(), ph.root()) { return 2; }
+    let t2: String = stringify(ph.root());
+    if t2.len() != 21i64 { return 3; }   // {"k": "live", "n": 7}
+
+    // 3. Static blob roundtrip through compactify.
+    let s: WritStatic = @{"deep": [1, {"x": true}]};
+    let base: *const u8 = s.ptr;
+    let w: i64 = *(base as *const i64);
+    let sroot: HAny = HAny::Ref((base as i64 + w) as *const u8);
+    let p3: Rc<Writ> = writ_clone(sroot);
+    let p3h: &Writ = p3.deref();
+    if !writ_equal(sroot, p3h.root()) { return 4; }
+
+    return 0;
+}

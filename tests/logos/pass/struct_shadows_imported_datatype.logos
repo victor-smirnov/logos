@@ -1,5 +1,5 @@
 // User-package `pub struct Map` must shadow `#[datatype] pub struct Map`
-// from imported std.hermes.map. Pre-fix, sema preferred the imported
+// from imported std.writ.map. Pre-fix, sema preferred the imported
 // datatype regardless of cur_package_, breaking field reads with
 // "struct 'Map$G2$...' has no field 'k'".
 package struct_shadows_imported_datatype;

@@ -14,7 +14,7 @@ trap 'rm -rf "$PROJ"' EXIT
 # Project: a lib + a few tests that link against the lib.
 mkdir -p "$PROJ/src/core" "$PROJ/tests"
 
-cat > "$PROJ/lforge.hermes" <<'EOF'
+cat > "$PROJ/lforge.writ" <<'EOF'
 {
     name:    "demo",
     version: "0.1.0",

@@ -5,7 +5,7 @@
 // dispatches statically to that part's `id()`.
 //
 // Architecture demonstrated:
-//   • Configuration is plain Hermes data — `@{"parts": [...]}`.
+//   • Configuration is plain Writ data — `@{"parts": [...]}`.
 //   • Override resolution happens at code-emission time inside the
 //     metafn, not at runtime, not via CRTP. The metafn walks the
 //     parts list, picks one (last-wins for this slice), and produces
@@ -25,9 +25,9 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.static_view;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
 
 pub trait Greet {
     fn id() -> i64;
@@ -43,7 +43,7 @@ impl Greet for PartB { fn id() -> i64 { return 2i64; } }
 // dispatching through a type-arg position (which DOES accept #ident).
 fn dele_id<P: Greet>() -> i64 { return P::id(); }
 
-fn assemble_greeter<const CFG: HermesStatic>() -> QuoteItemBlob {
+fn assemble_greeter<const CFG: WritStatic>() -> QuoteItemBlob {
     unsafe {
         let v: HView2 = hview2_from_ptr(CFG.ptr);
         let arr: HAny = v.map_get(v.root(), "parts");

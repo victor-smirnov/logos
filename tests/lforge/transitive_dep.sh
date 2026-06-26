@@ -23,7 +23,7 @@ trap 'rm -rf "$ROOT"' EXIT
 
 # ── Leaf: pure lib that exposes prim::base().
 mkdir -p "$ROOT/leaf/src/prim"
-cat > "$ROOT/leaf/lforge.hermes" <<'EOF'
+cat > "$ROOT/leaf/lforge.writ" <<'EOF'
 {
     name:    "leaf",
     version: "0.1.0",
@@ -39,7 +39,7 @@ EOF
 
 # ── Mid: declares leaf as a project-level dep.
 mkdir -p "$ROOT/mid/src/mid_lib"
-cat > "$ROOT/mid/lforge.hermes" <<'EOF'
+cat > "$ROOT/mid/lforge.writ" <<'EOF'
 {
     name:    "mid",
     version: "0.1.0",
@@ -60,7 +60,7 @@ EOF
 
 # ── Root: bin pulling mid only; gets leaf transitively.
 mkdir -p "$ROOT/root/src"
-cat > "$ROOT/root/lforge.hermes" <<'EOF'
+cat > "$ROOT/root/lforge.writ" <<'EOF'
 {
     name:    "myapp",
     version: "0.1.0",

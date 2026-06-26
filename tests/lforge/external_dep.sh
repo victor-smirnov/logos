@@ -20,7 +20,7 @@ trap 'rm -rf "$ROOT"' EXIT
 
 # ── External project: provides `util` lib and an unrelated `extra` lib.
 mkdir -p "$ROOT/extlib/src/util" "$ROOT/extlib/src/extra"
-cat > "$ROOT/extlib/lforge.hermes" <<'EOF'
+cat > "$ROOT/extlib/lforge.writ" <<'EOF'
 {
     name:    "extlib",
     version: "0.1.0",
@@ -43,7 +43,7 @@ EOF
 
 # ── Consumer project: pulls only `util`, not `extra`.
 mkdir -p "$ROOT/app/src"
-cat > "$ROOT/app/lforge.hermes" <<'EOF'
+cat > "$ROOT/app/lforge.writ" <<'EOF'
 {
     name:    "myapp",
     version: "0.1.0",
@@ -90,7 +90,7 @@ LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$ROOT/build.log" 2>&1 |
 
 # ── Negative: a non-existent module name on a real path is rejected.
 mkdir -p "$ROOT/app2/src"
-cat > "$ROOT/app2/lforge.hermes" <<EOF
+cat > "$ROOT/app2/lforge.writ" <<EOF
 {
     name:    "app2",
     version: "0.1.0",

@@ -1,13 +1,13 @@
-// Generic typed array API on hermes2 (successor of Array<i32>::init/push/get):
+// Generic typed array API on writ2 (successor of Array<i32>::init/push/get):
 // h.tarray::<i32>() + push/len/get.
 package array_i32_generic_api;
-use logos.lang.hermes.container;
-use logos.lang.hermes.array;
+use logos.lang.writ.container;
+use logos.lang.writ.array;
 use logos.lang.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(4096);
-    let h: &Hermes = rc.deref();
+    let rc: Rc<Writ> = writ_rc(4096);
+    let h: &Writ = rc.deref();
     let arr: &mut HArray<i32> = h.tarray::<i32>(4);
     arr.push(10);
     arr.push(20);

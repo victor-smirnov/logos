@@ -54,7 +54,7 @@ static std::string read_file(const std::string& path) {
 // Three-layer split Phase 3.4: scan a parsed AST for the file-level inner
 // attribute `#![no_implicit_prelude]`. Returns true if present. Walks
 // root.ITEMS for any INNER_ANNOTATION node with NAME="no_implicit_prelude".
-static bool file_opts_out_of_implicit_prelude(const writ::HermesView& ast) {
+static bool file_opts_out_of_implicit_prelude(const writ::WritView& ast) {
     auto holder = ast.holder();
     auto root = ast.root_object().as_tiny_map();
     if (!root.has_key(la::ITEMS)) return false;
@@ -84,7 +84,7 @@ static bool file_opts_out_of_implicit_prelude(const writ::HermesView& ast) {
 // §B-coex: each entry is (package, from_module). `from_module` is the module
 // named by `use pkg from <module>;` (empty = no `from` → default resolution).
 using UseRef = std::pair<std::string, std::string>;
-static std::vector<UseRef> extract_uses(const writ::HermesView& ast,
+static std::vector<UseRef> extract_uses(const writ::WritView& ast,
                                         std::string_view implicit_prelude = {}) {
     std::vector<UseRef> result;
     auto holder = ast.holder();
@@ -215,8 +215,8 @@ static std::vector<UseRef> extract_uses(const writ::HermesView& ast,
 // Rationale (post-mortem of bug (D)): the loader's DFS produces dep-first
 // order for the text-only path, but binary-archive loading bypasses that
 // invariant — packages from a .a may end up in `modules` at indices that
-// don't reflect actual dependency order (e.g. text `logos.lang.hermes.check`
-// before binary `std.hermes.map` even though check has `use logos.lang.hermes.map;`).
+// don't reflect actual dependency order (e.g. text `logos.lang.writ.check`
+// before binary `std.writ.map` even though check has `use logos.lang.writ.map;`).
 // Lower-pass lookups that walk `prog.struct_specializations` etc. break
 // when a dependent module is processed before its dep has populated those
 // data structures.
@@ -459,7 +459,7 @@ static std::string scan_package_decl(const std::string& path) {
 // ---------------------------------------------------------------------------
 //
 // AR format: "!<arch>\n" + 60-byte member headers + data.
-// .hermes0 format: "HERMAST0" magic + uint32 version + uint32 num_files +
+// .writ0 format: "HERMAST0" magic + uint32 version + uint32 num_files +
 //   per-file: uint32 path_len + path + uint64 ast_len + ast bytes.
 // ---------------------------------------------------------------------------
 
@@ -481,7 +481,7 @@ static uint64_t read_le_u64(const uint8_t* p) {
 // unchanged (backwards-compat with legacy raw-in-archive members + a
 // pass-through path when callers receive non-ELF input). Tolerates
 // corrupt/truncated ELF by falling through to the raw path — the caller
-// validates the payload (.hermes0 magic / .pkgi line shape / etc.).
+// validates the payload (.writ0 magic / .pkgi line shape / etc.).
 static std::vector<uint8_t>
 unwrap_elf_section(const std::vector<uint8_t>& data, const char* section_name) {
     constexpr uint8_t kElfMagic[4] = {0x7f, 'E', 'L', 'F'};
@@ -528,18 +528,18 @@ unwrap_elf_section(const std::vector<uint8_t>& data, const char* section_name) {
     return data;
 }
 
-// Legacy alias — .hm0 members are ELF-wrapped with section ".lhermes".
+// Legacy alias — .hm0 members are ELF-wrapped with section ".lwrit".
 static std::vector<uint8_t>
-unwrap_lhermes(const std::vector<uint8_t>& data) {
-    return unwrap_elf_section(data, ".lhermes");
+unwrap_lwrit(const std::vector<uint8_t>& data) {
+    return unwrap_elf_section(data, ".lwrit");
 }
 
 // Read member data from an AR archive by member name suffix.
 // Returns the raw bytes of the first matching member, or empty on failure.
 // Returns the bytes of EVERY archive member whose name ends with
-// `member_suffix`. Per-file emit (B1.7) writes one .hermes0 per source
+// `member_suffix`. Per-file emit (B1.7) writes one .writ0 per source
 // file into the eventual archive, so callers that previously read a
-// single .hermes0 now need to merge several. Existing monolithic
+// single .writ0 now need to merge several. Existing monolithic
 // archives still yield exactly one entry — same behaviour as before
 // for that path.
 static std::vector<std::vector<uint8_t>>
@@ -605,35 +605,35 @@ ar_read_members_raw(const std::string& archive_path,
     return result;
 }
 
-// Wrapper: read archive members and unwrap each ELF-wrapped `.lhermes`
+// Wrapper: read archive members and unwrap each ELF-wrapped `.lwrit`
 // section, falling through to raw bytes for legacy archives.
 static std::vector<std::vector<uint8_t>>
 ar_read_members(const std::string& archive_path,
                 const std::string& member_suffix) {
     auto raw = ar_read_members_raw(archive_path, member_suffix);
-    for (auto& m : raw) m = unwrap_lhermes(m);
+    for (auto& m : raw) m = unwrap_lwrit(m);
     return raw;
 }
 
 
-// Parse a .hermes0 blob and return decoded ParsedModules.
-static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
+// Parse a .writ0 blob and return decoded ParsedModules.
+static std::vector<ParsedModule> parse_writ0(const std::vector<uint8_t>& data,
                                                 const std::string& archive_path) {
     const uint8_t* p = data.data();
     const uint8_t* end = p + data.size();
 
     if (data.size() < 16) {
-        std::fprintf(stderr, "module_loader: %s: .hermes0 too small\n", archive_path.c_str());
+        std::fprintf(stderr, "module_loader: %s: .writ0 too small\n", archive_path.c_str());
         return {};
     }
     if (std::memcmp(p, "HERMAST0", 8) != 0) {
-        std::fprintf(stderr, "module_loader: %s: bad .hermes0 magic\n", archive_path.c_str());
+        std::fprintf(stderr, "module_loader: %s: bad .writ0 magic\n", archive_path.c_str());
         return {};
     }
     uint32_t version   = read_le_u32(p + 8);
     uint32_t num_files = read_le_u32(p + 12);
     if (version != 2 && version != 3) {
-        std::fprintf(stderr, "module_loader: %s: unsupported .hermes0 version %u (want 2 or 3)\n",
+        std::fprintf(stderr, "module_loader: %s: unsupported .writ0 version %u (want 2 or 3)\n",
                      archive_path.c_str(), version);
         return {};
     }
@@ -641,19 +641,19 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
 
     std::vector<ParsedModule> result;
     for (uint32_t i = 0; i < num_files; ++i) {
-        if (p + 4 > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated\n"); return {}; }
+        if (p + 4 > end) { std::fprintf(stderr, "module_loader: .writ0 truncated\n"); return {}; }
         uint32_t path_len = read_le_u32(p); p += 4;
-        if (p + path_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated path\n"); return {}; }
+        if (p + path_len > end) { std::fprintf(stderr, "module_loader: .writ0 truncated path\n"); return {}; }
         std::string path(reinterpret_cast<const char*>(p), path_len); p += path_len;
 
-        if (p + 4 > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated pkg\n"); return {}; }
+        if (p + 4 > end) { std::fprintf(stderr, "module_loader: .writ0 truncated pkg\n"); return {}; }
         uint32_t pkg_len = read_le_u32(p); p += 4;
-        if (p + pkg_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated pkg data\n"); return {}; }
+        if (p + pkg_len > end) { std::fprintf(stderr, "module_loader: .writ0 truncated pkg data\n"); return {}; }
         std::string pkg(reinterpret_cast<const char*>(p), pkg_len); p += pkg_len;
 
-        if (p + 8 > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated size\n"); return {}; }
+        if (p + 8 > end) { std::fprintf(stderr, "module_loader: .writ0 truncated size\n"); return {}; }
         uint64_t ast_len = read_le_u64(p); p += 8;
-        if (p + ast_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated ast\n"); return {}; }
+        if (p + ast_len > end) { std::fprintf(stderr, "module_loader: .writ0 truncated ast\n"); return {}; }
 
         auto decoded = writ::binary_decode(p, static_cast<size_t>(ast_len));
         p += ast_len;
@@ -667,17 +667,17 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
     }
     // M3: v3 has a trailing exports section (u64 length + bytes). Skip it
     // here — consumers needing the exports pull them via
-    // extract_hermes0_exports() on the same blob. v2 has no trailer.
+    // extract_writ0_exports() on the same blob. v2 has no trailer.
     bool is_lazy = false;
     if (version == 3 && p + 8 <= end) {
         uint64_t exports_len = read_le_u64(p);
         p += 8;
         if (p + exports_len > end) {
-            std::fprintf(stderr, "module_loader: %s: .hermes0 truncated exports\n",
+            std::fprintf(stderr, "module_loader: %s: .writ0 truncated exports\n",
                          archive_path.c_str());
             return {};
         }
-        p += exports_len;  // skip; consumers use extract_hermes0_exports()
+        p += exports_len;  // skip; consumers use extract_writ0_exports()
         // M4 step 1: optional LIR blob section right after the exports
         // trailer (u64 length + bytes). M3-era v3 archives stop after the
         // exports trailer — no bytes here. Skip in either shape.
@@ -685,11 +685,11 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
             uint64_t blob_len = read_le_u64(p);
             p += 8;
             if (p + blob_len > end) {
-                std::fprintf(stderr, "module_loader: %s: .hermes0 truncated lir_blob\n",
+                std::fprintf(stderr, "module_loader: %s: .writ0 truncated lir_blob\n",
                              archive_path.c_str());
                 return {};
             }
-            p += blob_len;  // skip; consumers use extract_hermes0_lir_blob()
+            p += blob_len;  // skip; consumers use extract_writ0_lir_blob()
             // Phase 6: optional module_flags u64. Pre-Phase-6 archives stop
             // here (EOF after lir_blob) — they're eager by default.
             if (p + 8 <= end) {
@@ -711,7 +711,7 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
 // length. Returns `{present=true, value=…}` on success. Returns nullopt on
 // a malformed trailer; the caller should treat that as fatal. Reads the
 // outer file table just to advance past it — no AST decode needed.
-StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
+StdlibExportsOpt extract_writ0_exports(const std::vector<uint8_t>& data,
                                          const std::string& archive_path) {
     StdlibExportsOpt r;
     const uint8_t* p = data.data();
@@ -864,9 +864,9 @@ StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
 }
 
 // M4 step 1 reader: decode the optional LIR blob section that follows the
-// exports trailer in a .hermes0 v3 archive. Walks the file table + exports
+// exports trailer in a .writ0 v3 archive. Walks the file table + exports
 // trailer just to advance past them — no AST decode needed.
-LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
+LirBlobOpt extract_writ0_lir_blob(const std::vector<uint8_t>& data,
                                      const std::string& archive_path) {
     LirBlobOpt r;
     const uint8_t* p = data.data();
@@ -911,14 +911,14 @@ LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
 }
 
 // M3 step 3: union exports trailers from a set of archives. Same archive
-// scan path as load_modules uses (ar_read_members + unwrap_lhermes), but
+// scan path as load_modules uses (ar_read_members + unwrap_lwrit), but
 // only the trailer is decoded — no AST work.
 StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths) {
     StdlibExports merged;
     for (const auto& archive_path : archive_paths) {
         auto members = ar_read_members(archive_path, ".hm0");
         for (auto& m : members) {
-            auto opt = extract_hermes0_exports(m, archive_path);
+            auto opt = extract_writ0_exports(m, archive_path);
             if (!opt.present) continue;
             // Append; dedup is deferred — mono can build a set if needed.
             // Duplicates are rare in practice (a name in two archives
@@ -947,7 +947,7 @@ StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths
 // Binary package index: package_name → archive_path
 // ---------------------------------------------------------------------------
 //
-// We scan each lib*.a for a .hermes0 member, peek at the stored file paths,
+// We scan each lib*.a for a .writ0 member, peek at the stored file paths,
 // extract their `package` declarations (via cheap text scan of the stored paths),
 // and build a map from every package provided by the archive to its path.
 //
@@ -955,12 +955,12 @@ StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths
 // For a typical stdlib with 50 files it's negligible.
 // ---------------------------------------------------------------------------
 
-// Scan a v2 or v3 .hermes0 blob to extract the list of package names it
+// Scan a v2 or v3 .writ0 blob to extract the list of package names it
 // contains. Both versions store pkg_len+pkg explicitly — no AST decode
 // needed. The file table has the same layout in both; v3 only adds a
 // trailing exports section that this scan ignores.
 static std::vector<std::string>
-hermes0_packages(const std::vector<uint8_t>& data) {
+writ0_packages(const std::vector<uint8_t>& data) {
     const uint8_t* p = data.data();
     const uint8_t* end = p + data.size();
     if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return {};
@@ -1144,7 +1144,7 @@ static int check_abi_reuse(std::string_view lib_ver, const std::string& archive)
 }
 
 // Scan search paths for lib*.a files. Returns map: package_name → archive_path.
-// Each archive may provide multiple packages (e.g. libstdlib.a provides std.*, hermes.*, etc.)
+// Each archive may provide multiple packages (e.g. libstdlib.a provides std.*, writ.*, etc.)
 //
 // Fast path: each emit_module-built archive embeds a `.pkgi` member with
 // the package list as ASCII text. ar_read_members_streaming pulls it out
@@ -1193,7 +1193,7 @@ build_binary_index(const std::vector<std::string>& search_paths,
             auto members = ar_read_members(archive, ".hm0");
             for (auto& member : members) {
                 bytes_read += member.size();
-                for (auto& pkg : hermes0_packages(member))
+                for (auto& pkg : writ0_packages(member))
                     if (!idx.count(pkg)) idx[pkg] = archive;
             }
         }
@@ -1293,7 +1293,7 @@ std::vector<ParsedModule> load_modules(
         auto archive = fs::weakly_canonical(f, ec).string();
         auto members = ar_read_members(archive, ".hm0");
         for (auto& member : members) {
-            auto pkgs = hermes0_packages(member);
+            auto pkgs = writ0_packages(member);
             for (auto& pkg : pkgs) {
                 if (!binary_index.count(pkg)) binary_index[pkg] = archive;
             }
@@ -1323,7 +1323,7 @@ std::vector<ParsedModule> load_modules(
     // Parse one .logos file. On success returns the AST and its use-list;
     // on failure logs to stderr and returns empty.
     auto parse_one = [&](const std::string& canonical)
-        -> std::pair<writ::Hermes, std::vector<UseRef>>
+        -> std::pair<writ::Writ, std::vector<UseRef>>
     {
         auto source = read_file(canonical);
         if (source.empty()) {
@@ -1400,15 +1400,15 @@ std::vector<ParsedModule> load_modules(
                    pkg.compare(0, p.size(), p) == 0;
         };
         // Three-layer split Phase 4 transition: also recognize the new
-        // logos.lang.*/mem.*/hermes.* prefixes as foundational packages
+        // logos.lang.*/mem.*/writ.* prefixes as foundational packages
         // so stdlib-internal cross-cutting traits (Default, Ord, Send,
         // AnyVal, ...) keep auto-loading after their package moves.
         // Phase 7 cleanup replaces this prefix-based hack with the
         // manifest-driven tier system.
         // R1: the cross-cutting foundation lives entirely in `logos.lang.*`
         // (marker/clone/cmp/ops/convert/default/hash/iter/option/result traits
-        // + the lang.hermes genos substrate: AnyVal, Map, view, ...). The
-        // `logos.mem.*` layer (collections, encoding, mem.hermes builders/
+        // + the lang.writ genos substrate: AnyVal, Map, view, ...). The
+        // `logos.mem.*` layer (collections, encoding, mem.writ builders/
         // parser/clone/stringify) is NOT cross-cutting — modules that need
         // those `use` them explicitly. Auto-dragging the whole mem layer on
         // every compile that touches Vec/String was a perf regression AND
@@ -1416,19 +1416,19 @@ std::vector<ParsedModule> load_modules(
         // ObjectMap::init / Array__equal force-lower artifacts). Drop it.
         //
         // R2 (implicit-prelude 2x regression, 2026-05-24): exclude the
-        // `logos.lang.hermes.*` genos read-substrate (anyval/view/string/
+        // `logos.lang.writ.*` genos read-substrate (anyval/view/string/
         // scalar/array/map/objectmap/typed_value/decimal/fabric — ~40 of the
         // ~57 lang modules). It is the HEAVY part of the lang tier, and unlike
         // the cross-cutting TRAIT packages (marker/ops/cmp/clone/... which
         // binary modules reference bare without a `use` edge) the substrate is
-        // ALWAYS reached via explicit `use logos.lang.hermes.*` edges (verified
+        // ALWAYS reached via explicit `use logos.lang.writ.*` edges (verified
         // across stdlib). So the eager sibling auto-load of the substrate was
         // pure waste on every compile — requesting any one lang trait dragged
         // in the entire substrate. Let explicit-`use` recursion pull exactly
         // the substrate modules a compile references.
-        return (starts("std.lang") || starts("std.hermes")
+        return (starts("std.lang") || starts("std.writ")
                 || starts("logos.lang"))
-            && !starts("logos.lang.hermes");
+            && !starts("logos.lang.writ");
     };
     auto visit_binary_module = [&](const std::string& cache_key,
                                    const std::string& archive_path,
@@ -1440,16 +1440,16 @@ std::vector<ParsedModule> load_modules(
                              archive_path.c_str());
             auto members = ar_read_members(archive_path, ".hm0");
             if (members.empty()) {
-                std::fprintf(stderr, "module_loader: no .hermes0 in %s\n", archive_path.c_str());
+                std::fprintf(stderr, "module_loader: no .writ0 in %s\n", archive_path.c_str());
                 binary_cache[cache_key].clear();
                 return;
             }
             std::vector<ParsedModule> decoded;
             for (auto& member : members) {
-                auto part = parse_hermes0(member, archive_path);
+                auto part = parse_writ0(member, archive_path);
                 for (auto& pm : part) decoded.push_back(std::move(pm));
                 if (trace) {
-                    auto eopt = extract_hermes0_exports(member, archive_path);
+                    auto eopt = extract_writ0_exports(member, archive_path);
                     if (eopt.present) {
                         std::fprintf(stderr,
                             "module_loader: %s — exports: %zu struct, %zu enum, %zu fn templates, %zu blanket, %zu concrete impls\n",
@@ -1460,7 +1460,7 @@ std::vector<ParsedModule> load_modules(
                             eopt.value.blanket_impls.size(),
                             eopt.value.concrete_impls.size());
                     }
-                    auto bopt = extract_hermes0_lir_blob(member, archive_path);
+                    auto bopt = extract_writ0_lir_blob(member, archive_path);
                     if (bopt.present) {
                         std::fprintf(stderr,
                             "module_loader: %s — lir_blob: %zu bytes\n",
@@ -1469,16 +1469,16 @@ std::vector<ParsedModule> load_modules(
                 }
                 // Multi-arena IR Phase 3: if the lir_blob carries a
                 // LirArenaRoot (emitted by Phase 3+ emit_module), load it
-                // into a Hermes doc and register with the global ArenaPool.
+                // into a Writ doc and register with the global ArenaPool.
                 // The ArenaPool keeps the holder alive via its own ref; the
-                // local Hermes doc handle drops at end of scope but the
+                // local Writ doc handle drops at end of scope but the
                 // arena stays live until pool unregisters (process exit).
                 //
                 // Failure modes (legacy archives without LirArenaRoot,
                 // unknown module names, malformed root) are non-fatal —
                 // we log under trace and continue without registration.
                 {
-                    auto bopt = extract_hermes0_lir_blob(member, archive_path);
+                    auto bopt = extract_writ0_lir_blob(member, archive_path);
                     if (bopt.present && !bopt.bytes.empty()) {
                         auto doc_exp = writ::from_bytes_copy(
                             bopt.bytes.data(), bopt.bytes.size());
@@ -1547,7 +1547,7 @@ std::vector<ParsedModule> load_modules(
                 }
             }
             if (trace)
-                std::fprintf(stderr, "module_loader: decoded %zu file(s) from %zu .hermes0 member(s) in %s\n",
+                std::fprintf(stderr, "module_loader: decoded %zu file(s) from %zu .writ0 member(s) in %s\n",
                              decoded.size(), members.size(), archive_path.c_str());
             cit = binary_cache.emplace(cache_key, std::move(decoded)).first;
         }
@@ -1613,7 +1613,7 @@ std::vector<ParsedModule> load_modules(
         // Check text index first (source build takes priority).
         auto it = index.find(pkg);
         if (it != index.end()) {
-            struct Pending { std::string path; writ::Hermes ast; };
+            struct Pending { std::string path; writ::Writ ast; };
             std::vector<Pending> pending;
             std::vector<UseRef> pkg_uses;
             for (const auto& file : it->second) {

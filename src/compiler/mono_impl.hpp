@@ -49,7 +49,7 @@ public:
     // same TypePool / pools (via SemaCache).
     void set_prev_out(lir::LProgram&& p) { prev_out_ = std::move(p); has_prev_out_ = true; }
     // M3 step 3: non-owning pointer to the stdlib template catalog decoded
-    // from .hermes0 v3 trailers (see mono.hpp). Stored only for now; future
+    // from .writ0 v3 trailers (see mono.hpp). Stored only for now; future
     // M3 steps use it to skip in_-walks for stdlib content.
     void set_stdlib_exports(const StdlibExports* e) { stdlib_exports_ = e; }
 
@@ -92,7 +92,7 @@ private:
     lir::LProgram  prev_out_;
     bool           has_prev_out_ = false;
     // M3 step 3: non-owning pointer to the stdlib template catalog merged
-    // from .hermes0 v3 trailers. Caller (main.cpp) keeps the value alive
+    // from .writ0 v3 trailers. Caller (main.cpp) keeps the value alive
     // for the duration of run(). Null = no exports available.
     const StdlibExports* stdlib_exports_ = nullptr;
     // Mirror of in_'s L-IR. Stage 3g.1: in_.mirror_table is the canonical
@@ -140,9 +140,9 @@ protected:
     lir_view::StmtRef stmt_ref_of(const lir_view::StmtRef& s) const noexcept {
         return s;
     }
-    lir_view::HermesValRef hv_ref_of(const lir::HermesVal& v) const noexcept {
+    lir_view::WritValRef hv_ref_of(const lir::WritVal& v) const noexcept {
         if (v.mirror_ptr_ == nullptr) return {};
-        return lir_view::HermesValRef(effective_src_arena(), v.mirror_ptr_);
+        return lir_view::WritValRef(effective_src_arena(), v.mirror_ptr_);
     }
 private:
 
@@ -178,7 +178,7 @@ private:
     //   (A) existence-of-pkg-qualified: existence-check only, no fallback.
     //
     // Helpers below capture (A)/(B)/(C) so a future M3 can swap the
-    // backing map for a .hermes0-loaded exports table without rewriting
+    // backing map for a .writ0-loaded exports table without rewriting
     // every lookup. Composite-key sites (mono_scan.cpp:487, mono_clone.cpp
     // :2454) take a single string and split internally — they stay on
     // direct .find for now.
@@ -907,7 +907,7 @@ private:
     static bool match_type(TypeRef c, TypeRef p,
                            SubstMap& bindings) noexcept {
         if (!c || !p) return false;
-        // ConstVar (`impl<const CFG: HermesStatic> … for Node<CFG>`) binds by
+        // ConstVar (`impl<const CFG: WritStatic> … for Node<CFG>`) binds by
         // name exactly like a TypeVar — falling through to the kind-equality
         // check below would report a false mismatch against the concrete arg.
         if (p.kind() == LogosType::Kind::TypeVar ||
@@ -949,7 +949,7 @@ private:
     static bool unify_impl_target(TypeRef c, TypeRef p,
                                   SubstMap& bindings) noexcept {
         if (!c || !p) return false;
-        // ConstVar (`impl<const CFG: HermesStatic> … for Node<CFG>`) binds by
+        // ConstVar (`impl<const CFG: WritStatic> … for Node<CFG>`) binds by
         // name exactly like a TypeVar — falling through to the kind-equality
         // check below would report a false mismatch against the concrete arg.
         if (p.kind() == LogosType::Kind::TypeVar ||

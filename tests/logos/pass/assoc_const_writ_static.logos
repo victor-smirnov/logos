@@ -1,0 +1,33 @@
+// WritStatic associated constants: multiple accesses to the same const
+// must yield the same blob pointer (content-keyed rodata dedup), and
+// distinct impls must yield distinct blobs.
+package assoc_const_writ_static;
+
+use logos.lang.writ.hstatic;
+
+trait Schema {
+    const SHAPE: WritStatic;
+}
+
+struct Foo {}
+struct Bar {}
+
+impl Schema for Foo {
+    const SHAPE: WritStatic = @{"x": 1, "y": [1, 2, 3, 4]};
+}
+impl Schema for Bar {
+    const SHAPE: WritStatic = @"different";
+}
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = Foo::SHAPE;
+    let b: WritStatic = Foo::SHAPE;
+    let c: WritStatic = Bar::SHAPE;
+
+    if a.ptr != b.ptr { return 11; }
+    if a.size() != b.size() { return 12; }
+    if a.ptr == c.ptr { return 13; }
+    if a.size() == 0u64 { return 14; }
+    if c.size() == 0u64 { return 15; }
+    return 0;
+}

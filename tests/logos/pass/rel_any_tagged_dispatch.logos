@@ -1,17 +1,17 @@
 package relany;
-// any_object_ptr (RelAny) PROOF: a SELF-RELATIVE (Hermes) pointer to a TYPE-
-// TAGGED object, dispatching through the EXISTING Hermes1 tag tables unchanged.
+// any_object_ptr (RelAny) PROOF: a SELF-RELATIVE (Writ) pointer to a TYPE-
+// TAGGED object, dispatching through the EXISTING Writ1 tag tables unchanged.
 // The object lives in a never-move arena with a vlen tag header (write_tag); the
 // RelAny field stores `target − &field` (RelOffset descriptor) and materialises
 // to *const u8, which the standard `&tagged<TS> Trait` coercion dispatches on.
 use logos.lang.ptr;
-use logos.mem.hermes.tag_system;
+use logos.mem.writ.tag_system;
 extern fn malloc(size: i64) -> *mut u8;
 
 // ── the any_object_ptr type: self-relative, materialises to *const u8 ──────────
 #[rel_ptr] struct RelAny { _o: i64 }
 
-// ── Hermes never-move arena ──────────────────────────────────────────────────
+// ── Writ never-move arena ──────────────────────────────────────────────────
 struct Arena { base: *mut u8, used: i64 }
 unsafe fn arena_new(cap: i64) -> Arena { return Arena { base: malloc(cap), used: 0i64 }; }
 unsafe fn arena_alloc(a: *mut Arena, bytes: i64) -> *mut u8 {
@@ -28,14 +28,14 @@ unsafe fn arena_alloc_tagged(a: *mut Arena, size: i64, code: u64) -> *mut u8 {
     return obj;
 }
 
-// ── two tagged Hermes object types ───────────────────────────────────────────
+// ── two tagged Writ object types ───────────────────────────────────────────
 #[tag_dispatch(DataTypeTagSystem)] trait Checksum { unsafe fn checksum(self: *const Self) -> i32; }
 #[type_code=151] #[datatype] struct Point { x: i32, y: i32 }
 #[type_code=152] #[datatype] struct Color { r: u8, g: u8, b: u8, a: u8 }
 impl Checksum for Point { pub unsafe fn checksum(self: *const Point) -> i32 { return self.x + self.y; } }
 impl Checksum for Color { pub unsafe fn checksum(self: *const Color) -> i32 { return self.r as i32 + self.g as i32 + self.b as i32 + self.a as i32; } }
 
-// ── a Hermes container holding a self-relative any_object_ptr (pin: in arena) ──
+// ── a Writ container holding a self-relative any_object_ptr (pin: in arena) ──
 struct Holder { any: RelAny }
 
 unsafe fn dispatch(o: *const u8) -> i32 {

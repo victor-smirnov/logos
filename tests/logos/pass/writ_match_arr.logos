@@ -1,0 +1,24 @@
+// Test: Writ array structural patterns @[...].
+
+package writ_match_arr;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.hstatic;
+
+unsafe fn classify(d: &WritStatic) -> i32 {
+    match d {
+        @[@1, @2, @3] => 1,
+        @[@1, @2]     => 2,
+        @[]           => 3,
+        _             => 0,
+    }
+}
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = @[1, 2, 3];
+    let b: WritStatic = @[1, 2];
+    let c: WritStatic = @[];
+    let d: WritStatic = @[1, 2, 3, 4];
+    // 1 + 2 + 3 + 0 = 6
+    return classify(&a) + classify(&b) + classify(&c) + classify(&d);
+}

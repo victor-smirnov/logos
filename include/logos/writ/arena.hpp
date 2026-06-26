@@ -43,7 +43,7 @@ struct Chunk {
     size_t         available() const noexcept { return capacity - used; }
 };
 
-// Arena: bump-pointer allocator for Hermes objects.
+// Arena: bump-pointer allocator for Writ objects.
 //
 // Objects are allocated sequentially within chunks. Each tagged object has its
 // TypeTag written in the bytes immediately before the object's address. The
@@ -110,7 +110,7 @@ public:
 
     // Reopen a sealed arena for further allocation. Used when seal() was issued
     // only to snapshot the arena (e.g. publish a LirArenaRoot + compactify a
-    // copy for the .hermes0 blob) but the SAME live arena must keep growing for
+    // copy for the .writ0 blob) but the SAME live arena must keep growing for
     // downstream codegen. Safe single-threaded; do NOT call while other threads
     // hold the sealed arena as shared-immutable.
     void unseal() noexcept { sealed_.store(false, std::memory_order_release); }

@@ -1,5 +1,5 @@
 // showcase_type_metaprog.logos — sampler of Logos's type-level
-// metaprog + embedded Hermes capabilities, circa slice 1G of the
+// metaprog + embedded Writ capabilities, circa slice 1G of the
 // component-metaprog bootstrap.
 //
 // Five flights, each independently checkable from the exit code:
@@ -9,9 +9,9 @@
 //             fold_to_type
 //   F3 (30s)  generic_of + apply_generic ≡ direct instantiation
 //             (UID-equality)
-//   F4 (40s)  <type:T> Hermes literals inside an @{ } HermesStatic
+//   F4 (40s)  <type:T> Writ literals inside an @{ } WritStatic
 //             config
-//   F5 (50s)  type_from_anyval — reify Hermes Types and dispatch on
+//   F5 (50s)  type_from_anyval — reify Writ Types and dispatch on
 //             kind (slice 1G end-to-end)
 //
 // Exit codes 1..9 inside each flight let a failing run point at the
@@ -20,13 +20,13 @@
 package showcase_type_metaprog;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.hstatic;
-use logos.lang.hermes.static_view;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.hstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
 
 // A user struct, just enough surface for kind/uid/template flights.
 pub struct Pair<A, B> { pub a: A, pub b: B, }
-// Plain (non-generic) struct — used in F4 because Hermes' `<type:T>`
+// Plain (non-generic) struct — used in F4 because Writ' `<type:T>`
 // parser doesn't yet handle nested `>` in generic instantiations.
 pub struct Point { pub x: i32, pub y: i32, }
 
@@ -77,8 +77,8 @@ unsafe fn main() -> i32 {
     let direct:  Type = type_of::<Pair<i64, bool>>();
     if applied.uid != direct.uid    { return 33; }   // structural identity
 
-    // ── F4. embed types as Hermes values ────────────────────────────
-    let cfg: HermesStatic = @{
+    // ── F4. embed types as Writ values ────────────────────────────
+    let cfg: WritStatic = @{
         "tag":   "type-registry-v0",
         "kinds": [<type:i32>, <type:f64>, <type:bool>, <type:Point>],
     };
@@ -101,7 +101,7 @@ unsafe fn main() -> i32 {
         if t.is_float()   { float_count  = float_count  + 1; }
         if t.is_struct()  { struct_count = struct_count + 1; }
         // Every reified Type carries a non-zero UID — the byte-level
-        // identity that survives the @{ } → packed Hermes → view round
+        // identity that survives the @{ } → packed Writ → view round
         // trip. (Strict UID-equality with `type_of::<T>()` is deferred
         // until canonicalisation between the two producers is unified.)
         if t.uid == (0 as u64) { return 60 + (idx as i32); }

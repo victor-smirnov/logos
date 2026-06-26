@@ -13,12 +13,12 @@
 
 namespace logos::compiler {
 
-// Parsed module: source path + Hermes AST.
+// Parsed module: source path + Writ AST.
 struct ParsedModule {
     std::string    path;
     std::string    package;               // dotted package name (e.g. "std.io"); may be empty
-    writ::Hermes ast;
-    bool           from_binary_module = false;  // loaded from a .hermes0 in a .a archive
+    writ::Writ ast;
+    bool           from_binary_module = false;  // loaded from a .writ0 in a .a archive
 
     // Owning MODULE identity (the unit of distribution this file belongs to).
     // module_id is the mangle key (module_manifest.module_effective_id);
@@ -37,14 +37,14 @@ struct ParsedModule {
     bool           is_lazy = false;
 };
 
-// M3: stdlib exports payload carried in the .hermes0 v3 trailer.
+// M3: stdlib exports payload carried in the .writ0 v3 trailer.
 // Populated by emit_module from the post-sema LProgram before mono runs;
 // future mono-side hookup will use it to skip iterating in_.structs/enums/
 // functions for stdlib content and instead seed templates_/struct_templates_/
 // enum_templates_ directly. For now it's a name catalog only — entries here
 // are precisely the items whose type_params is non-empty in sema's output.
 //
-// Trailer format (inside the u64-prefixed exports section of the .hermes0):
+// Trailer format (inside the u64-prefixed exports section of the .writ0):
 //   u16 trailer_version    // 1 = templates only; 2 = +blanket/concrete impls
 //   u16 reserved (0)
 //   u32 num_struct_templates
@@ -93,34 +93,34 @@ struct StdlibExports {
     std::vector<ConcreteImpl> concrete_impls;
 };
 
-// Decode the exports trailer from a .hermes0 blob. Returns empty exports on
+// Decode the exports trailer from a .writ0 blob. Returns empty exports on
 // v2 archives or when the trailer is absent/zero-length. Returns nullopt on
 // a malformed trailer (caller should treat that as a fatal load error).
 struct StdlibExportsOpt {
     bool present = false;
     StdlibExports value;
 };
-StdlibExportsOpt extract_hermes0_exports(const std::vector<uint8_t>& data,
+StdlibExportsOpt extract_writ0_exports(const std::vector<uint8_t>& data,
                                           const std::string& archive_path);
 
 // M3 step 3: extract + merge StdlibExports across a set of archive paths.
-// For each archive, reads its .hermes0 member(s) and unions any present
+// For each archive, reads its .writ0 member(s) and unions any present
 // exports trailer into the result. Archives without a v3 trailer (e.g.
 // non-stdlib libraries that haven't been re-emitted) contribute nothing.
 // Order is preserved as given; later archives win on duplicate fn_templates
 // (rare — only happens if a project redefines a stdlib mangled symbol).
 StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths);
 
-// M4 step 1: extract the raw LIR-mirror blob from a .hermes0 v3 archive.
-// Returns the bytes as written by emit_module (a complete Hermes arena
-// segment — load via writ::from_bytes_copy to wrap as a Hermes view).
+// M4 step 1: extract the raw LIR-mirror blob from a .writ0 v3 archive.
+// Returns the bytes as written by emit_module (a complete Writ arena
+// segment — load via writ::from_bytes_copy to wrap as a Writ view).
 // Returns empty for v2 archives, archives without the lir_blob section
 // (M3-era writes), or zero-length blobs. Returns nullopt on truncation.
 struct LirBlobOpt {
     bool present = false;
     std::vector<uint8_t> bytes;
 };
-LirBlobOpt extract_hermes0_lir_blob(const std::vector<uint8_t>& data,
+LirBlobOpt extract_writ0_lir_blob(const std::vector<uint8_t>& data,
                                      const std::string& archive_path);
 
 // Load a .logos file and all its transitive dependencies.

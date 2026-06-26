@@ -29,8 +29,8 @@ use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.str;
 use logos.lang.cmp;
-use logos.lang.hermes.dview;       // Datum / DView (capture into a runtime-typed container)
-use logos.lang.hermes.anyval;      // H2_STRING
+use logos.lang.writ.dview;       // Datum / DView (capture into a runtime-typed container)
+use logos.lang.writ.anyval;      // H2_STRING
 
 // ── String ─────────────────────────────────────────────────────────────────
 

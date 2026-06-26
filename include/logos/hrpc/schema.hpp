@@ -1,8 +1,8 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// HRPC schema types — Hermes-backed request/response/message wrappers.
+// HRPC schema types — Writ-backed request/response/message wrappers.
 //
-// All types carry an owned Hermes (the document) plus a TinyMapView into
+// All types carry an owned Writ (the document) plus a TinyMapView into
 // its root map. Field key codes mirror Memoria HRPC for future wire compat.
 
 #pragma once
@@ -21,8 +21,8 @@
 
 namespace logos::hrpc {
 
-using logos::writ::Hermes;
-using logos::writ::HermesView;
+using logos::writ::Writ;
+using logos::writ::WritView;
 using logos::writ::TinyMapView;
 using logos::writ::AnyVal;
 using logos::NamedCode;
@@ -75,7 +75,7 @@ enum class StatusCode : uint32_t {
 // ---------------------------------------------------------------------------
 
 struct Request {
-    Hermes    doc;
+    Writ    doc;
     TinyMapView  map;
 
     // Create a new empty Request document.
@@ -90,7 +90,7 @@ struct Request {
     }
 
     // Wrap an existing document (used on the receiving side).
-    static Request from_doc(Hermes doc) noexcept {
+    static Request from_doc(Writ doc) noexcept {
         Request rq;
         rq.doc = std::move(doc);
         rq.map = rq.doc.root_object().as_tiny_map();
@@ -136,7 +136,7 @@ struct Request {
 // ---------------------------------------------------------------------------
 
 struct Response {
-    Hermes   doc;
+    Writ   doc;
     TinyMapView map;
 
     // Successful response with no result value.
@@ -181,7 +181,7 @@ struct Response {
     }
 
     // Wrap an existing document (used on the receiving side).
-    static Response from_doc(Hermes doc) noexcept {
+    static Response from_doc(Writ doc) noexcept {
         Response rs;
         rs.doc = std::move(doc);
         rs.map = rs.doc.root_object().as_tiny_map();
@@ -226,7 +226,7 @@ struct Response {
 // ---------------------------------------------------------------------------
 
 struct StreamMessage {
-    Hermes   doc;
+    Writ   doc;
     TinyMapView map;
 
     [[nodiscard]] static logos::expected<StreamMessage> make(AnyVal data) noexcept {
@@ -240,7 +240,7 @@ struct StreamMessage {
         return msg;
     }
 
-    static StreamMessage from_doc(Hermes doc) noexcept {
+    static StreamMessage from_doc(Writ doc) noexcept {
         StreamMessage msg;
         msg.doc = std::move(doc);
         msg.map = msg.doc.root_object().as_tiny_map();
@@ -261,7 +261,7 @@ struct StreamMessage {
 // ---------------------------------------------------------------------------
 
 struct ConnectionMetadata {
-    Hermes   doc;
+    Writ   doc;
     TinyMapView map;
 
     [[nodiscard]] static logos::expected<ConnectionMetadata> make(uint64_t buffer_size = 1024 * 1024) noexcept {
@@ -278,7 +278,7 @@ struct ConnectionMetadata {
         return meta;
     }
 
-    static ConnectionMetadata from_doc(Hermes doc) noexcept {
+    static ConnectionMetadata from_doc(Writ doc) noexcept {
         ConnectionMetadata meta;
         meta.doc = std::move(doc);
         meta.map = meta.doc.root_object().as_tiny_map();

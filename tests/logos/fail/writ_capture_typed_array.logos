@@ -1,0 +1,12 @@
+// Fail: capture inside a typed @<T>[] array (not supported — typed arrays store raw T, not AnyVal).
+package writ_capture_typed_array;
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let x: i32 = 5;
+    let arr: Rc<Writ> = @<I32>[$x, 2, 3];
+    return 0;
+}

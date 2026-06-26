@@ -1,4 +1,4 @@
-// lforge — Hermes-SDN parser for `lforge.hermes` manifest files.
+// lforge — Writ-SDN parser for `lforge.writ` manifest files.
 
 package lforge.manifest;
 
@@ -7,17 +7,17 @@ use logos.lang.str;
 use logos.lang.result;
 use logos.mem.collections.vec;
 use logos.std.io.fs;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.container;
-use logos.lang.hermes.array;
-use logos.lang.hermes.hmap;
-use logos.lang.hermes.hstring;
-use logos.mem.hermes.parser;
+use logos.lang.writ.anyval;
+use logos.lang.writ.container;
+use logos.lang.writ.array;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.mem.writ.parser;
 use logos.lang.rc;
 
 use lforge.schema;
 use lforge.util;
-use lforge.hermes_io;
+use lforge.writ_io;
 
 // Parse one entry of the project-level `deps: [...]` array. Forms:
 //     { path: "../foo", modules: [...] }
@@ -114,8 +114,8 @@ fn h2io_get(root: HAny, key: str) -> HAny {
 }
 
 pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
-    let ctr: Rc<Hermes> = hermes_rc(32768);
-    let h: &Hermes = ctr.deref();
+    let ctr: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = ctr.deref();
     let root: HAny = parse(h, text);
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));
@@ -232,7 +232,7 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
 
 pub fn read_manifest(p: str) -> Result<Manifest, ManifestError> {
     match read_to_string(p) {
-        Result::Err(_) => { return Result::Err(err_msg("lforge.hermes: cannot read")); }
+        Result::Err(_) => { return Result::Err(err_msg("lforge.writ: cannot read")); }
         Result::Ok(s)  => { return parse_manifest(s.as_str()); }
     }
 }

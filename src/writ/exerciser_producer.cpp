@@ -1,10 +1,10 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes PRODUCER conformance: builds a schema-tagged AST-like node tree exactly the
+// Writ PRODUCER conformance: builds a schema-tagged AST-like node tree exactly the
 // way the logosc parser does — make_doc → make_tiny_map (schema_type_code set) →
 // put(field, AnyVal) → set_ref to wire children → set_root — then reads it back via
 // the owning views + schema_codes category decode. De-risks the §6.2 cut-over of the
-// generated parser onto hermes2 (the producer surface + the schema_type_code path).
+// generated parser onto writ2 (the producer surface + the schema_type_code path).
 
 #include <logos/writ/document.hpp>
 #include <logos/writ/view.hpp>
@@ -22,7 +22,7 @@ namespace la { enum : uint8_t { CODE = 0, NAME = 1, ITEMS = 2, SRC_LINE = 3 }; }
 namespace nc { enum : int32_t { MODULE = 100, FN = 101 }; }
 
 // Build one AST-like node: a schema-tagged tiny map { CODE, NAME, SRC_LINE }.
-static TinyObjectMap* make_node(HermesCtr& doc, int32_t code, std::string_view name, int32_t line) {
+static TinyObjectMap* make_node(WritCtr& doc, int32_t code, std::string_view name, int32_t line) {
     auto* n = *doc.make_tiny_map(4);
     n->set_schema_type_code(schema::ast(code));                     // discriminant in the header
     (void)n->put(la::CODE, AnyVal::from_value(code, tc::HT_I24), doc.arena());
@@ -35,7 +35,7 @@ static TinyObjectMap* make_node(HermesCtr& doc, int32_t code, std::string_view n
 int main() {
     auto doc_exp = make_doc();                                       // MultiChunk never-move
     CHECK(doc_exp.has_value(), 1);
-    HermesCtr doc = std::move(*doc_exp);
+    WritCtr doc = std::move(*doc_exp);
 
     // module { NAME="m", ITEMS=[ fn "a", fn "b" ] }
     auto* root = make_node(doc, nc::MODULE, "m", 1);
@@ -65,10 +65,10 @@ int main() {
     CHECK(c1.get(la::SRC_LINE).as_value<int32_t>() == 3, 11);
     CHECK(as_string(c1.get(la::NAME), doc.holder()).view() == "b", 12);
 
-    // schema_type_code survives compaction (the .hermes0 path), unlike the plain CODE
+    // schema_type_code survives compaction (the .writ0 path), unlike the plain CODE
     // field which also round-trips — both must agree after a compactify.
     doc.seal();
 
-    std::printf("hermes producer (AST-like build + schema_type_code + view read-back): OK\n");
+    std::printf("writ producer (AST-like build + schema_type_code + view read-back): OK\n");
     return 0;
 }

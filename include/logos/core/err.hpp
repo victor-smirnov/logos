@@ -13,7 +13,7 @@
 // Scalar error code ranges (per subsystem):
 //   0x0000'0000'0000'0000  — empty (not a real error)
 //   0x0000'0000'0000'0001 … 0x0000'0000'0000'FFFF  — core / generic
-//   0x0000'0000'0001'0000 … 0x0000'0000'0001'FFFF  — hermes
+//   0x0000'0000'0001'0000 … 0x0000'0000'0001'FFFF  — writ
 //   0x0000'0000'0002'0000 … 0x0000'0000'0002'FFFF  — hrpc
 //   0x0000'0000'0003'0000 … 0x0000'0000'0003'FFFF  — reactor
 //   (higher ranges reserved for future subsystems)

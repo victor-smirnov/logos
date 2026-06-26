@@ -1,13 +1,13 @@
-// One generic array shape, several element types (successor of the Hermes1
+// One generic array shape, several element types (successor of the Writ1
 // polymorphic Array<T> test): i32 / i64 / u8 instantiations behave alike.
 package array_i32_polymorphic;
-use logos.lang.hermes.container;
-use logos.lang.hermes.array;
+use logos.lang.writ.container;
+use logos.lang.writ.array;
 use logos.lang.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes> = hermes_rc(8192);
-    let h: &Hermes = rc.deref();
+    let rc: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = rc.deref();
 
     let ai: &mut HArray<i32> = h.tarray::<i32>(4);
     ai.push(-5); ai.push(7);

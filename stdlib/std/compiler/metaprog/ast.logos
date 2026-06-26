@@ -1,9 +1,9 @@
 // logos.std.compiler.metaprog — untyped-AST helpers for hook handlers.
 //
-// HERMES2 PORT (cut-over step 4): node handles are hermes2 `HAny` (8-byte
+// HERMES2 PORT (cut-over step 4): node handles are writ2 `HAny` (8-byte
 // self-relative; value-form holds the resolved absolute ptr), read through the
 // OView primitives in oview.logos (tiny_map_get / get_str_view / array_* on
-// HMap<Hu6,HAny> / HArray<HAny> / HString). The old Hermes1 4-byte AnyVal{raw}
+// HMap<Hu6,HAny> / HArray<HAny> / HString). The old Writ1 4-byte AnyVal{raw}
 // + base-relative `base + offset` model is gone.
 //
 // Hooks fire pre-sema: the AST is freshly parsed TinyObjectMap nodes keyed by
@@ -11,10 +11,10 @@
 
 package logos.std.compiler.metaprog;
 
-use logos.lang.hermes.hstatic;    // HermesStatic — the quote/metacall splice handle ({ptr})
-use logos.lang.hermes.anyval;     // HAny
-use logos.lang.hermes.hmap;       // HMap<Hu6,HAny> (for schema_type_code on type_from_anyval)
-use logos.lang.hermes.hstring;
+use logos.lang.writ.hstatic;    // WritStatic — the quote/metacall splice handle ({ptr})
+use logos.lang.writ.anyval;     // HAny
+use logos.lang.writ.hmap;       // HMap<Hu6,HAny> (for schema_type_code on type_from_anyval)
+use logos.lang.writ.hstring;
 use logos.mem.string;
 use logos.lang.str;
 
@@ -150,7 +150,7 @@ pub fn gensym(prefix: str) -> Ident {
 }
 
 // `QuoteItemBlob` — bundle returned by `quote_item! { ... }`. Unchanged by the
-// hermes2 port (it carries rodata blob ptrs + packed ident/blob/cursor payloads,
+// writ2 port (it carries rodata blob ptrs + packed ident/blob/cursor payloads,
 // all *const u8 — no AnyVal).
 pub struct QuoteItemBlob {
     pub template_ptr: *const u8,
@@ -160,7 +160,7 @@ pub struct QuoteItemBlob {
     pub cursors_blob: *const u8,
 }
 
-// `ExprBlob` — marker return type (ABI = HermesStatic; a single *const u8).
+// `ExprBlob` — marker return type (ABI = WritStatic; a single *const u8).
 pub struct ExprBlob {
     pub ptr: *const u8,
 }
@@ -200,7 +200,7 @@ impl Ident {
     }
 }
 
-// ── `<type:T>` decode (schema_type_code=107 TOM) — hermes2 ──────────
+// ── `<type:T>` decode (schema_type_code=107 TOM) — writ2 ──────────
 //
 // `val` is a node handle (HAny Ref to the TOM). Returns a zero-filled Type if
 // `val` isn't a Ref to a schema-107 TinyObjectMap.
@@ -235,12 +235,12 @@ pub fn type_from_anyval(val: HAny) -> Type {
 
         // name (key 2) intentionally left empty — synthesising a &[u8] slice with
         // stable storage from user code needs the fat-ptr-inline ABI (see the
-        // Hermes1 note); compiler-built Type literals emit name into rodata.
+        // Writ1 note); compiler-built Type literals emit name into rodata.
         return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
     }
 }
 
-// ── OView convenience accessors (hermes2) ─────────────────────────────────
+// ── OView convenience accessors (writ2) ─────────────────────────────────
 //
 // All take/return HAny node handles via the oview.logos primitives.
 
@@ -354,7 +354,7 @@ impl OView {
         };
     }
 
-    // Decode a `<type:T>` Hermes value (schema_type_code=107 TOM) into a Type.
+    // Decode a `<type:T>` Writ value (schema_type_code=107 TOM) into a Type.
     pub fn as_type(self: &OView, val: HAny) -> Type {
         return type_from_anyval(val);
     }

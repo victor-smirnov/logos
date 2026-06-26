@@ -160,7 +160,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             auto any_sit = find_any_struct(inner.pkg_name(), sn);
             bool tmpl_dst = (sit_ptr.valid() && sit_ptr.is_dst()) ||
                             (any_sit.valid() && any_sit.is_dst());
-            // Hermes / RefRepr: a `#[self_describing]` DST recovers its tail
+            // Writ / RefRepr: a `#[self_describing]` DST recovers its tail
             // length from an in-band prefix field, so a RAW `*const/*mut Self`
             // stays THIN (kind=Ptr, 8B) — do NOT canonicalise to fat DstRef.
             // `&Self` / `&mut Self` keep the fat repr (no in-band len contract),
@@ -431,7 +431,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     }
     case LogosType::Kind::CfgSlotType: {
         // <type:CFG.path> — extract the type stored at the given path of
-        // HermesStatic-bound CFG. CFG can be a const-generic param
+        // WritStatic-bound CFG. CFG can be a const-generic param
         // (resolves through `s`) or a type alias to an HStaticLit (already
         // a concrete bound when type aliases are inlined). When CFG is not
         // yet concrete, stay deferred.
@@ -453,7 +453,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (rav.is_null()) return tv;
         lir_view::ExprRef eref(out_.type_pool.arena(), rav);
         if (eref.addr() == nullptr) return tv;
-        if (eref.kind() != lir_schema::expr::Code::HermesLit) return tv;
+        if (eref.kind() != lir_schema::expr::Code::WritLit) return tv;
         // Decode path.
         struct Step { char kind; std::string name; int64_t index; };
         std::vector<Step> steps;
@@ -471,10 +471,10 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 p = e + 1;
             }
         }
-        // Walk path through the Hermes value.
-        lir_view::HermesValRef cur = lir_view::EHermesLitView{eref}.root();
+        // Walk path through the Writ value.
+        lir_view::WritValRef cur = lir_view::EWritLitView{eref}.root();
         for (auto& st : steps) {
-            using K = lir_schema::hermes_val::Code;
+            using K = lir_schema::writ_val::Code;
             bool found = false;
             if (st.kind == 'F' || st.kind == 'I') {
                 if (cur.kind() != K::Map) return tv;
@@ -495,7 +495,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             }
             if (!found) return tv;
         }
-        if (cur.kind() == lir_schema::hermes_val::Code::Type) {
+        if (cur.kind() == lir_schema::writ_val::Code::Type) {
             std::string tname(lir_view::HVTypeView{cur}.name());
             auto alloc_kind = [&](LogosType::Kind k) -> TypeRef {
                 LogosTypeBuilder b; b.kind = k;

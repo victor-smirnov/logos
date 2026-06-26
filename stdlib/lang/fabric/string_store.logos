@@ -1,20 +1,20 @@
 // logos.lang.fabric.string_store — SoA string storage for fabric Buffers.
 //
-// Relocated from lang.hermes.string in the hermes2 cut-over: the storage is
+// Relocated from lang.writ.string in the writ2 cut-over: the storage is
 // malloc-backed SoA (packed bytes + end offsets) and never depended on the
-// Hermes1 zone — only its StringView (now lang.hermes2.hstatic). The marker
+// Writ1 zone — only its StringView (now lang.writ2.hstatic). The marker
 // datatype StrDt plugs Buffer<StrDt> into the Container machinery.
 
 package logos.lang.fabric.string_store;
 
 use logos.lang.fabric;
-use logos.lang.hermes.hstatic;   // StringView
+use logos.lang.writ.hstatic;   // StringView
 use logos.lang.mem;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-pub struct HermesStringStorage {
+pub struct WritStringStorage {
     pub bytes: *mut u8,
     pub b_len: u64,
     pub b_cap: u64,
@@ -22,12 +22,12 @@ pub struct HermesStringStorage {
     pub o_len: u64,
     pub o_cap: u64,
 }
-impl Storage for HermesStringStorage {
+impl Storage for WritStringStorage {
     type Elem = StringView;
-    fn storage_len(s: *const HermesStringStorage) -> u64 {
+    fn storage_len(s: *const WritStringStorage) -> u64 {
         unsafe { return s.o_len; }
     }
-    fn storage_get(s: *const HermesStringStorage, idx: u64) -> StringView {
+    fn storage_get(s: *const WritStringStorage, idx: u64) -> StringView {
         unsafe {
             let end_p: *mut u32 = s.ends.add(idx as i64);
             let end_off: u64 = *end_p as u64;
@@ -45,8 +45,8 @@ impl Storage for HermesStringStorage {
     }
 }
 
-impl OwningStorage for HermesStringStorage {
-    fn storage_drop(s: *mut HermesStringStorage) {
+impl OwningStorage for WritStringStorage {
+    fn storage_drop(s: *mut WritStringStorage) {
         unsafe {
             if s.bytes != 0 as *mut u8 {
                 dealloc(s.bytes);
@@ -62,9 +62,9 @@ impl OwningStorage for HermesStringStorage {
     }
 }
 
-impl DynamicStorage for HermesStringStorage {
-    fn storage_new() -> HermesStringStorage {
-        return HermesStringStorage {
+impl DynamicStorage for WritStringStorage {
+    fn storage_new() -> WritStringStorage {
+        return WritStringStorage {
             bytes: 0 as *mut u8,
             b_len: 0,
             b_cap: 0,
@@ -73,7 +73,7 @@ impl DynamicStorage for HermesStringStorage {
             o_cap: 0,
         };
     }
-    fn storage_clear(s: *mut HermesStringStorage) {
+    fn storage_clear(s: *mut WritStringStorage) {
         unsafe {
             if s.bytes != 0 as *mut u8 {
                 dealloc(s.bytes);
@@ -87,7 +87,7 @@ impl DynamicStorage for HermesStringStorage {
             s.o_len = 0; s.o_cap = 0;
         }
     }
-    fn storage_push(s: *mut HermesStringStorage, v: StringView) {
+    fn storage_push(s: *mut WritStringStorage, v: StringView) {
         unsafe {
             // Grow bytes buffer to fit the new string.
             let need_b: u64 = s.b_len + v.len;
@@ -135,12 +135,12 @@ impl DynamicStorage for HermesStringStorage {
     // without rewriting the bytes tail.  Persistent collections that need
     // this should pick a different Container; the methods are stubbed
     // here so the trait stays whole.
-    fn storage_set(s: *mut HermesStringStorage, idx: u64, v: StringView) { }
-    fn storage_insert_at(s: *mut HermesStringStorage, idx: u64, v: StringView) { }
-    fn storage_remove_at(s: *mut HermesStringStorage, idx: u64) { }
+    fn storage_set(s: *mut WritStringStorage, idx: u64, v: StringView) { }
+    fn storage_insert_at(s: *mut WritStringStorage, idx: u64, v: StringView) { }
+    fn storage_remove_at(s: *mut WritStringStorage, idx: u64) { }
 }
 
-impl Datatype for HermesString {
+impl Datatype for WritString {
     type View<S: Storage> = StringView;
 }
 
@@ -151,14 +151,14 @@ impl Datatype for StrDt {
     type View<S: Storage> = StringView;
 }
 impl Container for StrDt {
-    type Store       = HermesStringStorage;
+    type Store       = WritStringStorage;
     type ViewInStore = StringView;
-    fn new_store()                                        -> HermesStringStorage { return HermesStringStorage::storage_new(); }
-    fn drop_store(s: *mut HermesStringStorage)                                   { unsafe { HermesStringStorage::storage_drop(s); } }
-    fn store_len(s: *const HermesStringStorage)           -> u64                 { unsafe { return HermesStringStorage::storage_len(s); } }
-    fn store_push(s: *mut HermesStringStorage, v: StringView)                    { unsafe { HermesStringStorage::storage_push(s, v); } }
-    fn store_get(s: *const HermesStringStorage, idx: u64) -> StringView          { unsafe { return HermesStringStorage::storage_get(s, idx); } }
-    fn store_set(s: *mut HermesStringStorage, idx: u64, v: StringView)           { unsafe { HermesStringStorage::storage_set(s, idx, v); } }
-    fn store_insert_at(s: *mut HermesStringStorage, idx: u64, v: StringView)     { unsafe { HermesStringStorage::storage_insert_at(s, idx, v); } }
-    fn store_remove_at(s: *mut HermesStringStorage, idx: u64)                    { unsafe { HermesStringStorage::storage_remove_at(s, idx); } }
+    fn new_store()                                        -> WritStringStorage { return WritStringStorage::storage_new(); }
+    fn drop_store(s: *mut WritStringStorage)                                   { unsafe { WritStringStorage::storage_drop(s); } }
+    fn store_len(s: *const WritStringStorage)           -> u64                 { unsafe { return WritStringStorage::storage_len(s); } }
+    fn store_push(s: *mut WritStringStorage, v: StringView)                    { unsafe { WritStringStorage::storage_push(s, v); } }
+    fn store_get(s: *const WritStringStorage, idx: u64) -> StringView          { unsafe { return WritStringStorage::storage_get(s, idx); } }
+    fn store_set(s: *mut WritStringStorage, idx: u64, v: StringView)           { unsafe { WritStringStorage::storage_set(s, idx, v); } }
+    fn store_insert_at(s: *mut WritStringStorage, idx: u64, v: StringView)     { unsafe { WritStringStorage::storage_insert_at(s, idx, v); } }
+    fn store_remove_at(s: *mut WritStringStorage, idx: u64)                    { unsafe { WritStringStorage::storage_remove_at(s, idx); } }
 }

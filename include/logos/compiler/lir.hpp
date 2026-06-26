@@ -42,10 +42,10 @@ using LExprPtr     = lir_view::ExprRef;
 // Stage D: blocks are eager-emitted mirror VIEWS. LBlockPtr is a BlockRef
 // handle (each IS its mirror); complete a block via lir_mirror_block(prog, vec).
 using LBlockPtr    = lir_view::BlockRef;
-// Stage E (decl→Hermes): LFunctionPtr is a FunctionView handle over the
-// function's Hermes decl mirror (each IS its mirror, like LBlockPtr). The
+// Stage E (decl→Writ): LFunctionPtr is a FunctionView handle over the
+// function's Writ decl mirror (each IS its mirror, like LBlockPtr). The
 // `struct FunctionDraft` build buffer is GONE — fn decls are DIRECT-BUILT into
-// the HermesCtr (mono: DeclBuilder via clone_fn; sema: DeclBuilder via lower_fn).
+// the WritCtr (mono: DeclBuilder via clone_fn; sema: DeclBuilder via lower_fn).
 // Stored collections (LProgram::functions/specializations, {Struct,Trait,Impl}
 // Def::methods, SemaCache) hold Views — refcount-free, arena-stable.
 using LFunctionPtr = lir_view::FunctionView;
@@ -140,11 +140,11 @@ struct LMatchArm {
     std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
 };
 
-// ── Hermes SDN literal tree ───────────────────────────────────────────────
+// ── Writ SDN literal tree ───────────────────────────────────────────────
 
-struct HermesVal;
-// ADR 0007 slice 1c: HermesVal is pool-owned by LProgram::hermes_val_pool_.
-using HermesValPtr = HermesVal*;
+struct WritVal;
+// ADR 0007 slice 1c: WritVal is pool-owned by LProgram::writ_val_pool_.
+using WritValPtr = WritVal*;
 
 struct HVNull  {};
 struct HVBool  { bool value; };
@@ -154,7 +154,7 @@ struct HVStr   { std::string value; };
 
 struct HVMapEntry {
     std::variant<std::string, int64_t> key;
-    HermesValPtr val = nullptr;
+    WritValPtr val = nullptr;
 };
 
 struct HVMap   {
@@ -162,7 +162,7 @@ struct HVMap   {
     std::string key_type;  // "" = ObjectMap (tc=101); "I32" = MapI32AnyVal (tc=105)
 };
 struct HVArray {
-    std::vector<HermesValPtr> elements;
+    std::vector<WritValPtr> elements;
     std::string elem_type;  // "" = AnyVal (ObjectArray tc=100); "I32" = ArrayI32 tc=104; "U64" = ArrayU64 tc=108
 };
 
@@ -183,31 +183,31 @@ struct HVType {
     std::string name;
 };
 
-struct HermesVal {
+struct WritVal {
     mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
 
-    HermesVal() = default;
-    HermesVal(const HermesVal&) = default;
-    HermesVal(HermesVal&&) noexcept = default;
-    HermesVal& operator=(const HermesVal&) = default;
-    HermesVal& operator=(HermesVal&&) noexcept = default;
+    WritVal() = default;
+    WritVal(const WritVal&) = default;
+    WritVal(WritVal&&) noexcept = default;
+    WritVal& operator=(const WritVal&) = default;
+    WritVal& operator=(WritVal&&) noexcept = default;
 };
 
-// A Hermes SDN literal (@{...}, @[...], @scalar) lowered to a tree.
+// A Writ SDN literal (@{...}, @[...], @scalar) lowered to a tree.
 // If has_captures == false: pure compile-time blob (current ZoneBuilder path).
 // If has_captures == true:  template blob + runtime substitution.
 //   capture_exprs[v] = Logos expression for value_index v.
 //   capture_types[v] = resolved LogosType* for value_index v (for coercion).
 //   capture_param_count = total number of PARAM slots in template.
-struct EHermesLit {
-    HermesValPtr root = nullptr;
+struct EWritLit {
+    WritValPtr root = nullptr;
     bool has_captures = false;
     std::vector<LExprPtr>                    capture_exprs;   // one per unique value
     std::vector<TypeRef>                     capture_types;   // one per unique value
     uint32_t                                 capture_param_count = 0; // total slots
-    // M.x: pre-serialised Hermes blob (metacall HermesStatic splice). When
+    // M.x: pre-serialised Writ blob (metacall WritStatic splice). When
     // non-empty, codegen emits these bytes directly into rodata as
-    // [u64 size][bytes] and returns HermesStatic{ptr=global+8}. `root` and
+    // [u64 size][bytes] and returns WritStatic{ptr=global+8}. `root` and
     // capture-related fields are ignored on this path.
     std::string                              static_blob;
 };
@@ -308,10 +308,10 @@ struct EArrLit {
 struct ECast {
     LExprPtr operand = {};
     // target type is LExpr::type.
-    // For Hermes typed container casts (e.g. &[i32] as <I32>[]):
-    //   hermes_build_fn names the stdlib builder (e.g. "hermes_build_array_i32").
-    //   source type is Slice; result type is Hermes.
-    std::string hermes_build_fn = {};  // empty = ordinary numeric/pointer cast
+    // For Writ typed container casts (e.g. &[i32] as <I32>[]):
+    //   writ_build_fn names the stdlib builder (e.g. "writ_build_array_i32").
+    //   source type is Slice; result type is Writ.
+    std::string writ_build_fn = {};  // empty = ordinary numeric/pointer cast
 };
 
 // if cond { then_val } else { else_val }  — used when if is an expression.
@@ -451,7 +451,7 @@ struct EPtrDiff {
     LExprPtr rhs = {};
 };
 
-// type_code_of::<T>() — Hermes wire-format type_code of T.  Deferred to mono
+// type_code_of::<T>() — Writ wire-format type_code of T.  Deferred to mono
 // so each instantiation of a generic function gets T's own type_code.
 struct ETypeCodeOf {
     TypeRef elem_type = nullptr;
@@ -474,7 +474,7 @@ struct EBlockExpr {
 };
 
 
-// reflect::<T>() — returns HermesStatic view of T's TypeInfo rodata global.
+// reflect::<T>() — returns WritStatic view of T's TypeInfo rodata global.
 struct EReflectOf { TypeRef type; };
 
 // ── Expression node ───────────────────────────────────────────────────────
@@ -718,7 +718,7 @@ struct LAnnotationInstance {
 };
 
 // Stage E: `struct LStructDef` + `struct StructDraft` are DELETED. Structs live
-// ONLY as Hermes decl mirror nodes (lir_schema::decl::Code::Struct +
+// ONLY as Writ decl mirror nodes (lir_schema::decl::Code::Struct +
 // field/annotation sub-maps), read via lir_view::StructView (the stored handle
 // in LProgram::structs). The METHODS array is mutated in place
 // (lir_mirror_struct_append_method) for the sema/mono passes that collect
@@ -729,7 +729,7 @@ struct LAnnotationInstance {
 
 
 // Stage E: structs LEnumDef / LVariant + EnumDraft / EnumVariantDraft /
-// EnumTParamDraft DELETED — enums live ONLY as Hermes mirror nodes
+// EnumTParamDraft DELETED — enums live ONLY as Writ mirror nodes
 // (lir_schema::decl::Code::Enum + variant/typeparam sub-maps), read via
 // lir_view::EnumView / EnumVariantView / EnumTParamView. lower_enum_def and
 // Mono::clone_enum_def DIRECT-BUILD the mirror via DeclBuilder (no Draft) and
@@ -738,23 +738,23 @@ struct LAnnotationInstance {
 // ── Trait definition ──────────────────────────────────────────────────────
 //
 // Stage E: structs LTraitDef / LAssocTypeDef / LTraitMethodSig DELETED — traits
-// live ONLY as Hermes mirror nodes (lir_schema::decl::Code::Trait), built
+// live ONLY as Writ mirror nodes (lir_schema::decl::Code::Trait), built
 // directly via DeclBuilder in lower_trait_def and read via lir_view::TraitView
 // (with AssocTypeDefView / TraitMethodSigView sub-views). No C++ mirror struct.
 
-// Stage E: struct LImplBlock DELETED — impl blocks live ONLY as Hermes mirror
+// Stage E: struct LImplBlock DELETED — impl blocks live ONLY as Writ mirror
 // nodes (lir_schema::decl::Code::Impl), built directly via DeclBuilder in
 // lower_impl_block and read via lir_view::ImplView (with AssocEntryView /
 // ExtraEqView sub-views). Only the live (read-post-store) fields are mirrored;
 // the dead ones (is_unsafe, methods, doc, trait_lifetime_args) are gone.
 
 // Stage E: struct LConst + ConstDraft deleted — consts/statics live ONLY as
-// Hermes mirror nodes (lir_schema::decl::Code::Const), read via lir_view::
+// Writ mirror nodes (lir_schema::decl::Code::Const), read via lir_view::
 // ConstView. lower_const_def DIRECT-BUILDS the mirror via DeclBuilder (no Draft)
 // and returns the open builder + the value ExprRef; the push site adds VALUE/
 // DOC/static-path flags and stores a ConstView.
 
-// Stage E: struct LTypeAlias deleted — type aliases live ONLY as Hermes mirror
+// Stage E: struct LTypeAlias deleted — type aliases live ONLY as Writ mirror
 // nodes (lir_schema::decl::Code::TypeAlias), read via lir_view::TypeAliasView.
 
 // ── Program ───────────────────────────────────────────────────────────────
@@ -764,7 +764,7 @@ struct LAnnotationInstance {
 // outlive LProgram.
 
 // LInstAnnotation / LDispatchEntry / LReflectGlobal: Stage E — migrated to
-// Hermes mirrors. See lir_view::InstAnnotView / DispatchEntryView /
+// Writ mirrors. See lir_view::InstAnnotView / DispatchEntryView /
 // ReflectGlobalView (built via DeclBuilder). The C++ structs are gone.
 
 } // namespace logos::compiler::lir
@@ -784,16 +784,16 @@ struct LProgram {
     // global module → no module qualification (byte-identical legacy mangle).
     lir_view::ObjectMapRef pkg_module_ids;  // Stage E: heap-free working-state map
 
-    // ADR 0007 slice 1c: pools for HermesVal / EClosure. Append-only,
+    // ADR 0007 slice 1c: pools for WritVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
     // underlying deque (SemaCache holds a ref so cached raw handles survive past
     // mono's out_ destruction); deque never moves elements, so handles never
     // dangle. Mono moves these from in_ to out_ to keep raw handles valid.
     // (LBlock pool deleted in Stage D — blocks are eager-emitted mirror views.)
-    std::shared_ptr<std::deque<HermesVal>>  hermes_val_pool_;
+    std::shared_ptr<std::deque<WritVal>>  writ_val_pool_;
     std::shared_ptr<std::deque<EClosure>>   closure_pool_;
 
-    // Phase 3b: Hermes mirror back-references. Populated by lir_mirror_emit.
+    // Phase 3b: Writ mirror back-references. Populated by lir_mirror_emit.
     // Held by unique_ptr to keep lir.hpp free of <unordered_map> for the
     // millions of TUs that include it just for the variant tree.
     std::unique_ptr<::logos::compiler::LirMirrorTable> mirror_table;
@@ -837,7 +837,7 @@ struct LProgram {
     // (Stage E: decl mirrors — see lir_view::MetaprogTargetView.)
     std::vector<lir_view::MetaprogTargetView> metaprog_targets;
 
-    // hstatic-as-const-generic: registry of HermesStatic literals encountered
+    // hstatic-as-const-generic: registry of WritStatic literals encountered
     // at type-arg position (`Foo::<@{...}>`), keyed by content-hash. Sema
     // populates at LIT_HSTATIC resolution time; mono looks up by the
     // HStaticLit's const_val (the same hash) to materialise the literal in
@@ -860,7 +860,7 @@ struct LProgram {
     //
     // Keyed by site_id (== index into metacall_sites). Each entry is a
     // vector of per-arg blobs; each blob has the same `[u64 size][bytes]`
-    // ABI as HermesStatic so the JIT thunk can construct ExprBlob from
+    // ABI as WritStatic so the JIT thunk can construct ExprBlob from
     // the bare pointer returned by the `logos_macro_arg` host shim.
     //
     // Populated by sema's `lower_fn_macro_call`; consumed by the driver
@@ -893,10 +893,10 @@ struct LProgram {
 
 // Slice 1c allocators (LBlock allocator deleted in Stage D).
 template <class... Args>
-inline HermesVal* alloc_hermes_val(LProgram& prog, Args&&... args) {
-    if (!prog.hermes_val_pool_) prog.hermes_val_pool_ = std::make_shared<std::deque<HermesVal>>();
-    prog.hermes_val_pool_->emplace_back(std::forward<Args>(args)...);
-    return &prog.hermes_val_pool_->back();
+inline WritVal* alloc_writ_val(LProgram& prog, Args&&... args) {
+    if (!prog.writ_val_pool_) prog.writ_val_pool_ = std::make_shared<std::deque<WritVal>>();
+    prog.writ_val_pool_->emplace_back(std::forward<Args>(args)...);
+    return &prog.writ_val_pool_->back();
 }
 template <class... Args>
 inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
@@ -1056,7 +1056,7 @@ inline std::string link_name(const Fn& fn,
     return fn.name;
 }
 
-// FunctionView overload (Stage E: FunctionDraft storage is a Hermes mirror View).
+// FunctionView overload (Stage E: FunctionDraft storage is a Writ mirror View).
 // String fields are method-accessed; same logic as the struct template above.
 inline std::string link_name(lir_view::FunctionView fn,
                              const lir_view::ObjectMapRef& pkg_module_ids) {
@@ -1075,8 +1075,8 @@ inline std::string link_name(lir_view::FunctionView fn,
 } // namespace logos::compiler
 
 // B.6 Stage 3.5 step 7e: variant `kind` fields removed from
-// LExpr/LStmt/Pattern/HermesVal. Schema codes (lir_schema::expr/stmt/pat) are
-// the sole source of truth; payload lives in the Hermes mirror.
+// LExpr/LStmt/Pattern/WritVal. Schema codes (lir_schema::expr/stmt/pat) are
+// the sole source of truth; payload lives in the Writ mirror.
 
 #include <logos/compiler/lir_schema.hpp>
 
@@ -1159,7 +1159,7 @@ struct SemaOptions {
 // `lowering lazy` archive. Lazy fns get FunctionDraft.from_lazy_module=true and
 // participate in post-mono reach analysis (mlir-gen skips unreached lazy
 // bodies). Default: empty → no lazy modules (back-compat).
-lir::LProgram sema_lower(const std::vector<writ::Hermes>& asts,
+lir::LProgram sema_lower(const std::vector<writ::Writ>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {},
                           SemaOptions opts = {},

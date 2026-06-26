@@ -159,6 +159,6 @@ void str_av(AnyVal av, std::string& out) {
 } // namespace
 
 std::string stringify_value(AnyVal value) { std::string s; str_av(value, s); return s; }
-std::string stringify(const HermesCtr& doc) { return stringify_value(doc.root()); }
+std::string stringify(const WritCtr& doc) { return stringify_value(doc.root()); }
 
 } // namespace logos::writ

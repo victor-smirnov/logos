@@ -8,17 +8,17 @@ use logos.lang.str;
 use logos.lang.result;
 use logos.mem.collections.vec;
 use logos.std.io.fs;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.container;
-use logos.lang.hermes.array;
-use logos.lang.hermes.hmap;
-use logos.lang.hermes.hstring;
-use logos.mem.hermes.parser;
+use logos.lang.writ.anyval;
+use logos.lang.writ.container;
+use logos.lang.writ.array;
+use logos.lang.writ.hmap;
+use logos.lang.writ.hstring;
+use logos.mem.writ.parser;
 use logos.lang.rc;
 
 use lforge.schema;
 use lforge.util;
-use lforge.hermes_io;
+use lforge.writ_io;
 
 fn lf_get(root: HAny, key: str) -> HAny {
     if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
@@ -27,8 +27,8 @@ fn lf_get(root: HAny, key: str) -> HAny {
 }
 
 pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
-    let ctr: Rc<Hermes> = hermes_rc(32768);
-    let h: &Hermes = ctr.deref();
+    let ctr: Rc<Writ> = writ_rc(32768);
+    let h: &Writ = ctr.deref();
     let root: HAny = parse(h, text);
     if !root.is_map() { return vec_new::<LockEntry>(); }
     let pinned_av: HAny = lf_get(root, "pinned");

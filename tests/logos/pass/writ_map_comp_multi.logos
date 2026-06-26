@@ -1,0 +1,30 @@
+// Map comprehension with 10 distinct keys — stresses map-slots allocation in
+// writ_map_comp_new (writ2 Rc<Writ> builder).
+package writ_map_comp_multi;
+
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.lang.rc;
+
+fn main() -> i32 {
+    let keys: [str; 10] =
+        ["k0","k1","k2","k3","k4","k5","k6","k7","k8","k9"];
+    let idx: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+    let doc: Rc<Writ> = @{keys[x as i64]: x * 100 for x in idx};
+
+    unsafe {
+        let v0: HView2 = HView2 { base: 0 as *const u8 };
+        let h: &Writ = doc.deref();
+        let r: HAny = h.root();
+        if !r.is_map() { return 1; }
+        if v0.get_int(v0.map_get(r, "k0")) !=   0i64 { return 2; }
+        if v0.get_int(v0.map_get(r, "k3")) != 300i64 { return 3; }
+        if v0.get_int(v0.map_get(r, "k7")) != 700i64 { return 4; }
+        if v0.get_int(v0.map_get(r, "k9")) != 900i64 { return 5; }
+    }
+
+    return 42;
+}

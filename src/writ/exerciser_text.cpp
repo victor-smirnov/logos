@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes text conformance — stringify + text_parse round-trip on the JSON core.
+// Writ text conformance — stringify + text_parse round-trip on the JSON core.
 
 #include <logos/writ/document.hpp>
 #include <logos/writ/stringify.hpp>
@@ -57,7 +57,7 @@ int main() {
 
     // ── build a doc, stringify, re-parse → data preserved ──────────────────────
     {
-        auto doc = HermesCtr::make(); CHECK(doc.has_value(), 18);
+        auto doc = WritCtr::make(); CHECK(doc.has_value(), 18);
         Arena& ar = doc->arena();
         auto arr = ObjectArray::create(ar, 2); CHECK(arr.has_value(), 19);
         (void)(*arr)->push_back(AnyVal::pod(7, tc::HA_I56), ar);
@@ -76,6 +76,6 @@ int main() {
     CHECK(!text_parse("[1, 2").has_value(), 24);
     CHECK(!text_parse("tru").has_value(), 25);
 
-    std::printf("hermes text (stringify + parse roundtrip): OK\n");
+    std::printf("writ text (stringify + parse roundtrip): OK\n");
     return 0;
 }
