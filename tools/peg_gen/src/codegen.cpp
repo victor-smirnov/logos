@@ -1546,7 +1546,9 @@ private:
                 w.line("    while (h < hashes && pos_+1+h < source_.size() && source_[pos_+1+h] == '#') ++h;");
                 w.line("    if (h == hashes) { pos_ += 1 + hashes; found = true; }");
                 w.line("    else ++pos_;");
-                w.line("} else ++pos_;");
+                // Count newlines inside the raw-string body, or every line after a
+                // multi-line r#"..."# drifts (the body scan moves pos_ past '\n').
+                w.line("} else { if (source_[pos_] == '\\n') ++line_; ++pos_; }");
                 w.dedent();
                 w.line("}");
                 w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
@@ -1765,7 +1767,11 @@ private:
         if (memo) {
             w.fmt("AnyVal {}::rule_{}() {{", parser_class_, rule.name);
             w.indent();
-            w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
+            // Un-prefetch: back pos_ to the lookahead token's start. line_ must
+            // follow (= la_.line, the token's start line) or a MULTI-LINE
+            // lookahead (raw string) leaves line_ at its end while pos_ is at its
+            // start, so re-lexing re-counts its newlines → drift after the token.
+            w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); line_ = la_.line; have_la_ = false; }");
             w.line("size_t start = pos_;");
             w.fmt("auto& slot = memo_{}_[start];", rule.name);
             w.line("if (slot.end != kMemoEmpty) {");
@@ -1777,7 +1783,7 @@ private:
             w.dedent();
             w.line("}");
             w.fmt("AnyVal result = rule_{}_impl();", rule.name);
-            w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); have_la_ = false; }");
+            w.line("if (have_la_) { pos_ = static_cast<size_t>(la_.text.data() - source_.data()); line_ = la_.line; have_la_ = false; }");
             w.fmt("memo_{}_[start] = MemoCell{{result, pos_, line_}};", rule.name);
             w.line("return result;");
             w.dedent();
