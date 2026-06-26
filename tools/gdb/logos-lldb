@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# logos-lldb — lldb with the Logos data formatters preloaded (cf. rust-lldb).
+#
+#   logos-lldb ./my_program          # then b / run / frame variable / v
+#
+# Self-locates this compiler version's formatters relative to the wrapper
+# (<slot>/bin/logos-lldb → <slot>/share/lldb/), falls back to `logosc
+# --print-prefix`. The script is imported AFTER the target loads (-o) so enum
+# summaries can be registered from the binary's metadata. Override the debugger
+# with $LOGOS_LLDB (e.g. a specific lldb build).
+set -euo pipefail
+
+selfdir=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+script="$selfdir/../share/lldb/logos_lldb.py"
+if [ ! -f "$script" ] && command -v logosc >/dev/null 2>&1; then
+    script="$(logosc --print-prefix)/share/lldb/logos_lldb.py"
+fi
+
+LLDB=${LOGOS_LLDB:-lldb}
+if ! command -v "$LLDB" >/dev/null 2>&1; then
+    for c in lldb-21 lldb-20 lldb-19; do
+        command -v "$c" >/dev/null 2>&1 && LLDB="$c" && break
+    done
+fi
+
+if [ ! -f "$script" ]; then
+    echo "logos-lldb: formatters not found ($script); launching plain $LLDB" >&2
+    exec "$LLDB" "$@"
+fi
+exec "$LLDB" -o "command script import '$script'" "$@"

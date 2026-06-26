@@ -237,12 +237,23 @@ foreach(_gdb_script ${LOGOS_GDB_SCRIPTS})
 endforeach()
 install(FILES ${LOGOS_GDB_SCRIPTS} DESTINATION ${LOGOS_TREE_RELDIR}/share/gdb)
 
-# logos-gdb launcher (rust-gdb style): self-locates the printers in its own slot
-# tree (<slot>/bin/logos-gdb → <slot>/share/gdb). Installed beside logosc in the
-# slot bin/, mirrored to the build tree, and exposed on PATH like logosc below.
+# LLDB data formatters (same per-slot rationale; lldb has its own Python API, so
+# this is a separate module from the gdb printers). Located via
+# `$(logosc --print-prefix)/share/lldb/logos_lldb.py`.
+configure_file(${CMAKE_SOURCE_DIR}/tools/gdb/logos_lldb.py
+               ${CMAKE_BINARY_DIR}/share/lldb/logos_lldb.py COPYONLY)
+install(FILES tools/gdb/logos_lldb.py DESTINATION ${LOGOS_TREE_RELDIR}/share/lldb)
+
+# logos-gdb / logos-lldb launchers (rust-gdb / rust-lldb style): self-locate the
+# formatters in their own slot tree (<slot>/bin/logos-gdb → <slot>/share/gdb;
+# logos-lldb → <slot>/share/lldb). Installed beside logosc in the slot bin/,
+# mirrored to the build tree, and exposed on PATH like logosc below.
 configure_file(${CMAKE_SOURCE_DIR}/tools/gdb/logos-gdb
                ${CMAKE_BINARY_DIR}/bin/logos-gdb COPYONLY)
-install(PROGRAMS tools/gdb/logos-gdb DESTINATION ${LOGOS_TREE_RELDIR}/bin)
+configure_file(${CMAKE_SOURCE_DIR}/tools/gdb/logos-lldb
+               ${CMAKE_BINARY_DIR}/bin/logos-lldb COPYONLY)
+install(PROGRAMS tools/gdb/logos-gdb tools/gdb/logos-lldb
+        DESTINATION ${LOGOS_TREE_RELDIR}/bin)
 
 # lforge — the primary Logos build tool (cargo-style; drives logosc). Installed
 # beside logosc in the slot tree; exposed on PATH as an alternatives slave so it
@@ -259,9 +270,11 @@ file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/_pkglinks")
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_pkglinks")
 file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logosc"
      "${CMAKE_BINARY_DIR}/_pkglinks/logosc-${LOGOS_VERSION_SLOT}" SYMBOLIC)
-# logos-gdb-<SLOT> -> ../lib/logos/<SLOT>/bin/logos-gdb (versioned PATH entry).
+# logos-gdb-<SLOT> / logos-lldb-<SLOT> -> ../lib/logos/<SLOT>/bin/… (versioned PATH).
 file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logos-gdb"
      "${CMAKE_BINARY_DIR}/_pkglinks/logos-gdb-${LOGOS_VERSION_SLOT}" SYMBOLIC)
+file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/logos-lldb"
+     "${CMAKE_BINARY_DIR}/_pkglinks/logos-lldb-${LOGOS_VERSION_SLOT}" SYMBOLIC)
 # lforge-<SLOT> -> ../lib/logos/<SLOT>/bin/lforge (versioned PATH entry).
 file(CREATE_LINK "../${LOGOS_TREE_RELDIR}/bin/lforge"
      "${CMAKE_BINARY_DIR}/_pkglinks/lforge-${LOGOS_VERSION_SLOT}" SYMBOLIC)
@@ -276,6 +289,8 @@ if(LOGOS_INSTALL_UNVERSIONED_SYMLINK)
             \"logosc-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logosc\")
         execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
             \"logos-gdb-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logos-gdb\")
+        execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
+            \"logos-lldb-${LOGOS_VERSION_SLOT}\" \"\${_bindir}/logos-lldb\")
     ")
 endif()
 

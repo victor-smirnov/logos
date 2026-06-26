@@ -7,13 +7,21 @@
 ```
 logosc prog.logos -g -o prog.o
 cc prog.o <stdlib archives> -o prog        # normal link
-logos-gdb ./prog                            # gdb + printers, one command
+logos-gdb  ./prog                           # gdb  + printers,   one command
+logos-lldb ./prog                           # lldb + formatters, one command
 ```
 
-`logos-gdb` is a `rust-gdb`-style wrapper installed beside `logosc` (on `PATH`
-as `logos-gdb` / `logos-gdb-<slot>`). It self-locates **this compiler version's**
-printers in its own slot tree and sources them before launching gdb. Override the
-debugger with `$LOGOS_GDB`.
+`logos-gdb` / `logos-lldb` are `rust-gdb` / `rust-lldb`-style wrappers installed
+beside `logosc` (on `PATH` as `logos-gdb` / `logos-gdb-<slot>`, same for lldb).
+Each self-locates **this compiler version's** formatters in its own slot tree and
+loads them before launching the debugger. Override the debugger binary with
+`$LOGOS_GDB` / `$LOGOS_LLDB`.
+
+Both surface the same values — e.g. in lldb: `(Vec<i64>) v = Vec(len=3)`,
+`(String) s = "logos"`, `(Shape) sh = Rect(5, 6)`, `(Option) opt = Some(42)`;
+`frame variable v[1]` indexes into the Vec via a synthetic-children provider.
+gdb has Python pretty-printers; lldb has its own formatter module
+([logos_lldb.py](../../tools/gdb/logos_lldb.py)) under `share/lldb/`.
 
 ### Connecting the printers to a plain `gdb` session
 
@@ -42,6 +50,18 @@ auto-loads `logos_hermes_gdb.py` from the same dir.
 
 In a build tree the same `--print-prefix` path resolves to `<build>/share/gdb/`,
 and `<build>/bin/logos-gdb` works too.
+
+### Connecting the formatters to a plain `lldb` session
+
+```
+lldb -o "command script import $(logosc --print-prefix)/share/lldb/logos_lldb.py" ./prog
+```
+
+Import it **after** the target is loaded (the positional `./prog`, or `-o` runs
+post-load) so enum summaries register from the binary's metadata. Inside a
+session: `command script import <abs>/share/lldb/logos_lldb.py`. lldb needs a
+Python-enabled build matching the toolchain's LLVM (e.g. `lldb-20`); the wrapper
+auto-selects `lldb` → `lldb-21` → `lldb-20`.
 
 `-g` (alias `--debug`) is opt-in; off ⇒ zero DWARF, zero codegen change.
 
