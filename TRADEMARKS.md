@@ -15,6 +15,12 @@ recognisable.
 * **logosc** — the canonical compiler binary name.
 * **lforge** — the canonical build / package tool name.
 * **`.logos`** — the source-file extension.
+* **Writ** — the wordmark for Logos Lang's data substrate: the
+  self-describing, zone-laid-out data format (typed containers +
+  serialization + API) that the language and tools build on.
+* **Hest** — the wordmark for Logos Lang's family of interaction
+  protocols, which the language, compiler, and tools are integrated
+  with. **HRPC** ("Hest RPC") is one protocol in the Hest family.
 
 The bare word "Logos" is **not** claimed by this project. A prior US
 registration exists in Class 9 (USPTO serial 99742916, unrelated
@@ -65,8 +71,9 @@ A formal trademark application for "Logos Lang" is **deferred** until
 the project crosses a maturity threshold where the cost / benefit of
 filing flips. Until then the marks are claimed via common law
 ("Logos Lang™" — common-law mark, ™ symbol acceptable in public
-references). Once the formal registration completes, this policy
-will be updated and the ® symbol becomes appropriate.
+references). The same common-law basis applies to the **Writ** and
+**Hest** marks (Writ™, Hest™). Once a formal registration completes,
+this policy will be updated and the ® symbol becomes appropriate.
 
 ## Reporting concerns
 
