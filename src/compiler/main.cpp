@@ -2936,7 +2936,6 @@ static void print_usage(std::FILE* out) {
 "  -g, --debug            emit DWARF debug info\n"
 "  --emit-mlir            emit MLIR instead of an object\n"
 "  --emit-llvm            emit LLVM IR instead of an object\n"
-"  --jit                  JIT-compile and run main() instead of emitting\n"
 "\n"
 "Modules & libraries:\n"
 "  -L, --libs <dir>       add a binary-module search directory\n"
@@ -2981,7 +2980,6 @@ int main(int argc, char** argv) {
     bool emit_mlir = false;
     bool emit_llvm = false;
     bool debug_g   = false;                      // -g / --debug: emit DWARF debug info (line tables, subprograms, locals, types) for gdb/lldb
-    bool jit_run   = false;                      // --jit: compile and run main() in-process
     bool expand_only = false;                    // --expand: run metaprog dispatch over input + render result back to Logos source (no codegen). Avoids stdlib build's circular-dep when derives reference each other (debt #22 alt B).
     bool test_mode   = false;                    // --test: build a test binary (synthesise main() that runs every `#[test]` fn under panic-recovery and prints a Rust-style summary).
     bool stats_flag  = false;                    // --stats: print per-phase compile-time summary at end (also turns on inline phase trace).
@@ -3113,7 +3111,6 @@ int main(int argc, char** argv) {
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
         else if (arg == "-g" || arg == "--debug") { debug_g = true; }
-        else if (arg == "--jit") { jit_run = true; }
         else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
         else if (arg == "--emit-abi") { emit_abi_flag = true; }
@@ -4665,9 +4662,7 @@ int main(int argc, char** argv) {
 
     // ── Steps 3-6: shared MLIR/LLVM lowering tail (compile_pipeline.cpp).
     // Handles mlir_gen → MLIR→LLVM lowering → opt pipeline → object emission.
-    // Honors --emit-mlir / --emit-llvm short-circuits internally; --jit
-    // returns the module for us to JIT-run here (build_jit_from_module is
-    // local to this TU).
+    // Honors the --emit-mlir / --emit-llvm short-circuits internally.
     {
         logos::compiler::LowerEmitOpts lopts;
         lopts.opt_level         = opt_level;
@@ -4677,24 +4672,10 @@ int main(int argc, char** argv) {
         lopts.debug_info        = debug_g;
         lopts.source_path       = input_path ? input_path : "";
         lopts.dump_metaprog_dir = dump_metaprog_dir;
-        std::unique_ptr<llvm::Module> jit_module;
-        if (jit_run) lopts.jit_module_out = &jit_module;
         int rc = logos::compiler::lower_and_emit_object(prog, output_path, lopts);
         if (rc != 0) return rc;
         report("codegen+write");
         if (emit_mlir || emit_llvm) return 0;
-        if (jit_run) {
-            auto jit = build_jit_from_module(*jit_module, "logosc");
-            if (!jit) return 1;
-            auto* sym = jit->lookup("main");
-            if (!sym) {
-                std::fprintf(stderr, "logosc: jit lookup main: %s\n",
-                             jit->error_str().c_str());
-                return 1;
-            }
-            report("jit_compile");
-            return reinterpret_cast<int (*)()>(sym)();
-        }
     }
 
     std::fprintf(stderr, "logosc: wrote %s\n", output_path);
