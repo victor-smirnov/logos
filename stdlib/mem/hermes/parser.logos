@@ -427,3 +427,15 @@ pub fn parse(h: &Hermes, text: str) -> HAny {
         return parse_value(h, &mut p as *mut P);
     }
 }
+
+// Parse `text` into a fresh, OWNED Hermes container and stamp it as the root.
+// The one-call form of `hermes_new + parse + set_root`: the returned Hermes owns
+// the document (RAII-freed on drop) and you navigate straight from `h.root()` —
+// no need to thread a separate HAny or hand-roll the container. On a parse error
+// the root is null, so `h.root().is_null()` is the failure check.
+pub fn parse_hermes(text: str) -> Hermes {
+    let h: Hermes = hermes_new(4096i64);
+    let root: HAny = parse(&h, text);
+    h.set_root(root);
+    return h;
+}
