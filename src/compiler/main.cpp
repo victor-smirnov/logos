@@ -2924,9 +2924,51 @@ static int abi_diff(const std::string& old_path, const std::string& new_path) {
     return 0;
 }
 
+static void print_usage(std::FILE* out) {
+    std::fprintf(out,
+"usage: logosc <input.logos> [options]\n"
+"\n"
+"Compile a Logos source file to a native object (default), or run/inspect it.\n"
+"\n"
+"Output:\n"
+"  -o <file>              output path (default: output.o)\n"
+"  -O0 | -O1 | -O2 | -O3  optimization level (default: -O0)\n"
+"  -g, --debug            emit DWARF debug info\n"
+"  --emit-mlir            emit MLIR instead of an object\n"
+"  --emit-llvm            emit LLVM IR instead of an object\n"
+"  --jit                  JIT-compile and run main() instead of emitting\n"
+"\n"
+"Modules & libraries:\n"
+"  -L, --libs <dir>       add a binary-module search directory\n"
+"  -l, --lib <file>       link a specific binary-module archive (.a)\n"
+"  -I <dir>               source-include dir (only with --emit-module)\n"
+"  --no-system            don't append the system stdlib search path\n"
+"  --emit-module <man>    build a module archive from a .module manifest\n"
+"  --only-file <file>     (with --emit-module) compile just one source file\n"
+"\n"
+"Metaprogramming:\n"
+"  --expand               expand metaprograms and stop\n"
+"  --dump-metaprog[=dir]  dump metaprog-emitted ASTs as Logos source\n"
+"  --dump-metaprog-filter[=sel]  filter which metacalls are dumped\n"
+"  --cfg <feature>        enable a cfg feature (repeatable)\n"
+"\n"
+"Diagnostics & info:\n"
+"  --diag-format=text|json   diagnostic output format (default: text)\n"
+"  --stats                print phase timing stats\n"
+"  -V, --version          print version\n"
+"  --print-prefix         print this version's tree root\n"
+"  --print-lib-dir        print this version's stdlib dir\n"
+"  --print-metadata       print version/slot/prefix/lib_dir (Hermes doc)\n"
+"  -h, --help             show this help\n"
+"\n"
+"ABI tracking:\n"
+"  --emit-abi             dump the stdlib binary-ABI surface\n"
+"  --abi-diff <old> <new> qualify an ABI change (preserving vs breaking)\n");
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: logosc <input.logos> [-o output.o] [-O0|-O1|-O2|-O3] [-g] [--emit-mlir] [--emit-llvm] [--diag-format=text|json] [--stats]\n");
+        print_usage(stderr);
         return EXIT_USAGE;
     }
 
@@ -3043,6 +3085,7 @@ int main(int argc, char** argv) {
         else if (arg == "--no-system") { no_system = true; }
         else if (arg == "--print-system-libdir") { print_system_libdir = true; }
         else if (arg == "--version" || arg == "-V") { print_version = true; }
+        else if (arg == "--help" || arg == "-h") { print_usage(stdout); return 0; }
         else if (arg.rfind("--diag-format=", 0) == 0) {
             std::string_view fmt = arg;
             fmt.remove_prefix(14);
@@ -3236,6 +3279,14 @@ int main(int argc, char** argv) {
         mopts.only_file = only_file;
         mopts.extra_lib_files = explicit_lib_files;
         return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
+    }
+
+    // No input file (e.g. only unknown/typo'd flags, or a flag with no source):
+    // print usage instead of feeding nullptr into the loader. Unknown dash-args
+    // are otherwise silently ignored by the parse loop above.
+    if (!input_path) {
+        print_usage(stderr);
+        return EXIT_USAGE;
     }
 
     const bool trace = std::getenv("LOGOS_TRACE_PHASES") != nullptr;
