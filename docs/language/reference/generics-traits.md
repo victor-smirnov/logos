@@ -87,7 +87,7 @@ See [memory: feat_const_variadic_mvp](../../README.md) for the full feature matr
 
 ```logos
 fn print_all<T...>(args: T...)         { #(println("{}", args);)* }
-fn count<T...>() -> usize              { sizeof...(T) }
+fn count<T...>() -> u64                { sizeof...(T) }   // sizeof... is u64
 type Tuple<T...>  = (T...);
 ```
 

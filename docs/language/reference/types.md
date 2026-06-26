@@ -14,7 +14,7 @@ A type is either a primitive, a composite (formed from other types), or a user-d
 | `i24`, `i56` | 24, 56 | yes | Pair with Hermes inline `Integer`/`SmallInt` payload widths |
 | `u8`, `u16`, `u32`, `u64`, `u128` | 8/16/32/64/128 | no | |
 | `u24`, `u56` | 24, 56 | no | |
-| `isize`, `usize` | platform pointer width | yes/no | Suffix on integer literals; not yet a first-class type name in expressions |
+| `isize`, `usize` | platform pointer width | yes/no | First-class type names and integer-literal suffixes |
 
 ### Floats
 
@@ -28,9 +28,10 @@ A type is either a primitive, a composite (formed from other types), or a user-d
 | Type | Notes |
 |------|-------|
 | `bool` | `true` / `false` |
+| `char` | Unicode scalar value. `'a'` char literals; usable in `match`, including range patterns (`'a'..='z'`). |
 | `()`  | Unit / void return type. Empty tuple. |
 
-There is no built-in `char` or `byte`. Single bytes are written as `u8`. UTF-8 codepoints are represented as `u32` for now.
+There is no separate `byte` type — single bytes are `u8`. Byte-string literals `b"…"` produce `[u8; N]`.
 
 ### Implicit Widening
 
@@ -169,8 +170,6 @@ Inside a generic context, several forms appear that are *not* concrete types but
 
 ## Roadmap
 
-- **`isize` / `usize` as standalone types** in expressions (currently only as integer-literal suffixes).
-- **`char` and byte primitives** — single-byte and codepoint types with their own literal forms.
 - **Mixed packs** — combining `<T...>` and `<const N...: U>` in one signature. Currently rejected by `mono_scan`. See [Roadmap](roadmap.md#generics).
 - **Slice-from-array `&arr[..]`** — currently a grammar gap; whole-array borrow `&arr` works.
 - **Higher-kinded polymorphism** — generic over `GenericType` without explicit arity. Out of scope.

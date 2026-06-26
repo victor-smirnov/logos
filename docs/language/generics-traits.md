@@ -17,8 +17,8 @@ Bounds may be written inline (`fn f<T: Trait>(...)`) or in a `where` clause.
 
 ```logos
 struct Pair<A, B> {
-    first: A;
-    second: B;
+    first: A,
+    second: B,
 }
 
 fn swap<A, B>(p: Pair<A, B>) -> Pair<B, A> { ... }

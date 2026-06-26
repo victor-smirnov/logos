@@ -19,7 +19,7 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ```
 
-The compiler binary is `build/src/compiler/logosc`.
+The compiler binary is `build/bin/logosc`.
 
 ## Hello, Logos
 
@@ -28,10 +28,11 @@ A minimal program lives at [examples/hermes_round_trip.logos](../../examples/her
 ```logos
 package hello;
 
-use std.io;
+use logos.std.io;
+use logos.mem.string;
 
 fn main() -> i32 {
-    let s: String = String::from_str("hello, logos\n");
+    let s: String = String::from("hello, logos\n");
     print_string(&s);
     return 0;
 }
@@ -77,7 +78,8 @@ For single-file experiments and compiler testing:
 
 ```bash
 build/bin/logosc hello.logos -o hello.o
-cc hello.o build/lib/logos/lib*.a -lpthread -lm -o hello
+cc hello.o -Wl,--start-group build/lib/logos/lib*.a -Wl,--end-group \
+   -lpthread -lm -lstdc++ -o hello
 ./hello
 ```
 
@@ -103,13 +105,13 @@ A typical run is driven by CTest:
 cd build && ctest --output-on-failure
 ```
 
-To run a single test directly:
+To run a single test by name:
 
 ```bash
-tests/logos/run_test.sh tests/logos/pass/arith_i64
+cd build && ctest -R arith_i64 --output-on-failure
 ```
 
-The full suite is sizeable (~660 pass tests, ~245 fail tests). CI gates merges on it being green.
+The full suite is sizeable (~3100 pass tests, ~900 fail tests). CI gates merges on it being green.
 
 ## Where to Go Next
 

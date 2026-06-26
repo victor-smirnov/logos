@@ -24,6 +24,8 @@ n @ pat    // bind whole value to `n` and also recurse into `pat`
 -3
 true   false
 "hello"
+'a'              // char literal
+'a'..='z'        // char range
 0..=9            // inclusive range (exclusive `..` not yet a pattern form)
 -5..=-1          // negative range bounds
 ```
@@ -144,7 +146,6 @@ The guard runs after the pattern matches; if it returns false, matching falls th
 ## Roadmap
 
 - **Exclusive range patterns** — `0..n` not yet a pattern form (only `..=`).
-- **Char / byte patterns** — pending the char primitive.
 - **Box / Rc / smart-pointer patterns** — currently require manual `match (*p) { ... }`.
 - **`name @ ..`** in slice rest — not yet supported.
 - **Pattern types in function parameters** — `fn f((a, b): (i32, i32))` parses but tuple-destructure-in-params is fragile under generics.

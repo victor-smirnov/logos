@@ -137,7 +137,7 @@ Build artifacts live under `~/.cache/lforge/`, content-addressed:
       meta.hermes                        # what produced this
 ```
 
-The `build-key` is `blake3(project_id + sha + module_name + compiler_version + opt_level + relevant_flags + dependency_build_keys)`. Any change in any input → fresh entry. Cache reads check `meta.hermes` to confirm the entry actually matches the current build (defence against hash collisions and corrupt cache).
+The `build-key` is `sha256(project_id + sha + module_name + compiler_version + opt_level + relevant_flags + dependency_build_keys)`. Any change in any input → fresh entry. Cache reads check `meta.hermes` to confirm the entry actually matches the current build (defence against hash collisions and corrupt cache).
 
 The cache is per-user and never shared across users by default — a build host that wants to share fills `~/.cache/lforge/build/` from a tarball and trusts the contents (see "Out of scope" below).
 

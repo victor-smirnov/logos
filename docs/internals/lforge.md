@@ -209,7 +209,7 @@ Tags can be force-pushed; SHAs cannot. Verification is by SHA. The tag is kept f
 
 ## Output Streaming
 
-When `lforge` spawns `logosc` and `cc` with output capture, it reads their stdout/stderr line-by-line via [`Child.stdout_lines()` / `Child.stderr_lines()`](../../stdlib/std/sys/process/process.logos), iterating `LineReader: Iterator<String>`. For the parallel per-file compile fan-out, `spawn_inherit` lets children write directly to the parent's fds — output is per-line atomic on libc-line-buffered streams, which is good enough for build progress without multiplexing.
+When `lforge` spawns `logosc` and `cc` with output capture, it reads their stdout/stderr line-by-line via [`Child.stdout_lines()` / `Child.stderr_lines()`](../../stdlib/std/process/process.logos), iterating `LineReader: Iterator<String>`. For the parallel per-file compile fan-out, `spawn_inherit` lets children write directly to the parent's fds — output is per-line atomic on libc-line-buffered streams, which is good enough for build progress without multiplexing.
 
 The reader is currently blocking-read; when the io_uring reactor gains pipe-poll integration, it becomes fiber-yielding without API changes.
 
@@ -222,7 +222,7 @@ Sub-packages (load-order topological):
 | Package                 | Role                                                                  |
 |-------------------------|-----------------------------------------------------------------------|
 | `lforge.schema`         | Struct types: TargetKind, Target, ExternalDep, ExternalLib, LockEntry, GitWinner, Manifest, ManifestError, ReplaceEntry |
-| `lforge.util`           | cstr, str_eq_local, err_msg, print_str, append_path                    |
+| `lforge.util`           | str_eq_local, err_msg, err_msg2, print_str, append_path                |
 | `lforge.hermes_io`      | read_str_field/opt/array over HermesView                               |
 | `lforge.cwd`            | save_cwd, chdir_str, make_absolute                                     |
 | `lforge.manifest`       | parse_manifest, read_manifest                                          |
@@ -288,5 +288,5 @@ High-level flow of `lforge build`:
 - Entry point: [tools/lforge/main.logos](../../tools/lforge/main.logos)
 - Sub-packages: [tools/lforge/pkg/](../../tools/lforge/pkg/)
 - Build target: [tools/lforge/CMakeLists.txt](../../tools/lforge/CMakeLists.txt)
-- Tests: [tests/lforge/](../../tests/lforge/) — 16 shell-driven scenarios covering smoke, multitarget, parallel, c+asm, install, test, dogfood, incremental, external paths, git URLs, lockfile, MVS conflict, build cache, replace + floor.
+- Tests: [tests/lforge/](../../tests/lforge/) — 17 shell-driven scenarios covering smoke, multitarget, parallel, c+asm, install, test, dogfood, incremental, external paths, git URLs, lockfile, MVS conflict/update, build cache, replace + floor, transitive deps.
 - First external package: [github.com/victor-smirnov/lforge-hello-world](https://github.com/victor-smirnov/lforge-hello-world)

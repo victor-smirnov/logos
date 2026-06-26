@@ -9,8 +9,8 @@ A `.logos` file declares a package and may use other modules:
 ```logos
 package my_package;
 
-use std.io;
-use std.collections.array;
+use logos.std.io;
+use logos.mem.collections.vec;
 ```
 
 A package can contain functions, types (`struct`, `enum`, `datatype`), trait declarations, trait impls, constants, and free `fn` definitions.
@@ -27,7 +27,7 @@ A package can contain functions, types (`struct`, `enum`, `datatype`), trait dec
 | `str` | Borrowed string slice. |
 | `String` | Owned, growable string (in `std`). |
 
-Integer literals are decimal by default, with optional type suffix: `7_s8`, `42_u32`. Without a suffix, the type is inferred from context; literals do not silently saturate (a `u64` literal preserves its full bit pattern).
+Integer literals are decimal by default, with optional type suffix: `7i8`, `42u32`. Without a suffix, the type is inferred from context; literals do not silently saturate (a `u64` literal preserves its full bit pattern).
 
 Float literals use the standard `1.5`, `3.14` form and infer to `f32` or `f64` from context. `bool as f32` widens through unsigned-to-float conversion (so `true as f32 == 1.0`).
 
@@ -85,7 +85,7 @@ match shape {
 
 `let-else` is supported: `let Pattern = expr else { return; };` — the `else` block must diverge.
 
-`if let` is on the roadmap; today, prefer `match` with a wildcard arm for single-pattern checks.
+`if let` is supported: `if let Pattern = expr { ... }`. If-let chains combine multiple bindings with `&&`: `if let Some(a) = x && let Some(b) = y { ... }`.
 
 Tuple patterns (`(a, b) => ...`), OR patterns (`Dir::E | Dir::W => ...`), and labeled loops (`'outer: for ... { break 'outer; }`) are all supported.
 
@@ -129,13 +129,13 @@ See [Ownership](ownership.md) for the rules the borrow checker enforces.
 ## Generics
 
 ```logos
-fn first<T>(xs: &Array<T>) -> &T {
-    return xs.get(0);
+fn first<T>(xs: &Vec<T>) -> &T {
+    return xs.borrow(0);
 }
 
 struct Pair<A, B> {
-    first: A;
-    second: B;
+    first: A,
+    second: B,
 }
 ```
 
@@ -147,7 +147,7 @@ See [Generics and Traits](generics-traits.md) for the full picture.
 
 Today: a `package` is a compilation unit; cross-package references go through `use` paths rooted in package names. `pub` controls visibility on items.
 
-`pub const` is **not** yet supported end-to-end at the time of writing — define a `pub fn` accessor instead. See [Roadmap](../roadmap.md).
+`pub const` works within a package; cross-package `pub const` reads are not yet supported end-to-end — define a `pub fn` accessor for that case. See [Roadmap](../roadmap.md).
 
 ## Source Encoding
 
@@ -155,7 +155,7 @@ Logos source is currently restricted to ASCII, including comments. Unicode suppo
 
 ## Known Quirks
 
-- `pub const` is not fully supported end-to-end; use a `pub fn` accessor instead.
+- Cross-package `pub const` reads are not fully supported end-to-end; use a `pub fn` accessor instead (same-package `pub const` works).
 - Calling any `extern` function requires an `unsafe { }` block at the call site.
 - The `str` type is itself a slice (roughly `&[u8]`); write `let s: str = "hello"`, not `let s: &str = "hello"`.
 - Pointer types must always carry mutability: `*const T` or `*mut T`. Bare `*T` is a parse error.

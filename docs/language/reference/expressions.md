@@ -71,7 +71,8 @@ The `primary_expr` rule lists every leaf form ([logos.peg:1328](../../../tools/p
 true  false   // bool
 "hello\n"     // string literal (escape-aware)
 r"raw\n"      // raw string (no escapes)
-null          // null pointer literal
+'a'           // char literal
+b"hi"         // byte-string literal → [u8; 2]
 ()            // unit value
 ```
 
@@ -135,11 +136,11 @@ Maybe::<i32>::None            // (turbofish via call_expr) — see Generics
 ```logos
 [x * 2 for x in xs]                    // list_comp
 [x for x in xs if x > 0]
-{ k: v * 2 for (k, v) in m }           // map_comp
-{ k: v for (k, v) in m if k != "" }
+{ x: x * 2 for x in xs }               // map_comp — single binder
+{ x: x for x in xs if x > 0 }
 ```
 
-List and map comprehensions desugar to `for`-loop accumulators. They are eager; lazy iterators come from explicit `Iterator` chains.
+List and map comprehensions desugar to `for`-loop accumulators. The binder is a single `IDENT` and the iterand must be an array or slice (not `Vec` — iterate `&v[..]`). They are eager; lazy iterators come from explicit `Iterator` chains.
 
 ### Hermes literals
 
@@ -243,4 +244,3 @@ See [Statements → Assignment](statements.md#assignment).
 - **Range expressions** — `a..b`, `a..=b` parse but are only wired through limited contexts (slicing planned).
 - **Method-call generic args** — `xs.iter::<T>()` is reserved syntax; deduction usually suffices today.
 - **Block-expression value capture** — `let x = { ... };` works for tail-expression but bare statement blocks have edge cases around early-return.
-- **`if let` chains** — `if let Some(a) = x && let Some(b) = y` not yet accepted.

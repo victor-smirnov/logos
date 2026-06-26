@@ -20,9 +20,9 @@ This page covers:
 ```logos
 package foo.bar.baz;     // one per file; first non-comment statement
 
-use std.lang.cmp;        // make all `pub` items of std.lang.cmp visible
+use logos.lang.cmp;      // make all `pub` items of logos.lang.cmp visible
 use other.module;
-pub use logos.mem.hermes.view; // re-export to consumers of foo.bar.baz
+pub use other.helper;    // re-export to consumers of foo.bar.baz
 
 // items follow…
 pub struct Quux { … }
@@ -50,7 +50,7 @@ Three default visibilities cover all items:
 | `pub` | Public. Importers of the package see this item. |
 | `pub(crate)` / `pub(super)` | **Not implemented**. Logos has no sub-package privacy modifier today. |
 
-`pub` applies to: `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub genos`, `pub use`, `pub const`, `pub type`, `pub instantiate`, `pub static fn`. Struct fields use a separate `pub` marker per field; trait methods are public-by-default within a public trait.
+`pub` applies to: `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub use`, `pub const`, `pub type`, `pub instantiate`, `pub static fn`. Struct fields use a separate `pub` marker per field; trait methods are public-by-default within a public trait.
 
 The visibility check fires inside `find_*_by_name`:
 
@@ -71,10 +71,11 @@ A non-`pub` item is silently usable inside its own package and rejected with a c
 A directory of `.logos` files becomes a multi-file package via a sibling `logos.module` manifest:
 
 ```
-module foo.bar
+module foo-bar
+id foo-bar
 version 0.1
 root path/to/source/dir
-depends std.hermes
+depends logos-mem
 exclude tests/
 ```
 
@@ -82,10 +83,11 @@ Recognized directives (parsed in [src/compiler/module_manifest.cpp](../../../src
 
 | Key | Required | Effect |
 |---|---|---|
-| `module` | yes | Package name. Every file under `root` must declare `package <module>;`. |
+| `module` | yes | Module/library name. Becomes the archive `lib<module>.a`. Files under `root` declare their own `package <path>;` (the package path need not equal the module name — e.g. module `logos-std` holds `package logos.std.io;`). |
 | `root` | yes | Filesystem path to the source tree (may be relative to manifest). |
+| `id` | no | Stable identity used for ABI/symbol prefixing; defaults to `module` when absent. |
 | `version` | no (default `0.0`) | Informational. |
-| `depends` | no, multi | Other manifests this module imports as a unit. Repeat `depends`. |
+| `depends` | no, multi | Another module this one links against, by its `module` name (resolves to `lib<name>.a`). Repeat `depends`. |
 | `exclude` | no, multi | Glob/path to skip when scanning `root`. Repeat `exclude`. |
 
 Lines starting with `#` are comments. Unknown keys are ignored (forward-compat).

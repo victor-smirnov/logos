@@ -7,8 +7,8 @@ A file always starts with a `package` declaration, optionally followed by `use` 
 ```logos
 package my.lib;
 
-use std.io;
-use std.collections;
+use logos.std.io;
+use logos.mem.collections.vec;
 
 // items go here
 ```
@@ -22,8 +22,8 @@ There is no finer-grained visibility (no `pub(crate)`, `pub(super)` etc.).
 ## `use`
 
 ```
-use std.io;
-use std.collections.HashMap;
+use logos.std.io;
+use logos.mem.collections.hashmap;   // brings `HashMap` into scope
 pub use foo.Bar;       // re-export
 ```
 
@@ -82,18 +82,24 @@ Declarations only — no body. Bound at link time. The `, ...` form marks a C-st
 ## `struct`
 
 ```logos
-struct Point { x: f64, y: f64 }
+struct Point {
+    x: f64,
+    y: f64,
+
+    fn norm2(&self) -> f64 { return self.x * self.x + self.y * self.y; }
+    static fn origin() -> Self { return Point { x: 0.0, y: 0.0 }; }
+}
 
 pub struct Pair<A, B> {
     pub fst: A,
     pub snd: B,
 
-    fn swap(&self) -> Pair<B, A> { Pair { fst: self.snd, snd: self.fst } }
-    static fn new(a: A, b: B) -> Self { Pair { fst: a, snd: b } }
+    static fn new(a: A, b: B) -> Self { return Pair { fst: a, snd: b }; }
+    fn fst_ref(&self) -> &A { return &self.fst; }
 }
 ```
 
-A struct definition may contain fields and methods in the same block. Field-level `pub` controls per-field visibility.
+A struct definition may contain fields and methods in the same block — for both plain and generic structs (`Self` and the `&self`/`&mut self` shorthand resolve exactly as in an `impl` block). Field-level `pub` controls per-field visibility. Equivalently, methods may live in a separate `impl` block.
 
 The grammar also accepts an alternative spelling with a leading `#` token (`struct #Name { ... }`) used by metaprogramming for AST templates — see [Metaprogramming](metaprog.md).
 
@@ -197,7 +203,7 @@ genos pmap_descend_to_n<K: ContainerOrd, V: Container, CFG>
 
 A `genos` is a **semi-formal, parametric form specification** — Logos syntax with relaxed type rules, expressing the *shape and invariants* of an algorithm or data structure as the one-per-family canonical statement of intent. It is executable through a minimal interpreter and acts as the conformance oracle for the metaprog-generated instantiations beneath it.
 
-`genos` is **not** a synonym for `trait` and **not** a datatype declaration form (datatypes use `#[zoned] struct`). See [overview: the genos layer](../overview.md) and [internals: metaprogramming](../../internals/metaprog.md#genos--algorithmic-and-structural-templates). The feature is design-stage; the parser accepts the keyword but no interpreter exists yet.
+`genos` is **not** a synonym for `trait` and **not** a datatype declaration form (datatypes use `#[zoned] struct`). See [overview: the genos layer](../overview.md) and [internals: metaprogramming](../../internals/metaprog.md#genos--algorithmic-and-structural-templates). The feature is design-stage: `genos` is a reserved keyword but is not yet parsed in any item position (and no interpreter exists yet).
 
 ## `template <decl>`
 

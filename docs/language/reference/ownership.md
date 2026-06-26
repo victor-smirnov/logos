@@ -11,7 +11,7 @@ let n: i32 = 42;
 let m = n;            // i32 is Copy — `n` still usable
 ```
 
-A type is `Copy` if it consists only of `Copy` primitives (integer/float/bool/raw pointer) and `Copy` aggregates. References (`&T` / `&mut T`) are `Copy` (a borrow can be re-borrowed). User types are not `Copy` by default — opt in via `#[derive(Copy)]`.
+A type is `Copy` if it consists only of `Copy` primitives (integer/float/bool/raw pointer) and `Copy` aggregates. References (`&T` / `&mut T`) are `Copy` (a borrow can be re-borrowed). User types are not `Copy` by default — opt in via `#[derive_copy]` (Logos uses one `#[derive_<trait>]` annotation per derived trait, not `#[derive(...)]`).
 
 Once moved, the source binding cannot be read or borrowed; trying to use it produces a "use after move" diagnostic.
 

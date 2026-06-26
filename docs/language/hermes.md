@@ -8,7 +8,7 @@ Hermes is **not** an imported library; it is part of Logos itself:
 
 - **`@{...}` and `@[...]` are grammar literal forms.** The parser produces Hermes literal AST nodes like array or struct literals. No macro layer, no DSL, no string interpolation.
 - **Capture is type-checked at sema.** `$ident` and `${expr}` inside a Hermes literal are real expressions; type errors against the target shape are reported at compile time.
-- **View types live in the type system.** `HermesCtrView<'a>` and per-datatype views are real Logos types with lifetimes, tracked by the borrow checker.
+- **View types live in the type system.** `HView2` and per-datatype views are real Logos types tracked by the borrow checker.
 - **Unified trait dispatch.** `HermesStringify`, `HermesEqual`, `HermesHash`, `HermesClone`, `HermesRelease`, `HermesRead`, `HermesWrite` are ordinary Logos traits; user datatypes implement them like any other.
 - **Static literals fold to rodata.** Module-scope Hermes literals become `HermesStatic` blobs — length-prefixed, read-only, no runtime parsing.
 - **Schema codes are part of type identity.** A type's content-addressed hash and its Hermes type code share one source; language and data substrate share one notion of "what type is this."
@@ -21,30 +21,39 @@ Result: idiomatic Logos mixes plain values, structured data, and persistent/seri
 - A document = a *zone* (arena) + root object pointer; the whole graph is relocatable as bytes.
 - Maps, arrays, typed arrays (`I32`, `U64`, …), decimals, strings, booleans, integers, and user datatypes in one type system.
 - Schemas for user types; a global registry maps 8-byte type codes to definitions.
-- Views (`HermesCtrView<'a>`, value views) read a Hermes graph without copying or owning it.
+- Views (`HView2`, value views) read a Hermes graph without copying or owning it.
 
 ## Building a Document
 
 **Hermes literals** (`@{...}`, `@[...]`) produce a `Hermes` document directly and support capture:
 
 ```logos
-use logos.mem.hermes.ctr;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.rc;
 
 let id: i32 = 42;
-let doc: Hermes = @{ "id": $id, "ok": true, "tags": ["fast", "safe"] };
+let doc: Rc<Hermes> = @{ "id": $id, "ok": true, "tags": ["fast", "safe"] };
 ```
 
 **Parsing text** at runtime (file, network). Same Hermes surface grammar, but `parse` does *not* perform Logos-side capture — input is interpreted purely as Hermes text:
 
 ```logos
-let mut doc: Hermes = Hermes::new(8192);
-doc.parse(r#"
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.lang.rc;
+
+let ctr: Rc<Hermes> = hermes_rc(8192);
+let h: &Hermes = ctr.deref();
+let root: HAny = unsafe { parse(h, r#"
     {
         name: "widget",
         version: 42,
         i32_array: <I32> [1, 2, 3, 4]
     }
-"#)?;
+"#) };
 ```
 
 Text parser: `src/hermes/text_parser.cpp`. Documents can also be built programmatically (`Map::set`, `Array::push`, …) — the showcase example walks this path.
@@ -52,7 +61,7 @@ Text parser: `src/hermes/text_parser.cpp`. Documents can also be built programma
 ## Stringifying
 
 ```logos
-let s: String = doc.to_string();
+let s: String = stringify(root);
 print_string(&s);
 ```
 
@@ -68,9 +77,9 @@ let flag: bool = true;
 let a: i32 = 10;
 let b: i32 = 5;
 
-let doc1: Hermes = @{ "id": $id };
-let doc2: Hermes = @{ "ok": $flag };
-let doc3: Hermes = @{ "sum": ${a + b} };
+let doc1: Rc<Hermes> = @{ "id": $id };
+let doc2: Rc<Hermes> = @{ "ok": $flag };
+let doc3: Rc<Hermes> = @{ "sum": ${a + b} };
 ```
 
 Capture is type-checked, coerced when safe, and supports `as<T>[...]` casts for typed arrays. Available **only** in `@`-literal syntax — `doc.parse(...)` does not interpret `$`/`${...}`.
@@ -79,10 +88,10 @@ Capture is type-checked, coerced when safe, and supports `as<T>[...]` casts for 
 
 A view is a borrow into a Hermes zone:
 
-- **`HermesCtrView<'a>`** — fat borrow of a whole document, lifetime-bound to its source.
+- **`HView2`** — borrow into a document zone, lifetime-bound to its source.
 - **Per-type views** — e.g. a planned `DecimalView` carrying base + pointer.
 
-Views are non-owning by default; if one must escape its producing function, the compiler turns it into an *owning* view (`OView<T>`) holding a refcount on the memory holder. See [Ownership](ownership.md#views-and-owning-references). `HermesStatic` is a separate flavour: a length-prefixed read-only document in rodata, produced by module-scope literals.
+Views are non-owning by default; an owning document is held by `Rc<Hermes>`, which keeps a refcount on the memory holder. See [Ownership](ownership.md#views-and-owning-references). `HermesStatic` is a separate flavour: a length-prefixed read-only document in rodata, produced by module-scope literals.
 
 ## Three Serialization Modes
 
@@ -102,7 +111,7 @@ Compact validated wire format for network use: drops alignment slack and arena b
 
 ### SDN (String Data Notation)
 
-The human-readable text form; every type prints and parses itself. SDN appears in source (`@{...}`, `@[...]`), in `doc.to_string()` output, and in `r#"..."#` fed to `Hermes::parse`. Use for **human interaction** (config, debug output, logs, REPL) and as the **universal tunnel** — non-Hermes-aware systems emit/consume Hermes data as text.
+The human-readable text form; every type prints and parses itself. SDN appears in source (`@{...}`, `@[...]`), in `stringify(root)` output, and in `r#"..."#` fed to `parse`. Use for **human interaction** (config, debug output, logs, REPL) and as the **universal tunnel** — non-Hermes-aware systems emit/consume Hermes data as text.
 
 ### Round-Tripping
 

@@ -96,7 +96,8 @@ RAW_STRING = r"[^"]*"  |  r#"…"#  |  r##"…"##  |  …   — no escapes
 - `r"…"` — raw form, no escape processing. Contents end at the first closing `"`.
 - `r#"…"#`, `r##"…"##`, … — hash-fenced raw strings; the body ends at the matching `"` followed by the same number of `#`s, so the body may itself contain `"` (or `"#`, etc.). The grammar file shows only the unfenced regex; the hand-rolled lexer accepts any number of leading/trailing `#`s.
 
-There is no character literal (`'a'`) and no byte-string literal (`b"…"`). Single-byte values are written as integer literals.
+- `'a'` — character literal (`CHAR_LIT`): a single Unicode scalar of type `char`, with the same escapes as strings.
+- `b"…"` — byte-string literal (`BYTE_STRING`): lowers to a `[u8; N]` array.
 
 ## Punctuation and Operators
 
@@ -132,4 +133,3 @@ The following are not tokens but parse-level constructs flagged here so they don
 ## Roadmap
 
 - UTF-8 in identifiers and comments. Tracked via the language quirks list.
-- Character and byte-string literals — pending.

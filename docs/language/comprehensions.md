@@ -16,7 +16,7 @@ The optional `if guard` filters elements before they reach the output.
 ## List Comprehensions → `Vec<T>`
 
 ```logos
-use std.collections.vec;
+use logos.mem.collections.vec;
 
 let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
@@ -29,7 +29,7 @@ The output type is inferred from the body expression. Guard expressions are arbi
 ## Map Comprehensions → `HashMap<K, V>`
 
 ```logos
-use std.collections.hashmap;
+use logos.mem.collections.hashmap;
 
 let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
@@ -39,36 +39,43 @@ let ev: HashMap<i32, i32> = {x: x * 10 for x in arr if (x % 2) == 0};
 
 The key/value expressions can use any binding introduced by the `for` clause; both are evaluated for each kept element.
 
-`HashMap<K, V>` is part of the standard library at `stdlib/std/collections/hashmap`, with support for primitive keys (integers, `bool`) and the `Hash`/`Eq` infrastructure required for user keys. See `std_hashmap_basic`, `std_hashmap_full`, `std_hashmap_iter`, `std_hashmap_multi_k` in the test suite.
+`HashMap<K, V>` is part of the standard library at `stdlib/mem/collections/hashmap` (`logos.mem.collections.hashmap`), with support for primitive keys (integers, `bool`) and the `Hash`/`Eq` infrastructure required for user keys. See `std_hashmap_basic`, `std_hashmap_full`, `std_hashmap_iter`, `std_hashmap_multi_k` in the test suite.
 
-## Hermes List Comprehensions → `Hermes` (`ObjectArray` root)
+## Hermes List Comprehensions → `Rc<Hermes>` (`ObjectArray` root)
 
 ```logos
-use logos.mem.hermes.ctr;
-use std.hermes.anyval;
+use logos.lang.hermes.comp_builder;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.rc;
 
 let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
-let doc: Hermes =
-    @[ AnyVal::embed_i24(x * x) for x in arr ];
+let doc: Rc<Hermes> =
+    @[ x * x for x in arr ];
 
-let evens: Hermes =
-    @[ AnyVal::embed_i24(x * 10) for x in arr if (x % 2) == 0 ];
+let evens: Rc<Hermes> =
+    @[ x * 10 for x in arr if (x % 2) == 0 ];
 ```
 
-The result is a fresh `Hermes` document whose root is an `ObjectArray` of `AnyVal`. Element expressions must produce `AnyVal` (use the `embed_*` constructors or wrap user types). The Hermes form gives you a relocatable, schema-tagged container in one expression.
+The result is a fresh `Rc<Hermes>` document whose root is an `ObjectArray`. Element expressions are plain scalars that coerce into the document (no `AnyVal` wrapping). The Hermes form gives you a relocatable, schema-tagged container in one expression.
 
-## Hermes Map Comprehensions → `Hermes` (Map root)
+## Hermes Map Comprehensions → `Rc<Hermes>` (Map root)
 
 ```logos
-let keys: [str; 10] = ["k0","k1","k2","k3","k4","k5","k6","k7","k8","k9"];
-let idx:  [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+use logos.lang.hermes.comp_builder;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.rc;
 
-let doc: Hermes =
-    @{ keys[x as i64] : AnyVal::embed_i24(x * 100) for x in idx };
+let keys: [str; 4] = ["a", "b", "c", "d"];
+let idx:  [i32; 4] = [0, 1, 2, 3];
+
+let doc: Rc<Hermes> =
+    @{ keys[x as i64] : x * 100 for x in idx };
 ```
 
-Keys may be any expression typeable into the Hermes key surface (currently strings); values are `AnyVal`.
+The key expression must be a `str`; values are plain scalars that coerce into the document.
 
 ## Notes
 

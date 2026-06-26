@@ -13,7 +13,7 @@ The checker was built up over four phases (exclusivity, provenance tracking, nam
 ## Move Semantics
 
 ```logos
-let s: String = String::from_str("hi");
+let s: String = String::from("hi");
 let t: String = s;          // move
 print_string(&s);           // ERROR: use after move
 ```
@@ -23,15 +23,14 @@ Primitive types (`i64`, `bool`, references, etc.) are `Copy`-like and are not mo
 ## Borrowing
 
 ```logos
-let mut v: Array<i64> = Array::new();
+let mut v: Vec<i64> = Vec::new();
 v.push(1);
 
-let r1: &i64 = v.get(0);    // shared borrow of an element
-let r2: &i64 = v.get(0);    // ok — multiple shared
-print_i64(*r1);
-print_i64(*r2);
+let r1: &i64 = v.borrow(0);    // shared borrow of an element
+let r2: &i64 = v.borrow(0);    // ok — multiple shared
+let sum: i64 = *r1 + *r2;       // both borrows used here
 
-let r3: &mut Array<i64> = &mut v;   // ERROR if r1/r2 still live
+let r3: &mut Vec<i64> = &mut v;   // ERROR if r1/r2 still live
 ```
 
 The checker uses a flow-sensitive analysis. Borrows are live until their last use, not until the end of their lexical scope. Code like:
@@ -60,8 +59,8 @@ Named lifetimes are required when relating multiple input references to a single
 
 Logos has two kinds of "reference-like" things in addition to `&T`:
 
-- **`View<T>`**: a non-owning fat pointer, like `&T` but pointing into a Hermes zone. Lifetime-tracked the same way.
-- **`OView<T>`**: an *owning* view that holds a refcount on the underlying memory holder. Used when a value needs to escape a function but the source is a Hermes zone, not a stack allocation.
+- **`HView2`**: a non-owning fat pointer, like `&T` but pointing into a Hermes zone. Lifetime-tracked the same way.
+- **`OView`**: an *owning* view that holds a refcount on the underlying memory holder. Used when a value needs to escape a function but the source is a Hermes zone, not a stack allocation.
 
 The compiler infers which is needed via escape analysis. The annotation `#[yields_view_of]` is available where escape analysis cannot prove the relationship; the manual workaround is `.own(source)`.
 

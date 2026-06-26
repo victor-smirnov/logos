@@ -17,7 +17,7 @@ A zone is not tied to the heap. It can live on the heap (the default), inside a 
 - **Mutable** — supports allocation and structural updates. The active form during construction.
 - **Immutable** — append-only or fully frozen, suitable for serialization, sharing, and rodata embedding.
 
-The zone migration to a `Zone<Mutable>` parameterized form is complete on the parser path and the test callers.
+Construction proceeds in the Mutable form; serialization, sharing, and rodata embedding use the Immutable form.
 
 **Ownership hierarchy.** Allocation responsibility is split, and the contract is intentionally asymmetric:
 
@@ -44,45 +44,32 @@ GAT-like associated types relate the three. `UnsizedPayload` covers variable-len
 
 Every Hermes value carries an 8-byte schema type code. The registry is global per process:
 
-- Codes 1–128 are reserved for system types (Map, Array, typed arrays, Decimal, …).
+- A non-contiguous low band is reserved for system types — small scalars/containers near the bottom, typed arrays at 2101–2110, maps at 3101–3104, and so on (see `include/logos/hermes/type_codes.hpp`).
 - User type codes are derived as a 56-bit slice of the SHA-256 of the type definition.
-- A `TypedValue` wrapper (tag 106) covers values whose type is unregistered at runtime.
+- A `TypedValue` wrapper (`TYPEDVALUE = 4115`) covers values whose type is unregistered at runtime.
 
 Registered standard types must use their direct type code, not `TypedValue` — this is enforced.
 
-### Trait Dispatch
+### Operation Dispatch
 
-Hermes operations dispatch through traits:
+The C++ runtime dispatches each operation (stringify, clone, encode/decode, …) by `switch`-ing on the 8-byte type code read from the vlen `TypeTag` that precedes every object — see the walkers in `stringify.cpp`, `clone.cpp`, and `binary_codec.cpp`. There is no C++ trait-object registry; the per-type-code tag-dispatch table from Hermes1 was retired in favour of these direct walkers.
 
-| Trait | Purpose |
-|-------|---------|
-| `HermesStringify` | Produce a textual representation. |
-| `HermesEqual` | Structural equality. |
-| `HermesHash` | Hashing. |
-| `HermesClone` | Deep clone within or across zones. |
-| `HermesRelease` | Release any external resources. |
+On the *Logos* side, the corresponding behaviours are expressed as blanket trait impls (e.g. stringify / equality / hashing over Hermes values); these are language-level traits, not C++ types.
 
-Dispatch goes through `HermesTypeTagSystem`, indexed by type code. The trait-registry phase shipped with the Hermes capture work.
-
-### Read/Write Split
-
-The trait surface is split into `HermesRead` and `HermesWrite`. View types implement `HermesRead`; mutating operations on owned containers implement both. `HermesStatic` (rodata literals) is read-only by construction and length-prefixed.
+`HermesStatic` (rodata literals) is read-only by construction and length-prefixed.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | [arena.cpp](../../src/hermes/arena.cpp) | Zone allocator. |
-| [document.cpp](../../src/hermes/document.cpp) | Top-level document handle. |
 | [text_parser.cpp](../../src/hermes/text_parser.cpp) | Text-format parser. |
-| [stringify.cpp](../../src/hermes/stringify.cpp) | Trait-dispatched stringification router. |
+| [stringify.cpp](../../src/hermes/stringify.cpp) | Type-code-dispatched stringification walker. |
 | [binary_codec.cpp](../../src/hermes/binary_codec.cpp) | Wire-format encode/decode. |
 | [clone.cpp](../../src/hermes/clone.cpp) | Cross-zone deep clone. |
-| [map.cpp](../../src/hermes/map.cpp), [typed_array.cpp](../../src/hermes/typed_array.cpp) | Container implementations. |
-| [type_ops.cpp](../../src/hermes/type_ops.cpp) | Type registry operations. |
-| [view.cpp](../../src/hermes/view.cpp) | View materialization. |
-| [path.cpp](../../src/hermes/path.cpp) | Path expressions. |
-| [template.cpp](../../src/hermes/template.cpp) | Capture/template expansion. |
+| [map.hpp](../../include/logos/hermes/map.hpp), [typed_array.hpp](../../include/logos/hermes/typed_array.hpp) | Container implementations (header-only). |
+| [document.hpp](../../include/logos/hermes/document.hpp), [view.hpp](../../include/logos/hermes/view.hpp) | Document handle and view materialization (header-only). |
+| [arena_pool.cpp](../../src/hermes/arena_pool.cpp), [external_ref.cpp](../../src/hermes/external_ref.cpp), [import_table.cpp](../../src/hermes/import_table.cpp) | Multi-arena pool, cross-arena refs, import tables. |
 
 `exerciser_*.cpp` files are standalone C++ programs that drive each subsystem; they predate full Logos coverage and remain useful for low-level testing.
 

@@ -11,9 +11,9 @@ out of the box.
 ## At a glance
 
 ```logos
-use std.fmt;
-use std.collections.vec;
-use std.lang.text;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.std.compiler.metaprog;
 
 // Function-style macro: AST args, ExprBlob result.
 #[fn_macro]
