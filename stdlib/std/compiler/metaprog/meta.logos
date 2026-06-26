@@ -369,18 +369,18 @@ fn schema_mix(h: u64, x: u64) -> u64 {
 
 // Fold `schema_code` over a component type-pack (base + head/tail recursion).
 pub fn schema_pack() -> u64 { return 0xcbf29ce484222325 as u64; }   // FNV-1a offset
-pub fn schema_pack<H, T...>() -> u64 {
-    return schema_mix(schema_code::<H>(), schema_pack::<T...>());
+pub fn schema_pack<_H, T...>() -> u64 {   // _H: type-level only (schema_code::<_H>())
+    return schema_mix(schema_code::<_H>(), schema_pack::<T...>());
 }
 
-pub fn schema_code<T>() -> u64 {
-    let t: Type = type_of::<T>();
+pub fn schema_code<_T>() -> u64 {   // _T: type-level only (type_of::<_T>())
+    let t: Type = type_of::<_T>();
     let mut h: u64 = schema_mix(0x5c4 as u64, t.kind as u64);
     h = schema_mix(h, t.size as u64);
     h = schema_mix(h, t.align as u64);
     if t.is_struct() {
         // Recurse into the field types (descend through the splice).
-        let fs = field_types_of::<T>();
+        let fs = field_types_of::<_T>();
         return schema_mix(h, schema_pack::<$fs...>());
     }
     // primitive / pointer / array / enum / tuple: kind+size+align leaf.

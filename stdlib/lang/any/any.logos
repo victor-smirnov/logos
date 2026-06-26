@@ -48,8 +48,11 @@ impl Eq for TypeId {
 // `TypeId::of::<T>()` analogue. `type_uid` / `type_uid_hi` are the low/high 64
 // bits of the compiler's nominal type UID (hash of the canonical named type
 // string); both folded at mono.
-pub fn type_id_of<T>() -> TypeId {
-    return TypeId { lo: type_uid::<T>(), hi: type_uid_hi::<T>() };
+// `_T` is used only at the TYPE level (passed to type_uid::<_T>()), never in the
+// signature — the `_`-prefix marks it intentionally absent from the signature so
+// the signature-only unused-type-param lint stays quiet.
+pub fn type_id_of<_T>() -> TypeId {
+    return TypeId { lo: type_uid::<_T>(), hi: type_uid_hi::<_T>() };
 }
 
 // The `Any` trait. The blanket impl makes every type `Any` (Rust shape).
@@ -64,9 +67,9 @@ impl<T> Any for T {
 // `(dyn Any).is::<T>()` analogue — does the erased value hold a `T`?
 // Sound for struct / enum erased values (see the primitive caveat in the
 // module header).
-pub fn any_is<T>(a: &dyn Any) -> bool {
+pub fn any_is<_T>(a: &dyn Any) -> bool {   // _T: type-level only (type_id_of::<_T>())
     let lhs: TypeId = a.type_id();
-    let rhs: TypeId = type_id_of::<T>();
+    let rhs: TypeId = type_id_of::<_T>();
     return lhs.lo == rhs.lo && lhs.hi == rhs.hi;
 }
 
