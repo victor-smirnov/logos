@@ -283,7 +283,7 @@ pub fn build_external(dep: &ExternalDep, profile: str, logosc: &String,
         // debugging). Empty dump_dir disables the flag.
         let no_dump: String = String::new();
         let no_filter: String = String::new();
-        let rc: i32 = build_lib(t, profile, logosc, &out, &no_dump, &no_filter);
+        let rc: i32 = build_lib(t, profile, logosc, &out, &no_dump, &no_filter, false);
         if rc != 0 {
             print_str(2, "lforge: external dep ");
             print_str(2, path_view);

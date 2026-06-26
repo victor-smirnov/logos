@@ -46,6 +46,7 @@ if(LOGOS_RELEASE)
     message(STATUS "Logos ${LOGOS_VERSION_FULL}  [RELEASE]  install slot: logosc-${LOGOS_VERSION_SLOT}")
 else()
     set(_disc "snapshot")   # no-git fallback (e.g. tarball) — still distinct from any release slot
+    set(_clean_commit OFF)  # ON only for a non-dirty git checkout (sha is then a deterministic build id)
     find_package(Git QUIET)
     if(Git_FOUND AND IS_DIRECTORY ${CMAKE_SOURCE_DIR}/.git)
         execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short=8 HEAD
@@ -67,11 +68,25 @@ else()
             set(_disc "${_git_branch}-g${_git_sha}")
             if(_git_dirty)
                 set(_disc "${_disc}-dirty")
+            else()
+                set(_clean_commit ON)   # commit id alone identifies this build
             endif()
         endif()
     endif()
+    # Install SLOT uses the STABLE disc (one slot per branch/snapshot — a build
+    # timestamp must NOT churn the install dir).
     set(LOGOS_VERSION_SLOT "${LOGOS_VERSION_SLOT}-${_disc}")
-    set(LOGOS_VERSION_FULL "${LOGOS_VERSION_FULL}+${_disc}")   # semver build-metadata
+    # FULL (semver build-metadata, what `--version` reports + the @abi stamp + the
+    # lforge rebuild-on-toolchain-change check) must DISTINGUISH otherwise-identical
+    # builds: a clean commit is already unique (sha), but a dirty tree or a no-git
+    # snapshot (e.g. the Docker .deb, which excludes .git) is not — append a build
+    # timestamp so each such toolchain build gets a distinct version.
+    set(_full_disc "${_disc}")
+    if(NOT _clean_commit)
+        string(TIMESTAMP _build_ts "%Y%m%dT%H%M%SZ" UTC)
+        set(_full_disc "${_disc}.${_build_ts}")
+    endif()
+    set(LOGOS_VERSION_FULL "${LOGOS_VERSION_FULL}+${_full_disc}")
     message(STATUS "Logos ${LOGOS_VERSION_FULL}  [SNAPSHOT — not a release]  install slot: logosc-${LOGOS_VERSION_SLOT}")
     message(STATUS "  snapshot installs into its own slot; pass -DLOGOS_RELEASE=ON for an official release build")
 endif()

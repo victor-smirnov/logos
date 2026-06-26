@@ -95,6 +95,31 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
         let logosc: String = resolve_logosc_path();
     let lib_dir: String = resolve_logos_lib_dir();
 
+    // Toolchain-change gate: lforge's incremental skip keys on source mtimes, so
+    // a compiler upgrade (same sources, new logosc) would otherwise reuse stale
+    // .o/.a/bin. Compare the current `logosc --version` (which carries a build
+    // discriminator: commit id when clean, +timestamp when dirty/snapshot)
+    // against the stamp that produced this profile's outputs; on mismatch force a
+    // full rebuild. Empty version (couldn't query) → don't disrupt.
+    let cur_ver: String = get_logosc_version(&logosc);
+    let stamp_p: String = toolchain_stamp_path(profile);
+    let mut force_rebuild: bool = false;
+    if cur_ver.len() > 0 as i64 {
+        if is_file(stamp_p.as_str()) {
+            match read_to_string(stamp_p.as_str()) {
+                Result::Ok(prev) => {
+                    if !str_eq_local(prev.as_str(), cur_ver.as_str()) {
+                        force_rebuild = true;
+                        println_str(1, "lforge: compiler changed since last build — rebuilding all");
+                    }
+                }
+                Result::Err(_) => { force_rebuild = true; }
+            }
+        } else {
+            force_rebuild = true;   // no stamp (pre-feature / fresh tree) → rebuild + stamp
+        }
+    }
+
     // Build external (project-level) deps first so their archives are
     // available when local targets resolve their per-target deps. The
     // lockfile gives us a fast-path: tags pinned in lforge.lock skip
@@ -193,8 +218,8 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
             dump_dir.push_str(t.name.as_str());
         }
         let rc: i32 = match t.kind {
-            TargetKind::Lib => { build_lib(t, profile, &logosc, &externals, &dump_dir, dump_metacall_sel) }
-            TargetKind::Bin => { build_bin(t, &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel) }
+            TargetKind::Lib => { build_lib(t, profile, &logosc, &externals, &dump_dir, dump_metacall_sel, force_rebuild) }
+            TargetKind::Bin => { build_bin(t, &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel, force_rebuild) }
         };
         if rc != 0 {
             dealloc(want);
@@ -203,6 +228,14 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
         built = built + 1;
     }
     dealloc(want);
+    // Record the compiler version that produced these outputs (best-effort; the
+    // profile dir exists once a target has built). Next build compares against it.
+    if cur_ver.len() > 0 as i64 {
+        match write_string(stamp_p.as_str(), &cur_ver) {
+            Result::Ok(_)  => { }
+            Result::Err(_) => { }
+        }
+    }
     println_str(1, "lforge: build OK");
     return 0;
     }
@@ -545,7 +578,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
             TargetKind::Lib => {
                 let no_dump: String = String::new();
                 let no_filter: String = String::new();
-                let rc: i32 = build_lib(t, profile, &logosc, &no_externals, &no_dump, &no_filter);
+                let rc: i32 = build_lib(t, profile, &logosc, &no_externals, &no_dump, &no_filter, false);
                 if rc != 0 {
                     println_str(2, "lforge: lib target failed; aborting test run");
                     return rc;

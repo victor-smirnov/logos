@@ -107,6 +107,18 @@ pub fn out_dir_for(profile: str) -> String {
     return d;
 }
 
+// Per-profile compiler-version stamp: records the `logosc --version` that
+// produced this profile's outputs. On the next build, a mismatch forces a full
+// rebuild (the toolchain changed → existing .o/.a/bin may be invalid even though
+// the sources didn't change). Lives beside out/ so it's cleaned with the profile.
+pub fn toolchain_stamp_path(profile: str) -> String {
+    let mut d: String = String::new();
+    d.push_str(".lforge/");
+    d.push_str(profile);
+    d.push_str("/.logosc-version");
+    return d;
+}
+
 pub fn gen_dir_for(profile: str) -> String {
     let mut d: String = String::new();
     d.push_str(".lforge/");

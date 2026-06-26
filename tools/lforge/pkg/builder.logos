@@ -29,7 +29,8 @@ fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
-                        dump_filter: &String) -> i32 {
+                        dump_filter: &String,
+                        force: bool) -> i32 {
     let lib_name_view: str = t.name.as_str();
 
     // ── Walk Logos source dir, if any ────────────────────────────────────
@@ -113,7 +114,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             Result::Ok(v)  => { v }
             Result::Err(_) => { 0 as i64 }
         };
-        if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
+        if !force && output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
         let mut argv: Vec<String> = vec_new::<String>();
         push_string_arg(&mut argv, logosc);
@@ -172,7 +173,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
                 Result::Ok(v)  => { v }
                 Result::Err(_) => { 0 as i64 }
             };
-            if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
+            if !force && output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
             let child: Child = spawn_native_compile(src_p, &obj_path, profile);
             if child.pid() < 0 {
@@ -253,7 +254,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
                 }
             }
         }
-        if !output_is_fresh(arch_view, max_pf) { need_ar = true; }
+        if force || !output_is_fresh(arch_view, max_pf) { need_ar = true; }
     }
 
     if !need_ar {
@@ -327,7 +328,8 @@ pub fn build_bin(t: &Target,
                         lib_dir: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
-                        dump_filter: &String) -> i32 {
+                        dump_filter: &String,
+                        force: bool) -> i32 {
     if t.entry.len() == 0 as i64 {
         println_str(2, "lforge: bin target missing 'entry'");
         return 1;
@@ -357,7 +359,7 @@ pub fn build_bin(t: &Target,
     let max_mt: i64 = newest_mtime(&all_inputs);
     let bp_check: String = bin_path(profile, t.name.as_str());
     let bp_check_view: str = bp_check.as_str();
-    if output_is_fresh(bp_check_view, max_mt) {
+    if !force && output_is_fresh(bp_check_view, max_mt) {
         let mut msg: String = String::new();
         msg.push_str("lforge: bin ");
         msg.push_str(t.name.as_str());
