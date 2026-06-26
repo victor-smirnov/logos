@@ -8640,6 +8640,7 @@ sym	logos_mem.logos.mem.hermes.parser$advance__f__pmut_P
 sym	logos_mem.logos.mem.hermes.parser$is_digit__f__u8
 sym	logos_mem.logos.mem.hermes.parser$kw__f__pmut_P__slice_u8
 sym	logos_mem.logos.mem.hermes.parser$parse__f__ref_Hermes__slice_u8
+sym	logos_mem.logos.mem.hermes.parser$parse_hermes__f__slice_u8
 sym	logos_mem.logos.mem.hermes.parser$parse_ident_raw__f__pmut_P
 sym	logos_mem.logos.mem.hermes.parser$parse_number__f__ref_Hermes__pmut_P
 sym	logos_mem.logos.mem.hermes.parser$parse_str_raw__f__pmut_P
