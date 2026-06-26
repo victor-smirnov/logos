@@ -1,6 +1,6 @@
 #!/bin/sh
 # logosc-@LOGOS_VERSION_SLOT@ — register the unversioned /usr/bin/logosc selector.
-# update-alternatives lets multiple slot-packages (logosc-0.1-pre, logosc-0.2, …)
+# update-alternatives lets multiple slot-packages (logosc-0.1-preview, logosc-0.2, …)
 # coexist; the highest-priority installed slot becomes the default `logosc`.
 # logos-gdb is a SLAVE of logosc: it tracks the same slot (so `logos-gdb` always
 # matches the selected `logosc`) and is removed automatically with the master.

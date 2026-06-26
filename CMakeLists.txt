@@ -12,16 +12,16 @@ project(logos VERSION 0.1.0 LANGUAGES CXX C ASM)
 # ── Version & parallel-install slot ──────────────────────────────────────
 # Single source of truth: project(VERSION) above + the pre-release marker
 # below. Three language-development stages read off the version:
-#   preview     LOGOS_VERSION_PRE=pre, major 0  → 0.Y.Z-pre  (nothing guaranteed)
-#   stabilising LOGOS_VERSION_PRE="",  major 0  → 0.Y.Z      (tools stable, lang fluid)
-#   stable      major >= 1                        → X.Y.Z      (full guarantees)
-# `-pre` is ORTHOGONAL — it attaches to any version, a version-safe space for
+#   preview     LOGOS_VERSION_PRE=preview, major 0 → 0.Y.Z-preview (nothing guaranteed)
+#   stabilising LOGOS_VERSION_PRE="",     major 0 → 0.Y.Z         (tools stable, lang fluid)
+#   stable      major >= 1                           → X.Y.Z         (full guarantees)
+# `-preview` is ORTHOGONAL — it attaches to any version, a version-safe space for
 # experiments.
-set(LOGOS_VERSION_PRE "pre" CACHE STRING
+set(LOGOS_VERSION_PRE "preview" CACHE STRING
     "Pre-release marker appended as -<PRE> (empty = released). Orthogonal to X.Y.Z.")
 
-# FULL = X.Y.Z[-pre] — reported by --version, CPack package version.
-# SLOT = X.Y[-pre]   — the parallel-install / ABI-compat boundary users pin to
+# FULL = X.Y.Z[-preview] — reported by --version, CPack package version.
+# SLOT = X.Y[-preview]   — the parallel-install / ABI-compat boundary users pin to
 #        (minor bump = ABI break; see memory project_versioning_abi). Drives the
 #        versioned binary `logosc-<SLOT>` and stdlib dir `lib/logos/<SLOT>/`.
 set(LOGOS_VERSION_FULL "${PROJECT_VERSION}")
@@ -33,7 +33,7 @@ endif()
 
 # Release vs snapshot. A release is created EXPLICITLY (-DLOGOS_RELEASE=ON, set by
 # the release flow once the ABI check has fixed the version): it owns the clean
-# slot X.Y[-pre]. EVERY other build is a SNAPSHOT and gets a git discriminator
+# slot X.Y[-preview]. EVERY other build is a SNAPSHOT and gets a git discriminator
 # (branch + short commit [+ -dirty]) appended to the slot, so it installs into its
 # OWN slot and can never masquerade as / collide with a release or another build:
 #   - `cpack` straight off main HEAD          → ...-main-g<sha>      (caught by default)
@@ -41,7 +41,7 @@ endif()
 #   - a dirty working tree                    → ...-g<sha>-dirty
 # Default OFF means an accidental release-shaped package is impossible without opt-in.
 option(LOGOS_RELEASE
-    "Official release build → clean X.Y[-pre] install slot. OFF (default) = snapshot, slot git-disambiguated." OFF)
+    "Official release build → clean X.Y[-preview] install slot. OFF (default) = snapshot, slot git-disambiguated." OFF)
 if(LOGOS_RELEASE)
     message(STATUS "Logos ${LOGOS_VERSION_FULL}  [RELEASE]  install slot: logosc-${LOGOS_VERSION_SLOT}")
 else()
@@ -330,7 +330,7 @@ add_custom_target(logos-abi
 # build dir configured against the distro's stock LLVM. Installs logosc + the
 # modular stdlib archives under /usr. Needs `dpkg-dev` resp. `rpm-build`.
 # Per-slot package name so versions coexist on one system: apt installs
-# `logosc-0.1-pre` and `logosc-0.2` side by side (each owns bin/logosc-<SLOT>
+# `logosc-0.1-preview` and `logosc-0.2` side by side (each owns bin/logosc-<SLOT>
 # + lib/logos/<SLOT>/; the unversioned bin/logosc is an alternatives link).
 set(CPACK_PACKAGE_NAME    "logosc-${LOGOS_VERSION_SLOT}")
 set(CPACK_PACKAGE_VERSION "${LOGOS_VERSION_FULL}")
@@ -359,16 +359,16 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS
 # A built Logos program is linked with `cc`/`ld` against the static stdlib
 # archives, so the toolchain wants a C compiler present.
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "gcc | clang")
-set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)  # logosc-0.1-pre_0.1.0-pre_amd64.deb
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)  # logosc-0.1-preview_0.1.0-preview_amd64.deb
 
 # update-alternatives: the unversioned /usr/bin/logosc selector. Priority orders
-# slots so a newer one wins by default, and a released slot beats its -pre twin.
+# slots so a newer one wins by default, and a released slot beats its -preview twin.
 # Build the .deb with -DLOGOS_INSTALL_UNVERSIONED_SYMLINK=OFF so the symlink is
 # NOT a packaged file (alternatives owns it) — that's what lets slots coexist.
 math(EXPR LOGOS_ALT_PRIORITY
      "${PROJECT_VERSION_MAJOR} * 1000 + ${PROJECT_VERSION_MINOR} * 10 + 1")
 if(LOGOS_VERSION_PRE)
-    math(EXPR LOGOS_ALT_PRIORITY "${LOGOS_ALT_PRIORITY} - 1")  # -pre below released
+    math(EXPR LOGOS_ALT_PRIORITY "${LOGOS_ALT_PRIORITY} - 1")  # -preview below released
 endif()
 configure_file(${CMAKE_SOURCE_DIR}/packaging/deb/postinst.in
                ${CMAKE_BINARY_DIR}/packaging/deb/postinst @ONLY)
@@ -382,23 +382,23 @@ set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
 # dependency generator (autoreqprov) resolves the shared-lib Requires
 # correctly — no explicit list needed.
 #
-# RPM uses '-' as the NEVRA delimiter, so the .deb's slot name (logosc-0.1-pre)
+# RPM uses '-' as the NEVRA delimiter, so the .deb's slot name (logosc-0.1-preview)
 # is invalid as an RPM Name/Version. Follow the Fedora compat-package convention
 # (llvm17, gcc14): a hyphen-free concatenated name, and '~' for the pre-release
-# tag in the version (RPM sorts X.Y.Z~pre before X.Y.Z). Per-slot name so RPMs
+# tag in the version (RPM sorts X.Y.Z~preview before X.Y.Z). Per-slot name so RPMs
 # coexist. The installed file names (bin/logosc-<SLOT>, lib/logos/<SLOT>/) are
 # unchanged — only the package's own Name/Version differ.
 string(REGEX REPLACE "[^a-zA-Z0-9]" "" LOGOS_VERSION_SLOT_RPM "${LOGOS_VERSION_SLOT}")
 string(REPLACE "-" "~" LOGOS_VERSION_RPM "${LOGOS_VERSION_FULL}")
-set(CPACK_RPM_PACKAGE_NAME    "logosc${LOGOS_VERSION_SLOT_RPM}")  # logosc01pre
-set(CPACK_RPM_PACKAGE_VERSION "${LOGOS_VERSION_RPM}")             # 0.1.0~pre
+set(CPACK_RPM_PACKAGE_NAME    "logosc${LOGOS_VERSION_SLOT_RPM}")  # logosc01preview
+set(CPACK_RPM_PACKAGE_VERSION "${LOGOS_VERSION_RPM}")             # 0.1.0~preview
 set(CPACK_RPM_PACKAGE_LICENSE  "Apache-2.0 OR MIT")
 set(CPACK_RPM_PACKAGE_GROUP    "Development/Languages")
 set(CPACK_RPM_PACKAGE_URL      "https://github.com/victor-smirnov/logos")
 set(CPACK_RPM_PACKAGE_SUMMARY  "Logos compiler (logosc) and standard library")
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 set(CPACK_RPM_PACKAGE_SUGGESTS "gcc, liburing-devel")
-set(CPACK_RPM_FILE_NAME RPM-DEFAULT)   # logosc01pre-0.1.0~pre-1.x86_64.rpm
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)   # logosc01preview-0.1.0~preview-1.x86_64.rpm
 # update-alternatives equivalent for the unversioned /usr/bin/logosc selector.
 # CPack RPM's auto-%files does not capture an install(CODE)-created symlink (unlike
 # CPack DEB, which tars the whole staging tree), so — as with the .deb — the .rpm
