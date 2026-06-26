@@ -73,15 +73,22 @@ atomic between compiler-emitted strings and the stdlib dirs.
 
 - **P0 — Freeze & branch.** No other large in-flight Hermes work; lock this name
   map; branch. Snapshot ABI (`--emit-abi`) as baseline.
-- **P1 — C++ internals.** Rename `src/hermes`→`src/writ`, `include/logos/hermes`
-  →`include/logos/writ`, `namespace logos::hermes`→`writ`, types
-  `Hermes*`/`H*`→`Writ*`/`W*`, magic bytes. Stdlib package strings stay
-  `logos.*.hermes.*` for now. Build C++; run C++ exercisers + L2.
-- **P2 — Package paths + ABI.** Atomic: rename stdlib `logos.{lang,mem}.hermes.*`
-  → `…writ.*` (dirs + `package` decls + every `use` site in stdlib/tests/
-  examples/lforge) **and** the compiler's hardcoded path strings (sema thunk
-  emit, prelude, intrinsics, schema). Rebuild stdlib; refresh ABI spec; run
-  semantic abi-diff vs P0 baseline (expect prefix-only diffs).
+- **P1a — C++ runtime structure (DONE, commit 06adb9bb).** `src/hermes`→`src/writ`,
+  `include/logos/hermes`→`include/logos/writ`, `namespace logos::hermes`→`writ`,
+  include paths/guards, CMake (`logos_writ`, `writ_exerciser_*`), gdb printer.
+  Compiler `Hermes*` identifiers + runtime TYPE names left as-is. 241 tests green.
+- **P1b+P2 — Core rename (MERGED, atomic).** *Learning from P1a:* the compiler's
+  `Hermes*` type-name identifiers double as **string literals** that name Logos
+  types (`"Hermes"`, `"HermesStatic"`, `"HAny"`), and it hardcodes
+  `"logos.{lang,mem}.hermes.*"` package strings (e.g. thunk emit emits
+  `use logos.mem.hermes.view;`). So C++ type names, those strings, and the stdlib
+  Logos names/dirs/`use`-sites are coupled and MUST move together. Do one atomic
+  step: stdlib `logos.{lang,mem}.hermes.*`→`…writ.*` (dirs + `package` + every
+  `use`) + the compiler's hardcoded strings + the C++ runtime/compiler `Hermes*`
+  identifiers (`Hermes`→`Writ`, `HAny`→`WAny`, `HermesVal`→`WritVal`, …). Technique:
+  sentinel-protect the few intentional non-renames (TRADEMARKS "Hermès", this ADR,
+  "Hermes1 …retired" history, HRPC/Hest), global `Hermes→Writ`/`hermes→writ`,
+  restore. Rebuild stdlib; refresh ABI; semantic abi-diff vs P0 (prefix-only).
 - **P3 — Format markers / extensions.** `.hermes`/`.hermes0`/`.hm0`/`.hbs` +
   magic + `lforge.hermes`→`lforge.writ`: update compiler emit/loader, lforge
   (manifest reader, lockfile, build paths), test fixtures, docs. Regenerate any
