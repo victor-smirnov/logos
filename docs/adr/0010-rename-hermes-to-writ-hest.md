@@ -89,6 +89,22 @@ atomic between compiler-emitted strings and the stdlib dirs.
   sentinel-protect the few intentional non-renames (TRADEMARKS "Hermès", this ADR,
   "Hermes1 …retired" history, HRPC/Hest), global `Hermes→Writ`/`hermes→writ`,
   restore. Rebuild stdlib; refresh ABI; semantic abi-diff vs P0 (prefix-only).
+- **P2a — substring half (DONE, commit 59ae0d66).** `Hermes`/`hermes` substring
+  rename + stdlib `…hermes.*`→`…writ.*` dirs/paths + 271 file renames + ABI
+  regen (prefix-only). Full build + 5223 tests green. Left: H-prefix family,
+  all-caps `HERMES_*`.
+- **P2b — H-prefix type family (TODO).** Rename only the H-prefix *Logos/runtime
+  types*: `HAny`→`WAny` (+ `HAnyMut`/`HAnyRel`), `HString`, `HArr*`, `HMap`(+Entry),
+  `HIntMap`/`HIntKeyTag`, `HView2`, `HTypedValue`, `HDecimal`, `HParameter`,
+  `HStaticLit`, `HTinyValMap`/`HValMap`, and the `HV*` *view* types
+  (`HVMap`/`HVArray`/`HVType`/… + `*View`). **EXCLUDE** (not Writ): `HTTP`, `HRPC`,
+  `HRTB`, `HASH`, `HEX`, `HOME`/`HEAD`/…, and critically `HI`/`HI_NEG` (128-bit
+  HIGH-half schema keys, NOT Hermes). `HM`/`HP`/`HRel` don't exist standalone; `HC`
+  is a trivial local alias. **CARE:** the `HV_*`/`HA_*`/`HT_*` *schema-key strings*
+  (`HV_BASE`, `HV_MAP_KEYS`, `HA_BOOL`, `HT_U24`) are LIR/AST encoding keys + wire
+  type-code enum names — renaming the strings churns the `hermes0_format`-versioned
+  encoding; treat separately from the view-type identifiers (likely defer the bare
+  schema-key strings, or bump the format version deliberately). Another ABI regen.
 - **P3 — Format markers / extensions.** `.hermes`/`.hermes0`/`.hm0`/`.hbs` +
   magic + `lforge.hermes`→`lforge.writ`: update compiler emit/loader, lforge
   (manifest reader, lockfile, build paths), test fixtures, docs. Regenerate any
