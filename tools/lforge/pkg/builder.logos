@@ -17,6 +17,15 @@ use lforge.proc;
 use lforge.build_paths;
 use lforge.spawn_helpers;
 
+// Append profile-driven compilation flags to a logosc argv. debug = -g (DWARF
+// debug info; -O0 is logosc's default), release = -O2 (optimized, no debug
+// info). Without this, lforge profiles only changed OUTPUT PATHS — builds were
+// non-debuggable at the Logos level and release was never optimized.
+fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
+    if str_eq_local(profile, "release") { push_arg(argv, "-O2"); }
+    else                                { push_arg(argv, "-g"); }
+}
+
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
@@ -114,6 +123,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         push_string_arg(&mut argv, src_p);
         push_arg(&mut argv, "-o");
         push_string_arg(&mut argv, &prefix);
+        profile_compile_flags(profile, &mut argv);
         if dump_dir.len() > 0 as i64 {
             push_arg(&mut argv, "--dump-metaprog");
             push_string_arg(&mut argv, dump_dir);
@@ -164,7 +174,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             };
             if output_is_fresh(obj_path.as_str(), src_mt) { continue; }
 
-            let child: Child = spawn_native_compile(src_p, &obj_path);
+            let child: Child = spawn_native_compile(src_p, &obj_path, profile);
             if child.pid() < 0 {
                 println_str(2, "lforge: cc spawn failed");
                 return 1;
@@ -412,6 +422,7 @@ pub fn build_bin(t: &Target,
     push_string_arg(&mut argv, &entry_path);
     push_arg(&mut argv, "-o");
     push_string_arg(&mut argv, &obj_path);
+    profile_compile_flags(profile, &mut argv);
     if dump_dir.len() > 0 as i64 {
         push_arg(&mut argv, "--dump-metaprog");
         push_string_arg(&mut argv, dump_dir);

@@ -68,10 +68,13 @@ pub fn native_obj_path(dir: &String, src_path: &String) -> String {
 
 // Spawn `cc -c <src> -o <obj>` for a single C/asm file. cc handles both
 // .c and .S via file extension, so this one helper covers both.
-pub fn spawn_native_compile(src_path: &String, obj_path: &String) -> Child {
+pub fn spawn_native_compile(src_path: &String, obj_path: &String, profile: str) -> Child {
     let mut argv: Vec<String> = vec_new::<String>();
     push_arg(&mut argv, "cc");
     push_arg(&mut argv, "-c");
+    // Match the logosc profile flags so C/asm is debuggable/optimized in step.
+    if str_eq(profile, "release") { push_arg(&mut argv, "-O2"); }
+    else                          { push_arg(&mut argv, "-g"); }
     push_string_arg(&mut argv, src_path);
     push_arg(&mut argv, "-o");
     push_string_arg(&mut argv, obj_path);
