@@ -310,7 +310,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     return 0;
 }
 
-pub fn build_bin(t: &Target,
+pub fn build_bin(t: &Target, 
                         targets: &Vec<Target>,
                         profile: str,
                         logosc: &String,
