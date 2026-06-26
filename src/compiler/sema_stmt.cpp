@@ -5836,6 +5836,9 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
 }
 
 lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
+    // Own source line — capture before lowering cond/branches moves node_line_
+    // (else the SIf maps to a sub-statement's line; see lower_while).
+    const uint32_t if_line = node_line_;
     // ── if let pattern = expr { ... } ─────────────────────────────
     if (node.has_key(la::PAT)) {
         auto scrut = node.has_key(la::VALUE)
@@ -6040,7 +6043,7 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     sif.cond  = std::move(cond);
     sif.then_ = lir_mirror_block(*cur_prog_, then_block);
     if (else_opt) sif.else_ = lir_mirror_block(*cur_prog_, *else_opt);
-    return make_stmt_emit(node_line_, std::move(sif));
+    return make_stmt_emit(if_line, std::move(sif));
 }
 
 lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
@@ -6053,6 +6056,12 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
         WhileUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
         ~WhileUninitGuard() { slot = std::move(saved); }
     } _uninit_guard(currently_uninit_vars_);
+    // This statement's own source line (set by lower_stmt_inner before dispatch).
+    // Capture it now: lowering the body below moves node_line_ to the body's last
+    // statement, so the SWhile must be emitted with the captured line, not the
+    // stale node_line_ (else the loop header maps to the last body line → bad
+    // breakpoints/stepping).
+    const uint32_t while_line = node_line_;
     // §6.4: while-let CHAIN (multi-seg). Desugar source-text to
     // `loop { if-let-chain { BODY; } else { break; } }` and reparse
     // — same channel as `lower_if_let_chain`. ITEMS is present only
@@ -6235,10 +6244,11 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
     sw.cond  = std::move(cond);
     sw.body  = lir_mirror_block(*cur_prog_, body);
     sw.label = std::move(my_label);
-    return make_stmt_emit(node_line_, std::move(sw));
+    return make_stmt_emit(while_line, std::move(sw));
 }
 
 lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
+    const uint32_t for_line = node_line_;  // own line; body lowering moves node_line_
     // logos-core 2.7: a for may not run at all; restore tracker on exit.
     struct ForUninitGuard {
         std::set<std::string>& slot;
@@ -6324,7 +6334,7 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     sf.body      = lir_mirror_block(*cur_prog_, body);
     sf.label     = std::move(my_label);
     sf.slot      = _for_slot;
-    return make_stmt_emit(node_line_, std::move(sf));
+    return make_stmt_emit(for_line, std::move(sf));
 }
 
 lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
@@ -6832,6 +6842,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
 }
 
 lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
+    const uint32_t loop_line = node_line_;  // own line; body lowering moves node_line_
     // Capture label before lowering body (same reason as in lower_for).
     std::string my_label = std::move(pending_loop_label_);
     pending_loop_label_.clear();
@@ -6867,7 +6878,7 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
         sl.result_type = frame_value_type;
         sl.break_slot  = "__loop_val_" + std::to_string(tmp_var_count_++);
     }
-    return make_stmt_emit(node_line_, std::move(sl));
+    return make_stmt_emit(loop_line, std::move(sl));
 }
 
 // G163-2: general place write — `<postfix-lvalue> = rhs` for any place the
@@ -8180,6 +8191,7 @@ bool SemaChecker::emit_for_pattern_destructure(
 }
 
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
+    const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {
@@ -8838,8 +8850,8 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         blk.push_back(std::move(hoist_let_view));
         blk.push_back(std::move(hoist_let_root));
         blk.push_back(std::move(hoist_let_base));
-        blk.push_back(make_stmt_emit(node_line_, std::move(smatch)));
-        return finalize(make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
+        blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
+        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
     }
     // G172-1: wrap the str-pattern match in a block that first hoists the
     // scrutinee into `__smatch`, which each arm's `str_eq(__smatch, …)` guard
@@ -8847,10 +8859,10 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     if (has_str_hoist) {
         std::vector<lir_view::StmtRef> blk;
         blk.push_back(std::move(str_hoist_let));
-        blk.push_back(make_stmt_emit(node_line_, std::move(smatch)));
-        return finalize(make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
+        blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
+        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
     }
-    return finalize(make_stmt_emit(node_line_, std::move(smatch)));
+    return finalize(make_stmt_emit(match_line, std::move(smatch)));
 }
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
