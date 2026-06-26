@@ -30,6 +30,7 @@ bench/bin
 bench/results
 sandbox
 /dist/*
+__pycache__
 
 # Test artifacts
 *.sqlite
