@@ -231,7 +231,7 @@ Templates are a **syntactic-level** code generator, distinct from generics:
 Attributes precede an item. Multiple attributes stack:
 
 ```logos
-#[derive(Clone, Debug)]
+#[derive_clone]
 #[type_code=0x42]
 pub struct Foo { ... }
 ```

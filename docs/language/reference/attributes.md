@@ -3,7 +3,7 @@
 Attributes are `#[...]`-prefixed annotations on items. The grammar rule is `annotation` ([logos.peg:423](../../../tools/peg_gen/grammars/logos.peg#L423)). Multiple attributes stack in source order:
 
 ```logos
-#[derive(Clone, Debug)]
+#[derive_clone]
 #[type_code = 0x42]
 pub struct Foo { ... }
 ```
@@ -43,16 +43,21 @@ Marks a `struct` as a Hermes datatype (zone-relative layout, no heap pointers). 
 
 Internally the type's `LogosType::Kind` becomes `ZonedStruct`. See [Hermes](hermes.md) and [Types → Datatype](types.md#datatype-zoned-struct).
 
-## `#[derive(...)]`
+## `#[derive_<trait>]`
 
-Generates trait implementations from the struct's fields:
+Generates a trait implementation from the struct's fields. Logos has **no** Rust-style `#[derive(Trait, ...)]` list form — that is rejected. Instead each derived trait is its own trigger annotation, `#[derive_<trait>]`, and you stack one per trait:
 
 ```logos
-#[derive(Clone, Debug, Eq, Hash)]
+use logos.std.compiler.metaprog;   // brings the derive handlers into scope
+
+#[derive_clone]
+#[derive_debug]
+#[derive_eq]
+#[derive_hash]
 pub struct Point { x: i32, y: i32 }
 ```
 
-The list of derivable traits grows as stdlib trait derivations land — current set centres on `Clone`, `Debug`, the Hermes registry traits (`HermesStringify`, `HermesEqual`, `HermesHash`, `HermesClone`, `HermesRelease`), and a few stdlib markers. Derive expansion runs as a metaprog pass at sema time.
+Each `#[derive_<trait>]` fires a `#[metaprog_handler("derive_<trait>")]` fn that must be in scope (the stdlib handlers live in `logos.std.compiler.metaprog`). Current set: `derive_clone`, `derive_copy`, `derive_debug`, `derive_default`, `derive_eq`, `derive_partial_eq`, `derive_ord`, `derive_partial_ord`, `derive_hash`, `derive_branch_node`. Derive expansion runs as a metaprog pass at sema time.
 
 ## `#[annotation]`
 
@@ -152,7 +157,7 @@ The full attribute roster Logos plans to ship — many of these are *not yet* ho
 |-----------|--------|---------|
 | `#[type_code]` | active | Hermes dispatch tag |
 | `#[zoned]` | active | Hermes datatype layout |
-| `#[derive(...)]` | active (limited list) | Auto-implement traits |
+| `#[derive_<trait>]` | active (limited list) | Auto-implement a trait (one per trait; no `#[derive(...)]` list form) |
 | `#[annotation]` | sketch | User-defined annotation types |
 | `#[tag_dispatch(TS)]` | active | Bind trait to a tag system |
 | `#[metaprog_handler("name")]` | active | Register hook for `#[name]` trigger |

@@ -5,11 +5,9 @@ This page collects forward-looking notes from the rest of the reference. Items h
 ## Lexical
 
 - **UTF-8 source** — identifiers and comments are ASCII-only outside string literals. UTF-8 string contents already work; UTF-8 source is a planned extension. ([Lexical → Source Encoding](lexical.md#source-encoding))
-- **Char and byte literals** — `'a'`, `b"..."` are not lexed. Single-byte values are written as integer literals.
 
 ## Types
 
-- **`isize` / `usize` as standalone types** in expression position — currently only as integer-literal suffixes. ([Types → Roadmap](types.md#roadmap))
 - **Slice-from-array `&arr[..]`** — grammar gap; whole-array borrow `&arr` works.
 - **Higher-kinded polymorphism** — out of scope.
 - **Mixed packs** — combining `<T...>` and `<const N...: U>` in one signature is rejected by `mono_scan`. ([memory: feat_const_variadic_mvp](../../README.md))
@@ -23,7 +21,6 @@ This page collects forward-looking notes from the rest of the reference. Items h
 ## Expressions
 
 - **Range expressions** — `a..b`, `a..=b` parse but only flow through limited contexts (slicing planned). ([Expressions → Roadmap](expressions.md#roadmap))
-- **`if let` chains** — `if let Some(a) = x && let Some(b) = y { ... }` not yet accepted.
 - **Method-call generic args** — `xs.iter::<T>()` reserved; deduction usually suffices.
 - **Block-expression value capture** — edge cases around `let x = { ... };` with early-return.
 
@@ -35,7 +32,6 @@ This page collects forward-looking notes from the rest of the reference. Items h
 ## Patterns
 
 - **Exclusive range patterns** — `0..n` not yet a pattern form (only `..=`).
-- **Char / byte patterns** — pending the char primitive.
 - **`name @ ..`** in slice rest — not yet supported.
 - **Pattern types in function parameters** — fragile under generics.
 
@@ -68,7 +64,7 @@ This page collects forward-looking notes from the rest of the reference. Items h
 
 ## Attributes
 
-- Most attributes beyond `#[type_code]`, `#[zoned]`, `#[derive(...)]`, `#[annotation]`, and `#[tag_dispatch(...)]` are planned but not honoured by sema today. ([Attributes → Roadmap](attributes.md#roadmap))
+- Most attributes beyond `#[type_code]`, `#[zoned]`, `#[derive_<trait>]`, `#[annotation]`, and `#[tag_dispatch(...)]` are planned but not honoured by sema today. ([Attributes → Roadmap](attributes.md#roadmap))
 - Unknown attributes silently no-op; a warning, then a hard error, will land once the supported set is frozen.
 
 ## Larger-Scale Items

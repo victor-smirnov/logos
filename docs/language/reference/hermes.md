@@ -118,6 +118,6 @@ The `as <T>[]` / `as <K, V>{}` syntax casts a generic Hermes value to a typed co
 ## Roadmap
 
 - **`Set<T>`** — currently approximated via `ObjectMap<K, null>`; a real `Set` type planned ([memory: feat_hermes_set_via_objectmap](../../README.md)).
-- **Datatype trait derivation** — `#[derive(HermesStringify, HermesHash, ...)]` working but list of supported derives still growing.
+- **Datatype trait derivation** — Hermes trait behaviour for datatypes comes from the type-code registry / blanket impls today; dedicated `#[derive_<trait>]` handlers for Hermes traits are not yet provided (the general derive set is `derive_clone` / `derive_debug` / `derive_eq` / … — see [Attributes](attributes.md)).
 - **Decimal view refactor** — `to_string_value` / `to_f64` currently on `*const Decimal`; target is `DecimalView` ([memory: project_decimal_view_todo](../../README.md)).
 - **Cross-language Hermes** — three-impl strategy (Logos / Rust / C++) deferred until Hermes API stabilises in Logos ([memory: project_hermes_sync_strategy](../../README.md)).
