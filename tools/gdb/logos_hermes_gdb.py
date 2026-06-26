@@ -78,12 +78,31 @@ class HermesDecoder:
         n = b - 248
         return self.u(addr + 1, n), 1 + n
 
+    # Is `addr` a plausible Hermes object start (its TypeTag is a known code)?
+    # Used to disambiguate a live HAny (absolute Ref) from an at-rest AnyVal
+    # (self-relative Ref) at the root, and as a bad-pointer guard.
+    def _is_object(self, addr):
+        if addr is None or addr <= 0:
+            return False
+        try:
+            code = self.tag(addr)
+        except Exception:
+            return False
+        return (code in (TINYMAP, ARRAY, MAP, DECIMAL, STRING, 26, 27, 30, 31, 127, 4115)
+                or ARRAY_U8 <= code <= ARRAY_F64
+                or 3101 <= code <= 3104)
+
     # ── AnyVal ──
-    def anyval(self, addr, depth=0):
+    # live: the word is a LIVE HAny (compute form) — its Ref arm holds an
+    # ABSOLUTE pointer. At-rest words inside an arena (the default, used for every
+    # nested hop) hold a SELF-RELATIVE delta from their own slot. F3 storage/
+    # compute split (#[zoned2] niche enum); see include/logos/hermes/any_val.hpp
+    # + project_f3_zoned_niche_enum.
+    def anyval(self, addr, depth=0, live=False):
         word = self.u(addr, 8)
         if word == 0:
             return "null"
-        if word & 1:  # Pod
+        if word & 1:  # Pod — identical in both forms
             code = (word >> 1) & 0x7F
             val = word >> 8
             if val >> 55:  # sign-extend i56
@@ -91,9 +110,18 @@ class HermesDecoder:
             if code == HA_BOOL:
                 return "true" if val else "false"
             return str(val)
-        # Ref → self-relative (SIGNED offset) to a tagged object.
+        # Ref arm.
         sword = word - (1 << 64) if word >> 63 else word
-        return self.obj(addr + sword, depth)
+        rel = addr + sword
+        if live:
+            # Live HAny: Ref is absolute. Fall back to self-relative if that
+            # isn't a real object (e.g. the value was actually at-rest).
+            if self._is_object(word):
+                return self.obj(word, depth)
+            if self._is_object(rel):
+                return self.obj(rel, depth)
+            return "<ref 0x%x?>" % word
+        return self.obj(rel, depth)
 
     def obj(self, addr, depth=0):
         if depth > self.max_depth:
@@ -204,6 +232,13 @@ def _selftest():
     wr(80, (16 - 80).to_bytes(8, "little", signed=True))
     assert d.anyval(80) == '"hi"', d.anyval(80)
 
+    # LIVE HAny at 88 → the SAME string, but absolute (compute form: word = 16,
+    # NOT a self-relative delta). At-rest decode would mis-follow 88+16=104.
+    wr(88, (16).to_bytes(8, "little"))
+    assert d.anyval(88, live=True) == '"hi"', d.anyval(88, live=True)
+    # The same absolute word decoded as at-rest must NOT spuriously match.
+    assert d.anyval(88) != '"hi"', d.anyval(88)
+
     # ObjectArray [7, 8]: header at 100 (tag 100 at byte 99), elems at 128.
     pod = lambda v: ((v << 8) | (HA_I56 << 1) | 1).to_bytes(8, "little")
     wr(128, pod(7)); wr(136, pod(8))
@@ -238,7 +273,11 @@ try:
                 addr = int(v.address) if v.address is not None else int(v)
             except Exception:
                 addr = int(v)
-            print(HermesDecoder(_gdb_reader()).anyval(addr))
+            # The argument is a LIVE value (an HAny local, or an address holding
+            # a live word): its Ref arm is absolute. (Nested hops into the arena
+            # are at-rest/self-relative; the decoder handles that automatically,
+            # and falls back to self-relative if the root was actually at-rest.)
+            print(HermesDecoder(_gdb_reader()).anyval(addr, live=True))
 
     class AnyValPrinter:
         def __init__(self, val):

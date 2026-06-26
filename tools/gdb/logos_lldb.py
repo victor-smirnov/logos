@@ -265,7 +265,7 @@ class SliceChildren(_SeqChildren):
 
 # ── `logos-hermes <expr>` : decode the Hermes container format ────────────────
 # (Compact mirror of logos_hermes_gdb.py's decoder.)
-def _hermes_decode(proc, addr, depth=0):
+def _hermes_decode(proc, addr, depth=0, live=True):
     def u(a, s):
         return _u(_read_mem(proc, a, s))
 
@@ -278,7 +278,16 @@ def _hermes_decode(proc, addr, depth=0):
         n = b - 223 + 1
         return sum(u(o - 2 - i, 1) << (8 * i) for i in range(n))
 
-    def anyval(a, d):
+    def is_object(a):
+        if a is None or a <= 0:
+            return False
+        c = tag(a)
+        return (c in (98, 100, 101, 102, 130, 26, 27, 30, 31, 127, 4115)
+                or 2101 <= c <= 2110 or 3101 <= c <= 3104)
+
+    # live: word is a LIVE HAny (Ref = absolute). Nested arena words are at-rest
+    # (self-relative). See project_f3_zoned_niche_enum (storage/compute split).
+    def anyval(a, d, lv=False):
         w = u(a, 8)
         if w == 0:
             return "null"
@@ -289,7 +298,14 @@ def _hermes_decode(proc, addr, depth=0):
                 val -= (1 << 56)
             return ("true" if val else "false") if code == 2 else str(val)
         sw = w - (1 << 64) if w >> 63 else w
-        return obj(a + sw, d)
+        rel = a + sw
+        if lv:
+            if is_object(w):
+                return obj(w, d)
+            if is_object(rel):
+                return obj(rel, d)
+            return "<ref 0x%x?>" % w
+        return obj(rel, d)
 
     def obj(a, d):
         if d > 12:
@@ -348,7 +364,7 @@ def _hermes_decode(proc, addr, depth=0):
             return str(struct.unpack("<f" if sz == 4 else "<d", _read_mem(proc, a, sz))[0])
         return "<obj tc=%d>" % code
 
-    return anyval(addr, depth)
+    return anyval(addr, depth, live)
 
 
 def cmd_hermes(debugger, command, result, internal_dict):
