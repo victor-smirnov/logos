@@ -46,6 +46,19 @@ struct MetacallSiteStage {
     lir::MetacallRetTag ret_tag = lir::MetacallRetTag::I64;
     std::string callee_name;
 };
+// Stable, round-independent metacall/macro site id. The multi-round metacall
+// driver (main.cpp) re-runs sema_lower each round, rebuilding a fresh
+// metacall_sites vector numbered from 0 — so deriving a thunk name from
+// metacall_sites.size() makes item-position and expr-position macros (consumed
+// in different rounds) both mint `__metacall_thunk_0`, which then collide at the
+// final link ("duplicate function"). Keying the id on the callsite's
+// (ast index, byte offset) instead is unique per site and identical across
+// rounds, so names never collide and re-emission dedups cleanly. It is also the
+// macro_arg_blobs key (a sparse object map), so large/sparse ids are fine.
+static inline uint64_t metacall_site_id(size_t ast_idx, uint32_t expr_offset) {
+    return (static_cast<uint64_t>(static_cast<uint32_t>(ast_idx)) << 32)
+         | static_cast<uint64_t>(expr_offset);
+}
 static void push_metacall_site(lir::LProgram& prog, const MetacallSiteStage& s) {
     namespace mck = lir_schema::metacall_keys;
     DeclBuilder b(prog, lir_schema::decl::Code::MetacallSite, /*cap=*/8);
@@ -17416,7 +17429,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         site.ast_idx = cur_ast_idx_;
         site.expr_offset = static_cast<uint32_t>(node.offset().value());
         site.thunk_name = std::format("__metacall_thunk_{}",
-                                      cur_prog_->metacall_sites.size());
+                                      metacall_site_id(site.ast_idx, site.expr_offset));
         using RT = lir::MetacallRetTag;
         switch (rk) {
         case LogosType::Kind::Bool:  site.ret_tag = RT::Bool; break;
@@ -18566,7 +18579,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     // arg-blob slot 0 as a `[u64 size][bytes]` payload, and the thunk
     // calls `str_from_raw(ptr, len)` before forwarding to the callee.
     if (sig_str) {
-        uint64_t site_id = cur_prog_->metacall_sites.size();
+        uint64_t site_id = metacall_site_id(
+            cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
         std::vector<std::vector<uint8_t>> blobs;
         blobs.resize(1);
         uint64_t sz = static_cast<uint64_t>(raw_text.size());
@@ -19007,10 +19021,9 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
         return error_expr();
     }
 
-    // Allocate site_id BEFORE pushing site so the synthesised thunk
-    // source can reference it; site_id == metacall_sites.size() at the
-    // moment of push_back.
-    uint64_t site_id = cur_prog_->metacall_sites.size();
+    // Stable per-callsite id (round-independent — see metacall_site_id).
+    uint64_t site_id = metacall_site_id(
+        cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
 
     // Serialise each ARG sub-tree into a fresh Hermes doc, prefix with
     // [u64 size], and store under macro_arg_blobs[site_id][arg_idx].
@@ -19066,7 +19079,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes::TinyMapView node) {
     }
     lir_mirror_macro_arg_put(*cur_prog_, cur_prog_->macro_arg_blobs, site_id, blobs);
 
-    // Synthesise thunk. Two shapes per signature:
+    // Synthesise thunk. Two shapes per signature (expr fn_macro):
     //   single-arg: pass ExprBlob directly.
     //   Vec form: vec_new::<ExprBlob>() + N v.push(...) + return callee(v).
     std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
@@ -19259,7 +19272,8 @@ void SemaChecker::lower_fn_macro_call_item(hermes::TinyMapView node,
         return;
     }
 
-    uint64_t site_id = prog.metacall_sites.size();
+    uint64_t site_id = metacall_site_id(
+        cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
 
     // Serialise each ARG into the per-site arg-blob table.
     std::vector<std::vector<uint8_t>> blobs;
@@ -19607,7 +19621,7 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     site.ast_idx = cur_ast_idx_;
     site.expr_offset = static_cast<uint32_t>(node.offset().value());
     site.thunk_name = std::format("__metacall_thunk_{}",
-                                  prog.metacall_sites.size());
+                                  metacall_site_id(site.ast_idx, site.expr_offset));
     site.ret_tag = lir::MetacallRetTag::ItemBlob;
     if (ic == la::CALL || ic == la::GENERIC_CALL) {
         site.callee_name = std::string(str_of(inner.get(la::CALLEE.code)));
