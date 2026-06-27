@@ -137,6 +137,10 @@ Mental model: *document*, not *database* — an arbitrarily structured object gr
 
 ## Zones and Ownership
 
+> The zone memory model — multi-segment layout, self-relative `i64` offsets,
+> isolation, the root zone, `!Drop` ZTypes — is specified in
+> [Zones](../internals/zones.md) (canonical). This section is the Writ-level view.
+
 A container is internally a **zone** — one contiguous memory block, 4 B–4 GB; the unit of allocation, relocation, and GC. Zones are not heap-bound: a zone can live on the heap (default for new documents) or inside another container — a B+Tree page, a memory-mapped file, a network buffer, a parent Writ value.
 
 Zone ownership is **hierarchical**, with two roles:

@@ -9,7 +9,8 @@ derived side-effects of the same borrow invariant, not a separate
 pass.
 
 Status: **design accepted (2026-06-02), implementation not started.**
-Companion to [writ-runtime.md](writ-runtime.md),
+Builds on the canonical zone memory model — [Zones](zones.md); this page is the
+*type-system integration* of it. Companion to [writ-runtime.md](writ-runtime.md),
 [big-memoria-architecture.md](big-memoria-architecture.md), the
 language-level [Writ](../language/writ.md) page, and the deferred
 custom-DST work (memory `project_box_unsized_customdst`).
