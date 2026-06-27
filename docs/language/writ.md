@@ -1,6 +1,8 @@
 # Writ in Logos
 
-Writ is Logos's data substrate: a relocatable, tagged, schema-aware object graph format with native maps, arrays, typed arrays, decimals, strings, and user-defined datatypes. This is the user-level view; for runtime architecture see [Writ Runtime](../internals/writ-runtime.md).
+Writ is Logos's data substrate: a relocatable, tagged, schema-aware **generic object graph** with native maps, arrays, typed arrays, decimals, strings, and user-defined datatypes conformat with [ZType requirements](zones.md). This is the user-level view; for runtime architecture see [Writ Runtime](../internals/writ-runtime.md).
+
+> **The name.** *Writ* is from Old English *ġewrit* — "a writing", an authoritative written record (as in *a writ*, *holy writ*: a formal written instrument). It fits because a Writ value **is** a self-describing written record — the in-memory bytes *are* the record, durable and portable, not a message about one. (The earlier name, *Hermes*, named a messenger — apt for transport, wrong for a storage format that *holds* data rather than *carries* it.) It also pairs with **Logos** (Greek *λόγος*, "the word / reason"): Logos is the word; a Writ is the *written* word. The messaging layer that carries Writs between systems is [**Hest**](hest.md) (HRPC = "Hest RPC").
 
 ## Writ Is Built Into the Language
 
@@ -8,7 +10,7 @@ Writ is **not** an imported library; it is part of Logos itself:
 
 - **`@{...}` and `@[...]` are grammar literal forms.** The parser produces Writ literal AST nodes like array or struct literals. No macro layer, no DSL, no string interpolation.
 - **Capture is type-checked at sema.** `$ident` and `${expr}` inside a Writ literal are real expressions; type errors against the target shape are reported at compile time.
-- **View types live in the type system.** `HView2` and per-datatype views are real Logos types tracked by the borrow checker.
+- **View types live in the type system.** `WView2` and per-datatype views are real Logos types tracked by the borrow checker.
 - **Unified trait dispatch.** `WritStringify`, `WritEqual`, `WritHash`, `WritClone`, `WritRelease`, `WritRead`, `WritWrite` are ordinary Logos traits; user datatypes implement them like any other.
 - **Static literals fold to rodata.** Module-scope Writ literals become `WritStatic` blobs — length-prefixed, read-only, no runtime parsing.
 - **Schema codes are part of type identity.** A type's content-addressed hash and its Writ type code share one source; language and data substrate share one notion of "what type is this."
@@ -18,10 +20,10 @@ Result: idiomatic Logos mixes plain values, structured data, and persistent/seri
 ## What Writ Gives You
 
 - One binary format for storage, RPC, and IPC.
-- A document = a *zone* (arena) + root object pointer; the whole graph is relocatable as bytes.
+- A document = a *zone* + a root object pointer; the whole graph is relocatable as bytes.
 - Maps, arrays, typed arrays (`I32`, `U64`, …), decimals, strings, booleans, integers, and user datatypes in one type system.
 - Schemas for user types; a global registry maps 8-byte type codes to definitions.
-- Views (`HView2`, value views) read a Writ graph without copying or owning it.
+- Views (`WView2`, value views) read a Writ graph without copying or owning it.
 
 ## Building a Document
 
@@ -88,7 +90,7 @@ Capture is type-checked, coerced when safe, and supports `as<T>[...]` casts for 
 
 A view is a borrow into a Writ zone:
 
-- **`HView2`** — borrow into a document zone, lifetime-bound to its source.
+- **`WView2`** — borrow into a document zone, lifetime-bound to its source.
 - **Per-type views** — e.g. a planned `DecimalView` carrying base + pointer.
 
 Views are non-owning by default; an owning document is held by `Rc<Writ>`, which keeps a refcount on the memory holder. See [Ownership](ownership.md#views-and-owning-references). `WritStatic` is a separate flavour: a length-prefixed read-only document in rodata, produced by module-scope literals.
@@ -131,17 +133,15 @@ Every Writ value carries an 8-byte schema type code. Codes 1–128 are reserved 
 
 ## Sizing and Scope
 
-Containers cover **4 bytes to 4 GB**, sweet spot **1–10 disk blocks of 4 KB**; below that, per-container overhead dominates. Above it, *read* performance stays competitive — a static (immutable) 4 GB container traverses about as fast as a comparable heap-object graph (offset pointers, dense layout, O(1) link traversal). The upper-end constraint is **GC**, not access: the simple copying collector's cost grows linearly with container size, and cycle handling allocates extra working memory during the copy. Gigabyte-scale containers should be treated as effectively immutable, or split.
+Containers cover **4 bytes to 4 GB**, sweet spot **1–10 disk blocks of 4 KB**; below that, per-container overhead dominates. Above it, *read* performance stays competitive — a static (immutable) 4 GB container traverses about as fast as a comparable heap-object graph (offset pointers, dense layout, O(1) link traversal). The upper-end constraint is **compaction**, not access: copying the reachable set into a fresh zone costs linearly with live size, and needs extra working memory for the duration of the copy. Gigabyte-scale containers should be treated as effectively immutable, or split.
 
 Mental model: *document*, not *database* — an arbitrarily structured object graph with **O(1) link traversal** within one container; the unit of storage, transport, and access, not the universe of data. For large deeply-structured data, use *many* containers referencing each other through application-level identifiers (URL-like, not pointers). A future system layer (Memoria-style containers) will host such graphs with Writ containers as the leaf type; from Writ's view every container is self-contained, and cross-container references are application data, invisible to the runtime's pointer mesh.
 
 ## Zones and Ownership
 
-> The zone memory model — multi-segment layout, self-relative `i64` offsets,
-> isolation, the root zone, `!Drop` ZTypes — is specified in
-> [Zones](zones.md) (canonical). This section is the Writ-level view.
+> The zone memory model — multi-segment layout, self-relative `i64` offsets, isolation, the root zone, `!Drop` ZTypes — is specified in [Zones](zones.md) (canonical). This section is the Writ-level view.
 
-A container is internally a **zone** — one contiguous memory block, 4 B–4 GB; the unit of allocation, relocation, and GC. Zones are not heap-bound: a zone can live on the heap (default for new documents) or inside another container — a B+Tree page, a memory-mapped file, a network buffer, a parent Writ value.
+A container is internally a **zone** — a multi-segment region, 4 B–4 GB total. Objects never move within the zone, so their self-relative `i64` offsets stay valid for the zone's whole life; the zone is the unit of allocation, relocation, and reclamation. Zones are not heap-bound: a zone can live on the heap (default for new documents) or inside another container — a B+Tree page, a memory-mapped file, a network buffer, a parent Writ value.
 
 Zone ownership is **hierarchical**, with two roles:
 
@@ -152,7 +152,7 @@ The contract is asymmetric: the owner decides *when* memory is allocated/freed; 
 
 ## Memory Management
 
-In-container memory is managed by a **simple copying GC**: walk the reachable set from the root, copy into a fresh container, drop or reuse the old. No mark-and-sweep, no generations, no concurrent collector. This works because: containers are size-bounded (full copy is cheap); internal pointers are offsets (no rewriting); no cross-container raw pointers exist (inter-container references are application-level, opaque to GC). Writ needs no conventional heap manager — compaction *is* the GC: copy when you want to reclaim, don't otherwise.
+Reclamation is by **compaction**, not garbage collection: there is no background collector and no destructors — ZTypes are `!Drop`. To reclaim, walk the reachable set from the root and copy it into a fresh zone, then drop or reuse the old one. This works because: zones are size-bounded (a full copy is cheap); internal references are self-relative offsets (the copy needs no pointer rewriting); no cross-zone raw pointers exist (inter-container references are application-level, opaque to the runtime). Compaction is an explicit step — copy when you want to reclaim, don't otherwise — so Writ needs no conventional heap manager. Within a zone's life, segments only grow (append); shrinking or moving a zone's base is the borrow-gated relocation specified in [Zones](zones.md).
 
 ## When to Use Writ
 

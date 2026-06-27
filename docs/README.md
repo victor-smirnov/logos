@@ -14,6 +14,7 @@ To *use* Logos:
 - [Comprehensions](language/comprehensions.md) — list/map comprehensions, plain and Writ forms.
 - [Zones](language/zones.md) — the foundational memory model behind `#[zoned]` types: multi-segment regions, self-relative `i64` offsets, isolation + the root zone. What makes ZTypes position-independent and portable across processes/architectures.
 - [Writ in Logos](language/writ.md) — Writ as a first-class language feature: literals, capture, view types.
+- [Hest in Logos](language/hest.md) — Hest, the family of native communication protocols (RPC, streaming, messaging) that carry Writ between systems; HRPC is its first member.
 - [Language Reference](language/reference/README.md) — normative reference by surface form (lexical / types / items / expressions / statements / patterns) plus cross-cutting topics.
 
 ## Internals
