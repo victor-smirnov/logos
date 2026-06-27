@@ -39,6 +39,16 @@ The work also mapped where models are strong and where they are weak (details: [
 
 The shift is as much economic as technical. Decades of programming — corporate and open-source alike — have accumulated a deep reservoir of dissatisfaction, with both the process and its output, that the old cost structure left little room to act on: people build what they can, what they enjoy, and what someone will pay for. Subsidised individual subscriptions change the arithmetic. Far more becomes feasible to attempt *for its own sake*, because within the span of one person's motivation a model now covers far more ground — in depth and in breadth — than that person could alone. A heterodox individual with unconventional ideas, paired with a capable model, is a kind of force that did not exist before: ideas one person could never have materialised now can be — for as long as the subsidised economics hold. Logos is one such idea, materialised.
 
+This releases at least part of that pent-up dissatisfaction: far more people get to have the program they *need*, rather than the one its authors found *pleasant* to write. The authors deserve real gratitude — the alternative to software written for the love of it is a landscape of nothing but invasive, audited, penalty-laden EULAs. But software progress is, in the end, steered by user *needs*, and that has to be faced squarely: when those needs can be met a different way, the way to stay relevant is to join the shift, not resist it. Nothing personal — just the real order of things.
+
+## Three Premises Behind the Design
+
+Every design decision in Logos traces, one way or another, to three premises:
+
+1. **LLMs are slow and unreliable executors.** Whatever needs determinism or speed must be lifted out of the model and into a program — *execution offload*. The consequence is *very many* programs: a shift from programming-in-the-large to **programming-in-the-very-large**.
+2. **Human ownership of code trends toward mediation through AI** — as far as that still meets the reliability and correctness goals. Little code gets written directly by hand; the priority shifts to optimising everything *for reading* and for analysis. That is a different ergonomic target than human authorship, and it gives strict, expressive type systems a strong impulse to develop.
+3. **The accumulated codebase is no longer the brake it has been.** Legacy mass held change back because rewriting was expensive; when generation is cheap, modernising and consolidating the existing corpus becomes a natural background process rather than a blocking cost.
+
 ## Genos: the Third Layer of Code Authorship
 
 Two forms of metaprogramming are simultaneously load-bearing:
