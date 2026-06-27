@@ -15,7 +15,7 @@ use logos.std.io;
 use logos.std.time;
 use logos.std.data.persistent.map;
 use logos.lang.cmp;
-use logos.mem.hermes.fabric;
+use logos.mem.writ.fabric;
 use std.lang.text;
 
 pub struct U64Key { pub x: u64 }

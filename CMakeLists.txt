@@ -173,10 +173,10 @@ add_subdirectory(src/verification)
 add_subdirectory(src/core)
 add_subdirectory(src/writ)
 
-# The following subtrees consume the C++ Hermes API and are temporarily
-# disabled while Hermes/C++ is being brought byte-for-byte in line with the
-# Logos wire format.  Re-enable once the Hermes refactor is complete and
-# exercisers pass.  See docs/hermes-alignment.md (TODO) or the top of
+# The following subtrees consume the C++ Writ API and are temporarily
+# disabled while Writ/C++ is being brought byte-for-byte in line with the
+# Logos wire format.  Re-enable once the Writ refactor is complete and
+# exercisers pass.  See docs/writ-alignment.md (TODO) or the top of
 # mlir_gen_expr.cpp (ZoneBuilder) for context.
 add_subdirectory(src/reactor)
 add_subdirectory(src/hrpc)
@@ -234,7 +234,7 @@ if(LOGOS_BUNDLE_URING_STATIC)
 endif()
 
 # ── gdb/lldb pretty-printers (debugging Logos binaries built with `logosc -g`) ──
-# Installed PER SLOT: the enum-metadata schema and Hermes layout the printers
+# Installed PER SLOT: the enum-metadata schema and Writ layout the printers
 # decode are version-coupled to the compiler, so each version ships matching
 # printers under its own tree. Locate at runtime via:
 #   source "$(logosc --print-prefix)/share/gdb/logos_gdb.py"

@@ -24,8 +24,8 @@ logos_parser.cpp
 logos_parser.hpp
 src/compiler/logos_parser.cpp
 src/compiler/logos_parser.hpp
-tools/peg_gen/hermes_parser.cpp
-tools/peg_gen/hermes_parser.hpp
+tools/peg_gen/writ_parser.cpp
+tools/peg_gen/writ_parser.hpp
 bench/bin
 bench/results
 sandbox

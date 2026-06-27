@@ -6,19 +6,19 @@ Logos is a compiled, statically-typed systems programming language with its own 
 
 - A compiled language (`.logos`) with ownership/borrowing, traits, generics, monomorphization, and pattern matching.
 - A native compiler pipeline (`logosc`) covering parse, sema, borrow checking, monomorphization, MLIR generation, and LLVM lowering.
-- A standard library (`stdlib/`) including a first-class **Hermes** integration — a relocatable, schema-aware, tagged data substrate.
+- A standard library (`stdlib/`) including a first-class **Writ** integration — a relocatable, schema-aware, tagged data substrate.
 - A large executable test suite (~800 passing tests, ~165 diagnostic tests) that gates merges.
 
 ## Relationship to Rust
 
 The Rust-like surface was effectively chosen by the model. The original plan was a much simpler, IR-adjacent syntax with no expressions — explicit, verbose, optimised for small and mid-sized models. In practice the language also has to be pleasant for humans to read and write, and Rust turned out to sit in a sweet spot: expressive, low-level, a good DSL host, and — importantly — models generate it more reliably than most alternatives. Since Logos is built for models first, leaning into a syntax they already handle well is the pragmatic choice.
 
-Logos inherits surface syntax, affine types, generics, and the ownership/borrowing model from Rust, but it is *not* Rust: not source-compatible, not aiming at portability in either direction, and willing to diverge wherever AI-first ergonomics, Hermes-based code/data unification, compile-time programming as ordinary Logos code, or green-fiber concurrency without async coloring point elsewhere. Substantial divergence is expected in the near future.
+Logos inherits surface syntax, affine types, generics, and the ownership/borrowing model from Rust, but it is *not* Rust: not source-compatible, not aiming at portability in either direction, and willing to diverge wherever AI-first ergonomics, Writ-based code/data unification, compile-time programming as ordinary Logos code, or green-fiber concurrency without async coloring point elsewhere. Substantial divergence is expected in the near future.
 
 ## Design Direction
 
 - **AI-first ergonomics** — syntax and semantics chosen for reliable LLM generation and verification.
-- **Code + data unified** — Hermes is *built into the language*: `@{...}` / `@[...]` are literal forms in the grammar, capture (`$ident`, `${expr}`) is type-checked at sema time, view types carry lifetimes through the borrow checker, and module-scope literals fold to rodata. No DSL, no macros, no FFI between values and data.
+- **Code + data unified** — Writ is *built into the language*: `@{...}` / `@[...]` are literal forms in the grammar, capture (`$ident`, `${expr}`) is type-checked at sema time, view types carry lifetimes through the borrow checker, and module-scope literals fold to rodata. No DSL, no macros, no FFI between values and data.
 - **Systems-level performance** — AOT native codegen, ownership, explicit memory.
 - **Verification-oriented** — broad diagnostics, runtime tracing, and a strong test culture.
 - **Pragmatic interop** — C/C++ FFI exists; Logos is the primary programming model.
@@ -35,7 +35,7 @@ cmake --build build
 Compile and run a program:
 
 ```bash
-build/src/compiler/logosc examples/hermes_round_trip.logos -o round_trip
+build/src/compiler/logosc examples/writ_round_trip.logos -o round_trip
 ./round_trip
 ```
 
@@ -51,7 +51,7 @@ See [docs/language/getting-started.md](docs/language/getting-started.md) for pre
 
 ```
 logos/
-  src/            Compiler, runtime, Hermes, HRPC, reactor, verification
+  src/            Compiler, runtime, Writ, HRPC, reactor, verification
   stdlib/         Logos standard library and language runtime
   tests/          Language test suites (pass / fail)
   examples/       Example Logos programs
@@ -70,14 +70,14 @@ The documentation lives in [docs/](docs/README.md) and is split into two tracks:
 - [Syntax](docs/language/syntax.md) — types, expressions, statements, patterns.
 - [Ownership and Borrowing](docs/language/ownership.md) — `&`/`&mut`, lifetimes.
 - [Generics and Traits](docs/language/generics-traits.md) — generic functions, trait impls.
-- [Comprehensions](docs/language/comprehensions.md) — list/map comprehensions over plain values and Hermes.
-- [Hermes in Logos](docs/language/hermes.md) — literals, capture, view types.
+- [Comprehensions](docs/language/comprehensions.md) — list/map comprehensions over plain values and Writ.
+- [Writ in Logos](docs/language/writ.md) — literals, capture, view types.
 - [Language Reference](docs/language/reference/README.md) — normative reference (lexical, types, items, expressions, statements, patterns, plus cross-cutting topics).
 
 **For contributors**
 
 - [Compiler Architecture](docs/internals/architecture.md) — the `logosc` pipeline.
-- [Hermes Runtime](docs/internals/hermes-runtime.md) — Datatype/Storage/View, zones, type registry.
+- [Writ Runtime](docs/internals/writ-runtime.md) — Datatype/Storage/View, zones, type registry.
 - [Metaprogramming](docs/internals/metaprog.md) — current state of compile-time programming.
 
 **Status**
@@ -95,7 +95,7 @@ The documentation lives in [docs/](docs/README.md) and is split into two tracks:
 | Language Implementation | C++23 |
 | Frontend / Semantics | PEG parser + sema + borrow checker |
 | Codegen Backend | LLVM / MLIR |
-| Data Substrate | Hermes (relocatable tagged object graphs) |
+| Data Substrate | Writ (relocatable tagged object graphs) |
 | RPC | HRPC (bidirectional streaming) |
 | IO / Concurrency | io_uring reactor with green fibers |
 | Build | CMake + Ninja, VCPKG |
