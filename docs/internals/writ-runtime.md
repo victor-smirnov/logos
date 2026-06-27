@@ -8,7 +8,7 @@ This page describes the runtime model. For the user-facing language view, see [W
 
 ### Zone
 
-A *zone* is a single contiguous block of memory between 4 bytes and 4 GB. All objects in one Writ document live in one zone, with internal pointers stored as offsets — the entire graph is relocatable as bytes.
+A *zone* is a multi-segment region of memory. All objects in one Writ document live in one zone; intra-graph links are stored as **self-relative `i64` offsets** (`RelativePtr`), so the whole graph is relocatable as bytes and a document addresses a practically 64-bit space — there is no 4 GB ceiling (that cap belongs to the compiler's `arena_offset_t`/TypePool IR arena, a separate subsystem; see [Compiler Architecture](architecture.md)). A multi-segment zone is compacted to a single contiguous segment for serialization or embedding. The full model — never-move, isolation, the root zone, `!Drop` ZTypes — is in [Zones](../language/zones.md).
 
 A zone is not tied to the heap. It can live on the heap (the default), inside a B+Tree page, inside a memory-mapped file, inside a network buffer, or as a sub-zone within a larger Writ container.
 

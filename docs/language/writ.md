@@ -130,7 +130,7 @@ Every Writ value carries an 8-byte schema type code. Codes 1–128 are reserved 
 
 ## Sizing and Scope
 
-Containers cover **4 bytes to 4 GB**, sweet spot **1–10 disk blocks of 4 KB**; below that, per-container overhead dominates. Above it, *read* performance stays competitive — a static (immutable) 4 GB container traverses about as fast as a comparable heap-object graph (offset pointers, dense layout, O(1) link traversal). The upper-end constraint is **compaction**, not access: copying the reachable set into a fresh zone costs linearly with live size, and needs extra working memory for the duration of the copy. Gigabyte-scale containers should be treated as effectively immutable, or split.
+Self-relative offsets are **`i64`**, so a document addresses a practically 64-bit space — there is **no 4 GB ceiling** (that cap belonged to the older narrow-offset format). What bounds size now is reclamation, not the format: memory is managed by a **copying/compacting garbage collector** whose cost grows linearly with live size and needs extra working memory during the copy — so a graph *can* be large but *should not* be. There is also a practical floor: below the **1–10 disk blocks of 4 KB** sweet spot, per-container overhead dominates. Read performance is not the constraint at size — a static (immutable) large container traverses about as fast as a comparable heap-object graph (offset pointers, dense layout, O(1) link traversal). Treat multi-gigabyte containers as effectively immutable, or split them.
 
 Mental model: *document*, not *database* — an arbitrarily structured object graph with **O(1) link traversal** within one container; the unit of storage, transport, and access, not the universe of data. For large deeply-structured data, use *many* containers referencing each other through application-level identifiers (URL-like, not pointers). A future system layer (Memoria-style containers) will host such graphs with Writ containers as the leaf type; from Writ's view every container is self-contained, and cross-container references are application data, invisible to the runtime's pointer mesh.
 
@@ -138,7 +138,7 @@ Mental model: *document*, not *database* — an arbitrarily structured object gr
 
 > The zone memory model — multi-segment layout, self-relative `i64` offsets, isolation, the root zone, `!Drop` ZTypes — is specified in [Zones](zones.md) (canonical). This section is the Writ-level view.
 
-A container is internally a **zone** — a multi-segment region, 4 B–4 GB total. Objects never move within the zone, so their self-relative `i64` offsets stay valid for the zone's whole life; the zone is the unit of allocation, relocation, and reclamation. Zones are not heap-bound: a zone can live on the heap (default for new documents) or inside another container — a B+Tree page, a memory-mapped file, a network buffer, a parent Writ value.
+A container is internally a **zone** — a multi-segment region. Objects never move within the zone, so their self-relative `i64` offsets stay valid for the zone's whole life; the zone is the unit of allocation, relocation, and reclamation. Zones are not heap-bound: a zone can live on the heap (default for new documents) or inside another container — a B+Tree page, a memory-mapped file, a network buffer, a parent Writ value.
 
 Zone ownership is **hierarchical**, with two roles:
 
@@ -149,7 +149,7 @@ The contract is asymmetric: the owner decides *when* memory is allocated/freed; 
 
 ## Memory Management
 
-Reclamation is by **compaction**, not garbage collection: there is no background collector and no destructors — ZTypes are `!Drop`. To reclaim, walk the reachable set from the root and copy it into a fresh zone, then drop or reuse the old one. This works because: zones are size-bounded (a full copy is cheap); internal references are self-relative offsets (the copy needs no pointer rewriting); no cross-zone raw pointers exist (inter-container references are application-level, opaque to the runtime). Compaction is an explicit step — copy when you want to reclaim, don't otherwise — so Writ needs no conventional heap manager. Within a zone's life, segments only grow (append); shrinking or moving a zone's base is the borrow-gated relocation specified in [Zones](zones.md).
+Memory is reclaimed by a **copying/compacting garbage collector** — a copying GC, but **on demand, not in the background**, and running **no destructors** (ZTypes are `!Drop`). To reclaim, walk the reachable set from the root, copy it into a fresh zone, then drop or reuse the old one. It is cheap because: zones are size-bounded (a full copy is cheap); internal references are self-relative offsets (the copy needs no pointer rewriting); no cross-zone raw pointers exist (inter-container references are application-level, opaque to the collector). Collection is the only reclamation step — copy when you want to reclaim, don't otherwise — so Writ needs no conventional heap manager. Within a zone's life, segments only grow (append); shrinking or moving a zone's base is the borrow-gated relocation specified in [Zones](zones.md).
 
 ## When to Use Writ
 
