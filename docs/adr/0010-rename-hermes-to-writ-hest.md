@@ -1,7 +1,16 @@
 # ADR 0010 — Rename Hermes → Writ (data substrate) + Hest (protocol family)
 
-**Status:** Accepted (decisions locked 2026-06-26; execution pending — incremental on `main`)
+**Status:** DONE (2026-06-26) — all phases landed incrementally on `main`, each green.
 **Date:** 2026-06-26
+
+**Completion:** Hermes→Writ / Hest rename complete. Commits: P1a `06adb9bb`
+(C++ runtime structure) · P2a `59ae0d66` (core substring + stdlib paths + ABI) ·
+P2b `c6b971ff` (H-prefix types) · P3 `d45b37c0` (format markers) · P5 `7962d269`
+(docs) · cleanup `d1d72b89` + stragglers. Zero "hermes" remains anywhere in the
+repo except this ADR. Full build + ~5200 tests green at each phase; ABI spec
+regenerated (prefix-only). HRPC name/dir/ext kept (= "Hest RPC"); zones/`#[zoned]`
+unchanged; Memoria unchanged. Optional follow-up: hermes2→writ2 comment-codename
+polish (skipped — risks the real WRIT2 constant).
 
 ## Context
 
