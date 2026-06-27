@@ -13,22 +13,22 @@ yet). Each landed L4-green + valgrind-clean. Built on the Writ foundation
 - **null**: 0.
 
 **Wide scalars**: values that don't fit the 56-bit inline Pod are BOXED in the
-segment by Ref — an 8-byte tagged object `H2_I64` (full 64-bit int) / `H2_F64`
+segment by Ref — an 8-byte tagged object `W_I64` (full 64-bit int) / `W_F64`
 (IEEE double). `Writ::int(v)` / `float(v)` build them (Pod when it fits, else
 boxed); `HAny::is_int` (Pod i56 OR boxed i64) / `is_float` / `as_i64` / `as_f64`
 read either form transparently.
 
-`HAnyRel` is the at-rest (self-relative) form in arena slots; `ha_materialize` /
-`ha_lower` bridge value↔at-rest.
+`HAnyRel` is the at-rest (self-relative) form in arena slots; `wa_materialize` /
+`wa_lower` bridge value↔at-rest.
 
 ### Type-tags (Ref dispatch)
 
 Every Ref'd arena object carries its type code IN-BAND immediately before it
 (`obj[-1]`, the legacy datatag wire). `container.alloc_tagged(alloc, size, code)`
 reserves an 8-byte tag word (keeps the object 8-aligned) and writes the code;
-`anyval.h2_type_code(obj)` reads it. `HAny::type_code()` / `is_string()` /
+`anyval.w_type_code(obj)` reads it. `HAny::type_code()` / `is_string()` /
 `is_array()` / `is_map()` are the single dispatch point for generic walkers.
-Codes: `H2_STRING=130`, `H2_ARRAY=100`, `H2_MAP=101`.
+Codes: `W_STRING=130`, `W_ARRAY=100`, `W_MAP=101`.
 
 ## Containers (lang.writ)
 

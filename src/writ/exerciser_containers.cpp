@@ -37,7 +37,7 @@ int main() {
         CHECK(s->length() == 5, 12);
         CHECK(s->arena_size() == 1 + 5, 13);                 // 1-byte vlen + 5 bytes
         CHECK(*s == std::string_view("hello"), 14);
-        // tag is the Logos H2_STRING code, written in-band before the object
+        // tag is the Logos W_STRING code, written in-band before the object
         CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(s)).type_code() == tc::STRING, 15);
         CHECK(tc::STRING == 130, 16);
         // a long string forces a multi-byte vlen prefix (≥249)

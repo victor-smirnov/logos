@@ -101,7 +101,7 @@ impl WAny {
 
 // Writ WAny Pod primitive type codes (7-bit; identify the inline value).
 // The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
-// inline (wider values box into a Ref — H2_I64), so the name is `i56`, not `i64`.
+// inline (wider values box into a Ref — W_I64), so the name is `i56`, not `i64`.
 // `WA_I56` is the generic inline-int fallback (no exact Writ width tag — e.g. a
 // plain `i32`/`i56`); the narrow widths below keep their EXACT type instead.
 pub const WA_I56:  u8 = 1u8;
@@ -121,22 +121,22 @@ pub const WT_U24: u8 = 25u8;
 // VARINT before the object). A Ref WAny's pointee carries one so `WAny::type_code` /
 // `is_string` / `is_array` / `is_map` dispatch on what it points at. Codes are u64
 // (the full legacy WritTag range): codes ≤222 take one byte at obj[-1], >222 a
-// header + little-endian code bytes — see container.h2_write_tag / h2_type_code.
-pub const H2_STRING:  u64 = 130u64;
-pub const H2_ARRAY:   u64 = 100u64;
-pub const H2_MAP:     u64 = 101u64;
-pub const H2_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (legacy TinyObjectMap)
-pub const H2_DECIMAL: u64 = 102u64;  // fixed-precision signed decimal
-pub const H2_PARAMETER:  u64 = 127u64;   // query-parameter capture slot (?name / @-literal)
-pub const H2_TYPEDVALUE: u64 = 4115u64;  // SDN datatype instantiation @Type(params?)=init
+// header + little-endian code bytes — see container.w_write_tag / w_type_code.
+pub const W_STRING:  u64 = 130u64;
+pub const W_ARRAY:   u64 = 100u64;
+pub const W_MAP:     u64 = 101u64;
+pub const W_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (legacy TinyObjectMap)
+pub const W_DECIMAL: u64 = 102u64;  // fixed-precision signed decimal
+pub const W_PARAMETER:  u64 = 127u64;   // query-parameter capture slot (?name / @-literal)
+pub const W_TYPEDVALUE: u64 = 4115u64;  // SDN datatype instantiation @Type(params?)=init
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
 // own 8-byte tagged arena object, referenced by the WAny. Codes are the legacy
 // WritTag values, so `type_code()` emits the wire tag (wbs-ready). (Allocated via
 // container.box_i64 / box_u64 / box_f32 / box_f64.)
-pub const H2_I64:    u64 = 26u64;    // full 64-bit signed integer
-pub const H2_U64:    u64 = 27u64;    // full 64-bit unsigned integer
-pub const H2_F32:    u64 = 30u64;    // 32-bit IEEE float
-pub const H2_F64:    u64 = 31u64;    // 64-bit IEEE float
+pub const W_I64:    u64 = 26u64;    // full 64-bit signed integer
+pub const W_U64:    u64 = 27u64;    // full 64-bit unsigned integer
+pub const W_F32:    u64 = 30u64;    // 32-bit IEEE float
+pub const W_F64:    u64 = 31u64;    // 64-bit IEEE float
 
 // True iff `v` fits the 56-bit signed inline Pod range (else it must be boxed).
 pub fn fits_i56(v: i64) -> bool {
@@ -148,7 +148,7 @@ pub fn fits_i56(v: i64) -> bool {
 // Read the in-band type tag immediately before a tagged arena object (legacy
 // datatag varint): obj[-1] in 1..222 is the code directly; a header >222 means
 // `(header-223+1)` little-endian code bytes follow at obj[-2], obj[-3], … 0 = unset.
-pub unsafe fn h2_type_code(obj: *const u8) -> u64 {
+pub unsafe fn w_type_code(obj: *const u8) -> u64 {
     let b: u8 = *(((obj as i64) - 1i64) as *const u8);
     if b >= 1u8 && b <= 222u8 { return b as u64; }
     if b == 0u8 || b > 230u8 { return 0u64; }
@@ -204,15 +204,15 @@ impl WAny {
     pub fn type_code(self: &WAny) -> u64 {
         if self.is_null() { return 0u64; }
         if self.is_pod()  { return self.pod_code() as u64; }
-        return unsafe { h2_type_code(self.resolve()) };
+        return unsafe { w_type_code(self.resolve()) };
     }
-    pub fn is_string(self: &WAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
-    pub fn is_array(self: &WAny)  -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_ARRAY; }
-    pub fn is_map(self: &WAny)    -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_MAP; }
-    pub fn is_tinymap(self: &WAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_TINYMAP; }
+    pub fn is_string(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_STRING; }
+    pub fn is_array(self: &WAny)  -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_ARRAY; }
+    pub fn is_map(self: &WAny)    -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_MAP; }
+    pub fn is_tinymap(self: &WAny) -> bool { return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TINYMAP; }
 
     // Wide scalars: an integer is an inline (i56 / exact-width) Pod or a boxed
-    // H2_I64 / H2_U64; a float is a boxed H2_F32 / H2_F64. `as_i64`/`as_u64`/
+    // W_I64 / W_U64; a float is a boxed W_F32 / W_F64. `as_i64`/`as_u64`/
     // `as_f32`/`as_f64` read whichever form holds the value.
     pub fn is_int(self: &WAny) -> bool {
         if self.is_pod() {
@@ -221,19 +221,19 @@ impl WAny {
             return c == WA_I56 || (c >= WT_I8 && c <= WT_U24);
         }
         if !self.is_ref() { return false; }
-        let t: u64 = unsafe { h2_type_code(self.resolve()) };
-        return t == H2_I64 || t == H2_U64;          // boxed i64 / u64
+        let t: u64 = unsafe { w_type_code(self.resolve()) };
+        return t == W_I64 || t == W_U64;          // boxed i64 / u64
     }
     pub fn is_u64(self: &WAny) -> bool {
-        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_U64;
+        return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_U64;
     }
     pub fn is_f32(self: &WAny) -> bool {
-        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_F32;
+        return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_F32;
     }
     pub fn is_float(self: &WAny) -> bool {
         if !self.is_ref() { return false; }
-        let t: u64 = unsafe { h2_type_code(self.resolve()) };
-        return t == H2_F32 || t == H2_F64;          // boxed f32 / f64
+        let t: u64 = unsafe { w_type_code(self.resolve()) };
+        return t == W_F32 || t == W_F64;          // boxed f32 / f64
     }
     pub fn as_i64(self: &WAny) -> i64 {
         if self.is_pod() { return self.as_i56(); }
@@ -276,9 +276,9 @@ impl WAnyMut {
     pub fn type_code(self: &WAnyMut) -> u64  { return self.get().type_code(); }
     pub fn is_pod(self: &WAnyMut)    -> bool { return self.get().is_pod(); }
     pub fn is_ref(self: &WAnyMut)    -> bool { return self.get().is_ref(); }
-    pub fn is_string(self: &WAnyMut) -> bool { return self.type_code() == H2_STRING; }
-    pub fn is_array(self: &WAnyMut)  -> bool { return self.type_code() == H2_ARRAY; }
-    pub fn is_map(self: &WAnyMut)    -> bool { return self.type_code() == H2_MAP; }
+    pub fn is_string(self: &WAnyMut) -> bool { return self.type_code() == W_STRING; }
+    pub fn is_array(self: &WAnyMut)  -> bool { return self.type_code() == W_ARRAY; }
+    pub fn is_map(self: &WAnyMut)    -> bool { return self.type_code() == W_MAP; }
     pub fn as_i56(self: &WAnyMut)    -> i64  { return self.get().as_i56(); }
     // The read value at this cursor (the materialised element).
     pub fn as_any(self: &WAnyMut) -> WAny { return self.get(); }
@@ -289,5 +289,5 @@ impl WAnyMut {
 // are `*zoned mut WAny`). Reading `*p` materialises the Ref arm (stored
 // self-relative delta → absolute pointer) and `*p = v` lowers it (target − slot →
 // delta); Pod/null are position-independent (identity). The old `WAnyRel` at-rest
-// marker type and the `ha_materialize`/`ha_lower` wrappers are gone — the compiler
+// marker type and the `wa_materialize`/`wa_lower` wrappers are gone — the compiler
 // owns the conversion via the `*zoned` deref/assign (ref-repr-design §6/§8).

@@ -1,5 +1,5 @@
 // Writ wide scalars — values that don't fit the 56-bit inline Pod are boxed in
-// the segment by Ref: full i64 (H2_I64) and f64 (H2_F64). Verifies box/read,
+// the segment by Ref: full i64 (W_I64) and f64 (W_F64). Verifies box/read,
 // dispatch (is_int covers Pod i56 + boxed i64; is_float), and round-trips through
 // parser / HBS / compactify.
 package test;

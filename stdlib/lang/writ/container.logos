@@ -77,7 +77,7 @@ pub unsafe fn writ_alloc_bytes(h: *mut Writ, n: i64) -> *mut u8 {
 // maps 3101+, Datatype 1001, TypedValue 4115) = a header byte (223 + n-1) at obj[-1]
 // plus `n` little-endian code bytes at obj[-2], obj[-3], …. The 8-byte pre-object
 // slot fits any ≤7-byte code. (Mirrors writ.datatag::write_tag.)
-pub unsafe fn h2_write_tag(obj: *mut u8, code: u64) {
+pub unsafe fn w_write_tag(obj: *mut u8, code: u64) {
     if code == 0u64 { return; }
     if code <= 222u64 { *(((obj as i64) - 1i64) as *mut u8) = code as u8; return; }
     let mut v: u64 = code;
@@ -95,37 +95,37 @@ pub unsafe fn h2_write_tag(obj: *mut u8, code: u64) {
 // Allocate a TAGGED arena object (one reachable via an WAny Ref): reserve an 8-byte
 // tag slot BEFORE the object — keeping the object 8-aligned so a Ref's low bit stays
 // 0 — and write the (varint) type `code` ending at obj[-1]. Returns the object
-// pointer; `h2_type_code(obj)` reads the code back. Takes `*mut Allocator` so
+// pointer; `w_type_code(obj)` reads the code back. Takes `*mut Allocator` so
 // containers holding only an allocator back-pointer (WArray<WAny>, WMap<WString,
 // WAny>, WTinyValMap) can tag-allocate without the full Writ.
 pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u64) -> *mut u8 {
     let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
-    h2_write_tag(obj, code);
+    w_write_tag(obj, code);
     return obj;
 }
 
 // Box a WIDE scalar — a value that doesn't fit the 56-bit inline Pod — into its
 // own 8-byte tagged arena object, returning an WAny Ref to it.
 pub unsafe fn box_i64(a: *mut Allocator, v: i64) -> WAny {
-    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_I64);
+    let obj: *mut u8 = alloc_tagged(a, 8i64, W_I64);
     *(obj as *mut i64) = v;
     return WAny::ref_to(obj as *const u8);
 }
 pub unsafe fn box_f64(a: *mut Allocator, v: f64) -> WAny {
-    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_F64);
+    let obj: *mut u8 = alloc_tagged(a, 8i64, W_F64);
     *(obj as *mut f64) = v;
     return WAny::ref_to(obj as *const u8);
 }
 // u64 is ALWAYS boxed (no inline unsigned-56 tag — keeps `is_u64`/`as_u64` exact).
 pub unsafe fn box_u64(a: *mut Allocator, v: u64) -> WAny {
-    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_U64);
+    let obj: *mut u8 = alloc_tagged(a, 8i64, W_U64);
     *(obj as *mut u64) = v;
     return WAny::ref_to(obj as *const u8);
 }
 // f32 boxed in an 8-byte slot (4 used); never fits the inline integer Pod.
 pub unsafe fn box_f32(a: *mut Allocator, v: f32) -> WAny {
-    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_F32);
+    let obj: *mut u8 = alloc_tagged(a, 8i64, W_F32);
     *(obj as *mut f32) = v;
     return WAny::ref_to(obj as *const u8);
 }

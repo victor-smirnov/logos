@@ -9,26 +9,26 @@ extern fn free(ptr: *mut u8);
 
 unsafe fn main() -> i32 {
     // --- Canonical writ type_code constants ---
-    if H2_STRING  != 130u64 { return 1; }
-    if H2_TINYMAP != 98u64  { return 2; }
-    if H2_ARRAY   != 100u64 { return 3; }
-    if H2_MAP     != 101u64 { return 4; }
+    if W_STRING  != 130u64 { return 1; }
+    if W_TINYMAP != 98u64  { return 2; }
+    if W_ARRAY   != 100u64 { return 3; }
+    if W_MAP     != 101u64 { return 4; }
 
     // --- vlen roundtrip: single-byte codes (1..222) ---
     let buf: *mut u8 = malloc(64);
     let obj: *mut u8 = (buf as i64 + 16) as *mut u8;
     write_tag(obj, 130u64);
-    if h2_type_code(obj as *const u8) != 130u64 { return 5; }
+    if w_type_code(obj as *const u8) != 130u64 { return 5; }
     write_tag(obj, 222u64);
-    if h2_type_code(obj as *const u8) != 222u64 { return 6; }
+    if w_type_code(obj as *const u8) != 222u64 { return 6; }
 
     // --- multi-byte codes (>222): header + LE code bytes ---
     write_tag(obj, 2107u64);                       // ArrayI32
-    if h2_type_code(obj as *const u8) != 2107u64 { return 7; }
+    if w_type_code(obj as *const u8) != 2107u64 { return 7; }
     write_tag(obj, 4115u64);                       // TypedValue
-    if h2_type_code(obj as *const u8) != 4115u64 { return 8; }
+    if w_type_code(obj as *const u8) != 4115u64 { return 8; }
     write_tag(obj, 300u64);
-    if h2_type_code(obj as *const u8) != 300u64 { return 9; }
+    if w_type_code(obj as *const u8) != 300u64 { return 9; }
 
     free(buf);
     return 42;

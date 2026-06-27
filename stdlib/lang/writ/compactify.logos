@@ -5,7 +5,7 @@
 // in place). `compactify` walks the doc from its root and rebuilds it wholesale in
 // a FRESH arena `dst` — every string/array/map re-allocated, every Pod copied by
 // value, every self-relative reference re-anchored to its new slot by the normal
-// build path (ha_lower). If `dst` is sized to hold the whole doc, the result is a
+// build path (wa_lower). If `dst` is sized to hold the whole doc, the result is a
 // single contiguous rigid block: relocatable + serializable as one unit. The old
 // container is then dead and freed en masse (its holder dropped) — no per-object
 // reclaim, no in-place moves.

@@ -23,7 +23,7 @@ unsafe fn main() -> i32 {
     // --- through WAny: tag + accessor roundtrip ---
     let v: WAny = WAny::from(&*(s1 as *const WString));
     if !v.is_string() { return 4; }
-    if h2_type_code(v.resolve()) != H2_STRING { return 5; }
+    if w_type_code(v.resolve()) != W_STRING { return 5; }
     let s3: &WString = &*(v.resolve() as *const WString);
     if !str_eq(s3.as_str(), "hello") { return 6; }
 

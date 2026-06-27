@@ -16,7 +16,7 @@ coverage intent. The adaptation built these writ surfaces:
   `as <K,AnyVal>{}` casts on value-form &[HAny] (Refs re-anchor via clone).
 - lang.fabric.string_store — the SoA string storage (Buffer<StrDt>); bare
   scalars ride the Primitive blanket (Buffer<i64>).
-- mem.writ.tag_system — h2_tag_size; registry lookups verified live.
+- mem.writ.tag_system — w_tag_size; registry lookups verified live.
 
 Semantic shifts (writ model differences, intentional):
 - parse errors -> null handles (the lenient parser has no Result channel);

@@ -81,7 +81,7 @@ struct TaggedEnumInfo {
     // F3 (ref-repr-design §8): `#[zoned2]` on the enum. The Ref (low-bit-0)
     // arm of this niche enum is stored SELF-RELATIVE at-rest and absolute as a
     // value — the storage/compute split, bridged by zoned_enum_materialize /
-    // zoned_enum_lower (the generalized ha_materialize/ha_lower). Only
+    // zoned_enum_lower (the generalized wa_materialize/wa_lower). Only
     // meaningful together with a LowBit niche.
     bool zoned = false;
 
@@ -862,7 +862,7 @@ private:
     void        repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot);
 
     // F3 (§8): storage↔compute bridge for a `#[zoned2]` niche enum (the
-    // compiler-owned ha_materialize/ha_lower). `slot` is the at-rest word
+    // compiler-owned wa_materialize/wa_lower). `slot` is the at-rest word
     // (Ref arm self-relative, anchor = slot); the value is a by-pointer enum
     // (ptr to a fresh alloca holding the word with the Ref arm absolute).
     mlir::Value zoned_enum_materialize(mlir::Value slot);

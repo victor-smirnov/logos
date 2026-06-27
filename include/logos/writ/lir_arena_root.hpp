@@ -3,7 +3,7 @@
 // LirArenaRoot (Writ) — per-arena metadata anchor for the multi-arena IR.
 //
 // A TinyObjectMap whose schema_type_code == lir_arena_root::SCHEMA_CODE (the
-// first-class TOM discriminator, byte-shared with the Logos WMap<Hu6,WAny>). The
+// first-class TOM discriminator, byte-shared with the Logos WMap<Wu6,WAny>). The
 // DocumentHeader.root points at it for arenas that participate in the multi-arena IR.
 //
 // Schema (byte-keyed fields):

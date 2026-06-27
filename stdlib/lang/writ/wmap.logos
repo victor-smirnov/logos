@@ -87,7 +87,7 @@ fn round_pow2(n: i64) -> i64 {
 unsafe fn om_new(h: *mut Writ, cap: i64) -> *mut WMap<WString, WAny> {
     // The header is WAny-Ref'd (WAny::from(&WMap<WString, WAny>)) → tag it for dispatch.
     let hdr: *mut WMap<WString, WAny> =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<WString, WAny>>() as i64, H2_MAP) as *mut WMap<WString, WAny>;
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<WString, WAny>>() as i64, W_MAP) as *mut WMap<WString, WAny>;
     let buf: *mut WMapEntry  = writ_alloc_n::<WMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;
@@ -291,7 +291,7 @@ impl WAny {
     }
 }
 
-// ── Bitmap-indexed spec: 6-bit keys (WMap<Hu6, V>) — legacy TinyObjectMap ─────
+// ── Bitmap-indexed spec: 6-bit keys (WMap<Wu6, V>) — legacy TinyObjectMap ─────
 //
 // A compact, FIXED-capacity map of up to 52 small u8 keys (0..51) → WAny. O(1)
 // lookup: a key's value-array position is popcount(bitmap & keys-below); the value
@@ -299,27 +299,27 @@ impl WAny {
 // cap), so it's a thin `&mut`. `data` is the value buffer (`*zoned mut WAny`: each
 // `*(buf.add(i))` is a self-relative element access — at-rest ↔ value, like WArray).
 
-// Hu6 — a pure type-level label for the 6-bit key (keys 0..51): the bitmap-indexed
-// map is `WMap<Hu6, WAny>`, aliased WTinyValMap.
-#[zoned] pub struct Hu6 {}
+// Wu6 — a pure type-level label for the 6-bit key (keys 0..51): the bitmap-indexed
+// map is `WMap<Wu6, WAny>`, aliased WTinyValMap.
+#[zoned] pub struct Wu6 {}
 
 #[pinned]
 #[zoned]
-pub struct WMap<Hu6, V> {
+pub struct WMap<Wu6, V> {
     pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
     pub schema: u64,               // node-class discriminator (0 = none); byte-shared with C++ TOM
     pub data:   *zoned mut WAny,   // value array (cap slots; auto-relative) — zoned ptr stays LAST
 }
 
 // The bitmap-indexed tiny map (legacy TinyObjectMap); was the standalone WTinyValMap.
-pub type WTinyValMap = WMap<Hu6, WAny>;
+pub type WTinyValMap = WMap<Wu6, WAny>;
 
 const WTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bitmap
 
-unsafe fn htv_new(h: *mut Writ, cap: i64) -> *mut WMap<Hu6, WAny> {
+unsafe fn wtv_new(h: *mut Writ, cap: i64) -> *mut WMap<Wu6, WAny> {
     let c: i64 = if cap > 52i64 { 52i64 } else { if cap < 0i64 { 0i64 } else { cap } };
-    let hdr: *mut WMap<Hu6, WAny> =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<Hu6, WAny>>() as i64, H2_TINYMAP) as *mut WMap<Hu6, WAny>;
+    let hdr: *mut WMap<Wu6, WAny> =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<Wu6, WAny>>() as i64, W_TINYMAP) as *mut WMap<Wu6, WAny>;
     let buf: *zoned mut WAny = writ_alloc_n::<WAny>(h, c) as *zoned mut WAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
     hdr.schema = 0u64;                  // no schema by default
@@ -329,21 +329,21 @@ unsafe fn htv_new(h: *mut Writ, cap: i64) -> *mut WMap<Hu6, WAny> {
     return hdr;
 }
 
-impl WMap<Hu6, WAny> {
-    pub fn size(self: &WMap<Hu6, WAny>) -> i64 { return ((self.header >> 58u64) & 0x3Fu64) as i64; }
-    pub fn cap(self: &WMap<Hu6, WAny>)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
+impl WMap<Wu6, WAny> {
+    pub fn size(self: &WMap<Wu6, WAny>) -> i64 { return ((self.header >> 58u64) & 0x3Fu64) as i64; }
+    pub fn cap(self: &WMap<Wu6, WAny>)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
 
     // Node-class discriminator (0 = none); byte-shared with the C++ TinyObjectMap.
-    pub fn schema_type_code(self: &WMap<Hu6, WAny>) -> u64 { return self.schema; }
-    pub fn set_schema_type_code(self: &mut WMap<Hu6, WAny>, code: u64) { self.schema = code; }
+    pub fn schema_type_code(self: &WMap<Wu6, WAny>) -> u64 { return self.schema; }
+    pub fn set_schema_type_code(self: &mut WMap<Wu6, WAny>, code: u64) { self.schema = code; }
 
     // Is `key` present?
-    pub fn contains(self: &WMap<Hu6, WAny>, key: u8) -> bool {
+    pub fn contains(self: &WMap<Wu6, WAny>, key: u8) -> bool {
         return (self.header & WTV_BITMAP_MASK & (1u64 << (key as u64))) != 0u64;
     }
 
     // Value at `key`, or null WAny if absent / key out of range.
-    pub fn get(self: &WMap<Hu6, WAny>, key: u8) -> WAny {
+    pub fn get(self: &WMap<Wu6, WAny>, key: u8) -> WAny {
         if key >= 52u8 { return WAny::ref_to(0i64 as *const u8); }
         let bitmap: u64 = self.header & WTV_BITMAP_MASK;
         let kb: u64 = 1u64 << (key as u64);
@@ -353,7 +353,7 @@ impl WMap<Hu6, WAny> {
     }
 
     // Insert or update `key → val`. `key >= 52` or a full map (new key) is a no-op.
-    pub fn set(self: &mut WMap<Hu6, WAny>, key: u8, val: WAny) {
+    pub fn set(self: &mut WMap<Wu6, WAny>, key: u8, val: WAny) {
         if key >= 52u8 { return; }
         unsafe {
             let bitmap: u64 = self.header & WTV_BITMAP_MASK;
@@ -377,16 +377,16 @@ impl WMap<Hu6, WAny> {
 
 impl Writ {
     // Create an empty bitmap-indexed tiny map; thin `&mut` (fixed capacity → no zone).
-    pub fn tinymap<'a>(self: &'a Writ, cap: i64) -> &'a mut WMap<Hu6, WAny> {
+    pub fn tinymap<'a>(self: &'a Writ, cap: i64) -> &'a mut WMap<Wu6, WAny> {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            return &mut *htv_new(h, cap);
+            return &mut *wtv_new(h, cap);
         }
     }
 }
 
 impl WAny {
-    pub fn from(m: &WMap<Hu6, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<Hu6, WAny> as *const u8); }
+    pub fn from(m: &WMap<Wu6, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<Wu6, WAny> as *const u8); }
 }
 
 // ── Dense spec: scalar integer keys (WMap<K, WAny>) — legacy Map<K, AnyVal> ───
@@ -397,9 +397,9 @@ impl WAny {
 // capacity → `set` never allocates → thin `&mut` (no #[zone_mut]).
 //
 // This spec's first arg is a TYPE-VAR (K), so it overlaps the first-arg specs
-// (WMap<WString,V>, WMap<Hu6,V>) on e.g. WMap<WString,WAny>; struct-layout
+// (WMap<WString,V>, WMap<Wu6,V>) on e.g. WMap<WString,WAny>; struct-layout
 // selection picks the more-specific first-arg spec by specificity. The METHODS sit
-// behind the `K: WIntKeyTag` bound, which WString/Hu6 don't satisfy — so they never
+// behind the `K: WIntKeyTag` bound, which WString/Wu6 don't satisfy — so they never
 // collide with the string/bitmap inherent methods.
 
 // Per-key Writ wire tag (MapI32AnyVal=3101 .. MapU64AnyVal=3104).
@@ -421,7 +421,7 @@ pub struct WMap<K, WAny> {
 // The dense int-keyed map (legacy Map<K,AnyVal>); was the standalone WIntMap<K>.
 pub type WIntMap<K> = WMap<K, WAny>;
 
-unsafe fn him_new<K: WIntKeyTag>(h: *mut Writ, cap: i64) -> *mut WMap<K, WAny> {
+unsafe fn wim_new<K: WIntKeyTag>(h: *mut Writ, cap: i64) -> *mut WMap<K, WAny> {
     let hdr: *mut WMap<K, WAny> =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<K, WAny>>() as i64, K::map_code()) as *mut WMap<K, WAny>;
     let kbuf: *mut K          = writ_alloc_n::<K>(h, cap);
@@ -482,7 +482,7 @@ impl Writ {
     pub fn intmap<'a, K: WIntKeyTag>(self: &'a Writ, cap: i64) -> &'a mut WMap<K, WAny> {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            return &mut *him_new::<K>(h, cap);
+            return &mut *wim_new::<K>(h, cap);
         }
     }
 }

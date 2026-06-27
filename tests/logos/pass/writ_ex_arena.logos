@@ -49,9 +49,9 @@ unsafe fn main() -> i32 {
     if *((obj as i64 - 1) as *const u8) != 224 as u8            { return 11; }
     if *((obj as i64 - 2) as *const u8) != 59 as u8             { return 12; }  // 2107 & 0xFF
     if *((obj as i64 - 3) as *const u8) != 8 as u8              { return 13; }  // 2107 >> 8
-    if h2_type_code(obj as *const u8) != 2107u64                { return 14; }
-    if h2_tag_size(130u64) != 1i64                              { return 15; }
-    if h2_tag_size(2107u64) != 3i64                             { return 16; }
+    if w_type_code(obj as *const u8) != 2107u64                { return 14; }
+    if w_tag_size(130u64) != 1i64                              { return 15; }
+    if w_tag_size(2107u64) != 3i64                             { return 16; }
 
     return 42;
 }

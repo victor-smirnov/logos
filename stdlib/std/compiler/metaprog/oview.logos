@@ -1,7 +1,7 @@
 // logos.std.compiler.metaprog — owning view over the user's AST document.
 //
 // Writ PORT (cut-over step 4): the AST the compiler now hands metaprog hooks
-// is a writ document — 8-byte SELF-RELATIVE WAny slots inside WMap<Hu6,WAny>
+// is a writ document — 8-byte SELF-RELATIVE WAny slots inside WMap<Wu6,WAny>
 // TinyObjectMaps — NOT the old legacy 4-byte base-relative AnyVal. So the read
 // layer is rebuilt on the writ Logos containers (WAny / WMap / WArray / WString)
 // and the `WritRead` trait + base-relative `AnyVal{raw:u32}` are dropped.
@@ -18,7 +18,7 @@
 package logos.std.compiler.metaprog;
 
 use logos.lang.writ.anyval;     // WAny
-use logos.lang.writ.wmap;       // WMap<Hu6, WAny>
+use logos.lang.writ.wmap;       // WMap<Wu6, WAny>
 use logos.lang.writ.array;      // WArray<WAny>
 use logos.lang.writ.wstring;    // WString
 use logos.mem.string;
@@ -98,13 +98,13 @@ impl OView {
         return WAny::Ref((self.base as i64 + w) as *const u8);
     }
 
-    // TinyObjectMap field read: `node` (Ref to a WMap<Hu6,WAny>) → key → WAny.
+    // TinyObjectMap field read: `node` (Ref to a WMap<Wu6,WAny>) → key → WAny.
     // Null/non-ref node, or absent key, yields a null WAny.
     pub fn tiny_map_get(self: &OView, node: WAny, key: u8) -> WAny {
         if !node.is_ref() { return WAny::Ref(0i64 as *const u8); }
         let p: *const u8 = node.resolve();
         if p == (0 as *const u8) { return WAny::Ref(0i64 as *const u8); }
-        return unsafe { (&*(p as *const WMap<Hu6, WAny>)).get(key) };
+        return unsafe { (&*(p as *const WMap<Wu6, WAny>)).get(key) };
     }
 
     // Borrowed UTF-8 bytes of a string node (Ref to WString). Empty view if `v`

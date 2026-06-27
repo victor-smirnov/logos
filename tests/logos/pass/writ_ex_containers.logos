@@ -14,7 +14,7 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // ── TinyObjectMap basic ─────────────────────────────────────────────────
-    let tm: &mut WMap<Hu6, WAny> = h.tinymap(8);
+    let tm: &mut WMap<Wu6, WAny> = h.tinymap(8);
     tm.set(0 as u8, WAny::from(1 as i56));
     tm.set(5 as u8, WAny::from(55 as i56));
     if tm.get(0 as u8).as_i64() != 1i64                          { return 1; }
@@ -27,7 +27,7 @@ unsafe fn main() -> i32 {
     if tm.size() != 2i64                                         { return 5; }
 
     // ── TinyObjectMap stress: all 52 keys ───────────────────────────────────
-    let big: &mut WMap<Hu6, WAny> = h.tinymap(52);
+    let big: &mut WMap<Wu6, WAny> = h.tinymap(52);
     let mut k: i64 = 0;
     while k < 52 {
         big.set(k as u8, WAny::from((k * 10) as i56));

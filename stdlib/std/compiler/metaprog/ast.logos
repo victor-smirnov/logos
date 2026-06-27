@@ -3,7 +3,7 @@
 // Writ PORT (cut-over step 4): node handles are writ `WAny` (8-byte
 // self-relative; value-form holds the resolved absolute ptr), read through the
 // OView primitives in oview.logos (tiny_map_get / get_str_view / array_* on
-// WMap<Hu6,WAny> / WArray<WAny> / WString). The old legacy 4-byte AnyVal{raw}
+// WMap<Wu6,WAny> / WArray<WAny> / WString). The old legacy 4-byte AnyVal{raw}
 // + base-relative `base + offset` model is gone.
 //
 // Hooks fire pre-sema: the AST is freshly parsed TinyObjectMap nodes keyed by
@@ -13,7 +13,7 @@ package logos.std.compiler.metaprog;
 
 use logos.lang.writ.wstatic;    // WritStatic — the quote/metacall splice handle ({ptr})
 use logos.lang.writ.anyval;     // WAny
-use logos.lang.writ.wmap;       // WMap<Hu6,WAny> (for schema_type_code on type_from_anyval)
+use logos.lang.writ.wmap;       // WMap<Wu6,WAny> (for schema_type_code on type_from_anyval)
 use logos.lang.writ.wstring;
 use logos.mem.string;
 use logos.lang.str;
@@ -213,7 +213,7 @@ pub fn type_from_anyval(val: WAny) -> Type {
         if obj == (0 as *const u8) {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }
-        let tom: *const WMap<Hu6, WAny> = obj as *const WMap<Hu6, WAny>;
+        let tom: *const WMap<Wu6, WAny> = obj as *const WMap<Wu6, WAny>;
         if (&*tom).schema_type_code() != (107 as u64) {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }

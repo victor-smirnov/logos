@@ -32,7 +32,7 @@ use logos.mem.writ.stringify;    // stringify: doc → text
 use logos.mem.writ.wbs;          // wbs_write / wbs_read: doc ⇄ bytes
 use logos.mem.collections.vec;      // Vec<u8>
 use logos.lang.writ.allocator;   // writ_alloc_bytes (raw tagged object)
-use logos.mem.writ.tag_system;   // write_tag, h2_type_code
+use logos.mem.writ.tag_system;   // write_tag, w_type_code
 
 use logos.lang.ptr;                 // byte_add
 use logos.lang.rc;                   // Rc

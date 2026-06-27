@@ -15,7 +15,7 @@
 // resolved[] holds 8-byte VALUE-FORM WAny words: Pod = (v<<8)|(code<<1)|1
 // (stored verbatim — position-independent), Ref = absolute object pointer
 // (lowered at patch time to the at-rest self-relative form: target - slot_addr).
-// This mirrors ha_lower / *zoned-assign semantics.
+// This mirrors wa_lower / *zoned-assign semantics.
 //
 // Port of mem.writ.ctr's writ_template_ctr_new / writ_ctr_alloc_* /
 // writ_template_patch / writ_build_from_template (legacy, 4-byte AnyVal).

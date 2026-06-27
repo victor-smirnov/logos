@@ -11,8 +11,8 @@
 
 package logos.lang.writ.parameter;
 
-use logos.lang.writ.container;   // Writ, alloc_tagged, H2_PARAMETER
-use logos.lang.writ.anyval;      // WAny, h2_type_code
+use logos.lang.writ.container;   // Writ, alloc_tagged, W_PARAMETER
+use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
@@ -34,7 +34,7 @@ unsafe fn param_slot_c(p: *const WParameter, off: i64) -> *zoned WAny {
 
 unsafe fn param_new(h: *mut Writ, name: WAny, value: WAny) -> *mut WParameter {
     let obj: *mut WParameter =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WParameter>() as i64, H2_PARAMETER) as *mut WParameter;
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WParameter>() as i64, W_PARAMETER) as *mut WParameter;
     *(param_slot(obj, 0i64)) = name;    // *zoned write: lowers to a self-relative delta
     *(param_slot(obj, 8i64)) = value;
     return obj;
@@ -69,7 +69,7 @@ impl Writ {
 
 impl WAny {
     pub fn is_parameter(self: &WAny) -> bool {
-        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_PARAMETER;
+        return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_PARAMETER;
     }
     // Borrow the pointed-at parameter (check is_parameter first).
     pub fn as_parameter(self: &WAny) -> &WParameter { return unsafe { &*(self.resolve() as *const WParameter) }; }

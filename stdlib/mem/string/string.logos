@@ -30,7 +30,7 @@ use logos.lang.drop;
 use logos.lang.str;
 use logos.lang.cmp;
 use logos.lang.writ.dview;       // Datum / DView (capture into a runtime-typed container)
-use logos.lang.writ.anyval;      // H2_STRING
+use logos.lang.writ.anyval;      // W_STRING
 
 // ── String ─────────────────────────────────────────────────────────────────
 
@@ -482,15 +482,15 @@ impl Eq for String {
 }
 
 // Datum: present a heap String as a runtime-typed cell (datatype String,
-// H2_STRING). Its STORAGE form is the UTF-8 CONTENT, not the {ptr,len,cap}
+// W_STRING). Its STORAGE form is the UTF-8 CONTENT, not the {ptr,len,cap}
 // struct — so override as_datum (the default would capture the struct bytes).
 // Lives here, in String's own tier, per the "impl where the type is declared"
 // rule (mem depends on lang ⇒ sees Datum/DView). Lets `DView::from(&s)` /
 // Buffer<DView> / Map<DView,…> accept a heap String as a key/value.
 impl Datum for String {
-    fn datum_tag(self: *const String) -> u64 { return H2_STRING; }
+    fn datum_tag(self: *const String) -> u64 { return W_STRING; }
     fn as_datum(&self) -> DView {
-        return DView::from_parts(self.as_ptr(), self.len() as u64, H2_STRING, 0u64);
+        return DView::from_parts(self.as_ptr(), self.len() as u64, W_STRING, 0u64);
     }
     // READ: materialize an OWNED heap String from the stored content bytes
     // (override — the default's by-value POD read would misread the bytes as a

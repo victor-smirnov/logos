@@ -5032,7 +5032,7 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
 }
 
 // F3 (ref-repr-design §8): the storage↔compute bridge for a `#[zoned2]` niche
-// enum — the compiler-owned generalization of writ's ha_materialize/ha_lower.
+// enum — the compiler-owned generalization of writ's wa_materialize/wa_lower.
 // The at-rest slot holds the 8-byte niche word with the Ref arm SELF-RELATIVE
 // (anchor = the slot's own address); the compute value is a by-pointer enum
 // (a fresh alloca holding the word with the Ref arm ABSOLUTE).

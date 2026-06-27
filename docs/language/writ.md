@@ -187,7 +187,7 @@ For purely transient in-memory work, plain Logos types (`struct`, `Array<T>`, `M
 
 ## TinyObjectMap: the Thesis in One Container
 
-The container that best embodies "dynamic flexibility at static speed" is the **TinyObjectMap** — in the stdlib, `WMap<Hu6, WAny>` (the *bitmap-indexed* map). It is the Writ workhorse: every `logosc` AST node *is* one.
+The container that best embodies "dynamic flexibility at static speed" is the **TinyObjectMap** — in the stdlib, `WMap<Wu6, WAny>` (the *bitmap-indexed* map). It is the Writ workhorse: every `logosc` AST node *is* one.
 
 Its entire header is **24 bytes** — a `u64` packing a **52-bit presence bitmap** + 6-bit capacity + 6-bit size, a `u64` **schema code** (the node-class tag), and a self-relative pointer to a separate, key-ordered array of `WAny` values. Keys are small integers (0–51); values are dynamic `WAny`s; the value array is dense and held in key order.
 

@@ -1,4 +1,4 @@
-package h2tag;
+package wtag;
 // PROOF: the SAME type_code (171) lives in TWO tag systems with model-specific
 // impls — no collision. A stateful node holds an internal pointer to a Leaf;
 // the legacy impl resolves it BASE-RELATIVE (base + offset), the Writ impl

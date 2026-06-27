@@ -10,7 +10,7 @@
 
 package logos.lang.writ.pat;
 
-use logos.lang.writ.anyval;       // WAny, h2_type_code
+use logos.lang.writ.anyval;       // WAny, w_type_code
 use logos.lang.writ.array;        // WArray<WAny>
 use logos.lang.writ.wmap;         // WMap<WString, WAny>
 use logos.lang.writ.wstring;      // WString
@@ -90,5 +90,5 @@ pub unsafe fn writ_pat_array_len_ge(node: *const WAny, n: u64) -> bool {
 pub unsafe fn writ_pat_has_type_code(node: *const WAny, tc: u64) -> bool {
     let n: WAny = *node;
     if !n.is_ref() { return false; }
-    return (h2_type_code(n.resolve())) == tc;
+    return (w_type_code(n.resolve())) == tc;
 }

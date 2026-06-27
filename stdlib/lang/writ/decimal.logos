@@ -12,8 +12,8 @@
 
 package logos.lang.writ.decimal;
 
-use logos.lang.writ.container;   // Writ, alloc_tagged, H2_DECIMAL
-use logos.lang.writ.anyval;      // WAny, h2_type_code
+use logos.lang.writ.container;   // Writ, alloc_tagged, W_DECIMAL
+use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
 
 #[pinned]
@@ -27,7 +27,7 @@ const DEC_SIGN_BIT:   u32 = 0x80000000u32;   // bit[31] — 1 = negative
 
 unsafe fn decimal_new(h: *mut Writ, coeff: u64, scale: u32, neg: bool) -> *mut WDecimal {
     let obj: *mut WDecimal =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WDecimal>() as i64, H2_DECIMAL) as *mut WDecimal;
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WDecimal>() as i64, W_DECIMAL) as *mut WDecimal;
     let mut spec: u32 = scale & DEC_SCALE_MASK;
     if neg { spec = spec | DEC_SIGN_BIT; }
     obj.spec  = spec;
@@ -63,7 +63,7 @@ impl Writ {
 
 impl WAny {
     pub fn is_decimal(self: &WAny) -> bool {
-        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_DECIMAL;
+        return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_DECIMAL;
     }
     // Borrow the pointed-at decimal (check is_decimal first).
     pub fn as_decimal(self: &WAny) -> &WDecimal { return unsafe { &*(self.resolve() as *const WDecimal) }; }

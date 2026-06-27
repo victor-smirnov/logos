@@ -10,7 +10,7 @@
 
 package logos.mem.writ.hashing;
 
-use logos.lang.writ.anyval;     // WAny, h2_type_code
+use logos.lang.writ.anyval;     // WAny, w_type_code
 use logos.lang.writ.array;      // WArray<WAny>
 use logos.lang.writ.wmap;       // WMap<WString, WAny>
 use logos.lang.writ.wstring;    // WString
@@ -90,7 +90,7 @@ pub fn writ_hash(v: WAny) -> u64 {
     if !v.is_ref() { return fnv_mix_u64(fnv_init(), v.raw() as u64); }
     unsafe {
         let p: *const u8 = v.resolve();
-        let tc: u64 = h2_type_code(p);
+        let tc: u64 = w_type_code(p);
         // Typed dense arrays: fold raw element bytes.
         if tc >= 2101u64 && tc <= 2110u64 {
             let n: u64 = *(p as *const u64);
@@ -121,7 +121,7 @@ pub fn writ_hash(v: WAny) -> u64 {
                 let key_i: i64 = if kw == 4 { *((keys + i * 4) as *const i32) as i64 }
                                  else       { *((keys + i * 8) as *const i64) };
                 acc = acc ^ fnv_mix_u64(fnv_mix_u64(fnv_init(), key_i as u64),
-                                        writ_hash(h2h_at(vals + i * 8)));
+                                        writ_hash(wh_at(vals + i * 8)));
                 i = i + 1;
             }
             return fnv_mix_u64(fnv_mix_u64(fnv_init(), tc), acc);
@@ -131,7 +131,7 @@ pub fn writ_hash(v: WAny) -> u64 {
             let mut h: u64 = fnv_mix_u64(fnv_init(), tc);
             let mut f: i64 = 0;
             while f < 3 {
-                h = fnv_mix_u64(h, writ_hash(h2h_at((p as i64) + f * 8)));
+                h = fnv_mix_u64(h, writ_hash(wh_at((p as i64) + f * 8)));
                 f = f + 1;
             }
             return h;
@@ -141,7 +141,7 @@ pub fn writ_hash(v: WAny) -> u64 {
 }
 
 // Materialize the at-rest WAny word at `slot_addr`.
-unsafe fn h2h_at(slot_addr: i64) -> WAny {
+unsafe fn wh_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
     if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }

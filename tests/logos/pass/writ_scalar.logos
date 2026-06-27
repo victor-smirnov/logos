@@ -31,7 +31,7 @@ unsafe fn main() -> i32 {
     let bu: WAny = box_u64(ap, big_u);
     if bu.is_pod() { return 5; }
     if bu.as_u64() != big_u { return 6; }
-    if h2_type_code(bu.resolve()) != H2_U64 { return 7; }
+    if w_type_code(bu.resolve()) != W_U64 { return 7; }
 
     // Inside a map; stringify renders values.
     let m: &mut WMap<WString, WAny> = h.map(8);

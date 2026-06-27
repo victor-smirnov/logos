@@ -19,7 +19,7 @@ unsafe fn main() -> i32 {
     let h: &Writ = ctr.deref();
     let root: WAny = h.root();
     if root.is_null() { return 1; }
-    if h2_type_code(root.resolve()) != 3101u64 { return 2; }
+    if w_type_code(root.resolve()) != 3101u64 { return 2; }
     let s: String = stringify(root);
     if !s.eq_str("<I32, AnyVal> {1: 10, 2: 20}") { return 3; }
     return 0;

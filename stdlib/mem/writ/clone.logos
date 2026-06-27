@@ -11,7 +11,7 @@
 
 package logos.mem.writ.clone;
 
-use logos.lang.writ.anyval;       // WAny, h2_type_code
+use logos.lang.writ.anyval;       // WAny, w_type_code
 use logos.lang.writ.allocator;    // Allocator
 use logos.lang.writ.container;    // Writ, writ_rc, alloc_tagged, box_*
 use logos.lang.writ.array;        // WArray<WAny>
@@ -28,10 +28,10 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
     let hp: *mut Writ = h as *const Writ as *mut Writ;
     let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
     let p: *const u8 = v.resolve();
-    let tc: u64 = h2_type_code(p);
+    let tc: u64 = w_type_code(p);
 
     // Boxed wide scalars (8-byte payload after the tag).
-    if tc == H2_I64 || tc == H2_U64 || tc == H2_F32 || tc == H2_F64 {
+    if tc == W_I64 || tc == W_U64 || tc == W_F32 || tc == W_F64 {
         let obj: *mut u8 = alloc_tagged(ap, 8, tc);
         *(obj as *mut u64) = *(p as *const u64);
         return WAny::ref_to(obj as *const u8);
@@ -122,7 +122,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
             }
             i = 0i64;
             while i < n {
-                let c2: WAny = writ_clone_into(h, h2c_at(svals + i * 8i64));
+                let c2: WAny = writ_clone_into(h, wc_at(svals + i * 8i64));
                 let slot: i64 = vbuf + i * 8i64;
                 let w2: i64 = c2.raw();
                 if w2 == 0i64 || (w2 & 1i64) == 1i64 { *(slot as *mut i64) = w2; }
@@ -146,7 +146,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
         let mut f: i64 = 0;
         while f < 3 {
             let src_slot: i64 = (p as i64) + f * 8;
-            let c: WAny = writ_clone_into(h, h2c_at(src_slot));
+            let c: WAny = writ_clone_into(h, wc_at(src_slot));
             let dst_slot: i64 = (obj as i64) + f * 8;
             let cw: i64 = c.raw();
             if cw == 0i64 || (cw & 1i64) == 1i64 { *(dst_slot as *mut i64) = cw; }
@@ -171,7 +171,7 @@ pub unsafe fn writ_clone(v: WAny) -> Rc<Writ> {
 }
 
 // Materialize the at-rest WAny word at `slot_addr`.
-unsafe fn h2c_at(slot_addr: i64) -> WAny {
+unsafe fn wc_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
     if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }

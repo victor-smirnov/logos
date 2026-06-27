@@ -35,19 +35,19 @@ unsafe fn main() -> i32 {
     if code_point == code_color { return 3; }
 
     // 2. tag_size: single-byte for codes <= 222.
-    let tsz_small: i64 = h2_tag_size(200 as u64);
+    let tsz_small: i64 = w_tag_size(200 as u64);
     if tsz_small != 1 { return 4; }
 
     // tag_size: 2 bytes for codes 223 (header + 1 code byte).
-    let tsz_223: i64 = h2_tag_size(223 as u64);
+    let tsz_223: i64 = w_tag_size(223 as u64);
     if tsz_223 != 2 { return 5; }
 
     // tag_size: 2 bytes for codes 223-255.
-    let tsz_255: i64 = h2_tag_size(255 as u64);
+    let tsz_255: i64 = w_tag_size(255 as u64);
     if tsz_255 != 2 { return 6; }
 
     // tag_size: 3 bytes for code 256 (needs 2 code bytes).
-    let tsz_256: i64 = h2_tag_size(256 as u64);
+    let tsz_256: i64 = w_tag_size(256 as u64);
     if tsz_256 != 3 { return 7; }
 
     // 3. Write/read roundtrip for a single-byte code.
@@ -64,20 +64,20 @@ unsafe fn main() -> i32 {
     let obj_ptr: *mut u8 = (buf as i64 + 8) as *mut u8;
 
     write_tag(obj_ptr, 200 as u64);
-    let read_back: u64 = h2_type_code(obj_ptr as *const u8);
+    let read_back: u64 = w_type_code(obj_ptr as *const u8);
     if read_back != 200 as u64 { free(buf); return 8; }
 
     // 4. Write/read roundtrip for code 256 (multi-byte).
     let obj2: *mut u8 = (buf as i64 + 24) as *mut u8;
     write_tag(obj2, 256 as u64);
-    let read_back2: u64 = h2_type_code(obj2 as *const u8);
+    let read_back2: u64 = w_type_code(obj2 as *const u8);
     if read_back2 != 256 as u64 { free(buf); return 9; }
 
     // 5. type_code_of roundtrip via write_tag + read_type_code.
     // If code_point <= 222: single-byte tag; else multi-byte.
     let obj3: *mut u8 = (buf as i64 + 48) as *mut u8;
     write_tag(obj3, code_point);
-    let read_point: u64 = h2_type_code(obj3 as *const u8);
+    let read_point: u64 = w_type_code(obj3 as *const u8);
     if read_point != code_point { free(buf); return 10; }
 
     free(buf);

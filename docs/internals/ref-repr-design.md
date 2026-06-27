@@ -301,7 +301,7 @@ philosophy as `#[zoned2]` on structs / the removed `RelPtr<T>`). A `#[zoned2]`
 niche enum (HAny-shape) has the **storage/compute split**: the `Ref` arm is a
 self-relative offset AT-REST (in memory, behind a pointer) and an absolute,
 movable pointer as a VALUE. The bridge is the compiler-owned generalization of
-today's `ha_materialize`/`ha_lower`:
+today's `wa_materialize`/`wa_lower`:
 
 - **materialize(slot)** — load word `r`; `r==0`→null (raw 0); `r&1==1`→Pod
   (raw `r`, position-independent); else Ref→`slot + r` (absolute). The access
@@ -359,7 +359,7 @@ relocation-safety invariant (same target at two slots → two different at-rest
 deltas, both materialising to the same absolute ref). `HArray.data: *zoned HAny`
 will Just Work.
 
-**Phase 3 — re-express HAny, retire HAnyRel + ha_materialize/ha_lower.** The
+**Phase 3 — re-express HAny, retire HAnyRel + wa_materialize/wa_lower.** The
 foundation is ready; this is the stdlib application. HAny becomes a `#[zoned2]`
 niche enum and its buffers become `*zoned HAny`. The Pod-encoding fork (still
 open, coupled to the legacy port's inline-scalar set): HAny's Pod is a 63-bit

@@ -27,8 +27,8 @@ fn main() -> i32 {
     if c.get(0i64) != -7i32 || c.get(1i64) != 2000000000i32 { return 6i32; }
     // wire tag: the u8 array's header carries ArrayU8 = 2101 (a >222 varint code)
     let hdr: *const u8 = a as *const WArray<u8> as *const u8;
-    if unsafe { h2_type_code(hdr) } != 2101u64 { return 7i32; }
+    if unsafe { w_type_code(hdr) } != 2101u64 { return 7i32; }
     let fhdr: *const u8 = b as *const WArray<f64> as *const u8;
-    if unsafe { h2_type_code(fhdr) } != 2110u64 { return 8i32; }   // ArrayF64
+    if unsafe { w_type_code(fhdr) } != 2110u64 { return 8i32; }   // ArrayF64
     return 0i32;
 }

@@ -69,7 +69,7 @@ unsafe fn write_val(out: &mut String, v: WAny) {
     // Typed dense arrays (ArrayU8..ArrayF64 = 2101..2110): `<Type> [e, e, ...]`.
     if v.is_ref() {
         let p: *const u8 = v.resolve();
-        let tcv: u64 = h2_type_code(p);
+        let tcv: u64 = w_type_code(p);
         if tcv >= 2101u64 && tcv <= 2110u64 {
             write_typed_array(out, p, tcv);
             return;
@@ -183,9 +183,9 @@ pub fn stringify(v: WAny) -> String {
 // TypedValue render: `init@Name(p1,p2)` (postfix form; no parens when the
 // params slot is null). Fields are at-rest words at obj+0/8/16.
 unsafe fn write_typed_value(out: &mut String, p: *const u8) {
-    let tn: WAny = h2s_at((p as i64) + 0i64);
-    let pr: WAny = h2s_at((p as i64) + 8i64);
-    let iv: WAny = h2s_at((p as i64) + 16i64);
+    let tn: WAny = ws_at((p as i64) + 0i64);
+    let pr: WAny = ws_at((p as i64) + 8i64);
+    let iv: WAny = ws_at((p as i64) + 16i64);
     write_val(out, iv);
     out.push_u8(64u8);                          // '@'
     if tn.is_string() {
@@ -206,7 +206,7 @@ unsafe fn write_typed_value(out: &mut String, p: *const u8) {
 }
 
 // Materialize the at-rest WAny word at `slot_addr`.
-unsafe fn h2s_at(slot_addr: i64) -> WAny {
+unsafe fn ws_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
     if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }

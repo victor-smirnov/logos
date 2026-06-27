@@ -81,7 +81,7 @@ unsafe fn array_buf_mut(a: *mut WArray<WAny>) -> *zoned mut WAny {
 unsafe fn array_new(h: *mut Writ, cap: i64) -> *mut WArray<WAny> {
     // The header is WAny-Ref'd (nesting / array_of) → tag it for dispatch.
     let hdr: *mut WArray<WAny>    =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WArray<WAny>>() as i64, H2_ARRAY) as *mut WArray<WAny>;
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WArray<WAny>>() as i64, W_ARRAY) as *mut WArray<WAny>;
     let buf: *zoned mut WAny  = writ_alloc_n::<WAny>(h, cap) as *zoned mut WAny;
     hdr.len   = 0i64;
     hdr.cap   = cap;
@@ -163,8 +163,8 @@ impl WArray<WAny> {
 
     // Overloaded push for the common element types — each wraps the value into an
     // WAny so callers write `a.push(x)` instead of `a.push(WAny::from(x))`.
-    //   • i64  → inline Pod when it fits i56, else boxed (H2_I64) into the arena
-    //   • f64  → boxed (H2_F64) into the arena (never fits the inline Pod)
+    //   • i64  → inline Pod when it fits i56, else boxed (W_I64) into the arena
+    //   • f64  → boxed (W_F64) into the arena (never fits the inline Pod)
     //   • bool → an inline Pod
     //   • &WString / &WArray<WAny> → a Ref to an already-interned arena object
     pub fn push(self: &mut WArray<WAny>, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, make_int(z, v)); } }

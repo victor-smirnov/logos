@@ -1,7 +1,7 @@
 // Cross-tier Datum: a heap String (mem tier) presents itself as a DView (lang
 // tier) — `impl Datum for String` lives in mem (where String is declared and
 // Datum/DView are visible downward). Proves the distributed conversion model:
-// the same storage form (UTF-8 content, H2_STRING) as a str literal, usable as a
+// the same storage form (UTF-8 content, W_STRING) as a str literal, usable as a
 // runtime-typed container key.
 
 package mem_string_datum;
@@ -14,9 +14,9 @@ use logos.mem.string;
 fn main() -> i32 {
     let s: String = String::from("apple");
 
-    // capture heap String → storage DView (content + H2_STRING, not the struct)
+    // capture heap String → storage DView (content + W_STRING, not the struct)
     let dv: DView = DView::from(&s);
-    if dv.type_code() != 130u64 { return 1; }                 // H2_STRING
+    if dv.type_code() != 130u64 { return 1; }                 // W_STRING
 
     // same storage form as the str literal "apple"
     match dv.compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 2; } }

@@ -1,5 +1,5 @@
 // writ container kit (successor of the legacy zone-containers test):
-// TinyObjectMap (WMap<Hu6>), ObjectArray (WArray), ObjectMap (WMap<WString>)
+// TinyObjectMap (WMap<Wu6>), ObjectArray (WArray), ObjectMap (WMap<WString>)
 // built in one container and read back through WAny.
 package writ_containers;
 use logos.lang.writ.container;
@@ -15,7 +15,7 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // --- TinyObjectMap: u8-keyed, bitmap-indexed ---
-    let tm: &mut WMap<Hu6, WAny> = h.tinymap(10);
+    let tm: &mut WMap<Wu6, WAny> = h.tinymap(10);
     tm.set(1 as u8, WAny::from(11 as i56));
     tm.set(7 as u8, WAny::from(77 as i56));
     if tm.get(1 as u8).as_i64() != 11i64 { return 1; }

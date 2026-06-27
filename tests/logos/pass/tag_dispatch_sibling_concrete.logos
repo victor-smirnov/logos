@@ -39,8 +39,8 @@ unsafe fn main() -> i32 {
     write_tag(b as *mut u8, tb);
     b.v = 5; b.w = 7;
 
-    if h2_type_code(a as *const u8) != ta { return 3; }
-    if h2_type_code(b as *const u8) != tb { return 4; }
+    if w_type_code(a as *const u8) != ta { return 3; }
+    if w_type_code(b as *const u8) != tb { return 4; }
 
     // Direct sibling-impl calls resolve per type.
     let got: i32 = a.sib_value() + b.sib_value();   // 30 + 12 = 42

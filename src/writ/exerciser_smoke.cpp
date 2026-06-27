@@ -76,7 +76,7 @@ int main() {
         CHECK(p2.raw() == p.raw(), 23);
     }
 
-    // ── TypeTag: varint encoding (matches Logos h2_write_tag/h2_type_code) ──────
+    // ── TypeTag: varint encoding (matches Logos w_write_tag/w_type_code) ──────
     {
         alignas(8) uint8_t buf[16] = {};
         uint8_t* obj = buf + 8;
@@ -96,7 +96,7 @@ int main() {
         Arena& arena = *arena_exp;
 
         // First allocation: tag it, write a sentinel, keep the absolute pointer.
-        auto a0 = arena.allocate(sizeof(int64_t), 8, TypeTag{26 /*H2_I64*/});
+        auto a0 = arena.allocate(sizeof(int64_t), 8, TypeTag{26 /*W_I64*/});
         CHECK(a0.has_value(), 41);
         auto* p0 = static_cast<int64_t*>(*a0);
         *p0 = 0x1122334455667788LL;

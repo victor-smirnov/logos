@@ -13,8 +13,8 @@
 
 package logos.lang.writ.typed_value;
 
-use logos.lang.writ.container;   // Writ, alloc_tagged, H2_TYPEDVALUE
-use logos.lang.writ.anyval;      // WAny, h2_type_code
+use logos.lang.writ.container;   // Writ, alloc_tagged, W_TYPEDVALUE
+use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
@@ -37,7 +37,7 @@ unsafe fn tv_slot_c(p: *const WTypedValue, off: i64) -> *zoned WAny {
 
 unsafe fn tv_new(h: *mut Writ, type_name: WAny, params: WAny, init: WAny) -> *mut WTypedValue {
     let obj: *mut WTypedValue =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WTypedValue>() as i64, H2_TYPEDVALUE) as *mut WTypedValue;
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WTypedValue>() as i64, W_TYPEDVALUE) as *mut WTypedValue;
     *(tv_slot(obj, 0i64))  = type_name;   // *zoned write: lowers to a self-relative delta
     *(tv_slot(obj, 8i64))  = params;
     *(tv_slot(obj, 16i64)) = init;
@@ -75,7 +75,7 @@ impl Writ {
 
 impl WAny {
     pub fn is_typed_value(self: &WAny) -> bool {
-        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_TYPEDVALUE;
+        return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TYPEDVALUE;
     }
     // Borrow the pointed-at typed value (check is_typed_value first).
     pub fn as_typed_value(self: &WAny) -> &WTypedValue { return unsafe { &*(self.resolve() as *const WTypedValue) }; }

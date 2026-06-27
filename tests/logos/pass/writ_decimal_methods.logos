@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
     if a.as_decimal().scale() != 2u32 { return 3; }
     if a.as_decimal().coeff() != 12345u64 { return 4; }
     if a.as_decimal().is_neg() { return 5; }
-    if h2_type_code(a.resolve()) != H2_DECIMAL { return 6; }
+    if w_type_code(a.resolve()) != W_DECIMAL { return 6; }
 
     let b: WAny = hdec_from_str(h, "-7");
     if !b.as_decimal().is_neg() { return 7; }

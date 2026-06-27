@@ -17,7 +17,7 @@
 
 package logos.mem.writ.equal;
 
-use logos.lang.writ.anyval;     // WAny, h2_type_code
+use logos.lang.writ.anyval;     // WAny, w_type_code
 use logos.lang.writ.array;      // WArray<WAny>
 use logos.lang.writ.wmap;       // WMap<WString, WAny>
 use logos.lang.writ.wstring;    // WString
@@ -94,8 +94,8 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
     unsafe {
         let pa: *const u8 = a.resolve();
         let pb: *const u8 = b.resolve();
-        let ta: u64 = h2_type_code(pa);
-        let tb: u64 = h2_type_code(pb);
+        let ta: u64 = w_type_code(pa);
+        let tb: u64 = w_type_code(pb);
         if ta != tb { return false; }
         // Typed dense arrays: {size,cap,data} + raw element bytes.
         if ta >= 2101u64 && ta <= 2110u64 {
@@ -134,7 +134,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
                     let key_j: i64 = if kw == 4 { *((keys_b + j * 4) as *const i32) as i64 }
                                      else       { *((keys_b + j * 8) as *const i64) };
                     if key_j == key_i {
-                        if !writ_equal(ha_at(vals_a + i * 8), ha_at(vals_b + j * 8)) { return false; }
+                        if !writ_equal(wa_at(vals_a + i * 8), wa_at(vals_b + j * 8)) { return false; }
                         found = true;
                         break;
                     }
@@ -151,7 +151,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
             while f < 3 {
                 let sa: i64 = (pa as i64) + f * 8;
                 let sb: i64 = (pb as i64) + f * 8;
-                if !writ_equal(ha_at(sa), ha_at(sb)) { return false; }
+                if !writ_equal(wa_at(sa), wa_at(sb)) { return false; }
                 f = f + 1;
             }
             return true;
@@ -162,7 +162,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
 }
 
 // Materialize the at-rest WAny word at `slot_addr` (self-relative there).
-unsafe fn ha_at(slot_addr: i64) -> WAny {
+unsafe fn wa_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
     if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }

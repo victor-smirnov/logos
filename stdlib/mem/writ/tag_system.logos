@@ -1,5 +1,5 @@
 // Logos stdlib — mem.writ.tag_system (relocated from mem.writ; the vlen
-// datatag format is shared by legacy and writ — decode = h2_type_code)
+// datatag format is shared by legacy and writ — decode = w_type_code)
 //
 // TagSystem: abstraction over the mechanism used to read a type tag
 // from a memory object.  Different subsystems use different tag formats:
@@ -21,8 +21,8 @@
 
 package logos.mem.writ.tag_system;
 
-use logos.lang.writ.anyval;      // h2_type_code (the shared datatag decoder)
-use logos.lang.writ.container;   // h2_write_tag
+use logos.lang.writ.anyval;      // w_type_code (the shared datatag decoder)
+use logos.lang.writ.container;   // w_write_tag
 
 // ---------------------------------------------------------------------------
 // TagSystem trait
@@ -57,7 +57,7 @@ impl TagSystem for WritTypeTagSystem {
     // Safety: `obj` must point to a validly-tagged Writ zone object
     // (allocated via zone_m_alloc_tagged with a valid type_code).
     pub fn read_tag(self: &WritTypeTagSystem, obj: *const u8) -> u64 {
-        return unsafe { h2_type_code(obj) };
+        return unsafe { w_type_code(obj) };
     }
 }
 
@@ -79,7 +79,7 @@ impl TagSystem for DataTypeTagSystem {
     // (one that was previously written with write_tag), with the tag bytes
     // reserved in memory immediately before it.
     pub fn read_tag(self: &DataTypeTagSystem, obj: *const u8) -> u64 {
-        return unsafe { h2_type_code(obj) };
+        return unsafe { w_type_code(obj) };
     }
 }
 
@@ -106,7 +106,7 @@ impl TagSystem for WritTagSystem {
     // Safety: `obj` must point to a validly-tagged Writ arena object (written
     // with write_tag), with the vlen tag bytes immediately before it.
     pub fn read_tag(self: &WritTagSystem, obj: *const u8) -> u64 {
-        return unsafe { h2_type_code(obj) };
+        return unsafe { w_type_code(obj) };
     }
 }
 
@@ -147,15 +147,15 @@ impl TagSystem for TomTagSystem {
     }
 }
 
-// The vlen datatag writer (alias of lang.writ.container::h2_write_tag —
+// The vlen datatag writer (alias of lang.writ.container::w_write_tag —
 // tests and user datatypes write tags by this historical name).
 pub unsafe fn write_tag(obj: *mut u8, type_code: u64) {
-    h2_write_tag(obj, type_code);
+    w_write_tag(obj, type_code);
 }
 
 // Byte length of the vlen datatag for `code` (0 = unset; 1 for 1..222;
 // 1 header + N little-endian code bytes for >222).
-pub fn h2_tag_size(code: u64) -> i64 {
+pub fn w_tag_size(code: u64) -> i64 {
     if code == 0u64 { return 0i64; }
     if code <= 222u64 { return 1i64; }
     let mut n: i64 = 0;
