@@ -185,6 +185,19 @@ Use Writ for:
 
 For purely transient in-memory work, plain Logos types (`struct`, `Array<T>`, `Map<K, V>`) are usually right. For datasets exceeding the per-container range, model as a graph of Writ containers linked by application-level references, with Memoria-style containers (future) hosting the graph.
 
+## TinyObjectMap: the Thesis in One Container
+
+The container that best embodies "dynamic flexibility at static speed" is the **TinyObjectMap** — in the stdlib, `WMap<Hu6, WAny>` (the *bitmap-indexed* map). It is the Writ workhorse: every `logosc` AST node *is* one.
+
+Its entire header is **24 bytes** — a `u64` packing a **52-bit presence bitmap** + 6-bit capacity + 6-bit size, a `u64` **schema code** (the node-class tag), and a self-relative pointer to a separate, key-ordered array of `WAny` values. Keys are small integers (0–51); values are dynamic `WAny`s; the value array is dense and held in key order.
+
+That layout buys both halves of the thesis at once:
+
+- **Static-object speed.** A field lookup is `bitmap & (1 << key)`, a popcount for the dense index, and one indexed load — no hashing, no probing, no per-entry key storage. It costs about what a struct field offset costs, except the field *set* is chosen at runtime. The node is a tight, cache-friendly block.
+- **Dynamic-typing flexibility.** Any subset of the 52 keys may be present, each value is a dynamically-typed `WAny`, and the `schema_type_code` lets a reader recognize the node's class with no prior schema. So one container type represents arbitrarily-shaped records — every distinct AST node kind is the *same* TinyObjectMap with a different set of keys present, navigable by code that has never seen that shape.
+
+It is also **byte-identical across C++ and Logos** (`include/logos/writ/tiny_object_map.hpp` ⟷ `stdlib/lang/writ/wmap.logos`): both sides read and write the same 24-byte layout, which is what makes the heterogeneous-compiler story above mechanical rather than a bridge.
+
 ## Examples
 
 - [examples/writ_round_trip.logos](../../examples/writ_round_trip.logos) — minimal parse + stringify.
