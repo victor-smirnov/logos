@@ -3,7 +3,7 @@
 //
 // STEP 5 (cut-over): the compiler lowers Writ COMPREHENSIONS (`@[e for x in it]`,
 // `@{k:v for ...}`) and capture-`@{}` to a RUNTIME Writ container built via these
-// helpers. The legacy path used logos.mem.writ.ctr (Writ1 4-byte) so the blob
+// helpers. The legacy path used logos.mem.writ.ctr (legacy 4-byte) so the blob
 // the compiler then reads (lower_writ_blob, writ2) mismatched -> SIGSEGV. These
 // build a writ2 `Writ` container instead, matching the compiler's read.
 //

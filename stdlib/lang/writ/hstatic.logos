@@ -5,7 +5,7 @@
 // points at the first blob byte (past the size prefix). Read the document via
 // `hview2_from_ptr(hs.ptr)` (lang.writ2.static_view).
 //
-// Relocated from lang.writ.view (Writ1, retired in the writ2 cut-over);
+// Relocated from lang.writ.view;
 // the struct NAME is load-bearing — sema types static @-literals by it.
 
 package logos.lang.writ.hstatic;

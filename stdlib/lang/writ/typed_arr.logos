@@ -5,7 +5,7 @@
 // the wire code 2101..2110, raw position-independent elements). The result is
 // an Rc<Writ> whose root is the array object.
 //
-// Port of mem.writ.ctr's writ_build_array_* (Writ1, retired).
+// Port of mem.writ.ctr's writ_build_array_*.
 
 package logos.lang.writ.typed_arr;
 

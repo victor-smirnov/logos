@@ -8,7 +8,7 @@
 //   - children validate recursively.
 //
 // Direct-walker foundation (stringify/equal/hashing/clone siblings); the
-// Writ1 WritCheck dispatch table is retired.
+// the legacy WritCheck dispatch table is retired.
 
 package logos.mem.writ.check;
 

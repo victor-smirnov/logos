@@ -13,7 +13,7 @@
 //
 // Self-relative WAny needs no bases — works across documents (rodata blob vs
 // runtime container alike). Follows the same direct-walker foundation as
-// mem.writ2.stringify (the Writ1 tag_dispatch table is retired).
+// mem.writ.stringify (the legacy tag_dispatch table is retired).
 
 package logos.mem.writ.equal;
 
