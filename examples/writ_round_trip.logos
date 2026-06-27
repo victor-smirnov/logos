@@ -1,18 +1,15 @@
 // writ SDN round-trip example: parse a document, render it back.
 package writ_example;
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.mem.writ.parser;
-use logos.mem.writ.stringify;
-use logos.lang.rc;
+use logos.lang.writ.container;   // Writ
+use logos.mem.writ.parser;       // parse_writ
+use logos.mem.writ.stringify;    // stringify
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.io;
 
 fn main() -> i32 {
-    let ctr: Rc<Writ> = writ_rc(32768);
-    let h: &Writ = ctr.deref();
-    let text: str = r#"
+    // parse_writ: one call -> a fresh, owned Writ with the parsed graph as root.
+    let doc: Writ = parse_writ(r#"
         {
             name:"widget",
             version:42,
@@ -20,10 +17,9 @@ fn main() -> i32 {
             tags:["fast","safe"],
             i32_array: <I32> [1,2,3,4]
         }
-    "#;
-    let root: WAny = unsafe { parse(h, text) };
-    if root.is_null() { return 1; }
-    let s: String = stringify(root);
+    "#);
+    if doc.root().is_null() { return 1; }   // null root == parse error
+    let s: String = stringify(doc.root());
     println(s.as_str());
     return 0;
 }

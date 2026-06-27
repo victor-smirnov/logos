@@ -39,26 +39,23 @@ let id: i32 = 42;
 let doc: Rc<Writ> = @{ "id": $id, "ok": true, "tags": ["fast", "safe"] };
 ```
 
-**Parsing text** at runtime (file, network). Same Writ surface grammar, but `parse` does *not* perform Logos-side capture — input is interpreted purely as Writ text:
+**Parsing text** at runtime (file, network). `parse_writ` takes Writ text and returns a fresh, owned `Writ` with the parsed graph already set as its root — the one-call form of *new container + parse + set root*. The document is RAII-freed on drop; navigate straight from `doc.root()`. Same Writ surface grammar as the `@`-literals, but parsing does *not* perform Logos-side capture (`$ident` / `${expr}`) — input is interpreted purely as Writ text:
 
 ```logos
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.mem.writ.parser;
-use logos.lang.rc;
+use logos.lang.writ.container;   // Writ
+use logos.mem.writ.parser;       // parse_writ
 
-let ctr: Rc<Writ> = writ_rc(8192);
-let h: &Writ = ctr.deref();
-let root: HAny = unsafe { parse(h, r#"
+let doc: Writ = parse_writ(r#"
     {
         name: "widget",
         version: 42,
         i32_array: <I32> [1, 2, 3, 4]
     }
-"#) };
+"#);
+let root: WAny = doc.root();   // null on parse error — check doc.root().is_null()
 ```
 
-Text parser: `src/writ/text_parser.cpp`. Documents can also be built programmatically (`Map::set`, `Array::push`, …) — the showcase example walks this path.
+Parser: `stdlib/mem/writ/parser.logos` (`parse_writ`, and the lower-level `parse(h, text)` that fills an existing container). Documents can also be built programmatically (`Map::set`, `Array::push`, …) — the showcase example walks this path.
 
 ## Stringifying
 
