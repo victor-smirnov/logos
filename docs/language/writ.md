@@ -193,7 +193,7 @@ Its entire header is **24 bytes** — a `u64` packing a **52-bit presence bitmap
 
 That layout buys both halves of the thesis at once:
 
-- **Static-object speed.** A field lookup is `bitmap & (1 << key)`, a popcount for the dense index, and one indexed load — no hashing, no probing, no per-entry key storage. It costs about what a struct field offset costs, except the field *set* is chosen at runtime. The node is a tight, cache-friendly block.
+- **Static-object speed.** A field lookup is a presence test `bitmap & (1 << key)`; if set, the value's slot is the **rank** of the key — `popcount(bitmap & ((1 << key) − 1))`, the number of present keys *below* it — and one indexed load. No hashing, no probing, no per-entry key storage. It costs about what a struct field offset costs, except the field *set* is chosen at runtime. The node is a tight, cache-friendly block.
 - **Dynamic-typing flexibility.** Any subset of the 52 keys may be present, each value is a dynamically-typed `WAny`, and the `schema_type_code` lets a reader recognize the node's class with no prior schema. So one container type represents arbitrarily-shaped records — every distinct AST node kind is the *same* TinyObjectMap with a different set of keys present, navigable by code that has never seen that shape.
 
 It is also **byte-identical across C++ and Logos** (`include/logos/writ/tiny_object_map.hpp` ⟷ `stdlib/lang/writ/wmap.logos`): both sides read and write the same 24-byte layout, which is what makes the heterogeneous-compiler story above mechanical rather than a bridge.
