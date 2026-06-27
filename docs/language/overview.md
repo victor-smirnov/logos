@@ -46,7 +46,7 @@ This releases at least part of that pent-up dissatisfaction: far more people get
 Every design decision in Logos traces, one way or another, to three premises:
 
 1. **LLMs are slow and unreliable executors.** Whatever needs determinism or speed must be lifted out of the model and into a program — *execution offload*. The consequence is *very many* programs: a shift from programming-in-the-large to **programming-in-the-very-large**.
-2. **Human ownership of code trends toward mediation through AI** — as far as that still meets the reliability and correctness goals. Little code gets written directly by hand; the priority shifts to optimising everything *for reading* and for analysis. That is a different ergonomic target than human authorship, and it gives strict, expressive type systems a strong impulse to develop.
+2. **Code is read and analysed far more than it is hand-written.** With authorship mediated through AI (the two-user split under [Paradigm and Skin](#paradigm-and-skin-c-ambition-rust-ergonomics)), the language is optimised *for reading*, review, and analysis rather than for hand-authoring — a different ergonomic target, and one that gives strict, expressive type systems a strong impulse to develop.
 3. **The accumulated codebase is no longer the brake it has been.** Legacy mass held change back because rewriting was expensive; when generation is cheap, modernising and consolidating the existing corpus becomes a natural background process rather than a blocking cost.
 
 ## Code Analytics and Verification
