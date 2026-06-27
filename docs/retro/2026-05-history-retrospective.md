@@ -36,7 +36,7 @@ Subsystem = normalized subject prefix before the colon (`sema:`, `mono_clone:`�
 |---|---:|---:|---:|
 | sema | 242 | 123 | 50% |
 | stdlib | 133 | 59 | 44% |
-| hermes | 105 | 51 | 48% |
+| writ | 105 | 51 | 48% |
 | compiler | 69 | 46 | **66%** |
 | mono | 63 | 37 | **58%** |
 | mlir-gen | 76 | 26 | 34% |
@@ -76,7 +76,7 @@ B-numbers close **fast** (1-4 days) — tactical batches. The real epics are cro
 
 | Theme | Commits | Active days | Span |
 |---|---:|---:|---|
-| Hermes datatype | 310 | 50 | 03-28 → 05-18 |
+| Writ datatype | 310 | 50 | 03-28 → 05-18 |
 | generics/traits | 275 | 47 | 04-02 → 05-19 |
 | metaprog/quote | 160 | 51 | 03-28 → 05-19 |
 | iterator/closures | 113 | 42 | 04-07 → 05-19 |
@@ -123,12 +123,12 @@ Commits by ISO week (bar normalized to the peak):
 
 ```
 2026-03-09  W11      3  ·                     persist (project start)
-2026-03-23  W13      9  ·                     hermes, arena/IR    [W12 = 0: gap]
-2026-03-30  W14     59  #####                 hermes:21 runtime:6 mlir-gen:5
-2026-04-06  W15    221  ####################   traits:49 hermes:31 sema:26
-2026-04-13  W16    168  ###############        hermes:101 traits:45 sema:22
-2026-04-20  W17    404  ######################################  hermes:80 sema:68 mlir-gen:58
-2026-04-27  W18    249  #######################  metaprog:73 sema:48 hermes:28
+2026-03-23  W13      9  ·                     writ, arena/IR    [W12 = 0: gap]
+2026-03-30  W14     59  #####                 writ:21 runtime:6 mlir-gen:5
+2026-04-06  W15    221  ####################   traits:49 writ:31 sema:26
+2026-04-13  W16    168  ###############        writ:101 traits:45 sema:22
+2026-04-20  W17    404  ######################################  writ:80 sema:68 mlir-gen:58
+2026-04-27  W18    249  #######################  metaprog:73 sema:48 writ:28
 2026-05-04  W19    308  #############################  sema:85 persist:46 metaprog:33
 2026-05-11  W20    531  ##################################################  imports:121 coreport:92 traits:67
 2026-05-18  W21     93  ########              traits:21 sema:21 mono:19   [week not closed]
@@ -136,8 +136,8 @@ Commits by ISO week (bar normalized to the peak):
 
 Phase-shaped waves of focus:
 
-- **W11-W14 (March):** laying down Hermes + runtime, slow start.
-- **W15-W17 (April):** explosive growth, **Hermes-dominant** (101 commits in
+- **W11-W14 (March):** laying down Writ + runtime, slow start.
+- **W15-W17 (April):** explosive growth, **Writ-dominant** (101 commits in
   W16) + traits + the first serious push into mlir-gen. Volume peak — W17 (404).
 - **W18-W19:** focus on **metaprog/quote**, then persistent.
 - **W20 (peak 531):** pivot to **imports/archive + core-port** — mass intake of
@@ -145,7 +145,7 @@ Phase-shaped waves of focus:
   lived here, closed by `cce5c2f6`).
 - **W21:** cooling down on traits/sema/mono polish.
 
-**Layering over time:** Hermes is the foundation (early, dominated April); metaprog and persistent are middle layers; imports + core-port is the late mass layer, appearing once the language could run third-party tests.
+**Layering over time:** Writ is the foundation (early, dominated April); metaprog and persistent are middle layers; imports + core-port is the late mass layer, appearing once the language could run third-party tests.
 
 ---
 
@@ -153,7 +153,7 @@ Phase-shaped waves of focus:
 
 1. **History is self-documenting.** Detailed messages + bug-ID series + related-commit references reconstruct "what broke and how it was fixed" almost without external sources. (Some deep investigation context lives in out-of-repo `baghunt_*.md`, which commits reference.)
 2. **Healthy debt balance:** ~2.7× more fundamental fixes than workarounds, actively retired rather than accumulated.
-3. **Clear layered trajectory:** foundation (Hermes, persistent) → semantics (sema/mono/traits) → metaprogramming → maturity layer (imports + core-port). Each layer makes its own weekly-chart wave.
+3. **Clear layered trajectory:** foundation (Writ, persistent) → semantics (sema/mono/traits) → metaprogramming → maturity layer (imports + core-port). Each layer makes its own weekly-chart wave.
 4. **Point bugs cheap, architecture expensive:** B series closes in days; Phase series live 40-52 days — expected and healthy.
 
 ---

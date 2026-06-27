@@ -1,4 +1,4 @@
-# ADR 0006 — Stage 3g: Cutover to Hermes-only L-IR
+# ADR 0006 — Stage 3g: Cutover to Writ-only L-IR
 
 Status: Proposed 2026-04-26. Builds on ADR 0005 (Stage 3f).
 
@@ -7,18 +7,18 @@ Status: Proposed 2026-04-26. Builds on ADR 0005 (Stage 3f).
 ADR 0005 split the L-IR migration in two. Stage 3f is now closed:
 sema_expr / sema_stmt / sema_decl construct every node through
 `LirBuilder`, and `LirMirrorEmitter` projects the resulting `lir::LExpr` /
-`lir::LStmt` / `Pattern` variant trees into a Hermes mirror that
+`lir::LStmt` / `Pattern` variant trees into a Writ mirror that
 mlir_gen / borrow_check / mono_clone read via `lir_view::ExprRef` /
 `StmtRef` / `PatRef`.
 
 The result is a system that holds the same data twice. Every L-IR node
-exists as a `std::variant` *and* as a `TinyObjectMap` in the Hermes zone,
+exists as a `std::variant` *and* as a `TinyObjectMap` in the Writ zone,
 emitted right after sema and re-emitted (via mono's input mirror) for
 each cloned function. Costs:
 
 - ~2× memory and ~2× write bandwidth during sema and mono.
 - A non-trivial post-sema pass (`lir_mirror.cpp`, ~400 LoC) whose only
-  job is variant→Hermes projection.
+  job is variant→Writ projection.
 - Mono carries a `mirror_table` keyed on variant pointer identity, which
   forces every cloned function to be re-mirrored before borrow_check /
   mlir_gen can read it.
@@ -27,17 +27,17 @@ each cloned function. Costs:
   schema key + mirror writer + view reader).
 
 ADR 0005's Stage 3g is the planned exit: delete the variant types,
-collapse `LirBuilder` into a Hermes-direct emitter, change consumer
+collapse `LirBuilder` into a Writ-direct emitter, change consumer
 signatures from `const lir::LExpr&` to `lir_view::ExprRef`. This ADR
 locks in the decisions that the cutover depends on and slices it.
 
 ## Decisions
 
-### 1. Single source of truth: Hermes zone. Variants delete.
+### 1. Single source of truth: Writ zone. Variants delete.
 
 `lir::LExpr` / `lir::LStmt` / `Pattern` (and their `kind` `std::variant`s,
 the per-variant struct fields, `EClosure`, `LMatchArm`, `LBlock`, etc.)
-are removed. The Hermes mirror — a TinyObjectMap with the
+are removed. The Writ mirror — a TinyObjectMap with the
 `schema_type_code` set per `lir_schema::expr/stmt/pat::Code` — becomes
 the only representation.
 
@@ -50,7 +50,7 @@ consumers already use for reads.
 
 Each `LirBuilder` method that today builds a variant
 (`make_unique<LExpr>` + `e->kind = lir::EFoo{...}` + `e->type = ty`)
-becomes: allocate a TinyObjectMap in the program's Hermes zone, set
+becomes: allocate a TinyObjectMap in the program's Writ zone, set
 `schema_type_code` to the corresponding `lir_schema::expr::Code`, write
 the relevant `expr_keys` keys, return an `ExprRef` into the new map.
 
@@ -60,7 +60,7 @@ hash (variant-pointer → mirror-offset) is also deleted; identity *is*
 the offset after Stage 3g.
 
 Mono's "rebuild input mirror" step (currently invoked at the start of
-each clone) ceases to exist — the input is already a Hermes mirror.
+each clone) ceases to exist — the input is already a Writ mirror.
 
 ### 3. Identity = zone offset. No more variant pointers.
 
@@ -71,9 +71,9 @@ the lookup table doesn't either. `ExprRef` becomes the only handle, and
 its (arena, offset) pair is the identity used by everything that needs
 identity (borrow-check provenance keys, mono's clone-table keys, etc.).
 
-### 4. Storage: one Hermes zone per `LProgram`.
+### 4. Storage: one Writ zone per `LProgram`.
 
-`LProgram` already owns `type_pool.zone()` (TypePool's Hermes zone after
+`LProgram` already owns `type_pool.zone()` (TypePool's Writ zone after
 Phase 2). Stage 3g extends that zone to also host L-IR. No second zone,
 no per-function arenas:
 
@@ -89,7 +89,7 @@ no per-function arenas:
 `lir_view::BlockRef` (or equivalent). `LFunction` stays a `struct`
 (name, sig, body-ref, flags) on the C++ heap; only its body — the IR —
 moves into the zone. Function-level metadata (extern flag, generic
-params, etc.) is *not* moved into Hermes by this ADR.
+params, etc.) is *not* moved into Writ by this ADR.
 
 ### 5. Mutability of nodes after construction.
 
@@ -107,7 +107,7 @@ the open question is captured in §"Followups".
 ### 6. String storage: inline `Varchar` everywhere; no string pool yet.
 
 Stage 3g writes every `std::string` field (`name`, `method`,
-`callee`, `struct_name`, `op`, …) as an inline Hermes `Varchar` —
+`callee`, `struct_name`, `op`, …) as an inline Writ `Varchar` —
 copied into the zone byte-for-byte. No interning, no per-zone string
 pool.
 
@@ -125,8 +125,8 @@ with Stage 3f, not new optimizations.
 Stage 3g executes as five sub-slices, each independently testable
 against the existing 916+ ctest suite.
 
-- **3g.1 — Builder writes Hermes in addition to variants.** Each
-  `LirBuilder` method gets a Hermes-emit step that mirrors what
+- **3g.1 — Builder writes Writ in addition to variants.** Each
+  `LirBuilder` method gets a Writ-emit step that mirrors what
   `LirMirrorEmitter` does today. `LirMirrorEmitter` stays alive but
   becomes redundant; an assert verifies the two writers agree on each
   node's keys, then the assert is removed when 3g.1 is fully landed.
@@ -147,7 +147,7 @@ against the existing 916+ ctest suite.
 
 - **3g.4 — Delete variant types.** Remove `lir::LExpr`/`LStmt`/`Pattern`
   structs, all `lir::EFoo`/`lir::SFoo` payloads, `EClosure`,
-  `LMatchArm`, `LBlock`'s `stmts` vector (replaced by Hermes Array of
+  `LMatchArm`, `LBlock`'s `stmts` vector (replaced by Writ Array of
   StmtRef in zone). `LirBuilder`'s return types become `ExprRef` /
   `StmtRef` / `PatRef`. The interim back-pointer from 3g.2 is gone.
   `LExprPtr` / `LStmtPtr` typedefs are deleted. This is the largest
@@ -187,7 +187,7 @@ it already takes `LProgram&` and can reach the zone through it.
 - **`expr_ref_of` disappears.** Anywhere that looks up identity via a
   variant pointer (e.g. mono clone-table, borrow-check provenance
   table) keys directly off the `(arena, offset)` pair instead.
-- **Risk: zone size grows visibly during compilation.** Hermes zones
+- **Risk: zone size grows visibly during compilation.** Writ zones
   are bump-allocated; without a freeze step we never reclaim. For
   realistic programs the zone holds the entire L-IR through codegen
   anyway, so the change is "we hold it earlier", not "we hold it

@@ -29,7 +29,7 @@ Consumers writing `use std.lang.option;` continue to compile; they see the same 
 
 **OPTIONAL** for narrow-use modules:
 
-- Hermes-internal sub-packages (only stdlib internals use them)
+- Writ-internal sub-packages (only stdlib internals use them)
 - Recently-added test-only packages
 - Single-consumer modules
 

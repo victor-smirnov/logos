@@ -10,7 +10,7 @@ closed; this revision reflects the current state.*
 Canonical map of how `logosc` manages memory and how every language feature
 interacts with it. Read this before touching allocation / drop / move / borrow /
 Box / Vec / enum-repr. Target model is **Rust ownership + RAII** (see
-`feedback_think_in_rust`); divergences are either the blessed **Zone/Hermes
+`feedback_think_in_rust`); divergences are either the blessed **Zone/Writ
 region** set or **bugs/debt** (flagged ⚠️/🐞 below).
 
 ---
@@ -25,7 +25,7 @@ Logos has **two coexisting memory disciplines**:
    compiler-emitted leaks (enum heap block, fat-ptr promotions, vtable heap,
    escaping closure env) are fixed, and assignment now drops-before-replace with
    Rust-faithful drop elaboration.
-2. **Zone / region memory (Hermes)** — the BLESSED divergence. Arena/bump
+2. **Zone / region memory (Writ)** — the BLESSED divergence. Arena/bump
    allocation; objects inside a zone use relative offsets (`RelPtr`, `AnyVal`,
    `#[zoned]` structs), have **no per-object ownership or destructors**, and the
    whole region is freed in one shot when its `MemHolder` refcount hits 0. The
@@ -252,7 +252,7 @@ helper.)
 | **assignment `x=y`** | — | ✅ drop-before-replace + Rust **drop elaboration** (static placement, flags only for maybe-init) | source moved (suppress double-free) | assign-while-borrowed ✅ | ✅ full Rust drop semantics |
 | **match** | binds payload (may move scrutinee) | scrutinee-move avoids double-free; match-temp dropped | `mark_match_scrutinee_moved` (incl PLACE) | per-arm move union | ✅ |
 | **generic fn** | per-mono | drop via mono re-mangle | move deferred to mono | ✅ body borrow-checked pre-mono in exclusivity-only mode (P2-10, `42998241`); concrete moves checked on specializations | ✅ (full generic-aware move analysis remains a refinement) |
-| **Zone/Hermes** | arena bump (MemHolder) | region freed at rc0; no per-object drop | RelPtr/AnyVal offsets; manual retain/release | n/a (offsets) | ✅ blessed divergence |
+| **Zone/Writ** | arena bump (MemHolder) | region freed at rc0; no per-object drop | RelPtr/AnyVal offsets; manual retain/release | n/a (offsets) | ✅ blessed divergence |
 
 ---
 
@@ -368,7 +368,7 @@ helper.)
   field access, tail-as-slice + `.len()` + indexing, `dst_from_raw_parts::<Foo>`
   construction over existing memory; **owning `Box<Foo>`** collapses to owning
   DstRef, construct via `dst_from_raw_parts(..) as Box<Foo>`, `&bb` deref-coerce
-  to `&Foo`, drop = prefix-field drops + tail-element loop + free. HermesString
+  to `&Foo`, drop = prefix-field drops + tail-element loop + free. WritString
   stays Zone-hand-rolled (thin ptr + length-in-content + variable prefix — a
   different model, intentional Zone-side divergence).
 
@@ -452,7 +452,7 @@ The memory-management initiative ran 2026-05-26 → 05-28. Landmark work, in ord
   load — the owning DstRef value IS a reference, and DstRef is an alloca
   binding); `gen_drop_owning_dst` drops prefix fields (gep_field) + tail
   elements (runtime loop, gep_field to tail base) + frees the block. Lesson
-  baked into the memory file: HermesString stays Zone-hand-rolled (thin ptr,
+  baked into the memory file: WritString stays Zone-hand-rolled (thin ptr,
   length-in-content, variable prefix — a different model from Rust fat-DST and
   intentionally NOT migrated).
 - **RFC-2229 phase 1 — field-path capture exclusivity** (`20c817d5`) — sema
@@ -524,7 +524,7 @@ The memory-management initiative ran 2026-05-26 → 05-28. Landmark work, in ord
     on a substituted-to-dyn TypeVar receiver
     (`tick_generic<C: ?Sized + Counter>(c: &mut C)` invoked with
     `&mut dyn Counter`) reads the fat-pair load correctly.
-  One stdlib site (`Hermes::import_from`) updated from `let p: *const _ =
+  One stdlib site (`Writ::import_from`) updated from `let p: *const _ =
   self;` to `let p: *const _ = (&*self) as *const _;` — per-Rust the
   former MOVES `self` via the implicit `&mut → *const` raw-pointer
   coercion at let-binding (a single Rust-faithful site, not a workaround).

@@ -142,20 +142,20 @@ Maybe::<i32>::None            // (turbofish via call_expr) — see Generics
 
 List and map comprehensions desugar to `for`-loop accumulators. The binder is a single `IDENT` and the iterand must be an array or slice (not `Vec` — iterate `&v[..]`). They are eager; lazy iterators come from explicit `Iterator` chains.
 
-### Hermes literals
+### Writ literals
 
 ```logos
-@{"name": "Alice", "age": 30}        // hermes map
-@[1, 2, 3]                            // hermes array
+@{"name": "Alice", "age": 30}        // writ map
+@[1, 2, 3]                            // writ array
 @<I32>[1, 2, 3]                       // typed dense array
 @<I32, AnyVal>{1: @42}                // typed map
 @"hello"  @42  @true  @null           // scalar SDN values
-@[x for x in xs]                      // hermes list comprehension
+@[x for x in xs]                      // writ list comprehension
 ```
 
-`@`-prefixed literals build immutable Hermes values stored in rodata (`HermesStatic`). Inner values inside a Hermes literal don't need their own `@`. See [Hermes](hermes.md) for the wire format and view types.
+`@`-prefixed literals build immutable Writ values stored in rodata (`WritStatic`). Inner values inside a Writ literal don't need their own `@`. See [Writ](writ.md) for the wire format and view types.
 
-`$ident` and `${expr}` inside a Hermes literal are *capture* placeholders that splice runtime values into the literal — they require `metacall` context or run-time builder semantics, see [Metaprogramming](metaprog.md#capture).
+`$ident` and `${expr}` inside a Writ literal are *capture* placeholders that splice runtime values into the literal — they require `metacall` context or run-time builder semantics, see [Metaprogramming](metaprog.md#capture).
 
 ### Closures
 

@@ -192,7 +192,7 @@ v2 — re-audited 2026-06-12 (v1: 2026-05-30); spec: rust-lang/reference (local 
 
 **Logos:** `FN` in trait/impl context; `ASSOC_TYPE_DEF` (`grammars/logos.peg:931-935`, GAT `type_param_list`, bounds-only + `= default` alts); `ASSOC_CONST_DEF` (`:939-941` — **now admits `= expr` default**) / `ASSOC_CONST_IMPL` (`:1038`). Qualified projection `<T as Tr>::Item` (`:1433`).
 
-**Verdict: OK.** ✅ since v1: GATs confirmed practically Rust-conformant — decl/impl/projection-with-args/lifetime-args/bounds/mono multi-step all exercised (`ref_gat_rust_conformant`; used in Hermes fabric `Datatype::View<S>`); object-safety interaction closed (see §7).
+**Verdict: OK.** ✅ since v1: GATs confirmed practically Rust-conformant — decl/impl/projection-with-args/lifetime-args/bounds/mono multi-step all exercised (`ref_gat_rust_conformant`; used in Writ fabric `Datatype::View<S>`); object-safety interaction closed (see §7).
 
 **Interactions:** trait/impl sides, generics, `Self::Item` paths, GATs, impl-side where/assoc-type-equality — OK. Impl-side assoc-const definition + `S::C` access — OK (probe exit 9).
 

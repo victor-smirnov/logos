@@ -23,20 +23,20 @@ Metafunctions manipulate compile-time values of these types:
 
 These live in `std.compiler.metaprog.*` modules. They are ordinary structs whose `raw` field is an `AnyVal`; the compiler bakes the resolved value at sema time, so metafunctions can inspect them at JIT time without the compiler being involved at runtime.
 
-## HermesStatic Constants
+## WritStatic Constants
 
-`HermesStatic` is the compile-time value-class for Hermes literals — `@{...}` and `@[...]`. It is a *value*, not a type; type-position uses (`Foo<CFG>`) consume it via `const CFG: HermesStatic` const-generics. Identity is the FNV-1a hash of the parsed AST: same content at different positions → same identity, different content → different type.
+`WritStatic` is the compile-time value-class for Writ literals — `@{...}` and `@[...]`. It is a *value*, not a type; type-position uses (`Foo<CFG>`) consume it via `const CFG: WritStatic` const-generics. Identity is the FNV-1a hash of the parsed AST: same content at different positions → same identity, different content → different type.
 
 ```logos
 // Non-generic — registers as a name; const-fold sites read its slots.
-pub const StoreCfg: HermesStatic = @{
+pub const StoreCfg: WritStatic = @{
     "name":   "main",
     "ctr_id": <type:u64>,
     "snp_id": <type:u64>,
 };
 
 // Parametric — one recipe, distinct byte-hash identity per instantiation.
-pub const PMapCfg<K, V>: HermesStatic = @{
+pub const PMapCfg<K, V>: WritStatic = @{
     "key":    <type:K>,
     "value":  <type:V>,
     "fanout": 8,
@@ -72,7 +72,7 @@ The callee/expression/block:
 
 - Compiles to a regular Logos function in the metaprog JIT module.
 - For the call form: receives compile-time arguments (`Type`, `Template`, scalars, `TypeList`s).
-- Returns either a normal value (spliced as a literal) or a typed AST fragment (`Item`, `Expr`, `Stmt`, `Pat`, `Ty`) that the compiler grafts into the AST. Block form supports primitive scalar / `&str` / `HermesStatic` returns; `Hermes` (mutable) and `ExprBlob` returns stay call-only.
+- Returns either a normal value (spliced as a literal) or a typed AST fragment (`Item`, `Expr`, `Stmt`, `Pat`, `Ty`) that the compiler grafts into the AST. Block form supports primitive scalar / `&str` / `WritStatic` returns; `Writ` (mutable) and `ExprBlob` returns stay call-only.
 
 Block / paren-expr **capture rules**:
 
@@ -110,7 +110,7 @@ quote_expr! { x + y * 2 }
 quote_ty!   { Vec<i32> }
 ```
 
-`quote_*!` produces typed AST literals — the body is parsed as the corresponding form, deep-cloned into a fresh Hermes document, and emitted as a `HermesStatic` blob. Useful for building AST fragments inside metafunctions.
+`quote_*!` produces typed AST literals — the body is parsed as the corresponding form, deep-cloned into a fresh Writ document, and emitted as a `WritStatic` blob. Useful for building AST fragments inside metafunctions.
 
 ### Antiquotation
 
@@ -124,7 +124,7 @@ fn make_marker(id: Ident) -> QuoteItemBlob {
 
 In `quote_item!` the canonical antiquot form is `#(name)` for name / type-name positions and `#(blob)` for `ExprBlob`-shaped expression splices; bare `#name` is also accepted inside `<...>` (generic argument lists), which is how repeat groups like `<#( #tparams ),*>` parse. In `quote_expr!` bare `#name` is the everyday form.
 
-`quote_ty!` additionally accepts `$ident` and `$ts...` for pack-splicing — `$` is reused from Hermes-capture syntax and is a quote_ty-only spelling.
+`quote_ty!` additionally accepts `$ident` and `$ts...` for pack-splicing — `$` is reused from Writ-capture syntax and is a quote_ty-only spelling.
 
 ### Status (2026-05-04)
 
@@ -184,7 +184,7 @@ Cursor placeholders inside repeats encode their slot into AST `NAME_VAR` with th
 | Generic arg | `Foo<$t>` | `Ident` | active |
 | `#(expr)` at type position | `quote_ty! { #(type_of::<T>().ident()) }` | `Ident` via Type→AST bridge | active |
 
-`quote_ty!` reuses `$` from Hermes capture syntax to keep `#(...)` reserved for the typed bridge form. Pure antiquotation in `quote_ty!` is `$`-only.
+`quote_ty!` reuses `$` from Writ capture syntax to keep `#(...)` reserved for the typed bridge form. Pure antiquotation in `quote_ty!` is `$`-only.
 
 #### Not implemented
 
@@ -263,7 +263,7 @@ either direction.**
 
 - **Synthesis is via quotes.** A metaprogram never builds AST nodes by hand.
   It produces code through typed quote forms (`quote_item!`, `quote_expr!`,
-  `quote_ty!`, `quote_struct_lit_*`) with `#(expr)` antiquotation and Hermes
+  `quote_ty!`, `quote_struct_lit_*`) with `#(expr)` antiquotation and Writ
   blob splices. There is no public `make_expr_call(...)` / `make_field(...)`
   builder surface.
 
@@ -301,7 +301,7 @@ unless explicitly marked roadmap).
 | Repeat groups | `$( ... )*` driven by macro-pattern parse | `#(#xs),*` accepts `Vec<Ident>` — arity is a runtime value of the metaprogram (cursor + `cursors_blob`) |
 | Type reflection | none — proc-macro cannot ask "does `T: Clone`?", "what are its fields?" | first-class: `meta_field_iter`, `meta_has_trait`, `meta_typelist`, `meta_template_handle`, `meta_variant_intrinsics`, `meta_type_align`, `Type::ident()` |
 | Type → AST bridge | absent (token-level only) | `Type::ident()`, `quote_ty!` cursors, `meta_reify_type`, `apply` |
-| Splice format | `TokenStream` (macro-only) | Hermes blob — same format as runtime data, on-disk artefacts, and IR mirror |
+| Splice format | `TokenStream` (macro-only) | Writ blob — same format as runtime data, on-disk artefacts, and IR mirror |
 | Hygiene | automatic def-/call-site, limited manual control; `$crate` as escape hatch | automatic + explicit `gensym(prefix)` returning `Ident`; composes like normal code |
 | Cross-expansion dedup | rustc/LLVM ODR + ConstantMerge — opaque to the macro | metaprogram-visible: `quote_item!` walk-dedupe, content-keyed rodata in mlir-gen, `metacall_item_odr_dedup` |
 | Generics ↔ macros | independent systems; macros cannot observe instantiations | two-layer model: A = substitution generics, B = metafunctions over types-as-data; B observes A |

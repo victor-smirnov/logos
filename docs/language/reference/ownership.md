@@ -110,13 +110,13 @@ Casting `&T → *const T` and `&mut T → *mut T` is implicit when the destinati
 
 ## View Types and Fat Pointers
 
-For Hermes-stored objects, *view* types replace bare references:
+For Writ-stored objects, *view* types replace bare references:
 
 ```logos
-fn show(v: HermesCtrView<'_>) -> Result<(), io::Error> { ... }
+fn show(v: WritCtrView<'_>) -> Result<(), io::Error> { ... }
 ```
 
-A `HermesCtrView<'a>` is a fat borrow `(base, &doc)` — the view carries enough state to resolve relative pointers without owning the document. See [memory: feat_view_ownership](../../README.md) and [memory: feat_hermes_read_write_traits](../../README.md). The compiler infers view-or-reference mode from escape analysis; `#[yields_view_of]` and `.own(source)` are explicit annotations when inference is wrong.
+A `WritCtrView<'a>` is a fat borrow `(base, &doc)` — the view carries enough state to resolve relative pointers without owning the document. See [memory: feat_view_ownership](../../README.md) and [memory: feat_writ_read_write_traits](../../README.md). The compiler infers view-or-reference mode from escape analysis; `#[yields_view_of]` and `.own(source)` are explicit annotations when inference is wrong.
 
 ## Roadmap
 

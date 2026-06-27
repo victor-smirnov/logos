@@ -114,7 +114,7 @@ fn read_config() -> Result<Config, Error> {
 
 ## Comprehensions
 
-List and map comprehensions are part of the surface syntax: `[expr for x in iter if guard]` produces a `Vec<T>`, and `{k: v for x in iter}` produces a `HashMap<K, V>`. The `@`-prefixed forms (`@[...]`, `@{...}`) produce Hermes documents directly. See [Comprehensions](comprehensions.md).
+List and map comprehensions are part of the surface syntax: `[expr for x in iter if guard]` produces a `Vec<T>`, and `{k: v for x in iter}` produces a `HashMap<K, V>`. The `@`-prefixed forms (`@[...]`, `@{...}`) produce Writ documents directly. See [Comprehensions](comprehensions.md).
 
 ## References
 

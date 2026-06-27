@@ -15,7 +15,7 @@ Three independent pressures converge on the same architectural answer:
 
 1. **Hard 4 GB arena limit.** AST/LIR is granular. Stdlib's mono output is
    already 22 MB (M4 step 1, [M4 round 21]). Trajectory: app codebases will
-   hit 4 GB single-arena limits within a year of real use. Hermes arena
+   hit 4 GB single-arena limits within a year of real use. Writ arena
    uses 32-bit offsets — physical limit, no growth path.
 
 2. **Cold sema re-lowers stdlib every compile (~300 ms).** Current
@@ -64,7 +64,7 @@ Inside any arena: local arena_offset_t / RelativePtr as today.
 ```
 
 **Hot path locality:** Within a single arena, references are local offsets
-(existing Hermes mechanism, sub-nanosecond pointer arithmetic). Cross-arena
+(existing Writ mechanism, sub-nanosecond pointer arithmetic). Cross-arena
 references go through ArenaPool dispatch — three indirections, all
 cache-warm. Locality invariant: local refs outnumber external refs by
 ~100×, so branch prediction stays on the local-fast-path.
@@ -76,7 +76,7 @@ makes cross-arena refs safe.
 
 ## 3. Core abstractions
 
-### 3.1 ExternalRef (Hermes type)
+### 3.1 ExternalRef (Writ type)
 
 ```
 TypeTag::ExternalRef        — new tag
@@ -111,13 +111,13 @@ LirArenaRoot.DIRECTORY → ObjectArray<AnyVal>
 
 **Why ObjectArray<AnyVal> and not flat `u32[]`:**
 
-A flat `u32[count]` of raw arena offsets would break Hermes
+A flat `u32[count]` of raw arena offsets would break Writ
 compactification — the compactifier sees raw integers, not pointers, so:
 - Reachability tracing misses the targets → may discard them
 - Relocation pass doesn't update raw offsets → dangling refs after compact
 
 `ObjectArray<AnyVal>` gives compactifier compatibility out of the box
-(Case B per the `[[hermes-immutable-doc-exports-pattern]]` note):
+(Case B per the `[[writ-immutable-doc-exports-pattern]]` note):
 - Compactifier traces through AnyVal pointers → keeps targets alive
 - Relocation patches AnyVal offsets automatically
 - Sparse directories supported via `AnyVal::null()` slots (useful for
@@ -212,7 +212,7 @@ These hold across all phases. Violations are bugs.
 
 | # | Invariant | Where enforced |
 |---|-----------|----------------|
-| 1  | `DocumentHeader` stays 4 bytes (single `root_offset`) | Hermes core |
+| 1  | `DocumentHeader` stays 4 bytes (single `root_offset`) | Writ core |
 | 2  | Published `obj_id`s are append-only, never reused within an arena's lifetime | publish phase |
 | 3  | Published object content is frozen (arena sealed after publish) | publish phase + `Arena::seal()` |
 | 4  | User compile never writes to library arena (read-only after load) | sema + mono |
@@ -296,7 +296,7 @@ monolithic `liblstdlib.a` is treated as a single "library arena".
      - construct LirArenaRoot (SCHEMA_VERSION, MODULE_NAME, DEPS, DIRECTORY)
      - set DocumentHeader.root_offset → LirArenaRoot
 5. Arena::seal()
-6. write to .hermes0 (in .a archive)
+6. write to .writ0 (in .a archive)
 ```
 
 **Publish policy** — what gets an obj_id:
@@ -323,7 +323,7 @@ directory. Negligible vs 22 MB arena.
      load user libs    → register_module("mylib",    deps=[...])
 
 2. For each loaded module:
-     from_bytes_copy(lir_blob)  → fresh Hermes doc
+     from_bytes_copy(lir_blob)  → fresh Writ doc
      walk DocumentHeader.root → LirArenaRoot
      read DIRECTORY field → cache directory_offset in pool
      read name_to_obj_id map from exports trailer (Phase 3 extends M3 trailer)
@@ -365,11 +365,11 @@ local path when locality invariant holds.
 
 **Preserved:**
 - `DocumentHeader` (4 bytes, single `root_offset`) — unchanged
-- AST `.hermes0` format — unchanged (no LirArenaRoot, no directory)
+- AST `.writ0` format — unchanged (no LirArenaRoot, no directory)
 - `binary_codec` for AST documents — unchanged
-- M3-era `.hermes0` v3 archives — readable (no LIR blob OR LIR blob without
+- M3-era `.writ0` v3 archives — readable (no LIR blob OR LIR blob without
   LirArenaRoot, treated as legacy through Phase 8)
-- Existing single-arena Hermes docs — read with empty pool, no External refs
+- Existing single-arena Writ docs — read with empty pool, no External refs
 - Bootstrap compiler — operates on hardcoded primitives, no coremeta needed
 
 **Changes:**
@@ -378,7 +378,7 @@ local path when locality invariant holds.
 - `lir_view` dispatchers (Phase 2) — handle ExternalRef
 - Sema/Mono internals (Phase 4/5) — read across arenas
 
-**No silent format breakage:** every Phase commit that touches `.hermes0`
+**No silent format breakage:** every Phase commit that touches `.writ0`
 format documents what new readers tolerate, what old readers do, and
 which environment-variable flags preserve legacy paths during rollout.
 
@@ -414,8 +414,8 @@ Sessions are estimates — sequencing matters more than precise count.
 ### Phase 0 — ArenaPool API + skeleton (≈ 0.5 session)
 
 **Deliverables:**
-- `include/logos/hermes/arena_pool.hpp` — `ArenaPool` interface + `ModuleHandle`
-- `src/hermes/arena_pool.cpp` — `InMemoryArenaPool` implementation
+- `include/logos/writ/arena_pool.hpp` — `ArenaPool` interface + `ModuleHandle`
+- `src/writ/arena_pool.cpp` — `InMemoryArenaPool` implementation
 - Unit test: register 2 dummy MemHolders, lookup by name + by id, refcount, drop
 - No consumer wiring; no existing TU changes
 
@@ -423,7 +423,7 @@ Sessions are estimates — sequencing matters more than precise count.
 - New unit test passes
 - Full ctest 3192/3192 unchanged
 
-### Phase 1 — Hermes foundation (≈ 2 sessions)
+### Phase 1 — Writ foundation (≈ 2 sessions)
 
 **1.A — Type tags + structs:**
 - `TypeTag::ExternalRef`, `::LirArenaRoot` added to enum
@@ -456,7 +456,7 @@ Sessions are estimates — sequencing matters more than precise count.
 - Compiler still effectively single-arena; just plumbing in place
 
 **2.B — lir_view dispatchers:**
-- `ExprRef`, `StmtRef`, `BlockRef`, `PatRef`, `HermesValRef` gain
+- `ExprRef`, `StmtRef`, `BlockRef`, `PatRef`, `WritValRef` gain
   cross-arena traversal: when child field is `ExternalRef`, resolve via
   pool, continue in target arena
 - Manual cross-arena test: walk a synthetic mixed-arena LIR via existing
@@ -471,7 +471,7 @@ Sessions are estimates — sequencing matters more than precise count.
 **Deliverables:**
 - emit_module gains publish phase: walk → assign obj_ids → build directory
   → build LirArenaRoot → seal
-- `.hermes0` lir_blob now wraps the LirArenaRoot (the blob's root_offset
+- `.writ0` lir_blob now wraps the LirArenaRoot (the blob's root_offset
   points to it)
 - module_loader walks LirArenaRoot, registers arena with pool, exposes
   `name → obj_id` map
@@ -524,7 +524,7 @@ Sessions are estimates — sequencing matters more than precise count.
 
 **5.C — `drain_method_worklist` + edge cases:**
 - Lazy method instantiation handles external body refs
-- Closures, hermes literals (`@{...}`), metacall sites — all handle
+- Closures, writ literals (`@{...}`), metacall sites — all handle
   cross-arena traversal
 
 **Exit criteria:**
@@ -623,7 +623,7 @@ These are deferred — not blockers for Phase 0-8.
 
 | Term | Meaning |
 |------|---------|
-| arena | A contiguous Hermes-managed byte segment, capped at 4 GB. Holds typed objects with internal `RelativePtr` refs. |
+| arena | A contiguous Writ-managed byte segment, capped at 4 GB. Holds typed objects with internal `RelativePtr` refs. |
 | arena_id | 3-byte (24-bit) process-local identifier assigned by ArenaPool. |
 | obj_id | 4-byte (32-bit) per-arena published-item identifier. Stable for arena lifetime. |
 | `ArenaPool` | Process-global registry mapping arena_id → MemHolder*. |
@@ -638,10 +638,10 @@ These are deferred — not blockers for Phase 0-8.
 
 ## 13. References
 
-- M3 (rounds 16-20) — names catalog in `.hermes0` exports trailer
+- M3 (rounds 16-20) — names catalog in `.writ0` exports trailer
 - M4 step 1 (round 21) — LIR blob shipped (basis for Phase 3)
 - M5 step 6 (round 10) — in-process LIR bundle cache
 - `docs/internals/big-memoria-architecture.md` — future substrate
-- `docs/internals/hermes-runtime.md` — Hermes type system
-- `[[hermes-immutable-doc-exports-pattern]]` (memory) — Case B name-keyed exports
+- `docs/internals/writ-runtime.md` — Writ type system
+- `[[writ-immutable-doc-exports-pattern]]` (memory) — Case B name-keyed exports
 - `[[ref-subsystem-persistent]]` (memory) — Memoria infrastructure (future substrate)

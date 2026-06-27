@@ -1,7 +1,7 @@
 # Bug catalog: Pattern Matching
 
 **Group**: 9 — Pattern Matching
-**Grammar rules covered**: `pattern`, `pat_binding`, `pat_binding_list`, `pat_field`, `pat_field_list`, `pat_slice_elem`, `pat_slice_elems`, `pat_hermes_map_entry`, `pat_hermes_map_entries`, `pat_hermes_arr_elem`, `pat_hermes_arr_elems`
+**Grammar rules covered**: `pattern`, `pat_binding`, `pat_binding_list`, `pat_field`, `pat_field_list`, `pat_slice_elem`, `pat_slice_elems`, `pat_writ_map_entry`, `pat_writ_map_entries`, `pat_writ_arr_elem`, `pat_writ_arr_elems`
 **Reference doc**: [docs/language/reference/patterns.md](../language/reference/patterns.md)
 **Implementation entry points**:
 - [src/compiler/sema_pat.cpp](../../src/compiler/sema_pat.cpp) (or sema_stmt.cpp/sema_expr.cpp — pattern lowering scattered) — pattern lowering, binding registration
@@ -163,12 +163,12 @@ fn todo() -> Empty { return todo(); }
 **Suspected root**: Grammar's `match_arm+` (one-or-more) instead of `match_arm*`. Once empty enums work cleanly (they currently compile silently — see B-it-06), empty match should round out the story.
 **Tags**: `design:incomplete`, `tech-debt:grammar-too-strict`
 
-### B-pt-09: Hermes-pattern positions gated on missing stdlib helper
+### B-pt-09: Writ-pattern positions gated on missing stdlib helper
 
 **Severity**: feature-incomplete
-**Status**: confirmed-feature-incomplete (2026-05-07) — `match arr { @[a, b, c] => ... }` is rejected by sema with `Hermes pattern needs stdlib helper 'hermes_pat_array_slot'; use logos.mem.hermes.pat;`, but `std.hermes.pat` does not exist in stdlib. Sema gate works; the stdlib side was never written.
-**Note**: To revive, write `stdlib/std/hermes/pat.logos` exposing the helpers the gate names (`hermes_pat_array_slot`, etc.). Same shape as B-he-09/B-he-10.
-**Tags**: feature-incomplete:no-stdlib-helper, deferred-to-hermes-group
+**Status**: confirmed-feature-incomplete (2026-05-07) — `match arr { @[a, b, c] => ... }` is rejected by sema with `Writ pattern needs stdlib helper 'writ_pat_array_slot'; use logos.mem.writ.pat;`, but `std.writ.pat` does not exist in stdlib. Sema gate works; the stdlib side was never written.
+**Note**: To revive, write `stdlib/std/writ/pat.logos` exposing the helpers the gate names (`writ_pat_array_slot`, etc.). Same shape as B-he-09/B-he-10.
+**Tags**: feature-incomplete:no-stdlib-helper, deferred-to-writ-group
 
 ### B-pt-10: Or-pattern with bindings — FIXED
 

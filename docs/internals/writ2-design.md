@@ -1,6 +1,6 @@
-# Hermes2 — Design
+# Writ2 — Design
 
-The **target architecture** for Logos's Hermes subsystem. Hermes2
+The **target architecture** for Logos's Writ subsystem. Writ2
 replaces relocation-based zoned storage (move-on-grow + base-relative
 offsets + per-handle residency) with a model where **nothing ever moves
 in place**, references are **self-relative**, and the only run-time
@@ -8,9 +8,9 @@ guarantee left to provide is **liveness of immutable data** — supplied
 by a coarse, holder-level refcount (a copying-GC residency root).
 
 Status: **design accepted (2026-06-03), implementation not started.**
-Implemented **in parts, in parallel with the current Hermes**
-(`stdlib/lang/hermes/*`); the current variant retires **wholesale** once
-Hermes2 reaches parity. Companion to and partial successor of
+Implemented **in parts, in parallel with the current Writ**
+(`stdlib/lang/writ/*`); the current variant retires **wholesale** once
+Writ2 reaches parity. Companion to and partial successor of
 [zoned-types-design.md](zoned-types-design.md): the borrow-foundation
 thesis (§3 there), the smart-pointer `(B)` fix (§11b there, already
 landed), and the type roster (§8 there) carry over; the relocation
@@ -38,9 +38,9 @@ through the container, and a per-handle residency mechanism is needed to
 know what is still alive. Each of those is a real cost paid on the hot
 path.
 
-Hermes2 removes the *cause*:
+Writ2 removes the *cause*:
 
-| Current (relocation) | Hermes2 (never-move) |
+| Current (relocation) | Writ2 (never-move) |
 |---|---|
 | `grow` = `realloc` → base moves, blocks shift | `grow` = **append a new segment**; existing data stays put |
 | references = base-relative `u32`; need the base | references = **self-relative `i64`**; the anchor is the reference's own address (always at hand) |
@@ -102,7 +102,7 @@ Consequences:
 - **A rel_ptr's value form is absolute (it moves like `String`).** The i64 delta
   is only the at-rest encoding in zoned storage; a rel_ptr *value* (local, arg,
   return, register) is the resolved absolute pointer and moves by plain memcpy —
-  see [hermes2-minimal-container-plan.md](hermes2-minimal-container-plan.md)
+  see [writ2-minimal-container-plan.md](writ2-minimal-container-plan.md)
   Phase 0.5. This refines the "cannot be carried bare" stance above: it is
   carried bare *as the absolute compute form*, re-lowered only on store into
   zoned storage.
@@ -122,7 +122,7 @@ Consequences:
 only writes a fixed-size field in place (set-in-place, no growth) needs
 **no** allocator — same bits as `&self`, different (exclusive) borrow.
 
-### Why `&hermes_obj` cannot become `&mut hermes_obj`
+### Why `&writ_obj` cannot become `&mut writ_obj`
 
 Two independent walls agree (a good sign — the unsound op is
 *unrepresentable*, not merely *disallowed*):
@@ -130,7 +130,7 @@ Two independent walls agree (a good sign — the unsound op is
 1. **Rust's rule.** There is no safe `&T → &mut T` coercion; only the
    reverse downgrade. Upgrading would violate exclusivity.
 2. **Representation.** `&` carries no `alloc_fn`, so a growing `&mut`
-   cannot even be assembled from it. Stronger still: **many `&hermes_obj`
+   cannot even be assembled from it. Stronger still: **many `&writ_obj`
    have no allocator at all** — views over rodata, over a sealed buffer,
    over someone else's segment set. There is physically nothing to grow
    into.
@@ -145,11 +145,11 @@ through the owner**, never conjured at a borrow site — the §7
 
 ## 3. Segment allocator: never-move, free-en-masse
 
-A Hermes2 container owns a **list of segments** (independently
+A Writ2 container owns a **list of segments** (independently
 `malloc`'d chunks). Allocation bumps within the current segment; when it
 is full, a **new segment is appended** — existing segments are **never
 moved or reallocated**. The container frees all its segments **en masse**
-on drop. (This is how the Memoria Hermes already works.)
+on drop. (This is how the Memoria Writ already works.)
 
 - **Growth is O(1)** (append) with no copy and no invalidation — strictly
   cheaper than `realloc`-growth, which pays amortized O(size) copies and
@@ -223,7 +223,7 @@ This is the `let (holder, view) = ctr.get(0)` model: the holder is the
 GC root that keeps the (immutable) version alive; the view borrows from
 it; the borrow checker ties `view`'s lifetime to `holder`'s.
 
-The counter is **non-atomic (`Rc`, not `Arc`) for now** — Hermes2 has no
+The counter is **non-atomic (`Rc`, not `Arc`) for now** — Writ2 has no
 multi-threaded data sharing; the atomic/`Arc` story is a separate effort
 *after* this lands. (Per the standing memory-management direction.)
 
@@ -253,7 +253,7 @@ guard against relocation (there is none).
 ## 6. Nested coupling (Memoria `PackedAllocator`) — forward note
 
 The standalone container above is the first and primary target. The
-nested case — a Hermes2 container embedded in another relocatable host,
+nested case — a Writ2 container embedded in another relocatable host,
 or Memoria's `PackedAllocator` carving sub-zones inside one block — is a
 **later phase** and must preserve the same invariant: **no in-place
 shift**. Two facts make this tractable and keep self-relative pointers
@@ -297,11 +297,11 @@ register an unimplemented divergence as live):
 
 ## 8. What this replaces (retired wholesale at the end)
 
-Hermes2 supersedes the current scaffold in `stdlib/lang/hermes/*` and its
+Writ2 supersedes the current scaffold in `stdlib/lang/writ/*` and its
 runtime support. During implementation the two coexist; at parity the
 current variant is removed in one batch.
 
-| Current | Hermes2 |
+| Current | Writ2 |
 |---|---|
 | `MemHolder` (base ptr + capacity + RC-chain + `destroyer` callback) | the container = segment list + `Rc<dyn Resident>` holder |
 | `RelPtr<T>` = base-relative `u32` (needs external base) | `RelPtr<T>` = self-relative `i64` (no base) |
@@ -311,22 +311,22 @@ current variant is removed in one batch.
 
 The smart-pointer trait-object representation (`Rc/Arc<dyn>` as structs
 over custom-DST inner — the `(B)` fix) is **already landed** and is
-independent of Hermes2.
+independent of Writ2.
 
 ---
 
 ## 9. Implementation plan (in parts, parallel)
 
 Each part is self-contained, gated on the full suite (L4), and lands
-*alongside* the current Hermes (new modules, e.g.
-`stdlib/lang/hermes2/*`), so nothing breaks until the final cutover.
+*alongside* the current Writ (new modules, e.g.
+`stdlib/lang/writ2/*`), so nothing breaks until the final cutover.
 
 1. **`RelPtr<T>` self-relative `i64`** — the reference type + compiler
    resolution at field-access (`&field + delta`), null sentinel
    (`delta==0`), intrinsic-backed ops. Pure leaf; no allocator yet.
 2. **Never-move segment container** — segment list, bump-within-segment,
    append-on-full, free-en-masse, the `add_segment` reach assert. A
-   standalone `Hermes2` root owning segments.
+   standalone `Writ2` root owning segments.
 3. **Object placement + thin read views** — allocate typed objects into
    segments, in-band headers, thin resolved `&self` reads; field/array
    access through `RelPtr`. No mutation-with-growth yet.
@@ -339,8 +339,8 @@ Each part is self-contained, gated on the full suite (L4), and lands
 6. **Copy-compaction (copying GC)** — trace from root, copy live to a
    fresh container, rewrite deltas; old `Resident` freed by RC when its
    last holder drops; decoupled from growth.
-7. **Parity + cutover** — port the Hermes consumers to Hermes2, then
-   remove `stdlib/lang/hermes/*` and its runtime support in one batch.
+7. **Parity + cutover** — port the Writ consumers to Writ2, then
+   remove `stdlib/lang/writ/*` and its runtime support in one batch.
 
 Later / separate: nested `PackedAllocator` coupling (§6); the
 atomic/`Arc` (multi-threaded) residency variant.

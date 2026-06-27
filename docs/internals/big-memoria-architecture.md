@@ -49,7 +49,7 @@ drops. The differences are not gaps to be closed — they are scope:
 - **Container has one tier of types: `<K, V, const CFG>`.** Big Memoria's
   `BTTypes<Profile, ContainerSelector>` chains through specialisations
   (BTTypes<CowProfile, BTSingleStream> ← BTTypes<CowProfile, Map<K,V>>) to
-  build a deep types-bag. Mini-memoria has K, V, and a HermesStatic CFG;
+  build a deep types-bag. Mini-memoria has K, V, and a WritStatic CFG;
   the assembler-metafn does the role of the BTTypes specialisation chain
   but at code-emission time, not via TMP type-list manipulation.
 - **No multi-stream containers.** Mini-memoria is BT_SS-equivalent in
@@ -919,11 +919,11 @@ on-block byte layout — those are out of scope.
 
 - 5 files: `btree.logos`, `view.logos`, `mutv.logos`, `store.logos`,
   `cfg.logos`.
-- One concrete shape: `BTreeNode<K, V, const CFG: HermesStatic>` —
+- One concrete shape: `BTreeNode<K, V, const CFG: WritStatic>` —
   *one* stream (key column + value column glued), *one* node type
   (no branch/leaf split at the type level — single struct, branching at
   `level/leaf` flags), *one* persistence mode (CoW path-copy).
-- Generic over `<K, V, CFG>`; `CFG` is a HermesStatic carrying at least
+- Generic over `<K, V, CFG>`; `CFG` is a WritStatic carrying at least
   `fanout`. Phase-1 assembler `validate_pmap_cfg(cfg) -> i32` does shape
   checks.
 - `LockingStore` is a typed-erased malloc-arena DAG owner; snapshots are
@@ -933,7 +933,7 @@ on-block byte layout — those are out of scope.
 
 | Big Memoria                            | pmap_v2 today                              | Extension hook to keep open |
 |----------------------------------------|--------------------------------------------|-----------------------------|
-| `Profile`                              | `LockingStore` (single, hard-coded)        | Treat `CFG` as also the profile carrier OR add a separate `STORE: HermesStatic` const-generic. **Don't** bake `LockingStore` into the type signature of `BTreeNode`. |
+| `Profile`                              | `LockingStore` (single, hard-coded)        | Treat `CFG` as also the profile carrier OR add a separate `STORE: WritStatic` const-generic. **Don't** bake `LockingStore` into the type signature of `BTreeNode`. |
 | `BTTypes<Profile, X>`                  | implicit — methods are free-fns prefixed `_c`/`pmv2_` | Keep the *trait dispatcher* convention: every container method should be a free fn `op_X(view_or_mut, …)`, never a method on a concrete struct. That's what lets you later swap `BTreeNode` for `BTreeBranch` + `BTreeLeaf` without changing call sites. |
 | `StreamDescriptors` (TypeList of `StreamTF`) | hard-coded "key column + value column" inside `BTreeNode` | Lift the **column shape** into CFG. Even if today CFG only carries `fanout`, document `cfg.streams: [{key_ty, val_ty}]` as a future field and have `cfg.logos` *ignore-but-pass-through* unknown CFG slots. |
 | Stream / Substream                     | implicit — keys & values are SoA inside the node | Tag the existing key/value arrays as "substream 0" and "substream 1". Even informally — comment-block. When you later add a third column (e.g. SSRLE structure stream for set/multimap reuse), the node layout must be substream-indexed, not field-named. |
@@ -957,7 +957,7 @@ now, would force a rewrite when generalising toward big-Memoria:
 2. **Carrying `LockingStore` in `pmap_v2` types.** Today `Snapshot<K,V,CFG>` references `LockingStore`. If `Profile` is ever to mean anything (transient arena, mmap'd file, RDMA), the store must be a const-generic or a runtime trait object behind a single allocator handle, not a concrete `LockingStore`. *Mitigation:* alias it now: `type DefaultStore = LockingStore;` and use the alias everywhere.
 3. **Method-on-`PMapView` style.** Every fn that takes `&PMapView<K,V,CFG>` and reads-only is fine; every fn that takes `&mut PMapMut<K,V,CFG>` and mutates is fine. The trap is to start writing `impl<K,V,CFG> PMapMut<K,V,CFG> { fn insert(...) }` because Logos allows it — that locks the API surface to one container. *Mitigation:* keep the free-fn convention. The "container API" is a list of free fns; that *is* the container parts list.
 4. **Single iterator state.** Resist `(leaf_ptr, idx)` iterator state. `(TreePath, Position)` is one extra `Vec<NodePtr>`, but it's the only way to support concurrent iterators across CoW snapshots and BT_FL structure-stream walks.
-5. **CFG as a flat record.** Phase-1 of the assembler does shape checks. Document up front that CFG is **a recursive Hermes record with at least these slots**: `fanout: i32`, `key_ty`, `val_ty`, `streams: [...]`, `branch_storage`, `leaf_storage`. Even if `validate_pmap_cfg` only checks `fanout` today, every other field should be tolerated as `null`. Adding fields later will break code that pattern-matches the CFG schema.
+5. **CFG as a flat record.** Phase-1 of the assembler does shape checks. Document up front that CFG is **a recursive Writ record with at least these slots**: `fanout: i32`, `key_ty`, `val_ty`, `streams: [...]`, `branch_storage`, `leaf_storage`. Even if `validate_pmap_cfg` only checks `fanout` today, every other field should be tolerated as `null`. Adding fields later will break code that pattern-matches the CFG schema.
 6. **Linear-search-only vs binary-search-only choice.** Big Memoria's branch index can be sum / fenwick / radix / max — chosen per stream. `node_get_rec_c` (linear) and `node_get_rec_binary_c` (binary) is the right embryo, but the choice should be a CFG slot (`leaf_search_kind`), not a separate function name. *Mitigation:* let CFG carry `leaf_search: enum {Linear, Binary, …}` and dispatch on it inside one fn.
 7. **Sealing the `_c` / `pmv2_` prefixes.** They exist because the Logos module loader globalises function names. If/when that's lifted, the prefixes become dead weight on the API. *Mitigation:* document them as a current loader limitation, not a permanent naming convention.
 8. **No "structure stream" hook.** The first non-trivial generalisation (set, multimap) will need an SSRLE column. Even before SSRLE exists in stdlib, write `node_structure_kind(node, idx) -> i32` returning a constant `0` for pmap_v2. Future containers override it.
@@ -969,7 +969,7 @@ now, would force a rewrite when generalising toward big-Memoria:
 3. **Iterator with TreePath + Position** (still single-stream).
 4. **Shuttle abstraction** for find/skip/select (single-stream first).
 5. **Batch insert** with provider + checkpoint.
-6. **Profile abstraction** — `STORE: HermesStatic` slot on top of CFG.
+6. **Profile abstraction** — `STORE: WritStatic` slot on top of CFG.
 7. **No-CoW backend** as a second profile (transient arena).
 8. **Multi-stream CFG** — `cfg.streams: [...]`.
 9. **Structure stream** — first BT_FL-style container (multimap).

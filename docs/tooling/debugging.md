@@ -26,9 +26,9 @@ gdb has Python pretty-printers; lldb has its own formatter module
 ### Connecting the printers to a plain `gdb` session
 
 The printers ship **per compiler version** under `$(logosc --print-prefix)/share/gdb/`
-(the enum-metadata schema + Hermes layout they decode are version-coupled), so
+(the enum-metadata schema + Writ layout they decode are version-coupled), so
 coexisting `logosc-<slot>` installs each carry matching printers. `logos_gdb.py`
-auto-loads `logos_hermes_gdb.py` from the same dir.
+auto-loads `logos_writ_gdb.py` from the same dir.
 
 - **One session** (the shell expands `$(...)`, gdb's `source` does NOT):
   ```
@@ -77,7 +77,7 @@ auto-selects `lldb` → `lldb-21` → `lldb-20`.
 | `print s.field`, `ptype T` | struct fields + offsets (x86-64 ABI) |
 | pretty-printers | `String`→`"…"`, `Vec<T>`→`{…}`, `&[T]`/`str`, `Box<T>` |
 | enums | `Some(42)` / `None` / `Circle(5)` / `Rect(3, 4)` (incl. stdlib Option/Result) |
-| Hermes | `logos-hermes <expr>` decodes AnyVal/containers; AnyVal auto-printer |
+| Writ | `logos-writ <expr>` decodes AnyVal/containers; AnyVal auto-printer |
 
 `print *v.ptr@N` works (typed pointers); gdb reads `String.data` as a C string even without the printer.
 
@@ -119,16 +119,16 @@ type name): per-enum disc offset/size, payload offset, and per-variant
 gdb printer reads it from the objfile (raw ELF parse — works on cores) and
 renders the variant + payload. Loaded automatically by logos_gdb.py.
 
-## Hermes containers
+## Writ containers
 
-[tools/gdb/logos_hermes_gdb.py](../../tools/gdb/logos_hermes_gdb.py) decodes the
-Hermes format (self-relative `RelativePtr`, tagged `AnyVal`, `TypeTag`,
+[tools/gdb/logos_writ_gdb.py](../../tools/gdb/logos_writ_gdb.py) decodes the
+Writ format (self-relative `RelativePtr`, tagged `AnyVal`, `TypeTag`,
 ObjectArray/TinyObjectMap/ObjectMap/ArenaString/Decimal/TypedArray, boxed
-scalars). Use `logos-hermes <expr>` on an AnyVal value/address; `AnyVal`-typed
-values auto-print. Has a no-gdb self-test: `python3 tools/gdb/logos_hermes_gdb.py`.
-The compiler's own IR (LProgram/AST) is Hermes, so this also helps debug logosc.
-Live alternative: `call (char*)logos::hermes::stringify_value(av)` if the symbol
-is linked (`src/hermes/stringify.cpp`).
+scalars). Use `logos-writ <expr>` on an AnyVal value/address; `AnyVal`-typed
+values auto-print. Has a no-gdb self-test: `python3 tools/gdb/logos_writ_gdb.py`.
+The compiler's own IR (LProgram/AST) is Writ, so this also helps debug logosc.
+Live alternative: `call (char*)logos::writ::stringify_value(av)` if the symbol
+is linked (`src/writ/stringify.cpp`).
 
 ## Not yet
 

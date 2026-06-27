@@ -239,7 +239,7 @@ so sema's trait-bound dispatch (sema_expr.cpp:4898-5186) sets
 `mc.method = "<method>"` with no way to thread the resolved trait
 into mono. Adding that requires:
 
-  1. `EMethodCall` LIR schema field add (lir.hpp + Hermes mirror).
+  1. `EMethodCall` LIR schema field add (lir.hpp + Writ mirror).
   2. Sema trait-bound dispatch sets `mc.trait_name`.
   3. Mono's MethodCall lowering uses `mc.trait_name` to build
      `<concrete>__<trait>__<method>` lookup key.
@@ -369,7 +369,7 @@ Total stdlib touch: low (mostly removing workarounds).
 ## What stays out of scope
 
 - AssocType resolution (ADR 0008) — already specified, working.
-- Hermes external-ref body resolution — orthogonal multi-arena work.
+- Writ external-ref body resolution — orthogonal multi-arena work.
 - ABI/codegen layout (mlir-gen-side) — out of mono scope.
 - Stdlib export catalog refactor (M3) — depends on this redesign,
   picks up after Phase 4.

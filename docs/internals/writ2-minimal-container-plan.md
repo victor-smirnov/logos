@@ -1,16 +1,16 @@
-# Hermes2 — Minimal Type-Safe, BC-Integrated Container (plan)
+# Writ2 — Minimal Type-Safe, BC-Integrated Container (plan)
 
 Goal (Victor, 2026-06-06): a **minimal, type-safe, borrow-check-integrated**
-Hermes2 container holding, for now, **primitive types and `Array<HAny>`**
-(the Hermes2 analog of `Array<AnyVal>`). Concrete subset of the §9 roadmap in
-[hermes2-design.md](hermes2-design.md).
+Writ2 container holding, for now, **primitive types and `Array<HAny>`**
+(the Writ2 analog of `Array<AnyVal>`). Concrete subset of the §9 roadmap in
+[writ2-design.md](writ2-design.md).
 
 ## Current state (what already exists)
 
 | §9 part | Status | Where |
 |---|---|---|
-| 1. self-relative `i64` refs | **DONE** | `#[rel_ptr]`/RelOffset descriptor (typed `RelPtr<T>`), `RelAny` (type-erased), `Hermes2TagSystem` (tagged dispatch), pin rule, `ptr_rel_compatible` |
-| 2. never-move segment container | **DONE** | `stdlib/lang/hermes2/{allocator,container}.logos` — `Segment` (self_describing DST), `Allocator` (segment list, bump, append-on-full, reach assert), `Hermes2`, `hermes2_new/alloc/alloc_n/alloc_bytes/free` |
+| 1. self-relative `i64` refs | **DONE** | `#[rel_ptr]`/RelOffset descriptor (typed `RelPtr<T>`), `RelAny` (type-erased), `Writ2TagSystem` (tagged dispatch), pin rule, `ptr_rel_compatible` |
+| 2. never-move segment container | **DONE** | `stdlib/lang/writ2/{allocator,container}.logos` — `Segment` (self_describing DST), `Allocator` (segment list, bump, append-on-full, reach assert), `Writ2`, `writ2_new/alloc/alloc_n/alloc_bytes/free` |
 | 3. placement + thin reads | **PARTIAL** | raw-pointer typed placement works; tagged placement (`write_tag`) works; **no** type-safe views, **no** safe API |
 | 4. growing `&mut self` + alloc capability | not started | (deferred for minimal — see below) |
 | 5. `Rc<dyn Resident>` + holder/view + BC | not started | **but** the minimal BC integration needs NO new machinery (below) |
@@ -27,7 +27,7 @@ container hands out in-scope `&'a` views.
 
 ## The gap to the goal
 
-1. The container is owned/managed by hand (`hermes2_free` is manual + `unsafe`) —
+1. The container is owned/managed by hand (`writ2_free` is manual + `unsafe`) —
    no RAII, no type-safety at the owner level.
 2. The public API is all `unsafe fn … -> *mut T` — raw pointers leak; not type-safe.
 3. No `HAny` (the 8-byte heterogeneous slot) and no `Array<HAny>`.
@@ -40,7 +40,7 @@ container hands out in-scope `&'a` views.
   identical in both (position-independent), only the Ref half differs:
   - `HAny` — the **value form**: Ref = an **absolute** pointer to the tagged
     object. Movable by memcpy (like `String`'s `ptr`); lives on stack/heap/in
-    registers/by-value. Dispatch via `Hermes2TagSystem` (materialize → `*const u8`
+    registers/by-value. Dispatch via `Writ2TagSystem` (materialize → `*const u8`
     → read_tag).
   - `HAnyRel` — the **at-rest form** in an arena slot: Ref = a **self-relative**
     delta `target − &slot` (anchor = the slot's own address).
@@ -53,7 +53,7 @@ container hands out in-scope `&'a` views.
 - **D2 — type-safety boundary**: the container *internals* stay `unsafe` (raw
   segment arithmetic); the *public* API is safe — no `unsafe`/raw pointer in
   user code. Reads return `&'a` views tied to `&'a self`.
-- **D3 — container is RAII**: add `impl Drop for Hermes2` (free-en-masse), making
+- **D3 — container is RAII**: add `impl Drop for Writ2` (free-en-masse), making
   it a proper owned root (no manual free, no use-after-free). It becomes a
   move-type owning its segments.
 - **D4 — array growth in the minimal phase**: grow by allocating a fresh backing
@@ -65,11 +65,11 @@ container hands out in-scope `&'a` views.
 ## Phased plan (each phase L4-gated + valgrind-clean)
 
 ### Phase 0 — RAII + type-safe owner shell  *(D3)*
-- `impl Drop for Hermes2` → `allocator_free` en masse; remove the need for manual
-  `hermes2_free`. `Hermes2` becomes a non-movable-after-handout owned root.
-- Safe `Hermes2::new(seg_size)`; the raw `hermes2_alloc*` stay `unsafe` internals.
+- `impl Drop for Writ2` → `allocator_free` en masse; remove the need for manual
+  `writ2_free`. `Writ2` becomes a non-movable-after-handout owned root.
+- Safe `Writ2::new(seg_size)`; the raw `writ2_alloc*` stay `unsafe` internals.
 - Test: create + auto-drop a container; valgrind clean. Existing
-  `hermes2_container`/`hermes2_allocator` tests stay green.
+  `writ2_container`/`writ2_allocator` tests stay green.
 
 ### Phase 0.5 — movable self-relative refs (value-form absolute, like `String::ptr`)
 The reduction that lets a rel_ptr / `HAny` value move by **plain memcpy**,
@@ -87,45 +87,45 @@ absolute `ptr`:
   rel_ptr fields — is **never moved** (arena objects accessed via views;
   reclamation is copy-compaction, which converts through absolute = materialize).
 - Verify during impl what a rel_ptr **local** currently lowers to (delta vs ptr);
-  make it the absolute value-form. Update [hermes2-design.md](hermes2-design.md)
+  make it the absolute value-form. Update [writ2-design.md](writ2-design.md)
   §2 ("cannot be carried bare" → "carried bare as the absolute compute form;
   re-lowered only on store into zoned storage").
 - Tests: move / return / stack / copy a `HAny` (and a `RelAny` value) — the
   target still resolves after relocation, including across a segment boundary.
 
-### Phase 1 — `HAny` (the Hermes2 AnyVal)  *(D1)*
-- `stdlib/lang/hermes2/anyval.logos`: `HAny { raw: i64 }` + constructors
+### Phase 1 — `HAny` (the Writ2 AnyVal)  *(D1)*
+- `stdlib/lang/writ2/anyval.logos`: `HAny { raw: i64 }` + constructors
   (`pod_i64`/`pod_bool`/… and `from_ref(slot, target)`), accessors
   (`is_pod`/`is_ref`/`is_null`, `as_i64`/…, `resolve(self) -> *const u8`).
   Wide primitives that don't fit inline are stored as a tagged zone object and
   referenced (Ref) — but the minimal set keeps i64/bool inline; deciding the
   inline-width budget is part of this phase.
 - `resolve` materialises a Ref self-relatively (`(self as i64) + (raw & ~1)`),
-  then `Hermes2TagSystem` recovers the type for dispatch.
+  then `Writ2TagSystem` recovers the type for dispatch.
 - Test: round-trip a Pod (primitive) and a Ref (self-relative, resolves correctly
   **across a segment boundary** — never-move proof).
 
 ### Phase 2 — type-safe placement + BC-tied views  *(D2, BC)*
-- Safe placement: `Hermes2::put<T>(&mut self, v: T) -> Handle<T>` (or a slot
-  index) — wraps `hermes2_alloc` + init, leaks no raw pointer.
-- Safe read: `Hermes2::get<'a>(&'a self, h) -> &'a T` — view tied to `&'a self`
+- Safe placement: `Writ2::put<T>(&mut self, v: T) -> Handle<T>` (or a slot
+  index) — wraps `writ2_alloc` + init, leaks no raw pointer.
+- Safe read: `Writ2::get<'a>(&'a self, h) -> &'a T` — view tied to `&'a self`
   by existing lifetime elision; BC enforces view ≤ container, exclusivity, E0716.
 - Tests (pass + fail): store/read primitives type-safely; **fail** tests that the
   borrow checker rejects (a) using a view after the container drops, (b) mutating
   the container while a view is live.
 
 ### Phase 3 — `Array<HAny>` + primitive arrays  *(D4)*
-- `stdlib/lang/hermes2/array.logos`: `ZArray { len: i64, cap: i64, data: RelPtr<…> }`
+- `stdlib/lang/writ2/array.logos`: `ZArray { len: i64, cap: i64, data: RelPtr<…> }`
   — header in a segment, element buffer in the arena, `data` a self-relative
-  pointer. Mirrors Hermes1 `Array<AnyVal>` but self-relative + safe API:
-  `new_array(&mut Hermes2, cap)`, `push(&mut self, HAny)`,
+  pointer. Mirrors Writ1 `Array<AnyVal>` but self-relative + safe API:
+  `new_array(&mut Writ2, cap)`, `push(&mut self, HAny)`,
   `get<'a>(&'a self, i) -> &'a HAny`, `len`. Append-grow per D4.
 - Test: build an `Array<HAny>` of inline primitives **and** a nested
   `Array<HAny>` (Ref element); read back across segment boundaries; verify
   sums; BC-tied views; growth past one segment.
 
 ### Phase 4 — the minimal document (integration)
-- A `Hermes2Doc` whose root is an `Array<HAny>`; build a small heterogeneous
+- A `Writ2Doc` whose root is an `Array<HAny>`; build a small heterogeneous
   document (ints + a nested array) entirely through the safe API; end-to-end
   type-safe + BC-clean + valgrind-clean. Optional: dump the blob and confirm it
   is self-contained (self-relative deltas only — relocatable).

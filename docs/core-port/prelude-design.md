@@ -41,7 +41,7 @@ Implementation progress:
     HashSet__iter / RevIter__filter / MapIter__filter / FilterIter.
   - **R1 FIXED** (commit 962f53c3) — loader over-drag: `visit_binary_module`'s
     `pkg_in_prelude` dragged the WHOLE `logos.mem.*` layer (collections/encoding/
-    mem.hermes) out of liblogos-mem.a whenever a compile touched Vec/String, then
+    mem.writ) out of liblogos-mem.a whenever a compile touched Vec/String, then
     re-lowered it every compile (perf regression ~26%) and force-lowered its
     generics in trait-bound/HRTB programs (the `ObjectMap::init` / `Array__equal`
     artifacts). Narrowed `pkg_in_prelude` to `logos.lang.*` only — the genuine
@@ -153,8 +153,8 @@ pub use logos.lang.mem.drop;     // drop(value) — explicit-drop fn
 - `String`, `Vec`, `HashMap`, etc. — alloc-tier.
 - `format!`, `ToString` — alloc-tier.
 - IO traits, time, threads — std-tier.
-- All Hermes types except `HermesStatic`/`HermesView` types
-  (those are accessible via `use logos.lang.hermes.view;` —
+- All Writ types except `WritStatic`/`WritView` types
+  (those are accessible via `use logos.lang.writ.view;` —
   not implicit because most lang-tier files don't touch them).
 
 ---
@@ -190,7 +190,7 @@ pub use logos.mem.vec;           // Vec
 - `HashMap`, `BTreeMap`, `HashSet`, `VecDeque` — used commonly
   enough to consider, but Rust's prelude doesn't include them
   (Rust users `use std::collections::HashMap`). Following Rust.
-- Hermes mutable types (`MemHolder`, `Zone`, `Own`) — explicit
+- Writ mutable types (`MemHolder`, `Zone`, `Own`) — explicit
   `use` always. Too domain-specific for blanket prelude.
 - Persistent data structures — explicit `use`.
 

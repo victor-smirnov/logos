@@ -1,10 +1,10 @@
-# Hermes Layer Split — Design
+# Writ Layer Split — Design
 
 Sub-design for the three-layer split's hardest sub-problem: cleaving
-the 32-package `std.hermes.*` tree into a lang-tier (lifecycle +
+the 32-package `std.writ.*` tree into a lang-tier (lifecycle +
 read-only) part and a mem-tier (allocate + mutate) part. This design
 unblocks Phase 4 — the layer-lang archive currently cannot stand
-alone because `std.lang.any` and `std.lang.cmp` use `std.hermes.view`
+alone because `std.lang.any` and `std.lang.cmp` use `std.writ.view`
 and `std.lang.text` (both in monolith), creating a circular dep with
 layer-lang's `logos.lang.*` content.
 
@@ -19,18 +19,18 @@ Companion to [three-layer-split.md](three-layer-split.md) and
 | Step | Status | Note |
 |------|--------|------|
 | 0    | ✅ done | excludes-aware loader plumbing (no activation) |
-| 1    | ✅ done | 4 hermes leaves (datatag/tags/typetag/relptr) → lang |
-| 2    | ✅ done | hermes lifecycle (mem_holder/zone/own) → lang. release deferred |
+| 1    | ✅ done | 4 writ leaves (datatag/tags/typetag/relptr) → lang |
+| 2    | ✅ done | writ lifecycle (mem_holder/zone/own) → lang. release deferred |
 | 3    | ✅ done | text split (str/utf8/split → lang; String/Display → mem). 391 consumers |
 | 4a   | ✅ done | scalar → lang (no split needed) |
-| 4b   | ✅ done | HermesView/HermesStatic structs → lang. HermesRead trait stays mem |
-| 4c   | ✅ done | anyval → lang. hermes_pat_eq_str (only HermesString user) moved to std.hermes.pat |
-| 4d   | ✅ done | typed_value → lang (transitive name-resolution dep on HermesString via RelPtr<T> field accepted) |
-| 4e   | ✅ done | StringView → lang.hermes.view. HermesString stays mem |
+| 4b   | ✅ done | WritView/WritStatic structs → lang. WritRead trait stays mem |
+| 4c   | ✅ done | anyval → lang. writ_pat_eq_str (only WritString user) moved to std.writ.pat |
+| 4d   | ✅ done | typed_value → lang (transitive name-resolution dep on WritString via RelPtr<T> field accepted) |
+| 4e   | ✅ done | StringView → lang.writ.view. WritString stays mem |
 | 4f   | ✅ done | relptr_traits → lang (orphan rule allows impl-of-foreign-trait-for-local-RelPtr) |
-| 5    | ✅ done | stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*. Unblocked by fundamental (D) fix: explicit Tarjan-SCC topo-sort of `modules[]` in `module_loader.cpp` after load. 3197/3197. |
-| 6    | ✅ done | 15 mem-tier packages (alloc/array/clone/ctr/decimal/document/hbs_write/map/objectmap/parser/registry/release/string/tag_system/view) → `logos.mem.hermes.*` + physical move to `stdlib/mem/hermes/`. Prior session's blockers (duplicate clobber, lang↔mem cycle) did NOT re-fire — already mitigated by (C) loader dedup + Tarjan topo-sort. All 4 archives build cleanly (liblstdlib + liblogos-lang/mem/std). 3197/3197. |
-| 7    | ✅ done | 11 lang-but-pulls-mem packages relocated to `logos.mem.hermes.*` / `logos.mem.any`: any/fabric/stringify/typed_value/relptr_traits/pat/check/hbs_read/hashing/equal + scalar (Primitive trait blanket). Plus `std.sync.atomic` → `logos.lang.atomic` (CPU intrinsics are tier-agnostic); `std-new/process` reverted to `std/process` (had std.io.pipe transitive dep). |
+| 5    | ✅ done | stringify/pat/check/equal/hashing/hbs_read → logos.lang.writ.*. Unblocked by fundamental (D) fix: explicit Tarjan-SCC topo-sort of `modules[]` in `module_loader.cpp` after load. 3197/3197. |
+| 6    | ✅ done | 15 mem-tier packages (alloc/array/clone/ctr/decimal/document/hbs_write/map/objectmap/parser/registry/release/string/tag_system/view) → `logos.mem.writ.*` + physical move to `stdlib/mem/writ/`. Prior session's blockers (duplicate clobber, lang↔mem cycle) did NOT re-fire — already mitigated by (C) loader dedup + Tarjan topo-sort. All 4 archives build cleanly (liblstdlib + liblogos-lang/mem/std). 3197/3197. |
+| 7    | ✅ done | 11 lang-but-pulls-mem packages relocated to `logos.mem.writ.*` / `logos.mem.any`: any/fabric/stringify/typed_value/relptr_traits/pat/check/hbs_read/hashing/equal + scalar (Primitive trait blanket). Plus `std.sync.atomic` → `logos.lang.atomic` (CPU intrinsics are tier-agnostic); `std-new/process` reverted to `std/process` (had std.io.pipe transitive dep). |
 | 8    | ✅ done | Monolith manifest excludes lang/mem/std-new. CMake build order flipped: layers (lang → mem → std-new) build FIRST, monolith LAST consuming them via `-L`. Linker flags `--start-group/--end-group` (lazy archive re-scan) + `--allow-multiple-definition` (cross-archive template instantiations) restore link-time symbol resolution. All 4 archives are now strictly independent. 3197/3197. |
 
 ---
@@ -40,7 +40,7 @@ Companion to [three-layer-split.md](three-layer-split.md) and
 > "MemHolder itself does NOT malloc or free memory. It tracks the
 > lifetime of whatever buffer was handed to it via a user-supplied
 > destroyer callback that fires when the refcount reaches zero."
-> — [`stdlib/std/hermes/mem_holder/mem_holder.logos`](../../stdlib/std/hermes/mem_holder/mem_holder.logos)
+> — [`stdlib/std/writ/mem_holder/mem_holder.logos`](../../stdlib/std/writ/mem_holder/mem_holder.logos)
 
 Lifecycle ≠ allocation. **MemHolder is lang-tier** despite its
 convenience `memholder_alloc_backed()` path using `malloc()` — the
@@ -48,18 +48,18 @@ type itself is allocator-agnostic.
 
 By the same logic, anything that:
 - Manages refcounts / owns handles → **lang** (Zone, Own, Release)
-- Reads bytes from a base pointer → **lang** (HermesStatic, HermesView, AnyVal-read, scalar, tags, …)
+- Reads bytes from a base pointer → **lang** (WritStatic, WritView, AnyVal-read, scalar, tags, …)
 - Mutates a buffer / allocates into a Zone → **mem** (String, Map, Array, ObjectMap, Ctr, Document, Parser, …)
 
 ---
 
 ## Per-package split
 
-### → logos.lang.hermes.* (lifecycle + read)
+### → logos.lang.writ.* (lifecycle + read)
 
 | Package | Notes | Action |
 |---|---|---|
-| `mem_holder` | RC + Arena handle. Uses libc malloc/realloc/free externs but the *type* is allocator-agnostic per source comment. Only Logos dep: `std.hermes.datatag`. | **Move as-is.** |
+| `mem_holder` | RC + Arena handle. Uses libc malloc/realloc/free externs but the *type* is allocator-agnostic per source comment. Only Logos dep: `std.writ.datatag`. | **Move as-is.** |
 | `zone` | Wrapper over `*mut MemHolder` with type-tracking type param `M`. | **Move as-is.** Deps: mem_holder. |
 | `own` | RC-bound `Own<T>` smart pointer. | **Move as-is.** Deps: mem_holder. |
 | `release` | RC release helper. | **Move as-is.** |
@@ -68,18 +68,18 @@ By the same logic, anything that:
 | `typetag` | Type-tag values. No deps. | **Move as-is.** True leaf. |
 | `relptr` | Relative pointer arithmetic. No deps. | **Move as-is.** True leaf. |
 | `relptr_traits` | Trait surface. Currently uses clone/equal/hashing/release/relptr/stringify/text. Most refs are trait-bound generics where the trait lives elsewhere. | **Audit + move.** Likely needs no actual code change if its `use` lines update to the new paths. |
-| `view` | HermesView/HermesStatic structs + HermesRead trait + base/size accessors. Currently uses string, map, array, objectmap, decimal, document, etc. for owning/stringifying methods. | **SPLIT.** See "View split" below. |
+| `view` | WritView/WritStatic structs + WritRead trait + base/size accessors. Currently uses string, map, array, objectmap, decimal, document, etc. for owning/stringifying methods. | **SPLIT.** See "View split" below. |
 | `anyval` | AnyVal type + tag predicates + read accessors. Uses string, datatag, typetag. | **Audit; likely SPLIT.** Read-side accessors lang; String-producing helpers mem. |
 | `scalar` | Scalar value access. Uses tags. | **Move as-is** (read-only). |
 | `typed_value` | Typed accessor wrappers. Uses anyval, relptr, string, tags. | **Audit + SPLIT** if String-allocating methods present. |
-| `pat` | Pattern matching navigation. Uses anyval/array/map/objectmap/string/typed_value/typetag — but all read-only. | **Move as-is** — depends only on lang-side hermes after this migration. |
-| `check` | Validation. Read-only walk. Uses heavy hermes surface. | **Move as-is** (read-only). |
+| `pat` | Pattern matching navigation. Uses anyval/array/map/objectmap/string/typed_value/typetag — but all read-only. | **Move as-is** — depends only on lang-side writ after this migration. |
+| `check` | Validation. Read-only walk. Uses heavy writ surface. | **Move as-is** (read-only). |
 | `equal` | Equality compare. Read-only. | **Move as-is**. |
 | `hashing` | Hash function. Read-only. | **Move as-is**. |
 | `stringify` | Formatter writing into a caller-supplied `String`. Uses text. | **SPLIT.** Core formatter lang (caller-side buffer); String-allocating wrappers mem. |
-| `hbs_read` | Binary wire parser. Reads into provided structures. Uses most hermes types as targets. | **Audit; likely lang** (read-only into pre-allocated). |
+| `hbs_read` | Binary wire parser. Reads into provided structures. Uses most writ types as targets. | **Audit; likely lang** (read-only into pre-allocated). |
 
-### → logos.mem.hermes.* (allocate + mutate)
+### → logos.mem.writ.* (allocate + mutate)
 
 | Package | Notes |
 |---|---|
@@ -101,20 +101,20 @@ By the same logic, anything that:
 
 ## View split — concrete plan (template for other splits)
 
-Current `stdlib/std/hermes/view/view.logos` has:
-- `struct HermesView { base: *const u8, size: u64 }` ← lang
-- `struct HermesStatic { ptr: *const u8 }` ← lang
-- `trait HermesRead` with `base()`/`size()` ← lang
-- `impl HermesRead for HermesView/HermesStatic` ← lang
+Current `stdlib/std/writ/view/view.logos` has:
+- `struct WritView { base: *const u8, size: u64 }` ← lang
+- `struct WritStatic { ptr: *const u8 }` ← lang
+- `trait WritRead` with `base()`/`size()` ← lang
+- `impl WritRead for WritView/WritStatic` ← lang
 - `fn to_string(&self) -> String` ← mem (allocates `String::with_capacity(256)`)
 - `fn stringify_into(&self, buf: &mut String)` ← lang (writes into caller buffer)
 - `fn get_str_view(&self, val: AnyVal) -> StringView` ← lang (returns view, no alloc)
 
 **Split into two files** under the same logical hierarchy:
-- `stdlib/lang/hermes/view/view.logos` — struct definitions, HermesRead trait, base/size, view-returning methods.
-- `stdlib/mem/hermes/view/view_owned.logos` — `impl HermesView` adding `to_string()` etc. that allocate Strings. Package `logos.mem.hermes.view_owned` (sub-package) OR via trait `IntoString` in mem with `impl IntoString for HermesView`.
+- `stdlib/lang/writ/view/view.logos` — struct definitions, WritRead trait, base/size, view-returning methods.
+- `stdlib/mem/writ/view/view_owned.logos` — `impl WritView` adding `to_string()` etc. that allocate Strings. Package `logos.mem.writ.view_owned` (sub-package) OR via trait `IntoString` in mem with `impl IntoString for WritView`.
 
-**Decision:** prefer the trait approach (`impl ToHermesString for HermesView`)
+**Decision:** prefer the trait approach (`impl ToWritString for WritView`)
 over splitting inherent impls — keeps Logos's orphan-rule story clean
 and matches Rust's pattern (impl ToString for &str in alloc, not in core).
 
@@ -170,7 +170,7 @@ manifest still does NOT carry `exclude lang|mem|std-new` because
 activating it now would create an immediate broken-build window:
 monolith has 37 files using `use logos.lang.X;` (needs layers),
 and layer-lang's `any.logos`/`cmp.logos` use `std.lang.text` /
-`std.hermes.view` (needs monolith) — circular.
+`std.writ.view` (needs monolith) — circular.
 
 Revised sequencing: do steps 1-7 first (which break the cycle by
 migrating the contested packages out of monolith). Activate excludes
@@ -180,13 +180,13 @@ in step 8 once layer-lang truly stands alone.
 
 Monolith files currently use `use logos.lang.option;` etc. — they need
 layer archives at build time. But layer-lang's `any.logos`/`cmp.logos`
-use `use std.lang.text;` / `use logos.mem.hermes.view;` (in monolith). Circular.
+use `use std.lang.text;` / `use logos.mem.writ.view;` (in monolith). Circular.
 
 Options:
 - (A) Build layer-lang WITHOUT `any.logos` and `cmp.logos`. Move those
   files temporarily into an "extras" location built separately after
   monolith. (Yes, ugly two-pass.)
-- (B) Pre-migrate `text` and the necessary `hermes.view`/`anyval`/`string`
+- (B) Pre-migrate `text` and the necessary `writ.view`/`anyval`/`string`
   pieces to logos.lang.* (this whole doc).
 - (C) `pub use` shims at old `std.X` paths in monolith → re-export
   from layer. Monolith files keep `use std.lang.text;` (resolves via
@@ -199,18 +199,18 @@ move and this doc IS its plan.
 
 ### Step 1 — True leaves
 
-Migrate the 4 zero-dep hermes packages:
-- `datatag` → `logos.lang.hermes.datatag`
-- `tags` → `logos.lang.hermes.tags`
-- `typetag` → `logos.lang.hermes.typetag`
-- `relptr` → `logos.lang.hermes.relptr`
+Migrate the 4 zero-dep writ packages:
+- `datatag` → `logos.lang.writ.datatag`
+- `tags` → `logos.lang.writ.tags`
+- `typetag` → `logos.lang.writ.typetag`
+- `relptr` → `logos.lang.writ.relptr`
 
 One batch commit. Verify ctest.
 
 ### Step 2 — Lifecycle layer
 
-- `mem_holder` (deps: datatag) → `logos.lang.hermes.mem_holder`
-- `zone`/`own`/`release` (deps: mem_holder) → `logos.lang.hermes.*`
+- `mem_holder` (deps: datatag) → `logos.lang.writ.mem_holder`
+- `zone`/`own`/`release` (deps: mem_holder) → `logos.lang.writ.*`
 
 One batch commit.
 
@@ -230,25 +230,25 @@ These need careful per-file split (struct + read methods in lang; owning methods
 **Blocked.** Tried 2026-05-17 — these packages access raw fields
 (`map.size`, `map.keys`, `map.vals`) on `Map<Bitmap, AnyVal>` and
 similar partial specialisations of structs that live in mem-tier
-(std.hermes.map). When the file moves to lang-tier and the Map
+(std.writ.map). When the file moves to lang-tier and the Map
 struct stays in monolith, mono fails to materialize the specialised
 fields from the binary AST:
 
-    mlir_gen: struct 'std.hermes.map.Map$G2$Bitmap$AnyVal'
+    mlir_gen: struct 'std.writ.map.Map$G2$Bitmap$AnyVal'
               has no field 'size'
 
 This is a real compiler limitation — cross-archive specialisation
 of structs with explicit field access is not yet supported.
 
-### Step 6 — mem-tier batch (rename to logos.mem.hermes.*)
+### Step 6 — mem-tier batch (rename to logos.mem.writ.*)
 
 **LANDED 2026-05-17 (session 8).** After the (C) loader dedup + (D)
 fundamental Tarjan-SCC topo-sort fix, the 15 remaining mem-tier
 packages (alloc/array/clone/ctr/decimal/document/hbs_write/map/
 objectmap/parser/registry/release/string/tag_system/view) moved
 cleanly via a mechanical sed:
-- Physical move: `stdlib/std/hermes/<pkg>/` → `stdlib/mem/hermes/<pkg>/`
-- Package decl: `package std.hermes.<pkg>;` → `package logos.mem.hermes.<pkg>;`
+- Physical move: `stdlib/std/writ/<pkg>/` → `stdlib/mem/writ/<pkg>/`
+- Package decl: `package std.writ.<pkg>;` → `package logos.mem.writ.<pkg>;`
 - 224 consumer files updated.
 
 Neither of the originally-feared blockers re-fired. Their reasoning
@@ -260,11 +260,11 @@ Initial 2026-05-17 attempt (21 packages including the 6 since moved
 to lang in Step 5) hit two distinct fronts:
 
 1. **Duplicate datatype clobber.** Monolith's recursive glob root
-   (`stdlib/`) absorbs `stdlib/mem/hermes/*` into liblstdlib.a
+   (`stdlib/`) absorbs `stdlib/mem/writ/*` into liblstdlib.a
    while layer-mem's text walk does the same. When layer-mem
    builds, its transitive `use` triggers monolith binary load
    via the `pkg_in_prelude` auto-load mechanism — which pulls in
-   the duplicate `logos.mem.hermes.map.Map` from monolith, racing
+   the duplicate `logos.mem.writ.map.Map` from monolith, racing
    the text-walk's own definition. Sema: "duplicate datatype 'Map'".
 
    Attempted fix: dedup in `visit_binary_module` — skip prelude
@@ -274,12 +274,12 @@ to lang in Step 5) hit two distinct fronts:
    needs from a transitive lookup angle).
 
 2. **lang ↔ mem cycle.** lang has files with transitive mem deps:
-   - `stdlib/lang/hermes/typed_value/` declares
-     `struct TypedValue { type_off: RelPtr<HermesString>, ... }` —
-     needs HermesString from mem.hermes.string for name resolution.
-   - `stdlib/lang/hermes/fabric/` `use logos.mem.mem;` for alloc.
-   - `stdlib/lang/hermes/relptr_traits/` impls mem-tier traits.
-   - `stdlib/lang/any/` calls HermesRead methods (mem-tier trait).
+   - `stdlib/lang/writ/typed_value/` declares
+     `struct TypedValue { type_off: RelPtr<WritString>, ... }` —
+     needs WritString from mem.writ.string for name resolution.
+   - `stdlib/lang/writ/fabric/` `use logos.mem.mem;` for alloc.
+   - `stdlib/lang/writ/relptr_traits/` impls mem-tier traits.
+   - `stdlib/lang/any/` calls WritRead methods (mem-tier trait).
 
    Currently these resolve because monolith builds FIRST (with no
    excludes) and absorbs both mem and lang content. Layer-lang
@@ -293,8 +293,8 @@ Two ways forward, both substantial:
 - **(A)** Move the boundary-crossing lang files out of lang. They
   are mem-coupled in reality:
   - `any.logos` → `logos.mem.any`
-  - `typed_value` → `logos.mem.hermes.typed_value`
-  - `relptr_traits` → `logos.mem.hermes.relptr_traits`
+  - `typed_value` → `logos.mem.writ.typed_value`
+  - `relptr_traits` → `logos.mem.writ.relptr_traits`
   - `fabric` → split its mem-dependent pieces out
 
   Plus a refactor of `fabric.logos` to separate allocator-dependent
@@ -326,7 +326,7 @@ Re-analysis of the original "no field 'size'" error:
   specific via `specificity_vec`, but ties exist for {1 pinned,
   1 free} on both. Tie-break appears stable single-archive.
 - Mangling collapses both into `Map$G2$Bitmap$AnyVal` — one
-  registration wins last-write. When `impl HermesStringify for
+  registration wins last-write. When `impl WritStringify for
   Map<Bitmap, V>` is processed cross-archive, the surviving
   registration may have come from `Map<K, AnyVal>` (different
   field layout), so the impl's `map.size` access fails.
@@ -337,7 +337,7 @@ collision** that monolith builds happen to resolve consistently
 exposed it because cross-archive load order changes which spec
 gets registered first.
 
-The actual fixes for the Hermes split are therefore:
+The actual fixes for the Writ split are therefore:
 - **(C) Loader-level dedup** — when monolith absorbs mem/ AND
   layer-mem text-walks the same package, prevent the auto-load
   prelude path from re-registering. Attempted as a `wanted()`
@@ -362,13 +362,13 @@ correctness regardless of the split.
 
 `string`, `array`, `map`, `objectmap`, `ctr`, `document`, `parser`,
 `clone`, `hbs_write`, `decimal`, `tag_system`, `registry`, `alloc`
-all migrate to `logos.mem.hermes.*`. Most have heavy interconnect
+all migrate to `logos.mem.writ.*`. Most have heavy interconnect
 but all stay in the same tier.
 
 ### Step 7 — Unblock circulars
 
-- Move `std.lang.any` (was reflect) — its `use logos.mem.hermes.view` becomes
-  `use logos.lang.hermes.view` (now lang-side). No circular.
+- Move `std.lang.any` (was reflect) — its `use logos.mem.writ.view` becomes
+  `use logos.lang.writ.view` (now lang-side). No circular.
 - Move `std.lang.cmp` — same for text dependency.
 
 ### Step 8 — Activate excludes + resume Phase 4
@@ -390,13 +390,13 @@ dependency.
 
 - **Orphan rule:** does Logos enforce "impl methods only in the type's
   origin package"? Affects view/anyval split strategy. Test with a
-  small `impl HermesView { fn extra() }` in a different package.
-- **`std.hermes.alloc`:** allocator-agnostic interface or always-heap?
+  small `impl WritView { fn extra() }` in a different package.
+- **`std.writ.alloc`:** allocator-agnostic interface or always-heap?
   If interface, lang; if always-heap, mem.
-- **`std.hermes.decimal`:** does Decimal arithmetic allocate? Methods
+- **`std.writ.decimal`:** does Decimal arithmetic allocate? Methods
   like `decimal_to_string()` clearly do (mem); core decimal ops might
   not (lang).
-- **`std.hermes.hbs_read`:** does the parser ever allocate, or always
+- **`std.writ.hbs_read`:** does the parser ever allocate, or always
   read into pre-allocated structures? Comment says read-only but
   verify.
 - **Pure-read AnyVal methods:** which `AnyVal::as_X()` methods just
@@ -408,7 +408,7 @@ dependency.
 
 - Doesn't address the rust-import classification (own vs imported/) —
   that's Phase 5.
-- Doesn't add new Hermes features. Pure rearrangement of existing code.
+- Doesn't add new Writ features. Pure rearrangement of existing code.
 - Doesn't formalize the manifest `tier` enforcement — Phase 6.
 
 ---
@@ -429,24 +429,24 @@ dependency.
 
 **Total to unblock Phase 4: ~5-7 sessions.** Then Phase 4 finishes in
 ~3-5 more sessions per current pace (28 packages remaining outside
-Hermes).
+Writ).
 
 ---
 
-## Session 2 (2026-05-17) — "all-Hermes-in-lang" attempt
+## Session 2 (2026-05-17) — "all-Writ-in-lang" attempt
 
-Per Victor: pragmatic three-layer with EVERYTHING Hermes-related
+Per Victor: pragmatic three-layer with EVERYTHING Writ-related
 (including mem-tier containers + stringify/equal/etc. trait surface)
 bundled into lang, and `--no-alloc` enforced at metaprog level
 (variable captures in `@{...}` rejected when --no-alloc set). This
-bypasses the (C) and (D) blockers since all Hermes code ends up in
+bypasses the (C) and (D) blockers since all Writ code ends up in
 a single archive.
 
 Attempted batch:
-- 21 hermes packages: std.hermes.X → logos.lang.hermes.X
+- 21 writ packages: std.writ.X → logos.lang.writ.X
 - view split merged back (struct file + trait surface in one package)
 - mem.mem → split into minimal logos.lang.mem (allocator + byte ops
-  for Hermes) and logos.mem.mem (generic swap/replace/take helpers)
+  for Writ) and logos.mem.mem (generic swap/replace/take helpers)
 - All consumers swept (~500+ files), compiler refs updated
   (sema_stmt.cpp helper hints, sema_expr.cpp metacall thunk template,
   module_loader.cpp pkg_in_prelude prefix list)
@@ -454,13 +454,13 @@ Attempted batch:
 Encountered, did not resolve cleanly in one session:
 - **Trait visibility in multi-file packages.** After merging view's
   structs (view.logos) and traits (view_traits.logos) into one
-  package — even keeping them in one file — `impl HermesRead for
-  Hermes` in ctr.logos failed with "unknown trait 'HermesRead'",
-  despite ctr having `use logos.lang.hermes.view;` and the trait
+  package — even keeping them in one file — `impl WritRead for
+  Writ` in ctr.logos failed with "unknown trait 'WritRead'",
+  despite ctr having `use logos.lang.writ.view;` and the trait
   declared in the same imported package. Needs targeted sema
   debugging.
 - **Stale binary AST interference.** Old liblstdlib.a content
-  cached under std.hermes.X names lingered through partial
+  cached under std.writ.X names lingered through partial
   rebuilds and confused symbol lookup.
 - **Circular import surface.** view ↔ stringify (and friends)
   cycles surface differently when both packages live in the same
@@ -524,7 +524,7 @@ binary-loaded traits → "unknown trait" errors.
 
 **This is the SAME bug** that surfaced in:
 - Session 1's Step 5 attempt (cross-archive Map trait field access)
-- Session 2's all-Hermes-in-lang trait visibility issue
+- Session 2's all-Writ-in-lang trait visibility issue
 - Session 3's collections-to-mem layer-mem build
 
 One bug. Three failure modes. Localised in sema's
@@ -539,8 +539,8 @@ sema_collect.
    `ParsedModule::from_binary_module` flag.
 3. Verify trait registrations get `from_binary=1` post-fix.
 4. Re-attempt collections-to-mem; expect layer-mem to build cleanly.
-5. Re-attempt all-Hermes-in-lang; expect ctr's `impl HermesRead for
-   Hermes` to find HermesRead trait.
+5. Re-attempt all-Writ-in-lang; expect ctr's `impl WritRead for
+   Writ` to find WritRead trait.
 
 Once this lands, all the previously-blocked three-layer split
 operations should be unblocked.
@@ -579,7 +579,7 @@ Re-attempted Step 5 (stringify/equal/hashing/check/pat/hbs_read →
 lang) with the (B) fix in place. Trait dispatch now works, but
 mlir-gen fails for `Map<Bitmap, AnyVal>`:
 
-    mlir_gen: struct 'std.hermes.map.Map$G2$Bitmap$AnyVal' has no field 'size'
+    mlir_gen: struct 'std.writ.map.Map$G2$Bitmap$AnyVal' has no field 'size'
 
 Map<...> has TWO matching partial specs for that concrete
 instantiation:
@@ -598,7 +598,7 @@ registration. Needs investigation.
 
 ### Path forward
 
-To unblock Step 5/6/all-Hermes-in-lang:
+To unblock Step 5/6/all-Writ-in-lang:
 - **(D1)** Fix `find_best_struct_spec` / mono materialization so each
   impl gets fields from its own declared partial spec. Likely the
   right architectural fix.
@@ -632,10 +632,10 @@ that broke session 3's attempt. Verified at 3197/3197 baseline.
 ### (D) still blocks Step 5
 
 With (B) trait pre-registration + (C) loader dedup both in place,
-Step 5 (hermes read-side packages → lang) progresses past sema to
+Step 5 (writ read-side packages → lang) progresses past sema to
 mlir-gen and hits the partial-spec issue:
 
-    mlir_gen: struct 'std.hermes.map.Map$G2$Bitmap$AnyVal' has no field 'size'
+    mlir_gen: struct 'std.writ.map.Map$G2$Bitmap$AnyVal' has no field 'size'
               (in fn 'Map$G2$Bitmap$AnyVal__check_obj__g__ref_Map$G2$Bitmap$V__pmut_CheckState')
     mlir_gen: struct 'Map$G2$Bitmap$AnyVal' has no field 'keys'
               (in fn '...__check_obj__g__ref_Map$G2$K$AnyVal__pmut_CheckState')
@@ -648,8 +648,8 @@ Diagnostics revealed:
 - For `Map<Bitmap, AnyVal>`, `find_best_struct_spec` picks
   `Map<Bitmap, V>` (specificity wins). Struct registered with
   {header, data} fields.
-- check.logos has BOTH `impl<V> HermesCheck for Map<Bitmap, V>` and
-  `impl<K> HermesCheck for Map<K, AnyVal>` — neither bound on K/V.
+- check.logos has BOTH `impl<V> WritCheck for Map<Bitmap, V>` and
+  `impl<K> WritCheck for Map<K, AnyVal>` — neither bound on K/V.
 - Mono instantiates BOTH for K=Bitmap, V=AnyVal. The Map<Bitmap, V>
   impl body accesses {header, data} (OK). The Map<K, AnyVal> impl
   body accesses {size, keys, vals} which the registered struct
@@ -690,8 +690,8 @@ Started investigating (D). Empirical findings from instrumented build:
 
 Monolith's symbol table has ONE function per concrete instantiation:
 ```
-T std.hermes.check.Map$G2$Bitmap$AnyVal__check_obj__g__ref_Map$G2$Bitmap$V__pmut_CheckState
-T std.hermes.equal.Map$G2$Bitmap$AnyVal__equal__g__ref_Map$G2$Bitmap$V__pcst_u8__pmut_EqualCtx
+T std.writ.check.Map$G2$Bitmap$AnyVal__check_obj__g__ref_Map$G2$Bitmap$V__pmut_CheckState
+T std.writ.equal.Map$G2$Bitmap$AnyVal__equal__g__ref_Map$G2$Bitmap$V__pcst_u8__pmut_EqualCtx
 ```
 
 The `ref_Map$G2$Bitmap$V` sig suffix is the `impl<V> ... for Map<Bitmap, V>`
@@ -751,8 +751,8 @@ classification. Not one-session work.
 | 4 | 05-17 | (B) fix landed + collections-to-mem |
 | 5 | 05-17 | (C) loader dedup landed; (D) partial-spec mangling pinpointed |
 | 6 | 05-17 | (D) investigation; more orthogonal bugs surfaced |
-| 7 | 05-17 | (D) **fundamental fix**: explicit module-level dep-DAG + Tarjan SCC + condensation topo-sort in `module_loader.cpp`. Replaces implicit DFS-natural-order invariant lost when binary archives were added. Step 5 landed (stringify/pat/check/equal/hashing/hbs_read → logos.lang.hermes.*). 3197/3197. |
-| 8 | 05-17 | Step 6 landed without any new compiler work: 15 mem-tier pkgs renamed + moved (std.hermes.* → logos.mem.hermes.*, into stdlib/mem/hermes/). Both feared blockers (duplicate clobber, lang↔mem cycle) failed to materialise — the prior (C)+(D) fixes had fully neutralised them. All 4 archives build clean. 3197/3197. |
+| 7 | 05-17 | (D) **fundamental fix**: explicit module-level dep-DAG + Tarjan SCC + condensation topo-sort in `module_loader.cpp`. Replaces implicit DFS-natural-order invariant lost when binary archives were added. Step 5 landed (stringify/pat/check/equal/hashing/hbs_read → logos.lang.writ.*). 3197/3197. |
+| 8 | 05-17 | Step 6 landed without any new compiler work: 15 mem-tier pkgs renamed + moved (std.writ.* → logos.mem.writ.*, into stdlib/mem/writ/). Both feared blockers (duplicate clobber, lang↔mem cycle) failed to materialise — the prior (C)+(D) fixes had fully neutralised them. All 4 archives build clean. 3197/3197. |
 | 9 | 05-17 | **Steps 7 + 8 landed together.** 11 lang-but-pulls-mem pkgs relocated to mem; std.sync.atomic → logos.lang.atomic; std-new/process → std/process. Monolith excludes activated; cmake build order flipped (layers → monolith); linker flags `--start-group/--end-group` + `--allow-multiple-definition` for cross-archive template-instantiation dedup. Three-layer split now structurally complete. 3197/3197. |
 
 ---
@@ -771,8 +771,8 @@ When binary archives were added (.a loading via `visit_binary_module`),
 that invariant broke: binary-loaded packages land in `modules[]` at
 whatever position the visit happens to push them, independent of any
 text dep-chain. Layer-build (text consumer + monolith .a) ends up
-processing `logos.lang.hermes.check` (text) before `std.hermes.map`
-(binary) even though check has `use logos.mem.hermes.map;`. Impl-target
+processing `logos.lang.writ.check` (text) before `std.writ.map`
+(binary) even though check has `use logos.mem.writ.map;`. Impl-target
 lookup in sema_decl finds an empty `prog.struct_specializations`,
 falls back to base struct, methods cement to the wrong target,
 mlir-gen "no field" at codegen.
@@ -824,7 +824,7 @@ Once corrected: monolith 3197/3197 unchanged; Step 5 sed lands clean
 
 - `src/compiler/module_loader.cpp` — `topo_sort_modules()` helper +
   call at end of `load_modules`. Iterative Tarjan SCC.
-- `stdlib/{std,lang}/hermes/{stringify,pat,check,equal,hashing,hbs_read}/`
-  — physical move + `package std.hermes.X;` → `package logos.lang.hermes.X;`
-- 37 files updated: `use std.hermes.X;` → `use logos.lang.hermes.X;`
+- `stdlib/{std,lang}/writ/{stringify,pat,check,equal,hashing,hbs_read}/`
+  — physical move + `package std.writ.X;` → `package logos.lang.writ.X;`
+- 37 files updated: `use std.writ.X;` → `use logos.lang.writ.X;`
   across stdlib, tests, examples, docs.

@@ -17,12 +17,12 @@ e->type = ty;
 e->kind = lir::EBinOp{op, std::move(lhs), std::move(rhs)};
 ```
 
-Phase 3 master plan ends with "L-IR is a Hermes document, not a parallel
+Phase 3 master plan ends with "L-IR is a Writ document, not a parallel
 variant tree." Two questions block that endgame:
 
 1. **Migration shape.** Should sema keep emitting `LExpr` variants while
-   `lir_mirror.cpp` projects them into Hermes (current arrangement),
-   should it emit Hermes nodes directly with no variant intermediate, or
+   `lir_mirror.cpp` projects them into Writ (current arrangement),
+   should it emit Writ nodes directly with no variant intermediate, or
    should something between?
 2. **Consumer signatures.** mlir_gen / borrow_check / mono_clone read via
    `expr_ref_of(*lexpr)` today — the `const lir::LExpr&` parameter is
@@ -34,7 +34,7 @@ twice. ADR pins the shape before sema work begins.
 
 ## Decision
 
-### Two-stage migration: dual-write builders → Hermes-only cutover.
+### Two-stage migration: dual-write builders → Writ-only cutover.
 
 **Stage 3f (this ADR's primary scope).** Introduce `LirBuilder`, a class
 that owns construction of every L-IR node. Each method takes the same
@@ -48,7 +48,7 @@ throughout. No variant types are removed in Stage 3f.
 
 **Stage 3g (future, out of scope for this ADR).** Once 100% of sema
 creation goes through `LirBuilder`, switch the builder's implementation
-to write directly into a Hermes zone. Variant types `lir::EBinOp`,
+to write directly into a Writ zone. Variant types `lir::EBinOp`,
 `lir::SLet`, etc. are deleted. Consumer signatures (`gen_expr(const
 LExpr&)`, etc.) are mass-renamed to take `ExprRef`/`StmtRef` — already
 mechanical because Phase 3e routed all reads through views.
@@ -56,7 +56,7 @@ mechanical because Phase 3e routed all reads through views.
 
 ### Why staging, not a single radical cutover
 
-A single-step cutover (delete variants, rewrite consumers, add Hermes
+A single-step cutover (delete variants, rewrite consumers, add Writ
 builders, migrate sema, all at once) is the obvious "do it right"
 answer. Rejected because:
 
@@ -65,7 +65,7 @@ answer. Rejected because:
   cutover, by definition, breaks every consumer in one go and only
   passes tests after a multi-day push.
 - **Risk asymmetry.** If Stage 3g uncovers an unforeseen design issue
-  with Hermes-zone-only L-IR (e.g. mutability, identity, lifetime),
+  with Writ-zone-only L-IR (e.g. mutability, identity, lifetime),
   Stage 3f's investment is preserved — the sema sites already speak
   builder-API; only the builder's implementation needs to change.
 - **Bisectable history.** Bug regressions during the migration period
@@ -76,7 +76,7 @@ answer. Rejected because:
 
 `LirBuilder` carries dependencies (mainly the `LProgram&` for type-pool
 access) instead of threading them through 139 free function calls.
-Future Stage 3g moves will need a Hermes zone reference too — adding
+Future Stage 3g moves will need a Writ zone reference too — adding
 that to a class member is one diff; adding it to 139 callsites is not.
 
 ### Builder API shape
@@ -113,7 +113,7 @@ not a new API surface for users.
 
 ### What's *not* in scope
 
-- Hermes-direct emission. Stage 3f keeps variant write-path verbatim.
+- Writ-direct emission. Stage 3f keeps variant write-path verbatim.
 - Removing `lir::LExpr` / `lir::LStmt`. Both stay until Stage 3g.
 - mlir_gen / borrow_check / mono_clone signature changes. They keep
   taking `const LExpr&` and read via `expr_ref_of` (status quo).
@@ -129,7 +129,7 @@ not a new API surface for users.
   at least one sema site needs it. No speculative API surface. (Trade:
   no big "API design" review pass; the API is determined by what sema
   actually does.)
-- **Phase 3g design space stays open.** Whether the eventual Hermes-only
+- **Phase 3g design space stays open.** Whether the eventual Writ-only
   L-IR uses `Zone<Mutable>` during sema then freezes (per the master
   plan §"Mutability"), or uses a per-function arena pattern, or
   something else, is not pre-committed by Stage 3f.
@@ -145,8 +145,8 @@ not a new API surface for users.
   sema-creation hot spots, struck through as each lands.
 - **Stage 3g re-open.** When sema is 100% builder-driven and all
   consumers are mirror-readers, write ADR 0006 to lock in the
-  Hermes-zone target, then execute the cutover.
+  Writ-zone target, then execute the cutover.
 - **Deferred question — string interning.** Sema today copies
-  `std::string` for every name field. Hermes-zone L-IR is the natural
+  `std::string` for every name field. Writ-zone L-IR is the natural
   point to introduce a per-zone string pool (see master plan open
   question §2). Decide in ADR 0006, not here.

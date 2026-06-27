@@ -1,6 +1,6 @@
 # Logos Language Reference
 
-This is the reference for the Logos language. It is organised by surface form: lexer → types → items → expressions → statements → patterns, with cross-cutting topics (generics, ownership, metaprogramming, Hermes, attributes) grouped after.
+This is the reference for the Logos language. It is organised by surface form: lexer → types → items → expressions → statements → patterns, with cross-cutting topics (generics, ownership, metaprogramming, Writ, attributes) grouped after.
 
 The reference describes both **the language as it is today** (what `logos.peg` and `src/compiler/sema*.cpp` actually accept and lower) and **roadmap items** (what is planned but not yet wired through). Roadmap items are called out per-page, in each page's own `## Roadmap` section.
 
@@ -15,7 +15,7 @@ The reference is fact-and-link — for design rationale see the per-feature note
 - **[Items](items.md)** — top-level declarations: `package`, `use`, `let`, `type`, `fn`, `struct`, `enum`, `trait`, `impl`, `genos`, `template`.
 - **[Expressions](expressions.md)** — operator precedence, atoms and postfix chains, primary expressions, control-flow as expression, metaprogramming forms.
 - **[Statements](statements.md)** — `let` bindings, assignments, control flow, `return`, `unsafe`, expression statements.
-- **[Patterns](patterns.md)** — bindings, literals, struct / enum / slice patterns, or-patterns, Hermes patterns, guards, exhaustiveness.
+- **[Patterns](patterns.md)** — bindings, literals, struct / enum / slice patterns, or-patterns, Writ patterns, guards, exhaustiveness.
 
 ### Cross-cutting
 
@@ -23,7 +23,7 @@ The reference is fact-and-link — for design rationale see the per-feature note
 - **[Generics & Traits](generics-traits.md)** — type / lifetime / const parameters, variadic packs, traits, impls, trait objects, `where`.
 - **[Ownership](ownership.md)** — move vs Copy, borrows, lifetimes, mutability, `Drop`, raw pointers, view types.
 - **[Metaprogramming](metaprog.md)** — typelevel handles, `metacall`, quote forms, `template`, sema-side intrinsics.
-- **[Hermes](hermes.md)** — Hermes literals, datatypes, view types, tag-dispatched pointers, schemas, type-codes.
+- **[Writ](writ.md)** — Writ literals, datatypes, view types, tag-dispatched pointers, schemas, type-codes.
 - **[Attributes](attributes.md)** — `#[...]` annotations on items.
 
 ## Sources

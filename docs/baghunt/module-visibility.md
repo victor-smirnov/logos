@@ -36,7 +36,7 @@
 ### B-mv-03: `use <missing-pkg>;` produces diagnostic but compilation continues
 
 **Severity**: P1 diagnostic
-**Status**: fixed (load_modules now returns `out_had_error`; main treats missing pkg as fatal; lock-in tests `use_missing_pkg` + `pub_use_missing_pkg`. Two source-only tests `hermes_type_lit_parse`/`hermes_lit_parse` were silently relying on the lenient loader and got `-I ${STDLIB_BIN_DIR}` added to LOCAL_HERMES_USERS to keep them passing.)
+**Status**: fixed (load_modules now returns `out_had_error`; main treats missing pkg as fatal; lock-in tests `use_missing_pkg` + `pub_use_missing_pkg`. Two source-only tests `writ_type_lit_parse`/`writ_lit_parse` were silently relying on the lenient loader and got `-I ${STDLIB_BIN_DIR}` added to LOCAL_HERMES_USERS to keep them passing.)
 **Repro**: `B07/` — `package main; use does_not_exist; fn main() -> i32 { return 0; }`
 **Observed (was)**: `module_loader: cannot find package 'does_not_exist'` printed to stderr, but `logosc: wrote /tmp/B07.o` follows. Exit code is **0** despite the error.
 **Expected**: Hard error, non-zero exit, no `.o` written.

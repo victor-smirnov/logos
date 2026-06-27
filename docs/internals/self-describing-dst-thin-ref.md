@@ -79,14 +79,14 @@ fell back to 0), so `self.len` (header via `data`) read 14 but `self.bytes` (sli
 ## vlen HString (fold in — orthogonal but part of "HString done right")
 
 - Relocate the vlen codec (`vlen_read/write/prefix_size/encode_size`) from
-  `logos.lang.hermes.string` to a **neutral module** (`logos.lang.vlen`) — it's a
-  general variable-length-integer codec, not string-specific; and Hermes2 shouldn't
-  depend on Hermes1. Update HermesString's imports.
+  `logos.lang.writ.string` to a **neutral module** (`logos.lang.vlen`) — it's a
+  general variable-length-integer codec, not string-specific; and Writ2 shouldn't
+  depend on Writ1. Update WritString's imports.
 - `#[self_describing] struct HString { bytes: [u8] }` — NO explicit `len` field;
-  layout `[vlen(payload_len)][utf8 payload]` (HermesString's layout, as a DST).
+  layout `[vlen(payload_len)][utf8 payload]` (WritString's layout, as a DST).
   `dst_len = vlen_prefix_size(p) + vlen_read(p)` (whole tail = whole object, no
   sized prefix). `len()` = `vlen_read(p)` (logical string length, payload only).
   `as_str` skips the vlen prefix.
 - With safe-`&` (steps 1-5): `hstring(&self,s) -> &HString`, safe `as_str(&self)`/
   `len(&self)`, `HAny::from(&HString)`, `hstring_of -> &HString`. Showcase §7 + test
-  `hermes2_hstring` back to the safe `&` form (no `unsafe` at call sites).
+  `writ2_hstring` back to the safe `&` form (no `unsafe` at call sites).

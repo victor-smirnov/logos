@@ -1,6 +1,6 @@
 # Zoned Types — Design
 
-Integrating Hermes/Memoria *zones* into the Logos type system so that
+Integrating Writ/Memoria *zones* into the Logos type system so that
 work with relocatable, offset-addressed memory is **memory-safe by
 construction** and the compiler can optimize it. The forcing function
 is **safe work with Memoria's `PackedAllocator`** (big Memoria); the
@@ -9,18 +9,18 @@ derived side-effects of the same borrow invariant, not a separate
 pass.
 
 Status: **design accepted (2026-06-02), implementation not started.**
-Companion to [hermes-runtime.md](hermes-runtime.md),
+Companion to [writ-runtime.md](writ-runtime.md),
 [big-memoria-architecture.md](big-memoria-architecture.md), the
-language-level [Hermes](../language/hermes.md) page, and the deferred
+language-level [Writ](../language/writ.md) page, and the deferred
 custom-DST work (memory `project_box_unsized_customdst`).
 
 This document is the canonical statement of the model. It supersedes
-the ad-hoc lifetime machinery in `stdlib/lang/hermes/{own,zone,mem_holder}`
+the ad-hoc lifetime machinery in `stdlib/lang/writ/{own,zone,mem_holder}`
 (those are scaffold — see §9).
 
-> **Superseded in part by [Hermes2](hermes2-design.md) (2026-06-03).**
-> Hermes2 is the target architecture, built in parts in parallel with the
-> current Hermes (which then retires wholesale). It removes *relocation*
+> **Superseded in part by [Writ2](writ2-design.md) (2026-06-03).**
+> Writ2 is the target architecture, built in parts in parallel with the
+> current Writ (which then retires wholesale). It removes *relocation*
 > entirely: objects never move in place (growth appends segments,
 > compaction copies to a fresh container), references become
 > **self-relative `i64`** (no base threaded anywhere), and the only
@@ -147,7 +147,7 @@ Two optimizations fall out of two analyses the language already needs:
 
 ## 4. Zone-DST objects: thin storage + fat materialization
 
-Some zone types are **DSTs**. `HermesString` = a varint-encoded length
+Some zone types are **DSTs**. `WritString` = a varint-encoded length
 prefix followed by the bytes. It is **self-describing** (its length is
 in-band).
 
@@ -187,8 +187,8 @@ externally-supplied base; the safe version associates it with a domain.
 
 ### Boundary coercion (the `Array`-insert mechanic)
 
-Storing a reference to a `HermesString` into an in-zone `Array` (which
-holds `RelPtr<HermesString>`) requires lowering a fat reference to an
+Storing a reference to a `WritString` into an in-zone `Array` (which
+holds `RelPtr<WritString>`) requires lowering a fat reference to an
 offset:
 
 1. **Same-domain required.** An offset is meaningful only against *this*
@@ -202,10 +202,10 @@ offset:
      allocate into this buffer, copy the bytes, then store the offset.
    Conflating them is a bug: `push(&s)` of a foreign `s` *must* copy, or
    the stored offset is garbage.
-3. **Sub-slice asymmetry.** A whole self-describing `HermesString` stores
+3. **Sub-slice asymmetry.** A whole self-describing `WritString` stores
    as **one** offset (it knows its length). A bare `&str` sub-slice is
    **not** self-describing in-zone → not storable as a single offset
-   (needs a fresh `HermesString` or an explicit `(offset, len)` pair).
+   (needs a fresh `WritString` or an explicit `(offset, len)` pair).
    Slicing *outward* is free; storing a slice back *as a reference* is
    not.
 
@@ -213,19 +213,19 @@ offset:
 
 ## 5. Ownership model
 
-**Decision: mutable Hermes containers are always independent of one
-another.** Even when a Hermes zone is hosted inside a `PackedAllocator`,
+**Decision: mutable Writ containers are always independent of one
+another.** Even when a Writ zone is hosted inside a `PackedAllocator`,
 that zone is **immutable — it cannot be resized in place** (technically
 the abstraction permits it; we forbid it by design). Therefore:
 
-- A **mutable Hermes container is the root owner of its own dynamic
+- A **mutable Writ container is the root owner of its own dynamic
   zone — like `Vec<T>` / `Box<T>`**: it owns a growable buffer, is
   affine (move-only), grows by reallocating *its own* memory, and frees
   on `Drop`. It never ripples into a `PackedAllocator`.
-- A **Hermes hosted in a `PackedAllocator` is immutable / sealed**:
+- A **Writ hosted in a `PackedAllocator` is immutable / sealed**:
   read-only, no resize. `seal` is the transition (mutable → immutable);
   embedding copies the sealed bytes into a block. Mutating an embedded
-  container = copy out, rebuild a fresh mutable Hermes, re-seal, re-embed
+  container = copy out, rebuild a fresh mutable Writ, re-seal, re-embed
   — **copy-on-write at container granularity** (standard persistent
   pattern).
 
@@ -233,42 +233,42 @@ the abstraction permits it; we forbid it by design). Therefore:
 
 The exact Rust analogy, and a hard constraint:
 
-> `Hermes` : `HermesView<'a>` : (the sealed zone bytes)
+> `Writ` : `WritView<'a>` : (the sealed zone bytes)
 > ::
 > `Vec<T>`/`String` : `&[T]`/`&str` : `[T]`/`str`
 
-- **`Hermes` (the owning handle) cannot be stored in a `BTreeNode` /
+- **`Writ` (the owning handle) cannot be stored in a `BTreeNode` /
   embedded in a zone.** It holds a *heap base pointer* (`base`,
   `capacity`), and the zone rule forbids raw pointers — only offsets. So
   only its **sealed bytes** embed in a block; the embedded data is read
-  through a `HermesView`. Exactly as a `Vec<T>` can't be serialized into
+  through a `WritView`. Exactly as a `Vec<T>` can't be serialized into
   a block but `[T]` can, viewed as `&[T]`.
 - **Heap independence → only-OOM failure.** Heap allocations are
-  independent: an update through one `Hermes` never moves another heap
+  independent: an update through one `Writ` never moves another heap
   object. The only "ripple"-like failure is `realloc` failing → **OOM
   panic**. This is why the standalone heap case is the *simple, safe*
   one — no cross-object coupling, unlike a `PackedAllocator` buffer where
   growth shifts siblings (the coupled domain, §3). And since embedded
-  Hermes is sealed/immutable, a *growing* Hermes never exists inside a
+  Writ is sealed/immutable, a *growing* Writ never exists inside a
   coupled buffer — consistent.
 
-### Implementation reality of `HermesView` (gap to close)
+### Implementation reality of `WritView` (gap to close)
 
-Today `HermesView<'a> = { base: *const u8, size: u64 }` + a `HermesRead`
+Today `WritView<'a> = { base: *const u8, size: u64 }` + a `WritRead`
 trait (`base()`/`size()` + default reads). Read-only is **convention
 only** — a `*const` pointer and the absence of write methods; the `'a`
 is **decorative** (base is a raw pointer, not borrow-checked against the
 source). The work: make read-only-ness and `'a` **actually enforced** —
-no `HermesWrite` impl on the view, and `HermesView<'a>` genuinely borrows
+no `WritWrite` impl on the view, and `WritView<'a>` genuinely borrows
 its source for `'a` (lifetime tied to the owner / page guard, §6), not a
 phantom.
 
 Consequences:
 
 - **The common path is ownership + borrows, zero refcount** — exactly
-  `Vec`. A `HermesString` inside a Hermes lives as long as the container;
-  access is a borrow `&'a` / `HermesView` tied to the container. `&mut
-  Hermes` to grow invalidates live `&Hermes` (Vec::push invariant).
+  `Vec`. A `WritString` inside a Writ lives as long as the container;
+  access is a borrow `&'a` / `WritView` tied to the container. `&mut
+  Writ` to grow invalidates live `&Writ` (Vec::push invariant).
 - **Per-object refcounts are deleted.** Zone objects are never freed
   individually — the **buffer** is the unit of free/compaction — so
   "how many handles point at this object" is irrelevant. Only "is the
@@ -283,15 +283,15 @@ Consequences:
 
 A live view into data physically resident in a cached block must keep
 that block **resident** (the cache will not evict a pinned page) for the
-view's lifetime. Current Hermes does this by chaining a per-object
+view's lifetime. Current Writ does this by chaining a per-object
 `Own`/`mem_holder` refcount up to the BTree block.
 
 ### A borrow does not pin at runtime — the owner does
 
 `&'a T` is a *static* guarantee; it pins nothing at runtime. Something
 must physically hold the backing storage resident for `'a` — the
-**owner of the borrow**. For a standalone heap Hermes that owner is the
-`Hermes`/`Box` on the stack; for a cached block it is a **page guard**
+**owner of the borrow**. For a standalone heap Writ that owner is the
+`Writ`/`Box` on the stack; for a cached block it is a **page guard**
 (RAII) that holds a runtime pin. The refcount did not vanish — it
 **moved up** from per-object to the **eviction unit (the page)**,
 **consolidated** (one pin per page instead of N), and became **RAII**.
@@ -310,7 +310,7 @@ trait Resident { /* keeps backing bytes resident; release on Drop via vtable */ 
 ```
 
 - Backends implement it (cache-page pin, mmap region, in-mem buffer
-  owner, standalone malloc-Hermes). All differences live in the vtable.
+  owner, standalone malloc-Writ). All differences live in the vtable.
 - `Arc<dyn Resident>` (or `Rc<dyn Resident>` thread-local) is the erased
   shared pin — essentially today's heap `mem_holder` with `rc +
   vtable-release` replacing `rc + fn-callback`.
@@ -322,7 +322,7 @@ SuperRc<T> = { pin: Arc<dyn Resident>,  loc: <locator of T within the Resident's
 ```
 
 - Owning, clonable, **type-erased** escape/retain handle. `T` is the
-  projected view type (`Hermes`, `HermesString`, …).
+  projected view type (`Writ`, `WritString`, …).
 - **Deref/borrow** → a view of `T` resolved against `pin.base() + loc`.
   In scope, take `&*rc` without cloning.
 - **Clone** → bump the pin refcount (shares the same page). Atomic
@@ -332,8 +332,8 @@ SuperRc<T> = { pin: Arc<dyn Resident>,  loc: <locator of T within the Resident's
   unpins the page and **cascades down the resource chain** (parent
   resource, mmap region, file handle…). The transitive "holds everything
   underneath" lives in the `Resident` impls' `Drop`, not in `SuperRc`.
-- **Projection** → `rc.get(k) -> SuperRc<HermesString>`: clones the same
-  `pin`, new `loc`. Navigating into a Hermes shares the *one* page pin
+- **Projection** → `rc.get(k) -> SuperRc<WritString>`: clones the same
+  `pin`, new `loc`. Navigating into a Writ shares the *one* page pin
   (the `Rc::map` / `owning_ref` pattern).
 
 ### Client-facing roster
@@ -436,23 +436,23 @@ instead.
 
 | Type | Role | Refcount |
 |---|---|---|
-| `Hermes` | owned mutable **root** container (Vec/Box-like), own growable buffer; holds a heap base ptr → **not embeddable in a zone/`BTreeNode`** (only its sealed bytes embed); growth never ripples to other heap objects (only failure = OOM panic) | none (affine) |
-| `HermesView<'a>` | borrowed **read-only** view into the sealed bytes wherever they live (own buffer / `PackedAllocator` block / rodata); the only way to read embedded Hermes; `≈ &[T]/&str`. Read-only and `'a` must be *enforced* (no `HermesWrite`; real borrow), not convention | none |
+| `Writ` | owned mutable **root** container (Vec/Box-like), own growable buffer; holds a heap base ptr → **not embeddable in a zone/`BTreeNode`** (only its sealed bytes embed); growth never ripples to other heap objects (only failure = OOM panic) | none (affine) |
+| `WritView<'a>` | borrowed **read-only** view into the sealed bytes wherever they live (own buffer / `PackedAllocator` block / rodata); the only way to read embedded Writ; `≈ &[T]/&str`. Read-only and `'a` must be *enforced* (no `WritWrite`; real borrow), not convention | none |
 | `SuperRc<T>` | **type-erased owning** escape/retain handle = `(Arc<dyn Resident>, loc)`; projects, derefs, drop cascades | one layer, on `Resident` |
 | `dyn Resident` | erased "owner of resident bytes"; backend-specific Drop/release | n/a |
 | `RelPtr<T>` | thin in-zone stored reference (u32 offset); domain-associated; intrinsic-backed (TBD) | none |
 
-### Scaffold being replaced (currently in `stdlib/lang/hermes/*`)
+### Scaffold being replaced (currently in `stdlib/lang/writ/*`)
 
 | Today | Becomes |
 |---|---|
 | `DataOwn<T>` (two RC layers: holder + per-object heap `*mut i32`) | `SuperRc<T>` (one layer, on `Resident`) |
 | `mem_holder` RC-chain + `destroyer` fn-callback | `Arc<dyn Resident>` (rc + vtable-release) |
-| `DataRef<T>` (retains holder on creation) | a borrow `&'a` / `HermesView` projection; retain removed |
+| `DataRef<T>` (retains holder on creation) | a borrow `&'a` / `WritView` projection; retain removed |
 | exposed `PageGuard` | hidden; the container iterator materializes `SuperRc<T>` |
 | per-object reference counting + future "optimize it away" work | deleted outright |
 
-The current design literally mirrors the C++ Hermes, which was shaped by
+The current design literally mirrors the C++ Writ, which was shaped by
 a different type system. The borrow-checker-backed model removes the
 machinery rather than optimizing it.
 
@@ -491,7 +491,7 @@ register an unimplemented divergence as live):
 
 ## 11. Implementation plan
 
-Two stages. Stage 1 makes standalone Hermes fully type-safe and
+Two stages. Stage 1 makes standalone Writ fully type-safe and
 refcount-free; Stage 2 adds the recursive `PackedAllocator` and its safe
 coupling. Each numbered step gates the next with the full test suite
 (see memory `feedback_test_levels`).
@@ -504,7 +504,7 @@ erasure core end-to-end:
 - A `Storage` holds blocks; each block backs a zone and is an
   independently free-able/evictable resource. The **block type is erased
   from client code** (`dyn Resident`).
-- `storage.get(key)` hands out a `HermesView`-bearing handle that the
+- `storage.get(key)` hands out a `WritView`-bearing handle that the
   client can **store in an array** (`Vec<Handle>`) and carry around —
   i.e. the handle **escapes** the call.
 - **While the client holds the handle for block B, `Storage` cannot free
@@ -521,13 +521,13 @@ the in-scope streaming path. It is essentially a minimal Memoria-cache
 
 **Sequencing note:** the minimal harness needs only the §6 mechanism
 (`trait Resident` + `Arc<dyn Resident>` + `SuperRc`/handle + a sized
-`HermesView` over a stub block) — **no custom-DST**. So it is the ideal
+`WritView` over a stub block) — **no custom-DST**. So it is the ideal
 *first executable spike*: it de-risks and pins down the
 lifetime/erasure design (Steps 3–4) before the heavy custom-DST work
 (Steps 1–2), and then stands as the Stage-1 acceptance gate once real
-Hermes data flows through it.
+Writ data flows through it.
 
-### Stage 1 — type-safe, refcount-free standalone Hermes
+### Stage 1 — type-safe, refcount-free standalone Writ
 
 **Step 1 — Preliminary: custom DST.** Bring up the custom-DST mechanism
 that everything else needs (memory `project_box_unsized_customdst`,
@@ -539,15 +539,15 @@ hardest prerequisite and the right first cut because §4/§7 both rest on
 it. *Risk: deepest compiler work (mono / layout / loader); do it behind a
 narrow feature before touching stdlib.*
 
-**Step 2 — Custom DST in current Hermes objects.** Re-express
-`HermesString` (and siblings: `ObjectArray`, decimal limb tail, …) as
+**Step 2 — Custom DST in current Writ objects.** Re-express
+`WritString` (and siblings: `ObjectArray`, decimal limb tail, …) as
 custom DSTs with the three reference forms (§4) and the boundary
 coercion (`RelPtr` ↔ view, same-domain checked, link vs intern,
 sub-slice asymmetry). Introduce `RelPtr<T>` as the distinct
 domain-associated, intrinsic-backed type. *This is the most tangible
 slice and where the domain-tag / same-domain check is first exercised.*
 
-**Step 3 — `Hermes → SuperRc<Hermes>`; delete the refcount zoo.** Land
+**Step 3 — `Writ → SuperRc<Writ>`; delete the refcount zoo.** Land
 `trait Resident` + `Arc<dyn Resident>` + `SuperRc<T>` (§6). Remove
 `DataOwn`, the per-object `mem_holder` RC, `OView`, and the per-object
 counters **together with the need to optimize them later** (§8). The
@@ -555,15 +555,15 @@ escape path is now `SuperRc<T>`; the common path is borrows.
 
 **Step 4 — Rework the container/object API onto the borrow model.** All
 of `Map`/`Array`/`ObjectMap`/`ctr`/iterators move to ownership + borrows
-leaning on the borrow checker: `Hermes` = affine root owner; `&Hermes` /
-`&mut Hermes` (grow = `&mut`, Vec::push invariant); iterators yield
+leaning on the borrow checker: `Writ` = affine root owner; `&Writ` /
+`&mut Writ` (grow = `&mut`, Vec::push invariant); iterators yield
 borrows or `SuperRc<T>` with RC-elision on the hot path. **Exit
-criterion: Hermes is fully type-safe with zero refcounts on the common
+criterion: Writ is fully type-safe with zero refcounts on the common
 path**, RC only at explicit `SuperRc` shares.
 
-### Stage 2 — recursive PackedAllocator + safe Hermes coupling
+### Stage 2 — recursive PackedAllocator + safe Writ coupling
 
-**Step 5 — Recursive `PackedAllocator`, type-safely coupled to Hermes.**
+**Step 5 — Recursive `PackedAllocator`, type-safely coupled to Writ.**
 The host DST (`BTreeBlock`), one-root-per-heap-object via the affine
 owner (§7), the capability split (resize transaction vs disjoint
 set-in-place), the two-phase `UpdateState` transaction with `Result`

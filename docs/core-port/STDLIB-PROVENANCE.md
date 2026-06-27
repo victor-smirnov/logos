@@ -24,7 +24,7 @@ Source roots:
 
 | Rust file | Logos equivalent | Status | Coretest | Notes |
 |---|---|---|---|---|
-| `any.rs` | `stdlib/mem/any/any.logos` | 🔁 | — | Rust shape is `TypeId` + `&dyn Any` downcast; Logos uses Hermes `TypeInfo` (reflection over fields/annotations) keyed by stable type_code. Different mechanism, same intent. |
+| `any.rs` | `stdlib/mem/any/any.logos` | 🔁 | — | Rust shape is `TypeId` + `&dyn Any` downcast; Logos uses Writ `TypeInfo` (reflection over fields/annotations) keyed by stable type_code. Different mechanism, same intent. |
 | `arch.rs` | — | 🔁 | — | Architecture intrinsics; Logos has no per-arch surface (compiler builtins instead). |
 | `array.rs` | `lang/iter/iter.logos` (fixed-array iteration) + `lang/array/array.logos` | ⚠️ partial | `iterators/test_harness_coretest_iter_array.logos`, `array_into_iter.logos` | `for x in [a,b,c]` works. `core::array::{IntoIter<T, N>, from_ref, from_mut}` ported B104 after closing the `[T; N]` struct-field codegen baghunt. `try_from` still TODO (needs `TryFrom<&[T]>` for `[T; N]` shape; depends on slice-to-array length-check). |
 | `ascii.rs` | `lang/char/char.logos` (`is_ascii_*` methods) + `lang/ascii/ascii.logos` (`AsciiChar`) | ⚠️ partial | `char/test_harness_coretest_char_ascii.logos`, `ascii_char_basic.logos` | `AsciiChar` newtype struct with validated `from_u8` + class predicates + case-fold landed (B101). Divergence: Rust uses a 128-variant `#[repr(u8)]` enum; Logos uses a single-byte struct (no per-variant `enum` discriminants without explicit repr). `as_str` (static-byte-table) + `EscapeDefault` iterator absent; `[u8; N]::as_ascii` gated on the const-N array-field codegen baghunt. |
@@ -377,16 +377,16 @@ These exist because Logos's runtime/data model differs; track them
 for completeness but no Rust port is meaningful.
 
 ### Lang
-- `stdlib/lang/hermes/{anyval,datatag,mem_holder,own,relptr,tags,typetag,view,zone}` — Hermes datatype/storage/view fabric (AnyVal, OView, Zone<M>, TypeTagSystem).
+- `stdlib/lang/writ/{anyval,datatag,mem_holder,own,relptr,tags,typetag,view,zone}` — Writ datatype/storage/view fabric (AnyVal, OView, Zone<M>, TypeTagSystem).
 - `stdlib/lang/logos.module` — language module manifest.
 
 ### Mem
-- `stdlib/mem/hermes/{alloc,array,check,clone,ctr,decimal,document,equal,fabric,hashing,hbs_read,hbs_write,map,objectmap,parser,pat,registry,release,relptr_traits,scalar,string,stringify,tag_system,typed_value,view}` — Hermes serialization / immutable-doc / object-map infrastructure (Logos's mini-Memoria).
+- `stdlib/mem/writ/{alloc,array,check,clone,ctr,decimal,document,equal,fabric,hashing,hbs_read,hbs_write,map,objectmap,parser,pat,registry,release,relptr_traits,scalar,string,stringify,tag_system,typed_value,view}` — Writ serialization / immutable-doc / object-map infrastructure (Logos's mini-Memoria).
 - `stdlib/mem/encoding/{base64,csv,hex,json}` — encoding helpers. JSON has writer + escape + validate; no full parser yet.
 - `stdlib/mem/collections/{btree,deque,hashmap,set}` — `BTreeMap<K,V>` (Ord-based), `VecDeque<T>`, `HashMap<K,V>` (FxHasher), `HashSet<K>`. Iter + basic methods; no `entry` API.
 
 ### Std (legacy / being retired per `std-new` plan)
-- `stdlib/std/compiler/{metaprog,tokens}` — `derive_clone`/`derive_branch_node`/AST helpers/format!/print! metacalls. **Phase A C4** completed; ships as `.hermes0` blobs.
+- `stdlib/std/compiler/{metaprog,tokens}` — `derive_clone`/`derive_branch_node`/AST helpers/format!/print! metacalls. **Phase A C4** completed; ships as `.writ0` blobs.
 - `stdlib/std/data/persistent` — mini-Memoria persistent data (B+tree, Snap/Store, COW). Logos-only.
 - `stdlib/std/io/{buffered,bytes,fs,http,linux/uring,net/{tls,url},pipe,read,write}` — full I/O surface (sockets, fs, http, io_uring, TLS, URL parsing). No core equivalent.
 - `stdlib/std/lang/text/regex` — regex engine.

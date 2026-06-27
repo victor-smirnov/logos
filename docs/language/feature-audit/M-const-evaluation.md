@@ -36,7 +36,7 @@ Probe matrix (2026-06-12, `bin/logosc` @ 00355c52):
 - ✅ `[i32; metacall { 2 + 2 }]` compiles+runs (m1).
 - ❌ `[i32; metacall { N }]` w/ module const N → "metacall in array length: ctfe: expression is not a compile-time constant" (m2). **K10-co-06 residual.**
 - ❌ `enum E { A = metacall { N } }` → same error (m3); ✅ `A = 1 << 3` works (m3b, G159-3).
-- ❌ `get::<metacall { 2 + 2 }>()` → parse error (m4) — `type_or_lt_arg` (`logos.peg:1372+`) admits only INT/−INT/hermes_lit/type_ref; no metacall, no const-expr. Metacall gap per §A1 strict rule.
+- ❌ `get::<metacall { 2 + 2 }>()` → parse error (m4) — `type_or_lt_arg` (`logos.peg:1372+`) admits only INT/−INT/writ_lit/type_ref; no metacall, no const-expr. Metacall gap per §A1 strict rule.
 - ✅ `const N = 7; match x { N => …, _ => … }` runs (m5) — v1 gap #7 closed (d207fcda).
 - ✅ `const P: Point = Point { x: 1, y: 2 }; P.x` runs (m6) — v1 gap #2 (compound shapes) closed for struct-lit.
 - ✅ `const A: [i32; 2] = [10, 20];` + `const T: (i32, i32) = (3, 4);` run (m11) — array/tuple const init now end-to-end (v1's "B-ca-05 reject" is gone).

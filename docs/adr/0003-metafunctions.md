@@ -130,7 +130,7 @@ result back into source as a constant".
 What a metafunction return value becomes here:
 - a number → numeric literal,
 - a string → string literal,
-- a Hermes value of a schema the compiler recognises → the corresponding
+- a Writ value of a schema the compiler recognises → the corresponding
   AST entity.
 
 ### 2.2 Declaration / type / constraint position — implicit metacall
@@ -189,16 +189,16 @@ is the compiler itself, when the function appears in a declaration position.
 ### 3.2 TypeDef and friends — public stdlib contract
 
 `TypeDef`, `ClassDef`, `FnDef`, `MethodDef`, `Diagnostic`, etc. are ordinary
-Hermes structures defined in stdlib. The compiler recognises them by their
-Hermes `schema_type_code`, not by name.
+Writ structures defined in stdlib. The compiler recognises them by their
+Writ `schema_type_code`, not by name.
 
 This means:
-- the structures are extensible and versionable like any Hermes schemas,
+- the structures are extensible and versionable like any Writ schemas,
 - diff, hash, serialisation all work,
 - no type-system bifurcation.
 
-Hermes as the unified IR is **load-bearing** here: the compiler's fact base
-is itself a Hermes structure.
+Writ as the unified IR is **load-bearing** here: the compiler's fact base
+is itself a Writ structure.
 
 ## 4. Capabilities and admission control
 
@@ -317,7 +317,7 @@ Each generated entity stores provenance:
 - hash of the metafunction body at execution time.
 
 Cache key for a meta call: `hash(M_body) ∪ hash(args) ∪ hash(values(read_set))`.
-Invalidation is automatic. Salsa-style; Hermes provides stable hashing.
+Invalidation is automatic. Salsa-style; Writ provides stable hashing.
 
 The `logosc expand <file>` command is a **dev tool** that expands metafunctions
 into source listings for reading and debugging. Not for builds. Without it,
@@ -382,7 +382,7 @@ metaprog-heavy code becomes black magic.
 
 ## 12. Relation to other decisions
 
-- Relies on Hermes as the unified IR (§3.2, §8).
+- Relies on Writ as the unified IR (§3.2, §8).
 - Relies on the JIT (§1, §4).
 - Connected to the capability discussion for function effects/purity
   (same mechanism).

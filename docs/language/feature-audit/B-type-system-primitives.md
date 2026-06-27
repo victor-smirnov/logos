@@ -8,7 +8,7 @@ v2 — re-audited 2026-06-12 (v1: 2026-05-30); spec: rust-lang/reference (local 
 
 ## 1. Primitive types (`bool`, integer, float, `char`, unit)
 
-**Logos:** `LogosType::Kind::{Bool, U8..I128, Usize, Isize, F32, F64, Char, Void}` + Hermes widths `I24/U24/I56/U56` (`include/logos/compiler/sema.hpp:46-138`); unit = empty-`Tuple` (`logos.peg` `unit_type`). Name lookup `lookup_type_by_name` (`src/compiler/sema.cpp:2350-2383`); literal sentinels `Kind::IntLit/FloatLit`.
+**Logos:** `LogosType::Kind::{Bool, U8..I128, Usize, Isize, F32, F64, Char, Void}` + Writ widths `I24/U24/I56/U56` (`include/logos/compiler/sema.hpp:46-138`); unit = empty-`Tuple` (`logos.peg` `unit_type`). Name lookup `lookup_type_by_name` (`src/compiler/sema.cpp:2350-2383`); literal sentinels `Kind::IntLit/FloatLit`.
 
 **Verdict: OK** — names match Rust; `usize/isize` distinct kinds; `g_target_pointer_bits = 64`.
 
@@ -16,7 +16,7 @@ Interactions: Copy bucket ✓; int widening `types_compatible` (`sema.cpp:1673+`
 
 Debt:
 - `"void"` still surface-exposed (`sema.cpp:2371`) — internal kind leaking to the name layer.
-- `I24/U24/I56/U56` blessed Hermes widths — still no explicit A6 row (A6 lists variadics/Hermes fabric generally).
+- `I24/U24/I56/U56` blessed Writ widths — still no explicit A6 row (A6 lists variadics/Writ fabric generally).
 - `#[repr(align(N))]` absent (see §14) — `i128` align fixed by platform.
 
 ---
@@ -81,7 +81,7 @@ Fix: distinct `Kind::Str` (or a tag bit on Slice) to separate dispatch + track U
 
 **Logos:** `Kind::Ptr` (`sema.hpp:52`); deref requires `unsafe` ✓; `&T → *const T`, `*mut → *const` coercions ✓; Ptr trivially-Copy ✓.
 
-**Verdict: OK.** A6 additions since v1: `*zoned T` / `*zoned mut T` zoned raw pointer (39ac9d16; zoned bit in Ptr const_val bit 0, interned distinctly after 3d40b2e8) and `&tagged<TS> Trait` thin tag-dispatched ptr (`Kind::TaggedPtr`, `sema.hpp:70`) — both Hermes-model additions, not parity items.
+**Verdict: OK.** A6 additions since v1: `*zoned T` / `*zoned mut T` zoned raw pointer (39ac9d16; zoned bit in Ptr const_val bit 0, interned distinctly after 3d40b2e8) and `&tagged<TS> Trait` thin tag-dispatched ptr (`Kind::TaggedPtr`, `sema.hpp:70`) — both Writ-model additions, not parity items.
 
 Debt (unchanged):
 - `&raw const` / `&raw mut` (Rust 2024) — no grammar entry; `&x as *const T` detour remains.

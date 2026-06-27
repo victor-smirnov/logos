@@ -1,6 +1,6 @@
 # Logos Documentation
 
-Entry point, organized by audience: the **language** track is for users writing Logos code; the **internals** track is for contributors working on the compiler, runtime, and Hermes.
+Entry point, organized by audience: the **language** track is for users writing Logos code; the **internals** track is for contributors working on the compiler, runtime, and Writ.
 
 ## Language
 
@@ -11,8 +11,8 @@ To *use* Logos:
 - [Syntax](language/syntax.md) — types, expressions, statements, patterns, modules.
 - [Ownership and Borrowing](language/ownership.md) — `&`/`&mut`, lifetimes, the borrow checker.
 - [Generics and Traits](language/generics-traits.md) — generic functions, trait impls, monomorphization.
-- [Comprehensions](language/comprehensions.md) — list/map comprehensions, plain and Hermes forms.
-- [Hermes in Logos](language/hermes.md) — Hermes as a first-class language feature: literals, capture, view types.
+- [Comprehensions](language/comprehensions.md) — list/map comprehensions, plain and Writ forms.
+- [Writ in Logos](language/writ.md) — Writ as a first-class language feature: literals, capture, view types.
 - [Language Reference](language/reference/README.md) — normative reference by surface form (lexical / types / items / expressions / statements / patterns) plus cross-cutting topics.
 
 ## Internals
@@ -21,10 +21,10 @@ To *work on* Logos itself:
 
 - [Compiler Architecture](internals/architecture.md) — the `logosc` pipeline from source to native code.
 - [lforge — Build System](internals/lforge.md) — the Logos-level build orchestrator; MVP and roadmap toward daemon mode + package manager.
-- [Package Management](internals/package-manager.md) — design (no impl yet): lforge dependency resolve/fetch/build/cache. Go-modules-shaped, Hermes manifest, git-distributed, no central registry.
-- [Hermes Runtime](internals/hermes-runtime.md) — Datatype/Storage/View, zones, the type registry.
+- [Package Management](internals/package-manager.md) — design (no impl yet): lforge dependency resolve/fetch/build/cache. Go-modules-shaped, Writ manifest, git-distributed, no central registry.
+- [Writ Runtime](internals/writ-runtime.md) — Datatype/Storage/View, zones, the type registry.
 - [Metaprogramming](internals/metaprog.md) — current state of compile-time programming and reflection.
-- [HRPC](internals/hrpc.md) — bidirectional Hermes-native RPC and streaming: wire format, session model, IDL, C++/Logos split.
+- [HRPC](internals/hrpc.md) — bidirectional Writ-native RPC and streaming: wire format, session model, IDL, C++/Logos split.
 
 ## Target Compute Model
 
@@ -45,4 +45,4 @@ Long-form motivation and design rationale — broader, opinionated, slower-chang
 
 - Code samples are real Logos programs unless marked `// sketch` (design intent not yet implemented).
 - File references use repository-relative paths (e.g. `src/compiler/sema.cpp`).
-- "Compiler" means `logosc`; "runtime" means the support library and Hermes substrate the compiled program links against.
+- "Compiler" means `logosc`; "runtime" means the support library and Writ substrate the compiled program links against.

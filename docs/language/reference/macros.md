@@ -93,7 +93,7 @@ field; sema interprets it per callee marker.
 
 ## `ExprBlob` and how splicing works
 
-Each `ExprBlob` carries a pointer to an AST-shaped Hermes blob in
+Each `ExprBlob` carries a pointer to an AST-shaped Writ blob in
 rodata. When the metacall JIT thunk invokes the macro callee, the
 returned `ExprBlob` becomes an `HERMES_BLOB` AST node that replaces
 the original `FN_MACRO_CALL`. The next sema pass decodes the blob and

@@ -5,7 +5,7 @@
 **Reference doc**: [docs/language/reference/attributes.md](../language/reference/attributes.md)
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `parse_annotation`, `extract_meta_val`
-- [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `eval_static_hermes_lit` for meta blocks
+- [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `eval_static_writ_lit` for meta blocks
 
 **Hunt date**: 2026-05-04
 **Repros**: `/tmp/baghunt/attributes/`

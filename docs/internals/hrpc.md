@@ -1,6 +1,6 @@
 # HRPC
 
-HRPC is Logos's bidirectional, Hermes-native RPC and streaming protocol. It is the planned universal transport in [LCM](../lcm/README.md) — host↔guest, intra-die, cross-die, cross-machine — and, in the near term, the connective tissue between Logos and C++ components inside the project.
+HRPC is Logos's bidirectional, Hest RPC and streaming protocol. It is the planned universal transport in [LCM](../lcm/README.md) — host↔guest, intra-die, cross-die, cross-machine — and, in the near term, the connective tissue between Logos and C++ components inside the project.
 
 This document describes what is in place today.
 
@@ -16,19 +16,19 @@ The C++ side currently runs on Logos's green-fiber reactor (`logos::reactor::Tcp
 
 HRPC is conceptually similar to gRPC: a typed RPC protocol with unary calls, streaming in either or both directions, and IDL-driven codegen. The differences are deliberate:
 
-- **Hermes is the payload format**, not protobuf. Requests, responses, and stream messages are Hermes documents — the same in-memory shape used everywhere else in Logos. No serialise/deserialise step at the API boundary; on a shared-memory transport, payloads are zero-copy.
-- **No HTTP/2.** Framing is a fixed 16-byte header followed by a Hermes blob; one TCP connection multiplexes all calls.
+- **Writ is the payload format**, not protobuf. Requests, responses, and stream messages are Writ documents — the same in-memory shape used everywhere else in Logos. No serialise/deserialise step at the API boundary; on a shared-memory transport, payloads are zero-copy.
+- **No HTTP/2.** Framing is a fixed 16-byte header followed by a Writ blob; one TCP connection multiplexes all calls.
 - **Designed for direct hardware implementation.** The wire shape and message-type set are kept small and regular so HRPC can be implemented in HDL without sweating an HTTP/2 stack. Today only the software path is realised.
 
 The wire format and message type codes are wire-compatible with Memoria's HRPC; [Memoria](https://github.com/victor-smirnov/memoria) is the original venue for the protocol and is currently the other implementer.
 
 ## Wire Format (Summary)
 
-Every message is `MessageHeader` (16 bytes, little-endian) followed by an optional fixed field block and an optional Hermes payload.
+Every message is `MessageHeader` (16 bytes, little-endian) followed by an optional fixed field block and an optional Writ payload.
 
 ```
 +--------+--------+----------------+------------------+----------------+
-| size   | bits   | call_id (u64)  | optional fields  | Hermes payload |
+| size   | bits   | call_id (u64)  | optional fields  | Writ payload |
 | (u32)  | (u32)  |                | (e.g. EndpointID)|                |
 +--------+--------+----------------+------------------+----------------+
    4         4           8              0 or 32          variable
@@ -132,7 +132,7 @@ The wire format does not change across this split. A Logos client can talk to a 
 
 ## Roadmap
 
-- **Logos-side implementation.** Mirror the C++ surface (`Session`, `Context`, `Call`, `EndpointRegistry`) in Logos, on top of Logos green fibers and Hermes-native channels. Codegen path through `hrpc_gen` to Logos stubs.
+- **Logos-side implementation.** Mirror the C++ surface (`Session`, `Context`, `Call`, `EndpointRegistry`) in Logos, on top of Logos green fibers and Hest-native channels. Codegen path through `hrpc_gen` to Logos stubs.
 - **Decouple from the Logos reactor.** Port the C++ implementation off `logos::reactor::*` to threads + coroutines (Boost.Asio or sockets); migrate the reactor itself out of this repository.
 - **Transports beyond TCP.** Shared-memory rings (intra-host), read-only mmap zones, eventual hardware transports for LCM. The wire format is transport-agnostic; only the byte mover changes.
 - **Schema evolution.** Versioning rules, additive vs. breaking change semantics, on-the-wire negotiation during `SESSION_START`.

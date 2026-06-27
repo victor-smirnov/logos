@@ -23,7 +23,7 @@ The compiler binary is `build/bin/logosc`.
 
 ## Hello, Logos
 
-A minimal program lives at [examples/hermes_round_trip.logos](../../examples/hermes_round_trip.logos). The simplest possible source looks like:
+A minimal program lives at [examples/writ_round_trip.logos](../../examples/writ_round_trip.logos). The simplest possible source looks like:
 
 ```logos
 package hello;
@@ -46,11 +46,11 @@ Create a project layout:
 
 ```
 hello/
-  lforge.hermes
+  lforge.writ
   src/main.logos
 ```
 
-with `lforge.hermes`:
+with `lforge.writ`:
 
 ```
 {
@@ -87,8 +87,8 @@ Useful flags: `--emit-mlir`, `--emit-llvm`, `-O0`/`-O1`/`-O2`/`-O3`, `--diag-for
 
 ## Examples
 
-- [examples/hermes_round_trip.logos](../../examples/hermes_round_trip.logos) — parse a Hermes document and stringify it.
-- [examples/hermes_showcase.logos](../../examples/hermes_showcase.logos) — broader tour of Hermes features (capture, view types, typed arrays).
+- [examples/writ_round_trip.logos](../../examples/writ_round_trip.logos) — parse a Writ document and stringify it.
+- [examples/writ_showcase.logos](../../examples/writ_showcase.logos) — broader tour of Writ features (capture, view types, typed arrays).
 
 ## Running the Test Suite
 
@@ -117,4 +117,4 @@ The full suite is sizeable (~3100 pass tests, ~900 fail tests). CI gates merges 
 
 - [Syntax](syntax.md) — the language reference.
 - [Ownership](ownership.md) — how `&`, `&mut`, and lifetimes interact.
-- [Hermes in Logos](hermes.md) — the data substrate.
+- [Writ in Logos](writ.md) — the data substrate.

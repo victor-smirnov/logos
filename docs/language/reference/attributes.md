@@ -20,7 +20,7 @@ The supported attribute names are recognised by sema (`src/compiler/sema*.cpp`).
 
 Binds an explicit integer tag to a datatype or a generic instantiation. `N` participates in:
 
-- Hermes wire-format dispatch — the registry maps `type_code → impl` for `HermesStringify`, `HermesEqual`, etc.
+- Writ wire-format dispatch — the registry maps `type_code → impl` for `WritStringify`, `WritEqual`, etc.
 - Tag-dispatched pointers (`&tagged<TS> Trait`) — the prefix bytes carry this code.
 
 ```logos
@@ -35,13 +35,13 @@ pub struct Array<i32>;            // body-less explicit instantiation
 
 ## `#[zoned]`
 
-Marks a `struct` as a Hermes datatype (zone-relative layout, no heap pointers). `#[zoned] struct` is the sole canonical declaration form for datatypes.
+Marks a `struct` as a Writ datatype (zone-relative layout, no heap pointers). `#[zoned] struct` is the sole canonical declaration form for datatypes.
 
 ```logos
 #[zoned] pub struct AnyVal { pub raw: u32 }
 ```
 
-Internally the type's `LogosType::Kind` becomes `ZonedStruct`. See [Hermes](hermes.md) and [Types → Datatype](types.md#datatype-zoned-struct).
+Internally the type's `LogosType::Kind` becomes `ZonedStruct`. See [Writ](writ.md) and [Types → Datatype](types.md#datatype-zoned-struct).
 
 ## `#[derive_<trait>]`
 
@@ -78,8 +78,8 @@ Currently a sketch — the consumer side (reading user-defined annotations from 
 On a `trait`, declares the tag-system that this trait dispatches through. Used together with `&tagged<TS> Trait` types.
 
 ```logos
-#[tag_dispatch(HermesTypeTagSystem)]
-pub trait HermesStringify { ... }
+#[tag_dispatch(WritTypeTagSystem)]
+pub trait WritStringify { ... }
 ```
 
 ## `#[metaprog_handler("trigger_name")]`
@@ -142,12 +142,12 @@ pub struct Foo {
 }
 ```
 
-The Hermes-literal payload is evaluated at sema time via `eval_static_hermes_lit` ([src/compiler/sema_decl.cpp](../../../src/compiler/sema_decl.cpp)) and stored on the `LStructDef.meta_val` field. Metaprograms can read it via reflection on the type. Current uses:
+The Writ-literal payload is evaluated at sema time via `eval_static_writ_lit` ([src/compiler/sema_decl.cpp](../../../src/compiler/sema_decl.cpp)) and stored on the `LStructDef.meta_val` field. Metaprograms can read it via reflection on the type. Current uses:
 
-- Hermes type registry — `meta @{ "type_code": N, "name": "..." }` complement to `#[type_code]`.
+- Writ type registry — `meta @{ "type_code": N, "name": "..." }` complement to `#[type_code]`.
 - User schema annotations — anything stdlib-internal that wants typed metadata on a definition.
 
-The meta block accepts the full Hermes-static literal grammar (no captures `${...}`, just static values). Multiple meta blocks per item are not supported — only the last wins.
+The meta block accepts the full Writ-static literal grammar (no captures `${...}`, just static values). Multiple meta blocks per item are not supported — only the last wins.
 
 ## Roadmap
 
@@ -155,8 +155,8 @@ The full attribute roster Logos plans to ship — many of these are *not yet* ho
 
 | Attribute | Status | Purpose |
 |-----------|--------|---------|
-| `#[type_code]` | active | Hermes dispatch tag |
-| `#[zoned]` | active | Hermes datatype layout |
+| `#[type_code]` | active | Writ dispatch tag |
+| `#[zoned]` | active | Writ datatype layout |
 | `#[derive_<trait>]` | active (limited list) | Auto-implement a trait (one per trait; no `#[derive(...)]` list form) |
 | `#[annotation]` | sketch | User-defined annotation types |
 | `#[tag_dispatch(TS)]` | active | Bind trait to a tag system |

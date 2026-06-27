@@ -18,7 +18,7 @@ Strip the C++ depth and the model hits a metaprogramming ceiling on every databa
 - [Models, Humans, and Programs as One System](joint-system.md) — joint-system consequences: mutual steering, the responsibility asymmetry, the ownership spectrum, why AI-primary is self-reinforcing, the human as binding constraint, the engaged human's irreplaceability and why AI needs humans, leadership notes on attention as the scarce resource, the platform's two goals.
 - [Coding Tasks](coding-tasks.md) — what changes when the task is code: uniform unknown-unknown gaps, local-syntactic vs global-semantic correctness, the failure mode humans lack, and the forced methodology (external corpus as mandatory index, gap-discovery dynamics, instance-coverage vs class-generality and the generalizing pass), plus how Logos materializes it. The bridge from model-behavior to methodology.
 - [New Requirements](requirements.md) — what platforms must provide: machine-readable diagnostics, observable compilation, programmable extension, structured data substrate, fast incremental feedback loops.
-- [Logos Fit](logos-fit.md) — how Logos's design (Hermes-as-IR, modular SOA compiler, metaprogramming-in-the-large, lforge as a data platform) maps onto those requirements, and where it deliberately diverges from Rust/C++/Go defaults.
+- [Logos Fit](logos-fit.md) — how Logos's design (Writ-as-IR, modular SOA compiler, metaprogramming-in-the-large, lforge as a data platform) maps onto those requirements, and where it deliberately diverges from Rust/C++/Go defaults.
 
 ## Audience
 

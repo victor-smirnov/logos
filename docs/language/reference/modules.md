@@ -92,7 +92,7 @@ Recognized directives (parsed in [src/compiler/module_manifest.cpp](../../../src
 
 Lines starting with `#` are comments. Unknown keys are ignored (forward-compat).
 
-A package built from a manifest produces a single binary archive (`libfoo.a` + `foo.hermes` interface metadata) — see [feat_modules_delivery](../../../.claude/projects/-home-victor-devel-logos/memory/project_modules_delivery.md). Consumers `use foo.bar;` and the compiler links against the archive plus the metadata.
+A package built from a manifest produces a single binary archive (`libfoo.a` + `foo.writ` interface metadata) — see [feat_modules_delivery](../../../.claude/projects/-home-victor-devel-logos/memory/project_modules_delivery.md). Consumers `use foo.bar;` and the compiler links against the archive plus the metadata.
 
 ## Name resolution
 
@@ -152,7 +152,7 @@ The same algorithm applies to functions (`find_fn_by_name`), enums, traits, and 
 - **Same-name structs in two imported packages** silently resolve to whichever was imported first (see "first-import-wins" above). The compiler doesn't warn. Until `pkg.Type` qualified syntax lands, the workaround is to ensure name uniqueness across imports.
 - **`pub use` to lift internal helpers** is fine, but loops are tolerated only because of the visited-set guard; circular re-exports won't cause infinite recursion but will still bloat the search space and slow resolution.
 - **A non-`pub` item leaks** if you forget the visibility marker. `find_*_by_name` will reach it from outside its package via step 3 (unqualified-bare fallback) only for host-injected items; user items always carry a non-empty `def_package`, so the check fires correctly.
-- **Manifest `root` is interpreted relative to the manifest file**, not the build directory. A manifest at `stdlib/std/hermes/logos.module` with `root .` discovers files under `stdlib/std/hermes/`.
+- **Manifest `root` is interpreted relative to the manifest file**, not the build directory. A manifest at `stdlib/std/writ/logos.module` with `root .` discovers files under `stdlib/std/writ/`.
 
 ## See also
 

@@ -87,7 +87,7 @@ Logos has two distinct runtime-dispatch mechanisms, used in different contexts.
 
 **`dyn Trait` for plain Logos values.** Heap-allocated objects are *not* tagged. Polymorphism over plain values goes through trait objects (`dyn Trait`, `&dyn Trait`, `Box<dyn Trait>`) the same way Rust does it: a fat pointer carrying a data pointer plus a vtable. The compiler emits one vtable per `(type, trait)` pair.
 
-**Tag-based dispatch for Hermes data.** Hermes is different: its values are *self-describing* and survive serialization, so they carry their own type identity. Hermes containers carry an 8-byte schema type code; values inside them carry a 1- to 8-byte type tag. Type codes 1–128 are reserved for the system registry; the user range is derived from a 56-bit slice of the type definition's hash. Trait method tables (e.g. `HermesStringify`, `HermesEqual`) are emitted per trait and indexed by tag at the dispatch site. Link-time collision detection on user codes is planned but not yet at full strength.
+**Tag-based dispatch for Writ data.** Writ is different: its values are *self-describing* and survive serialization, so they carry their own type identity. Writ containers carry an 8-byte schema type code; values inside them carry a 1- to 8-byte type tag. Type codes 1–128 are reserved for the system registry; the user range is derived from a 56-bit slice of the type definition's hash. Trait method tables (e.g. `WritStringify`, `WritEqual`) are emitted per trait and indexed by tag at the dispatch site. Link-time collision detection on user codes is planned but not yet at full strength.
 
 The two mechanisms do not overlap: `dyn Trait` covers heterogeneity over heap-allocated Logos objects; tag dispatch covers heterogeneity that has to round-trip through bytes. Statically known types in either world are still monomorphized and dispatched at compile time.
 
@@ -95,4 +95,4 @@ The two mechanisms do not overlap: `dyn Trait` covers heterogeneity over heap-al
 
 Each Logos type has a content-addressed hash (SHA-256 of the resolved type expression), with 23 bytes used for type identity and 8 bytes for member identity. Metadata lookup is O(1) via the hash; dispatch type codes are derived from the same source.
 
-This system is shared with Hermes (which uses 8-byte schema type codes) and is the substrate for compile-time metaprogramming. See [Metaprogramming](../internals/metaprog.md) for the in-progress story.
+This system is shared with Writ (which uses 8-byte schema type codes) and is the substrate for compile-time metaprogramming. See [Metaprogramming](../internals/metaprog.md) for the in-progress story.

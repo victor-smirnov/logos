@@ -80,9 +80,9 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 - [ ] **Spec-vs-generic pkg unification** — if this is a generic with a spec in a different pkg, the inst inherits the GENERIC's pkg.
 - [ ] **Worklist dedup** — keyed by mangled instantiation name.
 
-## When changing Hermes
+## When changing Writ
 
-- [ ] **Compile/runtime parity** — same byte layout across HermesStatic, runtime Hermes, HBS wire, on-disk modules.
+- [ ] **Compile/runtime parity** — same byte layout across WritStatic, runtime Writ, HBS wire, on-disk modules.
 - [ ] **Zone base ptr** re-read on each relative-offset deref.
 - [ ] **MemHolder rc** correctly counted; custom destroyer fires on rc=0.
 

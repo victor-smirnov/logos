@@ -164,7 +164,7 @@ So Logos treats CPU mode as a first-class member of the target family. As specia
 
 LCM is the architectural target; Logos is the language and toolchain aimed at it.
 
-- **Hermes** — the relocatable tagged data substrate — is the on-disk, in-memory, and on-the-wire shape of structured data across LCM. There is no FFI between values and data; a document is just a value. See [language/hermes.md](../language/hermes.md).
+- **Writ** — the relocatable tagged data substrate — is the on-disk, in-memory, and on-the-wire shape of structured data across LCM. There is no FFI between values and data; a document is just a value. See [language/writ.md](../language/writ.md).
 - **HRPC** is the transport for everything that crosses an xPU boundary, from an `await` in user code to a debug event. See [internals/hrpc.md](../internals/hrpc.md).
 - **Metafunctions** — ordinary Logos code that runs at compile time — are how LCM-specific specialisations (containers, layouts, scheduling, codegen variants per xPU class) are expressed, instead of through C++-style templates. See [language/reference/metaprog.md](../language/reference/metaprog.md).
 - **The build system** is itself a data platform (Datalog query engine, layered abstractions, large-data support), not a `cc` driver — because per-target specialisation, design-space exploration, and cross-domain codegen are first-class operations in LCM, not afterthoughts.
@@ -174,7 +174,7 @@ LCM is the architectural target; Logos is the language and toolchain aimed at it
 
 Memoria and Logos are co-developed. Some of Memoria moves into Logos and stays there:
 
-- **Hermes** — already done, as the data substrate.
+- **Writ** — already done, as the data substrate.
 - **LCM** — this document.
 - **Metafunctions and the frameworks built on them.**
 - **Build and type-checking infrastructure** — as Logos' own build system grows up.
@@ -188,7 +188,7 @@ Splitting it this way decouples Logos' release cycle from Memoria's, while keepi
 LCM is a substantial technical and organisational undertaking. The early roadmap, in stages:
 
 1. **Configurable RISC-V emulator** with LCM-specific ISA extensions and HRPC machinery, so core data structures and algorithms can be ported and benchmarked before any hardware exists.
-2. **Reference HDL IP** — Hermes operations as RV ISA extensions, HRPC core protocol/transport/routing, a configurable RISC-V xPU in an existing HDL — enough for hardware developers to experiment with.
+2. **Reference HDL IP** — Writ operations as RV ISA extensions, HRPC core protocol/transport/routing, a configurable RISC-V xPU in an existing HDL — enough for hardware developers to experiment with.
 3. **Integration into the Logos build system / data platform**, so design-space exploration, codegen variants, and per-target specialisation become ordinary toolchain operations.
 
 Hardware exists to start the experiments on:
@@ -197,4 +197,4 @@ Hardware exists to start the experiments on:
 
 ## Status
 
-LCM is a target description, not a delivered product. Today, Logos compiles to x86_64/Linux. The xPU emulator, the HDL reference IP, and the build-system integration are roadmap items, not current capabilities. What is in place today is the part of LCM that lives inside Logos itself: Hermes as the data substrate, metafunctions as the specialisation mechanism, HRPC as the planned transport, and a language design that does not bake assumptions about coherent flat memory or a single fully-featured OS kernel into the surface. See [roadmap.md](../roadmap.md) for milestone tracking.
+LCM is a target description, not a delivered product. Today, Logos compiles to x86_64/Linux. The xPU emulator, the HDL reference IP, and the build-system integration are roadmap items, not current capabilities. What is in place today is the part of LCM that lives inside Logos itself: Writ as the data substrate, metafunctions as the specialisation mechanism, HRPC as the planned transport, and a language design that does not bake assumptions about coherent flat memory or a single fully-featured OS kernel into the surface. See [roadmap.md](../roadmap.md) for milestone tracking.

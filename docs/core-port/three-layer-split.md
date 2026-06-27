@@ -75,9 +75,9 @@ utilities. No heap allocation in any code path.
 - `logos.lang.metaprog` — compile-time only; metacall JIT runs in
   the compiler's arena, never in user runtime, so no user-side alloc.
 - `logos.lang.tokens` — compiler interface.
-- `logos.lang.hermes.{view, static_view, hermes_read, anyval_read,
+- `logos.lang.writ.{view, static_view, writ_read, anyval_read,
   tags, datatag, type_tag_read, relptr, relptr_traits,
-  stringify_into, hbs_read, pat}` — read-only Hermes surface.
+  stringify_into, hbs_read, pat}` — read-only Writ surface.
 
 **`logos.mem.*` (L1):** owning containers and the allocator-side
 runtime. Heap, no OS.
@@ -85,9 +85,9 @@ runtime. Heap, no OS.
   hash_set, btree_map, vec_deque}`.
 - `fmt` runtime (`format!` macro path that allocates).
 - `persistent.*` — mini-Memoria CoW B+tree stack.
-- `hermes.{mem_holder, zone, own, release, parser, objectmap, array,
+- `writ.{mem_holder, zone, own, release, parser, objectmap, array,
   ctr, clone, hbs_write, string, type_tag_dynamic}` — mutable
-  Hermes-fabric runtime.
+  Writ-fabric runtime.
 
 **`logos.std.*` (L2):** everything OS-touching.
 - `io` (Read/Write traits live here, not in lang — bytes flow over OS).
@@ -215,7 +215,7 @@ existing tests pass; one new test added.
   `std.fmt` → lang+mem), merges (ops absorbs arith+range+drop;
   cmp absorbs ord; io.* flattens), relocations
   (`std.lang.thread` → `logos.std.thread` — was misplaced),
-  and the Hermes per-package split (15 lang + 17 mem out of 32
+  and the Writ per-package split (15 lang + 17 mem out of 32
   sub-packages). Final counts: ~35 lang + ~40 mem + ~27 std =
   ~102 target packages.
 - [`prelude-design.md`](prelude-design.md) — exact contents of
@@ -341,8 +341,8 @@ Per package:
 **Consumer scope** (everything outside `stdlib/`):
 - `tests/` — pass/fail/imported/lazy/coex/diag/lforge fixtures.
 - `examples/` — 4 files (`persistent_showcase.logos`,
-  `hermes_round_trip.logos`, `logos_showcase.logos`,
-  `hermes_showcase.logos`).
+  `writ_round_trip.logos`, `logos_showcase.logos`,
+  `writ_showcase.logos`).
 - `tools/lforge/` — ~17 .logos files (main.logos + pkg/).
 - External lforge-test repo on GitHub — temporarily disabled
   during migration; re-enabled with renamed imports as a
@@ -390,7 +390,7 @@ Rust ports.
   - Type-level (`<type:T>`) and const-generic captures **remain
     allowed** — they resolve at monomorphization, the resulting
     blob is static rodata.
-  - HermesStatic, HermesView, HermesRead, pattern matching
+  - WritStatic, WritView, WritRead, pattern matching
     `@{"k": pat}`, AnyVal read, metacall/quote (compile-time
     only) — all **remain available**.
   - `mem.*` and `std.*` package imports rejected.

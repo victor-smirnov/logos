@@ -58,7 +58,7 @@
 
 ### Sprint 2.1 — Cluster 2: missing-uniqueness-check (8 sites)
 
-**Bugs closed**: B-it-03/04/05 (struct/enum/trait), B-fn-02 (fn params), B-ca-04 (consts), B-gn-01/02 (type/lifetime params), B-pt-01 (pattern bindings), B-he-02 (Hermes-map keys), B-at-03 (annotations)
+**Bugs closed**: B-it-03/04/05 (struct/enum/trait), B-fn-02 (fn params), B-ca-04 (consts), B-gn-01/02 (type/lifetime params), B-pt-01 (pattern bindings), B-he-02 (Writ-map keys), B-at-03 (annotations)
 
 **Estimated effort**: 1 day
 
@@ -78,7 +78,7 @@
    - `lower_struct_def` (type-params)
    - Lifetime-params collection
    - Pattern-binding collection
-   - `eval_static_hermes_lit` (Hermes-map entries)
+   - `eval_static_writ_lit` (Writ-map entries)
    - Annotation aggregation
 3. Tests in `tests/logos/fail/dup_*`.
 
@@ -149,18 +149,18 @@ This may be Phase 4.5 (after const-fold lands) rather than now.
 
 **Approach**: Cast-expr type-check should accept only well-defined pairs (prim→prim, ptr→ptr, ptr→int, etc.). Struct-update lowering should compare base.type against constructor type.
 
-## Sprint 4 — Pattern surface + Hermes nesting
+## Sprint 4 — Pattern surface + Writ nesting
 
-### Sprint 4.1 — Cluster 12: nested Hermes literals (B-he-01)
+### Sprint 4.1 — Cluster 12: nested Writ literals (B-he-01)
 
 **Severity**: P0 — major feature gap; `@{ "k": @{...} }` doesn't parse despite docs saying it should.
 
 **Estimated effort**: 1-2 days (depending on PEG generator complexity)
 
 **Approach**:
-1. Reproduce — flat `@[]` and `@{}` work; nested do not. The grammar's `hermes_val` allows `AT hermes_typed_array / AT hermes_map / AT hermes_array` recursively.
+1. Reproduce — flat `@[]` and `@{}` work; nested do not. The grammar's `writ_val` allows `AT writ_typed_array / AT writ_map / AT writ_array` recursively.
 2. Debug parser dispatch for nested `@` token at value position. May be a token-handling issue in the PEG generator.
-3. Add nested test cases to `tests/logos/pass/hermes_nested_*`.
+3. Add nested test cases to `tests/logos/pass/writ_nested_*`.
 
 **Files touched**: `tools/peg_gen/grammars/logos.peg`, generated parser, `tests/logos/pass/`
 
@@ -268,7 +268,7 @@ Actually-deferred items (no current fix needed):
 | 3.2 — let-else divergence | 1 | 0.25 day |
 | 3.3 — const-fold validation | 4 | wait for const-fold |
 | 3.4 — cast validation | 2 | 0.5 day |
-| 4.1 — Hermes nested literals | 1 (P0 major) | 1-2 days |
+| 4.1 — Writ nested literals | 1 (P0 major) | 1-2 days |
 | 4.2 — pattern surface | 5 | 2-3 days |
 | 5.1 — attribute validation | 5+ | 1-2 days |
 | 5.2 — reachability lint | 3 | 1 day |

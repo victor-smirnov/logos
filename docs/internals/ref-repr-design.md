@@ -5,12 +5,12 @@ represented** into a single descriptor + registry, so the codegen
 dispatches through it instead of ~50 scattered `switch (kind)` sites.
 
 Status: **design (2026-06-03), Phase 0 not started.** Companion to
-[hermes2-design.md](hermes2-design.md) (its `RelPtr<T>` is the first
+[writ2-design.md](writ2-design.md) (its `RelPtr<T>` is the first
 storage/compute specialization this enables).
 
 > **Goal / success criterion.** Adding a new kind of fat pointer (and
 > there will be more — wider-than-16B pairs, segmented/cursor refs, the
-> hermes2 `RelPtr` family) must reduce to a **series of point changes in
+> writ2 `RelPtr` family) must reduce to a **series of point changes in
 > the registrar(s)** — define one `RefRepr` descriptor (usually by
 > composing existing axis variants) and register it. It must touch **none**
 > of the ~50 codegen sites. Today every new pointer kind effectively
@@ -131,7 +131,7 @@ A concrete `RefRepr` = (pointee-shape × storage-strategy × meta-recovery):
 | `&[T]` | FatLen | ByValue | in value | 16B / 16B |
 | `&dyn Tr` | FatVtable | ByValue | in value | 16B / 16B |
 | `&T` (`Sized`) | Thin | ByValue | — | 8B / 8B |
-| zoned `&HermesString` (in `#[zoned2]`) | FatCustomDst | RelOffset(i64, self) | InBandHeader | **8B / 16B** |
+| zoned `&WritString` (in `#[zoned2]`) | FatCustomDst | RelOffset(i64, self) | InBandHeader | **8B / 16B** |
 | zoned `&SizedT` (in `#[zoned2]`) | Thin | RelOffset(i64, self) | — | 8B / 8B |
 
 **Extensibility (the payoff):**
@@ -224,7 +224,7 @@ reasons, not representation.)
   niche-enum (`enum { Ref(*zoned) | Pod }`) is the next step (Phase 4).
 - **Phase 4 — add the zoned reference reprs** (§6, the first real
   storage/compute specializations): typed `zoned T` (untagged), erased
-  tagged zoned ptr, and `HAny`. hermes2 zoned pointer *fields* become
+  tagged zoned ptr, and `HAny`. writ2 zoned pointer *fields* become
   auto-relative via these reprs — no `RelPtr<T>`, no hand-rolled resolve.
   Validates the abstraction end-to-end.
 
@@ -266,9 +266,9 @@ fields of a `#[zoned2]` struct auto-convert (not every struct can be
 `#[zoned2]`, so not every pointer needs converting). A `#[zoned2]` struct
 **cannot be stack-allocated** (sema constraint — self-relative offsets are
 pointless/fragile off-zone). `#[zoned2]` is a **temporary** attribute
-distinct from hermes1's `#[zoned]` (explicit `RelPtr`) so the compiler
+distinct from writ1's `#[zoned]` (explicit `RelPtr`) so the compiler
 doesn't conflate the two storage models during the migration; merged once
-hermes1 retires.
+writ1 retires.
 
 This whole model is just a population of the `RefRepr` registry: typed
 `zoned T`, erased-tagged, and `HAny` are descriptors; their niches
@@ -283,7 +283,7 @@ Logos enums today are value-repr `{disc, payload}` with **no niche
 optimization** — a discriminant always costs its own bits. The zoned
 model needs niche-packing: `HAny`'s `Ref|Pod` discriminant must live
 in the pointer's low-bit, and `Option<zoned T>` must use `null` as `None`.
-So this is a **new compiler feature, built as part of the Hermes2 plan**
+So this is a **new compiler feature, built as part of the Writ2 plan**
 (Phase 3.5): the enum-layout queries `RefRepr::niches()` (invalid storage
 bit-patterns) and, when a payload field offers a niche, encodes the
 discriminant there instead of a separate tag — exactly Rust's
@@ -362,7 +362,7 @@ will Just Work.
 **Phase 3 — re-express HAny, retire HAnyRel + ha_materialize/ha_lower.** The
 foundation is ready; this is the stdlib application. HAny becomes a `#[zoned2]`
 niche enum and its buffers become `*zoned HAny`. The Pod-encoding fork (still
-open, coupled to the Hermes1 port's inline-scalar set): HAny's Pod is a 63-bit
+open, coupled to the Writ1 port's inline-scalar set): HAny's Pod is a 63-bit
 `(value<<7)|code` tagged word with no 63-bit primitive. Options:
   (a) add `i63`;
   (b) struct Pod arm `{code:u8, value:i56}` + extend the niche to pack a ≤63-bit
@@ -379,4 +379,4 @@ exact current word IF the Pod arm can hold 63 bits, but there is no 63-bit
 primitive (max `i56`). Decide then: (a) add `i63`, (b) struct Pod arm
 `{code:u8, value:i56}` + extend niche to ≤63-bit struct payloads (most
 Rust-faithful), or (c) a no-shift "raw tagged word" Pod flavor. Affects the
-wire-encoding the hbs/Hermes1 port depends on — resolve before Phase 3.
+wire-encoding the hbs/Writ1 port depends on — resolve before Phase 3.

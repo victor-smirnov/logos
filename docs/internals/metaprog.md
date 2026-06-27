@@ -14,9 +14,9 @@ Every Logos type has a content-addressed identity:
 - 8 bytes for member identity.
 - A 56-bit user-space dispatch type code derived from the same hash.
 
-This identity is shared between the language type system and the Hermes runtime, which gives metaprogramming and serialization a single source of truth. Metadata lookup is O(1) given the hash.
+This identity is shared between the language type system and the Writ runtime, which gives metaprogramming and serialization a single source of truth. Metadata lookup is O(1) given the hash.
 
-### Hermes Schema Type Code in TinyObjectMap
+### Writ Schema Type Code in TinyObjectMap
 
 Phase −1 added a `u64 schema_type_code` to `TinyObjectMap` — both in the C++ implementation and in Logos, including the binary codec, hbs, and clone paths. The 904/904 test baseline covers it. This is the foundation the metaprogramming work builds on.
 
@@ -34,9 +34,9 @@ Without a body, this binds metadata to a generic instantiation. It is the chosen
 
 ## Recent Refactor (Closed 2026-04-28)
 
-The compiler's L-IR (`LExpr`/`LStmt`/`Pattern`/`HermesVal`) was migrated to be **POD shells over a Hermes mirror**. Payload now lives in a Hermes document; `lir_view::ExprRef`/`StmtRef`/`PatRef`/`HermesValRef` is the typed accessor surface. See [ADR 0006](../adr/0006-lir-hermes-cutover.md) and the `feat_lir_b6_cutover.md` memory note.
+The compiler's L-IR (`LExpr`/`LStmt`/`Pattern`/`WritVal`) was migrated to be **POD shells over a Writ mirror**. Payload now lives in a Writ document; `lir_view::ExprRef`/`StmtRef`/`PatRef`/`WritValRef` is the typed accessor surface. See [ADR 0006](../adr/0006-lir-writ-cutover.md) and the `feat_lir_b6_cutover.md` memory note.
 
-Why this matters for metaprogramming: the bytes *are* the IR. A metafunction that reads or builds compiler IR consumes the same Hermes layout that goes on the wire and on disk. The accessor surface (`lir_view`) is what user metaprograms will eventually see, stabilized inside the compiler first.
+Why this matters for metaprogramming: the bytes *are* the IR. A metafunction that reads or builds compiler IR consumes the same Writ layout that goes on the wire and on disk. The accessor surface (`lir_view`) is what user metaprograms will eventually see, stabilized inside the compiler first.
 
 ## What Is Planned
 
@@ -44,7 +44,7 @@ The metaprogramming rollout is staged across three phases (MP1 / MP2 / MP3) tied
 
 - **Compile-time Logos programs (MP1).** Code that runs at compile time with access to a compiler API. Replaces the templating/macro layer of conventional systems languages. The first concrete users will be the standard library's container traits and Memoria-side derives. Includes the `template` keyword for declarations-as-data, `#[apply(metafn)]` at declaration sites, and typed `quote_*!` forms with `#expr` antiquotation.
 - **Vec<Class> over C++ type lists.** Once compile-time programs run, generic-over-shape utilities (serializers, hashers, equality) are written as ordinary loops over a `Vec<Class>` rather than as recursive type-list templates.
-- **Datalog/Rete on Logos.** A native Datalog engine in Logos itself, using Hermes as the fact base. Long-term, this is a candidate for the compiler's trait resolution and borrow analysis. It is also intentional dogfooding — the engine and the compiler exercise each other.
+- **Datalog/Rete on Logos.** A native Datalog engine in Logos itself, using Writ as the fact base. Long-term, this is a candidate for the compiler's trait resolution and borrow analysis. It is also intentional dogfooding — the engine and the compiler exercise each other.
 - **Constraint solving via Z3.** Embedding Z3 cleanly behind a small solver layer is a near-term priority. Used for trait resolution, reward signals (for AI-generated code), and verification.
 - **Metafunction sandbox (ASAP).** Today the ORC resolver falls through to `dlsym(RTLD_DEFAULT)`, so a metafunction can call any `libc` symbol — a real hole, not a stylistic concern. Closing it: metafn-eligibility lifted into the type system as an effect, with capability declarations in `lforge.toml` (`[metaprog].caps`) and JIT-layer symbol allowlist as backstop. Because Logos packages distribute as source today, the consumer's `logosc` runs the effect-check during their build — incorrect metafn code simply doesn't compile downstream; cross-TU signing isn't on the v1 critical path. Default deny: pure AST API only unless declared. Plan: `~/.claude/plans/metaprog-sandbox.md`.
 
@@ -62,7 +62,7 @@ The contract is enforced at three layers in v1, with a fourth deferred:
 
 In a source-distribution world the type-system check is the security contract; layers 2–3 are belt-and-suspenders against compiler bugs and effect-checker misses, not the primary defence. Today everything distributes as source through `lforge` git-deps, so the consumer's `logosc` runs Layer 1 against actual sources during their build — there is no opaque pre-built binary needing signature verification.
 
-When binary distribution eventually arrives (Memoria binary releases, marketplace), it will ride on **distribution-level signing** (apt/pacman-style whole-repository signatures), not per-artifact `logosc sign` infrastructure. The cap manifest (declared caps + metafn-exported symbols + effect signatures) is embedded in the `.a` as Hermes metadata; `lforge` trusts it because it trusts the distribution channel. No bespoke signing milestone is on the roadmap.
+When binary distribution eventually arrives (Memoria binary releases, marketplace), it will ride on **distribution-level signing** (apt/pacman-style whole-repository signatures), not per-artifact `logosc sign` infrastructure. The cap manifest (declared caps + metafn-exported symbols + effect signatures) is embedded in the `.a` as Writ metadata; `lforge` trusts it because it trusts the distribution channel. No bespoke signing milestone is on the roadmap.
 
 Default with no `[metaprog].caps` declaration: pure AST / type-reflection API only. Filesystem, network, env, process state are unreachable.
 
@@ -86,25 +86,25 @@ In other words: code generation in Logos is a Logos program with a compiler API;
 
 ## Modular, Service-Oriented Compiler
 
-The Logos compiler is being moved toward a **service-oriented architecture**: a set of cooperating modules, with the compiler proper acting as an orchestrator. Modules may run in-process, but the architecture allows them to be **separate processes**, because their communication substrate is Hermes — a Hermes document is a natural inter-process payload, no FFI required.
+The Logos compiler is being moved toward a **service-oriented architecture**: a set of cooperating modules, with the compiler proper acting as an orchestrator. Modules may run in-process, but the architecture allows them to be **separate processes**, because their communication substrate is Writ — a Writ document is a natural inter-process payload, no FFI required.
 
-This is not aspirational from the data-format side: **the compiler already uses Hermes for its internal representations**. The IR-as-Hermes choice is what makes splitting the compiler into services tractable, and it is what lets metaprograms see and rewrite the same data the compiler does, without an impedance mismatch.
+This is not aspirational from the data-format side: **the compiler already uses Writ for its internal representations**. The IR-as-Writ choice is what makes splitting the compiler into services tractable, and it is what lets metaprograms see and rewrite the same data the compiler does, without an impedance mismatch.
 
 The orchestration story is layered:
 
 - **The compiler** orchestrates compilation services (parsing, sema, borrow checking, monomorphization, codegen, reflection).
 - **`lforge`** orchestrates compilations and build artifacts, as well as the surrounding data platform (queries, monitoring, text/web UI). The compiler is one component of `lforge`'s broader orchestration; `lforge` is the entry point for users and CI.
 
-Concretely, individual passes can be **lifted into services**. The borrow checker is a plausible early candidate: a long-running service that ingests a Hermes-encoded program representation and returns a Hermes-encoded set of diagnostics or proofs. The same shape works for sema queries, type lookup, monomorphization, or any analysis that benefits from caching and parallelism.
+Concretely, individual passes can be **lifted into services**. The borrow checker is a plausible early candidate: a long-running service that ingests a Writ-encoded program representation and returns a Writ-encoded set of diagnostics or proofs. The same shape works for sema queries, type lookup, monomorphization, or any analysis that benefits from caching and parallelism.
 
 ### Metaprogramming as the Extension Mechanism
 
-In a service-oriented compiler, **metaprogramming is the natural extension mechanism** — not a side feature. The same Hermes IR that services exchange is what metaprograms read and produce, so user metaprograms compose with built-in services on equal footing. Two consequences:
+In a service-oriented compiler, **metaprogramming is the natural extension mechanism** — not a side feature. The same Writ IR that services exchange is what metaprograms read and produce, so user metaprograms compose with built-in services on equal footing. Two consequences:
 
 1. **The compiler is extensible.** A user-supplied metaprogram can introduce a new analysis, a new diagnostic, a new rewrite, or a new code-generation strategy by plugging into the same protocol the built-in services use.
 2. **The platform is extensible.** Applications can customize `lforge` itself — adding domain-specific build steps, query types, monitoring hooks, or UI surfaces — through metaprograms running on the same data layer.
 
-The intended end state: Logos's compile-time programming is not "macros that happen during compilation" but "a programmable, observable platform whose units of execution are Logos programs over a Hermes data layer." The compiler is one user of that platform; user metaprograms are another; `lforge` services are a third.
+The intended end state: Logos's compile-time programming is not "macros that happen during compilation" but "a programmable, observable platform whose units of execution are Logos programs over a Writ data layer." The compiler is one user of that platform; user metaprograms are another; `lforge` services are a third.
 
 ### Analogy: LLVM/Clang
 
@@ -140,7 +140,7 @@ Logos and Memoria are intentionally entangled, in both directions:
 - **Memoria will be written in Logos.** The mature Memoria codebase is a Logos project, not a C++ one. Logos's metaprogramming surface is sized to what that codebase needs.
 - **Logos is Memoria's first user.** Logos exercises Memoria from day one — there is no notional "external user" the design is being held for.
 
-This is not a future arrangement. It is already partially the case: **Hermes was originally designed inside Memoria and ported into Logos** as the data substrate. Other Memoria components are expected to follow the same path — first proven in C++ Memoria, then re-expressed in Logos as the Logos toolchain catches up. Co-development is the normal mode, not a transition.
+This is not a future arrangement. It is already partially the case: **Writ was originally designed inside Memoria and ported into Logos** as the data substrate. Other Memoria components are expected to follow the same path — first proven in C++ Memoria, then re-expressed in Logos as the Logos toolchain catches up. Co-development is the normal mode, not a transition.
 
 ## Two Kinds of Metaprogramming, and the Bridge Between Them
 
@@ -159,7 +159,7 @@ This calls for a third artifact, sitting between intent and machine:
 
 A `genos` is a **semi-formal, parametric form specification**. It uses Logos syntax with relaxed type rules; expresses the *shape and invariants* of an algorithm or data structure; lives in the codebase and gets versioned; serves both human reviewers and AI sessions as the canonical statement of intent. Knuth's TAOCP plays the same role for classical algorithms — pseudocode tightly adapted to a target environment, executable enough to ground intuition, abstract enough to keep the algorithm legible.
 
-The keyword `genos` (Greek γένος = "kind, family") names a *parametric form* — a family classified by shared structure. It is reserved exclusively for these computable form specifications; the legacy data-trait-family role has been migrated to `pub trait` + the `#[hermes_eidos]` annotation (see the `trait_kw` comment in [`grammars/logos.peg`](../../tools/peg_gen/grammars/logos.peg)). The `genos` keyword and its `GENOS_DEF` AST node are retained for this spec form.
+The keyword `genos` (Greek γένος = "kind, family") names a *parametric form* — a family classified by shared structure. It is reserved exclusively for these computable form specifications; the legacy data-trait-family role has been migrated to `pub trait` + the `#[writ_eidos]` annotation (see the `trait_kw` comment in [`grammars/logos.peg`](../../tools/peg_gen/grammars/logos.peg)). The `genos` keyword and its `GENOS_DEF` AST node are retained for this spec form.
 
 ```logos
 genos pmap_descend_to_n<K: ContainerOrd, V: Container, CFG>

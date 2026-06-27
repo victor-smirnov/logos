@@ -106,7 +106,7 @@ stdlib methods looked un-binary → re-emitted (O(n²) lookupSymbol). FIXED by
 recording pkg→module for EVERY ast in pass 0 BEFORE the skips (sema_collect.cpp).
 → 823/828. Then the dyn/tag-dispatch + vtable paths looked up methods by BARE
 name (gen_tagged_dispatch / vtable slots) → routed through link_name/link_name_str
-(mlir_gen_dyn.cpp). RESIDUAL (5 L2 + hermes_container_showcase example): a
+(mlir_gen_dyn.cpp). RESIDUAL (5 L2 + writ_container_showcase example): a
 `func.call operand type mismatch` (expected ptr, got i64) — a NO-SIGNATURE method
 callee (operator / method-as-call paths emit `<pkg>.<Owner>__<m>` without
 `__f__sig`) resolves through the lossy `canonical()` bridge (which strips the
@@ -116,7 +116,7 @@ call passes. Module IDs are CONSISTENT (verified: lang.a + std.a both
 callees exactly; the no-sig ones can't be disambiguated by the bridge.
 TRUE GLOBAL FIX (next): make call resolution non-lossy — either (a) qualify call
 callees in the LIR so mlir-gen needs no bridge (blocked: bodies live in the
-immutable Hermes mirror, and mono's scan_fn re-parses callees off that mirror, so
+immutable Writ mirror, and mono's scan_fn re-parses callees off that mirror, so
 qualifying there breaks the scan), or (b) make the no-sig method-call SITES emit a
 signature (route operator/method-as-call callee synthesis through the real
 resolved symbol), or (c) make `canonical()` signature-aware so distinct-sig
@@ -127,8 +127,8 @@ all the diagnosis above is reusable.
 ## the HERMES tag-dispatch / HAny class in the FULL suite. PRESERVED in git
 ## stash (`stash@{0}` off 67b2010e) + recoverable.
 Re-applied all of P3 + the dyn/tag-dispatch+vtable link_name routing. L2 SAMPLE
-= 827/828 (1 fail). But the FULL ctest fails ~dozens of hermes_* tests
-(hermes_equal/hmap/hbs/scalars, persistent_dview, …). hermes_equal builds CLEAN
+= 827/828 (1 fail). But the FULL ctest fails ~dozens of writ_* tests
+(writ_equal/hmap/hbs/scalars, persistent_dview, …). writ_equal builds CLEAN
 at P1 (verified by stash+rebuild) → P3 regression. Symptom: a DIRECT
 `func.call` to `…HMap$G2$HString$HAny__set__f__…__slice_u8__HAny` with
 `(!llvm.ptr, !llvm.ptr, i64)` operands vs the func's `(ptr, ptr, ptr)` decl —
@@ -146,7 +146,7 @@ inconsistency that P3 exposes via the skip-path. Needs HAny-lowering debugging.
 
 ## P3 LANDED (2026-06-20, autonomous) — methods module-qualified, L4 5733/5733
 The earlier attempts' "HAny repr bug" was a RED HERRING. The whole failure class
-(hermes operand-type mismatch, box_deref arity, String::from→new, Rc/Box/RAII/
+(writ operand-type mismatch, box_deref arity, String::from→new, Rc/Box/RAII/
 persistent/zoned runtime drop holes) reduced to ONE root: **method/drop callees
 are BARE in the LIR but their FuncOps are emitted module-QUALIFIED**, and every
 resolution site that looked up by the bare name missed → either picked the wrong
@@ -180,7 +180,7 @@ PERF (Victor flagged a regression — root-caused + fixed):
   Isolated by P3-logosc × HEAD-.a (fast) vs × P3-.a (slow). Fixed at the single
   `binary_symbols` load point (main.cpp `collect_syms`): also insert the BARE
   alias (everything after the `..` sentinel) for each qualified method symbol.
-  RESULT: light tests at parity (lit_i64 0.45s vs HEAD 0.46s; hermes 0.47 vs
+  RESULT: light tests at parity (lit_i64 0.45s vs HEAD 0.46s; writ 0.47 vs
   0.51), heavy mono/codegen tests ~1.25-1.4× (inherent longer-name cost); full
   stdlib build 1:43 vs 1:09.
 
@@ -192,7 +192,7 @@ blocker.
 ## (superseded) earlier conclusion — kept for context
 CONCLUSION: the emission-boundary P3 repeatedly hits deep interactions (perf →
 dyn-dispatch → HAny). The name-qualified/bare boundary is too pervasive. RECON-
-SIDER: either (1) the truly-global LIR-qualification (blocked by Hermes-mirror
+SIDER: either (1) the truly-global LIR-qualification (blocked by Writ-mirror
 immutability + mono scan_fn re-parsing — needs solving that first), or (2) ship
 with methods EXEMPT (committed P1 + §2b free-fns, green) and qualify method link
 symbols at LINK time (objcopy `--redefine-syms` on the .a using the pkg→module

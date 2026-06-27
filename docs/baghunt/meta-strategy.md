@@ -8,7 +8,7 @@ The bag-hunt found ~122 bugs. **Most of them are not isolated mistakes** — the
 
 2. **Some clusters trace back to the toolchain, not the code**: the PEG generator emits `LOGOS_ASSERT` on missing tokens; the bug is in the *default*, not in any individual production.
 
-3. **Existing test coverage is non-adversarial**: ~all tests use happy-path inputs. Hermes nested literals (B-he-01) didn't parse for *months* because no test exercised the recursive corner.
+3. **Existing test coverage is non-adversarial**: ~all tests use happy-path inputs. Writ nested literals (B-he-01) didn't parse for *months* because no test exercised the recursive corner.
 
 The correct response is: build infrastructure that makes these classes hard to introduce, then apply the infrastructure mechanically to close the current bug list.
 
@@ -181,7 +181,7 @@ The [strategy.md](strategy.md) sprints become much smaller:
 These are point-fixes that don't generalize cleanly to a primitive:
 
 - **B-st-01 block-scope shadow leak** (Sprint 3.1) — sema scope-stack incorrectness. Specific fix.
-- **B-he-01 nested Hermes literals** (Sprint 4.1) — parser dispatch debug. Specific fix.
+- **B-he-01 nested Writ literals** (Sprint 4.1) — parser dispatch debug. Specific fix.
 - **Pattern surface coverage** (Sprint 4.2) — grammar-level work. Specific fix.
 - **Cast validation** (Sprint 3.4) — small site.
 - **B-st-04 assignment matrix gap** (Sprint 6) — grammar additions.
@@ -254,6 +254,6 @@ Two open questions for Phase 5 alignment:
 
 1. **Should we build the per-production corpus tool now (in Meta-Sprint 0) or after Phase 5 lands?** Argument for "now" — bag-hunt was the last manual sweep we'll do, and tooling makes it cheap to repeat. Argument for "later" — Phase 5 metaprog gives much cleaner generation. Recommendation: **defer to Phase 5**, do the bag-hunt manually one more time post-fix to verify.
 
-2. **Should `attr_registry` be a C++ table or a Hermes-driven config?** A Hermes-driven config would dogfood our own metaprog facilities and align with Phase 5 vision. Recommendation: **start C++**, migrate to Hermes once metaprog Phase 2 lands.
+2. **Should `attr_registry` be a C++ table or a Writ-driven config?** A Writ-driven config would dogfood our own metaprog facilities and align with Phase 5 vision. Recommendation: **start C++**, migrate to Writ once metaprog Phase 2 lands.
 
 Both items deferred to "after Phase 5 design lock" rather than blocking Meta-Sprint 0.

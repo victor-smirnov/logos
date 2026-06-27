@@ -1,7 +1,7 @@
 # Bug catalog: Type System
 
 **Group**: 5 — Type System
-**Grammar rules covered**: `type_ref`, `simple_type`, `path_step`, `ptr_type`, `ref_type`, `ref_pointee`, `slice_type`, `arr_type`, `tagged_type`, `dyn_type`, `closure_type`, `closure_type_args`, `fn_ptr_type`, `fn_ptr_type_args`, `unit_type`, `tuple_type`, `impl_type`, `assoc_type_ref`, `antiquot_type`, `typeof_type`, `cfg_slot_type`, `cfg_slot_assoc_ref`, `hstatic_lit_type`, `hermes_arr_type`, `hermes_map_type`, `type_or_lt_arg`
+**Grammar rules covered**: `type_ref`, `simple_type`, `path_step`, `ptr_type`, `ref_type`, `ref_pointee`, `slice_type`, `arr_type`, `tagged_type`, `dyn_type`, `closure_type`, `closure_type_args`, `fn_ptr_type`, `fn_ptr_type_args`, `unit_type`, `tuple_type`, `impl_type`, `assoc_type_ref`, `antiquot_type`, `typeof_type`, `cfg_slot_type`, `cfg_slot_assoc_ref`, `hstatic_lit_type`, `writ_arr_type`, `writ_map_type`, `type_or_lt_arg`
 **Reference doc**: [docs/language/reference/types.md](../language/reference/types.md)
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_type` (~line 2400-2750), `compute_type_uid`, `types_equal`, `mangle_type_for_name`, `concrete_struct_name`, `type_str`
@@ -86,18 +86,18 @@ fn helper(x: Foo<i32>) -> i32 { return 0; }
 **Suspected root**: Generic instantiation path doesn't verify the target IS generic before accepting `<args>`.
 **Tags**: `oversight:simple`, `tech-debt:missing-arity-check`
 
-### B-ty-06: `cfg_slot_type` on non-HermesStatic type silently accepted
+### B-ty-06: `cfg_slot_type` on non-WritStatic type silently accepted
 
 **Severity**: P1 diagnostic
-**Status**: fixed (cfg_slot resolution checks current_type_params_ kind; non-ConstVar/HermesStatic emits clear diagnostic)
+**Status**: fixed (cfg_slot resolution checks current_type_params_ kind; non-ConstVar/WritStatic emits clear diagnostic)
 **Repro**: `B18/` —
 ```logos
 fn helper<T>(x: <type:T.field>) -> i32 { return 0; }
 fn main() -> i32 { return 0; }
 ```
-**Observed**: Compiles. `<type:T.field>` is meaningful only when T has bound `HermesStatic`; for an unconstrained TypeVar T this should error.
-**Expected**: "cfg_slot extraction `<type:T.field>` requires T to be `const HermesStatic`".
-**Suspected root**: `resolve_type` for `cfg_slot_type` resolves to a phantom CfgSlotType TypeRef without checking that the carrier is actually a const-generic HermesStatic param.
+**Observed**: Compiles. `<type:T.field>` is meaningful only when T has bound `WritStatic`; for an unconstrained TypeVar T this should error.
+**Expected**: "cfg_slot extraction `<type:T.field>` requires T to be `const WritStatic`".
+**Suspected root**: `resolve_type` for `cfg_slot_type` resolves to a phantom CfgSlotType TypeRef without checking that the carrier is actually a const-generic WritStatic param.
 **Tags**: `oversight:simple`, `tech-debt:missing-bound-check`
 
 ### B-ty-07: `&&mut T` syntax error (lexer collapse `&&`)

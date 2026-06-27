@@ -39,7 +39,7 @@ everything else — including a `VAR_REF` (a bare const name) and an
 **Fix — add a resolver seam (sema keeps all AST-shape knowledge):**
 
 1. **`ctfe.hpp`** — add
-   `using ConstResolver = std::function<std::optional<CtfeValue>(hermes::TinyMapView, hermes::MemHolder*)>;`
+   `using ConstResolver = std::function<std::optional<CtfeValue>(writ::TinyMapView, writ::MemHolder*)>;`
    and an optional trailing param `const ConstResolver* resolver = nullptr` on
    `eval_expr`. (Needs `#include <functional>`, `<optional>`.)
 2. **`ctfe.cpp`** — thread `const ConstResolver* R` through `do_eval` /

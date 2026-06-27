@@ -247,12 +247,12 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    productions + `lower_chain_field_write`) so `a.b.c = v` falls through to `place_assign_stmt`,
    after generalizing `check_place_writable` to handle a raw-pointer ROOT (auto-deref through
    `*mut`/`*const`, replicating the chain writer's `*const` + "requires unsafe" rejects).
-   Builds clean, but the GATE found **56 runtime miscompiles** (hermes/lforge: wrong exit codes,
+   Builds clean, but the GATE found **56 runtime miscompiles** (writ/lforge: wrong exit codes,
    `lforge: manifest: top-level value must be a map`). ROOT: `gen_chain_field_write`
    (mlir_gen_stmt.cpp:1860) does **mid-chain pointer auto-deref** (a `*T` field is followed
    via load before GEPing the next segment, mlir_gen_stmt.cpp:1909-1947) and struct-type-name
    resolution that the general `gen_lvalue_addr`/`addr_of_temp` resolver does NOT replicate —
-   so a chain through a pointer field (Hermes `DataRef`, embedded `*mut`) writes to the wrong
+   so a chain through a pointer field (Writ `DataRef`, embedded `*mut`) writes to the wrong
    address. CONCLUSION: the migration MUST go the other direction — first teach the general
    address resolver mid-chain pointer/DataRef auto-deref (the actual `place_write_addr` work),
    THEN retire the per-shape writers. Grammar-removal + fall-through is unsound until then.
@@ -266,7 +266,7 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    rhs is a `ptr` (covers tuples, embedded datatypes, fixed-array-as-struct, AND Struct kind).
    `SDerefWrite` (mlir_gen_stmt.cpp:527-543) only memcpys when the pointee KIND is `Struct`/`ZonedStruct`;
    any other aggregate-kind field falls to `coerce_int`+`StoreOp`, which stores an 8-byte pointer
-   into a larger aggregate slot → silent heap corruption (the stdlib Map/Hermes internals that
+   into a larger aggregate slot → silent heap corruption (the stdlib Map/Writ internals that
    broke map_comp/match/lforge). **FIX for the sprint:** generalize `SDerefWrite`'s aggregate
    branch to trigger on `LLVMStructType` pointee (load-or-memcpy by value), not just Struct kind —
    then re-attempt the chain retirement, then the other writers. This is `place_write_addr`'s
@@ -280,12 +280,12 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
      without it stdlib `*mut self`/`*mut`-let chain writes (`new_map`, `self.inner.strong`, rc.logos)
      are wrongly rejected as "assignment to immutable variable". (Branch is correct; keep for the sprint.)
    - With that branch, isolated repros of `*mut`→inline-embedded-struct→scalar AND `*mut`→pointer-mid-field→scalar
-     BOTH PASS. So the surviving 56 (ALL hermes-stdlib + lforge, which depends on it) come from
-     hermes REPRESENTATION SPECIAL-CASES the general place path doesn't replicate but
+     BOTH PASS. So the surviving 56 (ALL writ-stdlib + lforge, which depends on it) come from
+     writ REPRESENTATION SPECIAL-CASES the general place path doesn't replicate but
      `gen_chain_field_write`/`gen_recv_struct` do: **embedded `AnyVal` mid-fields** (`doc.root.raw`,
      document.logos:58 — AnyVal is special-cased u64-wrapper layout), **`RelPtr` `.offset` fields**
      (`arr.data.offset`, `m.keys.offset` across hbs_read/view/map/clone), and generic-container instances.
-   - **NEXT SESSION:** pick ONE failing hermes fn (e.g. `document_set_root` / `Map<Bitmap,AnyVal>::init`),
+   - **NEXT SESSION:** pick ONE failing writ fn (e.g. `document_set_root` / `Map<Bitmap,AnyVal>::init`),
      diff the MLIR/LLVM emitted by `gen_chain_field_write` vs the place path (`gen_lvalue_addr`+`SDerefWrite`)
      for its chain write, and teach `gen_lvalue_addr`/`gen_recv_struct` the missing AnyVal/RelPtr handling
      (this IS the `place_write_addr` work). Only then retire the chain writer. Chain writes WORK today
@@ -302,7 +302,7 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    branch and the SDerefWrite aggregate-by-value fix (7c33525a). Removed: `chain_path_id`,
    `chain_field_path`, `chain_field_write_stmt` productions, stmt dispatch, 114-line lowering, decl.
    SChainFieldWrite LIR node KEPT (closure-capture compound still uses it). Regression test:
-   `chain_field_write_scalar_named`. **Lesson:** the earlier "hermes repr special-case" framing was
+   `chain_field_write_scalar_named`. **Lesson:** the earlier "writ repr special-case" framing was
    right in spirit but the mechanism was narrower & cheaper than feared — a missing struct_name tag,
    fixed by consulting the LIR def.
    **✅ tuple_field_write RETIRED 2026-05-26 (aa3469f3).** Trivial: sema already normalizes a

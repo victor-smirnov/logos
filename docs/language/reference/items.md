@@ -103,7 +103,7 @@ A struct definition may contain fields and methods in the same block — for bot
 
 The grammar also accepts an alternative spelling with a leading `#` token (`struct #Name { ... }`) used by metaprogramming for AST templates — see [Metaprogramming](metaprog.md).
 
-A struct marked `#[zoned]` is a **Hermes datatype** (C POD layout, zone-relative offsets, no heap pointers). `#[zoned] struct` is the sole canonical form for datatypes — see [`#[zoned]`](attributes.md#zoned) and [Hermes](hermes.md).
+A struct marked `#[zoned]` is a **Writ datatype** (C POD layout, zone-relative offsets, no heap pointers). `#[zoned] struct` is the sole canonical form for datatypes — see [`#[zoned]`](attributes.md#zoned) and [Writ](writ.md).
 
 ### Methods
 
@@ -212,7 +212,7 @@ template struct Pair<A, B> { fst: A, snd: B }
 template fn map<F>(...) { ... }
 ```
 
-`template` marks the wrapped declaration as **data, not a binding** — a Hermes AST node that metafunctions consume via `template_of::<X>()`. Sema skips templates entirely; their inner names are not registered, so referencing them as ordinary types yields the standard "unknown type" diagnostic.
+`template` marks the wrapped declaration as **data, not a binding** — a Writ AST node that metafunctions consume via `template_of::<X>()`. Sema skips templates entirely; their inner names are not registered, so referencing them as ordinary types yields the standard "unknown type" diagnostic.
 
 ### Conceptual model (most of which is not yet implemented)
 

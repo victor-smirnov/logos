@@ -36,7 +36,7 @@ Interactions: bounds/where/defaults/turbofish/mono all OK; multi-impl selection 
 
 **Logos:** grammar `KW_CONST IDENT COLON type_ref` alts (`logos.peg:3040-3045`, `CONST_PARAM` code 133); `TypeParam.is_const/const_type`; expr-position use lowers to magic VarRef `"__const_param:N"` (`sema_expr.cpp:423-431`), mono splices at clone (`mono_clone.cpp:455-473`).
 
-**WARN persists:** `__const_param:N` magic prefix is still the lowering (not a value-namespace binding per r[items.generics.const.namespace]). Type whitelist still unenforced — probe `fn f<const N: f64>()` compiles (decl-only). `HermesStatic` const-param type = §A6 addition.
+**WARN persists:** `__const_param:N` magic prefix is still the lowering (not a value-namespace binding per r[items.generics.const.namespace]). Type whitelist still unenforced — probe `fn f<const N: f64>()` compiles (decl-only). `WritStatic` const-param type = §A6 addition.
 
 **v1 correction — inferred const `_` is NOT a gap:** `g::<_>([1,2,3])` with `g<const N: i64>(x: [i64; N])` compiles+runs (probe, exit 0); landed pre-v1 (2487f0be, 2026-05-04). Uninferable cases get a clean "could not infer type arg 'N' — supply via turbofish" diagnostic. Float literal as const-ARG (`f::<1.5>`) is a parse error — moot while the whitelist question stands.
 
@@ -101,7 +101,7 @@ Residual (cosmetic): trait-bound satisfaction still treats an explicit `T: Sized
 
 **Rust:** assoc type with own generics; projection `T::Item<X>`, `<T as Trait>::Item` (associated-items.md).
 
-**Logos:** `ASSOC_TYPE_DEF` (code 119, `logos.peg:931-937`, own TYPE_PARAMS slot); collect reads GAT params (`sema_collect.cpp:2415`); `assoc_type_ref` / `qualified_assoc_type` (`logos.peg:1433-1437`); `Kind::AssocType` + `gat_args`. Structure + projection + mono multi-step Rust-conformant (gat_basic/bounds/projection/dispatch tests; Hermes fabric `Datatype::View<S>` uses them in anger).
+**Logos:** `ASSOC_TYPE_DEF` (code 119, `logos.peg:931-937`, own TYPE_PARAMS slot); collect reads GAT params (`sema_collect.cpp:2415`); `assoc_type_ref` / `qualified_assoc_type` (`logos.peg:1433-1437`); `Kind::AssocType` + `gat_args`. Structure + projection + mono multi-step Rust-conformant (gat_basic/bounds/projection/dispatch tests; Writ fabric `Datatype::View<S>` uses them in anger).
 
 **✅ closed — GAT × object-safety (5bccc7fc, logos-core §3.3):** `check_trait_object_safe` (`sema.cpp:2837`, called at unsize coercion `:5520`) rejects GAT-carrying traits: "not object-safe … has a generic associated type `Item<T>` — GAT instantiation needs a concrete impl" (`sema.cpp:2854-2870`); fail test `core_3_3_gat_dyn_rejected`. Generic-method + `impl Trait`-param dyn-incompatibility also covered (`:2874-2920`, P2-15 f3f163f6).
 
@@ -135,5 +135,5 @@ Scope note: subtype relation fires at coercion sites, not as a pervasive inferen
 1. **where_pred general-subject alt + diagnostic/ledger** — stop the phantom-param mis-parse; either enforce as well-formedness bound or hard-error "bounds on non-parameter types unsupported". 1 session.
 2. **GAT `where`-clause on assoc-type defs** — grammar alt + route into existing where-merge. 0.5 session.
 3. **Lifetime-elision signature rules** — implement the 3 elision rules + E0106 reject; aligns signatures with Rust abstraction boundaries; region inference already has the named-region substrate. 1 session.
-4. **Const-param type whitelist + value-namespace binding** — enforce {int,char,bool} (+ blessed HermesStatic), retire `__const_param:` prefix. 1-2 sessions.
+4. **Const-param type whitelist + value-namespace binding** — enforce {int,char,bool} (+ blessed WritStatic), retire `__const_param:` prefix. 1-2 sessions.
 5. **Generic-param order rule** (lifetimes first) — trivial parser/sema check. 0.25 session.

@@ -547,7 +547,7 @@ Verification: `tests/logos/pass/core_4_4_pat_path_const.logos`.
 Covers integer-const arms (`ZERO`, `THRESHOLD`) + boolean-const
 arms (`YES`, `NO`) with a wildcard fallthrough; runtime checks
 confirm each arm selection. Non-`StructuralPartialEq`-shaped consts
-(str, hermes, struct) are diagnosed at `sema_stmt.cpp:4608+` with
+(str, writ, struct) are diagnosed at `sema_stmt.cpp:4608+` with
 specific guidance — they require a string-pattern codegen slice
 that's separate from this item.
 
@@ -1038,7 +1038,7 @@ Verification:
    attribute(s) (ARGS[1..]) are pushed into the pending-annotation
    list of the current item; downstream consumers read NAME / ARGS
    uniformly from ANNOTATION and ANNOT_CALL — same field shape —
-   so no Hermes-node synthesis is needed. The cfg-drop pass was
+   so no Writ-node synthesis is needed. The cfg-drop pass was
    reordered to run AFTER cfg_attr activation so an activated
    `cfg(...)` predicate joins the drop set this iteration
    (canonical port shape: `#[cfg_attr(unix, cfg(windows))]` drops

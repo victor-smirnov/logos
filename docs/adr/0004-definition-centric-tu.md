@@ -39,7 +39,7 @@ This shifts the design calculus:
 Several earlier Logos decisions retroactively read as "AI-friendly
 affordances" rather than just engineering taste:
 - Everything explicit (easier to reason about programmatically),
-- Hermes as unified IR (one format for everything, no ad-hoc parsers),
+- Writ as unified IR (one format for everything, no ad-hoc parsers),
 - Signature as contract (machine-readable metadata at every boundary).
 
 This ADR makes the audience model **explicit** so that future UX
@@ -64,7 +64,7 @@ For AI agents this economy inverts:
   the syntax looks like Python; it cares about predictability, machine-
   readability, and compositional cleanliness.
 - **Ecosystem bootstrap is cheap.** An agent can write a standard library
-  in months that would take a human community years. (Hermes is already
+  in months that would take a human community years. (Writ is already
   on this trajectory.)
 - **Documentation stops being a bottleneck.** An agent has the source,
   types, and tests — that is enough to derive semantics, idioms, and use
@@ -281,7 +281,7 @@ Memoria provides:
 - distributed replication (team-shared cache, reproducible builds),
 - diff between snapshots.
 
-Hermes is the in-memory IR for definitions. Definitions are sharded into
+Writ is the in-memory IR for definitions. Definitions are sharded into
 Memoria documents at **per-function and per-type granularity** (per
 discussion; finer granularity is overhead-heavy, coarser breaks
 incrementality).
@@ -383,7 +383,7 @@ Logosphere asymmetrically.
 
 - Builds on ADR 0003 (Metafunctions): provenance there points at
   definition entities, not at file:line; the dep graph is over definitions.
-- Hard-relies on Hermes (in-memory representation) and Memoria
+- Hard-relies on Writ (in-memory representation) and Memoria
   (storage / versioning / distribution).
 - Compatible with the planned Datalog resolver: queries operate on
   the definition graph, which is just facts in the store.

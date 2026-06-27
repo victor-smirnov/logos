@@ -11,7 +11,7 @@ Instead: source distribution, projects = git repositories, lforge does everythin
 
 ## The Model
 
-A **project** is a git repository containing exactly one `lforge.hermes` at the root. The project is the unit of versioning, identity, and release cadence. A project may ship multiple build *artifacts* (libs, bins) — those share the project's release cycle. If two artifacts need independent release cycles, they live in different repositories.
+A **project** is a git repository containing exactly one `lforge.writ` at the root. The project is the unit of versioning, identity, and release cadence. A project may ship multiple build *artifacts* (libs, bins) — those share the project's release cycle. If two artifacts need independent release cycles, they live in different repositories.
 
 A **dependency** names a project (by git URL), a version (tag, branch, or SHA), and which of the project's modules the consumer wants linked. lforge fetches the source, builds it locally with the consumer's compiler version, caches the result, and links it.
 
@@ -48,7 +48,7 @@ Tag is the human-friendly default; branch is for tracking work-in-progress; SHA 
 
 At lock time, every manifest version (whatever form) is resolved to a concrete commit SHA. The lock file is the source of truth for reproducibility:
 
-```hermes
+```writ
 {
     pinned: [
         { project: "github.com/x/lib",
@@ -78,9 +78,9 @@ Side-by-side install of multiple versions is **not** supported. Two versions of 
 
 ## Manifest
 
-`lforge.hermes` already describes a project's build (name, version, targets). Package metadata extends it with new keys; no second file:
+`lforge.writ` already describes a project's build (name, version, targets). Package metadata extends it with new keys; no second file:
 
-```hermes
+```writ
 {
     name:      "http-client",
     version:   "1.2.3",
@@ -129,15 +129,15 @@ Build artifacts live under `~/.cache/lforge/`, content-addressed:
 ~/.cache/lforge/
   src/                                   # cloned project trees
     <project-id-hash>/<sha>/             # one tree per (project, commit)
-      lforge.hermes
+      lforge.writ
       src/...
   build/                                 # compiled artifacts
     <build-key>/                         # one entry per cache hit
       out/lib<module>.a
-      meta.hermes                        # what produced this
+      meta.writ                        # what produced this
 ```
 
-The `build-key` is `sha256(project_id + sha + module_name + compiler_version + opt_level + relevant_flags + dependency_build_keys)`. Any change in any input → fresh entry. Cache reads check `meta.hermes` to confirm the entry actually matches the current build (defence against hash collisions and corrupt cache).
+The `build-key` is `sha256(project_id + sha + module_name + compiler_version + opt_level + relevant_flags + dependency_build_keys)`. Any change in any input → fresh entry. Cache reads check `meta.writ` to confirm the entry actually matches the current build (defence against hash collisions and corrupt cache).
 
 The cache is per-user and never shared across users by default — a build host that wants to share fills `~/.cache/lforge/build/` from a tarball and trusts the contents (see "Out of scope" below).
 
@@ -149,12 +149,12 @@ The clone cache (`src/`) is keyed by `(project_id, sha)` so multiple consumers d
 $ lforge build
 ```
 
-1. Read `./lforge.hermes`.
+1. Read `./lforge.writ`.
 2. If `lforge.lock` exists and is consistent with manifest deps:
    - Use locked SHAs. Done resolving.
 3. Else (fresh project, or manifest deps changed):
    - For each dep, resolve `tag`/`branch` to SHA via `git ls-remote`.
-   - Recursively load each dep's `lforge.hermes` (clone if not in cache).
+   - Recursively load each dep's `lforge.writ` (clone if not in cache).
    - Run MVS over the closure: per project, max version wins.
    - Write `lforge.lock` with the chosen SHAs.
 4. For each project in dependency order:
@@ -204,10 +204,10 @@ All v1 milestones shipped on 2026-05-07. Each step landed independently and ship
 **Why not vcpkg ports?** vcpkg's complexity comes from CMake variance, multi-target install layouts, and 20+ years of legacy build systems. We have one build system (lforge) and one binary format (Logos archive). The vcpkg model fits, but the implementation overhead doesn't.
 
 **Why not Go modules?** This is mostly Go modules: git URL identity, MVS resolver, no central registry, lockfile ≈ `go.sum`. Differences:
-- Hermes-SDN manifest, not `go.mod` syntax.
+- Writ-SDN manifest, not `go.mod` syntax.
 - One repo = one project (no submodule paths).
 - Module selection per dep (Go pulls the whole module; we pull listed targets only).
 
 **Why not Cargo?** Cargo's central registry is an active liability, semver ranges plus PubGrub is a complex resolver for diminishing returns over MVS, and `crates.io` ABI assumptions don't hold for source-distributed compiled code with metaprog.
 
-The shortest description: **Go modules with a Hermes manifest.**
+The shortest description: **Go modules with a Writ manifest.**

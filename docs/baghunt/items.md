@@ -4,7 +4,7 @@
 **Grammar rules covered**: `item`, `struct_def`/`pub_struct_def`, `enum_def`/`pub_enum_def`, `variant_list`, `variant_def`, `variant_payload_list`, `datatype_def`/`pub_datatype_def`, `trait_def`/`pub_trait_def`, `genos_def`/`pub_genos_def`, `super_list`, `trait_method`, `trait_kw`, `impl_block`, `impl_item`, `struct_inst`/`pub_struct_inst`, `datatype_inst`/`pub_datatype_inst`, `trait_inst`/`pub_trait_inst`, `field_def`, `method_def`, `meta_block`
 **Reference doc**: [docs/language/reference/items.md](../language/reference/items.md)
 **Implementation entry points**:
-- [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `lower_struct_def`, `lower_enum_def`, `lower_datatype_def`, `lower_trait_def`, `lower_impl_block`, `eval_static_hermes_lit`
+- [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `lower_struct_def`, `lower_enum_def`, `lower_datatype_def`, `lower_trait_def`, `lower_impl_block`, `eval_static_writ_lit`
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — first-pass registration, dup-detection
 - [src/compiler/mlir_gen_types.cpp](../../src/compiler/mlir_gen_types.cpp) — `register_struct`, `register_tagged_enum`
 
@@ -145,15 +145,15 @@ fn main() -> i32 { let x: i32 = 21; return x.doubled(); }
 ### B-it-10: Meta block with capture (`${...}`) silently accepted (should be rejected)
 
 **Severity**: P1 diagnostic
-**Status**: fixed (eval_static_hermes_lit emits diagnostic for HERMES_CAP_*; tests/logos/fail/meta_block_with_capture)
+**Status**: fixed (eval_static_writ_lit emits diagnostic for HERMES_CAP_*; tests/logos/fail/meta_block_with_capture)
 **Repro**: `B23/` —
 ```logos
 struct Foo { x: i32, meta @{ "schema": ${some_var}, } }
 fn main() -> i32 { return 0; }
 ```
 **Observed**: Compiles cleanly.
-**Expected**: `eval_static_hermes_lit` should reject capture nodes per the documented contract ("no captures `${...}`, just static values" — see [attributes.md](../language/reference/attributes.md#meta-blocks-meta)). At least error: "meta block requires static values; ${...} captures not allowed".
-**Suspected root**: [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) `eval_static_hermes_lit` has the capture-rejection branch (lines 108-111: `code == HERMES_CAP_IDENT.code || HERMES_CAP_EXPR.code → return nullptr`), BUT returning nullptr bubbles up as silent failure rather than a sema error. The caller `extract_meta_val` returns `nullptr` and just leaves `meta_val` empty.
+**Expected**: `eval_static_writ_lit` should reject capture nodes per the documented contract ("no captures `${...}`, just static values" — see [attributes.md](../language/reference/attributes.md#meta-blocks-meta)). At least error: "meta block requires static values; ${...} captures not allowed".
+**Suspected root**: [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) `eval_static_writ_lit` has the capture-rejection branch (lines 108-111: `code == HERMES_CAP_IDENT.code || HERMES_CAP_EXPR.code → return nullptr`), BUT returning nullptr bubbles up as silent failure rather than a sema error. The caller `extract_meta_val` returns `nullptr` and just leaves `meta_val` empty.
 **Tags**: `oversight:simple`, `tech-debt:silent-nullptr-on-error`
 
 ### B-it-11: Extern fn without varargs accepted despite grammar requiring `, ...`

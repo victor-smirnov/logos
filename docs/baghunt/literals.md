@@ -1,4 +1,4 @@
-# Bug catalog: Literals (non-Hermes)
+# Bug catalog: Literals (non-Writ)
 
 **Group**: 11 — Literals (struct/array/tuple/closure)
 **Grammar rules covered**: `enum_lit`, `struct_lit`, `generic_struct_lit`, `struct_update_lit`, `field_init`, `arr_lit`, `arr_fill_lit`, `tuple_lit`, `list_comp`, `map_comp`, `closure_expr`

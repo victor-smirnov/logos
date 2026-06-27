@@ -94,22 +94,22 @@ Color::Red | Color::Blue => "primary-ish",
 
 All branches of an `|` must bind the same set of names with the same types. Or-patterns may appear at any nesting depth.
 
-## Hermes Patterns
+## Writ Patterns
 
 ```logos
 @null
 @true   @false
 @42     @-7
 @"hello"
-@[a, b, c]                  // hermes array — exact length
-@[head, ..]                 // hermes array — prefix-match
-@{ "name": n, "age": a }    // hermes map — must contain these keys
+@[a, b, c]                  // writ array — exact length
+@[head, ..]                 // writ array — prefix-match
+@{ "name": n, "age": a }    // writ map — must contain these keys
 @{}                         // empty map
 @<I32>[..]                  // typed array — any-length match
 @<I32, AnyVal>{..}          // typed map — any-content match
 ```
 
-Hermes patterns destructure `@{...}` / `@[...]` SDN values. Inner values inside a `@`-pattern don't repeat the `@`. See [Hermes](hermes.md) for the wire types these match against.
+Writ patterns destructure `@{...}` / `@[...]` SDN values. Inner values inside a `@`-pattern don't repeat the `@`. See [Writ](writ.md) for the wire types these match against.
 
 ## `@` Bindings
 

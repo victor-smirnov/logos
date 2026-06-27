@@ -96,7 +96,7 @@ sema/codegen path doesn't trip on them.
 
 `logos_emit_source(*const u8) -> i32` still parses the chunk and
 appends to `g_asts` with string-equality dedup. Each emission adds
-one new Hermes document; nothing in `asts` is mutated in place. The
+one new Writ document; nothing in `asts` is mutated in place. The
 auto-detected target package (`Emitter::emit_target_pkg(&view)`,
 slice 20 / 2307d3d) writes synthesis into the same package as the
 trigger, so `impl Debug for Widget` in `package main;` works without
@@ -105,7 +105,7 @@ the hook hard-coding `"main"`.
 ### 5. AST schema surface for hooks
 
 `std.compiler.metaprog::OView` carries the AST as `(holder, base, size)`
-with a `HermesRead` impl. Conveniences live as inherent methods on
+with a `WritRead` impl. Conveniences live as inherent methods on
 `OView`:
 
 - `ast_node_name(node)` — works on STRUCT, ENUM, MODULE, VARIANT_DEF,

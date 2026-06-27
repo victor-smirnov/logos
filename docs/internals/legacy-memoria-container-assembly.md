@@ -12,7 +12,7 @@
 The legacy codebase is heavy template metaprogramming (TMP) on C++20. Container
 classes, node classes, dispatchers and packed-leaf encodings are all synthesised
 at compile time from typelists. What follows is the call-graph of types you walk
-through to understand a single instantiation like `Ctr<Map<Varchar, Hermes>>`.
+through to understand a single instantiation like `Ctr<Map<Varchar, Writ>>`.
 
 ## 1. Tag classes name the parts
 
@@ -83,7 +83,7 @@ This is the *declaration* of the container; assembly happens in `CtrTF`.
 ## 3. `CtrTF<Profile, BT, ContainerTypeName>` — the assembly factory
 
 The non-trivial half of `bt_factory.hpp`. Given `Profile` and the user-facing
-container name (e.g. `Map<Varchar, Hermes>`), `CtrTF` produces:
+container name (e.g. `Map<Varchar, Writ>`), `CtrTF` produces:
 
 - `BranchStreamsStructList` / `LeafStreamsStructList` by running
   `PackedBranchStructListBuilder` / `PackedLeafStructListBuilder` over
@@ -162,8 +162,8 @@ serialised block carries `header_.ctr_type_hash()` / `header_.block_type_hash()`
 the dispatcher uses those to recover the right C++ class on read.
 
 This is the legacy analogue of what we already do in Logos with the
-`HermesTypeTagSystem`/type-code dispatch (see memory: `feat_tag_dispatch`,
-`project_hermes_trait_registry`). Same pattern, different mechanism.
+`WritTypeTagSystem`/type-code dispatch (see memory: `feat_tag_dispatch`,
+`project_writ_trait_registry`). Same pattern, different mechanism.
 
 ## 6. Packed-struct list builder — the "what does a leaf actually look like"
 
@@ -235,7 +235,7 @@ What translates directly to our metaprogramming substrate:
   `quote_item!` / `quote_ty!`. No `Linearize`, no `mp_transform` — plain
   iteration.
 - **`TypeHash<LeafNode<Types>>` → existing tag-dispatch.** We already mint a
-  stable type-code per monomorphisation through `HermesTypeTagSystem`; the
+  stable type-code per monomorphisation through `WritTypeTagSystem`; the
   legacy mechanism is a special case.
 - **Chain inheritance → composed `impl` blocks (or `Pass` in Phase 2).** The
   "every part contributes methods through inheritance" pattern collapses into
@@ -250,7 +250,7 @@ What does **not** translate, and we should not try to recreate:
   Logos the equivalent is a metafunction call — the input is data, not a
   typelist, and the output is items, not a class hierarchy.
 - **`PackedDispatcher` over substream indices.** Our leaf storage sits on
-  Hermes containers and `Buffer<DT>`; the packed-substream zoo collapses to
+  Writ containers and `Buffer<DT>`; the packed-substream zoo collapses to
   one `Buffer` parameterised by the key/value Datatype, plus pointer arrays
   for children. The "walk substreams" pattern becomes "walk one or two
   buffers", erasing most of the dispatcher machinery.

@@ -199,7 +199,7 @@ Compound-assign trait set, `Neg`, enum/TypeVar `==` desugars, widen+autoref arou
 
 **Logos:** Grammar `cast_expr` (`logos.peg:2532`; ns `:2366`); AST `CAST=69`. Sema `lower_cast` (`sema_expr.cpp:619+`). No behavioural changes since v1 (no commits touching `lower_cast`).
 
-**Verdict: OK** — numeric/enum-to-int/bool/char/fn-item/no-capture-closure→fn-ptr paths present; `slice as <T>[]` is a Logos Hermes extension (A6).
+**Verdict: OK** — numeric/enum-to-int/bool/char/fn-item/no-capture-closure→fn-ptr paths present; `slice as <T>[]` is a Logos Writ extension (A6).
 
 **Residual gaps (unchanged from v1):** trait-object ptr-cast rules (principal trait/auto-trait/lifetime, §expr.as.pointer.unsized.trait); `enum Drop` cast rejection; `u8 as char` validity; `&[T;n]→*T` mut-tightening footnote.
 

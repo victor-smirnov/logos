@@ -9,8 +9,8 @@ table is the source of truth for Phase 4 migration commits.
 
 Status: **draft for review.** Verified per-package during Phase 4
 when actual code moves and layer enforcement (Phase 6.A) catches
-violations. The most likely point of revision is the Hermes split
-(`std.hermes.*` 32 packages → ~15 lang + ~17 mem) — some packages
+violations. The most likely point of revision is the Writ split
+(`std.writ.*` 32 packages → ~15 lang + ~17 mem) — some packages
 may turn out to drag heap dependencies that demote them to mem.
 
 ---
@@ -37,7 +37,7 @@ mem); promoting later requires more careful audit.
 ## Top-level package table
 
 Sorted by current package name within each layer. Sub-table for
-`std.hermes.*` and `std.io.*` follows.
+`std.writ.*` and `std.io.*` follows.
 
 ### → logos.lang (no-alloc, no-OS)
 
@@ -63,7 +63,7 @@ Sorted by current package name within each layer. Sub-table for
 | `std.lang.result` | `logos.lang.result` | Result<T, E>. |
 | `std.lang.text` | `logos.lang.str` + `logos.mem.string` | **SPLIT.** Read-side (`&str` ops, str_eq, str_starts_with…) → lang. Owned (`String`) → mem. |
 | `std.lang.text.regex` | `logos.lang.regex` (read-only API) + `logos.mem.regex` if needed | Regex matching itself doesn't allocate; compilation may. Audit at Phase 4. |
-| `std.lang.datatypes` | `logos.lang.hermes.fabric` | Datatype/Storage/Container traits. Hermes-fabric, no alloc. |
+| `std.lang.datatypes` | `logos.lang.writ.fabric` | Datatype/Storage/Container traits. Writ-fabric, no alloc. |
 | `std.compiler.metaprog` | `logos.lang.metaprog` | Compile-time only — never runs in user runtime. |
 | `std.compiler.tokens` | `logos.lang.tokens` | Token-list types for metaprog input. |
 | `std.math` | `logos.lang.math` | Free functions over primitives. No alloc. |
@@ -96,9 +96,9 @@ Sorted by current package name within each layer. Sub-table for
 | `std.encoding.base64` | `logos.mem.encoding.base64` | Allocates output buffer. |
 | `std.encoding.hex` | `logos.mem.encoding.hex` | Allocates output buffer. |
 | `std.encoding.csv` | `logos.mem.encoding.csv` | Parses into containers. |
-| `std.encoding.json` | `logos.mem.encoding.json` | Heavy Hermes/container allocation. |
+| `std.encoding.json` | `logos.mem.encoding.json` | Heavy Writ/container allocation. |
 
-**Count: ~23 packages → mem** (plus 17 from Hermes — see sub-section below).
+**Count: ~23 packages → mem** (plus 17 from Writ — see sub-section below).
 
 ### → logos.std (full)
 
@@ -136,53 +136,53 @@ Sorted by current package name within each layer. Sub-table for
 
 ---
 
-## Hermes per-package split
+## Writ per-package split
 
-`std.hermes.*` — 32 sub-packages. The cut is read/static vs
+`std.writ.*` — 32 sub-packages. The cut is read/static vs
 mutable/allocating. Each row is a hypothesis verified at Phase 4
 when the file actually moves and layer-enforcement runs.
 
-### → logos.lang.hermes.* (read/static; 15 packages)
+### → logos.lang.writ.* (read/static; 15 packages)
 
 | Current | Target | Reason |
 |---|---|---|
-| `std.hermes.view` | `logos.lang.hermes.view` | HermesView (read-only window). |
-| `std.hermes.anyval` | `logos.lang.hermes.anyval` | AnyVal read-mode. |
-| `std.hermes.scalar` | `logos.lang.hermes.scalar` | Scalar access, pure read. |
-| `std.hermes.datatag` | `logos.lang.hermes.datatag` | Tag enum definitions. |
-| `std.hermes.tags` | `logos.lang.hermes.tags` | Tag constants. |
-| `std.hermes.typetag` | `logos.lang.hermes.typetag` | Type-tag value types. |
-| `std.hermes.relptr` | `logos.lang.hermes.relptr` | Relative pointer arithmetic. |
-| `std.hermes.relptr_traits` | `logos.lang.hermes.relptr_traits` | Trait surface for relptr. |
-| `std.hermes.stringify` | `logos.lang.hermes.stringify` | Format into caller buffer. |
-| `std.hermes.hbs_read` | `logos.lang.hermes.hbs_read` | Wire-format parser, read into provided buffer. |
-| `std.hermes.pat` | `logos.lang.hermes.pat` | Pattern matching navigation, read-only. |
-| `std.hermes.check` | `logos.lang.hermes.check` | Validation pass, read-only. |
-| `std.hermes.equal` | `logos.lang.hermes.equal` | Equality comparison, read-only. |
-| `std.hermes.hashing` | `logos.lang.hermes.hashing` | Hash function, read-only. |
-| `std.hermes.typed_value` | `logos.lang.hermes.typed_value` | Typed accessor wrappers. |
+| `std.writ.view` | `logos.lang.writ.view` | WritView (read-only window). |
+| `std.writ.anyval` | `logos.lang.writ.anyval` | AnyVal read-mode. |
+| `std.writ.scalar` | `logos.lang.writ.scalar` | Scalar access, pure read. |
+| `std.writ.datatag` | `logos.lang.writ.datatag` | Tag enum definitions. |
+| `std.writ.tags` | `logos.lang.writ.tags` | Tag constants. |
+| `std.writ.typetag` | `logos.lang.writ.typetag` | Type-tag value types. |
+| `std.writ.relptr` | `logos.lang.writ.relptr` | Relative pointer arithmetic. |
+| `std.writ.relptr_traits` | `logos.lang.writ.relptr_traits` | Trait surface for relptr. |
+| `std.writ.stringify` | `logos.lang.writ.stringify` | Format into caller buffer. |
+| `std.writ.hbs_read` | `logos.lang.writ.hbs_read` | Wire-format parser, read into provided buffer. |
+| `std.writ.pat` | `logos.lang.writ.pat` | Pattern matching navigation, read-only. |
+| `std.writ.check` | `logos.lang.writ.check` | Validation pass, read-only. |
+| `std.writ.equal` | `logos.lang.writ.equal` | Equality comparison, read-only. |
+| `std.writ.hashing` | `logos.lang.writ.hashing` | Hash function, read-only. |
+| `std.writ.typed_value` | `logos.lang.writ.typed_value` | Typed accessor wrappers. |
 
-### → logos.mem.hermes.* (mutable/allocating; 17 packages)
+### → logos.mem.writ.* (mutable/allocating; 17 packages)
 
 | Current | Target | Reason |
 |---|---|---|
-| `std.hermes.alloc` | `logos.mem.hermes.alloc` | Allocation primitives. |
-| `std.hermes.mem_holder` | `logos.mem.hermes.mem_holder` | RC arena owner. |
-| `std.hermes.zone` | `logos.mem.hermes.zone` | Zone<M> handle. |
-| `std.hermes.own` | `logos.mem.hermes.own` | Own<T> RC wrapper. |
-| `std.hermes.release` | `logos.mem.hermes.release` | RC release. |
-| `std.hermes.parser` | `logos.mem.hermes.parser` | Text parser, allocates objects. |
-| `std.hermes.objectmap` | `logos.mem.hermes.objectmap` | Mutable container. |
-| `std.hermes.array` | `logos.mem.hermes.array` | Mutable typed array. |
-| `std.hermes.ctr` | `logos.mem.hermes.ctr` | Mutable container builder. |
-| `std.hermes.map` | `logos.mem.hermes.map` | Mutable map. |
-| `std.hermes.clone` | `logos.mem.hermes.clone` | Clone-into-new-zone. |
-| `std.hermes.hbs_write` | `logos.mem.hermes.hbs_write` | Wire-format writer, allocates output. |
-| `std.hermes.string` | `logos.mem.hermes.string` | Arena-backed string. |
-| `std.hermes.document` | `logos.mem.hermes.document` | Document builder. |
-| `std.hermes.registry` | `logos.mem.hermes.registry` | Dynamic type registry. |
-| `std.hermes.tag_system` | `logos.mem.hermes.tag_system` | Runtime tag system. |
-| `std.hermes.decimal` | `logos.mem.hermes.decimal` | Decimal arithmetic + allocation. Verify Phase 4. |
+| `std.writ.alloc` | `logos.mem.writ.alloc` | Allocation primitives. |
+| `std.writ.mem_holder` | `logos.mem.writ.mem_holder` | RC arena owner. |
+| `std.writ.zone` | `logos.mem.writ.zone` | Zone<M> handle. |
+| `std.writ.own` | `logos.mem.writ.own` | Own<T> RC wrapper. |
+| `std.writ.release` | `logos.mem.writ.release` | RC release. |
+| `std.writ.parser` | `logos.mem.writ.parser` | Text parser, allocates objects. |
+| `std.writ.objectmap` | `logos.mem.writ.objectmap` | Mutable container. |
+| `std.writ.array` | `logos.mem.writ.array` | Mutable typed array. |
+| `std.writ.ctr` | `logos.mem.writ.ctr` | Mutable container builder. |
+| `std.writ.map` | `logos.mem.writ.map` | Mutable map. |
+| `std.writ.clone` | `logos.mem.writ.clone` | Clone-into-new-zone. |
+| `std.writ.hbs_write` | `logos.mem.writ.hbs_write` | Wire-format writer, allocates output. |
+| `std.writ.string` | `logos.mem.writ.string` | Arena-backed string. |
+| `std.writ.document` | `logos.mem.writ.document` | Document builder. |
+| `std.writ.registry` | `logos.mem.writ.registry` | Dynamic type registry. |
+| `std.writ.tag_system` | `logos.mem.writ.tag_system` | Runtime tag system. |
+| `std.writ.decimal` | `logos.mem.writ.decimal` | Decimal arithmetic + allocation. Verify Phase 4. |
 
 ---
 
@@ -216,8 +216,8 @@ when the file actually moves and layer-enforcement runs.
 
 | Layer | Packages (target, post-merge) |
 |---|---|
-| logos.lang | ~20 + 15 hermes = ~35 |
-| logos.mem | ~23 + 17 hermes = ~40 |
+| logos.lang | ~20 + 15 writ = ~35 |
+| logos.mem | ~23 + 17 writ = ~40 |
 | logos.std | ~27 |
 | **Total** | **~102** |
 
@@ -232,7 +232,7 @@ adds back two).
 - **Per-fn or per-type granularity within a package.** If a single
   current package has both read-only and allocating items, the
   Phase 4 commit may need to refactor the file split before
-  layering. Most likely sites: `std.hermes.clone`,
+  layering. Most likely sites: `std.writ.clone`,
   `std.fmt` (Display trait + format! runtime), `std.lang.iter`
   (Iterator trait + Collect-to-Vec adapter). These get factored
   during Phase 4 migration of the parent file, not pre-emptively.

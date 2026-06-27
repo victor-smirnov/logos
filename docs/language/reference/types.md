@@ -11,7 +11,7 @@ A type is either a primitive, a composite (formed from other types), or a user-d
 | Type | Width | Signed | Notes |
 |------|-------|--------|-------|
 | `i8`, `i16`, `i32`, `i64`, `i128` | 8/16/32/64/128 | yes | Standard widths |
-| `i24`, `i56` | 24, 56 | yes | Pair with Hermes inline `Integer`/`SmallInt` payload widths |
+| `i24`, `i56` | 24, 56 | yes | Pair with Writ inline `Integer`/`SmallInt` payload widths |
 | `u8`, `u16`, `u32`, `u64`, `u128` | 8/16/32/64/128 | no | |
 | `u24`, `u56` | 24, 56 | no | |
 | `isize`, `usize` | platform pointer width | yes/no | First-class type names and integer-literal suffixes |
@@ -129,7 +129,7 @@ Enums are tagged sums. The `LogosType::Kind::Enum` variant is used both for C-st
 #[zoned] pub struct AnyVal { pub raw: u32 }
 ```
 
-A *Hermes datatype*: a struct laid out for the Hermes wire format (zone-relative, no heap pointers). Internally tagged `LogosType::Kind::ZonedStruct`. Datatypes interoperate with the [Hermes layer](hermes.md) and follow extra layout constraints (see internals docs).
+A *Writ datatype*: a struct laid out for the Writ wire format (zone-relative, no heap pointers). Internally tagged `LogosType::Kind::ZonedStruct`. Datatypes interoperate with the [Writ layer](writ.md) and follow extra layout constraints (see internals docs).
 
 ## Generic Application
 
@@ -150,8 +150,8 @@ Logos has no implicit type-argument deduction at call sites yet — generic func
 | `impl Trait`        | Opaque return type — concrete type known to the compiler, hidden from the caller. Resolved during lowering. |
 | `typeof(expr)`      | Compile-time type of `expr` without evaluating it. |
 | `T::Item`           | Associated type — looked up on `T`'s impl of the relevant trait. May take type-args (`T::Item<U>`) for generic associated types. |
-| `<I32>[]`           | Hermes typed-array type, used in `as <I32>[]` casts. See [Hermes](hermes.md). |
-| `<K,V>{}`           | Hermes typed-map type. |
+| `<I32>[]`           | Writ typed-array type, used in `as <I32>[]` casts. See [Writ](writ.md). |
+| `<K,V>{}`           | Writ typed-map type. |
 | `$T`                | Antiquotation — only legal inside `quote_ty! { ... }`. See [Metaprogramming](metaprog.md). |
 
 ## Type Variables and Constants in Generics

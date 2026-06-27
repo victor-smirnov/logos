@@ -18,8 +18,8 @@
 | Statements & Assignments | [statements.md](statements.md) | 10 | **Block-scope shadow LEAKS** (P0); let-else non-diverging silent |
 | Pattern Matching | [patterns.md](patterns.md) | 8+2 | 5 surface gaps (let pat=, slice ..rest, byte-string, etc.) |
 | Expressions & Precedence | [expressions.md](expressions.md) | 9+1 | 4× silent miscompiles (overflow, div0, shift-neg, unary on unsigned) |
-| Literals (non-Hermes) | [literals.md](literals.md) | 4 | underweight; struct-update type mismatch silent |
-| Hermes Literals | [hermes.md](hermes.md) | 6+2 | **Nested @{...}/@[...] don't parse** (P0 major gap) |
+| Literals (non-Writ) | [literals.md](literals.md) | 4 | underweight; struct-update type mismatch silent |
+| Writ Literals | [writ.md](writ.md) | 6+2 | **Nested @{...}/@[...] don't parse** (P0 major gap) |
 | Attributes & Meta blocks | [attributes.md](attributes.md) | 8 | Whole attr system has no validation |
 | Metaprog | [metaprog.md](metaprog.md) | 5 | Best-validated group; instantiate non-generic silent |
 | Lexical | [lexical.md](lexical.md) | 7 | 2× ASSERT crashes (empty file, BOM); char literal collision with lifetimes |
@@ -62,7 +62,7 @@
 | B-ex-05 | `int as Struct` cast silent |
 | B-ex-07 / B-he-04 / B-lx-04 | integer literal overflow saturates |
 | B-li-03 | struct update `..base` with mismatched base type silent |
-| B-he-02 | duplicate Hermes-map key kept |
+| B-he-02 | duplicate Writ-map key kept |
 | B-pt-01 | duplicate binding name in tuple pattern silent |
 
 **Total: 16+ silent miscompiles.**
@@ -83,7 +83,7 @@ Below are the load-bearing clusters. Each spans multiple feature groups and admi
 
 ### Cluster 2 — `missing-uniqueness-check` (8 distinct sites, ~10 bug instances)
 
-**Member bugs**: B-it-03 (struct fields), B-it-04 (enum variants), B-it-05 (trait defs), B-fn-02 (fn params), B-ca-04 (const defs), B-gn-01 (type-params), B-gn-02 (lifetime-params), B-pt-01 (pattern bindings), B-he-02 (Hermes-map keys), B-at-03 (annotations)
+**Member bugs**: B-it-03 (struct fields), B-it-04 (enum variants), B-it-05 (trait defs), B-fn-02 (fn params), B-ca-04 (const defs), B-gn-01 (type-params), B-gn-02 (lifetime-params), B-pt-01 (pattern bindings), B-he-02 (Writ-map keys), B-at-03 (annotations)
 
 **Pattern**: Wherever sema collects a list of named items (fields, params, variants, etc.) it appends without dup-check. Same fix pattern needed at every site; only some sites currently have it (struct-lit dup-detect works, struct-def dup-detect doesn't).
 
@@ -190,9 +190,9 @@ Plus a single validation pass that checks every annotation against the registry.
 
 **Member bug**: B-he-01 — nested `@{...}` / `@[...]` don't parse despite grammar allowing recursion.
 
-**Pattern**: All existing tests use FLAT Hermes literals; the recursive corner of `hermes_val` was never exercised. Single-bug architectural fix.
+**Pattern**: All existing tests use FLAT Writ literals; the recursive corner of `writ_val` was never exercised. Single-bug architectural fix.
 
-**Architectural fix**: Debug + fix the parser dispatch for nested `@`-prefix tokens inside `hermes_val`.
+**Architectural fix**: Debug + fix the parser dispatch for nested `@`-prefix tokens inside `writ_val`.
 
 ## Distribution by tag (top categories)
 

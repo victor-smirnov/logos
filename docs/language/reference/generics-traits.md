@@ -214,7 +214,7 @@ fn write_each(items: &[&dyn Display], out: &mut Writer) -> Result<(), io::Error>
 
 `&dyn Trait` is a fat pointer `(data, vtable)`. The vtable is generated per `(impl Trait for Type)` pair.
 
-`&tagged<TS> Trait` is the *tag-dispatched* variant — a thin pointer whose first 1–8 bytes carry a `type_code` index into a per-trait dispatch table. Used for Hermes-zoned objects where adding a vtable would inflate every instance. See [memory: feat_tag_dispatch](../../README.md).
+`&tagged<TS> Trait` is the *tag-dispatched* variant — a thin pointer whose first 1–8 bytes carry a `type_code` index into a per-trait dispatch table. Used for Writ-zoned objects where adding a vtable would inflate every instance. See [memory: feat_tag_dispatch](../../README.md).
 
 ## `where` Clauses
 

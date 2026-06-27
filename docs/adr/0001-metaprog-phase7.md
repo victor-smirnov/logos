@@ -22,9 +22,9 @@ before the seam could carry a real workload (slice 6 derive-style):
 
 ## Decision
 
-### 1. Two AST views: `HermesView<'a>` (borrow) and `OView` (RC-owning)
+### 1. Two AST views: `WritView<'a>` (borrow) and `OView` (RC-owning)
 
-`HermesView<'a>` is a non-owning fat borrow `(base, size)` tied to the
+`WritView<'a>` is a non-owning fat borrow `(base, size)` tied to the
 hook frame's lifetime. Sound for the hook because the host's
 `asts[g_user_root_idx]` outlives every hook invocation in a given iter.
 
@@ -33,11 +33,11 @@ host-side `logos_get_module_ast_oview` bumps the `MemHolder` refcount,
 returns an opaque holder pointer; `OView::drop` calls
 `logos_holder_release` which `unref()`s. The holder's internal layout
 (C++ `std::atomic<int32_t>` + `Arena`) does not match
-`std.hermes.mem_holder.MemHolder` POD — kept opaque on purpose.
+`std.writ.mem_holder.MemHolder` POD — kept opaque on purpose.
 
 **Rule of thumb:** hooks that stash AST AnyVals across iterations / into
 module state need `OView`. Hooks that walk-and-emit in one pass can use
-`HermesView<'a>`.
+`WritView<'a>`.
 
 ### 2. Source-level emit, not AST-graft
 
@@ -96,10 +96,10 @@ this is post-sema, post-borrow-check, code the user opted into running
 at compile time. Treat the JIT'd module the same way you treat the
 build script.
 
-### 6. AST-walk convenience: `HermesRead::tiny_map_get`
+### 6. AST-walk convenience: `WritRead::tiny_map_get`
 
 Slice 8 added `tiny_map_get(self, val, key: u8) -> AnyVal` as a default
-on `HermesRead`. AST nodes are TinyObjectMaps, but `map_get` rejects the
+on `WritRead`. AST nodes are TinyObjectMaps, but `map_get` rejects the
 TOM tag (it's the `ObjectMap` path). Without `tiny_map_get`, every hook
 had to drop to:
 

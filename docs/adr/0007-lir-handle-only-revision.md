@@ -2,7 +2,7 @@
 
 Status: Proposed 2026-04-27. Revises ADR 0006 §7 (slice plan) and §8
 (non-decisions). All other sections of ADR 0006 stand: single source of
-truth is the Hermes zone, identity is the zone offset, one zone per
+truth is the Writ zone, identity is the zone offset, one zone per
 `LProgram`, write-once nodes, inline `Varchar` strings.
 
 ## Context
@@ -42,7 +42,7 @@ in isolation, before its final children/parents exist. Bulk-emit's
 fast-path then sees `mirror_offset_ != 0` and skips re-mirror — the
 mirror points at a partial graph that does not match reality.
 
-Naive "make `LirBuilder` write Hermes alongside variants" (ADR 0006
+Naive "make `LirBuilder` write Writ alongside variants" (ADR 0006
 slice 3g.1) crashes MLIR-gen on tests 255, 497, 853 — same bug-family
 as 89049ed (heap recycle) and a08c40a (addr-cache). Surgical per-stmt
 emit works (validated for SLoop, commit 1b36b31) only when the stmt's
@@ -68,7 +68,7 @@ construction path, while keeping the ADR's overall direction.
 
 ### A. The dual-write window does not exist
 
-Skip ADR 0006 slice 3g.1 entirely. Do not add Hermes-emit alongside
+Skip ADR 0006 slice 3g.1 entirely. Do not add Writ-emit alongside
 variant construction. Reasons:
 
 - Fact 1 makes the assert-equality check a tripwire on every
@@ -98,7 +98,7 @@ variant construction. Reasons:
   this slice. The slice's value is that *after* it lands, "drop
   variants" stops being a 5-day cascade and becomes a per-kind diff.
 
-- **Slice 2 — Builder writes Hermes; variants become shells; consumer
+- **Slice 2 — Builder writes Writ; variants become shells; consumer
   signatures flip to `ExprRef`/`StmtRef`.**
   Combines ADR 0006 slices 3g.2 + 3g.3 + 3g.4 into one diff. Reason:
   Fact 1 means we cannot leave variants partially populated through

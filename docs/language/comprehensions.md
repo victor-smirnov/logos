@@ -1,14 +1,14 @@
 # List and Map Comprehensions
 
-Logos has comprehension syntax for building collections from an iterable. There are two flavours: **plain** comprehensions that produce standard-library containers (`Vec<T>`, `HashMap<K, V>`), and **Hermes** comprehensions (prefixed with `@`) that produce Hermes documents directly.
+Logos has comprehension syntax for building collections from an iterable. There are two flavours: **plain** comprehensions that produce standard-library containers (`Vec<T>`, `HashMap<K, V>`), and **Writ** comprehensions (prefixed with `@`) that produce Writ documents directly.
 
 The shape mirrors Python's:
 
 ```
 [ expr        for x in iter ( if guard )? ]      // list → Vec<T>
 { key : val   for x in iter ( if guard )? }      // map  → HashMap<K, V>
-@[ expr       for x in iter ( if guard )? ]      // Hermes list (ObjectArray)
-@{ key : val  for x in iter ( if guard )? }      // Hermes map
+@[ expr       for x in iter ( if guard )? ]      // Writ list (ObjectArray)
+@{ key : val  for x in iter ( if guard )? }      // Writ map
 ```
 
 The optional `if guard` filters elements before they reach the output.
@@ -41,37 +41,37 @@ The key/value expressions can use any binding introduced by the `for` clause; bo
 
 `HashMap<K, V>` is part of the standard library at `stdlib/mem/collections/hashmap` (`logos.mem.collections.hashmap`), with support for primitive keys (integers, `bool`) and the `Hash`/`Eq` infrastructure required for user keys. See `std_hashmap_basic`, `std_hashmap_full`, `std_hashmap_iter`, `std_hashmap_multi_k` in the test suite.
 
-## Hermes List Comprehensions → `Rc<Hermes>` (`ObjectArray` root)
+## Writ List Comprehensions → `Rc<Writ>` (`ObjectArray` root)
 
 ```logos
-use logos.lang.hermes.comp_builder;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
 use logos.lang.rc;
 
 let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
-let doc: Rc<Hermes> =
+let doc: Rc<Writ> =
     @[ x * x for x in arr ];
 
-let evens: Rc<Hermes> =
+let evens: Rc<Writ> =
     @[ x * 10 for x in arr if (x % 2) == 0 ];
 ```
 
-The result is a fresh `Rc<Hermes>` document whose root is an `ObjectArray`. Element expressions are plain scalars that coerce into the document (no `AnyVal` wrapping). The Hermes form gives you a relocatable, schema-tagged container in one expression.
+The result is a fresh `Rc<Writ>` document whose root is an `ObjectArray`. Element expressions are plain scalars that coerce into the document (no `AnyVal` wrapping). The Writ form gives you a relocatable, schema-tagged container in one expression.
 
-## Hermes Map Comprehensions → `Rc<Hermes>` (Map root)
+## Writ Map Comprehensions → `Rc<Writ>` (Map root)
 
 ```logos
-use logos.lang.hermes.comp_builder;
-use logos.lang.hermes.container;
-use logos.lang.hermes.anyval;
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
 use logos.lang.rc;
 
 let keys: [str; 4] = ["a", "b", "c", "d"];
 let idx:  [i32; 4] = [0, 1, 2, 3];
 
-let doc: Rc<Hermes> =
+let doc: Rc<Writ> =
     @{ keys[x as i64] : x * 100 for x in idx };
 ```
 
@@ -86,4 +86,4 @@ The key expression must be a `str`; values are plain scalars that coerce into th
 ## Tests
 
 - `list_comp_basic`, `map_comp_basic` — plain forms.
-- `hermes_list_comp_basic`, `hermes_list_comp_edge`, `hermes_map_comp_basic`, `hermes_map_comp_multi` — Hermes forms.
+- `writ_list_comp_basic`, `writ_list_comp_edge`, `writ_map_comp_basic`, `writ_map_comp_multi` — Writ forms.

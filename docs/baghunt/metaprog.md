@@ -5,7 +5,7 @@
 **Reference doc**: [docs/language/reference/metaprog.md](../language/reference/metaprog.md)
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_quote_item`, `lower_quote_expr`, `lower_quote_ty`, `lower_metacall_item`
-- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `generic_consts_`, parametric HermesStatic substitution
+- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `generic_consts_`, parametric WritStatic substitution
 - [stdlib/std/compiler/metaprog/](../../stdlib/std/compiler/metaprog/) — runtime metaprog machinery, `logos_emit_item_blob_subst`
 
 **Hunt date**: 2026-05-04
@@ -138,6 +138,6 @@ All run at compile time via a synthesised JIT thunk and splice the result back a
 
 ## Notes for Phase 3
 
-- Metaprog is **substantially better-validated than Attributes** (~95). The validation patterns here (`#[metaprog_handler]` hook signature check, type-param scope for parametric HermesStatic, antiquot type-checking) are good examples to apply to the under-validated areas.
+- Metaprog is **substantially better-validated than Attributes** (~95). The validation patterns here (`#[metaprog_handler]` hook signature check, type-param scope for parametric WritStatic, antiquot type-checking) are good examples to apply to the under-validated areas.
 - B-mt-03 (instantiate arity) is fixable in the same pass as B-ty-04 (generic-instantiation arity). One arch fix unblocks both.
 - B-mt-01 (wrong fn context in error) hints at a broader issue: when sema runs in synthetic context (metacall, derive, etc.) the diagnostic-context tracking gets confused. Phase 4 worth a dedicated audit of "what context does each error see".

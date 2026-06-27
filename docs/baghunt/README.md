@@ -23,10 +23,10 @@ Counts: 159 productions in the grammar's `%rules`. Groups below cover all of the
 | 6 | [Type System](#6-type-system) | 24 | types.md | `types.md` | Includes pkg-aware lookup, `<type:CFG.SLOT>`, `typeof`, `@{...}` at type-position (now retired). |
 | 7 | [Generics & Bounds](#7-generics--bounds) | 9 | generics-traits.md | `generics.md` | Type/lifetime/const params, trait bounds, where-clauses, super traits. |
 | 8 | [Statements & Assignments](#8-statements--assignments) | 30 | statements.md | `statements.md` | **GAP**: exhaustive compound-assign matrix (field/chain/deref/index permutations). |
-| 9 | [Pattern Matching](#9-pattern-matching) | 11 | patterns.md | `patterns.md` | Struct/enum/slice/tuple/Hermes-map patterns, bindings, guards. |
+| 9 | [Pattern Matching](#9-pattern-matching) | 11 | patterns.md | `patterns.md` | Struct/enum/slice/tuple/Writ-map patterns, bindings, guards. |
 | 10 | [Expressions & Precedence](#10-expressions--precedence) | 13 | expressions.md | `expressions.md` | The log/cmp/bitwise/add/mul/cast/unary/atom/primary chain. |
-| 11 | [Literals (struct/arr/tuple/closure)](#11-literals-non-hermes) | 10 | expressions.md (partial) | `literals.md` | Struct lits, array lits, fill-arrays, list-comp / map-comp, closures. |
-| 12 | [Hermes Literals](#12-hermes-literals) | 9 | hermes.md | `hermes.md` | `@{...}`, `@[...]`, typed_array / typed_map / list_comp / map_comp. |
+| 11 | [Literals (struct/arr/tuple/closure)](#11-literals-non-writ) | 10 | expressions.md (partial) | `literals.md` | Struct lits, array lits, fill-arrays, list-comp / map-comp, closures. |
+| 12 | [Writ Literals](#12-writ-literals) | 9 | writ.md | `writ.md` | `@{...}`, `@[...]`, typed_array / typed_map / list_comp / map_comp. |
 | 13 | [Metaprog](#13-metaprog) | 8 | metaprog.md | `metaprog.md` | quote_*!, template, metacall, instantiate. **GAP**: quote-form semantics depth. |
 | 14 | [Lexical](#14-lexical) | 0 (token-level) | lexical.md | `lexical.md` | Tokens, comments, identifiers; covered in grammar's `%tokens` block, not `%rules`. |
 
@@ -87,7 +87,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 - [src/compiler/mono_clone.cpp](../../src/compiler/mono_clone.cpp) — `clone_struct_def`, `clone_enum_def`
 - [src/compiler/mlir_gen_types.cpp](../../src/compiler/mlir_gen_types.cpp) — `register_struct`, `register_tagged_enum`
 
-**Memory**: [feat_explicit_instantiation](../../../.claude/projects/-home-victor-devel-logos/memory/feat_explicit_instantiation.md), [feat_tag_dispatch](../../../.claude/projects/-home-victor-devel-logos/memory/feat_tag_dispatch.md), [feat_hermes_datatype](../../../.claude/projects/-home-victor-devel-logos/memory/feat_hermes_datatype.md).
+**Memory**: [feat_explicit_instantiation](../../../.claude/projects/-home-victor-devel-logos/memory/feat_explicit_instantiation.md), [feat_tag_dispatch](../../../.claude/projects/-home-victor-devel-logos/memory/feat_tag_dispatch.md), [feat_writ_datatype](../../../.claude/projects/-home-victor-devel-logos/memory/feat_writ_datatype.md).
 
 ---
 
@@ -120,10 +120,10 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 
 | Production | Line | Purpose |
 |---|---|---|
-| `const_def` | 510 | `pub const X<...>: T = expr;` (incl. parametric HermesStatic) |
+| `const_def` | 510 | `pub const X<...>: T = expr;` (incl. parametric WritStatic) |
 | `type_alias` | 525 | `pub type Foo<...> = T;` |
 
-**Reference**: [items.md](../language/reference/items.md), [metaprog.md](../language/reference/metaprog.md) (parametric HermesStatic section).
+**Reference**: [items.md](../language/reference/items.md), [metaprog.md](../language/reference/metaprog.md) (parametric WritStatic section).
 
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `collect_const`, `collect_type_alias`
@@ -142,7 +142,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `annotation` | 455 | `#[name(args)]`, `#[name = value]`, `#[name]` |
 | `annot_val` | 462 | Annotation value: int / enum lit |
 | `annot_args` | 493 | Comma-separated annotation arguments |
-| `meta_block` | 821 | `meta @{...}` Hermes-literal payload on struct/trait/datatype |
+| `meta_block` | 821 | `meta @{...}` Writ-literal payload on struct/trait/datatype |
 
 **Reference**: [attributes.md](../language/reference/attributes.md). **GAP**: complete registry of recognized `#[...]` forms (derive, repr, type_code, metaprog_handler, ad-hoc user annotations). Meta-block semantics also light. Phase 1B should expand this.
 
@@ -177,14 +177,14 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `assoc_type_ref` | | `T::Assoc` |
 | `antiquot_type` | | `#(...)` antiquot in quote_ty! |
 | `typeof_type` | | `typeof(expr)` |
-| `cfg_slot_type` | | `<type:CFG.slot>` HermesStatic-slot extraction |
+| `cfg_slot_type` | | `<type:CFG.slot>` WritStatic-slot extraction |
 | `cfg_slot_assoc_ref` | | `<type:CFG.slot>::Assoc` |
 | `hstatic_lit_type` | | `@{...}` at type position (RETIRED — see feat_parametric_hstatic) |
-| `hermes_arr_type` | | Hermes array shape at type-position |
-| `hermes_map_type` | | Hermes map shape at type-position |
+| `writ_arr_type` | | Writ array shape at type-position |
+| `writ_map_type` | | Writ map shape at type-position |
 | `type_or_lt_arg` | | Type or lifetime argument (for type_arg_list) |
 
-**Reference**: [types.md](../language/reference/types.md). Comprehensive at surface. **Recent change** (2026-05-04): `hstatic_lit_type` removed from `type_ref` after parametric HermesStatic landed.
+**Reference**: [types.md](../language/reference/types.md). Comprehensive at surface. **Recent change** (2026-05-04): `hstatic_lit_type` removed from `type_ref` after parametric WritStatic landed.
 
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_type` (~2000 lines into the file), `compute_type_uid`, `types_equal`, `mangle_type_for_name`, `concrete_struct_name`
@@ -269,8 +269,8 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `pat_binding` / `pat_binding_list` | | `Foo(a, b)` / `Some(x)` / wildcards |
 | `pat_field` / `pat_field_list` | | Struct-shaped pattern: `Foo { x, y: z }` |
 | `pat_slice_elem` / `pat_slice_elems` | | `[a, b, ..rest, c]` slice patterns |
-| `pat_hermes_map_entry` / `pat_hermes_map_entries` | | `@{ "k": pat, .. }` Hermes-map patterns |
-| `pat_hermes_arr_elem` / `pat_hermes_arr_elems` | | `@[a, b, ..]` Hermes-array patterns |
+| `pat_writ_map_entry` / `pat_writ_map_entries` | | `@{ "k": pat, .. }` Writ-map patterns |
+| `pat_writ_arr_elem` / `pat_writ_arr_elems` | | `@[a, b, ..]` Writ-array patterns |
 
 **Reference**: [patterns.md](../language/reference/patterns.md). Comprehensive.
 
@@ -313,7 +313,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 
 ---
 
-## 11. Literals (non-Hermes)
+## 11. Literals (non-Writ)
 
 **Productions** (10):
 
@@ -342,30 +342,30 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 
 ---
 
-## 12. Hermes Literals
+## 12. Writ Literals
 
 **Productions** (9):
 
 | Production | Line | Purpose |
 |---|---|---|
-| `hermes_lit` | 1608 | `@{...}` / `@[...]` dispatcher |
-| `hermes_map` | 1623 | `@{ "k": v, ... }` |
-| `hermes_array` | 1626 | `@[v, v, v]` |
-| `hermes_entry` | 1630 | `"key": value` inside hermes_map |
-| `hermes_val` | 1640 | A single Hermes value (str/int/float/bool/null + nested map/arr) |
-| `hermes_typed_array` | 1590 | `@[T; ...]` typed array literal |
-| `hermes_typed_map` | 1593 | `@{T => U; ...}` typed map literal |
-| `hermes_list_comp` | 1598 | `@[expr for x in iter]` (Hermes-typed comprehension) |
-| `hermes_map_comp` | 1603 | `@{k: v for ...}` (Hermes-typed map comprehension) |
+| `writ_lit` | 1608 | `@{...}` / `@[...]` dispatcher |
+| `writ_map` | 1623 | `@{ "k": v, ... }` |
+| `writ_array` | 1626 | `@[v, v, v]` |
+| `writ_entry` | 1630 | `"key": value` inside writ_map |
+| `writ_val` | 1640 | A single Writ value (str/int/float/bool/null + nested map/arr) |
+| `writ_typed_array` | 1590 | `@[T; ...]` typed array literal |
+| `writ_typed_map` | 1593 | `@{T => U; ...}` typed map literal |
+| `writ_list_comp` | 1598 | `@[expr for x in iter]` (Writ-typed comprehension) |
+| `writ_map_comp` | 1603 | `@{k: v for ...}` (Writ-typed map comprehension) |
 
-**Reference**: [hermes.md](../language/reference/hermes.md). Comprehensive at design level.
+**Reference**: [writ.md](../language/reference/writ.md). Comprehensive at design level.
 
 **Implementation entry points**:
-- [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_hermes_val`, `lower_hermes_lit`, `lower_hermes_typed_*`
-- [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `eval_static_hermes_lit` (for meta blocks)
-- [stdlib/std/hermes/](../../stdlib/std/hermes/) — runtime Hermes layer
+- [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_writ_val`, `lower_writ_lit`, `lower_writ_typed_*`
+- [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `eval_static_writ_lit` (for meta blocks)
+- [stdlib/std/writ/](../../stdlib/std/writ/) — runtime Writ layer
 
-**Memory**: [feat_hermes_syntax](../../../.claude/projects/-home-victor-devel-logos/memory/feat_hermes_syntax.md), [feat_hermes_datatype](../../../.claude/projects/-home-victor-devel-logos/memory/feat_hermes_datatype.md), [feat_hermes_capture_*](../../../.claude/projects/-home-victor-devel-logos/memory/feat_hermes_compile_runtime_fabric.md), [feat_anyval_layout](../../../.claude/projects/-home-victor-devel-logos/memory/feat_anyval_layout.md).
+**Memory**: [feat_writ_syntax](../../../.claude/projects/-home-victor-devel-logos/memory/feat_writ_syntax.md), [feat_writ_datatype](../../../.claude/projects/-home-victor-devel-logos/memory/feat_writ_datatype.md), [feat_writ_capture_*](../../../.claude/projects/-home-victor-devel-logos/memory/feat_writ_compile_runtime_fabric.md), [feat_anyval_layout](../../../.claude/projects/-home-victor-devel-logos/memory/feat_anyval_layout.md).
 
 ---
 
@@ -387,7 +387,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_quote_item`, `lower_quote_expr`, `lower_quote_ty`, `lower_metacall_item`
-- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — generic_consts_, parametric HermesStatic substitution
+- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — generic_consts_, parametric WritStatic substitution
 - [stdlib/std/compiler/metaprog/](../../stdlib/std/compiler/metaprog/) — runtime metaprog machinery, `logos_emit_item_blob_subst`
 
 **Memory**: [feat_metaprog_quote](../../../.claude/projects/-home-victor-devel-logos/memory/feat_metaprog_quote.md), [feat_metacall_arch](../../../.claude/projects/-home-victor-devel-logos/memory/feat_metacall_arch.md), [feat_quote_item_dedupe](../../../.claude/projects/-home-victor-devel-logos/memory/feat_quote_item_dedupe.md), [feat_quote_jinja_min_b](../../../.claude/projects/-home-victor-devel-logos/memory/feat_quote_jinja_min_b.md), [feat_metaprog_inversion](../../../.claude/projects/-home-victor-devel-logos/memory/feat_metaprog_inversion.md).
@@ -433,7 +433,7 @@ Catalog files to create:
 - `docs/baghunt/patterns.md`
 - `docs/baghunt/expressions.md`
 - `docs/baghunt/literals.md`
-- `docs/baghunt/hermes.md`
+- `docs/baghunt/writ.md`
 - `docs/baghunt/metaprog.md`
 - `docs/baghunt/lexical.md`
 

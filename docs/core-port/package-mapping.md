@@ -4,7 +4,7 @@ Maps current Logos stdlib package declarations to their target Rust-aligned path
 
 Decisions encoded:
 - Mirror `rust/library/core` + `rust/library/alloc` + `rust/library/std` layout for ported modules.
-- Logos-only modules (Hermes, persistent, metaprog, datatypes, reactor/fiber, lforge-specific I/O) stay at current paths.
+- Logos-only modules (Writ, persistent, metaprog, datatypes, reactor/fiber, lforge-specific I/O) stay at current paths.
 - Logos system has *package declarations*, not file paths — migration changes the `package` line, not file location.
 - Rust's `core` vs `alloc` vs `std` split is preserved: `std.alloc.*` for heap-using code, `std.*` for heap-free and re-exports.
 
@@ -39,7 +39,7 @@ The `std.lang` namespace has no Rust analog. Everything here moves up.
 | `std.lang.text.regex` | TBD | unclear | Rust core has no regex; `regex` is a third-party crate. Recommend STAY as `std.text.regex` or move to `std.regex`. Decide before port. |
 | `std.lang.reflect` | `std.any` | MOVE | TypeInfo → TypeId in `std::any`; will need shim/divergence note |
 | `std.lang.thread` | `std.thread` | MOVE | direct |
-| `std.lang.datatypes` | STAY | — | Hermes-fabric traits (Storage, Datatype, Container, Buffer, PrimVec, UnsizedPayload). Logos-specific. Keep at `std.lang.datatypes` or rename to `std.hermes.fabric` for clarity. **DECIDE.** |
+| `std.lang.datatypes` | STAY | — | Writ-fabric traits (Storage, Datatype, Container, Buffer, PrimVec, UnsizedPayload). Logos-specific. Keep at `std.lang.datatypes` or rename to `std.writ.fabric` for clarity. **DECIDE.** |
 
 ---
 
@@ -123,11 +123,11 @@ Rust's `std::sys` is an internal namespace (not user-facing). The relevant user-
 
 ---
 
-## Layer: Logos-only — `std.hermes.*`, `std.data.persistent.*`, `std.compiler.*`, `rt/`
+## Layer: Logos-only — `std.writ.*`, `std.data.persistent.*`, `std.compiler.*`, `rt/`
 
 All **STAY** unchanged. No Rust analog by design.
 
-- `std.hermes.*` — datatype/storage fabric (24 sub-packages)
+- `std.writ.*` — datatype/storage fabric (24 sub-packages)
 - `std.data.persistent.*` — mini-Memoria CoW B+tree stack
 - `std.compiler.metaprog`, `std.compiler.tokens` — language tooling
 - `rt/` (runtime) — Logos runtime (reactor/fiber/sync), already on Logos
@@ -137,7 +137,7 @@ All **STAY** unchanged. No Rust analog by design.
 ## Resolved decisions (2026-05-13)
 
 1. `std.lang.text.regex` → **`std.regex`** (top-level Logos extension, consistent with ecosystem `regex` crate position).
-2. `std.lang.datatypes` → **`std.hermes.fabric`** — Hermes-fabric traits live under the Hermes namespace for clarity (Storage, Datatype, Container, Buffer, PrimVec, UnsizedPayload).
+2. `std.lang.datatypes` → **`std.writ.fabric`** — Writ-fabric traits live under the Writ namespace for clarity (Storage, Datatype, Container, Buffer, PrimVec, UnsizedPayload).
 3. `std.io.bytes` → **`std.bytes`** (top-level, consistent with ecosystem `bytes` crate).
 4. `std.io.net.url` → **`std.url`** (top-level, consistent with ecosystem `url` crate).
 5. `std.io.http` → **`std.http`** (top-level Logos-only extension, no Rust core analog).

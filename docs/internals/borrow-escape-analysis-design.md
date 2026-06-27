@@ -1,6 +1,6 @@
 # Borrow-Checker Escape Analysis — Design
 
-Goal: enforce the remaining Hermes2 (and general) borrow-safety properties the
+Goal: enforce the remaining Writ2 (and general) borrow-safety properties the
 checker does NOT yet prove — **a reference may not outlive what it borrows** —
 without false-positiving the legitimate patterns that make this hard
 (heap-owning locals, leaks, references-through-references, method results).
@@ -8,7 +8,7 @@ without false-positiving the legitimate patterns that make this hard
 Status: **design (2026-06-06)**, implementation not started. Written after FOUR
 failed probe-fixes (3 suite blowups + a wrong sub-agent analysis) proved this is a
 real dataflow feature, not a one-liner. Companion to
-[hermes2-minimal-container-plan.md](hermes2-minimal-container-plan.md) (its step 3).
+[writ2-minimal-container-plan.md](writ2-minimal-container-plan.md) (its step 3).
 
 File: `src/compiler/borrow_check.cpp` (+ `include/logos/compiler/borrow_check.hpp`).
 
@@ -56,7 +56,7 @@ elision ("does the result borrow `self`?").
 
 **(b) borrow THROUGH a reference is untracked (B93.2, intentional today).** `&*a`
 where `a: &mut Array<HAny>` has root kind `MutRef` → `visit(AddrOfTemp)` skips
-tracking (line ~2160). So objects accessed via a `&mut`/`*mut` (the whole Hermes2
+tracking (line ~2160). So objects accessed via a `&mut`/`*mut` (the whole Writ2
 container, since arrays are held as `&mut Array<HAny>`) get NO exclusivity, and
 `return a` (a from `h.array()`, h a local) is not caught (method-result provenance
 is empty for a local receiver).
@@ -190,7 +190,7 @@ static proof for the non-escaping (RC-elided) path.
 
 ## 8. HAny escape (borrow-carrying value types) — (B), 0000284a
 
-`HAny` is a value (movable), but a Ref HAny is an absolute pointer into a Hermes2
+`HAny` is a value (movable), but a Ref HAny is an absolute pointer into a Writ2
 arena. Returning one derived from a local container is a use-after-free that the BC
 couldn't see (the ref-ness is hidden in the bits). Fix (approach B — reuse the
 escape foundation): a `#[borrow_carrying]` struct attribute marks such a type; the
@@ -201,10 +201,10 @@ BC then escape-tracks its values like references:
 - the `let` prov_ binding + `check_return_value` gates fire for borrow-carrying
   types, not just `is_ref_kind`.
 Plumbed: SemaStructInfo → LStructDef → mono_clone → TypeSets.borrow_carrying.
-The escape hatch is `hold_any(&mut Rc<Hermes2>, HAny) -> HeldAny` (laundered, ties
+The escape hatch is `hold_any(&mut Rc<Writ2>, HAny) -> HeldAny` (laundered, ties
 to the HERMES2 holder — see container.logos). Test hany_ref_escapes_container.
 
-**Rc container — DONE.** For `Rc<Hermes2>`, `h.array()` derefs the Rc via
+**Rc container — DONE.** For `Rc<Writ2>`, `h.array()` derefs the Rc via
 `Rc::deref` (a method whose `self` receiver is a BARE `VarRef h`, not `&h`), and
 `prov_of(VarRef h)` returns {} for the value-local Rc. Fix: factor the value-local
 walk into `value_local_root(e)` and apply it to the MethodCall RECEIVER too — a
@@ -212,7 +212,7 @@ walk into `value_local_root(e)` and apply it to the MethodCall RECEIVER too — 
 The walk traces FieldRead/TupleIndex/IndexRead/Deref but STOPS at a RAW-pointer deref
 (`*p`, p:`*mut`) — which is exactly what keeps stdlib `Box::leak` (`&mut *into_raw(b)`,
 a raw-ptr deref) safe (an earlier no-discriminator Deref-walk falsely flagged it).
-Now BOTH value (`hermes2_new`) and Rc (`hermes2_rc`) containers reject a bare
+Now BOTH value (`writ2_new`) and Rc (`writ2_rc`) containers reject a bare
 `return` of a Ref HAny; safe: box_leak, hold_any→HeldAny, Pod return, in-scope use.
 Tests hany_ref_escapes_container + hany_escapes_rc_container. L4 5555/5555.
 
