@@ -5,9 +5,8 @@ This page walks through building the Logos compiler, running an example program,
 ## Prerequisites
 
 - Linux (Ubuntu LTS is the supported platform).
-- A C++23-capable compiler (recent Clang).
+- A C++23-capable compiler (recent Clang-20+, gcc-14+).
 - CMake and Ninja.
-- VCPKG, with the manifest in this repository (third-party dependencies resolve automatically on first configure).
 - LLVM/MLIR development packages. The compiler target is gated on `LLVM_PACKAGE_VERSION` being detectable.
 
 ## Building
