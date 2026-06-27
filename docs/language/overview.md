@@ -49,6 +49,12 @@ Every design decision in Logos traces, one way or another, to three premises:
 2. **Human ownership of code trends toward mediation through AI** — as far as that still meets the reliability and correctness goals. Little code gets written directly by hand; the priority shifts to optimising everything *for reading* and for analysis. That is a different ergonomic target than human authorship, and it gives strict, expressive type systems a strong impulse to develop.
 3. **The accumulated codebase is no longer the brake it has been.** Legacy mass held change back because rewriting was expensive; when generation is cheap, modernising and consolidating the existing corpus becomes a natural background process rather than a blocking cost.
 
+## Code Analytics and Verification
+
+Logos is built from the start as a full **data platform**, and it relies on its own capabilities there — **Writ** as the data substrate and **Memoria** as the system layer above it — turned on its own code. That is what makes programming-in-the-large practical: code analytics and code transformations across the whole corpus, which drives the cost of evolving and modernising a codebase down sharply, and *at scale* (premise 3).
+
+It also leans on a strong type system, deep code analytics, and the surrounding tooling to make program **verification** cheaper. Logos treats analytics and verification as the *new bottleneck* in programming — where effort concentrates once code generation itself is cheap (premise 2). Here Rust, itself oriented toward correctness, is a fortunate starting point: the affine type system and rich diagnostics already pull in the right direction.
+
 ## Genos: the Third Layer of Code Authorship
 
 Two forms of metaprogramming are simultaneously load-bearing:
