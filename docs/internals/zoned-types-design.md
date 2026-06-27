@@ -9,7 +9,7 @@ derived side-effects of the same borrow invariant, not a separate
 pass.
 
 Status: **design accepted (2026-06-02), implementation not started.**
-Builds on the canonical zone memory model — [Zones](zones.md); this page is the
+Builds on the canonical zone memory model — [Zones](../language/zones.md); this page is the
 *type-system integration* of it. Companion to [writ-runtime.md](writ-runtime.md),
 [big-memoria-architecture.md](big-memoria-architecture.md), the
 language-level [Writ](../language/writ.md) page, and the deferred

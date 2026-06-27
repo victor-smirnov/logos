@@ -2,7 +2,7 @@
 
 A **zone** is the foundational memory model under everything Writ/ZType. It is a multi-segment memory region with special invariants that make the data inside it **position-independent** (relocatable/serializable as bytes) and **isolated** from other zones.
 
-This page is the canonical statement of the zone model. The type-system integration (borrow rules, residency, `PackedAllocator` coupling) lives in [zoned-types-design.md](zoned-types-design.md) and builds on this; the high-level object-graph interface over zones is [Writ](../language/writ.md).
+This page is the canonical statement of the zone model. The type-system integration (borrow rules, residency, `PackedAllocator` coupling) lives in [zoned-types-design.md](../internals/zoned-types-design.md) and builds on this; the high-level object-graph interface over zones is [Writ](writ.md).
 
 > **Layering.** Zones (this page) sit *below* **ZTypes** (`#[zoned]` types — the typed citizens of a zone) which sit *below* **Writ** (one high-level optic over ZTypes: an object graph + jq-like tooling). Writ is *a* superstructure over zones, not the only possible one — other optics (e.g. SoA/columnar, à la Memoria) are also ZTypes over zones.
 
@@ -14,7 +14,7 @@ This page is the canonical statement of the zone model. The type-system integrat
 
 > **Zone vs arena.** A *zone* is the logical region with the invariants on this page. An *arena* is merely one **memory-allocation strategy used inside** a zone (the current one — it could be replaced by another). They are **not** synonyms: zone is the concept, arena an implementation detail. (The `arena_id` / "arena pool" naming in the code identifies a zone by its current backing allocator.)
 
-> **The reference count need not be per-zone.** Integration with RC at the language level does *not* mean every zone carries its own dedicated counter. The management mechanism may be **grouped and indirect**: one holder / residency pin can govern *many* zones at once — e.g. a single count on a backing page/region/resource that hosts a group of zones — with the refcount living on that shared resource, not on each zone (this is the `Resident` / `SuperRc` consolidation — one pin per page, erased — described in [zoned-types-design.md §6](zoned-types-design.md)). "Holder" here is the *logical* owner; its physical form ranges from a per-zone `MemHolder` to a shared, indirect pin over a whole group.
+> **The reference count need not be per-zone.** Integration with RC at the language level does *not* mean every zone carries its own dedicated counter. The management mechanism may be **grouped and indirect**: one holder / residency pin can govern *many* zones at once — e.g. a single count on a backing page/region/resource that hosts a group of zones — with the refcount living on that shared resource, not on each zone (this is the `Resident` / `SuperRc` consolidation — one pin per page, erased — described in [zoned-types-design.md §6](../internals/zoned-types-design.md)). "Holder" here is the *logical* owner; its physical form ranges from a per-zone `MemHolder` to a shared, indirect pin over a whole group.
 
 ## Special properties
 
@@ -98,7 +98,7 @@ The *allocation mechanism* that carves nested zones (`PackedAllocator`) is out o
 
 ## Mutability as a zone state
 
-A zone is in one of two states, surfaced to the type system as a parameter (`Zone<Mutable>` / `Zone<Immutable>`, see [zone-as-parameter.md](zone-as-parameter.md)):
+A zone is in one of two states, surfaced to the type system as a parameter (`Zone<Mutable>` / `Zone<Immutable>`, see [zone-as-parameter.md](../internals/zone-as-parameter.md)):
 
 - **Mutable** — supports allocation and growth (the construction phase).
 - **Immutable / sealed** — append-only frozen; suitable for sharing, rodata embedding, and serialization.

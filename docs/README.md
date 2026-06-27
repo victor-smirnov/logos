@@ -12,6 +12,7 @@ To *use* Logos:
 - [Ownership and Borrowing](language/ownership.md) — `&`/`&mut`, lifetimes, the borrow checker.
 - [Generics and Traits](language/generics-traits.md) — generic functions, trait impls, monomorphization.
 - [Comprehensions](language/comprehensions.md) — list/map comprehensions, plain and Writ forms.
+- [Zones](language/zones.md) — the foundational memory model behind `#[zoned]` types: multi-segment regions, self-relative `i64` offsets, isolation + the root zone. What makes ZTypes position-independent and portable across processes/architectures.
 - [Writ in Logos](language/writ.md) — Writ as a first-class language feature: literals, capture, view types.
 - [Language Reference](language/reference/README.md) — normative reference by surface form (lexical / types / items / expressions / statements / patterns) plus cross-cutting topics.
 
@@ -22,7 +23,6 @@ To *work on* Logos itself:
 - [Compiler Architecture](internals/architecture.md) — the `logosc` pipeline from source to native code.
 - [lforge — Build System](internals/lforge.md) — the Logos-level build orchestrator; MVP and roadmap toward daemon mode + package manager.
 - [Package Management](internals/package-manager.md) — design (no impl yet): lforge dependency resolve/fetch/build/cache. Go-modules-shaped, Writ manifest, git-distributed, no central registry.
-- [Zones](internals/zones.md) — the foundational memory model: multi-segment regions, self-relative `i64` offsets, isolation + the root zone (heap/stack glue). What makes ZTypes position-independent and portable across processes/architectures.
 - [Writ Runtime](internals/writ-runtime.md) — Datatype/Storage/View, zones, the type registry.
 - [Metaprogramming](internals/metaprog.md) — current state of compile-time programming and reflection.
 - [HRPC](internals/hrpc.md) — bidirectional Writ-native RPC and streaming: wire format, session model, IDL, C++/Logos split.
