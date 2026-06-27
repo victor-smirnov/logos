@@ -1,12 +1,12 @@
-// logos.lang.writ.static_view — writ2 read view over a @{}/WritStatic
+// logos.lang.writ.static_view — writ read view over a @{}/WritStatic
 // rodata blob.
 //
 // STEP 5 (cut-over): the compiler now emits @{} / WritStatic rodata blobs in
-// WRIT2 format (8-byte SELF-RELATIVE WAny slots, WMap<WString,WAny> object
+// Writ format (8-byte SELF-RELATIVE WAny slots, WMap<WString,WAny> object
 // maps, WArray<WAny> arrays, WString strings) — the same layout the parser
 // builds. The legacy `logos.lang.writ.view::WritView`/`WritStatic` read
-// path decodes the OLD Writ1 4-byte base-relative format, so it reads garbage
-// (SIGILL). This module is the matching writ2 READER, mirroring the metaprog
+// path decodes the OLD legacy 4-byte base-relative format, so it reads garbage
+// (SIGILL). This module is the matching writ READER, mirroring the metaprog
 // `OView` reader but for runtime blobs with STRING-keyed object maps.
 //
 // A node handle is a value-form WAny whose resolve() is the node's absolute
@@ -29,7 +29,7 @@ pub struct SView2 {
 
 impl Copy for SView2 {}
 
-// Read view over a writ2 rodata blob. `base` is the first blob byte (the
+// Read view over a writ rodata blob. `base` is the first blob byte (the
 // DocumentHeader, which holds the root AnyVal at offset 0). For a WritStatic
 // the blob ptr already points past the 8-byte size prefix, so `base = hs.ptr`.
 pub struct WView2 {

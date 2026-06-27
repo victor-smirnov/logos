@@ -1,7 +1,7 @@
 package reflect_basic;
 
 use logos.lang.writ.hstatic;
-use logos.lang.writ.static_view;  // WView2 — writ2 reader for the blob
+use logos.lang.writ.static_view;  // WView2 — writ reader for the blob
 use logos.lang.writ.anyval;       // WAny
 
 #[annotation]

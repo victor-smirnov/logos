@@ -1,5 +1,5 @@
-// C8f (writ2): read a LIVE runtime container through the value-form root —
-// the writ2 analog of WritView (non-owning read of a live Writ).
+// C8f (writ): read a LIVE runtime container through the value-form root —
+// the writ analog of WritView (non-owning read of a live Writ).
 package writ_ctr_view;
 use logos.lang.writ.tmpl;
 use logos.lang.writ.container;

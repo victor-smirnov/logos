@@ -1,5 +1,5 @@
-// Logos stdlib — mem.writ2.tag_system (relocated from mem.writ; the vlen
-// datatag format is shared by Writ1 and writ2 — decode = h2_type_code)
+// Logos stdlib — mem.writ.tag_system (relocated from mem.writ; the vlen
+// datatag format is shared by legacy and writ — decode = h2_type_code)
 //
 // TagSystem: abstraction over the mechanism used to read a type tag
 // from a memory object.  Different subsystems use different tag formats:
@@ -88,14 +88,14 @@ impl TagSystem for DataTypeTagSystem {
 // ---------------------------------------------------------------------------
 
 // TagSystem for Writ (never-move arena) zone datatypes, reached through a
-// SELF-RELATIVE `RelAny` / `RelPtr` (offset = target − &field), not the Writ1
+// SELF-RELATIVE `RelAny` / `RelPtr` (offset = target − &field), not the legacy
 // external-base model. The vlen tag FORMAT is identical to WritTypeTagSystem
 // (same `read_type_code`), but this is a SEPARATE dispatch namespace on purpose:
 // a stateful type (one with internal relative pointers) needs DIFFERENT trait
-// impls for the two memory models — Writ1 resolves its inner pointers
+// impls for the two memory models — legacy resolves its inner pointers
 // base-relative (`base + offset`), Writ resolves them self-relative. Keying
 // dispatch on (system, type_code) lets the SAME logical type_code carry the
-// Writ1 impl under WritTypeTagSystem and the Writ impl here, with no
+// legacy impl under WritTypeTagSystem and the Writ impl here, with no
 // collision. Plain types (no inner pointers) are model-agnostic and may register
 // in both. The dispatch site picks the model: `&tagged<WritTagSystem> Trait`.
 pub struct WritTagSystem {}
@@ -147,7 +147,7 @@ impl TagSystem for TomTagSystem {
     }
 }
 
-// The vlen datatag writer (alias of lang.writ2.container::h2_write_tag —
+// The vlen datatag writer (alias of lang.writ.container::h2_write_tag —
 // tests and user datatypes write tags by this historical name).
 pub unsafe fn write_tag(obj: *mut u8, type_code: u64) {
     h2_write_tag(obj, type_code);

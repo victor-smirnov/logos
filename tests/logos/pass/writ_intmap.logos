@@ -1,4 +1,4 @@
-// WIntMap<K> — dense int-keyed map (Writ port of Writ1 Map<K,AnyVal>, codes
+// WIntMap<K> — dense int-keyed map (Writ port of legacy Map<K,AnyVal>, codes
 // MapI32AnyVal=3101..MapU64AnyVal=3104). Fixed-cap, linear lookup, plain K[] keys +
 // *zoned WAny[] values. Exercises i32 insert/update/absent + the 3101 tag, and a
 // u64-keyed map (large key, code 3104).

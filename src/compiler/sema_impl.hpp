@@ -2449,18 +2449,18 @@ private:
                             // in place and materialised explicitly to a movable value
                             // form. Non-movable itself (unlike #[rel_ptr], whose value
                             // form is the resolved absolute pointer). Drives the
-                            // is_non_movable_type pin check. (writ2 minimal-container)
+                            // is_non_movable_type pin check. (writ minimal-container)
                             bool pinned = false;
                             // `#[zone_mut]`: a `&mut T` to this type is a FAT ref
                             // {data, zone=*mut Allocator} carrying its Writ zone, so
                             // grow methods reach the allocator from &mut self. Read
-                            // `&T` stays thin. (writ2-zone-mut-fat-ref §)
+                            // `&T` stays thin. (writ-zone-mut-fat-ref §)
                             bool zone_mut = false;
                             // `#[zoned2]`: all thin pointer fields of this struct are
                             // stored SELF-RELATIVE (RelOffset i64) and materialize to
                             // absolute pointers in compute — the untagged zoned-ref
                             // case (ref-repr §6). Non-movable (can't be stack-allocated;
-                            // offsets are anchored to the slot). (writ2 ptr foundation)
+                            // offsets are anchored to the slot). (writ ptr foundation)
                             bool zoned2 = false;
                             // `#[borrow_carrying]`: a value type whose value may
                             // contain a borrow — an absolute Ref into an arena (e.g.
@@ -2468,7 +2468,7 @@ private:
                             // like a reference: a method/ctor returning one ties the
                             // result to its ref receiver/arg, so returning it past
                             // the source's scope is rejected unless laundered through
-                            // a holder (HeldAny). (writ2 WAny escape safety)
+                            // a holder (HeldAny). (writ WAny escape safety)
                             bool borrow_carrying = false;
                             // `#[non_null]`: this struct is a single 8-byte pointer
                             // wrapper whose pointer is GUARANTEED non-null (Box/Rc/Arc).
@@ -4143,7 +4143,7 @@ private:
             (inner.struct_name() == "Writ" ||
              inner.struct_name() == "WritView" ||
              inner.struct_name() == "WritStatic" ||
-             inner.struct_name() == "Rc"))   // writ2 runtime container Rc<Writ>
+             inner.struct_name() == "Rc"))   // writ runtime container Rc<Writ>
             return inner;
         return nullptr;
     }

@@ -1,5 +1,5 @@
 // Writ type-tags — an WAny Ref carries the in-band type code of its pointee
-// (obj[-1], Writ1 datatag wire), so a generic walker can dispatch string vs
+// (obj[-1], legacy datatag wire), so a generic walker can dispatch string vs
 // array vs map vs inline Pod. Foundation for stringify / binary / parser.
 package test;
 use logos.lang.writ.container;

@@ -1,4 +1,4 @@
-// PARAM slot encoding roundtrip (successor of the Writ1 embed_param test):
+// PARAM slot encoding roundtrip (successor of the legacy embed_param test):
 // the capture placeholder is an inline Pod, word = (value_index<<8)|(127<<1)|1.
 package writ_param_roundtrip;
 use logos.lang.writ.anyval;

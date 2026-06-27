@@ -1,6 +1,6 @@
-// Compactify = clone of the live set into a right-sized container (writ2:
+// Compactify = clone of the live set into a right-sized container (writ:
 // writ_clone IS the compactor — dead source space is dropped by walking
-// only reachable objects). Successor of the Writ1 compactify test.
+// only reachable objects). Successor of the legacy compactify test.
 package writ_compactify;
 use logos.lang.writ.hstatic;
 use logos.lang.writ.container;

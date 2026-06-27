@@ -14,7 +14,7 @@
 namespace logos::writ {
 
 // TinyObjectMap — bitmap-indexed sparse map of small u8 keys (0..51) → AnyVal.
-// BYTE-IDENTICAL to the Logos stdlib WMap<Hu6, WAny> (stdlib/lang/writ2/hmap.logos
+// BYTE-IDENTICAL to the Logos stdlib WMap<Hu6, WAny> (stdlib/lang/writ/hmap.logos
 // "bitmap-indexed spec"):
 //
 //   { header_ : u64, schema_type_code_ : u64, data_ : self-relative ptr to AnyVal[] }
@@ -22,7 +22,7 @@ namespace logos::writ {
 //
 // `schema_type_code_` is a node-class discriminator (0 = none). It is a FIRST-CLASS
 // TOM field present in BOTH this C++ form AND the Logos stdlib WMap<Hu6,WAny> (the
-// two share ONE byte layout). Writ1 also carried it; it tags schema-shaped maps
+// two share ONE byte layout). legacy also carried it; it tags schema-shaped maps
 // such as the multi-arena LirArenaRoot / ImportTable and metaprog ExprBlob roots,
 // so a reader can recognise them without prior knowledge of the schema.
 //

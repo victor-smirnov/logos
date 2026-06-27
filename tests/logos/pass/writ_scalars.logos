@@ -1,7 +1,7 @@
 // P1 scalar port — EXACT round-trip for every Writ scalar width. Narrow ints
 // stay INLINE with their precise width tag (I8=20..U24=25); wide values box into a
 // tagged arena object (I64=26, U64=27, F32=30, F64=31). `type_code()` emits the
-// Writ1 wire tag in both forms.
+// legacy wire tag in both forms.
 package test;
 use logos.lang.writ.anyval;
 use logos.lang.writ.container;

@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.document
+// Logos Writ stdlib — writ.document
 //
 // Document traversal over the heterogeneous Writ tree. A "document" is a
 // `Writ` container plus its ROOT WAny (`h.set_root` / `h.root`); the walkers

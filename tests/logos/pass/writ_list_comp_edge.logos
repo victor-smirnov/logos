@@ -1,5 +1,5 @@
 // List-comprehension edges: empty result, no-op guard, growth past 8/16
-// (writ2 Rc<Writ> builder; WArray grow path).
+// (writ Rc<Writ> builder; WArray grow path).
 package writ_list_comp_edge;
 
 use logos.lang.writ.comp_builder;

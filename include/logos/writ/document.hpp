@@ -50,7 +50,7 @@ public:
         return WritCtr(h, hdr);
     }
 
-    // Wrap an EXISTING holder as a shared-owning doc handle (the Writ1
+    // Wrap an EXISTING holder as a shared-owning doc handle (the legacy
     // `WritView(holder)` / `Writ(holder)` spelling): takes a +1 ref, so the
     // holder outlives this handle; the header is at offset 0. Used by emit_module /
     // reflection to read/extend a holder owned elsewhere (e.g. prog.type_pool).
@@ -71,7 +71,7 @@ public:
         }
         return *this;
     }
-    // COPYABLE — shared refcounted ownership (the Writ1 `Writ = Own<WritView>`
+    // COPYABLE — shared refcounted ownership (the legacy `Writ = Own<WritView>`
     // semantics). A copy takes a +1 ref on the holder + shares the header; the doc
     // lives as long as any handle. Needed because logosc copies AST handles (into
     // module lists, caches, ParsedModule) rather than moving them.
@@ -118,7 +118,7 @@ public:
     // ── Producer conveniences (build objects directly in this document's arena) ──
     // Thin wrappers over the container ::create factories. Returned pointers are
     // stable (never-move arena). Wire them into a parent via AnyVal::set_ref(ptr) /
-    // set_root(av). Mirror the Writ1 make_tiny_map/make_array/make_string surface
+    // set_root(av). Mirror the legacy make_tiny_map/make_array/make_string surface
     // so the logosc producer (parser/codegen) is a near-mechanical rename.
     // Tiny map → RAW pointer (node-building: `node->put(...)`). Arrays/maps/strings →
     // OWNING views (the parser's handle style: `.push_back(av).get()`, `.to_anyval()`).
@@ -194,7 +194,7 @@ inline DocumentHeader* doc_header(MemHolder* h) noexcept {
     return reinterpret_cast<DocumentHeader*>(h->arena().head().data());
 }
 
-// Writ1-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
+// legacy-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
 // MultiChunk arena: it grows by APPENDING chunks, so an existing object never moves and
 // the parser's held node ptrs / owning views stay valid across allocations (a
 // single-chunk realloc would dangle them). The trade-off: raw `base + offset`

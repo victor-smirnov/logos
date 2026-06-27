@@ -1,4 +1,4 @@
-// Zone-string views from parsed documents (writ2 successor of the Writ1
+// Zone-string views from parsed documents (writ successor of the legacy
 // StringView interop test): array of strings -> per-element byte views.
 package writ_string_view_interop;
 use logos.lang.writ.container;

@@ -1,4 +1,4 @@
-// parse -> stringify -> parse fixed point on writ2 (successor of the Writ1
+// parse -> stringify -> parse fixed point on writ (successor of the legacy
 // round-trip test): the second parse is structurally equal to the first.
 package writ_round_trip;
 use logos.lang.writ.container;

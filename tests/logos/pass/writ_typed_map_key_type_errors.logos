@@ -1,4 +1,4 @@
-// Typed-map key type errors -> null (writ2): quoted/bare/float keys in an
+// Typed-map key type errors -> null (writ): quoted/bare/float keys in an
 // integer-keyed map.
 package writ_typed_map_key_type_errors;
 use logos.lang.writ.container;

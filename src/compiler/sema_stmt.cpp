@@ -8341,7 +8341,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             sl.value = std::move(scrut);
             hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
-        // writ2: the node type is WAny (the helper's return type); the root is
+        // writ: the node type is WAny (the helper's return type); the root is
         // writ_pat_root(view) (static blob) or writ_pat_root_rc(&Rc<Writ>)
         // (runtime container) — every leaf/slot helper takes *WAny + ignores base.
         TypeRef scrut_inner = writ_view_inner(scrut_type);
@@ -8369,7 +8369,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
         {
-            // writ2: no base is threaded (WAny is self-relative); keep a dead
+            // writ: no base is threaded (WAny is self-relative); keep a dead
             // zero anchor so the hoist block shape is unchanged.
             lir::SLet sl;
             sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
@@ -9020,7 +9020,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         }
         base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
         {
-            // writ2: no base is threaded (WAny is self-relative); keep a dead
+            // writ: no base is threaded (WAny is self-relative); keep a dead
             // zero anchor so the hoist block shape is unchanged.
             lir::SLet sl;
             sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;

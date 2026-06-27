@@ -1,4 +1,4 @@
-// WArray<T> — typed packed primitive array (Writ port of Writ1 Array<T>, codes
+// WArray<T> — typed packed primitive array (Writ port of legacy Array<T>, codes
 // ArrayU8=2101..ArrayF64=2110). Homogeneous plain T (no WAny), plain-copy grow,
 // per-T wire tag via the WArrTag trait. Exercises u8 through several grows, f64
 // and i32 round-trips, and that the >222 element codes (2101/2110) carry through

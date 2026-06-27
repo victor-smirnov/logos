@@ -1,11 +1,11 @@
-// logos.lang.writ.comp_builder — writ2 runtime builders for @{}/@[]
+// logos.lang.writ.comp_builder — writ runtime builders for @{}/@[]
 // comprehensions and capture-@{}.
 //
 // STEP 5 (cut-over): the compiler lowers Writ COMPREHENSIONS (`@[e for x in it]`,
 // `@{k:v for ...}`) and capture-`@{}` to a RUNTIME Writ container built via these
 // helpers. The legacy path used logos.mem.writ.ctr (legacy 4-byte) so the blob
-// the compiler then reads (lower_writ_blob, writ2) mismatched -> SIGSEGV. These
-// build a writ2 `Writ` container instead, matching the compiler's read.
+// the compiler then reads (lower_writ_blob, writ) mismatched -> SIGSEGV. These
+// build a writ `Writ` container instead, matching the compiler's read.
 //
 // Mirror of mem.writ.ctr::writ_{list,map}_comp_{new,push,put} + writ_coerce_*,
 // AnyVal -> WAny.

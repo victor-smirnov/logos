@@ -1,4 +1,4 @@
-// TypedValue across the trait walkers (writ2): stringify + equal + hash +
+// TypedValue across the trait walkers (writ): stringify + equal + hash +
 // clone all traverse @Type values.
 package writ_typed_datatype_trait_coverage;
 use logos.lang.writ.container;

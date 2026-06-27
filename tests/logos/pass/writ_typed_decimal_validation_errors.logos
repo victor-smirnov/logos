@@ -1,4 +1,4 @@
-// @Decimal(P,S) validation rejections (writ2: a malformed typed value
+// @Decimal(P,S) validation rejections (writ: a malformed typed value
 // parses to a null handle): missing/short/non-int params, S>P, non-string init.
 package writ_typed_decimal_validation_errors;
 use logos.lang.writ.container;

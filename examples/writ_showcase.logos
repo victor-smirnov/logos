@@ -1,4 +1,4 @@
-// writ_showcase — a tour of the writ2 document features:
+// writ_showcase — a tour of the writ document features:
 //   1. Static @-literals  — blob in rodata, zero runtime cost (WritStatic)
 //   2. Scalar capture     — $ident and ${expr} → Rc<Writ>
 //   3. String capture     — str captured as a zone WString

@@ -1,4 +1,4 @@
-// Typed-container materialization errors -> null (writ2): wrong key kinds,
+// Typed-container materialization errors -> null (writ): wrong key kinds,
 // non-numeric elements; a valid doc follows fine.
 package writ_typed_materialization_errors;
 use logos.lang.writ.container;

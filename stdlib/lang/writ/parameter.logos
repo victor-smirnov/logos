@@ -1,7 +1,7 @@
-// Logos Writ stdlib — writ2.parameter
+// Logos Writ stdlib — writ.parameter
 //
 // WParameter — a Writ SDN query-parameter capture slot, wire code 127 (the
-// Writ port of Writ1's Parameter). The textual forms `?name` (a named
+// Writ port of the legacy Parameter). The textual forms `?name` (a named
 // placeholder, filled at query time) and an `@`-literal capture both reduce to a
 // NAME plus an optional bound VALUE (null when the parameter is still unbound).
 //

@@ -76,7 +76,7 @@ Open gaps:
 
 `let mut`/`mut` params/closure `|mut x|`/shadowing: unchanged-OK from v1 (grammar `logos.peg` `let_stmt`/PARAM `IS_MUT`; `lookup_is_mut`/`is_mut_binding` gates). Shadow-drop timing (drop at scope end, not shadow point) still untested by a targeted case.
 
-`alloc.dynamic` (v1 missed): heap allocations never relocate — Logos Box/Vec conform (malloc-backed; Writ2 never-move segments reinforce). No gap.
+`alloc.dynamic` (v1 missed): heap allocations never relocate — Logos Box/Vec conform (malloc-backed; Writ never-move segments reinforce). No gap.
 
 ---
 

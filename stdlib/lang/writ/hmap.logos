@@ -1,10 +1,10 @@
-// Logos Writ stdlib — writ2.objectmap
+// Logos Writ stdlib — writ.objectmap
 //
 // WMap<WString, WAny> — a string-keyed hash map (the JSON "object") over the never-move
 // arena, the Writ port of writ.objectmap. Open-addressing with linear
 // probing + FNV-1a (logos.lang.hash); keys are interned WStrings, values WAny.
 //
-// Unlike Writ1's fixed-capacity zone map (which dropped inserts when full),
+// Unlike the legacy fixed-capacity zone map (which dropped inserts when full),
 // this GROWS like a Rust HashMap: at load factor > 0.75 it appends a fresh 2×
 // entry buffer through the stored allocator and REHASHES every live entry into
 // it (re-anchoring each self-relative slot through its absolute value, exactly
@@ -37,7 +37,7 @@ pub struct WMapEntry {
 }
 
 // WMap<K, V> — empty base; per-key-shape partial SPECIALISATIONS attach layout +
-// impl (mirrors Writ1 Map<K,V>). Never instantiated directly.
+// impl (mirrors legacy Map<K,V>). Never instantiated directly.
 #[zoned]
 pub struct WMap<K, V> {}
 
@@ -291,7 +291,7 @@ impl WAny {
     }
 }
 
-// ── Bitmap-indexed spec: 6-bit keys (WMap<Hu6, V>) — Writ1 TinyObjectMap ─────
+// ── Bitmap-indexed spec: 6-bit keys (WMap<Hu6, V>) — legacy TinyObjectMap ─────
 //
 // A compact, FIXED-capacity map of up to 52 small u8 keys (0..51) → WAny. O(1)
 // lookup: a key's value-array position is popcount(bitmap & keys-below); the value
@@ -311,7 +311,7 @@ pub struct WMap<Hu6, V> {
     pub data:   *zoned mut WAny,   // value array (cap slots; auto-relative) — zoned ptr stays LAST
 }
 
-// The bitmap-indexed tiny map (Writ1 TinyObjectMap); was the standalone WTinyValMap.
+// The bitmap-indexed tiny map (legacy TinyObjectMap); was the standalone WTinyValMap.
 pub type WTinyValMap = WMap<Hu6, WAny>;
 
 const WTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bitmap
@@ -389,7 +389,7 @@ impl WAny {
     pub fn from(m: &WMap<Hu6, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<Hu6, WAny> as *const u8); }
 }
 
-// ── Dense spec: scalar integer keys (WMap<K, WAny>) — Writ1 Map<K, AnyVal> ───
+// ── Dense spec: scalar integer keys (WMap<K, WAny>) — legacy Map<K, AnyVal> ───
 //
 // A dense, FIXED-capacity map of a scalar int key K (i32/u32/i64/u64) → WAny (wire
 // codes MapI32AnyVal=3101 .. MapU64AnyVal=3104). Two parallel buffers — plain `K[]`
@@ -418,7 +418,7 @@ pub struct WMap<K, WAny> {
     pub vals: *zoned mut WAny,   // WAny[] (at-rest; auto-relative ptr)
 }
 
-// The dense int-keyed map (Writ1 Map<K,AnyVal>); was the standalone WIntMap<K>.
+// The dense int-keyed map (legacy Map<K,AnyVal>); was the standalone WIntMap<K>.
 pub type WIntMap<K> = WMap<K, WAny>;
 
 unsafe fn him_new<K: WIntKeyTag>(h: *mut Writ, cap: i64) -> *mut WMap<K, WAny> {

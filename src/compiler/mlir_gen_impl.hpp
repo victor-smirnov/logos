@@ -792,7 +792,7 @@ private:
         RelOffset,      // self-relative pointer — storage = i64 byte offset from
                         // the slot's own address; compute = absolute thin ptr.
                         // materialize = slot + load_i64(slot); lower = store(slot,
-                        // target − slot). The writ2 / #[rel_ptr] zoned pointer.
+                        // target − slot). The writ / #[rel_ptr] zoned pointer.
     };
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
@@ -1204,7 +1204,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::EReflectOfView v, TypeRef);
     // Coerce a Logos runtime value to AnyVal.raw (u32) for writ capture substitution.
     mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
-    // writ2: coerce a scalar capture to an 8-byte value-form WAny word.
+    // writ: coerce a scalar capture to an 8-byte value-form WAny word.
     mlir::Value coerce_to_hany_raw(mlir::Value v, TypeRef t);
 
     // ── Struct helpers ────────────────────────────────────────────

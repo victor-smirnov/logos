@@ -1,4 +1,4 @@
-// Boxed wide scalars in writ2 zones (successor of the Writ1 scalar test):
+// Boxed wide scalars in writ zones (successor of the legacy scalar test):
 // I64/U64 beyond the inline range, boxed via the container; reads see through.
 package writ_scalar;
 use logos.lang.writ.container;

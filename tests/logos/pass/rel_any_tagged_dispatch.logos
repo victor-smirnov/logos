@@ -1,6 +1,6 @@
 package relany;
 // any_object_ptr (RelAny) PROOF: a SELF-RELATIVE (Writ) pointer to a TYPE-
-// TAGGED object, dispatching through the EXISTING Writ1 tag tables unchanged.
+// TAGGED object, dispatching through the EXISTING legacy tag tables unchanged.
 // The object lives in a never-move arena with a vlen tag header (write_tag); the
 // RelAny field stores `target − &field` (RelOffset descriptor) and materialises
 // to *const u8, which the standard `&tagged<TS> Trait` coercion dispatches on.

@@ -1,6 +1,6 @@
-// lforge.writ_io — manifest-reading helpers over writ2 documents.
+// lforge.writ_io — manifest-reading helpers over writ documents.
 //
-// writ2 WAny is self-relative: no view/base threading — readers take the
+// writ WAny is self-relative: no view/base threading — readers take the
 // node handle directly.
 
 package lforge.writ_io;

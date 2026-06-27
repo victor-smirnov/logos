@@ -1,4 +1,4 @@
-// Logos Writ stdlib — mem.writ2.parser
+// Logos Writ stdlib — mem.writ.parser
 //
 // Text → document: a recursive-descent JSON-ish reader that builds a Writ doc
 // (WMap<WString, WAny> / Array / WString / i56 / bool / null) in a caller-supplied arena — the

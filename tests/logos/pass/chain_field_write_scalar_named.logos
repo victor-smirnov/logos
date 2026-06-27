@@ -1,5 +1,5 @@
-// Regression: chain write through a SINGLE-WORD named mid-field (the writ2
-// successor of the Writ1 AnyVal scalar-named case): `h.root.w = v.w` through
+// Regression: chain write through a SINGLE-WORD named mid-field (the writ
+// successor of the legacy AnyVal scalar-named case): `h.root.w = v.w` through
 // a raw pointer must write the real field, not a temp copy.
 package chain_field_write_scalar_named;
 use logos.lang.writ.anyval;

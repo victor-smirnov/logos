@@ -1,4 +1,4 @@
-// Deep clone of writ2 documents (successor of Writ1 src.clone()):
+// Deep clone of writ documents (successor of legacy src.clone()):
 // scalars, strings, arrays, maps, typed arrays — copied into a fresh container,
 // structurally equal to the source, independent storage.
 package writ_clone;

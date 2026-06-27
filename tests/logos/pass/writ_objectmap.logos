@@ -1,4 +1,4 @@
-// ObjectMap mechanics on writ2 (successor of the Writ1 zone ObjectMap
+// ObjectMap mechanics on writ (successor of the legacy zone ObjectMap
 // test): put/get/overwrite/missing keys + interning across many entries.
 package writ_objectmap;
 use logos.lang.writ.container;

@@ -16,7 +16,7 @@ namespace logos::writ {
 
 // TypedMap<K> — a dense, FIXED-capacity map of a scalar integer key K (i32/u32/
 // i64/u64) → AnyVal. BYTE-IDENTICAL to the Logos stdlib WMap<K, WAny>
-// (stdlib/lang/writ2/hmap.logos "dense spec"):
+// (stdlib/lang/writ/hmap.logos "dense spec"):
 //   { size_ : i64, cap_ : i64, keys_ : self-rel ptr to K[], vals_ : self-rel ptr to AnyVal[] }
 //   (32 bytes)
 //

@@ -1,4 +1,4 @@
-// Typed dense containers through the writ2 SDN parser: arrays + maps,
+// Typed dense containers through the writ SDN parser: arrays + maps,
 // whitespace tolerance, render roundtrip.
 package writ_parse_typed_containers;
 use logos.lang.writ.container;

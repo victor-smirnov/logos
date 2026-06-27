@@ -1,5 +1,5 @@
 // Map comprehension with 10 distinct keys — stresses map-slots allocation in
-// writ_map_comp_new (writ2 Rc<Writ> builder).
+// writ_map_comp_new (writ Rc<Writ> builder).
 package writ_map_comp_multi;
 
 use logos.lang.writ.comp_builder;

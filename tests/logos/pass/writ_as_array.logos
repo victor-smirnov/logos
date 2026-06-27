@@ -1,6 +1,6 @@
-// Writ C6: Logos &[T] slice → typed writ2 array via `as <T>[]` cast.
+// Writ C6: Logos &[T] slice → typed writ array via `as <T>[]` cast.
 // The result is an Rc<Writ> whose root is a TypedArray<T>; verify content
-// via writ2 stringify.
+// via writ stringify.
 package writ_as_array;
 use logos.lang.writ.typed_arr;
 use logos.lang.writ.container;
@@ -11,7 +11,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // Build an i32 slice from a local array and cast to a typed writ2 array.
+    // Build an i32 slice from a local array and cast to a typed writ array.
     let arr: [i32; 3] = [10, 20, 30];
     let s: &[i32] = &arr;
     let ctr: Rc<Writ> = s as <I32>[];

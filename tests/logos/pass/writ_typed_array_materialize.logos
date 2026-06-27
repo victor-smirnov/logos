@@ -1,5 +1,5 @@
-// Parsed typed arrays materialize for reads + render (writ2: the walker
-// replaces the Writ1 dispatch-table path).
+// Parsed typed arrays materialize for reads + render (writ: the walker
+// replaces the legacy dispatch-table path).
 package writ_typed_array_materialize;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;

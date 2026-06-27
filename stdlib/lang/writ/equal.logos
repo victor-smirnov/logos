@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.equal
+// Logos Writ stdlib — writ.equal
 //
 // Structural (deep) equality of two Writ values — the port of writ.equal.
 // Same type_code-dispatched recursive walk as stringify/compactify, but folding

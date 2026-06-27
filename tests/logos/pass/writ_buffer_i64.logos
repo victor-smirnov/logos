@@ -1,5 +1,5 @@
-// fabric Buffer over a bare scalar (writ2: the Primitive blanket makes
-// Buffer<i64> direct — the Writ1 I64 wrapper datatype is gone).
+// fabric Buffer over a bare scalar (writ: the Primitive blanket makes
+// Buffer<i64> direct — the legacy I64 wrapper datatype is gone).
 package writ_buffer_i64;
 use logos.lang.fabric;
 

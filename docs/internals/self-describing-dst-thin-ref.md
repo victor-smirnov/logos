@@ -80,8 +80,8 @@ fell back to 0), so `self.len` (header via `data`) read 14 but `self.bytes` (sli
 
 - Relocate the vlen codec (`vlen_read/write/prefix_size/encode_size`) from
   `logos.lang.writ.string` to a **neutral module** (`logos.lang.vlen`) — it's a
-  general variable-length-integer codec, not string-specific; and Writ2 shouldn't
-  depend on Writ1. Update WritString's imports.
+  general variable-length-integer codec, not string-specific; and Writ shouldn't
+  depend on legacy. Update WritString's imports.
 - `#[self_describing] struct HString { bytes: [u8] }` — NO explicit `len` field;
   layout `[vlen(payload_len)][utf8 payload]` (WritString's layout, as a DST).
   `dst_len = vlen_prefix_size(p) + vlen_read(p)` (whole tail = whole object, no

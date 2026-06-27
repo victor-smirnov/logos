@@ -1,4 +1,4 @@
-// WDecimal — fixed-precision signed decimal (Writ port of Writ1 Decimal,
+// WDecimal — fixed-precision signed decimal (Writ port of legacy Decimal,
 // code 102): value = (neg?-1:1)*coeff/10^scale. Round-trips 3.14 (coeff 314,
 // scale 2) and -0.5, checking scale/coeff/sign/to_f64 + the 102 tag.
 package test;

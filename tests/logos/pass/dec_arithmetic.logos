@@ -1,4 +1,4 @@
-// Decimal addition on writ2 (u64-coefficient model; successor of the limb
+// Decimal addition on writ (u64-coefficient model; successor of the limb
 // bignum test): digit-boundary carries, scale alignment, signs, overflow guard.
 package dec_arithmetic;
 use logos.lang.writ.container;
@@ -38,7 +38,7 @@ unsafe fn main() -> i32 {
     let s5: WAny = hdec_add(h, hdec_from_str(h, "-2.5"), hdec_from_str(h, "2.5"));
     if s5.as_decimal().coeff() != 0u64 { return 11; }
 
-    // 6. u64 overflow → null (the writ2 bound; limb growth is retired).
+    // 6. u64 overflow → null (the writ bound; limb growth is retired).
     let big: WAny = hdec_from_str(h, "9999999999999999999");   // 19 nines
     if big.is_null() { return 12; }
     let s6: WAny = hdec_add(h, big, big);

@@ -1,6 +1,6 @@
-// logos.lang.writ.typed_arr — `&[T] as <T>[]` cast builders (writ2).
+// logos.lang.writ.typed_arr — `&[T] as <T>[]` cast builders (writ).
 //
-// The C6 language feature: a Logos slice casts to a typed dense writ2 array
+// The C6 language feature: a Logos slice casts to a typed dense writ array
 // (TypedArray<T>: {size_:u64, capacity_:u64, data_:RelativePtr<T>} tagged with
 // the wire code 2101..2110, raw position-independent elements). The result is
 // an Rc<Writ> whose root is the array object.
@@ -87,8 +87,8 @@ pub unsafe fn writ_build_array_f64(vals: *const f64, len: i64) -> Rc<Writ> {
 // ── `(keys, vals) as <K, AnyVal>{}` map-cast sources + builders ───────────────
 //
 // MapSlice*: parallel key/value slices. Values are VALUE-FORM WAny (the
-// writ2 re-design of the Writ1 4-byte &[AnyVal]): Pods copy verbatim,
-// Refs deep-copy into the result zone (lang.writ2.compactify).
+// writ re-design of the legacy 4-byte &[AnyVal]): Pods copy verbatim,
+// Refs deep-copy into the result zone (lang.writ.compactify).
 
 pub struct MapSliceI32 { pub keys: &[i32], pub vals: &[WAny] }
 pub struct MapSliceU32 { pub keys: &[u32], pub vals: &[WAny] }

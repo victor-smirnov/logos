@@ -1,5 +1,5 @@
-// equal + hash + stringify agree across parsed documents (writ2 successor of
-// the Writ1 traits suite): equal docs hash equal & render identically;
+// equal + hash + stringify agree across parsed documents (writ successor of
+// the legacy traits suite): equal docs hash equal & render identically;
 // different docs differ everywhere.
 package writ_traits_full;
 use logos.lang.writ.container;

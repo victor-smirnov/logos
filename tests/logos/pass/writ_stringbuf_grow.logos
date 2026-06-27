@@ -1,4 +1,4 @@
-// String buffer growth during stringify (successor of the Writ1 StringBuf
+// String buffer growth during stringify (successor of the legacy StringBuf
 // grow test): render a document much larger than the initial String capacity.
 package writ_stringbuf_grow;
 use logos.lang.writ.container;

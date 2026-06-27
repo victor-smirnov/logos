@@ -15,7 +15,7 @@ namespace logos::writ {
 // version's immutable data is alive and its resolved views are valid). When the
 // refcount hits zero the holder and its arena (all segments) are freed.
 //
-// Unlike Writ1, Writ VIEWS ARE OWNING (they carry a holder ref — see view.hpp),
+// Unlike legacy, Writ VIEWS ARE OWNING (they carry a holder ref — see view.hpp),
 // because without a borrow checker C++ cannot otherwise prove the holder outlives a
 // view. So there is no separate non-owning view / Own<View> split: a view holds +1.
 class MemHolder {
@@ -52,7 +52,7 @@ public:
     Arena&       arena()       noexcept { return arena_; }
     const Arena& arena() const noexcept { return arena_; }
 
-    // The single-segment base (head chunk start) — Writ1 spelling kept for the
+    // The single-segment base (head chunk start) — legacy spelling kept for the
     // mirror/TypePool handles, which address their GrowableSingleChunk by offset.
     uint8_t* base() const noexcept {
         return const_cast<uint8_t*>(arena_.head().data());

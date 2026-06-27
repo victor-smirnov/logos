@@ -2,7 +2,7 @@
 //
 // ArenaPool (Writ port) — process-global registry mapping arena_id → MemHolder.
 // The lookup substrate for the multi-arena IR. Ported from src/writ/arena_pool.*
-// onto the writ2 MemHolder; the API + invariants are unchanged so logosc's
+// onto the writ MemHolder; the API + invariants are unchanged so logosc's
 // call-sites move with a `writ::` → `writ::` rename.
 //
 // Threading: single-threaded (concurrent access is future Memoria-substrate work).

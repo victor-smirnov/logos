@@ -20,7 +20,7 @@ namespace logos::writ {
 // MemHolder (the residency root) plus the RESOLVED absolute pointer to the object —
 // valid because nothing in a Writ segment ever moves while the holder lives.
 //
-// Owning (not the Writ1 non-owning view + Own<> split): without a borrow checker
+// Owning (not the legacy non-owning view + Own<> split): without a borrow checker
 // C++ cannot prove the holder outlives the view, so the view must keep it alive.
 // Copy → +1 ref, move → transfer, destroy → -1 ref. Navigation (get a child) returns
 // another owning view sharing the same holder.
@@ -33,7 +33,7 @@ public:
         if (holder_) holder_->ref();
     }
 
-    // Construct from a within-arena offset + holder (Writ1's `View(offset, holder)`).
+    // Construct from a within-arena offset + holder (the legacy `View(offset, holder)`).
     // Resolves obj against the holder's single-chunk base. NULL_OFFSET → null view.
     View(arena_offset_t off, MemHolder* holder) noexcept {
         if (off != NULL_OFFSET && holder) {
@@ -44,7 +44,7 @@ public:
     }
 
     // Construct from a value-form Ref AnyVal (resolves self-relatively). null/Pod → a
-    // null view. The cut-over uses this in place of Writ1's `View(av.to_offset(), h)`.
+    // null view. The cut-over uses this in place of the legacy `View(av.to_offset(), h)`.
     View(AnyVal av, MemHolder* holder) noexcept {
         if (av.is_ref()) {
             obj_ = reinterpret_cast<Obj*>(const_cast<uint8_t*>(av.resolve()));
@@ -111,7 +111,7 @@ public:
     size_t size()   const noexcept { return length(); }
     bool   empty()  const noexcept { return length() == 0; }
     // Implicit string_view conversion so `std::string(sv)` and string_view APIs work
-    // (the Writ1 readers rely on this).
+    // (the legacy readers rely on this).
     operator std::string_view() const noexcept { return view(); }
     std::string to_string() const { return std::string(view()); }
     bool operator==(std::string_view s) const noexcept { return view() == s; }
@@ -153,7 +153,7 @@ public:
     [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal v) noexcept { return obj_->put(key, v, arena()); }
 };
 
-// std::string / string_view on the LEFT vs a StringView on the right (the Writ1
+// std::string / string_view on the LEFT vs a StringView on the right (the legacy
 // readers compare both ways).
 inline bool operator==(std::string_view a, const StringView& b) noexcept { return a == b.view(); }
 inline bool operator!=(std::string_view a, const StringView& b) noexcept { return a != b.view(); }
@@ -174,7 +174,7 @@ inline MapView as_map(AnyVal av, MemHolder* h) noexcept {
     return av.is_ref() ? MapView(reinterpret_cast<ObjectMap*>(const_cast<uint8_t*>(av.resolve())), h) : MapView{};
 }
 
-// ── Object — the Writ1 generic node handle, native {AnyVal, holder} ────────────
+// ── Object — the legacy generic node handle, native {AnyVal, holder} ────────────
 // A by-value AnyVal (the node's value-form Ref) + the owning holder, with the as_*
 // navigation the readers use. Returned by WritCtr::root_object().
 class Object {

@@ -10,8 +10,8 @@
 namespace logos::writ {
 
 // AnyVal — the Writ heterogeneous slot. ONE 8-byte word, BYTE-IDENTICAL to the
-// Logos stdlib `WAny` (stdlib/lang/writ2/anyval.logos) — both sides read the same
-// bytes (shared wire/disk layout). The 4-byte base-relative AnyVal of Writ1 is
+// Logos stdlib `WAny` (stdlib/lang/writ/anyval.logos) — both sides read the same
+// bytes (shared wire/disk layout). The 4-byte base-relative AnyVal of legacy is
 // replaced by this 8-byte self-relative niche.
 //
 //   word == 0          → null  (= Ref(0))
@@ -57,7 +57,7 @@ public:
     bool is_pod()  const noexcept { return (word_ & 1) == 1; }
     bool is_ref()  const noexcept { return (word_ & 1) == 0 && word_ != 0; }
 
-    // Writ1-spelling aliases (a Ref is the self-relative successor of Writ1's
+    // legacy-spelling aliases (a Ref is the self-relative successor of legacy's
     // base-relative "pointer"; a Pod is its inline "value"). Kept so the logosc
     // cut-over is a near-mechanical rename — NO base/offset model is reintroduced.
     bool is_pointer() const noexcept { return is_ref(); }
@@ -69,7 +69,7 @@ public:
     bool    as_bool()  const noexcept { return (word_ >> 8) != 0; }
 
     // Typed inline-value accessors (the i56 payload narrowed to T). `value_type_hash`
-    // is the Writ1 spelling of `pod_code`.
+    // is the legacy spelling of `pod_code`.
     template <typename T>
     T as_value() const noexcept { return static_cast<T>(as_i56()); }
     uint8_t value_type_hash() const noexcept { return pod_code(); }
@@ -80,7 +80,7 @@ public:
         return pod(static_cast<int64_t>(v), code);
     }
 
-    // 1-arg from_value — deduce the Pod type code from T (the Writ1 overload that
+    // 1-arg from_value — deduce the Pod type code from T (the legacy overload that
     // read TypeTraits<T>::hash). Readers narrow via as_value<T>() so the exact code is
     // not load-bearing, but match the natural width for fidelity.
     template <typename T>
@@ -114,7 +114,7 @@ public:
     }
 
     // Native typed pointer to the Ref target (NO base — self-relative resolves in
-    // place). The Writ1 cut-over drops the old `base` argument at every call site.
+    // place). The legacy cut-over drops the old `base` argument at every call site.
     template <typename T> T* as_ptr() const noexcept {
         return reinterpret_cast<T*>(const_cast<uint8_t*>(resolve()));
     }
@@ -122,7 +122,7 @@ public:
     template <typename T> T* as_ptr(const void*) const noexcept { return as_ptr<T>(); }
 
     // Lower an absolute pointer into this slot's Ref (the cut-over successor of the
-    // Writ1 base-relative `set_pointer(target, base)` — base no longer needed).
+    // legacy base-relative `set_pointer(target, base)` — base no longer needed).
     void set_pointer(const void* target) noexcept { set_ref(target); }
 
     // The single-segment (GrowableSingleChunk) arena offset of this Ref's target,

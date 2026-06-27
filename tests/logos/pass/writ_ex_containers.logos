@@ -1,4 +1,4 @@
-// Container-kit exerciser on writ2 (successor of the Writ1 ex_containers):
+// Container-kit exerciser on writ (successor of the legacy ex_containers):
 // tinymap basic/update/52-key stress, array push/read, map basic/update.
 package writ_ex_containers;
 use logos.lang.writ.container;

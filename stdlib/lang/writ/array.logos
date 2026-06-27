@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.array
+// Logos Writ stdlib — writ.array
 //
 // WArray<WAny> — a heterogeneous zoned array of WAny. Elements live AT-REST as WAny
 // words in a `*zoned mut WAny` buffer (no distinct `WAnyRel` type — the at-rest-ness
@@ -27,7 +27,7 @@ use logos.lang.writ.allocator;
 use logos.lang.writ.hstring;     // WString, hstring_in_alloc — for push(str)
 use logos.lang.ptr;
 
-// WArray<T> has two partial specialisations by element kind (mirrors Writ1's
+// WArray<T> has two partial specialisations by element kind (mirrors legacy's
 // typed `Array<T>` vs heterogeneous container):
 //   • WArray<T>    — the generic base: a TYPED homogeneous packed array of a
 //                    primitive `T` (plain elements, `*mut T`; codes 2101-2110).
@@ -39,7 +39,7 @@ use logos.lang.ptr;
 //
 // Shared shape: `#[zone_mut]` makes a `&mut` a FAT ref {data, zone} carrying its
 // allocator (push/grow recover it via zone_of(self); read `&` stays thin —
-// writ2-design §9.4). `#[pinned]` header in the never-move arena. `#[zoned]`
+// writ-design §9.4). `#[pinned]` header in the never-move arena. `#[zoned]`
 // stores `data` SELF-RELATIVE (RelOffset, anchored to its slot; ref-repr §6).
 
 // ── Typed generic base: packed primitive elements (WArray<T>, T: WArrTag) ──────
@@ -229,7 +229,7 @@ impl WAny {
     }
 }
 
-// ── Typed array surface (WArray<T>, T a primitive) — Writ1 typed Array<T> ────
+// ── Typed array surface (WArray<T>, T a primitive) — legacy typed Array<T> ────
 //
 // Homogeneous packed array of a primitive `T` (u8..f64). Elements are plain values
 // (no Refs, no per-element zoning); growth is a plain element copy (position-

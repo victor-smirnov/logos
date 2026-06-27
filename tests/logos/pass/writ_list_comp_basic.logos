@@ -1,4 +1,4 @@
-// Writ list comprehensions: plain + guarded (writ2 Rc<Writ> builder).
+// Writ list comprehensions: plain + guarded (writ Rc<Writ> builder).
 // Scalars coerce implicitly (writ_coerce_*); reads via WView2 helpers.
 package writ_list_comp_basic;
 

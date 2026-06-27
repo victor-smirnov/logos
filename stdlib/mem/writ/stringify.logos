@@ -1,4 +1,4 @@
-// Logos Writ stdlib — mem.writ2.stringify
+// Logos Writ stdlib — mem.writ.stringify
 //
 // Text rendering of a Writ document — the read-only walk that turns an WAny
 // (and everything it transitively references in the arena) into a JSON-ish

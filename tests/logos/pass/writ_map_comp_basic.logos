@@ -1,5 +1,5 @@
 // Writ map comprehension: fixed key per iteration (put path, last-write-wins)
-// + guard. writ2 Rc<Writ> builder.
+// + guard. writ Rc<Writ> builder.
 package writ_map_comp_basic;
 
 use logos.lang.writ.comp_builder;

@@ -1,4 +1,4 @@
-// Writ capture: str captured as WString into @-literals (writ2 template path).
+// Writ capture: str captured as WString into @-literals (writ template path).
 // C7-fix2: added stringify verification of captured string values.
 package writ_capture_str;
 use logos.lang.writ.tmpl;

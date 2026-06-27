@@ -9,7 +9,7 @@ namespace logos::writ {
 // RelativePtr<T> — SELF-relative pointer (Writ).
 //
 // Ported from Memoria's memoria::arena::RelativePtr (the original self-relative
-// design; Logos's Writ1 RelativePtr was a base-relative u32 SIMPLIFICATION of
+// design; Logos's legacy RelativePtr was a base-relative u32 SIMPLIFICATION of
 // it). Stores the signed byte distance from the pointer's OWN storage address to
 // the target (an i64); resolves as `(&this) + offset`. No segment base is threaded
 // anywhere — the anchor is the field's own address, always at hand.
@@ -25,7 +25,7 @@ namespace logos::writ {
 // RelativePtr fields ride ordinary value-copies). A raw `memcpy` of the bytes does
 // NOT re-anchor and is only valid as part of a rigid whole-segment relocation
 // (compaction re-lowers every pointer explicitly). See docs/internals/
-// writ2-design.md §2.
+// writ-design.md §2.
 //
 // offset == 0 is the null sentinel (a real reference can never point a field at its
 // own address); zoned objects are ≥2-aligned so a non-null offset's low bit is 0 —
@@ -56,7 +56,7 @@ public:
 
     // Resolve to an absolute pointer (relative → absolute). No base needed. Returns
     // a mutable `T*` even from a const RelativePtr (the relptr's constness does not
-    // imply the pointee's — matching Memoria/Writ1's convention).
+    // imply the pointee's — matching Memoria/the legacy convention).
     T* get() const noexcept {
         return offset_ ? reinterpret_cast<T*>(my_addr() + offset_) : nullptr;
     }

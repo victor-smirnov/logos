@@ -1,4 +1,4 @@
-// Empty-params canonicalization (writ2): @T=x == @T()=x == @T( )=x — all
+// Empty-params canonicalization (writ): @T=x == @T()=x == @T( )=x — all
 // parse to a null params slot, render identically, compare/hash equal.
 package writ_typed_datatype_empty_params_canonical;
 use logos.lang.writ.container;

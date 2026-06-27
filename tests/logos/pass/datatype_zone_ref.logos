@@ -1,4 +1,4 @@
-// Typed holder handle (writ2 successor of DataRef): Held<T> pins the
+// Typed holder handle (writ successor of DataRef): Held<T> pins the
 // container while reads flow through a plain &T.
 package datatype_zone_ref;
 use logos.lang.writ.container;

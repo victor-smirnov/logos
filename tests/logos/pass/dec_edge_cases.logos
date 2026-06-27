@@ -1,4 +1,4 @@
-// Decimal edge cases on writ2: zero forms, negative zero, max coefficient,
+// Decimal edge cases on writ: zero forms, negative zero, max coefficient,
 // deep fractional scales, add identities.
 package dec_edge_cases;
 use logos.lang.writ.container;

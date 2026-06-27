@@ -1,4 +1,4 @@
-// WAny basics (writ2 successor of the Writ1 AnyVal basics test):
+// WAny basics (writ successor of the legacy AnyVal basics test):
 // Ref/null/Pod forms, the 8-byte niche word, i56 + bool encodings.
 package anyval_basic;
 use logos.lang.writ.anyval;

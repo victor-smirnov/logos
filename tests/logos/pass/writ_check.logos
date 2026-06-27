@@ -1,4 +1,4 @@
-// Structural validation (successor of the Writ1 Writ::check test):
+// Structural validation (successor of the legacy Writ::check test):
 // well-formed documents pass; a corrupted tag fails.
 package writ_check;
 use logos.lang.writ.hstatic;

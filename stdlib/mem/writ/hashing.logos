@@ -1,11 +1,11 @@
-// logos.mem.writ.hashing — structural FNV-1a hashing over writ2 documents.
+// logos.mem.writ.hashing — structural FNV-1a hashing over writ documents.
 //
 // writ_hash(v) folds the VALUE-SEMANTIC content of the tree (the same
-// equivalence classes as mem.writ2.equal: inline and boxed ints hash alike;
+// equivalence classes as mem.writ.equal: inline and boxed ints hash alike;
 // map entry order does not matter — entries are XOR-folded). Equal documents
 // hash equal; the converse is best-effort (FNV).
 //
-// Direct-walker foundation shared with stringify/equal (Writ1's
+// Direct-walker foundation shared with stringify/equal (legacy's
 // tag_dispatch WritHash table is retired).
 
 package logos.mem.writ.hashing;

@@ -1,9 +1,9 @@
 // logos.std.compiler.metaprog — owning view over the user's AST document.
 //
-// WRIT2 PORT (cut-over step 4): the AST the compiler now hands metaprog hooks
-// is a writ2 document — 8-byte SELF-RELATIVE WAny slots inside WMap<Hu6,WAny>
-// TinyObjectMaps — NOT the old Writ1 4-byte base-relative AnyVal. So the read
-// layer is rebuilt on the writ2 Logos containers (WAny / WMap / WArray / WString)
+// Writ PORT (cut-over step 4): the AST the compiler now hands metaprog hooks
+// is a writ document — 8-byte SELF-RELATIVE WAny slots inside WMap<Hu6,WAny>
+// TinyObjectMaps — NOT the old legacy 4-byte base-relative AnyVal. So the read
+// layer is rebuilt on the writ Logos containers (WAny / WMap / WArray / WString)
 // and the `WritRead` trait + base-relative `AnyVal{raw:u32}` are dropped.
 //
 // Navigation model: the dispatcher hands a hook a flat `item_offset` into the AST
@@ -73,7 +73,7 @@ impl Drop for OView {
     }
 }
 
-// ── writ2 read primitives ─────────────────────────────────────────────────
+// ── writ read primitives ─────────────────────────────────────────────────
 //
 // A node handle is a value-form WAny whose resolve() is the node's absolute
 // address. `node_at` builds one from a flat arena offset (dispatcher / root walk);

@@ -1,4 +1,4 @@
-// @Type typed values inside documents (writ2): prefix/postfix forms as map
+// @Type typed values inside documents (writ): prefix/postfix forms as map
 // members; reads through WTypedValue accessors.
 package writ_typed_datatype_values;
 use logos.lang.writ.container;

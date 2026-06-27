@@ -1,4 +1,4 @@
-// Map-cast variants on writ2: all four key widths + Ref values re-anchor.
+// Map-cast variants on writ: all four key widths + Ref values re-anchor.
 package writ_as_map_variants;
 use logos.lang.writ.typed_arr;
 use logos.lang.writ.container;

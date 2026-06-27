@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.anyval
+// Logos Writ stdlib — writ.anyval
 //
 // WAny — the Writ heterogeneous slot (the AnyVal analog): a niche-packed
 // `#[zoned] enum { Ref(*const u8) | Pod(u64) }` (F3, ref-repr-design §6/§8). ONE
@@ -107,7 +107,7 @@ impl WAny {
 pub const WA_I56:  u8 = 1u8;
 pub const WA_BOOL: u8 = 2u8;
 
-// Exact-width inline integer Pod codes — the Writ1 WritTag values (so a narrow
+// Exact-width inline integer Pod codes — the legacy WritTag values (so a narrow
 // int keeps its precise type through a round-trip, and `type_code()` already emits
 // the wire tag for the wbs port). All fit the 56-bit Pod value, so no boxing.
 pub const WT_I8:  u8 = 20u8;
@@ -117,20 +117,20 @@ pub const WT_I24: u8 = 23u8;
 pub const WT_U16: u8 = 24u8;
 pub const WT_U24: u8 = 25u8;
 
-// Writ REF type codes — the in-band tag of an arena object (the Writ1 datatag
+// Writ REF type codes — the in-band tag of an arena object (the legacy datatag
 // VARINT before the object). A Ref WAny's pointee carries one so `WAny::type_code` /
 // `is_string` / `is_array` / `is_map` dispatch on what it points at. Codes are u64
-// (the full Writ1 WritTag range): codes ≤222 take one byte at obj[-1], >222 a
+// (the full legacy WritTag range): codes ≤222 take one byte at obj[-1], >222 a
 // header + little-endian code bytes — see container.h2_write_tag / h2_type_code.
 pub const H2_STRING:  u64 = 130u64;
 pub const H2_ARRAY:   u64 = 100u64;
 pub const H2_MAP:     u64 = 101u64;
-pub const H2_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (Writ1 TinyObjectMap)
+pub const H2_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (legacy TinyObjectMap)
 pub const H2_DECIMAL: u64 = 102u64;  // fixed-precision signed decimal
 pub const H2_PARAMETER:  u64 = 127u64;   // query-parameter capture slot (?name / @-literal)
 pub const H2_TYPEDVALUE: u64 = 4115u64;  // SDN datatype instantiation @Type(params?)=init
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
-// own 8-byte tagged arena object, referenced by the WAny. Codes are the Writ1
+// own 8-byte tagged arena object, referenced by the WAny. Codes are the legacy
 // WritTag values, so `type_code()` emits the wire tag (wbs-ready). (Allocated via
 // container.box_i64 / box_u64 / box_f32 / box_f64.)
 pub const H2_I64:    u64 = 26u64;    // full 64-bit signed integer
@@ -145,7 +145,7 @@ pub fn fits_i56(v: i64) -> bool {
 }
 
 // Read the in-band type code written immediately before a tagged arena object.
-// Read the in-band type tag immediately before a tagged arena object (Writ1
+// Read the in-band type tag immediately before a tagged arena object (legacy
 // datatag varint): obj[-1] in 1..222 is the code directly; a header >222 means
 // `(header-223+1)` little-endian code bytes follow at obj[-2], obj[-3], … 0 = unset.
 pub unsafe fn h2_type_code(obj: *const u8) -> u64 {
@@ -259,7 +259,7 @@ impl WAny {
 // (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `WMap<WString, WAny>::get_mut`
 // produce it (zone = `zone_of(self)`, so the parent's zone cascades into the
 // child); `as_array_mut` / `as_map_mut` (in array/hmap) resolve a Ref element to a
-// fat `&mut` carrying that zone, ready to grow. writ2 §9.4.
+// fat `&mut` carrying that zone, ready to grow. writ §9.4.
 pub struct WAnyMut {
     pub slot: *zoned mut WAny,   // the at-rest element slot (never-move arena)
     pub zone: *mut u8,           // its Writ zone (allocator), erased to *mut u8 (cast at use)

@@ -1,4 +1,4 @@
-// Runtime document building (writ2 successor of the Writ1 builder test):
+// Runtime document building (writ successor of the legacy builder test):
 // fresh container, root map, string + int values, stringify check.
 package writ_builder;
 use logos.lang.writ.container;

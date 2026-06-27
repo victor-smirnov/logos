@@ -1,4 +1,4 @@
-// Array of zone strings (successor of the Writ1 RelPtr-string-array test):
+// Array of zone strings (successor of the legacy RelPtr-string-array test):
 // WArray<WAny> holds self-relative refs to WStrings; reads survive array growth.
 package array_relptr_strings;
 use logos.lang.writ.container;

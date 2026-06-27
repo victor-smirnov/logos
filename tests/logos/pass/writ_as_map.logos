@@ -1,5 +1,5 @@
-// Writ C6: parallel slices -> typed writ2 map via `as <K,AnyVal>{}`.
-// MapSlice values are VALUE-FORM WAny (the writ2 re-design).
+// Writ C6: parallel slices -> typed writ map via `as <K,AnyVal>{}`.
+// MapSlice values are VALUE-FORM WAny (the writ re-design).
 package writ_as_map;
 use logos.lang.writ.typed_arr;
 use logos.lang.writ.container;

@@ -1,4 +1,4 @@
-// @Type in a small arena (writ2: segments grow on demand — the tiny
+// @Type in a small arena (writ: segments grow on demand — the tiny
 // initial capacity is a stress, not a limit).
 package writ_typed_datatype_empty_params_small_zone;
 use logos.lang.writ.container;

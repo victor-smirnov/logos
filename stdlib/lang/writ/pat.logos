@@ -1,9 +1,9 @@
-// logos.lang.writ.pat — writ2 runtime helpers for @{...} / @[...] match
-// patterns. The writ2 port of mem.writ.pat.
+// logos.lang.writ.pat — writ runtime helpers for @{...} / @[...] match
+// patterns. The writ port of mem.writ.pat.
 //
 // To keep build_writ_pat_guard's call shape IDENTICAL (it passes `&node` + a
 // `base` ptr), every helper takes `(node: *const WAny, ...)`
-// and IGNORES base — writ2 WAny is self-relative (value-form), so the node
+// and IGNORES base — writ WAny is self-relative (value-form), so the node
 // word alone resolves (no base needed). Only the helper NAMES (writ_pat_* ->
 // writ_pat_*) + the node type (AnyVal -> WAny) + the root entry change in the
 // compiler. Slot lookups return the child WAny (null on miss / wrong type).

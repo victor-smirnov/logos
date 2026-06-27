@@ -24,7 +24,7 @@ Status legend: `Open` — not started; `✅ Closed` — fixed this session.
 
 Also fixed in-session (baseline breakage, not adversarial): HVal→HAny rename
 fallout in `examples/writ_container_showcase.logos`, `tools/lforge/pkg/*`,
-`docs/internals/writ2-cpp-migration.md` (whole-word rename missed non-stdlib
+`docs/internals/writ-cpp-migration.md` (whole-word rename missed non-stdlib
 trees; build was red on main).
 
 Green probes (no gap): GAT-projection equality rejection matches Rust (t08 —

@@ -1,4 +1,4 @@
-// logos.mem.writ.check — structural validation of a writ2 value tree.
+// logos.mem.writ.check — structural validation of a writ value tree.
 //
 // writ_check(v) walks the reachable graph and verifies the structural
 // invariants every reader relies on:

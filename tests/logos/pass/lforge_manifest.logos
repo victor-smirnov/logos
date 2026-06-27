@@ -1,4 +1,4 @@
-// B0.3: SDN manifest schema for lforge, on the writ2 parser.
+// B0.3: SDN manifest schema for lforge, on the writ parser.
 // { name: "...", version: "...", src: "...", entry: "..." } — required string
 // fields; unknown fields ignored; missing/badly-typed fields are errors.
 package lforge_manifest;

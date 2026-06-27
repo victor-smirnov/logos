@@ -1,4 +1,4 @@
-// WAny accessor surface (writ2 successor of writ_anyval_methods):
+// WAny accessor surface (writ successor of writ_anyval_methods):
 // is_*/as_* over every Pod kind + boxed wide scalars.
 package writ_anyval_methods;
 use logos.lang.writ.anyval;

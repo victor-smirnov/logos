@@ -52,7 +52,7 @@ Registered standard types must use their direct type code, not `TypedValue` — 
 
 ### Operation Dispatch
 
-The C++ runtime dispatches each operation (stringify, clone, encode/decode, …) by `switch`-ing on the 8-byte type code read from the vlen `TypeTag` that precedes every object — see the walkers in `stringify.cpp`, `clone.cpp`, and `binary_codec.cpp`. There is no C++ trait-object registry; the per-type-code tag-dispatch table from Writ1 was retired in favour of these direct walkers.
+The C++ runtime dispatches each operation (stringify, clone, encode/decode, …) by `switch`-ing on the 8-byte type code read from the vlen `TypeTag` that precedes every object — see the walkers in `stringify.cpp`, `clone.cpp`, and `binary_codec.cpp`. There is no C++ trait-object registry; the per-type-code tag-dispatch table from legacy was retired in favour of these direct walkers.
 
 On the *Logos* side, the corresponding behaviours are expressed as blanket trait impls (e.g. stringify / equality / hashing over Writ values); these are language-level traits, not C++ types.
 

@@ -1,4 +1,4 @@
-// logos.mem.writ.equal — structural equality over writ2 documents.
+// logos.mem.writ.equal — structural equality over writ documents.
 //
 // Two WAny values are equal by VALUE SEMANTICS, walking the tree:
 //   - both null;

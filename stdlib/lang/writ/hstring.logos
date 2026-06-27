@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.hstring
+// Logos Writ stdlib — writ.hstring
 //
 // WString — a UTF-8 string living in the never-move arena as a REAL custom-DST
 // with NO separate length field: the layout is exactly WritString's wire shape,

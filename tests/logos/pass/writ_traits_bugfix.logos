@@ -1,4 +1,4 @@
-// Trait-walker edge regressions on writ2: empty containers, null inside
+// Trait-walker edge regressions on writ: empty containers, null inside
 // containers, key-order independence of equal/hash, scalar/container kind walls.
 package writ_traits_bugfix;
 use logos.lang.writ.container;

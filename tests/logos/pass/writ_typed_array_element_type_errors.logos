@@ -1,4 +1,4 @@
-// Typed-array element type errors -> null (writ2): strings, bools, floats
+// Typed-array element type errors -> null (writ): strings, bools, floats
 // in integer arrays; floats OK in F64.
 package writ_typed_array_element_type_errors;
 use logos.lang.writ.container;

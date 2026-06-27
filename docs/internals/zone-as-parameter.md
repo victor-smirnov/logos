@@ -97,9 +97,9 @@ pub trait Zone {
     type RefMut<T>;         // exclusive borrow in this zone
 
     // NO relocation property. Neither zone moves objects (Victor 2026-06-05):
-    // Writ2 = NEVER-move segments; self-relative ptrs serve POSITION-
+    // Writ = NEVER-move segments; self-relative ptrs serve POSITION-
     // INDEPENDENCE (serialize / mmap / surviving a container-level block move),
-    // NOT runtime relocation — that was Writ1's disease. A zone is just
+    // NOT runtime relocation — that was the legacy disease. A zone is just
     // {pointer representation, allocation}. Container shifting (Vec /
     // PackedAllocator grow → memcpy) is a separate, zone-agnostic mechanic
     // (heap has it too); self-relative ptrs survive it transparently.
@@ -201,7 +201,7 @@ of the reference/object — new logic, independent of the GAT/RefRepr work.
 ### 5c. Allocation impls
 
 `Heap::alloc` = `malloc`; `Writ::alloc` = segment-append (the existing
-writ2 allocator). Ordinary trait-method bodies; no compiler change.
+writ allocator). Ordinary trait-method bodies; no compiler change.
 
 ---
 

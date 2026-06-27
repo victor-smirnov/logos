@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.compactify
+// Logos Writ stdlib — writ.compactify
 //
 // Copy-compaction (the copying-GC half of design §6). A live Writ document may
 // be spread across MANY never-move segments (growth appends; nothing is reclaimed
@@ -64,6 +64,6 @@ pub fn compactify(dst: &Writ, v: WAny) -> WAny {
 
 // Deep-copy `v` into arena `dst`, returning the new independent root. This IS
 // compaction (a full structural copy, re-anchoring every reference) — `clone` is
-// the same operation named for the by-value-copy intent (Writ1's clone). Copy
+// the same operation named for the by-value-copy intent (the legacy clone). Copy
 // into the SAME arena to duplicate a subtree; into a FRESH arena to compact.
 pub fn clone(dst: &Writ, v: WAny) -> WAny { return compactify(dst, v); }

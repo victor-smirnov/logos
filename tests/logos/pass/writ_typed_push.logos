@@ -1,4 +1,4 @@
-// Typed-array push + read-back via the document root (writ2 successor of
+// Typed-array push + read-back via the document root (writ successor of
 // build_array_i32/array_i32_push).
 package writ_typed_push;
 use logos.lang.writ.container;

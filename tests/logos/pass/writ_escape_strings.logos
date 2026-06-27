@@ -1,4 +1,4 @@
-// String escapes through the writ2 SDN parser (successor of the Writ1
+// String escapes through the writ SDN parser (successor of the legacy
 // escape test): \" \\ \n \t \r decode to single bytes.
 package writ_escape_strings;
 use logos.lang.writ.container;

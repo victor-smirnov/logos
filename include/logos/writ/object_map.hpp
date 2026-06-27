@@ -17,7 +17,7 @@
 namespace logos::writ {
 
 // An entry of ObjectMap — two AT-REST AnyVal words (key, val), 16 bytes. Matches
-// the Logos stdlib WMapEntry (stdlib/lang/writ2/hmap.logos). key.is_null() (the
+// the Logos stdlib WMapEntry (stdlib/lang/writ/hmap.logos). key.is_null() (the
 // zero word) marks an empty slot — the buffer is zero-initialised and a real Ref's
 // at-rest delta is never 0.
 struct MapEntry {
@@ -31,7 +31,7 @@ static_assert(sizeof(MapEntry) == 16);
 //   { count : i64, cap : i64, data : self-relative ptr to MapEntry[] }   (24 bytes)
 //
 // Linear probing + FNV-1a; keys are interned ArenaStrings in the same arena. Grows
-// (append a fresh 2× buffer + rehash) at load factor > 0.75 — unlike Writ1's
+// (append a fresh 2× buffer + rehash) at load factor > 0.75 — unlike legacy's
 // fixed-capacity zone map. Reseated onto self-relative storage: no `base`; the
 // header never moves; rehash/probe RE-ANCHOR each at-rest key/val (AnyVal
 // assignment lowers, in-place resolve() reads).

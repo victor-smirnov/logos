@@ -1,4 +1,4 @@
-// Holder liveness through typed allocations (writ2 successor of the Writ1
+// Holder liveness through typed allocations (writ successor of the legacy
 // zone_seal test): objects allocated in a container stay valid while a holder
 // handle (Held<T> / the Rc) is alive; the never-move arena needs no seal step —
 // immutability-of-the-past is structural.

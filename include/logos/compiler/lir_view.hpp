@@ -143,7 +143,7 @@ inline ChildLoc resolve_child(const RefBase& parent, writ::AnyVal av) noexcept {
         // Local ref — the child av already resolves self-relatively (no base).
         return ChildLoc{parent.arena(), av, writ::INVALID_ARENA_ID};
     }
-    // Cross-arena dispatch — writ2 ExternalRef is an AnyVal Pod niche (no arena
+    // Cross-arena dispatch — writ ExternalRef is an AnyVal Pod niche (no arena
     // object): decode (arena_id, obj_id) inline and resolve via the global pool.
     writ::ExternalRef ref = writ::decode_external_ref(av);
     auto r = writ::resolve_external_ref(ref);

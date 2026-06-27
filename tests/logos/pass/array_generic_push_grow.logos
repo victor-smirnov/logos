@@ -1,5 +1,5 @@
-// Typed-array growth past capacity (successor of the Writ1 push_grow test):
-// the writ2 WArray<T> grows its element buffer in the never-move arena;
+// Typed-array growth past capacity (successor of the legacy push_grow test):
+// the writ WArray<T> grows its element buffer in the never-move arena;
 // old elements survive the re-buffer (copy, not move).
 package array_generic_push_grow;
 use logos.lang.writ.container;

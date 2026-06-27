@@ -1,4 +1,4 @@
-// Typed-array growth in the never-move arena (writ2): elements survive the
+// Typed-array growth in the never-move arena (writ): elements survive the
 // data-buffer re-allocation; the header address never changes.
 package writ_typed_array_grow;
 use logos.lang.writ.container;

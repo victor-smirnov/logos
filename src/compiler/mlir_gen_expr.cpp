@@ -5032,7 +5032,7 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
 }
 
 // F3 (ref-repr-design §8): the storage↔compute bridge for a `#[zoned2]` niche
-// enum — the compiler-owned generalization of writ2's ha_materialize/ha_lower.
+// enum — the compiler-owned generalization of writ's ha_materialize/ha_lower.
 // The at-rest slot holds the 8-byte niche word with the Ref arm SELF-RELATIVE
 // (anchor = the slot's own address); the compute value is a by-pointer enum
 // (a fresh alloca holding the word with the Ref arm ABSOLUTE).
@@ -5714,7 +5714,7 @@ struct WritZoneBuild {
 // For PARAM (WVCapture), returns the inline PARAM raw; the caller writes it
 // into the slot, and clone() will pick it up via its out_params bookkeeping.
 // Returns a proper Writ SELF-relative AnyVal (Pod for scalars/captures, Ref for
-// strings/arrays/maps/types). NOT the Writ1 u32 base-relative "raw" — that made
+// strings/arrays/maps/types). NOT the legacy u32 base-relative "raw" — that made
 // from_raw(off) resolve to &slot+off = garbage.
 static AnyVal build_writ_val(lir_view::WritValRef v,
                                logos::writ::Writ& doc);
@@ -5825,7 +5825,7 @@ static AnyVal build_writ_val(lir_view::WritValRef v,
     case HC::Null:
         return AnyVal::null();
     case HC::Bool:
-        // Boolean: writ2 WA_BOOL = 2 (was Writ1 type_hash 37).
+        // Boolean: writ WA_BOOL = 2 (was legacy type_hash 37).
         return AnyVal::from_value<uint8_t>(
             lir_view::WVBoolView{v}.value() ? 1 : 0, 2);
     case HC::Int: {
@@ -5891,7 +5891,7 @@ static AnyVal build_writ_val(lir_view::WritValRef v,
 //   5. Extract bytes from packed head() chunk.
 // Collect PARAM slots (inline Pod code 127: word = (value_idx<<8)|0xFF) by
 // walking every at-rest AnyVal slot reachable from the root of a COMPACTIFIED
-// single-segment writ2 blob. writ2's compactify (unlike Writ1's clone)
+// single-segment writ blob. writ's compactify (unlike the legacy clone)
 // has no out_params channel, so the capture-patch slot list is rebuilt here.
 static void collect_param_slots(
         const uint8_t* base, size_t used, uint64_t slot_off,
@@ -6000,8 +6000,8 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     using K = LogosType::Kind;
     switch (TypeRef(t).kind()) {
         case K::Bool: {
-            // writ2 Pod bool: raw = (bool_val << 8) | (WA_BOOL<<1) | 1 = (b<<8) | 5
-            // (WA_BOOL = 2). Was the Writ1 0x4B (type_hash 37); build_writ_val matches.
+            // writ Pod bool: raw = (bool_val << 8) | (WA_BOOL<<1) | 1 = (b<<8) | 5
+            // (WA_BOOL = 2). Was the legacy 0x4B (type_hash 37); build_writ_val matches.
             mlir::Value b = coerce_numeric(v, i32_mlir);
             mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, b,
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
@@ -6052,7 +6052,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
 }
 
-// writ2 capture coercion: scalar capture value -> 8-byte VALUE-FORM WAny word.
+// writ capture coercion: scalar capture value -> 8-byte VALUE-FORM WAny word.
 // Pod = (v<<8)|(code<<1)|1 (bool code WA_BOOL=2 -> |5; ints as i56 code WA_I56=1
 // -> |3). WAny captures pass their niche word through. Zone-alloc kinds
 // (strings/floats/ptrs) are handled by the writ_ctr_alloc_* path, not here.
@@ -6092,7 +6092,7 @@ mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {
         case K::Struct:
             if (TypeRef(t).struct_name() == "AnyVal") {
                 // Legacy 4-byte AnyVal word zero-extended (i24/bool Pod encodings
-                // coincide with writ2 in the low 32 bits).
+                // coincide with writ in the low 32 bits).
                 mlir::Value w = builder_.create<mlir::LLVM::ExtractValueOp>(
                     loc_, v, mlir::ArrayRef<int64_t>{0});
                 return coerce_numeric(w, i64_mlir);

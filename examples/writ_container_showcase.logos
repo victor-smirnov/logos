@@ -80,7 +80,7 @@ fn deep_sum(h: &Writ, a: &WArray<WAny>) -> i64 {
 }
 
 // Build a small document inside an Rc-held container and let one element ESCAPE
-// the build scope — bound to the WRIT2 holder, not the (gone) build frame.
+// the build scope — bound to the Writ holder, not the (gone) build frame.
 fn make_held_doc() -> HeldAny {
     let mut h: Rc<Writ> = writ_rc(64i64);
     let doc: &mut WArray<WAny> = h.array(2i64);

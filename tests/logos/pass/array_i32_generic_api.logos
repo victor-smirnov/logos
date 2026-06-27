@@ -1,4 +1,4 @@
-// Generic typed array API on writ2 (successor of Array<i32>::init/push/get):
+// Generic typed array API on writ (successor of Array<i32>::init/push/get):
 // h.tarray::<i32>() + push/len/get.
 package array_i32_generic_api;
 use logos.lang.writ.container;

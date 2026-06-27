@@ -1,4 +1,4 @@
-// One generic array shape, several element types (successor of the Writ1
+// One generic array shape, several element types (successor of the legacy
 // polymorphic Array<T> test): i32 / i64 / u8 instantiations behave alike.
 package array_i32_polymorphic;
 use logos.lang.writ.container;

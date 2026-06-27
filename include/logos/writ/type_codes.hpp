@@ -7,12 +7,12 @@
 namespace logos::writ {
 
 // Writ wire/in-band type codes — the SINGLE source of truth shared with the
-// Logos stdlib (stdlib/lang/writ2/anyval.logos H2_*/WA_*/WT_* and the container
+// Logos stdlib (stdlib/lang/writ/anyval.logos H2_*/WA_*/WT_* and the container
 // WArrTag/WIntKeyTag codes). C++ and Logos read the same bytes, so these MUST stay
 // identical to the Logos constants.
 //
-// NOTE — string code divergence: Logos writ2 uses H2_STRING = 130, whereas the
-// historical Writ1 / WritTag uses WritString = 28. We follow the Logos value
+// NOTE — string code divergence: Logos writ uses H2_STRING = 130, whereas the
+// historical legacy / WritTag uses WritString = 28. We follow the Logos value
 // (the layout spec). If the canonical Writ string code should be 28, change it on
 // the Logos side first and update here in lockstep.
 namespace tc {
@@ -28,7 +28,7 @@ inline constexpr uint64_t WT_U16  = 24;
 inline constexpr uint64_t WT_U24  = 25;
 
 // ── Ref (tagged arena object) codes ──
-inline constexpr uint64_t STRING     = 130;   // WString  (Logos H2_STRING; Writ1 used 28)
+inline constexpr uint64_t STRING     = 130;   // WString  (Logos H2_STRING; legacy used 28)
 inline constexpr uint64_t ARRAY      = 100;   // WArray<WAny>      (ObjectArray)
 inline constexpr uint64_t MAP        = 101;   // WMap<WString,WAny> (ObjectMap)
 inline constexpr uint64_t TINYMAP    = 98;    // WMap<Hu6,WAny>     (TinyObjectMap)

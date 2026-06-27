@@ -1,4 +1,4 @@
-// SDN text parsing on writ2 (successor of Writ::parse): scalars, strings,
+// SDN text parsing on writ (successor of Writ::parse): scalars, strings,
 // arrays, maps (quoted + bare keys), nesting; parse -> read/verify.
 package writ_parse;
 use logos.lang.writ.container;

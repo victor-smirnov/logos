@@ -1,4 +1,4 @@
-// Container RAII (writ2 successor of the MemHolder custom-destroyer test):
+// Container RAII (writ successor of the MemHolder custom-destroyer test):
 // a Writ container owns its arena; values live until the holder drops at
 // scope end (RAII Drop), including through an Rc share.
 package mem_holder_custom_destroyer;

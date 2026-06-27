@@ -1,4 +1,4 @@
-// Parse-then-traverse (writ2 successor of the Writ1 traversal test):
+// Parse-then-traverse (writ successor of the legacy traversal test):
 // int/bool extraction, array walk, map lookup — through container reads.
 package writ_ctr_traversal;
 use logos.lang.writ.container;

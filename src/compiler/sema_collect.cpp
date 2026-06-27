@@ -3914,7 +3914,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                         // A #[rel_ptr] self-relative pointer (RelAny / RelPtr<T>) is
                         // POD — an 8-byte offset (target − &field) — and a valid
                         // Writ datatype field: it reaches another tagged object
-                        // self-relatively, the never-move-arena analog of Writ1's
+                        // self-relatively, the never-move-arena analog of legacy's
                         // base-relative inner pointer. Other plain structs stay
                         // disallowed (may carry heap/abs pointers).
                         auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(t).struct_name()));

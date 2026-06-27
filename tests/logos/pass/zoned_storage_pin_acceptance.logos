@@ -17,7 +17,7 @@ use logos.lang.rc;
 use logos.mem.collections.vec;
 use logos.lang.writ.hstatic;
 
-// Local non-owning view fixture (the Writ1 WritView is retired; this test
+// Local non-owning view fixture (the legacy WritView is retired; this test
 // exercises the PIN mechanics, not Writ reads).
 struct WritView<'a> {
     base: *const u8,

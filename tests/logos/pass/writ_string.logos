@@ -1,4 +1,4 @@
-// writ2 zone strings (successor of the Writ1 WritString test):
+// writ zone strings (successor of the legacy WritString test):
 // hstring allocation, len/as_str, interning across WAny, empty + long strings.
 package writ_string;
 use logos.lang.writ.container;

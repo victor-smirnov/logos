@@ -1,4 +1,4 @@
-// Decimals nested inside documents on writ2: array/map members, clone +
+// Decimals nested inside documents on writ: array/map members, clone +
 // equal walkers see through, value-compare ignores representation.
 package dec_deep;
 use logos.lang.writ.container;

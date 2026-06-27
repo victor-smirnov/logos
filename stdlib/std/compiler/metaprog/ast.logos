@@ -1,9 +1,9 @@
 // logos.std.compiler.metaprog — untyped-AST helpers for hook handlers.
 //
-// WRIT2 PORT (cut-over step 4): node handles are writ2 `WAny` (8-byte
+// Writ PORT (cut-over step 4): node handles are writ `WAny` (8-byte
 // self-relative; value-form holds the resolved absolute ptr), read through the
 // OView primitives in oview.logos (tiny_map_get / get_str_view / array_* on
-// WMap<Hu6,WAny> / WArray<WAny> / WString). The old Writ1 4-byte AnyVal{raw}
+// WMap<Hu6,WAny> / WArray<WAny> / WString). The old legacy 4-byte AnyVal{raw}
 // + base-relative `base + offset` model is gone.
 //
 // Hooks fire pre-sema: the AST is freshly parsed TinyObjectMap nodes keyed by
@@ -150,7 +150,7 @@ pub fn gensym(prefix: str) -> Ident {
 }
 
 // `QuoteItemBlob` — bundle returned by `quote_item! { ... }`. Unchanged by the
-// writ2 port (it carries rodata blob ptrs + packed ident/blob/cursor payloads,
+// writ port (it carries rodata blob ptrs + packed ident/blob/cursor payloads,
 // all *const u8 — no AnyVal).
 pub struct QuoteItemBlob {
     pub template_ptr: *const u8,
@@ -200,7 +200,7 @@ impl Ident {
     }
 }
 
-// ── `<type:T>` decode (schema_type_code=107 TOM) — writ2 ──────────
+// ── `<type:T>` decode (schema_type_code=107 TOM) — writ ──────────
 //
 // `val` is a node handle (WAny Ref to the TOM). Returns a zero-filled Type if
 // `val` isn't a Ref to a schema-107 TinyObjectMap.
@@ -235,12 +235,12 @@ pub fn type_from_anyval(val: WAny) -> Type {
 
         // name (key 2) intentionally left empty — synthesising a &[u8] slice with
         // stable storage from user code needs the fat-ptr-inline ABI (see the
-        // Writ1 note); compiler-built Type literals emit name into rodata.
+        // legacy note); compiler-built Type literals emit name into rodata.
         return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
     }
 }
 
-// ── OView convenience accessors (writ2) ─────────────────────────────────
+// ── OView convenience accessors (writ) ─────────────────────────────────
 //
 // All take/return WAny node handles via the oview.logos primitives.
 

@@ -1,4 +1,4 @@
-// Arena-layer exerciser on writ2 (successor of the Writ1 ex_arena):
+// Arena-layer exerciser on writ (successor of the legacy ex_arena):
 // self-relative links, WAny wire encodings, vlen datatag raw byte layout.
 package writ_ex_arena;
 use logos.lang.writ.container;
@@ -13,7 +13,7 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
 
-    // ── Self-relative link (the writ2 RelPtr) ─────────────────────────────
+    // ── Self-relative link (the writ RelPtr) ─────────────────────────────
     let na: *mut Slot = writ_alloc::<Slot>(hp);
     let nb: *mut Slot = writ_alloc::<Slot>(hp);
     na.val = 10; nb.val = 99;

@@ -1,4 +1,4 @@
-// Ergonomic typed writes through the arena pointer (writ2 successor of the
+// Ergonomic typed writes through the arena pointer (writ successor of the
 // DataRef mut_ptr auto-deref test): plain *mut T field writes, never-move reads.
 package datatype_zone_ergonomic;
 use logos.lang.writ.container;

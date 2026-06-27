@@ -1,4 +1,4 @@
-// Writ capture: scalar values captured from variables into @-literals (writ2).
+// Writ capture: scalar values captured from variables into @-literals (writ).
 package writ_capture_scalar;
 use logos.lang.writ.tmpl;
 use logos.lang.writ.container;

@@ -1,5 +1,5 @@
 // WTypedValue — Writ SDN datatype instantiation `@Type(params?) = init`
-// (Writ1 TypedValue, code 4115). Build one with + without params; read back the
+// (legacy TypedValue, code 4115). Build one with + without params; read back the
 // type name, the (round-tripped) init value, and params presence; check dispatch.
 package test;
 use logos.lang.writ.container;

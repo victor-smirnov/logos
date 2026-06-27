@@ -4,7 +4,7 @@
 // way the logosc parser does — make_doc → make_tiny_map (schema_type_code set) →
 // put(field, AnyVal) → set_ref to wire children → set_root — then reads it back via
 // the owning views + schema_codes category decode. De-risks the §6.2 cut-over of the
-// generated parser onto writ2 (the producer surface + the schema_type_code path).
+// generated parser onto writ (the producer surface + the schema_type_code path).
 
 #include <logos/writ/document.hpp>
 #include <logos/writ/view.hpp>

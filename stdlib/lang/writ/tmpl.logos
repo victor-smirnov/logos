@@ -1,7 +1,7 @@
-// logos.lang.writ.template — writ2 runtime builders for capture-@{...} /
+// logos.lang.writ.template — writ runtime builders for capture-@{...} /
 // @[...$x...] literals (the template-patch path).
 //
-// The compiler pre-serializes the @-literal into a writ2 blob TEMPLATE whose
+// The compiler pre-serializes the @-literal into a writ blob TEMPLATE whose
 // $-capture positions hold inline PARAM Pod words ((value_index<<8)|(127<<1)|1),
 // plus a slots table of u32 pairs [blob_off, value_idx]. At runtime the codegen:
 //   1. (zone-alloc path only) creates the container first via
@@ -18,7 +18,7 @@
 // This mirrors ha_lower / *zoned-assign semantics.
 //
 // Port of mem.writ.ctr's writ_template_ctr_new / writ_ctr_alloc_* /
-// writ_template_patch / writ_build_from_template (Writ1, 4-byte AnyVal).
+// writ_template_patch / writ_build_from_template (legacy, 4-byte AnyVal).
 
 package logos.lang.writ.tmpl;
 

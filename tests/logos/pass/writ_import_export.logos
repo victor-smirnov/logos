@@ -1,4 +1,4 @@
-// Cross-container subtree import on writ2 (successor of import_from):
+// Cross-container subtree import on writ (successor of import_from):
 // clone a SUBTREE of one document into another container; both stay live and
 // independent.
 package writ_import_export;

@@ -1,4 +1,4 @@
-// writ2 stringify over every value kind (successor of the Writ1
+// writ stringify over every value kind (successor of the legacy
 // StringifyCtx test): scalars, strings with escapes, arrays, maps, nesting,
 // boxed wide ints, typed arrays/maps.
 package writ_stringify;

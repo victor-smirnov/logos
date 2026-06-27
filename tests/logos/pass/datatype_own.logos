@@ -1,4 +1,4 @@
-// Owned holder handle (writ2 successor of DataOwn): the Held<T> couples the
+// Owned holder handle (writ successor of DataOwn): the Held<T> couples the
 // object's lifetime to the holder Rc; reads stay valid as handles move around.
 package datatype_own;
 use logos.lang.writ.container;

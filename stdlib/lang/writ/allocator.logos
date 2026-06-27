@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.allocator
+// Logos Writ stdlib — writ.allocator
 //
 // Allocator: the never-move segment arena that owns a Writ container's bytes.
 //
@@ -14,9 +14,9 @@
 // #[zoned] fields — see docs/internals/ref-repr-design.md §6).
 //
 // (Renamed from `Holder` 2026-06-04: "Allocator" is the accurate name for the
-// segment arena, and frees "holder" for the residency root of writ2 §5-6.)
+// segment arena, and frees "holder" for the residency root of writ §5-6.)
 //
-// See docs/internals/writ2-design.md §3.
+// See docs/internals/writ-design.md §3.
 
 package logos.lang.writ.allocator;
 
@@ -35,7 +35,7 @@ extern fn free(ptr: *mut u8);
 // marker the `[u8]` tail would fatten `*mut Segment` to 16B and break the
 // thin-pointer plumbing below. `sizeof::<Segment>()` is the HEADER size (the
 // tail offset, a multiple of 8), so the data region starts 8-byte aligned.
-// See docs/internals/ref-repr-design.md §6 + writ2-design.md §3.
+// See docs/internals/ref-repr-design.md §6 + writ-design.md §3.
 #[self_describing]
 pub struct Segment {
     pub next: *mut Segment,   // next segment (absolute — stable, never moves)
@@ -93,7 +93,7 @@ unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
     // Reach invariant: all segments of one allocator must be within signed
     // i64 self-relative reach. A distance >= 2^63 overflows the i64 delta and
     // wraps negative — detect that. Cannot happen on a real 64-bit VA
-    // (≤ 2^47 / ~2^56 ≪ 2^63), so this is a defensive guard (writ2 §3).
+    // (≤ 2^47 / ~2^56 ≪ 2^63), so this is a defensive guard (writ §3).
     let na: i64 = seg as i64;
     let hd: i64 = a.head as i64;
     let d: i64 = if na >= hd { na - hd } else { hd - na };

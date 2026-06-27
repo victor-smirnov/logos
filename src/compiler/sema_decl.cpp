@@ -1190,11 +1190,11 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     // Writ: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
     // {data, zone} reference carrying its allocator.
     if (sinfo->zone_mut) sd.flag(stk::ZONE_MUT, true);
-    if (sinfo->zoned2) sd.flag(stk::ZONED2, true);   // writ2: auto-relative pointer fields (RelOffset)
+    if (sinfo->zoned2) sd.flag(stk::ZONED2, true);   // writ: auto-relative pointer fields (RelOffset)
     // RefRepr RelOffset: propagate `#[rel_ptr]` so mlir-gen's ref_repr_of can
     // classify this type as a self-relative pointer (8B offset storage).
     if (sinfo->rel_ptr) sd.flag(stk::REL_PTR, true);
-    // writ2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
+    // writ: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
     // values of this type (WAny) like references.
     if (sinfo->borrow_carrying) sd.flag(stk::BORROW_CARRYING, true);
     // `#[non_null]`: single non-null ptr wrapper → Option<T> NullPtr niche in mlir-gen.

@@ -13,9 +13,9 @@
 //       i = i + 1;
 //   }
 //
-// STEP 5 (cut-over): reflect::<T>() emits the TypeInfo blob in WRIT2 format, so
-// the reads go through the writ2 reader WView2 (lang.writ2.static_view) rather
-// than the Writ1 WritView. The public API (WritStatic handle in, StringView
+// STEP 5 (cut-over): reflect::<T>() emits the TypeInfo blob in Writ format, so
+// the reads go through the writ reader WView2 (lang.writ.static_view) rather
+// than the legacy WritView. The public API (WritStatic handle in, StringView
 // out) is unchanged. The node handle is stashed in the view structs as the raw
 // WAny word (i64) — a plain value, sidestepping the borrow-checker treating the
 // Ref raw-ptr as a borrow of a local — and rebuilt via hany_from_word on use.
@@ -28,7 +28,7 @@ use logos.lang.writ.static_view;  // WView2 / hview2_from_ptr / hany_from_word /
 use logos.lang.writ.anyval;       // WAny
 use logos.lang.str;
 
-// Convert a writ2 SView2 to the public StringView (same {ptr,len} shape).
+// Convert a writ SView2 to the public StringView (same {ptr,len} shape).
 fn sview2_to_stringview(sv: SView2) -> StringView {
     return StringView { ptr: sv.ptr, len: sv.len };
 }

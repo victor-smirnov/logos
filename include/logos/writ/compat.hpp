@@ -1,14 +1,14 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // Writ SPELLING-compat surface for the logosc cut-over (Phase B). Provides the
-// Writ1 NAMES the compiler uses (type code constants, the doc-handle / Object
-// spellings, a WritAccess shim) mapped onto NATIVE writ2 — NO base/offset model
+// legacy NAMES the compiler uses (type code constants, the doc-handle / Object
+// spellings, a WritAccess shim) mapped onto NATIVE writ — NO base/offset model
 // is reintroduced (self-relative throughout). Transitional: these spellings can be
 // swept to the native tc::/WritCtr/view forms later. Include this from compiler TUs.
 
 #pragma once
 
-// Umbrella — pulls in the whole writ2 surface the compiler needs, so every
+// Umbrella — pulls in the whole writ surface the compiler needs, so every
 // `#include <logos/writ/*.hpp>` in logosc maps to this one header during the cut-over.
 #include <logos/writ/document.hpp>
 #include <logos/writ/view.hpp>
@@ -36,12 +36,12 @@
 
 namespace logos::writ {
 
-// ── Writ1 type_hash:: code names → writ2 tc:: values ────────────────────────
+// ── legacy type_hash:: code names → writ tc:: values ────────────────────────
 // Structural in-band tags + Pod codes the compiler compares against. NOTE the two
-// that CHANGED value: WritString 28→130 and Bool 37→2 (the writ2 wire codes).
+// that CHANGED value: WritString 28→130 and Bool 37→2 (the writ wire codes).
 namespace type_hash {
-inline constexpr uint64_t WritString  = tc::STRING;     // 130 (Writ1 used 28)
-inline constexpr uint64_t Bool          = tc::WA_BOOL;    // 2   (Writ1 used 37)
+inline constexpr uint64_t WritString  = tc::STRING;     // 130 (legacy used 28)
+inline constexpr uint64_t Bool          = tc::WA_BOOL;    // 2   (legacy used 37)
 inline constexpr uint64_t TinyObjectMap = tc::TINYMAP;    // 98
 inline constexpr uint64_t Array         = tc::ARRAY;      // 100
 inline constexpr uint64_t ObjectMap     = tc::MAP;        // 101
@@ -63,13 +63,13 @@ inline constexpr uint64_t ArrayF32      = tc::ARRAY_F32;
 inline constexpr uint64_t ArrayF64      = tc::ARRAY_F64;
 }  // namespace type_hash
 
-// Reflection param slot (ported from Writ1 clone.hpp).
+// Reflection param slot (ported from legacy clone.hpp).
 struct ParamSlot {
     uint32_t offset;
     uint32_t value_index;
 };
 
-// Writ1's type-ops registry init — writ2 has no per-type ops vtable (clone/
+// the legacy type-ops registry init — writ has no per-type ops vtable (clone/
 // stringify dispatch directly on the TypeTag), so this is a no-op.
 inline void writ_init() noexcept {}
 
@@ -78,14 +78,14 @@ inline void writ_init() noexcept {}
 using WritView = WritCtr;
 using Writ     = WritCtr;
 
-// Load a document from a compacted blob (Writ1 spelling of WritCtr::from_bytes).
+// Load a document from a compacted blob (legacy spelling of WritCtr::from_bytes).
 [[nodiscard]] inline logos::expected<WritCtr>
 from_bytes_copy(const uint8_t* data, size_t size) noexcept {
     return WritCtr::from_bytes(data, size);
 }
 
 // Deep-copy a tagged object from another document into `dst` (the metaprog blob splice).
-// `src_base` is vestigial (writ2 is self-relative; src_obj is an absolute pointer the
+// `src_base` is vestigial (writ is self-relative; src_obj is an absolute pointer the
 // deep-copy walks via resolve()). Returns the dst object pointer.
 [[nodiscard]] inline logos::expected<void*>
 copy_object_into(const void* src_obj, const uint8_t* /*src_base*/, WritCtr& dst) noexcept {
@@ -96,7 +96,7 @@ copy_object_into(const void* src_obj, const uint8_t* /*src_base*/, WritCtr& dst)
 }
 
 // Box a wide scalar (i64/u64/f32/f64 — doesn't fit the inline Pod) into the arena and
-// return a Ref AnyVal to it (Writ1 anyval_put / arena_put). Tag = the matching tc code.
+// return a Ref AnyVal to it (legacy anyval_put / arena_put). Tag = the matching tc code.
 template <typename T>
 [[nodiscard]] inline logos::expected<AnyVal> anyval_put(Arena& arena, T v) noexcept {
     uint64_t code;

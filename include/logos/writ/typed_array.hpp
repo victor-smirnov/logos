@@ -15,12 +15,12 @@
 namespace logos::writ {
 
 // TypedArray<T> — dense packed array of a trivially-copyable primitive T.
-// BYTE-IDENTICAL to the Logos stdlib WArray<T> (stdlib/lang/writ2/array.logos):
+// BYTE-IDENTICAL to the Logos stdlib WArray<T> (stdlib/lang/writ/array.logos):
 //   { size_/len : u64, capacity_/cap : u64, data_ : self-relative ptr to T[] }  (24B)
 //
 // Unlike ObjectArray, the elements are PLAIN values (position-independent), so
 // growth is a straight memcpy — no per-element re-anchor (there are no self-
-// relative Refs in the buffer). Ported from Writ1's TypedArray onto the self-
+// relative Refs in the buffer). Ported from the legacy TypedArray onto the self-
 // relative RelativePtr: no `base` threaded, header never moves (MultiChunk).
 template <typename T>
 class TypedArray {

@@ -1,11 +1,11 @@
-# Writ2 `&mut` carries its zone — fat mutable reference (design + plan)
+# Writ `&mut` carries its zone — fat mutable reference (design + plan)
 
 Status: **DONE — compiler feature + both containers migrated (2026-06-08).**
 Commits: 3eb14084 (compiler: marker / FatZoneMut repr / zone_mut_ref+zone_of /
 field+method access / spill returnability), b09d371b (Array<HAny> migrated +
 reborrow-peel / method-self / cast sites), 9b235faf (HMap migrated). Both
 `Array<HAny>` and `HMap` dropped their `alloc` field — the zone now rides the fat
-`&mut`. Toy test zone_mut_fat_ref + full writ2 suite + showcase pass, valgrind-
+`&mut`. Toy test zone_mut_fat_ref + full writ suite + showcase pass, valgrind-
 clean, L4 5568/5568.
 
 REMAINING (next phase — the dynamic mutable-traversal surface, not yet built):
@@ -14,22 +14,22 @@ points + `Array::get_mut`/`array_at_mut` / `HMap::*_at_mut` (resolve a child to 
 fat `&mut` carrying the parent's zone via zone_of(self)).
 
 (original design below.)
- Realises writ2-design §9 part 4
+ Realises writ-design §9 part 4
 ("growing `&mut self` carrying `(self_ptr, allocator)`"). Goal: a `&mut T` to a
 zone-resident growable container is a FAT reference `{data, zone}` carrying its
 zone (the `Allocator`); the zone rides the reference and cascades through mutable
 traversal, so grow methods reach the allocator from `&mut self` with no stored
-field and no threaded `&Writ2`. Read `&T` stays THIN (reading never grows).
+field and no threaded `&Writ`. Read `&T` stays THIN (reading never grows).
 
 ## Why (the model)
 
-A `Writ2` container owns an `Allocator` = a list of never-move, never-grow
+A `Writ` container owns an `Allocator` = a list of never-move, never-grow
 segments = its **zone**. Mutation that grows must allocate in that zone. Three ways
 to reach the allocator from a deep `&mut child`:
 - store it in the object — rejected: the allocator is a heap object; its place is
   on the *reference* or *passed*, not baked into every resident (Victor).
-- thread `&mut Writ2` — aliases the children being mutated (two `&mut` from one
-  container → borrow conflict). `&Writ2` via interior-mut works but forces the
+- thread `&mut Writ` — aliases the children being mutated (two `&mut` from one
+  container → borrow conflict). `&Writ` via interior-mut works but forces the
   container through every mutation call.
 - **carry it on the `&mut`** — the allocator travels with the reference; `h` is
   never needed mid-traversal; it cascades parent→child. ← this design.
@@ -90,5 +90,5 @@ push+grow+get. Then extend to HMap + add HAnyMut / `*_at_mut`.
 
 A new ref repr threaded through codegen — same class as the thin-DstRef work
 (silent-codegen if a site is missed). Mitigate: behavior tests + valgrind per
-step; gate on the writ2 subset. Reuses the fat-pair machinery, so less new
+step; gate on the writ subset. Reuses the fat-pair machinery, so less new
 codegen than building a repr from scratch.

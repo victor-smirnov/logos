@@ -1,4 +1,4 @@
-// logos.mem.writ.clone — deep copy of a writ2 value tree into a fresh
+// logos.mem.writ.clone — deep copy of a writ value tree into a fresh
 // container (the Logos-level clone/compactify: only the live, reachable set
 // is copied, so dead source space is dropped).
 //

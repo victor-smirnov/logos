@@ -1,4 +1,4 @@
-// Decimal -> f64 conversion on writ2: zero, integers, fractions, negatives,
+// Decimal -> f64 conversion on writ: zero, integers, fractions, negatives,
 // deep scales, wide coefficients.
 package writ_decimal_f64;
 use logos.lang.writ.container;

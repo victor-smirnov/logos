@@ -1,4 +1,4 @@
-// WDecimal accessor surface (writ2): scale/coeff/is_neg/tag + container
+// WDecimal accessor surface (writ): scale/coeff/is_neg/tag + container
 // membership + is_decimal discrimination.
 package writ_decimal_methods;
 use logos.lang.writ.container;

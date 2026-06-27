@@ -1,4 +1,4 @@
-// Logos Writ stdlib — mem.writ2.wbs
+// Logos Writ stdlib — mem.writ.wbs
 //
 // HBS2 — binary serialization of a Writ document: doc ⇄ bytes. The Writ
 // port of writ.wbs_write / wbs_read, simplified to a self-contained value

@@ -1,8 +1,8 @@
-// Logos Writ stdlib — writ2.decimal
+// Logos Writ stdlib — writ.decimal
 //
-// WDecimal — a fixed-precision signed decimal (the Writ port of Writ1's
+// WDecimal — a fixed-precision signed decimal (the Writ port of legacy's
 // Decimal, wire code 102). The value is `(neg ? -1 : 1) * coeff / 10^scale`, with a
-// u64 coefficient magnitude. `spec` packs the Writ1 layout: scale in bits[0:11]
+// u64 coefficient magnitude. `spec` packs the legacy layout: scale in bits[0:11]
 // (0..4095), sign in bit[31]. Fixed size (no inline tail), so it's a plain tagged
 // arena object — no zoning.
 //

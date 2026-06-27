@@ -1,4 +1,4 @@
-// WParameter — Writ SDN query-parameter slot `?name` (Writ1 Parameter, code
+// WParameter — Writ SDN query-parameter slot `?name` (legacy Parameter, code
 // 127). An unbound `?limit` and a bound `?limit = 50`; read name, bound state, value.
 package test;
 use logos.lang.writ.container;

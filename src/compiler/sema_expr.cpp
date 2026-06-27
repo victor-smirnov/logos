@@ -776,7 +776,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             error("internal: unexpected writ container type in map cast path");
             return error_expr();
         }
-        // writ2: MapSlice* sources carry value-form &[WAny] values
+        // writ: MapSlice* sources carry value-form &[WAny] values
         // (lang.writ.typed_arr); builders return Rc<Writ>.
         // WritMap: source must be MapSliceI32 for <I32,AnyVal>{}.
         {
@@ -4602,7 +4602,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
             auto item = map_of(raw);
             if (!item.has_key(la::NAME)) continue;
             if (str_of(item.get(la::NAME.code)) == sname) {
-                // writ2: holder-relative node offset (raw.raw() is an at-rest
+                // writ: holder-relative node offset (raw.raw() is an at-rest
                 // word, not an offset) — same model as metaprog_targets_.
                 found_offset = static_cast<uint32_t>(item.offset().value());
                 break;
@@ -4614,7 +4614,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
               "' in this file");
         return error_expr();
     }
-    // writ2: Template.raw is a value-form WAny — the offset must be anchored
+    // writ: Template.raw is a value-form WAny — the offset must be anchored
     // to the hook's OView base at RUNTIME. Lower to the stdlib shim
     // template_of_at(off) (= Template { raw: oview_module_ast().node_at(off) }).
     const SemaFuncInfo* fi = nullptr;
@@ -11122,7 +11122,7 @@ lir::LExprPtr SemaChecker::lower_writ_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // writ2 builder: yields Rc<Writ> (see lang.writ.comp_builder).
+    // writ builder: yields Rc<Writ> (see lang.writ.comp_builder).
     auto new_cands  = find_func_candidates("writ_list_comp_new");
     auto push_cands = find_func_candidates("writ_list_comp_push");
     const SemaFuncInfo* new_fi  = nullptr;
@@ -11255,7 +11255,7 @@ lir::LExprPtr SemaChecker::lower_writ_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // writ2 builder: yields Rc<Writ> (see lang.writ.comp_builder).
+    // writ builder: yields Rc<Writ> (see lang.writ.comp_builder).
     auto new_cands = find_func_candidates("writ_map_comp_new");
     auto put_cands = find_func_candidates("writ_map_comp_put");
     const SemaFuncInfo* new_fi = nullptr;
@@ -11391,12 +11391,12 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
     // emitting an additional "cannot auto-coerce <error>" diagnostic.
     if (TypeRef(t).kind() == LogosType::Kind::Error) return val;
 
-    // WAny passthrough (writ2): an element already produced as an WAny value.
+    // WAny passthrough (writ): an element already produced as an WAny value.
     if (TypeRef(t).kind() == LogosType::Kind::Enum
         && TypeRef(t).enum_name() == "WAny") {
         return val;
     }
-    // AnyVal passthrough (Writ1 datatype/struct form) — legacy.
+    // AnyVal passthrough (legacy datatype/struct form) — legacy.
     if ((TypeRef(t).kind() == LogosType::Kind::Struct
          || TypeRef(t).kind() == LogosType::Kind::ZonedStruct)
         && is_anyval(t)) {
@@ -15166,9 +15166,9 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 "I8, U8, I16, U16, I32, U32, I64, U64, F32, F64", type_name));
             return nullptr;
         }
-        // writ2: the blob is built by the C++ writ2 TypedArray writer —
-        // no stdlib struct needs to be in scope (the Writ1 ArrayI32-eidos
-        // scope probe is retired with Writ1).
+        // writ: the blob is built by the C++ writ TypedArray writer —
+        // no stdlib struct needs to be in scope (the legacy ArrayI32-eidos
+        // scope probe is retired with legacy).
         lir::WVArray a;
         a.elem_type = type_name;
         if (node.has_key(la::ITEMS)) {
@@ -15238,8 +15238,8 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
         };
         std::string lir_key_type;
         if (auto kit = known_keys.find(key_type); kit != known_keys.end()) {
-            // writ2: the blob is built by the C++ writ2 TypedMap writer —
-            // no stdlib Map eidos needs to be in scope (Writ1 probe retired).
+            // writ: the blob is built by the C++ writ TypedMap writer —
+            // no stdlib Map eidos needs to be in scope (legacy probe retired).
             lir_key_type = kit->second.lir;
         } else if (key_type == "Varchar") {
             lir_key_type = "";  // same as untyped ObjectMap
@@ -15428,7 +15428,7 @@ lir::LExprPtr SemaChecker::lower_writ_lit(TinyMapView node) {
         lit.capture_types = std::move(ctx.types);
         lit.capture_param_count = ctx.next_slot;
     }
-    // Type: WritStatic for static blobs; Rc<Writ> for captures (the writ2
+    // Type: WritStatic for static blobs; Rc<Writ> for captures (the writ
     // template-patch path — probe the builder fn for the concrete Rc type).
     TypeRef result_type = nullptr;
     if (lit.has_captures) {
@@ -17393,7 +17393,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     auto rt = lowered ? expr_type(lowered) : nullptr;
     auto rk = TypeRef(rt).kind();
     bool rt_is_writ_static = is_writ_static(rt);
-    // writ2: the runtime container is Rc<Writ> (capture-@{} / comprehensions);
+    // writ: the runtime container is Rc<Writ> (capture-@{} / comprehensions);
     // it freezes to a WritStatic blob exactly like the legacy Writ.
     bool rt_is_writ        = is_writ(rt)
         || (is_named_struct(rt, "Rc") && type_str(rt).find("Writ") != std::string::npos);
@@ -17549,7 +17549,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     ok = false;
                 }
                 if (ok) {
-                    // writ2: the callee returns Rc<Writ>; freeze via the
+                    // writ: the callee returns Rc<Writ>; freeze via the
                     // host shim logos_metacall_freeze2 (deep-copy the root into
                     // a malloc'd [u64 size][bytes] compact blob, ptr past the
                     // prefix — same wire shape as WritStatic).

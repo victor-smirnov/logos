@@ -1,4 +1,4 @@
-// Sibling impls in one DataTypeTagSystem dispatch space (writ2 successor of
+// Sibling impls in one DataTypeTagSystem dispatch space (writ successor of
 // the TinyObjectMap-sibling test): two concrete #[datatype] datatypes register in
 // the SAME tagged-trait table; codes are distinct and impls resolve directly.
 package tag_dispatch_sibling_concrete;

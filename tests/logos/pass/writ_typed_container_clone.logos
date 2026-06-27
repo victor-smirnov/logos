@@ -1,4 +1,4 @@
-// Deep clone of typed dense containers (writ2): typed arrays + typed maps
+// Deep clone of typed dense containers (writ): typed arrays + typed maps
 // copy raw payloads into the destination zone, equal + separate.
 package writ_typed_container_clone;
 use logos.lang.writ.hstatic;

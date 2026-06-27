@@ -1,4 +1,4 @@
-// Decimal limit violations return null handles (writ2): coefficient
+// Decimal limit violations return null handles (writ): coefficient
 // overflow, malformed text, scale ceiling, add overflow.
 package writ_decimal_limits_errors;
 use logos.lang.writ.container;

@@ -1,4 +1,4 @@
-// writ2 document header (successor of the Writ1 DocumentHeader test):
+// writ document header (successor of the legacy DocumentHeader test):
 // the root word lives at blob offset 0, self-relative; null/Pod/Ref forms.
 package writ_document;
 use logos.lang.writ.hstatic;

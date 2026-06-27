@@ -119,7 +119,7 @@ void Session::run() noexcept {
         if (payload_size > 0 && hdr_size + payload_size <= static_cast<size_t>(msg_size)) {
             auto dec = binary_decode(buf.data() + hdr_size, payload_size);
             if (!dec) break;
-            payload = std::move(*dec);   // writ2 WritCtr move
+            payload = std::move(*dec);   // writ WritCtr move
         }
 
         if (!handle_message(*hdr, buf.data(), std::move(payload))) break;

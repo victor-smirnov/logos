@@ -14,11 +14,11 @@
 namespace logos::writ {
 
 // ObjectArray — dynamic array of heterogeneous AnyVal elements. BYTE-IDENTICAL to
-// the Logos stdlib WArray<WAny> (stdlib/lang/writ2/array.logos):
+// the Logos stdlib WArray<WAny> (stdlib/lang/writ/array.logos):
 //   { size_/len : u64, capacity_/cap : u64, data_ : self-relative ptr to AnyVal[] }
 // 24 bytes. The element buffer holds AT-REST AnyVals (self-relative Ref arm).
 //
-// Ported from Writ1's ObjectArray, reseated onto the self-relative RelativePtr +
+// Ported from the legacy ObjectArray, reseated onto the self-relative RelativePtr +
 // 8-byte AnyVal: NO `base` is threaded (self-relative resolves in place), and the
 // header NEVER MOVES (MultiChunk arena), so the old offset-recompute dance around
 // realloc is gone. Growth copies elements ONE BY ONE so each AnyVal Ref RE-ANCHORS

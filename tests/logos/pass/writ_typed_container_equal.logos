@@ -1,4 +1,4 @@
-// Structural equality for typed writ2 containers (Array<i32> / Map<i32,AnyVal>).
+// Structural equality for typed writ containers (Array<i32> / Map<i32,AnyVal>).
 // Documents come from static @-literals; writ_equal walks by value semantics
 // (order-independent for maps, raw-byte for typed array payloads).
 package writ_typed_container_equal;

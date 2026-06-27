@@ -1,4 +1,4 @@
-// Malformed @Type forms parse to null (writ2): missing '=', unclosed
+// Malformed @Type forms parse to null (writ): missing '=', unclosed
 // params, missing name.
 package writ_typed_datatype_values_errors;
 use logos.lang.writ.container;

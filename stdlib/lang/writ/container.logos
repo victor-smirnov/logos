@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ2.container
+// Logos Writ stdlib — writ.container
 //
 // Writ: the owned, mutable root container (Vec/Box-like) for a never-move
 // zoned document. It owns an Allocator (the never-move segment arena) and places
@@ -11,7 +11,7 @@
 // self-describing (type_code-tagged, AnyVal) layer is built on top of this
 // later, together with Array<AnyVal> and the document root.
 //
-// See docs/internals/writ2-design.md §3-5.
+// See docs/internals/writ-design.md §3-5.
 
 package logos.lang.writ.container;
 
@@ -24,7 +24,7 @@ use logos.lang.rc;
 pub struct Writ {
     pub allocator: Allocator,
     // The document ROOT — the top-level WAny, stored as its raw 8-byte word (0 =
-    // null/unset). The Writ1 DocumentHeader analogue, folded into the root
+    // null/unset). The legacy DocumentHeader analogue, folded into the root
     // container rather than a separate zone object.
     pub root: i64,
 }
@@ -72,7 +72,7 @@ pub unsafe fn writ_alloc_bytes(h: *mut Writ, n: i64) -> *mut u8 {
     return allocator_alloc(&mut h.allocator, n, 8i64);   // conservative: callers may place 8-aligned data
 }
 
-// Write the in-band type tag immediately before `obj` — the Writ1 datatag VARINT:
+// Write the in-band type tag immediately before `obj` — the legacy datatag VARINT:
 // codes 1..222 = a single byte at obj[-1]; codes >222 (typed arrays 2101+, int-keyed
 // maps 3101+, Datatype 1001, TypedValue 4115) = a header byte (223 + n-1) at obj[-1]
 // plus `n` little-endian code bytes at obj[-2], obj[-3], …. The 8-byte pre-object
@@ -219,13 +219,13 @@ impl<T> Held<T> {
     pub fn get(self: &Held<T>) -> &T { return unsafe { &*self.ptr }; }
 }
 
-// ── Escaping WAny: bind to the WRIT2 arena, not the parent container ─────────
+// ── Escaping WAny: bind to the Writ arena, not the parent container ─────────
 //
 // An `WAny` is a value (movable), but a Ref `WAny` is an ABSOLUTE pointer into the
 // Writ arena. The object it points at is owned by the ARENA (Writ) — NOT by
 // the `Array`/`Map`/… it was read from: that parent is just the read site, and the
 // Ref may point anywhere in the same arena. So an escaping `WAny` must carry a
-// holder of the WRIT2 (the residency that keeps the arena's segments alive),
+// holder of the Writ (the residency that keeps the arena's segments alive),
 // independent of any parent container. `HeldAny` is that escape package: it stores
 // the value BY VALUE (no `*const`, unlike `Held<T>`) + a Writ holder; while the
 // HeldAny lives the arena is alive, so `val()`/`resolve()` are well-defined.

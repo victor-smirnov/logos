@@ -1,7 +1,7 @@
-// Logos Writ stdlib — writ2.typed_value
+// Logos Writ stdlib — writ.typed_value
 //
 // WTypedValue — a Writ SDN datatype instantiation, wire code 4115 (the Writ
-// port of Writ1's TypedValue). Canonical textual form:
+// port of the legacy TypedValue). Canonical textual form:
 //
 //     @Type(params?) = <initializer>
 //

@@ -13,7 +13,7 @@ Summary: 2 features audited; 0 OK, 2 WARN (both blessed §A3 replacements — `m
 **Logos nomenclature.** No `macro_rules!`. Replacement: `#[fn_macro]` / `#[token_macro]` fns invoked `name!(...)`/`name![...]`/`name!{...}`; bodies use `quote_expr!`/`quote_item!`/`quote_ty!` + `#( ... )sep*` repetition over `Vec<ExprBlob>`. Surface:
 - grammar `FN_MACRO_CALL`/`FN_MACRO_CALL_ITEM`/`FN_MACRO_CALL_ITEM_DONE` (`tools/peg_gen/grammars/logos.peg:284-286,552`); `QUOTE_ITEM`/`QUOTE_EXPR`/`QUOTE_TY`/`REPEAT_GROUP`/`ANTIQUOT_TYPE`/`ANTIQUOT_PACK` (`:259-265`); `TEMPLATE_DECL` (`:258,582`).
 - sema: `lower_fn_macro_call` `src/compiler/sema_expr.cpp:17710`, item splice `lower_fn_macro_call_item` `:18395`; `lower_quote_item` `:14741`, `lower_quote_expr` `:15638`, `lower_quote_ty` `:15424`. Callee flags `SemaFuncInfo::is_fn_macro`/`is_token_macro` (`src/compiler/sema_impl.hpp:2246`).
-- quote blobs ride the **writ** AST API since the writ2 cut-over (`0c4caa0e` fixed the splice-time `WritStatic` materialization + DAG-safe `collect_param_slots`); user doc `docs/language/reference/macros.md`.
+- quote blobs ride the **writ** AST API since the writ cut-over (`0c4caa0e` fixed the splice-time `WritStatic` materialization + DAG-safe `collect_param_slots`); user doc `docs/language/reference/macros.md`.
 
 **Match verdict: WARN — blessed §A3 divergence (rename + model shift).** Strictly more general (Turing-complete codegen vs declarative TT matching). Unchanged since v1 in classification; substrate fully re-platformed onto writ with no surface change.
 

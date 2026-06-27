@@ -1,4 +1,4 @@
-// Dispatch-table registry lookup (writ2 successor of the Writ1 registry
+// Dispatch-table registry lookup (writ successor of the legacy registry
 // test): #[tag_dispatch] generates a (type_code -> impl fn-ptr) table; the
 // __logos_dispatch_lookup__ entry point resolves registered codes and returns
 // null for unregistered ones.

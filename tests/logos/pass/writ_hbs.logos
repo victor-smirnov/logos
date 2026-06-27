@@ -1,4 +1,4 @@
-// HBS binary roundtrip on writ2: serialize -> bytes -> deserialize ->
+// HBS binary roundtrip on writ: serialize -> bytes -> deserialize ->
 // structurally equal + identical render.
 package writ_hbs;
 use logos.lang.writ.container;

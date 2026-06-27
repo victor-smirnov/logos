@@ -1,4 +1,4 @@
-// Holder refcount semantics (writ2 successor of the Writ1 MemHolder RC
+// Holder refcount semantics (writ successor of the legacy MemHolder RC
 // test): Rc<Writ> clones share ONE container; data written through one
 // handle is visible through the other; drops release in any order.
 package writ_memholder_rc;

@@ -1,4 +1,4 @@
-// Params overflow: 33 parameters exceed the 32-slot bound -> null (writ2).
+// Params overflow: 33 parameters exceed the 32-slot bound -> null (writ).
 package writ_typed_datatype_params_overflow;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;

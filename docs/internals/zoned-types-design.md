@@ -18,8 +18,8 @@ This document is the canonical statement of the model. It supersedes
 the ad-hoc lifetime machinery in `stdlib/lang/writ/{own,zone,mem_holder}`
 (those are scaffold — see §9).
 
-> **Superseded in part by [Writ2](writ2-design.md) (2026-06-03).**
-> Writ2 is the target architecture, built in parts in parallel with the
+> **Superseded in part by [Writ](writ-design.md) (2026-06-03).**
+> Writ is the target architecture, built in parts in parallel with the
 > current Writ (which then retires wholesale). It removes *relocation*
 > entirely: objects never move in place (growth appends segments,
 > compaction copies to a fresh container), references become

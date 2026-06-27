@@ -1,4 +1,4 @@
-// Decimal construction boundaries on writ2: parse rejections + scale limits.
+// Decimal construction boundaries on writ: parse rejections + scale limits.
 package dec_boundary;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;

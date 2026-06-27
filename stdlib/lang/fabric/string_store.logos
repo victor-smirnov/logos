@@ -1,8 +1,8 @@
 // logos.lang.fabric.string_store — SoA string storage for fabric Buffers.
 //
-// Relocated from lang.writ.string in the writ2 cut-over: the storage is
+// Relocated from lang.writ.string in the writ cut-over: the storage is
 // malloc-backed SoA (packed bytes + end offsets) and never depended on the
-// Writ1 zone — only its StringView (now lang.writ2.hstatic). The marker
+// legacy zone — only its StringView (now lang.writ.hstatic). The marker
 // datatype StrDt plugs Buffer<StrDt> into the Container machinery.
 
 package logos.lang.fabric.string_store;

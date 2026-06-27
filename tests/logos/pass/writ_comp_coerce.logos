@@ -1,4 +1,4 @@
-// Writ comprehension auto-coercion: i32, bool, str values (writ2).
+// Writ comprehension auto-coercion: i32, bool, str values (writ).
 package writ_comp_coerce;
 
 use logos.lang.writ.comp_builder;

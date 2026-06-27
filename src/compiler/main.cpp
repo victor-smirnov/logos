@@ -1395,7 +1395,7 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
     return p;
 }
 
-// writ2 metacall freeze: the Writ-returning thunk passes the Rc<Writ>'s
+// writ metacall freeze: the Writ-returning thunk passes the Rc<Writ>'s
 // root as a VALUE-FORM WAny word; deep-copy the reachable tree into a compact
 // single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
 // the prefix — the same wire shape as WritStatic; driver reads *(ptr-8)).
@@ -2285,8 +2285,8 @@ int run_metaprog_dispatch(
     // metaprog handler running mid-sema_lower — which holds a `Writ&` into `asts`.
     // A vector realloc there moves that element (Writ move nulls the source), so the
     // in-flight reference would see a moved-from doc (holder_=header_=0). Reserve up
-    // front (no reference held yet) so emit-driven growth never reallocs. (Writ1's
-    // copyable handle masked this; writ2's move-on-realloc exposes it.)
+    // front (no reference held yet) so emit-driven growth never reallocs. (legacy's
+    // copyable handle masked this; writ's move-on-realloc exposes it.)
     asts.reserve(asts.size() + 65536);
     filenames.reserve(filenames.size() + 65536);
     // Provenance vector: caller-provided when --dump-metaprog is on

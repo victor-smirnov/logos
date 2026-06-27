@@ -1,7 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// InMemoryArenaPool (Writ) — see arena_pool.hpp. Ported from the Writ1
-// implementation onto the writ2 MemHolder + self-relative root AnyVal.
+// InMemoryArenaPool (Writ) — see arena_pool.hpp. Ported from the legacy
+// implementation onto the writ MemHolder + self-relative root AnyVal.
 
 #include <logos/writ/arena_pool.hpp>
 #include <logos/writ/document.hpp>        // DocumentHeader, doc_header
