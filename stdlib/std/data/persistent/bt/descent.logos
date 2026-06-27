@@ -12,7 +12,7 @@ use logos.mem.collections.vec;
 use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.static_view;   // WView2 — writ reader for @{} blobs
 use logos.lang.writ.anyval;        // WAny
 
@@ -24,7 +24,7 @@ use logos.std.data.persistent.bt.shuttle;
 unsafe fn cfg_int_or<const CFG: WritStatic>(key: str, dflt: u64) -> u64 {
     // The compiler emits @{}/WritStatic blobs in writ format, so read them
     // with the matching writ reader (WView2), not the legacy WritView.
-    let v: WView2 = hview2_from_ptr(CFG.ptr);
+    let v: WView2 = wview2_from_ptr(CFG.ptr);
     let av: WAny = v.map_get(v.root(), key);
     if av.is_null() { return dflt; }
     if !av.is_pod() { return dflt; }   // writ inline scalar = Pod

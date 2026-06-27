@@ -11,10 +11,10 @@
 
 package logos.std.compiler.metaprog;
 
-use logos.lang.writ.hstatic;    // WritStatic — the quote/metacall splice handle ({ptr})
+use logos.lang.writ.wstatic;    // WritStatic — the quote/metacall splice handle ({ptr})
 use logos.lang.writ.anyval;     // WAny
-use logos.lang.writ.hmap;       // WMap<Hu6,WAny> (for schema_type_code on type_from_anyval)
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;       // WMap<Hu6,WAny> (for schema_type_code on type_from_anyval)
+use logos.lang.writ.wstring;
 use logos.mem.string;
 use logos.lang.str;
 

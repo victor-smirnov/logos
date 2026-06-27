@@ -36,7 +36,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
 
@@ -58,7 +58,7 @@ fn dele_count<P: HasCount>() -> i64 { return P::count(); }
 
 fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
     unsafe {
-        let v: WView2 = hview2_from_ptr(CFG.ptr);
+        let v: WView2 = wview2_from_ptr(CFG.ptr);
         let arr: WAny = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
 

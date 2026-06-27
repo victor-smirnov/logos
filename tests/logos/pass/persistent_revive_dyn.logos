@@ -24,7 +24,7 @@ use logos.lang.cmp;
 use logos.lang.fabric;
 use logos.lang.drop;
 use logos.lang.option;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
@@ -102,7 +102,7 @@ fn main() -> i32 {
             // dispatch THROUGH the revived dyn: the concrete impl reads the
             // physical code back, proving the right vtable was reattached.
             if arc.deref().block_type_hash() != want   { return 2; }
-            if arc.deref().cfg_hash() != hstatic_hash_of::<DataCfg>() { return 3; }
+            if arc.deref().cfg_hash() != wstatic_hash_of::<DataCfg>() { return 3; }
             if arc.deref().child_count() != 0u64       { return 4; }
         }
         // both `src` (alloc share) and `arc` (revived share) drop → rc 2→1→0

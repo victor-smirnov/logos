@@ -523,7 +523,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto kind = TypeRef(sit->second).kind();
                     if (kind == LogosType::Kind::WStaticLit) {
                         uint64_t h = (uint64_t)sit->second.const_val().value_or(0);
-                        auto rav = out_.hstatic_registry_.get(std::to_string(h));
+                        auto rav = out_.wstatic_registry_.get(std::to_string(h));
                         if (rav.is_null()) {
                             std::fprintf(stderr,
                                 "mono: __const_param:%s — WritStatic registry "
@@ -536,7 +536,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // splice its mirror_ptr_ + type into `result` so
                             // the surrounding clone-loop sees a well-formed node.
                             //
-                            // hstatic_registry_ lives on out_, so we must
+                            // wstatic_registry_ lives on out_, so we must
                             // construct the view over out_.type_pool.arena()
                             // explicitly — expr_ref_of() would route through
                             // effective_src_arena() which, during a Phase 5.B
@@ -1425,10 +1425,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 mp_ = lir_mirror_emit_lit_int(out_, rt_, k);
                 break;
             }
-            // hstatic_hash_of::<CFG>() — byte-hash identity of CFG as u64.
+            // wstatic_hash_of::<CFG>() — byte-hash identity of CFG as u64.
             // Post-subst, type_args[0] is WStaticLit kind whose const_val
             // is the hash.
-            if (nc.callee == "__hstatic_hash_of__") {
+            if (nc.callee == "__wstatic_hash_of__") {
                 int64_t v = (nc.type_args.empty() || !nc.type_args[0])
                           ? 0
                           : (int64_t)(uint64_t)nc.type_args[0].const_val().value_or(0);

@@ -15,7 +15,7 @@ use logos.std.compiler.metaprog;
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub const StoreCfg: WritStatic = @{
     "name": "demo", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

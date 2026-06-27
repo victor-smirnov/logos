@@ -7,7 +7,7 @@
 package zz_trait_const_generic_probe;
 
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub const StoreA: WritStatic = @{ "name": "A", "tag": <type:u64> };
 pub const StoreB: WritStatic = @{ "name": "B", "tag": <type:u64> };
@@ -21,12 +21,12 @@ pub struct NodeA { pub v: u64 }
 pub struct NodeB { pub v: u64 }
 
 impl Marker<StoreA> for NodeA {
-    fn store_hash(&self) -> u64 { return hstatic_hash_of::<StoreA>(); }
+    fn store_hash(&self) -> u64 { return wstatic_hash_of::<StoreA>(); }
     fn double(&self, x: u64) -> u64 { return x + x + self.v; }
 }
 
 impl Marker<StoreB> for NodeB {
-    fn store_hash(&self) -> u64 { return hstatic_hash_of::<StoreB>(); }
+    fn store_hash(&self) -> u64 { return wstatic_hash_of::<StoreB>(); }
     fn double(&self, x: u64) -> u64 { return x * 2u64 + self.v; }
 }
 
@@ -36,11 +36,11 @@ fn use_b(m: &dyn Marker<StoreB>) -> u64 { return m.double(10u64); }
 fn main() -> i32 {
     // Identity check — the impls fire on the right STORE_CFG.
     let a1: NodeA = NodeA { v: 1u64 };
-    if a1.store_hash() != hstatic_hash_of::<StoreA>() { return 3; }
+    if a1.store_hash() != wstatic_hash_of::<StoreA>() { return 3; }
 
     let b1: NodeB = NodeB { v: 2u64 };
-    if b1.store_hash() != hstatic_hash_of::<StoreB>() { return 4; }
-    if hstatic_hash_of::<StoreA>() == hstatic_hash_of::<StoreB>() { return 5; }
+    if b1.store_hash() != wstatic_hash_of::<StoreB>() { return 4; }
+    if wstatic_hash_of::<StoreA>() == wstatic_hash_of::<StoreB>() { return 5; }
 
     // Dyn dispatch under const-generic trait param.
     if use_a(NodeA { v: 1u64 }) != 21u64 { return 1; }   // 10 + 10 + 1

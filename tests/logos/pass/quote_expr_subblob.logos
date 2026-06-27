@@ -10,7 +10,7 @@
 package quote_expr_subblob;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 fn build_inner() -> ExprBlob {
     return quote_expr! { 41 };

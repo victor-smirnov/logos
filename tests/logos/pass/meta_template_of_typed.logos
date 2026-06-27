@@ -8,7 +8,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.anyval;
 
 #[metaprog_handler("template_of_typed_probe")]

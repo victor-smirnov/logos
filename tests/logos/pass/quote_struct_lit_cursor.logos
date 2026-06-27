@@ -9,7 +9,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[metaprog_handler("struct_lit_cursor_inject")]
 fn struct_lit_cursor_inject_hook(target_offset: u32) -> () {

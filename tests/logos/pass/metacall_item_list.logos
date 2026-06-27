@@ -5,7 +5,7 @@ package main;
 
 use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 fn emit_pair() -> ItemList {
     let mut out: ItemList = item_list_new();

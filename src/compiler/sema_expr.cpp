@@ -5056,18 +5056,18 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         return builder().call_v(std::move(ec), slice_t);
     }
 
-    // hstatic_hash_of::<CFG>() — byte-hash identity of a WritStatic value
+    // wstatic_hash_of::<CFG>() — byte-hash identity of a WritStatic value
     // as u64. Mono folds after substitution: nc.type_args[0] is WStaticLit
     // post-subst, with const_val carrying the hash. Inside a generic body
     // CFG is still a const-generic param at sema time, so the call is
-    // deferred to mono via __hstatic_hash_of__ magic callee.
-    if (callee == "hstatic_hash_of") {
+    // deferred to mono via __wstatic_hash_of__ magic callee.
+    if (callee == "wstatic_hash_of") {
         auto ts = collect_type_args(node);
         if (ts.size() != 1 || !ts[0]) {
-            error("hstatic_hash_of::<CFG>() requires exactly one type argument");
+            error("wstatic_hash_of::<CFG>() requires exactly one type argument");
             return error_expr();
         }
-        return builder().call("__hstatic_hash_of__", std::move(ts), {},
+        return builder().call("__wstatic_hash_of__", std::move(ts), {},
                               prim(LogosType::Kind::U64));
     }
     // type_hash::<T>() — structural FNV-1a-64 hash of T. Layout-stable:
@@ -17574,9 +17574,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 // ExprBlob ret additionally needs std.compiler.metaprog.
                 const char* extra_uses =
                     (site.ret_tag == RT2::WritStatic)
-                    ? "use logos.lang.writ.hstatic;\n"
+                    ? "use logos.lang.writ.wstatic;\n"
                     : (site.ret_tag == RT2::ExprBlob)
-                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.writ.hstatic;\n"
+                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.writ.wstatic;\n"
                     : "";
                 // Body shape:
                 //   call/expr forms → `{ return <text>; }`
@@ -19492,8 +19492,8 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
     // type-arg is a WritStatic literal (`Foo::<@{...}>`). type_str()
     // renders WStaticLit as `@hs_<hex>` which doesn't parse; for the
     // metacall thunk we must reconstruct the original `@{...}` source.
-    std::function<std::string(TinyMapView)> render_hstatic;
-    render_hstatic = [&](TinyMapView n) -> std::string {
+    std::function<std::string(TinyMapView)> render_wstatic;
+    render_wstatic = [&](TinyMapView n) -> std::string {
         int32_t c = code_of(n);
         if (c == la::WRIT_MAP.code) {
             std::string s = "{";
@@ -19510,7 +19510,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
                     }
                     s += ": ";
                     if (e.has_key(la::VALUE))
-                        s += render_hstatic(map_of(e.get(la::VALUE.code)));
+                        s += render_wstatic(map_of(e.get(la::VALUE.code)));
                     else s += "null";
                 }
             }
@@ -19523,7 +19523,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
                 auto items = arr_of(n.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     if (i) s += ", ";
-                    s += render_hstatic(map_of(items.get(i)));
+                    s += render_wstatic(map_of(items.get(i)));
                 }
             }
             s += "]";
@@ -19578,12 +19578,12 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             if (i) out += ", ";
             auto item_node = map_of(items.get(i));
             int32_t ic2 = code_of(item_node);
-            // LIT_HSTATIC type-arg: re-render the @-literal as source so the
+            // LIT_WSTATIC type-arg: re-render the @-literal as source so the
             // thunk can reparse it. Going through type_str would emit
             // `@hs_<hex>` which doesn't parse.
-            if (ic2 == la::LIT_HSTATIC.code && item_node.has_key(la::VALUE)) {
+            if (ic2 == la::LIT_WSTATIC.code && item_node.has_key(la::VALUE)) {
                 out += "@";
-                out += render_hstatic(map_of(item_node.get(la::VALUE.code)));
+                out += render_wstatic(map_of(item_node.get(la::VALUE.code)));
             } else {
                 out += type_str(resolve_type(item_node));
             }

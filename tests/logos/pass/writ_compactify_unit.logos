@@ -6,8 +6,8 @@ package test;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.lang.writ.compactify;
 use logos.mem.writ.parser;
 use logos.mem.writ.stringify;
@@ -37,9 +37,9 @@ fn main() -> i32 {
     let m: &WMap<WString, WAny> = unsafe { &*(comp.resolve() as *const WMap<WString, WAny>) };
     if m.get("n").as_i56() != (0i64 - 42i64) { return 3; }
     let inner: &WMap<WString, WAny> = unsafe { &*(m.get("b").resolve() as *const WMap<WString, WAny>) };
-    if !str_eq(h3.hstring_of(inner.get("c")).as_str(), "deep") {
-        // note: inner is in `big`, resolve via any arena (hstring_of ignores self)
-        if !str_eq(big.hstring_of(inner.get("c")).as_str(), "deep") { return 4; }
+    if !str_eq(h3.wstring_of(inner.get("c")).as_str(), "deep") {
+        // note: inner is in `big`, resolve via any arena (wstring_of ignores self)
+        if !str_eq(big.wstring_of(inner.get("c")).as_str(), "deep") { return 4; }
     }
     return 0;
 }

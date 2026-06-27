@@ -172,7 +172,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Module system: carry the package→module map forward so metaprog delta
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
-    out_.hstatic_registry_   = std::move(in_.hstatic_registry_);
+    out_.wstatic_registry_   = std::move(in_.wstatic_registry_);
     out_.writ_val_pool_    = std::move(in_.writ_val_pool_);
     out_.closure_pool_       = std::move(in_.closure_pool_);
     out_.consts              = std::move(in_.consts);

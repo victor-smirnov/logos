@@ -47,7 +47,7 @@ pub const PMapCfg<K, V>: WritStatic = @{
 
 `@{...}` parses only at *value* position. Earlier sketches accepted `pub type Cfg = @{...};` directly at type position — that form is gone (a value is not a type). The non-generic `pub const` form covers the same ergonomic need; the parametric form covers what `pub type` couldn't express.
 
-See [memory: feat_hstatic_const_generic](../../README.md), [memory: feat_parametric_hstatic](../../README.md).
+See [memory: feat_wstatic_const_generic](../../README.md), [memory: feat_parametric_wstatic](../../README.md).
 
 ## `metacall`
 

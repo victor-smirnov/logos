@@ -4,7 +4,7 @@
 // its element is; (2) the capture-flow: a `&mut self` push of a BY-VALUE borrow-
 // carrying argument taints the receiver's provenance, so a later `return v` sees
 // the local borrow. docs/internals/borrow-escape-analysis-design.md §8.
-package hany_in_vec_escapes;
+package wany_in_vec_escapes;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;

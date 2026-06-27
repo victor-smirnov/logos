@@ -1205,7 +1205,7 @@ private:
     // Coerce a Logos runtime value to AnyVal.raw (u32) for writ capture substitution.
     mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
     // writ: coerce a scalar capture to an 8-byte value-form WAny word.
-    mlir::Value coerce_to_hany_raw(mlir::Value v, TypeRef t);
+    mlir::Value coerce_to_wany_raw(mlir::Value v, TypeRef t);
 
     // ── Struct helpers ────────────────────────────────────────────
     mlir::Value get_struct_ptr(const std::string& name);

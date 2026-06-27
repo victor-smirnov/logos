@@ -17,13 +17,13 @@
 package writ_type_lit_roundtrip;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.static_view;  // WView2
 use logos.lang.writ.anyval;       // WAny
 
 unsafe fn main() -> i32 {
     let cfg: WritStatic = @{"t": <type:i32>};
-    let v: WView2 = hview2_from_ptr(cfg.ptr);
+    let v: WView2 = wview2_from_ptr(cfg.ptr);
     let root: WAny = v.root();
     let inner: WAny = v.map_get(root, "t");
 

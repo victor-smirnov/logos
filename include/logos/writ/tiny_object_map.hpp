@@ -14,7 +14,7 @@
 namespace logos::writ {
 
 // TinyObjectMap — bitmap-indexed sparse map of small u8 keys (0..51) → AnyVal.
-// BYTE-IDENTICAL to the Logos stdlib WMap<Hu6, WAny> (stdlib/lang/writ/hmap.logos
+// BYTE-IDENTICAL to the Logos stdlib WMap<Hu6, WAny> (stdlib/lang/writ/wmap.logos
 // "bitmap-indexed spec"):
 //
 //   { header_ : u64, schema_type_code_ : u64, data_ : self-relative ptr to AnyVal[] }

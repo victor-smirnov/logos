@@ -17,7 +17,7 @@
 namespace logos::writ {
 
 // An entry of ObjectMap — two AT-REST AnyVal words (key, val), 16 bytes. Matches
-// the Logos stdlib WMapEntry (stdlib/lang/writ/hmap.logos). key.is_null() (the
+// the Logos stdlib WMapEntry (stdlib/lang/writ/wmap.logos). key.is_null() (the
 // zero word) marks an empty slot — the buffer is zero-initialised and a real Ref's
 // at-rest delta is never 0.
 struct MapEntry {

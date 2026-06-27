@@ -11,7 +11,7 @@ use logos.std.data.persistent.bt.descent;
 use logos.std.data.persistent.bt.mutate;
 use logos.std.data.persistent.bt.iter;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub const StoreCfg: WritStatic = @{
     "name": "iter", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

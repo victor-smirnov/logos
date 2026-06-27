@@ -13,7 +13,7 @@ use logos.std.compiler.metaprog;
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.shuttle;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.mem;
 
 pub const StoreCfg: WritStatic = @{

@@ -19,8 +19,8 @@ package logos.mem.writ.wbs;
 use logos.lang.writ.container;     // Writ
 use logos.lang.writ.anyval;        // WAny, WA_I56
 use logos.lang.writ.array;         // WArray<WAny>
-use logos.lang.writ.hmap;          // WMap<WString, WAny>
-use logos.lang.writ.hstring;       // WString
+use logos.lang.writ.wmap;          // WMap<WString, WAny>
+use logos.lang.writ.wstring;       // WString
 use logos.lang.str;                   // str, str_from_raw
 use logos.lang.vlen;                  // vlen_read, vlen_prefix_size
 use logos.lang.ptr;                   // byte_add
@@ -133,7 +133,7 @@ unsafe fn read_val(h: &Writ, data: *const u8, pos: *mut i64) -> WAny {
     if lead == 2u8    { return WAny::from(true); }
     if lead == 0x10u8 { return h.int(rd_i64(data, pos)); }     // i64 (Pod if it fits, else boxed)
     if lead == 0x18u8 { return h.float(rd_f64(data, pos)); }   // f64 (boxed)
-    if lead == 0x30u8 { return WAny::from(h.hstring(rd_str(data, pos))); }
+    if lead == 0x30u8 { return WAny::from(h.wstring(rd_str(data, pos))); }
     if lead == 0x40u8 {
         let cnt: i64 = rd_vlen(data, pos) as i64;
         let a: &mut WArray<WAny> = h.array(if cnt < 1i64 { 1i64 } else { cnt });

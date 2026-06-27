@@ -449,7 +449,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (cfg) cfg = subst_type(cfg, s);
         if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::WStaticLit) return tv;
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
-        auto rav = out_.hstatic_registry_.get(std::to_string(hash));
+        auto rav = out_.wstatic_registry_.get(std::to_string(hash));
         if (rav.is_null()) return tv;
         lir_view::ExprRef eref(out_.type_pool.arena(), rav);
         if (eref.addr() == nullptr) return tv;

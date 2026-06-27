@@ -2220,7 +2220,7 @@ void SemaChecker::collect_const(TinyMapView node) {
                 int32_t vc = code_of(v);
                 if (vc == la::LIT_INT  || vc == la::LIT_BOOL ||
                     vc == la::LIT_STR  || vc == la::LIT_FLOAT ||
-                    vc == la::LIT_CHAR || vc == la::LIT_HSTATIC ||
+                    vc == la::LIT_CHAR || vc == la::LIT_WSTATIC ||
                     vc == la::LIT_BYTES)
                     return true;
                 if (vc == la::WRIT_MAP.code  || vc == la::WRIT_ARRAY.code ||
@@ -2343,20 +2343,20 @@ void SemaChecker::collect_const(TinyMapView node) {
         if (val_av.is_pointer()) {
             auto val_node = map_of(val_av);
             auto vc = code_of(val_node);
-            // writ_lit produces LIT_HSTATIC at expression position when
+            // writ_lit produces LIT_WSTATIC at expression position when
             // the literal flows through a type-arg slot; here the value-AST
             // IS the writ literal (WRIT_MAP / WRIT_ARRAY / scalar).
-            // resolve_type's hstatic-lit handling expects a LIT_HSTATIC
-            // wrapper. The legacy path went through hstatic_lit_type which
-            // emitted LIT_HSTATIC; const_def's value is the bare writ_lit
-            // node, so we synthesise a LIT_HSTATIC view by resolving via
-            // the LIT_HSTATIC/WRIT_* code path directly.
+            // resolve_type's wstatic-lit handling expects a LIT_WSTATIC
+            // wrapper. The legacy path went through wstatic_lit_type which
+            // emitted LIT_WSTATIC; const_def's value is the bare writ_lit
+            // node, so we synthesise a LIT_WSTATIC view by resolving via
+            // the LIT_WSTATIC/WRIT_* code path directly.
             //
             // Easiest: detect bare writ_lit AST codes and route them
-            // through the existing LIT_HSTATIC handler in resolve_type by
+            // through the existing LIT_WSTATIC handler in resolve_type by
             // synthesising the same shape.
             (void)vc;
-            // Attempt resolve: if VALUE node has LIT_HSTATIC code already,
+            // Attempt resolve: if VALUE node has LIT_WSTATIC code already,
             // resolve_type accepts it. Otherwise, the value is a primary
             // writ_lit AST and we need to detect that here.
             //
@@ -2374,7 +2374,7 @@ void SemaChecker::collect_const(TinyMapView node) {
             }
             if (!has_type_params) {
                 // Non-generic: bind X as a type alias to the resolved
-                // WStaticLit. Wrap value in a LIT_HSTATIC-shaped node by
+                // WStaticLit. Wrap value in a LIT_WSTATIC-shaped node by
                 // calling the existing resolver path.
                 TypeRef hs = resolve_type(val_node);
                 if (hs && TypeRef(hs).kind() == LogosType::Kind::WStaticLit) {

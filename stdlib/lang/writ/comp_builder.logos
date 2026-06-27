@@ -22,8 +22,8 @@ package logos.lang.writ.comp_builder;
 use logos.lang.writ.anyval;       // WAny
 use logos.lang.writ.container;    // Writ, writ_new
 use logos.lang.writ.array;        // WArray<WAny>, Writ.array, WArray.push
-use logos.lang.writ.hmap;         // WMap<WString,WAny>, Writ.map, WMap.set
-use logos.lang.writ.hstring;      // WString (key type in the map annotation)
+use logos.lang.writ.wmap;         // WMap<WString,WAny>, Writ.map, WMap.set
+use logos.lang.writ.wstring;      // WString (key type in the map annotation)
 use logos.lang.rc;                    // Rc — heap-pin the non-movable Writ
 use logos.lang.str;
 
@@ -90,7 +90,7 @@ pub fn writ_map_comp_put(c: &Rc<Writ>, k: str, v: WAny) {
 // the compiler passes &Rc<Writ> first).
 pub fn writ_coerce_str(c: &Rc<Writ>, s: str) -> WAny {
     let h: &Writ = &**c;
-    let hs: &WString = h.hstring(s);
+    let hs: &WString = h.wstring(s);
     return WAny::from(hs);
 }
 

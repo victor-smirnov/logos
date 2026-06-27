@@ -21,7 +21,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.panic;
 use logos.mem.collections.vec;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[fn_macro]
 pub fn emit_count_ones_test(args: Vec<ExprBlob>) -> ItemList {

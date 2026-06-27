@@ -7,7 +7,7 @@
 // CTFE-equivalent of the runtime call.
 package metacall_writ_static;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 fn build_cfg() -> WritStatic {
     return @{"x": 42, "y": "hello"};

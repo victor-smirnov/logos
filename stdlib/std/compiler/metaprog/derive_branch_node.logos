@@ -126,8 +126,8 @@ unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
 // In a WRIT_MAP node (AST shape: { CODE: WRIT_MAP, ITEMS: [WRIT_ENTRY{KEY,VALUE},...] }),
 // find the entry whose KEY matches `key` byte-for-byte and return its
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
-fn writ_map_get(view: &OView, hmap: WAny, key: str) -> WAny {
-    let items: WAny = view.tiny_map_get(hmap, 2 as u8);          // ITEMS
+fn writ_map_get(view: &OView, wmap: WAny, key: str) -> WAny {
+    let items: WAny = view.tiny_map_get(wmap, 2 as u8);          // ITEMS
     if items.is_null() { return WAny::Ref(0i64 as *const u8); }
     let n: u64 = view.array_len(items);
     let klen: u64 = key.len() as u64;

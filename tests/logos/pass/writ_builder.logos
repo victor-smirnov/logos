@@ -3,8 +3,8 @@
 package writ_builder;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.mem.writ.stringify;
 use logos.lang.rc;
 use logos.mem.string;
@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
 
     // Root map with 8 slots; fill via typed set overloads + explicit WAny.
     let m: &mut WMap<WString, WAny> = h.map(8);
-    m.set("greet", WAny::from(&*(h.hstring("hello") as *const WString)));
+    m.set("greet", WAny::from(&*(h.wstring("hello") as *const WString)));
     m.set("n", 42i64);
     let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
     h.set_root(WAny::ref_to(mp as *const u8));

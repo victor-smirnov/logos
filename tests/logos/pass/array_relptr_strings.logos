@@ -4,7 +4,7 @@ package array_relptr_strings;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wstring;
 use logos.lang.rc;
 use logos.lang.str;
 
@@ -13,9 +13,9 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
     let arr: &mut WArray<WAny> = h.array(2);     // grows past 2
 
-    arr.push(WAny::from(&*(h.hstring("alpha") as *const WString)));
-    arr.push(WAny::from(&*(h.hstring("beta") as *const WString)));
-    arr.push(WAny::from(&*(h.hstring("gamma-long-enough-string") as *const WString)));
+    arr.push(WAny::from(&*(h.wstring("alpha") as *const WString)));
+    arr.push(WAny::from(&*(h.wstring("beta") as *const WString)));
+    arr.push(WAny::from(&*(h.wstring("gamma-long-enough-string") as *const WString)));
 
     if arr.len() != 3i64 { return 1; }
     let v0: WAny = arr.get(0);

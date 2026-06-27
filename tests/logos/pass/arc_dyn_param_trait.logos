@@ -9,7 +9,7 @@
 package arc_dyn_param_trait;
 
 use logos.mem.sync;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 trait Node<const CFG: WritStatic> { fn kind(self: &Self) -> i64; }
 

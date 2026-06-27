@@ -25,7 +25,7 @@ use logos.lang.result;
 use logos.lang.fabric;
 use logos.lang.drop;
 use logos.lang.str;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.dview;
 use logos.mem.string;
 

@@ -6,11 +6,11 @@
 // literals that differ only in the generic arg of their `<type:...>`
 // slot must produce distinct byte-hash identities.
 
-package hstatic_generic_type_arg;
+package wstatic_generic_type_arg;
 
 use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub struct Bag<const CFG: WritStatic> { pub x: i32, }
 

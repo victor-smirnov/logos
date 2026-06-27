@@ -3550,11 +3550,11 @@ private:
 
     TypeRef resolve_type(writ::TinyMapView node);
     // Hash a bare writ_lit AST (WRIT_MAP / _ARRAY / scalars) and register
-    // its lowered LIR WritVal in cur_prog_->hstatic_registry_; return the
-    // corresponding WStaticLit TypeRef. Shared between the LIT_HSTATIC type-
+    // its lowered LIR WritVal in cur_prog_->wstatic_registry_; return the
+    // corresponding WStaticLit TypeRef. Shared between the LIT_WSTATIC type-
     // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
     // recognition in collect_const.
-    TypeRef resolve_hstatic_value(writ::TinyMapView val_node);
+    TypeRef resolve_wstatic_value(writ::TinyMapView val_node);
 
     // ── Collection phase ─────────────────────────────────────────
 
@@ -4885,11 +4885,11 @@ public:
     std::unordered_set<const writ::MemHolder*> collected_holders;
 
     // Cached WStaticLit registry contributions. Populated by sema when
-    // LIT_HSTATIC nodes are encountered at type-arg position; held on
-    // LProgram::hstatic_registry_ which is per-call. Cached here so
+    // LIT_WSTATIC nodes are encountered at type-arg position; held on
+    // LProgram::wstatic_registry_ which is per-call. Cached here so
     // subsequent sema_lower calls can pre-seed the fresh prog's
     // registry instead of re-walking binary ASTs to rediscover them.
-    std::unordered_map<uint64_t, lir::LExprPtr> hstatic_registry;
+    std::unordered_map<uint64_t, lir::LExprPtr> wstatic_registry;
 
     // M5 step 5: synth tuple-struct field-name intern pool. Owns the
     // std::string objects whose string_views are stored on

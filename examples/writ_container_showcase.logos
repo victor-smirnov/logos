@@ -23,8 +23,8 @@ package writ_container_showcase;
 use logos.lang.writ.container;   // Writ, writ_new / writ_rc, HeldAny, hold_any
 use logos.lang.writ.anyval;      // WAny (value) / WAnyRel (at-rest): Pod + Ref
 use logos.lang.writ.array;       // WArray<WAny>: push / get / len, grow, nest
-use logos.lang.writ.hstring;     // WString: a UTF-8 string in the arena, as_str
-use logos.lang.writ.hmap;        // WMap<WString, WAny>: string-keyed map (JSON object)
+use logos.lang.writ.wstring;     // WString: a UTF-8 string in the arena, as_str
+use logos.lang.writ.wmap;        // WMap<WString, WAny>: string-keyed map (JSON object)
 use logos.lang.writ.equal;       // structural equality
 use logos.lang.writ.compactify;  // compactify / clone (copying GC)
 use logos.mem.writ.parser;       // parse: text → doc
@@ -160,7 +160,7 @@ fn main() -> i32 {
     //      `len` header + `[u8]` tail, one allocation). Because it is
     //      `#[self_describing]`, a borrowed `&WString` is SAFE to read — no unsafe.
     section("7. WString — self-describing DST + as_str");
-    let hs: &WString = h.hstring("hello, writ");
+    let hs: &WString = h.wstring("hello, writ");
     print("   text = "); println(hs.as_str());
     say("byte len", hs.len());
     yn("round-trips", str_eq(hs.as_str(), "hello, writ"));
@@ -171,7 +171,7 @@ fn main() -> i32 {
     let rec: &mut WArray<WAny> = h.array(2i64);
     rec.push("Ada");                     // str → interned WString Ref
     rec.push(36i64);                     // i64 → inline Pod
-    print("   record.name = "); println(h.hstring_of(rec.get(0i64)).as_str());
+    print("   record.name = "); println(h.wstring_of(rec.get(0i64)).as_str());
     say("record.age", rec.get(1i64).as_i56());
 
     // 8 ── The DOCUMENT MODEL end to end: parse text → doc, stringify it back,

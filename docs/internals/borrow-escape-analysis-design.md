@@ -202,7 +202,7 @@ BC then escape-tracks its values like references:
   types, not just `is_ref_kind`.
 Plumbed: SemaStructInfo → LStructDef → mono_clone → TypeSets.borrow_carrying.
 The escape hatch is `hold_any(&mut Rc<Writ>, HAny) -> HeldAny` (laundered, ties
-to the HERMES2 holder — see container.logos). Test hany_ref_escapes_container.
+to the HERMES2 holder — see container.logos). Test wany_ref_escapes_container.
 
 **Rc container — DONE.** For `Rc<Writ>`, `h.array()` derefs the Rc via
 `Rc::deref` (a method whose `self` receiver is a BARE `VarRef h`, not `&h`), and
@@ -214,12 +214,12 @@ The walk traces FieldRead/TupleIndex/IndexRead/Deref but STOPS at a RAW-pointer 
 a raw-ptr deref) safe (an earlier no-discriminator Deref-walk falsely flagged it).
 Now BOTH value (`writ2_new`) and Rc (`writ2_rc`) containers reject a bare
 `return` of a Ref HAny; safe: box_leak, hold_any→HeldAny, Pod return, in-scope use.
-Tests hany_ref_escapes_container + hany_escapes_rc_container. L4 5555/5555.
+Tests wany_ref_escapes_container + wany_escapes_rc_container. L4 5555/5555.
 
 **Aggregate & container propagation — DONE (2026-06-09).** Borrow-carrying was
 tracked for a DIRECT HAny value but LOST when the value was embedded in an
-aggregate: `return Wrap { a: hany }` and `return vec_of_hany` escaped a local-arena
-Ref UNCAUGHT, even though the bare `return hany` was caught. Closed in three parts
+aggregate: `return Wrap { a: wany }` and `return vec_of_wany` escaped a local-arena
+Ref UNCAUGHT, even though the bare `return wany` was caught. Closed in three parts
 plus an exemption:
 - **Transitive classification** (build_type_sets fixpoint): a struct/enum with an
   INLINE field / variant payload of a borrow-carrying type is itself borrow-
@@ -239,4 +239,4 @@ plus an exemption:
   `HeldAny { holder: Rc<dyn Resident>, val: HAny }`) is NOT transitively borrow-
   carrying — the holder ref-counts the arena alive, so the escape package is
   returnable (that is its whole purpose).
-Tests hany_in_struct_escapes + hany_in_vec_escapes. L4 5574/5574.
+Tests wany_in_struct_escapes + wany_in_vec_escapes. L4 5574/5574.

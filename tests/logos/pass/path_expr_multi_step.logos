@@ -7,7 +7,7 @@
 // instantiation) resolution paths walk the path identically.
 package path_expr_multi_step;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub const Cfg: WritStatic = @{
     "outer": { "inner": <type:u64> },

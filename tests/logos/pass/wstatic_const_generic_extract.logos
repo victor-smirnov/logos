@@ -1,17 +1,17 @@
-// hstatic_const_generic_extract.logos — runtime extraction of a
+// wstatic_const_generic_extract.logos — runtime extraction of a
 // WritStatic const-generic from inside a generic body.
 //
-// Without this, hstatic-as-const-generic only carries type identity:
+// Without this, wstatic-as-const-generic only carries type identity:
 // the cfg distinguishes types but you can't read its content. With
 // this slice the cfg behaves like a real compile-time constant —
 // the body uses `CFG` like an inlined `let cfg: WritStatic = @{...};`.
 //
-// Pieces wired together (atop hstatic_const_generic_uid):
-//   • Sema, at LIT_HSTATIC resolution, also lowers the @-literal via
+// Pieces wired together (atop wstatic_const_generic_uid):
+//   • Sema, at LIT_WSTATIC resolution, also lowers the @-literal via
 //     lower_writ_lit and registers the resulting LExpr* in
-//     LProgram::hstatic_registry_ keyed by hash. First-write-wins —
+//     LProgram::wstatic_registry_ keyed by hash. First-write-wins —
 //     identical literals share one registered LExpr.
-//   • Mono moves hstatic_registry_ alongside expr_pool_ so cloned
+//   • Mono moves wstatic_registry_ alongside expr_pool_ so cloned
 //     bodies can splice the registered literal.
 //   • Mono's VarRef clone, on a `__const_param:NAME` reference whose
 //     SubstMap entry is WStaticLit(hash=H), looks up registry[H] and
@@ -23,15 +23,15 @@
 // Two `@{"k": 7}` instantiations dedupe; `@{"k": 13}` materialises
 // distinctly.
 
-package hstatic_const_generic_extract;
+package wstatic_const_generic_extract;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
 
 unsafe fn read_k<const CFG: WritStatic>() -> i64 {
-    let v: WView2 = hview2_from_ptr(CFG.ptr);
+    let v: WView2 = wview2_from_ptr(CFG.ptr);
     let r: WAny = v.root();
     if r.is_null() { return -1i64; }
     let kv: WAny = v.map_get(r, "k");

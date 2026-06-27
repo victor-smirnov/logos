@@ -2,7 +2,7 @@
 // Documents come from static @-literals; writ_equal walks by value semantics
 // (order-independent for maps, raw-byte for typed array payloads).
 package writ_typed_container_equal;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.anyval;
 use logos.mem.writ.equal;
 

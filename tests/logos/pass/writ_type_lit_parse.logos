@@ -4,7 +4,7 @@
 
 package writ_type_lit_parse;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub unsafe fn main() -> i32 {
     let _a = @{"key_ty": <type:i64>, "val_ty": <type:u32>};

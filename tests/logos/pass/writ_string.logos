@@ -1,9 +1,9 @@
 // writ zone strings (successor of the legacy WritString test):
-// hstring allocation, len/as_str, interning across WAny, empty + long strings.
+// wstring allocation, len/as_str, interning across WAny, empty + long strings.
 package writ_string;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wstring;
 use logos.lang.rc;
 use logos.lang.str;
 
@@ -12,12 +12,12 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // --- basic alloc + read-back ---
-    let s1: &WString = h.hstring("hello");
+    let s1: &WString = h.wstring("hello");
     if s1.len() != 5i64 { return 1; }
     if !str_eq(s1.as_str(), "hello") { return 2; }
 
     // --- empty string ---
-    let s2: &WString = h.hstring("");
+    let s2: &WString = h.wstring("");
     if s2.len() != 0i64 { return 3; }
 
     // --- through WAny: tag + accessor roundtrip ---
@@ -28,12 +28,12 @@ unsafe fn main() -> i32 {
     if !str_eq(s3.as_str(), "hello") { return 6; }
 
     // --- a longer string (multi-word payload) ---
-    let s4: &WString = h.hstring("the quick brown fox jumps over the lazy dog");
+    let s4: &WString = h.wstring("the quick brown fox jumps over the lazy dog");
     if s4.len() != 43i64 { return 7; }
     if !str_eq(s4.as_str(), "the quick brown fox jumps over the lazy dog") { return 8; }
 
-    // --- hstring_of: WAny -> &WString helper ---
-    let s5: &WString = h.hstring_of(v);
+    // --- wstring_of: WAny -> &WString helper ---
+    let s5: &WString = h.wstring_of(v);
     if !str_eq(s5.as_str(), "hello") { return 9; }
 
     return 42;

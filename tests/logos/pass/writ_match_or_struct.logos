@@ -3,7 +3,7 @@
 package writ_match_or_struct;
 
 use logos.lang.writ.pat;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 unsafe fn kind(d: &WritStatic) -> i32 {
     match d {

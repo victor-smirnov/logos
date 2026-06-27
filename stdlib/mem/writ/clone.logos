@@ -15,8 +15,8 @@ use logos.lang.writ.anyval;       // WAny, h2_type_code
 use logos.lang.writ.allocator;    // Allocator
 use logos.lang.writ.container;    // Writ, writ_rc, alloc_tagged, box_*
 use logos.lang.writ.array;        // WArray<WAny>
-use logos.lang.writ.hmap;         // WMap<WString, WAny>
-use logos.lang.writ.hstring;      // WString, hstring_in_alloc
+use logos.lang.writ.wmap;         // WMap<WString, WAny>
+use logos.lang.writ.wstring;      // WString, wstring_in_alloc
 use logos.lang.rc;                    // Rc
 use logos.lang.str;
 
@@ -39,7 +39,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
 
     if v.is_string() {
         let s: &WString = &*(p as *const WString);
-        return WAny::from(&*hstring_in_alloc(ap, s.as_str()));
+        return WAny::from(&*wstring_in_alloc(ap, s.as_str()));
     }
 
     if v.is_array() {

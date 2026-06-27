@@ -52,7 +52,7 @@ rushed — see the borrow-checker lesson in
 | cast / data-ptr extract | mlir_gen_expr.cpp ~3236-3261 | **FAT** — `load(gep(val,0))` (val = ptr to pair) |
 | store/copy (`dstref_has_slice_tail`) | mlir_gen_stmt.cpp ~1160 | **FAT** for `[T]`-tail (16B memcpy) |
 
-The committed-HString bug (when `hstring` returned `&HString`): construction made a
+The committed-HString bug (when `wstring` returned `&HString`): construction made a
 fat ref with `len=0` (the `dst_len` resolve in `materialize_self_describing_ref`
 fell back to 0), so `self.len` (header via `data`) read 14 but `self.bytes` (slice
 `{data+8, 0}`) was empty and the fat→raw cast took the 0 half → segfault.
@@ -67,7 +67,7 @@ fell back to 0), so `self.len` (header via `data`) read 14 but `self.bytes` (sli
 2. **Refactor the 4 sites onto the helpers — NO behavior change** (L4 green). This
    isolates every fat-extraction in one place under a green suite.
 3. **Flip**: `ref_repr_of(DstRef self_describing) → ThinPtr` (8B); the helpers now
-   return thin for self_describing. Behavior changes → L4 + valgrind + the hstring
+   return thin for self_describing. Behavior changes → L4 + valgrind + the wstring
    behavior test.
 4. **Construction**: `&*p` of a thin self_describing → return the thin ptr (skip
    `materialize_self_describing_ref` entirely — no fat pair, no `len=0` bug).
@@ -87,6 +87,6 @@ fell back to 0), so `self.len` (header via `data`) read 14 but `self.bytes` (sli
   `dst_len = vlen_prefix_size(p) + vlen_read(p)` (whole tail = whole object, no
   sized prefix). `len()` = `vlen_read(p)` (logical string length, payload only).
   `as_str` skips the vlen prefix.
-- With safe-`&` (steps 1-5): `hstring(&self,s) -> &HString`, safe `as_str(&self)`/
-  `len(&self)`, `HAny::from(&HString)`, `hstring_of -> &HString`. Showcase §7 + test
-  `writ2_hstring` back to the safe `&` form (no `unsafe` at call sites).
+- With safe-`&` (steps 1-5): `wstring(&self,s) -> &HString`, safe `as_str(&self)`/
+  `len(&self)`, `HAny::from(&HString)`, `wstring_of -> &HString`. Showcase §7 + test
+  `writ2_wstring` back to the safe `&` form (no `unsafe` at call sites).

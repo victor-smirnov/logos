@@ -309,7 +309,7 @@ on the same view/document API, so they port mechanically once the data model is 
   `core/lib/writ/writ_container.cpp` (compactify/clone). Apache-2.0, © V. Smirnov →
   copy-and-adapt is fine.
 - **Logos writ stdlib** (`stdlib/lang/writ/*.logos`) — the BYTE-LAYOUT SPEC.
-  `anyval.logos` (HAny niche), `hstring/array/hmap/decimal/typed_value/parameter`.
+  `anyval.logos` (HAny niche), `wstring/array/wmap/decimal/typed_value/parameter`.
 - **legacy C++** (`src/writ`, `include/logos/writ`) — API + algorithms to keep.
 - **Design**: `docs/internals/writ-design.md` (§2 self-rel, §3 segments, §4
   compaction=copying-GC + Rc liveness).

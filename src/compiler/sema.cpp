@@ -2282,7 +2282,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
         prog.type_pool = cache_->shared_pool().shared_clone();
         // M5 step 5: alias prog's LIR pools to the cache-held shared_ptrs.
         // Without this, cached LExpr*/LBlock*/etc. (e.g. via
-        // hstatic_registry) dangle as soon as mono's out_ pool refcount
+        // wstatic_registry) dangle as soon as mono's out_ pool refcount
         // drops to zero. Cache's shared_ptr holds the storage alive.
         if (cache_->impl()->writ_val_pool)  prog.writ_val_pool_  = cache_->impl()->writ_val_pool;
         if (cache_->impl()->closure_pool)     prog.closure_pool_     = cache_->impl()->closure_pool;
@@ -2290,22 +2290,22 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     pool_ = &prog.type_pool;  // bind so all alloc()s share prog's arena
 
     // M5 step 3b+5a+5c: install cached symbol tables + restore the
-    // hstatic_registry. The shared block/writ_val/closure pools keep cached
+    // wstatic_registry. The shared block/writ_val/closure pools keep cached
     // raw handles valid; Step 5b's per-binary-AST skip in collect keeps user ASTs
     // re-walking each call (so strict validation still fires) without
     // tripping ODR-less duplicate checks; Step 5c's user-pkg filter in
     // take_snapshot ensures the persisted state contains binary-origin
     // entries only.
     if (cache_ && cache_->impl()->snapshot) {
-        for (auto& [hash, lit] : cache_->impl()->snapshot->hstatic_registry)
+        for (auto& [hash, lit] : cache_->impl()->snapshot->wstatic_registry)
             if (lit && lit.addr())
-                lir_mirror_map_put_ref(prog, prog.hstatic_registry_,
+                lir_mirror_map_put_ref(prog, prog.wstatic_registry_,
                                        std::to_string(hash), lit.addr());
         install_snapshot(std::move(cache_->impl()->snapshot));
     }
-    // Set cur_prog_ before `collect` so LIT_HSTATIC encountered inside
+    // Set cur_prog_ before `collect` so LIT_WSTATIC encountered inside
     // type-alias rhs / supertrait bounds / etc. can register into
-    // prog.hstatic_registry_ during collection. Otherwise alias-routed
+    // prog.wstatic_registry_ during collection. Otherwise alias-routed
     // WritStatic const-args produce TypeRefs whose hash is in
     // const_val but whose literal never lands in the registry, and
     // mono later fails to materialise `__const_param:CFG`.
@@ -2350,16 +2350,16 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
         cache_->impl()->writ_val_pool  = prog.writ_val_pool_;
         cache_->impl()->closure_pool     = prog.closure_pool_;
         cache_->impl()->snapshot = take_snapshot();
-        // M5 step 5a: also capture prog.hstatic_registry_ (per-LProgram
+        // M5 step 5a: also capture prog.wstatic_registry_ (per-LProgram
         // field, not in SemaChecker). With pools shared above the LExpr*
         // entries here stay alive for the next call.
         {
             const writ::Arena* arena = prog.type_pool.arena();
-            prog.hstatic_registry_.for_each(
+            prog.wstatic_registry_.for_each(
                 [&](std::string_view key, writ::AnyVal av) {
                     if (av.is_null()) return;
                     uint64_t hash = std::strtoull(std::string(key).c_str(), nullptr, 10);
-                    cache_->impl()->snapshot->hstatic_registry[hash] =
+                    cache_->impl()->snapshot->wstatic_registry[hash] =
                         lir_view::ExprRef(arena, av);
                 });
         }
@@ -3997,9 +3997,9 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     if (bnode.has_key(la::HRTB_BINDERS)) {
         auto hav = bnode.get(la::HRTB_BINDERS.code);
         if (!hav.is_null()) {
-            auto hmap = map_of(hav);
-            if (hmap.has_key(la::ITEMS)) {
-                auto hitems = arr_of(hmap.get(la::ITEMS.code));
+            auto wmap = map_of(hav);
+            if (wmap.has_key(la::ITEMS)) {
+                auto hitems = arr_of(wmap.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < hitems.size(); ++i) {
                     auto av = hitems.get(i);
                     if (av.is_null()) continue;
@@ -4761,7 +4761,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::WStaticLit) return t;
         if (!cur_prog_) return t;
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
-        auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
+        auto rav = cur_prog_->wstatic_registry_.get(std::to_string(hash));
         if (rav.is_null()) return t;
         lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
         if (eref.addr() == nullptr) return t;
@@ -5057,7 +5057,7 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
         TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
         if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::WStaticLit && cur_prog_) {
             uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
-            auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
+            auto rav = cur_prog_->wstatic_registry_.get(std::to_string(hash));
             lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
             if (!rav.is_null() && eref.addr() != nullptr) {
                 if (eref.kind() == lir_schema::expr::Code::WritLit) {
@@ -5348,7 +5348,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
 
     // Generic compile-time const: `pub const X<T1, T2>: WritStatic =
     // @{...};`. Push type-args into current_type_params_ and re-resolve
-    // the saved value-AST under that scope. resolve_hstatic_value walks
+    // the saved value-AST under that scope. resolve_wstatic_value walks
     // the AST and substitutes TypeVar WRIT_TYPE_LIT names through
     // current_type_params_, producing a fresh per-instantiation
     // WStaticLit identity.
@@ -5378,7 +5378,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             // resolve offsets against the correct base. Restored after.
             auto* saved_holder = holder_;
             if (git->second.holder) holder_ = git->second.holder;
-            TypeRef result = resolve_hstatic_value(git->second.value_node);
+            TypeRef result = resolve_wstatic_value(git->second.value_node);
             holder_ = saved_holder;
             // Restore type-params.
             for (size_t i = 0; i < args.size(); ++i) {
@@ -6367,29 +6367,29 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::GENERIC_INST) return resolve_type_generic_inst(node);
 
-    if (tc == la::LIT_HSTATIC) {
+    if (tc == la::LIT_WSTATIC) {
         // WritStatic literal at type-arg position: Foo::<@{...}>.
         if (!node.has_key(la::VALUE)) {
             error("WritStatic type-arg: missing literal payload");
             return error_t();
         }
-        return resolve_hstatic_value(map_of(node.get(la::VALUE.code)));
+        return resolve_wstatic_value(map_of(node.get(la::VALUE.code)));
     }
     // Bare writ-lit codes also reach resolve_type when `pub const X:
     // WritStatic = @{...}` is being recognised in collect_const — there
-    // the value-AST is the unwrapped writ_lit, not LIT_HSTATIC.
+    // the value-AST is the unwrapped writ_lit, not LIT_WSTATIC.
     if (tc == la::WRIT_MAP.code || tc == la::WRIT_ARRAY.code ||
         tc == la::WRIT_STR.code || tc == la::WRIT_INT.code ||
         tc == la::WRIT_NEG_INT.code || tc == la::WRIT_FLOAT.code ||
         tc == la::WRIT_BOOL.code || tc == la::WRIT_NULL.code) {
-        return resolve_hstatic_value(node);
+        return resolve_wstatic_value(node);
     }
 
     error(std::format("unexpected type node code {}", tc));
     return error_t();
 }
 
-TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
+TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
     // Identity = byte-hash over the AST (content only, position-free) so two
     // identical `@{...}` instances at different sites produce the same TypeRef.
     {
@@ -6420,7 +6420,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     h = fnv_u64(h, (uint64_t)items.size());
                     // B-he-02: duplicate-key check at this layer (was only done
                     // for `pub const … = @{...}` via eval_static_writ_lit;
-                    // hstatic literals at type-arg position skipped through here
+                    // wstatic literals at type-arg position skipped through here
                     // unchecked).
                     if (c == la::WRIT_MAP.code) {
                         logos::compiler::StrSet seen_keys;
@@ -6488,9 +6488,9 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
         // place of `__const_param:CFG` references inside generic bodies.
         // First-write-wins: identical hashes resolve to the same registered
         // LExpr (content-only identity).
-        if (cur_prog_ && !cur_prog_->hstatic_registry_.has(std::to_string(hash))) {
+        if (cur_prog_ && !cur_prog_->wstatic_registry_.has(std::to_string(hash))) {
             auto lit = lower_writ_lit(val_node);
-            if (lit) lir_mirror_map_put_ref(*cur_prog_, cur_prog_->hstatic_registry_,
+            if (lit) lir_mirror_map_put_ref(*cur_prog_, cur_prog_->wstatic_registry_,
                                             std::to_string(hash), lit.addr());
         }
         LogosTypeBuilder t; t.kind = LogosType::Kind::WStaticLit;

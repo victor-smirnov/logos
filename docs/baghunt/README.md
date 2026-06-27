@@ -127,9 +127,9 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `collect_const`, `collect_type_alias`
-- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_hstatic_value`, `generic_consts_` map for parametric
+- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_wstatic_value`, `generic_consts_` map for parametric
 
-**Memory**: [feat_hstatic_const_generic](../../../.claude/projects/-home-victor-devel-logos/memory/feat_hstatic_const_generic.md), [feat_parametric_hstatic](../../../.claude/projects/-home-victor-devel-logos/memory/feat_parametric_hstatic.md), [feat_pub_const](../../../.claude/projects/-home-victor-devel-logos/memory/feat_pub_const.md).
+**Memory**: [feat_wstatic_const_generic](../../../.claude/projects/-home-victor-devel-logos/memory/feat_wstatic_const_generic.md), [feat_parametric_wstatic](../../../.claude/projects/-home-victor-devel-logos/memory/feat_parametric_wstatic.md), [feat_pub_const](../../../.claude/projects/-home-victor-devel-logos/memory/feat_pub_const.md).
 
 ---
 
@@ -179,12 +179,12 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `typeof_type` | | `typeof(expr)` |
 | `cfg_slot_type` | | `<type:CFG.slot>` WritStatic-slot extraction |
 | `cfg_slot_assoc_ref` | | `<type:CFG.slot>::Assoc` |
-| `hstatic_lit_type` | | `@{...}` at type position (RETIRED — see feat_parametric_hstatic) |
+| `wstatic_lit_type` | | `@{...}` at type position (RETIRED — see feat_parametric_wstatic) |
 | `writ_arr_type` | | Writ array shape at type-position |
 | `writ_map_type` | | Writ map shape at type-position |
 | `type_or_lt_arg` | | Type or lifetime argument (for type_arg_list) |
 
-**Reference**: [types.md](../language/reference/types.md). Comprehensive at surface. **Recent change** (2026-05-04): `hstatic_lit_type` removed from `type_ref` after parametric WritStatic landed.
+**Reference**: [types.md](../language/reference/types.md). Comprehensive at surface. **Recent change** (2026-05-04): `wstatic_lit_type` removed from `type_ref` after parametric WritStatic landed.
 
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_type` (~2000 lines into the file), `compute_type_uid`, `types_equal`, `mangle_type_for_name`, `concrete_struct_name`
@@ -218,7 +218,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 - [src/compiler/mono_subst.cpp](../../src/compiler/mono_subst.cpp) — `subst_type`, blanket-impl resolution
 - [src/compiler/mono_clone.cpp](../../src/compiler/mono_clone.cpp) — `find_best_struct_spec`
 
-**Memory**: [feat_hstatic_const_generic](../../../.claude/projects/-home-victor-devel-logos/memory/feat_hstatic_const_generic.md), [feat_const_variadic_mvp](../../../.claude/projects/-home-victor-devel-logos/memory/feat_const_variadic_mvp.md), [feat_method_assoc_type_outptr_silent](../../../.claude/projects/-home-victor-devel-logos/memory/feat_method_assoc_type_outptr_silent.md), [feat_generic_ref](../../../.claude/projects/-home-victor-devel-logos/memory/feat_generic_ref.md), [feat_arr_type_sizeof_pack_gap](../../../.claude/projects/-home-victor-devel-logos/memory/feat_arr_type_sizeof_pack_gap.md).
+**Memory**: [feat_wstatic_const_generic](../../../.claude/projects/-home-victor-devel-logos/memory/feat_wstatic_const_generic.md), [feat_const_variadic_mvp](../../../.claude/projects/-home-victor-devel-logos/memory/feat_const_variadic_mvp.md), [feat_method_assoc_type_outptr_silent](../../../.claude/projects/-home-victor-devel-logos/memory/feat_method_assoc_type_outptr_silent.md), [feat_generic_ref](../../../.claude/projects/-home-victor-devel-logos/memory/feat_generic_ref.md), [feat_arr_type_sizeof_pack_gap](../../../.claude/projects/-home-victor-devel-logos/memory/feat_arr_type_sizeof_pack_gap.md).
 
 ---
 

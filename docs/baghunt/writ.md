@@ -32,7 +32,7 @@ let h: WritStatic = @{ "k": @[1, 2] };       // map containing array
 ### B-he-02: Duplicate key in Writ map silently accepted
 
 **Severity**: P0 (silent miscompile)
-**Status**: fixed (resolve_hstatic_value walker also checks dup keys; covers `pub const X: WritStatic` path that bypassed the older eval_static_writ_lit check)
+**Status**: fixed (resolve_wstatic_value walker also checks dup keys; covers `pub const X: WritStatic` path that bypassed the older eval_static_writ_lit check)
 **Repro**: `B03/` —
 ```logos
 let h: WritStatic = @{ "k": 1, "k": 2 };

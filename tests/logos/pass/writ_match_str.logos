@@ -5,13 +5,13 @@ package writ_match_str;
 use logos.lang.writ.anyval;
 use logos.lang.writ.pat;   // writ_pat_eq_str — `@"str"` pattern helper
 use logos.lang.writ.container;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wstring;
 use logos.lang.rc;
 
 unsafe fn mk_str(s: str) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(1024);
     let h: &Writ = rc.deref();
-    let hs: &WString = h.hstring(s);
+    let hs: &WString = h.wstring(s);
     h.set_root(WAny::from(hs));
     return rc;
 }

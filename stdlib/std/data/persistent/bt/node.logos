@@ -31,7 +31,7 @@ use logos.lang.mem;
 use logos.lang.cmp;
 use logos.lang.drop;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.mem.sync;        // Arc<dyn BTreeNode> is the node handle
 
 // ── Public aliases for STORE_CFG slot types ───────────────────────────
@@ -66,7 +66,7 @@ pub struct NodeBase<const STORE_CFG: WritStatic> {
 // is no longer a trait method — `Arc<dyn BTreeNode>`'s own drop fires the
 // concrete destructor through the vtable drop slot.
 //
-//   cfg_hash()        — hstatic_hash_of::<CFG>() per concrete impl. Used by
+//   cfg_hash()        — wstatic_hash_of::<CFG>() per concrete impl. Used by
 //                       IO consistency check (verify on-disk CFG matches
 //                       runtime CFG when a block is loaded).
 //   block_type_hash() — returns the PHYSICAL base.block_code (stamped at

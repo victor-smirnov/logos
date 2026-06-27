@@ -20,7 +20,7 @@ package logos.std.data.persistent.bt.shuttle;
 
 use logos.lang.cmp;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub struct ShuttleResult {
     pub idx:       u64,   // child index to descend into

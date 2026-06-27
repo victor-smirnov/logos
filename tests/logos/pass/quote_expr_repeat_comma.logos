@@ -9,7 +9,7 @@
 package quote_expr_repeat_comma;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 fn add3(x: i32, y: i32, z: i32) -> i32 {
     return x + y + z;

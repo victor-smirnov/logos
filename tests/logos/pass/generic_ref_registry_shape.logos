@@ -9,7 +9,7 @@
 //   3. WritStatic-keyed instantiation works the same way.
 package generic_ref_registry_shape;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 // (1) Const-generic thunks — distinct N values yield distinct functions.
 fn add_n<const N: i64>(x: i32) -> i32 {

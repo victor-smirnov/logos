@@ -3,7 +3,7 @@ use logos.lang.writ.comp_builder;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.static_view;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.rc;
 
 unsafe fn build_cfg() -> Rc<Writ> {
@@ -15,7 +15,7 @@ unsafe fn main() -> i32 {
     // Compile-time: metacall JITs build_cfg, freezes the Rc<Writ> into a
     // WritStatic rodata blob.
     let cfg_meta: WritStatic = metacall build_cfg();
-    let vm: WView2 = hview2_from_ptr(cfg_meta.ptr);
+    let vm: WView2 = wview2_from_ptr(cfg_meta.ptr);
     let mroot: WAny = vm.root();
     if mroot.is_null() { return 1; }
     let mk: WAny = vm.map_get(mroot, "k");

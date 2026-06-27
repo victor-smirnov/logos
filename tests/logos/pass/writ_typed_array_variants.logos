@@ -6,7 +6,7 @@
 
 package writ_typed_array_variants;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.mem.writ.stringify;
 use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
@@ -14,7 +14,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &WritStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
+    let s: String = stringify(wview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) { return err_code; }
     return 0;
 }

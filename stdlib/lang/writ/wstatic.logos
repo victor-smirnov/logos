@@ -1,14 +1,14 @@
-// logos.lang.writ.hstatic — the compile-time @-literal blob handle.
+// logos.lang.writ.wstatic — the compile-time @-literal blob handle.
 //
 // `@{...}` / `@[...]` / `@<T>[...]` literals (and metacall splice results) are
 // writ blobs in rodata laid out as [u64 size][bytes]; `WritStatic.ptr`
 // points at the first blob byte (past the size prefix). Read the document via
-// `hview2_from_ptr(hs.ptr)` (lang.writ.static_view).
+// `wview2_from_ptr(hs.ptr)` (lang.writ.static_view).
 //
 // Relocated from lang.writ.view;
 // the struct NAME is load-bearing — sema types static @-literals by it.
 
-package logos.lang.writ.hstatic;
+package logos.lang.writ.wstatic;
 
 pub struct WritStatic {
     pub ptr: *const u8,

@@ -4,7 +4,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 fn emit_a() -> QuoteItemBlob {
     return quote_item! { struct Synth { x: i32 } };

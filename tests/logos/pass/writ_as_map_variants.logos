@@ -3,7 +3,7 @@ package writ_as_map_variants;
 use logos.lang.writ.typed_arr;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wstring;
 use logos.mem.writ.stringify;
 use logos.lang.rc;
 use logos.mem.string;
@@ -35,7 +35,7 @@ unsafe fn main() -> i32 {
     // U32 keys; a Ref value (string from ANOTHER container re-anchors).
     let other: Rc<Writ> = writ_rc(4096);
     let oh: &Writ = other.deref();
-    let sref: WAny = WAny::from(&*(oh.hstring("zone-str") as *const WString));
+    let sref: WAny = WAny::from(&*(oh.wstring("zone-str") as *const WString));
     let k3: [u32; 1] = [7];
     let v3: [WAny; 1] = [sref];
     let ks3: &[u32] = &k3;

@@ -1,11 +1,11 @@
 package writ_buffer_string;
 use logos.lang.fabric;
 use logos.lang.fabric.string_store;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 // Buffer<StrDt>: SoA storage (packed bytes + end offsets).  Push three
 // strings, read them back via StringView, verify each byte.
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.fabric;
 
 unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {

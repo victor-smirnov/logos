@@ -142,11 +142,6 @@ sym	logos.lang.writ.container.Writ__type_id__g__ref_T
 sym	logos.lang.writ.decimal.WDecimal__type_id__g__ref_T
 sym	logos.lang.writ.dview.DViewStore__type_id__g__ref_T
 sym	logos.lang.writ.dview.DView__type_id__g__ref_T
-sym	logos.lang.writ.hmap.Hu6__type_id__g__ref_T
-sym	logos.lang.writ.hmap.WMapEntry__type_id__g__ref_T
-sym	logos.lang.writ.hstatic.StringView__type_id__g__ref_T
-sym	logos.lang.writ.hstatic.WritStatic__type_id__g__ref_T
-sym	logos.lang.writ.hstring.WString__type_id__g__ref_T
 sym	logos.lang.writ.parameter.WParameter__type_id__g__ref_T
 sym	logos.lang.writ.static_view.SView2__type_id__g__ref_T
 sym	logos.lang.writ.static_view.WView2__type_id__g__ref_T
@@ -155,6 +150,11 @@ sym	logos.lang.writ.typed_arr.MapSliceI64__type_id__g__ref_T
 sym	logos.lang.writ.typed_arr.MapSliceU32__type_id__g__ref_T
 sym	logos.lang.writ.typed_arr.MapSliceU64__type_id__g__ref_T
 sym	logos.lang.writ.typed_value.WTypedValue__type_id__g__ref_T
+sym	logos.lang.writ.wmap.Hu6__type_id__g__ref_T
+sym	logos.lang.writ.wmap.WMapEntry__type_id__g__ref_T
+sym	logos.lang.writ.wstatic.StringView__type_id__g__ref_T
+sym	logos.lang.writ.wstatic.WritStatic__type_id__g__ref_T
+sym	logos.lang.writ.wstring.WString__type_id__g__ref_T
 sym	logos.mem.any.AnnotationInfo__type_id__g__ref_T
 sym	logos.mem.any.AnnotationsView__type_id__g__ref_T
 sym	logos.mem.any.FieldInfo__type_id__g__ref_T
@@ -7282,46 +7282,6 @@ sym	logos_lang..logos.lang.writ.dview.u64__as_datum__f__ref_u64
 sym	logos_lang..logos.lang.writ.dview.u64__datum_meta__f__ref_u64
 sym	logos_lang..logos.lang.writ.dview.u64__datum_tag__f__pcst_u64
 sym	logos_lang..logos.lang.writ.dview.u64__from_datum__f__pcst_u64__DView
-sym	logos_lang..logos.lang.writ.hmap.WAnyMut__as_map_mut__f__WAnyMut
-sym	logos_lang..logos.lang.writ.hmap.WAny__as_map__f__ref_WAny
-sym	logos_lang..logos.lang.writ.hmap.WAny__from__f__ref_WMap$G2$Hu6$WAny
-sym	logos_lang..logos.lang.writ.hmap.WAny__from__f__ref_WMap$G2$WString$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__cap__f__ref_WMap$G2$Hu6$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__contains__f__ref_WMap$G2$Hu6$WAny__u8
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__get__f__ref_WMap$G2$Hu6$WAny__u8
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__schema_type_code__f__ref_WMap$G2$Hu6$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__set__f__refmut_WMap$G2$Hu6$WAny__u8__WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__set_schema_type_code__f__refmut_WMap$G2$Hu6$WAny__u64
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$Hu6$WAny__size__f__ref_WMap$G2$Hu6$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__contains__f__ref_WMap$G2$WString$WAny__slice_u8
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__get__f__ref_WMap$G2$WString$WAny__slice_u8
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__get_mut__f__refmut_WMap$G2$WString$WAny__slice_u8
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__key_at__f__ref_WMap$G2$WString$WAny__i64
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__len__f__ref_WMap$G2$WString$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__bool
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__dstref_WString
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__f64
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__i64
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__ref_WArray$G1$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__ref_WMap$G2$WString$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__slice_u8
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__slots__f__ref_WMap$G2$WString$WAny
-sym	logos_lang..logos.lang.writ.hmap.WMap$G2$WString$WAny__val_at__f__ref_WMap$G2$WString$WAny__i64
-sym	logos_lang..logos.lang.writ.hmap.Writ__map__f__ref_Writ__i64
-sym	logos_lang..logos.lang.writ.hmap.Writ__tinymap__f__ref_Writ__i64
-sym	logos_lang..logos.lang.writ.hmap.i32__map_code__f__void
-sym	logos_lang..logos.lang.writ.hmap.i64__map_code__f__void
-sym	logos_lang..logos.lang.writ.hmap.u32__map_code__f__void
-sym	logos_lang..logos.lang.writ.hmap.u64__map_code__f__void
-sym	logos_lang..logos.lang.writ.hstatic.WritStatic__size__f__ref_WritStatic
-sym	logos_lang..logos.lang.writ.hstring.WAny__as_string__f__ref_WAny
-sym	logos_lang..logos.lang.writ.hstring.WAny__from__f__dstref_WString
-sym	logos_lang..logos.lang.writ.hstring.WString__as_str__f__dstref_WString
-sym	logos_lang..logos.lang.writ.hstring.WString__dst_len__f__pcst_WString
-sym	logos_lang..logos.lang.writ.hstring.WString__len__f__dstref_WString
-sym	logos_lang..logos.lang.writ.hstring.Writ__hstring__f__ref_Writ__slice_u8
-sym	logos_lang..logos.lang.writ.hstring.Writ__hstring_of__f__ref_Writ__WAny
 sym	logos_lang..logos.lang.writ.parameter.WAny__as_parameter__f__ref_WAny
 sym	logos_lang..logos.lang.writ.parameter.WAny__from__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WAny__is_parameter__f__ref_WAny
@@ -7349,6 +7309,46 @@ sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__params__f__ref_WTypedVa
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__type_name__f__ref_WTypedValue
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue__type_name_str__f__ref_WTypedValue
 sym	logos_lang..logos.lang.writ.typed_value.Writ__typed_value__f__ref_Writ__slice_u8__WAny__WAny
+sym	logos_lang..logos.lang.writ.wmap.WAnyMut__as_map_mut__f__WAnyMut
+sym	logos_lang..logos.lang.writ.wmap.WAny__as_map__f__ref_WAny
+sym	logos_lang..logos.lang.writ.wmap.WAny__from__f__ref_WMap$G2$Hu6$WAny
+sym	logos_lang..logos.lang.writ.wmap.WAny__from__f__ref_WMap$G2$WString$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__cap__f__ref_WMap$G2$Hu6$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__contains__f__ref_WMap$G2$Hu6$WAny__u8
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__get__f__ref_WMap$G2$Hu6$WAny__u8
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__schema_type_code__f__ref_WMap$G2$Hu6$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__set__f__refmut_WMap$G2$Hu6$WAny__u8__WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__set_schema_type_code__f__refmut_WMap$G2$Hu6$WAny__u64
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$Hu6$WAny__size__f__ref_WMap$G2$Hu6$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__contains__f__ref_WMap$G2$WString$WAny__slice_u8
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__get__f__ref_WMap$G2$WString$WAny__slice_u8
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__get_mut__f__refmut_WMap$G2$WString$WAny__slice_u8
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__key_at__f__ref_WMap$G2$WString$WAny__i64
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__len__f__ref_WMap$G2$WString$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__bool
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__dstref_WString
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__f64
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__i64
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__ref_WArray$G1$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__ref_WMap$G2$WString$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__set__f__refmut_WMap$G2$WString$WAny__slice_u8__slice_u8
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__slots__f__ref_WMap$G2$WString$WAny
+sym	logos_lang..logos.lang.writ.wmap.WMap$G2$WString$WAny__val_at__f__ref_WMap$G2$WString$WAny__i64
+sym	logos_lang..logos.lang.writ.wmap.Writ__map__f__ref_Writ__i64
+sym	logos_lang..logos.lang.writ.wmap.Writ__tinymap__f__ref_Writ__i64
+sym	logos_lang..logos.lang.writ.wmap.i32__map_code__f__void
+sym	logos_lang..logos.lang.writ.wmap.i64__map_code__f__void
+sym	logos_lang..logos.lang.writ.wmap.u32__map_code__f__void
+sym	logos_lang..logos.lang.writ.wmap.u64__map_code__f__void
+sym	logos_lang..logos.lang.writ.wstatic.WritStatic__size__f__ref_WritStatic
+sym	logos_lang..logos.lang.writ.wstring.WAny__as_string__f__ref_WAny
+sym	logos_lang..logos.lang.writ.wstring.WAny__from__f__dstref_WString
+sym	logos_lang..logos.lang.writ.wstring.WString__as_str__f__dstref_WString
+sym	logos_lang..logos.lang.writ.wstring.WString__dst_len__f__pcst_WString
+sym	logos_lang..logos.lang.writ.wstring.WString__len__f__dstref_WString
+sym	logos_lang..logos.lang.writ.wstring.Writ__wstring__f__ref_Writ__slice_u8
+sym	logos_lang..logos.lang.writ.wstring.Writ__wstring_of__f__ref_Writ__WAny
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Alignment
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Allocator
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AnnotationInfo
@@ -8062,27 +8062,10 @@ sym	logos_lang.logos.lang.writ.dview$htag_cmp__f__u64__u64__pcst_u8__u64__pcst_u
 sym	logos_lang.logos.lang.writ.dview$htag_size__f__u64__u64
 sym	logos_lang.logos.lang.writ.dview$load_le__f__pcst_u8__u64
 sym	logos_lang.logos.lang.writ.equal$equal__f__WAny__WAny
-sym	logos_lang.logos.lang.writ.hmap$ent_key__f__pmut_WMapEntry
-sym	logos_lang.logos.lang.writ.hmap$ent_key_raw__f__pcst_WMapEntry
-sym	logos_lang.logos.lang.writ.hmap$ent_val__f__pmut_WMapEntry
-sym	logos_lang.logos.lang.writ.hmap$htv_new__f__pmut_Writ__i64
-sym	logos_lang.logos.lang.writ.hmap$key_str__f__WAny
-sym	logos_lang.logos.lang.writ.hmap$om_buf__f__pcst_WMap$G2$WString$WAny
-sym	logos_lang.logos.lang.writ.hmap$om_buf_mut__f__pmut_WMap$G2$WString$WAny
-sym	logos_lang.logos.lang.writ.hmap$om_get__f__pcst_WMap$G2$WString$WAny__slice_u8
-sym	logos_lang.logos.lang.writ.hmap$om_get_slot__f__pmut_WMap$G2$WString$WAny__slice_u8
-sym	logos_lang.logos.lang.writ.hmap$om_grow__f__pmut_WMap$G2$WString$WAny__pmut_Allocator
-sym	logos_lang.logos.lang.writ.hmap$om_new__f__pmut_Writ__i64
-sym	logos_lang.logos.lang.writ.hmap$om_set__f__pmut_WMap$G2$WString$WAny__pmut_Allocator__slice_u8__WAny
-sym	logos_lang.logos.lang.writ.hmap$om_zero__f__pmut_WMapEntry__i64
-sym	logos_lang.logos.lang.writ.hmap$round_pow2__f__i64
-sym	logos_lang.logos.lang.writ.hstatic$writ_static_size__f__pcst_u8
-sym	logos_lang.logos.lang.writ.hstring$hstring_in_alloc__f__pmut_Allocator__slice_u8
-sym	logos_lang.logos.lang.writ.hstring$hstring_new__f__pmut_Writ__slice_u8
 sym	logos_lang.logos.lang.writ.parameter$param_new__f__pmut_Writ__WAny__WAny
 sym	logos_lang.logos.lang.writ.parameter$param_slot__f__pmut_WParameter__i64
 sym	logos_lang.logos.lang.writ.parameter$param_slot_c__f__pcst_WParameter__i64
-sym	logos_lang.logos.lang.writ.pat$null_hany__f__void
+sym	logos_lang.logos.lang.writ.pat$null_wany__f__void
 sym	logos_lang.logos.lang.writ.pat$writ_pat_array_len_eq__f__pcst_WAny__u64
 sym	logos_lang.logos.lang.writ.pat$writ_pat_array_len_ge__f__pcst_WAny__u64
 sym	logos_lang.logos.lang.writ.pat$writ_pat_array_slot__f__pcst_WAny__u64
@@ -8096,8 +8079,8 @@ sym	logos_lang.logos.lang.writ.pat$writ_pat_is_present__f__pcst_WAny
 sym	logos_lang.logos.lang.writ.pat$writ_pat_map_slot__f__pcst_WAny__slice_u8
 sym	logos_lang.logos.lang.writ.pat$writ_pat_root__f__ref_WritStatic
 sym	logos_lang.logos.lang.writ.pat$writ_pat_root_rc__f__ref_Rc$G1$Writ
-sym	logos_lang.logos.lang.writ.static_view$hany_from_word__f__i64
-sym	logos_lang.logos.lang.writ.static_view$hview2_from_ptr__f__pcst_u8
+sym	logos_lang.logos.lang.writ.static_view$wany_from_word__f__i64
+sym	logos_lang.logos.lang.writ.static_view$wview2_from_ptr__f__pcst_u8
 sym	logos_lang.logos.lang.writ.tmpl$writ_build_from_template__f__pcst_u8__i64__pcst_u32__i64__pcst_u64__i64
 sym	logos_lang.logos.lang.writ.tmpl$writ_ctr_alloc_cstr__f__ref_Rc$G1$Writ__pcst_u8
 sym	logos_lang.logos.lang.writ.tmpl$writ_ctr_alloc_f64__f__ref_Rc$G1$Writ__f64
@@ -8123,6 +8106,23 @@ sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u64_anyval__f__pcst_u64_
 sym	logos_lang.logos.lang.writ.typed_value$tv_new__f__pmut_Writ__WAny__WAny__WAny
 sym	logos_lang.logos.lang.writ.typed_value$tv_slot__f__pmut_WTypedValue__i64
 sym	logos_lang.logos.lang.writ.typed_value$tv_slot_c__f__pcst_WTypedValue__i64
+sym	logos_lang.logos.lang.writ.wmap$ent_key__f__pmut_WMapEntry
+sym	logos_lang.logos.lang.writ.wmap$ent_key_raw__f__pcst_WMapEntry
+sym	logos_lang.logos.lang.writ.wmap$ent_val__f__pmut_WMapEntry
+sym	logos_lang.logos.lang.writ.wmap$htv_new__f__pmut_Writ__i64
+sym	logos_lang.logos.lang.writ.wmap$key_str__f__WAny
+sym	logos_lang.logos.lang.writ.wmap$om_buf__f__pcst_WMap$G2$WString$WAny
+sym	logos_lang.logos.lang.writ.wmap$om_buf_mut__f__pmut_WMap$G2$WString$WAny
+sym	logos_lang.logos.lang.writ.wmap$om_get__f__pcst_WMap$G2$WString$WAny__slice_u8
+sym	logos_lang.logos.lang.writ.wmap$om_get_slot__f__pmut_WMap$G2$WString$WAny__slice_u8
+sym	logos_lang.logos.lang.writ.wmap$om_grow__f__pmut_WMap$G2$WString$WAny__pmut_Allocator
+sym	logos_lang.logos.lang.writ.wmap$om_new__f__pmut_Writ__i64
+sym	logos_lang.logos.lang.writ.wmap$om_set__f__pmut_WMap$G2$WString$WAny__pmut_Allocator__slice_u8__WAny
+sym	logos_lang.logos.lang.writ.wmap$om_zero__f__pmut_WMapEntry__i64
+sym	logos_lang.logos.lang.writ.wmap$round_pow2__f__i64
+sym	logos_lang.logos.lang.writ.wstatic$writ_static_size__f__pcst_u8
+sym	logos_lang.logos.lang.writ.wstring$wstring_in_alloc__f__pmut_Allocator__slice_u8
+sym	logos_lang.logos.lang.writ.wstring$wstring_new__f__pmut_Writ__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__get_int__f__ref_AnnotationInfo__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__get_str__f__ref_AnnotationInfo__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__type_name__f__ref_AnnotationInfo
@@ -9517,12 +9517,6 @@ type	logos.lang.writ.container.Writ	fields=[allocator:Allocator,root:i64]
 type	logos.lang.writ.decimal.WDecimal	fields=[spec:u32,coeff:u64]
 type	logos.lang.writ.dview.DView	fields=[obj:*const u8,len:u64,tag:u64,meta:u64]
 type	logos.lang.writ.dview.DViewStore	fields=[tag:u64,meta:u64,data:PrimVec<u8>,offsets:PrimVec<u64>]
-type	logos.lang.writ.hmap.Hu6	fields=[]
-type	logos.lang.writ.hmap.WMap	fields=[]
-type	logos.lang.writ.hmap.WMapEntry	fields=[key:i64,val:i64]
-type	logos.lang.writ.hstatic.StringView	fields=[ptr:*const u8,len:u64]
-type	logos.lang.writ.hstatic.WritStatic	fields=[ptr:*const u8]
-type	logos.lang.writ.hstring.WString	fields=[bytes:[u8]]
 type	logos.lang.writ.parameter.WParameter	fields=[name:i64,value:i64]
 type	logos.lang.writ.static_view.SView2	fields=[ptr:*const u8,len:u64]
 type	logos.lang.writ.static_view.WView2	fields=[base:*const u8]
@@ -9531,6 +9525,12 @@ type	logos.lang.writ.typed_arr.MapSliceI64	fields=[keys:&[i64],vals:&[WAny]]
 type	logos.lang.writ.typed_arr.MapSliceU32	fields=[keys:&[u32],vals:&[WAny]]
 type	logos.lang.writ.typed_arr.MapSliceU64	fields=[keys:&[u64],vals:&[WAny]]
 type	logos.lang.writ.typed_value.WTypedValue	fields=[type_name:i64,params:i64,init:i64]
+type	logos.lang.writ.wmap.Hu6	fields=[]
+type	logos.lang.writ.wmap.WMap	fields=[]
+type	logos.lang.writ.wmap.WMapEntry	fields=[key:i64,val:i64]
+type	logos.lang.writ.wstatic.StringView	fields=[ptr:*const u8,len:u64]
+type	logos.lang.writ.wstatic.WritStatic	fields=[ptr:*const u8]
+type	logos.lang.writ.wstring.WString	fields=[bytes:[u8]]
 type	logos.mem.any.AnnotationInfo	fields=[info:WritStatic,map_bits:i64]
 type	logos.mem.any.AnnotationsView	fields=[info:WritStatic,arr_bits:i64]
 type	logos.mem.any.FieldInfo	fields=[info:WritStatic,map_bits:i64]
@@ -9770,7 +9770,7 @@ vtable	logos.lang.try_trait.Try	slots=[branch]
 vtable	logos.lang.writ.array.WArrTag	slots=[arr_code]
 vtable	logos.lang.writ.container.Resident	slots=[]
 vtable	logos.lang.writ.dview.Datum	slots=[datum_tag,datum_meta,as_datum,from_datum]
-vtable	logos.lang.writ.hmap.WIntKeyTag	slots=[map_code]
+vtable	logos.lang.writ.wmap.WIntKeyTag	slots=[map_code]
 vtable	logos.mem.fmt.Binary	slots=[fmt]
 vtable	logos.mem.fmt.Debug	slots=[fmt]
 vtable	logos.mem.fmt.Display	slots=[fmt]

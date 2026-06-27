@@ -446,12 +446,12 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return s;
     }
 
-    case la::LIT_HSTATIC: {
+    case la::LIT_WSTATIC: {
         // Writ literal — out of scope for renderer (would need a full
         // writ-to-source dump). Leave as a sentinel; capture-detector will
         // never reach here for value-position consts because module-level
-        // hstatic refs are already inlined elsewhere.
-        return "/* render_expr: LIT_HSTATIC unsupported in metacall block */";
+        // wstatic refs are already inlined elsewhere.
+        return "/* render_expr: LIT_WSTATIC unsupported in metacall block */";
     }
 
     // ── Writ literal expressions ──
@@ -1203,7 +1203,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         if (node.has_key(la::VALUE)) {
             s += " = ";
             // VALUE may be an expr or a WritStatic literal. Use expr renderer;
-            // unsupported shapes (LIT_HSTATIC) are tagged as such.
+            // unsupported shapes (LIT_WSTATIC) are tagged as such.
             s += render_expr_src(map_of(node.get(la::VALUE.code)));
         }
         s += ";";

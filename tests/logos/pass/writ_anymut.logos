@@ -5,8 +5,8 @@ package test;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 fn main() -> i32 {
     let h: Writ = writ_new(256i64);
     let root: &mut WArray<WAny> = h.array(2i64);
@@ -15,7 +15,7 @@ fn main() -> i32 {
     root.push(&*child);                       // root[0] = nested array
     let m: &mut WMap<WString, WAny> = h.map(4i64);
     m.set("a", 100i64);
-    root.push(WAny::from(&*m));                // root[1] = nested map (WAny::from; array cannot import hmap)
+    root.push(WAny::from(&*m));                // root[1] = nested map (WAny::from; array cannot import wmap)
 
     // descend into root[0] and GROW the nested child through the cursor
     let cur: WAnyMut = root.get_mut(0i64);

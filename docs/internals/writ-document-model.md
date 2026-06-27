@@ -58,7 +58,7 @@ binary**, **self-compacting** (a multi-segment doc copies into one rigid block),
 and **comparable** (an original equals its round-tripped/compacted copy).
 `examples/writ2_showcase.logos` §8 demonstrates the whole pipeline.
 
-Tests: `writ2_{hmap,typetags,stringify,hbs,parser,compactify,wide_scalars,equal}`.
+Tests: `writ2_{wmap,typetags,stringify,hbs,parser,compactify,wide_scalars,equal}`.
 
 ## Lessons (parallel-Writ hazards)
 
@@ -68,7 +68,7 @@ Tests: `writ2_{hmap,typetags,stringify,hbs,parser,compactify,wide_scalars,equal}
   one → entry overlap → corruption on the first hash collision). Prefix/namespace
   every new type.
 - **self_describing gate exemption** needs the struct's def imported (`use
-  logos.lang.writ.hstring`) for the compiler to see the flag and allow safe
+  logos.lang.writ.wstring`) for the compiler to see the flag and allow safe
   `&HString` field/method access.
 
 ## Remaining for full parity (not started)

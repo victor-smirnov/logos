@@ -10,7 +10,7 @@ use logos.lang.option;
 use logos.lang.cmp;
 use logos.lang.fabric;
 use logos.lang.drop;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.dview;
 
 use logos.std.data.persistent.bt.node;

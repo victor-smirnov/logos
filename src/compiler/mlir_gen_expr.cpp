@@ -6056,7 +6056,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
 // Pod = (v<<8)|(code<<1)|1 (bool code WA_BOOL=2 -> |5; ints as i56 code WA_I56=1
 // -> |3). WAny captures pass their niche word through. Zone-alloc kinds
 // (strings/floats/ptrs) are handled by the writ_ctr_alloc_* path, not here.
-mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {
+mlir::Value MLIRGenImpl::coerce_to_wany_raw(mlir::Value v, TypeRef t) {
     auto i64_mlir = builder_.getIntegerType(64);
     auto zero64 = [&]() {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
@@ -6455,7 +6455,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
                 }
             } else {
-                raw_u32 = coerce_to_hany_raw(cap_val, ct);
+                raw_u32 = coerce_to_wany_raw(cap_val, ct);
             }
 
             if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
@@ -6485,7 +6485,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         mlir::Value cap_val = gen_expr(capture_exprs[i]);
         if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
 
-        mlir::Value raw_u32 = coerce_to_hany_raw(cap_val, capture_types[i]);
+        mlir::Value raw_u32 = coerce_to_wany_raw(cap_val, capture_types[i]);
         if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 
         llvm::SmallVector<mlir::Value> gep_idx{

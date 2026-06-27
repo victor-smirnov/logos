@@ -277,7 +277,7 @@
     METACALL_ITEM               = 209   // `metacall <call_expr>;` at module-item position; VALUE = inner call AST. Driver runs the JIT'd callee returning QuoteItemBlob and splices its emitted items via `logos_emit_item_blob_subst`; node is marked consumed after splice.
     METACALL_ITEM_DONE          = 210   // Set by the driver after a METACALL_ITEM has been invoked; sema item-dispatch silently skips. Never parsed.
     WRIT_TYPE_LIT             = 211   // Component-metaprog slice 1: `<type:T>` inside @-literal. NAME = bare type identifier (slice 1: IDENT only). Sema embeds it as a first-class Writ Type value.
-    LIT_HSTATIC                 = 212   // WritStatic literal at type-arg position: Foo::<@{...}>. VALUE = nested writ_lit AST. Sema lowers to ConstVar(WritStatic, hash) with byte-hash identity.
+    LIT_WSTATIC                 = 212   // WritStatic literal at type-arg position: Foo::<@{...}>. VALUE = nested writ_lit AST. Sema lowers to ConstVar(WritStatic, hash) with byte-hash identity.
     CFG_SLOT_TYPE               = 213   // Type-position `<type:CFG.SLOT>`: extract the type stored at top-level slot SLOT of WritStatic CFG (a const-generic param or type alias). NAME = CFG ident, KEY = slot ident. Mono resolves to the slot's `<type:T>` value when CFG becomes concrete.
     GENERIC_REF                 = 214   // `IDENT::<TARGS>` at expression position; CALLEE = ident, TYPE_PARAMS = type_arg_list.
     PAT_FLOAT                   = 215   // float-literal pattern (Sprint 4.2 — B-pt-06; rejected at sema, but parses cleanly).
@@ -1413,7 +1413,7 @@
                / KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
-    // hstatic_lit_type intentionally absent: `@{...}` is a WritStatic *value*,
+    // wstatic_lit_type intentionally absent: `@{...}` is a WritStatic *value*,
     // not a type. At type-arg position (`Foo<@{...}>`) it goes through
     // type_or_lt_arg's writ_lit alt; at top-level naming, use
     // `pub const X: WritStatic = @{...};` instead of legacy
@@ -1448,10 +1448,10 @@
     cfg_slot_assoc_ref <- cfg_slot_type COLONCOLON IDENT
                        => { CODE: ASSOC_TYPE_REF, RECEIVER: $1, FIELD: $3 }
 
-    // hstatic_lit_type: bare `@{...}` at type position (e.g. `type Cfg = @{...};`).
-    // Sema lowers via the same LIT_HSTATIC code as the type-arg form.
-    hstatic_lit_type <- writ_lit
-                     => { CODE: LIT_HSTATIC, VALUE: $1 }
+    // wstatic_lit_type: bare `@{...}` at type position (e.g. `type Cfg = @{...};`).
+    // Sema lowers via the same LIT_WSTATIC code as the type-arg form.
+    wstatic_lit_type <- writ_lit
+                     => { CODE: LIT_WSTATIC, VALUE: $1 }
 
     // $ident — antiquot in a type position, valid only inside `quote_ty! { ... }`.
     // sema's lower_quote_ty consumes these; resolve_type errors out elsewhere.
@@ -1791,7 +1791,7 @@
                     / INTEGER
                    => { CODE: LIT_INT, VALUE: $1 }
                     / writ_lit
-                   => { CODE: LIT_HSTATIC, VALUE: $1 }
+                   => { CODE: LIT_WSTATIC, VALUE: $1 }
                     / type_ref
 
     simple_type <- HASH LPAREN expr RPAREN LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE

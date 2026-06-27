@@ -1,4 +1,4 @@
-// hstatic_const_generic_uid.logos — first slice of hstatic-as-const-
+// wstatic_const_generic_uid.logos — first slice of wstatic-as-const-
 // generic. `Foo<const CFG: WritStatic>` accepts `@{...}` literals
 // at turbofish position; the identity of the resulting type is a
 // byte-hash over the literal's AST (content only, position-free).
@@ -11,7 +11,7 @@
 // diagnostic-driven assembly.
 //
 // Pieces wired together:
-//   • Grammar: writ_lit accepted as type_or_lt_arg → LIT_HSTATIC.
+//   • Grammar: writ_lit accepted as type_or_lt_arg → LIT_WSTATIC.
 //   • LogosType::Kind::WStaticLit, identity = const_val (byte-hash).
 //   • Sema: schema-aware FNV-1a walk of the parsed writ_lit AST,
 //     skipping SRC_LINE so identical content at different positions
@@ -21,10 +21,10 @@
 //     reports the same type for identical literals.
 //   • mangle_type_for_name: WStaticLit prints as `hs_<hex64>`.
 
-package hstatic_const_generic_uid;
+package wstatic_const_generic_uid;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub struct Foo<const CFG: WritStatic> { pub x: i32, }
 

@@ -5,7 +5,7 @@
 **Reference doc**: [docs/language/reference/items.md](../language/reference/items.md), [docs/language/reference/metaprog.md](../language/reference/metaprog.md) (for parametric WritStatic)
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `collect_const`, `collect_type_alias`
-- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_hstatic_value`, `generic_consts_` storage
+- [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_wstatic_value`, `generic_consts_` storage
 
 **Hunt date**: 2026-05-04
 **Repros**: `/tmp/baghunt/const-alias/`
@@ -44,7 +44,7 @@ fn main() -> i32 { return X; }
 ### B-ca-03: Const initializer = function call silently accepted
 
 **Severity**: P2 design (Rust-style const-evaluability not enforced)
-**Status**: fixed — `collect_const` now requires the initializer to be const-evaluable: literal expressions (LIT_INT/LIT_BOOL/LIT_STR/LIT_FLOAT/LIT_CHAR/LIT_HSTATIC), simple arithmetic over them (BINOP/UNARY/PAREN_EXPR/CAST recursing on const-evaluable children), the explicit `metacall <fn>(...)` form, or writ-lit/array/tuple shapes that downstream checks already cover. A bare fn call as initializer (`pub const X = compute();`) is rejected with a specific message pointing at `metacall` as the explicit comptime-eval opt-in. Lock-in: fail test `const_bare_fn_call` (rejected), pass test `const_metacall_fn` (`pub const Y: i32 = metacall double_it(7);` works end-to-end).
+**Status**: fixed — `collect_const` now requires the initializer to be const-evaluable: literal expressions (LIT_INT/LIT_BOOL/LIT_STR/LIT_FLOAT/LIT_CHAR/LIT_WSTATIC), simple arithmetic over them (BINOP/UNARY/PAREN_EXPR/CAST recursing on const-evaluable children), the explicit `metacall <fn>(...)` form, or writ-lit/array/tuple shapes that downstream checks already cover. A bare fn call as initializer (`pub const X = compute();`) is rejected with a specific message pointing at `metacall` as the explicit comptime-eval opt-in. Lock-in: fail test `const_bare_fn_call` (rejected), pass test `const_metacall_fn` (`pub const Y: i32 = metacall double_it(7);` works end-to-end).
 **Repro**: `B03/` —
 ```logos
 fn compute() -> i32 { return 42; }

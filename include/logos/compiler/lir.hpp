@@ -837,14 +837,14 @@ struct LProgram {
     // (Stage E: decl mirrors — see lir_view::MetaprogTargetView.)
     std::vector<lir_view::MetaprogTargetView> metaprog_targets;
 
-    // hstatic-as-const-generic: registry of WritStatic literals encountered
+    // wstatic-as-const-generic: registry of WritStatic literals encountered
     // at type-arg position (`Foo::<@{...}>`), keyed by content-hash. Sema
-    // populates at LIT_HSTATIC resolution time; mono looks up by the
+    // populates at LIT_WSTATIC resolution time; mono looks up by the
     // WStaticLit's const_val (the same hash) to materialise the literal in
     // place of `__const_param:CFG` references inside generic bodies.
     // ExprRef = mirror view into type_pool arena; lifetimes match LProgram.
     // Stage E: heap-free ObjectMap (uint64 hash stringified as key → set_ref(expr)).
-    lir_view::ObjectMapRef hstatic_registry_;
+    lir_view::ObjectMapRef wstatic_registry_;
 
     // M.1: per-site record of `metacall <call_expr>` occurrences in the user
     // entry-file AST. Sema synthesises a no-arg thunk fn (`__metacall_thunk_<idx>`)

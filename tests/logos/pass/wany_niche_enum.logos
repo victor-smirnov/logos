@@ -3,7 +3,7 @@
 // baked in by the producer, no niche shift); the Ref arm is a type-erased
 // `*const u8` (low-bit-0, trusted aligned). Value form keeps the Ref absolute;
 // through a `*zoned` slot the Ref stores self-relative and materialises back.
-package hany_niche_enum;
+package wany_niche_enum;
 #[zoned] enum WAny { Ref(*const u8), Pod(u64) }
 fn main() -> i32 {
     let obj: i64 = 7i64;

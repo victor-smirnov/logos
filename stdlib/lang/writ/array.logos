@@ -24,7 +24,7 @@ package logos.lang.writ.array;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.allocator;
-use logos.lang.writ.hstring;     // WString, hstring_in_alloc — for push(str)
+use logos.lang.writ.wstring;     // WString, wstring_in_alloc — for push(str)
 use logos.lang.ptr;
 
 // WArray<T> has two partial specialisations by element kind (mirrors legacy's
@@ -189,7 +189,7 @@ impl WArray<WAny> {
     pub fn push(self: &mut WArray<WAny>, v: str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
-            let hs: *mut WString = hstring_in_alloc(z, v);
+            let hs: *mut WString = wstring_in_alloc(z, v);
             array_push(self as *mut WArray<WAny>, z, WAny::ref_to(hs as *const u8));
         }
     }
@@ -251,7 +251,7 @@ impl WArrTag for i64 { fn arr_code() -> u64 { return 2108u64; } }
 impl WArrTag for f32 { fn arr_code() -> u64 { return 2109u64; } }
 impl WArrTag for f64 { fn arr_code() -> u64 { return 2110u64; } }
 
-unsafe fn harr_new<T: WArrTag>(h: *mut Writ, cap: i64) -> *mut WArray<T> {
+unsafe fn warr_new<T: WArrTag>(h: *mut Writ, cap: i64) -> *mut WArray<T> {
     let hdr: *mut WArray<T> =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WArray<T>>() as i64, T::arr_code()) as *mut WArray<T>;
     let buf: *mut T = writ_alloc_n::<T>(h, cap);
@@ -263,7 +263,7 @@ unsafe fn harr_new<T: WArrTag>(h: *mut Writ, cap: i64) -> *mut WArray<T> {
 
 // Append `v`; on overflow allocate a fresh 2× buffer and PLAIN-copy the elements
 // (primitives are position-independent — no re-anchor, unlike WArray<WAny>).
-unsafe fn harr_push<T: WArrTag>(a: *mut WArray<T>, alloc: *mut Allocator, v: T) {
+unsafe fn warr_push<T: WArrTag>(a: *mut WArray<T>, alloc: *mut Allocator, v: T) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 8i64 } else { a.cap * 2i64 };
         let nbuf: *mut T = allocator_alloc(alloc, newcap * (sizeof::<T>() as i64), align_of::<T>() as i64) as *mut T;
@@ -284,7 +284,7 @@ impl<T: WArrTag> WArray<T> {
     // Bind the zone FIRST (zone_of reborrows); `self as *mut WArray<T>` (the cast)
     // consumes the fat &mut, so it must be self's LAST use.
     pub fn push(self: &mut WArray<T>, v: T) {
-        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; harr_push::<T>(self as *mut WArray<T>, z, v); }
+        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; warr_push::<T>(self as *mut WArray<T>, z, v); }
     }
 }
 
@@ -294,7 +294,7 @@ impl Writ {
     pub fn tarray<'a, T: WArrTag>(self: &'a Writ, cap: i64) -> &'a mut WArray<T> {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            return zone_mut_ref::<WArray<T>>(harr_new::<T>(h, cap), &mut h.allocator as *mut u8);
+            return zone_mut_ref::<WArray<T>>(warr_new::<T>(h, cap), &mut h.allocator as *mut u8);
         }
     }
 }

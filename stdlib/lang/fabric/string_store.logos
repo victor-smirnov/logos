@@ -2,13 +2,13 @@
 //
 // Relocated from lang.writ.string in the writ cut-over: the storage is
 // malloc-backed SoA (packed bytes + end offsets) and never depended on the
-// legacy zone — only its StringView (now lang.writ.hstatic). The marker
+// legacy zone — only its StringView (now lang.writ.wstatic). The marker
 // datatype StrDt plugs Buffer<StrDt> into the Container machinery.
 
 package logos.lang.fabric.string_store;
 
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;   // StringView
+use logos.lang.writ.wstatic;   // StringView
 use logos.lang.mem;
 
 extern fn malloc(size: i64) -> *mut u8;

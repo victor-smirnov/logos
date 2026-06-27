@@ -6,7 +6,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 fn emit_wrapper() -> QuoteItemBlob {
     let t: Type = type_of::<i32>();

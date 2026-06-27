@@ -16,7 +16,7 @@ package logos.lang.writ.typed_value;
 use logos.lang.writ.container;   // Writ, alloc_tagged, H2_TYPEDVALUE
 use logos.lang.writ.anyval;      // WAny, h2_type_code
 use logos.lang.writ.allocator;   // Allocator
-use logos.lang.writ.hstring;     // WString, hstring_in_alloc
+use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
 
 #[pinned]
@@ -66,7 +66,7 @@ impl Writ {
     pub fn typed_value(self: &Writ, type_name: str, params: WAny, init: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            let hs: *mut WString = hstring_in_alloc(&mut h.allocator as *mut Allocator, type_name);
+            let hs: *mut WString = wstring_in_alloc(&mut h.allocator as *mut Allocator, type_name);
             let tn: WAny = WAny::ref_to(hs as *const u8);
             return WAny::ref_to(tv_new(h, tn, params, init) as *const u8);
         }

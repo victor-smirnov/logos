@@ -16,12 +16,12 @@
 // never-move segments; the delta stays valid). Empty slot = key.raw == 0 (the
 // buffer is zero-initialised; a real Ref's at-rest delta is never 0).
 
-package logos.lang.writ.hmap;
+package logos.lang.writ.wmap;
 
 use logos.lang.writ.container;   // Writ, writ_alloc / _n
 use logos.lang.writ.allocator;   // Allocator, allocator_alloc
 use logos.lang.writ.anyval;      // WAny (niche enum), WAnyMut, WA_I56 — at-rest via *zoned
-use logos.lang.writ.hstring;     // WString, hstring_in_alloc
+use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.writ.array;       // WArray<WAny> + WAny::from(&Array) — for nested values
 use logos.lang.hash;                // fnv1a_bytes
 use logos.lang.str;                 // str, str_eq
@@ -144,7 +144,7 @@ unsafe fn om_set(m: *mut WMap<WString, WAny>, alloc: *mut Allocator, key: str, v
     loop {
         let ep: *mut WMapEntry = buf.add(slot as i64);
         if ent_key_raw(ep as *const WMapEntry) == 0i64 {
-            let ks: *mut WString = hstring_in_alloc(alloc, key);
+            let ks: *mut WString = wstring_in_alloc(alloc, key);
             *(ent_key(ep)) = WAny::ref_to(ks as *const u8);
             *(ent_val(ep)) = val;
             m.count = m.count + 1i64;
@@ -266,7 +266,7 @@ impl WMap<WString, WAny> {
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
-            let hs: *mut WString = hstring_in_alloc(z, v);
+            let hs: *mut WString = wstring_in_alloc(z, v);
             self.set(key, WAny::ref_to(hs as *const u8));
         }
     }

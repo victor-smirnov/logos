@@ -128,7 +128,7 @@ all the diagnosis above is reusable.
 ## stash (`stash@{0}` off 67b2010e) + recoverable.
 Re-applied all of P3 + the dyn/tag-dispatch+vtable link_name routing. L2 SAMPLE
 = 827/828 (1 fail). But the FULL ctest fails ~dozens of writ_* tests
-(writ_equal/hmap/hbs/scalars, persistent_dview, …). writ_equal builds CLEAN
+(writ_equal/wmap/hbs/scalars, persistent_dview, …). writ_equal builds CLEAN
 at P1 (verified by stash+rebuild) → P3 regression. Symptom: a DIRECT
 `func.call` to `…HMap$G2$HString$HAny__set__f__…__slice_u8__HAny` with
 `(!llvm.ptr, !llvm.ptr, i64)` operands vs the func's `(ptr, ptr, ptr)` decl —

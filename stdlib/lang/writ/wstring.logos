@@ -1,4 +1,4 @@
-// Logos Writ stdlib — writ.hstring
+// Logos Writ stdlib — writ.wstring
 //
 // WString — a UTF-8 string living in the never-move arena as a REAL custom-DST
 // with NO separate length field: the layout is exactly WritString's wire shape,
@@ -16,7 +16,7 @@
 // `as_str` skips the vlen prefix and borrows the inline payload back as a `str`
 // (a slice into the arena, valid while the container lives).
 
-package logos.lang.writ.hstring;
+package logos.lang.writ.wstring;
 
 use logos.lang.writ.container;   // Writ, writ_alloc_bytes
 use logos.lang.writ.allocator;   // Allocator, allocator_alloc
@@ -45,7 +45,7 @@ impl SelfDescribing for WString {
 // prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
 // than the whole `Writ`) lets an arena container that holds only its allocator
 // back-pointer — e.g. `WArray<WAny>` — intern strings without the full handle.
-pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
+pub unsafe fn wstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
     let raw: *mut u8 = alloc_tagged(alloc, total, H2_STRING);   // in-band Ref tag
@@ -54,21 +54,21 @@ pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
     return raw as *mut WString;
 }
 
-unsafe fn hstring_new(h: *mut Writ, s: str) -> *mut WString {
-    return hstring_in_alloc(&mut h.allocator as *mut Allocator, s);
+unsafe fn wstring_new(h: *mut Writ, s: str) -> *mut WString {
+    return wstring_in_alloc(&mut h.allocator as *mut Allocator, s);
 }
 
 impl Writ {
     // Intern a string into the arena; return a borrowed `&WString` into never-move
     // storage (valid for the container's lifetime). Read it back with `as_str`.
-    pub fn hstring<'a>(self: &'a Writ, s: str) -> &'a WString {
+    pub fn wstring<'a>(self: &'a Writ, s: str) -> &'a WString {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            return &*hstring_new(h, s);
+            return &*wstring_new(h, s);
         }
     }
     // Resolve a Ref `WAny` back to the `WString` it points at.
-    pub fn hstring_of<'a>(self: &'a Writ, e: WAny) -> &'a WString {
+    pub fn wstring_of<'a>(self: &'a Writ, e: WAny) -> &'a WString {
         return unsafe { &*(e.resolve() as *const WString) };
     }
 }

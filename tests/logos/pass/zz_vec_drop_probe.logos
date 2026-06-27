@@ -6,7 +6,7 @@ package zz_vec_drop_probe;
 use logos.mem.collections.vec;
 use logos.lang.drop;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 // Bumper owns a *mut u64 and bumps it at Drop. Verifies that Vec<T>'s
 // auto-Drop fires T's Drop once per element.

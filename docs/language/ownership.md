@@ -59,7 +59,7 @@ Named lifetimes are required when relating multiple input references to a single
 
 Logos has two kinds of "reference-like" things in addition to `&T`:
 
-- **`HView2`**: a non-owning fat pointer, like `&T` but pointing into a Writ zone. Lifetime-tracked the same way.
+- **`WView2`**: a non-owning fat pointer, like `&T` but pointing into a Writ zone. Lifetime-tracked the same way.
 - **`OView`**: an *owning* view that holds a refcount on the underlying memory holder. Used when a value needs to escape a function but the source is a Writ zone, not a stack allocation.
 
 The compiler infers which is needed via escape analysis. The annotation `#[yields_view_of]` is available where escape analysis cannot prove the relationship; the manual workaround is `.own(source)`.

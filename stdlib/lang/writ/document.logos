@@ -10,8 +10,8 @@ package logos.lang.writ.document;
 
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.lang.ptr;
 
 // Total number of value nodes in the tree rooted at `v`: each scalar / string /

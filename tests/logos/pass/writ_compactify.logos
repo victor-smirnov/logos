@@ -2,11 +2,11 @@
 // writ_clone IS the compactor — dead source space is dropped by walking
 // only reachable objects). Successor of the legacy compactify test.
 package writ_compactify;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.mem.writ.clone;
 use logos.mem.writ.equal;
 use logos.mem.writ.stringify;
@@ -28,8 +28,8 @@ unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
     let m: &mut WMap<WString, WAny> = h.map(8);
-    m.set("k", WAny::from(&*(h.hstring("first-dead-value") as *const WString)));
-    m.set("k", WAny::from(&*(h.hstring("live") as *const WString)));   // overwrite -> garbage
+    m.set("k", WAny::from(&*(h.wstring("first-dead-value") as *const WString)));
+    m.set("k", WAny::from(&*(h.wstring("live") as *const WString)));   // overwrite -> garbage
     m.set("n", 7i64);
     let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
     h.set_root(WAny::ref_to(mp as *const u8));

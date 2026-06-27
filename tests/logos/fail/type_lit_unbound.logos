@@ -1,7 +1,7 @@
 // B-ca-06: silent acceptance of unbound `<type:Q>` in WritStatic literal.
 package type_lit_unbound;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 pub const X: WritStatic = @{ "key": <type:NotAType> };
 

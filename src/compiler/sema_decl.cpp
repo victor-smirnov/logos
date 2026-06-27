@@ -1527,7 +1527,7 @@ SemaChecker::lower_const_def(TinyMapView node) {
     // For generic consts, push the const's type-params so any `<type:T>`
     // inside the value AST resolves to the param TypeVar (not an unbound
     // name).  The actual concrete instantiations happen per use-site via
-    // resolve_hstatic_value; this lowering only needs the names in scope so
+    // resolve_wstatic_value; this lowering only needs the names in scope so
     // diagnostics see them as type-params instead of bogus unknowns.
     auto git = generic_consts_.find(name);
     std::vector<std::string> pushed_params;

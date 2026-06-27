@@ -9,7 +9,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[metaprog_handler("quote_inject")]
 fn quote_inject_hook(target_offset: u32) -> () {

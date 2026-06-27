@@ -258,7 +258,7 @@ impl WAny {
 // inline value) and a Ref (descend + grow), and can REPLACE the element in place
 // (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `WMap<WString, WAny>::get_mut`
 // produce it (zone = `zone_of(self)`, so the parent's zone cascades into the
-// child); `as_array_mut` / `as_map_mut` (in array/hmap) resolve a Ref element to a
+// child); `as_array_mut` / `as_map_mut` (in array/wmap) resolve a Ref element to a
 // fat `&mut` carrying that zone, ready to grow. writ §9.4.
 pub struct WAnyMut {
     pub slot: *zoned mut WAny,   // the at-rest element slot (never-move arena)

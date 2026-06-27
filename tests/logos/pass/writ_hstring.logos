@@ -5,12 +5,12 @@
 // second allocation pushing it across a segment boundary; RAII-freed.
 package test;
 use logos.lang.writ.container;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Writ = writ_new(32i64);            // tiny segment
-    let a: &WString = h.hstring("alpha");
-    let b: &WString = h.hstring("a longer string crossing the 32-byte segment");
+    let a: &WString = h.wstring("alpha");
+    let b: &WString = h.wstring("a longer string crossing the 32-byte segment");
     if a.len() != 5i64 { return 1; }
     if !str_eq(a.as_str(), "alpha") { return 2; }   // a still valid after b's alloc
     if !str_eq(b.as_str(), "a longer string crossing the 32-byte segment") { return 3; }

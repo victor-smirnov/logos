@@ -5,12 +5,12 @@ package test;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Writ = writ_new(512i64);
-    let s: &WString = h.hstring("hi");
+    let s: &WString = h.wstring("hi");
     let a: &mut WArray<WAny> = h.array(2i64);
     let m: &mut WMap<WString, WAny> = h.map(8i64);
     let vs: WAny = WAny::from(s);
@@ -26,6 +26,6 @@ fn main() -> i32 {
     if vs.is_array() || vs.is_map()    { return 6; }
     if va.is_string() || va.is_map()   { return 7; }
     if vi.is_string() || vi.is_array() { return 8; }
-    if !str_eq(h.hstring_of(vs).as_str(), "hi") { return 9; }   // readable after tagging
+    if !str_eq(h.wstring_of(vs).as_str(), "hi") { return 9; }   // readable after tagging
     return 0;
 }

@@ -5,8 +5,8 @@ package test;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.mem.writ.wbs;
 use logos.mem.writ.stringify;
 use logos.mem.collections.vec;
@@ -38,7 +38,7 @@ fn main() -> i32 {
     if m2.len() != 4i64 { return 2; }
     if m2.get("n").as_i56() != 42i64 { return 3; }
     if m2.get("ok").as_bool() != true { return 4; }
-    if !str_eq(h3.hstring_of(m2.get("name")).as_str(), "Ada") { return 5; }
+    if !str_eq(h3.wstring_of(m2.get("name")).as_str(), "Ada") { return 5; }
     let xs: &WArray<WAny> = unsafe { &*(m2.get("xs").resolve() as *const WArray<WAny>) };
     if xs.len() != 2i64 { return 6; }
     if xs.get(0i64).as_i56() != 7i64 { return 7; }

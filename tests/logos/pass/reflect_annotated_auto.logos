@@ -3,7 +3,7 @@
 package reflect_annotated_auto;
 
 use logos.mem.any;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[annotation]
 #[datatype] struct Deprecated {

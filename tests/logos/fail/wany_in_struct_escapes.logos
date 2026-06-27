@@ -1,11 +1,11 @@
 // borrow_carrying propagates through AGGREGATES. A struct holding an WAny that
 // Refs a LOCAL container's arena must not escape — returning it dangles (the
 // container drops → arena freed → the embedded Ref dangles). The BARE WAny case is
-// hany_ref_escapes_container; this covers the value embedded in a STRUCT FIELD,
+// wany_ref_escapes_container; this covers the value embedded in a STRUCT FIELD,
 // caught by transitive `#[borrow_carrying]` classification (a struct with a
 // borrow-carrying field is itself borrow-carrying) + struct-literal provenance
 // merge. docs/internals/borrow-escape-analysis-design.md §8.
-package hany_in_struct_escapes;
+package wany_in_struct_escapes;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;

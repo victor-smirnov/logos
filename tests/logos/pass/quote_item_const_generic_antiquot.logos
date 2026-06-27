@@ -11,7 +11,7 @@ package main;
 use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
 use logos.lang.writ.anyval;     // WAny (metaprog AST API)
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[metaprog_handler("derive_const_g")]
 fn derive_const_g_hook(target_offset: u32) -> () {

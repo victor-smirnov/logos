@@ -1,14 +1,14 @@
-// GENERIC_REF + hstatic_hash_of + per-Store-style registry dispatch.
+// GENERIC_REF + wstatic_hash_of + per-Store-style registry dispatch.
 //
 // Models the ContainerRegistry shape that pmap handle.logos will use:
 //   • register::<CFG>() captures the address of a monomorphised release
 //     thunk via GENERIC_REF, alongside its CFG byte-hash via
-//     hstatic_hash_of::<CFG>().
+//     wstatic_hash_of::<CFG>().
 //   • A "registry" (pair of parallel PrimVecs) maps hash → fn-ptr.
 //   • lookup_release(hash) returns the fn-ptr; the caller invokes it.
 //
 // Verifies:
-//   - hstatic_hash_of returns CFG-distinct, deterministic u64.
+//   - wstatic_hash_of returns CFG-distinct, deterministic u64.
 //   - Distinct CFGs register distinct fn-ptrs into the same registry slot
 //     space and dispatch correctly.
 //   - The release thunk (different per CFG) fires with the right argument
@@ -16,7 +16,7 @@
 package generic_ref_registry_dispatch;
 
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 // ── Per-CFG release thunk. Mono produces one symbol per (K, V, CFG); for
 // the test we just embed a CFG-derived marker into a side-channel via the
@@ -25,7 +25,7 @@ fn release_for<const CFG: WritStatic>(p: *mut u64) -> () {
     unsafe {
         // Write the hash into the slot pointed to by p, so the test can
         // confirm which monomorphisation ran.
-        *p = hstatic_hash_of::<CFG>();
+        *p = wstatic_hash_of::<CFG>();
     }
 }
 
@@ -43,7 +43,7 @@ fn registry_new() -> Registry {
 }
 
 fn registry_register<const CFG: WritStatic>(r: &mut Registry) {
-    let h: u64 = hstatic_hash_of::<CFG>();
+    let h: u64 = wstatic_hash_of::<CFG>();
     let fp: fn(*mut u64) -> () = release_for::<CFG>;
     r.hashes.push(h);
     // Cast fn-ptr to u64 for uniform storage.
@@ -65,9 +65,9 @@ fn registry_lookup(r: &Registry, h: u64) -> u64 {
 
 fn main() -> i32 {
     // (1) Hash determinism + distinctness.
-    let h_a: u64 = hstatic_hash_of::<@{ "tag": "alpha" }>();
-    let h_b: u64 = hstatic_hash_of::<@{ "tag": "beta"  }>();
-    let h_a2: u64 = hstatic_hash_of::<@{ "tag": "alpha" }>();
+    let h_a: u64 = wstatic_hash_of::<@{ "tag": "alpha" }>();
+    let h_b: u64 = wstatic_hash_of::<@{ "tag": "beta"  }>();
+    let h_a2: u64 = wstatic_hash_of::<@{ "tag": "alpha" }>();
     if h_a == 0u64 { return 1; }
     if h_b == 0u64 { return 2; }
     if h_a == h_b { return 3; }      // distinct CFGs → distinct hashes

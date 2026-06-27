@@ -7,7 +7,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[metaprog_handler("nested_antiquot_inject")]
 fn nested_antiquot_inject_hook(target_offset: u32) -> () {

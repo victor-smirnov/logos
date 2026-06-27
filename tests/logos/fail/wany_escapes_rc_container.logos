@@ -3,7 +3,7 @@
 // 0 → arena freed → the Ref dangles. Caught because `value_local_root` roots a
 // method receiver through the Rc's `deref` (a value-local Rc, NOT a raw-ptr deref)
 // back to the local `h`. (The safe escape is `hold_any(&mut h, e) -> HeldAny`.)
-package hany_escapes_rc_container;
+package wany_escapes_rc_container;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;

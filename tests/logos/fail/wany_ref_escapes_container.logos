@@ -4,7 +4,7 @@
 // borrow checker escape-tracks it like a reference — `arr.get(i)` / `WAny::from(&x)`
 // tie the result to the container, so returning it past the container's scope is
 // rejected. (To escape safely, launder through a holder: hold_any → HeldAny.)
-package hany_ref_escapes_container;
+package wany_ref_escapes_container;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;

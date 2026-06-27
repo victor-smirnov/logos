@@ -31,7 +31,7 @@ use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.cmp;
 use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.mem.sync;                     // arc_new / Arc
 
 use logos.std.data.persistent.bt.node;
@@ -61,7 +61,7 @@ pub struct LeafNodeForBranch<K: Container + ContainerOrd, V: Container, const ST
 }
 
 impl<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic> BTreeNode<STORE_CFG> for BranchNode<K, STORE_CFG, CFG> {
-    fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
+    fn cfg_hash(&self) -> u64        { return wstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
     fn child_count(&self) -> u64 { return self.children.len() as u64; }
@@ -135,7 +135,7 @@ pub struct LeafNode<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
 }
 
 impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic> BTreeNode<STORE_CFG> for LeafNode<K, V, STORE_CFG, CFG> {
-    fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
+    fn cfg_hash(&self) -> u64        { return wstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
     // Data leaves carry no NodeARC children — keys/vals are datatype storage.
@@ -192,7 +192,7 @@ pub struct LeafDirNode<K: Container + ContainerOrd, const STORE_CFG: WritStatic,
 }
 
 impl<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic> BTreeNode<STORE_CFG> for LeafDirNode<K, STORE_CFG, CFG> {
-    fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
+    fn cfg_hash(&self) -> u64        { return wstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
     // Dir leaves' vals are NodeARC handles to container roots — those

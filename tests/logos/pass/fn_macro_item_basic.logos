@@ -6,7 +6,7 @@ package fn_macro_item_basic;
 
 use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 #[fn_macro]
 pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {

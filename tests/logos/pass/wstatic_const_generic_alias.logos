@@ -1,15 +1,15 @@
-// hstatic_const_generic_alias.logos — bare `type Cfg = @{...};`
+// wstatic_const_generic_alias.logos — bare `type Cfg = @{...};`
 // alias whose rhs is a WritStatic literal, used as a const-generic
 // argument elsewhere.
 //
 // Two pieces had to land for this:
 //   • Grammar: `writ_lit` accepted at type_ref position via a new
-//     `hstatic_lit_type` production. Without it, `pub type Cfg = @{...};`
+//     `wstatic_lit_type` production. Without it, `pub type Cfg = @{...};`
 //     failed with "syntax error near 'pub'" — type-alias rhs goes
 //     through `simple_type` which didn't include @-literals.
-//   • Sema: cur_prog_ is now bound *before* `collect`, so LIT_HSTATIC
+//   • Sema: cur_prog_ is now bound *before* `collect`, so LIT_WSTATIC
 //     encountered inside collected type-alias rhs registers into
-//     prog.hstatic_registry_. Otherwise alias-routed WritStatic
+//     prog.wstatic_registry_. Otherwise alias-routed WritStatic
 //     const-args produced WStaticLit TypeRefs whose hash existed but
 //     whose literal never landed in the registry, and mono failed to
 //     materialise `__const_param:CFG` references inside the body.
@@ -20,10 +20,10 @@
 //   • runtime extraction works through alias indirection.
 //   • two distinct cfgs ⇒ two distinct types via alias.
 
-package hstatic_const_generic_alias;
+package wstatic_const_generic_alias;
 
 use logos.std.compiler.metaprog;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
 
@@ -36,7 +36,7 @@ pub type FooA = Foo<CfgA>;
 pub type FooB = Foo<CfgB>;
 
 unsafe fn read_k<const CFG: WritStatic>() -> i64 {
-    let v: WView2 = hview2_from_ptr(CFG.ptr);
+    let v: WView2 = wview2_from_ptr(CFG.ptr);
     let av: WAny = v.map_get(v.root(), "k");
     if av.is_null() { return -1i64; }
     return av.as_i64();

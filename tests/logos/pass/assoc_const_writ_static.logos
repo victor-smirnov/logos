@@ -3,7 +3,7 @@
 // distinct impls must yield distinct blobs.
 package assoc_const_writ_static;
 
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 trait Schema {
     const SHAPE: WritStatic;

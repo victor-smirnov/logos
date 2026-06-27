@@ -18,7 +18,7 @@ package persistent_fork_chain;
 use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
-use logos.lang.writ.hstatic;
+use logos.lang.writ.wstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;

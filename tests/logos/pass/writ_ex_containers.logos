@@ -4,8 +4,8 @@ package writ_ex_containers;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-use logos.lang.writ.hmap;
-use logos.lang.writ.hstring;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
 use logos.lang.rc;
 use logos.lang.str;
 
@@ -41,7 +41,7 @@ unsafe fn main() -> i32 {
     // ── ObjectArray ─────────────────────────────────────────────────────────
     let arr: &mut WArray<WAny> = h.array(4);
     arr.push(WAny::from(11 as i56));
-    arr.push(WAny::from(&*(h.hstring("mid") as *const WString)));
+    arr.push(WAny::from(&*(h.wstring("mid") as *const WString)));
     arr.push(WAny::from(false));
     if arr.len() != 3i64                                         { return 10; }
     if arr.get(0).as_i64() != 11i64                              { return 11; }
