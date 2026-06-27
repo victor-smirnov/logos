@@ -50,12 +50,12 @@ struct TypeSets {
     std::unordered_set<std::string> drop_types;
     std::unordered_set<std::string> copy_types;
     // `#[borrow_carrying]` struct names — values of these types may hold a Ref into
-    // an arena (HAny); escape-tracked like references.
+    // an arena (WAny); escape-tracked like references.
     std::unordered_set<std::string> borrow_carrying;
     // Residency-holder packages (`Held<T>`, `HeldAny`): a struct with an Rc/Arc
     // field ref-counts the arena alive on its own, so the value is the LAUNDERED
     // escape form — never borrow-carrying, not even via its type-args
-    // (`Held<HArray<HAny>>`). Mirror of the holds_residency_holder exemption,
+    // (`Held<WArray<WAny>>`). Mirror of the holds_residency_holder exemption,
     // consulted by the use-site type walk too.
     std::unordered_set<std::string> residency_exempt;
     // Name → def indices (built once in build_type_sets). Replace the per-type
@@ -131,14 +131,14 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     };
     for (auto& sd : prog.structs) reg_bc(sd);
     for (auto& sd : prog.struct_specializations) reg_bc(sd);
-    // `#[borrow_carrying]` enums (HAny) — same escape tracking as the struct form.
+    // `#[borrow_carrying]` enums (WAny) — same escape tracking as the struct form.
     for (auto& ed : prog.enums)
         if (ed.borrow_carrying()) reg_bc_name(std::string(ed.name()), /*strip_generic=*/true);
     // Transitive closure (escape tracking must see the WHOLE aggregate): a struct
     // or enum with an INLINE field / variant payload of a (transitively) borrow-
     // carrying type is itself borrow-carrying — the borrow rides inside the value,
-    // so returning the aggregate escapes it exactly as returning the bare HAny
-    // would. (Borrow-carrying as a generic CONTAINER element — `Vec<HAny>`, behind
+    // so returning the aggregate escapes it exactly as returning the bare WAny
+    // would. (Borrow-carrying as a generic CONTAINER element — `Vec<WAny>`, behind
     // an owning pointer — is handled by the container-element rule below.)
     auto type_bc_name = [](TypeRef t) -> std::string {
         if (!t) return {};
@@ -150,7 +150,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     };
     auto type_is_bc = [&](TypeRef t) -> bool {
         // A direct borrow-carrying field/payload, OR a generic type-argument that
-        // is borrow-carrying (a container of HAny — `Vec<HAny>`, `Option<HAny>` —
+        // is borrow-carrying (a container of WAny — `Vec<WAny>`, `Option<WAny>` —
         // carries the borrows of its elements even though the buffer sits behind a
         // raw pointer / the payload is a type-param).
         auto n = type_bc_name(t);
@@ -163,7 +163,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         return false;
     };
     // A residency-holder field (`Rc`/`Arc<...>`) marks the LAUNDERED escape package
-    // (`HeldAny { holder: Rc<dyn Resident>, val: HAny }`): the holder ref-counts the
+    // (`HeldAny { holder: Rc<dyn Resident>, val: WAny }`): the holder ref-counts the
     // arena alive independent of any local, so the contained borrow is SAFE to
     // escape. Such a type must NOT be transitively borrow-carrying (else returning
     // the escape hatch — its whole purpose — would be wrongly rejected).
@@ -1535,7 +1535,7 @@ class BorrowChecker {
     // over-borrow that broke persistent_showcase). See escape-analysis §4(a).
     bool is_self_borrowing(lir_view::FunctionView f) const {
         // Elision: `&self -> &T` borrows self. SO DOES `&self -> <BC type>`
-        // (iter()/iter_mut() returning a borrowing iterator, HAny views):
+        // (iter()/iter_mut() returning a borrowing iterator, WAny views):
         // the returned VALUE carries the receiver borrow (adversarial #2
         // f12 — two live iter_mut() were accepted, aliasing &mut).
         if (!f) return false;
@@ -1623,27 +1623,27 @@ class BorrowChecker {
                 bp.root, bp.root));
     }
 
-    // A `#[borrow_carrying]` type (HAny): a value that may hold a Ref into an arena.
+    // A `#[borrow_carrying]` type (WAny): a value that may hold a Ref into an arena.
     // Escape-tracked like a reference — see prov_of MethodCall/Call + Let/return gates.
     bool is_borrow_carrying_type(TypeRef t) const {
         if (!t) return false;
         auto k = t.kind();
         std::string nm;
-        if (k == LogosType::Kind::Enum)                 // HAny: the niche-enum form (F3)
+        if (k == LogosType::Kind::Enum)                 // WAny: the niche-enum form (F3)
             nm = std::string(t.enum_name());
         else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
             nm = std::string(t.struct_name());
         // Laundered escape package (`Held<T>`/`HeldAny`: holds an Rc/Arc holder
         // that keeps the arena alive) — never borrow-carrying, including via its
-        // type-args (`Held<HArray<HAny>>`). Same exemption the definition-side
+        // type-args (`Held<WArray<WAny>>`). Same exemption the definition-side
         // closure applies; without it the container-element rule below would
         // reject returning the escape hatch — its whole purpose.
         if (!nm.empty() && ts_.residency_exempt.count(nm) > 0) return false;
         if (!nm.empty() && ts_.borrow_carrying.count(nm) > 0) return true;
         // A generic CONTAINER of a borrow-carrying element carries its elements'
-        // borrows (`Vec<HAny>`, `Option<HAny>`, `Box<HAny>`) — even though the
+        // borrows (`Vec<WAny>`, `Option<WAny>`, `Box<WAny>`) — even though the
         // buffer sits behind an owning pointer / the payload is a type-param, the
-        // value transitively holds a Ref into an arena. (A raw `*mut HAny` has no
+        // value transitively holds a Ref into an arena. (A raw `*mut WAny` has no
         // type-args → stays unchecked, like box_leak — Rust parity.)
         for (auto a : t.type_args())
             if (is_borrow_carrying_type(a)) return true;
@@ -1782,7 +1782,7 @@ class BorrowChecker {
                 // (A non-ref result is a plain owned value — no provenance.)
                 EMethodCallView v{e};
                 // A `&T` result borrows the receiver; SO DOES a `#[borrow_carrying]`
-                // value result (HAny) — its value may be a Ref into the receiver's
+                // value result (WAny) — its value may be a Ref into the receiver's
                 // arena. Both tie the result's provenance to the receiver.
                 if (!is_ref_kind(e.type(pool)) &&
                     !is_borrow_carrying_type(e.type(pool))) return {};
@@ -1807,8 +1807,8 @@ class BorrowChecker {
             }
             case Code::Call: {
                 // A free fn / ctor returning a `#[borrow_carrying]` value
-                // (`HAny::from(&x)`) may alias one of its REFERENCE args — merge the
-                // provenance of each ref arg. (`HAny::from(7i64)` has no ref arg →
+                // (`WAny::from(&x)`) may alias one of its REFERENCE args — merge the
+                // provenance of each ref arg. (`WAny::from(7i64)` has no ref arg →
                 // empty → freely returnable.) Non-borrow-carrying = caller-owned.
                 if (!is_borrow_carrying_type(e.type(pool))) return {};
                 RefProv merged = {};
@@ -1820,7 +1820,7 @@ class BorrowChecker {
             }
             case Code::StructLit: {
                 // An aggregate LITERAL borrows through its borrow-carrying field
-                // initialisers: `Wrap { a: HAny::from(&local) }` ties Wrap to the
+                // initialisers: `Wrap { a: WAny::from(&local) }` ties Wrap to the
                 // local, so returning the Wrap escapes the borrow. Merge each
                 // field-value's provenance (a Pod / owned field contributes {}).
                 RefProv merged = {};
@@ -3562,7 +3562,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             pop_scope();
             // Capture-flow: a `&mut self` method (push / insert / set) may STORE a
             // by-value borrow-carrying argument INTO the receiver. If the receiver
-            // is a tracked local and such an arg borrows a local (`v.push(HAny::
+            // is a tracked local and such an arg borrows a local (`v.push(WAny::
             // from(&n))`), the receiver now transitively holds that borrow — taint
             // its provenance so a later `return v` is caught. Restricted to
             // &mut self + BY-VALUE borrow-carrying args: `&self` reads can't capture

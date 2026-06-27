@@ -1,28 +1,28 @@
-// F3 Phase-3 mechanism: an HAny-shaped `#[zoned]` niche enum with a RAW u64
+// F3 Phase-3 mechanism: an WAny-shaped `#[zoned]` niche enum with a RAW u64
 // Pod arm. The Pod word is stored VERBATIM `(value<<8)|(code<<1)|1` (low-bit-1
 // baked in by the producer, no niche shift); the Ref arm is a type-erased
 // `*const u8` (low-bit-0, trusted aligned). Value form keeps the Ref absolute;
 // through a `*zoned` slot the Ref stores self-relative and materialises back.
 package hany_niche_enum;
-#[zoned] enum HAny { Ref(*const u8), Pod(u64) }
+#[zoned] enum WAny { Ref(*const u8), Pod(u64) }
 fn main() -> i32 {
     let obj: i64 = 7i64;
     let absobj: i64 = &obj as *const i64 as i64;
     let w: u64 = (42u64 << 8u64) | (1u64 << 1u64) | 1u64;
     let mut buf: [i64; 1] = [0i64];
     unsafe {
-        let slot: *zoned mut HAny = &mut buf[0] as *mut i64 as *zoned mut HAny;
+        let slot: *zoned mut WAny = &mut buf[0] as *mut i64 as *zoned mut WAny;
         // Ref at-rest → stored as a DELTA, materialises back to the absolute ptr.
-        *slot = HAny::Ref(&obj as *const i64 as *const u8);
+        *slot = WAny::Ref(&obj as *const i64 as *const u8);
         if buf[0] == absobj { return 60i32; }              // stored absolute → zoned off
         if buf[0] == 0i64 { return 61i32; }
-        let back: HAny = *slot;
-        match back { HAny::Ref(p) => { if (p as i64) != absobj { return 1i32; } } HAny::Pod(x) => { return 2i32; } }
+        let back: WAny = *slot;
+        match back { WAny::Ref(p) => { if (p as i64) != absobj { return 1i32; } } WAny::Pod(x) => { return 2i32; } }
         // Pod at-rest → stored RAW (position-independent, low-bit-1), round-trips.
-        *slot = HAny::Pod(w);
+        *slot = WAny::Pod(w);
         if (buf[0] & 1i64) != 1i64 { return 62i32; }
-        let back2: HAny = *slot;
-        match back2 { HAny::Pod(x) => { if (x >> 8u64) != 42u64 { return 3i32; } } HAny::Ref(p) => { return 4i32; } }
+        let back2: WAny = *slot;
+        match back2 { WAny::Pod(x) => { if (x >> 8u64) != 42u64 { return 3i32; } } WAny::Ref(p) => { return 4i32; } }
     }
     return 0i32;
 }

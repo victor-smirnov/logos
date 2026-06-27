@@ -12,9 +12,9 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     // U64 keys.
     let ku: [u64; 2] = [100, 200];
-    let vu: [HAny; 2] = [HAny::from(1 as i56), HAny::from(2 as i56)];
+    let vu: [WAny; 2] = [WAny::from(1 as i56), WAny::from(2 as i56)];
     let ksu: &[u64] = &ku;
-    let vsu: &[HAny] = &vu;
+    let vsu: &[WAny] = &vu;
     let mu: MapSliceU64 = MapSliceU64 { keys: ksu, vals: vsu };
     let cu: Rc<Writ> = mu as <U64, AnyVal>{};
     let hu: &Writ = cu.deref();
@@ -24,9 +24,9 @@ unsafe fn main() -> i32 {
 
     // I64 keys with a negative.
     let ki: [i64; 2] = [-5, 5];
-    let vi: [HAny; 2] = [HAny::from(true), HAny::from(false)];
+    let vi: [WAny; 2] = [WAny::from(true), WAny::from(false)];
     let ksi: &[i64] = &ki;
-    let vsi: &[HAny] = &vi;
+    let vsi: &[WAny] = &vi;
     let mi: MapSliceI64 = MapSliceI64 { keys: ksi, vals: vsi };
     let ci: Rc<Writ> = mi as <I64, AnyVal>{};
     let hi: &Writ = ci.deref();
@@ -35,11 +35,11 @@ unsafe fn main() -> i32 {
     // U32 keys; a Ref value (string from ANOTHER container re-anchors).
     let other: Rc<Writ> = writ_rc(4096);
     let oh: &Writ = other.deref();
-    let sref: HAny = HAny::from(&*(oh.hstring("zone-str") as *const HString));
+    let sref: WAny = WAny::from(&*(oh.hstring("zone-str") as *const WString));
     let k3: [u32; 1] = [7];
-    let v3: [HAny; 1] = [sref];
+    let v3: [WAny; 1] = [sref];
     let ks3: &[u32] = &k3;
-    let vs3: &[HAny] = &v3;
+    let vs3: &[WAny] = &v3;
     let m3: MapSliceU32 = MapSliceU32 { keys: ks3, vals: vs3 };
     let c3: Rc<Writ> = m3 as <U32, AnyVal>{};
     let h3: &Writ = c3.deref();

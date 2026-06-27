@@ -15,18 +15,18 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // 1. Integer root.
-    let v1: HAny = parse(h, "12345");
+    let v1: WAny = parse(h, "12345");
     if !v1.is_int() { return 1; }
     if v1.as_i64() != 12345i64 { return 2; }
 
     // 2. Bool root.
-    let v2: HAny = parse(h, "false");
+    let v2: WAny = parse(h, "false");
     if !v2.is_bool() { return 3; }
     if v2.as_bool() { return 4; }
 
     // 3. Array traversal: sum of [10, 20, 30] = 60.
-    let v3: HAny = parse(h, "[10, 20, 30]");
-    let arr: &HArray<HAny> = &*(v3.resolve() as *const HArray<HAny>);
+    let v3: WAny = parse(h, "[10, 20, 30]");
+    let arr: &WArray<WAny> = &*(v3.resolve() as *const WArray<WAny>);
     let mut sum: i64 = 0;
     let mut i: i64 = 0;
     while i < arr.len() {
@@ -36,17 +36,17 @@ unsafe fn main() -> i32 {
     if sum != 60i64 { return 5; }
 
     // 4. Map lookup {x: 55}.
-    let v4: HAny = parse(h, "{x: 55}");
-    let m: &HMap<HString, HAny> = &*(v4.resolve() as *const HMap<HString, HAny>);
+    let v4: WAny = parse(h, "{x: 55}");
+    let m: &WMap<WString, WAny> = &*(v4.resolve() as *const WMap<WString, WAny>);
     if m.get("x").as_i64() != 55i64 { return 6; }
     if !m.get("y").is_null() { return 7; }
 
     // 5. Deep mixed traversal.
-    let v5: HAny = parse(h, "{items: [{id: 1}, {id: 2}], total: 2}");
-    let mm: &HMap<HString, HAny> = &*(v5.resolve() as *const HMap<HString, HAny>);
+    let v5: WAny = parse(h, "{items: [{id: 1}, {id: 2}], total: 2}");
+    let mm: &WMap<WString, WAny> = &*(v5.resolve() as *const WMap<WString, WAny>);
     if mm.get("total").as_i64() != 2i64 { return 8; }
-    let items: &HArray<HAny> = &*(mm.get("items").resolve() as *const HArray<HAny>);
-    let it1: &HMap<HString, HAny> = &*(items.get(1).resolve() as *const HMap<HString, HAny>);
+    let items: &WArray<WAny> = &*(mm.get("items").resolve() as *const WArray<WAny>);
+    let it1: &WMap<WString, WAny> = &*(items.get(1).resolve() as *const WMap<WString, WAny>);
     if it1.get("id").as_i64() != 2i64 { return 9; }
 
     return 42;

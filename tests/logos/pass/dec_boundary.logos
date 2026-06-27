@@ -24,7 +24,7 @@ unsafe fn main() -> i32 {
     if !hdec_from_str(h, "99999999999999999999").is_null() { return 9; } // 20 digits
 
     // Spec packing edges.
-    let d: HAny = h.decimal(1u64, 4095u32, false);                       // max scale
+    let d: WAny = h.decimal(1u64, 4095u32, false);                       // max scale
     if d.is_null() { return 10; }
     if d.as_decimal().scale() != 4095u32 { return 11; }
 

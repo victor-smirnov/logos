@@ -2332,7 +2332,7 @@ void SemaChecker::collect_const(TinyMapView node) {
     // `pub type X = @{...};` form. The literal is a WritStatic value, not
     // a type — but at type-arg positions it functions as a const-generic
     // value with byte-hash identity. Register X as a type alias to that
-    // HStaticLit so call-site lookups resolve uniformly with legacy aliases
+    // WStaticLit so call-site lookups resolve uniformly with legacy aliases
     // until that path is fully migrated. Generic constants
     // (`pub const X<T1, T2>: WritStatic = @{… <type:T1> …}`) are recorded
     // separately in generic_consts_ and instantiated per use-site.
@@ -2374,10 +2374,10 @@ void SemaChecker::collect_const(TinyMapView node) {
             }
             if (!has_type_params) {
                 // Non-generic: bind X as a type alias to the resolved
-                // HStaticLit. Wrap value in a LIT_HSTATIC-shaped node by
+                // WStaticLit. Wrap value in a LIT_HSTATIC-shaped node by
                 // calling the existing resolver path.
                 TypeRef hs = resolve_type(val_node);
-                if (hs && TypeRef(hs).kind() == LogosType::Kind::HStaticLit) {
+                if (hs && TypeRef(hs).kind() == LogosType::Kind::WStaticLit) {
                     TypeAliasEntry ent{};
                     ent.type = hs;
                     type_aliases_[name] = std::move(ent);

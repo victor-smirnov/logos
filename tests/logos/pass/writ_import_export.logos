@@ -17,18 +17,18 @@ unsafe fn main() -> i32 {
     // 1. Source document with a nested array.
     let rc1: Rc<Writ> = writ_rc(16384);
     let src_h: &Writ = rc1.deref();
-    let src_root: HAny = parse(src_h, "{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}");
-    let sm: &HMap<HString, HAny> = &*(src_root.resolve() as *const HMap<HString, HAny>);
-    let arr_val: HAny = sm.get("arr");
+    let src_root: WAny = parse(src_h, "{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}");
+    let sm: &WMap<WString, WAny> = &*(src_root.resolve() as *const WMap<WString, WAny>);
+    let arr_val: WAny = sm.get("arr");
     if arr_val.is_null() { return 2; }
 
     // 2. Import the array subtree into a fresh container.
     let rc2: Rc<Writ> = writ_rc(16384);
     let dst_h: &Writ = rc2.deref();
-    let imported: HAny = writ_clone_into(dst_h, arr_val);
+    let imported: WAny = writ_clone_into(dst_h, arr_val);
     if imported.is_null() { return 4; }
     if !imported.is_array() { return 5; }
-    let ia: &HArray<HAny> = &*(imported.resolve() as *const HArray<HAny>);
+    let ia: &WArray<WAny> = &*(imported.resolve() as *const WArray<WAny>);
     if ia.len() != 3i64 { return 6; }
     if ia.get(2).as_i64() != 3i64 { return 7; }
 
@@ -37,17 +37,17 @@ unsafe fn main() -> i32 {
     if imported.resolve() == arr_val.resolve() { return 9; }
 
     // 4. Import a string leaf too.
-    let s_val: HAny = sm.get("s");
-    let s_imp: HAny = writ_clone_into(dst_h, s_val);
+    let s_val: WAny = sm.get("s");
+    let s_imp: WAny = writ_clone_into(dst_h, s_val);
     if !s_imp.is_string() { return 10; }
-    let hs: &HString = &*(s_imp.resolve() as *const HString);
+    let hs: &WString = &*(s_imp.resolve() as *const WString);
     if !str_eq(hs.as_str(), "hello") { return 11; }
 
     // 5. Mutating the destination does not disturb the source.
-    let dm: &mut HMap<HString, HAny> = dst_h.map(8);
+    let dm: &mut WMap<WString, WAny> = dst_h.map(8);
     dm.set("import", imported);
-    let dmp: *const HMap<HString, HAny> = dm as *const HMap<HString, HAny>;
-    dst_h.set_root(HAny::ref_to(dmp as *const u8));
+    let dmp: *const WMap<WString, WAny> = dm as *const WMap<WString, WAny>;
+    dst_h.set_root(WAny::ref_to(dmp as *const u8));
     if sm.get("x").as_i64() != 10i64 { return 12; }
 
     return 0;

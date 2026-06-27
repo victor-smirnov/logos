@@ -19,10 +19,10 @@ unsafe fn main() -> i32 {
     // Overwrite once more to confirm the address is stable, not a temp copy.
     set_via_chain(p, Word { w: 256 });
     if a.root.w != 256i64 { return 2; }
-    // The same chain through a niche-enum (HAny) field: the at-rest word writes.
-    let mut hv: HAny = HAny::from(1 as i56);
-    let hp: *mut HAny = &mut hv as *mut HAny;
-    *hp = HAny::from(42 as i56);
+    // The same chain through a niche-enum (WAny) field: the at-rest word writes.
+    let mut hv: WAny = WAny::from(1 as i56);
+    let hp: *mut WAny = &mut hv as *mut WAny;
+    *hp = WAny::from(42 as i56);
     if hv.as_i64() != 42i64 { return 3; }
     return 42;
 }

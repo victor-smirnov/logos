@@ -1,7 +1,7 @@
-// Buffer<DView> (type-erased keys) + Buffer<HAny> (runtime-typed values) — the
-// at-rest storage halves of the planned Map<DView, HAny>. A DView stored into a
+// Buffer<DView> (type-erased keys) + Buffer<WAny> (runtime-typed values) — the
+// at-rest storage halves of the planned Map<DView, WAny>. A DView stored into a
 // Buffer is encoded into an owned cell; reading it back yields a DView pointing
-// INTO the buffer (valid until the buffer mutates). HAny stores by value.
+// INTO the buffer (valid until the buffer mutates). WAny stores by value.
 
 package writ_dview_buffer;
 
@@ -31,17 +31,17 @@ fn main() -> i32 {
     match kb.get(0u64).compare(&kb.get(1u64)) { Ordering::Greater => {} _ => { return 6; } }
     match kb.get(1u64).compare(&kb.get(2u64)) { Ordering::Less    => {} _ => { return 7; } }
 
-    // ── Buffer<HAny>: store/retrieve runtime-typed values ────────────────────
-    let mut vb: Buffer<HAny> = Buffer::<HAny>::new();
-    vb.push(HAny::from(7i32));
-    vb.push(HAny::from(true));
+    // ── Buffer<WAny>: store/retrieve runtime-typed values ────────────────────
+    let mut vb: Buffer<WAny> = Buffer::<WAny>::new();
+    vb.push(WAny::from(7i32));
+    vb.push(WAny::from(true));
     if vb.len() != 2u64 { return 8; }
 
-    let h0: HAny = vb.get(0u64);
+    let h0: WAny = vb.get(0u64);
     if !h0.is_int() { return 9; }
     if h0.as_i64() != 7i64 { return 10; }
 
-    let h1: HAny = vb.get(1u64);
+    let h1: WAny = vb.get(1u64);
     if !h1.is_bool() { return 11; }
 
     // ── split_at / merge / insert / erase on Buffer<DView> ───────────────────

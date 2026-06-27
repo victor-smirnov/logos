@@ -1,5 +1,5 @@
 // List-comprehension edges: empty result, no-op guard, growth past 8/16
-// (writ2 Rc<Writ> builder; HArray grow path).
+// (writ2 Rc<Writ> builder; WArray grow path).
 package writ_list_comp_edge;
 
 use logos.lang.writ.comp_builder;
@@ -17,23 +17,23 @@ fn main() -> i32 {
     let v: [i32; 4] = [10, 20, 30, 40];
     let slice_doc: Rc<Writ> = @[x + 1 for x in v if x >= 0];
 
-    // Edge 3: many elements (forces HArray grow 8 → 16 → 32).
+    // Edge 3: many elements (forces WArray grow 8 → 16 → 32).
     let big: [i32; 20] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
     let big_doc: Rc<Writ> = @[x for x in big];
 
     unsafe {
-        let v0: HView2 = HView2 { base: 0 as *const u8 };
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
 
         let h1: &Writ = empty_doc.deref();
         if v0.array_len(h1.root()) != 0u64 { return 1; }
 
         let h2: &Writ = slice_doc.deref();
-        let r2: HAny = h2.root();
+        let r2: WAny = h2.root();
         if v0.array_len(r2) != 4u64 { return 2; }
         if v0.get_int(v0.array_get(r2, 3u64)) != 41i64 { return 3; }
 
         let h3: &Writ = big_doc.deref();
-        let r3: HAny = h3.root();
+        let r3: WAny = h3.root();
         if v0.array_len(r3) != 20u64 { return 4; }
         if v0.get_int(v0.array_get(r3, 0u64)) != 0i64 { return 5; }
         if v0.get_int(v0.array_get(r3, 19u64)) != 19i64 { return 6; }

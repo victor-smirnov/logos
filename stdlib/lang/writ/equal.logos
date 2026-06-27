@@ -25,21 +25,21 @@ use logos.lang.writ.hstring;
 use logos.lang.str;
 use logos.lang.ptr;
 
-pub fn equal(a: HAny, b: HAny) -> bool {
+pub fn equal(a: WAny, b: WAny) -> bool {
     if a.is_null()  { return b.is_null(); }
     if a.is_bool()  { return b.is_bool()  && a.as_bool() == b.as_bool(); }
     if a.is_float() { return b.is_float() && a.as_f64()  == b.as_f64(); }
     if a.is_int()   { return b.is_int()   && a.as_i64()  == b.as_i64(); }
     if a.is_string() {
         if !b.is_string() { return false; }
-        let sa: &HString = unsafe { &*(a.resolve() as *const HString) };
-        let sb: &HString = unsafe { &*(b.resolve() as *const HString) };
+        let sa: &WString = unsafe { &*(a.resolve() as *const WString) };
+        let sb: &WString = unsafe { &*(b.resolve() as *const WString) };
         return str_eq(sa.as_str(), sb.as_str());
     }
     if a.is_array() {
         if !b.is_array() { return false; }
-        let aa: &HArray<HAny> = unsafe { &*(a.resolve() as *const HArray<HAny>) };
-        let ab: &HArray<HAny> = unsafe { &*(b.resolve() as *const HArray<HAny>) };
+        let aa: &WArray<WAny> = unsafe { &*(a.resolve() as *const WArray<WAny>) };
+        let ab: &WArray<WAny> = unsafe { &*(b.resolve() as *const WArray<WAny>) };
         if aa.len() != ab.len() { return false; }
         let mut i: i64 = 0i64;
         while i < aa.len() {
@@ -50,14 +50,14 @@ pub fn equal(a: HAny, b: HAny) -> bool {
     }
     if a.is_map() {
         if !b.is_map() { return false; }
-        let ma: &HMap<HString, HAny> = unsafe { &*(a.resolve() as *const HMap<HString, HAny>) };
-        let mb: &HMap<HString, HAny> = unsafe { &*(b.resolve() as *const HMap<HString, HAny>) };
+        let ma: &WMap<WString, WAny> = unsafe { &*(a.resolve() as *const WMap<WString, WAny>) };
+        let mb: &WMap<WString, WAny> = unsafe { &*(b.resolve() as *const WMap<WString, WAny>) };
         if ma.len() != mb.len() { return false; }
         let mut i: i64 = 0i64;
         while i < ma.slots() {
-            let k: HAny = ma.key_at(i);
+            let k: WAny = ma.key_at(i);
             if !k.is_null() {
-                let ks: str = unsafe { (&*(k.resolve() as *const HString)).as_str() };
+                let ks: str = unsafe { (&*(k.resolve() as *const WString)).as_str() };
                 if !mb.contains(ks) { return false; }
                 if !equal(ma.val_at(i), mb.get(ks)) { return false; }
             }

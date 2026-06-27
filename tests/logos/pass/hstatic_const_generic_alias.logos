@@ -10,7 +10,7 @@
 //   • Sema: cur_prog_ is now bound *before* `collect`, so LIT_HSTATIC
 //     encountered inside collected type-alias rhs registers into
 //     prog.hstatic_registry_. Otherwise alias-routed WritStatic
-//     const-args produced HStaticLit TypeRefs whose hash existed but
+//     const-args produced WStaticLit TypeRefs whose hash existed but
 //     whose literal never landed in the registry, and mono failed to
 //     materialise `__const_param:CFG` references inside the body.
 //
@@ -36,8 +36,8 @@ pub type FooA = Foo<CfgA>;
 pub type FooB = Foo<CfgB>;
 
 unsafe fn read_k<const CFG: WritStatic>() -> i64 {
-    let v: HView2 = hview2_from_ptr(CFG.ptr);
-    let av: HAny = v.map_get(v.root(), "k");
+    let v: WView2 = hview2_from_ptr(CFG.ptr);
+    let av: WAny = v.map_get(v.root(), "k");
     if av.is_null() { return -1i64; }
     return av.as_i64();
 }

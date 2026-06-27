@@ -30,7 +30,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     let name: SView = view.ast_node_name(item);
     if name.len == 0 { return; }
 
@@ -78,7 +78,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0;
     while i < nf {
-        let fld:   HAny     = view.ast_struct_field(item, i);
+        let fld:   WAny     = view.ast_struct_field(item, i);
         let fname: SView = view.ast_field_name(fld);
         let lead:  str        = if i == 0 { " " } else { ", " };
         em.tpl2(
@@ -100,7 +100,7 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     let name: SView = view.ast_node_name(item);
     if name.len == 0 { return; }
 
@@ -118,7 +118,7 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0;
     while i < nv {
-        let v:     HAny     = view.ast_enum_variant(item, i);
+        let v:     WAny     = view.ast_enum_variant(item, i);
         let vname: SView = view.ast_node_name(v);
         let arity: u64        = view.ast_variant_arity(v);
 
@@ -158,7 +158,7 @@ fn derive_arity_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     let name: SView = view.ast_node_name(item);
     if name.len == 0 { return; }
 

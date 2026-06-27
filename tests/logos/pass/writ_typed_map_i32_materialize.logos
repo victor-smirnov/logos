@@ -11,7 +11,7 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
-    let root: HAny = parse(h, "<I32,AnyVal>{1:10,2:20}");
+    let root: WAny = parse(h, "<I32,AnyVal>{1:10,2:20}");
     if root.is_null() { return 1; }
     if h2_type_code(root.resolve()) != 3101u64 { return 2; }
 
@@ -25,7 +25,7 @@ unsafe fn main() -> i32 {
     let vf: i64 = (p as i64) + 24;
     let vals: i64 = vf + *(vf as *const i64);
     let w0: i64 = *(vals as *const i64);
-    if HAny::Pod(w0 as u64).as_i64() != 10i64 { return 6; }
+    if WAny::Pod(w0 as u64).as_i64() != 10i64 { return 6; }
 
     // Render.
     let s: String = stringify(root);

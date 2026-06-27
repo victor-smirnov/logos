@@ -12,7 +12,7 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
-    let root: HAny = parse(h, "<I32>[10,20,30]");
+    let root: WAny = parse(h, "<I32>[10,20,30]");
     if root.is_null() { return 1; }
     if h2_type_code(root.resolve()) != 2107u64 { return 2; }
 

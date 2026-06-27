@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Writ containers conformance — ArenaString (HString) + ObjectArray (HArray<HAny>)
+// Writ containers conformance — ArenaString (WString) + ObjectArray (WArray<WAny>)
 // on the self-relative foundation. The hard case is GROWTH: the element buffer is
 // reallocated and each at-rest AnyVal Ref must re-anchor to its new slot. Returns 0
 // on success, else the first failing check code.

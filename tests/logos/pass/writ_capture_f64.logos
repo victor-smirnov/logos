@@ -8,29 +8,29 @@ use logos.lang.writ.static_view;
 use logos.lang.rc;
 
 unsafe fn main() -> i32 {
-    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    let v0: WView2 = WView2 { base: 0 as *const u8 };
 
     // Capture an f64 into a map.
     let price: f64 = 3.14;
     let doc: Rc<Writ> = @{"price": $price};
     let h: &Writ = doc.deref();
-    let root: HAny = h.root();
+    let root: WAny = h.root();
     if root.is_null() { return 1; }
     if !root.is_ref() { return 2; }
     if !root.is_map() { return 3; }
-    let pv: HAny = v0.map_get(root, "price");
+    let pv: WAny = v0.map_get(root, "price");
     if !pv.is_float() { return 31; }
     if pv.as_f64() != 3.14 { return 32; }
 
     // Capture f64 in an array.
     let arr: Rc<Writ> = @[$price, ${1.5 + 0.5}];
     let ah: &Writ = arr.deref();
-    let arr_root: HAny = ah.root();
+    let arr_root: WAny = ah.root();
     if arr_root.is_null() { return 4; }
     if !arr_root.is_ref() { return 5; }
     if !arr_root.is_array() { return 6; }
     if v0.array_len(arr_root) != 2u64 { return 61; }
-    let e1: HAny = v0.array_get(arr_root, 1u64);
+    let e1: WAny = v0.array_get(arr_root, 1u64);
     if e1.as_f64() != 2.0 { return 62; }
 
     // Mix: i32 + f64 in same literal (mixed zone-alloc + inline).
@@ -38,7 +38,7 @@ unsafe fn main() -> i32 {
     let ratio: f64 = 0.5;
     let mix: Rc<Writ> = @{"n": $count, "r": $ratio};
     let mh: &Writ = mix.deref();
-    let mix_root: HAny = mh.root();
+    let mix_root: WAny = mh.root();
     if mix_root.is_null() { return 7; }
     if !mix_root.is_ref() { return 8; }
     if !mix_root.is_map() { return 9; }

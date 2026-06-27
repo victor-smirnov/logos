@@ -10,7 +10,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(h: &Writ, text: str, expected: str, err: i32) -> i32 {
-    let v: HAny = parse(h, text);
+    let v: WAny = parse(h, text);
     let s: String = stringify(v);
     if !s.eq_str(expected) { return err; }
     return 0;

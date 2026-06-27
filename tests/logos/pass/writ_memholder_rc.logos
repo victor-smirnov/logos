@@ -24,7 +24,7 @@ unsafe fn main() -> i32 {
     let rc2: Rc<Writ> = rc.clone();
     let h2: &Writ = rc2.deref();
     // Same arena: the root set through one handle reads through the other.
-    h2.set_root(HAny::from(99 as i56));
+    h2.set_root(WAny::from(99 as i56));
     if h.root().as_i64() != 99i64 { return 1; }
 
     let sum: i32 = c0.value + c1.value + c2.value;   // 42

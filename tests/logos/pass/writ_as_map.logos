@@ -1,5 +1,5 @@
 // Writ C6: parallel slices -> typed writ2 map via `as <K,AnyVal>{}`.
-// MapSlice values are VALUE-FORM HAny (the writ2 re-design).
+// MapSlice values are VALUE-FORM WAny (the writ2 re-design).
 package writ_as_map;
 use logos.lang.writ.typed_arr;
 use logos.lang.writ.container;
@@ -11,13 +11,13 @@ use logos.lang.str;
 
 unsafe fn main() -> i32 {
     let keys: [i32; 2] = [1, 2];
-    let vals: [HAny; 2] = [HAny::from(10 as i56), HAny::from(20 as i56)];
+    let vals: [WAny; 2] = [WAny::from(10 as i56), WAny::from(20 as i56)];
     let ks: &[i32] = &keys;
-    let vs: &[HAny] = &vals;
+    let vs: &[WAny] = &vals;
     let ms: MapSliceI32 = MapSliceI32 { keys: ks, vals: vs };
     let ctr: Rc<Writ> = ms as <I32, AnyVal>{};
     let h: &Writ = ctr.deref();
-    let root: HAny = h.root();
+    let root: WAny = h.root();
     if root.is_null() { return 1; }
     if h2_type_code(root.resolve()) != 3101u64 { return 2; }
     let s: String = stringify(root);

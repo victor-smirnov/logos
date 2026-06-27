@@ -1,5 +1,5 @@
 // Arena-layer exerciser on writ2 (successor of the Writ1 ex_arena):
-// self-relative links, HAny wire encodings, vlen datatag raw byte layout.
+// self-relative links, WAny wire encodings, vlen datatag raw byte layout.
 package writ_ex_arena;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
@@ -25,20 +25,20 @@ unsafe fn main() -> i32 {
     *link_slot = 0i64;                                          // null form
     if *link_slot != 0i64                                       { return 3; }
 
-    // ── HAny wire format — Ref mode ─────────────────────────────────────────
+    // ── WAny wire format — Ref mode ─────────────────────────────────────────
     // Value form: the word IS the absolute pointer; bit 0 = 0.
-    let p: HAny = HAny::ref_to(na as *const u8);
+    let p: WAny = WAny::ref_to(na as *const u8);
     if (p.raw() & 1i64) != 0i64                                 { return 4; }
     if p.resolve() as i64 != na as i64                          { return 5; }
     if p.is_pod()                                               { return 6; }
 
-    // ── HAny wire format — Pod mode ─────────────────────────────────────────
+    // ── WAny wire format — Pod mode ─────────────────────────────────────────
     // (v<<8) | (code<<1) | 1: bool=2 -> |5; i56=1 -> |3.
-    let vb: HAny = HAny::from(true);
+    let vb: WAny = WAny::from(true);
     if vb.raw() != ((1i64 << 8i64) | 5i64)                      { return 7; }
-    let vi: HAny = HAny::from(7 as i56);
+    let vi: WAny = WAny::from(7 as i56);
     if vi.raw() != ((7i64 << 8i64) | 3i64)                      { return 8; }
-    let vneg: HAny = HAny::from(-1 as i56);
+    let vneg: WAny = WAny::from(-1 as i56);
     if vneg.as_i64() != -1i64                                   { return 9; }
 
     // ── vlen datatag raw byte layout ────────────────────────────────────────

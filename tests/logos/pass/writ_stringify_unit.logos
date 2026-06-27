@@ -1,6 +1,6 @@
-// Writ stringify — doc → JSON-ish text, dispatching on HAny::type_code. The
+// Writ stringify — doc → JSON-ish text, dispatching on WAny::type_code. The
 // first end-to-end verifier of the container model (type-tags + iteration +
-// HString read-back). Scalar/array cases are order-deterministic; the single-
+// WString read-back). Scalar/array cases are order-deterministic; the single-
 // entry map is too.
 package test;
 use logos.lang.writ.container;
@@ -11,31 +11,31 @@ use logos.lang.writ.hstring;
 use logos.mem.writ.stringify;
 use logos.mem.string;
 use logos.lang.str;
-fn eq(v: HAny, want: str) -> bool { let s: String = stringify(v); return str_eq(s.as_str(), want); }
+fn eq(v: WAny, want: str) -> bool { let s: String = stringify(v); return str_eq(s.as_str(), want); }
 fn main() -> i32 {
-    if !eq(HAny::from(42i56), "42") { return 1; }
-    if !eq(HAny::from(true), "true") { return 2; }
-    if !eq(HAny::ref_to(0i64 as *const u8), "null") { return 3; }
+    if !eq(WAny::from(42i56), "42") { return 1; }
+    if !eq(WAny::from(true), "true") { return 2; }
+    if !eq(WAny::ref_to(0i64 as *const u8), "null") { return 3; }
     let h: Writ = writ_new(1024i64);
     // scalar array — deterministic order
-    let a: &mut HArray<HAny> = h.array(4i64);
+    let a: &mut WArray<WAny> = h.array(4i64);
     a.push(1i64); a.push(2i64); a.push(3i64);
-    if !eq(HAny::from(&*a), "[1, 2, 3]") { return 4; }
+    if !eq(WAny::from(&*a), "[1, 2, 3]") { return 4; }
     // nested arrays
-    let b: &mut HArray<HAny> = h.array(2i64);
-    let c: &mut HArray<HAny> = h.array(2i64);
+    let b: &mut WArray<WAny> = h.array(2i64);
+    let c: &mut WArray<WAny> = h.array(2i64);
     c.push(10i64);
-    let d: &mut HArray<HAny> = h.array(2i64);
+    let d: &mut WArray<WAny> = h.array(2i64);
     d.push(20i64); d.push(30i64);
     b.push(&*c); b.push(&*d);
-    if !eq(HAny::from(&*b), "[[10], [20, 30]]") { return 5; }
+    if !eq(WAny::from(&*b), "[[10], [20, 30]]") { return 5; }
     // string value (escaped quotes)
-    let e: &mut HArray<HAny> = h.array(2i64);
+    let e: &mut WArray<WAny> = h.array(2i64);
     e.push("hi");
-    if !eq(HAny::from(&*e), "[\"hi\"]") { return 6; }
+    if !eq(WAny::from(&*e), "[\"hi\"]") { return 6; }
     // single-entry map — deterministic
-    let m: &mut HMap<HString, HAny> = h.map(8i64);
+    let m: &mut WMap<WString, WAny> = h.map(8i64);
     m.set("n", 42i64);
-    if !eq(HAny::from(&*m), "{\"n\": 42}") { return 7; }
+    if !eq(WAny::from(&*m), "{\"n\": 42}") { return 7; }
     return 0;
 }

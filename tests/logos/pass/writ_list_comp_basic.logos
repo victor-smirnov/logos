@@ -1,5 +1,5 @@
 // Writ list comprehensions: plain + guarded (writ2 Rc<Writ> builder).
-// Scalars coerce implicitly (writ_coerce_*); reads via HView2 helpers.
+// Scalars coerce implicitly (writ_coerce_*); reads via WView2 helpers.
 package writ_list_comp_basic;
 
 use logos.lang.writ.comp_builder;
@@ -18,16 +18,16 @@ fn main() -> i32 {
     let evens: Rc<Writ> = @[x * 10 for x in arr if (x % 2) == 0];
 
     unsafe {
-        let v0: HView2 = HView2 { base: 0 as *const u8 };
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
         let h: &Writ = doc.deref();
-        let root1: HAny = h.root();
+        let root1: WAny = h.root();
         if !root1.is_array() { return 1; }
         if v0.array_len(root1) != 5u64 { return 2; }
         if v0.get_int(v0.array_get(root1, 2u64)) != 9i64 { return 3; }    // 3*3
         if v0.get_int(v0.array_get(root1, 4u64)) != 25i64 { return 4; }   // 5*5
 
         let eh: &Writ = evens.deref();
-        let root2: HAny = eh.root();
+        let root2: WAny = eh.root();
         if !root2.is_array() { return 50; }
         if v0.array_len(root2) != 2u64 { return 5; }
         if v0.get_int(v0.array_get(root2, 0u64)) != 20i64 { return 6; }   // 2*10

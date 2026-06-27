@@ -142,7 +142,7 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         // = O(n²). It also wins correctness: the exact qualified symbol beats the
         // sig-stripping canonical fallback, which would collapse distinct-base /
         // distinct-signature defs onto the wrong one (String::from→new, or
-        // set(_,HAny) for an i64 arg).
+        // set(_,WAny) for an i64 arg).
         if (auto q = link_name_str(key); q != name)
             if (auto it = ffo_symtab_.find(q); it != ffo_symtab_.end())
                 return it->second;
@@ -580,7 +580,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                     if (vi.disc == disc && !vi.logos_types.empty()) { vt = vi.logos_types[0]; break; }
                 auto vi64 = coerce_int(v, builder_.getI64Type(), vt);
                 if (info.niche.val_raw) {
-                    // RAW mode (HAny Pod): the value IS the final word (low-bit-1
+                    // RAW mode (WAny Pod): the value IS the final word (low-bit-1
                     // already baked in by the producer) — store verbatim, no shift.
                     word = vi64;
                 } else {
@@ -2484,7 +2484,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             // A by-value aggregate / tagged-enum param has ptr SSA repr
             // (logos_to_mlir → ptr; the value lives in storage). When the arg
             // arrives as a VALUE — a struct, or a niche-packed enum word (i64,
-            // e.g. an HAny read straight from `*zoned` storage) — spill it to an
+            // e.g. an WAny read straight from `*zoned` storage) — spill it to an
             // alloca and pass the pointer, matching the callee's ptr param.
             // (Previously only structs spilled; a scalar niche word fell to
             // coerce_numeric, which can't make a ptr → arg/param type mismatch.)
@@ -4895,9 +4895,9 @@ mlir::Value MLIRGenImpl::enum_payload_ptr(mlir::Value enum_addr,
     // reads as the variant payload field: value arm (lo=1) → `word>>1` (signed →
     // arithmetic), pointer arm (lo=0) → the word itself (the aligned pointer).
     if (info.niche.packed && info.niche.kind == TaggedEnumInfo::Niche::LowBit) {
-        // RAW mode (HAny Pod(u64)): both arms read the word VERBATIM — Pod is the
+        // RAW mode (WAny Pod(u64)): both arms read the word VERBATIM — Pod is the
         // raw tagged word, Ref is the raw pointer — so the payload IS the slot
-        // (no decode). The HAny accessors decode value/code from the word.
+        // (no decode). The WAny accessors decode value/code from the word.
         if (info.niche.val_raw) return enum_addr;
         // value arm (low bit 1) → read from a temp holding `word>>1` (signed →
         // arithmetic shift); pointer arm (low bit 0) → read from the enum slot
@@ -5711,7 +5711,7 @@ struct WritZoneBuild {
 };
 
 // Build a WritVal into the live `doc`, returning the raw AnyVal u32.
-// For PARAM (HVCapture), returns the inline PARAM raw; the caller writes it
+// For PARAM (WVCapture), returns the inline PARAM raw; the caller writes it
 // into the slot, and clone() will pick it up via its out_params bookkeeping.
 // Returns a proper Writ SELF-relative AnyVal (Pod for scalars/captures, Ref for
 // strings/arrays/maps/types). NOT the Writ1 u32 base-relative "raw" — that made
@@ -5724,7 +5724,7 @@ static AnyVal ptr_anyval(const void* obj) {
     AnyVal r; r.set_ref(obj); return r;
 }
 
-static uint32_t build_object_array(lir_view::HVArrayView arr,
+static uint32_t build_object_array(lir_view::WVArrayView arr,
                                    logos::writ::Writ& doc) {
     uint64_t n = arr.size();
     uint32_t a_off = doc.make_array(n ? n : uint64_t{4}).get().offset().value();
@@ -5737,7 +5737,7 @@ static uint32_t build_object_array(lir_view::HVArrayView arr,
 }
 
 template <typename T>
-static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
+static uint32_t build_typed_array_scalar(lir_view::WVArrayView arr,
                                          logos::writ::Writ& doc) {
     uint64_t n = arr.size();
     auto* a = doc.make_typed<TypedArray<T>>(n ? n : uint64_t{4}).get();
@@ -5747,7 +5747,7 @@ static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
         T val = 0;
         auto er = arr.elem(i);
         if (er && er.kind() == lir_schema::writ_val::Code::Int) {
-            val = static_cast<T>(lir_view::HVIntView{er}.value());
+            val = static_cast<T>(lir_view::WVIntView{er}.value());
         }
         auto* cur = reinterpret_cast<TypedArray<T>*>(
             WritAccess::base(doc) + a_off);
@@ -5756,7 +5756,7 @@ static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
     return a_off;
 }
 
-static uint32_t build_array(lir_view::HVArrayView arr,
+static uint32_t build_array(lir_view::WVArrayView arr,
                             logos::writ::Writ& doc) {
     auto et = arr.elem_type();
     if (et == "I8")  return build_typed_array_scalar<int8_t>(arr, doc);
@@ -5772,7 +5772,7 @@ static uint32_t build_array(lir_view::HVArrayView arr,
     return build_object_array(arr, doc);
 }
 
-static uint32_t build_object_map(lir_view::HVMapView map,
+static uint32_t build_object_map(lir_view::WVMapView map,
                                  logos::writ::Writ& doc) {
     uint64_t n = map.size();
     uint32_t cap = 8;
@@ -5790,7 +5790,7 @@ static uint32_t build_object_map(lir_view::HVMapView map,
 }
 
 template <typename Map, typename K>
-static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
+static uint32_t build_typed_map_anyval(lir_view::WVMapView map,
                                        logos::writ::Writ& doc) {
     uint64_t n = map.size();
     uint32_t cap = n == 0 ? 1 : static_cast<uint32_t>(n);
@@ -5807,7 +5807,7 @@ static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
     return m_off;
 }
 
-static uint32_t build_map(lir_view::HVMapView map,
+static uint32_t build_map(lir_view::WVMapView map,
                           logos::writ::Writ& doc) {
     auto kt = map.key_type();
     if (kt == "I32") return build_typed_map_anyval<logos::writ::TypedMap<int32_t>, int32_t>(map, doc);
@@ -5827,37 +5827,37 @@ static AnyVal build_writ_val(lir_view::WritValRef v,
     case HC::Bool:
         // Boolean: writ2 HA_BOOL = 2 (was Writ1 type_hash 37).
         return AnyVal::from_value<uint8_t>(
-            lir_view::HVBoolView{v}.value() ? 1 : 0, 2);
+            lir_view::WVBoolView{v}.value() ? 1 : 0, 2);
     case HC::Int: {
-        int64_t iv = lir_view::HVIntView{v}.value();
+        int64_t iv = lir_view::WVIntView{v}.value();
         if (iv >= -8388608LL && iv <= 8388607LL)
             return AnyVal::from_value<int32_t>(static_cast<int32_t>(iv));
         return doc.box<int64_t>(iv).get();
     }
     case HC::Float:
-        return doc.box<double>(lir_view::HVFloatView{v}.value()).get();
+        return doc.box<double>(lir_view::WVFloatView{v}.value()).get();
     case HC::Str: {
-        auto sv = lir_view::HVStrView{v}.value();
+        auto sv = lir_view::WVStrView{v}.value();
         return doc.make_string(std::string(sv)).get().to_anyval();
     }
     case HC::Array: {
-        uint32_t off = build_array(lir_view::HVArrayView{v}, doc);   // build FIRST (may realloc)
+        uint32_t off = build_array(lir_view::WVArrayView{v}, doc);   // build FIRST (may realloc)
         return ptr_anyval(WritAccess::base(doc) + off);            // then re-fetch base
     }
     case HC::Map: {
-        uint32_t off = build_map(lir_view::HVMapView{v}, doc);
+        uint32_t off = build_map(lir_view::WVMapView{v}, doc);
         return ptr_anyval(WritAccess::base(doc) + off);
     }
     case HC::Capture:
         // Inline PARAM (tc=127): word = (value_index << 8) | ((127&0x7F)<<1) | 1.
-        return AnyVal::pod(lir_view::HVCaptureView{v}.value_index(), 127);
+        return AnyVal::pod(lir_view::WVCaptureView{v}.value_index(), 127);
     case HC::Type: {
         // Component-metaprog slice 1C: emit a TinyObjectMap whose
         // schema_type_code = type_hash::Type=107 carrying:
         //   key 0: kind (u32, inline AnyVal)
         //   key 1: uid  (u64, ptr-mode AnyVal)
         //   key 2: name (ArenaString ptr-mode AnyVal)
-        lir_view::HVTypeView tv{v};
+        lir_view::WVTypeView tv{v};
         auto mv = doc.make_tiny_map_view(/*cap=*/4).get();
         mv.set_schema_type_code(logos::writ::type_hash::Type);
         uint32_t m_off = mv.offset().value();
@@ -6052,9 +6052,9 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
 }
 
-// writ2 capture coercion: scalar capture value -> 8-byte VALUE-FORM HAny word.
+// writ2 capture coercion: scalar capture value -> 8-byte VALUE-FORM WAny word.
 // Pod = (v<<8)|(code<<1)|1 (bool code HA_BOOL=2 -> |5; ints as i56 code HA_I56=1
-// -> |3). HAny captures pass their niche word through. Zone-alloc kinds
+// -> |3). WAny captures pass their niche word through. Zone-alloc kinds
 // (strings/floats/ptrs) are handled by the writ_ctr_alloc_* path, not here.
 mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {
     auto i64_mlir = builder_.getIntegerType(64);
@@ -6081,7 +6081,7 @@ mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 3, 64));
         }
         case K::Enum:
-            if (TypeRef(t).enum_name() == "HAny") {
+            if (TypeRef(t).enum_name() == "WAny") {
                 if (v.getType() == i64_mlir) return v;
                 if (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
                     return builder_.create<mlir::LLVM::ExtractValueOp>(
@@ -6338,7 +6338,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
     mlir::Value n_values_v = builder_.create<mlir::arith::ConstantIntOp>(
         loc_, static_cast<int64_t>(n_values), 64);
 
-    // Allocate resolved[] on stack: n_values × u64 (value-form HAny words).
+    // Allocate resolved[] on stack: n_values × u64 (value-form WAny words).
     mlir::Value resolved_ptr = nullptr;
     auto u64_mlir = builder_.getIntegerType(64);
     if (n_values > 0) {
@@ -6480,7 +6480,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ctr_type, ctr_alloca);
     }
 
-    // ── Scalar-only path (C4): all captures are inline HAny Pods (no zone alloc). ──
+    // ── Scalar-only path (C4): all captures are inline WAny Pods (no zone alloc). ──
     for (size_t i = 0; i < n_values; ++i) {
         mlir::Value cap_val = gen_expr(capture_exprs[i]);
         if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);

@@ -13,12 +13,12 @@ unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
 
-    let v1: HAny = parse(h, "@Decimal(10,2)=\"123.45\"");
+    let v1: WAny = parse(h, "@Decimal(10,2)=\"123.45\"");
     if v1.is_null() { return 1; }
     let s1: String = stringify(v1);
     if !s1.eq_str("\"123.45\"@Decimal(10,2)") { return 2; }
 
-    let v2: HAny = parse(h, "\"123.45\"@Decimal(10,2)");
+    let v2: WAny = parse(h, "\"123.45\"@Decimal(10,2)");
     if v2.is_null() { return 3; }
     let s2: String = stringify(v2);
     if !s2.eq_str("\"123.45\"@Decimal(10,2)") { return 4; }

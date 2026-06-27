@@ -4,14 +4,14 @@
 // carries its Writ type tag, so the value can take part in tag-dispatch
 // (compare / equality / stringify / hash …) WITHOUT owning or allocating. It
 // does NOT extend lifetimes — when you need to own a runtime-typed value, use
-// the Writ container (`HAny` + arena). "Ord" is just one of DView's
+// the Writ container (`WAny` + arena). "Ord" is just one of DView's
 // capabilities, hence the neutral name.
 //
-// Unification with HAny: the per-type BEHAVIOUR (the machinery) lives in a
+// Unification with WAny: the per-type BEHAVIOUR (the machinery) lives in a
 // single tag-keyed capability layer (`htag_*` below) — the same type_code-
-// dispatch idiom as `equal()`. DView and HAny are two ADAPTERS over that layer:
+// dispatch idiom as `equal()`. DView and WAny are two ADAPTERS over that layer:
 // each maps its own memory layout to `(tag, object-bytes)` and calls in. DView's
-// layout (tag/obj in fields) makes its adapters trivial; HAny's adapter (future)
+// layout (tag/obj in fields) makes its adapters trivial; WAny's adapter (future)
 // normalises niche/Ref/addr-1 — its only friction is a Pod value's inline bits
 // having no address (spill to a scratch before calling the layer).
 
@@ -146,7 +146,7 @@ impl DView {
     }
 }
 
-// ── shared tag-keyed capability layer (HAny will route here too) ─────────────
+// ── shared tag-keyed capability layer (WAny will route here too) ─────────────
 // Each capability is one tag-dispatch. New comparable datatype = one arm here
 // (+ a Datum impl). Reads object bytes via LE assembly — works at any
 // (possibly unaligned) borrowed offset.

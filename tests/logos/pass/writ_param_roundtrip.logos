@@ -3,22 +3,22 @@
 package writ_param_roundtrip;
 use logos.lang.writ.anyval;
 
-fn embed_param(idx: u32) -> HAny {
-    return HAny::Pod((((idx as u64) << 8u64) | 0xFFu64));
+fn embed_param(idx: u32) -> WAny {
+    return WAny::Pod((((idx as u64) << 8u64) | 0xFFu64));
 }
-fn is_param(v: HAny) -> bool {
+fn is_param(v: WAny) -> bool {
     return v.is_pod() && v.pod_code() == 127 as u8;
 }
-fn param_index(v: HAny) -> u32 {
+fn param_index(v: WAny) -> u32 {
     return ((v.raw() as u64) >> 8u64) as u32;
 }
 
 unsafe fn main() -> i32 {
-    let p0: HAny = embed_param(0 as u32);
+    let p0: WAny = embed_param(0 as u32);
     if !is_param(p0) { return 1; }
     if param_index(p0) != 0 as u32 { return 2; }
 
-    let p42: HAny = embed_param(42 as u32);
+    let p42: WAny = embed_param(42 as u32);
     if !is_param(p42) { return 3; }
     if param_index(p42) != 42 as u32 { return 4; }
 
@@ -28,7 +28,7 @@ unsafe fn main() -> i32 {
     if p42.is_null() { return 7; }
 
     // Max 24-bit index survives.
-    let pmax: HAny = embed_param(16777215 as u32);
+    let pmax: WAny = embed_param(16777215 as u32);
     if param_index(pmax) != 16777215 as u32 { return 8; }
     return 0;
 }

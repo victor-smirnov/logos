@@ -3,7 +3,7 @@
 // is copied, so dead source space is dropped).
 //
 // writ_clone(v) -> Rc<Writ> with the copy as its root;
-// writ_clone_into(h, v) -> HAny copies into an existing container.
+// writ_clone_into(h, v) -> WAny copies into an existing container.
 //
 // Direct-walker foundation (stringify/equal/hashing siblings). Pods copy
 // verbatim (position-independent); strings/arrays/maps/typed payloads
@@ -11,18 +11,18 @@
 
 package logos.mem.writ.clone;
 
-use logos.lang.writ.anyval;       // HAny, h2_type_code
+use logos.lang.writ.anyval;       // WAny, h2_type_code
 use logos.lang.writ.allocator;    // Allocator
 use logos.lang.writ.container;    // Writ, writ_rc, alloc_tagged, box_*
-use logos.lang.writ.array;        // HArray<HAny>
-use logos.lang.writ.hmap;         // HMap<HString, HAny>
-use logos.lang.writ.hstring;      // HString, hstring_in_alloc
+use logos.lang.writ.array;        // WArray<WAny>
+use logos.lang.writ.hmap;         // WMap<WString, WAny>
+use logos.lang.writ.hstring;      // WString, hstring_in_alloc
 use logos.lang.rc;                    // Rc
 use logos.lang.str;
 
 // Deep-copy `v` into container `h`; returns the value-form handle of the copy.
-pub unsafe fn writ_clone_into(h: &Writ, v: HAny) -> HAny {
-    if v.is_null() { return HAny::Ref(0 as *const u8); }
+pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
+    if v.is_null() { return WAny::Ref(0 as *const u8); }
     if v.is_pod()  { return v; }                       // position-independent
 
     let hp: *mut Writ = h as *const Writ as *mut Writ;
@@ -34,46 +34,46 @@ pub unsafe fn writ_clone_into(h: &Writ, v: HAny) -> HAny {
     if tc == H2_I64 || tc == H2_U64 || tc == H2_F32 || tc == H2_F64 {
         let obj: *mut u8 = alloc_tagged(ap, 8, tc);
         *(obj as *mut u64) = *(p as *const u64);
-        return HAny::ref_to(obj as *const u8);
+        return WAny::ref_to(obj as *const u8);
     }
 
     if v.is_string() {
-        let s: &HString = &*(p as *const HString);
-        return HAny::from(&*hstring_in_alloc(ap, s.as_str()));
+        let s: &WString = &*(p as *const WString);
+        return WAny::from(&*hstring_in_alloc(ap, s.as_str()));
     }
 
     if v.is_array() {
-        let src: &HArray<HAny> = &*(p as *const HArray<HAny>);
+        let src: &WArray<WAny> = &*(p as *const WArray<WAny>);
         let n: i64 = src.len();
         let mut cap: i64 = 8;
         while cap < n { cap = cap * 2; }
-        let dst: &mut HArray<HAny> = h.array(cap);
+        let dst: &mut WArray<WAny> = h.array(cap);
         let mut i: i64 = 0;
         while i < n {
             dst.push(writ_clone_into(h, src.get(i)));
             i = i + 1;
         }
-        let dp: *const HArray<HAny> = dst as *const HArray<HAny>;
-        return HAny::ref_to(dp as *const u8);
+        let dp: *const WArray<WAny> = dst as *const WArray<WAny>;
+        return WAny::ref_to(dp as *const u8);
     }
 
     if v.is_map() {
-        let src: &HMap<HString, HAny> = &*(p as *const HMap<HString, HAny>);
+        let src: &WMap<WString, WAny> = &*(p as *const WMap<WString, WAny>);
         let mut slots: i64 = 8;
         while slots < src.len() * 2 { slots = slots * 2; }
-        let dst: &mut HMap<HString, HAny> = h.map(slots);
+        let dst: &mut WMap<WString, WAny> = h.map(slots);
         let cap: i64 = src.slots();
         let mut i: i64 = 0;
         while i < cap {
-            let k: HAny = src.key_at(i);
+            let k: WAny = src.key_at(i);
             if !k.is_null() {
-                let ks: &HString = &*(k.resolve() as *const HString);
+                let ks: &WString = &*(k.resolve() as *const WString);
                 dst.set(ks.as_str(), writ_clone_into(h, src.val_at(i)));
             }
             i = i + 1;
         }
-        let dp: *const HMap<HString, HAny> = dst as *const HMap<HString, HAny>;
-        return HAny::ref_to(dp as *const u8);
+        let dp: *const WMap<WString, WAny> = dst as *const WMap<WString, WAny>;
+        return WAny::ref_to(dp as *const u8);
     }
 
     // Typed dense arrays: copy the 24-byte header + raw element buffer.
@@ -101,7 +101,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: HAny) -> HAny {
         let df: i64 = (hdr as i64) + 16;
         if buf == (0 as *mut u8) { *(df as *mut i64) = 0i64; }
         else { *(df as *mut i64) = (buf as i64) - df; }
-        return HAny::ref_to(hdr as *const u8);
+        return WAny::ref_to(hdr as *const u8);
     }
 
     // Typed dense maps (3101..3104): keys buffer raw; vals re-anchored at-rest.
@@ -122,7 +122,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: HAny) -> HAny {
             }
             i = 0i64;
             while i < n {
-                let c2: HAny = writ_clone_into(h, h2c_at(svals + i * 8i64));
+                let c2: WAny = writ_clone_into(h, h2c_at(svals + i * 8i64));
                 let slot: i64 = vbuf + i * 8i64;
                 let w2: i64 = c2.raw();
                 if w2 == 0i64 || (w2 & 1i64) == 1i64 { *(slot as *mut i64) = w2; }
@@ -137,7 +137,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: HAny) -> HAny {
         let vf2: i64 = (hdr as i64) + 24i64;
         if kbuf == 0i64 { *(kf2 as *mut i64) = 0i64; *(vf2 as *mut i64) = 0i64; }
         else { *(kf2 as *mut i64) = kbuf - kf2; *(vf2 as *mut i64) = vbuf - vf2; }
-        return HAny::ref_to(hdr as *const u8);
+        return WAny::ref_to(hdr as *const u8);
     }
 
     // TypedValue: 24-byte object of three at-rest fields, each deep-copied.
@@ -146,34 +146,34 @@ pub unsafe fn writ_clone_into(h: &Writ, v: HAny) -> HAny {
         let mut f: i64 = 0;
         while f < 3 {
             let src_slot: i64 = (p as i64) + f * 8;
-            let c: HAny = writ_clone_into(h, h2c_at(src_slot));
+            let c: WAny = writ_clone_into(h, h2c_at(src_slot));
             let dst_slot: i64 = (obj as i64) + f * 8;
             let cw: i64 = c.raw();
             if cw == 0i64 || (cw & 1i64) == 1i64 { *(dst_slot as *mut i64) = cw; }
             else { *(dst_slot as *mut i64) = cw - dst_slot; }
             f = f + 1;
         }
-        return HAny::ref_to(obj as *const u8);
+        return WAny::ref_to(obj as *const u8);
     }
 
     // Unknown tagged object — copy nothing; null result signals "not cloneable".
-    return HAny::Ref(0 as *const u8);
+    return WAny::Ref(0 as *const u8);
 }
 
 // Deep-copy `v` into a fresh right-sized container (the compactify effect:
 // only live objects come along).
-pub unsafe fn writ_clone(v: HAny) -> Rc<Writ> {
+pub unsafe fn writ_clone(v: WAny) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(16384);
     let h: &Writ = &*rc;
-    let c: HAny = writ_clone_into(h, v);
+    let c: WAny = writ_clone_into(h, v);
     h.set_root(c);
     return rc;
 }
 
-// Materialize the at-rest HAny word at `slot_addr`.
-unsafe fn h2c_at(slot_addr: i64) -> HAny {
+// Materialize the at-rest WAny word at `slot_addr`.
+unsafe fn h2c_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((slot_addr + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((slot_addr + w) as *const u8);
 }

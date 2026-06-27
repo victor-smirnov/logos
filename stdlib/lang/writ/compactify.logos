@@ -17,47 +17,47 @@
 package logos.lang.writ.compactify;
 
 use logos.lang.writ.container;   // Writ
-use logos.lang.writ.anyval;      // HAny
-use logos.lang.writ.array;       // HArray<HAny>
-use logos.lang.writ.hmap;        // HMap<HString, HAny>
-use logos.lang.writ.hstring;     // HString
+use logos.lang.writ.anyval;      // WAny
+use logos.lang.writ.array;       // WArray<WAny>
+use logos.lang.writ.hmap;        // WMap<WString, WAny>
+use logos.lang.writ.hstring;     // WString
 use logos.lang.str;                 // str
 use logos.lang.ptr;
 
 // Deep-copy `v` (and everything it transitively references) into `dst`; return the
-// new root HAny. Pods/null are position-independent (copied by value); Refs are
+// new root WAny. Pods/null are position-independent (copied by value); Refs are
 // rebuilt and re-anchored.
-pub fn compactify(dst: &Writ, v: HAny) -> HAny {
-    if v.is_null() { return HAny::ref_to(0i64 as *const u8); }
+pub fn compactify(dst: &Writ, v: WAny) -> WAny {
+    if v.is_null() { return WAny::ref_to(0i64 as *const u8); }
     if v.is_pod()  { return v; }                       // i56 / bool — position-independent
     if v.is_float() { return dst.float(v.as_f64()); }  // boxed wide scalars → re-box in dst
     if v.is_int()   { return dst.int(v.as_i64()); }    // (boxed i64; Pod i56 already handled above)
     if v.is_string() {
-        let hs: &HString = unsafe { &*(v.resolve() as *const HString) };
-        return HAny::from(dst.hstring(hs.as_str()));
+        let hs: &WString = unsafe { &*(v.resolve() as *const WString) };
+        return WAny::from(dst.hstring(hs.as_str()));
     }
     if v.is_array() {
-        let a: &HArray<HAny> = unsafe { &*(v.resolve() as *const HArray<HAny>) };
+        let a: &WArray<WAny> = unsafe { &*(v.resolve() as *const WArray<WAny>) };
         let n: i64 = a.len();
-        let na: &mut HArray<HAny> = dst.array(if n < 1i64 { 1i64 } else { n });
+        let na: &mut WArray<WAny> = dst.array(if n < 1i64 { 1i64 } else { n });
         let mut i: i64 = 0i64;
         while i < n { na.push(compactify(dst, a.get(i))); i = i + 1i64; }
-        return HAny::from(&*na);
+        return WAny::from(&*na);
     }
     if v.is_map() {
-        let m: &HMap<HString, HAny> = unsafe { &*(v.resolve() as *const HMap<HString, HAny>) };
+        let m: &WMap<WString, WAny> = unsafe { &*(v.resolve() as *const WMap<WString, WAny>) };
         let n: i64 = m.len();
-        let nm: &mut HMap<HString, HAny> = dst.map(if n < 1i64 { 1i64 } else { n });
+        let nm: &mut WMap<WString, WAny> = dst.map(if n < 1i64 { 1i64 } else { n });
         let mut i: i64 = 0i64;
         while i < m.slots() {
-            let k: HAny = m.key_at(i);
+            let k: WAny = m.key_at(i);
             if !k.is_null() {
-                let ks: &HString = unsafe { &*(k.resolve() as *const HString) };
+                let ks: &WString = unsafe { &*(k.resolve() as *const WString) };
                 nm.set(ks.as_str(), compactify(dst, m.val_at(i)));
             }
             i = i + 1i64;
         }
-        return HAny::from(&*nm);
+        return WAny::from(&*nm);
     }
     return v;
 }
@@ -66,4 +66,4 @@ pub fn compactify(dst: &Writ, v: HAny) -> HAny {
 // compaction (a full structural copy, re-anchoring every reference) — `clone` is
 // the same operation named for the by-value-copy intent (Writ1's clone). Copy
 // into the SAME arena to duplicate a subtree; into a FRESH arena to compact.
-pub fn clone(dst: &Writ, v: HAny) -> HAny { return compactify(dst, v); }
+pub fn clone(dst: &Writ, v: WAny) -> WAny { return compactify(dst, v); }

@@ -16,9 +16,9 @@ fn main() -> i32 {
     let doc: Rc<Writ> = @{keys[x as i64]: x * 100 for x in idx};
 
     unsafe {
-        let v0: HView2 = HView2 { base: 0 as *const u8 };
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
         let h: &Writ = doc.deref();
-        let r: HAny = h.root();
+        let r: WAny = h.root();
         if !r.is_map() { return 1; }
         if v0.get_int(v0.map_get(r, "k0")) !=   0i64 { return 2; }
         if v0.get_int(v0.map_get(r, "k3")) != 300i64 { return 3; }

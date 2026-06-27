@@ -25,7 +25,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     let name: SView = view.ast_node_name(item);
     if name.len == (0 as u64) { return; }
 
@@ -77,7 +77,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0 as u64;
     while i < nf {
-        let fld: HAny = view.ast_struct_field(item, i);
+        let fld: WAny = view.ast_struct_field(item, i);
         let fname: SView = view.ast_field_name(fld);
 
         if i == (0 as u64) {

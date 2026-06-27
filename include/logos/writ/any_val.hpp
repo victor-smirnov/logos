@@ -10,7 +10,7 @@
 namespace logos::writ {
 
 // AnyVal — the Writ heterogeneous slot. ONE 8-byte word, BYTE-IDENTICAL to the
-// Logos stdlib `HAny` (stdlib/lang/writ2/anyval.logos) — both sides read the same
+// Logos stdlib `WAny` (stdlib/lang/writ2/anyval.logos) — both sides read the same
 // bytes (shared wire/disk layout). The 4-byte base-relative AnyVal of Writ1 is
 // replaced by this 8-byte self-relative niche.
 //

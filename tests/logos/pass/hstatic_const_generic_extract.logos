@@ -14,7 +14,7 @@
 //   • Mono moves hstatic_registry_ alongside expr_pool_ so cloned
 //     bodies can splice the registered literal.
 //   • Mono's VarRef clone, on a `__const_param:NAME` reference whose
-//     SubstMap entry is HStaticLit(hash=H), looks up registry[H] and
+//     SubstMap entry is WStaticLit(hash=H), looks up registry[H] and
 //     deep-clones that LExpr at the use site (subst_expr with empty
 //     subst). The cloned EWritLit emits exactly like an inline
 //     `@{...}` would — the cfg is materialised in rodata.
@@ -31,10 +31,10 @@ use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
 
 unsafe fn read_k<const CFG: WritStatic>() -> i64 {
-    let v: HView2 = hview2_from_ptr(CFG.ptr);
-    let r: HAny = v.root();
+    let v: WView2 = hview2_from_ptr(CFG.ptr);
+    let r: WAny = v.root();
     if r.is_null() { return -1i64; }
-    let kv: HAny = v.map_get(r, "k");
+    let kv: WAny = v.map_get(r, "k");
     if kv.is_null() { return -2i64; }
     if !kv.is_int() { return -3i64; }
     return kv.as_i64();

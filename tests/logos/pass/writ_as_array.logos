@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
     let s: &[i32] = &arr;
     let ctr: Rc<Writ> = s as <I32>[];
     let h: &Writ = ctr.deref();
-    let root: HAny = h.root();
+    let root: WAny = h.root();
     if root.is_null() { return 1; }
     if !root.is_ref() { return 2; }
     let text: String = stringify(root);
@@ -27,7 +27,7 @@ unsafe fn main() -> i32 {
     let s2: &[u64] = &arr2;
     let ctr2: Rc<Writ> = s2 as <U64>[];
     let h2: &Writ = ctr2.deref();
-    let root2: HAny = h2.root();
+    let root2: WAny = h2.root();
     if root2.is_null() { return 4; }
     if !root2.is_ref() { return 5; }
     let text2: String = stringify(root2);

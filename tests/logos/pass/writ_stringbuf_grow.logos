@@ -13,14 +13,14 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(65536);
     let h: &Writ = rc.deref();
-    let arr: &mut HArray<HAny> = h.array(8);
+    let arr: &mut WArray<WAny> = h.array(8);
     let mut i: i64 = 0;
     while i < 100 {
-        arr.push(HAny::from(&*(h.hstring("growing-element-payload") as *const HString)));
+        arr.push(WAny::from(&*(h.hstring("growing-element-payload") as *const WString)));
         i = i + 1;
     }
-    let ap: *const HArray<HAny> = arr as *const HArray<HAny>;
-    let text: String = stringify(HAny::ref_to(ap as *const u8));
+    let ap: *const WArray<WAny> = arr as *const WArray<WAny>;
+    let text: String = stringify(WAny::ref_to(ap as *const u8));
     // 100 * ("growing-element-payload"+quotes=25) + 99*", " + "[]" = 2500+198+2.
     if text.len() != 2700i64 { return 1; }
     let tp: *const u8 = text.as_str().as_ptr();

@@ -432,7 +432,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     case LogosType::Kind::CfgSlotType: {
         // <type:CFG.path> — extract the type stored at the given path of
         // WritStatic-bound CFG. CFG can be a const-generic param
-        // (resolves through `s`) or a type alias to an HStaticLit (already
+        // (resolves through `s`) or a type alias to an WStaticLit (already
         // a concrete bound when type aliases are inlined). When CFG is not
         // yet concrete, stay deferred.
         //
@@ -447,7 +447,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         auto sit = s.find(cfg_name);
         if (sit != s.end()) cfg = sit->second;
         if (cfg) cfg = subst_type(cfg, s);
-        if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::HStaticLit) return tv;
+        if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::WStaticLit) return tv;
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rav = out_.hstatic_registry_.get(std::to_string(hash));
         if (rav.is_null()) return tv;
@@ -478,7 +478,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             bool found = false;
             if (st.kind == 'F' || st.kind == 'I') {
                 if (cur.kind() != K::Map) return tv;
-                auto map = lir_view::HVMapView{cur};
+                auto map = lir_view::WVMapView{cur};
                 if (st.kind == 'F' && !map.int_keyed()) {
                     for (uint64_t i = 0, n = map.size(); i < n; ++i)
                         if (map.str_key(i) == st.name) { cur = map.value(i); found = true; break; }
@@ -488,7 +488,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 }
             } else if (st.kind == 'A') {
                 if (cur.kind() != K::Array) return tv;
-                auto arr = lir_view::HVArrayView{cur};
+                auto arr = lir_view::WVArrayView{cur};
                 if ((uint64_t)st.index >= arr.size()) return tv;
                 cur = arr.elem((uint64_t)st.index);
                 found = true;
@@ -496,7 +496,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             if (!found) return tv;
         }
         if (cur.kind() == lir_schema::writ_val::Code::Type) {
-            std::string tname(lir_view::HVTypeView{cur}.name());
+            std::string tname(lir_view::WVTypeView{cur}.name());
             auto alloc_kind = [&](LogosType::Kind k) -> TypeRef {
                 LogosTypeBuilder b; b.kind = k;
                 return out_.type_pool.alloc(std::move(b));

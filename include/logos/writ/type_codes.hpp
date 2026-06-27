@@ -8,7 +8,7 @@ namespace logos::writ {
 
 // Writ wire/in-band type codes — the SINGLE source of truth shared with the
 // Logos stdlib (stdlib/lang/writ2/anyval.logos H2_*/HA_*/HT_* and the container
-// HArrTag/HIntKeyTag codes). C++ and Logos read the same bytes, so these MUST stay
+// WArrTag/WIntKeyTag codes). C++ and Logos read the same bytes, so these MUST stay
 // identical to the Logos constants.
 //
 // NOTE — string code divergence: Logos writ2 uses H2_STRING = 130, whereas the
@@ -28,13 +28,13 @@ inline constexpr uint64_t HT_U16  = 24;
 inline constexpr uint64_t HT_U24  = 25;
 
 // ── Ref (tagged arena object) codes ──
-inline constexpr uint64_t STRING     = 130;   // HString  (Logos H2_STRING; Writ1 used 28)
-inline constexpr uint64_t ARRAY      = 100;   // HArray<HAny>      (ObjectArray)
-inline constexpr uint64_t MAP        = 101;   // HMap<HString,HAny> (ObjectMap)
-inline constexpr uint64_t TINYMAP    = 98;    // HMap<Hu6,HAny>     (TinyObjectMap)
-inline constexpr uint64_t DECIMAL    = 102;   // HDecimal
-inline constexpr uint64_t PARAMETER  = 127;   // HParameter
-inline constexpr uint64_t TYPEDVALUE = 4115;  // HTypedValue
+inline constexpr uint64_t STRING     = 130;   // WString  (Logos H2_STRING; Writ1 used 28)
+inline constexpr uint64_t ARRAY      = 100;   // WArray<WAny>      (ObjectArray)
+inline constexpr uint64_t MAP        = 101;   // WMap<WString,WAny> (ObjectMap)
+inline constexpr uint64_t TINYMAP    = 98;    // WMap<Hu6,WAny>     (TinyObjectMap)
+inline constexpr uint64_t DECIMAL    = 102;   // WDecimal
+inline constexpr uint64_t PARAMETER  = 127;   // WParameter
+inline constexpr uint64_t TYPEDVALUE = 4115;  // WTypedValue
 
 // boxed wide scalars (don't fit the 56-bit inline Pod)
 inline constexpr uint64_t I64 = 26;
@@ -42,7 +42,7 @@ inline constexpr uint64_t U64 = 27;
 inline constexpr uint64_t F32 = 30;
 inline constexpr uint64_t F64 = 31;
 
-// typed packed arrays HArray<T> (ArrayU8..ArrayF64)
+// typed packed arrays WArray<T> (ArrayU8..ArrayF64)
 inline constexpr uint64_t ARRAY_U8  = 2101;
 inline constexpr uint64_t ARRAY_U16 = 2102;
 inline constexpr uint64_t ARRAY_U32 = 2103;
@@ -54,7 +54,7 @@ inline constexpr uint64_t ARRAY_I64 = 2108;
 inline constexpr uint64_t ARRAY_F32 = 2109;
 inline constexpr uint64_t ARRAY_F64 = 2110;
 
-// dense int-keyed maps HMap<K,HAny> (MapI32AnyVal..MapU64AnyVal)
+// dense int-keyed maps WMap<K,WAny> (MapI32AnyVal..MapU64AnyVal)
 inline constexpr uint64_t MAP_I32 = 3101;
 inline constexpr uint64_t MAP_U32 = 3102;
 inline constexpr uint64_t MAP_I64 = 3103;

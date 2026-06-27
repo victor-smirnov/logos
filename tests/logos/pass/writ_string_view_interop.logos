@@ -14,16 +14,16 @@ unsafe fn views_eq(a: str, b: str) -> bool { return str_eq(a, b); }
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(16384);
     let h: &Writ = rc.deref();
-    let root: HAny = parse(h, "[\"hello\", \"\", \"world!\"]");
+    let root: WAny = parse(h, "[\"hello\", \"\", \"world!\"]");
     if !root.is_array() { return 1; }
-    let arr: &HArray<HAny> = &*(root.resolve() as *const HArray<HAny>);
+    let arr: &WArray<WAny> = &*(root.resolve() as *const WArray<WAny>);
     if arr.len() != 3i64 { return 2; }
 
-    let s0: &HString = &*(arr.get(0).resolve() as *const HString);
+    let s0: &WString = &*(arr.get(0).resolve() as *const WString);
     if !views_eq(s0.as_str(), "hello") { return 3; }
-    let s1: &HString = &*(arr.get(1).resolve() as *const HString);
+    let s1: &WString = &*(arr.get(1).resolve() as *const WString);
     if s1.len() != 0i64 { return 4; }
-    let s2: &HString = &*(arr.get(2).resolve() as *const HString);
+    let s2: &WString = &*(arr.get(2).resolve() as *const WString);
     if !views_eq(s2.as_str(), "world!") { return 5; }
     if s2.len() != 6i64 { return 6; }
 

@@ -266,8 +266,8 @@ inline constexpr Key CAPTURE_PARAM_COUNT {"CAPTURE_PARAM_COUNT", 5};   // u32
 inline constexpr Key STATIC_BLOB         {"STATIC_BLOB",         6};   // Varchar — pre-serialised Writ blob (metacall WritStatic splice). When non-empty: root/has_captures/etc are unused; codegen emits blob bytes directly into rodata with [u64 size][bytes] layout.
 } // namespace writ_lit_keys
 
-// Keys for WritVal mirror maps (HVNull / HVBool / HVInt / HVFloat / HVStr /
-// HVMap / HVArray / HVCapture). WritVal lives outside the LExpr variant
+// Keys for WritVal mirror maps (WVNull / WVBool / WVInt / WVFloat / WVStr /
+// WVMap / WVArray / WVCapture). WritVal lives outside the LExpr variant
 // space (synthetic HV_BASE category), so no expr_common::TYPE is reserved.
 namespace hv_keys {
 inline constexpr Key BOOL_VALUE        {"HV_BOOL",          0};   // u8
@@ -276,12 +276,12 @@ inline constexpr Key FLOAT_VALUE       {"HV_F64",           2};   // f64
 inline constexpr Key STR_VALUE         {"HV_STR",           3};   // Varchar
 inline constexpr Key MAP_KEYS          {"HV_MAP_KEYS",      4};   // Array<Varchar | i64>
 inline constexpr Key MAP_VALUES        {"HV_MAP_VALUES",    5};   // Array<RelPtr<WritVal-mirror>>
-inline constexpr Key TYPE_NAME         {"HV_TYPE_NAME",     6};   // Varchar (HVMap key_type / HVArray elem_type)
+inline constexpr Key TYPE_NAME         {"HV_TYPE_NAME",     6};   // Varchar (WVMap key_type / WVArray elem_type)
 inline constexpr Key ELEMS             {"HV_ELEMS",         7};   // Array<RelPtr<WritVal-mirror>>
-inline constexpr Key PARAM_INDEX       {"HV_PARAM_INDEX",   8};   // u32 (HVCapture)
-inline constexpr Key VALUE_INDEX       {"HV_VALUE_INDEX",   9};   // u32 (HVCapture)
-inline constexpr Key TYPE_KIND         {"HV_TYPE_KIND",    10};   // u32 (HVType.kind)
-inline constexpr Key TYPE_UID          {"HV_TYPE_UID",     11};   // u64 (HVType.uid — first 8 bytes of full UID)
+inline constexpr Key PARAM_INDEX       {"HV_PARAM_INDEX",   8};   // u32 (WVCapture)
+inline constexpr Key VALUE_INDEX       {"HV_VALUE_INDEX",   9};   // u32 (WVCapture)
+inline constexpr Key TYPE_KIND         {"HV_TYPE_KIND",    10};   // u32 (WVType.kind)
+inline constexpr Key TYPE_UID          {"HV_TYPE_UID",     11};   // u64 (WVType.uid — first 8 bytes of full UID)
 } // namespace hv_keys
 
 // Keys for the EClosure synthetic mirror map.
@@ -473,7 +473,7 @@ inline constexpr Key SYM       {"SYM",       8};  // Varchar — link symbol
 // ── Enum (Code::Enum) decl keys ──────────────────────────────────────────
 inline constexpr Key PKG             {"PKG",             9};  // Varchar — declaring package
 inline constexpr Key ZONED2          {"ZONED2",          10}; // bool (sparse) — niche enum, Ref arm self-relative at-rest
-inline constexpr Key BORROW_CARRYING {"BORROW_CARRYING", 11}; // bool (sparse) — HAny escape-tracked value
+inline constexpr Key BORROW_CARRYING {"BORROW_CARRYING", 11}; // bool (sparse) — WAny escape-tracked value
 inline constexpr Key VARIANTS        {"VARIANTS",        12}; // Array<RelPtr<variant sub-map>>
 inline constexpr Key TYPE_PARAMS     {"TYPE_PARAMS",     13}; // Array<RelPtr<typeparam sub-map>>
 inline constexpr Key BACKING_TYPE    {"BACKING_TYPE",    14}; // RelPtr<LogosType> — C-style enum disc type (null=i32)

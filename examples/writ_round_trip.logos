@@ -21,7 +21,7 @@ fn main() -> i32 {
             i32_array: <I32> [1,2,3,4]
         }
     "#;
-    let root: HAny = unsafe { parse(h, text) };
+    let root: WAny = unsafe { parse(h, text) };
     if root.is_null() { return 1; }
     let s: String = stringify(root);
     println(s.as_str());

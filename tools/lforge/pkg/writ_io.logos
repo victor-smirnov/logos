@@ -1,6 +1,6 @@
 // lforge.writ_io — manifest-reading helpers over writ2 documents.
 //
-// writ2 HAny is self-relative: no view/base threading — readers take the
+// writ2 WAny is self-relative: no view/base threading — readers take the
 // node handle directly.
 
 package lforge.writ_io;
@@ -16,14 +16,14 @@ use logos.lang.writ.array;
 use lforge.schema;
 use lforge.util;
 
-fn map_get2(root: HAny, key: str) -> HAny {
-    if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
-    let m: &HMap<HString, HAny> = root.as_map();
+fn map_get2(root: WAny, key: str) -> WAny {
+    if !root.is_map() { return WAny::ref_to(0i64 as *const u8); }
+    let m: &WMap<WString, WAny> = root.as_map();
     return m.get(key);
 }
 
-pub fn read_str_field(root: HAny, key: str) -> Result<String, ManifestError> {
-    let v: HAny = map_get2(root, key);
+pub fn read_str_field(root: WAny, key: str) -> Result<String, ManifestError> {
+    let v: WAny = map_get2(root, key);
     if v.is_null() {
         return Result::Err(err_msg2("manifest: missing required field ", key));
     }
@@ -35,24 +35,24 @@ pub fn read_str_field(root: HAny, key: str) -> Result<String, ManifestError> {
     return Result::Ok(out);
 }
 
-pub fn read_str_opt(root: HAny, key: str) -> String {
+pub fn read_str_opt(root: WAny, key: str) -> String {
     let mut out: String = String::new();
-    let v: HAny = map_get2(root, key);
+    let v: WAny = map_get2(root, key);
     if !v.is_null() && v.is_string() {
         out.push_str(v.as_string().as_str());
     }
     return out;
 }
 
-pub fn read_str_array(root: HAny, key: str) -> Vec<String> {
+pub fn read_str_array(root: WAny, key: str) -> Vec<String> {
     let mut out: Vec<String> = vec_new::<String>();
-    let v: HAny = map_get2(root, key);
+    let v: WAny = map_get2(root, key);
     if !v.is_null() && v.is_array() {
-        let arr: &HArray<HAny> = v.as_array();
+        let arr: &WArray<WAny> = v.as_array();
         let n: i64 = arr.len();
         let mut i: i64 = 0;
         while i < n {
-            let elem: HAny = arr.get(i);
+            let elem: WAny = arr.get(i);
             if elem.is_string() {
                 let mut s: String = String::new();
                 s.push_str(elem.as_string().as_str());

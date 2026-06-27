@@ -15,21 +15,21 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // Decimals as container members.
-    let arr: &mut HArray<HAny> = h.array(4);
+    let arr: &mut WArray<WAny> = h.array(4);
     arr.push(hdec_from_str(h, "1.25"));
     arr.push(hdec_from_str(h, "-300"));
-    let m: &mut HMap<HString, HAny> = h.map(8);
-    let ap2: *const HArray<HAny> = arr as *const HArray<HAny>;
-    m.set("prices", HAny::ref_to(ap2 as *const u8));
+    let m: &mut WMap<WString, WAny> = h.map(8);
+    let ap2: *const WArray<WAny> = arr as *const WArray<WAny>;
+    m.set("prices", WAny::ref_to(ap2 as *const u8));
 
-    let got: HAny = m.get("prices");
+    let got: WAny = m.get("prices");
     if !got.is_array() { return 1; }
-    let ga: &HArray<HAny> = &*(got.resolve() as *const HArray<HAny>);
-    let d0: HAny = ga.get(0);
+    let ga: &WArray<WAny> = &*(got.resolve() as *const WArray<WAny>);
+    let d0: WAny = ga.get(0);
     if !d0.is_decimal() { return 2; }
     if d0.as_decimal().coeff() != 125u64 { return 3; }
     if d0.as_decimal().scale() != 2u32 { return 4; }
-    let d1: HAny = ga.get(1);
+    let d1: WAny = ga.get(1);
     if !d1.as_decimal().is_neg() { return 5; }
 
     // Representation-blind compare: 1.50 == 1.5; ordering crosses scales.

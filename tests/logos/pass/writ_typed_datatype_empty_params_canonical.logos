@@ -15,9 +15,9 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
-    let a: HAny = parse(h, "@I64=42");
-    let b: HAny = parse(h, "@I64()=42");
-    let c: HAny = parse(h, "@I64( )=42");
+    let a: WAny = parse(h, "@I64=42");
+    let b: WAny = parse(h, "@I64()=42");
+    let c: WAny = parse(h, "@I64( )=42");
     if a.is_null() || b.is_null() || c.is_null() { return 1; }
 
     if a.as_typed_value().has_params() { return 2; }

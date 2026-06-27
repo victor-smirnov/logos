@@ -17,24 +17,24 @@ fn main() -> i32 {
     let h: Writ = writ_new(4096i64);
     // array — order-deterministic exact round-trip
     let src: str = "[1, 2, [10, 20], \"hi\", true, false, null, -7]";
-    let d: HAny = parse(&h, src);
+    let d: WAny = parse(&h, src);
     if !str_eq(stringify(d).as_str(), src) { return 1; }
 
     // map — verify via lookups
-    let md: HAny = parse(&h, "{\"n\": 42, \"arr\": [7, 8], \"s\": \"x\", \"b\": true}");
-    let m: &HMap<HString, HAny> = unsafe { &*(md.resolve() as *const HMap<HString, HAny>) };
+    let md: WAny = parse(&h, "{\"n\": 42, \"arr\": [7, 8], \"s\": \"x\", \"b\": true}");
+    let m: &WMap<WString, WAny> = unsafe { &*(md.resolve() as *const WMap<WString, WAny>) };
     if m.len() != 4i64 { return 2; }
     if m.get("n").as_i56() != 42i64 { return 3; }
     if m.get("b").as_bool() != true { return 4; }
     if !str_eq(h.hstring_of(m.get("s")).as_str(), "x") { return 5; }
-    let arr: &HArray<HAny> = unsafe { &*(m.get("arr").resolve() as *const HArray<HAny>) };
+    let arr: &WArray<WAny> = unsafe { &*(m.get("arr").resolve() as *const WArray<WAny>) };
     if arr.len() != 2i64 || arr.get(0i64).as_i56() != 7i64 || arr.get(1i64).as_i56() != 8i64 { return 6; }
 
     // full chain: text → doc → HBS bytes → doc → text  (array, deterministic)
-    let d2: HAny = parse(&h, src);
+    let d2: WAny = parse(&h, src);
     let bytes: Vec<u8> = hbs_write(d2);
     let h2: Writ = writ_new(4096i64);
-    let back: HAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
+    let back: WAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
     if !str_eq(stringify(back).as_str(), src) { return 7; }
     return 0;
 }

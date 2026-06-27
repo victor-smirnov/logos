@@ -1,4 +1,4 @@
-// HParameter — Writ SDN query-parameter slot `?name` (Writ1 Parameter, code
+// WParameter — Writ SDN query-parameter slot `?name` (Writ1 Parameter, code
 // 127). An unbound `?limit` and a bound `?limit = 50`; read name, bound state, value.
 package test;
 use logos.lang.writ.container;
@@ -8,19 +8,19 @@ use logos.lang.str;
 
 fn main() -> i32 {
     let h: Writ = writ_new(64i64);
-    let nullv: HAny = HAny::ref_to(0i64 as *const u8);
+    let nullv: WAny = WAny::ref_to(0i64 as *const u8);
 
     // ?limit  (unbound)
-    let p: HAny = h.parameter("limit", nullv);
+    let p: WAny = h.parameter("limit", nullv);
     if !p.is_parameter() { return 1; }
-    let pr: &HParameter = p.as_parameter();
+    let pr: &WParameter = p.as_parameter();
     if !str_eq(pr.name_str(), "limit") { return 2; }
     if pr.is_bound() { return 3; }
     if !pr.value().is_null() { return 4; }
 
     // ?limit = 50  (bound)
-    let q: HAny = h.parameter("limit", h.int(50i64));
-    let qr: &HParameter = q.as_parameter();
+    let q: WAny = h.parameter("limit", h.int(50i64));
+    let qr: &WParameter = q.as_parameter();
     if !str_eq(qr.name_str(), "limit") { return 5; }
     if !qr.is_bound() { return 6; }
     if qr.value().as_i56() != 50i64 { return 7; }

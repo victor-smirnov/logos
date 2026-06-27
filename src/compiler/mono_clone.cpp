@@ -125,7 +125,7 @@ uint64_t Mono::compute_type_hash(TypeRef t, StrSet& seen) noexcept {
             // across signatures is the conservative choice; refine if a
             // wire format pins it down.
             return th_mix_u64(h, TH_TAG_FNPTR);
-        case K::HStaticLit: {
+        case K::WStaticLit: {
             // WritStatic literal: identity = byte-hash of the underlying
             // CFG value (already stored in const_val()). No structural
             // recursion — opaque to the compiler at this level.
@@ -328,8 +328,8 @@ lir_view::StructView Mono::resolve_struct_layout(TypeRef t, SubstMap& m_out) {
     const TypePoolImpl* rsl_pool = out_.type_pool.impl();
     auto args = t.type_args();
     std::string base{t.struct_name()};
-    // Prefer the best-matching partial specialisation (e.g. HMap<HString,V> over the
-    // empty base HMap<K,V>); bind its pattern type-vars via match_type, exactly as
+    // Prefer the best-matching partial specialisation (e.g. WMap<WString,V> over the
+    // empty base WMap<K,V>); bind its pattern type-vars via match_type, exactly as
     // instantiate_struct_templates does — otherwise layout reads the wrong fields.
     if (auto spec = find_best_struct_spec(base, args); spec.valid()) {
         auto pats = spec.spec_patterns(rsl_pool);
@@ -512,7 +512,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // `<const N: T>` param referenced in expression position. Two
             // lowerings depending on the param's kind:
             //   IntLit / scalar  → lit_int with the substituted value.
-            //   HStaticLit       → splice in the registered WritStatic
+            //   WStaticLit       → splice in the registered WritStatic
             //                       literal (same EWritLit shape as
             //                       inline `let s: WritStatic = @{...};`).
             constexpr std::string_view CP_PFX = "__const_param:";
@@ -521,7 +521,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 auto sit = s.find(pname);
                 if (sit != s.end() && sit->second) {
                     auto kind = TypeRef(sit->second).kind();
-                    if (kind == LogosType::Kind::HStaticLit) {
+                    if (kind == LogosType::Kind::WStaticLit) {
                         uint64_t h = (uint64_t)sit->second.const_val().value_or(0);
                         auto rav = out_.hstatic_registry_.get(std::to_string(h));
                         if (rav.is_null()) {
@@ -1200,41 +1200,41 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     break;
                 case hvc::Code::Bool:
                     out->mirror_ptr_ = lir_mirror_emit_hv_bool(
-                        out_, lir_view::HVBoolView{vref}.value());
+                        out_, lir_view::WVBoolView{vref}.value());
                     break;
                 case hvc::Code::Int:
                     out->mirror_ptr_ = lir_mirror_emit_hv_int(
-                        out_, lir_view::HVIntView{vref}.value());
+                        out_, lir_view::WVIntView{vref}.value());
                     break;
                 case hvc::Code::Float:
                     out->mirror_ptr_ = lir_mirror_emit_hv_float(
-                        out_, lir_view::HVFloatView{vref}.value());
+                        out_, lir_view::WVFloatView{vref}.value());
                     break;
                 case hvc::Code::Str: {
-                    std::string s(lir_view::HVStrView{vref}.value());
+                    std::string s(lir_view::WVStrView{vref}.value());
                     out->mirror_ptr_ = lir_mirror_emit_hv_str(out_, s);
                     break;
                 }
                 case hvc::Code::Capture: {
-                    lir_view::HVCaptureView cv{vref};
+                    lir_view::WVCaptureView cv{vref};
                     out->mirror_ptr_ = lir_mirror_emit_hv_capture(
                         out_, cv.param_index(), cv.value_index());
                     break;
                 }
                 case hvc::Code::Type: {
-                    lir_view::HVTypeView tv{vref};
+                    lir_view::WVTypeView tv{vref};
                     out->mirror_ptr_ = lir_mirror_emit_hv_type(
                         out_, tv.kind(), tv.uid(), std::string(tv.name()));
                     break;
                 }
                 case hvc::Code::Map: {
-                    lir_view::HVMapView mv{vref};
+                    lir_view::WVMapView mv{vref};
                     std::string key_type(mv.key_type());
                     bool int_keys = mv.int_keyed();
-                    std::vector<lir::HVMapEntry> entries;
+                    std::vector<lir::WVMapEntry> entries;
                     entries.reserve(mv.size());
                     for (uint64_t i = 0; i < mv.size(); ++i) {
-                        lir::HVMapEntry ent;
+                        lir::WVMapEntry ent;
                         if (int_keys) ent.key = mv.int_key(i);
                         else          ent.key = std::string(mv.str_key(i));
                         ent.val = clone_hv(mv.value(i));
@@ -1245,7 +1245,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     break;
                 }
                 case hvc::Code::Array: {
-                    lir_view::HVArrayView av{vref};
+                    lir_view::WVArrayView av{vref};
                     std::string elem_type(av.elem_type());
                     std::vector<lir::WritValPtr> elements;
                     elements.reserve(av.size());
@@ -1272,7 +1272,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // Copy static_blob OUT of the source arena before emit: emit
             // allocates into the same arena (mono moves in_.type_pool into
             // out_), and growth invalidates the source-side string_view.
-            // Same pattern used at line 908 for HVStrView.
+            // Same pattern used at line 908 for WVStrView.
             std::string static_blob_copy(v.static_blob());
             mp_ = lir_mirror_emit_writ_lit(
                 out_, rt_, root, has_captures,
@@ -1426,7 +1426,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 break;
             }
             // hstatic_hash_of::<CFG>() — byte-hash identity of CFG as u64.
-            // Post-subst, type_args[0] is HStaticLit kind whose const_val
+            // Post-subst, type_args[0] is WStaticLit kind whose const_val
             // is the hash.
             if (nc.callee == "__hstatic_hash_of__") {
                 int64_t v = (nc.type_args.empty() || !nc.type_args[0])
@@ -5302,7 +5302,7 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
     bool is_dst = tmpl.is_dst();  // Phase 1B-15: preserved; possibly upgraded below.
     if (tmpl.self_describing())  nd.flag(stk::SELF_DESCRIBING, true);  // Writ: thin-*Self marker preserved.
     if (tmpl.rel_ptr())          nd.flag(stk::REL_PTR, true);          // RefRepr RelOffset marker preserved.
-    if (tmpl.borrow_carrying())  nd.flag(stk::BORROW_CARRYING, true);  // HAny escape-tracking marker preserved.
+    if (tmpl.borrow_carrying())  nd.flag(stk::BORROW_CARRYING, true);  // WAny escape-tracking marker preserved.
     if (tmpl.zone_mut())         nd.flag(stk::ZONE_MUT, true);         // Writ: fat-`&mut` zone marker preserved.
     if (tmpl.zoned2())           nd.flag(stk::ZONED2, true);           // Writ: auto-relative ptr-field marker preserved.
     if (tmpl.non_null())         nd.flag(stk::NON_NULL, true);         // #[non_null]: Option<T> NullPtr-niche marker preserved.

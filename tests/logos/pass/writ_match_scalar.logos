@@ -7,7 +7,7 @@ use logos.lang.writ.pat;
 use logos.lang.writ.container;
 use logos.lang.rc;
 
-unsafe fn mk(v: HAny) -> Rc<Writ> {
+unsafe fn mk(v: WAny) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(1024);
     let h: &Writ = rc.deref();
     h.set_root(v);
@@ -26,12 +26,12 @@ unsafe fn classify(d: &Rc<Writ>) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: Rc<Writ> = mk(HAny::Ref(0 as *const u8));
-    let b: Rc<Writ> = mk(HAny::from(true));
-    let c: Rc<Writ> = mk(HAny::from(false));
-    let d: Rc<Writ> = mk(HAny::from(42 as i56));
-    let e: Rc<Writ> = mk(HAny::from(-7 as i56));
-    let f: Rc<Writ> = mk(HAny::from(99 as i56));
+    let a: Rc<Writ> = mk(WAny::Ref(0 as *const u8));
+    let b: Rc<Writ> = mk(WAny::from(true));
+    let c: Rc<Writ> = mk(WAny::from(false));
+    let d: Rc<Writ> = mk(WAny::from(42 as i56));
+    let e: Rc<Writ> = mk(WAny::from(-7 as i56));
+    let f: Rc<Writ> = mk(WAny::from(99 as i56));
 
     // 1+2+3+4+5+0 = 15
     return classify(&a) + classify(&b) + classify(&c)

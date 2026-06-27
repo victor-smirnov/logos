@@ -10,14 +10,14 @@ package main;
 
 use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
-use logos.lang.writ.anyval;     // HAny (metaprog AST API)
+use logos.lang.writ.anyval;     // WAny (metaprog AST API)
 use logos.lang.writ.hstatic;
 
 #[metaprog_handler("derive_const_g")]
 fn derive_const_g_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     if view.ast_node_name(item).len == (0 as u64) { return; }
     if view.ast_type_param_count(item) < (1 as u64) { return; }
 

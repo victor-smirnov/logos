@@ -10,21 +10,21 @@ use logos.mem.writ.check;
 use logos.mem.writ.clone;
 use logos.lang.rc;
 
-unsafe fn root_of(hs: &WritStatic) -> HAny {
+unsafe fn root_of(hs: &WritStatic) -> WAny {
     let base: *const u8 = hs.ptr;
     let w: i64 = *(base as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((base as i64 + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((base as i64 + w) as *const u8);
 }
 
 unsafe fn main() -> i32 {
     // 1. Null root validates.
-    if !writ_check(HAny::Ref(0 as *const u8)) { return 1; }
+    if !writ_check(WAny::Ref(0 as *const u8)) { return 1; }
 
     // 2. Scalar roots.
-    if !writ_check(HAny::from(42 as i56)) { return 2; }
-    if !writ_check(HAny::from(true)) { return 3; }
+    if !writ_check(WAny::from(42 as i56)) { return 2; }
+    if !writ_check(WAny::from(true)) { return 3; }
 
     // 3. Static literals of every shape.
     let s1: WritStatic = @{"a": [1, "two", true], "n": {"deep": 7}};
@@ -42,12 +42,12 @@ unsafe fn main() -> i32 {
     // 5. Corruption: zero the tag byte of a runtime map -> check fails.
     let rc2: Rc<Writ> = writ_rc(4096);
     let h2: &Writ = rc2.deref();
-    let m: &mut HMap<HString, HAny> = h2.map(8);
+    let m: &mut WMap<WString, WAny> = h2.map(8);
     m.set("k", 1i64);
-    let mp: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
+    let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
     let obj: *mut u8 = mp as *mut u8;
     *((obj as i64 - 1) as *mut u8) = 0 as u8;        // clobber the vlen tag
-    if writ_check(HAny::ref_to(obj as *const u8)) { return 8; }
+    if writ_check(WAny::ref_to(obj as *const u8)) { return 8; }
 
     return 0;
 }

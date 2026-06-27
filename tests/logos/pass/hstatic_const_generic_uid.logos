@@ -12,14 +12,14 @@
 //
 // Pieces wired together:
 //   • Grammar: writ_lit accepted as type_or_lt_arg → LIT_HSTATIC.
-//   • LogosType::Kind::HStaticLit, identity = const_val (byte-hash).
+//   • LogosType::Kind::WStaticLit, identity = const_val (byte-hash).
 //   • Sema: schema-aware FNV-1a walk of the parsed writ_lit AST,
 //     skipping SRC_LINE so identical content at different positions
 //     hashes the same.
-//   • TypeUID composition: HStaticLit kind adds const_val to the
+//   • TypeUID composition: WStaticLit kind adds const_val to the
 //     UID hash so the type-pool dedupes by hash, and types_equal
 //     reports the same type for identical literals.
-//   • mangle_type_for_name: HStaticLit prints as `hs_<hex64>`.
+//   • mangle_type_for_name: WStaticLit prints as `hs_<hex64>`.
 
 package hstatic_const_generic_uid;
 

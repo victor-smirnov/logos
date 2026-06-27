@@ -1,14 +1,14 @@
 package test;
 use logos.lang.writ.container;     // Writ, writ_alloc*, writ_new
 use logos.mem.writ.tag_system;
-use logos.lang.writ.anyval;        // HAny (niche enum); at-rest via `*zoned HAny`
+use logos.lang.writ.anyval;        // WAny (niche enum); at-rest via `*zoned WAny`
 use logos.lang.ptr;
 
 #[tag_dispatch(WritTagSystem)] trait Sum2 { unsafe fn s(self: *const Self) -> i64; }
 #[type_code=160] #[datatype] struct Pair { a: i64, b: i64 }
 impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
 
-unsafe fn dispatch(za: HAny) -> i64 {
+unsafe fn dispatch(za: WAny) -> i64 {
     let o: *const u8 = za.resolve();    // Ref → absolute
     let t: &tagged<WritTagSystem> Sum2 = o;
     return t.s();
@@ -16,15 +16,15 @@ unsafe fn dispatch(za: HAny) -> i64 {
 
 fn main() -> i32 {
     unsafe {
-        // ── Pod round-trip through an at-rest slot (`*zoned HAny`) ──
-        let pod: HAny = HAny::pod(42i64, 7u8);
+        // ── Pod round-trip through an at-rest slot (`*zoned WAny`) ──
+        let pod: WAny = WAny::pod(42i64, 7u8);
         if !pod.is_pod() { return 1; }
         if pod.as_i56() != 42i64 { return 2; }
         // store into a slot via `*zoned` (lower), read back (materialise). A Pod is
         // position-independent, so the slot holds the verbatim word.
-        let slot: *zoned mut HAny = malloc(8i64) as *zoned mut HAny;
+        let slot: *zoned mut WAny = malloc(8i64) as *zoned mut WAny;
         *slot = pod;
-        let pod2: HAny = *slot;
+        let pod2: WAny = *slot;
         if pod2.as_i56() != 42i64 { return 3; }
         free(slot as *mut u8);
 
@@ -35,18 +35,18 @@ fn main() -> i32 {
         let pair_at: *mut u8 = pobj.byte_add(8i64);
         write_tag(pair_at, type_code_of::<Pair>());
         let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
-        // an at-rest HAny SLOT placed in a LATER segment (force a new one first)
+        // an at-rest WAny SLOT placed in a LATER segment (force a new one first)
         let filler: *mut u8 = writ_alloc_bytes(&mut hh, 24i64);   // fills seg
-        let za_slot: *zoned mut HAny = writ_alloc::<HAny>(&mut hh) as *zoned mut HAny;  // new segment
+        let za_slot: *zoned mut WAny = writ_alloc::<WAny>(&mut hh) as *zoned mut WAny;  // new segment
         // store an absolute Ref (lowers to a self-relative delta across segments)
-        *za_slot = HAny::ref_to(pair_at as *const u8);
+        *za_slot = WAny::ref_to(pair_at as *const u8);
         // materialise back (slot + delta resolves across the segment boundary)
-        let za: HAny = *za_slot;
+        let za: WAny = *za_slot;
         if !za.is_ref() { return 4; }
-        // the HAny VALUE is movable — pass it by value to dispatch
+        // the WAny VALUE is movable — pass it by value to dispatch
         if dispatch(za) != 42i64 { return 5; }     // 30 + 12
         // materialise a fresh value and dispatch again (still resolves)
-        let za2: HAny = *za_slot;
+        let za2: WAny = *za_slot;
         if dispatch(za2) != 42i64 { return 6; }
     }
     return 0;

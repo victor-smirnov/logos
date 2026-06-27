@@ -9,9 +9,9 @@ package writ_ref_outlives_container;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-fn dangle<'a>() -> &'a HArray<HAny> {
+fn dangle<'a>() -> &'a WArray<WAny> {
     let h: Writ = writ_new(64i64);
-    let a: &mut HArray<HAny> = h.array(4i64);
+    let a: &mut WArray<WAny> = h.array(4i64);
     return a;                          // ERROR: a borrows local h → dangling
 }
 fn main() -> i32 { return 0; }

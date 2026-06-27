@@ -11,12 +11,12 @@ use logos.lang.rc;
 use logos.mem.string;
 use logos.lang.str;
 
-unsafe fn root_of(hs: &WritStatic) -> HAny {
+unsafe fn root_of(hs: &WritStatic) -> WAny {
     let base: *const u8 = hs.ptr;
     let w: i64 = *(base as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((base as i64 + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((base as i64 + w) as *const u8);
 }
 
 unsafe fn check(hs: &WritStatic, expected: str, err: i32) -> i32 {
@@ -48,7 +48,7 @@ unsafe fn main() -> i32 {
     let c: Rc<Writ> = writ_rc(4096);
     let h: &Writ = c.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let big: HAny = box_i64(&mut hp.allocator as *mut Allocator, 9000000000i64);
+    let big: WAny = box_i64(&mut hp.allocator as *mut Allocator, 9000000000i64);
     let bs: String = stringify(big);
     if !bs.eq_str("9000000000") { return 12; }
 

@@ -29,7 +29,7 @@ namespace logos::writ {
 //
 // offset == 0 is the null sentinel (a real reference can never point a field at its
 // own address); zoned objects are ≥2-aligned so a non-null offset's low bit is 0 —
-// the invalid bit-patterns feed enum niche-packing (Option<zoned T>, HAny Ref|Pod).
+// the invalid bit-patterns feed enum niche-packing (Option<zoned T>, WAny Ref|Pod).
 template <typename T>
 class RelativePtr {
     int64_t offset_;

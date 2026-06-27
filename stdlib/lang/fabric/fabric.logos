@@ -175,7 +175,7 @@ impl<DT: Container> Buffer<DT> {
     // Split off elements [at, len) into a NEW Buffer; self keeps [0, at).
     // The B+tree leaf/branch split. Element-wise through the Container interface,
     // so it works for every DT (DView re-encodes into the right buffer's cells;
-    // HAny/primitives copy by value). O(len - at).
+    // WAny/primitives copy by value). O(len - at).
     pub fn split_at(&mut self, at: u64) -> Buffer<DT> {
         let mut right: Buffer<DT> = Buffer::<DT>::new();
         let n: u64 = self.len();

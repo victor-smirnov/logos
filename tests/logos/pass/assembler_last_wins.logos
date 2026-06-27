@@ -45,11 +45,11 @@ fn dele_id<P: Greet>() -> i64 { return P::id(); }
 
 fn assemble_greeter<const CFG: WritStatic>() -> QuoteItemBlob {
     unsafe {
-        let v: HView2 = hview2_from_ptr(CFG.ptr);
-        let arr: HAny = v.map_get(v.root(), "parts");
+        let v: WView2 = hview2_from_ptr(CFG.ptr);
+        let arr: WAny = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
         let last_idx: u64 = n - 1u64;
-        let last: HAny = v.array_get(arr, last_idx);
+        let last: WAny = v.array_get(arr, last_idx);
         let name_sv: SView2 = v.get_str_view(last);
         let name: Ident = Ident { ptr: name_sv.ptr, len: name_sv.len };
 

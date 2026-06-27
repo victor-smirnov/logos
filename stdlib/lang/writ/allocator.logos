@@ -106,7 +106,7 @@ unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
 // Bump-allocate `size` bytes with the requested `align` from the allocator,
 // appending a new segment if the current one is full. `align` is any power of two
 // (pass `align_of::<T>()`); the ALLOCATOR FLOOR is 2 — a 1-byte request is still
-// handed back ≥2-aligned, because a Ref'd object's low bit must be 0 (the HAny
+// handed back ≥2-aligned, because a Ref'd object's low bit must be 0 (the WAny
 // Pod/Ref tag). Returns a pointer into a never-moved segment (stable for the
 // allocator's lifetime), or null on OOM.
 pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut u8 {

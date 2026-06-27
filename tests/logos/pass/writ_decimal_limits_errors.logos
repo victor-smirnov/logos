@@ -18,11 +18,11 @@ unsafe fn main() -> i32 {
     // Scale > 4095 via direct construction → null.
     if !h.decimal(1u64, 4096u32, false).is_null() { return 4; }
     // Aligned-add overflow → null.
-    let wide: HAny = hdec_from_str(h, "9999999999999999999");
-    let frac: HAny = hdec_from_str(h, "0.1");
+    let wide: WAny = hdec_from_str(h, "9999999999999999999");
+    let frac: WAny = hdec_from_str(h, "0.1");
     if !hdec_add(h, wide, frac).is_null() { return 5; }
     // Errors do not poison the container: a good value still works.
-    let ok: HAny = hdec_from_str(h, "1.5");
+    let ok: WAny = hdec_from_str(h, "1.5");
     if ok.is_null() { return 6; }
     if ok.as_decimal().coeff() != 15u64 { return 7; }
 

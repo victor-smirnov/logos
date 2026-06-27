@@ -914,7 +914,7 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // pool->alloc to feed subst_type_sema).
         put_u64(buf, uint64_t(t.const_val.value_or(0)));
         break;
-    case K::HStaticLit:
+    case K::WStaticLit:
         // Identity = the byte-hash stashed in const_val. Without this,
         // two distinct `Foo::<@{...}>` instantiations would dedupe to the
         // same TypeRef and collapse the configuration.
@@ -1477,7 +1477,7 @@ static std::string mangle_type_for_name(TypeRef t) {
                std::string(TypeRef(t).struct_name());
     case LogosType::Kind::AssocType:
         return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
-    case LogosType::Kind::HStaticLit: {
+    case LogosType::Kind::WStaticLit: {
         // hs_<hex64>: identity-stable suffix for WritStatic value used as
         // const-generic argument. Two `@{...}` literals with identical bytes
         // hash to the same const_val and therefore the same suffix.
@@ -1928,9 +1928,9 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (from.kind() == LogosType::Kind::Enum && to.kind() != LogosType::Kind::Enum &&
         is_integer_kind(to.kind())) return true;
     // NOTE: implicit `int → enum` is intentionally NOT allowed (Rust requires an
-    // explicit cast / variant). Permitting it made a data/niche enum (e.g. HAny)
+    // explicit cast / variant). Permitting it made a data/niche enum (e.g. WAny)
     // a spurious overload candidate for an integer arg — `push(7i64)` resolved to
-    // `push(HAny)`, reinterpreting the integer as the by-pointer enum's storage
+    // `push(WAny)`, reinterpreting the integer as the by-pointer enum's storage
     // pointer → UB. Explicit `as` casts go through the cast path, not here.
     // Safe implicit integer widening (e.g. u32 → i64, i32 → i64, u8 → u32).
     // Value preservation guaranteed; signed→unsigned never allowed here.
@@ -2096,7 +2096,7 @@ std::string type_str(TypeRef t) {
     case LogosType::Kind::Isize:  return "isize";
     case LogosType::Kind::Char:   return "char";
     case LogosType::Kind::IntLit:   return "{integer}";
-    case LogosType::Kind::HStaticLit: {
+    case LogosType::Kind::WStaticLit: {
         char buf[24];
         std::snprintf(buf, sizeof(buf), "@hs_%016llx",
                       (unsigned long long)(uint64_t)(TypeRef(t).const_val().value_or(0)));
@@ -4750,7 +4750,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::CfgSlotType: {
         // Substitute the cfg-typevar binding; if it now resolves to a
-        // concrete HStaticLit, walk the registered LIR mirror via the
+        // concrete WStaticLit, walk the registered LIR mirror via the
         // encoded path (assoc_type_name) and return the resolved TypeRef.
         std::string cfg_name(t.type_var_name());
         std::string path_enc(t.assoc_type_name());
@@ -4758,7 +4758,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (it == s.end()) return t;
         TypeRef cfg = TypeRef(it->second);
         cfg = subst_type_sema(cfg, s, ls);
-        if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::HStaticLit) return t;
+        if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::WStaticLit) return t;
         if (!cur_prog_) return t;
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
@@ -4789,7 +4789,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             bool found = false;
             if (st.kind == 'F' || st.kind == 'I') {
                 if (cur.kind() != K::Map) return t;
-                auto map = lir_view::HVMapView{cur};
+                auto map = lir_view::WVMapView{cur};
                 if (st.kind == 'F' && !map.int_keyed()) {
                     for (uint64_t i = 0, n = map.size(); i < n; ++i)
                         if (map.str_key(i) == st.name) { cur = map.value(i); found = true; break; }
@@ -4799,7 +4799,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 }
             } else if (st.kind == 'A') {
                 if (cur.kind() != K::Array) return t;
-                auto arr = lir_view::HVArrayView{cur};
+                auto arr = lir_view::WVArrayView{cur};
                 if ((uint64_t)st.index >= arr.size()) return t;
                 cur = arr.elem((uint64_t)st.index);
                 found = true;
@@ -4807,7 +4807,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             if (!found) return t;
         }
         if (cur.kind() == lir_schema::writ_val::Code::Type) {
-            std::string tname(lir_view::HVTypeView{cur}.name());
+            std::string tname(lir_view::WVTypeView{cur}.name());
             if (auto resolved = const_cast<SemaChecker*>(this)->try_resolve_as_known_type(tname))
                 return resolved;
         }
@@ -4972,7 +4972,7 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
     // 2=array_idx). Two resolution paths:
     //   • CFG is a const-generic type-param of the enclosing item.
     //     Defer; mono_subst resolves once the param is bound.
-    //   • CFG is a type alias to an HStaticLit (`pub type Cfg = @{…};`).
+    //   • CFG is a type alias to an WStaticLit (`pub type Cfg = @{…};`).
     //     Resolve eagerly by walking the registered LIR mirror.
     //
     // The path is encoded into assoc_type_name (string-typed slot we
@@ -5053,9 +5053,9 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
     };
 
     if (!is_typeparam) {
-        // Eager resolution against an HStaticLit alias.
+        // Eager resolution against an WStaticLit alias.
         TypeRef cfg_t = try_resolve_as_known_type(cfg_name);
-        if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::HStaticLit && cur_prog_) {
+        if (cfg_t && TypeRef(cfg_t).kind() == LogosType::Kind::WStaticLit && cur_prog_) {
             uint64_t hash = (uint64_t)cfg_t.const_val().value_or(0);
             auto rav = cur_prog_->hstatic_registry_.get(std::to_string(hash));
             lir_view::ExprRef eref(cur_prog_->type_pool.arena(), rav);
@@ -5068,7 +5068,7 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
                         using K = lir_schema::writ_val::Code;
                         if (s.kind == 0 || s.kind == 1) {
                             if (cur.kind() != K::Map) { ok = false; break; }
-                            auto map = lir_view::HVMapView{cur};
+                            auto map = lir_view::WVMapView{cur};
                             bool found = false;
                             if (s.kind == 0 && !map.int_keyed()) {
                                 for (uint64_t i = 0, n = map.size(); i < n; ++i)
@@ -5084,13 +5084,13 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
                             if (!found) { ok = false; break; }
                         } else { // s.kind == 2 — array
                             if (cur.kind() != K::Array) { ok = false; break; }
-                            auto arr = lir_view::HVArrayView{cur};
+                            auto arr = lir_view::WVArrayView{cur};
                             if ((uint64_t)s.index >= arr.size()) { ok = false; break; }
                             cur = arr.elem((uint64_t)s.index);
                         }
                     }
                     if (ok && cur.kind() == lir_schema::writ_val::Code::Type) {
-                        std::string tname(lir_view::HVTypeView{cur}.name());
+                        std::string tname(lir_view::WVTypeView{cur}.name());
                         if (auto resolved = try_resolve_as_known_type(tname))
                             return resolved;
                     }
@@ -5351,7 +5351,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     // the saved value-AST under that scope. resolve_hstatic_value walks
     // the AST and substitutes TypeVar HERMES_TYPE_LIT names through
     // current_type_params_, producing a fresh per-instantiation
-    // HStaticLit identity.
+    // WStaticLit identity.
     {
         auto git = generic_consts_.find(std::string(name));
         if (git != generic_consts_.end()) {
@@ -6493,7 +6493,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
             if (lit) lir_mirror_map_put_ref(*cur_prog_, cur_prog_->hstatic_registry_,
                                             std::to_string(hash), lit.addr());
         }
-        LogosTypeBuilder t; t.kind = LogosType::Kind::HStaticLit;
+        LogosTypeBuilder t; t.kind = LogosType::Kind::WStaticLit;
         t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
         return pool_->alloc(std::move(t));
     }
@@ -7332,7 +7332,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // StructDraft. For regular structs these flow collect → structs_ → lower_struct_def;
     // SPECIALISATIONS bypass structs_ (lower_spec_struct builds the StructDraft directly),
     // so without this they silently lose every struct-level attribute — e.g. a
-    // `#[zone_mut] struct HMap<HString,V>` spec would clone with zone_mut=false, making
+    // `#[zone_mut] struct WMap<WString,V>` spec would clone with zone_mut=false, making
     // ref_repr_of treat `&mut` as thin and corrupting the zone-carrying receiver.
     auto apply_struct_flags = [&](DeclBuilder& sd) {
         auto f = parse_struct_attr_flags(pending_annots);

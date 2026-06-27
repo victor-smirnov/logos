@@ -1,5 +1,5 @@
 // Array of zone strings (successor of the Writ1 RelPtr-string-array test):
-// HArray<HAny> holds self-relative refs to HStrings; reads survive array growth.
+// WArray<WAny> holds self-relative refs to WStrings; reads survive array growth.
 package array_relptr_strings;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
@@ -11,18 +11,18 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(16384);
     let h: &Writ = rc.deref();
-    let arr: &mut HArray<HAny> = h.array(2);     // grows past 2
+    let arr: &mut WArray<WAny> = h.array(2);     // grows past 2
 
-    arr.push(HAny::from(&*(h.hstring("alpha") as *const HString)));
-    arr.push(HAny::from(&*(h.hstring("beta") as *const HString)));
-    arr.push(HAny::from(&*(h.hstring("gamma-long-enough-string") as *const HString)));
+    arr.push(WAny::from(&*(h.hstring("alpha") as *const WString)));
+    arr.push(WAny::from(&*(h.hstring("beta") as *const WString)));
+    arr.push(WAny::from(&*(h.hstring("gamma-long-enough-string") as *const WString)));
 
     if arr.len() != 3i64 { return 1; }
-    let v0: HAny = arr.get(0);
+    let v0: WAny = arr.get(0);
     if !v0.is_string() { return 2; }
-    let s0: &HString = &*(v0.resolve() as *const HString);
+    let s0: &WString = &*(v0.resolve() as *const WString);
     if !str_eq(s0.as_str(), "alpha") { return 3; }
-    let s2: &HString = &*(arr.get(2).resolve() as *const HString);
+    let s2: &WString = &*(arr.get(2).resolve() as *const WString);
     if s2.len() != 24i64 { return 4; }
     if !str_eq(s2.as_str(), "gamma-long-enough-string") { return 5; }
     return 0;

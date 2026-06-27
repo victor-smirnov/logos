@@ -1,6 +1,6 @@
 // writ2 container kit (successor of the Writ1 zone-containers test):
-// TinyObjectMap (HMap<Hu6>), ObjectArray (HArray), ObjectMap (HMap<HString>)
-// built in one container and read back through HAny.
+// TinyObjectMap (WMap<Hu6>), ObjectArray (WArray), ObjectMap (WMap<WString>)
+// built in one container and read back through WAny.
 package writ_containers;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
@@ -15,18 +15,18 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // --- TinyObjectMap: u8-keyed, bitmap-indexed ---
-    let tm: &mut HMap<Hu6, HAny> = h.tinymap(10);
-    tm.set(1 as u8, HAny::from(11 as i56));
-    tm.set(7 as u8, HAny::from(77 as i56));
+    let tm: &mut WMap<Hu6, WAny> = h.tinymap(10);
+    tm.set(1 as u8, WAny::from(11 as i56));
+    tm.set(7 as u8, WAny::from(77 as i56));
     if tm.get(1 as u8).as_i64() != 11i64 { return 1; }
     if tm.get(7 as u8).as_i64() != 77i64 { return 2; }
     if !tm.get(3 as u8).is_null() { return 3; }
 
     // --- ObjectArray: push + grow + read ---
-    let arr: &mut HArray<HAny> = h.array(4);
+    let arr: &mut WArray<WAny> = h.array(4);
     let mut i: i64 = 0;
     while i < 20 {
-        arr.push(HAny::from(i as i56));
+        arr.push(WAny::from(i as i56));
         i = i + 1;
     }
     if arr.len() != 20i64 { return 4; }
@@ -34,13 +34,13 @@ unsafe fn main() -> i32 {
     if arr.get(19).as_i64() != 19i64 { return 6; }
 
     // --- ObjectMap: string keys; container values ---
-    let m: &mut HMap<HString, HAny> = h.map(8);
-    let ap: *const HArray<HAny> = arr as *const HArray<HAny>;
-    m.set("arr", HAny::ref_to(ap as *const u8));
+    let m: &mut WMap<WString, WAny> = h.map(8);
+    let ap: *const WArray<WAny> = arr as *const WArray<WAny>;
+    m.set("arr", WAny::ref_to(ap as *const u8));
     m.set("n", 42i64);
-    let got: HAny = (&*(m as *const HMap<HString, HAny>)).get("arr");
+    let got: WAny = (&*(m as *const WMap<WString, WAny>)).get("arr");
     if !got.is_array() { return 7; }
-    let arr2: &HArray<HAny> = &*(got.resolve() as *const HArray<HAny>);
+    let arr2: &WArray<WAny> = &*(got.resolve() as *const WArray<WAny>);
     if arr2.len() != 20i64 { return 8; }
 
     return 42;

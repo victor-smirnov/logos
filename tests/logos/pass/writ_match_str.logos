@@ -11,15 +11,15 @@ use logos.lang.rc;
 unsafe fn mk_str(s: str) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(1024);
     let h: &Writ = rc.deref();
-    let hs: &HString = h.hstring(s);
-    h.set_root(HAny::from(hs));
+    let hs: &WString = h.hstring(s);
+    h.set_root(WAny::from(hs));
     return rc;
 }
 
 unsafe fn mk_i(i: i32) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(1024);
     let h: &Writ = rc.deref();
-    h.set_root(HAny::from(i as i56));
+    h.set_root(WAny::from(i as i56));
     return rc;
 }
 

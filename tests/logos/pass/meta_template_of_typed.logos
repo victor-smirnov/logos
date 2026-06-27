@@ -1,6 +1,6 @@
 // Typed-sugar form `template_of::<X>()` — sema-side intrinsic that
 // resolves X to a top-level item in the current AST and bakes the
-// node's arena offset into a `Template { raw: HAny { raw: <off> } }`
+// node's arena offset into a `Template { raw: WAny { raw: <off> } }`
 // literal. Drops the runtime byte-compare walk that
 // `OView::find_template_decl` performs. Step 5 cosmetic from the
 // typelevel-metaprog taxonomy.

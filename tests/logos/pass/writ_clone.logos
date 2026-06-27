@@ -9,18 +9,18 @@ use logos.mem.writ.clone;
 use logos.mem.writ.equal;
 use logos.lang.rc;
 
-unsafe fn root_of(hs: &WritStatic) -> HAny {
+unsafe fn root_of(hs: &WritStatic) -> WAny {
     let base: *const u8 = hs.ptr;
     let w: i64 = *(base as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((base as i64 + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((base as i64 + w) as *const u8);
 }
 
-unsafe fn check_clone(src: HAny) -> bool {
+unsafe fn check_clone(src: WAny) -> bool {
     let c: Rc<Writ> = writ_clone(src);
     let h: &Writ = c.deref();
-    let croot: HAny = h.root();
+    let croot: WAny = h.root();
     if !writ_equal(src, croot) { return false; }
     // Independent storage: a Ref clone resolves to a DIFFERENT address.
     if src.is_ref() && !src.is_null() {
@@ -51,7 +51,7 @@ unsafe fn main() -> i32 {
     if !check_clone(root_of(&s5)) { return 5; }
 
     // 6. Null root.
-    let nul: HAny = HAny::Ref(0 as *const u8);
+    let nul: WAny = WAny::Ref(0 as *const u8);
     let c6: Rc<Writ> = writ_clone(nul);
     let h6: &Writ = c6.deref();
     if !h6.root().is_null() { return 6; }

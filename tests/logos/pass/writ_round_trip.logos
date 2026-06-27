@@ -11,9 +11,9 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn roundtrip(h: &Writ, text: str) -> bool {
-    let v1: HAny = parse(h, text);
+    let v1: WAny = parse(h, text);
     let s1: String = stringify(v1);
-    let v2: HAny = parse(h, s1.as_str());
+    let v2: WAny = parse(h, s1.as_str());
     if !writ_equal(v1, v2) { return false; }
     // Second render must be byte-identical (canonical form is stable).
     let s2: String = stringify(v2);

@@ -58,8 +58,8 @@ fn dele_count<P: HasCount>() -> i64 { return P::count(); }
 
 fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
     unsafe {
-        let v: HView2 = hview2_from_ptr(CFG.ptr);
-        let arr: HAny = v.map_get(v.root(), "parts");
+        let v: WView2 = hview2_from_ptr(CFG.ptr);
+        let arr: WAny = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
 
         // Inlined pick: closures-over-WritView aren't usable inside
@@ -72,16 +72,16 @@ fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
         let mut count_part: Ident = Ident { ptr: 0 as *const u8, len: 0u64 };
         let mut i: i64 = (n as i64) - 1i64;
         while i >= 0i64 {
-            let part: HAny = v.array_get(arr, i as u64);
-            let methods: HAny = v.map_get(part, "methods");
+            let part: WAny = v.array_get(arr, i as u64);
+            let methods: WAny = v.map_get(part, "methods");
             if !methods.is_null() {
                 let m: u64 = v.array_len(methods);
-                let pt: HAny = v.map_get(part, "type");
+                let pt: WAny = v.map_get(part, "type");
                 let pt_sv: SView2 = v.get_str_view(pt);
                 let pt_id: Ident = Ident { ptr: pt_sv.ptr, len: pt_sv.len };
                 let mut j: u64 = 0u64;
                 while j < m {
-                    let mn: HAny = v.array_get(methods, j);
+                    let mn: WAny = v.array_get(methods, j);
                     let mn_sv: SView2 = v.get_str_view(mn);
                     // Reverse-walk + first-match = last-wins.
                     if mn_sv.len == 2u64

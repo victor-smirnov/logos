@@ -1,8 +1,8 @@
 package reflect_basic;
 
 use logos.lang.writ.hstatic;
-use logos.lang.writ.static_view;  // HView2 — writ2 reader for the blob
-use logos.lang.writ.anyval;       // HAny
+use logos.lang.writ.static_view;  // WView2 — writ2 reader for the blob
+use logos.lang.writ.anyval;       // WAny
 
 #[annotation]
 #[datatype] struct Deprecated {
@@ -19,29 +19,29 @@ use logos.lang.writ.anyval;       // HAny
 unsafe fn main() -> i32 {
     // reflect::<T>() returns WritStatic
     let info: WritStatic = reflect::<MyPoint>();
-    let v: HView2 = hview2_from_ptr(info.ptr);
+    let v: WView2 = hview2_from_ptr(info.ptr);
 
     // Read root and verify it's a valid pointer (non-null map).
-    let root: HAny = v.root();
+    let root: WAny = v.root();
     if root.is_null() { return 1; }
     if !root.is_ref() { return 2; }
 
     // Read "name" key — must be non-null.
-    let name_av: HAny = v.map_get(root, "name");
+    let name_av: WAny = v.map_get(root, "name");
     if name_av.is_null() { return 3; }
 
     // Read "type_code" — must be non-null.
-    let tc_av: HAny = v.map_get(root, "type_code");
+    let tc_av: WAny = v.map_get(root, "type_code");
     if tc_av.is_null() { return 4; }
 
     // Read "kind" — must equal 2 (datatype).
-    let kind_av: HAny = v.map_get(root, "kind");
+    let kind_av: WAny = v.map_get(root, "kind");
     if kind_av.is_null() { return 5; }
     let kind_val: i64 = v.get_int(kind_av);
     if kind_val != 2 { return 6; }
 
     // Annotations array must be present and non-empty (MyPoint has one annotation).
-    let ann_av: HAny = v.map_get(root, "annotations");
+    let ann_av: WAny = v.map_get(root, "annotations");
     if ann_av.is_null() { return 7; }
     let ann_len: u64 = v.array_len(ann_av);
     if ann_len != 1 { return 8; }

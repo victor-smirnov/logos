@@ -12,15 +12,15 @@ unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
 
-    let m1: HAny = parse(h, "<Varchar>{\"a\":1,\"b\":2}");
+    let m1: WAny = parse(h, "<Varchar>{\"a\":1,\"b\":2}");
     if !m1.is_map() { return 1; }
-    let mm1: &HMap<HString, HAny> = &*(m1.resolve() as *const HMap<HString, HAny>);
+    let mm1: &WMap<WString, WAny> = &*(m1.resolve() as *const WMap<WString, WAny>);
     if mm1.get("a").as_i64() != 1i64 { return 2; }
     if mm1.get("b").as_i64() != 2i64 { return 3; }
 
-    let m2: HAny = parse(h, "<Varchar,AnyVal>{\"x\":7}");
+    let m2: WAny = parse(h, "<Varchar,AnyVal>{\"x\":7}");
     if !m2.is_map() { return 4; }
-    let mm2: &HMap<HString, HAny> = &*(m2.resolve() as *const HMap<HString, HAny>);
+    let mm2: &WMap<WString, WAny> = &*(m2.resolve() as *const WMap<WString, WAny>);
     if mm2.get("x").as_i64() != 7i64 { return 5; }
     return 0;
 }

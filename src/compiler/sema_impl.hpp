@@ -1043,23 +1043,23 @@ private:
         using KT = std::decay_t<K>;
         auto& p = *cur_prog_;
         const uint8_t* mo = nullptr;
-        if constexpr (std::is_same_v<KT, lir::HVNull>) {
+        if constexpr (std::is_same_v<KT, lir::WVNull>) {
             mo = lir_mirror_emit_hv_null(p);
-        } else if constexpr (std::is_same_v<KT, lir::HVBool>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVBool>) {
             mo = lir_mirror_emit_hv_bool(p, k.value);
-        } else if constexpr (std::is_same_v<KT, lir::HVInt>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVInt>) {
             mo = lir_mirror_emit_hv_int(p, k.value);
-        } else if constexpr (std::is_same_v<KT, lir::HVFloat>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVFloat>) {
             mo = lir_mirror_emit_hv_float(p, k.value);
-        } else if constexpr (std::is_same_v<KT, lir::HVStr>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVStr>) {
             mo = lir_mirror_emit_hv_str(p, k.value);
-        } else if constexpr (std::is_same_v<KT, lir::HVMap>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVMap>) {
             mo = lir_mirror_emit_hv_map(p, k.entries, k.key_type);
-        } else if constexpr (std::is_same_v<KT, lir::HVArray>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVArray>) {
             mo = lir_mirror_emit_hv_array(p, k.elements, k.elem_type);
-        } else if constexpr (std::is_same_v<KT, lir::HVCapture>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVCapture>) {
             mo = lir_mirror_emit_hv_capture(p, k.param_index, k.value_index);
-        } else if constexpr (std::is_same_v<KT, lir::HVType>) {
+        } else if constexpr (std::is_same_v<KT, lir::WVType>) {
             mo = lir_mirror_emit_hv_type(p, k.kind, k.uid, k.name);
         } else {
             static_assert(sizeof(K) == 0, "alloc_hv_emit: unknown WritVal payload");
@@ -2088,7 +2088,7 @@ private:
     // pointer or reference (inline storage only):
     //   (1) an inline `#[rel_ptr]` field — its stored i64 is a self-relative
     //       offset (target − &field); memcpy carries it to a wrong anchor.
-    //   (2) a `#[pinned]` type (e.g. the at-rest HAnyRel) — bits anchored to
+    //   (2) a `#[pinned]` type (e.g. the at-rest WAnyRel) — bits anchored to
     //       its slot; accessed in place and materialised to a movable value form.
     // Asymmetry: a `#[rel_ptr]` type ITSELF is movable (its value-form is the
     // resolved absolute pointer — flagged only when embedded as a field); a
@@ -2111,7 +2111,7 @@ private:
             // anchor); duplication is a COPY via the absolute intermediate
             // (materialise → lower, re-anchoring). But the COMPILER flags them
             // asymmetrically, because of HOW each is read:
-            //  • `#[pinned]` (HAnyRel): accessed via `*mut` + an EXPLICIT
+            //  • `#[pinned]` (WAnyRel): accessed via `*mut` + an EXPLICIT
             //    materialise to a different value type — the bare type never
             //    appears as a read-out value, so flagging it here is safe and
             //    correct (it IS non-movable).
@@ -2444,7 +2444,7 @@ private:
                             // `*Pointee` at the value level. (ref-repr §6 / zone-as-parameter)
                             bool rel_ptr = false;
                             // `#[pinned]`: a location-anchored at-rest type (e.g. the
-                            // relative HAnyRel) that must NOT be moved by value —
+                            // relative WAnyRel) that must NOT be moved by value —
                             // its bits are anchored to its storage slot; it is accessed
                             // in place and materialised explicitly to a movable value
                             // form. Non-movable itself (unlike #[rel_ptr], whose value
@@ -2464,11 +2464,11 @@ private:
                             bool zoned2 = false;
                             // `#[borrow_carrying]`: a value type whose value may
                             // contain a borrow — an absolute Ref into an arena (e.g.
-                            // HAny). The borrow checker tracks such values' ESCAPE
+                            // WAny). The borrow checker tracks such values' ESCAPE
                             // like a reference: a method/ctor returning one ties the
                             // result to its ref receiver/arg, so returning it past
                             // the source's scope is rejected unless laundered through
-                            // a holder (HeldAny). (writ2 HAny escape safety)
+                            // a holder (HeldAny). (writ2 WAny escape safety)
                             bool borrow_carrying = false;
                             // `#[non_null]`: this struct is a single 8-byte pointer
                             // wrapper whose pointer is GUARANTEED non-null (Box/Rc/Arc).
@@ -2583,7 +2583,7 @@ private:
         TypeRef backing_type = nullptr;  // null = default (i32)
         std::string doc;     // outer `///` doc-comment
         bool zoned2 = false; // #[zoned2]: niche enum's Ref arm self-relative at-rest (F3)
-        bool borrow_carrying = false; // #[borrow_carrying]: a value (HAny) may hold a Ref into an arena
+        bool borrow_carrying = false; // #[borrow_carrying]: a value (WAny) may hold a Ref into an arena
     };
 
     // ── Trait info ───────────────────────────────────────────────
@@ -2938,7 +2938,7 @@ private:
     // that scope — slot lookups (`<type:T1>` HERMES_TYPE_LIT) hit the bound
     // type, and the FNV hash of the AST walk substitutes the TypeVar name
     // for the concrete type's str representation, yielding a fresh
-    // per-instantiation HStaticLit identity.
+    // per-instantiation WStaticLit identity.
     struct GenericConstEntry {
         std::vector<TypeParam>  type_params;
         writ::TinyMapView     value_node;   // AST of the RHS writ_lit
@@ -3551,7 +3551,7 @@ private:
     TypeRef resolve_type(writ::TinyMapView node);
     // Hash a bare writ_lit AST (HERMES_MAP / _ARRAY / scalars) and register
     // its lowered LIR WritVal in cur_prog_->hstatic_registry_; return the
-    // corresponding HStaticLit TypeRef. Shared between the LIT_HSTATIC type-
+    // corresponding WStaticLit TypeRef. Shared between the LIT_HSTATIC type-
     // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
     // recognition in collect_const.
     TypeRef resolve_hstatic_value(writ::TinyMapView val_node);
@@ -4884,7 +4884,7 @@ public:
     // the cost we want to skip.
     std::unordered_set<const writ::MemHolder*> collected_holders;
 
-    // Cached HStaticLit registry contributions. Populated by sema when
+    // Cached WStaticLit registry contributions. Populated by sema when
     // LIT_HSTATIC nodes are encountered at type-arg position; held on
     // LProgram::hstatic_registry_ which is per-call. Cached here so
     // subsequent sema_lower calls can pre-seed the fresh prog's

@@ -10,10 +10,10 @@
 
 package logos.mem.writ.hashing;
 
-use logos.lang.writ.anyval;     // HAny, h2_type_code
-use logos.lang.writ.array;      // HArray<HAny>
-use logos.lang.writ.hmap;       // HMap<HString, HAny>
-use logos.lang.writ.hstring;    // HString
+use logos.lang.writ.anyval;     // WAny, h2_type_code
+use logos.lang.writ.array;      // WArray<WAny>
+use logos.lang.writ.hmap;       // WMap<WString, WAny>
+use logos.lang.writ.hstring;    // WString
 use logos.lang.str;
 use logos.lang.arith;          // wrapping_mul (FNV intentionally wraps)
 
@@ -34,14 +34,14 @@ fn fnv_mix_byte(h: u64, b: u8) -> u64 {
 }
 
 // Per-kind salts keep cross-kind collisions away (array vs map vs string...).
-pub fn writ_hash(v: HAny) -> u64 {
+pub fn writ_hash(v: WAny) -> u64 {
     if v.is_null()  { return fnv_mix_u64(fnv_init(), 0u64); }
     if v.is_bool()  { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 2u64), if v.as_bool() { 1u64 } else { 0u64 }); }
     if v.is_int()   { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 3u64), v.as_i64() as u64); }
     if v.is_float() { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 4u64), v.as_f64() as u64); }
     if v.is_string() {
         unsafe {
-            let hs: &HString = &*(v.resolve() as *const HString);
+            let hs: &WString = &*(v.resolve() as *const WString);
             let s: str = hs.as_str();
             let mut h: u64 = fnv_mix_u64(fnv_init(), 5u64);
             h = fnv_mix_u64(h, s.len() as u64);
@@ -55,7 +55,7 @@ pub fn writ_hash(v: HAny) -> u64 {
     }
     if v.is_array() {
         unsafe {
-            let a: &HArray<HAny> = &*(v.resolve() as *const HArray<HAny>);
+            let a: &WArray<WAny> = &*(v.resolve() as *const WArray<WAny>);
             let n: i64 = a.len();
             let mut h: u64 = fnv_mix_u64(fnv_init(), 6u64);
             h = fnv_mix_u64(h, n as u64);
@@ -69,7 +69,7 @@ pub fn writ_hash(v: HAny) -> u64 {
     }
     if v.is_map() {
         unsafe {
-            let m: &HMap<HString, HAny> = &*(v.resolve() as *const HMap<HString, HAny>);
+            let m: &WMap<WString, WAny> = &*(v.resolve() as *const WMap<WString, WAny>);
             let mut h: u64 = fnv_mix_u64(fnv_init(), 7u64);
             h = fnv_mix_u64(h, m.len() as u64);
             // Order-independent: XOR-fold per-entry hashes.
@@ -77,7 +77,7 @@ pub fn writ_hash(v: HAny) -> u64 {
             let slots: i64 = m.slots();
             let mut i: i64 = 0;
             while i < slots {
-                let k: HAny = m.key_at(i);
+                let k: WAny = m.key_at(i);
                 if !k.is_null() {
                     let eh: u64 = fnv_mix_u64(writ_hash(k), writ_hash(m.val_at(i)));
                     acc = acc ^ eh;
@@ -140,10 +140,10 @@ pub fn writ_hash(v: HAny) -> u64 {
     }
 }
 
-// Materialize the at-rest HAny word at `slot_addr`.
-unsafe fn h2h_at(slot_addr: i64) -> HAny {
+// Materialize the at-rest WAny word at `slot_addr`.
+unsafe fn h2h_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((slot_addr + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((slot_addr + w) as *const u8);
 }

@@ -16,21 +16,21 @@ unsafe fn main() -> i32 {
     let y: i32 = 2;
     let ctr: Rc<Writ> = @{"x": $x, "y": $y};
     let h: &Writ = ctr.deref();
-    let root: HAny = h.root();
+    let root: WAny = h.root();
     if root.is_null() { return 2; }
 
     // stringify via the live root (open-addressing key order is hash-dependent).
     let text: String = stringify(root);
     if text.len() != 16i64 { return 3; }
-    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    let v0: WView2 = WView2 { base: 0 as *const u8 };
     if v0.get_int(v0.map_get(root, "x")) != 1i64 { return 31; }
     if v0.get_int(v0.map_get(root, "y")) != 2i64 { return 32; }
 
-    // Reads through HView2 helpers on the same live root.
+    // Reads through WView2 helpers on the same live root.
     let id: i32 = 99;
     let doc: Rc<Writ> = @{"id": $id};
     let dh: &Writ = doc.deref();
-    let dr: HAny = dh.root();
+    let dr: WAny = dh.root();
     if dr.is_null() { return 4; }
     if v0.get_int(v0.map_get(dr, "id")) != 99i64 { return 5; }
 

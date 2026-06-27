@@ -1,4 +1,4 @@
-// Writ type-tags — an HAny Ref carries the in-band type code of its pointee
+// Writ type-tags — an WAny Ref carries the in-band type code of its pointee
 // (obj[-1], Writ1 datatag wire), so a generic walker can dispatch string vs
 // array vs map vs inline Pod. Foundation for stringify / binary / parser.
 package test;
@@ -10,14 +10,14 @@ use logos.lang.writ.hstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Writ = writ_new(512i64);
-    let s: &HString = h.hstring("hi");
-    let a: &mut HArray<HAny> = h.array(2i64);
-    let m: &mut HMap<HString, HAny> = h.map(8i64);
-    let vs: HAny = HAny::from(s);
-    let va: HAny = HAny::from(&*a);
-    let vm: HAny = HAny::from(&*m);
-    let vi: HAny = HAny::from(7i56);
-    let vb: HAny = HAny::from(true);
+    let s: &WString = h.hstring("hi");
+    let a: &mut WArray<WAny> = h.array(2i64);
+    let m: &mut WMap<WString, WAny> = h.map(8i64);
+    let vs: WAny = WAny::from(s);
+    let va: WAny = WAny::from(&*a);
+    let vm: WAny = WAny::from(&*m);
+    let vi: WAny = WAny::from(7i56);
+    let vb: WAny = WAny::from(true);
     if !vs.is_string() { return 1; }
     if !va.is_array()  { return 2; }
     if !vm.is_map()    { return 3; }

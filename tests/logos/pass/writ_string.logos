@@ -1,5 +1,5 @@
 // writ2 zone strings (successor of the Writ1 WritString test):
-// hstring allocation, len/as_str, interning across HAny, empty + long strings.
+// hstring allocation, len/as_str, interning across WAny, empty + long strings.
 package writ_string;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
@@ -12,28 +12,28 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // --- basic alloc + read-back ---
-    let s1: &HString = h.hstring("hello");
+    let s1: &WString = h.hstring("hello");
     if s1.len() != 5i64 { return 1; }
     if !str_eq(s1.as_str(), "hello") { return 2; }
 
     // --- empty string ---
-    let s2: &HString = h.hstring("");
+    let s2: &WString = h.hstring("");
     if s2.len() != 0i64 { return 3; }
 
-    // --- through HAny: tag + accessor roundtrip ---
-    let v: HAny = HAny::from(&*(s1 as *const HString));
+    // --- through WAny: tag + accessor roundtrip ---
+    let v: WAny = WAny::from(&*(s1 as *const WString));
     if !v.is_string() { return 4; }
     if h2_type_code(v.resolve()) != H2_STRING { return 5; }
-    let s3: &HString = &*(v.resolve() as *const HString);
+    let s3: &WString = &*(v.resolve() as *const WString);
     if !str_eq(s3.as_str(), "hello") { return 6; }
 
     // --- a longer string (multi-word payload) ---
-    let s4: &HString = h.hstring("the quick brown fox jumps over the lazy dog");
+    let s4: &WString = h.hstring("the quick brown fox jumps over the lazy dog");
     if s4.len() != 43i64 { return 7; }
     if !str_eq(s4.as_str(), "the quick brown fox jumps over the lazy dog") { return 8; }
 
-    // --- hstring_of: HAny -> &HString helper ---
-    let s5: &HString = h.hstring_of(v);
+    // --- hstring_of: WAny -> &WString helper ---
+    let s5: &WString = h.hstring_of(v);
     if !str_eq(s5.as_str(), "hello") { return 9; }
 
     return 42;

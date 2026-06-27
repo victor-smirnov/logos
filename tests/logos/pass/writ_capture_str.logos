@@ -1,4 +1,4 @@
-// Writ capture: str captured as HString into @-literals (writ2 template path).
+// Writ capture: str captured as WString into @-literals (writ2 template path).
 // C7-fix2: added stringify verification of captured string values.
 package writ_capture_str;
 use logos.lang.writ.tmpl;
@@ -14,7 +14,7 @@ unsafe fn main() -> i32 {
     let s: str = "hello";
     let doc: Rc<Writ> = @{"msg": $s};
     let h: &Writ = doc.deref();
-    let root: HAny = h.root();
+    let root: WAny = h.root();
     if root.is_null() { return 1; }
     // Verify the map contains the expected string value.
     let t1: String = stringify(root);
@@ -24,7 +24,7 @@ unsafe fn main() -> i32 {
     let key: str = "world";
     let arr_doc: Rc<Writ> = @[$key, $s];
     let ah: &Writ = arr_doc.deref();
-    let arr_root: HAny = ah.root();
+    let arr_root: WAny = ah.root();
     if arr_root.is_null() { return 3; }
     let t2: String = stringify(arr_root);
     if !t2.eq_str("[\"world\", \"hello\"]") { return 4; }
@@ -34,7 +34,7 @@ unsafe fn main() -> i32 {
     let label: str = "item";
     let mix: Rc<Writ> = @{"id": $id, "label": $label};
     let mh: &Writ = mix.deref();
-    let mix_root: HAny = mh.root();
+    let mix_root: WAny = mh.root();
     if mix_root.is_null() { return 5; }
     let t3: String = stringify(mix_root);
     if !t3.eq_str("{\"id\": 7, \"label\": \"item\"}") { return 6; }

@@ -2244,47 +2244,47 @@ struct EReflectOfView {
 
 namespace hvk = lir_schema::hv_keys;
 
-struct HVNullView   { WritValRef self; };
+struct WVNullView   { WritValRef self; };
 
-struct HVBoolView {
+struct WVBoolView {
     WritValRef self;
     bool value() const noexcept { return detail::read_bool(self, hvk::BOOL_VALUE.code); }
 };
 
-struct HVIntView {
+struct WVIntView {
     WritValRef self;
     int64_t value() const noexcept { return detail::read_i64(self, hvk::INT_VALUE.code); }
 };
 
-struct HVFloatView {
+struct WVFloatView {
     WritValRef self;
     double value() const noexcept { return detail::read_f64(self, hvk::FLOAT_VALUE.code); }
 };
 
-struct HVStrView {
+struct WVStrView {
     WritValRef self;
     std::string_view value() const noexcept { return detail::read_string(self, hvk::STR_VALUE.code); }
 };
 
-struct HVCaptureView {
+struct WVCaptureView {
     WritValRef self;
     uint32_t param_index() const noexcept { return detail::read_u32(self, hvk::PARAM_INDEX.code); }
     uint32_t value_index() const noexcept { return detail::read_u32(self, hvk::VALUE_INDEX.code); }
 };
 
-struct HVTypeView {
+struct WVTypeView {
     WritValRef self;
     uint32_t kind() const noexcept { return detail::read_u32(self, hvk::TYPE_KIND.code); }
     uint64_t uid()  const noexcept { return detail::read_u64(self, hvk::TYPE_UID.code); }
     std::string_view name() const noexcept { return detail::read_string(self, hvk::STR_VALUE.code); }
 };
 
-// HVMap entries are stored as two parallel arrays:
+// WVMap entries are stored as two parallel arrays:
 //   keys[i]   — Varchar (string-keyed) or i64 (int-keyed); never mixed.
 //   values[i] — RelPtr<WritVal>.
 // `key_type` is "" for string keys (ObjectMap) or "I32"/"U32"/"I64"/"U64"
 // for the typed-map specialisations.
-struct HVMapView {
+struct WVMapView {
     WritValRef self;
     std::string_view key_type() const noexcept {
         return detail::read_string(self, hvk::TYPE_NAME.code);
@@ -2324,7 +2324,7 @@ struct HVMapView {
     }
 };
 
-struct HVArrayView {
+struct WVArrayView {
     WritValRef self;
     std::string_view elem_type() const noexcept {
         return detail::read_string(self, hvk::TYPE_NAME.code);

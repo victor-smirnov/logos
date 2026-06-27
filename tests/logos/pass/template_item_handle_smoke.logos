@@ -8,7 +8,7 @@ use logos.std.compiler.metaprog;
 use logos.lang.writ.anyval;
 
 fn make_item() -> Item {
-    return Item { raw: HAny::Ref(0i64 as *const u8) };
+    return Item { raw: WAny::Ref(0i64 as *const u8) };
 }
 
 fn main() -> i32 {

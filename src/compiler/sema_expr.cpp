@@ -776,7 +776,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             error("internal: unexpected writ container type in map cast path");
             return error_expr();
         }
-        // writ2: MapSlice* sources carry value-form &[HAny] values
+        // writ2: MapSlice* sources carry value-form &[WAny] values
         // (lang.writ.typed_arr); builders return Rc<Writ>.
         // WritMap: source must be MapSliceI32 for <I32,AnyVal>{}.
         {
@@ -3620,7 +3620,7 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         formal.kind() == LogosType::Kind::ConstVar) {
         // Const-generic params (e.g. `<const CFG: WritStatic>`) appear at
         // type-arg position as ConstVar with the same type_var_name slot.
-        // Bind from the actual's HStaticLit / scalar value just like for
+        // Bind from the actual's WStaticLit / scalar value just like for
         // type-generics — finish_generic_call's subst map already accepts
         // both kinds. Without this case, any fn taking
         // `&mut Snap<STORE_CFG>` falls back to "could not infer type
@@ -4614,7 +4614,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
               "' in this file");
         return error_expr();
     }
-    // writ2: Template.raw is a value-form HAny — the offset must be anchored
+    // writ2: Template.raw is a value-form WAny — the offset must be anchored
     // to the hook's OView base at RUNTIME. Lower to the stdlib shim
     // template_of_at(off) (= Template { raw: oview_module_ast().node_at(off) }).
     const SemaFuncInfo* fi = nullptr;
@@ -5057,7 +5057,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     }
 
     // hstatic_hash_of::<CFG>() — byte-hash identity of a WritStatic value
-    // as u64. Mono folds after substitution: nc.type_args[0] is HStaticLit
+    // as u64. Mono folds after substitution: nc.type_args[0] is WStaticLit
     // post-subst, with const_val carrying the hash. Inside a generic body
     // CFG is still a const-generic param at sema time, so the call is
     // deferred to mono via __hstatic_hash_of__ magic callee.
@@ -11391,9 +11391,9 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
     // emitting an additional "cannot auto-coerce <error>" diagnostic.
     if (TypeRef(t).kind() == LogosType::Kind::Error) return val;
 
-    // HAny passthrough (writ2): an element already produced as an HAny value.
+    // WAny passthrough (writ2): an element already produced as an WAny value.
     if (TypeRef(t).kind() == LogosType::Kind::Enum
-        && TypeRef(t).enum_name() == "HAny") {
+        && TypeRef(t).enum_name() == "WAny") {
         return val;
     }
     // AnyVal passthrough (Writ1 datatype/struct form) — legacy.
@@ -11417,7 +11417,7 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
         case K::U32:  helper = "writ_coerce_u32"; break;
         // i64/u64/i24/u24/i56/u56/i128/u128 intentionally omitted: embedding
         // them via i32 would silently truncate high bits.  User must cast
-        // explicitly (e.g. `x as i32`) or wrap with HAny::from.
+        // explicitly (e.g. `x as i32`) or wrap with WAny::from.
         case K::Slice:
             if (TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) {
                 helper = "writ_coerce_str";
@@ -14940,7 +14940,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
         // route the whole subtree through resolve_type — that handles
         // primitives, bare structs, type-params in scope, and generic
         // instantiations like Vec<u8> uniformly. type_str then prints the
-        // canonical name (e.g. "Vec<u8>") which becomes the HVType label
+        // canonical name (e.g. "Vec<u8>") which becomes the WVType label
         // and feeds parametric WritStatic byte-hash identity.
         TypeRef t;
         std::string name;
@@ -14976,7 +14976,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
             auto uid = pool_->uid_of(t);
             std::memcpy(&uid64, uid.bytes, sizeof(uid64));
         }
-        return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
+        return alloc_hv_emit(lir::WVType{kind, uid64, std::move(name)});
     }
 
     if (c == la::CFG_SLOT_TYPE.code) {
@@ -14995,7 +14995,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
             error("<type:CFG.path> inside @{...} requires CFG to be a "
                   "concrete top-level alias today (const-generic param "
                   "needs parametric Writ literals — deferred)");
-            return alloc_hv_emit(lir::HVType{0, 0, std::string("<unresolved>")});
+            return alloc_hv_emit(lir::WVType{0, 0, std::string("<unresolved>")});
         }
         uint32_t kind = 0;
         uint64_t uid64 = 0;
@@ -15006,22 +15006,22 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
             std::memcpy(&uid64, uid.bytes, sizeof(uid64));
             name = type_str(t);
         }
-        return alloc_hv_emit(lir::HVType{kind, uid64, std::move(name)});
+        return alloc_hv_emit(lir::WVType{kind, uid64, std::move(name)});
     }
 
     if (c == la::HERMES_NEG_INT.code) {
         auto sv = str_of(node.get(la::VALUE.code));
         int64_t v = std::stoll(std::string(sv));
-        return alloc_hv_emit(lir::HVInt{-v});
+        return alloc_hv_emit(lir::WVInt{-v});
     }
 
     if (c == la::HERMES_NULL.code)
-        return alloc_hv_emit(lir::HVNull{});
+        return alloc_hv_emit(lir::WVNull{});
 
     if (c == la::HERMES_BOOL.code) {
         AnyVal av = node.get(la::VALUE.code);
         bool v = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
-        return alloc_hv_emit(lir::HVBool{v});
+        return alloc_hv_emit(lir::WVBool{v});
     }
 
     if (c == la::HERMES_INT.code) {
@@ -15046,7 +15046,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
         else
             v = (int64_t)std::stoull(s, nullptr, 10);
         if (neg) v = -v;
-        return alloc_hv_emit(lir::HVInt{v});
+        return alloc_hv_emit(lir::WVInt{v});
     }
 
     if (c == la::HERMES_FLOAT.code) {
@@ -15056,7 +15056,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
         if (s.size() > 3 && (s.substr(s.size()-3) == "f32" || s.substr(s.size()-3) == "f64"))
             s = s.substr(0, s.size()-3);
         double v = std::stod(s);
-        return alloc_hv_emit(lir::HVFloat{v});
+        return alloc_hv_emit(lir::WVFloat{v});
     }
 
     if (c == la::HERMES_STR.code) {
@@ -15082,11 +15082,11 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 out += s[i];
             }
         }
-        return alloc_hv_emit(lir::HVStr{std::move(out)});
+        return alloc_hv_emit(lir::WVStr{std::move(out)});
     }
 
     if (c == la::HERMES_MAP.code) {
-        lir::HVMap m;
+        lir::WVMap m;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
@@ -15095,7 +15095,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 auto val_node = map_of(entry.get(la::VALUE.code));
                 auto hv = lower_writ_val(val_node);
                 if (!hv) return nullptr;
-                lir::HVMapEntry e;
+                lir::WVMapEntry e;
                 if (!key_raw.empty() && key_raw[0] == '"') {
                     // Strip quotes then unescape (same logic as HERMES_STR values).
                     std::string raw_inner(key_raw.substr(1, key_raw.size()-2));
@@ -15129,7 +15129,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
     }
 
     if (c == la::HERMES_ARRAY.code) {
-        lir::HVArray a;
+        lir::WVArray a;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
@@ -15169,7 +15169,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
         // writ2: the blob is built by the C++ writ2 TypedArray writer —
         // no stdlib struct needs to be in scope (the Writ1 ArrayI32-eidos
         // scope probe is retired with Writ1).
-        lir::HVArray a;
+        lir::WVArray a;
         a.elem_type = type_name;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
@@ -15191,7 +15191,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 if (type_name == "I32") {
                     lir_view::WritValRef hvref(cur_prog_->type_pool.arena(), hv->mirror_ptr_);
                     if (hvref && hvref.kind() == lir_schema::writ_val::Code::Int) {
-                        int64_t hv_val = lir_view::HVIntView{hvref}.value();
+                        int64_t hv_val = lir_view::WVIntView{hvref}.value();
                         if (hv_val < -2147483648LL || hv_val > 2147483647LL) {
                             error(std::format(
                                 "@<I32> element [{}] value {} is out of i32 range [-2147483648, 2147483647]",
@@ -15250,7 +15250,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 key_type, key_type));
             return nullptr;
         }
-        lir::HVMap m;
+        lir::WVMap m;
         m.key_type = lir_key_type;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
@@ -15260,7 +15260,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 auto val_node = map_of(entry.get(la::VALUE.code));
                 auto hv = lower_writ_val(val_node);
                 if (!hv) return nullptr;
-                lir::HVMapEntry e;
+                lir::WVMapEntry e;
                 if (!key_raw.empty() && key_raw[0] == '"') {
                     // String key — strip quotes and unescape.
                     std::string raw_inner(key_raw.substr(1, key_raw.size()-2));
@@ -15377,7 +15377,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 writ_cap_ctx_->ident_dedup[name] = value_idx;
             }
             uint32_t param_idx = writ_cap_ctx_->next_slot++;
-            return alloc_hv_emit(lir::HVCapture{param_idx, value_idx});
+            return alloc_hv_emit(lir::WVCapture{param_idx, value_idx});
         } else {
             // HERMES_CAP_EXPR: ${expr} — always fresh (no dedup: may have side effects).
             auto expr_node = map_of(node.get(la::VALUE.code));
@@ -15396,7 +15396,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
             uint32_t param_idx = writ_cap_ctx_->next_slot++;
             writ_cap_ctx_->exprs.push_back(std::move(cap_expr));
             writ_cap_ctx_->types.push_back(expr_type);
-            return alloc_hv_emit(lir::HVCapture{param_idx, value_idx});
+            return alloc_hv_emit(lir::WVCapture{param_idx, value_idx});
         }
     }
 
@@ -19490,7 +19490,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
 
     // Render a writ_lit AST back to Logos source — needed when the
     // type-arg is a WritStatic literal (`Foo::<@{...}>`). type_str()
-    // renders HStaticLit as `@hs_<hex>` which doesn't parse; for the
+    // renders WStaticLit as `@hs_<hex>` which doesn't parse; for the
     // metacall thunk we must reconstruct the original `@{...}` source.
     std::function<std::string(TinyMapView)> render_hstatic;
     render_hstatic = [&](TinyMapView n) -> std::string {

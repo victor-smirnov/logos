@@ -73,7 +73,7 @@ pub fn resolve_logos_lib_dir() -> String {
         let view: str = raw.as_str();
         let ctr: Rc<Writ> = writ_rc(8192 as i64);
         let h: &Writ = ctr.deref();
-        let root: HAny = parse(h, view);
+        let root: WAny = parse(h, view);
         if root.is_map() {
             let lib: String = read_str_opt(root, "lib_dir");
             if lib.len() > 0 as i64 { return lib; }

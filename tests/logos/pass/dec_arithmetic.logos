@@ -11,37 +11,37 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // 1. Carry across the 10^9 boundary: 999999999 + 1 = 1000000000.
-    let a1: HAny = hdec_from_str(h, "999999999");
-    let b1: HAny = hdec_from_str(h, "1");
+    let a1: WAny = hdec_from_str(h, "999999999");
+    let b1: WAny = hdec_from_str(h, "1");
     if a1.is_null() || b1.is_null() { return 1; }
-    let s1: HAny = hdec_add(h, a1, b1);
+    let s1: WAny = hdec_add(h, a1, b1);
     if s1.is_null() { return 2; }
     if s1.as_decimal().coeff() != 1000000000u64 { return 3; }
     if s1.as_decimal().scale() != 0u32 { return 4; }
 
     // 2. Scale alignment: 1.5 + 0.25 = 1.75.
-    let s2: HAny = hdec_add(h, hdec_from_str(h, "1.5"), hdec_from_str(h, "0.25"));
+    let s2: WAny = hdec_add(h, hdec_from_str(h, "1.5"), hdec_from_str(h, "0.25"));
     if s2.as_decimal().coeff() != 175u64 { return 5; }
     if s2.as_decimal().scale() != 2u32 { return 6; }
 
     // 3. Mixed signs subtract: 10 + (-3.5) = 6.5.
-    let s3: HAny = hdec_add(h, hdec_from_str(h, "10"), hdec_from_str(h, "-3.5"));
+    let s3: WAny = hdec_add(h, hdec_from_str(h, "10"), hdec_from_str(h, "-3.5"));
     if s3.as_decimal().coeff() != 65u64 { return 7; }
     if s3.as_decimal().is_neg() { return 8; }
 
     // 4. Negative result: -10 + 3.5 = -6.5.
-    let s4: HAny = hdec_add(h, hdec_from_str(h, "-10"), hdec_from_str(h, "3.5"));
+    let s4: WAny = hdec_add(h, hdec_from_str(h, "-10"), hdec_from_str(h, "3.5"));
     if s4.as_decimal().coeff() != 65u64 { return 9; }
     if !s4.as_decimal().is_neg() { return 10; }
 
     // 5. Sum to zero loses the sign: -2.5 + 2.5 = 0.
-    let s5: HAny = hdec_add(h, hdec_from_str(h, "-2.5"), hdec_from_str(h, "2.5"));
+    let s5: WAny = hdec_add(h, hdec_from_str(h, "-2.5"), hdec_from_str(h, "2.5"));
     if s5.as_decimal().coeff() != 0u64 { return 11; }
 
     // 6. u64 overflow → null (the writ2 bound; limb growth is retired).
-    let big: HAny = hdec_from_str(h, "9999999999999999999");   // 19 nines
+    let big: WAny = hdec_from_str(h, "9999999999999999999");   // 19 nines
     if big.is_null() { return 12; }
-    let s6: HAny = hdec_add(h, big, big);
+    let s6: WAny = hdec_add(h, big, big);
     if !s6.is_null() { return 13; }
 
     return 0;

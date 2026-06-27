@@ -273,7 +273,7 @@ const uint8_t* lir_mirror_emit_hv_bool    (lir::LProgram& prog, bool value);
 const uint8_t* lir_mirror_emit_hv_int     (lir::LProgram& prog, int64_t value);
 const uint8_t* lir_mirror_emit_hv_float   (lir::LProgram& prog, double value);
 const uint8_t* lir_mirror_emit_hv_str     (lir::LProgram& prog, std::string_view value);
-const uint8_t* lir_mirror_emit_hv_map     (lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type);
+const uint8_t* lir_mirror_emit_hv_map     (lir::LProgram& prog, const std::vector<lir::WVMapEntry>& entries, std::string_view key_type);
 const uint8_t* lir_mirror_emit_hv_array   (lir::LProgram& prog, const std::vector<lir::WritValPtr>& elements, std::string_view elem_type);
 const uint8_t* lir_mirror_emit_hv_capture (lir::LProgram& prog, uint32_t param_index, uint32_t value_index);
 const uint8_t* lir_mirror_emit_hv_type    (lir::LProgram& prog, uint32_t kind, uint64_t uid, std::string_view name);

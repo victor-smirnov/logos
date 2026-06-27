@@ -1,4 +1,4 @@
-// HAny escape, Rc<Writ> container: a Ref HAny derived from an Rc-held container
+// WAny escape, Rc<Writ> container: a Ref WAny derived from an Rc-held container
 // can't escape a bare `return` either — the local Rc drops at scope end → refcount
 // 0 → arena freed → the Ref dangles. Caught because `value_local_root` roots a
 // method receiver through the Rc's `deref` (a value-local Rc, NOT a raw-ptr deref)
@@ -8,11 +8,11 @@ use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
 use logos.lang.rc;
-fn make_elem() -> HAny {
+fn make_elem() -> WAny {
     let mut h: Rc<Writ> = writ_rc(64i64);
-    let nested: &mut HArray<HAny> = h.array(2i64);
-    nested.push(HAny::from(99i64));
-    let e: HAny = HAny::from(&*nested);
+    let nested: &mut WArray<WAny> = h.array(2i64);
+    nested.push(WAny::from(99i64));
+    let e: WAny = WAny::from(&*nested);
     return e;                          // ERROR: Ref into the Rc-held arena, escapes
 }
 fn main() -> i32 { return 0; }

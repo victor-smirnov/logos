@@ -15,7 +15,7 @@
 namespace logos::writ {
 
 // TypedArray<T> — dense packed array of a trivially-copyable primitive T.
-// BYTE-IDENTICAL to the Logos stdlib HArray<T> (stdlib/lang/writ2/array.logos):
+// BYTE-IDENTICAL to the Logos stdlib WArray<T> (stdlib/lang/writ2/array.logos):
 //   { size_/len : u64, capacity_/cap : u64, data_ : self-relative ptr to T[] }  (24B)
 //
 // Unlike ObjectArray, the elements are PLAIN values (position-independent), so
@@ -94,7 +94,7 @@ private:
     }
 };
 
-// size_(8) + capacity_(8) + data_(8, self-relative i64) = 24 (matches HArray<T>)
+// size_(8) + capacity_(8) + data_(8, self-relative i64) = 24 (matches WArray<T>)
 static_assert(sizeof(TypedArray<int8_t>)  == 24);
 static_assert(sizeof(TypedArray<double>)  == 24);
 

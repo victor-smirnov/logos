@@ -1396,7 +1396,7 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
 }
 
 // writ2 metacall freeze: the Writ-returning thunk passes the Rc<Writ>'s
-// root as a VALUE-FORM HAny word; deep-copy the reachable tree into a compact
+// root as a VALUE-FORM WAny word; deep-copy the reachable tree into a compact
 // single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
 // the prefix — the same wire shape as WritStatic; driver reads *(ptr-8)).
 extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {

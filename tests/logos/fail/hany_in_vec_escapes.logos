@@ -1,6 +1,6 @@
-// borrow_carrying propagates through a generic CONTAINER. A `Vec<HAny>` holding a
+// borrow_carrying propagates through a generic CONTAINER. A `Vec<WAny>` holding a
 // Ref into a LOCAL container's arena must not escape — returning it dangles. Caught
-// by (1) container-element classification: `Vec<HAny>` is borrow-carrying because
+// by (1) container-element classification: `Vec<WAny>` is borrow-carrying because
 // its element is; (2) the capture-flow: a `&mut self` push of a BY-VALUE borrow-
 // carrying argument taints the receiver's provenance, so a later `return v` sees
 // the local borrow. docs/internals/borrow-escape-analysis-design.md §8.
@@ -8,12 +8,12 @@ package hany_in_vec_escapes;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-fn make() -> Vec<HAny> {
+fn make() -> Vec<WAny> {
     let h: Writ = writ_new(64i64);
-    let nested: &mut HArray<HAny> = h.array(2i64);
-    nested.push(HAny::from(99i64));
-    let mut v: Vec<HAny> = Vec::new();
-    v.push(HAny::from(&*nested));    // Ref into local arena
+    let nested: &mut WArray<WAny> = h.array(2i64);
+    nested.push(WAny::from(99i64));
+    let mut v: Vec<WAny> = Vec::new();
+    v.push(WAny::from(&*nested));    // Ref into local arena
     return v;                         // ERROR: Vec carries a Ref into local arena
 }
 fn main() -> i32 { return 0; }

@@ -1,17 +1,17 @@
-// HAny escape safety: an HAny may be a Ref (absolute ptr) into a Writ arena.
+// WAny escape safety: an WAny may be a Ref (absolute ptr) into a Writ arena.
 // Returning one derived from a LOCAL container is dangling (the container drops →
-// arena freed → the Ref dangles). Caught because HAny is `#[borrow_carrying]`: the
-// borrow checker escape-tracks it like a reference — `arr.get(i)` / `HAny::from(&x)`
+// arena freed → the Ref dangles). Caught because WAny is `#[borrow_carrying]`: the
+// borrow checker escape-tracks it like a reference — `arr.get(i)` / `WAny::from(&x)`
 // tie the result to the container, so returning it past the container's scope is
 // rejected. (To escape safely, launder through a holder: hold_any → HeldAny.)
 package hany_ref_escapes_container;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
-fn make_elem() -> HAny {
+fn make_elem() -> WAny {
     let h: Writ = writ_new(64i64);
-    let nested: &mut HArray<HAny> = h.array(2i64);
-    nested.push(HAny::from(99i64));
-    return HAny::from(&*nested);   // ERROR: Ref into local container's arena, escapes
+    let nested: &mut WArray<WAny> = h.array(2i64);
+    nested.push(WAny::from(99i64));
+    return WAny::from(&*nested);   // ERROR: Ref into local container's arena, escapes
 }
 fn main() -> i32 { return 0; }

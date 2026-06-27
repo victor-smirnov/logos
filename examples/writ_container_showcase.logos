@@ -2,29 +2,29 @@
 // Writ showcase — the never-move arena container, end to end.
 //
 // Demonstrates, all at once:
-//   1. HAny — the 8-byte heterogeneous slot: inline Pod (i56 / bool) vs Ref.
-//   2. HArray<HAny> — a Vec-like heterogeneous array: push / get / len, and
+//   1. WAny — the 8-byte heterogeneous slot: inline Pod (i56 / bool) vs Ref.
+//   2. WArray<WAny> — a Vec-like heterogeneous array: push / get / len, and
 //      GROWTH that appends a fresh buffer (never frees the old one).
 //   3. Never-move — a reference into the arena stays valid ACROSS a grow
 //      (more permissive than Vec: push need not invalidate &elem).
 //   4. Nested documents — an array holds Refs to child arrays; deep traversal.
 //   5. Tagged dispatch — a `#[type_code]` object in the arena, dispatched
 //      through WritTagSystem (`&tagged<…> Trait`).
-//   6. Residency & escape — a Ref HAny escapes its build scope inside a
+//   6. Residency & escape — a Ref WAny escapes its build scope inside a
 //      `HeldAny`, which carries an Rc<Writ> holder keeping the arena alive.
-//   7. HString — a UTF-8 string interned in the arena; `as_str` borrows it back.
+//   7. WString — a UTF-8 string interned in the arena; `as_str` borrows it back.
 //
 // Borrow-checked (compile-time, not shown at runtime): a bare `return` of a Ref
-// HAny — or a `&HArray<HAny>` — that outlives its container is REJECTED; the only
+// WAny — or a `&WArray<WAny>` — that outlives its container is REJECTED; the only
 // way out is the `HeldAny` holder above. RAII frees every arena on scope exit.
 //
 package writ_container_showcase;
 
 use logos.lang.writ.container;   // Writ, writ_new / writ_rc, HeldAny, hold_any
-use logos.lang.writ.anyval;      // HAny (value) / HAnyRel (at-rest): Pod + Ref
-use logos.lang.writ.array;       // HArray<HAny>: push / get / len, grow, nest
-use logos.lang.writ.hstring;     // HString: a UTF-8 string in the arena, as_str
-use logos.lang.writ.hmap;        // HMap<HString, HAny>: string-keyed map (JSON object)
+use logos.lang.writ.anyval;      // WAny (value) / WAnyRel (at-rest): Pod + Ref
+use logos.lang.writ.array;       // WArray<WAny>: push / get / len, grow, nest
+use logos.lang.writ.hstring;     // WString: a UTF-8 string in the arena, as_str
+use logos.lang.writ.hmap;        // WMap<WString, WAny>: string-keyed map (JSON object)
 use logos.lang.writ.equal;       // structural equality
 use logos.lang.writ.compactify;  // compactify / clone (copying GC)
 use logos.mem.writ.parser;       // parse: text → doc
@@ -55,23 +55,23 @@ fn yn(label: str, b: bool) {
 #[type_code=170] #[datatype] struct Rect { w: i64, h: i64 }
 impl Area for Rect { pub unsafe fn area(self: *const Rect) -> i64 { return self.w * self.h; } }
 
-// Resolve a Ref HAny to a tagged object and dispatch through WritTagSystem.
-unsafe fn dispatch_area(e: HAny) -> i64 {
+// Resolve a Ref WAny to a tagged object and dispatch through WritTagSystem.
+unsafe fn dispatch_area(e: WAny) -> i64 {
     let r: &tagged<WritTagSystem> Area = e.resolve();
     return r.area();
 }
 
 // Deep-sum a document whose elements are inline i56 Pods OR Refs to child arrays.
 // `&self` allocation means the container is borrowed shared; recursion reads only.
-fn deep_sum(h: &Writ, a: &HArray<HAny>) -> i64 {
+fn deep_sum(h: &Writ, a: &WArray<WAny>) -> i64 {
     let mut total: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < a.len() {
-        let e: HAny = a.get(i);
+        let e: WAny = a.get(i);
         if e.is_i56() {
             total = total + e.as_i56();
         } else if e.is_ref() {
-            let child: &HArray<HAny> = h.array_of(e);   // tied to this container
+            let child: &WArray<WAny> = h.array_of(e);   // tied to this container
             total = total + deep_sum(h, child);
         }
         i = i + 1i64;
@@ -83,31 +83,31 @@ fn deep_sum(h: &Writ, a: &HArray<HAny>) -> i64 {
 // the build scope — bound to the HERMES2 holder, not the (gone) build frame.
 fn make_held_doc() -> HeldAny {
     let mut h: Rc<Writ> = writ_rc(64i64);
-    let doc: &mut HArray<HAny> = h.array(2i64);
-    doc.push(HAny::from(101i64));
-    doc.push(HAny::from(202i64));
-    doc.push(HAny::from(303i64));                 // grows past cap 2
-    let e: HAny = HAny::from(&*doc);              // a Ref to the doc array
+    let doc: &mut WArray<WAny> = h.array(2i64);
+    doc.push(WAny::from(101i64));
+    doc.push(WAny::from(202i64));
+    doc.push(WAny::from(303i64));                 // grows past cap 2
+    let e: WAny = WAny::from(&*doc);              // a Ref to the doc array
     return hold_any(&mut h, e);                   // escape via the Writ holder
     // the local `h` (Rc) drops here; the HeldAny's holder keeps the arena alive
 }
 
 fn main() -> i32 {
-    // 1 ── HAny: inline Pod values (no allocation; the value lives in the word).
-    section("1. HAny — inline Pod (i56 / bool)");
-    let p_int:  HAny = HAny::from(-7i64);
-    let p_bool: HAny = HAny::from(true);
+    // 1 ── WAny: inline Pod values (no allocation; the value lives in the word).
+    section("1. WAny — inline Pod (i56 / bool)");
+    let p_int:  WAny = WAny::from(-7i64);
+    let p_bool: WAny = WAny::from(true);
     yn("int  is_i56", p_int.is_i56());
     say("int  as_i56", p_int.as_i56());
     yn("bool is_bool", p_bool.is_bool());
     yn("bool as_bool", p_bool.as_bool());
 
-    // 2 ── HArray<HAny> + growth across tiny segments (never-move arena).
-    section("2. HArray<HAny> — push / get / len + growth");
+    // 2 ── WArray<WAny> + growth across tiny segments (never-move arena).
+    section("2. WArray<WAny> — push / get / len + growth");
     let h: Writ = writ_new(48i64);          // small segment → growth is real
-    let arr: &mut HArray<HAny> = h.array(2i64);    // direct &mut, interior-mut arena
+    let arr: &mut WArray<WAny> = h.array(2i64);    // direct &mut, interior-mut arena
     let mut k: i64 = 0i64;
-    while k < 6i64 { arr.push(HAny::from((k * 10i64) as i56)); k = k + 1i64; }   // cap 2 → grows
+    while k < 6i64 { arr.push(WAny::from((k * 10i64) as i56)); k = k + 1i64; }   // cap 2 → grows
     say("len after 6 pushes", arr.len());
     say("arr[0]", arr.get(0i64).as_i56());
     say("arr[5]", arr.get(5i64).as_i56());
@@ -116,34 +116,34 @@ fn main() -> i32 {
     //      (the old buffer is never freed; the Ref re-anchors on grow).
     section("3. Never-move — read survives growth");
     let before: i64 = arr.get(1i64).as_i56();     // arr[1] == 10
-    arr.push(HAny::from(999i64));                  // may grow again
+    arr.push(WAny::from(999i64));                  // may grow again
     let after: i64 = arr.get(1i64).as_i56();
     yn("arr[1] stable across grow", before == after);
     say("arr[1]", after);
 
     // 4 ── Nested document: root array holds Refs to child arrays; deep traversal.
     section("4. Nested document — deep_sum");
-    let root: &mut HArray<HAny> = h.array(2i64);
-    let a: &mut HArray<HAny> = h.array(2i64);
-    a.push(HAny::from(1i64)); a.push(HAny::from(2i64)); a.push(HAny::from(3i64));
-    let b: &mut HArray<HAny> = h.array(2i64);
-    b.push(HAny::from(10i64)); b.push(HAny::from(20i64));
-    root.push(HAny::from(&*a));                    // Ref to child a   (sum 6)
-    root.push(HAny::from(100i64));                 // inline Pod       (100)
-    root.push(HAny::from(&*b));                    // Ref to child b   (sum 30)
+    let root: &mut WArray<WAny> = h.array(2i64);
+    let a: &mut WArray<WAny> = h.array(2i64);
+    a.push(WAny::from(1i64)); a.push(WAny::from(2i64)); a.push(WAny::from(3i64));
+    let b: &mut WArray<WAny> = h.array(2i64);
+    b.push(WAny::from(10i64)); b.push(WAny::from(20i64));
+    root.push(WAny::from(&*a));                    // Ref to child a   (sum 6)
+    root.push(WAny::from(100i64));                 // inline Pod       (100)
+    root.push(WAny::from(&*b));                    // Ref to child b   (sum 30)
     say("deep_sum(root)", deep_sum(&h, &*root));   // 6 + 100 + 30 = 136
 
     // 5 ── Tagged dispatch: a Rect object in the arena, dispatched by its type code.
     section("5. Tagged dispatch — WritTagSystem");
-    let shapes: &mut HArray<HAny> = h.array(2i64);
+    let shapes: &mut WArray<WAny> = h.array(2i64);
     unsafe {
         let hraw: *mut Writ = &h as *const Writ as *mut Writ;
         let obj: *mut u8 = writ_alloc_bytes(hraw, 8i64 + 16i64);
         let at: *mut u8 = obj.byte_add(8i64);
         write_tag(at, type_code_of::<Rect>());
         let rp: *mut Rect = at as *mut Rect;  rp.w = 6i64;  rp.h = 7i64;
-        shapes.push(HAny::ref_to(at as *const u8));
-        let e: HAny = shapes.get(0i64);
+        shapes.push(WAny::ref_to(at as *const u8));
+        let e: WAny = shapes.get(0i64);
         yn("shapes[0] is_ref", e.is_ref());
         say("dispatch area(6x7)", dispatch_area(e));   // 42
     }
@@ -151,25 +151,25 @@ fn main() -> i32 {
     // 6 ── Residency & escape: an element outlives its build scope via HeldAny.
     section("6. Residency — HeldAny escapes its build scope");
     let held: HeldAny = make_held_doc();           // the arena outlived make_held_doc
-    let doc: &HArray<HAny> = unsafe { &*(held.val().resolve() as *const HArray<HAny>) };
+    let doc: &WArray<WAny> = unsafe { &*(held.val().resolve() as *const WArray<WAny>) };
     say("held doc len", doc.len());
     say("held doc [2]", doc.get(2i64).as_i56());    // 303
     // `held` drops at scope end → Rc holder → arena freed (RAII).
 
-    // 7 ── HString: a self-describing DST string interned in the arena (inline
+    // 7 ── WString: a self-describing DST string interned in the arena (inline
     //      `len` header + `[u8]` tail, one allocation). Because it is
-    //      `#[self_describing]`, a borrowed `&HString` is SAFE to read — no unsafe.
-    section("7. HString — self-describing DST + as_str");
-    let hs: &HString = h.hstring("hello, writ");
+    //      `#[self_describing]`, a borrowed `&WString` is SAFE to read — no unsafe.
+    section("7. WString — self-describing DST + as_str");
+    let hs: &WString = h.hstring("hello, writ");
     print("   text = "); println(hs.as_str());
     say("byte len", hs.len());
     yn("round-trips", str_eq(hs.as_str(), "hello, writ"));
 
-    // 7b ── a record [name, age] in one HArray<HAny> via OVERLOADED push: `push`
-    //       takes the value directly (no `HAny::from`) — a `str` is interned into
-    //       the arena as an HString Ref, an i64 stored as an inline Pod.
-    let rec: &mut HArray<HAny> = h.array(2i64);
-    rec.push("Ada");                     // str → interned HString Ref
+    // 7b ── a record [name, age] in one WArray<WAny> via OVERLOADED push: `push`
+    //       takes the value directly (no `WAny::from`) — a `str` is interned into
+    //       the arena as an WString Ref, an i64 stored as an inline Pod.
+    let rec: &mut WArray<WAny> = h.array(2i64);
+    rec.push("Ada");                     // str → interned WString Ref
     rec.push(36i64);                     // i64 → inline Pod
     print("   record.name = "); println(h.hstring_of(rec.get(0i64)).as_str());
     say("record.age", rec.get(1i64).as_i56());
@@ -186,17 +186,17 @@ fn main() -> i32 {
         "big": 9000000000000000000, 
         "tags": ["x", "y"]
     }"#;
-    let doc: HAny = parse(&tiny, src);
+    let doc: WAny = parse(&tiny, src);
     print("   parsed   = "); let st: String = stringify(doc); println_string(&st);
 
     let blob: Vec<u8> = hbs_write(doc);
     say("HBS bytes", blob.len());
     let arena2: Writ = writ_new(4096i64);
-    let back: HAny = hbs_read(&arena2, blob.as_slice().as_ptr(), blob.len());
+    let back: WAny = hbs_read(&arena2, blob.as_slice().as_ptr(), blob.len());
     yn("HBS round-trips (equal)", equal(doc, back));
 
     let arena3: Writ = writ_new(4096i64);             // one big segment
-    let compact: HAny = compactify(&arena3, doc);           // copying GC → rigid block
+    let compact: WAny = compactify(&arena3, doc);           // copying GC → rigid block
     yn("compacted (equal)", equal(doc, compact));
     yn("clone (equal)", equal(doc, clone(&arena3, doc)));
 

@@ -18,14 +18,14 @@ fn main() -> i32 {
     let doc2: Rc<Writ> = @{"k": x * 2 for x in arr if (x % 20) == 0};
 
     unsafe {
-        let v0: HView2 = HView2 { base: 0 as *const u8 };
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
         let h1: &Writ = doc.deref();
-        let r1: HAny = h1.root();
+        let r1: WAny = h1.root();
         if !r1.is_map() { return 1; }
         if v0.get_int(v0.map_get(r1, "k")) != 40i64 { return 2; }   // last wins
 
         let h2: &Writ = doc2.deref();
-        let r2: HAny = h2.root();
+        let r2: WAny = h2.root();
         if !r2.is_map() { return 3; }
         if v0.get_int(v0.map_get(r2, "k")) != 80i64 { return 4; }   // 20,40 → last 80
     }

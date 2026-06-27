@@ -1083,7 +1083,7 @@ public:
         put(map_off, hk::STR_VALUE, s_av);
         return map_off;
     }
-    const uint8_t* emit_hv_map_direct(const std::vector<lir::HVMapEntry>& entries,
+    const uint8_t* emit_hv_map_direct(const std::vector<lir::WVMapEntry>& entries,
                                                std::string_view key_type) {
         std::vector<writ::AnyVal> key_strs, key_ints, val_avs;
         key_strs.reserve(entries.size());
@@ -2366,7 +2366,7 @@ const uint8_t* lir_mirror_emit_hv_str(lir::LProgram& prog, std::string_view valu
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_str_direct(value);
 }
-const uint8_t* lir_mirror_emit_hv_map(lir::LProgram& prog, const std::vector<lir::HVMapEntry>& entries, std::string_view key_type) {
+const uint8_t* lir_mirror_emit_hv_map(lir::LProgram& prog, const std::vector<lir::WVMapEntry>& entries, std::string_view key_type) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_hv_map_direct(entries, key_type);

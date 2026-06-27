@@ -27,12 +27,12 @@ unsafe fn main() -> i32 {
     //    compactify: the copy holds ONLY the live tree and stays equal.
     let rc: Rc<Writ> = writ_rc(8192);
     let h: &Writ = rc.deref();
-    let m: &mut HMap<HString, HAny> = h.map(8);
-    m.set("k", HAny::from(&*(h.hstring("first-dead-value") as *const HString)));
-    m.set("k", HAny::from(&*(h.hstring("live") as *const HString)));   // overwrite -> garbage
+    let m: &mut WMap<WString, WAny> = h.map(8);
+    m.set("k", WAny::from(&*(h.hstring("first-dead-value") as *const WString)));
+    m.set("k", WAny::from(&*(h.hstring("live") as *const WString)));   // overwrite -> garbage
     m.set("n", 7i64);
-    let mp: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
-    h.set_root(HAny::ref_to(mp as *const u8));
+    let mp: *const WMap<WString, WAny> = m as *const WMap<WString, WAny>;
+    h.set_root(WAny::ref_to(mp as *const u8));
 
     let packed: Rc<Writ> = writ_clone(h.root());
     let ph: &Writ = packed.deref();
@@ -44,7 +44,7 @@ unsafe fn main() -> i32 {
     let s: WritStatic = @{"deep": [1, {"x": true}]};
     let base: *const u8 = s.ptr;
     let w: i64 = *(base as *const i64);
-    let sroot: HAny = HAny::Ref((base as i64 + w) as *const u8);
+    let sroot: WAny = WAny::Ref((base as i64 + w) as *const u8);
     let p3: Rc<Writ> = writ_clone(sroot);
     let p3h: &Writ = p3.deref();
     if !writ_equal(sroot, p3h.root()) { return 4; }

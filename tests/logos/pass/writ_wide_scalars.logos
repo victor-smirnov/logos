@@ -17,7 +17,7 @@ use logos.lang.str;
 fn main() -> i32 {
     let h: Writ = writ_new(2048i64);
     let big: i64 = 9000000000000000000i64;     // > 2^55 → boxed
-    let a: &mut HArray<HAny> = h.array(8i64);
+    let a: &mut WArray<WAny> = h.array(8i64);
     a.push(7i64); a.push(big); a.push(3.14f64); a.push(-2.5f64);
 
     // dispatch + read-back
@@ -28,24 +28,24 @@ fn main() -> i32 {
     if !a.get(3i64).is_float() || a.get(3i64).as_f64() != -2.5f64 { return 5; }
 
     // stringify
-    if !str_eq(stringify(HAny::from(&*a)).as_str(), "[7, 9000000000000000000, 3.14, -2.5]") { return 6; }
+    if !str_eq(stringify(WAny::from(&*a)).as_str(), "[7, 9000000000000000000, 3.14, -2.5]") { return 6; }
 
     // parser → big int + float
-    let d: HAny = parse(&h, "[9000000000000000000, 3.14, -2.5]");
-    let pa: &HArray<HAny> = unsafe { &*(d.resolve() as *const HArray<HAny>) };
+    let d: WAny = parse(&h, "[9000000000000000000, 3.14, -2.5]");
+    let pa: &WArray<WAny> = unsafe { &*(d.resolve() as *const WArray<WAny>) };
     if pa.get(0i64).as_i64() != big { return 7; }
     if pa.get(1i64).as_f64() != 3.14f64 { return 8; }
 
     // HBS round-trip
-    let bytes: Vec<u8> = hbs_write(HAny::from(&*a));
+    let bytes: Vec<u8> = hbs_write(WAny::from(&*a));
     let h2: Writ = writ_new(2048i64);
-    let back: HAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
+    let back: WAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
     if !str_eq(stringify(back).as_str(), "[7, 9000000000000000000, 3.14, -2.5]") { return 9; }
 
     // compactify (boxed scalars re-boxed into the fresh arena)
     let h3: Writ = writ_new(2048i64);
-    let comp: HAny = compactify(&h3, HAny::from(&*a));
-    let ca: &HArray<HAny> = unsafe { &*(comp.resolve() as *const HArray<HAny>) };
+    let comp: WAny = compactify(&h3, WAny::from(&*a));
+    let ca: &WArray<WAny> = unsafe { &*(comp.resolve() as *const WArray<WAny>) };
     if ca.get(1i64).as_i64() != big { return 10; }
     if ca.get(2i64).as_f64() != 3.14f64 { return 11; }
     return 0;

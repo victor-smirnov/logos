@@ -1,15 +1,15 @@
 // Logos Writ stdlib — writ2.anyval
 //
-// HAny — the Writ heterogeneous slot (the AnyVal analog): a niche-packed
+// WAny — the Writ heterogeneous slot (the AnyVal analog): a niche-packed
 // `#[zoned] enum { Ref(*const u8) | Pod(u64) }` (F3, ref-repr-design §6/§8). ONE
 // 8-byte word that is either an inline primitive (Pod) or a reference to a
 // type-tagged zone object (Ref). The storage/compute split is now COMPILER-OWNED:
 //
 //   VALUE form  — Ref = an ABSOLUTE pointer to the tagged object. Movable, lives
 //                 on the stack / in registers / by-value; dispatch resolves it
-//                 through WritTagSystem. This is the plain `HAny`.
-//   AT-REST     — the same HAny stored in an arena slot reached through a
-//                 `*zoned HAny` (e.g. HArray/HMap buffers). Ref = a SELF-RELATIVE
+//                 through WritTagSystem. This is the plain `WAny`.
+//   AT-REST     — the same WAny stored in an arena slot reached through a
+//                 `*zoned WAny` (e.g. WArray/WMap buffers). Ref = a SELF-RELATIVE
 //                 delta `target − &slot`; `*slot` materialises it to the value
 //                 form and `*slot = v` lowers it — the compiler does the math.
 //
@@ -24,82 +24,82 @@ package logos.lang.writ.anyval;
 
 use logos.lang.ptr;
 use logos.lang.clone;    // Copy
-use logos.lang.fabric;   // Primitive → blanket Datatype/Container (Buffer<HAny>)
+use logos.lang.fabric;   // Primitive → blanket Datatype/Container (Buffer<WAny>)
 
-// HAny — the heterogeneous Writ slot, a niche-packed `#[zoned]` enum (F3).
+// WAny — the heterogeneous Writ slot, a niche-packed `#[zoned]` enum (F3).
 // ONE 8-byte word: `Ref` = a type-erased pointer to a tagged zone object
 // (low-bit-0; self-relative at-rest via #[zoned], absolute as a value), `Pod`
 // = an inline tagged word `(value<<8)|(code<<1)|1` (low-bit-1, position-
 // independent). `null` = `Ref(0)`. The compiler owns the at-rest↔value bridge
-// (materialise/lower on a `*zoned HAny` access) — no hand-rolled relative math.
+// (materialise/lower on a `*zoned WAny` access) — no hand-rolled relative math.
 #[borrow_carrying]
 #[zoned]
-pub enum HAny {
+pub enum WAny {
     Ref(*const u8),   // tagged zone object (low-bit-0; zoned)
     Pod(u64),         // inline tagged word (low-bit-1; position-independent)
 }
 
-// HAny is a non-owning 8-byte handle (the arena owns Ref pointees) — Copy. Its
+// WAny is a non-owning 8-byte handle (the arena owns Ref pointees) — Copy. Its
 // value form is position-independent (Pod inline; Ref absolute), so it stores by
 // value: `Primitive { Prim = Self }` gives the blanket Datatype + Container, i.e.
-// Buffer<HAny> for runtime-typed CONTAINER VALUES. (Ref pointees live in a
-// Writ arena, not the persistent store — Buffer<HAny> is in-memory / Pod-safe
+// Buffer<WAny> for runtime-typed CONTAINER VALUES. (Ref pointees live in a
+// Writ arena, not the persistent store — Buffer<WAny> is in-memory / Pod-safe
 // until arena↔store integration.) No ordering: values aren't compared.
-impl Copy for HAny {}
-impl Primitive for HAny { type Prim = HAny; }
+impl Copy for WAny {}
+impl Primitive for WAny { type Prim = WAny; }
 
-// (HAnyRel — the old distinct at-rest marker type — is RETIRED. The at-rest form
-// is the same HAny, reached through a `*zoned HAny` slot; the compiler bridges.
-// Its phantom companion `HVal` — the placeholder element label the containers
+// (WAnyRel — the old distinct at-rest marker type — is RETIRED. The at-rest form
+// is the same WAny, reached through a `*zoned WAny` slot; the compiler bridges.
+// Its phantom companion `WVal` — the placeholder element label the containers
 // were parameterised over while the at-rest/value split existed — is retired
-// with it: the heterogeneous containers are `HArray<HAny>` / `HMap<…, HAny>`,
+// with it: the heterogeneous containers are `WArray<WAny>` / `WMap<…, WAny>`,
 // naming exactly what `get`/`set` traffic in.)
 
-impl HAny {
+impl WAny {
     // The raw 8-byte word (value form) — the single decode point every accessor
     // reads bits off. Pod → the tagged word; Ref → the absolute pointer bits
     // (low-bit-0). Reconstructing the word from the two arms makes the niche-enum
     // transition transparent to the bit-twiddling accessors below.
-    pub fn raw(self: &HAny) -> i64 {
+    pub fn raw(self: &WAny) -> i64 {
         // The niche enum IS its 8-byte word (value form: Pod = the tagged word,
         // Ref = the absolute pointer bits). Read it directly rather than matching —
         // both arms reconstruct the same word, and this avoids the via-&self niche
         // match entirely.
-        return unsafe { *(self as *const HAny as *const i64) };
+        return unsafe { *(self as *const WAny as *const i64) };
     }
 
     // ── constructors (value form) ─────────────────────────────────────────────
-    pub fn null() -> HAny { return HAny::Ref(0i64 as *const u8); }
+    pub fn null() -> WAny { return WAny::Ref(0i64 as *const u8); }
 
     // Inline primitive: `code` is the 7-bit Writ type code (1..127); `v` must
     // fit in 56 signed bits (wider primitives box into a Ref — later). The Pod arm
     // holds the FULL tagged word (low-bit-1), stored verbatim by the raw niche.
-    pub fn pod(v: i64, code: u8) -> HAny {
-        return HAny::Pod(((v << 8) | (((code as i64) & 0x7Fi64) << 1) | 1i64) as u64);
+    pub fn pod(v: i64, code: u8) -> WAny {
+        return WAny::Pod(((v << 8) | (((code as i64) & 0x7Fi64) << 1) | 1i64) as u64);
     }
-    pub fn pod_bool(b: bool, code: u8) -> HAny {
-        return HAny::pod(if b { 1i64 } else { 0i64 }, code);
+    pub fn pod_bool(b: bool, code: u8) -> WAny {
+        return WAny::pod(if b { 1i64 } else { 0i64 }, code);
     }
     // Reference to a tagged zone object — absolute in the value form, self-relative
     // at-rest (the #[zoned] Ref arm; the compiler bridges).
-    pub fn ref_to(obj: *const u8) -> HAny { return HAny::Ref(obj); }
+    pub fn ref_to(obj: *const u8) -> WAny { return WAny::Ref(obj); }
 
     // ── accessors ─ pure reads of the value form: safe `&self` (no `unsafe` at
     //   call sites). `resolve` returns a raw pointer (safe to OBTAIN, like Rust's
     //   `as_ptr`); dereferencing / tagged-dispatch through it is where `unsafe` lives.
-    pub fn is_null(self: &HAny) -> bool { return self.raw() == 0i64; }
-    pub fn is_pod(self: &HAny)  -> bool { return (self.raw() & 1i64) == 1i64; }
-    pub fn is_ref(self: &HAny)  -> bool {
+    pub fn is_null(self: &WAny) -> bool { return self.raw() == 0i64; }
+    pub fn is_pod(self: &WAny)  -> bool { return (self.raw() & 1i64) == 1i64; }
+    pub fn is_ref(self: &WAny)  -> bool {
         return (self.raw() & 1i64) == 0i64 && self.raw() != 0i64;
     }
-    pub fn pod_code(self: &HAny) -> u8 { return ((self.raw() >> 1) & 0x7Fi64) as u8; }
-    pub fn as_i56(self: &HAny)  -> i64 { return self.raw() >> 8; }   // sign-extends
-    pub fn as_bool(self: &HAny) -> bool { return (self.raw() >> 8) != 0i64; }
+    pub fn pod_code(self: &WAny) -> u8 { return ((self.raw() >> 1) & 0x7Fi64) as u8; }
+    pub fn as_i56(self: &WAny)  -> i64 { return self.raw() >> 8; }   // sign-extends
+    pub fn as_bool(self: &WAny) -> bool { return (self.raw() >> 8) != 0i64; }
     // Resolve a Ref to the absolute tagged-object pointer (value form holds it raw).
-    pub fn resolve(self: &HAny) -> *const u8 { return self.raw() as *const u8; }
+    pub fn resolve(self: &WAny) -> *const u8 { return self.raw() as *const u8; }
 }
 
-// Writ HAny Pod primitive type codes (7-bit; identify the inline value).
+// Writ WAny Pod primitive type codes (7-bit; identify the inline value).
 // The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
 // inline (wider values box into a Ref — H2_I64), so the name is `i56`, not `i64`.
 // `HA_I56` is the generic inline-int fallback (no exact Writ width tag — e.g. a
@@ -118,7 +118,7 @@ pub const HT_U16: u8 = 24u8;
 pub const HT_U24: u8 = 25u8;
 
 // Writ REF type codes — the in-band tag of an arena object (the Writ1 datatag
-// VARINT before the object). A Ref HAny's pointee carries one so `HAny::type_code` /
+// VARINT before the object). A Ref WAny's pointee carries one so `WAny::type_code` /
 // `is_string` / `is_array` / `is_map` dispatch on what it points at. Codes are u64
 // (the full Writ1 WritTag range): codes ≤222 take one byte at obj[-1], >222 a
 // header + little-endian code bytes — see container.h2_write_tag / h2_type_code.
@@ -130,7 +130,7 @@ pub const H2_DECIMAL: u64 = 102u64;  // fixed-precision signed decimal
 pub const H2_PARAMETER:  u64 = 127u64;   // query-parameter capture slot (?name / @-literal)
 pub const H2_TYPEDVALUE: u64 = 4115u64;  // SDN datatype instantiation @Type(params?)=init
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
-// own 8-byte tagged arena object, referenced by the HAny. Codes are the Writ1
+// own 8-byte tagged arena object, referenced by the WAny. Codes are the Writ1
 // WritTag values, so `type_code()` emits the wire tag (hbs-ready). (Allocated via
 // container.box_i64 / box_u64 / box_f32 / box_f64.)
 pub const H2_I64:    u64 = 26u64;    // full 64-bit signed integer
@@ -164,57 +164,57 @@ pub unsafe fn h2_type_code(obj: *const u8) -> u64 {
 }
 
 // Typed, code-managed constructors + accessors (no manual type code at call sites;
-// overloaded `from` per primitive — `HAny::from(v)`). `from(i56)` makes the
+// overloaded `from` per primitive — `WAny::from(v)`). `from(i56)` makes the
 // 56-bit inline range a TYPE constraint (a wider i64 must be narrowed consciously).
-impl HAny {
-    pub fn from(v: i56)  -> HAny { return HAny::pod(v as i64, HA_I56); }
-    pub fn from(b: bool) -> HAny { return HAny::pod_bool(b, HA_BOOL); }
+impl WAny {
+    pub fn from(v: i56)  -> WAny { return WAny::pod(v as i64, HA_I56); }
+    pub fn from(b: bool) -> WAny { return WAny::pod_bool(b, HA_BOOL); }
 
     // Exact-width inline integers — all fit the 56-bit Pod value (no boxing), each
     // tagged with its precise Writ width so the read-back type matches the write.
-    pub fn from(v: i8)  -> HAny { return HAny::pod(v as i64, HT_I8);  }
-    pub fn from(v: u8)  -> HAny { return HAny::pod(v as i64, HT_U8);  }
-    pub fn from(v: i16) -> HAny { return HAny::pod(v as i64, HT_I16); }
-    pub fn from(v: i24) -> HAny { return HAny::pod(v as i64, HT_I24); }
-    pub fn from(v: u16) -> HAny { return HAny::pod(v as i64, HT_U16); }
-    pub fn from(v: u24) -> HAny { return HAny::pod(v as i64, HT_U24); }
+    pub fn from(v: i8)  -> WAny { return WAny::pod(v as i64, HT_I8);  }
+    pub fn from(v: u8)  -> WAny { return WAny::pod(v as i64, HT_U8);  }
+    pub fn from(v: i16) -> WAny { return WAny::pod(v as i64, HT_I16); }
+    pub fn from(v: i24) -> WAny { return WAny::pod(v as i64, HT_I24); }
+    pub fn from(v: u16) -> WAny { return WAny::pod(v as i64, HT_U16); }
+    pub fn from(v: u24) -> WAny { return WAny::pod(v as i64, HT_U24); }
 
     // Exact-width reads — the inline value re-narrowed to the written type. (A wrong
     // accessor truncates rather than faulting; pair with the `is_*` predicate.)
-    pub fn as_i8(self: &HAny)  -> i8  { return self.as_i56() as i8;  }
-    pub fn as_u8(self: &HAny)  -> u8  { return self.as_i56() as u8;  }
-    pub fn as_i16(self: &HAny) -> i16 { return self.as_i56() as i16; }
-    pub fn as_i24(self: &HAny) -> i24 { return self.as_i56() as i24; }
-    pub fn as_u16(self: &HAny) -> u16 { return self.as_i56() as u16; }
-    pub fn as_u24(self: &HAny) -> u24 { return self.as_i56() as u24; }
+    pub fn as_i8(self: &WAny)  -> i8  { return self.as_i56() as i8;  }
+    pub fn as_u8(self: &WAny)  -> u8  { return self.as_i56() as u8;  }
+    pub fn as_i16(self: &WAny) -> i16 { return self.as_i56() as i16; }
+    pub fn as_i24(self: &WAny) -> i24 { return self.as_i56() as i24; }
+    pub fn as_u16(self: &WAny) -> u16 { return self.as_i56() as u16; }
+    pub fn as_u24(self: &WAny) -> u24 { return self.as_i56() as u24; }
 
-    pub fn is_i56(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HA_I56; }
-    pub fn is_bool(self: &HAny) -> bool { return self.is_pod() && self.pod_code() == HA_BOOL; }
-    pub fn is_i8(self: &HAny)   -> bool { return self.is_pod() && self.pod_code() == HT_I8;  }
-    pub fn is_u8(self: &HAny)   -> bool { return self.is_pod() && self.pod_code() == HT_U8;  }
-    pub fn is_i16(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I16; }
-    pub fn is_i24(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I24; }
-    pub fn is_u16(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U16; }
-    pub fn is_u24(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U24; }
+    pub fn is_i56(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HA_I56; }
+    pub fn is_bool(self: &WAny) -> bool { return self.is_pod() && self.pod_code() == HA_BOOL; }
+    pub fn is_i8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == HT_I8;  }
+    pub fn is_u8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == HT_U8;  }
+    pub fn is_i16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I16; }
+    pub fn is_i24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I24; }
+    pub fn is_u16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U16; }
+    pub fn is_u24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U24; }
     // (the value reads back via the matching `as_*`)
 
     // The unified type code: for a Pod, the inline pod code; for a Ref, the
     // in-band tag of the pointee (obj[-1]); 0 for null. The single dispatch point
     // for generic walkers (stringify / binary / equality).
-    pub fn type_code(self: &HAny) -> u64 {
+    pub fn type_code(self: &WAny) -> u64 {
         if self.is_null() { return 0u64; }
         if self.is_pod()  { return self.pod_code() as u64; }
         return unsafe { h2_type_code(self.resolve()) };
     }
-    pub fn is_string(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
-    pub fn is_array(self: &HAny)  -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_ARRAY; }
-    pub fn is_map(self: &HAny)    -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_MAP; }
-    pub fn is_tinymap(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_TINYMAP; }
+    pub fn is_string(self: &WAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
+    pub fn is_array(self: &WAny)  -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_ARRAY; }
+    pub fn is_map(self: &WAny)    -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_MAP; }
+    pub fn is_tinymap(self: &WAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_TINYMAP; }
 
     // Wide scalars: an integer is an inline (i56 / exact-width) Pod or a boxed
     // H2_I64 / H2_U64; a float is a boxed H2_F32 / H2_F64. `as_i64`/`as_u64`/
     // `as_f32`/`as_f64` read whichever form holds the value.
-    pub fn is_int(self: &HAny) -> bool {
+    pub fn is_int(self: &WAny) -> bool {
         if self.is_pod() {
             let c: u8 = self.pod_code();
             // the generic i56, or any exact-width inline integer (I8..U24, 20..25).
@@ -224,70 +224,70 @@ impl HAny {
         let t: u64 = unsafe { h2_type_code(self.resolve()) };
         return t == H2_I64 || t == H2_U64;          // boxed i64 / u64
     }
-    pub fn is_u64(self: &HAny) -> bool {
+    pub fn is_u64(self: &WAny) -> bool {
         return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_U64;
     }
-    pub fn is_f32(self: &HAny) -> bool {
+    pub fn is_f32(self: &WAny) -> bool {
         return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_F32;
     }
-    pub fn is_float(self: &HAny) -> bool {
+    pub fn is_float(self: &WAny) -> bool {
         if !self.is_ref() { return false; }
         let t: u64 = unsafe { h2_type_code(self.resolve()) };
         return t == H2_F32 || t == H2_F64;          // boxed f32 / f64
     }
-    pub fn as_i64(self: &HAny) -> i64 {
+    pub fn as_i64(self: &WAny) -> i64 {
         if self.is_pod() { return self.as_i56(); }
         return unsafe { *(self.resolve() as *const i64) };
     }
-    pub fn as_u64(self: &HAny) -> u64 {
+    pub fn as_u64(self: &WAny) -> u64 {
         if self.is_pod() { return self.as_i56() as u64; }
         return unsafe { *(self.resolve() as *const u64) };
     }
-    pub fn as_f32(self: &HAny) -> f32 { return unsafe { *(self.resolve() as *const f32) }; }
-    pub fn as_f64(self: &HAny) -> f64 { return unsafe { *(self.resolve() as *const f64) }; }
+    pub fn as_f32(self: &WAny) -> f32 { return unsafe { *(self.resolve() as *const f32) }; }
+    pub fn as_f64(self: &WAny) -> f64 { return unsafe { *(self.resolve() as *const f64) }; }
 }
 
-// ── HAnyMut — the MUTABLE dual of HAny (a fat `&mut` onto an element slot) ─────
+// ── WAnyMut — the MUTABLE dual of WAny (a fat `&mut` onto an element slot) ─────
 //
-// Where `HAny` is a read VALUE (an 8-byte word, thin), `HAnyMut` is a MUTABLE
-// handle = the at-rest element SLOT (`*zoned mut HAny`) PLUS the Writ zone
+// Where `WAny` is a read VALUE (an 8-byte word, thin), `WAnyMut` is a MUTABLE
+// handle = the at-rest element SLOT (`*zoned mut WAny`) PLUS the Writ zone
 // (allocator) it lives in. It is the value-form of a fat `&mut` — the bridge for
 // DYNAMIC mutable traversal, where the element's concrete kind (Pod or Ref to a
 // nested container/string) is unknown until checked. Holding the SLOT (not a
 // resolved object pointer) means it faithfully carries BOTH a Pod (read its
 // inline value) and a Ref (descend + grow), and can REPLACE the element in place
-// (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `HMap<HString, HAny>::get_mut`
+// (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `WMap<WString, WAny>::get_mut`
 // produce it (zone = `zone_of(self)`, so the parent's zone cascades into the
 // child); `as_array_mut` / `as_map_mut` (in array/hmap) resolve a Ref element to a
 // fat `&mut` carrying that zone, ready to grow. writ2 §9.4.
-pub struct HAnyMut {
-    pub slot: *zoned mut HAny,   // the at-rest element slot (never-move arena)
+pub struct WAnyMut {
+    pub slot: *zoned mut WAny,   // the at-rest element slot (never-move arena)
     pub zone: *mut u8,           // its Writ zone (allocator), erased to *mut u8 (cast at use)
 }
 
-impl HAnyMut {
-    // Read the element value (materialise the at-rest slot → absolute HAny).
-    pub fn get(self: &HAnyMut) -> HAny { return unsafe { *self.slot }; }
+impl WAnyMut {
+    // Read the element value (materialise the at-rest slot → absolute WAny).
+    pub fn get(self: &WAnyMut) -> WAny { return unsafe { *self.slot }; }
     // Replace the element in place (lower the new value into the slot).
-    pub fn set(self: &HAnyMut, v: HAny) { unsafe { *self.slot = v; } }
+    pub fn set(self: &WAnyMut, v: WAny) { unsafe { *self.slot = v; } }
 
     // All predicates/reads delegate to the materialised value — so a Pod cursor
     // reads its inline value and a Ref cursor reports the pointee's tag.
-    pub fn type_code(self: &HAnyMut) -> u64  { return self.get().type_code(); }
-    pub fn is_pod(self: &HAnyMut)    -> bool { return self.get().is_pod(); }
-    pub fn is_ref(self: &HAnyMut)    -> bool { return self.get().is_ref(); }
-    pub fn is_string(self: &HAnyMut) -> bool { return self.type_code() == H2_STRING; }
-    pub fn is_array(self: &HAnyMut)  -> bool { return self.type_code() == H2_ARRAY; }
-    pub fn is_map(self: &HAnyMut)    -> bool { return self.type_code() == H2_MAP; }
-    pub fn as_i56(self: &HAnyMut)    -> i64  { return self.get().as_i56(); }
+    pub fn type_code(self: &WAnyMut) -> u64  { return self.get().type_code(); }
+    pub fn is_pod(self: &WAnyMut)    -> bool { return self.get().is_pod(); }
+    pub fn is_ref(self: &WAnyMut)    -> bool { return self.get().is_ref(); }
+    pub fn is_string(self: &WAnyMut) -> bool { return self.type_code() == H2_STRING; }
+    pub fn is_array(self: &WAnyMut)  -> bool { return self.type_code() == H2_ARRAY; }
+    pub fn is_map(self: &WAnyMut)    -> bool { return self.type_code() == H2_MAP; }
+    pub fn as_i56(self: &WAnyMut)    -> i64  { return self.get().as_i56(); }
     // The read value at this cursor (the materialised element).
-    pub fn as_any(self: &HAnyMut) -> HAny { return self.get(); }
+    pub fn as_any(self: &WAnyMut) -> WAny { return self.get(); }
 }
 
 // ── at-rest ↔ value: COMPILER-OWNED, no bridge functions ───────────────────────
-// An at-rest HAny slot is reached through a `*zoned HAny` (e.g. HArray/HMap buffers
-// are `*zoned mut HAny`). Reading `*p` materialises the Ref arm (stored
+// An at-rest WAny slot is reached through a `*zoned WAny` (e.g. WArray/WMap buffers
+// are `*zoned mut WAny`). Reading `*p` materialises the Ref arm (stored
 // self-relative delta → absolute pointer) and `*p = v` lowers it (target − slot →
-// delta); Pod/null are position-independent (identity). The old `HAnyRel` at-rest
+// delta); Pod/null are position-independent (identity). The old `WAnyRel` at-rest
 // marker type and the `ha_materialize`/`ha_lower` wrappers are gone — the compiler
 // owns the conversion via the `*zoned` deref/assign (ref-repr-design §6/§8).

@@ -11,7 +11,7 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(32768);
     let h: &Writ = rc.deref();
-    let m: &mut HMap<HString, HAny> = h.map(8);
+    let m: &mut WMap<WString, WAny> = h.map(8);
 
     // put + get
     m.set("alpha", 1i64);
@@ -28,8 +28,8 @@ unsafe fn main() -> i32 {
     if m.len() != 2i64 { return 5; }
 
     // string values intern in the same zone
-    m.set("s", HAny::from(&*(h.hstring("zone-str") as *const HString)));
-    let sv: HAny = m.get("s");
+    m.set("s", WAny::from(&*(h.hstring("zone-str") as *const WString)));
+    let sv: WAny = m.get("s");
     if !sv.is_string() { return 6; }
 
     // many entries force probing/larger occupancy

@@ -8,8 +8,8 @@ use logos.lang.rc;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(16384);
     let h: &Writ = rc.deref();
-    let arr: &mut HArray<i32> = h.tarray::<i32>(4);
-    let hdr0: i64 = (&*arr as *const HArray<i32>) as i64;
+    let arr: &mut WArray<i32> = h.tarray::<i32>(4);
+    let hdr0: i64 = (&*arr as *const WArray<i32>) as i64;
 
     let mut i: i64 = 0;
     while i < 20 {
@@ -17,7 +17,7 @@ unsafe fn main() -> i32 {
         i = i + 1;
     }
     // Header never moved (the at-rest world's stability guarantee).
-    if ((&*arr as *const HArray<i32>) as i64) != hdr0 { return 1; }
+    if ((&*arr as *const WArray<i32>) as i64) != hdr0 { return 1; }
     if arr.len() != 20i64 { return 2; }
     // Values survived 4 -> 8 -> 16 -> 32 growth copies.
     let mut sum: i64 = 0;

@@ -285,7 +285,7 @@ def _writ_decode(proc, addr, depth=0, live=True):
         return (c in (98, 100, 101, 102, 130, 26, 27, 30, 31, 127, 4115)
                 or 2101 <= c <= 2110 or 3101 <= c <= 3104)
 
-    # live: word is a LIVE HAny (Ref = absolute). Nested arena words are at-rest
+    # live: word is a LIVE WAny (Ref = absolute). Nested arena words are at-rest
     # (self-relative). See project_f3_zoned_niche_enum (storage/compute split).
     def anyval(a, d, lv=False):
         w = u(a, 8)

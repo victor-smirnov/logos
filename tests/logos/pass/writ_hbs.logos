@@ -17,7 +17,7 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // 1. Parse a mixed document.
-    let src: HAny = parse(h, "[1, \"hello\", true, null, 42]");
+    let src: WAny = parse(h, "[1, \"hello\", true, null, 42]");
     let s1: String = stringify(src);
 
     // 2. Serialize to bytes.
@@ -28,7 +28,7 @@ unsafe fn main() -> i32 {
     let rc2: Rc<Writ> = writ_rc(32768);
     let h2: &Writ = rc2.deref();
     let ws: &[u8] = wire.as_slice();
-    let dst: HAny = hbs_read(h2, ws.as_ptr(), wire.len() as i64);
+    let dst: WAny = hbs_read(h2, ws.as_ptr(), wire.len() as i64);
     if dst.is_null() { return 2; }
 
     // 4. Structural equality + identical render.

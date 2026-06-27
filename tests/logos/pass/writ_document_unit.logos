@@ -1,4 +1,4 @@
-// Document root + tree walker (P4). A Writ container holds a ROOT HAny
+// Document root + tree walker (P4). A Writ container holds a ROOT WAny
 // (set_root/root); node_count/depth recurse the heterogeneous tree from it,
 // type_code-dispatching like equal/stringify. Builds {"a":[1,2,3],"b":42},
 // sets it as the root, and walks: 6 nodes, depth 3. (Null root = empty doc.)
@@ -11,13 +11,13 @@ use logos.lang.writ.hstring;
 use logos.lang.writ.document;
 fn main() -> i32 {
     let h: Writ = writ_new(512i64);
-    let arr: &mut HArray<HAny> = h.array(4i64);
+    let arr: &mut WArray<WAny> = h.array(4i64);
     arr.push(1i64); arr.push(2i64); arr.push(3i64);
-    let m: &mut HMap<HString, HAny> = h.map(4i64);
-    m.set("a", HAny::from(&*arr));      // nested array
+    let m: &mut WMap<WString, WAny> = h.map(4i64);
+    m.set("a", WAny::from(&*arr));      // nested array
     m.set("b", 42i64);
-    h.set_root(HAny::from(&*m));        // document root
-    let r: HAny = h.root();
+    h.set_root(WAny::from(&*m));        // document root
+    let r: WAny = h.root();
     if !r.is_map() { return 1i32; }
     // node_count: map(1) + array(1) + three ints + int 42 = 6
     if node_count(r) != 6i64 { return 10i32 + (node_count(r) as i32); }

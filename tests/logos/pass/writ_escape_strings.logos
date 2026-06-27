@@ -9,8 +9,8 @@ use logos.lang.rc;
 use logos.lang.str;
 
 unsafe fn get_str(h: &Writ, text: str) -> str {
-    let v: HAny = parse(h, text);
-    let hs: &HString = &*(v.resolve() as *const HString);
+    let v: WAny = parse(h, text);
+    let hs: &WString = &*(v.resolve() as *const WString);
     return hs.as_str();
 }
 

@@ -17,7 +17,7 @@ fn template_of_probe_hook(_target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let raw: HAny = view.find_template_decl("Foo");
+    let raw: WAny = view.find_template_decl("Foo");
     if raw.is_null() { return; }
 
     let tpl: Template = Template { raw: raw };

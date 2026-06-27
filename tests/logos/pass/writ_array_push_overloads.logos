@@ -1,6 +1,6 @@
-// HArray<HAny> overloaded push() — `a.push(x)` for the common element types instead
-// of `a.push(HAny::from(x))`: i64/bool inline Pods, &HString / &HArray<HAny> Refs,
-// and `str` (interned into the array's own arena as an HString, then a Ref).
+// WArray<WAny> overloaded push() — `a.push(x)` for the common element types instead
+// of `a.push(WAny::from(x))`: i64/bool inline Pods, &WString / &WArray<WAny> Refs,
+// and `str` (interned into the array's own arena as an WString, then a Ref).
 package test;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
@@ -9,15 +9,15 @@ use logos.lang.writ.hstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Writ = writ_new(64i64);
-    let a: &mut HArray<HAny> = h.array(2i64);
+    let a: &mut WArray<WAny> = h.array(2i64);
     a.push(42i64);                       // i64 → inline Pod
     a.push(true);                        // bool → inline Pod
-    a.push("hello");                     // str → interned HString Ref (no manual HString)
-    let hs: &HString = h.hstring("world");
-    a.push(hs);                          // &HString → Ref
-    let nested: &mut HArray<HAny> = h.array(1i64);
+    a.push("hello");                     // str → interned WString Ref (no manual WString)
+    let hs: &WString = h.hstring("world");
+    a.push(hs);                          // &WString → Ref
+    let nested: &mut WArray<WAny> = h.array(1i64);
     nested.push(7i64);
-    a.push(&*nested);                    // &HArray<HAny> → Ref (nested)
+    a.push(&*nested);                    // &WArray<WAny> → Ref (nested)
 
     if a.len() != 5i64 { return 1; }
     if a.get(0i64).as_i56()  != 42i64 { return 2; }

@@ -1,7 +1,7 @@
 // Logos Writ stdlib — mem.writ2.parser
 //
 // Text → document: a recursive-descent JSON-ish reader that builds a Writ doc
-// (HMap<HString, HAny> / Array / HString / i56 / bool / null) in a caller-supplied arena — the
+// (WMap<WString, WAny> / Array / WString / i56 / bool / null) in a caller-supplied arena — the
 // inverse of stringify, and the Writ port of writ.parser (much smaller: the
 // grammar here is plain JSON-with-integers).
 //
@@ -18,11 +18,11 @@ package logos.mem.writ.parser;
 
 use logos.lang.writ.allocator;   // Allocator
 use logos.lang.writ.container;   // Writ, alloc_tagged, writ_alloc_bytes
-use logos.lang.writ.anyval;      // HAny, HA_I56
-use logos.lang.writ.array;       // HArray<HAny>
-use logos.lang.writ.hmap;        // HMap<HString, HAny>
-use logos.lang.writ.hstring;     // HString
-use logos.lang.writ.typed_value; // HTypedValue (@Type annotations)
+use logos.lang.writ.anyval;      // WAny, HA_I56
+use logos.lang.writ.array;       // WArray<WAny>
+use logos.lang.writ.hmap;        // WMap<WString, WAny>
+use logos.lang.writ.hstring;     // WString
+use logos.lang.writ.typed_value; // WTypedValue (@Type annotations)
 use logos.lang.writ.decimal;     // @Decimal validation
 use logos.lang.str;                 // str
 use logos.lang.ptr;                 // byte_add
@@ -76,7 +76,7 @@ unsafe fn parse_ident_raw(p: *mut P) -> String {
 
 // Parse a number token. Integers (possibly wide) → `h.int`; anything with a
 // fractional '.' or exponent 'e'/'E' → f64 via `h.float`.
-unsafe fn parse_number(h: &Writ, p: *mut P) -> HAny {
+unsafe fn parse_number(h: &Writ, p: *mut P) -> WAny {
     let start: i64 = (*p).pos;
     let neg: bool = peek(p) == 45u8;
     if neg { advance(p); }                                  // -
@@ -111,7 +111,7 @@ unsafe fn kw(p: *mut P, s: str) -> bool {
 }
 
 // `<T>[e,...]` typed dense array / `<K[,AnyVal]>{k: v,...}` typed dense map.
-unsafe fn parse_typed(h: &Writ, p: *mut P) -> HAny {
+unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
     advance(p);                                   // '<'
     skip_ws(p);
     // <Varchar[,AnyVal]>{...} is the plain ObjectMap spelled with a key type.
@@ -128,7 +128,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> HAny {
         else if kw(p, "I8") { 2105u64 } else if kw(p, "U8") { 2101u64 }
         else if kw(p, "F32") { 2109u64 } else if kw(p, "F64") { 2110u64 }
         else { 0u64 };
-    if tc == 0u64 { return HAny::ref_to(0i64 as *const u8); }
+    if tc == 0u64 { return WAny::ref_to(0i64 as *const u8); }
     skip_ws(p);
     if peek(p) == 44u8 {                          // ',' AnyVal (map value type)
         advance(p); skip_ws(p);
@@ -155,21 +155,21 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> HAny {
                 skip_ws(p);
                 let neg: bool = peek(p) == 45u8;
                 if neg { advance(p); }
-                if !is_digit(peek(p)) { return HAny::ref_to(0i64 as *const u8); }   // key must be an int
+                if !is_digit(peek(p)) { return WAny::ref_to(0i64 as *const u8); }   // key must be an int
                 let mut kv: i64 = 0i64;
                 while is_digit(peek(p)) { kv = kv * 10i64 + ((advance(p) - 48u8) as i64); }
                 if neg { kv = 0i64 - kv; }
                 skip_ws(p);
-                if peek(p) != 58u8 { return HAny::ref_to(0i64 as *const u8); }      // ':' required (rejects 1.5 keys)
+                if peek(p) != 58u8 { return WAny::ref_to(0i64 as *const u8); }      // ':' required (rejects 1.5 keys)
                 advance(p);
-                let v: HAny = parse_value(h, p);
+                let v: WAny = parse_value(h, p);
                 if n < 64i64 { keys[n] = kv; vals[n] = v.raw(); n = n + 1i64; }
                 skip_ws(p);
                 if peek(p) == 44u8 { advance(p); } else { done = true; }
             }
         }
         skip_ws(p); if peek(p) == 125u8 { advance(p); } // '}'
-        if mtc == 0u64 { return HAny::ref_to(0i64 as *const u8); }
+        if mtc == 0u64 { return WAny::ref_to(0i64 as *const u8); }
         let kwid: i64 = if mtc == 3101u64 || mtc == 3102u64 { 4i64 } else { 8i64 };
         let mut kbuf: i64 = 0i64;
         let mut vbuf: i64 = 0i64;
@@ -194,7 +194,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> HAny {
         let vf: i64 = (hdr as i64) + 24i64;
         if kbuf == 0i64 { *(kf as *mut i64) = 0i64; *(vf as *mut i64) = 0i64; }
         else { *(kf as *mut i64) = kbuf - kf; *(vf as *mut i64) = vbuf - vf; }
-        return HAny::ref_to(hdr as *const u8);
+        return WAny::ref_to(hdr as *const u8);
     }
 
     // typed ARRAY: '[' signed numerals (float for F32/F64) ']'
@@ -209,13 +209,13 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> HAny {
             skip_ws(p);
             let neg: bool = peek(p) == 45u8;
             if neg { advance(p); }
-            if !is_digit(peek(p)) { return HAny::ref_to(0i64 as *const u8); }   // numerals only
+            if !is_digit(peek(p)) { return WAny::ref_to(0i64 as *const u8); }   // numerals only
             let mut iv: i64 = 0i64;
             while is_digit(peek(p)) { iv = iv * 10i64 + ((advance(p) - 48u8) as i64); }
             let mut fv: f64 = iv as f64;
             if peek(p) == 46u8 {
                 if tc != 2109u64 && tc != 2110u64 {
-                    return HAny::ref_to(0i64 as *const u8);                     // no floats in int arrays
+                    return WAny::ref_to(0i64 as *const u8);                     // no floats in int arrays
                 }
                 advance(p);
                 let mut scale: f64 = 0.1;
@@ -252,17 +252,17 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> HAny {
     let df: i64 = (hdr2 as i64) + 16i64;
     if buf == 0i64 { *(df as *mut i64) = 0i64; }
     else { *(df as *mut i64) = buf - df; }
-    return HAny::ref_to(hdr2 as *const u8);
+    return WAny::ref_to(hdr2 as *const u8);
 }
 
-// `@Name(params)? = value` typed-value prefix. Returns null HAny on malformed
+// `@Name(params)? = value` typed-value prefix. Returns null WAny on malformed
 // forms (trailing comma, >32 params, @Decimal rule violations).
-unsafe fn parse_tv_prefix(h: &Writ, p: *mut P) -> HAny {
+unsafe fn parse_tv_prefix(h: &Writ, p: *mut P) -> WAny {
     advance(p);                                   // '@'
     let name: String = parse_ident_raw(p);
-    if name.len() == 0i64 { return HAny::ref_to(0i64 as *const u8); }
+    if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
     skip_ws(p);
-    let mut params: HAny = HAny::ref_to(0i64 as *const u8);
+    let mut params: WAny = WAny::ref_to(0i64 as *const u8);
     let mut n_params: i64 = 0i64;
     let mut params_arr: [i64; 32] = [0; 32];
     let mut had_parens: bool = false;
@@ -273,78 +273,78 @@ unsafe fn parse_tv_prefix(h: &Writ, p: *mut P) -> HAny {
         if peek(p) != 41u8 {
             let mut done: bool = false;
             while !done {
-                let v: HAny = parse_value(h, p);
-                if n_params >= 32i64 { return HAny::ref_to(0i64 as *const u8); }   // overflow
+                let v: WAny = parse_value(h, p);
+                if n_params >= 32i64 { return WAny::ref_to(0i64 as *const u8); }   // overflow
                 params_arr[n_params] = v.raw();
                 n_params = n_params + 1i64;
                 skip_ws(p);
                 if peek(p) == 44u8 {
                     advance(p);
                     skip_ws(p);
-                    if peek(p) == 41u8 { return HAny::ref_to(0i64 as *const u8); } // trailing comma
+                    if peek(p) == 41u8 { return WAny::ref_to(0i64 as *const u8); } // trailing comma
                 } else { done = true; }
             }
         }
-        if peek(p) != 41u8 { return HAny::ref_to(0i64 as *const u8); }
+        if peek(p) != 41u8 { return WAny::ref_to(0i64 as *const u8); }
         advance(p);                               // ')'
         skip_ws(p);
     }
-    if peek(p) != 61u8 { return HAny::ref_to(0i64 as *const u8); }   // '='
+    if peek(p) != 61u8 { return WAny::ref_to(0i64 as *const u8); }   // '='
     advance(p);
-    let init: HAny = parse_value(h, p);
+    let init: WAny = parse_value(h, p);
     return tv_build(h, name.as_str(), params_arr, n_params, had_parens, init);
 }
 
-// Build + validate the HTypedValue (shared by prefix and postfix forms).
+// Build + validate the WTypedValue (shared by prefix and postfix forms).
 unsafe fn tv_build(h: &Writ, name: str, params_arr: [i64; 32], n_params: i64,
-                   had_parens: bool, init: HAny) -> HAny {
+                   had_parens: bool, init: WAny) -> WAny {
     // @Decimal(P,S): exactly two canonical ints, S <= P, string init that
     // parses as a decimal with digits <= P and scale <= S.
     if str_eq(name, "Decimal") {
-        if n_params != 2i64 { return HAny::ref_to(0i64 as *const u8); }
-        let pv: HAny = HAny::Pod(params_arr[0] as u64);
-        let sv: HAny = HAny::Pod(params_arr[1] as u64);
+        if n_params != 2i64 { return WAny::ref_to(0i64 as *const u8); }
+        let pv: WAny = WAny::Pod(params_arr[0] as u64);
+        let sv: WAny = WAny::Pod(params_arr[1] as u64);
         if (params_arr[0] & 1i64) != 1i64 || (params_arr[1] & 1i64) != 1i64 {
-            return HAny::ref_to(0i64 as *const u8);    // non-inline-int params
+            return WAny::ref_to(0i64 as *const u8);    // non-inline-int params
         }
-        if !pv.is_int() || !sv.is_int() { return HAny::ref_to(0i64 as *const u8); }
+        if !pv.is_int() || !sv.is_int() { return WAny::ref_to(0i64 as *const u8); }
         let prec: i64 = pv.as_i64();
         let scl:  i64 = sv.as_i64();
-        if prec <= 0i64 || scl < 0i64 || scl > prec { return HAny::ref_to(0i64 as *const u8); }
-        if !init.is_string() { return HAny::ref_to(0i64 as *const u8); }
-        let istr: &HString = &*(init.resolve() as *const HString);
-        let d: HAny = hdec_from_str(h, istr.as_str());
-        if d.is_null() { return HAny::ref_to(0i64 as *const u8); }
-        if (d.as_decimal().scale() as i64) > scl { return HAny::ref_to(0i64 as *const u8); }
+        if prec <= 0i64 || scl < 0i64 || scl > prec { return WAny::ref_to(0i64 as *const u8); }
+        if !init.is_string() { return WAny::ref_to(0i64 as *const u8); }
+        let istr: &WString = &*(init.resolve() as *const WString);
+        let d: WAny = hdec_from_str(h, istr.as_str());
+        if d.is_null() { return WAny::ref_to(0i64 as *const u8); }
+        if (d.as_decimal().scale() as i64) > scl { return WAny::ref_to(0i64 as *const u8); }
     }
-    let mut params: HAny = HAny::ref_to(0i64 as *const u8);
+    let mut params: WAny = WAny::ref_to(0i64 as *const u8);
     if n_params > 0i64 {
-        let pa: &mut HArray<HAny> = h.array(if n_params < 8i64 { 8i64 } else { n_params });
+        let pa: &mut WArray<WAny> = h.array(if n_params < 8i64 { 8i64 } else { n_params });
         let mut i: i64 = 0i64;
         while i < n_params {
             let w: i64 = params_arr[i];
-            let hv: HAny = if w == 0i64 { HAny::ref_to(0i64 as *const u8) }
-                           else if (w & 1i64) == 1i64 { HAny::Pod(w as u64) }
-                           else { HAny::Ref(w as *const u8) };
+            let hv: WAny = if w == 0i64 { WAny::ref_to(0i64 as *const u8) }
+                           else if (w & 1i64) == 1i64 { WAny::Pod(w as u64) }
+                           else { WAny::Ref(w as *const u8) };
             pa.push(hv);
             i = i + 1i64;
         }
-        let pap: *const HArray<HAny> = pa as *const HArray<HAny>;
-        params = HAny::ref_to(pap as *const u8);
+        let pap: *const WArray<WAny> = pa as *const WArray<WAny>;
+        params = WAny::ref_to(pap as *const u8);
     }
     return h.typed_value(name, params, init);
 }
 
-unsafe fn parse_value(h: &Writ, p: *mut P) -> HAny {
+unsafe fn parse_value(h: &Writ, p: *mut P) -> WAny {
     skip_ws(p);
     let c: u8 = peek(p);
     if c == 60u8 { return parse_typed(h, p); }   // <  typed dense container
     if c == 64u8 { return parse_tv_prefix(h, p); }  // @  typed-value prefix
     if c == 123u8 {                              // {  object
         advance(p);
-        let m: &mut HMap<HString, HAny> = h.map(8i64);
+        let m: &mut WMap<WString, WAny> = h.map(8i64);
         skip_ws(p);
-        if peek(p) == 125u8 { advance(p); return HAny::from(&*m); }   // {}
+        if peek(p) == 125u8 { advance(p); return WAny::from(&*m); }   // {}
         let mut done: bool = false;
         while !done {
             skip_ws(p);
@@ -353,37 +353,37 @@ unsafe fn parse_value(h: &Writ, p: *mut P) -> HAny {
                               else { parse_ident_raw(p) };
             skip_ws(p);
             if peek(p) == 58u8 { advance(p); }   // :
-            let val: HAny = parse_value(h, p);
+            let val: WAny = parse_value(h, p);
             m.set(key.as_str(), val);
             skip_ws(p);
             if peek(p) == 44u8 { advance(p); } else { done = true; }
         }
         skip_ws(p); if peek(p) == 125u8 { advance(p); }              // }
-        return HAny::from(&*m);
+        return WAny::from(&*m);
     }
     if c == 91u8 {                               // [  array
         advance(p);
-        let a: &mut HArray<HAny> = h.array(8i64);
+        let a: &mut WArray<WAny> = h.array(8i64);
         skip_ws(p);
-        if peek(p) == 93u8 { advance(p); return HAny::from(&*a); }   // []
+        if peek(p) == 93u8 { advance(p); return WAny::from(&*a); }   // []
         let mut done: bool = false;
         while !done {
-            let val: HAny = parse_value(h, p);
+            let val: WAny = parse_value(h, p);
             a.push(val);
             skip_ws(p);
             if peek(p) == 44u8 { advance(p); } else { done = true; }
         }
         skip_ws(p); if peek(p) == 93u8 { advance(p); }              // ]
-        return HAny::from(&*a);
+        return WAny::from(&*a);
     }
     if c == 34u8 {                               // "  string
         let s: String = parse_str_raw(p);
-        let sval: HAny = HAny::from(h.hstring(s.as_str()));
+        let sval: WAny = WAny::from(h.hstring(s.as_str()));
         skip_ws(p);
         if peek(p) == 64u8 {                     // "init"@Type(params) postfix
             advance(p);
             let name: String = parse_ident_raw(p);
-            if name.len() == 0i64 { return HAny::ref_to(0i64 as *const u8); }
+            if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
             skip_ws(p);
             let mut n_params: i64 = 0i64;
             let mut params_arr: [i64; 32] = [0; 32];
@@ -395,33 +395,33 @@ unsafe fn parse_value(h: &Writ, p: *mut P) -> HAny {
                 if peek(p) != 41u8 {
                     let mut done2: bool = false;
                     while !done2 {
-                        let v2: HAny = parse_value(h, p);
-                        if n_params >= 32i64 { return HAny::ref_to(0i64 as *const u8); }
+                        let v2: WAny = parse_value(h, p);
+                        if n_params >= 32i64 { return WAny::ref_to(0i64 as *const u8); }
                         params_arr[n_params] = v2.raw();
                         n_params = n_params + 1i64;
                         skip_ws(p);
                         if peek(p) == 44u8 {
                             advance(p);
                             skip_ws(p);
-                            if peek(p) == 41u8 { return HAny::ref_to(0i64 as *const u8); }
+                            if peek(p) == 41u8 { return WAny::ref_to(0i64 as *const u8); }
                         } else { done2 = true; }
                     }
                 }
-                if peek(p) != 41u8 { return HAny::ref_to(0i64 as *const u8); }
+                if peek(p) != 41u8 { return WAny::ref_to(0i64 as *const u8); }
                 advance(p);
             }
             return tv_build(h, name.as_str(), params_arr, n_params, had_parens, sval);
         }
         return sval;
     }
-    if c == 116u8 { (*p).pos = (*p).pos + 4i64; return HAny::from(true); }   // true
-    if c == 102u8 { (*p).pos = (*p).pos + 5i64; return HAny::from(false); }  // false
-    if c == 110u8 { (*p).pos = (*p).pos + 4i64; return HAny::ref_to(0i64 as *const u8); } // null
+    if c == 116u8 { (*p).pos = (*p).pos + 4i64; return WAny::from(true); }   // true
+    if c == 102u8 { (*p).pos = (*p).pos + 5i64; return WAny::from(false); }  // false
+    if c == 110u8 { (*p).pos = (*p).pos + 4i64; return WAny::ref_to(0i64 as *const u8); } // null
     return parse_number(h, p);                   // number (int or float)
 }
 
 // Parse JSON-ish `text` into a fresh document rooted in `h`.
-pub fn parse(h: &Writ, text: str) -> HAny {
+pub fn parse(h: &Writ, text: str) -> WAny {
     unsafe {
         let mut p: P = P { data: text.as_ptr(), len: text.len(), pos: 0i64 };
         return parse_value(h, &mut p as *mut P);
@@ -431,11 +431,11 @@ pub fn parse(h: &Writ, text: str) -> HAny {
 // Parse `text` into a fresh, OWNED Writ container and stamp it as the root.
 // The one-call form of `writ_new + parse + set_root`: the returned Writ owns
 // the document (RAII-freed on drop) and you navigate straight from `h.root()` —
-// no need to thread a separate HAny or hand-roll the container. On a parse error
+// no need to thread a separate WAny or hand-roll the container. On a parse error
 // the root is null, so `h.root().is_null()` is the failure check.
 pub fn parse_writ(text: str) -> Writ {
     let h: Writ = writ_new(4096i64);
-    let root: HAny = parse(&h, text);
+    let root: WAny = parse(&h, text);
     h.set_root(root);
     return h;
 }

@@ -6,13 +6,13 @@ use logos.lang.writ.hstatic;
 use logos.lang.writ.anyval;
 use logos.mem.writ.equal;
 
-// Inlined root read (BC flags a borrow-typed HAny against the local view).
-unsafe fn root_of(hs: &WritStatic) -> HAny {
+// Inlined root read (BC flags a borrow-typed WAny against the local view).
+unsafe fn root_of(hs: &WritStatic) -> WAny {
     let base: *const u8 = hs.ptr;
     let w: i64 = *(base as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((base as i64 + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((base as i64 + w) as *const u8);
 }
 
 pub unsafe fn main() -> i32 {

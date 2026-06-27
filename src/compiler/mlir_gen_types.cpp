@@ -167,7 +167,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Error:       return nullptr;
     case LogosType::Kind::ImplTrait:   return nullptr;
     case LogosType::Kind::Generic:     return nullptr;
-    case LogosType::Kind::HStaticLit:  return nullptr;
+    case LogosType::Kind::WStaticLit:  return nullptr;
     case LogosType::Kind::CfgSlotType: return nullptr;
     }
     return nullptr;
@@ -826,7 +826,7 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
                 // Pointer arm: `&T`/`&mut T` to an align≥2 pointee guarantees low
                 // bit 0. A `#[zoned2]` enum additionally TRUSTS a raw `*T` (its Ref
                 // invariant — Writ zone objects are ≥2-aligned by the allocator),
-                // so HAny's type-erased `*u8` Ref qualifies despite u8's align 1.
+                // so WAny's type-erased `*u8` Ref qualifies despite u8's align 1.
                 bool is_ptr = ((k == K::Ref || k == K::MutRef) &&
                                TypeRef(ft).pointee() &&
                                layout_of(TypeRef(ft).pointee()).align >= 2)
@@ -834,7 +834,7 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
                 uint32_t b = 0; bool s = false;
                 bool int_ok = int_arm_bits(ft, b, s);
                 // Value arm: a ≤56-bit int packs SHIFTED `(v<<1)|1`. A `#[zoned2]`
-                // enum also accepts a RAW 64-bit `u64`/`i64` word (HAny's Pod =
+                // enum also accepts a RAW 64-bit `u64`/`i64` word (WAny's Pod =
                 // `(value<<8)|(code<<1)|1`, low-bit-1 baked in by the producer).
                 bool is_val = int_ok && (b <= 56 || (b == 64 && info.zoned));
                 if (is_ptr && !ptr_arm)      ptr_arm = &vp;

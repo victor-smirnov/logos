@@ -1,7 +1,7 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // Writ foundation smoke test — the conformance gate for the bottom layer:
-// self-relative RelativePtr, the AnyVal niche (byte-identical to Logos HAny), and
+// self-relative RelativePtr, the AnyVal niche (byte-identical to Logos WAny), and
 // the multi-chunk never-move Arena. Returns 0 on success, non-zero on the first
 // failed check (the code identifies which).
 
@@ -39,7 +39,7 @@ int main() {
         CHECK(fresh.next.is_null(), 4);
     }
 
-    // ── AnyVal niche: byte-identical encoding to Logos HAny ─────────────────────
+    // ── AnyVal niche: byte-identical encoding to Logos WAny ─────────────────────
     {
         static_assert(sizeof(AnyVal) == 8);
         CHECK(AnyVal::null().is_null(), 10);

@@ -16,9 +16,9 @@ unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(32768);
     let h: &Writ = rc.deref();
 
-    let r1: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
-    let r2: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
-    let r3: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 4]}");
+    let r1: WAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
+    let r2: WAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
+    let r3: WAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 4]}");
 
     // equal: r1 == r2, r1 != r3.
     if !writ_equal(r1, r2) { return 1; }

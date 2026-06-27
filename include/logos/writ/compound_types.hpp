@@ -12,7 +12,7 @@
 
 namespace logos::writ {
 
-// Decimal — fixed-precision signed decimal (Logos HDecimal, code 102). No internal
+// Decimal — fixed-precision signed decimal (Logos WDecimal, code 102). No internal
 // Refs (plain POD). value = (neg ? -1 : 1) * coeff / 10^scale. spec packs scale in
 // bits[0:11] and the sign in bit[31].
 struct Decimal {
@@ -39,7 +39,7 @@ struct Decimal {
 static_assert(sizeof(Decimal) == 16);
 
 // TypedValue — SDN datatype instantiation `@Type(params?) = init` (Logos
-// HTypedValue, code 4115). Three AT-REST AnyVal words (type_name Ref→string, params,
+// WTypedValue, code 4115). Three AT-REST AnyVal words (type_name Ref→string, params,
 // init).
 struct TypedValue {
     AnyVal type_name;
@@ -59,7 +59,7 @@ struct TypedValue {
 };
 static_assert(sizeof(TypedValue) == 24);
 
-// Parameter — query-parameter slot `?name` (Logos HParameter, code 127). Two AT-REST
+// Parameter — query-parameter slot `?name` (Logos WParameter, code 127). Two AT-REST
 // AnyVal words (name Ref→string, value or null).
 struct Parameter {
     AnyVal name;

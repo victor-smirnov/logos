@@ -30,7 +30,7 @@ fn derive_hash_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     let nm_sv: SView = view.ast_node_name(item);
     if nm_sv.len == (0 as u64) { return; }
     let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
@@ -39,7 +39,7 @@ fn derive_hash_hook(target_offset: u32) -> () {
     let mut fnames: Vec<Ident> = vec_new::<Ident>();
     let mut i: u64 = 0 as u64;
     while i < nf {
-        let fld: HAny = view.ast_struct_field(item, i);
+        let fld: WAny = view.ast_struct_field(item, i);
         let fsv: SView = view.ast_field_name(fld);
         unsafe {
             (&mut fnames as *mut Vec<Ident>).push(

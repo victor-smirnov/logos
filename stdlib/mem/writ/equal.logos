@@ -1,6 +1,6 @@
 // logos.mem.writ.equal — structural equality over writ2 documents.
 //
-// Two HAny values are equal by VALUE SEMANTICS, walking the tree:
+// Two WAny values are equal by VALUE SEMANTICS, walking the tree:
 //   - both null;
 //   - both ints (inline i24/i56 Pod OR boxed I64/U64) with equal as_i64();
 //   - both bools / both floats with equal payloads;
@@ -11,16 +11,16 @@
 //   - both typed arrays of the same element code with identical raw bytes;
 //   - both TypedValues with equal {type_name, params, init}.
 //
-// Self-relative HAny needs no bases — works across documents (rodata blob vs
+// Self-relative WAny needs no bases — works across documents (rodata blob vs
 // runtime container alike). Follows the same direct-walker foundation as
 // mem.writ2.stringify (the Writ1 tag_dispatch table is retired).
 
 package logos.mem.writ.equal;
 
-use logos.lang.writ.anyval;     // HAny, h2_type_code
-use logos.lang.writ.array;      // HArray<HAny>
-use logos.lang.writ.hmap;       // HMap<HString, HAny>
-use logos.lang.writ.hstring;    // HString
+use logos.lang.writ.anyval;     // WAny, h2_type_code
+use logos.lang.writ.array;      // WArray<WAny>
+use logos.lang.writ.hmap;       // WMap<WString, WAny>
+use logos.lang.writ.hstring;    // WString
 use logos.lang.str;
 
 // Typed-array element width by wire code (2101..2110).
@@ -31,7 +31,7 @@ unsafe fn elem_width(tc: u64) -> i64 {
     return 8i64;
 }
 
-pub fn writ_equal(a: HAny, b: HAny) -> bool {
+pub fn writ_equal(a: WAny, b: WAny) -> bool {
     if a.is_null() { return b.is_null(); }
     if b.is_null() { return false; }
 
@@ -48,16 +48,16 @@ pub fn writ_equal(a: HAny, b: HAny) -> bool {
     if a.is_string() || b.is_string() {
         if !(a.is_string() && b.is_string()) { return false; }
         unsafe {
-            let sa: &HString = &*(a.resolve() as *const HString);
-            let sb: &HString = &*(b.resolve() as *const HString);
+            let sa: &WString = &*(a.resolve() as *const WString);
+            let sb: &WString = &*(b.resolve() as *const WString);
             return str_eq(sa.as_str(), sb.as_str());
         }
     }
     if a.is_array() || b.is_array() {
         if !(a.is_array() && b.is_array()) { return false; }
         unsafe {
-            let aa: &HArray<HAny> = &*(a.resolve() as *const HArray<HAny>);
-            let ab: &HArray<HAny> = &*(b.resolve() as *const HArray<HAny>);
+            let aa: &WArray<WAny> = &*(a.resolve() as *const WArray<WAny>);
+            let ab: &WArray<WAny> = &*(b.resolve() as *const WArray<WAny>);
             let n: i64 = aa.len();
             if n != ab.len() { return false; }
             let mut i: i64 = 0;
@@ -71,16 +71,16 @@ pub fn writ_equal(a: HAny, b: HAny) -> bool {
     if a.is_map() || b.is_map() {
         if !(a.is_map() && b.is_map()) { return false; }
         unsafe {
-            let ma: &HMap<HString, HAny> = &*(a.resolve() as *const HMap<HString, HAny>);
-            let mb: &HMap<HString, HAny> = &*(b.resolve() as *const HMap<HString, HAny>);
+            let ma: &WMap<WString, WAny> = &*(a.resolve() as *const WMap<WString, WAny>);
+            let mb: &WMap<WString, WAny> = &*(b.resolve() as *const WMap<WString, WAny>);
             if ma.len() != mb.len() { return false; }
             // Walk a's live entries; each key must map to an equal value in b.
             let cap: i64 = ma.slots();
             let mut i: i64 = 0;
             while i < cap {
-                let k: HAny = ma.key_at(i);
+                let k: WAny = ma.key_at(i);
                 if !k.is_null() {
-                    let ks: &HString = &*(k.resolve() as *const HString);
+                    let ks: &WString = &*(k.resolve() as *const WString);
                     if !writ_equal(ma.val_at(i), mb.get(ks.as_str())) { return false; }
                 }
                 i = i + 1;
@@ -145,7 +145,7 @@ pub fn writ_equal(a: HAny, b: HAny) -> bool {
             }
             return true;
         }
-        // TypedValue (4115): three at-rest HAny words {type_name, params, init}.
+        // TypedValue (4115): three at-rest WAny words {type_name, params, init}.
         if ta == 4115u64 {
             let mut f: i64 = 0;
             while f < 3 {
@@ -161,10 +161,10 @@ pub fn writ_equal(a: HAny, b: HAny) -> bool {
     }
 }
 
-// Materialize the at-rest HAny word at `slot_addr` (self-relative there).
-unsafe fn ha_at(slot_addr: i64) -> HAny {
+// Materialize the at-rest WAny word at `slot_addr` (self-relative there).
+unsafe fn ha_at(slot_addr: i64) -> WAny {
     let w: i64 = *(slot_addr as *const i64);
-    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
-    return HAny::Ref((slot_addr + w) as *const u8);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((slot_addr + w) as *const u8);
 }

@@ -6,13 +6,13 @@
 // plus a slots table of u32 pairs [blob_off, value_idx]. At runtime the codegen:
 //   1. (zone-alloc path only) creates the container first via
 //      writ_template_ctr_new and allocates string/f64 captures into its zone
-//      (writ_ctr_alloc_*), collecting value-form HAny words;
-//   2. coerces scalar captures to value-form HAny words (Pod);
+//      (writ_ctr_alloc_*), collecting value-form WAny words;
+//   2. coerces scalar captures to value-form WAny words (Pod);
 //   3. calls writ_template_install — copy the template into the zone, patch
 //      each PARAM slot, set the root — which keeps the blob base LOCAL (no
 //      base threading anywhere else).
 //
-// resolved[] holds 8-byte VALUE-FORM HAny words: Pod = (v<<8)|(code<<1)|1
+// resolved[] holds 8-byte VALUE-FORM WAny words: Pod = (v<<8)|(code<<1)|1
 // (stored verbatim — position-independent), Ref = absolute object pointer
 // (lowered at patch time to the at-rest self-relative form: target - slot_addr).
 // This mirrors ha_lower / *zoned-assign semantics.
@@ -22,7 +22,7 @@
 
 package logos.lang.writ.tmpl;
 
-use logos.lang.writ.anyval;       // HAny
+use logos.lang.writ.anyval;       // WAny
 use logos.lang.writ.allocator;    // Allocator
 use logos.lang.writ.container;    // Writ, writ_rc, writ_alloc_bytes, box_f64
 use logos.lang.writ.hstring;      // hstring_in_alloc
@@ -38,20 +38,20 @@ pub unsafe fn writ_template_ctr_new(tmpl_size: i64, extra_cap: i64) -> Rc<Writ> 
     return writ_rc(cap);
 }
 
-// Allocate an f64 capture in the zone; value-form HAny word.
+// Allocate an f64 capture in the zone; value-form WAny word.
 pub unsafe fn writ_ctr_alloc_f64(c: &Rc<Writ>, val: f64) -> u64 {
     let h: &Writ = &**c;
     let hp: *mut Writ = h as *const Writ as *mut Writ;
     return box_f64(&mut hp.allocator as *mut Allocator, val).raw() as u64;
 }
 
-// Allocate a (ptr,len) string capture as an HString in the zone; value-form word.
+// Allocate a (ptr,len) string capture as an WString in the zone; value-form word.
 pub unsafe fn writ_ctr_alloc_str(c: &Rc<Writ>, ptr: *const u8, len: i64) -> u64 {
     let h: &Writ = &**c;
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let hs: *mut HString = hstring_in_alloc(&mut hp.allocator as *mut Allocator,
+    let hs: *mut WString = hstring_in_alloc(&mut hp.allocator as *mut Allocator,
                                             str_from_raw(ptr, len));
-    return HAny::ref_to(hs as *const u8).raw() as u64;
+    return WAny::ref_to(hs as *const u8).raw() as u64;
 }
 
 // Allocate a NUL-terminated C-string capture; value-form word.
@@ -62,7 +62,7 @@ pub unsafe fn writ_ctr_alloc_cstr(c: &Rc<Writ>, ptr: *const u8) -> u64 {
 }
 
 // Copy the template into the zone, patch PARAM slots, set the root.
-// slots: u32 pairs [blob_off, value_idx]; resolved: value-form HAny words.
+// slots: u32 pairs [blob_off, value_idx]; resolved: value-form WAny words.
 pub unsafe fn writ_template_install(c: &Rc<Writ>, tmpl: *const u8, tmpl_size: i64,
                                        slots: *const u32, n_slots: i64,
                                        resolved: *const u64, n_values: i64) {
@@ -93,7 +93,7 @@ pub unsafe fn writ_template_install(c: &Rc<Writ>, tmpl: *const u8, tmpl_size: i6
         }
         if w != 0u64 && (w & 1u64) == 0u64 {
             // Ref: absolute -> self-relative (signed delta — the target may sit
-            // BELOW the slot, e.g. a capture HString allocated before the copy).
+            // BELOW the slot, e.g. a capture WString allocated before the copy).
             w = ((w as i64) - slot_addr) as u64;
         }
         *(slot_addr as *mut u64) = w;
@@ -103,9 +103,9 @@ pub unsafe fn writ_template_install(c: &Rc<Writ>, tmpl: *const u8, tmpl_size: i6
     // Root: the document word at blob offset 0 (self-relative there).
     let w0: i64 = *(dst as *const i64);
     if w0 == 0i64 || (w0 & 1i64) == 1i64 {
-        h.set_root(HAny::Pod(w0 as u64));        // null / Pod root verbatim
+        h.set_root(WAny::Pod(w0 as u64));        // null / Pod root verbatim
     } else {
-        h.set_root(HAny::ref_to(((dst as i64) + w0) as *const u8));
+        h.set_root(WAny::ref_to(((dst as i64) + w0) as *const u8));
     }
 }
 

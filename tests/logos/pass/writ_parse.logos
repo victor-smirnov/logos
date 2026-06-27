@@ -24,28 +24,28 @@ unsafe fn main() -> i32 {
     if parse(h, "9000000000").as_i64() != 9000000000i64 { return 5; }
 
     // String.
-    let s: HAny = parse(h, "\"hello\"");
+    let s: WAny = parse(h, "\"hello\"");
     if !s.is_string() { return 6; }
-    let hs: &HString = &*(s.resolve() as *const HString);
+    let hs: &WString = &*(s.resolve() as *const WString);
     if !str_eq(hs.as_str(), "hello") { return 7; }
 
     // Array.
-    let a: HAny = parse(h, "[10, 20, 30]");
+    let a: WAny = parse(h, "[10, 20, 30]");
     if !a.is_array() { return 8; }
-    let arr: &HArray<HAny> = &*(a.resolve() as *const HArray<HAny>);
+    let arr: &WArray<WAny> = &*(a.resolve() as *const WArray<WAny>);
     if arr.len() != 3i64 { return 9; }
     if arr.get(1).as_i64() != 20i64 { return 10; }
 
     // Map with quoted AND bare keys + nesting.
-    let m: HAny = parse(h, "{\"a\": 1, b: [true, null], c: {x: 55}}");
+    let m: WAny = parse(h, "{\"a\": 1, b: [true, null], c: {x: 55}}");
     if !m.is_map() { return 11; }
-    let mm: &HMap<HString, HAny> = &*(m.resolve() as *const HMap<HString, HAny>);
+    let mm: &WMap<WString, WAny> = &*(m.resolve() as *const WMap<WString, WAny>);
     if mm.get("a").as_i64() != 1i64 { return 12; }
-    let bv: HAny = mm.get("b");
+    let bv: WAny = mm.get("b");
     if !bv.is_array() { return 13; }
-    let cv: HAny = mm.get("c");
+    let cv: WAny = mm.get("c");
     if !cv.is_map() { return 14; }
-    let cm: &HMap<HString, HAny> = &*(cv.resolve() as *const HMap<HString, HAny>);
+    let cm: &WMap<WString, WAny> = &*(cv.resolve() as *const WMap<WString, WAny>);
     if cm.get("x").as_i64() != 55i64 { return 15; }
 
     return 42;

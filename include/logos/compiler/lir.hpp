@@ -146,22 +146,22 @@ struct WritVal;
 // ADR 0007 slice 1c: WritVal is pool-owned by LProgram::writ_val_pool_.
 using WritValPtr = WritVal*;
 
-struct HVNull  {};
-struct HVBool  { bool value; };
-struct HVInt   { int64_t value; };
-struct HVFloat { double value; };
-struct HVStr   { std::string value; };
+struct WVNull  {};
+struct WVBool  { bool value; };
+struct WVInt   { int64_t value; };
+struct WVFloat { double value; };
+struct WVStr   { std::string value; };
 
-struct HVMapEntry {
+struct WVMapEntry {
     std::variant<std::string, int64_t> key;
     WritValPtr val = nullptr;
 };
 
-struct HVMap   {
-    std::vector<HVMapEntry> entries;
+struct WVMap   {
+    std::vector<WVMapEntry> entries;
     std::string key_type;  // "" = ObjectMap (tc=101); "I32" = MapI32AnyVal (tc=105)
 };
-struct HVArray {
+struct WVArray {
     std::vector<WritValPtr> elements;
     std::string elem_type;  // "" = AnyVal (ObjectArray tc=100); "I32" = ArrayI32 tc=104; "U64" = ArrayU64 tc=108
 };
@@ -170,14 +170,14 @@ struct HVArray {
 // param_index: position of this PARAM slot in the template blob (0-based, unique per slot).
 // value_index: deduplicated capture value (multiple slots can share one value_index if
 //              they capture the same pure identifier — one coercion, multiple writes).
-struct HVCapture {
+struct WVCapture {
     uint32_t param_index;   // slot position in template (unique)
     uint32_t value_index;   // which resolved value to use (deduplicated)
 };
 
 // Component-metaprog slice 1B: first-class Logos Type embedded in @-literal.
 // Lowers to a TinyObjectMap with schema_type_code = type_hash::Type (107) at codegen.
-struct HVType {
+struct WVType {
     uint32_t    kind;
     uint64_t    uid;   // first 8 bytes of full 32-byte type UID
     std::string name;
@@ -840,7 +840,7 @@ struct LProgram {
     // hstatic-as-const-generic: registry of WritStatic literals encountered
     // at type-arg position (`Foo::<@{...}>`), keyed by content-hash. Sema
     // populates at LIT_HSTATIC resolution time; mono looks up by the
-    // HStaticLit's const_val (the same hash) to materialise the literal in
+    // WStaticLit's const_val (the same hash) to materialise the literal in
     // place of `__const_param:CFG` references inside generic bodies.
     // ExprRef = mirror view into type_pool arena; lifetimes match LProgram.
     // Stage E: heap-free ObjectMap (uint64 hash stringified as key → set_ref(expr)).

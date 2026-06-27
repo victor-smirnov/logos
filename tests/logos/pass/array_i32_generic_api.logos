@@ -8,7 +8,7 @@ use logos.lang.rc;
 unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(4096);
     let h: &Writ = rc.deref();
-    let arr: &mut HArray<i32> = h.tarray::<i32>(4);
+    let arr: &mut WArray<i32> = h.tarray::<i32>(4);
     arr.push(10);
     arr.push(20);
     arr.push(30);

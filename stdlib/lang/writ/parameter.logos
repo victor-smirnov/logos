@@ -1,78 +1,78 @@
 // Logos Writ stdlib — writ2.parameter
 //
-// HParameter — a Writ SDN query-parameter capture slot, wire code 127 (the
+// WParameter — a Writ SDN query-parameter capture slot, wire code 127 (the
 // Writ port of Writ1's Parameter). The textual forms `?name` (a named
 // placeholder, filled at query time) and an `@`-literal capture both reduce to a
 // NAME plus an optional bound VALUE (null when the parameter is still unbound).
 //
-// Two AT-REST HAny words (name = a Ref to an interned HString, value = any HAny or
-// null), held as raw `i64` and accessed through `*zoned mut HAny` slot pointers
-// (materialise on read / lower on write — like HMapEntry / HTypedValue).
+// Two AT-REST WAny words (name = a Ref to an interned WString, value = any WAny or
+// null), held as raw `i64` and accessed through `*zoned mut WAny` slot pointers
+// (materialise on read / lower on write — like WMapEntry / WTypedValue).
 
 package logos.lang.writ.parameter;
 
 use logos.lang.writ.container;   // Writ, alloc_tagged, H2_PARAMETER
-use logos.lang.writ.anyval;      // HAny, h2_type_code
+use logos.lang.writ.anyval;      // WAny, h2_type_code
 use logos.lang.writ.allocator;   // Allocator
-use logos.lang.writ.hstring;     // HString, hstring_in_alloc
+use logos.lang.writ.hstring;     // WString, hstring_in_alloc
 use logos.lang.ptr;                 // byte_add
 
 #[pinned]
-pub struct HParameter {
-    pub name:  i64,   // at-rest HAny: Ref to the parameter-name HString
-    pub value: i64,   // at-rest HAny: the bound value, or null if unbound
+pub struct WParameter {
+    pub name:  i64,   // at-rest WAny: Ref to the parameter-name WString
+    pub value: i64,   // at-rest WAny: the bound value, or null if unbound
 }
 
-// Field slot (name @0, value @8) as `*zoned mut HAny` — materialise/lower the
-// at-rest word (mirrors HMap's ent_key/_val and HTypedValue's tv_slot).
-unsafe fn param_slot(p: *mut HParameter, off: i64) -> *zoned mut HAny {
-    return (p as *mut u8).byte_add(off) as *zoned mut HAny;
+// Field slot (name @0, value @8) as `*zoned mut WAny` — materialise/lower the
+// at-rest word (mirrors WMap's ent_key/_val and WTypedValue's tv_slot).
+unsafe fn param_slot(p: *mut WParameter, off: i64) -> *zoned mut WAny {
+    return (p as *mut u8).byte_add(off) as *zoned mut WAny;
 }
-unsafe fn param_slot_c(p: *const HParameter, off: i64) -> *zoned HAny {
-    return (p as *const u8).byte_add(off) as *zoned HAny;
+unsafe fn param_slot_c(p: *const WParameter, off: i64) -> *zoned WAny {
+    return (p as *const u8).byte_add(off) as *zoned WAny;
 }
 
-unsafe fn param_new(h: *mut Writ, name: HAny, value: HAny) -> *mut HParameter {
-    let obj: *mut HParameter =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HParameter>() as i64, H2_PARAMETER) as *mut HParameter;
+unsafe fn param_new(h: *mut Writ, name: WAny, value: WAny) -> *mut WParameter {
+    let obj: *mut WParameter =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WParameter>() as i64, H2_PARAMETER) as *mut WParameter;
     *(param_slot(obj, 0i64)) = name;    // *zoned write: lowers to a self-relative delta
     *(param_slot(obj, 8i64)) = value;
     return obj;
 }
 
-impl HParameter {
-    // The parameter-name value (a Ref to an HString).
-    pub fn name(self: &HParameter)  -> HAny { return unsafe { *(param_slot_c(self as *const HParameter, 0i64)) }; }
+impl WParameter {
+    // The parameter-name value (a Ref to an WString).
+    pub fn name(self: &WParameter)  -> WAny { return unsafe { *(param_slot_c(self as *const WParameter, 0i64)) }; }
     // The bound value (or null if unbound).
-    pub fn value(self: &HParameter) -> HAny { return unsafe { *(param_slot_c(self as *const HParameter, 8i64)) }; }
+    pub fn value(self: &WParameter) -> WAny { return unsafe { *(param_slot_c(self as *const WParameter, 8i64)) }; }
 
-    // The parameter name as a string view (resolves the Ref → HString → bytes).
-    pub fn name_str(self: &HParameter) -> str {
-        return unsafe { (&*(self.name().resolve() as *const HString)).as_str() };
+    // The parameter name as a string view (resolves the Ref → WString → bytes).
+    pub fn name_str(self: &WParameter) -> str {
+        return unsafe { (&*(self.name().resolve() as *const WString)).as_str() };
     }
     // Is the parameter bound to a value (non-null)?
-    pub fn is_bound(self: &HParameter) -> bool { return !self.value().is_null(); }
+    pub fn is_bound(self: &WParameter) -> bool { return !self.value().is_null(); }
 }
 
 impl Writ {
-    // Build a query parameter `?name` in THIS arena (name interned as an HString).
-    // Pass a null HAny for `value` to leave it unbound.
-    pub fn parameter(self: &Writ, name: str, value: HAny) -> HAny {
+    // Build a query parameter `?name` in THIS arena (name interned as an WString).
+    // Pass a null WAny for `value` to leave it unbound.
+    pub fn parameter(self: &Writ, name: str, value: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            let hs: *mut HString = hstring_in_alloc(&mut h.allocator as *mut Allocator, name);
-            let nm: HAny = HAny::ref_to(hs as *const u8);
-            return HAny::ref_to(param_new(h, nm, value) as *const u8);
+            let hs: *mut WString = hstring_in_alloc(&mut h.allocator as *mut Allocator, name);
+            let nm: WAny = WAny::ref_to(hs as *const u8);
+            return WAny::ref_to(param_new(h, nm, value) as *const u8);
         }
     }
 }
 
-impl HAny {
-    pub fn is_parameter(self: &HAny) -> bool {
+impl WAny {
+    pub fn is_parameter(self: &WAny) -> bool {
         return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_PARAMETER;
     }
     // Borrow the pointed-at parameter (check is_parameter first).
-    pub fn as_parameter(self: &HAny) -> &HParameter { return unsafe { &*(self.resolve() as *const HParameter) }; }
+    pub fn as_parameter(self: &WAny) -> &WParameter { return unsafe { &*(self.resolve() as *const WParameter) }; }
     // A parameter as a heterogeneous value (Ref to it).
-    pub fn from(p: &HParameter) -> HAny { return HAny::ref_to(p as *const HParameter as *const u8); }
+    pub fn from(p: &WParameter) -> WAny { return WAny::ref_to(p as *const WParameter as *const u8); }
 }

@@ -1195,7 +1195,7 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
     // classify this type as a self-relative pointer (8B offset storage).
     if (sinfo->rel_ptr) sd.flag(stk::REL_PTR, true);
     // writ2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
-    // values of this type (HAny) like references.
+    // values of this type (WAny) like references.
     if (sinfo->borrow_carrying) sd.flag(stk::BORROW_CARRYING, true);
     // `#[non_null]`: single non-null ptr wrapper → Option<T> NullPtr niche in mlir-gen.
     if (sinfo->non_null) sd.flag(stk::NON_NULL, true);
@@ -1409,7 +1409,7 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
     tparams = einfo.type_params;
     if (einfo.backing_type)  ed.type(dk::BACKING_TYPE, einfo.backing_type);
     if (einfo.zoned2)          ed.flag(dk::ZONED2, true);   // F3: niche enum's Ref arm self-relative at-rest
-    if (einfo.borrow_carrying) ed.flag(dk::BORROW_CARRYING, true);   // HAny: escape-tracked value
+    if (einfo.borrow_carrying) ed.flag(dk::BORROW_CARRYING, true);   // WAny: escape-tracked value
     // B65: capture outlives bounds. Enum lifetime_params lives on einfo;
     // outlives bounds re-read from the node.
     lifetime_params = einfo.lifetime_params;
@@ -1546,11 +1546,11 @@ SemaChecker::lower_const_def(TinyMapView node) {
             TypeRef(lc_type).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(lc_value)).kind() != LogosType::Kind::Error &&
             !types_compatible(expr_type(lc_value), lc_type)) {
-            // WritStatic special-case: literal evaluates to HStaticLit,
+            // WritStatic special-case: literal evaluates to WStaticLit,
             // which is treated as compatible with WritStatic at higher level.
             bool hs_ok = TypeRef(lc_type).kind() == LogosType::Kind::Struct &&
                          is_writ_static(lc_type) &&
-                         TypeRef(expr_type(lc_value)).kind() == LogosType::Kind::HStaticLit;
+                         TypeRef(expr_type(lc_value)).kind() == LogosType::Kind::WStaticLit;
             if (!hs_ok) {
                 auto [es, gs] = type_str_pair(lc_type, expr_type(lc_value));
                 error(std::format(

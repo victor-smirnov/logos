@@ -95,7 +95,7 @@ struct TaggedEnumInfo {
     struct Niche {
         // NullPtr: Option<&T>-shape — null encodes `none_disc`, the non-null ptr
         //          encodes `some_disc`. Stored as just the pointer (8B).
-        // LowBit:  HAny-shape — two data arms disambiguated by the payload word's
+        // LowBit:  WAny-shape — two data arms disambiguated by the payload word's
         //          LOW BIT. The `ptr_disc` arm holds a pointer to an align≥2 pointee
         //          (so its low bit is always 0) stored RAW; the `val_disc` arm holds
         //          a ≤63-bit integer stored as `(value << 1) | 1` (low bit 1). Read:
@@ -109,7 +109,7 @@ struct TaggedEnumInfo {
         int64_t val_disc  = 0;           // LowBit: the low-bit-1 value arm
         uint32_t val_bits = 0;           // LowBit: value arm's bit width (for read sign/zero-extend)
         bool     val_signed = false;     // LowBit: value arm signedness
-        // LowBit RAW mode (`#[zoned2]` + a 64-bit val arm, e.g. HAny's Pod(u64)):
+        // LowBit RAW mode (`#[zoned2]` + a 64-bit val arm, e.g. WAny's Pod(u64)):
         // the val arm word is stored/read VERBATIM — no `(v<<1)|1` shift — because
         // the producer already bakes the low-bit-1 tag into it. Pod = the raw word,
         // Ref = low-bit-0 pointer. The disc is still the low bit.
@@ -1204,7 +1204,7 @@ private:
     mlir::Value gen_expr_kind(lir_view::EReflectOfView v, TypeRef);
     // Coerce a Logos runtime value to AnyVal.raw (u32) for writ capture substitution.
     mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
-    // writ2: coerce a scalar capture to an 8-byte value-form HAny word.
+    // writ2: coerce a scalar capture to an 8-byte value-form WAny word.
     mlir::Value coerce_to_hany_raw(mlir::Value v, TypeRef t);
 
     // ── Struct helpers ────────────────────────────────────────────

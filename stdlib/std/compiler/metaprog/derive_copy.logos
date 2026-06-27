@@ -25,7 +25,7 @@ fn derive_copy_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: HAny = view.node_at(target_offset);
+    let item: WAny = view.node_at(target_offset);
     let nm_sv: SView = view.ast_node_name(item);
     if nm_sv.len == (0 as u64) { return; }
     let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };

@@ -16,7 +16,7 @@
 namespace logos::writ {
 
 // ArenaString — a UTF-8 string in the arena. BYTE-IDENTICAL to the Logos stdlib
-// HString (stdlib/lang/writ2/hstring.logos): a self-describing object whose whole
+// WString (stdlib/lang/writ2/hstring.logos): a self-describing object whose whole
 // body is `[ vlen(payload_len) ][ UTF-8 payload ]` (no sized prefix, no separate
 // length field). Tag = tc::STRING. Ported verbatim from Writ1's ArenaString
 // (which has the same layout; only the tag code changed 28 → 130).

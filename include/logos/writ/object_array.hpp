@@ -14,7 +14,7 @@
 namespace logos::writ {
 
 // ObjectArray — dynamic array of heterogeneous AnyVal elements. BYTE-IDENTICAL to
-// the Logos stdlib HArray<HAny> (stdlib/lang/writ2/array.logos):
+// the Logos stdlib WArray<WAny> (stdlib/lang/writ2/array.logos):
 //   { size_/len : u64, capacity_/cap : u64, data_ : self-relative ptr to AnyVal[] }
 // 24 bytes. The element buffer holds AT-REST AnyVals (self-relative Ref arm).
 //
@@ -92,7 +92,7 @@ private:
     }
 };
 
-// size_(8) + capacity_(8) + data_(8, self-relative i64) = 24 (matches HArray<HAny>)
+// size_(8) + capacity_(8) + data_(8, self-relative i64) = 24 (matches WArray<WAny>)
 static_assert(sizeof(ObjectArray) == 24);
 
 } // namespace logos::writ

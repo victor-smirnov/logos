@@ -24,7 +24,7 @@ use lforge.writ_io;
 //     { project: "github.com/x/y", tag:    "v1.0", modules: [...] }
 //     { project: "github.com/x/y", branch: "main", modules: [...] }
 //     { project: "github.com/x/y", sha:    "abc...", modules: [...] }
-fn parse_external_dep(d_av: HAny) -> Result<ExternalDep, ManifestError> {
+fn parse_external_dep(d_av: WAny) -> Result<ExternalDep, ManifestError> {
     if !d_av.is_map() {
         return Result::Err(err_msg("manifest: deps[] entry is not a map"));
     }
@@ -70,7 +70,7 @@ fn parse_external_dep(d_av: HAny) -> Result<ExternalDep, ManifestError> {
     });
 }
 
-fn parse_target(t_av: HAny) -> Result<Target, ManifestError> {
+fn parse_target(t_av: WAny) -> Result<Target, ManifestError> {
     if !t_av.is_map() {
         return Result::Err(err_msg("manifest: targets[] entry is not a map"));
     }
@@ -107,16 +107,16 @@ fn parse_target(t_av: HAny) -> Result<Target, ManifestError> {
     });
 }
 
-fn h2io_get(root: HAny, key: str) -> HAny {
-    if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
-    let m: &HMap<HString, HAny> = root.as_map();
+fn h2io_get(root: WAny, key: str) -> WAny {
+    if !root.is_map() { return WAny::ref_to(0i64 as *const u8); }
+    let m: &WMap<WString, WAny> = root.as_map();
     return m.get(key);
 }
 
 pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     let ctr: Rc<Writ> = writ_rc(32768);
     let h: &Writ = ctr.deref();
-    let root: HAny = parse(h, text);
+    let root: WAny = parse(h, text);
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));
     }
@@ -133,14 +133,14 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
 
     // Targets: prefer explicit targets[]; fall back to legacy {src, entry}.
     let mut targets: Vec<Target> = vec_new::<Target>();
-    let targets_av: HAny = h2io_get(root, "targets");
+    let targets_av: WAny = h2io_get(root, "targets");
     let mut have_legacy: bool = false;
     if targets_av.is_array() {
-        let targets_arr: &HArray<HAny> = targets_av.as_array();
+        let targets_arr: &WArray<WAny> = targets_av.as_array();
         let n: u64 = targets_arr.len() as u64;
         let mut i: u64 = 0 as u64;
         while i < n {
-            let t_av: HAny = targets_arr.get(i as i64);
+            let t_av: WAny = targets_arr.get(i as i64);
             match parse_target(t_av) {
                 Result::Err(e) => { return Result::Err(e); }
                 Result::Ok(t)  => { targets.push(t); }
@@ -178,13 +178,13 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
 
     // Project-level deps: [{ path: "...", modules: [...] }, ...] (B2).
     let mut deps: Vec<ExternalDep> = vec_new::<ExternalDep>();
-    let deps_av: HAny = h2io_get(root, "deps");
+    let deps_av: WAny = h2io_get(root, "deps");
     if deps_av.is_array() {
-        let deps_arr: &HArray<HAny> = deps_av.as_array();
+        let deps_arr: &WArray<WAny> = deps_av.as_array();
         let nd: u64 = deps_arr.len() as u64;
         let mut j: u64 = 0 as u64;
         while j < nd {
-            let d_av: HAny = deps_arr.get(j as i64);
+            let d_av: WAny = deps_arr.get(j as i64);
             match parse_external_dep(d_av) {
                 Result::Err(e) => { return Result::Err(e); }
                 Result::Ok(d)  => { deps.push(d); }
@@ -200,13 +200,13 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     // when a downstream dep matches `project`, lforge uses the given path
     // instead of fetching from git. Only the root manifest's replaces apply.
     let mut replace: Vec<ReplaceEntry> = vec_new::<ReplaceEntry>();
-    let replace_av: HAny = h2io_get(root, "replace");
+    let replace_av: WAny = h2io_get(root, "replace");
     if replace_av.is_array() {
-        let replace_arr: &HArray<HAny> = replace_av.as_array();
+        let replace_arr: &WArray<WAny> = replace_av.as_array();
         let nr: u64 = replace_arr.len() as u64;
         let mut ri: u64 = 0 as u64;
         while ri < nr {
-            let r_av: HAny = replace_arr.get(ri as i64);
+            let r_av: WAny = replace_arr.get(ri as i64);
             ri = ri + 1 as u64;
             if !r_av.is_map() {
                 return Result::Err(err_msg("manifest: replace[] entry is not a map"));

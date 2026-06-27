@@ -1,6 +1,6 @@
 // Logos Writ stdlib — writ2.hstring
 //
-// HString — a UTF-8 string living in the never-move arena as a REAL custom-DST
+// WString — a UTF-8 string living in the never-move arena as a REAL custom-DST
 // with NO separate length field: the layout is exactly WritString's wire shape,
 //
 //     [ vlen(payload_len) ][ UTF-8 payload ... ]
@@ -11,7 +11,7 @@
 // there is no sized prefix) is `vlen_prefix_size + vlen_read`; the logical string
 // length is `vlen_read` (the payload only).
 //
-// Access is SAFE through `&HString` (the DST is self-describing → a borrowed
+// Access is SAFE through `&WString` (the DST is self-describing → a borrowed
 // reference is complete): `len()` / `as_str()` need no `unsafe` at call sites.
 // `as_str` skips the vlen prefix and borrows the inline payload back as a `str`
 // (a slice into the arena, valid while the container lives).
@@ -20,21 +20,21 @@ package logos.lang.writ.hstring;
 
 use logos.lang.writ.container;   // Writ, writ_alloc_bytes
 use logos.lang.writ.allocator;   // Allocator, allocator_alloc
-use logos.lang.writ.anyval;      // HAny (heterogeneous element)
+use logos.lang.writ.anyval;      // WAny (heterogeneous element)
 use logos.lang.str;                 // str_from_raw
 use logos.lang.mem;                 // copy_bytes
 use logos.lang.ptr;                 // byte_add
 use logos.lang.vlen;                // vlen_encode_size / write / read / prefix_size
 
 #[self_describing]
-pub struct HString {
+pub struct WString {
     pub bytes: [u8],        // [vlen(payload_len)][utf8 payload] — no sized prefix
 }
 
 // Tail byte count (for slice materialization) = the WHOLE object: the vlen prefix
 // plus the payload it encodes. (No sized header — `self` points at the bytes.)
-impl SelfDescribing for HString {
-    fn dst_len(self: *const HString) -> i64 {
+impl SelfDescribing for WString {
+    fn dst_len(self: *const WString) -> i64 {
         let p: *const u8 = self as *const u8;
         return unsafe { (vlen_prefix_size(p) as i64) + (vlen_read(p) as i64) };
     }
@@ -44,45 +44,45 @@ impl SelfDescribing for HString {
 // `vlen_encode_size(n) + n` bytes in ONE arena chunk, write the vlen length
 // prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
 // than the whole `Writ`) lets an arena container that holds only its allocator
-// back-pointer — e.g. `HArray<HAny>` — intern strings without the full handle.
-pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
+// back-pointer — e.g. `WArray<WAny>` — intern strings without the full handle.
+pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
     let raw: *mut u8 = alloc_tagged(alloc, total, H2_STRING);   // in-band Ref tag
     let pfx: u32 = vlen_write(raw, n);
     copy_bytes(raw.byte_add(pfx as i64), s.as_ptr(), n as i64);
-    return raw as *mut HString;
+    return raw as *mut WString;
 }
 
-unsafe fn hstring_new(h: *mut Writ, s: str) -> *mut HString {
+unsafe fn hstring_new(h: *mut Writ, s: str) -> *mut WString {
     return hstring_in_alloc(&mut h.allocator as *mut Allocator, s);
 }
 
 impl Writ {
-    // Intern a string into the arena; return a borrowed `&HString` into never-move
+    // Intern a string into the arena; return a borrowed `&WString` into never-move
     // storage (valid for the container's lifetime). Read it back with `as_str`.
-    pub fn hstring<'a>(self: &'a Writ, s: str) -> &'a HString {
+    pub fn hstring<'a>(self: &'a Writ, s: str) -> &'a WString {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
             return &*hstring_new(h, s);
         }
     }
-    // Resolve a Ref `HAny` back to the `HString` it points at.
-    pub fn hstring_of<'a>(self: &'a Writ, e: HAny) -> &'a HString {
-        return unsafe { &*(e.resolve() as *const HString) };
+    // Resolve a Ref `WAny` back to the `WString` it points at.
+    pub fn hstring_of<'a>(self: &'a Writ, e: WAny) -> &'a WString {
+        return unsafe { &*(e.resolve() as *const WString) };
     }
 }
 
-impl HString {
+impl WString {
     // Logical string length = the vlen-decoded payload count (NOT dst_len, which
     // is the whole tail incl. the prefix). `self.bytes` materializes the tail; its
     // data pointer is the vlen prefix.
-    pub fn len(self: &HString) -> i64 {
+    pub fn len(self: &WString) -> i64 {
         return unsafe { vlen_read(self.bytes.as_ptr()) as i64 };
     }
 
     // The inline UTF-8 payload — the tail past its vlen prefix.
-    pub fn as_str(self: &HString) -> str {
+    pub fn as_str(self: &WString) -> str {
         unsafe {
             let p: *const u8 = self.bytes.as_ptr();
             let payload: u64 = vlen_read(p);
@@ -92,13 +92,13 @@ impl HString {
     }
 }
 
-impl HAny {
+impl WAny {
     // An interned string as a heterogeneous value — a Ref to its header.
-    pub fn from(s: &HString) -> HAny { return HAny::ref_to(s as *const HString as *const u8); }
+    pub fn from(s: &WString) -> WAny { return WAny::ref_to(s as *const WString as *const u8); }
 
-    // Resolve a Ref cursor to a borrowed `&HString` (read-only). Check is_string()
+    // Resolve a Ref cursor to a borrowed `&WString` (read-only). Check is_string()
     // first. Encapsulates the resolve()+cast so callers stay unsafe-free.
-    pub fn as_string(self: &HAny) -> &HString {
-        return unsafe { &*(self.resolve() as *const HString) };
+    pub fn as_string(self: &WAny) -> &WString {
+        return unsafe { &*(self.resolve() as *const WString) };
     }
 }
