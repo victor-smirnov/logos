@@ -46,7 +46,7 @@ namespace fs = std::filesystem;
 // ---------------------------------------------------------------------------
 // .writ0 format (version 3)
 //
-//   magic[8]      "HERMAST0"
+//   magic[8]      "WRITAST0"
 //   version       uint32_t  = 3
 //   num_files     uint32_t
 //   for each file:
@@ -150,7 +150,7 @@ static bool write_writ0(const std::string& path,
         return false;
     }
     // header
-    f.write("HERMAST0", 8);
+    f.write("WRITAST0", 8);
     write_u32(f, 3);  // version 3: adds trailing exports section
     write_u32(f, static_cast<uint32_t>(modules.size()));
 
@@ -1170,9 +1170,9 @@ bool emit_module(const ModuleManifest& manifest,
         // Per-file mode also wraps .writ0 → .writ0.o so lforge can
         // archive it without ld.lld emitting an "is neither ET_REL nor
         // LLVM bitcode" warning at downstream link time.
-        // Match emit_module-mode naming: "<base>.hm0" (≤15 chars in ar).
+        // Match emit_module-mode naming: "<base>.wr0" (≤15 chars in ar).
         std::string h0_obj =
-            h0_path.substr(0, h0_path.find_last_of('.')) + ".hm0";
+            h0_path.substr(0, h0_path.find_last_of('.')) + ".wr0";
         {
             std::ostringstream cmd;
             cmd << "objcopy -I binary -O elf64-x86-64 "
@@ -1199,7 +1199,7 @@ bool emit_module(const ModuleManifest& manifest,
     // consumer's search path in a layered link — build_binary_index routes
     // dep packages to that owner via its owned-only `.pkgi`, and the owner's
     // own prelude-sibling pull supplies the foundational traits. The embedded
-    // copy here was pure dead weight (~2.6 MB of lang+mem AST on std.hm0) that
+    // copy here was pure dead weight (~2.6 MB of lang+mem AST on std.wr0) that
     // never won a lookup. Synth docs (the tail past from_binary_module_flags)
     // are owned by THIS module and are kept.
     //
@@ -1222,7 +1222,7 @@ bool emit_module(const ModuleManifest& manifest,
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
     uint64_t mflags = manifest.lazy ? module_flag::LAZY : 0;
-    // No exports trailer, no LIR blob: the .hm0 now ships only the own-module
+    // No exports trailer, no LIR blob: the .wr0 now ships only the own-module
     // AST (signatures + generic templates + impls). Non-generic dep bodies
     // live in the dep .o and are linked; the consumer's sema skeleton-skips
     // them via binary_symbols.
@@ -1237,12 +1237,12 @@ bool emit_module(const ModuleManifest& manifest,
     // about a non-ET_REL archive member when downstream binaries link
     // against this archive. The data lives in a non-ALLOC `.lwrit`
     // section; module_loader looks for that section by name.
-    // Wrap into "<basename>.hm0" (must stay <=15 chars including the
+    // Wrap into "<basename>.wr0" (must stay <=15 chars including the
     // trailing `/` separator that ar appends, otherwise the name spills
     // into the GNU extended name table — which our ar parser doesn't
     // chase).
     std::string h0_obj_path =
-        h0_path.substr(0, h0_path.find_last_of('.')) + ".hm0";
+        h0_path.substr(0, h0_path.find_last_of('.')) + ".wr0";
     {
         std::ostringstream cmd;
         cmd << "objcopy -I binary -O elf64-x86-64 "
@@ -1258,14 +1258,14 @@ bool emit_module(const ModuleManifest& manifest,
     }
 
     // Embedded package-name index. The loader's build_binary_index needs
-    // to know which packages each archive provides; reading the full .hm0
+    // to know which packages each archive provides; reading the full .wr0
     // is ~30-40MB of memcpy per archive (filesystem cache is warm, but
     // alloc + zero-init + copy still costs ~40ms across 4-archive layer
     // builds). The .pkgi member ships the package list as ASCII (one
     // package per line) wrapped in an ELF .lpkgindex non-ALLOC section
-    // (mirrors the .hm0 → .lwrit wrap so ld.lld doesn't warn about
+    // (mirrors the .wr0 → .lwrit wrap so ld.lld doesn't warn about
     // non-ET_REL archive members). The streaming AR reader pulls it out
-    // without touching .hm0 bytes. Member name must stay <=15 chars.
+    // without touching .wr0 bytes. Member name must stay <=15 chars.
     std::string pkgi_raw_path =
         h0_path.substr(0, h0_path.find_last_of('.')) + ".pkgi.raw";
     {
@@ -1290,7 +1290,7 @@ bool emit_module(const ModuleManifest& manifest,
         // incremental rebuild — silently embedding stale dependency bytes.
         // Advertising owned-only makes the canonical owner the sole index
         // entry, so resolution always finds the fresh archive. (The embedded
-        // copy in .hm0 stays for sema self-containment but is never selected
+        // copy in .wr0 stays for sema self-containment but is never selected
         // over the owner.)
         // Header: the owning module's canonical name + mangle id (one module
         // per archive). Consumers map every package below to this id. The `@`
@@ -1337,7 +1337,7 @@ bool emit_module(const ModuleManifest& manifest,
     // Import-table member: a standalone Writ doc listing the libraries this
     // module imports (its `depends`), one (file_name, doc_name) per local
     // arena_id. Shipped as its own `.imp` member (wrapped in a `.limports`
-    // ELF section, mirroring the .hm0/.pkgi wrap) so a tool can read just this
+    // ELF section, mirroring the .wr0/.pkgi wrap) so a tool can read just this
     // small member for fast dependency inspection, and so a cross-arena
     // ExternalRef's arena_id resolves through it. doc_name is "" today (one
     // document per .writ0; multi-doc reserved).
@@ -1381,7 +1381,7 @@ bool emit_module(const ModuleManifest& manifest,
     }
 
     // Create .a archive: lazy mode has no .o (codegen skipped), pack just
-    // the .hm0 wrapper + pkgi index + import table. Eager mode also packs NAME.o.
+    // the .wr0 wrapper + pkgi index + import table. Eager mode also packs NAME.o.
     {
         std::ostringstream cmd;
         cmd << "ar rcs " << output_path;

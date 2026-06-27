@@ -459,7 +459,7 @@ static std::string scan_package_decl(const std::string& path) {
 // ---------------------------------------------------------------------------
 //
 // AR format: "!<arch>\n" + 60-byte member headers + data.
-// .writ0 format: "HERMAST0" magic + uint32 version + uint32 num_files +
+// .writ0 format: "WRITAST0" magic + uint32 version + uint32 num_files +
 //   per-file: uint32 path_len + path + uint64 ast_len + ast bytes.
 // ---------------------------------------------------------------------------
 
@@ -528,7 +528,7 @@ unwrap_elf_section(const std::vector<uint8_t>& data, const char* section_name) {
     return data;
 }
 
-// Legacy alias — .hm0 members are ELF-wrapped with section ".lwrit".
+// Legacy alias — .wr0 members are ELF-wrapped with section ".lwrit".
 static std::vector<uint8_t>
 unwrap_lwrit(const std::vector<uint8_t>& data) {
     return unwrap_elf_section(data, ".lwrit");
@@ -626,7 +626,7 @@ static std::vector<ParsedModule> parse_writ0(const std::vector<uint8_t>& data,
         std::fprintf(stderr, "module_loader: %s: .writ0 too small\n", archive_path.c_str());
         return {};
     }
-    if (std::memcmp(p, "HERMAST0", 8) != 0) {
+    if (std::memcmp(p, "WRITAST0", 8) != 0) {
         std::fprintf(stderr, "module_loader: %s: bad .writ0 magic\n", archive_path.c_str());
         return {};
     }
@@ -716,7 +716,7 @@ StdlibExportsOpt extract_writ0_exports(const std::vector<uint8_t>& data,
     StdlibExportsOpt r;
     const uint8_t* p = data.data();
     const uint8_t* end = p + data.size();
-    if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return r;
+    if (data.size() < 16 || std::memcmp(p, "WRITAST0", 8) != 0) return r;
     uint32_t version   = read_le_u32(p + 8);
     uint32_t num_files = read_le_u32(p + 12);
     if (version == 2) return r;  // no trailer in v2
@@ -871,7 +871,7 @@ LirBlobOpt extract_writ0_lir_blob(const std::vector<uint8_t>& data,
     LirBlobOpt r;
     const uint8_t* p = data.data();
     const uint8_t* end = p + data.size();
-    if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return r;
+    if (data.size() < 16 || std::memcmp(p, "WRITAST0", 8) != 0) return r;
     uint32_t version   = read_le_u32(p + 8);
     uint32_t num_files = read_le_u32(p + 12);
     if (version != 3) return r;
@@ -916,7 +916,7 @@ LirBlobOpt extract_writ0_lir_blob(const std::vector<uint8_t>& data,
 StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths) {
     StdlibExports merged;
     for (const auto& archive_path : archive_paths) {
-        auto members = ar_read_members(archive_path, ".hm0");
+        auto members = ar_read_members(archive_path, ".wr0");
         for (auto& m : members) {
             auto opt = extract_writ0_exports(m, archive_path);
             if (!opt.present) continue;
@@ -963,7 +963,7 @@ static std::vector<std::string>
 writ0_packages(const std::vector<uint8_t>& data) {
     const uint8_t* p = data.data();
     const uint8_t* end = p + data.size();
-    if (data.size() < 16 || std::memcmp(p, "HERMAST0", 8) != 0) return {};
+    if (data.size() < 16 || std::memcmp(p, "WRITAST0", 8) != 0) return {};
     uint32_t version   = read_le_u32(p + 8);
     uint32_t num_files = read_le_u32(p + 12);
     if (version != 2 && version != 3) return {};
@@ -1149,8 +1149,8 @@ static int check_abi_reuse(std::string_view lib_ver, const std::string& archive)
 // Fast path: each emit_module-built archive embeds a `.pkgi` member with
 // the package list as ASCII text. ar_read_members_streaming pulls it out
 // with only a header walk + small member read — no 30MB memcpy of the
-// .hm0 blob. Legacy archives without `.pkgi` fall through to scanning
-// the .hm0 directly (slow but correct).
+// .wr0 blob. Legacy archives without `.pkgi` fall through to scanning
+// the .wr0 directly (slow but correct).
 static std::unordered_map<std::string, std::string>
 build_binary_index(const std::vector<std::string>& search_paths,
                    std::unordered_map<std::string, std::string>* module_archives = nullptr) {
@@ -1189,8 +1189,8 @@ build_binary_index(const std::vector<std::string>& search_paths,
                 }
                 continue;
             }
-            // Fallback: legacy archive without .pkgi — scan .hm0 the slow way.
-            auto members = ar_read_members(archive, ".hm0");
+            // Fallback: legacy archive without .pkgi — scan .wr0 the slow way.
+            auto members = ar_read_members(archive, ".wr0");
             for (auto& member : members) {
                 bytes_read += member.size();
                 for (auto& pkg : writ0_packages(member))
@@ -1291,7 +1291,7 @@ std::vector<ParsedModule> load_modules(
             continue;
         }
         auto archive = fs::weakly_canonical(f, ec).string();
-        auto members = ar_read_members(archive, ".hm0");
+        auto members = ar_read_members(archive, ".wr0");
         for (auto& member : members) {
             auto pkgs = writ0_packages(member);
             for (auto& pkg : pkgs) {
@@ -1438,7 +1438,7 @@ std::vector<ParsedModule> load_modules(
             if (trace)
                 std::fprintf(stderr, "module_loader: loading binary module from %s\n",
                              archive_path.c_str());
-            auto members = ar_read_members(archive_path, ".hm0");
+            auto members = ar_read_members(archive_path, ".wr0");
             if (members.empty()) {
                 std::fprintf(stderr, "module_loader: no .writ0 in %s\n", archive_path.c_str());
                 binary_cache[cache_key].clear();

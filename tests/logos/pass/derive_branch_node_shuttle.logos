@@ -3,7 +3,7 @@
 // dimension descent (SUM for seek(N), MAX for find(K)).
 //
 // Verifies:
-//   - HERMES_MAP per-op spec parsing (field/type/kind keys)
+//   - WRIT_MAP per-op spec parsing (field/type/kind keys)
 //   - Two-op emission (sizes via SUM, maxes via MAX)
 //   - shuttle_sum_u64 prefix-sum descent + remainder
 //   - shuttle_max_u64 first-≥ descent

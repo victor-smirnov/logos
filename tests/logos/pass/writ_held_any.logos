@@ -1,5 +1,5 @@
 // An WAny (a Ref into the arena) escapes its building scope via HeldAny, bound to
-// the HERMES2 holder (not the parent Array). The arena stays alive while the
+// the WRIT2 holder (not the parent Array). The arena stays alive while the
 // HeldAny lives; freed when it drops.
 package t;
 use logos.lang.writ.container;
@@ -14,7 +14,7 @@ fn make_elem() -> HeldAny {
     let nested: &mut WArray<WAny> = h.array(2i64);
     nested.push(WAny::from(99i64));
     let e: WAny = WAny::from(&*nested);     // a Ref WAny into the arena
-    return hold_any(&mut h, e);             // escape: carry the HERMES2 holder
+    return hold_any(&mut h, e);             // escape: carry the WRIT2 holder
     // local `h` Rc drops here; HeldAny's holder keeps the arena alive
 }
 

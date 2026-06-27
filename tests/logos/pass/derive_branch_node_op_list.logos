@@ -1,7 +1,7 @@
 // derive_branch_node slice 1e end-to-end: handler reads the op-list
 // const-name from `#[derive_branch_node(ops = "...")]` attribute arg,
 // resolves the named const via OView::find_template_decl, walks its
-// HERMES_ARRAY of alternating (field-name, elem-type) strings, and
+// WRIT_ARRAY of alternating (field-name, elem-type) strings, and
 // emits a BranchNodeMP-shape struct with one PrimVec column per op
 // pair via parallel-cursor repeat-group in quote_item!.
 //

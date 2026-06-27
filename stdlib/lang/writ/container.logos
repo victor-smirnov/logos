@@ -131,13 +131,13 @@ pub unsafe fn box_f32(a: *mut Allocator, v: f32) -> WAny {
 }
 // Make an integer WAny: inline Pod when it fits i56, else boxed.
 pub unsafe fn make_int(a: *mut Allocator, v: i64) -> WAny {
-    if fits_i56(v) { return WAny::pod(v, HA_I56); }
+    if fits_i56(v) { return WAny::pod(v, WA_I56); }
     return box_i64(a, v);
 }
 
 impl Writ {
     // Build a scalar WAny in THIS arena (boxing wide values). For walkers that
-    // hold a `&Writ` (parse / hbs_read / compactify).
+    // hold a `&Writ` (parse / wbs_read / compactify).
     pub fn int(self: &Writ, v: i64) -> WAny {
         unsafe { return make_int(&mut (self as *const Writ as *mut Writ).allocator as *mut Allocator, v); }
     }
@@ -219,13 +219,13 @@ impl<T> Held<T> {
     pub fn get(self: &Held<T>) -> &T { return unsafe { &*self.ptr }; }
 }
 
-// ── Escaping WAny: bind to the HERMES2 arena, not the parent container ─────────
+// ── Escaping WAny: bind to the WRIT2 arena, not the parent container ─────────
 //
 // An `WAny` is a value (movable), but a Ref `WAny` is an ABSOLUTE pointer into the
 // Writ arena. The object it points at is owned by the ARENA (Writ) — NOT by
 // the `Array`/`Map`/… it was read from: that parent is just the read site, and the
 // Ref may point anywhere in the same arena. So an escaping `WAny` must carry a
-// holder of the HERMES2 (the residency that keeps the arena's segments alive),
+// holder of the WRIT2 (the residency that keeps the arena's segments alive),
 // independent of any parent container. `HeldAny` is that escape package: it stores
 // the value BY VALUE (no `*const`, unlike `Held<T>`) + a Writ holder; while the
 // HeldAny lives the arena is alive, so `val()`/`resolve()` are well-defined.

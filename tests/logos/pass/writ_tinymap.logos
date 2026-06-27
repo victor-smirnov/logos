@@ -1,4 +1,4 @@
-// HTVM — WTinyValMap (Writ port of Writ1 TinyObjectMap, code 98): a fixed-cap
+// WTVM — WTinyValMap (Writ port of Writ1 TinyObjectMap, code 98): a fixed-cap
 // bitmap-indexed map of u8 keys (0..51) → WAny. O(1) popcount lookup, value array
 // kept in key order. Exercises out-of-order insert (shift), get/contains/overwrite,
 // absent + out-of-range keys, and a nested tiny map referenced from another.

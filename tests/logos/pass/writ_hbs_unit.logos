@@ -7,7 +7,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.array;
 use logos.lang.writ.hmap;
 use logos.lang.writ.hstring;
-use logos.mem.writ.hbs;
+use logos.mem.writ.wbs;
 use logos.mem.writ.stringify;
 use logos.mem.collections.vec;
 use logos.mem.string;
@@ -21,9 +21,9 @@ fn main() -> i32 {
     a.push(1i64); a.push(2i64); a.push(&*inner); a.push("hi"); a.push(true);
     let orig: WAny = WAny::from(&*a);
     let s1: String = stringify(orig);
-    let bytes: Vec<u8> = hbs_write(orig);
+    let bytes: Vec<u8> = wbs_write(orig);
     let h2: Writ = writ_new(2048i64);
-    let doc2: WAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
+    let doc2: WAny = wbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
     if !str_eq(s1.as_str(), stringify(doc2).as_str()) { return 1; }
 
     // map doc → round-trip → verify via lookups (order-independent)
@@ -31,9 +31,9 @@ fn main() -> i32 {
     m.set("n", 42i64); m.set("ok", true); m.set("name", "Ada");
     let nested: &mut WArray<WAny> = h1.array(2i64); nested.push(7i64); nested.push(8i64);
     m.set("xs", &*nested);
-    let mb: Vec<u8> = hbs_write(WAny::from(&*m));
+    let mb: Vec<u8> = wbs_write(WAny::from(&*m));
     let h3: Writ = writ_new(2048i64);
-    let md: WAny = hbs_read(&h3, mb.as_slice().as_ptr(), mb.len());
+    let md: WAny = wbs_read(&h3, mb.as_slice().as_ptr(), mb.len());
     let m2: &WMap<WString, WAny> = unsafe { &*(md.resolve() as *const WMap<WString, WAny>) };
     if m2.len() != 4i64 { return 2; }
     if m2.get("n").as_i56() != 42i64 { return 3; }

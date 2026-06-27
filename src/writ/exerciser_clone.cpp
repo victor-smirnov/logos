@@ -32,8 +32,8 @@ int main() {
     auto arr_exp = ObjectArray::create(sa, 2);
     CHECK(arr_exp.has_value(), 2);
     ObjectArray* arr = *arr_exp;
-    (void)arr->push_back(AnyVal::pod(10, tc::HA_I56), sa);
-    (void)arr->push_back(AnyVal::pod(20, tc::HA_I56), sa);
+    (void)arr->push_back(AnyVal::pod(10, tc::WA_I56), sa);
+    (void)arr->push_back(AnyVal::pod(20, tc::WA_I56), sa);
 
     auto map_exp = ObjectMap::create(sa, 8);
     CHECK(map_exp.has_value(), 3);
@@ -63,7 +63,7 @@ int main() {
     CHECK(reinterpret_cast<void*>(ca.ptr()) != reinterpret_cast<void*>(arr), 10);
 
     // independence: mutate the source AFTER cloning — clone is unaffected
-    (void)arr->push_back(AnyVal::pod(30, tc::HA_I56), sa);
+    (void)arr->push_back(AnyVal::pod(30, tc::WA_I56), sa);
     CHECK(arr->size() == 3, 11);
     CHECK(ca.size() == 2, 12);                           // clone still 2 elements
 
@@ -71,7 +71,7 @@ int main() {
     auto cyc_exp = ObjectArray::create(sa, 2);
     CHECK(cyc_exp.has_value(), 13);
     ObjectArray* cyc = *cyc_exp;
-    (void)cyc->push_back(AnyVal::pod(99, tc::HA_I56), sa);
+    (void)cyc->push_back(AnyVal::pod(99, tc::WA_I56), sa);
     AnyVal selfref; selfref.set_ref(cyc);
     (void)cyc->push_back(selfref, sa);                   // cyc[1] → cyc
     CHECK(cyc->get(1).resolve() == reinterpret_cast<uint8_t*>(cyc), 14);
@@ -96,14 +96,14 @@ int main() {
         auto ua  = ArrayU8::create(a2, 2); CHECK(ua.has_value(), 32);
         (void)(*ua)->push_back(7, a2); (void)(*ua)->push_back(8, a2);
         auto im  = MapI32::create(a2, 4); CHECK(im.has_value(), 33);
-        (*im)->put(100, AnyVal::pod(1, tc::HA_I56)); (*im)->put(-3, AnyVal::pod(2, tc::HA_I56));
+        (*im)->put(100, AnyVal::pod(1, tc::WA_I56)); (*im)->put(-3, AnyVal::pod(2, tc::WA_I56));
         auto tn  = ArenaString::create(a2, "Date"); CHECK(tn.has_value(), 34);
         AnyVal tnref; tnref.set_ref(*tn);
-        auto tv  = TypedValue::create(a2, tnref, AnyVal::null(), AnyVal::pod(2024, tc::HA_I56));
+        auto tv  = TypedValue::create(a2, tnref, AnyVal::null(), AnyVal::pod(2024, tc::WA_I56));
         CHECK(tv.has_value(), 35);
         auto pn  = ArenaString::create(a2, "limit"); CHECK(pn.has_value(), 36);
         AnyVal pnref; pnref.set_ref(*pn);
-        auto pm  = Parameter::create(a2, pnref, AnyVal::pod(50, tc::HA_I56));
+        auto pm  = Parameter::create(a2, pnref, AnyVal::pod(50, tc::WA_I56));
         CHECK(pm.has_value(), 37);
 
         auto top = ObjectMap::create(a2, 8); CHECK(top.has_value(), 38);

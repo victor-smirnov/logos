@@ -10,7 +10,7 @@ fn main() -> i32 {
     let a: WAny = WAny::from(-5i8);
     if !a.is_i8() { return 1i32; }
     if a.as_i8() != -5i8 { return 2i32; }
-    if a.type_code() != 20u64 { return 3i32; }          // HT_I8
+    if a.type_code() != 20u64 { return 3i32; }          // WT_I8
     if a.is_i16() || a.is_bool() { return 4i32; }      // exact: not i16/bool
 
     let b: WAny = WAny::from(200u8);

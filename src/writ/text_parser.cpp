@@ -48,8 +48,8 @@ struct Parser {
         if (c == '{') return object();
         if (c == '[') return array();
         if (c == '"') return string();
-        if (c == 't') return literal("true")  ? AnyVal::pod_bool(true,  tc::HA_BOOL) : fail();
-        if (c == 'f') return literal("false") ? AnyVal::pod_bool(false, tc::HA_BOOL) : fail();
+        if (c == 't') return literal("true")  ? AnyVal::pod_bool(true,  tc::WA_BOOL) : fail();
+        if (c == 'f') return literal("false") ? AnyVal::pod_bool(false, tc::WA_BOOL) : fail();
         if (c == 'n') return literal("null")  ? AnyVal::null() : fail();
         if (c == '-' || (c >= '0' && c <= '9')) return number();
         return fail();
@@ -73,7 +73,7 @@ struct Parser {
         }
         long long v = std::strtoll(tok.c_str(), nullptr, 10);
         // fits a 56-bit signed inline Pod?
-        if (v >= -(1LL << 55) && v < (1LL << 55)) return AnyVal::pod(v, tc::HA_I56);
+        if (v >= -(1LL << 55) && v < (1LL << 55)) return AnyVal::pod(v, tc::WA_I56);
         int64_t w = v; return box(tc::I64, &w);   // wider → boxed i64
     }
 

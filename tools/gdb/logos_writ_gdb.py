@@ -28,13 +28,13 @@
 import struct
 
 # ── Type codes (include/logos/writ/type_codes.hpp) ─────────────────────────
-HA_I56, HA_BOOL = 1, 2
-HT_I8, HT_U8, HT_I16, HT_I24, HT_U16, HT_U24 = 20, 21, 22, 23, 24, 25
+WA_I56, WA_BOOL = 1, 2
+WT_I8, WT_U8, WT_I16, WT_I24, WT_U16, WT_U24 = 20, 21, 22, 23, 24, 25
 BX_I64, BX_U64, BX_F32, BX_F64 = 26, 27, 30, 31
 TINYMAP, ARRAY, MAP, DECIMAL, STRING = 98, 100, 101, 102, 130
 ARRAY_U8, ARRAY_F64 = 2101, 2110
 
-_POD_INT = {HA_I56, HT_I8, HT_U8, HT_I16, HT_I24, HT_U16, HT_U24}
+_POD_INT = {WA_I56, WT_I8, WT_U8, WT_I16, WT_I24, WT_U16, WT_U24}
 
 
 class WritDecoder:
@@ -107,7 +107,7 @@ class WritDecoder:
             val = word >> 8
             if val >> 55:  # sign-extend i56
                 val -= (1 << 56)
-            if code == HA_BOOL:
+            if code == WA_BOOL:
                 return "true" if val else "false"
             return str(val)
         # Ref arm.
@@ -219,12 +219,12 @@ def _selftest():
     assert d.obj(16) == '"hi"', d.obj(16)
 
     # Pod AnyVal i56 = 42 at offset 64: word = (42<<8)|((1&0x7f)<<1)|1
-    word = (42 << 8) | (HA_I56 << 1) | 1
+    word = (42 << 8) | (WA_I56 << 1) | 1
     wr(64, word.to_bytes(8, "little"))
     assert d.anyval(64) == "42", d.anyval(64)
 
     # Pod bool true
-    word = (1 << 8) | (HA_BOOL << 1) | 1
+    word = (1 << 8) | (WA_BOOL << 1) | 1
     wr(72, word.to_bytes(8, "little"))
     assert d.anyval(72) == "true", d.anyval(72)
 
@@ -240,7 +240,7 @@ def _selftest():
     assert d.anyval(88) != '"hi"', d.anyval(88)
 
     # ObjectArray [7, 8]: header at 100 (tag 100 at byte 99), elems at 128.
-    pod = lambda v: ((v << 8) | (HA_I56 << 1) | 1).to_bytes(8, "little")
+    pod = lambda v: ((v << 8) | (WA_I56 << 1) | 1).to_bytes(8, "little")
     wr(128, pod(7)); wr(136, pod(8))
     buf[99] = ARRAY
     wr(100, (2).to_bytes(8, "little"))            # size

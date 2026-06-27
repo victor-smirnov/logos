@@ -67,7 +67,7 @@ grep -q "compiling 4 file(s) in parallel" "$PROJ/b1.log" || {
 for stem in a b c d; do
     [ -f "$PROJ/.lforge/debug/_files/core/$stem.o"       ] || { echo "FAIL: $stem.o missing"; exit 1; }
     [ -f "$PROJ/.lforge/debug/_files/core/$stem.writ0" ] || { echo "FAIL: $stem.writ0 missing"; exit 1; }
-    [ -f "$PROJ/.lforge/debug/_files/core/$stem.hm0"     ] || { echo "FAIL: $stem.hm0 missing"; exit 1; }
+    [ -f "$PROJ/.lforge/debug/_files/core/$stem.wr0"     ] || { echo "FAIL: $stem.wr0 missing"; exit 1; }
 done
 
 # Final archive exists, contains every per-file .o and .writ0.
@@ -75,7 +75,7 @@ done
 ar_list=$(ar t "$PROJ/.lforge/debug/out/libcore.a")
 for stem in a b c d; do
     echo "$ar_list" | grep -q "^$stem.o$"       || { echo "FAIL: archive missing $stem.o"; exit 1; }
-    echo "$ar_list" | grep -q "^$stem.hm0$"     || { echo "FAIL: archive missing $stem.hm0"; exit 1; }
+    echo "$ar_list" | grep -q "^$stem.wr0$"     || { echo "FAIL: archive missing $stem.wr0"; exit 1; }
 done
 
 # Consumer behaves correctly: 1+2+4+8 = 15.

@@ -10,7 +10,7 @@ set(STDLIB ${CMAKE_SOURCE_DIR}/stdlib)
 set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 
 # Rebuild when any Writ stdlib file changes.
-file(GLOB HERMES_STDLIB CONFIGURE_DEPENDS ${STDLIB}/writ/*.logos)
+file(GLOB WRIT_STDLIB CONFIGURE_DEPENDS ${STDLIB}/writ/*.logos)
 
 # `metaprog` examples additionally link against liblstdlib_rt.a (asm /
 # weak metaprog stubs) since some of those symbols are referenced from
@@ -30,7 +30,7 @@ function(logos_add_example NAME)
     # because its bodies reference host-only externs); they get -I source.
     # Native runtime archives (fiber switch, liburing wrappers) sit
     # alongside liblstdlib.a and feed the link line.
-    set(_compile_deps logosc ${SRC} ${HERMES_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
+    set(_compile_deps logosc ${SRC} ${WRIT_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
     set(_compile_extra)
     set(_link_archives
         ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a

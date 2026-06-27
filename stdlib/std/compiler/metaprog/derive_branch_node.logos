@@ -123,7 +123,7 @@ unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
     return WAny::Ref(0i64 as *const u8);
 }
 
-// In a HERMES_MAP node (AST shape: { CODE: HERMES_MAP, ITEMS: [HERMES_ENTRY{KEY,VALUE},...] }),
+// In a WRIT_MAP node (AST shape: { CODE: WRIT_MAP, ITEMS: [WRIT_ENTRY{KEY,VALUE},...] }),
 // find the entry whose KEY matches `key` byte-for-byte and return its
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
 fn writ_map_get(view: &OView, hmap: WAny, key: str) -> WAny {
@@ -135,7 +135,7 @@ fn writ_map_get(view: &OView, hmap: WAny, key: str) -> WAny {
     while i < n {
         let entry: WAny = view.array_get(items, i);
         // entry has KEY (field 18) and VALUE (field 7); KEY is a STRING-
-        // captured token with quotes around it, same as LIT_STR/HERMES_STR.
+        // captured token with quotes around it, same as LIT_STR/WRIT_STR.
         let key_av: WAny = view.tiny_map_get(entry, 51 as u8);   // KEY
         let raw: SView = view.get_str_view(key_av);
         if raw.len >= (2 as u64) {
@@ -214,7 +214,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
         Ident { ptr: s.as_ptr(), len: s.len() as u64 }
     };
 
-    // Op-list discovery. Each op is a HERMES_MAP with keys
+    // Op-list discovery. Each op is a WRIT_MAP with keys
     // "field" (col name), "type" (elem type), "kind" ("SUM" or "MAX").
     // Three parallel cursors drive both struct-field emission and
     // shuttle-wrapper emission below.

@@ -42,7 +42,7 @@ build_import_table_blob(std::string_view                module_name,
     }
 
     LOGOS_TRY_VOID(root->put(import_table::SCHEMA_VERSION,
-        AnyVal::pod(import_table::CURRENT_VERSION, tc::HT_U24), a));
+        AnyVal::pod(import_table::CURRENT_VERSION, tc::WT_U24), a));
     LOGOS_TRY_VOID(root->put(import_table::MODULE_NAME, ref_to(name_str),    a));
     LOGOS_TRY_VOID(root->put(import_table::IMPORTS,     ref_to(imports_arr), a));
 

@@ -2223,10 +2223,10 @@ void SemaChecker::collect_const(TinyMapView node) {
                     vc == la::LIT_CHAR || vc == la::LIT_HSTATIC ||
                     vc == la::LIT_BYTES)
                     return true;
-                if (vc == la::HERMES_MAP.code  || vc == la::HERMES_ARRAY.code ||
-                    vc == la::HERMES_STR.code  || vc == la::HERMES_INT.code  ||
-                    vc == la::HERMES_NEG_INT.code || vc == la::HERMES_FLOAT.code ||
-                    vc == la::HERMES_BOOL.code || vc == la::HERMES_NULL.code)
+                if (vc == la::WRIT_MAP.code  || vc == la::WRIT_ARRAY.code ||
+                    vc == la::WRIT_STR.code  || vc == la::WRIT_INT.code  ||
+                    vc == la::WRIT_NEG_INT.code || vc == la::WRIT_FLOAT.code ||
+                    vc == la::WRIT_BOOL.code || vc == la::WRIT_NULL.code)
                     return true;  // WritStatic literal — handled separately
                 if (vc == la::METACALL) return true;
                 if (vc == la::CAST) {
@@ -2345,12 +2345,12 @@ void SemaChecker::collect_const(TinyMapView node) {
             auto vc = code_of(val_node);
             // writ_lit produces LIT_HSTATIC at expression position when
             // the literal flows through a type-arg slot; here the value-AST
-            // IS the writ literal (HERMES_MAP / HERMES_ARRAY / scalar).
+            // IS the writ literal (WRIT_MAP / WRIT_ARRAY / scalar).
             // resolve_type's hstatic-lit handling expects a LIT_HSTATIC
             // wrapper. The legacy path went through hstatic_lit_type which
             // emitted LIT_HSTATIC; const_def's value is the bare writ_lit
             // node, so we synthesise a LIT_HSTATIC view by resolving via
-            // the LIT_HSTATIC/HERMES_* code path directly.
+            // the LIT_HSTATIC/WRIT_* code path directly.
             //
             // Easiest: detect bare writ_lit AST codes and route them
             // through the existing LIT_HSTATIC handler in resolve_type by

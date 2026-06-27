@@ -13,7 +13,7 @@
 //       i = i + 1;
 //   }
 //
-// STEP 5 (cut-over): reflect::<T>() emits the TypeInfo blob in HERMES2 format, so
+// STEP 5 (cut-over): reflect::<T>() emits the TypeInfo blob in WRIT2 format, so
 // the reads go through the writ2 reader WView2 (lang.writ2.static_view) rather
 // than the Writ1 WritView. The public API (WritStatic handle in, StringView
 // out) is unchanged. The node handle is stashed in the view structs as the raw

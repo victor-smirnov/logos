@@ -60,8 +60,8 @@ int main() {
         auto doc = WritCtr::make(); CHECK(doc.has_value(), 18);
         Arena& ar = doc->arena();
         auto arr = ObjectArray::create(ar, 2); CHECK(arr.has_value(), 19);
-        (void)(*arr)->push_back(AnyVal::pod(7, tc::HA_I56), ar);
-        (void)(*arr)->push_back(AnyVal::pod_bool(false, tc::HA_BOOL), ar);
+        (void)(*arr)->push_back(AnyVal::pod(7, tc::WA_I56), ar);
+        (void)(*arr)->push_back(AnyVal::pod_bool(false, tc::WA_BOOL), ar);
         AnyVal rv; rv.set_ref(*arr); doc->set_root(rv);
 
         std::string s = stringify(*doc);

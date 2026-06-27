@@ -2935,7 +2935,7 @@ private:
     // @{ … <type:T1> … };`. Stores the templated value-AST node + type-params
     // declaration. At each use-site `X<concrete1, concrete2>` sema pushes the
     // type-args into current_type_params_ and re-resolves the value-AST under
-    // that scope — slot lookups (`<type:T1>` HERMES_TYPE_LIT) hit the bound
+    // that scope — slot lookups (`<type:T1>` WRIT_TYPE_LIT) hit the bound
     // type, and the FNV hash of the AST walk substitutes the TypeVar name
     // for the concrete type's str representation, yielding a fresh
     // per-instantiation WStaticLit identity.
@@ -3549,7 +3549,7 @@ private:
     // ── Type resolution ──────────────────────────────────────────
 
     TypeRef resolve_type(writ::TinyMapView node);
-    // Hash a bare writ_lit AST (HERMES_MAP / _ARRAY / scalars) and register
+    // Hash a bare writ_lit AST (WRIT_MAP / _ARRAY / scalars) and register
     // its lowered LIR WritVal in cur_prog_->hstatic_registry_; return the
     // corresponding WStaticLit TypeRef. Shared between the LIT_HSTATIC type-
     // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
@@ -3922,7 +3922,7 @@ private:
     lir::LExprPtr lower_quote_ty(writ::TinyMapView node);
 
     // Capture context: non-null while lowering a writ literal that has $-captures.
-    // lower_writ_val populates it as it encounters HERMES_CAP_IDENT/EXPR nodes.
+    // lower_writ_val populates it as it encounters WRIT_CAP_IDENT/EXPR nodes.
     struct WritCapCtx {
         std::vector<lir::LExprPtr>               exprs;       // unique capture expressions
         std::vector<TypeRef>             types;       // corresponding types
@@ -4046,7 +4046,7 @@ private:
     // checker with empty type pool — resolve_type would fail).
     std::string render_type_src_syntactic_(writ::TinyMapView node);
     // Inner Writ literal renderer — used recursively from
-    // render_expr_src for HERMES_MAP entries / HERMES_ARRAY elements.
+    // render_expr_src for WRIT_MAP entries / WRIT_ARRAY elements.
     // Omits the `@` prefix on scalars (grammar's writ_val production
     // doesn't accept `@4` / `@"x"` at this position; outer writ_lit
     // does).
@@ -4115,7 +4115,7 @@ private:
     lir::Pattern build_pattern_or(writ::TinyMapView pnode, TypeRef scrut_type);
     // Helper for inline PatWild construction with eager mirror emit.
     lir::Pattern make_pat_wild(std::string_view name);
-    // If pnode is a Writ scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a
+    // If pnode is a Writ scalar pattern (PAT_WRIT_NULL/BOOL/INT), returns a
     // bool-typed guard call that evaluates the pattern against `scrut_var`
     // (which must be an AnyVal).  Returns nullptr otherwise.
     struct WritPatBinding {
@@ -4149,7 +4149,7 @@ private:
     }
     // True while lowering match arms where Writ scalar patterns are
     // explicitly handled by the caller (desugared to guard). Outside this
-    // context, PAT_HERMES_* in build_pattern is a diagnostic.
+    // context, PAT_WRIT_* in build_pattern is a diagnostic.
     bool in_match_writ_ctx_ = false;
     // P4-pm-02: side channel for build_pattern to register nested
     // sub-pats that need irrefutable destructure in the arm-body prologue

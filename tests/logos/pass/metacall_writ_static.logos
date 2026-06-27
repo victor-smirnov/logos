@@ -1,5 +1,5 @@
 // metacall returning WritStatic — callee builds an @-literal and the
-// driver freezes its blob bytes into rodata, splicing a HERMES_BLOB into
+// driver freezes its blob bytes into rodata, splicing a WRIT_BLOB into
 // the AST. The user-facing type stays WritStatic.
 //
 // Parity check: the same callee is invoked at runtime (no metacall),
@@ -14,7 +14,7 @@ fn build_cfg() -> WritStatic {
 }
 
 unsafe fn main() -> i32 {
-    // Compile-time: blob is spliced into rodata as HERMES_BLOB.
+    // Compile-time: blob is spliced into rodata as WRIT_BLOB.
     let cfg_meta: WritStatic = metacall build_cfg();
     
 

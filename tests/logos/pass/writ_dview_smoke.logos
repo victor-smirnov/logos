@@ -35,7 +35,7 @@ fn main() -> i32 {
     match DView::from(&f).compare(&DView::from(&t)) { Ordering::Less => {} _ => { return 10; } }
 
     // tag = (space:8, code:56). A captured i64's tag is Writ-space, code H2_I64.
-    if dv_space(va.type_code()) != DV_SPACE_HERMES { return 11; }
+    if dv_space(va.type_code()) != DV_SPACE_WRIT { return 11; }
     if dv_code(va.type_code()) != 26u64 { return 12; }   // H2_I64
     // pack/unpack a Logos-space tag (e.g. captured heap String, code 130) —
     // distinct space, code preserved, no collision with the 56-bit code.

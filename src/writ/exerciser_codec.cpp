@@ -33,10 +33,10 @@ int main() {
     ObjectMap* m = *map;
     auto nm = ArenaString::create(a, "Ada"); CHECK(nm.has_value(), 3);
     AnyVal nmr; nmr.set_ref(*nm); (void)m->put("name", nmr, a);
-    (void)m->put("age", AnyVal::pod(36, tc::HA_I56), a);
-    (void)m->put("flag", AnyVal::pod_bool(true, tc::HA_BOOL), a);
+    (void)m->put("age", AnyVal::pod(36, tc::WA_I56), a);
+    (void)m->put("flag", AnyVal::pod_bool(true, tc::WA_BOOL), a);
     auto arr = ObjectArray::create(a, 4); CHECK(arr.has_value(), 4);
-    for (int i = 1; i <= 3; ++i) (void)(*arr)->push_back(AnyVal::pod(i, tc::HA_I56), a);
+    for (int i = 1; i <= 3; ++i) (void)(*arr)->push_back(AnyVal::pod(i, tc::WA_I56), a);
     AnyVal ar; ar.set_ref(*arr); (void)m->put("nums", ar, a);
     auto ua = ArrayU8::create(a, 2); CHECK(ua.has_value(), 5);
     (void)(*ua)->push_back(9, a); (void)(*ua)->push_back(8, a);

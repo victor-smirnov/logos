@@ -51,7 +51,7 @@ int main() {
         CHECK(rmx.aid == arena_id_t{0x00FFFFFF} && rmx.oid == 0xFFFFFFFFu, 4);
 
         // A plain int Pod / a Ref / null are NOT external refs.
-        CHECK(!is_external_ref_av(AnyVal::pod(42, tc::HA_I56)), 5);
+        CHECK(!is_external_ref_av(AnyVal::pod(42, tc::WA_I56)), 5);
         CHECK(!is_external_ref_av(AnyVal{}), 6);
     }
 
@@ -118,7 +118,7 @@ int main() {
         auto str = ArenaString::create(a, "payload"); CHECK(str.has_value(), 42);
         AnyVal sref; sref.set_ref(*str);
         (void)(*arr)->push_back(external_ref_av(arena_id_t{0x123456}, 0x89ABCDEFu), a);
-        (void)(*arr)->push_back(AnyVal::pod(1234, tc::HA_I56), a);
+        (void)(*arr)->push_back(AnyVal::pod(1234, tc::WA_I56), a);
         (void)(*arr)->push_back(sref, a);
         AnyVal root; root.set_ref(*arr);
         d.set_root(root);

@@ -46,7 +46,7 @@ int main() {
         CHECK(AnyVal::null().raw() == 0, 11);
 
         // Pod(36, code=1) → (36<<8)|(1<<1)|1 = 0x2403
-        AnyVal p = AnyVal::pod(36, /*HA_I56=*/1);
+        AnyVal p = AnyVal::pod(36, /*WA_I56=*/1);
         CHECK(p.is_pod(), 12);
         CHECK(p.raw() == ((36 << 8) | (1 << 1) | 1), 13);
         CHECK(p.raw() == 0x2403, 14);
@@ -57,7 +57,7 @@ int main() {
         AnyVal neg = AnyVal::pod(-5, 1);
         CHECK(neg.as_i56() == -5, 17);
 
-        AnyVal b = AnyVal::pod_bool(true, /*HA_BOOL=*/2);
+        AnyVal b = AnyVal::pod_bool(true, /*WA_BOOL=*/2);
         CHECK(b.is_pod() && b.pod_code() == 2 && b.as_bool(), 18);
 
         // Ref: self-relative to a ≥2-aligned target, resolves back; low bit 0.

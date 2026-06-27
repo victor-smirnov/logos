@@ -5,7 +5,7 @@
 // doc whose VAR_REF carries NAME_VAR=int_idx_0; the runtime shim
 // `logos_quote_expr_subst` substitutes idents[0]→"y", re-roots to
 // the inner expr, and returns ExprBlob{ptr} bytes. The metacall
-// driver splices a HERMES_BLOB; pass-2 sema's `lower_writ_blob`
+// driver splices a WRIT_BLOB; pass-2 sema's `lower_writ_blob`
 // recurses `lower_expr` on a `VAR_REF{NAME="y"}` TOM, resolving to
 // the local `y` in main's scope.
 package quote_expr_antiquot;

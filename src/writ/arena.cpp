@@ -64,9 +64,9 @@ logos::expected<Arena> Arena::from_bytes(const void* data, size_t size) noexcept
 }
 
 void Arena::rollback(size_t pos) noexcept {
-    LOGOS_ASSERT(mode_ == ArenaMode::GrowableSingleChunk, "HERMES-ARENA-004",
+    LOGOS_ASSERT(mode_ == ArenaMode::GrowableSingleChunk, "WRIT-ARENA-004",
         "Arena::rollback requires GrowableSingleChunk mode");
-    LOGOS_ASSERT(pos <= head().used, "HERMES-ARENA-004",
+    LOGOS_ASSERT(pos <= head().used, "WRIT-ARENA-004",
         "Arena::rollback: pos {} > used {}", pos, head().used);
     std::memset(head().data() + pos, 0, head().used - pos);
     head().used = pos;
@@ -78,11 +78,11 @@ void Arena::seal() noexcept {
 
 logos::expected<void*>
 Arena::allocate(size_t size, size_t alignment, TypeTag tag) noexcept {
-    LOGOS_ASSERT(!is_sealed(), "HERMES-ARENA-002",
+    LOGOS_ASSERT(!is_sealed(), "WRIT-ARENA-002",
         "Arena::allocate() called on a sealed arena");
-    LOGOS_ASSERT(alignment >= 2, "HERMES-ARENA-001",
+    LOGOS_ASSERT(alignment >= 2, "WRIT-ARENA-001",
         "Arena alignment must be >= 2 (got {}), required for TypeTag placement", alignment);
-    LOGOS_ASSERT(size > 0, "HERMES-ARENA-001",
+    LOGOS_ASSERT(size > 0, "WRIT-ARENA-001",
         "Arena allocation size must be > 0");
 
     size_t tag_bytes = tag.byte_length();
@@ -93,7 +93,7 @@ Arena::allocate(size_t size, size_t alignment, TypeTag tag) noexcept {
         if (!res) [[unlikely]]
             return std::unexpected(std::move(res.error()));
         addr = try_allocate_in_tail(size, alignment, tag_bytes);
-        LOGOS_ASSERT(addr != nullptr, "HERMES-ARENA-001",
+        LOGOS_ASSERT(addr != nullptr, "WRIT-ARENA-001",
             "Arena allocation failed after grow for size={}, alignment={}", size, alignment);
     }
 
@@ -113,7 +113,7 @@ Arena::allocate(size_t size, size_t alignment, TypeTag tag) noexcept {
 
 logos::expected<void*>
 Arena::allocate_raw(size_t size, size_t alignment) noexcept {
-    LOGOS_ASSERT(!is_sealed(), "HERMES-ARENA-002",
+    LOGOS_ASSERT(!is_sealed(), "WRIT-ARENA-002",
         "Arena::allocate_raw() called on a sealed arena");
     uint8_t* addr = try_allocate_in_tail(size, alignment, 0);
     if (!addr) {
@@ -121,7 +121,7 @@ Arena::allocate_raw(size_t size, size_t alignment) noexcept {
         if (!res) [[unlikely]]
             return std::unexpected(std::move(res.error()));
         addr = try_allocate_in_tail(size, alignment, 0);
-        LOGOS_ASSERT(addr != nullptr, "HERMES-ARENA-001",
+        LOGOS_ASSERT(addr != nullptr, "WRIT-ARENA-001",
             "Arena raw allocation failed after grow for size={}, alignment={}", size, alignment);
     }
 

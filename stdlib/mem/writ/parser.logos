@@ -18,7 +18,7 @@ package logos.mem.writ.parser;
 
 use logos.lang.writ.allocator;   // Allocator
 use logos.lang.writ.container;   // Writ, alloc_tagged, writ_alloc_bytes
-use logos.lang.writ.anyval;      // WAny, HA_I56
+use logos.lang.writ.anyval;      // WAny, WA_I56
 use logos.lang.writ.array;       // WArray<WAny>
 use logos.lang.writ.hmap;        // WMap<WString, WAny>
 use logos.lang.writ.hstring;     // WString

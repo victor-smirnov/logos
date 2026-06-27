@@ -41,12 +41,12 @@ namespace logos::writ {
 // that CHANGED value: WritString 28→130 and Bool 37→2 (the writ2 wire codes).
 namespace type_hash {
 inline constexpr uint64_t WritString  = tc::STRING;     // 130 (Writ1 used 28)
-inline constexpr uint64_t Bool          = tc::HA_BOOL;    // 2   (Writ1 used 37)
+inline constexpr uint64_t Bool          = tc::WA_BOOL;    // 2   (Writ1 used 37)
 inline constexpr uint64_t TinyObjectMap = tc::TINYMAP;    // 98
 inline constexpr uint64_t Array         = tc::ARRAY;      // 100
 inline constexpr uint64_t ObjectMap     = tc::MAP;        // 101
 inline constexpr uint64_t Type          = 107;            // schema_type_code value (verbatim)
-inline constexpr uint64_t U24           = tc::HT_U24;     // 25
+inline constexpr uint64_t U24           = tc::WT_U24;     // 25
 inline constexpr uint64_t MapI32AnyVal  = tc::MAP_I32;
 inline constexpr uint64_t MapU32AnyVal  = tc::MAP_U32;
 inline constexpr uint64_t MapI64AnyVal  = tc::MAP_I64;

@@ -10,7 +10,7 @@
 // container is then dead and freed en masse (its holder dropped) — no per-object
 // reclaim, no in-place moves.
 //
-// It is the inverse-free twin of stringify/hbs_write: same type_code-dispatched
+// It is the inverse-free twin of stringify/wbs_write: same type_code-dispatched
 // walk, but the sink is a live arena rather than text/bytes. (Old → new is a pure
 // copy; the old bytes are never mutated — design §4 "compaction = copy, not move".)
 

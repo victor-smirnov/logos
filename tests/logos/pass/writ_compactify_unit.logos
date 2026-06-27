@@ -11,7 +11,7 @@ use logos.lang.writ.hstring;
 use logos.lang.writ.compactify;
 use logos.mem.writ.parser;
 use logos.mem.writ.stringify;
-use logos.mem.writ.hbs;
+use logos.mem.writ.wbs;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
@@ -28,9 +28,9 @@ fn main() -> i32 {
     if !str_eq(stringify(comp).as_str(), before.as_str()) { return 1; }   // identical content
 
     // the compacted copy is fully independent — round-trips through HBS by itself
-    let bytes: Vec<u8> = hbs_write(comp);
+    let bytes: Vec<u8> = wbs_write(comp);
     let h3: Writ = writ_new(4096i64);
-    let back: WAny = hbs_read(&h3, bytes.as_slice().as_ptr(), bytes.len());
+    let back: WAny = wbs_read(&h3, bytes.as_slice().as_ptr(), bytes.len());
     if !str_eq(stringify(back).as_str(), before.as_str()) { return 2; }
 
     // spot-check structure of the compacted map

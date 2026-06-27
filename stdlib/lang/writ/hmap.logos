@@ -20,7 +20,7 @@ package logos.lang.writ.hmap;
 
 use logos.lang.writ.container;   // Writ, writ_alloc / _n
 use logos.lang.writ.allocator;   // Allocator, allocator_alloc
-use logos.lang.writ.anyval;      // WAny (niche enum), WAnyMut, HA_I56 — at-rest via *zoned
+use logos.lang.writ.anyval;      // WAny (niche enum), WAnyMut, WA_I56 — at-rest via *zoned
 use logos.lang.writ.hstring;     // WString, hstring_in_alloc
 use logos.lang.writ.array;       // WArray<WAny> + WAny::from(&Array) — for nested values
 use logos.lang.hash;                // fnv1a_bytes
@@ -314,7 +314,7 @@ pub struct WMap<Hu6, V> {
 // The bitmap-indexed tiny map (Writ1 TinyObjectMap); was the standalone WTinyValMap.
 pub type WTinyValMap = WMap<Hu6, WAny>;
 
-const HTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bitmap
+const WTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bitmap
 
 unsafe fn htv_new(h: *mut Writ, cap: i64) -> *mut WMap<Hu6, WAny> {
     let c: i64 = if cap > 52i64 { 52i64 } else { if cap < 0i64 { 0i64 } else { cap } };
@@ -339,13 +339,13 @@ impl WMap<Hu6, WAny> {
 
     // Is `key` present?
     pub fn contains(self: &WMap<Hu6, WAny>, key: u8) -> bool {
-        return (self.header & HTV_BITMAP_MASK & (1u64 << (key as u64))) != 0u64;
+        return (self.header & WTV_BITMAP_MASK & (1u64 << (key as u64))) != 0u64;
     }
 
     // Value at `key`, or null WAny if absent / key out of range.
     pub fn get(self: &WMap<Hu6, WAny>, key: u8) -> WAny {
         if key >= 52u8 { return WAny::ref_to(0i64 as *const u8); }
-        let bitmap: u64 = self.header & HTV_BITMAP_MASK;
+        let bitmap: u64 = self.header & WTV_BITMAP_MASK;
         let kb: u64 = 1u64 << (key as u64);
         if (bitmap & kb) == 0u64 { return WAny::ref_to(0i64 as *const u8); }
         let pos: i64 = popcount_u64(bitmap & (kb - 1u64)) as i64;
@@ -356,7 +356,7 @@ impl WMap<Hu6, WAny> {
     pub fn set(self: &mut WMap<Hu6, WAny>, key: u8, val: WAny) {
         if key >= 52u8 { return; }
         unsafe {
-            let bitmap: u64 = self.header & HTV_BITMAP_MASK;
+            let bitmap: u64 = self.header & WTV_BITMAP_MASK;
             let kb: u64  = 1u64 << (key as u64);
             let pos: i64 = popcount_u64(bitmap & (kb - 1u64)) as i64;
             let size: i64 = ((self.header >> 58u64) & 0x3Fu64) as i64;

@@ -2,7 +2,7 @@
 //
 // ExternalRef (Writ) — the cross-arena reference handle for the multi-arena IR.
 //
-// HERMES2 CHANGE vs Writ1: an ExternalRef is now an AnyVal **Pod niche**, not a
+// WRIT2 CHANGE vs Writ1: an ExternalRef is now an AnyVal **Pod niche**, not a
 // separately-allocated 7-byte tagged arena object. The 8-byte self-relative AnyVal
 // Pod arm carries a 56-bit value — EXACTLY arena_id(24) + obj_id(32). So the whole
 // reference fits inline with NO allocation:

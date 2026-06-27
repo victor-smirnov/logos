@@ -5349,7 +5349,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     // Generic compile-time const: `pub const X<T1, T2>: WritStatic =
     // @{...};`. Push type-args into current_type_params_ and re-resolve
     // the saved value-AST under that scope. resolve_hstatic_value walks
-    // the AST and substitutes TypeVar HERMES_TYPE_LIT names through
+    // the AST and substitutes TypeVar WRIT_TYPE_LIT names through
     // current_type_params_, producing a fresh per-instantiation
     // WStaticLit identity.
     {
@@ -6231,7 +6231,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     // Resolved to a special Struct type: struct_name="WritArr"/"WritMap",
     // type_args[0] = elem/key type, type_args[1] = val type (map only).
     // The result type of an `as <T>[]` cast is always Writ (owning zone).
-    if (tc == la::HERMES_ARR_TYPE) {
+    if (tc == la::WRIT_ARR_TYPE) {
         auto elem_name = str_of(node.get(la::TYPE.code));
         // Resolve element type — must be a known Writ scalar type name.
         static const StrMap<const char*> arr_elem_map = {
@@ -6264,7 +6264,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // Result type: struct LogosType with special name "WritArr".
         return make_generic_struct("WritArr", {elem_t});
     }
-    if (tc == la::HERMES_MAP_TYPE) {
+    if (tc == la::WRIT_MAP_TYPE) {
         auto key_name = str_of(node.get(la::TYPE.code));
         auto val_name = node.has_key(la::RET_TYPE.code)
             ? str_of(node.get(la::RET_TYPE.code)) : std::string_view{"AnyVal"};
@@ -6378,10 +6378,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     // Bare writ-lit codes also reach resolve_type when `pub const X:
     // WritStatic = @{...}` is being recognised in collect_const — there
     // the value-AST is the unwrapped writ_lit, not LIT_HSTATIC.
-    if (tc == la::HERMES_MAP.code || tc == la::HERMES_ARRAY.code ||
-        tc == la::HERMES_STR.code || tc == la::HERMES_INT.code ||
-        tc == la::HERMES_NEG_INT.code || tc == la::HERMES_FLOAT.code ||
-        tc == la::HERMES_BOOL.code || tc == la::HERMES_NULL.code) {
+    if (tc == la::WRIT_MAP.code || tc == la::WRIT_ARRAY.code ||
+        tc == la::WRIT_STR.code || tc == la::WRIT_INT.code ||
+        tc == la::WRIT_NEG_INT.code || tc == la::WRIT_FLOAT.code ||
+        tc == la::WRIT_BOOL.code || tc == la::WRIT_NULL.code) {
         return resolve_hstatic_value(node);
     }
 
@@ -6395,8 +6395,8 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
     {
         // FNV-1a 64-bit hash, schema-aware (content only, position-free).
         // Walks the writ_lit AST tree using each node CODE's known shape
-        // — distinguishes string-valued (HERMES_INT/STR/FLOAT) from
-        // map-valued (HERMES_ENTRY's VALUE) children, so identical content
+        // — distinguishes string-valued (WRIT_INT/STR/FLOAT) from
+        // map-valued (WRIT_ENTRY's VALUE) children, so identical content
         // at different source positions hashes to the same value.
         auto fnv_byte = [](uint64_t h, uint8_t b) {
             return (h ^ b) * 0x100000001b3ULL;
@@ -6414,7 +6414,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
         walk = [&](writ::TinyMapView n, uint64_t h) -> uint64_t {
             int32_t c = code_of(n);
             h = fnv_u64(h, (uint64_t)(int64_t)c);
-            if (c == la::HERMES_MAP.code || c == la::HERMES_ARRAY.code) {
+            if (c == la::WRIT_MAP.code || c == la::WRIT_ARRAY.code) {
                 if (n.has_key(la::ITEMS) && !n.get(la::ITEMS.code).is_null()) {
                     auto items = arr_of(n.get(la::ITEMS.code));
                     h = fnv_u64(h, (uint64_t)items.size());
@@ -6422,11 +6422,11 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     // for `pub const … = @{...}` via eval_static_writ_lit;
                     // hstatic literals at type-arg position skipped through here
                     // unchecked).
-                    if (c == la::HERMES_MAP.code) {
+                    if (c == la::WRIT_MAP.code) {
                         logos::compiler::StrSet seen_keys;
                         for (uint64_t i = 0; i < items.size(); ++i) {
                             auto entry = map_of(items.get(i));
-                            if (code_of(entry) != la::HERMES_ENTRY.code) continue;
+                            if (code_of(entry) != la::WRIT_ENTRY.code) continue;
                             if (!entry.has_key(la::KEY)) continue;
                             auto raw = str_of(entry.get(la::KEY.code));
                             std::string key(raw);
@@ -6441,7 +6441,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     for (uint64_t i = 0; i < items.size(); ++i)
                         h = walk(map_of(items.get(i)), h);
                 }
-            } else if (c == la::HERMES_ENTRY.code) {
+            } else if (c == la::WRIT_ENTRY.code) {
                 if (n.has_key(la::KEY))
                     h = fnv_str(h, str_of(n.get(la::KEY.code)));
                 if (n.has_key(la::VALUE))
@@ -6450,16 +6450,16 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     auto av = n.get(la::LO_NEG.code);
                     if (av.is_value() && av.as_value<uint8_t>() != 0) h = fnv_byte(h, 1);
                 }
-            } else if (c == la::HERMES_INT.code || c == la::HERMES_NEG_INT.code ||
-                       c == la::HERMES_FLOAT.code || c == la::HERMES_STR.code) {
+            } else if (c == la::WRIT_INT.code || c == la::WRIT_NEG_INT.code ||
+                       c == la::WRIT_FLOAT.code || c == la::WRIT_STR.code) {
                 if (n.has_key(la::VALUE))
                     h = fnv_str(h, str_of(n.get(la::VALUE.code)));
-            } else if (c == la::HERMES_BOOL.code) {
+            } else if (c == la::WRIT_BOOL.code) {
                 if (n.has_key(la::VALUE)) {
                     auto av = n.get(la::VALUE.code);
                     if (av.is_value() && av.as_value<uint8_t>() != 0) h = fnv_byte(h, 1);
                 }
-            } else if (c == la::HERMES_TYPE_LIT.code) {
+            } else if (c == la::WRIT_TYPE_LIT.code) {
                 // 3a': grammar feeds a simple_type child via TYPE — resolve
                 // it with current_type_params_ in scope and hash the
                 // canonical type_str. That subsumes the legacy NAME-only
@@ -6480,7 +6480,7 @@ TypeRef SemaChecker::resolve_hstatic_value(TinyMapView val_node) {
                     }
                 }
             }
-            // HERMES_NULL / unknown: code-only contribution (already mixed in).
+            // WRIT_NULL / unknown: code-only contribution (already mixed in).
             return h;
         };
         uint64_t hash = walk(val_node, 0xcbf29ce484222325ULL);

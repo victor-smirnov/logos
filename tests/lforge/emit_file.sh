@@ -47,20 +47,20 @@ mkdir -p "$PROJ/perfile"
 # Each invocation writes exactly two files with the requested prefix.
 [ -f "$PROJ/perfile/a.o" ]       || { echo "FAIL: a.o missing"; exit 1; }
 [ -f "$PROJ/perfile/a.writ0" ] || { echo "FAIL: a.writ0 missing"; exit 1; }
-[ -f "$PROJ/perfile/a.hm0" ]     || { echo "FAIL: a.hm0 missing"; exit 1; }
+[ -f "$PROJ/perfile/a.wr0" ]     || { echo "FAIL: a.wr0 missing"; exit 1; }
 [ -f "$PROJ/perfile/b.o" ]       || { echo "FAIL: b.o missing"; exit 1; }
 [ -f "$PROJ/perfile/b.writ0" ] || { echo "FAIL: b.writ0 missing"; exit 1; }
-[ -f "$PROJ/perfile/b.hm0" ]     || { echo "FAIL: b.hm0 missing"; exit 1; }
+[ -f "$PROJ/perfile/b.wr0" ]     || { echo "FAIL: b.wr0 missing"; exit 1; }
 
 # Per-file emit must NOT produce a .a (no `ar` step).
 [ ! -f "$PROJ/perfile/a.a" ] || { echo "FAIL: per-file emitted a .a"; exit 1; }
 
 # ── Aggregate per-file outputs into a library archive ──────────────────────
-# Use the ELF-wrapped .hm0 (not the raw .writ0) so ld.lld doesn't warn
+# Use the ELF-wrapped .wr0 (not the raw .writ0) so ld.lld doesn't warn
 # about non-ET_REL archive members at downstream link time.
 ar rcs "$PROJ/per.a" \
-    "$PROJ/perfile/a.o" "$PROJ/perfile/a.hm0" \
-    "$PROJ/perfile/b.o" "$PROJ/perfile/b.hm0"
+    "$PROJ/perfile/a.o" "$PROJ/perfile/a.wr0" \
+    "$PROJ/perfile/b.o" "$PROJ/perfile/b.wr0"
 
 # ── Consumer that uses both fns; built against per-file archive ────────────
 cat > "$PROJ/use.logos" <<'EOF'

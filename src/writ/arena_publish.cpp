@@ -52,7 +52,7 @@ lir_arena_root_begin(WritCtr&                       doc,
     // Wire the root's fields. (No re-fetch dance: the never-move arena keeps `root`
     // stable across these allocations.)
     LOGOS_TRY_VOID(root->put(lir_arena_root::SCHEMA_VERSION,
-        AnyVal::pod(lir_arena_root::CURRENT_VERSION, tc::HT_U24), a));
+        AnyVal::pod(lir_arena_root::CURRENT_VERSION, tc::WT_U24), a));
     LOGOS_TRY_VOID(root->put(lir_arena_root::MODULE_NAME, ref_to(name_str), a));
     LOGOS_TRY_VOID(root->put(lir_arena_root::DEPS,        ref_to(deps_arr), a));
     LOGOS_TRY_VOID(root->put(lir_arena_root::DIRECTORY,   ref_to(dir),      a));
@@ -85,7 +85,7 @@ arena_publish_named(ArenaPublishBuilder& b,
     LOGOS_ASSERT(!b.finalized, "ARENA-PUBLISH-NAMED-001",
         "arena_publish_named: builder already finalized; arena is sealed");
     LOGOS_TRY(uint32_t oid, arena_publish(b, target));
-    LOGOS_TRY_VOID(b.exports->put(name, AnyVal::pod(oid, tc::HT_U24), b.arena()));
+    LOGOS_TRY_VOID(b.exports->put(name, AnyVal::pod(oid, tc::WT_U24), b.arena()));
     return oid;
 }
 

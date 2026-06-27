@@ -456,34 +456,34 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
 
     // ── Writ literal expressions ──
     // Outer-position: prefix `@` (`@{...}`, `@[...]`, `@4`, `@"x"`,
-    // `@true`, `@null`). Inner positions (HERMES_MAP entry VALUEs,
-    // HERMES_ARRAY items) call render_writ_val_inner_ which omits
+    // `@true`, `@null`). Inner positions (WRIT_MAP entry VALUEs,
+    // WRIT_ARRAY items) call render_writ_val_inner_ which omits
     // the `@` for scalars (grammar rejects `@4` at writ_val position;
     // map/array can go either way, we omit for cleanliness).
-    case la::HERMES_NULL: return "@null";
-    case la::HERMES_BOOL: {
+    case la::WRIT_NULL: return "@null";
+    case la::WRIT_BOOL: {
         AnyVal v = node.get(la::VALUE.code);
         bool b = !v.is_null() && v.is_value() && v.as_value<uint8_t>() != 0;
         return b ? "@true" : "@false";
     }
-    case la::HERMES_INT:
+    case la::WRIT_INT:
         return "@" + std::string(str_of(node.get(la::VALUE.code)));
-    case la::HERMES_NEG_INT:
+    case la::WRIT_NEG_INT:
         return "@-" + std::string(str_of(node.get(la::VALUE.code)));
-    case la::HERMES_FLOAT:
+    case la::WRIT_FLOAT:
         return "@" + std::string(str_of(node.get(la::VALUE.code)));
-    case la::HERMES_STR: {
+    case la::WRIT_STR: {
         auto raw = str_of(node.get(la::VALUE.code));
         return "@" + std::string(raw);
     }
-    case la::HERMES_MAP: {
+    case la::WRIT_MAP: {
         std::string s = "@{";
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) s += ", ";
                 auto entry = map_of(items.get(i));
-                if (code_of(entry) == la::HERMES_ENTRY) {
+                if (code_of(entry) == la::WRIT_ENTRY) {
                     auto key = str_of(entry.get(la::KEY.code));
                     s += std::string(key);
                     s += ": ";
@@ -495,7 +495,7 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         s += "}";
         return s;
     }
-    case la::HERMES_ARRAY: {
+    case la::WRIT_ARRAY: {
         std::string s = "@[";
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
@@ -507,7 +507,7 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         s += "]";
         return s;
     }
-    case la::HERMES_TYPE_LIT: {
+    case la::WRIT_TYPE_LIT: {
         // `<type:T>` — a Logos type embedded in a Writ literal.
         std::string s = "<type:";
         if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
@@ -529,10 +529,10 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         s += ">";
         return s;
     }
-    case la::HERMES_CAP_IDENT: {
+    case la::WRIT_CAP_IDENT: {
         return "$" + std::string(str_of(node.get(la::NAME.code)));
     }
-    case la::HERMES_CAP_EXPR: {
+    case la::WRIT_CAP_EXPR: {
         return "${" + render_expr_src(map_of(node.get(la::VALUE.code))) + "}";
     }
     case la::UNSAFE_BLOCK: {
@@ -1477,30 +1477,30 @@ std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {
     if (node.is_null()) return "null";
     int32_t c = code_of(node);
     switch (c) {
-    case la::HERMES_NULL:  return "null";
-    case la::HERMES_BOOL: {
+    case la::WRIT_NULL:  return "null";
+    case la::WRIT_BOOL: {
         AnyVal v = node.get(la::VALUE.code);
         bool b = !v.is_null() && v.is_value() && v.as_value<uint8_t>() != 0;
         return b ? "true" : "false";
     }
-    case la::HERMES_INT:
+    case la::WRIT_INT:
         return std::string(str_of(node.get(la::VALUE.code)));
-    case la::HERMES_NEG_INT:
+    case la::WRIT_NEG_INT:
         return "-" + std::string(str_of(node.get(la::VALUE.code)));
-    case la::HERMES_FLOAT:
+    case la::WRIT_FLOAT:
         return std::string(str_of(node.get(la::VALUE.code)));
-    case la::HERMES_STR: {
+    case la::WRIT_STR: {
         // VALUE is the STRING token captured WITH quotes — emit as-is.
         return std::string(str_of(node.get(la::VALUE.code)));
     }
-    case la::HERMES_MAP: {
+    case la::WRIT_MAP: {
         std::string s = "{";
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) s += ", ";
                 auto entry = map_of(items.get(i));
-                if (code_of(entry) == la::HERMES_ENTRY) {
+                if (code_of(entry) == la::WRIT_ENTRY) {
                     s += std::string(str_of(entry.get(la::KEY.code)));
                     s += ": ";
                     if (entry.has_key(la::VALUE))
@@ -1511,7 +1511,7 @@ std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {
         s += "}";
         return s;
     }
-    case la::HERMES_ARRAY: {
+    case la::WRIT_ARRAY: {
         std::string s = "[";
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
@@ -1523,7 +1523,7 @@ std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {
         s += "]";
         return s;
     }
-    case la::HERMES_TYPE_LIT: {
+    case la::WRIT_TYPE_LIT: {
         std::string s = "<type:";
         if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
         s += ">";

@@ -34,7 +34,7 @@ int main() {
     auto nm = ArenaString::create(a, "Ada");  CHECK(nm.has_value(), 4);
     AnyVal nmref; nmref.set_ref(*nm); (void)map->put("name", nmref, a);
     auto arr = ObjectArray::create(a, 4);     CHECK(arr.has_value(), 5);
-    for (int i = 1; i <= 3; ++i) (void)(*arr)->push_back(AnyVal::pod(i, tc::HA_I56), a);
+    for (int i = 1; i <= 3; ++i) (void)(*arr)->push_back(AnyVal::pod(i, tc::WA_I56), a);
     AnyVal aref; aref.set_ref(*arr); (void)map->put("nums", aref, a);
     AnyVal rootv; rootv.set_ref(map);
     doc.set_root(rootv);

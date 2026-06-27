@@ -1654,7 +1654,7 @@ struct ECastView {
     ExprRef self;
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
     std::string_view writ_build_fn() const noexcept {
-        return detail::read_string(self, ek::HERMES_BUILD_FN.code);
+        return detail::read_string(self, ek::WRIT_BUILD_FN.code);
     }
 };
 

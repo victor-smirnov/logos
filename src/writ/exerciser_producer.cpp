@@ -25,10 +25,10 @@ namespace nc { enum : int32_t { MODULE = 100, FN = 101 }; }
 static TinyObjectMap* make_node(WritCtr& doc, int32_t code, std::string_view name, int32_t line) {
     auto* n = *doc.make_tiny_map(4);
     n->set_schema_type_code(schema::ast(code));                     // discriminant in the header
-    (void)n->put(la::CODE, AnyVal::from_value(code, tc::HT_I24), doc.arena());
+    (void)n->put(la::CODE, AnyVal::from_value(code, tc::WT_I24), doc.arena());
     StringView s = *doc.make_string(name);
     (void)n->put(la::NAME, s.to_anyval(), doc.arena());
-    (void)n->put(la::SRC_LINE, AnyVal::from_value(line, tc::HT_U24), doc.arena());
+    (void)n->put(la::SRC_LINE, AnyVal::from_value(line, tc::WT_U24), doc.arena());
     return n;
 }
 

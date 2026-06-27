@@ -149,7 +149,7 @@ void str_obj(const uint8_t* obj, std::string& out) {
 void str_av(AnyVal av, std::string& out) {
     if (av.is_null()) { out += "null"; return; }
     if (av.is_pod()) {
-        if (av.pod_code() == tc::HA_BOOL) out += av.as_bool() ? "true" : "false";
+        if (av.pod_code() == tc::WA_BOOL) out += av.as_bool() ? "true" : "false";
         else out += std::to_string(av.as_i56());
         return;
     }

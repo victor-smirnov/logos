@@ -109,7 +109,7 @@ Original report:
   from the stdlib generic-parameter namespace. Low-severity but a real footgun;
   worked around in every B109 port by avoiding 1-letter type names.
 - **Root cause (investigated 2026-05-21):** stdlib generic templates are
-  re-lowered from AST in the *user's* compilation context (per the .hm0 design).
+  re-lowered from AST in the *user's* compilation context (per the .wr0 design).
   When the user declares a concrete type `T`, it is registered in the global
   struct/enum registry; while re-lowering a stdlib generic whose TYPE-PARAMETER
   is also named `T` (e.g. `FilterIter<T>`), `resolve_type("T")` finds the user's

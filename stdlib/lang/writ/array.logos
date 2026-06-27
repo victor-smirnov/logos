@@ -238,7 +238,7 @@ impl WAny {
 // `*(buf.add(i))` is an ordinary load/store.
 
 // Per-element Writ wire tag (WritTag ArrayU8=2101 .. ArrayF64=2110) so a typed
-// array carries the precise element-type code (type_code() emits it; hbs-ready).
+// array carries the precise element-type code (type_code() emits it; wbs-ready).
 pub trait WArrTag { fn arr_code() -> u64; }
 impl WArrTag for u8  { fn arr_code() -> u64 { return 2101u64; } }
 impl WArrTag for u16 { fn arr_code() -> u64 { return 2102u64; } }

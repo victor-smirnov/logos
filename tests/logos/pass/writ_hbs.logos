@@ -4,7 +4,7 @@ package writ_hbs;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.mem.writ.parser;
-use logos.mem.writ.hbs;
+use logos.mem.writ.wbs;
 use logos.mem.writ.equal;
 use logos.mem.writ.stringify;
 use logos.mem.collections.vec;
@@ -21,14 +21,14 @@ unsafe fn main() -> i32 {
     let s1: String = stringify(src);
 
     // 2. Serialize to bytes.
-    let wire: Vec<u8> = hbs_write(src);
+    let wire: Vec<u8> = wbs_write(src);
     if wire.len() == 0 { return 1; }
 
     // 3. Deserialize into a second container.
     let rc2: Rc<Writ> = writ_rc(32768);
     let h2: &Writ = rc2.deref();
     let ws: &[u8] = wire.as_slice();
-    let dst: WAny = hbs_read(h2, ws.as_ptr(), wire.len() as i64);
+    let dst: WAny = wbs_read(h2, ws.as_ptr(), wire.len() as i64);
     if dst.is_null() { return 2; }
 
     // 4. Structural equality + identical render.

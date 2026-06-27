@@ -37,8 +37,8 @@ int main() {
     auto arr_exp = ObjectArray::create(arena, 2);
     CHECK(arr_exp.has_value(), 6);
     ObjectArray* arr = *arr_exp;
-    CHECK(arr->push_back(AnyVal::pod(10, tc::HA_I56), arena).has_value(), 7);
-    CHECK(arr->push_back(AnyVal::pod(20, tc::HA_I56), arena).has_value(), 8);
+    CHECK(arr->push_back(AnyVal::pod(10, tc::WA_I56), arena).has_value(), 7);
+    CHECK(arr->push_back(AnyVal::pod(20, tc::WA_I56), arena).has_value(), 8);
     AnyVal arrref; arrref.set_ref(arr);
     CHECK(map->put("nums", arrref, arena).has_value(), 9);
 
@@ -72,7 +72,7 @@ int main() {
             CHECK(holder->use_count() == 3, 18);
             CHECK(av.size() == 2, 19);
             CHECK(av.get(0).as_i56() == 10 && av.get(1).as_i56() == 20, 20);
-            CHECK(av.push_back(AnyVal::pod(30, tc::HA_I56)).has_value(), 21);
+            CHECK(av.push_back(AnyVal::pod(30, tc::WA_I56)).has_value(), 21);
             CHECK(av.size() == 3 && av.get(2).as_i56() == 30, 22);
         }
         CHECK(holder->use_count() == 2, 23);

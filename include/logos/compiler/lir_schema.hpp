@@ -105,21 +105,21 @@ inline constexpr int32_t Count = 23;
 // ── WritVal variant codes ───────────────────────────────────────────────
 //
 // Synthetic category — WritVal lives outside the LExpr/LStmt/Pattern enums
-// but reuses the lir_expr() encoder with HV_BASE offset. See lir_mirror.cpp
+// but reuses the lir_expr() encoder with WV_BASE offset. See lir_mirror.cpp
 // (LirMirrorEmitter::emit_hv) for the writer side.
 
 namespace writ_val {
-inline constexpr int32_t HV_BASE = 200;
+inline constexpr int32_t WV_BASE = 200;
 enum class Code : int32_t {
-    Null    = HV_BASE + 0,
-    Bool    = HV_BASE + 1,
-    Int     = HV_BASE + 2,
-    Float   = HV_BASE + 3,
-    Str     = HV_BASE + 4,
-    Map     = HV_BASE + 5,
-    Array   = HV_BASE + 6,
-    Capture = HV_BASE + 7,
-    Type    = HV_BASE + 8,
+    Null    = WV_BASE + 0,
+    Bool    = WV_BASE + 1,
+    Int     = WV_BASE + 2,
+    Float   = WV_BASE + 3,
+    Str     = WV_BASE + 4,
+    Map     = WV_BASE + 5,
+    Array   = WV_BASE + 6,
+    Capture = WV_BASE + 7,
+    Type    = WV_BASE + 8,
 };
 } // namespace writ_val
 
@@ -224,7 +224,7 @@ inline constexpr Key IS_MUT            {"IS_MUT",          44};   // u8 (EAddrOf
 inline constexpr Key TUPLE_INDEX_VAL   {"TUPLE_INDEX_VAL", 45};   // u32
 
 // ECast
-inline constexpr Key HERMES_BUILD_FN   {"HERMES_BUILD_FN", 46};   // Varchar (empty for plain cast)
+inline constexpr Key WRIT_BUILD_FN   {"WRIT_BUILD_FN", 46};   // Varchar (empty for plain cast)
 
 // EBlockExpr / EClosureBox
 inline constexpr Key BLOCK             {"BLOCK",           47};   // RelPtr<LBlock-mirror>
@@ -268,20 +268,20 @@ inline constexpr Key STATIC_BLOB         {"STATIC_BLOB",         6};   // Varcha
 
 // Keys for WritVal mirror maps (WVNull / WVBool / WVInt / WVFloat / WVStr /
 // WVMap / WVArray / WVCapture). WritVal lives outside the LExpr variant
-// space (synthetic HV_BASE category), so no expr_common::TYPE is reserved.
+// space (synthetic WV_BASE category), so no expr_common::TYPE is reserved.
 namespace hv_keys {
-inline constexpr Key BOOL_VALUE        {"HV_BOOL",          0};   // u8
-inline constexpr Key INT_VALUE         {"HV_I64",           1};   // i64
-inline constexpr Key FLOAT_VALUE       {"HV_F64",           2};   // f64
-inline constexpr Key STR_VALUE         {"HV_STR",           3};   // Varchar
-inline constexpr Key MAP_KEYS          {"HV_MAP_KEYS",      4};   // Array<Varchar | i64>
-inline constexpr Key MAP_VALUES        {"HV_MAP_VALUES",    5};   // Array<RelPtr<WritVal-mirror>>
-inline constexpr Key TYPE_NAME         {"HV_TYPE_NAME",     6};   // Varchar (WVMap key_type / WVArray elem_type)
-inline constexpr Key ELEMS             {"HV_ELEMS",         7};   // Array<RelPtr<WritVal-mirror>>
-inline constexpr Key PARAM_INDEX       {"HV_PARAM_INDEX",   8};   // u32 (WVCapture)
-inline constexpr Key VALUE_INDEX       {"HV_VALUE_INDEX",   9};   // u32 (WVCapture)
-inline constexpr Key TYPE_KIND         {"HV_TYPE_KIND",    10};   // u32 (WVType.kind)
-inline constexpr Key TYPE_UID          {"HV_TYPE_UID",     11};   // u64 (WVType.uid — first 8 bytes of full UID)
+inline constexpr Key BOOL_VALUE        {"WV_BOOL",          0};   // u8
+inline constexpr Key INT_VALUE         {"WV_I64",           1};   // i64
+inline constexpr Key FLOAT_VALUE       {"WV_F64",           2};   // f64
+inline constexpr Key STR_VALUE         {"WV_STR",           3};   // Varchar
+inline constexpr Key MAP_KEYS          {"WV_MAP_KEYS",      4};   // Array<Varchar | i64>
+inline constexpr Key MAP_VALUES        {"WV_MAP_VALUES",    5};   // Array<RelPtr<WritVal-mirror>>
+inline constexpr Key TYPE_NAME         {"WV_TYPE_NAME",     6};   // Varchar (WVMap key_type / WVArray elem_type)
+inline constexpr Key ELEMS             {"WV_ELEMS",         7};   // Array<RelPtr<WritVal-mirror>>
+inline constexpr Key PARAM_INDEX       {"WV_PARAM_INDEX",   8};   // u32 (WVCapture)
+inline constexpr Key VALUE_INDEX       {"WV_VALUE_INDEX",   9};   // u32 (WVCapture)
+inline constexpr Key TYPE_KIND         {"WV_TYPE_KIND",    10};   // u32 (WVType.kind)
+inline constexpr Key TYPE_UID          {"WV_TYPE_UID",     11};   // u64 (WVType.uid — first 8 bytes of full UID)
 } // namespace hv_keys
 
 // Keys for the EClosure synthetic mirror map.
@@ -384,7 +384,7 @@ inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPt
 // Coarse top-level declarations (LFunction/LStructDef/LEnumDef/LConst/LTraitDef/
 // LImplBlock/LTypeAlias). Encoded via the lir_stmt category with a DECL_BASE
 // offset (out-of-band of real stmt codes 0..22 and the block Count=23), the same
-// trick writ_val uses (HV_BASE=200). Schema grows as each kind migrates.
+// trick writ_val uses (WV_BASE=200). Schema grows as each kind migrates.
 namespace decl {
 inline constexpr int32_t DECL_BASE = 300;
 enum class Code : int32_t {

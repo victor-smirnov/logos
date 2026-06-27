@@ -356,7 +356,7 @@ public:
         if (has_hbf) hbf_av = put_string(writ_build_fn);
         auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Cast));
         put(map_off, ek::OPERAND, o_av);
-        if (has_hbf) put(map_off, ek::HERMES_BUILD_FN, hbf_av);
+        if (has_hbf) put(map_off, ek::WRIT_BUILD_FN, hbf_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -1057,29 +1057,29 @@ public:
     // allocates from primitive args, never reading WritVal::kind. Children
     // (WritValPtr) must already have their own mirror_ptr_; hv_av will
     // back-fill the cache via the field-as-truth path.
-    static constexpr int32_t HV_BASE_DIRECT = 200;
+    static constexpr int32_t WV_BASE_DIRECT = 200;
 
     const uint8_t* emit_hv_null_direct() {
-        return make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 0));
+        return make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 0));
     }
     const uint8_t* emit_hv_bool_direct(bool value) {
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 1));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 1));
         put(map_off, hk::BOOL_VALUE, put_bool(value));
         return map_off;
     }
     const uint8_t* emit_hv_int_direct(int64_t value) {
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 2));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 2));
         put(map_off, hk::INT_VALUE, put_i64(value));
         return map_off;
     }
     const uint8_t* emit_hv_float_direct(double value) {
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 3));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 3));
         put(map_off, hk::FLOAT_VALUE, put_f64(value));
         return map_off;
     }
     const uint8_t* emit_hv_str_direct(std::string_view value) {
         auto s_av = put_string(value);
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 4));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 4));
         put(map_off, hk::STR_VALUE, s_av);
         return map_off;
     }
@@ -1112,7 +1112,7 @@ public:
             for (auto av : val_avs) array_push(off, av);
             vals_av = mref_addr(off);
         }
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 5));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 5));
         put(map_off, hk::MAP_KEYS,   keys_av);
         put(map_off, hk::MAP_VALUES, vals_av);
         if (!key_type.empty())
@@ -1130,21 +1130,21 @@ public:
             for (auto av : elems) array_push(off, av);
             arr_av = mref_addr(off);
         }
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 6));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 6));
         put(map_off, hk::ELEMS, arr_av);
         if (!elem_type.empty())
             put(map_off, hk::TYPE_NAME, put_string(elem_type));
         return map_off;
     }
     const uint8_t* emit_hv_capture_direct(uint32_t param_index, uint32_t value_index) {
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 7));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 7));
         put(map_off, hk::PARAM_INDEX, put_u32(param_index));
         put(map_off, hk::VALUE_INDEX, put_u32(value_index));
         return map_off;
     }
     const uint8_t* emit_hv_type_direct(uint32_t kind, uint64_t uid, std::string_view name) {
         auto name_av = put_string(name);
-        auto map_off = make_map(writ::schema::lir_expr(HV_BASE_DIRECT + 8));
+        auto map_off = make_map(writ::schema::lir_expr(WV_BASE_DIRECT + 8));
         put(map_off, hk::STR_VALUE, name_av);
         put(map_off, hk::TYPE_KIND, put_u32(kind));
         put(map_off, hk::TYPE_UID,  put_u64(uid));

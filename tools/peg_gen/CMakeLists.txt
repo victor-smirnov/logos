@@ -38,11 +38,11 @@ target_compile_definitions(peg_gen_test PRIVATE
 
 # ── Roundtrip test: generate writ_parser then compile and run it ────────────
 
-set(HERMES_PARSER_HPP ${CMAKE_CURRENT_BINARY_DIR}/writ_parser.hpp)
-set(HERMES_PARSER_CPP ${CMAKE_CURRENT_BINARY_DIR}/writ_parser.cpp)
+set(WRIT_PARSER_HPP ${CMAKE_CURRENT_BINARY_DIR}/writ_parser.hpp)
+set(WRIT_PARSER_CPP ${CMAKE_CURRENT_BINARY_DIR}/writ_parser.cpp)
 
 add_custom_command(
-    OUTPUT  ${HERMES_PARSER_HPP} ${HERMES_PARSER_CPP}
+    OUTPUT  ${WRIT_PARSER_HPP} ${WRIT_PARSER_CPP}
     COMMAND $<TARGET_FILE:peg_gen>
             ${CMAKE_CURRENT_SOURCE_DIR}/grammars/writ.peg
             --out-dir ${CMAKE_CURRENT_BINARY_DIR}
@@ -52,7 +52,7 @@ add_custom_command(
 
 add_executable(peg_gen_roundtrip
     test/roundtrip_test.cpp
-    ${HERMES_PARSER_CPP}
+    ${WRIT_PARSER_CPP}
 )
 
 target_include_directories(peg_gen_roundtrip PRIVATE
@@ -63,7 +63,7 @@ target_include_directories(peg_gen_roundtrip PRIVATE
 target_link_libraries(peg_gen_roundtrip PRIVATE logos_writ logos_core)
 # Generated parser has unused-variable warnings for positional TOKEN_REF captures
 # that exist in the grammar but are not referenced in actions (structural punctuation).
-set_source_files_properties(${HERMES_PARSER_CPP} PROPERTIES
+set_source_files_properties(${WRIT_PARSER_CPP} PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-variable;-Wno-unused-but-set-variable"
 )
 

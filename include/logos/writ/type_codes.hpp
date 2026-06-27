@@ -7,7 +7,7 @@
 namespace logos::writ {
 
 // Writ wire/in-band type codes — the SINGLE source of truth shared with the
-// Logos stdlib (stdlib/lang/writ2/anyval.logos H2_*/HA_*/HT_* and the container
+// Logos stdlib (stdlib/lang/writ2/anyval.logos H2_*/WA_*/WT_* and the container
 // WArrTag/WIntKeyTag codes). C++ and Logos read the same bytes, so these MUST stay
 // identical to the Logos constants.
 //
@@ -18,14 +18,14 @@ namespace logos::writ {
 namespace tc {
 
 // ── inline Pod scalar codes (7-bit; in an AnyVal Pod word) ──
-inline constexpr uint64_t HA_I56  = 1;    // generic inline int (i56 fallback)
-inline constexpr uint64_t HA_BOOL = 2;
-inline constexpr uint64_t HT_I8   = 20;
-inline constexpr uint64_t HT_U8   = 21;
-inline constexpr uint64_t HT_I16  = 22;
-inline constexpr uint64_t HT_I24  = 23;
-inline constexpr uint64_t HT_U16  = 24;
-inline constexpr uint64_t HT_U24  = 25;
+inline constexpr uint64_t WA_I56  = 1;    // generic inline int (i56 fallback)
+inline constexpr uint64_t WA_BOOL = 2;
+inline constexpr uint64_t WT_I8   = 20;
+inline constexpr uint64_t WT_U8   = 21;
+inline constexpr uint64_t WT_I16  = 22;
+inline constexpr uint64_t WT_I24  = 23;
+inline constexpr uint64_t WT_U16  = 24;
+inline constexpr uint64_t WT_U24  = 25;
 
 // ── Ref (tagged arena object) codes ──
 inline constexpr uint64_t STRING     = 130;   // WString  (Logos H2_STRING; Writ1 used 28)

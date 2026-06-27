@@ -281,7 +281,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         o.push_str(".o");
         let mut h: String = String::new();
         h.push_str(prefix.as_str());
-        h.push_str(".hm0");
+        h.push_str(".wr0");
         ar_argv.push(o);
         ar_argv.push(h);
     }

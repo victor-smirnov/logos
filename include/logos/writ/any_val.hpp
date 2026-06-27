@@ -85,13 +85,13 @@ public:
     // not load-bearing, but match the natural width for fidelity.
     template <typename T>
     static constexpr uint8_t code_for() noexcept {
-        if constexpr (std::is_same_v<T, bool>)         return uint8_t(tc::HA_BOOL);
-        else if constexpr (std::is_same_v<T, uint8_t>) return uint8_t(tc::HT_U8);
-        else if constexpr (std::is_same_v<T, int8_t>)  return uint8_t(tc::HT_I8);
-        else if constexpr (std::is_same_v<T, uint16_t>)return uint8_t(tc::HT_U16);
-        else if constexpr (std::is_same_v<T, int16_t>) return uint8_t(tc::HT_I16);
-        else if constexpr (std::is_unsigned_v<T>)      return uint8_t(tc::HT_U24);
-        else                                           return uint8_t(tc::HT_I24);
+        if constexpr (std::is_same_v<T, bool>)         return uint8_t(tc::WA_BOOL);
+        else if constexpr (std::is_same_v<T, uint8_t>) return uint8_t(tc::WT_U8);
+        else if constexpr (std::is_same_v<T, int8_t>)  return uint8_t(tc::WT_I8);
+        else if constexpr (std::is_same_v<T, uint16_t>)return uint8_t(tc::WT_U16);
+        else if constexpr (std::is_same_v<T, int16_t>) return uint8_t(tc::WT_I16);
+        else if constexpr (std::is_unsigned_v<T>)      return uint8_t(tc::WT_U24);
+        else                                           return uint8_t(tc::WT_I24);
     }
     template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
     static AnyVal from_value(T v) noexcept { return pod(static_cast<int64_t>(v), code_for<T>()); }

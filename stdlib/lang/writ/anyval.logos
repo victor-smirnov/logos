@@ -102,20 +102,20 @@ impl WAny {
 // Writ WAny Pod primitive type codes (7-bit; identify the inline value).
 // The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
 // inline (wider values box into a Ref — H2_I64), so the name is `i56`, not `i64`.
-// `HA_I56` is the generic inline-int fallback (no exact Writ width tag — e.g. a
+// `WA_I56` is the generic inline-int fallback (no exact Writ width tag — e.g. a
 // plain `i32`/`i56`); the narrow widths below keep their EXACT type instead.
-pub const HA_I56:  u8 = 1u8;
-pub const HA_BOOL: u8 = 2u8;
+pub const WA_I56:  u8 = 1u8;
+pub const WA_BOOL: u8 = 2u8;
 
 // Exact-width inline integer Pod codes — the Writ1 WritTag values (so a narrow
 // int keeps its precise type through a round-trip, and `type_code()` already emits
-// the wire tag for the hbs port). All fit the 56-bit Pod value, so no boxing.
-pub const HT_I8:  u8 = 20u8;
-pub const HT_U8:  u8 = 21u8;
-pub const HT_I16: u8 = 22u8;
-pub const HT_I24: u8 = 23u8;
-pub const HT_U16: u8 = 24u8;
-pub const HT_U24: u8 = 25u8;
+// the wire tag for the wbs port). All fit the 56-bit Pod value, so no boxing.
+pub const WT_I8:  u8 = 20u8;
+pub const WT_U8:  u8 = 21u8;
+pub const WT_I16: u8 = 22u8;
+pub const WT_I24: u8 = 23u8;
+pub const WT_U16: u8 = 24u8;
+pub const WT_U24: u8 = 25u8;
 
 // Writ REF type codes — the in-band tag of an arena object (the Writ1 datatag
 // VARINT before the object). A Ref WAny's pointee carries one so `WAny::type_code` /
@@ -131,7 +131,7 @@ pub const H2_PARAMETER:  u64 = 127u64;   // query-parameter capture slot (?name 
 pub const H2_TYPEDVALUE: u64 = 4115u64;  // SDN datatype instantiation @Type(params?)=init
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
 // own 8-byte tagged arena object, referenced by the WAny. Codes are the Writ1
-// WritTag values, so `type_code()` emits the wire tag (hbs-ready). (Allocated via
+// WritTag values, so `type_code()` emits the wire tag (wbs-ready). (Allocated via
 // container.box_i64 / box_u64 / box_f32 / box_f64.)
 pub const H2_I64:    u64 = 26u64;    // full 64-bit signed integer
 pub const H2_U64:    u64 = 27u64;    // full 64-bit unsigned integer
@@ -167,17 +167,17 @@ pub unsafe fn h2_type_code(obj: *const u8) -> u64 {
 // overloaded `from` per primitive — `WAny::from(v)`). `from(i56)` makes the
 // 56-bit inline range a TYPE constraint (a wider i64 must be narrowed consciously).
 impl WAny {
-    pub fn from(v: i56)  -> WAny { return WAny::pod(v as i64, HA_I56); }
-    pub fn from(b: bool) -> WAny { return WAny::pod_bool(b, HA_BOOL); }
+    pub fn from(v: i56)  -> WAny { return WAny::pod(v as i64, WA_I56); }
+    pub fn from(b: bool) -> WAny { return WAny::pod_bool(b, WA_BOOL); }
 
     // Exact-width inline integers — all fit the 56-bit Pod value (no boxing), each
     // tagged with its precise Writ width so the read-back type matches the write.
-    pub fn from(v: i8)  -> WAny { return WAny::pod(v as i64, HT_I8);  }
-    pub fn from(v: u8)  -> WAny { return WAny::pod(v as i64, HT_U8);  }
-    pub fn from(v: i16) -> WAny { return WAny::pod(v as i64, HT_I16); }
-    pub fn from(v: i24) -> WAny { return WAny::pod(v as i64, HT_I24); }
-    pub fn from(v: u16) -> WAny { return WAny::pod(v as i64, HT_U16); }
-    pub fn from(v: u24) -> WAny { return WAny::pod(v as i64, HT_U24); }
+    pub fn from(v: i8)  -> WAny { return WAny::pod(v as i64, WT_I8);  }
+    pub fn from(v: u8)  -> WAny { return WAny::pod(v as i64, WT_U8);  }
+    pub fn from(v: i16) -> WAny { return WAny::pod(v as i64, WT_I16); }
+    pub fn from(v: i24) -> WAny { return WAny::pod(v as i64, WT_I24); }
+    pub fn from(v: u16) -> WAny { return WAny::pod(v as i64, WT_U16); }
+    pub fn from(v: u24) -> WAny { return WAny::pod(v as i64, WT_U24); }
 
     // Exact-width reads — the inline value re-narrowed to the written type. (A wrong
     // accessor truncates rather than faulting; pair with the `is_*` predicate.)
@@ -188,14 +188,14 @@ impl WAny {
     pub fn as_u16(self: &WAny) -> u16 { return self.as_i56() as u16; }
     pub fn as_u24(self: &WAny) -> u24 { return self.as_i56() as u24; }
 
-    pub fn is_i56(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HA_I56; }
-    pub fn is_bool(self: &WAny) -> bool { return self.is_pod() && self.pod_code() == HA_BOOL; }
-    pub fn is_i8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == HT_I8;  }
-    pub fn is_u8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == HT_U8;  }
-    pub fn is_i16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I16; }
-    pub fn is_i24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I24; }
-    pub fn is_u16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U16; }
-    pub fn is_u24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U24; }
+    pub fn is_i56(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WA_I56; }
+    pub fn is_bool(self: &WAny) -> bool { return self.is_pod() && self.pod_code() == WA_BOOL; }
+    pub fn is_i8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == WT_I8;  }
+    pub fn is_u8(self: &WAny)   -> bool { return self.is_pod() && self.pod_code() == WT_U8;  }
+    pub fn is_i16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_I16; }
+    pub fn is_i24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_I24; }
+    pub fn is_u16(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_U16; }
+    pub fn is_u24(self: &WAny)  -> bool { return self.is_pod() && self.pod_code() == WT_U24; }
     // (the value reads back via the matching `as_*`)
 
     // The unified type code: for a Pod, the inline pod code; for a Ref, the
@@ -218,7 +218,7 @@ impl WAny {
         if self.is_pod() {
             let c: u8 = self.pod_code();
             // the generic i56, or any exact-width inline integer (I8..U24, 20..25).
-            return c == HA_I56 || (c >= HT_I8 && c <= HT_U24);
+            return c == WA_I56 || (c >= WT_I8 && c <= WT_U24);
         }
         if !self.is_ref() { return false; }
         let t: u64 = unsafe { h2_type_code(self.resolve()) };

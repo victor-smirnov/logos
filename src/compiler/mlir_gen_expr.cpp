@@ -5825,7 +5825,7 @@ static AnyVal build_writ_val(lir_view::WritValRef v,
     case HC::Null:
         return AnyVal::null();
     case HC::Bool:
-        // Boolean: writ2 HA_BOOL = 2 (was Writ1 type_hash 37).
+        // Boolean: writ2 WA_BOOL = 2 (was Writ1 type_hash 37).
         return AnyVal::from_value<uint8_t>(
             lir_view::WVBoolView{v}.value() ? 1 : 0, 2);
     case HC::Int: {
@@ -6000,8 +6000,8 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     using K = LogosType::Kind;
     switch (TypeRef(t).kind()) {
         case K::Bool: {
-            // writ2 Pod bool: raw = (bool_val << 8) | (HA_BOOL<<1) | 1 = (b<<8) | 5
-            // (HA_BOOL = 2). Was the Writ1 0x4B (type_hash 37); build_writ_val matches.
+            // writ2 Pod bool: raw = (bool_val << 8) | (WA_BOOL<<1) | 1 = (b<<8) | 5
+            // (WA_BOOL = 2). Was the Writ1 0x4B (type_hash 37); build_writ_val matches.
             mlir::Value b = coerce_numeric(v, i32_mlir);
             mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, b,
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
@@ -6053,7 +6053,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
 }
 
 // writ2 capture coercion: scalar capture value -> 8-byte VALUE-FORM WAny word.
-// Pod = (v<<8)|(code<<1)|1 (bool code HA_BOOL=2 -> |5; ints as i56 code HA_I56=1
+// Pod = (v<<8)|(code<<1)|1 (bool code WA_BOOL=2 -> |5; ints as i56 code WA_I56=1
 // -> |3). WAny captures pass their niche word through. Zone-alloc kinds
 // (strings/floats/ptrs) are handled by the writ_ctr_alloc_* path, not here.
 mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {

@@ -9,7 +9,7 @@ use logos.lang.writ.hmap;
 use logos.lang.writ.hstring;
 use logos.mem.writ.parser;
 use logos.mem.writ.stringify;
-use logos.mem.writ.hbs;
+use logos.mem.writ.wbs;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
@@ -32,9 +32,9 @@ fn main() -> i32 {
 
     // full chain: text → doc → HBS bytes → doc → text  (array, deterministic)
     let d2: WAny = parse(&h, src);
-    let bytes: Vec<u8> = hbs_write(d2);
+    let bytes: Vec<u8> = wbs_write(d2);
     let h2: Writ = writ_new(4096i64);
-    let back: WAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
+    let back: WAny = wbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
     if !str_eq(stringify(back).as_str(), src) { return 7; }
     return 0;
 }

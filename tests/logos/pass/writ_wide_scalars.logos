@@ -10,7 +10,7 @@ use logos.lang.writ.hmap;
 use logos.lang.writ.compactify;
 use logos.mem.writ.parser;
 use logos.mem.writ.stringify;
-use logos.mem.writ.hbs;
+use logos.mem.writ.wbs;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
@@ -37,9 +37,9 @@ fn main() -> i32 {
     if pa.get(1i64).as_f64() != 3.14f64 { return 8; }
 
     // HBS round-trip
-    let bytes: Vec<u8> = hbs_write(WAny::from(&*a));
+    let bytes: Vec<u8> = wbs_write(WAny::from(&*a));
     let h2: Writ = writ_new(2048i64);
-    let back: WAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
+    let back: WAny = wbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
     if !str_eq(stringify(back).as_str(), "[7, 9000000000000000000, 3.14, -2.5]") { return 9; }
 
     // compactify (boxed scalars re-boxed into the fresh arena)

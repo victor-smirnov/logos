@@ -1,6 +1,6 @@
 // logos.std.compiler.metaprog — untyped-AST helpers for hook handlers.
 //
-// HERMES2 PORT (cut-over step 4): node handles are writ2 `WAny` (8-byte
+// WRIT2 PORT (cut-over step 4): node handles are writ2 `WAny` (8-byte
 // self-relative; value-form holds the resolved absolute ptr), read through the
 // OView primitives in oview.logos (tiny_map_get / get_str_view / array_* on
 // WMap<Hu6,WAny> / WArray<WAny> / WString). The old Writ1 4-byte AnyVal{raw}

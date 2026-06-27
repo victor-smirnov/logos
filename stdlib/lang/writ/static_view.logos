@@ -2,7 +2,7 @@
 // rodata blob.
 //
 // STEP 5 (cut-over): the compiler now emits @{} / WritStatic rodata blobs in
-// HERMES2 format (8-byte SELF-RELATIVE WAny slots, WMap<WString,WAny> object
+// WRIT2 format (8-byte SELF-RELATIVE WAny slots, WMap<WString,WAny> object
 // maps, WArray<WAny> arrays, WString strings) — the same layout the parser
 // builds. The legacy `logos.lang.writ.view::WritView`/`WritStatic` read
 // path decodes the OLD Writ1 4-byte base-relative format, so it reads garbage

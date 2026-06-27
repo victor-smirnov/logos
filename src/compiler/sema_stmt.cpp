@@ -1977,7 +1977,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     // sema reads the blob's root schema_type_code and recurses into
     // lower_expr). Pass-1 here just adopts the annotation and skips the
     // strict type-equality check; pass-2 will verify compatibility once
-    // the HERMES_BLOB has been lowered to a real expr.
+    // the WRIT_BLOB has been lowered to a real expr.
     bool rhs_is_expr_blob =
         rhs &&
         TypeRef(rhs_type).kind() == LogosType::Kind::Struct &&
@@ -5089,10 +5089,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // by the time we get here the caller treats them as wildcards. We return
     // PatWild unchanged; the caller validates scrutinee type & synthesizes
     // the guard using build_writ_pat_guard.
-    if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-        pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-        pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
-        pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP) {
+    if (pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
+        pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR  ||
+        pc == la::PAT_WRIT_MAP  || pc == la::PAT_WRIT_ARR  ||
+        pc == la::PAT_WRIT_TYPED_ARR || pc == la::PAT_WRIT_TYPED_MAP) {
         if (!in_match_writ_ctx_) {
             error("Writ pattern (@null/@true/@false/@<int>/@\"str\"/@{...}/@[...]) "
                   "is only supported in `match` arms, not in if-let / "
@@ -5292,8 +5292,8 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
     // Returns nullptr only when p is not a scalar Writ leaf.
     auto build_leaf = [&](TinyMapView p, const std::string& sv) -> lir::LExprPtr {
         int32_t pc = code_of(p);
-        if (pc != la::PAT_HERMES_NULL && pc != la::PAT_HERMES_BOOL &&
-            pc != la::PAT_HERMES_INT  && pc != la::PAT_HERMES_STR)
+        if (pc != la::PAT_WRIT_NULL && pc != la::PAT_WRIT_BOOL &&
+            pc != la::PAT_WRIT_INT  && pc != la::PAT_WRIT_STR)
             return nullptr;
 
         TypeRef ptr_t = ptr_t_outer;
@@ -5301,15 +5301,15 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
         const char* helper = nullptr;
         size_t want_arity = 1;
         std::vector<lir::LExprPtr> extra_args;
-        if (pc == la::PAT_HERMES_NULL) {
+        if (pc == la::PAT_WRIT_NULL) {
             helper = "writ_pat_is_null";
-        } else if (pc == la::PAT_HERMES_BOOL) {
+        } else if (pc == la::PAT_WRIT_BOOL) {
             helper = "writ_pat_eq_bool";
             want_arity = 2;
             AnyVal bv = p.get(la::VALUE.code);
             bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
             extra_args.push_back(builder().lit_bool(bval, bool_t()));
-        } else if (pc == la::PAT_HERMES_INT) {
+        } else if (pc == la::PAT_WRIT_INT) {
             helper = "writ_pat_eq_i24";
             want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
@@ -5325,7 +5325,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
                 v = 0;
             }
             extra_args.push_back(builder().lit_int(v, i32_t()));
-        } else {  // PAT_HERMES_STR — writ_pat_eq_str(*node, str)
+        } else {  // PAT_WRIT_STR — writ_pat_eq_str(*node, str)
             helper = "writ_pat_eq_str";
             want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
@@ -5481,8 +5481,8 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
     std::function<lir::LExprPtr(TinyMapView, const std::string&)> build_rec;
     build_rec = [&](TinyMapView p, const std::string& sv) -> lir::LExprPtr {
         int32_t pc = code_of(p);
-        if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-            pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR)
+        if (pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
+            pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR)
             return build_leaf(p, sv);
         if (pc == la::PAT_WILD) {
             auto nm = str_of(p.get(la::NAME.code));
@@ -5492,14 +5492,14 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             }
             return mk_true();
         }
-        if (pc == la::PAT_HERMES_MAP) {
+        if (pc == la::PAT_WRIT_MAP) {
             lir::LExprPtr acc = emit_is_map(sv);
             if (p.has_key(la::ITEMS)) {
                 auto wrap = map_of(p.get(la::ITEMS.code));
                 auto items = arr_of(wrap.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto ent = map_of(items.get(i));
-                    if (code_of(ent) != la::PAT_HERMES_MAP_ENTRY) continue;
+                    if (code_of(ent) != la::PAT_WRIT_MAP_ENTRY) continue;
                     auto ksv = str_of(ent.get(la::KEY.code));
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
@@ -5522,7 +5522,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             if (!acc) acc = mk_true();
             return acc;
         }
-        if (pc == la::PAT_HERMES_ARR) {
+        if (pc == la::PAT_WRIT_ARR) {
             uint64_t n_total = 0;
             bool has_rest = false;
             writ::TinyMapView arr_wrap;
@@ -5560,7 +5560,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             }
             return acc;
         }
-        if (pc == la::PAT_HERMES_TYPED_ARR) {
+        if (pc == la::PAT_WRIT_TYPED_ARR) {
             namespace th = logos::writ::type_hash;
             auto tname = std::string(str_of(p.get(la::TYPE.code)));
             static const std::map<std::string, uint64_t> arr_tcs = {
@@ -5586,7 +5586,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             }
             return emit_has_type_code(sv, it->second);
         }
-        if (pc == la::PAT_HERMES_TYPED_MAP) {
+        if (pc == la::PAT_WRIT_TYPED_MAP) {
             namespace th = logos::writ::type_hash;
             auto kname = std::string(str_of(p.get(la::TYPE.code)));
             std::string vname;
@@ -5627,24 +5627,24 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
         // recurse into the sole alternative so MAP/ARR are handled.
         if (alts.size() == 1) {
             int32_t pc0 = code_of(map_of(alts.get(0)));
-            bool is_writ = pc0 == la::PAT_HERMES_NULL ||
-                             pc0 == la::PAT_HERMES_BOOL ||
-                             pc0 == la::PAT_HERMES_INT  ||
-                             pc0 == la::PAT_HERMES_STR  ||
-                             pc0 == la::PAT_HERMES_MAP  ||
-                             pc0 == la::PAT_HERMES_ARR  ||
-                             pc0 == la::PAT_HERMES_TYPED_ARR ||
-                             pc0 == la::PAT_HERMES_TYPED_MAP;
+            bool is_writ = pc0 == la::PAT_WRIT_NULL ||
+                             pc0 == la::PAT_WRIT_BOOL ||
+                             pc0 == la::PAT_WRIT_INT  ||
+                             pc0 == la::PAT_WRIT_STR  ||
+                             pc0 == la::PAT_WRIT_MAP  ||
+                             pc0 == la::PAT_WRIT_ARR  ||
+                             pc0 == la::PAT_WRIT_TYPED_ARR ||
+                             pc0 == la::PAT_WRIT_TYPED_MAP;
             if (!is_writ) return nullptr;
             return build_rec(map_of(alts.get(0)), scrut_var);
         }
         bool any_writ = false, any_non = false;
         for (uint64_t i = 0; i < alts.size(); ++i) {
             int32_t pc = code_of(map_of(alts.get(i)));
-            if (pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-                pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-                pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
-        pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP) any_writ = true;
+            if (pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
+                pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR  ||
+                pc == la::PAT_WRIT_MAP  || pc == la::PAT_WRIT_ARR  ||
+        pc == la::PAT_WRIT_TYPED_ARR || pc == la::PAT_WRIT_TYPED_MAP) any_writ = true;
             else any_non = true;
         }
         if (!any_writ) return nullptr;
@@ -8287,10 +8287,10 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     // addressable in a variable.  We hoist scrut into a synthetic let so the
     // synthesized guards can take `&__hmatch_av` without re-evaluating scrut.
     auto is_writ_pat_code = [](int32_t pc) {
-        return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
-               pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP;
+        return pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
+               pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR  ||
+               pc == la::PAT_WRIT_MAP  || pc == la::PAT_WRIT_ARR  ||
+               pc == la::PAT_WRIT_TYPED_ARR || pc == la::PAT_WRIT_TYPED_MAP;
     };
     // A pattern tree "contains" a Writ scalar if it IS one, or a PAT_OR
     // alt is one.  We only unwrap PAT_OR here — nested PAT_AT/PAT_REF wrapping
@@ -8960,10 +8960,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
     // Writ scalar pattern hoisting (symmetric to lower_match).
     auto is_writ_pc = [](int32_t pc) {
-        return pc == la::PAT_HERMES_NULL || pc == la::PAT_HERMES_BOOL ||
-               pc == la::PAT_HERMES_INT  || pc == la::PAT_HERMES_STR  ||
-               pc == la::PAT_HERMES_MAP  || pc == la::PAT_HERMES_ARR  ||
-               pc == la::PAT_HERMES_TYPED_ARR || pc == la::PAT_HERMES_TYPED_MAP;
+        return pc == la::PAT_WRIT_NULL || pc == la::PAT_WRIT_BOOL ||
+               pc == la::PAT_WRIT_INT  || pc == la::PAT_WRIT_STR  ||
+               pc == la::PAT_WRIT_MAP  || pc == la::PAT_WRIT_ARR  ||
+               pc == la::PAT_WRIT_TYPED_ARR || pc == la::PAT_WRIT_TYPED_MAP;
     };
     auto pat_has_writ = [&](TinyMapView p) -> bool {
         if (is_writ_pc(code_of(p))) return true;

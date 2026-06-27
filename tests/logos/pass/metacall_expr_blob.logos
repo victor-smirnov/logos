@@ -1,4 +1,4 @@
-// Slice 7 of metaprog-quote — derisk validator for position-aware HERMES_BLOB
+// Slice 7 of metaprog-quote — derisk validator for position-aware WRIT_BLOB
 // lowering.
 //
 // The C++ host fixture `logos_test_make_bin_op_blob` hand-builds a Writ

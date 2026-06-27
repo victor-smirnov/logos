@@ -265,7 +265,7 @@ const uint8_t* lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t 
 const uint8_t* lir_mirror_emit_chain_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, const std::vector<std::string>& extras, std::string_view field, lir_view::ExprRef value);
 
 // Stage B.6 — WritVal direct mirror writers. Allocate a fresh mirror map for
-// a single HV variant from primitive args, without reading WritVal::kind.
+// a single WV variant from primitive args, without reading WritVal::kind.
 // Caller assigns the returned offset to WritVal::mirror_ptr_. Children
 // (WritValPtr) must already carry their own mirror_ptr_.
 const uint8_t* lir_mirror_emit_hv_null    (lir::LProgram& prog);

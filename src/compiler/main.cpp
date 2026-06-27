@@ -2042,7 +2042,7 @@ extern "C" int32_t logos_metaprog_test_module_blob(
 }
 
 // Slice 7 of metaprog-quote: hand-built BIN_OP{LIT_INT(1), "+", LIT_INT(2)}
-// blob fixture used to derisk position-aware HERMES_BLOB lowering before the
+// blob fixture used to derisk position-aware WRIT_BLOB lowering before the
 // real `quote_expr! { ... }` grammar lands. ABI matches WritStatic /
 // ExprBlob (returns ptr past an 8-byte size prefix). The buffer is leaked
 // intentionally — single-shot per metacall, lifetime is the compile run.
@@ -4228,7 +4228,7 @@ int main(int argc, char** argv) {
                 std::string lit_text;
                 int32_t new_code = logos::compiler::ast::LIT_INT;
                 if (is_bool) { lit_text = b_val ? "true" : "false"; new_code = logos::compiler::ast::LIT_BOOL; }
-                else if (is_writ_blob) { lit_text = blob_bytes; new_code = logos::compiler::ast::HERMES_BLOB; }
+                else if (is_writ_blob) { lit_text = blob_bytes; new_code = logos::compiler::ast::WRIT_BLOB; }
                 else if (is_str) { lit_text = s_val; new_code = logos::compiler::ast::LIT_STR; }
                 else if (is_float) {
                     char buf[64];

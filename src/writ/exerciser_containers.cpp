@@ -62,7 +62,7 @@ int main() {
 
         // push 50 elements (Pods) plus one Ref to the string — past cap=2 → several grows
         for (int i = 0; i < 50; ++i)
-            CHECK(arr->push_back(AnyVal::pod(i * 100, tc::HA_I56), arena).has_value(), 24);
+            CHECK(arr->push_back(AnyVal::pod(i * 100, tc::WA_I56), arena).has_value(), 24);
         AnyVal ref; ref.set_ref(str);
         CHECK(arr->push_back(ref, arena).has_value(), 25);
         CHECK(arr->size() == 51, 26);
@@ -79,7 +79,7 @@ int main() {
         CHECK(resolved->view() == "Ada", 29);
 
         // set + pop
-        arr->set(0, AnyVal::pod_bool(true, tc::HA_BOOL));
+        arr->set(0, AnyVal::pod_bool(true, tc::WA_BOOL));
         CHECK(arr->get(0).is_pod() && arr->get(0).as_bool(), 30);
         arr->pop_back();
         CHECK(arr->size() == 50, 31);
@@ -87,7 +87,7 @@ int main() {
         // nested array as an element (Ref to a child ObjectArray)
         auto child_exp = ObjectArray::create(arena, 1);
         CHECK(child_exp.has_value(), 32);
-        CHECK((*child_exp)->push_back(AnyVal::pod(7, tc::HA_I56), arena).has_value(), 33);
+        CHECK((*child_exp)->push_back(AnyVal::pod(7, tc::WA_I56), arena).has_value(), 33);
         AnyVal child_ref; child_ref.set_ref(*child_exp);
         CHECK(arr->push_back(child_ref, arena).has_value(), 34);
         AnyVal cb = arr->get(arr->size() - 1);
@@ -128,9 +128,9 @@ int main() {
         CHECK(m->schema_type_code() == 5002, 55);
 
         // insert out of key order; values stay addressable by key
-        (void)m->put(5, AnyVal::pod(500, tc::HA_I56), arena);
-        (void)m->put(1, AnyVal::pod(100, tc::HA_I56), arena);
-        (void)m->put(9, AnyVal::pod(900, tc::HA_I56), arena);
+        (void)m->put(5, AnyVal::pod(500, tc::WA_I56), arena);
+        (void)m->put(1, AnyVal::pod(100, tc::WA_I56), arena);
+        (void)m->put(9, AnyVal::pod(900, tc::WA_I56), arena);
         CHECK(m->size() == 3, 54);
         CHECK(m->get(1).as_i56() == 100, 55);
         CHECK(m->get(5).as_i56() == 500, 56);
@@ -148,7 +148,7 @@ int main() {
         CHECK(m->get(5).as_i56() == 500 && m->get(9).as_i56() == 900, 63);   // shifted, still correct
 
         // update existing key (no size change)
-        (void)m->put(5, AnyVal::pod(555, tc::HA_I56), arena);
+        (void)m->put(5, AnyVal::pod(555, tc::WA_I56), arena);
         CHECK(m->size() == 4 && m->get(5).as_i56() == 555, 64);
 
         // remove
@@ -164,7 +164,7 @@ int main() {
         CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(m)).type_code() == tc::MAP, 71);
         CHECK(sizeof(ObjectMap) == 24, 72);
 
-        CHECK(m->put("age", AnyVal::pod(36, tc::HA_I56), arena).has_value(), 73);
+        CHECK(m->put("age", AnyVal::pod(36, tc::WA_I56), arena).has_value(), 73);
         auto name_s = ArenaString::create(arena, "Ada");
         CHECK(name_s.has_value(), 74);
         AnyVal nameref; nameref.set_ref(*name_s);
@@ -176,13 +176,13 @@ int main() {
         CHECK(m->get("missing").is_null(), 80);
 
         // update existing key (no size change)
-        CHECK(m->put("age", AnyVal::pod(37, tc::HA_I56), arena).has_value(), 81);
+        CHECK(m->put("age", AnyVal::pod(37, tc::WA_I56), arena).has_value(), 81);
         CHECK(m->size() == 2 && m->get("age").as_i56() == 37, 82);
 
         // GROWTH: 50 distinct keys past cap → several rehashes; all retrievable
         for (int i = 0; i < 50; ++i) {
             std::string k = "k" + std::to_string(i);
-            CHECK(m->put(k, AnyVal::pod(i * 10, tc::HA_I56), arena).has_value(), 83);
+            CHECK(m->put(k, AnyVal::pod(i * 10, tc::WA_I56), arena).has_value(), 83);
         }
         CHECK(m->size() == 52, 84);
         for (int i = 0; i < 50; ++i) {
@@ -200,9 +200,9 @@ int main() {
         MapI32* m = *m_exp;
         CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(m)).type_code() == tc::MAP_I32, 91);
         CHECK(sizeof(MapI32) == 32, 92);
-        m->put(100, AnyVal::pod(1, tc::HA_I56));
-        m->put(-7,  AnyVal::pod(2, tc::HA_I56));
-        m->put(100, AnyVal::pod(3, tc::HA_I56));   // update
+        m->put(100, AnyVal::pod(1, tc::WA_I56));
+        m->put(-7,  AnyVal::pod(2, tc::WA_I56));
+        m->put(100, AnyVal::pod(3, tc::WA_I56));   // update
         CHECK(m->size() == 2, 93);
         CHECK(m->get(100).as_i56() == 3, 94);
         CHECK(m->get(-7).as_i56() == 2, 95);

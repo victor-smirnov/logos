@@ -22,7 +22,7 @@ use logos.lang.clone;              // Copy
 use logos.lang.option;
 use logos.lang.str;                // str_from_raw (String materialization)
 use logos.lang.fabric;             // Datatype / Container / ContainerOrd / PrimVec / Storage
-use logos.lang.writ.anyval;      // H2_U64 / H2_I64 / HA_BOOL / H2_STRING type codes
+use logos.lang.writ.anyval;      // H2_U64 / H2_I64 / WA_BOOL / H2_STRING type codes
 
 // ── tag layout: (space, code) ────────────────────────────────────────────────
 // DView.tag is u64 but a Writ in-band datatag only carries ≤56 bits (the
@@ -36,7 +36,7 @@ use logos.lang.writ.anyval;      // H2_U64 / H2_I64 / HA_BOOL / H2_STRING type c
 //     space knows how to compare and how to convert to the storage format on
 //     store_push.
 pub const DV_CODE_MASK:    u64 = 0x00FFFFFFFFFFFFFFu64;   // low 56 bits
-pub const DV_SPACE_HERMES: u8  = 0u8;
+pub const DV_SPACE_WRIT: u8  = 0u8;
 pub const DV_SPACE_LOGOS:  u8  = 1u8;
 
 pub fn dv_space(tag: u64) -> u8  { return (tag >> 56u64) as u8; }
@@ -79,7 +79,7 @@ pub trait Datum {
 }
 impl Datum for i64  { fn datum_tag(self: *const i64)  -> u64 { return H2_I64; } }
 impl Datum for u64  { fn datum_tag(self: *const u64)  -> u64 { return H2_U64; } }
-impl Datum for bool { fn datum_tag(self: *const bool) -> u64 { return HA_BOOL as u64; } }
+impl Datum for bool { fn datum_tag(self: *const bool) -> u64 { return WA_BOOL as u64; } }
 
 // ── DView — the borrowed, type-erased view ──────────────────────────────────
 // `tag` and `len` are u64 — the native Writ widths (type codes are u64).
@@ -166,14 +166,14 @@ unsafe fn load_le(p: *const u8, n: u64) -> u64 {
 // their comparators land.
 pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u8, blen: u64) -> Ordering {
     let code: u64 = dv_code(tag);
-    if dv_space(tag) == DV_SPACE_HERMES && code == H2_I64 {
+    if dv_space(tag) == DV_SPACE_WRIT && code == H2_I64 {
         let x: i64 = load_le(a, alen) as i64;
         let y: i64 = load_le(b, blen) as i64;
         if x < y { return Ordering::Less; }
         if x > y { return Ordering::Greater; }
         return Ordering::Equal;
     }
-    if dv_space(tag) == DV_SPACE_HERMES && code == H2_STRING {
+    if dv_space(tag) == DV_SPACE_WRIT && code == H2_STRING {
         // lexicographic byte compare; shorter is less on a common prefix.
         let n: u64 = if alen < blen { alen } else { blen };
         let mut i: u64 = 0u64;
@@ -198,11 +198,11 @@ pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u
 
 // Object byte stride for a tag (for the at-rest / store path). 0 = unknown.
 pub fn htag_size(tag: u64, meta: u64) -> u64 {
-    if dv_space(tag) == DV_SPACE_HERMES {
+    if dv_space(tag) == DV_SPACE_WRIT {
         let code: u64 = dv_code(tag);
         if code == H2_I64       { return 8u64; }
         if code == H2_U64       { return 8u64; }
-        if code == HA_BOOL as u64 { return 1u64; }
+        if code == WA_BOOL as u64 { return 1u64; }
     }
     return 0u64;
 }
@@ -211,11 +211,11 @@ pub fn htag_size(tag: u64, meta: u64) -> u64 {
 // every element's entry to this so in-place reads (`to::<T>` pointer-casts, a
 // byte-copied compactified Writ object) are valid.
 pub fn htag_align(tag: u64, meta: u64) -> u64 {
-    if dv_space(tag) == DV_SPACE_HERMES {
+    if dv_space(tag) == DV_SPACE_WRIT {
         let code: u64 = dv_code(tag);
         if code == H2_I64       { return 8u64; }
         if code == H2_U64       { return 8u64; }
-        if code == HA_BOOL as u64 { return 1u64; }
+        if code == WA_BOOL as u64 { return 1u64; }
         if code == H2_STRING    { return 1u64; }   // UTF-8 bytes
     }
     return 8u64;   // conservative default (covers ≤8-byte scalars)
