@@ -1,0 +1,12 @@
+// @rule borrow.move.box-dyn-owning
+package borrow_diag_2_box_dyn_owning;
+use logos.mem.boxed;
+trait Speak { fn speak(self: &Self) -> i32; }
+struct S { v: i32 }
+impl Speak for S { fn speak(self: &S) -> i32 { self.v } }
+fn consume(b: Box<dyn Speak>) -> i32 { b.speak() }
+fn main() -> i32 {
+    let b: Box<dyn Speak> = Box::<S>::new(S { v: 7i32 }) as Box<dyn Speak>;
+    let _ = consume(b);
+    return consume(b);
+}

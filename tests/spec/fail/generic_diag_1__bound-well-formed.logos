@@ -1,0 +1,8 @@
+// @rule generic.bound.well-formed
+package generic_diag_1_bound_well_formed;
+
+fn g<T: Nonexistent>() {}
+
+fn main() -> i32 {
+    return 0i32;
+}

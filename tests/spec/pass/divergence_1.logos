@@ -1,0 +1,14 @@
+package divergence_1;
+
+use logos.mem.string;
+
+fn main() -> i64 {
+    // @rule divergence.heap.no-class-new-delete
+    // Heap allocation is expressed via `Box`, not a built-in `new`/`delete`.
+    // Confirm the blessed mechanism (`Box::new`) actually allocates and
+    // round-trips a value through the heap.
+    let b: Box<i64> = Box::new(42i64);
+    if *b != 42i64 { return 1i64; }
+
+    return 0i64;
+}

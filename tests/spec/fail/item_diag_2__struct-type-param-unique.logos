@@ -1,0 +1,6 @@
+// @rule item.struct.type-param-unique
+package item_diag_2_struct_type_param_unique;
+
+struct S<T, T> { a: T }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,11 @@
+// @rule expr.match.guard-bool
+package expr_diag_6_match_guard_bool;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let _r = match x {
+        n if 5i32 => 1i32,
+        _ => 0i32,
+    };
+    return 0i32;
+}

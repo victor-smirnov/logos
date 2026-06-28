@@ -1,0 +1,25 @@
+// @rule metaprog.quote-item.repeat-nesting-limit
+package metaprog_diag_2_quote_item_nesting_limit;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.anyval;
+
+#[metaprog_handler("gen_deep")]
+fn gen_deep_hook(target_offset: u32) -> () {
+    let blob: QuoteItemBlob = quote_item! {
+        fn run() -> i32 {
+            let mut t: i32 = 0i32;
+            #( #( #( { t = t + 1i32; } )* )* )*
+            return t;
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[gen_deep]
+struct Trigger { n: u64 }
+
+fn main() -> i32 { return 0; }

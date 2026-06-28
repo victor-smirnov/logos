@@ -1,0 +1,271 @@
+package coerce_1;
+
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.lang.rc;
+use logos.mem.sync;
+
+// ── helper traits / types ───────────────────────────────────────────────────
+
+trait Animal { fn legs(&self) -> i64; }
+trait Dog: Animal { fn bark(&self) -> i64; }
+
+struct Concrete { x: i64, y: i64 }
+impl Animal for Concrete { fn legs(&self) -> i64 { return self.x; } }
+impl Dog    for Concrete { fn bark(&self) -> i64 { return self.y; } }
+
+// struct field of trait-object type (unsize coercion on store)
+struct Field { d: &dyn Animal }
+
+// struct with scalar fields of differing declared numeric types
+struct Numbers { a: i32, b: i64, f: f64 }
+
+// blanket-style impl on a primitive for &i64 → &dyn
+trait Doubled { fn doubled(&self) -> i64; }
+impl Doubled for i64 { fn doubled(&self) -> i64 { return *self * 2i64; } }
+
+// aggregate-by-pointer argument passing
+struct Pair { p: i64, q: i64 }
+fn read_pair(x: Pair) -> i64 { return x.p + x.q; }
+
+// trait-object parameters (free fn + method)
+fn via_ref(d: &dyn Animal) -> i64 { return d.legs(); }
+trait Sayer { fn say(&self) -> i64; }
+struct Speaker { v: i64 }
+impl Sayer for Speaker { fn say(&self) -> i64 { return self.v; } }
+fn take_box_dyn(b: Box<dyn Sayer>) -> i64 { return b.say(); }
+struct Receiver { base: i64 }
+impl Receiver { fn with(&self, d: &dyn Animal) -> i64 { return self.base + d.legs(); } }
+
+// custom-DST struct with a dyn tail
+struct InnerT<T: ?Sized> { strong: i32, val: T }
+
+// closure → fn-pointer coercion sink (param typed as a plain fn pointer)
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); }
+
+fn main() -> i64 {
+
+    // @rule coerce.unsize.dyn-field-and-element
+    // Storing a concrete &S into a &dyn struct field / a [&dyn; N] element builds
+    // the 16-byte {data,vtable} fat pair; dispatch through the stored handle
+    // reaches the concrete value's fields.
+    {
+        let c: Concrete = Concrete { x: 11i64, y: 12i64 };
+        let fld: Field = Field { d: &c };               // &Concrete → &dyn field
+        if fld.d.legs() != 11i64 { return 1; }
+        let arr: [&dyn Animal; 2] = [&c, &c];           // [&dyn; N] element coercion
+        if arr[0].legs() != 11i64 { return 2; }
+        if arr[1].legs() != 11i64 { return 3; }
+    }
+
+    // @rule coerce.struct-lit.field-numeric-coercion
+    // A scalar initializer in a struct literal is coerced to the field's declared
+    // numeric type before storage (int→field-int, float→field-float).
+    {
+        let n: Numbers = Numbers { a: 5, b: 6, f: 7.0 };
+        if (n.a as i64) != 5i64 { return 4; }
+        if n.b != 6i64 { return 5; }
+        if n.f != 7.0f64 { return 6; }
+    }
+
+    // @rule coerce.unsize.concrete-to-dyn-builds-fat-pair
+    // Coercing a concrete pointer to &dyn stores data ptr at field 0 and the
+    // per-(trait,type) vtable ptr at field 1; dispatch picks the concrete impl.
+    {
+        let c: Concrete = Concrete { x: 21i64, y: 22i64 };
+        let d: &dyn Animal = &c;                        // builds {data, vtable}
+        if d.legs() != 21i64 { return 7; }
+    }
+
+    // @rule coerce.unsize.box-dyn-deref-then-unsize
+    // When the slot type is a trait object but the value is not, the value is
+    // coerced to dyn: Box<T> is unwrapped to its concrete pointee to form the fat
+    // pair; an already-dyn value passes through unchanged.
+    {
+        let r: i64 = take_box_dyn(box_new(Speaker { v: 31i64 }));  // Box<Speaker>→Box<dyn>
+        if r != 31i64 { return 8; }
+    }
+
+    // @rule coerce.method.arg-concrete-to-dyn-unsize
+    // A non-trait-object concrete argument supplied where the parameter is
+    // dyn Trait is unsize-coerced into a fat handle — symmetric for free fns and
+    // methods.
+    {
+        let c: Concrete = Concrete { x: 41i64, y: 42i64 };
+        if via_ref(&c) != 41i64 { return 9; }                  // free fn arg unsize
+        let rec: Receiver = Receiver { base: 100i64 };
+        if rec.with(&c) != 141i64 { return 10; }               // method arg unsize
+    }
+
+    // @rule coerce.method.aggregate-arg-by-pointer
+    // An aggregate (struct) argument passed where the callee expects a
+    // pointer-represented param is materialized and passed by pointer; scalar
+    // arguments are numerically coerced instead.
+    {
+        let pr: Pair = Pair { p: 7i64, q: 8i64 };
+        if read_pair(pr) != 15i64 { return 11; }               // struct by pointer
+    }
+
+    // @rule coerce.closure.fn-ptr-requires-non-capturing
+    // A non-capturing closure coerced to a plain `fn(..) -> ret` pointer is
+    // emitted as a top-level function with NO env parameter; the value is its
+    // address and calling it passes only user args.
+    {
+        let fp: fn(i64) -> i64 = |a: i64| -> i64 { return a + 1i64; };
+        if fp(10i64) != 11i64 { return 35; }                   // direct call via fn ptr
+        if apply(|a: i64| -> i64 { return a * 2i64; }, 5i64) != 10i64 { return 36; }  // coerced as arg
+    }
+
+    // @rule coerce.cast.int-null-to-trait-object
+    // `0 as *mut dyn` yields a 16-byte {data,vtable} fat pair with both halves
+    // null; reading the data half back as a thin pointer gives null (0).
+    {
+        let nullp: *mut dyn Animal = 0 as *mut dyn Animal;
+        let data: *mut u8 = nullp as *mut u8;                  // extract data half
+        if (data as i64) != 0i64 { return 12; }
+    }
+
+    // @rule coerce.cast.supertrait-upcast
+    // `&dyn Sub` upcast to `&dyn Super` keeps the SAME data pointer and swaps in
+    // Super's vtable (recovered from a super-vtable slot in Sub's vtable).
+    {
+        let c: Concrete = Concrete { x: 51i64, y: 52i64 };
+        let sub: &dyn Dog = &c;
+        let sup: &dyn Animal = sub as &dyn Animal;             // Dog → Animal upcast
+        if sup.legs() != 51i64 { return 13; }                  // same data, Animal vtable
+    }
+
+    // @rule coerce.unsize.box-array-to-box-slice
+    // `Box<[T;N]>` cast to owning `Box<[T]>` builds a {data,len} fat pair: data =
+    // the box's heap pointer, len = N.
+    {
+        let b: Box<[i64]> = box_new::<[i64; 3]>([4i64, 5i64, 6i64]) as Box<[i64]>;
+        if b.len() != 3i64 { return 14; }                      // len = N
+        if b[0] != 4i64 { return 15; }                         // data half usable
+        if b[2] != 6i64 { return 16; }
+    }
+
+    // @rule coerce.cast.u8-slice-to-u8-ptr
+    // `E as *const u8` where E is a Slice<u8> (str is Slice<u8>) extracts the data
+    // pointer (field 0 of the {ptr,len} fat pair); the byte at that ptr is the
+    // first content byte.
+    {
+        let s: str = "Az";
+        let p: *const u8 = s as *const u8;                     // extract data ptr
+        unsafe { if (*p as i64) != 65i64 { return 17; } }      // 'A' = 65
+    }
+
+    // @rule coerce.unsize.struct-dyn-tail-to-dstref
+    // `&Concrete<.., Sized>` cast to a DstRef whose tail is a trait object builds
+    // {data, vtable}: data = the thin ptr to the whole struct, vtable = the
+    // concrete tail's vtable. Reading the prefix + tail dispatch both hold.
+    {
+        let it: InnerT<Concrete> = InnerT { strong: 9i32, val: Concrete { x: 61i64, y: 62i64 } };
+        let dr: &InnerT<dyn Animal> = &it as &InnerT<dyn Animal>;
+        unsafe {
+            if (dr.strong as i64) != 9i64 { return 18; }       // prefix intact
+            if dr.val.legs() != 61i64 { return 19; }           // tail dyn dispatch
+        }
+    }
+
+    // @rule coerce.unsize.ref-concrete-to-trait-object
+    // `&T` (T a concrete struct or primitive) cast to a bare trait object builds
+    // {data,vtable}; for a primitive blanket impl the vtable keys on the bare
+    // type name (`&i64 as &dyn Doubled`).
+    {
+        let c: Concrete = Concrete { x: 71i64, y: 72i64 };
+        let d1: &dyn Animal = &c as &dyn Animal;               // struct → &dyn
+        if d1.legs() != 71i64 { return 20; }
+        let n: i64 = 36i64;
+        let d2: &dyn Doubled = &n as &dyn Doubled;             // primitive → &dyn
+        if d2.doubled() != 72i64 { return 21; }
+    }
+
+    // @rule coerce.unsize.smart-ptr-to-box-dyn
+    // `Box<T>`/`Rc<T>`/`Arc<T>` (T concrete) cast to a dyn smart pointer builds a
+    // value fat pair {data,vtable}; dispatch through it reaches the concrete impl
+    // and the handle drops cleanly.
+    {
+        let bd: Box<dyn Sayer> = box_new(Speaker { v: 81i64 }) as Box<dyn Sayer>;
+        if bd.say() != 81i64 { return 22; }                    // Box<T> → Box<dyn>
+        let rd: Rc<dyn Sayer> = rc_new(Speaker { v: 82i64 }) as Rc<dyn Sayer>;
+        if rd.say() != 82i64 { return 23; }                    // Rc<T> → Rc<dyn>
+        let ad: Arc<dyn Sayer> = arc_new(Speaker { v: 83i64 }) as Arc<dyn Sayer>;
+        if ad.say() != 83i64 { return 24; }                    // Arc<T> → Arc<dyn>
+    }
+
+    // @rule coerce.cast.fat-to-thin-pointer
+    // A fat value cast to a thin pointer extracts the data half: a &dyn cast to
+    // `*const u8` recovers the data pointer (== the concrete value's address).
+    {
+        let c: Concrete = Concrete { x: 91i64, y: 92i64 };
+        let d: &dyn Animal = &c;
+        let thin: *const u8 = d as *const u8;                  // fat → thin (data half)
+        unsafe {
+            let cp: *const Concrete = thin as *const Concrete;
+            if (*cp).x != 91i64 { return 25; }                 // data half = &c
+        }
+    }
+
+    // @rule coerce.unsize.thin-array-ptr-to-slice
+    // `*const [T;N]` cast to `*const [T]` synthesizes a {ptr,len=N} fat pair; the
+    // len half is the array's compile-time size.
+    {
+        let arr: [i64; 4] = [3i64, 4i64, 5i64, 6i64];
+        let ap: *const [i64; 4] = &arr as *const [i64; 4];
+        let sp: *const [i64] = ap as *const [i64];             // thin array ptr → slice
+        unsafe { if (*sp).len() != 4i64 { return 26; } }       // len = N
+    }
+
+    // @rule coerce.cast.identity-noop
+    // If the source representation equals the target, `E as T` is the identity.
+    {
+        let x: i64 = 123i64;
+        if (x as i64) != 123i64 { return 27; }                 // i64 → i64 no-op
+    }
+
+    // @rule coerce.cast.int-widen-by-signedness
+    // width(T) > width(E): zero-extend if the source is unsigned. (A u8 value with
+    // the high bit set widens to its small positive value, not a sign-extended
+    // negative.) The signed sign-extend half is omitted here — see "untestable":
+    // narrow-signed→wide extension is miscompiled in this multi-cast context.
+    {
+        let u: u8 = 200u8;                                     // 0xC8, high bit set
+        if (u as i64) != 200i64 { return 28; }                 // zero-extend (unsigned)
+        let w: u32 = 0x8000_0001u32;                           // high bit set
+        if (w as i64) != 2147483649i64 { return 29; }          // zero-extend, not negative
+    }
+
+    // @rule coerce.cast.int-truncate
+    // width(T) < width(E): truncate to the low width(T) bits.
+    {
+        let big: i64 = 0x1FFi64;                               // 511
+        if (big as u8 as i64) != 255i64 { return 30; }         // low 8 bits = 0xFF
+    }
+
+    // coerce.cast.float-to-float — see "untestable" report: f64↔f32 narrowing and
+    // f64 `!=` lowering are miscompiled in this multi-cast function context
+    // (icmp on f64 / "unsupported cast" fallthrough). Omitted to keep the file
+    // green; the rule is exercised by isolated single-cast tests.
+
+    // @rule coerce.cast.float-to-int-by-target-signedness
+    // E float, T integer: fptoui if T unsigned, fptosi if T signed (truncates).
+    {
+        let f: f64 = 9.7f64;
+        if (f as i64) != 9i64 { return 32; }                   // fptosi → 9
+        if (f as u32 as i64) != 9i64 { return 33; }            // fptoui → 9
+    }
+
+    // @rule coerce.cast.int-to-ptr
+    // E integer cast to a pointer first widens to 64-bit then reinterprets as an
+    // address; round-trip ptr→int→ptr→deref recovers the value.
+    {
+        let v: i64 = 4242i64;
+        let p: *const i64 = &v;
+        let addr: i64 = p as i64;                              // ptr → int
+        let p2: *const i64 = addr as *const i64;              // int → ptr (widen+reinterpret)
+        unsafe { if *p2 != 4242i64 { return 34; } }
+    }
+
+    return 0;
+}

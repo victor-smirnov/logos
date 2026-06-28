@@ -1,0 +1,8 @@
+// @rule borrow.assign.immutable-var
+package borrow_diag_3_assign_immutable_var;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    x = 2i32;
+    return x;
+}

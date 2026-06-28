@@ -1,0 +1,12 @@
+// @rule type.generic-inst.unsized-arg-gating
+package type_diag_1_unsized_arg_gating;
+
+struct Holder<T> { v: T }
+
+fn f(x: &Holder<[i32]>) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

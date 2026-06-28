@@ -1,0 +1,10 @@
+// @rule stmt.let-pat.union-requires-unsafe
+package stmt_diag_2_union_unsafe;
+
+union U { a: i32, b: f32 }
+
+fn main() -> i32 {
+    let u: U = U { a: 5i32 };
+    let U { a } = u;
+    return a;
+}

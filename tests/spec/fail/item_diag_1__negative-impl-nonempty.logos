@@ -1,0 +1,9 @@
+// @rule item.impl.negative
+package item_diag_1_negative_impl_nonempty;
+
+struct Foo { x: i32 }
+trait Send {}
+
+impl !Send for Foo { fn bad() {} }
+
+fn main() -> i32 { return 0i32; }

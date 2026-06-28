@@ -1,0 +1,7 @@
+// @rule coerce.never.subtype-of-all
+package coerce_diag_1_never_subtype_of_all;
+
+fn main() -> i32 {
+    let _x: ! = 5i32;
+    return 0i32;
+}

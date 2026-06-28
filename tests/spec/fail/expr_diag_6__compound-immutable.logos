@@ -1,0 +1,8 @@
+// @rule expr.compound-assign.var-immutable
+package expr_diag_6_compound_immutable;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    x += 1i32;
+    return 0i32;
+}

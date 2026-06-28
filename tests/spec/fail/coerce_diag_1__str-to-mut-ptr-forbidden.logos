@@ -1,0 +1,8 @@
+// @rule coerce.cast.str-to-mut-ptr-forbidden
+package coerce_diag_1_str_to_mut_ptr_forbidden;
+
+fn main() -> i32 {
+    let s: str = "hi";
+    let _p: *mut u8 = s as *mut u8;
+    return 0i32;
+}

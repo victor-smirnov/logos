@@ -1,0 +1,11 @@
+// @rule expr.enum-lit.intlit-payload-fits
+package expr_diag_5_enum_intlit_payload_overflow;
+
+enum E {
+    A(u8),
+}
+
+fn main() -> i32 {
+    let _x = E::A(999);
+    return 0i32;
+}

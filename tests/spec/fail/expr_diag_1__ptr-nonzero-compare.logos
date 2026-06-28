@@ -1,0 +1,9 @@
+// @rule expr.binop.ptr-null-compare
+package expr_diag_1_ptr_nonzero_compare;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let p: *const i32 = &x as *const i32;
+    let _b: bool = p == 1;
+    return 0i32;
+}

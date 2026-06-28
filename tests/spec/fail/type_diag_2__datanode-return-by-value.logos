@@ -1,0 +1,17 @@
+package type_diag_2_datanode_return_by_value;
+// @rule type.return.datanode-by-value-forbidden
+// A non-plain DataNode (#[datatype] with a generic Datatype field) cannot be
+// returned by value; the fn must return DataRef<Node> instead.
+
+#[datatype] pub struct FakePtr<T> { offset: u32 }
+
+#[datatype] struct Node {
+    value: i32,
+    next:  FakePtr<Node>,
+}
+
+fn make_node() -> Node {
+    return Node { value: 0, next: FakePtr { offset: 0 as u32 } };
+}
+
+fn main() -> i32 { return 0; }

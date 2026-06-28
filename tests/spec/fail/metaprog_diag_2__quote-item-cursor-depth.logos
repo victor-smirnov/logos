@@ -1,0 +1,25 @@
+// @rule metaprog.quote-item.repeat-cursor-depth
+package metaprog_diag_2_quote_item_cursor_depth;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.anyval;
+
+#[metaprog_handler("gen_depth")]
+fn gen_depth_hook(target_offset: u32) -> () {
+    let s: str = "a";
+    let nm: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        struct Derived {
+            #( #nm: u64 ),*
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[gen_depth]
+struct Trigger { n: u64 }
+
+fn main() -> i32 { return 0; }

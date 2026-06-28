@@ -1,0 +1,9 @@
+// @rule item.static.immutability-not-by-const-global
+package item_diag_1_static_immutable_write;
+
+static COUNTER: i32 = 0i32;
+
+fn main() -> i32 {
+    COUNTER = 5i32;
+    return 0i32;
+}

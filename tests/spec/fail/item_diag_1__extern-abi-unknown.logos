@@ -1,0 +1,6 @@
+// @rule item.extern.abi-whitelist
+package item_diag_1_extern_abi_unknown;
+
+extern "Fortran" { fn foo(x: i32); }
+
+fn main() -> i32 { return 0i32; }

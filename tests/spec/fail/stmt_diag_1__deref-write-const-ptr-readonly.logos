@@ -1,0 +1,11 @@
+// @rule stmt.deref-write.const-ptr-readonly
+package stmt_diag_1_deref_write_const_ptr_readonly;
+
+fn main() -> i32 {
+    let x: i32 = 0i32;
+    let p: *const i32 = &x as *const i32;
+    unsafe {
+        *p = 1i32;
+    }
+    return 0i32;
+}

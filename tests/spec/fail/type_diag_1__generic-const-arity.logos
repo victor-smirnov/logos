@@ -1,0 +1,12 @@
+// @rule type.generic-inst.generic-const
+package type_diag_1_generic_const;
+
+use logos.lang.writ.wstatic;
+
+pub const C<T>: WritStatic = @{ "k": <type:T> };
+
+pub type Bad = C<i32, u32>;
+
+fn main() -> i32 {
+    return 0i32;
+}

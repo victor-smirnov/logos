@@ -1,0 +1,7 @@
+// @rule expr.int-lit.overflow-reject
+package expr_diag_1_int_overflow;
+
+fn main() -> i32 {
+    let _x: u8 = 99999u8;
+    return 0i32;
+}

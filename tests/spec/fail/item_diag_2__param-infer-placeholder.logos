@@ -1,0 +1,8 @@
+// @rule item.param.no-infer-placeholder
+package item_diag_2_param_infer_placeholder;
+
+fn f(x: _) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 { return 0i32; }

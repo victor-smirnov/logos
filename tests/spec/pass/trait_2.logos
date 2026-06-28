@@ -1,0 +1,178 @@
+package trait_2;
+
+use logos.lang.marker;
+
+// ── helper traits / types ────────────────────────────────────────────────────
+
+// rule trait.impl.str-is-byte-slice: impl Trait for str dispatches on a str value.
+trait Yell { fn yell(self: &Self) -> i64; }
+impl Yell for str { fn yell(self: &Self) -> i64 { return self.len(); } }
+
+// rule trait.bound.generic-arg-recursion: Wrap<T>: Boxed requires T: Inner.
+trait Inner { fn ival(self: &Self) -> i64; }
+struct Leaf { n: i64 }
+impl Inner for Leaf { fn ival(self: &Leaf) -> i64 { return self.n; } }
+struct Wrap<T> { inner: T }
+trait Boxed { fn bval(self: &Self) -> i64; }
+impl<T: Inner> Boxed for Wrap<T> {
+    fn bval(self: &Wrap<T>) -> i64 { return self.inner.ival() + 7i64; }
+}
+fn need_boxed<W: Boxed>(b: &W) -> i64 { return b.bval(); }
+
+// rule trait.bound.fn-family-intrinsic: parenthesized Fn bound satisfied by
+// closures, fn-pointers, and a struct that impls Fn.
+fn apply_fn<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+fn plain_dbl(x: i64) -> i64 { return x * 2i64; }
+struct AddBias { bias: i64 }
+impl Fn<i64> for AddBias {
+    type Output = i64;
+    fn call(&self, x: i64) -> i64 { return self.bias + x; }
+}
+
+// rule trait.bound.where-clause-gate: a fn with a post-sig where-bound
+// `Subject: Trait` is instantiated only when the substituted Subject satisfies
+// the trait; the bound provides method resolution in the body.
+fn gated<T>(x: &T) -> i64 where T: Inner { return x.ival() + 1i64; }
+
+// rule trait.assoc.typearg-suffixed-lookup: one type, two Trait<T> impls, each
+// with its own associated type/value, resolved independently.
+trait Conv<T> { fn conv(self: &Self) -> T; }
+struct Src { raw: i64 }
+impl Conv<i64> for Src { fn conv(self: &Src) -> i64 { return self.raw; } }
+impl Conv<i32> for Src { fn conv(self: &Src) -> i32 { return self.raw as i32 + 5i32; } }
+fn as_i64<T: Conv<i64>>(s: &T) -> i64 { return s.conv(); }
+fn as_i32<T: Conv<i32>>(s: &T) -> i32 { return s.conv(); }
+
+// rule trait.assoc.equality-bound-satisfaction: T: Trait<Assoc = X> via a
+// blanket impl that supplies `type Assoc = X`.
+trait MarkB {}
+trait HasItem { type Item; }
+impl<DT: MarkB> HasItem for DT { type Item = i64; }
+trait Foo { fn foo(&self) -> i64; }
+impl<DT: HasItem<Item = i64>> Foo for DT { fn foo(&self) -> i64 { return 42i64; } }
+struct K {}
+impl MarkB for K {}
+fn use_foo<T: Foo>(t: &T) -> i64 { return t.foo(); }
+
+// auto-trait satisfaction helpers (compile+run iff the type satisfies the bound).
+fn req_send<T: Send>(_x: &T) -> i64 { return 1i64; }
+fn req_sync<T: Sync>(_x: &T) -> i64 { return 1i64; }
+
+// rule trait.auto.explicit-impl-overrides / raw-ptr: a struct with a raw-ptr
+// field is !Send structurally, but an explicit unsafe impl makes it Send.
+struct RawBuf { ptr: *mut i64, len: i64 }
+unsafe impl Send for RawBuf {}
+
+// rule trait.auto.aggregate-structural: scalar-only aggregates are Send & Sync.
+struct Agg { a: i32, b: i64, c: f64 }
+enum En { Zero, One(i64), Two(i32, bool) }
+
+fn main() -> i64 {
+
+    // @rule trait.impl.str-is-byte-slice
+    // An impl registered for `str` applies to a concrete str value (str is the
+    // canonical &[u8] wire form for impl lookup).
+    {
+        let s: str = "hello";
+        if s.yell() != 5i64 { return 3; }
+    }
+
+    // @rule trait.bound.generic-arg-recursion
+    // Wrap<Leaf>: Boxed holds because the impl's bound `T: Inner` is satisfied
+    // by the unified argument Leaf; dispatch reaches the impl body.
+    {
+        let w: Wrap<Leaf> = Wrap::<Leaf> { inner: Leaf { n: 10i64 } };
+        if need_boxed::<Wrap<Leaf>>(&w) != 17i64 { return 4; }  // 10 + 7
+    }
+
+    // @rule trait.bound.fn-family-intrinsic
+    // A parenthesized Fn bound is satisfied intrinsically by a closure, a
+    // fn-pointer, and a struct carrying an Fn impl — no registered Fn impl
+    // (beyond the struct bridge) required.
+    {
+        if apply_fn::<fn(i64) -> i64>(plain_dbl, 21i64) != 42i64 { return 5; }  // fn-ptr
+        let bias: i64 = 100i64;
+        if apply_fn(|x: i64| -> i64 { return bias + x; }, 5i64) != 105i64 { return 6; }  // closure
+        if apply_fn::<AddBias>(AddBias { bias: 30i64 }, 12i64) != 42i64 { return 7; }    // struct-Fn bridge
+    }
+
+    // @rule trait.bound.where-clause-gate
+    // `gated` carries a where-bound `T: Inner`; it is instantiated and callable
+    // for T = Leaf, which satisfies Inner.
+    {
+        let l: Leaf = Leaf { n: 41i64 };
+        if gated::<Leaf>(&l) != 42i64 { return 8; }  // 41 + 1
+    }
+
+    // @rule trait.assoc.typearg-suffixed-lookup
+    // Two `Conv<T>` impls on the same type (T = i64 and T = i32) register and
+    // resolve independently per type-argument.
+    {
+        let s: Src = Src { raw: 50i64 };
+        if as_i64::<Src>(&s) != 50i64 { return 9; }              // Conv<i64>
+        if (as_i32::<Src>(&s) as i64) != 55i64 { return 10; }   // Conv<i32> (+5)
+    }
+
+    // @rule trait.assoc.equality-bound-satisfaction
+    // `K: Foo` requires `DT: A<Item = i64>`; K gets `A::Item = i64` from the
+    // blanket `impl<DT: B> A`, so the equality bound is satisfied and foo runs.
+    {
+        let k: K = K {};
+        if use_foo::<K>(&k) != 42i64 { return 11; }
+    }
+
+    // @rule trait.auto.aggregate-structural
+    // A scalar-only struct / enum auto-satisfies Send and Sync structurally
+    // (every component satisfies it).
+    {
+        let agg: Agg = Agg { a: 1i32, b: 2i64, c: 3.0f64 };
+        if req_send::<Agg>(&agg) != 1i64 { return 12; }
+        if req_sync::<Agg>(&agg) != 1i64 { return 13; }
+        let e: En = En::Two(4i32, true);
+        if req_send::<En>(&e) != 1i64 { return 14; }
+    }
+
+    // @rule trait.auto.scalars-fn-always-satisfy
+    // Primitive scalars and function-item / function-pointer types
+    // unconditionally satisfy auto-traits.
+    {
+        let n: i64 = 0i64;
+        if req_send::<i64>(&n) != 1i64 { return 15; }
+        if req_sync::<bool>(&true) != 1i64 { return 16; }
+        let fp: fn(i64) -> i64 = plain_dbl;
+        if req_send::<fn(i64) -> i64>(&fp) != 1i64 { return 17; }
+    }
+
+    // @rule trait.auto.ref-send-iff-pointee-sync
+    // &T auto-satisfies Send when T: Sync (here T = i64, which is Sync).
+    {
+        let n: i64 = 0i64;
+        let r: &i64 = &n;
+        if req_send::<&i64>(&r) != 1i64 { return 18; }
+    }
+
+    // @rule trait.auto.mutref-delegates-same-trait
+    // &mut T auto-satisfies Send when T: Send (T = i64).
+    {
+        let mut n: i64 = 0i64;
+        let rm: &mut i64 = &mut n;
+        if req_send::<&mut i64>(&rm) != 1i64 { return 19; }
+    }
+
+    // @rule trait.auto.slice-send-iff-elem-sync
+    // [T; N] (array) auto-satisfies Send when T: Send (T = i64).
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        if req_send::<[i64; 3]>(&arr) != 1i64 { return 20; }
+    }
+
+    // @rule trait.auto.explicit-impl-overrides
+    // RawBuf holds a raw pointer (structurally !Send) but its explicit
+    // `unsafe impl Send` makes it satisfy Send unconditionally.
+    {
+        let rb: RawBuf = RawBuf { ptr: 0 as *mut i64, len: 0i64 };
+        if req_send::<RawBuf>(&rb) != 1i64 { return 21; }
+    }
+
+    return 0;
+}

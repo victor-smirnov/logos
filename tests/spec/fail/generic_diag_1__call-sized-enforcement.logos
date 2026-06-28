@@ -1,0 +1,9 @@
+// @rule generic.call.sized-enforcement
+package generic_diag_1_call_sized_enforcement;
+
+fn take<T>() {}
+
+fn main() -> i32 {
+    take::<[i64]>();
+    return 0i32;
+}

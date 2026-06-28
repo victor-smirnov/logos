@@ -1,0 +1,12 @@
+// @rule metaprog.quote-expr.scalar-antiquot-type
+package metaprog_diag_2_quote_expr_scalar_type;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+fn build_expr() -> ExprBlob {
+    let foo: i32 = 7;
+    return quote_expr! { #foo };
+}
+
+fn main() -> i32 { return 0; }

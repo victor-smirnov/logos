@@ -1,0 +1,14 @@
+// @rule metaprog.annot.positional-by-order
+package metaprog_diag_1_annot_too_many_positional;
+
+#[annotation]
+#[datatype] struct One {
+    a: i64,
+}
+
+#[One(1, 2)]
+#[datatype] struct Target {
+    x: i32,
+}
+
+fn main() -> i32 { return 0i32; }

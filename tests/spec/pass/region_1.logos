@@ -1,0 +1,152 @@
+package region_1;
+
+use logos.lang.rc;
+
+// Conformance test for the `region_1` rule group (region / escape / provenance
+// borrow-tracking). MANY of these rules manifest ONLY as compile-time REJECTION
+// of code whose borrow escapes its referent (a dangling ref returned, a
+// statement-temporary borrowed past its statement, E0597/E0716). A `pass` test
+// that runs green cannot observe a rejection, so those rules are reported under
+// "untestable" (class transitive — their negative side is locked in fail/*
+// tests). The rules below have a runtime-observable *positive / sound* side:
+// a borrow whose provenance is SAFE-to-return (a parameter, a global/return
+// value, a residency-holder, a longer-lived receiver) is accepted and yields a
+// working reference. We lock exactly that accepted side here.
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+// A reference first-param, reference return, NO explicit lifetime params:
+// self-borrowing by elision — the result lifetime ties to the receiver.
+struct Cell { x: i64, y: i64 }
+impl Cell {
+    fn view_x(&self) -> &i64 { return &self.x; }   // method result borrows &self
+}
+
+// Returns a borrow of its ref PARAMETER — provenance source {p}; safe to return.
+fn pick(p: &i64) -> &i64 { return p; }
+
+// Returns a borrow of a ref param reached through a field projection
+// (projection-transparent: &c.x forwards the param's provenance).
+fn pick_field(c: &Cell) -> &i64 { return &c.x; }
+
+// Returns a borrow of one of two ref params chosen by control flow
+// (control-flow-merge: if-expr provenance = union of branch provenances; both
+// are params, so the merged provenance is param-sourced and safe to return).
+fn pick_branch<'a>(a: &'a i64, b: &'a i64, take_a: bool) -> &'a i64 {
+    if take_a { return a; } else { return b; }
+}
+
+// A global: provenance from a global is treated as safe to return.
+static G: i64 = 314i64;
+fn pick_global() -> &i64 { return &G; }
+
+// A function-call result is caller-owned (empty provenance, not local/temp) →
+// returning it is accepted even though ref params exist (untraced-is-safe).
+fn make() -> i64 { return 7i64; }
+fn forward(p: &i64) -> i64 { let _u = *p; return make(); }
+
+// A residency-holder package: a struct with an Rc field ref-counts its referent
+// alive independent of any local, so it is NOT borrow-carrying and may escape.
+struct Held { holder: Rc<i64> }
+fn launder(v: i64) -> Held { return Held { holder: rc_new(v) }; }
+
+// A parameter that is an aggregate holding nothing borrow-carrying: returning a
+// field read of a value param is trusted by the type checker (non-ref-param
+// source deferred — no spurious lifetime error).
+struct Wrap { inner: i64 }
+fn unwrap(w: Wrap) -> i64 { return w.inner; }
+
+fn main() -> i64 {
+
+    // @rule region.provenance.param-ref-source
+    // A returned borrow of a reference PARAMETER has provenance source {p} and is
+    // safe to return; calling pick and dereferencing the result reads the input.
+    {
+        let v: i64 = 41i64;
+        let r: &i64 = pick(&v);
+        if *r != 41i64 { return 1; }
+    }
+
+    // @rule region.provenance.ref-aliases-params-or-local
+    // A reference-typed result whose provenance is a function parameter (or a
+    // global / return value) is safe to return; the aliasing is sound and the
+    // borrow reads the aliased input.
+    {
+        let v: i64 = 55i64;
+        let r: &i64 = pick(&v);   // r aliases the param, which aliases v
+        if *r != 55i64 { return 2; }
+    }
+
+    // @rule region.elision.method-result-borrows-self
+    // A method with a reference receiver, a reference return, and no explicit
+    // lifetime params is self-borrowing by elision: view_x returns a borrow tied
+    // to the receiver, usable for as long as the receiver lives.
+    {
+        let c: Cell = Cell { x: 9i64, y: 0i64 };
+        let r: &i64 = c.view_x();
+        if *r != 9i64 { return 3; }
+    }
+
+    // @rule region.provenance.method-result-borrows-receiver
+    // For a method whose result type is a reference, the result's provenance
+    // equals the receiver's: the borrow points into the (longer-lived) receiver
+    // and is valid as long as the receiver outlives it.
+    {
+        let c: Cell = Cell { x: 21i64, y: 0i64 };
+        let r: &i64 = c.view_x();   // provenance = c (the receiver)
+        if *r != 21i64 { return 4; }
+    }
+
+    // @rule region.provenance.projection-transparent
+    // A field read forwards the provenance of its operand unchanged: pick_field
+    // returns &c.x where c is a ref param, so the borrow is param-sourced and the
+    // result reads through the projection.
+    {
+        let c: Cell = Cell { x: 33i64, y: 44i64 };
+        let r: &i64 = pick_field(&c);
+        if *r != 33i64 { return 5; }
+    }
+
+    // @rule region.provenance.control-flow-merge
+    // An if-expr's provenance is the merge of its branches; pick_branch returns a
+    // borrow of either param, both param-sourced, so the merged provenance is
+    // safe and the chosen branch's place is read.
+    {
+        let a: i64 = 100i64;
+        let b: i64 = 200i64;
+        let r1: &i64 = pick_branch(&a, &b, true);
+        if *r1 != 100i64 { return 6; }
+        let r2: &i64 = pick_branch(&a, &b, false);
+        if *r2 != 200i64 { return 7; }
+    }
+
+    // @rule region.return.untraced-is-safe
+    // If the returned expression has empty provenance and is not local/temp (a
+    // function-call result), the return is accepted even when ref params exist;
+    // forward returns make()'s owned result while holding a ref param.
+    {
+        let v: i64 = 12i64;
+        if forward(&v) != 7i64 { return 9; }
+    }
+
+    // @rule region.return.non-ref-param-source-deferred
+    // Returning a field of a by-value aggregate parameter (no ref-typed param
+    // source) raises no lifetime error — the declared return type match is
+    // trusted as already verified by the type checker.
+    {
+        let w: Wrap = Wrap { inner: 88i64 };
+        if unwrap(w) != 88i64 { return 10; }
+    }
+
+    // @rule region.borrow-carrying.residency-holder-exempt
+    // A struct with an Rc field ref-counts its referent alive independent of any
+    // local, so it is NOT borrow-carrying and may safely ESCAPE its constructing
+    // scope; launder returns the Held package and its value reads back.
+    {
+        let h: Held = launder(123i64);   // escapes the call frame soundly
+        let got: i64 = *h.holder;        // Rc Deref → reads the held value
+        if got != 123i64 { return 11; }
+    }
+
+    return 0;
+}

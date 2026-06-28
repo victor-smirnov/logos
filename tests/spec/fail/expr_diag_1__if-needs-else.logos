@@ -1,0 +1,7 @@
+// @rule expr.if.requires-else-in-expr-position
+package expr_diag_1_if_needs_else;
+
+fn main() -> i32 {
+    let _x: i32 = if true { 1i32 };
+    return 0i32;
+}

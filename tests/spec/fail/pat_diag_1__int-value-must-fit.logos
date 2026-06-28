@@ -1,0 +1,10 @@
+// @rule pat.int.value-must-fit
+package pat_diag_1_int_value_fit;
+
+fn main() -> i32 {
+    let x: u8 = 1u8;
+    match x {
+        999 => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

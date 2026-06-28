@@ -1,0 +1,96 @@
+//! module_1 — module-system conformance (executable subset)
+package module_1.sub.deep;
+
+// `use a.b.c;` dotted-path import: the package whose dotted path is the
+// concatenation of head + path parts. Brings the `option` package (and its
+// Option type) into scope via the `.`-separated path.
+use logos.lang.option;
+
+// `use pkg.{a, b};` grouped brace-list: desugars to one sub-package import per
+// lowercase-leading member → `logos.lang.cmp`, `logos.lang.result`.
+use logos.lang.{cmp, result};
+
+// `use pkg.Type.{V1, V2};` enum-variant bare-name shorthand: uppercase-leading
+// final segment ⇒ variant import (Less/Equal/Greater become bare names).
+use logos.lang.cmp.Ordering.{Less, Equal, Greater};
+
+fn classify(x: i64) -> Ordering {
+    if x == 0i64 { return Equal; }
+    if x < 0i64 { return Less; }
+    return Greater;
+}
+
+fn main() -> i64 {
+
+    // @rule module.package.decl
+    // This file begins with `package NAME ('.' IDENT)* ';'` (module_1.sub.deep,
+    // a 3-component dotted package), optionally preceded by inner doc-comments
+    // (the //! above), then use-decls, then items. If the package line + item
+    // ordering were not accepted this unit would not compile/run; reaching here
+    // confirms the production. A nominal self-check keeps a live runtime marker.
+    let unit_compiled: i64 = 1i64;
+    if unit_compiled != 1i64 { return 11; }
+
+    // @rule module.use.dotted-path
+    // `use logos.lang.option;` names the package by dotted path; the Option type
+    // is now resolvable. Construct + match through it.
+    {
+        let o: Option<i64> = Option::Some(7i64);
+        match o {
+            Option::Some(v) => { if v != 7i64 { return 21; } }
+            Option::None => { return 22; }
+        }
+    }
+
+    // @rule module.use.path
+    // `use pkg('.'IDENT)* ';'` brings the dotted package path into scope; using
+    // the imported path's item (Option) below proves the path was made visible.
+    {
+        let n: Option<i64> = Option::None;
+        match n {
+            Option::Some(_) => { return 31; }
+            Option::None => { /* expected */ }
+        }
+    }
+
+    // @rule module.use.group-desugar
+    // `use logos.lang.{cmp, result};` desugars to `use logos.lang.cmp;` and
+    // `use logos.lang.result;` — both sub-packages must be in scope. Exercise the
+    // `result` member (the `cmp` member is exercised by the variant rule below).
+    {
+        let r: Result<i64, i64> = Result::Ok(5i64);
+        match r {
+            Result::Ok(v) => { if v != 5i64 { return 41; } }
+            Result::Err(_) => { return 42; }
+        }
+    }
+
+    // @rule module.use.variant-shorthand
+    // `use logos.lang.cmp.Ordering.{Less, Equal, Greater};` brings the enum
+    // variants into bare (unqualified) scope, usable at value position and in
+    // match-arm patterns.
+    {
+        let z: Ordering = classify(0i64);
+        let neg: Ordering = classify(-3i64);
+        let pos: Ordering = classify(8i64);
+        match z { Equal => {} Less => { return 51; } Greater => { return 52; } }
+        match neg { Less => {} Equal => { return 53; } Greater => { return 54; } }
+        match pos { Greater => {} Equal => { return 55; } Less => { return 56; } }
+    }
+
+    // @rule module.use.variant-shorthand-vs-subpackage
+    // @rule module.use.variant-vs-subpackage-by-case
+    // Same `use pkg.Path.X.{...}` syntax disambiguates by X's first character:
+    // uppercase `Ordering` ⇒ variant import (bare Less/Equal/Greater above),
+    // lowercase `cmp`/`result`/`option` ⇒ sub-package import (Result/Option
+    // types in scope). Both interpretations resolved in THIS file, so observing
+    // both a bare variant AND a sub-package type usable confirms the case split.
+    {
+        let by_variant: Ordering = Greater;          // uppercase X → bare variant
+        let by_subpkg: Result<i64, i64> = Result::Ok(1i64); // lowercase X → type via sub-pkg
+        match by_variant { Greater => {} Less => { return 61; } Equal => { return 62; } }
+        match by_subpkg { Result::Ok(v) => { if v != 1i64 { return 63; } } Result::Err(_) => { return 64; } }
+    }
+
+    return 0;
+}

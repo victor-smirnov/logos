@@ -1,0 +1,16 @@
+// @rule metaprog.quote-ty.generic-inst-antiquot
+package metaprog_diag_2_quote_ty_lifetime_arg;
+
+use logos.std.compiler.metaprog;
+
+pub struct Ref2<'a, T> { pub p: &'a T, }
+
+unsafe fn mk() -> Type {
+    let ti = type_of::<i32>();
+    return quote_ty! { Ref2<'a, $ti> };
+}
+
+unsafe fn main() -> i32 {
+    let t = mk();
+    return 0;
+}

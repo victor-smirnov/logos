@@ -1,0 +1,281 @@
+package stmt_2;
+
+// stmt_2 — execution-locked conformance for the `stmt` rules.
+// main returns i64; each rule has a "// @rule <id>" marker immediately above
+// its assertion(s) and a distinct nonzero exit code on violation; all-pass ⇒ 0.
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+struct Pair { a: i64, b: i64 }
+
+enum Color { Red, Green, Blue }
+enum Msg { Quit, Move(i64, i64) }
+
+// let-else: C-like enum scrutinee (own discriminant) — refutable.
+fn clike(c: Color) -> i64 { let Color::Green = c else { return 0i64; }; return 1i64; }
+// let-else: variant-data enum scrutinee — refutable, binds payload.
+fn variant(m: Msg) -> i64 { let Msg::Move(x, y) = m else { return -1i64; }; return x + y; }
+// let-else: inner refutable sub-pattern lowered to a guard on the payload.
+fn inner_guard(o: Option<i64>) -> i64 { let Some(1i64) = o else { return -1i64; }; return 1i64; }
+
+// nested fn lifted to top-level; does not capture enclosing locals.
+fn add_ref(p: &i64) -> i64 { return *p; }
+
+fn main() -> i64 {
+
+    // ── for ──────────────────────────────────────────────────────────────────
+
+    // @rule stmt.for.range
+    // exclusive `lo..hi`, inclusive `lo..=hi`.
+    {
+        let mut s: i64 = 0i64;
+        for i in 0i64..4i64 { s = s + i; }      // 0+1+2+3
+        if s != 6i64 { return 1; }
+        let mut s2: i64 = 0i64;
+        for i in 1i64..=3i64 { s2 = s2 + i; }   // 1+2+3
+        if s2 != 6i64 { return 2; }
+    }
+
+    // @rule stmt.for.each
+    // simple-ident fast path and full destructuring pattern per element.
+    {
+        let v: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
+        let mut acc: i64 = 0i64;
+        for (a, b) in &v { acc = acc + *a * 10i64 + *b; }   // 12 + 34
+        if acc != 46i64 { return 3; }
+    }
+
+    // @rule stmt.for-each.slice-yields-element-reference
+    // `for x in &[T]` binds x to a reference INTO the buffer (element address),
+    // iterating over the runtime len; mutating through the element mutates the
+    // original buffer.
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        let sl: &[i64] = &arr;
+        let mut i: i64 = 0i64;
+        let mut n: i64 = 0i64;
+        for x in sl {
+            // element address == &arr[i] (reference into original buffer)
+            let xa: i64 = (x as *const i64) as i64;
+            let ea: i64 = (&arr[i] as *const i64) as i64;
+            if xa != ea { return 4; }
+            i = i + 1i64;
+            n = n + 1i64;
+        }
+        if n != 3i64 { return 5; }              // iterated runtime len
+        // mutating through the element mutates the original buffer
+        let mut m: [i64; 3] = [1i64, 2i64, 3i64];
+        for x in &mut m { *x = *x + 100i64; }
+        if m[0] != 101i64 { return 6; }
+        if m[2] != 103i64 { return 7; }
+    }
+
+    // ── loops ──────────────────────────────────────────────────────────────────
+
+    // @rule stmt.while.forms
+    // (kinds dispatch) — `while COND { }` loops while COND holds.
+    {
+        let mut w: i64 = 0i64;
+        while w < 10i64 { w = w + 1i64; }
+        if w != 10i64 { return 8; }
+    }
+
+    // @rule stmt.loop.infinite
+    // `loop { }` is unconditional; exited here via break.
+    {
+        let mut k: i64 = 0i64;
+        loop { k = k + 1i64; if k == 3i64 { break; } }
+        if k != 3i64 { return 9; }
+    }
+
+    // @rule stmt.loop.labeled
+    // `'label: loop` is targetable by break 'label / continue 'label.
+    {
+        let lr: i64 = 'outer: loop {
+            loop { break 'outer 7i64; }
+        };
+        if lr != 7i64 { return 10; }
+    }
+
+    // @rule stmt.break.forms
+    // bare `break;` and `break expr;` are both valid.
+    {
+        let mut k: i64 = 0i64;
+        loop { k = k + 1i64; if k == 2i64 { break; } }   // bare break
+        if k != 2i64 { return 11; }
+        let r: i64 = loop { break 42i64; };              // break with value
+        if r != 42i64 { return 12; }
+    }
+
+    // @rule stmt.continue.forms
+    // bare `continue;` skips to the loop's continue point.
+    {
+        let mut cnt: i64 = 0i64;
+        for i in 0i64..5i64 {
+            if i == 2i64 { continue; }
+            cnt = cnt + 1i64;
+        }
+        if cnt != 4i64 { return 13; }
+    }
+
+    // @rule stmt.continue.labeled-target
+    // `continue 'label` targets the nearest enclosing loop with that label.
+    {
+        let mut cnt: i64 = 0i64;
+        'a: for i in 0i64..3i64 {
+            for _j in 0i64..3i64 {
+                if i == 1i64 { continue 'a; }   // skip rest of inner AND outer body
+                cnt = cnt + 1i64;
+            }
+        }
+        // i=0: inner runs 3; i=1: continue 'a immediately (0); i=2: inner runs 3
+        if cnt != 6i64 { return 14; }
+    }
+
+    // ── match ────────────────────────────────────────────────────────────────
+
+    // @rule stmt.match.scrutinee-form
+    // a bare-identifier scrutinee is parsed as a var-ref (not a struct literal).
+    {
+        let e: Msg = Msg::Move(3i64, 4i64);
+        let mv: i64 = match e {
+            Msg::Move(x, y) => x + y,
+            Msg::Quit => -1i64,
+        };
+        if mv != 7i64 { return 15; }
+    }
+
+    // @rule stmt.match.arm
+    // `PAT [if GUARD] => BODY`; the optional guard gates the arm.
+    {
+        let val: i64 = 5i64;
+        let g: i64 = match val {
+            x if x > 10i64 => 100i64,
+            x if x > 0i64 => x,         // guarded arm taken
+            _ => -1i64,
+        };
+        if g != 5i64 { return 16; }
+    }
+
+    // ── let-else ───────────────────────────────────────────────────────────────
+
+    // @rule stmt.let-else.wildcard-irrefutable
+    // a bare binding (not `_`) always matches and binds the scrutinee.
+    {
+        let bound = 6i64 else { return 17; };
+        if bound != 6i64 { return 18; }
+    }
+
+    // @rule stmt.let-else.enum-pattern-refutable
+    // variant pattern matches iff discriminant equals; else block runs otherwise.
+    {
+        if clike(Color::Green) != 1i64 { return 19; }   // matches
+        if clike(Color::Red) != 0i64 { return 20; }     // else runs
+        if variant(Msg::Move(3i64, 4i64)) != 7i64 { return 21; }  // matches, binds
+        if variant(Msg::Quit) != -1i64 { return 22; }   // else runs
+    }
+
+    // @rule stmt.let-else.literal-pattern-refutable
+    // Int/Bool pattern matches iff equal; Range `lo..=hi` iff lo<=scrut<=hi.
+    {
+        let n: i64 = 4i64;
+        let 4i64 = n else { return 23; };               // int literal matches
+        let bt: bool = true;
+        let true = bt else { return 24; };              // bool matches
+        let rn: i64 = 3i64;
+        let 1i64..=5i64 = rn else { return 25; };       // range matches (1<=3<=5)
+    }
+
+    // @rule stmt.let-else.tuple-pattern-irrefutable
+    // a tuple pattern unconditionally matches and binds each element.
+    {
+        let tup: (i64, i64) = (11i64, 22i64);
+        let (ta, tb) = tup else { return 26; };
+        if ta != 11i64 { return 27; }
+        if tb != 22i64 { return 28; }
+    }
+
+    // @rule stmt.let-else.match-ergonomics-autoderef
+    // `&Enum` scrutinee tests the referenced enum (auto-deref).
+    {
+        let opt: Option<i64> = Some(7i64);
+        let Some(v) = &opt else { return 29; };
+        if *v != 7i64 { return 30; }
+    }
+
+    // @rule stmt.let-else.inner-refutable-guard
+    // a refutable inner sub-pattern lowers to a guard after the discriminant test;
+    // match succeeds only when discriminant AND all guards hold.
+    {
+        if inner_guard(Some(1i64)) != 1i64 { return 31; }   // disc + guard hold
+        if inner_guard(Some(2i64)) != -1i64 { return 32; }  // guard fails → else
+        if inner_guard(None) != -1i64 { return 33; }        // disc fails → else
+    }
+
+    // ── let / block scoping ──────────────────────────────────────────────────
+
+    // @rule stmt.block.shadow-restore-on-exit
+    // a `{ }` block scopes bindings; outer name reverts after the block exits.
+    {
+        let z: i64 = 100i64;
+        { let z: i64 = 200i64; if z != 200i64 { return 34; } }
+        if z != 100i64 { return 35; }   // reverted to outer
+    }
+
+    // @rule stmt.let.destructure-bindings-leak
+    // a destructuring `let` leaks its field bindings into the enclosing scope,
+    // shadowing a pre-existing same-named binding (no scope restore).
+    {
+        let x: i64 = 99i64;
+        let Pair { a: x, b: y } = Pair { a: 1i64, b: 2i64 };
+        if x != 1i64 { return 36; }     // x shadowed by destructure
+        if y != 2i64 { return 37; }
+    }
+
+    // @rule stmt.let.uninit-drop-flag-when-conditional-init
+    // `let mut x: T;` then assigned at deeper control-flow nesting still reads
+    // back the conditionally-assigned value correctly.
+    {
+        let cond: bool = true;
+        let mut s: i64;
+        if cond { s = 5i64; } else { s = 9i64; }   // assigned at deeper nesting
+        if s != 5i64 { return 38; }
+        // plain block does NOT increase nesting depth (static drop placement)
+        let mut t: i64;
+        { t = 11i64; }
+        if t != 11i64 { return 39; }
+    }
+
+    // ── nested fn / assignment forms ─────────────────────────────────────────
+
+    // @rule stmt.fn.nested-lifts-to-toplevel
+    // a `fn` at statement position is lifted; bound locally as a fn-ptr `let`;
+    // does not capture enclosing locals.
+    {
+        fn helper(n: i64) -> i64 { return n * 2i64; }
+        if helper(21i64) != 42i64 { return 40; }
+        let fp = helper;                    // local fn-ptr binding
+        if fp(20i64) != 40i64 { return 41; }
+    }
+
+    // @rule stmt.assign.destructuring-into-places
+    // `(a,b)=e` writes into EXISTING places (not new bindings).
+    {
+        let mut a: i64 = 0i64;
+        let mut b: i64 = 0i64;
+        (a, b) = (7i64, 8i64);
+        if a != 7i64 { return 42; }
+        if b != 8i64 { return 43; }
+    }
+
+    // @rule stmt.kinds.dispatch
+    // a block without a trailing `;` yields its final expression as its value;
+    // an `expr ;` is an expression statement (value discarded).
+    {
+        let blk: i64 = { let q: i64 = 3i64; q + 4i64 };   // trailing expr = value
+        if blk != 7i64 { return 44; }
+        add_ref(&blk);                                     // expr statement
+    }
+
+    return 0;
+}

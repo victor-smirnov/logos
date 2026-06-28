@@ -1,0 +1,161 @@
+package type_7;
+
+// ── helper traits / types ───────────────────────────────────────────────────
+
+// trait impl on `str` (which is the built-in Slice<u8> alias)
+trait Sized3 { fn three(&self) -> i64; }
+impl Sized3 for str { fn three(&self) -> i64 { return 3i64; } }
+
+// impl on a slice target — Self should be seeded so `Self::` resolves
+trait FirstByte { fn fb(&self) -> i64; }
+impl FirstByte for [u8] {
+    fn fb(&self) -> i64 { return self[0] as i64; }
+}
+
+// struct with only Copy fields, no Drop → structurally Copy
+struct Pt { x: i64, y: i64 }
+
+// method body uses Self / self
+struct Counter { v: i64 }
+impl Counter {
+    // `&self` → &Self
+    fn get(&self) -> i64 { return self.v; }
+    // `&mut self` → &mut Self
+    fn bump(&mut self) -> i64 { self.v = self.v + 1i64; return self.v; }
+    // Self in body denotes the impl target
+    fn make(n: i64) -> Self { return Self { v: n }; }
+}
+
+// non-generic type alias resolves to a concrete type
+type IntAlias = i64;
+
+// generic type alias is inlined at use site
+type Pair3<T> = (T, T);
+
+// impl target names a non-generic alias → impl on the underlying struct
+struct Base { b: i64 }
+type BaseAlias = Base;
+trait Tag { fn tag(&self) -> i64; }
+impl Tag for BaseAlias { fn tag(&self) -> i64 { return self.b; } }
+
+fn main() -> i64 {
+
+    // @rule type.str.slice-alias
+    // `str` resolves to Slice<u8> (printed &[u8]); a trait impl on `str` is also
+    // registered under &[u8], so calling the trait method on a str value finds it.
+    {
+        let s: str = "hi";
+        if s.three() != 3i64 { return 1; }
+    }
+
+    // @rule trait.impl-method.unsized-self-seed
+    // For an impl whose target is an unsized slice, Self is seeded so `self: &Self`
+    // resolves and the method body type-checks/runs.
+    {
+        let s: str = "Az";
+        // str is Slice<u8>; the [u8] impl method applies to its byte slice
+        if s.fb() != 65i64 { return 2; }   // 'A' = 65
+    }
+
+    // @rule type.copy.structural-auto
+    // A struct with no Drop and all-Copy fields is automatically Copy: it can be
+    // used after being "moved" into another binding (the value is copied).
+    {
+        let p: Pt = Pt { x: 7i64, y: 8i64 };
+        let q: Pt = p;                 // copy, not move
+        if p.x != 7i64 { return 3; }   // original still usable ⇒ Copy
+        if q.y != 8i64 { return 4; }
+    }
+
+    // @rule type.self.implicit-self-param-ref
+    // A method parameter written `self` (no type) has type &Self; `mut self`
+    // is &mut Self. Both dispatch and mutate as expected.
+    {
+        let c: Counter = Counter { v: 41i64 };
+        if c.get() != 41i64 { return 5; }     // self: &Self
+        let mut c2: Counter = Counter { v: 41i64 };
+        if c2.bump() != 42i64 { return 6; }   // mut self: &mut Self
+    }
+
+    // @rule type.self.impl-binding-precedence
+    // Within a method body, `Self` denotes the impl's target type; constructing
+    // via `Self { .. }` yields a value of the target struct type.
+    {
+        let c: Counter = Counter::make(99i64);
+        if c.get() != 99i64 { return 7; }
+    }
+
+    // @rule type.alias.generic-alias-inlined
+    // A generic type alias has no standalone concrete type; it is inlined at each
+    // use site (Pair3<i64> ≡ (i64, i64)). A non-generic alias resolves concretely.
+    {
+        let pr: Pair3<i64> = (5i64, 6i64);   // inlined to (i64, i64)
+        if pr.0 != 5i64 { return 8; }
+        if pr.1 != 6i64 { return 9; }
+        let n: IntAlias = 10i64;             // non-generic alias → i64
+        if n != 10i64 { return 10; }
+    }
+
+    // @rule type.alias.impl-target-unfold
+    // An impl whose target is a non-generic alias `type BaseAlias = Base;` is an
+    // impl on the underlying struct Base; the method dispatches on a Base value.
+    {
+        let b: Base = Base { b: 77i64 };
+        if b.tag() != 77i64 { return 11; }
+    }
+
+    // @rule type.binop.never-operand
+    // If either operand has the never type !, the binop type-checks against any
+    // operator and never produces a value (the diverging operand's terminator
+    // runs first). Here `return 0` short-circuits before any arithmetic result.
+    {
+        let mut hit: i64 = 0i64;
+        if hit == 1i64 {
+            // `1 + return ...` is well-typed (!), and would diverge if reached.
+            let _z: i64 = 1i64 + return 12;
+        }
+        hit = hit + 1i64;
+        if hit != 1i64 { return 13; }
+    }
+
+    // @rule type.binop.logical-bool
+    // Operators && / || require each operand to be bool (or never !); result is
+    // bool. A never operand (`flag || return ...`) satisfies the bool requirement.
+    {
+        let flag: bool = true;
+        let r: bool = flag || return 14;   // rhs is `!`, lhs is bool ⇒ bool result
+        if r != true { return 15; }
+        let r2: bool = (1i64 < 2i64) && (3i64 > 2i64);
+        if r2 != true { return 16; }
+    }
+
+    // @rule type.binop.comparison-bool
+    // Comparison operators {==,!=,<,<=,>,>=} require mutually compatible operand
+    // types and produce type bool.
+    {
+        let lo: i64 = 5i64;
+        let hi: i64 = 7i64;
+        let is_lt: bool = lo < hi;
+        let is_eq: bool = lo == lo;
+        let is_ne: bool = lo != hi;
+        let is_ge: bool = hi >= lo;
+        if is_lt != true { return 17; }
+        if is_eq != true { return 18; }
+        if is_ne != true { return 19; }
+        if is_ge != true { return 20; }
+    }
+
+    // @rule type.binop.enum-lit-rehint
+    // In an enum ==/!= where one operand is a bare enum literal (Option::None)
+    // and the other carries concrete type-args (Option<i64>), the bare operand is
+    // re-lowered with the peer's enum type so both share one concrete layout.
+    {
+        let some: Option<i64> = Option::Some(5i64);
+        let none: Option<i64> = Option::None;
+        // bare `Option::None` literal compared against a concrete-typed peer
+        if (some == Option::None) != false { return 21; }
+        if (none == Option::None) != true  { return 22; }
+    }
+
+    return 0;
+}

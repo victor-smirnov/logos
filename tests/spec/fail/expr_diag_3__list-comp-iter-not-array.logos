@@ -1,0 +1,10 @@
+// @rule expr.list-comp.iter-array-or-slice-only
+package expr_diag_3_list_comp_iter;
+
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let n: i32 = 5i32;
+    let _v = [x for x in n];
+    return 0i32;
+}

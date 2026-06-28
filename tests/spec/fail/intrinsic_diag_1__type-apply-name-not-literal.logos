@@ -1,0 +1,14 @@
+// @rule intrinsic.reflect.type-apply
+package type_apply_name_not_literal;
+
+use logos.std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+
+fn get_name(s: str) -> str { return s; }
+
+unsafe fn main() -> i32 {
+    let t = type_apply(get_name("Pair"), [type_of::<i32>(), type_of::<bool>()]);
+    if t.uid == 0u64 { return 1; }
+    return 0;
+}

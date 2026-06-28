@@ -1,0 +1,8 @@
+// @rule stmt.assign.immutable-var
+package stmt_diag_2_assign_immutable;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    x = 6i32;
+    return x;
+}

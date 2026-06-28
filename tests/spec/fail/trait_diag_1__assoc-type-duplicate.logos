@@ -1,0 +1,10 @@
+// @rule trait.assoc-type.duplicate
+package trait_diag_1_at_dup;
+trait T { type Item; fn m(&self) -> i64; }
+struct S { x: i64 }
+impl T for S {
+    type Item = i64;
+    type Item = i32;
+    fn m(&self) -> i64 { return self.x; }
+}
+fn main() -> i64 { return 0i64; }

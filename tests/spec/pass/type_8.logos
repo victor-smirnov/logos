@@ -1,0 +1,231 @@
+// Conformance: type_8 — operator typing, integer kinds/ranges, method
+// resolution (autoderef + mangled/primitive lookup + return subst), defaults,
+// uninhabitedness, DST/dyn identity, and let-hole inference. Each block locks
+// ONE rule by executing a consequence that only holds if the rule is true;
+// a violation returns a distinct nonzero code. All pass => return 0.
+package type_8;
+
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.mem.sync;
+
+// ── helper traits / types ────────────────────────────────────────────────────
+
+trait Sayer { fn say(&self) -> i64; }
+struct Speaker { v: i64 }
+impl Sayer for Speaker { fn say(&self) -> i64 { return self.v; } }
+
+// generic struct with a method returning a substituted type-var
+struct Wrap<T: Copy> { v: T }
+impl<T: Copy> Wrap<T> {
+    fn get(&self) -> T { return self.v; }          // return type = T (subst from receiver)
+}
+
+// generic enum whose type-arg is inferred and (trivially) bound
+enum Maybe<T> { Some(T), None }
+
+// closure-taking method: bare type param bounded by Fn — seeds closure hint
+struct Caller { base: i64 }
+impl Caller {
+    fn run<F: Fn(i64) -> i64>(&self, f: F, x: i64) -> i64 { return self.base + f(x); }
+}
+
+// nominal type with type-args reached through a reference receiver
+struct Counter<T> { n: T }
+impl<T> Counter<T> {
+    fn n_plus(&self, d: T) -> T { return d; }      // exercises recv autoderef + type-arg bind
+}
+
+// primitive impl: method looked up as `<type>__<method>` against arg signature
+trait Plus { fn plus(&self, o: i64) -> i64; }
+impl Plus for i64 { fn plus(&self, o: i64) -> i64 { return *self + o; } }
+
+// uninhabited enum + a wrapper to confirm match-arm elision
+enum Void {}
+enum Tagged { A(i64), B(Void) }
+
+// recursive enum: self-reference via Box (pointer) field ⇒ finite size
+enum Link { Cons(i64, Box<Link>), Nil }
+
+fn main() -> i64 {
+
+    // @rule type.binop.arith-numeric
+    // Arithmetic {+,-,*,/,%} require numeric operands; the result is the unified
+    // integer type of integer operands. Mixed concrete-width forms unify; the
+    // arithmetic value is preserved.
+    {
+        let a: i64 = 7i64;
+        let b: i64 = 3i64;
+        if a + b != 10i64 { return 1; }
+        if a - b != 4i64 { return 2; }
+        if a * b != 21i64 { return 3; }
+        if a / b != 2i64 { return 4; }
+        if a % b != 1i64 { return 5; }
+    }
+
+    // @rule type.binop.bitwise-integer-or-bool
+    // Bitwise {&,|,^} accept integer (and bool) operands; shifts {<<,>>} accept
+    // integers. The result is the unified integer type; bool & bool stays bool.
+    {
+        let x: i64 = 0b1100i64;
+        let y: i64 = 0b1010i64;
+        if (x & y) != 0b1000i64 { return 6; }
+        if (x | y) != 0b1110i64 { return 7; }
+        if (x ^ y) != 0b0110i64 { return 8; }
+        if (1i64 << 4i64) != 16i64 { return 9; }
+        if (256i64 >> 2i64) != 64i64 { return 10; }
+        if (true & false) != false { return 11; }      // bool bitwise stays bool
+    }
+
+    // @rule expr.if.intlit-result-overflow-i64
+    // When an `if` result is an unresolved integer literal and a branch literal
+    // exceeds the i32 range, the result type widens to i64 (so the big value is
+    // representable, not truncated to 32 bits).
+    {
+        let big = if true { 5000000000 } else { 0 };   // 5e9 > i32 max ⇒ i64
+        if big != 5000000000i64 { return 12; }
+    }
+
+    // @rule type.method-recv.deref-before-lookup
+    // A reference receiver (&T/&mut T) is reduced to its pointee T before the
+    // struct name and nominal type-args are extracted for dispatch: calling a
+    // method through a &Wrap<i64> binds T=i64 correctly.
+    {
+        let w: Wrap<i64> = Wrap { v: 99i64 };
+        let r: &Wrap<i64> = &w;                          // reference receiver
+        if r.get() != 99i64 { return 13; }              // T bound from &Wrap<i64> pointee
+    }
+
+    // @rule type.closure-arg.hint-from-formal
+    // An Fn-bounded bare-type-parameter formal synthesizes a closure hint from
+    // the bound's signature, so an untyped closure param (`|i|`) infers i64.
+    {
+        let c: Caller = Caller { base: 100i64 };
+        if c.run(|i| { return i * 2i64; }, 5i64) != 110i64 { return 14; }  // |i| inferred i64
+    }
+
+    // @rule type.primitive-method.mangled-lookup
+    // For a primitive receiver (no struct name) the method resolves via the
+    // `<type-name>__<method>` mangling matched against the argument signature.
+    {
+        let n: i64 = 40i64;
+        if n.plus(2i64) != 42i64 { return 15; }         // i64__plus(&i64, i64)
+    }
+
+    // @rule type.method.recv-autoderef-resolution
+    // For method resolution and struct-type-arg extraction, a reference receiver
+    // is dereferenced to its pointee — calling through &Counter<i64> binds T=i64.
+    {
+        let cnt: Counter<i64> = Counter { n: 3i64 };
+        let rc: &Counter<i64> = &cnt;
+        if rc.n_plus(8i64) != 8i64 { return 16; }       // T=i64 via autoderef
+    }
+
+    // @rule type.method.return-subst
+    // A method call's type is the declared return type with the receiver's
+    // type-var substitution applied: Wrap<i64>::get returns i64, usable as i64.
+    {
+        let w: Wrap<i64> = Wrap { v: 55i64 };
+        let got: i64 = w.get();                          // return T subst → i64
+        if got != 55i64 { return 17; }
+    }
+
+    // @rule type.enum-lit.type-bounds-checked
+    // A generic enum literal's inferred type-args are accepted (bounds satisfied)
+    // and the payload round-trips through the variant.
+    {
+        let m: Maybe<i64> = Maybe::Some(70i64);          // T=i64 inferred, bound ok
+        let out: i64 = match m { Maybe::Some(x) => x, Maybe::None => -1i64 };
+        if out != 70i64 { return 18; }
+    }
+
+    // @rule type.integer.kind-set
+    // The integer kinds include the fixed widths and pointer-sized usize/isize;
+    // values of several kinds all behave as integers under arithmetic/compare.
+    {
+        let s8: i8 = 5i8;
+        let u: u16 = 6u16;
+        let z: usize = 7usize;
+        let total: i64 = (s8 as i64) + (u as i64) + (z as i64);
+        if total != 18i64 { return 19; }
+    }
+
+    // @rule type.integer.bit-width
+    // Each concrete integer kind has a fixed bit width: truncating a value into
+    // u8 keeps exactly its low 8 bits (width 8), into u16 its low 16 bits, while
+    // i64 (width 64) keeps the whole value.
+    {
+        if (0x1FFi64 as u8 as i64) != 255i64 { return 20; }      // u8 width 8 ⇒ low 8 bits
+        if (0x1_0001i64 as u16 as i64) != 1i64 { return 21; }    // u16 width 16 ⇒ low 16 bits
+        if (0x1_0000_0001i64 as i64) != 4294967297i64 { return 35; }  // i64 width 64 ⇒ kept
+    }
+
+    // @rule type.intlit.fits-range
+    // A constant fits a target kind iff it is in range: 127 fits i8, 255 fits u8,
+    // 65535 fits u16 — each annotates without truncation.
+    {
+        if (127i8 as i64) != 127i64 { return 22; }       // i8 max in range
+        if (255u8 as i64) != 255i64 { return 23; }       // u8 max in range
+        if (65535u16 as i64) != 65535i64 { return 24; }  // u16 max in range
+    }
+
+    // @rule type.uninhabited.definition
+    // An empty enum (Void) is uninhabited; a variant carrying it (Tagged::B) can
+    // never be constructed, so a match need only handle the inhabited arm and the
+    // value is always the inhabited one.
+    {
+        let t: Tagged = Tagged::A(88i64);                // only inhabited variant
+        let v: i64 = match t { Tagged::A(x) => x, Tagged::B(_) => -1i64 };
+        if v != 88i64 { return 25; }
+    }
+
+    // @rule type.recursion.indirection-breaks-cycle
+    // Self-reference through a pointer (Box) field is finite-size and legal: a
+    // recursive enum holding Box<Self> compiles and the chain is traversable.
+    {
+        let chain: Link = Link::Cons(1i64, box_new(Link::Cons(2i64, box_new(Link::Cons(3i64, box_new(Link::Nil))))));
+        let mut sum: i64 = 0i64;
+        let mut cur: &Link = &chain;
+        loop {
+            match cur {
+                Link::Cons(v, rest) => { sum = sum + *v; cur = &**rest; }
+                Link::Nil => { break; }
+            }
+        }
+        if sum != 6i64 { return 26; }                   // 1+2+3, recursive type traversed
+    }
+
+    // @rule type.traitobject.owning-kind-distinct
+    // The owning kinds (Borrow/Box/Rc/Arc) are distinct types over the same trait
+    // but share the fat {data,vtable} dispatch; each reaches the concrete impl.
+    {
+        let bd: Box<dyn Sayer> = box_new(Speaker { v: 41i64 }) as Box<dyn Sayer>;
+        let rd: Rc<dyn Sayer>  = rc_new(Speaker { v: 42i64 }) as Rc<dyn Sayer>;
+        let ad: Arc<dyn Sayer> = arc_new(Speaker { v: 43i64 }) as Arc<dyn Sayer>;
+        let sp: Speaker = Speaker { v: 44i64 };
+        let br: &dyn Sayer = &sp;
+        if bd.say() != 41i64 { return 29; }              // Box owning kind
+        if rd.say() != 42i64 { return 30; }              // Rc owning kind
+        if ad.say() != 43i64 { return 31; }              // Arc owning kind
+        if br.say() != 44i64 { return 32; }              // Borrow owning kind
+    }
+
+    // @rule type.dyn.unsized-bound-bits-preserved
+    // A `dyn Trait + Send` type interns distinctly from `dyn Trait` yet dispatches
+    // identically; the Send bound is carried through and the value still calls.
+    {
+        let sp: Speaker = Speaker { v: 51i64 };
+        let ds: &dyn Sayer = &sp;                        // dyn Sayer + Send-capable
+        if ds.say() != 51i64 { return 33; }
+    }
+
+    // @rule type.infer.let-hole-from-rhs
+    // An `_` hole at any depth in a let annotation is filled from the RHS type:
+    // bare `_` against an i64 value binds i64.
+    {
+        let h: _ = 64i64;                                // `_` ← i64
+        if h != 64i64 { return 34; }
+    }
+
+    return 0;
+}

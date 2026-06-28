@@ -1,0 +1,11 @@
+// @rule borrow.take.field-borrow-blocks-whole-mut
+package borrow_diag_1_take_field_borrow_blocks_whole_mut;
+// a field-path borrow of x is active; &mut x (whole) must be rejected.
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut x: P = P { a: 1i64, b: 2i64 };
+    let f: &i64 = &x.a;
+    let w: &mut P = &mut x;
+    w.b = 3i64;
+    return *f as i32;
+}

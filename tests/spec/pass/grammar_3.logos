@@ -1,0 +1,151 @@
+package grammar_3;
+
+// Conformance test for the grammar_3 rule group: the Logos `@`-literal Writ
+// grammar (writ_map / writ_array / scalar / type-literal forms in logos.peg)
+// and the free-function CALL form. Each live rule is asserted by EXECUTING a
+// program whose result depends on the rule holding.
+//
+// Rules that describe the standalone Writ data-format PEG (writ.peg) or
+// internal PEG/AST node structures with no Logos-source surface are reported
+// as untestable; they are not faked here.
+
+use logos.lang.option;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.lang.writ.wstatic;
+use logos.lang.rc;
+
+// Free functions named `new` and `null`: these are plain identifiers, so
+// `new(args)` / `null(args)` must parse as ordinary CALL-by-name, not as a
+// special construct.
+fn new(x: i64) -> i64 { return x + 1i64; }
+fn null(x: i64) -> i64 { return x + 2i64; }
+
+fn main() -> i64 {
+    // @rule grammar.expr.call-free
+    // IDENT(args), new(args), and null(args) are plain free-function CALLs.
+    if new(10i64) != 11i64 { return 1; }
+    if null(10i64) != 12i64 { return 2; }
+
+    // @rule grammar.writ.map-literal
+    // writ_map is a brace-delimited, comma-separated list of key:value entries;
+    // the list may be empty and a single trailing comma is permitted.
+    {
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
+        let empty: WritStatic = @{};
+        let ev: WView2 = WView2 { base: empty.ptr };
+        if !ev.root().is_map() { return 3; }
+        let tc: WritStatic = @{"a": 1, "b": 2,};   // trailing comma
+        let tv: WView2 = WView2 { base: tc.ptr };
+        let tr: WAny = tv.root();
+        if !tr.is_map() { return 4; }
+        if tv.get_int(tv.map_get(tr, "a")) != 1i64 { return 5; }
+        if tv.get_int(tv.map_get(tr, "b")) != 2i64 { return 6; }
+    }
+
+    // @rule grammar.writ.array-literal
+    // writ_array is a bracket-delimited, comma-separated list of values; the
+    // list may be empty and a single trailing comma is permitted.
+    {
+        let empty: WritStatic = @[];
+        let ev: WView2 = WView2 { base: empty.ptr };
+        if !ev.root().is_array() { return 7; }
+        if ev.array_len(ev.root()) != 0u64 { return 8; }
+        let a: WritStatic = @[10, 20, 30,];        // trailing comma
+        let av: WView2 = WView2 { base: a.ptr };
+        let ar: WAny = av.root();
+        if !ar.is_array() { return 9; }
+        if av.array_len(ar) != 3u64 { return 10; }
+        if av.get_int(av.array_get(ar, 0u64)) != 10i64 { return 11; }
+        if av.get_int(av.array_get(ar, 2u64)) != 30i64 { return 12; }
+    }
+
+    // Build one document carrying every value form for the remaining rules.
+    let doc: WritStatic = @{
+        "i":   7,
+        "neg": -5,
+        "f":   1.5,
+        "b":   true,
+        "bf":  false,
+        "s":   "hi",
+        "n":   null,
+        "arr": [1, 2, 3],
+        "sub": {"k": 99},
+        "t":   <type: i64>
+    };
+    let v: WView2 = WView2 { base: doc.ptr };
+    let root: WAny = v.root();
+
+    // @rule grammar.writ.value-forms
+    // A Writ literal value is one of: null, boolean, integer, negative integer,
+    // float, string, map, array, or type literal — each a distinct node form.
+    {
+        if !root.is_map() { return 13; }
+        if !v.map_get(root, "i").is_int() { return 14; }
+        if !v.map_get(root, "neg").is_int() { return 15; }
+        if !v.map_get(root, "f").is_float() { return 16; }
+        if !v.map_get(root, "b").is_bool() { return 17; }
+        if !v.map_get(root, "s").is_string() { return 18; }
+        if !v.map_get(root, "n").is_null() { return 19; }
+        if !v.map_get(root, "arr").is_array() { return 20; }
+        if !v.map_get(root, "sub").is_map() { return 21; }
+        if v.map_get(root, "t").is_null() { return 22; }   // type literal present
+    }
+
+    // @rule grammar.writ.scalar-literals
+    // A bare STRING is a STRING node, INTEGER an INTEGER node, FLOAT a FLOAT
+    // node, TRUE/FALSE BOOLEAN nodes carrying their value, NULL a NULL node.
+    {
+        if !v.map_get(root, "s").is_string() { return 23; }
+        if !v.map_get(root, "i").is_int() { return 24; }
+        if !v.map_get(root, "f").is_float() { return 25; }
+        if !v.map_get(root, "b").is_bool() { return 26; }
+        if !v.map_get(root, "bf").is_bool() { return 27; }
+        if !v.map_get(root, "n").is_null() { return 28; }
+    }
+
+    // @rule grammar.writ.null-literal
+    // The `null` literal (WRIT_NULL) denotes the null value.
+    {
+        if !v.map_get(root, "n").is_null() { return 29; }
+    }
+
+    // @rule grammar.writ.bool-literal
+    // A boolean literal renders true iff its value is nonzero: `true` is true,
+    // `false` is false.
+    {
+        if !v.get_bool(v.map_get(root, "b")) { return 30; }
+        if v.get_bool(v.map_get(root, "bf")) { return 31; }
+    }
+
+    // @rule grammar.writ.int-literal
+    // An integer carries its value; a negative integer is the magnitude with a
+    // separate sign, yielding the negated value.
+    {
+        if v.get_int(v.map_get(root, "i")) != 7i64 { return 32; }
+        if v.get_int(v.map_get(root, "neg")) != -5i64 { return 33; }
+    }
+
+    // @rule grammar.writ.string-literal
+    // A string literal's value is the quoted text verbatim; its bytes round-trip.
+    {
+        let sv: SView2 = v.get_str_view(v.map_get(root, "s"));
+        if sv.len != 2u64 { return 34; }
+        unsafe {
+            if *sv.ptr != 104u8 { return 35; }          // 'h'
+            if *((sv.ptr as i64 + 1i64) as *const u8) != 105u8 { return 36; }  // 'i'
+        }
+    }
+
+    // @rule grammar.writ.type-literal
+    // `<type: T>` embeds a Logos Type as a first-class Writ value (here T = i64);
+    // it parses to a present, non-null node.
+    {
+        let tl: WAny = v.map_get(root, "t");
+        if tl.is_null() { return 37; }
+    }
+
+    return 0;
+}

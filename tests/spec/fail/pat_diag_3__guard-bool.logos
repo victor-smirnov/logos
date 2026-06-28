@@ -1,0 +1,10 @@
+// @rule pat.match.guard-bool
+package pat_diag_3_guard_bool;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        n if n => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

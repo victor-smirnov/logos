@@ -1,0 +1,6 @@
+// @rule item.enum.discriminant-const-expr
+package item_diag_1_enum_disc_metacall_empty;
+
+enum E { A = metacall { } }
+
+fn main() -> i32 { return 0i32; }

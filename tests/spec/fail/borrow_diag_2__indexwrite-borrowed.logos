@@ -1,0 +1,8 @@
+// @rule borrow.indexwrite.borrowed-container
+package borrow_diag_2_indexwrite_borrowed;
+fn main() -> i32 {
+    let mut arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let r: &i32 = &arr[0];
+    arr[1] = 99i32;
+    return *r;
+}

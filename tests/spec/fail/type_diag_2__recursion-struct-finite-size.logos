@@ -1,0 +1,9 @@
+package type_diag_2_recursion_struct_finite_size;
+// @rule type.recursion.struct-finite-size
+// A struct whose by-value field graph transitively contains itself is
+// ill-formed (white/gray/black cycle detection rejects an infinite-size type).
+
+struct A { b: B }
+struct B { a: A }
+
+fn main() -> i32 { return 0; }

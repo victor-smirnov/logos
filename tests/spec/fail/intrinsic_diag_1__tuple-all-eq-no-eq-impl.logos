@@ -1,0 +1,11 @@
+// @rule intrinsic.tuple-all-eq.concrete-expansion
+package tae_no_eq;
+
+struct NoEq { x: i32 }
+
+fn main() -> i32 {
+    let a: (NoEq,) = (NoEq { x: 1 },);
+    let b: (NoEq,) = (NoEq { x: 1 },);
+    let r: bool = tuple_all_eq::<(NoEq,)>(&a, &b);
+    return 0;
+}

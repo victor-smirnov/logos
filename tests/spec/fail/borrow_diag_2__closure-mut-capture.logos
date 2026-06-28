@@ -1,0 +1,9 @@
+// @rule borrow.closure.capture-by-ref-loan
+package borrow_diag_2_closure_mut_capture;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let f = || { x = x + 1i64; };
+    let y: i64 = x;
+    f();
+    return y as i32;
+}

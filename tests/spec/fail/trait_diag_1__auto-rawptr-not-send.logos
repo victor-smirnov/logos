@@ -1,0 +1,7 @@
+// @rule trait.auto.raw-pointer-not-send-sync
+package trait_diag_1_rawptr_send;
+fn needs_send<T: Send>(x: T) -> i64 { return 0i64; }
+fn main() -> i64 {
+    let p: *const i64 = 0 as *const i64;
+    return needs_send::<*const i64>(p);
+}

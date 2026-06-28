@@ -1,0 +1,31 @@
+// @rule trait.supertrait.impl-completeness
+package trait_diag_2_supertrait_completeness;
+
+// impl appears BEFORE the trait definitions: order does not matter.
+impl Mid for S {
+    fn mid(&self) -> i32 { return self.x; }
+}
+
+impl Top for S {
+    fn top(&self) -> i32 { return self.x; }
+}
+
+struct S {
+    x: i32,
+}
+
+trait Bottom {
+    fn bottom(&self) -> i32;
+}
+
+trait Mid: Bottom {
+    fn mid(&self) -> i32;
+}
+
+trait Top: Mid {
+    fn top(&self) -> i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

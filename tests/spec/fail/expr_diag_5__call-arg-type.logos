@@ -1,0 +1,11 @@
+// @rule expr.call.arg-type-compatible
+package expr_diag_5_call_arg_type;
+
+fn want_bool(x: bool) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let _r = want_bool(5i32);
+    return 0i32;
+}

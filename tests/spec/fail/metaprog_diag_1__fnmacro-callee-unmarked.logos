@@ -1,0 +1,9 @@
+// @rule metaprog.fn-macro.callee-must-be-marked
+package metaprog_diag_1_fnmacro_callee_unmarked;
+
+pub fn foo(x: i32) -> i32 { return x; }
+
+fn main() -> i32 {
+    let v: i32 = foo!(1);
+    return v;
+}

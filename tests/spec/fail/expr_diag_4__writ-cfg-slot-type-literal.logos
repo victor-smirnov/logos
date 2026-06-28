@@ -1,0 +1,16 @@
+// @rule expr.writ.cfg-slot-type-literal
+package expr_diag_4_writ_cfg_slot_type_literal;
+
+use logos.lang.writ.wstatic;
+
+fn build<const CFG: WritStatic>() -> WritStatic {
+    let w: WritStatic = @{ "k": <type:CFG.outer.inner> };
+    return w;
+}
+
+pub const Cfg: WritStatic = @{ "outer": { "inner": <type:u64> } };
+
+fn main() -> i32 {
+    let _w: WritStatic = build::<Cfg>();
+    return 0i32;
+}

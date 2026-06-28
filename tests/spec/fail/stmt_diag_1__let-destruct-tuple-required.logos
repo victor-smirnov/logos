@@ -1,0 +1,7 @@
+// @rule stmt.let-destruct.tuple-required
+package stmt_diag_1_let_destruct_tuple_required;
+
+fn main() -> i32 {
+    let (a, b) = 5i32;
+    return 0i32;
+}

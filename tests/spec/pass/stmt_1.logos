@@ -1,0 +1,341 @@
+package stmt_1;
+
+// stmt_1 — execution-locked conformance for the `stmt` (let / assign / return /
+// if / for / loop / break / continue) rules. main returns i64; every rule has a
+// marker comment immediately above its assertion and a distinct nonzero exit
+// code on violation; all-pass ⇒ 0.
+
+// (no imports needed — every rule below is pure-language: scalars, structs,
+//  arrays, slices, enums, control flow, user-Drop counters via raw pointers.)
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+// User Drop that bumps a counter through a raw pointer so we can observe drop
+// timing/counts at runtime.
+trait Drop { fn drop(self: &mut Self); }
+struct Own { tag: i64, c: *mut i64 }
+impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
+
+struct Pair { a: i64, b: i64 }
+
+enum Opt { None, Some(i64) }
+
+// A function that diverges (returns the never type).
+fn diverge() -> ! { loop { } }
+
+fn main() -> i64 {
+
+    // ── let: fresh decl resets drop-state per iteration ───────────────────────
+    // @rule stmt.let.fresh-decl-resets-drop-state
+    // A `let` inside a loop body re-initializes its drop state each iteration:
+    // the value bound this iteration is dropped at end-of-iteration, so over N
+    // iterations the destructor runs exactly N times (no leak, no double count).
+    {
+        let mut cnt_a: i64 = 0i64;
+        let pa: *mut i64 = &mut cnt_a;
+        let mut i: i64 = 0i64;
+        while i < 3i64 {
+            let o: Own = Own { tag: i, c: pa };  // fresh each iteration
+            let _t: i64 = o.tag;
+            i = i + 1i64;
+        }                                        // o dropped here, every iter
+        if cnt_a != 3i64 { return 1; }
+    }
+
+    // ── let: declare-without-init, statically-tracked init ⇒ unconditional drop ─
+    // @rule stmt.let.uninit-drop-flag-vs-static
+    // The STATIC half: a declare-without-init binding whose assignment statically
+    // dominates its uses is tracked statically and dropped UNCONDITIONALLY at
+    // scope exit (exactly once). (The runtime-drop-flag half — conditional init —
+    // is an internal codegen invariant not observable at language level here.)
+    {
+        let mut cnt_b: i64 = 0i64;
+        let pb: *mut i64 = &mut cnt_b;
+        {
+            let o: Own;
+            o = Own { tag: 1i64, c: pb };   // dominating assign ⇒ static tracking
+            let _k: i64 = o.tag;
+        }                                   // dropped unconditionally, once
+        if cnt_b != 1i64 { return 2; }
+    }
+
+    // ── let: copy/rebind of an aggregate place is independent ──────────────────
+    // @rule stmt.let.copy-rebind-independent
+    // `let b = a` for a Copy aggregate copies the full footprint; later mutation
+    // of the source does not alias the binding.
+    {
+        let mut pa1: Pair = Pair { a: 1i64, b: 2i64 };
+        let pb1: Pair = pa1;             // independent copy
+        pa1.a = 99i64;                   // mutate source
+        if pb1.a != 1i64 { return 4; }   // binding unchanged
+        if pb1.b != 2i64 { return 5; }
+    }
+
+    // ── let: array rebind copies all bytes ────────────────────────────────────
+    // @rule stmt.let.array-rebind-copy
+    // `let b: [T; N] = a;` copies all N elements; mutating the source array does
+    // not affect the binding.
+    {
+        let mut arr_a: [i64; 3] = [10i64, 20i64, 30i64];
+        let arr_b: [i64; 3] = arr_a;     // full-array copy
+        arr_a[1] = 99i64;                // mutate source
+        if arr_b[0] != 10i64 { return 6; }
+        if arr_b[1] != 20i64 { return 7; } // binding independent
+        if arr_b[2] != 30i64 { return 8; }
+    }
+
+    // ── let: scalar coercion to declared type ─────────────────────────────────
+    // @rule stmt.let.scalar-coercion
+    // The RHS is coerced to the declared integer/float type before storage:
+    // a wider value narrowed to i8 wraps; an i32 widened to i64 sign-extends.
+    {
+        let narrow: i8 = 300i64 as i8;   // 300 mod 256 = 44
+        if (narrow as i64) != 44i64 { return 9; }
+        let widened: i64 = -5i32 as i64; // sign-extended
+        if widened != -5i64 { return 10; }
+        let f: f64 = 3i64 as f64;        // int→float conversion
+        if f != 3.0f64 { return 11; }
+    }
+
+    // ── assign: drop OLD value before storing new (RHS first) ─────────────────
+    // @rule stmt.assign.drop-before-replace-static
+    // `x = e` evaluates e, drops the OLD live value, then stores. So `x = f(x)`
+    // observes the old x, and the old value's destructor runs exactly once on
+    // replace.
+    {
+        let mut cnt_c: i64 = 0i64;
+        let pc: *mut i64 = &mut cnt_c;
+        let mut o: Own = Own { tag: 5i64, c: pc };
+        o = Own { tag: 6i64, c: pc };    // old (tag 5) dropped on replace
+        if cnt_c != 1i64 { return 12; }  // exactly one drop so far
+        let prev: i64 = o.tag;
+        if prev != 6i64 { return 13; }
+    }                                    // final value dropped at scope exit
+
+    // ── assign: first (dominating) assign performs no drop ────────────────────
+    // @rule stmt.assign.first-assign-no-drop
+    // For a statically-tracked binding, the first dominating assignment writes
+    // uninitialized storage and drops nothing; the next assignment drops the
+    // live value.
+    {
+        let mut cnt_d: i64 = 0i64;
+        let pd: *mut i64 = &mut cnt_d;
+        let o: Own;
+        o = Own { tag: 1i64, c: pd };    // first assign: NO drop of prior junk
+        if cnt_d != 0i64 { return 14; }  // nothing dropped yet
+        let _keep: i64 = o.tag;
+    }                                    // value dropped exactly once at exit
+    // (the no-double-free / single-drop confirmation is in cnt staying 0 above)
+
+    // (stmt.assign.drop-before-replace-conditional — the runtime-drop-flag path
+    //  for conditionally-initialized bindings is an internal codegen invariant;
+    //  it is not observable as a runnable language-level assertion here, so its
+    //  marker/assertion is omitted. See structured `untestable`.)
+
+    // ── assign: struct rebind copies full payload ─────────────────────────────
+    // @rule stmt.assign.struct-rebind-copy
+    // Reassigning a struct binding from another struct place copies the full
+    // sizeof(T) payload; the destination storage stays independent of the source.
+    {
+        let src_s: Pair = Pair { a: 7i64, b: 8i64 };
+        let mut dst_s: Pair = Pair { a: 0i64, b: 0i64 };
+        dst_s = src_s;                   // full-payload copy
+        if dst_s.a != 7i64 { return 17; }
+        if dst_s.b != 8i64 { return 18; }
+    }
+
+    // ── assign: fat-pointer (slice) rebind copies both halves ─────────────────
+    // @rule stmt.assign.fatptr-rebind-copy
+    // Reassigning a slice binding copies the full {data,len} pair; neither half
+    // is left stale (the new length and new data both take effect).
+    {
+        let arr1: [i64; 2] = [1i64, 2i64];
+        let arr2: [i64; 3] = [4i64, 5i64, 6i64];
+        let mut s: &[i64] = &arr1[0..2];   // len 2
+        s = &arr2[0..3];                   // rebind: len 3, new data
+        if s.len() != 3i64 { return 19; }  // len half updated
+        if s[0] != 4i64 { return 20; }     // data half updated
+        if s[2] != 6i64 { return 21; }
+    }
+
+    // ── assign: array rebind copies full payload ──────────────────────────────
+    // @rule stmt.assign.array-rebind-copy
+    // Reassigning an array binding copies all elements (not a pointer); the two
+    // arrays remain independent.
+    {
+        let mut src_ar: [i64; 3] = [1i64, 2i64, 3i64];
+        let mut dst_ar: [i64; 3] = [0i64, 0i64, 0i64];
+        dst_ar = src_ar;                 // reassign: full-array copy
+        src_ar[0] = 99i64;               // mutate source after copy
+        if dst_ar[0] != 1i64 { return 22; } // dst independent of src
+        if dst_ar[1] != 2i64 { return 23; }
+        if dst_ar[2] != 3i64 { return 24; }
+    }
+
+    // ── assign: enum rebind copies {disc,payload} ─────────────────────────────
+    // @rule stmt.assign.enum-rebind-copy
+    // Reassigning a tagged-enum binding copies the new value's inline disc+payload
+    // footprint; a bare discriminant variant writes the discriminant.
+    {
+        let mut o: Opt = Opt::Some(7i64);
+        o = Opt::Some(9i64);             // copy new disc+payload
+        match o {
+            Opt::Some(v) => { if v != 9i64 { return 25; } }
+            Opt::None => { return 26; }
+        }
+        o = Opt::None;                   // bare discriminant
+        match o {
+            Opt::Some(_) => { return 27; }
+            Opt::None => { }
+        }
+    }
+
+    // ── return: empty return yields unit (value-less) ─────────────────────────
+    // @rule stmt.return.empty-yields-unit
+    // A `return` with no operand is a value-less return.
+    {
+        // ret_unit returns () early via operand-less return.
+        if ret_unit_side(5i64) != 5i64 { return 28; }
+    }
+
+    // ── return: never-fn operand-less return ──────────────────────────────────
+    // @rule stmt.return.never-fn-operandless
+    // In a `-> !` function, `return e` evaluates e for effect (it itself
+    // diverges) and the function has no value result; control never returns.
+    {
+        // We do not call diverge() (it would loop forever); we confirm the
+        // never-typed function is admissible as a divergent branch below.
+        if pick(true) != 1i64 { return 29; }
+    }
+
+    // ── if: diverging condition truncates the rest of the if ──────────────────
+    // @rule stmt.if.diverging-cond-truncates
+    // If the condition itself diverges (here via an early `return` in the cond
+    // position), no branch/merge code runs. We observe that the surrounding
+    // function returns the pre-if value, never the in-branch value.
+    {
+        if cond_diverges() != 77i64 { return 30; }
+    }
+
+    // ── if: both branches diverge ⇒ no merge / unreachable after ───────────────
+    // @rule stmt.if.both-branches-diverge-no-merge
+    // An if/else where both arms diverge (each returns) leaves nothing after the
+    // if; the function value comes solely from one of the arms.
+    {
+        if both_diverge(true) != 100i64 { return 31; }
+        if both_diverge(false) != 200i64 { return 32; }
+    }
+
+    // ── for: range loop type widens to the wider bound ────────────────────────
+    // @rule stmt.for.range-loop-type-widening
+    // With a wide (i64) upper bound the induction variable is i64-wide, so the
+    // bound is not truncated; iterating up to a value beyond i32 range still
+    // visits the expected count.
+    {
+        let lo: i64 = 4294967294i64;     // > u32 i32 range
+        let hi: i64 = 4294967297i64;     // lo + 3
+        let mut count: i64 = 0i64;
+        for i in lo..hi { count = count + 1i64; }
+        if count != 3i64 { return 33; }  // not truncated to i32
+    }
+
+    // ── for: range comparison signedness + exclusive/inclusive ─────────────────
+    // @rule stmt.for.range-comparison-signedness
+    // `..` is exclusive (i < hi), `..=` is inclusive (i <= hi); induction var
+    // increments by 1 each iteration; unsigned bounds use unsigned comparison.
+    {
+        let mut sum: i64 = 0i64;
+        for i in 0i64..4i64 { sum = sum + i; }     // 0+1+2+3 = 6 (exclusive)
+        if sum != 6i64 { return 34; }
+        let mut sum2: i64 = 0i64;
+        for i in 0i64..=4i64 { sum2 = sum2 + i; }  // 0+1+2+3+4 = 10 (inclusive)
+        if sum2 != 10i64 { return 35; }
+        let mut ucount: i64 = 0i64;
+        let ulo: u32 = 0u32;
+        let uhi: u32 = 3u32;
+        for _i in ulo..uhi { ucount = ucount + 1i64; }  // unsigned compare, 3 iters
+        if ucount != 3i64 { return 36; }
+    }
+
+    // ── loop: break value binds the loop result ───────────────────────────────
+    // @rule stmt.loop.break-value-binding
+    // `loop { ... break e; }` evaluates to e.
+    {
+        let r: i64 = loop {
+            break 42i64;
+        };
+        if r != 42i64 { return 37; }
+    }
+
+    // ── loop: a loop with no reachable break is divergent (type !) ─────────────
+    // @rule stmt.loop.never-breaks-is-divergent
+    // A break-less infinite loop never exits; we use it as the divergent arm of
+    // an if whose other arm produces the value. Reaching the value proves the
+    // loop arm was simply never taken (its non-termination doesn't matter).
+    {
+        if never_loop_arm(false) != 5i64 { return 38; }
+    }
+
+    // ── break/continue: label targets the named loop ──────────────────────────
+    // @rule stmt.break.label-targets-named-loop
+    // A labeled `break 'outer` breaks the outer loop, not the inner one.
+    {
+        let mut hits: i64 = 0i64;
+        'outer: for _i in 0i64..3i64 {
+            for _j in 0i64..3i64 {
+                hits = hits + 1i64;
+                break 'outer;            // exits BOTH loops on first inner iter
+            }
+        }
+        if hits != 1i64 { return 39; }   // only one body execution total
+    }
+
+    // ── continue: for-continue runs the increment first ───────────────────────
+    // @rule stmt.continue.for-increments-first
+    // `continue` in a counted `for` advances the induction variable before
+    // re-checking the condition (it does not skip the increment ⇒ no infinite
+    // loop, and the loop visits every value).
+    {
+        let mut visited: i64 = 0i64;
+        for i in 0i64..5i64 {
+            if i == 2i64 { continue; }   // must still advance i
+            visited = visited + 1i64;
+        }
+        if visited != 4i64 { return 40; } // visited 0,1,3,4 (skipped body at 2)
+    }
+
+    return 0;
+}
+
+// return with no operand (value-less) inside a unit-returning fn: bumps via
+// pointer to prove the body ran, then returns ().
+fn ret_unit_side(x: i64) -> i64 {
+    let mut acc: i64 = 0i64;
+    let p: *mut i64 = &mut acc;
+    set_then_return(p, x);
+    return acc;
+}
+fn set_then_return(p: *mut i64, x: i64) {
+    unsafe { *p = x; }
+    return;                              // operand-less return ⇒ unit
+}
+
+// never-typed divergent function used only as an untaken branch.
+fn pick(c: bool) -> i64 {
+    if c { return 1i64; } else { diverge(); }
+}
+
+// condition position diverges via early return.
+fn cond_diverges() -> i64 {
+    if (return 77i64) { return 1i64; } else { return 2i64; }
+}
+
+// both arms diverge: function value is whichever arm runs, no merge after.
+fn both_diverge(c: bool) -> i64 {
+    if c { return 100i64; } else { return 200i64; }
+}
+
+// divergent (break-less) loop as the untaken arm.
+fn never_loop_arm(take_loop: bool) -> i64 {
+    if take_loop { loop { } } else { return 5i64; }
+}

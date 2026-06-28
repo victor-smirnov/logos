@@ -1,0 +1,22 @@
+// @rule trait.dispatch.ambiguous-method-error
+package trait_diag_2_ambiguous_supertrait_method;
+
+trait A {
+    fn m(&self) -> i32;
+}
+
+trait B {
+    fn m(&self) -> i32;
+}
+
+trait Foo: A + B {
+    fn other(&self) -> i32;
+}
+
+fn call<T: Foo>(t: T) -> i32 {
+    return t.m();
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

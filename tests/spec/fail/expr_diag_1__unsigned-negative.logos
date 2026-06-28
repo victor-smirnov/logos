@@ -1,0 +1,7 @@
+// @rule expr.int-lit.unsigned-negative
+package expr_diag_1_unsigned_negative;
+
+fn main() -> i32 {
+    let _x: u32 = -5u32;
+    return 0i32;
+}

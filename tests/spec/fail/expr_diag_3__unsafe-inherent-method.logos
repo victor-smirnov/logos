@@ -1,0 +1,13 @@
+// @rule expr.method.unsafe-required
+package expr_diag_3_unsafe_method;
+
+struct S { x: i32 }
+impl S {
+    unsafe fn danger(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let s: S = S { x: 1i32 };
+    let _v: i32 = s.danger();
+    return 0i32;
+}

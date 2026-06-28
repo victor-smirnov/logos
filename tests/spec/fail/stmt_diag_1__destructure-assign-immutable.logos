@@ -1,0 +1,9 @@
+// @rule stmt.destructure-assign.place-checks
+package stmt_diag_1_destructure_assign_immutable;
+
+fn main() -> i32 {
+    let a: i32 = 0i32;
+    let mut b: i32 = 0i32;
+    (a, b) = (1i32, 2i32);
+    return 0i32;
+}

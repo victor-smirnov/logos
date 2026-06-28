@@ -1,0 +1,18 @@
+// @rule generic.method.bounds-check
+package generic_diag_1_method_bounds_check;
+
+trait Speak { fn val(&self) -> i64; }
+
+struct Caller {}
+struct NotSpeak {}
+
+impl Caller {
+    fn run<T: Speak>(&self, x: T) -> i64 { return x.val(); }
+}
+
+fn main() -> i32 {
+    let c = Caller {};
+    let n = NotSpeak {};
+    let _r = c.run(n);
+    return 0i32;
+}

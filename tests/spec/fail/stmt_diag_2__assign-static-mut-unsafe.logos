@@ -1,0 +1,9 @@
+// @rule stmt.assign.static-mut-unsafe
+package stmt_diag_2_assign_static_mut;
+
+static mut COUNTER: i32 = 0i32;
+
+fn main() -> i32 {
+    COUNTER = 5i32;
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+// @rule const.def.duplicate
+package const_diag_1_duplicate_name;
+
+const C: i32 = 1i32;
+const C: i32 = 2i32;
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,262 @@
+package borrow_2;
+
+use logos.mem.collections.vec;
+use logos.mem.boxed;
+use logos.lang.rc;
+
+// ── helper types ─────────────────────────────────────────────────────────────
+
+struct Point { x: i64, y: i64 }
+
+struct Guard { r: &mut i64 }
+
+struct Holder { v: i64 }
+impl Holder {
+    fn read(&self) -> i64 { return self.v; }
+    fn bump(&mut self) -> i64 { self.v = self.v + 1i64; return self.v; }
+}
+
+struct Pair { a: Point, b: Point }
+
+fn main() -> i64 {
+
+    // @rule borrow.scoped.addrof-takes-place-borrow
+    // `&x` / `&mut x` takes a scoped borrow of x; the formed reference's
+    // mutability governs the borrow. A shared `&x` lets x still be read; a later
+    // `&mut x` (after the shared borrow's last use) mutates through the reference.
+    {
+        let mut a0: i64 = 10i64;
+        let a0r: &i64 = &a0;          // shared borrow
+        if *a0r != 10i64 { return 1; }
+        let a0m: &mut i64 = &mut a0;  // mutable borrow
+        *a0m = 11i64;
+        if a0 != 11i64 { return 2; }
+    }
+
+    // @rule borrow.scoped.reborrow-borrows-ref-not-pointee
+    // `&*r` / `&mut *r` reborrows through reference-typed r, borrowing r itself
+    // for the reborrow's scope; NLL restores r at the holder's last use.
+    {
+        let mut b0: i64 = 20i64;
+        let b0r: &mut i64 = &mut b0;
+        let b0rb: &mut i64 = &mut *b0r;  // reborrow of b0r (mutable)
+        *b0rb = 21i64;
+        if *b0r != 21i64 { return 3; }   // b0r restored after b0rb's last use
+    }
+
+    // @rule borrow.scoped.field-path-borrow-disjoint
+    // `&o.f` takes a path-aware borrow on the root; disjoint sibling fields can
+    // be borrowed without conflict.
+    {
+        let mut c0: Point = Point { x: 30i64, y: 40i64 };
+        let c0x: &mut i64 = &mut c0.x;   // borrow of c0.x
+        let c0y: &mut i64 = &mut c0.y;   // disjoint borrow of c0.y — no conflict
+        *c0x = 31i64;
+        *c0y = 41i64;
+        if c0.x != 31i64 { return 4; }
+        if c0.y != 41i64 { return 5; }
+    }
+
+    // @rule borrow.scoped.method-self-mutability
+    // A self-borrowing method result holds a mutable receiver borrow iff the
+    // method takes `&mut self`; a `&self` method holds a shared borrow, so the
+    // receiver stays readable.
+    {
+        let d0: Holder = Holder { v: 50i64 };
+        if d0.read() != 50i64 { return 6; }   // &self: shared receiver borrow
+        let mut d1: Holder = Holder { v: 60i64 };
+        if d1.bump() != 61i64 { return 7; }   // &mut self: mutable receiver borrow
+        if d1.v != 61i64 { return 8; }
+    }
+
+    // @rule borrow.scoped.rc-arc-root-exempt
+    // A self-borrowing method on a bare Rc receiver records no scoped receiver
+    // borrow (shared-ownership handles are the interior-mutability domain), so a
+    // following move of the same handle is permitted.
+    {
+        let e0: Rc<Holder> = rc_new(Holder { v: 70i64 });
+        if e0.read() != 70i64 { return 9; }   // e0.read() takes no scoped borrow on e0
+        let e1: Rc<Holder> = e0;               // e0 still usable afterward
+        if e1.read() != 70i64 { return 10; }
+    }
+
+    // @rule borrow.closure.move-takes-ownership
+    // A `move` closure takes ownership of its captures; it registers no borrow.
+    {
+        let f0: i64 = 80i64;
+        let f1 = move || -> i64 { return f0 + 1i64; };
+        if f1() != 81i64 { return 11; }
+    }
+
+    // @rule borrow.aggregate.literal-held-borrow
+    // A `&mut` placed into a struct LITERAL field is held for the binding the
+    // aggregate flows into; mutation through it writes the borrowed place.
+    {
+        let mut g0: i64 = 90i64;
+        let g1: Guard = Guard { r: &mut g0 }; // borrow held by g1
+        *g1.r = 91i64;
+        if g0 != 91i64 { return 12; }         // released at g1's last use
+    }
+
+    // @rule borrow.nll.release-at-last-use
+    // A borrow is released once its holder's last-use line has passed, so the
+    // borrowed place can be re-borrowed afterward.
+    {
+        let mut h0: i64 = 100i64;
+        let h1: &i64 = &h0;          // h1's last use is the next line
+        if *h1 != 100i64 { return 13; }
+        let h2: &mut i64 = &mut h0;  // ok: h1 released, fresh mutable borrow
+        *h2 = 101i64;
+        if h0 != 101i64 { return 14; }
+    }
+
+    // @rule borrow.let.borrow-carrying-routes-loan
+    // `let name = v.iter_mut()` routes the borrow-carrying value's loan to name
+    // (held, NLL-released at name's last use); mutating through it writes v.
+    {
+        let mut i0: Vec<i64> = Vec::new();
+        i0.push(1i64);
+        i0.push(2i64);
+        let i1 = i0.iter_mut();   // borrow-carrying value held by `i1`
+        for i2 in i1 {
+            *i2 = *i2 + 10i64;
+        }
+        let mut i3: i64 = 0i64;
+        let mut i4: i64 = 0i64;
+        while i4 < 2i64 {
+            i3 = i3 + i0[i4];
+            i4 = i4 + 1i64;
+        }
+        if i3 != 23i64 { return 15; } // 11 + 12
+    }
+
+    // @rule borrow.let.provenance-propagation
+    // A `let r: &T = &x.f` whose declared type is a reference inherits the RHS
+    // reference-provenance; reading through r reaches the borrowed place.
+    {
+        let j0: Point = Point { x: 110i64, y: 120i64 };
+        let j1: &i64 = &j0.x;          // j1 borrows through j0
+        if *j1 != 110i64 { return 16; }
+    }
+
+    // @rule borrow.assign.reinit-reowns
+    // An assignment `x = v` clears x's prior move/borrow state (re-owns it); the
+    // RHS value here is consumed (Copy).
+    {
+        let mut k0: i64 = 130i64;
+        let k1: i64 = 140i64;
+        k0 = k1;                       // reinit k0
+        if k0 != 140i64 { return 17; }
+    }
+
+    // @rule borrow.fieldwrite.reinit-field
+    // Writing `r.f = v` reinitializes r.f, clearing any partially-moved state of
+    // r.f; the receiver is no longer partially-moved on account of f.
+    {
+        let mut l0: Pair = Pair { a: Point { x: 1i64, y: 2i64 },
+                                  b: Point { x: 3i64, y: 4i64 } };
+        let l1: Point = l0.a;                // move out l0.a
+        if l1.x != 1i64 { return 30; }
+        l0.a = Point { x: 5i64, y: 6i64 };   // rebind l0.a — no longer moved
+        if l0.a.x != 5i64 { return 18; }     // l0.a usable again
+        if l0.b.x != 3i64 { return 19; }
+    }
+
+    // @rule borrow.return.diverges
+    // `return v` consumes v and diverges; the post-state does not flow onward, so
+    // a value moved only on a diverging path is still owned on the taken path.
+    {
+        let m0: i64 = early(false);
+        if m0 != 200i64 { return 20; }
+    }
+
+    // @rule borrow.if.merge-survivors
+    // After `if c { .. } else { .. }`, when each branch diverges via return the
+    // surviving branch's value flows out.
+    {
+        let n0: i64 = pick(true);
+        if n0 != 7i64 { return 21; }
+        let n1: i64 = pick(false);
+        if n1 != 9i64 { return 22; }
+    }
+
+    // @rule borrow.match.merge-arms
+    // Each match arm is checked from the pre-match state; surviving arms' states
+    // are unioned. Distinct arms select distinct results.
+    {
+        let o0: i64 = classify(2i64);
+        if o0 != 22i64 { return 23; }
+        let o1: i64 = classify(5i64);
+        if o1 != 99i64 { return 24; }
+    }
+
+    // @rule borrow.flow.break-continue-diverge
+    // `break`/`continue` diverge for move-state: code after them in the same
+    // iteration is unreachable, while the fall-through path proceeds normally.
+    {
+        let mut p0: i64 = 0i64;
+        let mut p1: i64 = 0i64;
+        while p0 < 5i64 {
+            p0 = p0 + 1i64;
+            if p0 == 3i64 { continue; }   // continue diverges this iteration
+            if p0 == 5i64 { break; }      // break diverges
+            p1 = p1 + p0;
+        }
+        if p1 != 7i64 { return 25; }      // 1 + 2 + 4 (p0==3 continue, p0==5 break)
+    }
+
+    // @rule borrow.loop.body-borrows-scoped
+    // A loop body is analyzed in its own scope; borrows taken inside are released
+    // at body end, so the same place can be re-borrowed each iteration.
+    {
+        let mut q0: i64 = 0i64;
+        let mut q1: i64 = 0i64;
+        while q1 < 3i64 {
+            let mut q2: i64 = q1;
+            let q3: &mut i64 = &mut q2;   // fresh borrow each iteration
+            *q3 = *q3 + 1i64;
+            q0 = q0 + *q3;                // read through the borrow (its last use)
+            q1 = q1 + 1i64;
+        }
+        if q0 != 6i64 { return 26; } // (0+1)+(1+1)+(2+1) = 6
+    }
+
+    // @rule borrow.loop.body-fixpoint
+    // For-each iterators are inspected non-consumingly and the loop variable is a
+    // fresh binding scoped to the body; the iterated collection survives.
+    {
+        let mut r0: Vec<i64> = Vec::new();
+        r0.push(10i64);
+        r0.push(20i64);
+        r0.push(30i64);
+        let mut r1: i64 = 0i64;
+        for r2 in r0.iter() {          // non-consuming iteration
+            r1 = r1 + *r2;
+        }
+        if r0.len() != 3i64 { return 27; }  // r0 survives the loop
+        if r1 != 60i64 { return 28; }
+    }
+
+    return 0;
+}
+
+// return-diverges helper: on the `flag==true` path n is consumed via return;
+// on the taken (false) path control falls through to the owned value.
+fn early(flag: bool) -> i64 {
+    let n: i64 = 200i64;
+    if flag { return n; }
+    return n;
+}
+
+// if.merge helper: each branch returns, the surviving branch's value flows out.
+fn pick(c: bool) -> i64 {
+    if c { return 7i64; } else { return 9i64; }
+}
+
+// match.merge helper.
+fn classify(n: i64) -> i64 {
+    match n {
+        2i64 => { return 22i64; }
+        _ => { return 99i64; }
+    }
+}

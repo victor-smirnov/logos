@@ -1,0 +1,6 @@
+// @rule item.union.field-copy-restriction
+package item_diag_1_union_move_field;
+
+union U { v: Vec<i32> }
+
+fn main() -> i32 { return 0i32; }

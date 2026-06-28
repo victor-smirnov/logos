@@ -1,0 +1,6 @@
+// @rule item.struct.repr-transparent
+package item_diag_1_repr_transparent_multifield;
+
+#[repr(transparent)] struct W { a: i32, b: i32 }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,12 @@
+// @rule type.generic-inst.arity-and-bounds
+package type_diag_1_generic_arity;
+
+struct Pair<A, B> { a: A, b: B }
+
+fn f(x: Pair<i32>) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,275 @@
+// intrinsic_4 — compiler-builtin macros + type-introspection intrinsics.
+// Each rule is confirmed by EXECUTING the lowered/folded value; a
+// violation returns a distinct nonzero code, all-pass returns 0.
+package intrinsic_4;
+
+use logos.lang.str;                 // str_eq for &str compares
+use logos.std.compiler.metaprog;    // Type struct, name_eq, kind predicates
+use logos.lang.clone;               // a real trait for has_trait_of
+use logos.lang.writ.wstatic;        // WritStatic for wstatic_hash_of
+use logos.std.fmt;                  // panic-family / dbg Debug machinery
+
+// ── helper types ──────────────────────────────────────────────────────
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C, }
+pub struct Plain { pub x: i32, }
+
+// layout-equivalent pair vs a layout-different one (type_hash probe)
+pub struct LA { pub x: u64, pub y: u64, }
+pub struct LB { pub p: u64, pub q: u64, }   // same layout as LA
+pub struct LC { pub x: u64, }               // shorter layout
+
+pub struct Record { pub id: i64, pub flag: bool, pub count: u32, }
+
+pub struct Boxed { pub a: i32, pub b: i64, }
+impl Clone for Boxed {
+    fn clone(&self) -> Boxed { return Boxed { a: self.a, b: self.b }; }
+}
+
+// const WritStatic values for wstatic_hash_of
+pub const CfgA: WritStatic = @{ "name": "A" };
+pub const CfgB: WritStatic = @{ "name": "B" };
+
+// reflect.deferred-fold-after-subst: a generic body whose intrinsic call
+// is preserved through sema and folded only after T is substituted, so
+// each instantiation yields its OWN concrete value.
+fn kind_of<T>() -> u32 { return type_of::<T>().kind; }
+
+unsafe fn main() -> i64 {
+
+    // @rule intrinsic.concat.macro
+    // concat!() folds string / suffix-stripped int / bool literals into one
+    // &str at compile time; escapes are decoded.
+    {
+        let a: str = concat!("answer: ", 42, ", ok: ", true, ", no: ", false);
+        if !str_eq(a, "answer: 42, ok: true, no: false") { return 1; }
+        let e: str = concat!("with\nescape");   // \n decoded -> 1 byte
+        if e.len() != 11i64 { return 2; }
+        let z: str = concat!();
+        if z.len() != 0i64 { return 3; }
+    }
+
+    // @rule intrinsic.concat-bytes.macro
+    // concat_bytes!() folds byte-strings, byte-chars and 0..=255 ints into
+    // a fixed [u8; N] array at compile time.
+    {
+        let b: [u8; 5] = concat_bytes!(b"hi", 0x21, b'!', 33);
+        if b[0] != 104u8 { return 4; }   // 'h'
+        if b[1] != 105u8 { return 5; }   // 'i'
+        if b[2] != 33u8  { return 6; }   // 0x21 = '!'
+        if b[3] != 33u8  { return 7; }   // b'!'
+        if b[4] != 33u8  { return 8; }   // decimal 33
+    }
+
+    // @rule intrinsic.stringify.macro
+    // stringify!() yields the raw source text between the parens as a &str,
+    // unexpanded.
+    {
+        let s: str = stringify!(a + b);
+        if s.len() < 3i64 { return 9; }   // non-empty source text
+    }
+
+    // @rule intrinsic.marker-panics.macro
+    // unreachable!/todo!/unimplemented! type as `!` (Never) so they are valid
+    // in any expression position; an if/else whose dead arm is the macro still
+    // typechecks against the live arm's type, and only the live arm runs.
+    {
+        let live: i64 = if true { 7i64 } else { unreachable!() };
+        if live != 7i64 { return 10; }
+        let live2: i64 = if true { 8i64 } else { todo!() };
+        if live2 != 8i64 { return 11; }
+        let live3: i64 = if true { 9i64 } else { unimplemented!("x={}", 1i32) };
+        if live3 != 9i64 { return 12; }
+    }
+
+    // @rule intrinsic.matches.macro
+    // matches!(expr, pat [if guard]) -> bool, lowered to a match; first
+    // top-level comma splits expr from pattern.
+    {
+        if !matches!(5i64, 5i64) { return 13; }
+        if  matches!(7i64, 5i64) { return 14; }
+        let o = Option::Some(3i64);
+        if !matches!(o, Option::Some(_)) { return 15; }
+        if !matches!(10i64, n if n > 5i64) { return 16; }   // guard sees binding
+    }
+
+    // @rule intrinsic.dbg.macro
+    // dbg!(expr) evaluates to the value of expr (ownership passes through);
+    // dbg!() yields ().
+    {
+        let d: i64 = dbg!(7i64);
+        if d != 7i64 { return 17; }
+        let u: () = dbg!();
+        let _ = u;
+    }
+
+    // @rule intrinsic.reflect.deferred-fold-after-subst
+    // a type-introspection intrinsic inside a generic body is preserved past
+    // sema and folded only after substitution, so each instantiation yields
+    // its OWN concrete value (never frozen to a single TypeVar result).
+    {
+        let ki: u32 = kind_of::<i64>();
+        let ks: u32 = kind_of::<Plain>();
+        if ki == ks { return 18; }                       // integer kind != struct kind
+        if ki != type_of::<i64>().kind { return 19; }    // matches the direct fold
+        if ks != type_of::<Plain>().kind { return 20; }
+    }
+
+    // @rule intrinsic.wstatic-hash-of.u64
+    // wstatic_hash_of::<CFG>() yields the u64 byte-hash identity of a
+    // WritStatic; distinct CFGs differ; stable across calls.
+    {
+        let ha: u64 = wstatic_hash_of::<CfgA>();
+        let hb: u64 = wstatic_hash_of::<CfgB>();
+        if ha == hb { return 21; }                       // distinct CFGs differ
+        if ha != wstatic_hash_of::<CfgA>() { return 22; }// stable
+    }
+
+    // @rule intrinsic.type-hash.structural-u64
+    // type_hash::<T>() is a STRUCTURAL FNV-1a-64: layout-equivalent types hash
+    // equal (no names), differing layouts hash differently; nonzero, stable.
+    {
+        let la: u64 = type_hash::<LA>();
+        let lb: u64 = type_hash::<LB>();   // layout-equal to LA
+        let lc: u64 = type_hash::<LC>();   // shorter layout
+        if la != lb { return 23; }         // layout-equal -> hash-equal
+        if la == lc { return 24; }         // layout differs -> hash differs
+        if la == 0u64 { return 25; }       // nonzero
+        if la != type_hash::<LA>() { return 26; }  // stable
+    }
+
+    // @rule intrinsic.type-uid.nominal-u64
+    // type_uid::<T>() is a NOMINAL u64 identity == type_of::<T>().uid; distinct
+    // nominal types differ even at identical layout (unlike type_hash); nonzero.
+    {
+        let ua: u64 = type_uid::<LA>();
+        let ub: u64 = type_uid::<LB>();    // same layout, different nominal type
+        if ua == ub { return 27; }         // nominal differs despite layout-equal
+        if ua != type_of::<LA>().uid { return 28; }  // equals type_of(..).uid
+        if ua == 0u64 { return 29; }
+    }
+
+    // @rule intrinsic.type-uid-hi.high-half
+    // type_uid_hi::<T>() is the HIGH 64 bits of the 128-bit nominal UID; stable,
+    // and (lo, hi) together distinguish distinct nominal types.
+    {
+        let hi_a: u64 = type_uid_hi::<Pair<i32, i32>>();
+        if hi_a != type_uid_hi::<Pair<i32, i32>>() { return 30; }   // stable
+        // distinct nominal types differ in at least one of (lo, hi).
+        let lo1: u64 = type_uid::<Pair<i32, i32>>();
+        let lo2: u64 = type_uid::<Pair<i32, u32>>();
+        let hi2: u64 = type_uid_hi::<Pair<i32, u32>>();
+        if lo1 == lo2 && hi_a == hi2 { return 31; }
+    }
+
+    // @rule intrinsic.type-of.type-struct
+    // type_of::<T>() yields a Type struct {kind,name,size,align,uid}; size/align
+    // match sizeof/align_of, name is canonical, uid matches type_uid.
+    {
+        let t: Type = type_of::<i32>();
+        if t.size != sizeof::<i32>() { return 32; }
+        if t.align != align_of::<i32>() { return 33; }
+        if t.uid != type_uid::<i32>() { return 34; }
+        if t.name.len() == 0i64 { return 35; }       // canonical name non-empty
+        if !name_eq(t.name, "i32") { return 36; }
+    }
+
+    // @rule intrinsic.args-of.type-arg-array
+    // args_of::<T>() yields [Type; N] of T's generic type-args (in order);
+    // empty for non-generic T.
+    {
+        let args = args_of::<Pair<i32, bool>>();
+        if args[0i64].uid != type_of::<i32>().uid { return 37; }
+        if args[1i64].uid != type_of::<bool>().uid { return 38; }
+        let none = args_of::<Plain>();   // non-generic -> [Type; 0]
+        let _ = none;
+    }
+
+    // @rule intrinsic.args-count-of.arg-count
+    // args_count_of::<T>() = number of T's generic type-args (0 for non-generic
+    // or primitive).
+    {
+        if args_count_of::<Pair<i32, bool>>() != 2i64 { return 39; }
+        if args_count_of::<Triple<i32, bool, u8>>() != 3i64 { return 40; }
+        if args_count_of::<Plain>() != 0i64 { return 41; }
+        if args_count_of::<i32>() != 0i64 { return 42; }
+    }
+
+    // @rule intrinsic.has-trait-of.type-method
+    // has_trait_of::<Trait>(t: Type) recovers T from t.uid and runs the same
+    // impl-table recursion as has_trait.
+    {
+        let tboxed: Type = type_of::<Boxed>();   // has explicit Clone impl
+        let tplain: Type = type_of::<Plain>();   // no Clone impl
+        if !has_trait_of::<Clone>(tboxed) { return 43; }
+        if  has_trait_of::<Clone>(tplain) { return 44; }
+        // agrees with the keyword form.
+        if has_trait_of::<Clone>(tplain) != has_trait::<Plain, Clone>() { return 45; }
+    }
+
+    // @rule intrinsic.typelist.probe-family
+    // typelist_len/head/nth/tail over L's type-pack.
+    {
+        if typelist_len::<Pair<i32, bool>>() != 2i64 { return 46; }
+        if typelist_len::<i32>() != 0i64 { return 47; }
+        let h: Type = typelist_head::<Triple<i32, bool, u8>>();
+        if h.uid != type_of::<i32>().uid { return 48; }
+        let n1: Type = typelist_nth::<Triple<i32, bool, u8>>(1i64);
+        if n1.uid != type_of::<bool>().uid { return 49; }
+        let tl = typelist_tail::<Triple<i32, bool, u8>>();   // [Type; N-1]
+        if tl[0i64].uid != type_of::<bool>().uid { return 50; }
+        if tl[1i64].uid != type_of::<u8>().uid { return 51; }
+    }
+
+    // @rule intrinsic.tuple-all-eq.chain-expand
+    // tuple_all_eq::<T>(a,b) expands to a.0.eq(&b.0) && ... ; true iff every
+    // element compares equal.
+    {
+        let a: (i32, i32, i32) = (1i32, 2i32, 3i32);
+        let b: (i32, i32, i32) = (1i32, 2i32, 3i32);
+        let c: (i32, i32, i32) = (1i32, 2i32, 4i32);
+        if !tuple_all_eq::<(i32, i32, i32)>(&a, &b) { return 52; }
+        if  tuple_all_eq::<(i32, i32, i32)>(&a, &c) { return 53; }
+    }
+
+    // @rule intrinsic.tuple-count-of.elem-count
+    // tuple_count_of::<T>() = number of elements in tuple T (0 for non-tuple).
+    {
+        if tuple_count_of::<(i32, bool, u8)>() != 3i64 { return 54; }
+        if tuple_count_of::<(i64,)>() != 1i64 { return 55; }
+        if tuple_count_of::<i32>() != 0i64 { return 56; }
+    }
+
+    // @rule intrinsic.tuple-elems-of.elem-types
+    // tuple_elems_of::<T>() = [Type; N] of T's element types; empty for
+    // non-tuple T.
+    {
+        let es = tuple_elems_of::<(i32, bool, u8)>();
+        if es[0i64].uid != type_of::<i32>().uid { return 57; }
+        if es[1i64].uid != type_of::<bool>().uid { return 58; }
+        if es[2i64].uid != type_of::<u8>().uid { return 59; }
+    }
+
+    // @rule intrinsic.field-count-of.struct-field-count
+    // field_count_of::<T>() = number of declared fields of struct T (0 for
+    // non-struct).
+    {
+        if field_count_of::<Record>() != 3i64 { return 60; }
+        if field_count_of::<i32>() != 0i64 { return 61; }
+    }
+
+    // @rule intrinsic.field-reflect.types-and-names
+    // field_types_of::<T>() = [Type; N] of field types; field_names_of::<T>() =
+    // [&[u8]; N] of field names; non-struct -> empty.
+    {
+        let types = field_types_of::<Record>();
+        let names = field_names_of::<Record>();
+        // field 2 is `count: u32` -> name "count", size 4.
+        if !name_eq(names[2i64], "count") { return 62; }
+        if types[2i64].size != 4i64 { return 63; }
+        if !name_eq(names[0i64], "id") { return 64; }
+        if types[0i64].size != sizeof::<i64>() { return 65; }
+    }
+
+    return 0;
+}

@@ -1,0 +1,10 @@
+// @rule type.generic-inst.unknown-type-metaprog-defer
+package type_diag_1_unknown_generic;
+
+fn f(x: NoSuchType<i32>) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

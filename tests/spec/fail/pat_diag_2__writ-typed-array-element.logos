@@ -1,0 +1,13 @@
+// @rule pat.writ.typed-array-element-types
+package pat_diag_2_writ_typed_arr;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.wstatic;
+
+unsafe fn main() -> i32 {
+    let a: WritStatic = @<I32>[1, 2, 3];
+    match a {
+        @<Bogus>[..] => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

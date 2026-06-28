@@ -1,0 +1,10 @@
+// @rule type.assoc-ref.gat-args
+package type_diag_1_gat_args;
+
+trait Wrapper { type Inner<T>; }
+struct Box<V> { val: V }
+impl<V> Wrapper for Box<V> { type Inner<T> = T; }
+
+fn foo(x: Box<i32>::Inner<i32, bool>) -> i32 { return x; }
+
+unsafe fn main() -> i32 { return foo(42i32); }

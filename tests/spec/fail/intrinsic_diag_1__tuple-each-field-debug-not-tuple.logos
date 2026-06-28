@@ -1,0 +1,9 @@
+// @rule intrinsic.tuple-each-field-debug.requires-tuple
+package tefd_not_tuple;
+
+fn main() -> i32 {
+    let a: i32 = 1;
+    let b: i32 = 2;
+    let r = tuple_each_field_debug::<i32>(&a, &b);
+    return 0;
+}

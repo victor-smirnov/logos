@@ -1,0 +1,12 @@
+// @rule borrow.take.mut-exclusive
+package borrow_diag_1_take_mut_exclusive;
+// two simultaneous &mut of c -> reject (already mutably borrowed).
+struct Counter { val: i32 }
+fn main() -> i32 {
+    let mut c = Counter { val: 0i32 };
+    let r1: &mut Counter = &mut c;
+    let r2: &mut Counter = &mut c;
+    (*r1).val = 1i32;
+    (*r2).val = 2i32;
+    return 0i32;
+}

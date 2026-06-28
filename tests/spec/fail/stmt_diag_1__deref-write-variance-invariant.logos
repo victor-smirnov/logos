@@ -1,0 +1,10 @@
+// @rule stmt.deref-write.variance-invariant
+package stmt_diag_1_deref_write_variance_invariant;
+
+fn store<'a>(slot: &mut &'static i32, short: &'a i32) {
+    *slot = short;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

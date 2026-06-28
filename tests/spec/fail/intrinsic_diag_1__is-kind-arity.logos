@@ -1,0 +1,7 @@
+// @rule intrinsic.is-kind.predicate-family
+package is_kind_arity;
+
+fn main() -> i32 {
+    let b: bool = is_ptr::<i32, i64>();
+    return 0;
+}

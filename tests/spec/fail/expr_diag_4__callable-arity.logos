@@ -1,0 +1,8 @@
+// @rule expr.call.callable-arity-and-args
+package expr_diag_4_callable_arity;
+
+fn main() -> i32 {
+    let f = |a: i32, b: i32| -> i32 { return a + b; };
+    let _r: i32 = f(1i32);
+    return 0i32;
+}

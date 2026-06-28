@@ -1,0 +1,9 @@
+// @rule stmt.deref-write.raw-ptr-unsafe
+package stmt_diag_1_deref_write_raw_ptr_unsafe;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let p: *mut i32 = &mut x as *mut i32;
+    *p = 1i32;
+    return 0i32;
+}

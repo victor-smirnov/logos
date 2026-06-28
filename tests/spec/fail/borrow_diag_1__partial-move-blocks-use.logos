@@ -1,0 +1,14 @@
+// @rule borrow.move.partial-move-blocks-use
+package borrow_diag_1_partial_move_blocks_use;
+use logos.mem.string;
+// move o.i.s (a field), then use the parent o.i -> use of partially moved.
+struct Inner { s: String, t: String }
+struct Outer { i: Inner }
+fn consume(s: String) -> i64 { return s.len(); }
+fn use_inner(i: Inner) -> i64 { return i.t.len(); }
+fn main() -> i32 {
+    let o = Outer { i: Inner { s: String::from("a"), t: String::from("bb") } };
+    let n = consume(o.i.s);
+    let w = use_inner(o.i);
+    return (n + w) as i32;
+}

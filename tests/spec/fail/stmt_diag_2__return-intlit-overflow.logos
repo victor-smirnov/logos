@@ -1,0 +1,11 @@
+// @rule borrow.return.intlit-fits
+package stmt_diag_2_return_intlit_overflow;
+
+fn get() -> u8 {
+    return 999;
+}
+
+fn main() -> i32 {
+    let _x: u8 = get();
+    return 0i32;
+}

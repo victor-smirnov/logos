@@ -1,0 +1,45 @@
+// grammar_4 — Writ value rendering (array + map shapes).
+// Locks the structural rendering rules by EXECUTING the runtime Writ
+// stringifier, which reproduces the same shapes the grammar rule states:
+//   array  -> `[` items(comma-sep) `]`,  empty -> `[]`
+//   map    -> `{` entries(comma-sep) `}`, entry -> `KEY: VALUE`, empty -> `{}`
+package grammar_4;
+
+use logos.lang.writ.wstatic;
+use logos.lang.writ.anyval;
+use logos.lang.writ.container;
+use logos.mem.writ.stringify;
+use logos.mem.string;
+use logos.lang.str;
+
+// Resolve the root WAny of a Writ static blob (proven pattern).
+unsafe fn root_of(hs: &WritStatic) -> WAny {
+    let base: *const u8 = hs.ptr;
+    let w: i64 = *(base as *const i64);
+    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((base as i64 + w) as *const u8);
+}
+
+unsafe fn render(hs: &WritStatic) -> String {
+    return stringify(root_of(hs));
+}
+
+unsafe fn main() -> i64 {
+    // @rule grammar.writ.array-render
+    // Empty array renders as `[]`; non-empty as `[` items(comma-sep) `]`.
+    let a_empty: WritStatic = @[];
+    if !render(&a_empty).eq_str("[]") { return 1; }
+    let a_full: WritStatic = @[1, [2, [3]]];
+    if !render(&a_full).eq_str("[1, [2, [3]]]") { return 2; }
+
+    // @rule grammar.writ.map-render
+    // Empty map renders as `{}`; each entry renders as `KEY: VALUE`,
+    // entries comma-separated, wrapped in `{` `}`.
+    let m_empty: WritStatic = @{};
+    if !render(&m_empty).eq_str("{}") { return 3; }
+    let m_full: WritStatic = @{"a": {"b": 1}};
+    if !render(&m_full).eq_str("{\"a\": {\"b\": 1}}") { return 4; }
+
+    return 0;
+}

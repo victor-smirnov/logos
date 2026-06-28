@@ -1,0 +1,9 @@
+// @rule expr.call.tuple-struct-ctor
+package expr_diag_4_tuple_struct_ctor_arity;
+
+struct Pair(i32, i32);
+
+fn main() -> i32 {
+    let _p: Pair = Pair(1i32);
+    return 0i32;
+}

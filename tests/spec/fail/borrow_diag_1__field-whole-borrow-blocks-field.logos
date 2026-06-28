@@ -1,0 +1,12 @@
+// @rule borrow.field.whole-borrow-blocks-field
+package borrow_diag_1_field_whole_borrow_blocks_field;
+// x is mutably borrowed as a whole; taking a field-path borrow of x.p
+// must be rejected.
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut x: P = P { a: 1i64, b: 2i64 };
+    let w: &mut P = &mut x;
+    let f: &i64 = &x.a;
+    w.b = 3i64;
+    return *f as i32;
+}

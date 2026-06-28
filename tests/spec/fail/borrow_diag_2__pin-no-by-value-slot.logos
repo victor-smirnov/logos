@@ -1,0 +1,7 @@
+// @rule borrow.pin.non-movable-no-by-value-slot
+package borrow_diag_2_pin_no_by_value_slot;
+#[pinned] struct WAnyRel { raw: i64 }
+fn main() -> i32 {
+    let x: WAnyRel = WAnyRel { raw: 0i64 };
+    return x.raw as i32;
+}

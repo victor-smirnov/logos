@@ -1,0 +1,9 @@
+// @rule trait.impl.variadic-pack-param
+package trait_diag_1_variadic;
+use logos.lang.ops;
+pub struct Foo {}
+impl Fn<i32, i32> for Foo {
+    type Output = i32;
+    fn call(&self, _x: u8, _y: bool) -> i32 { return 0; }
+}
+fn main() -> i32 { return 0; }

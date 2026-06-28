@@ -1,0 +1,13 @@
+// @rule type.dst.self-describing-fat-ref-requires-impl
+package type_diag_1_self_describing_fat_ref;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+#[self_describing]
+struct NoImpl { count: i64, tail: [i64] }
+
+unsafe fn main() -> i32 {
+    let b: *mut NoImpl = malloc(16i64) as *mut NoImpl;
+    let s: &NoImpl = &*b;
+    return s.count as i32;
+}

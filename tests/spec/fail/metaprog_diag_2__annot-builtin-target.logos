@@ -1,0 +1,7 @@
+// @rule metaprog.annot.builtin-target-validity
+package metaprog_diag_2_annot_builtin_target;
+
+#[type_code = 42]
+fn foo() -> i32 { return 0; }
+
+fn main() -> i32 { return 0; }

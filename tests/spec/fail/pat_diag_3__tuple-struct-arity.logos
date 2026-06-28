@@ -1,0 +1,10 @@
+// @rule pat.tuple-struct.arity-check
+package pat_diag_3_tuple_struct_arity;
+
+struct Pair(i32, i32);
+
+fn main() -> i32 {
+    let p: Pair = Pair(1i32, 2i32);
+    let Pair(a) = p;
+    return a;
+}

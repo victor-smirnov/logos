@@ -1,0 +1,10 @@
+// @rule pat.char-range.scrutinee-and-order
+package pat_diag_1_char_range_order;
+
+fn main() -> i32 {
+    let c: char = 'm';
+    match c {
+        'z'..='a' => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

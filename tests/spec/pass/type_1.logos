@@ -1,0 +1,245 @@
+// Grouped conformance: type_1 — type identity & representation rules.
+package type_1;
+
+use logos.mem.boxed;
+use logos.lang.writ.anyval;   // WAny + `*zoned mut WAny` storage<->compute bridge
+use logos.lang.ptr;
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+// ── Drop-observation scaffolding (side-effect log) ──────────────────────────
+static mut DROP_LOG: i64 = 0i64;
+fn log_drop(tag: i64) { unsafe { DROP_LOG = DROP_LOG * 10i64 + tag; } }
+
+struct Noisy { id: i64 }
+impl Drop for Noisy { fn drop(self: &mut Noisy) { log_drop(self.id); } }
+
+// A plain (non-droppable) aggregate: no Drop, no droppable fields.
+struct Plain { a: i64, b: i64 }
+
+// An aggregate whose drop is driven solely by a droppable field (no user drop).
+struct WrapNoisy { inner: Noisy, tag: i64 }
+
+// trait object for thin/fat ref-repr classification.
+trait Tr { fn f(&self) -> i64; }
+struct C { v: i64 }
+impl Tr for C { fn f(&self) -> i64 { return self.v; } }
+
+// #[zone_mut]: a &mut to this type is a fat {data, zone} ref.
+#[zone_mut] struct Cell { v: i64 }
+
+// #[rel_ptr]: stored as an 8-byte self-relative i64 offset.
+#[rel_ptr] struct RP<T> { _off: i64 }
+struct Node { next: RP<i64>, tag: i64 }
+
+// variadic-arity tuple impl target.
+trait TSum { fn ts(&self) -> i64; }
+impl<A...> TSum for (A...) { fn ts(&self) -> i64 { return 7i64; } }
+fn need_tsum<T: TSum>(v: &T) -> i64 { return v.ts(); }
+
+// never-typed divergent fn.
+fn boom() -> ! { loop {} }
+
+unsafe fn main() -> i64 {
+
+    // @rule type.char.is-u32
+    // char is a 32-bit (4-byte, 4-align) Unicode scalar value.
+    if sizeof::<char>() != 4i64 { return 1; }
+    if align_of::<char>() != 4i64 { return 2; }
+    {
+        let ch: char = 'A';
+        if (ch as i64) != 65i64 { return 3; }     // Unicode scalar 65
+    }
+
+    // @rule type.ref-repr.thin-vs-fat-classification
+    // Thin/fat is decided by the OUTERMOST kind: &T/*T to a Sized pointee and fn
+    // pointers are thin (8B); bare &[T]/&dyn values are the fat pair (16B).
+    // (The *const-dyn-stays-thin sub-clause is a known divergence — see untestable.)
+    if sizeof::<&i64>() != 8i64 { return 4; }            // thin &Sized
+    if sizeof::<*const i64>() != 8i64 { return 5; }      // thin raw
+    if sizeof::<fn(i64) -> i64>() != 8i64 { return 6; }  // fn pointer thin
+    if sizeof::<&[i64]>() != 16i64 { return 8; }         // slice value fat
+    if sizeof::<&dyn Tr>() != 16i64 { return 9; }        // dyn value fat
+
+    // @rule type.ref-repr.zone-mut-fat
+    // A &mut Cell (#[zone_mut]) is a fat {data, zone}: the data half reaches the
+    // field and the zone half is carried; a *const Cell stays thin (8B).
+    if sizeof::<*const Cell>() != 8i64 { return 10; }     // shared/raw stays thin
+    {
+        let p: *mut Cell = malloc(8i64) as *mut Cell;
+        (*p).v = 42i64;
+        let r: &mut Cell = zone_mut_ref::<Cell>(p, 12345i64 as *mut u8);
+        if r.v != 42i64 { return 11; }                   // data half reaches field
+        if (zone_of(r) as i64) != 12345i64 { return 12; } // zone half carried
+        free(p as *mut u8);
+    }
+
+    // @rule type.ref-repr.rel-ptr-self-relative
+    // A #[rel_ptr] field is stored as an 8-byte i64 OFFSET (target - slot),
+    // resolved to an absolute thin pointer on access.
+    {
+        let mem: *mut u8 = malloc(64i64);
+        let target: *mut i64 = mem.byte_add(24i64) as *mut i64;
+        *target = 777i64;
+        let nd: *mut Node = malloc(16i64) as *mut Node;
+        nd.next = target;                                  // lower to self-relative offset
+        let back: *mut i64 = nd.next;                      // materialise absolute ptr
+        if *back != 777i64 { return 13; }
+        let slot: *const i64 = (&nd.next) as *const i64;
+        if *slot != (target as i64) - (slot as i64) { return 14; }  // stored bytes are an offset
+        free(mem); free(nd as *mut u8);
+    }
+
+    // @rule type.ptr.zoned
+    // `*zoned mut T` is a zoned raw pointer: at-rest self-relative, deref/assign
+    // runs the storage<->compute bridge. A position-independent Pod round-trips
+    // through a `*zoned mut WAny` slot verbatim.
+    {
+        let pod: WAny = WAny::pod(42i64, 7u8);
+        let slot: *zoned mut WAny = malloc(8i64) as *zoned mut WAny;
+        *slot = pod;                                       // lower
+        let pod2: WAny = *slot;                            // materialise
+        if pod2.as_i56() != 42i64 { return 15; }
+        free(slot as *mut u8);
+    }
+
+    // @rule type.paren.unwrap-to-inner
+    // A parenthesized type `(T)` is structurally identical to `T`.
+    if sizeof::<(i64)>() != sizeof::<i64>() { return 16; }
+    {
+        let x: (i64) = 5i64;                               // (i64) accepts an i64
+        if x != 5i64 { return 17; }
+    }
+
+    // @rule type.ref.double-ref-nesting
+    // `&&T` resolves to a nested reference `&(&T)`: double-deref reaches T, and
+    // it is pointer-sized (8B) like any thin ref-to-ref.
+    if sizeof::<&&i64>() != 8i64 { return 18; }
+    {
+        let v: i64 = 99i64;
+        let r1: &i64 = &v;
+        let r2: &&i64 = &r1;
+        if **r2 != 99i64 { return 19; }                    // &(&i64) double-deref
+    }
+
+    // @rule type.slice.unsized-only-behind-pointer
+    // The bare `[T]` is unsized; it is legal only behind a reference, where it is
+    // a sized Slice carrying its length.
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        let sl: &[i64] = &arr;                             // [T] only behind &
+        if sl.len() != 3i64 { return 20; }
+        if sl[1] != 20i64 { return 21; }
+    }
+
+    // @rule type.never.bang
+    // `!` is the never type; a `-> !` fn is a divergent position usable where any
+    // type is expected (here guarded so it never actually runs).
+    {
+        let mut g: i64 = 0i64;
+        if g != 0i64 { g = boom(); }                       // boom(): ! in i64 position
+        if g != 0i64 { return 22; }
+    }
+
+    // @rule type.tuple.unit
+    // `()` is the unit type: the empty tuple, size 0.
+    if sizeof::<()>() != 0i64 { return 23; }
+    {
+        let u: () = ();
+    }
+
+    // @rule type.tuple.multi
+    // A tuple `(T1, T2, ...)` has >=2 element types; elements are addressable.
+    {
+        let t: (i64, i64) = (11i64, 22i64);
+        if t.0 != 11i64 { return 24; }
+        if t.1 != 22i64 { return 25; }
+    }
+
+    // @rule type.tuple.variadic-arity
+    // `impl<A...> TSum for (A...)` applies to a tuple of any arity (the pack
+    // element names A); dispatch lands on the variadic impl.
+    {
+        let t2: (i64, i64) = (1i64, 2i64);
+        if need_tsum(&t2) != 7i64 { return 26; }           // arity 2
+        let t3: (i64, i64, i64) = (1i64, 2i64, 3i64);
+        if need_tsum(&t3) != 7i64 { return 27; }           // any arity
+    }
+
+    // @rule type.ptr.raw-slice
+    // `*const [T]` / `*mut [T]` are raw fat pointers to a slice, sharing the
+    // {*const T, usize} ABI of `&[T]` (16B); the len half is readable.
+    if sizeof::<*const [i64]>() != 16i64 { return 28; }    // raw fat = &[T] ABI
+    if sizeof::<*const [i64]>() != sizeof::<&[i64]>() { return 29; }
+    {
+        let arr: [i64; 4] = [3i64, 4i64, 5i64, 6i64];
+        let sp: *const [i64] = &arr as *const [i64];
+        if (*sp).len() != 4i64 { return 30; }              // len half
+    }
+
+    // @rule type.ptr.raw
+    // `*const T` is an immutable and `*mut T` a mutable raw pointer to T;
+    // a write through *mut and a read through *const observe the same cell.
+    {
+        let mut n: i64 = 5i64;
+        let pm: *mut i64 = &mut n;
+        *pm = 8i64;                                         // write through *mut
+        let pc: *const i64 = &n;
+        if *pc != 8i64 { return 31; }                      // read through *const
+    }
+
+    // @rule type.array.sized
+    // `[T; N]` is a fixed-size array; N may be an integer literal (here 4),
+    // size = N * sizeof(T).
+    if sizeof::<[i64; 4]>() != 32i64 { return 32; }        // 4 * 8
+    {
+        let a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+        if a[3] != 4i64 { return 33; }
+    }
+
+    // @rule type.drop.references-never-drop
+    // A &T / *T does not drop its pointee: a reference going out of scope leaves
+    // the borrowed Noisy un-dropped (it drops only at its own owner's scope end).
+    {
+        DROP_LOG = 0i64;
+        let owner: Noisy = Noisy { id: 2i64 };
+        {
+            let r: &Noisy = &owner;                        // a &T scope
+            if r.id != 2i64 { return 34; }
+        }
+        // r's scope ended; owner must NOT have been dropped through the ref.
+        if DROP_LOG != 0i64 { return 35; }
+    }
+
+    // @rule type.drop.aggregate-recursive
+    // A struct/tuple/array needs drop iff a field/element needs drop; a Plain
+    // struct (no droppable field) drops nothing, while a struct/tuple/array of
+    // Noisy drops each Noisy.
+    {
+        DROP_LOG = 0i64;
+        { let _p: Plain = Plain { a: 1i64, b: 2i64 }; }    // no droppable field -> no drop
+        if DROP_LOG != 0i64 { return 36; }
+        DROP_LOG = 0i64;
+        { let _w: WrapNoisy = WrapNoisy { inner: Noisy { id: 3i64 }, tag: 0i64 }; }
+        if DROP_LOG != 3i64 { return 37; }                 // field drop recursed
+        DROP_LOG = 0i64;
+        { let _a: [Noisy; 2] = [Noisy { id: 4i64 }, Noisy { id: 5i64 }]; }
+        if DROP_LOG != 45i64 { return 38; }                // each element dropped
+    }
+
+    // @rule type.drop.owning-dst-droppable
+    // An owning Box<[T]> drops its heap data (each element); the elements are
+    // dropped when the owning handle goes out of scope.
+    {
+        DROP_LOG = 0i64;
+        {
+            let b: Box<[Noisy]> =
+                box_new::<[Noisy; 2]>([Noisy { id: 6i64 }, Noisy { id: 1i64 }]) as Box<[Noisy]>;
+            if b.len() != 2i64 { return 39; }
+        }
+        if DROP_LOG != 61i64 { return 40; }                // both owned elements dropped
+    }
+
+    return 0;
+}

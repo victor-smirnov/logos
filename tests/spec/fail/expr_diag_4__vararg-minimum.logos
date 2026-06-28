@@ -1,0 +1,9 @@
+// @rule expr.call.arity-vararg-minimum
+package expr_diag_4_vararg_minimum;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    unsafe { printf(); }
+    return 0i32;
+}

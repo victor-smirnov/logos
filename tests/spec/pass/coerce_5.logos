@@ -1,0 +1,193 @@
+package coerce_5;
+
+use logos.lang.rc;
+
+// ── Helper types / traits / impls ───────────────────────────────────────────
+
+struct M { a: i64, b: i64 }
+
+// &mut M param, mutates through the reference.
+fn bump_a(s: &mut M) { s.a += 1i64; }
+// &M param (shared), reads.
+fn read_a(s: &M) -> i64 { return s.a; }
+
+// Trait + supertrait for dyn upcast and &Concrete -> &dyn unsize.
+trait Animal { fn legs(&self) -> i64; }
+trait Dog: Animal { fn bark(&self) -> i64; }
+struct Lab { n: i64 }
+impl Animal for Lab { fn legs(&self) -> i64 { return 4i64; } }
+impl Dog for Lab { fn bark(&self) -> i64 { return self.n; } }
+
+fn count_legs(a: &dyn Animal) -> i64 { return a.legs(); }
+
+// Rc smart-pointer unsize target.
+trait Sp { fn v(&self) -> i64; }
+struct AV { x: i64 }
+impl Sp for AV { fn v(&self) -> i64 { return self.x; } }
+fn take_rc(r: Rc<dyn Sp>) -> i64 { return r.v(); }
+fn make_rc() -> Rc<dyn Sp> { return rc_new(AV { x: 9i64 }); }
+
+// fn-pointer parameter for closure-literal -> fn-ptr coercion.
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); }
+
+// slice param for array-ref unsize.
+fn first(s: &[i64]) -> i64 { return s[0]; }
+fn set_at1(s: &mut [i64], v: i64) { s[1] = v; }
+
+// impl-Trait return source.
+fn make_animal() -> impl Animal { return Lab { n: 5i64 }; }
+
+// fn-ptr return-coercion source (non-capturing closure literal).
+fn pick() -> fn(i64) -> i64 { return |x: i64| -> i64 { return x + 1i64; }; }
+
+// float-literal return: the literal is retyped to the concrete f32 return type.
+fn half_f32() -> f32 { return 0.5f32; }
+fn quarter_f64() -> f64 { return 0.25f64; }
+
+fn main() -> i64 {
+
+    // @rule coerce.reborrow.implicit-mut-reborrow
+    // A single `&mut M` binding feeds several reference-expecting call sites
+    // without an explicit reborrow; it stays usable across all of them.
+    {
+        let mut rb_m: M = M { a: 0i64, b: 0i64 };
+        let rb_r: &mut M = &mut rb_m;
+        bump_a(rb_r);              // implicit reborrow #1
+        bump_a(rb_r);              // implicit reborrow #2 — rb_r still usable
+        if read_a(rb_r) != 2i64 { return 1; }   // implicit reborrow #3 (&mut -> &)
+    }
+
+    // @rule coerce.reborrow.method-receiver-no-downgrade
+    // A `&mut M` binding passed where a shared ref is accepted is auto-reborrowed
+    // but not permanently downgraded to &Self, so it can still mutate afterwards.
+    {
+        let mut nd_m: M = M { a: 10i64, b: 0i64 };
+        let nd_r: &mut M = &mut nd_m;
+        let _ = read_a(nd_r);      // auto-reborrow as &M (does not downgrade nd_r)
+        nd_r.a += 5i64;            // nd_r is still &mut M — mutation succeeds
+        if nd_r.a != 15i64 { return 2; }
+    }
+
+    // @rule coerce.arg.canonical-coercion-order
+    // The full canonical chain applies at argument sites: closure->fnptr,
+    // array-ref->slice, dyn supertrait upcast, &Concrete->&dyn, &mut reborrow,
+    // and integer widening — exercised together here.
+    {
+        let co_l: Lab = Lab { n: 3i64 };
+        let co_d: &dyn Dog = &co_l;
+        if count_legs(co_d) != 4i64 { return 3; }       // upcast &dyn Dog -> &dyn Animal
+        if count_legs(&co_l) != 4i64 { return 4; }      // &Concrete -> &dyn
+        let co_arr: [i64; 3] = [7i64, 8i64, 9i64];
+        if first(&co_arr) != 7i64 { return 5; }         // &[i64;3] -> &[i64]
+        if apply(|x: i64| -> i64 { return x * 2i64; }, 6i64) != 12i64 { return 6; } // closure->fnptr
+    }
+
+    // @rule coerce.closure.literal-to-fn-pointer
+    // A non-capturing closure literal passed where `fn(i64)->i64` is expected
+    // coerces to a function pointer.
+    {
+        if apply(|x: i64| -> i64 { return x + 100i64; }, 1i64) != 101i64 { return 7; }
+    }
+
+    // @rule coerce.closure.noncapturing-to-fnptr
+    // The same coercion at a let-annotation site: zero-capture closure literal
+    // becomes an `fn(i64)->i64` value that is then callable.
+    {
+        let nc_g: fn(i64) -> i64 = |x: i64| -> i64 { return x - 1i64; };
+        if nc_g(5i64) != 4i64 { return 8; }
+    }
+
+    // @rule coerce.int.widen-or-literal-fits
+    // A concrete narrower-int expression widens to a wider int at a coercion
+    // site (u32 -> i64) without an explicit `as`; an int literal that fits also
+    // takes the wider type.
+    {
+        let iw_n: u32 = 300u32;
+        let iw_w: i64 = iw_n;          // u32 -> i64 implicit widening
+        if iw_w != 300i64 { return 9; }
+        let iw_lit: i64 = 250i64;      // literal fits i64
+        if iw_lit != 250i64 { return 10; }
+    }
+
+    // @rule coerce.let.implicit-int-widening
+    // At a let-init, a concrete (non-literal) integer RHS widens to the
+    // annotated wider integer type.
+    {
+        let lw_a: u8 = 200u8;
+        let lw_b: u32 = lw_a;          // u8 -> u32 implicit widening
+        if lw_b != 200u32 { return 11; }
+        let lw_c: i32 = 7i32;
+        let lw_d: i64 = lw_c;          // i32 -> i64
+        if lw_d != 7i64 { return 12; }
+    }
+
+    // @rule coerce.let.reborrow-mut-at-ascription
+    // A type-ascribed `let r2: &mut M = rhs(&mut)` reborrows so the original
+    // `&mut` is restored after r2's last use (NLL): the outer `&mut` usable after.
+    {
+        let mut ra_m: M = M { a: 1i64, b: 0i64 };
+        let ra_r: &mut M = &mut ra_m;
+        {
+            let ra_r2: &mut M = ra_r;  // reborrow at ascription
+            ra_r2.a += 1i64;
+        }
+        ra_r.a += 1i64;                // ra_r still usable after ra_r2's region ends
+        if ra_r.a != 3i64 { return 13; }
+    }
+
+    // @rule coerce.let.unsize-and-decays
+    // Let-binding applies CoerceUnsized (Rc<AV> -> Rc<dyn Sp>) and array-ref ->
+    // slice decay (&mut [i64;N] -> &mut [i64]).
+    {
+        let ud_r: Rc<dyn Sp> = rc_new(AV { x: 41i64 });   // Rc CoerceUnsized
+        if ud_r.v() != 41i64 { return 14; }
+        let mut ud_arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let ud_s: &mut [i64] = &mut ud_arr;               // &mut [i64;3] -> &mut [i64]
+        set_at1(ud_s, 22i64);                             // write through the mut slice
+        if ud_arr[1] != 22i64 { return 15; }
+    }
+
+    // @rule coerce.let.impl-trait-uses-concrete
+    // With an `impl Trait` annotation the binding carries the concrete RHS type,
+    // so trait methods resolve and dispatch correctly.
+    {
+        let it_a: impl Animal = make_animal();
+        if it_a.legs() != 4i64 { return 16; }
+    }
+
+    // @rule coerce.let.literal-retype-to-float
+    // A FloatLit RHS retypes to the f64 annotation; an IntLit RHS under a float
+    // annotation becomes a float value.
+    {
+        let fl_f: f64 = 1.5f64;        // FloatLit -> f64
+        if fl_f != 1.5f64 { return 17; }
+        let fl_g: f64 = 3i64 as f64;   // explicit int->float for the value check
+        if fl_g != 3.0f64 { return 18; }
+    }
+
+    // @rule coerce.return.closure-to-fnptr
+    // A non-capturing closure literal returned where `fn(i64)->i64` is expected
+    // coerces to a fn-pointer (verified by calling the returned pointer).
+    {
+        let rc_p: fn(i64) -> i64 = pick();
+        if rc_p(10i64) != 11i64 { return 19; }
+    }
+
+    // @rule coerce.return.unsize-struct
+    // A returned Rc<AV> is implicitly unsized to the Rc<dyn Sp> return type
+    // (no explicit `as`), and dispatch through the trait object works.
+    {
+        let ru_r: Rc<dyn Sp> = make_rc();
+        if take_rc(ru_r) != 9i64 { return 20; }
+    }
+
+    // @rule coerce.return.float-lit
+    // A float-literal return value is retyped to the concrete f32/f64 return
+    // type (rather than defaulting), so the bit-exact value is preserved.
+    {
+        if half_f32() != 0.5f32 { return 21; }
+        if quarter_f64() != 0.25f64 { return 22; }
+    }
+
+    return 0;
+}

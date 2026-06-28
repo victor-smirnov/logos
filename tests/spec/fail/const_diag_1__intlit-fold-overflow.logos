@@ -1,0 +1,7 @@
+// @rule const.binop.intlit-fold-overflow
+package const_diag_1_intlit_fold_overflow;
+
+fn main() -> i64 {
+    let x: i64 = 9223372036854775807 + 1;
+    return x;
+}

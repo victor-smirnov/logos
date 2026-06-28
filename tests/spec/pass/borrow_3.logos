@@ -1,0 +1,207 @@
+package borrow_3;
+
+use logos.mem.collections.vec;
+
+// ── helper types ────────────────────────────────────────────────────────────
+
+struct Owner { v: i64 }                       // non-Copy struct (has owned-by-default semantics)
+
+struct PointC { x: i64, y: i64 }              // Copy struct
+impl Copy for PointC {}
+
+struct Counter { n: i64 }
+impl Counter {
+    fn inc(&mut self) -> i64 { self.n = self.n + 1i64; return self.n; }
+    fn get(&self) -> i64 { return self.n; }
+}
+
+// generic identity over a bare type-parameter — checked pre-mono (exclusivity-only)
+fn id<T>(x: T) -> T { return x; }
+
+// generic over a Copy-bounded parameter — value reusable after "use"
+fn dup<T: Copy>(x: T) -> i64 {
+    let _a: T = x;                            // use x
+    let _b: T = x;                            // use x again — only valid if T is Copy
+    return 0i64;
+}
+
+// reference parameter: per-function lifetime, no facts cross bodies
+fn read_ref(r: &i64) -> i64 { return *r; }
+
+// move a struct by value into a callee — consumes the source
+fn consume(o: Owner) -> i64 { return o.v; }
+
+// enum whose payload owns a non-Copy struct → enum is a move type
+enum Holder { Empty, Full(Owner) }
+fn unwrap_holder(h: Holder) -> i64 {
+    return match h {
+        Holder::Empty => 0i64,
+        Holder::Full(o) => o.v,
+    };
+}
+
+// body-less extern (not borrow-checked); declared only, never called
+extern "C" fn extern_stub(x: i64) -> i64;
+
+fn main() -> i64 {
+
+    // @rule borrow.generic.exclusivity-only-pre-mono
+    // @rule borrow.generic.copy-bound-is-copy-type
+    // @rule borrow.move.typevar-move-unless-copy
+    // A bare T param is move-classified (id<T> just forwards, no double-use);
+    // a Copy-bounded T may be used twice without a use-after-move error. The fact
+    // that both generic templates compiled at all (pre-mono exclusivity-only check)
+    // and run correctly confirms these.
+    {
+        if id::<i64>(7i64) != 7i64 { return 1; }
+        if dup::<i64>(9i64) != 0i64 { return 2; }
+        if dup::<PointC>(PointC { x: 1i64, y: 2i64 }) != 0i64 { return 3; }
+    }
+
+    // @rule borrow.fn.scope-is-per-function
+    // @rule borrow.pass.generic-template-checked
+    // Borrow facts are per-function: a reference parameter is a fresh live binding
+    // each call; consecutive independent calls share no state.
+    {
+        let a: i64 = 10i64;
+        let b: i64 = 20i64;
+        if read_ref(&a) != 10i64 { return 4; }
+        if read_ref(&b) != 20i64 { return 5; }
+        if read_ref(&a) != 10i64 { return 6; }    // a still borrowable on a later call
+    }
+
+    // @rule borrow.mut.require-mut-binding
+    // &mut requires the root binding be declared mut; a mut binding can be borrowed
+    // mutably and mutated through that borrow.
+    {
+        let mut x: i64 = 1i64;
+        {
+            let r: &mut i64 = &mut x;
+            *r = 42i64;
+        }                                          // r dies — x usable again
+        if x != 42i64 { return 7; }
+    }
+
+    // @rule borrow.conflict.mut-while-borrowed
+    // After a &mut borrow ends (NLL), a fresh borrow of the same root is fine; the
+    // two non-overlapping borrows each see the latest value.
+    {
+        let mut y: i64 = 5i64;
+        {
+            let r1: &mut i64 = &mut y;
+            *r1 = 6i64;
+        }                                          // r1 dies here
+        let r2: &i64 = &y;                         // new borrow — no conflict
+        if *r2 != 6i64 { return 8; }
+    }
+
+    // @rule borrow.autoborrow.method-receiver-transient
+    // Consecutive &mut-self / &self method calls on the same receiver do not
+    // conflict — each implicit receiver borrow is released at scope-pop (NLL).
+    {
+        let mut c: Counter = Counter { n: 0i64 };
+        let _ = c.inc();
+        let _ = c.inc();
+        if c.get() != 2i64 { return 9; }           // both inc()s applied, then get()
+    }
+
+    // @rule borrow.move.value-invalidates-source
+    // @rule borrow.move.struct-non-copy
+    // Consuming a non-Copy struct moves it into the callee; the value is observed
+    // intact at the destination.
+    {
+        let o: Owner = Owner { v: 99i64 };
+        if consume(o) != 99i64 { return 10; }
+    }
+
+    // @rule borrow.move.enum-drop-or-move-payload
+    // An enum whose variant payload is a move type (Owner) is itself a move type;
+    // consuming the enum moves it into the callee and the payload is observed intact.
+    {
+        let h: Holder = Holder::Full(Owner { v: 55i64 });
+        if unwrap_holder(h) != 55i64 { return 24; }
+    }
+
+    // @rule borrow.flow.if-branch-merge
+    // Both branches start from the same pre-branch state; the chosen branch's value
+    // is what flows out.
+    {
+        let cond: bool = true;
+        let z: Owner = Owner { v: 3i64 };
+        let out: i64 = if cond { consume(z) } else { 0i64 };
+        if out != 3i64 { return 11; }
+    }
+
+    // @rule borrow.flow.match-branch-merge
+    // The scrutinee is read non-consuming; each arm runs from the same pre-state.
+    {
+        let k: i64 = 2i64;
+        let m: i64 = match k {
+            1 => 100i64,
+            2 => 200i64,
+            _ => 300i64,
+        };
+        if m != 200i64 { return 12; }
+    }
+
+    // @rule borrow.live.closure-captures
+    // A closure capturing a live local can be formed and invoked.
+    {
+        let base: i64 = 40i64;
+        let add: |i64| -> i64 = |d: i64| -> i64 { return base + d; };
+        if add(2i64) != 42i64 { return 13; }
+    }
+
+    // @rule borrow.eval.consuming-positions
+    // BinOp operands and call args are consuming (Copy scalars copy); the AddrOf
+    // source / place-base receiver are non-consuming, so the place survives.
+    {
+        let n: i64 = 5i64;
+        let s: i64 = n + n;                        // n consumed-by-copy twice
+        if s != 10i64 { return 14; }
+        let r: &i64 = &n;                          // AddrOf source non-consuming
+        if *r != 5i64 { return 15; }
+        if n != 5i64 { return 16; }                // n still live
+    }
+
+    // @rule borrow.callargs.scope-ref-borrows
+    // A reference argument's borrow lives only for the call; after the call the
+    // referent is freely borrowable / movable again.
+    {
+        let w: i64 = 77i64;
+        if read_ref(&w) != 77i64 { return 17; }    // borrow released after call
+        let moved: i64 = w;                        // w usable again (was only ref-borrowed)
+        if moved != 77i64 { return 18; }
+    }
+
+    // @rule borrow.nll.capture-flow-store
+    // A &mut-self push that stores a non-borrow-carrying value taints nothing; the
+    // source local stays usable, and Vec contents read back.
+    {
+        let mut v: Vec<i64> = Vec::new();
+        let e: i64 = 8i64;
+        v.push(e);                                 // e is Copy scalar — no taint
+        if e != 8i64 { return 19; }
+        if v.len() != 1i64 { return 20; }
+        if v[0] != 8i64 { return 21; }
+    }
+
+    // @rule borrow.move.scalar-not-move
+    // Scalars and references are consumed by copy, never invalidating the source.
+    {
+        let p: i64 = 4i64;
+        let q: i64 = p;                            // copy
+        if p + q != 8i64 { return 22; }            // both still live
+    }
+
+    // @rule borrow.move.aggregate-recursion
+    // An array of Copy elements is itself Copy (structural OR over elements is
+    // false), so it is consumed by copy and the source survives.
+    {
+        let arr: [i64; 2] = [1i64, 2i64];
+        let arr2: [i64; 2] = arr;                  // copy (i64 not move ⇒ array not move)
+        if arr[0] + arr2[1] != 3i64 { return 23; } // arr still live after the copy
+    }
+
+    return 0;
+}

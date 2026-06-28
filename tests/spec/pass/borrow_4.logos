@@ -1,0 +1,353 @@
+package borrow_4;
+
+// Conformance test for the `borrow_4` rule group. Each rule is locked by
+// EXECUTING a program whose observable result only holds if the rule is true.
+//
+// The borrow_4 rules are mostly move/drop-tracking and borrow-conflict rules.
+// Their runtime-observable positive manifestation is: code that exercises the
+// rule compiles AND runs with the CORRECT drop count (no double-drop, no leak,
+// no use-after-move false positive). We observe this with a `*mut i64` Drop
+// tick-counter (Rust-parity Drop). Rules that are purely compile-time internal
+// invariants (dataflow fixpoint, slot allocation, escape tracking) with no
+// runtime-observable behavior are reported under "untestable".
+//
+// NOTE: distinct counter/pointer names per rule — a raw `&mut name` is keyed by
+// name across sibling blocks by the checker, so each rule uses unique names.
+
+// ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// Consume an R by value (move-type by-value parameter → canonical drop site).
+fn consume(r: R) -> i64 { return r.i as i64; }
+
+// A method whose `self` is by value (consumes the receiver).
+struct Holder { c: R }
+impl Holder {
+    fn take(self: Self) -> i64 { return self.c.i as i64; }  // by-value self → consumes
+    fn peek(&self) -> i64 { return self.c.i as i64; }       // &self → does not consume
+    fn eat(&self, r: R) -> i64 { return r.i as i64; }       // arg moved into method
+}
+
+// Enum with a move-type payload (construction consumes the payload source).
+enum Box1 { Some(R), None }
+
+// Pair of two independently-droppable fields (precise l-value path tracking).
+struct Pair { a: R, b: R }
+
+// #[borrow_carrying] struct (tracked like a reference for escape/lifetime).
+#[borrow_carrying]
+struct RefWrap { p: &i64 }
+
+// Two-phase / shared-read helper: returns a borrow of its parameter.
+fn pick(x: &i64) -> &i64 { return x; }
+
+// Reborrow through a pointer kind: &*p.
+fn deref_read(p: &i64) -> i64 { let r: &i64 = &*p; return *r; }
+
+// Takes a &mut and a by-value snapshot — the &mut taken as a call arg is a TPB
+// reservation, so reading the same place for the other arg does not conflict.
+fn bump_by(d: &mut i64, v: i64) { *d = *d + v; }
+
+fn main() -> i64 {
+
+    // @rule borrow.move.by-value-args
+    // Passing a move-type l-value by value to a call moves it: the caller's
+    // binding is marked moved, suppressing scope-end auto-Drop. Exactly one drop
+    // (in the callee's scope), not two.
+    {
+        let mut c01: i64 = 0i64;
+        let p01: *mut i64 = &mut c01;
+        {
+            let o: R = mk(p01);
+            let _ = consume(o);     // o moved into consume → dropped by callee only
+        }
+        if c01 != 1i64 { return 1; }  // dropped EXACTLY once
+    }
+
+    // @rule borrow.invoke.by-value-arg-moved
+    // A by-value argument of move (non-Copy) type marked moved so its owning
+    // scope does not also drop it — single drop, no double-free.
+    {
+        let mut c02: i64 = 0i64;
+        let p02: *mut i64 = &mut c02;
+        {
+            let o: R = mk(p02);
+            let _ = consume(o);
+        }
+        if c02 != 1i64 { return 2; }
+    }
+
+    // @rule expr.call.args-move-tracking
+    // Passing a by-value argument of a move type marks the source binding moved.
+    {
+        let mut c03: i64 = 0i64;
+        let p03: *mut i64 = &mut c03;
+        {
+            let o: R = mk(p03);
+            let _ = consume(o);
+        }
+        if c03 != 1i64 { return 3; }
+    }
+
+    // @rule borrow.method.args-moved
+    // Passing arguments to a method call marks those argument values moved.
+    {
+        let mut c04h: i64 = 0i64;
+        let mut c04a: i64 = 0i64;
+        let p04h: *mut i64 = &mut c04h;
+        let p04a: *mut i64 = &mut c04a;
+        {
+            let h: Holder = Holder { c: mk(p04h) };
+            let arg: R = mk(p04a);
+            let _ = h.eat(arg);     // arg moved into method → dropped once by method
+        }
+        if c04a != 1i64 { return 4; }  // method arg dropped exactly once
+        if c04h != 1i64 { return 5; }  // h's own field dropped exactly once
+    }
+
+    // @rule borrow.move.by-value-receiver
+    // A by-value `self` consumes the receiver: the receiver binding is marked
+    // moved so scope-end auto-Drop does not double-free. A &self receiver does
+    // not move (so it still drops at scope end).
+    {
+        let mut c06a: i64 = 0i64;
+        let p06a: *mut i64 = &mut c06a;
+        {
+            let h: Holder = Holder { c: mk(p06a) };
+            let _ = h.take();       // by-value self consumes h → dropped once here
+        }
+        if c06a != 1i64 { return 6; }
+        let mut c06b: i64 = 0i64;
+        let p06b: *mut i64 = &mut c06b;
+        {
+            let h2: Holder = Holder { c: mk(p06b) };
+            let _ = h2.peek();      // &self does NOT consume → h2 drops at scope end
+        }
+        if c06b != 1i64 { return 7; } // &self path: still exactly one drop
+    }
+
+    // @rule borrow.enum-lit.payload-move
+    // Each move-typed payload argument consumes its source at the enum-literal
+    // construction site (moved into the enum, dropped once via the enum value).
+    {
+        let mut c08: i64 = 0i64;
+        let p08: *mut i64 = &mut c08;
+        {
+            let o: R = mk(p08);
+            let _e: Box1 = Box1::Some(o);  // o moved into payload
+        }
+        if c08 != 1i64 { return 8; }       // payload dropped once via the enum
+    }
+
+    // @rule borrow.enum-lit.payload-consumes-source
+    // Constructing an enum literal consumes its move-type payload source,
+    // preventing later use (and preventing double-drop).
+    {
+        let mut c09: i64 = 0i64;
+        let p09: *mut i64 = &mut c09;
+        {
+            let o: R = mk(p09);
+            let _e: Box1 = Box1::Some(o);
+        }
+        if c09 != 1i64 { return 9; }
+    }
+
+    // @rule borrow.move.tuple-element-moved
+    // A concrete move-type value placed into a tuple element is moved into the
+    // tuple (source consumed); the tuple owns and drops it exactly once.
+    {
+        let mut c10: i64 = 0i64;
+        let p10: *mut i64 = &mut c10;
+        {
+            let o: R = mk(p10);
+            let _t: (R, i64) = (o, 5i64);  // o moved into tuple element 0
+        }
+        if c10 != 1i64 { return 10; }      // tuple drops the element once
+    }
+
+    // @rule borrow.move.write-into-cell-is-move
+    // Writing a move-type RHS into a memory cell (here a field) moves the source:
+    // its scope-exit auto-drop is suppressed; Drop transfers to the destination.
+    {
+        let mut c11d: i64 = 0i64;     // dest's initial field counter
+        let mut c11s: i64 = 0i64;     // source counter
+        let p11d: *mut i64 = &mut c11d;
+        let p11s: *mut i64 = &mut c11s;
+        {
+            let mut h: Holder = Holder { c: mk(p11d) };  // h.c initially counts to c11d
+            let src: R = mk(p11s);
+            h.c = src;                // write move-type RHS into cell h.c
+            // assigning h.c drops the OLD h.c value (c11d ticks) then stores src
+            let _kh = h;
+        }
+        if c11d != 1i64 { return 11; }  // old field value dropped once on overwrite
+        if c11s != 1i64 { return 12; }  // src moved into h.c, dropped once via h
+    }
+
+    // @rule borrow.move.lvalue-path-tracking
+    // Moving a move-type place marks a precise l-value path: moving p.a marks
+    // exactly `p.a`, excluding it from the aggregate's scope-end drop so it is
+    // not dropped twice; the sibling p.b still drops via the aggregate.
+    {
+        let mut c13a: i64 = 0i64;
+        let mut c13b: i64 = 0i64;
+        let p13a: *mut i64 = &mut c13a;
+        let p13b: *mut i64 = &mut c13b;
+        {
+            let pr: Pair = Pair { a: mk(p13a), b: mk(p13b) };
+            let _moved: R = pr.a;     // precise move of leaf path pr.a
+            let _km = _moved;
+        }
+        if c13a != 1i64 { return 13; }  // pr.a dropped once (via _moved), not twice
+        if c13b != 1i64 { return 14; }  // sibling pr.b dropped once via the root
+    }
+
+    // @rule borrow.move.recursive-into-producer
+    // A move-typed VarRef carried into a produced composite value (here a struct
+    // literal field) is marked moved and removed from the drop set, so the value
+    // escaping via construction is dropped exactly once by its new owner.
+    {
+        let mut c15: i64 = 0i64;
+        let p15: *mut i64 = &mut c15;
+        {
+            let o: R = mk(p15);
+            let h: Holder = Holder { c: o };  // o carried into producer (StructLit)
+            let _kh = h;
+        }
+        if c15 != 1i64 { return 15; }   // single drop via the constructed Holder
+    }
+
+    // @rule borrow.move.shadowing-new-slot
+    // Shadowing a name yields a NEW binding slot; the new binding is an
+    // independent owner. Two distinct slots ⇒ two distinct owners ⇒ two drops.
+    {
+        let mut c16a: i64 = 0i64;
+        let mut c16b: i64 = 0i64;
+        let p16a: *mut i64 = &mut c16a;
+        let p16b: *mut i64 = &mut c16b;
+        {
+            let o: R = mk(p16a);
+            let _keep1 = &o;          // keep first slot live
+            let o2: R = mk(p16b);     // distinct slot
+            let _keep2 = &o2;
+        }
+        if c16a != 1i64 { return 16; }  // first slot dropped once
+        if c16b != 1i64 { return 17; }  // second slot dropped once
+    }
+
+    // @rule borrow.move.scope-exit-clears-moved
+    // On scope exit, variables declared in that scope leave the moved set, so an
+    // outer name reused after the inner scope is unconstrained. Here `o` is moved
+    // inside the inner scope; after the scope a fresh same-named binding is fine.
+    {
+        let mut c18a: i64 = 0i64;
+        let mut c18b: i64 = 0i64;
+        let p18a: *mut i64 = &mut c18a;
+        let p18b: *mut i64 = &mut c18b;
+        {
+            let o: R = mk(p18a);
+            let _ = consume(o);       // o moved away inside inner scope
+        }                              // inner scope exit clears moved state
+        {
+            let o: R = mk(p18b);      // fresh binding, unconstrained by prior move
+            let _ko = o;
+        }
+        if c18a != 1i64 { return 18; }
+        if c18b != 1i64 { return 19; }
+    }
+
+    // @rule borrow.drop.needs-drop-recursive
+    // A type needs drop glue iff it has own drop OR transitively contains a
+    // droppable field. `Holder` has no own Drop impl but contains an `R` (which
+    // does) → its drop glue runs the field's Drop. Observed: the field ticks.
+    {
+        let mut c20: i64 = 0i64;
+        let p20: *mut i64 = &mut c20;
+        {
+            let h: Holder = Holder { c: mk(p20) };  // no own Drop, droppable field
+            let _kh = h;
+        }
+        if c20 != 1i64 { return 20; }   // recursive drop glue ran the field's Drop
+    }
+
+    // @rule borrow.reborrow.ref-deref
+    // `&*p` where p is a reference is a reborrow yielding &pointee(p); reading
+    // through the reborrow reaches the same place.
+    {
+        let v: i64 = 77i64;
+        if deref_read(&v) != 77i64 { return 21; }  // &*p reborrow reads same place
+    }
+
+    // @rule borrow.conflict.overlapping-regions
+    // Two shared (&) borrows of the same target never conflict; they may be live
+    // simultaneously and both read the same place.
+    {
+        let x: i64 = 41i64;
+        let r1: &i64 = &x;
+        let r2: &i64 = &x;            // second shared borrow — no conflict
+        if *r1 + *r2 != 82i64 { return 22; }  // both live & readable at once
+    }
+
+    // @rule borrow.conflict.tpb-reservation-shared-read
+    // A two-phase-borrow mut-reservation does not conflict with a concurrent
+    // shared (&) read of the same target. `acc += *pick(&acc)` reserves &mut acc
+    // for the assignment while reading &acc.
+    {
+        let mut acc: i64 = 5i64;
+        acc = acc + *pick(&acc);      // shared read while &mut reserved (TPB)
+        if acc != 10i64 { return 23; }
+    }
+
+    // @rule borrow.closure.skip-source-drop-on-body-move
+    // For a capture the closure body itself moves into a callee, the closure's
+    // source-side owned-drop is skipped: the callee's parameter drop is the
+    // canonical drop site. ⇒ the captured value is dropped EXACTLY once (no
+    // double-drop from both the env glue and the callee).
+    {
+        let mut c25: i64 = 0i64;
+        let p25: *mut i64 = &mut c25;
+        {
+            let o25: R = mk(p25);
+            let f = move || -> i64 { return consume(o25); };  // body moves o25 into consume
+            let _x = f();
+        }
+        if c25 != 1i64 { return 29; }   // single canonical drop at the callee
+    }
+
+    // @rule borrow.two-phase.call-arg-reservation
+    // A `&mut` borrow taken while evaluating call arguments is a two-phase-borrow
+    // reservation, not an immediately-active mutable borrow: the reservation does
+    // not block reading the SAME place for a sibling argument during arg eval.
+    {
+        let mut acc2: i64 = 7i64;
+        bump_by(&mut acc2, acc2);     // &mut acc2 reserved while acc2 read as arg 2
+        if acc2 != 14i64 { return 28; }
+    }
+
+    // @rule borrow.escape.borrow-carrying-struct
+    // A `#[borrow_carrying]` struct value is tracked like a reference for
+    // escape/lifetime: it may hold a borrow of a still-live local and be read
+    // while that local is in scope.
+    {
+        let v: i64 = 99i64;
+        let w: RefWrap = RefWrap { p: &v };   // carries a borrow of v
+        if *w.p != 99i64 { return 24; }       // borrow read while v live
+    }
+
+    // @rule borrow.temp.distinct-targets
+    // Each borrow of a distinct temporary value is a distinct borrow target;
+    // two temporary borrows never alias. Two refs to distinct temporaries hold
+    // independent values simultaneously.
+    {
+        let r1: &i64 = &(10i64);     // borrow of temporary #1
+        let r2: &i64 = &(20i64);     // borrow of temporary #2 (distinct target)
+        if *r1 != 10i64 { return 25; }
+        if *r2 != 20i64 { return 26; }
+        if *r1 + *r2 != 30i64 { return 27; }  // both distinct & live
+    }
+
+    return 0;
+}

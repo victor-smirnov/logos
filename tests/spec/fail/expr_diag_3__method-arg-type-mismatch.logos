@@ -1,0 +1,14 @@
+// @rule expr.method.arg-type-compat
+package expr_diag_3_arg_type;
+
+trait Taker {
+    fn take(&self, a: bool) -> i32;
+}
+
+fn use_it<T: Taker>(t: &T, x: i32) -> i32 {
+    return t.take(x);
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

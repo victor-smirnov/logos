@@ -1,0 +1,8 @@
+// @rule trait.bound.unknown-trait
+package trait_diag_2_bound_unknown_trait;
+
+fn f<T: Nonexistent>(t: T) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    return 0i32;
+}

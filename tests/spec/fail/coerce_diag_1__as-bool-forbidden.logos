@@ -1,0 +1,8 @@
+// @rule coerce.cast.as-bool-forbidden
+package coerce_diag_1_as_bool_forbidden;
+
+fn main() -> i32 {
+    let i: i32 = 1i32;
+    let _b: bool = i as bool;
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// @rule generic.method.inference-complete
+package generic_diag_1_method_inference_complete;
+
+struct Maker { n: i64 }
+
+impl Maker {
+    fn make<T>(&self) -> i64 { return self.n; }
+}
+
+fn main() -> i32 {
+    let m = Maker { n: 1i64 };
+    let _x = m.make();
+    return 0i32;
+}

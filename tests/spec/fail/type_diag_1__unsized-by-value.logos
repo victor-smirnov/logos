@@ -1,0 +1,10 @@
+// @rule type.unsized.by-value-rejected
+package type_diag_1_unsized_by_value;
+
+fn f(x: [i32]) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

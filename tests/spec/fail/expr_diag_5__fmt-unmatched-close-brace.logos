@@ -1,0 +1,9 @@
+// @rule expr.fmt.unmatched-close-brace
+package expr_diag_5_fmt_unmatched_close_brace;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let _s = format!("hi }");
+    return 0i32;
+}

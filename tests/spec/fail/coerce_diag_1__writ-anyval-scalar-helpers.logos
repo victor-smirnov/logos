@@ -1,0 +1,15 @@
+// @rule coerce.writ-anyval.scalar-helpers
+package coerce_diag_1_writ_anyval_scalar_helpers;
+
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.rc;
+
+struct P { x: i32 }
+
+fn main() -> i32 {
+    let xs: [P; 1] = [P { x: 1i32 }];
+    let _doc: Rc<Writ> = @[x for x in xs];
+    return 0i32;
+}

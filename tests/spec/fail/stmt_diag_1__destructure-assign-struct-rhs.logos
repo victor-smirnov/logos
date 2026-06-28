@@ -1,0 +1,11 @@
+// @rule stmt.destructure-assign.tuple-array-struct
+package stmt_diag_1_destructure_assign_struct_rhs;
+
+struct Point { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let mut a: i32 = 0i32;
+    let mut b: i32 = 0i32;
+    Point { x: a, y: b } = 7i32;
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// @rule pat.ident.variant-alias
+package pat_diag_2_ident_variant_alias;
+
+use logos.lang.cmp;
+use logos.lang.cmp.Ordering.{Less, Equal, Greater};
+
+enum Shape { Circle, Square }
+
+fn main() -> i32 {
+    let s: Shape = Shape::Circle;
+    match s {
+        Equal => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

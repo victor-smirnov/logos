@@ -1,0 +1,18 @@
+// @rule expr.struct-lit.functional-update
+package expr_diag_2_struct_functional_update;
+
+struct S {
+    x: i32,
+    y: i32,
+}
+
+struct T {
+    x: i32,
+    y: i32,
+}
+
+fn main() -> i32 {
+    let t = T { x: 1i32, y: 2i32 };
+    let _s = S { x: 9i32, ..t };
+    return 0i32;
+}

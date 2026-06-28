@@ -1,0 +1,10 @@
+// @rule expr.fmt.precision-requires-number
+package expr_diag_5_fmt_precision_requires_number;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let _s = format!("{:.}", x);
+    return 0i32;
+}

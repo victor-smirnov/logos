@@ -1,0 +1,7 @@
+// @rule intrinsic.str.str-from-raw
+package intrinsic_diag_2_str_from_raw_arity;
+
+unsafe fn main() -> i32 {
+    let _s: str = str_from_raw();
+    return 0i32;
+}

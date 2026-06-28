@@ -1,0 +1,9 @@
+// @rule intrinsic.vtable-of.static-vtable-addr
+package vtof_unknown_trait;
+
+struct Dog { tag: i64 }
+
+unsafe fn main() -> i32 {
+    let vt: *const u8 = vtable_of::<NoSuchTrait, Dog>();
+    return 0;
+}

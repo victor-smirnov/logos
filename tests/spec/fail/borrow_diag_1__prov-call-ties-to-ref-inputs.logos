@@ -1,0 +1,15 @@
+// @rule borrow.prov.borrow-returning-call-ties-to-ref-inputs
+package borrow_diag_1_prov_call_ties_to_ref_inputs;
+// get_ref returns &i64 elided from &self -> result borrows c. Mutating c
+// (via &mut self set) while that borrow is held must be rejected.
+struct C { x: i64 }
+impl C {
+    fn get_ref(self: &C) -> &i64 { return &self.x; }
+    fn set(self: &mut C, v: i64) { self.x = v; }
+}
+fn main() -> i32 {
+    let mut c: C = C { x: 1i64 };
+    let v: &i64 = c.get_ref();
+    c.set(5i64);
+    return *v as i32;
+}

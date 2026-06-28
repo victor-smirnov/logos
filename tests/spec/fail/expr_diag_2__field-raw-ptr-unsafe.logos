@@ -1,0 +1,13 @@
+// @rule expr.field.raw-ptr-unsafe
+package expr_diag_2_field_raw_ptr_unsafe;
+
+struct S {
+    x: i32,
+}
+
+fn main() -> i32 {
+    let s = S { x: 1i32 };
+    let p: *const S = &s as *const S;
+    let _y = p.x;
+    return 0i32;
+}

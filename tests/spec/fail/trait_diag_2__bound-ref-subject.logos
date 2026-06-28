@@ -1,0 +1,24 @@
+// @rule trait.bounds.ref-subject-impl-key
+package trait_diag_2_bound_ref_subject;
+
+trait Show {
+    fn show(&self) -> i32;
+}
+
+struct C {
+    x: i32,
+}
+
+// impl for the VALUE, not for &C — a `where &T: Show` bound is NOT satisfied.
+impl Show for C {
+    fn show(&self) -> i32 { return self.x; }
+}
+
+fn need<T>(t: T) -> i32 where &T: Show {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let c = C { x: 1i32 };
+    return need::<C>(c);
+}

@@ -1,0 +1,7 @@
+// @rule coerce.enum.to-integer-discriminant
+package coerce_diag_1_enum_to_integer_discriminant;
+
+fn main() -> i32 {
+    let _x: Option<i32> = 5i32;
+    return 0i32;
+}

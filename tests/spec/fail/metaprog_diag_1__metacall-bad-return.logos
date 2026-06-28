@@ -1,0 +1,10 @@
+// @rule metaprog.metacall-item.return-type
+package metaprog_diag_1_metacall_bad_return;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen() -> i32 { return 0i32; }
+
+metacall gen();
+
+fn main() -> i32 { return 0i32; }

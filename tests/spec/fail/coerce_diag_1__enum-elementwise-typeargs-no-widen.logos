@@ -1,0 +1,8 @@
+// @rule coerce.enum.elementwise-typeargs-no-widen
+package coerce_diag_1_enum_elementwise_typeargs_no_widen;
+
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(5i32);
+    let _b: Option<i64> = a;
+    return 0i32;
+}

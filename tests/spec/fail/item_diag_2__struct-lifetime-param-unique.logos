@@ -1,0 +1,6 @@
+// @rule item.struct.lifetime-param-unique
+package item_diag_2_struct_lifetime_param_unique;
+
+struct S<'a, 'a> { p: &'a i32 }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,9 @@
+// @rule generic.arity.exact-or-variadic-tail
+package generic_diag_1_arity_exact;
+
+struct Wrap<T> { v: T }
+
+fn main() -> i32 {
+    let _w: Wrap<i64, i64> = Wrap { v: 1i64 };
+    return 0i32;
+}

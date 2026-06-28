@@ -1,0 +1,17 @@
+// @rule metaprog.quote-ty.pack-splice
+package metaprog_diag_2_quote_ty_pack_mixed;
+
+use logos.std.compiler.metaprog;
+
+pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C, }
+
+unsafe fn mk<A, B>() -> Type {
+    let ti = type_of::<i32>();
+    let ts = type_refs_of::<A, B>();
+    return quote_ty! { Triple<$ti, $ts...> };
+}
+
+unsafe fn main() -> i32 {
+    let t = mk::<bool, u8>();
+    return 0;
+}

@@ -1,0 +1,10 @@
+// @rule stmt.tail.return-type-mismatch
+package stmt_diag_1_tail_return_type_mismatch;
+
+fn f() -> i32 {
+    true
+}
+
+fn main() -> i32 {
+    return f();
+}

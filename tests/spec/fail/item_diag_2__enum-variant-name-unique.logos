@@ -1,0 +1,6 @@
+// @rule item.enum.variant-name-unique
+package item_diag_2_enum_variant_name_unique;
+
+enum E { A, A }
+
+fn main() -> i32 { return 0i32; }

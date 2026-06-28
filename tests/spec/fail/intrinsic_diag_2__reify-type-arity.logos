@@ -1,0 +1,9 @@
+// @rule intrinsic.metaprog.reify-type
+package intrinsic_diag_2_reify_type_arity;
+
+use logos.std.compiler.metaprog;
+
+unsafe fn main() -> i32 {
+    let _t: Type = reify_type(type_of::<i32>(), type_of::<bool>());
+    return 0i32;
+}

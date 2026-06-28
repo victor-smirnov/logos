@@ -1,0 +1,202 @@
+package generic_4;
+
+use logos.mem.collections.vec;
+
+// ── helper types / traits / fns ─────────────────────────────────────────────
+
+// Method-level generic: T appears only in an argument, inferred from the actual.
+struct Holder { base: i64 }
+impl Holder {
+    fn combine<T>(&self, x: T, f: fn(T) -> i64) -> i64 { return self.base + f(x); }
+}
+fn to_i64(x: i64) -> i64 { return x; }
+
+// Bare-T identity (literal-default + bind-first + no-bind-hole + deferred call).
+fn id<T>(x: T) -> T { return x; }
+fn pair<T>(a: T, b: T) -> T { return a; }   // first-wins: both args type T
+
+// Calling a generic fn from inside a generic context (deferred to mono).
+fn forward<T>(x: T) -> T { return id::<T>(x); }
+
+// Structural recursion: T extracted from inside &T / [T;N] / (T, T).
+fn deref_sum<T>(a: &T, b: &T) -> i64 where T: Copy { return 0i64; }  // shape-only helper
+fn first_ref<T>(r: &T) -> i64 where T: AsI64 { return r.as_i64(); }
+trait AsI64 { fn as_i64(&self) -> i64; }
+impl AsI64 for i64 { fn as_i64(&self) -> i64 { return *self; } }
+
+// Tuple structural recursion.
+fn tup_fst<T>(t: (T, T)) -> i64 where T: AsI64 { return t.0.as_i64(); }
+
+// ?Sized ref-unsize-pointee: &[U] bound to &T where T: ?Sized.
+fn slice_len<T: ?Sized>(_x: &T) -> i64 { return 0i64; }
+fn sum_slice(s: &[i64]) -> i64 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < s.len() { acc = acc + s[i]; i = i + 1i64; }
+    return acc;
+}
+
+// array-len const inference: N inferred from the array argument.
+fn arr_len<const N: i64>(_a: [i64; N]) -> i64 { return N; }
+
+// Fn-bound propagation: closure param/ret types inferred via F's Fn bound.
+fn apply_fn<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+
+// Trait-bound impl-args: A appears only in I's trait bound.
+trait Producer<A> { fn produce(&self) -> A; }
+struct IntProd { v: i64 }
+impl Producer<i64> for IntProd { fn produce(&self) -> i64 { return self.v; } }
+fn run_producer<I: Producer<i64>>(p: I) -> i64 { return p.produce(); }
+
+// Return-type-hint inference: T inferred from the let annotation, not args.
+fn make_default<T: Default>() -> T { return T::default(); }
+struct Zero { z: i64 }
+impl Default for Zero { fn default() -> Zero { return Zero { z: 7i64 }; } }
+
+// Variadic pack: sizeof...(P) and pack length.
+fn pack_count<T...>(_xs: T...) -> i64 { return sizeof...(T) as i64; }
+fn pack_arr_first<T...>(xs: [i64; sizeof...(T)]) -> i64 { return xs[0]; }
+
+// impl-target-pattern unify: T bound by unifying Box-like pattern vs receiver.
+struct Wrap<T> { val: T }
+impl<T: AsI64> Wrap<T> {
+    fn unwrap_i64(&self) -> i64 { return self.val.as_i64(); }
+}
+
+// const-generic param binds as a usable value.
+fn const_plus<const N: i64>(x: i64) -> i64 { return x + N; }
+
+// Lexical shadowing: method <T> shadows impl <T>.
+struct Shadow<T> { outer: T }
+impl<T: AsI64> Shadow<T> {
+    fn pick<U: AsI64>(&self, u: U) -> i64 { return u.as_i64(); }  // U shadows nothing; outer T still usable
+    fn outer_val(&self) -> i64 { return self.outer.as_i64(); }
+}
+
+// receiver autoref: by-value receiver calling &self method.
+struct Recv { n: i64 }
+impl Recv { fn get(&self) -> i64 { return self.n; } }
+
+fn main() -> i64 {
+
+    // @rule generic.method.arg-inference
+    // Method-level T is bound from the actual argument expression (self skipped).
+    {
+        let h: Holder = Holder { base: 100i64 };
+        if h.combine::<i64>(5i64, to_i64) != 105i64 { return 1; }
+        // inferred (no turbofish): T deduced from the i64 argument
+        if h.combine(5i64, to_i64) != 105i64 { return 2; }
+    }
+
+    // @rule expr.call.generic-inference-deferred-in-generic-context
+    // forward<T> calls id::<T>(x) where x has TypeVar type T — inference is
+    // deferred to mono; the call shape is preserved and resolves per instance.
+    {
+        if forward::<i64>(42i64) != 42i64 { return 3; }
+    }
+
+    // @rule generic.infer.literal-default
+    // A bare int literal passed to id<T> defaults T to i32; the value round-trips.
+    {
+        let v: i32 = id(9);          // literal 9 -> i32, T=i32 inferred
+        if (v as i64) != 9i64 { return 4; }
+    }
+
+    // @rule generic.infer.bind-first-wins
+    // pair<T>(a,b): first arg binds T; second must agree. Result == first.
+    {
+        if pair::<i64>(11i64, 22i64) != 11i64 { return 5; }
+    }
+
+    // @rule generic.infer.no-bind-infer-hole
+    // id::<_>(x): the hole is resolved by the argument, never pinned to `_`.
+    {
+        if id::<_>(13i64) != 13i64 { return 6; }
+    }
+
+    // @rule generic.infer.structural-recursion
+    // T is recovered by recursing into &T and into a tuple (T,T).
+    {
+        let n: i64 = 17i64;
+        if first_ref(&n) != 17i64 { return 7; }            // &T -> T
+        if tup_fst::<i64>((19i64, 20i64)) != 19i64 { return 8; }  // (T,T) -> T
+    }
+
+    // @rule generic.infer.ref-unsize-pointee
+    // A &[i64] actual binds T: ?Sized in &T (pointee = unsized slice); the slice
+    // is usable through a normal slice fn (ABI preserved).
+    {
+        let a: [i64; 3] = [4i64, 5i64, 6i64];
+        let s: &[i64] = &a[0..3];
+        slice_len::<[i64]>(s);                              // ?Sized formal accepts &[i64]
+        if sum_slice(s) != 15i64 { return 9; }
+    }
+
+    // @rule generic.infer.array-len-const
+    // N (const length) is inferred from the [i64; M] argument: N == M.
+    {
+        let a: [i64; 4] = [1i64, 1i64, 1i64, 1i64];
+        if arr_len(a) != 4i64 { return 10; }
+    }
+
+    // @rule generic.infer.fn-bound-propagation
+    // apply_fn<F: Fn(i64)->i64>: the closure's i64 param/ret are matched via F's
+    // Fn bound, so the call type-checks and runs.
+    {
+        if apply_fn(|a: i64| -> i64 { return a + 1i64; }, 41i64) != 42i64 { return 11; }
+    }
+
+    // @rule generic.infer.trait-bound-impl-args
+    // run_producer<I: Producer<i64>>: the bound's arg i64 is deduced via I's impl;
+    // produce() returns it.
+    {
+        if run_producer(IntProd { v: 55i64 }) != 55i64 { return 12; }
+    }
+
+    // @rule generic.infer.return-type-hint
+    // T is inferred from the let-binding annotation (Zero), no argument binding.
+    {
+        let z: Zero = make_default();
+        if z.z != 7i64 { return 13; }
+    }
+
+    // @rule generic.infer.variadic-pack
+    // Each value arg beyond fixed params is one pack element; sizeof...(T) counts
+    // them, and [i64; sizeof...(T)] resolves to that length.
+    {
+        if pack_count::<i64, i64, i64>(1i64, 2i64, 3i64) != 3i64 { return 14; }
+        if pack_arr_first::<i64, i64>([8i64, 9i64]) != 8i64 { return 15; }
+    }
+
+    // @rule generic.overload.receiver-autoref-autoderef
+    // A by-value receiver matches a &self method via autoref; the call resolves.
+    {
+        let r: Recv = Recv { n: 77i64 };
+        if r.get() != 77i64 { return 16; }                 // by-value receiver, &self method
+    }
+
+    // @rule generic.call.impl-target-pattern-unify
+    // Wrap<i32>'s impl<T> Wrap<T>: T bound by unifying pattern Wrap<T> vs the
+    // concrete receiver Wrap<i64>, so unwrap_i64 dispatches on the inner i64.
+    {
+        let w: Wrap<i64> = Wrap { val: 88i64 };
+        if w.unwrap_i64() != 88i64 { return 17; }
+    }
+
+    // @rule generic.const.binds-as-const-var
+    // const N binds as a value usable in the body arithmetic.
+    {
+        if const_plus::<10>(5i64) != 15i64 { return 18; }
+    }
+
+    // @rule generic.param.lexical-shadowing
+    // Method-level U is a fresh scope alongside impl-level T; both resolve
+    // independently (outer T still reachable, method U bound from its arg).
+    {
+        let s: Shadow<i64> = Shadow { outer: 3i64 };
+        if s.pick::<i64>(40i64) != 40i64 { return 19; }    // method U from arg
+        if s.outer_val() != 3i64 { return 20; }            // impl T still bound
+    }
+
+    return 0;
+}

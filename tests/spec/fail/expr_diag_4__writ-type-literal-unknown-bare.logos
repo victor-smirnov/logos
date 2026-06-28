@@ -1,0 +1,6 @@
+// @rule expr.writ.type-literal-unknown-bare
+package expr_diag_4_writ_type_literal_unknown_bare;
+
+use logos.lang.writ.wstatic;
+
+pub const X: WritStatic = @{ "key": <type:NotAType> };

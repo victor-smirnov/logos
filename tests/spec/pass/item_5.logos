@@ -1,0 +1,167 @@
+package item_5;
+
+// item_5 — item-declaration & lowering rules, locked by execution.
+// Pure-internal rules (symbol mangling, mono IMPL_TYPE_PARAMS bookkeeping,
+// attr-set membership, datatype-promotion flags, thin-vs-fat pointer repr)
+// and negative/error-only rules are not observable from a normal `main`
+// run and are reported untestable below.
+
+// ── Drop side-effect channel: a static mut counter ─────────────────────────
+trait Drop { fn drop(self: &Self); }
+
+static mut DROPS: i64 = 0i64;
+
+struct Move { tag: i64 }
+impl Drop for Move {
+    fn drop(self: &Self) {
+        unsafe { DROPS = DROPS + 1i64; }
+    }
+}
+
+// By-value droppable parameter; body falls off the end (no terminating
+// return) so `_x` is dropped at the epilogue, like a `let` binding.
+// @rule item.fn.param-drop-epilogue
+fn consume(_x: Move) {}
+
+// ── #[repr(transparent)]: wrapper has the layout of its single field ───────
+#[repr(transparent)]
+struct Wrap { v: i64 }
+
+// ── generic struct with an INLINE body method returning Self ───────────────
+// Lowered as if inside `impl<A,B> Pair<A,B>`: Self == Pair<A,B>, so
+// `-> Self` substitutes correctly at monomorphization.
+struct Pair<A, B> {
+    a: A,
+    b: B,
+    fn make(a: A, b: B) -> Self { return Self { a: a, b: b }; }
+}
+
+// ── inherent impl whose params come from the type-param list ────────────────
+struct Holder<T> { val: T }
+impl<T: Copy> Holder<T> {
+    fn get(self: &Self) -> T { return self.val; }
+    fn of(v: T) -> Holder<T> { return Holder { val: v }; }
+}
+
+// ── enum with an explicit backing integer type + explicit discriminants ────
+enum Code : u8 {
+    Lo = 1,
+    Hi = 200,
+}
+
+// ── enum with NO explicit backing => i32 discriminant backing ──────────────
+enum Plain { X = 7, Y = 9 }
+
+// ── struct-shape enum variant: named payload fields ────────────────────────
+enum Shape {
+    Dot,
+    Point { x: i64, y: i64 },
+}
+
+// ── union: max-of-fields layout, read requires unsafe ──────────────────────
+union U { a: i32, b: i64 }
+
+// ── tuple struct: positional fields, call-form ctor, positional pattern ────
+struct TPair(i64, i64);
+
+// ── #[no_auto_drop]: ManuallyDrop shape — no compiler-emitted Drop ─────────
+struct Manual { tag: i64 }
+impl Drop for Manual {
+    fn drop(self: &Self) {
+        unsafe { DROPS = DROPS + 1000i64; }
+    }
+}
+#[no_auto_drop]
+struct Keep { inner: Manual }
+
+// ── module static used to demonstrate shadowing-by-binding ─────────────────
+static SHADOW: i64 = 100i64;
+
+fn main() -> i64 {
+
+    // @rule item.fn.param-drop-epilogue
+    // A by-value Move param is dropped at the function epilogue: calling
+    // consume() bumps the drop counter exactly once.
+    unsafe { DROPS = 0i64; }
+    consume(Move { tag: 1i64 });
+    if unsafe { DROPS } != 1i64 { return 1; }
+
+    // @rule item.struct.transparent-collapses-layout
+    // sizeof(Wrap) == sizeof(i64): the wrapper collapses to its field.
+    if sizeof::<Wrap>() != sizeof::<i64>() { return 2; }
+    let w: Wrap = Wrap { v: 5i64 };
+    if w.v != 5i64 { return 3; }
+
+    // @rule item.struct.generic-inline-method-self
+    // The inline body method on the generic struct returns Self, which
+    // substitutes to Pair<i64,i64> at this monomorphization.
+    let p: Pair<i64, i64> = Pair::<i64, i64>::make(11i64, 22i64);
+    if p.a != 11i64 { return 4; }
+    if p.b != 22i64 { return 5; }
+
+    // @rule item.impl.type-params-source
+    // Inherent impl `impl<T> Holder<T>` takes its param T from the
+    // type-param list; both its methods are usable with T = i64.
+    let h: Holder<i64> = Holder::<i64>::of(77i64);
+    if h.get() != 77i64 { return 6; }
+
+    // @rule item.enum.explicit-discriminant
+    // Explicit backing type (u8) with explicit discriminant values.
+    if (Code::Lo as u8) != 1u8 { return 7; }
+    if (Code::Hi as u8) != 200u8 { return 8; }
+
+    // @rule item.enum.default-backing-i32
+    // No explicit backing => i32 discriminant backing; values read as i32.
+    if (Plain::X as i32) != 7i32 { return 9; }
+    if (Plain::Y as i32) != 9i32 { return 10; }
+
+    // @rule item.enum.struct-shape-variant
+    // Named-payload variant: construct by field name, match binds by name.
+    let s: Shape = Shape::Point { x: 3i64, y: 4i64 };
+    let sum: i64 = match s {
+        Shape::Dot => 0i64,
+        Shape::Point { x, y } => x + y,
+    };
+    if sum != 7i64 { return 11; }
+
+    // @rule item.union.max-of-fields-layout-unsafe-read
+    // Union layout = round_up(max field size, max align) = 8; a field read
+    // requires an enclosing `unsafe`.
+    if sizeof::<U>() != 8i64 { return 12; }
+    let u: U = U { b: 42i64 };
+    if unsafe { u.b } != 42i64 { return 13; }
+
+    // @rule item.struct.tuple-struct-positional
+    // Positional fields via call-form ctor and `.0`/`.1`; positional pattern.
+    let tp: TPair = TPair(8i64, 9i64);
+    if tp.0 != 8i64 { return 14; }
+    if tp.1 != 9i64 { return 15; }
+    let TPair(g0, g1) = tp;
+    if g0 != 8i64 { return 16; }
+    if g1 != 9i64 { return 17; }
+
+    // @rule item.struct.no-auto-drop
+    // #[no_auto_drop] suppresses ALL compiler-emitted drop: dropping a Keep
+    // does NOT run its field's (Manual's) Drop — counter stays unchanged.
+    unsafe { DROPS = 0i64; }
+    {
+        let _k: Keep = Keep { inner: Manual { tag: 1i64 } };
+    } // _k goes out of scope here; with no_auto_drop nothing is dropped.
+    if unsafe { DROPS } != 0i64 { return 18; }
+
+    // @rule item.static.mut-requires-unsafe
+    // static mut write+read both inside `unsafe`; the write is observed.
+    unsafe {
+        DROPS = 5i64;
+        DROPS = DROPS + 1i64;
+    }
+    if unsafe { DROPS } != 6i64 { return 19; }
+
+    // @rule item.static.shadowing-by-binding
+    // A local binding of the same name shadows the module static: SHADOW
+    // here refers to the local (200), not the static (100).
+    let SHADOW: i64 = 200i64;
+    if SHADOW != 200i64 { return 20; }
+
+    return 0;
+}

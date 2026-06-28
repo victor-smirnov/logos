@@ -1,0 +1,11 @@
+// @rule pat.struct.exhaustive-fields
+package pat_diag_2_struct_exhaustive;
+
+struct P { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let p: P = P { x: 1i32, y: 2i32 };
+    match p {
+        P { x } => { return x; }
+    }
+}

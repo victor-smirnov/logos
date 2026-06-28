@@ -1,0 +1,8 @@
+// @rule region.elision.ambiguous-output
+package region_diag_1_elision_ambiguous_output;
+
+fn h(a: &i32, b: &i32) -> &i32 {
+    return a;
+}
+
+fn main() -> i32 { return 0i32; }

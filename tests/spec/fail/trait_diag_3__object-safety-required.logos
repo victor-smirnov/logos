@@ -1,0 +1,15 @@
+// @rule trait.object.object-safety-required
+package trait_diag_3_object_safety_required;
+
+trait NotSafe {
+    // associated function (no `self` receiver) → no vtable slot → E0038.
+    fn make() -> i32;
+}
+
+fn use_dyn(x: &dyn NotSafe) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

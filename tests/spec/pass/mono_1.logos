@@ -1,0 +1,153 @@
+package mono_1;
+
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.lang.marker;
+
+// ── generic free fn (instantiated by substitution + dedup) ─────────────────
+fn id<T>(x: T) -> T { return x; }
+
+// generic fn that calls another generic fn (demand-driven closure):
+// outer<T> transitively demands id<T> — id<i64> is emitted only because
+// outer<i64> is reached from main.
+fn outer<T: Copy>(x: T) -> T { return id::<T>(x); }
+
+// ── generic struct + inherent + trait methods ──────────────────────────────
+struct Wrap<T> { v: T }
+
+impl<T: Copy> Wrap<T> {
+    fn get(&self) -> T { return self.v; }
+}
+
+// generic enum (concrete-name mangling)
+enum Maybe<T> { Some(T), Nothing }
+
+// ── blanket impl over a bound, plus a trait + generic-struct trait impl ─────
+trait Describe { fn code(&self) -> i64; }
+
+struct A { n: i64 }
+struct B { n: i64 }
+
+impl Describe for A { fn code(&self) -> i64 { return self.n + 1i64; } }
+impl Describe for B { fn code(&self) -> i64 { return self.n + 2i64; } }
+
+// trait impl on a generic struct (tag-dispatch entries per instance)
+impl<T> Describe for Wrap<T> { fn code(&self) -> i64 { return 100i64; } }
+
+// blanket impl: a bound trait + a blanket Trait-for-all-T:Bound
+trait Bounded { fn base(&self) -> i64; }
+trait Doubled { fn doubled(&self) -> i64; }
+impl<T: Bounded> Doubled for T { fn doubled(&self) -> i64 { return self.base() * 2i64; } }
+
+struct C { k: i64 }
+impl Bounded for C { fn base(&self) -> i64 { return self.k; } }
+
+// dyn coercion target → blanket/trait method must be in the vtable
+fn via_dyn(d: &dyn Describe) -> i64 { return d.code(); }
+
+// ── explicit instantiate pins (root for monomorphization) ──────────────────
+instantiate Wrap<i64>;
+pub instantiate Maybe<i64>;
+
+// ── Drop on a generic struct (implicit drop pinned + instantiated) ──────────
+struct Counter<T> { val: T, slot: *mut i64 }
+impl<T> Drop for Counter<T> {
+    fn drop(&mut self) { unsafe { *self.slot = *self.slot + 1i64; } }
+}
+
+fn main() -> i64 {
+    // @rule mono.inst.generic-fn-by-substitution
+    // A generic fn is cloned per distinct type-arg set; each concrete instance
+    // returns its own argument with the substitution applied. i64 and bool
+    // instances coexist and behave independently.
+    if id::<i64>(7i64) != 7i64 { return 1; }
+    if id::<bool>(true) != true { return 2; }
+
+    // @rule mono.inst.dedup-by-mangled-name
+    // Re-using the same instance (id::<i64>) does not change behavior; the
+    // single mangled instance is shared across all i64 call sites.
+    if id::<i64>(11i64) + id::<i64>(22i64) != 33i64 { return 3; }
+
+    // @rule mono.inst.demand-driven-closure
+    // outer<i64> is reached from main and transitively demands id<i64>; the
+    // fixpoint closure pulls the nested instance so the call returns its arg.
+    if outer::<i64>(5i64) != 5i64 { return 4; }
+
+    // @rule mono.mangle.generic-enum-concrete-name
+    // Distinct generic-enum instantiations are distinct concrete types (each
+    // mangled with its type arg). Maybe<i64> and Maybe<bool> round-trip their
+    // own payloads without aliasing.
+    {
+        let mi: Maybe<i64> = Maybe::Some(91i64);
+        match mi { Maybe::Some(x) => { if x != 91i64 { return 5; } } Maybe::Nothing => { return 6; } }
+        let mb: Maybe<bool> = Maybe::Some(true);
+        match mb { Maybe::Some(y) => { if y != true { return 7; } } Maybe::Nothing => { return 8; } }
+    }
+
+    // @rule mono.instantiate.decl
+    // `instantiate Wrap<i64>;` / `pub instantiate Maybe<i64>;` materialize the
+    // instances as roots; their methods are usable here.
+    {
+        let w: Wrap<i64> = Wrap::<i64> { v: 42i64 };
+        if w.get() != 42i64 { return 9; }
+    }
+
+    // @rule mono.inst.explicit-instantiate-pins-methods
+    // The pinned Wrap<i64> has its inherent method get() available even though
+    // the pin (not a call) is what forced its instantiation; calling it works.
+    {
+        let w2: Wrap<i64> = Wrap::<i64> { v: 5i64 };
+        if w2.get() != 5i64 { return 10; }
+    }
+
+    // @rule mono.blanket.eager-over-satisfying-types
+    // The blanket `impl<T: Bounded> Doubled for T` is instantiated for C
+    // (which satisfies Bounded): C gets a working doubled() method.
+    {
+        let c: C = C { k: 21i64 };
+        if c.doubled() != 42i64 { return 11; }
+    }
+
+    // @rule mono.dispatch.generic-impl-entries
+    // For `impl<T> Describe for Wrap<T>`, a dispatch entry exists per
+    // monomorphized Wrap instance: Wrap<i64> dispatches Describe::code through
+    // a &dyn Describe (tag-dispatch on the concrete instance's type code).
+    {
+        let wi: Wrap<i64> = Wrap::<i64> { v: 0i64 };
+        if via_dyn(&wi) != 100i64 { return 12; }
+    }
+
+    // @rule mono.dispatch.requires-cloned-method
+    // A dispatch entry resolves to the actually-monomorphized method symbol:
+    // calling A::code and B::code through &dyn Describe each reaches its own
+    // cloned/emitted method body.
+    {
+        let a: A = A { n: 10i64 };
+        let b: B = B { n: 20i64 };
+        if via_dyn(&a) != 11i64 { return 13; }   // A::code = n+1
+        if via_dyn(&b) != 22i64 { return 14; }   // B::code = n+2
+    }
+
+    // @rule mono.blanket.dyn-coercion-targets
+    // Coercing a concrete type to &dyn Describe triggers instantiation of its
+    // Describe method so the vtable slot is populated; dispatch then works for
+    // a value coerced only at this call site.
+    {
+        let a2: A = A { n: 100i64 };
+        let d: &dyn Describe = &a2;
+        if d.code() != 101i64 { return 15; }
+    }
+
+    // @rule mono.drop.implicit-drop-pinned
+    // Drop on the generic struct Counter<T> is instantiated and runs via
+    // implicit drop glue at scope end: the destructor increments *slot once.
+    {
+        let mut hits: i64 = 0i64;
+        {
+            let _c: Counter<i64> = Counter::<i64> { val: 9i64, slot: &mut hits };
+        } // _c dropped here → Counter<i64>::drop runs once
+        if hits != 1i64 { return 16; }
+    }
+
+    return 0;
+}

@@ -1,0 +1,340 @@
+package pat_2;
+
+// ── Helper types for pattern-matching rules ────────────────────────────────
+
+// All-nullary (C-like) enum: bare i32 discriminant, no payload storage.
+enum Color { Red, Green, Blue }
+
+// Tagged (data-carrying) enum.
+enum Opt { None, Some(i64) }
+
+// Tagged enum with multiple payload-bearing variants.
+enum Shape { Dot, Circle(i64), Rect(i64, i64) }
+
+struct Pt { x: i64, y: i64 }
+struct Pair { a: i64, b: Pt }
+
+fn main() -> i64 {
+
+    // @rule pat.refute.c-like-enum-is-discriminant
+    // All-nullary enum is a bare discriminant; a variant pattern loads it and
+    // compares to the variant's discriminant.
+    {
+        let c: Color = Color::Green;
+        let got: i64 = match c {
+            Color::Red => 1i64,
+            Color::Green => 2i64,
+            Color::Blue => 3i64,
+        };
+        if got != 2i64 { return 1; }
+    }
+
+    // @rule pat.refute.ref-enum-peels-all-layers
+    // A &/&mut scrutinee wrapping an enum derefs per layer to reach the inline
+    // enum storage before reading the discriminant.
+    {
+        let c: Color = Color::Blue;
+        let r1: &Color = &c;
+        let r2: &&Color = &r1;
+        let got: i64 = match r2 {
+            Color::Red => 1i64,
+            Color::Green => 2i64,
+            Color::Blue => 3i64,
+        };
+        if got != 3i64 { return 2; }
+    }
+
+    // @rule pat.refute.or-disjunction
+    // `P1 | P2 | ...` matches iff at least one alternative matches.
+    {
+        let n: i64 = 5i64;
+        let got: i64 = match n {
+            1i64 | 5i64 | 9i64 => 10i64,
+            _ => 0i64,
+        };
+        if got != 10i64 { return 3; }
+        let m: i64 = 7i64;
+        let got2: i64 = match m {
+            1i64 | 5i64 | 9i64 => 10i64,
+            _ => 0i64,
+        };
+        if got2 != 0i64 { return 4; }   // no alternative matches -> default
+    }
+
+    // @rule pat.refute.struct-field-conjunction
+    // A struct pattern matches iff every refutable field sub-pattern matches;
+    // irrefutable subs (bind) impose no constraint; GEP'd by name.
+    {
+        let p: Pt = Pt { x: 3i64, y: 4i64 };
+        let got: i64 = match p {
+            Pt { x: 3i64, y } => y,        // x literal must match; y irrefutable
+            Pt { x: _, y: _ } => -1i64,
+        };
+        if got != 4i64 { return 5; }
+        let q: Pt = Pt { x: 99i64, y: 4i64 };
+        let got2: i64 = match q {
+            Pt { x: 3i64, y } => y,        // x literal fails -> next arm
+            Pt { x, y: _ } => x,
+        };
+        if got2 != 99i64 { return 6; }
+    }
+
+    // @rule pat.refute.ref-pattern-derefs-then-recurses
+    // `&P` against a reference-typed scrutinee loads the reference and tests P
+    // against the pointee.
+    {
+        let n: i64 = 42i64;
+        let r: &i64 = &n;
+        let got: i64 = match r {
+            &42i64 => 1i64,    // &-pattern derefs, inner literal 42 matches
+            _ => 0i64,
+        };
+        if got != 1i64 { return 7; }
+    }
+
+    // @rule pat.refute.at-binding-tests-sub
+    // `name @ P` is irrefutable in its binding part; its constraint is exactly
+    // the refutability of P.
+    {
+        let n: i64 = 5i64;
+        let got: i64 = match n {
+            k @ 5i64 => k,     // binds k=5; constraint is the literal-5 test
+            _ => 0i64,
+        };
+        if got != 5i64 { return 8; }
+        let m: i64 = 6i64;
+        let got2: i64 = match m {
+            k @ 5i64 => k,     // sub-pattern 5 fails -> default
+            _ => -1i64,
+        };
+        if got2 != -1i64 { return 9; }
+    }
+
+    // @rule pat.refute.array-pattern-no-length-gate
+    // A slice pattern on a [T;N] array has fixed length: no length check; tests
+    // prefix at 0.. and suffix at N-suffix.. , conjoining non-wildcard subs.
+    {
+        let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+        let got: i64 = match arr {
+            [10i64, _, _, 40i64] => 1i64,   // prefix [0]=10 and suffix [3]=40
+            _ => 0i64,
+        };
+        if got != 1i64 { return 10; }
+        let arr2: [i64; 4] = [11i64, 20i64, 30i64, 40i64];
+        let got2: i64 = match arr2 {
+            [10i64, _, _, 40i64] => 1i64,   // prefix [0]!=10 -> fails
+            _ => 0i64,
+        };
+        if got2 != 0i64 { return 11; }
+    }
+
+    // @rule pat.bind.named-aggregate-binds-place
+    // Binding a name to a struct binds the place (no copy) and records its shape
+    // so field access GEPs through it; scalar binding loads into a fresh local.
+    {
+        let p: Pt = Pt { x: 7i64, y: 8i64 };
+        let q = p;                 // bind whole struct by place; field access works
+        if q.x != 7i64 { return 12; }
+        if q.y != 8i64 { return 13; }
+        let s: i64 = 5i64;
+        let t = s;                 // scalar bind into a fresh local
+        if t != 5i64 { return 14; }
+    }
+
+    // @rule pat.bind.fat-pointer-binds-pointer
+    // Binding a name to a slice (16-byte fat pair) binds uniformly; element
+    // access through the binding still works.
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let sl: &[i64] = &arr[..];
+        let bound = sl;            // bind fat slice value
+        if bound[2] != 3i64 { return 15; }
+    }
+
+    // @rule pat.bind.tuple-binds-elements-deref-ref
+    // A tuple pattern binds each sub by index; a &(T,U) scrutinee is deref'd to
+    // get element types before binding.
+    {
+        let t: (i64, i64) = (4i64, 9i64);
+        let (a, b) = t;
+        if a != 4i64 { return 16; }
+        if b != 9i64 { return 17; }
+        let (a2, b2) = t;          // tuple destructure binds each element by index
+        if a2 + b2 != 13i64 { return 18; }
+        let rt: &(i64, i64) = &t;
+        let got: i64 = match rt {
+            (x, y) => *x + *y,     // &(i64,i64) deref'd to element types; ref binds
+        };
+        if got != 13i64 { return 181; }
+    }
+
+    // @rule pat.bind.variant-payload-binds-after-deref
+    // Binding a variant-data pattern derefs every &/&mut layer to reach the enum
+    // storage, then binds the payload subs.
+    {
+        let o: Opt = Opt::Some(21i64);
+        let r: &&Opt = &(&o);
+        let got: i64 = match r {
+            Opt::Some(v) => **v,   // &&Opt peeled to enum; payload binds as &&i64
+            Opt::None => -1i64,
+        };
+        if got != 21i64 { return 19; }
+    }
+
+    // @rule pat.bind.or-shared-bindings
+    // An or-pattern's alternatives bind the same name; one shared local per name,
+    // observed identically at the join point.
+    {
+        let s: Shape = Shape::Rect(6i64, 7i64);
+        let got: i64 = match s {
+            Shape::Circle(n) | Shape::Rect(n, _) => n,  // n shared across alts
+            Shape::Dot => 0i64,
+        };
+        if got != 6i64 { return 20; }
+        let s2: Shape = Shape::Circle(99i64);
+        let got2: i64 = match s2 {
+            Shape::Circle(n) | Shape::Rect(n, _) => n,
+            Shape::Dot => 0i64,
+        };
+        if got2 != 99i64 { return 21; }
+    }
+
+    // @rule pat.bind.struct-shorthand-and-subpatterns
+    // Struct pattern binds each field; shorthand `{x}` binds field by its name,
+    // `{x: a}` rebinds, refutable subs bind inner names.
+    {
+        let p: Pair = Pair { a: 3i64, b: Pt { x: 5i64, y: 6i64 } };
+        let Pair { a, b: inner } = p;   // shorthand a; rename b->inner (aggregate)
+        if a != 3i64 { return 22; }
+        if inner.x != 5i64 { return 23; }
+        if inner.y != 6i64 { return 24; }
+    }
+
+    // @rule pat.bind.ref-bind-binds-address
+    // `ref x` binds x : &T to the place without loading/copying; `*x` derefs one
+    // level back to the value.
+    {
+        let n: i64 = 50i64;
+        let got: i64 = match n {
+            ref x => *x,           // x : &i64 to the scrutinee place
+        };
+        if got != 50i64 { return 25; }
+    }
+
+    // @rule pat.match.diverging-scrutinee-dead-arms
+    // If the scrutinee diverges, the arms are unreachable; control leaves before
+    // any arm runs.
+    {
+        let r: i64 = diverge_then_match(77i64);
+        if r != 77i64 { return 26; }
+    }
+
+    // @rule pat.match.auto-deref-scrutinee
+    // Matching &T / &mut T against patterns for T behaves identically to T.
+    {
+        let o: Opt = Opt::Some(13i64);
+        let ro: &Opt = &o;
+        let got: i64 = match ro {
+            Opt::Some(v) => *v,
+            Opt::None => -1i64,
+        };
+        if got != 13i64 { return 27; }
+        let mut o2: Opt = Opt::Some(8i64);
+        let rm: &mut Opt = &mut o2;
+        let got2: i64 = match rm {
+            Opt::Some(v) => *v,
+            Opt::None => -1i64,
+        };
+        if got2 != 8i64 { return 28; }
+    }
+
+    // @rule pat.match.enum-discriminant-test
+    // Tagged enum dispatches by discriminant equality; a C-like enum value is
+    // its discriminant; a ref to a C-like enum is deref'd to compare.
+    {
+        let s: Shape = Shape::Rect(2i64, 3i64);
+        let got: i64 = match s {
+            Shape::Dot => 0i64,
+            Shape::Circle(_) => 1i64,
+            Shape::Rect(_, _) => 2i64,   // selected by discriminant
+        };
+        if got != 2i64 { return 29; }
+        let c: Color = Color::Red;
+        let rc: &Color = &c;
+        let got2: i64 = match rc {       // ref to C-like enum: deref then compare
+            Color::Red => 10i64,
+            Color::Green => 20i64,
+            Color::Blue => 30i64,
+        };
+        if got2 != 10i64 { return 30; }
+    }
+
+    // @rule pat.match.exhaustive-no-default
+    // A bool match covering true+false, or an enum covering every variant, is
+    // exhaustive; the fall-through default is unreachable.
+    {
+        let flag: bool = false;
+        let got: i64 = match flag {
+            true => 1i64,
+            false => 2i64,        // exhaustive over bool
+        };
+        if got != 2i64 { return 31; }
+        let s: Shape = Shape::Dot;
+        let got2: i64 = match s {
+            Shape::Dot => 1i64,
+            Shape::Circle(_) => 2i64,
+            Shape::Rect(_, _) => 3i64,   // every variant covered, no default
+        };
+        if got2 != 1i64 { return 32; }
+    }
+
+    // @rule pat.bind.tuple-destructure
+    // A tuple pattern is irrefutable and binds each element positionally,
+    // recursing per element (wildcard, scalar, nested tuple).
+    {
+        let t: (i64, (i64, i64), i64) = (1i64, (2i64, 3i64), 4i64);
+        let (a, (b, c), _) = t;          // nested tuple + wildcard
+        if a != 1i64 { return 33; }
+        if b != 2i64 { return 34; }
+        if c != 3i64 { return 35; }
+    }
+
+    // @rule pat.bind.struct-field-shorthand-rename
+    // `S { x }` binds x under name x; `S { x: a }` binds under a; struct-typed
+    // field binds a place, scalar field binds by value.
+    {
+        let p: Pair = Pair { a: 11i64, b: Pt { x: 1i64, y: 2i64 } };
+        let Pair { a, b: bb } = p;       // shorthand a (scalar), rename b->bb (place)
+        if a != 11i64 { return 36; }
+        if bb.x != 1i64 { return 37; }   // field access through bound place
+    }
+
+    // @rule pat.bind.struct-field-ref
+    // `S { x: ref px }` binds px to a reference to field x; scalar field -> px
+    // holds field address, `*px` derefs.
+    {
+        let p: Pt = Pt { x: 14i64, y: 15i64 };
+        let Pt { x: ref px, y: _ } = p;  // px : &i64 to field x
+        if *px != 14i64 { return 38; }
+    }
+
+    // @rule pat.bind.struct-field-nested-subpattern
+    // A refutable sub-pattern on a struct field binds its inner names recursively
+    // against the field place.
+    {
+        let pr: Pair = Pair { a: 7i64, b: Pt { x: 8i64, y: 9i64 } };
+        let got: i64 = match pr {
+            Pair { a: _, b: Pt { x, y } } => x + y,   // nested struct sub-pattern
+        };
+        if got != 17i64 { return 39; }
+    }
+
+    return 0;
+}
+
+// Scrutinee that diverges: the match arms below it are unreachable.
+fn diverge_then_match(n: i64) -> i64 {
+    match return n {
+        _ => 0i64,
+    }
+}

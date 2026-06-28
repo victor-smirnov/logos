@@ -1,0 +1,14 @@
+// @rule type.generic-inst.generic-type-alias
+package type_diag_1_generic_alias;
+
+struct Pair<A, B> { a: A, b: B }
+
+type Foo<T> = Pair<T, T>;
+
+fn f(x: Foo<i32, u32>) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+// @rule module.visibility.pub-marker-only-module
+package module_diag_pub_marker;
+
+// The restricted-visibility marker `pub(W)` is accepted only when W is the
+// contextual word `module`; `pub(crate)` is rejected.
+pub(crate) fn g() {}
+
+fn main() {}

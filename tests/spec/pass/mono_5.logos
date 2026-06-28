@@ -1,0 +1,187 @@
+package mono_5;
+
+// ── traits + types exercising generic method DISPATCH/MANGLING in mono ──────
+
+trait Describe { fn code(&self) -> i64; }
+
+struct A { n: i64 }
+struct B { n: i64 }
+impl Describe for A { fn code(&self) -> i64 { return self.n + 1i64; } }
+impl Describe for B { fn code(&self) -> i64 { return self.n + 2i64; } }
+
+// generic struct with a trait impl → concrete-receiver class-name mangling
+struct Wrap<T> { v: T }
+impl<T: Copy> Describe for Wrap<T> { fn code(&self) -> i64 { return 100i64; } }
+impl<T: Copy> Wrap<T> { fn get(&self) -> T { return self.v; } }
+
+// generic enum with a trait impl → enum concrete-spec synthesis on dispatch
+enum Maybe<T> { Some(T), Nothing }
+impl<T: Copy> Describe for Maybe<T> {
+    fn code(&self) -> i64 {
+        match self { Maybe::Some(_) => { return 7i64; } Maybe::Nothing => { return 9i64; } }
+    }
+}
+
+// generic free fn whose body calls a method on its type-var receiver:
+// after substitution the receiver becomes concrete and the call retargets.
+fn ask<T: Describe>(t: &T) -> i64 { return t.code(); }
+
+// receiver becomes a dyn trait object after substitution → virtual dispatch
+fn ask_dyn(d: &dyn Describe) -> i64 { return d.code(); }
+
+// ── blanket impl over a bound (lazy instantiation + bound check) ────────────
+trait Bounded { fn base(&self) -> i64; }
+trait Doubled { fn doubled(&self) -> i64; }
+impl<T: Bounded> Doubled for T { fn doubled(&self) -> i64 { return self.base() * 2i64; } }
+struct C { k: i64 }
+impl Bounded for C { fn base(&self) -> i64 { return self.k; } }
+fn dbl<T: Doubled>(t: &T) -> i64 { return t.doubled(); }
+
+// ── tuple-receiver dispatch (impl on (A,B,...) ; elem-args specialization) ──
+trait Sum2 { fn s(&self) -> i64; }
+impl<A, B> Sum2 for (A, B) { fn s(&self) -> i64 { return 2i64; } }
+impl<A, B, C2> Sum2 for (A, B, C2) { fn s(&self) -> i64 { return 3i64; } }
+
+// ── fn-pointer-receiver dispatch (arity-keyed $fnptr$N sentinel) ────────────
+trait Arity { fn ar(&self) -> i64; }
+impl<X, R> Arity for fn(X) -> R { fn ar(&self) -> i64 { return 1i64; } }
+impl<X, Y, R> Arity for fn(X, Y) -> R { fn ar(&self) -> i64 { return 2i64; } }
+fn fn_arity<T: Arity>(t: &T) -> i64 { return t.ar(); }
+fn one(x: i64) -> i64 { return x; }
+fn two(x: i64, y: i64) -> i64 { return x + y; }
+
+// ── method-generic method on a generic receiver (type-arg substitution) ─────
+struct Holder<T> { v: T }
+impl<T: Copy> Holder<T> {
+    fn pick<U: Copy>(&self, u: U) -> U { return u; }
+}
+
+// ── closure substitution inside a generic fn body ───────────────────────────
+fn apply<T: Copy>(x: T) -> T {
+    let f = |a: T| -> T { return a; };
+    return f(x);
+}
+
+// ── pattern monomorphization on a generic enum payload ──────────────────────
+fn payload<T: Copy>(m: Maybe<T>, dflt: T) -> T {
+    match m {
+        Maybe::Some(x) => { return x; }
+        Maybe::Nothing => { return dflt; }
+    }
+}
+
+fn main() -> i64 {
+    // @rule mono.dispatch.projection-receiver-retarget
+    // ask<A>'s body calls t.code() on a type-var receiver; substitution makes
+    // the receiver concrete (A), so the call retargets to A::code (n+1).
+    if ask::<A>(&A { n: 10i64 }) != 11i64 { return 1; }
+    if ask::<B>(&B { n: 20i64 }) != 22i64 { return 2; }
+
+    // @rule mono.mangle.concrete-receiver-cname
+    // Distinct concrete receivers (struct A / struct B / generic Wrap<i64>)
+    // each key to their own method symbol; the right body runs per receiver.
+    if ask::<Wrap<i64>>(&Wrap::<i64> { v: 5i64 }) != 100i64 { return 3; }
+
+    // @rule mono.dispatch.dyn-receiver-vtable-retarget
+    // The same call site reached through &dyn Describe dispatches virtually:
+    // each concrete value reaches its own vtable slot / method body.
+    if ask_dyn(&A { n: 30i64 }) != 31i64 { return 4; }
+    if ask_dyn(&B { n: 40i64 }) != 42i64 { return 5; }
+
+    // @rule mono.subst.lazy-blanket-method-instantiation
+    // blanket impl<T: Bounded> Doubled for T is cloned for C lazily and bound
+    // {T -> C}; C.doubled() = base()*2.
+    if dbl::<C>(&C { k: 21i64 }) != 42i64 { return 6; }
+
+    // @rule mono.subst.blanket-bound-check
+    // The blanket applies to C only because C: Bounded; the cloned body uses
+    // C::base, so the bound-satisfying path produces the satisfying type's value.
+    {
+        let c2: C = C { k: 9i64 };
+        if c2.doubled() != 18i64 { return 7; }
+    }
+
+    // @rule mono.dispatch.tuple-receiver-sentinel
+    // A tuple receiver dispatches via the arity-keyed sentinel:
+    // 2-tuple → impl on (A,B) returns 2; 3-tuple → impl on (A,B,C) returns 3.
+    {
+        let t2: (i64, i64) = (1i64, 2i64);
+        let t3: (i64, i64, i64) = (1i64, 2i64, 3i64);
+        if t2.s() != 2i64 { return 8; }
+        if t3.s() != 3i64 { return 9; }
+    }
+
+    // @rule mono.subst.tuple-receiver-elem-args
+    // Tuple elem-types become the impl-level type-args, so impl<A,B> Sum2 for
+    // (A,B) specializes for these element types and its body runs.
+    {
+        let tb: (bool, i64) = (true, 5i64);
+        if tb.s() != 2i64 { return 10; }
+    }
+
+    // @rule mono.dispatch.fnptr-receiver-sentinel
+    // fn-value receivers dispatch via $fnptr$N: arity-1 fn → 1, arity-2 fn → 2.
+    {
+        let f1: fn(i64) -> i64 = one;
+        let f2: fn(i64, i64) -> i64 = two;
+        if fn_arity::<fn(i64) -> i64>(&f1) != 1i64 { return 11; }
+        if fn_arity::<fn(i64, i64) -> i64>(&f2) != 2i64 { return 12; }
+    }
+
+    // @rule mono.subst.enum-receiver-spec-synthesis
+    // A method call on a generic-enum receiver (Maybe<i64>) dispatched through
+    // impl<T> Describe for Maybe<T> binds to the concrete enum spec, not the
+    // bare template: Some → 7, Nothing → 9.
+    {
+        let s: Maybe<i64> = Maybe::Some(1i64);
+        let n: Maybe<i64> = Maybe::Nothing;
+        if ask::<Maybe<i64>>(&s) != 7i64 { return 13; }
+        if ask::<Maybe<i64>>(&n) != 9i64 { return 14; }
+    }
+
+    // @rule mono.subst.mangle-and-enqueue-method-generic
+    // pick::<i64> is a method-generic method on Holder<i64>; its specialization
+    // is mangled with the method type-arg and enqueued so its body is emitted.
+    {
+        let h: Holder<i64> = Holder::<i64> { v: 0i64 };
+        if h.pick::<i64>(77i64) != 77i64 { return 15; }
+        if h.pick::<bool>(true) != true { return 16; }
+    }
+
+    // @rule mono.subst.typevar-pack-expansion
+    // (covered structurally by the multi-arity tuple impls above; the distinct-
+    // arity bodies only resolve if per-arity element type-args expand right.)
+    {
+        let t3m: (i64, bool, i64) = (1i64, true, 2i64);
+        if t3m.s() != 3i64 { return 17; }
+    }
+
+    // @rule mono.subst.closure-substitution
+    // apply<T>'s inner closure has its param/return type substituted to the
+    // concrete T; the substituted closure round-trips the value.
+    if apply::<i64>(63i64) != 63i64 { return 18; }
+
+    // @rule mono.subst.pattern-structure-preserved
+    // The match in payload<T> reproduces the Variant patterns with their
+    // bindings type-substituted; Some-binding x round-trips, Nothing → dflt.
+    if payload::<i64>(Maybe::Some(55i64), 0i64) != 55i64 { return 20; }
+    if payload::<i64>(Maybe::Nothing, 88i64) != 88i64 { return 21; }
+
+    // @rule mono.dispatch.spec-lookup-best-match
+    // A concrete struct receiver's method resolves to the best-matching
+    // specialization keyed by the receiver's type-args: Wrap<i64>::get → v.
+    {
+        let w: Wrap<i64> = Wrap::<i64> { v: 42i64 };
+        if w.get() != 42i64 { return 22; }
+    }
+
+    // @rule mono.dispatch.combined-type-args
+    // Holder<i64>::pick<bool> selection combines the receiver type-args (i64)
+    // with the method type-args (bool); the (i64,bool)-keyed spec runs.
+    {
+        let h2: Holder<i64> = Holder::<i64> { v: 1i64 };
+        if h2.pick::<bool>(false) != false { return 23; }
+    }
+
+    return 0;
+}

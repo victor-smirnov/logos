@@ -1,0 +1,306 @@
+package trait_5;
+
+// =============================================================================
+// trait_5 — trait satisfaction / impl-resolution rules, locked by execution.
+// Each rule asserts only an observable behavior that holds iff the rule is true.
+// =============================================================================
+
+// ── Base traits used across the file ─────────────────────────────────────────
+trait A { fn a(&self) -> i64; }
+trait B { fn b(&self) -> i64; }
+
+struct S { x: i64 }
+impl A for S { fn a(&self) -> i64 { return self.x; } }
+impl B for S { fn b(&self) -> i64 { return self.x + 1i64; } }
+
+// ── trait.satisfy.blanket-recursive ──────────────────────────────────────────
+// A blanket `impl<T: B> Trait for T` applies only when the bound trait B is
+// itself satisfied by the type. S implements B, so the blanket Conv is reachable
+// on S; the recursion (Conv needs B, S has B) succeeds.
+trait Conv { fn conv(&self) -> i64; }
+impl<T: B> Conv for T { fn conv(&self) -> i64 { return 1000i64; } }
+
+fn need_conv<T: Conv>(v: &T) -> i64 { return v.conv(); }
+
+// ── trait.satisfy.ref-self-mangling ──────────────────────────────────────────
+// `impl Trait for &T` registers under a $ref_-mangled key; a `&T` value
+// satisfies the bound and dispatches to the &T impl.
+trait RefT { fn rt(&self) -> i64; }
+impl RefT for &S { fn rt(&self) -> i64 { return 7i64; } }
+
+// ── trait.builtin.copy-handle-kinds ──────────────────────────────────────────
+// `&T` (shared ref), raw pointers, and fn pointers are Copy with no explicit
+// impl: a Copy-bounded generic accepts them and the original stays usable after.
+fn take_copy<T: Copy>(v: T) -> T { return v; }
+
+// ── trait.bounds.parametrized-type-args-match ────────────────────────────────
+// `T: Trait<Args>` requires an impl for this Self with matching trait type-args.
+trait Mk<U> { fn mk(&self) -> i64; }
+impl Mk<i64> for S { fn mk(&self) -> i64 { return 64i64; } }
+impl Mk<i32> for S { fn mk(&self) -> i64 { return 32i64; } }
+
+fn need_mk_i64<T: Mk<i64>>(v: &T) -> i64 { return v.mk(); }
+
+// ── trait.bounds.partialeq-via-eq ────────────────────────────────────────────
+// A `T: PartialEq` bound is satisfied by an Eq impl (alias resolution).
+struct Pt { v: i64 }
+impl Eq for Pt { fn eq(&self, o: &Pt) -> bool { return self.v == o.v; } }
+
+fn need_peq<T: PartialEq>(a: &T, b: &T) -> bool { return a.eq(b); }
+
+// ── trait.bounds.generic-struct-base-key ─────────────────────────────────────
+// A generic `impl<T: ...> Trait for G<T>` registers under the base name; a bound
+// on a concrete instantiation G<i64> is satisfied via that base-name impl.
+struct G<T> { item: T }
+trait Wrapped { fn wv(&self) -> i64; }
+impl<T> Wrapped for G<T> { fn wv(&self) -> i64 { return 555i64; } }
+
+fn need_wrapped<T: Wrapped>(v: &T) -> i64 { return v.wv(); }
+
+// ── trait.bounds.tuple-impl-satisfaction (variadic) ──────────────────────────
+// A tuple satisfies a bound when a variadic tuple impl exists, for any arity.
+trait TSum { fn ts(&self) -> i64; }
+impl<A...> TSum for (A...) { fn ts(&self) -> i64 { return 3i64; } }
+
+fn need_tsum<T: TSum>(v: &T) -> i64 { return v.ts(); }
+
+// ── trait.bounds.fn-family-by-callable ───────────────────────────────────────
+// An `F: Fn(args)->R` bound is satisfied by any closure type.
+fn call_fn<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+
+// ── trait.def.copy-not-a-supertrait ──────────────────────────────────────────
+// Copy listed as a supertrait does NOT become a vtable-bearing supertrait: a
+// trait `: Copy` still forms a valid dyn object whose vtable holds only its own
+// (and real super-) methods; dispatch through &dyn works.
+trait WithCopy: Copy { fn wc(&self) -> i64; }
+struct CpyS { k: i64 }
+impl Copy for CpyS {}
+impl WithCopy for CpyS { fn wc(&self) -> i64 { return self.k; } }
+
+// ── trait.impl.type-code-inherit ─────────────────────────────────────────────
+// A `#[type_code=N]` trait makes an implementing struct inherit code N.
+#[type_code=141] trait Coded { fn cd(&self) -> i64; }
+#[datatype] struct CodedS { x: i64 }
+impl Coded for CodedS { fn cd(&self) -> i64 { return self.x; } }
+
+// ── trait.impl.type-code-from-genos-spec ─────────────────────────────────────
+// A `#[type_code=N] genos Trait<Args>;` specialization gives the implementing
+// struct code N.
+pub trait Bag<T> { fn count(&self) -> i64; }
+#[type_code=201]
+pub trait Bag<i32>;
+#[datatype] struct IntBag { n: i64 }
+impl Bag<i32> for IntBag { fn count(&self) -> i64 { return self.n; } }
+
+// ── trait.impl.trait-arg-resolution ──────────────────────────────────────────
+// For `impl Trait<A1,A2> for U` the trait args bind positionally to the trait's
+// declared params; the body can reference them and resolution keys on them.
+trait Pair2<X, Y> { fn first(&self) -> i64; fn second(&self) -> i64; }
+struct PS {}
+impl Pair2<i64, i32> for PS {
+    fn first(&self) -> i64 { return 11i64; }
+    fn second(&self) -> i64 { return 22i64; }
+}
+
+// ── trait.impl.blanket-method-target ─────────────────────────────────────────
+// Blanket-impl methods are lowered under a synthetic target so they don't
+// collide with an unrelated generic T::method. Here both a blanket Conv::conv
+// and an unrelated generic fn use `.conv()`-style names without collision; the
+// blanket method runs on a type satisfying its bound.
+
+// ── trait.impl.method-template-attach (via generic struct) ───────────────────
+// Methods on `impl<T> Trait for G<T>` attach to the base template the mono
+// clones; G<i64> and G<bool> both get the method.
+
+// ── trait.impl.self-seeding ──────────────────────────────────────────────────
+// Within an impl, `Self` denotes the impl target. For a tuple / ref / generic
+// target Self is bound to that exact shape; methods using Self-typed values work.
+trait Ident { fn ident(&self) -> Self; }
+struct IdS { v: i64 }
+impl Ident for IdS { fn ident(&self) -> Self { return IdS { v: self.v }; } }
+
+// ── trait.default-method.synthesised-when-not-overridden ─────────────────────
+// A default-body trait method not overridden by the impl is available on the
+// implementing type with Self bound to it.
+trait Greet {
+    fn base(&self) -> i64;
+    fn doubled(&self) -> i64 { return self.base() * 2i64; }
+}
+struct GS { g: i64 }
+impl Greet for GS { fn base(&self) -> i64 { return self.g; } }
+
+// ── trait.impl-method.self-binding-by-target-shape ───────────────────────────
+// Default-method Self-binding follows target shape: for a generic struct target,
+// Self is the generic struct over the impl's type params; the default works on
+// G2<i64>.
+trait Dflt {
+    fn raw(&self) -> i64;
+    fn plus(&self) -> i64 { return self.raw() + 100i64; }
+}
+struct G2<T> { item: T }
+impl<T> Dflt for G2<T> { fn raw(&self) -> i64 { return 5i64; } }
+
+// ── trait.assoc-const.accessor-for-generic-projection ────────────────────────
+// A concrete impl's associated const is reachable as a projection `T::NAME` from
+// a generic context (lowered via an accessor) — value matches the impl's const.
+trait HasN { const N: i64; fn dummy(&self) -> i64; }
+struct AcS {}
+impl HasN for AcS { const N: i64 = 42i64; fn dummy(&self) -> i64 { return 0i64; } }
+fn proj_n<T: HasN>(_v: &T) -> i64 { return T::N; }
+
+// ── conditional default-method where-gate (concrete + deferred) ──────────────
+// A trait default method `where P: Marker` is synthesised for an impl only when
+// the impl's concrete arg for P satisfies Marker. When the arg still mentions a
+// type variable, the gate is undecidable at sema and deferred to mono.
+trait Marker { fn mk(&self) -> i64; }
+struct Yes { v: i64 }
+impl Marker for Yes { fn mk(&self) -> i64 { return self.v; } }
+
+trait Holder<P> {
+    fn hraw(&self) -> i64;
+    fn gated(&self, p: &P) -> i64 where P: Marker { return self.hraw() + p.mk(); }
+}
+// Concrete arg P=Yes satisfies Marker -> default available.
+struct H { h: i64 }
+impl Holder<Yes> for H { fn hraw(&self) -> i64 { return self.h; } }
+// Generic arg P=X (type var) -> gate deferred to mono, re-checked per instance.
+struct HG<X> { h: i64, m: X }
+impl<X: Marker> Holder<X> for HG<X> { fn hraw(&self) -> i64 { return self.h; } }
+
+
+fn main() -> i64 {
+
+    // @rule trait.satisfy.blanket-recursive
+    {
+        let s: S = S { x: 5i64 };
+        if need_conv(&s) != 1000i64 { return 1; }   // blanket Conv applies: S: B
+    }
+
+    // @rule trait.satisfy.ref-self-mangling
+    {
+        let s: S = S { x: 0i64 };
+        let r: &S = &s;
+        if r.rt() != 7i64 { return 2; }              // impl RefT for &S found via $ref_ key
+    }
+
+    // @rule trait.builtin.copy-handle-kinds
+    {
+        let s: S = S { x: 9i64 };
+        let r: &S = &s;
+        let r2: &S = take_copy(r);                    // &T is Copy: no move
+        if r.a() != 9i64 { return 3; }               // original still usable
+        if r2.a() != 9i64 { return 4; }
+    }
+
+    // @rule trait.bounds.parametrized-type-args-match
+    {
+        let s: S = S { x: 0i64 };
+        if need_mk_i64(&s) != 64i64 { return 5; }     // selects Mk<i64> impl
+    }
+
+    // @rule trait.bounds.partialeq-via-eq
+    {
+        let p: Pt = Pt { v: 3i64 };
+        let q: Pt = Pt { v: 3i64 };
+        if !need_peq(&p, &q) { return 6; }            // PartialEq satisfied by Eq
+    }
+
+    // @rule trait.bounds.generic-struct-base-key
+    {
+        let g: G<i64> = G { item: 1i64 };
+        if need_wrapped(&g) != 555i64 { return 7; }   // base-name generic impl
+    }
+
+    // @rule trait.bounds.tuple-impl-satisfaction
+    {
+        let t2: (i64, i64) = (1i64, 2i64);
+        if need_tsum(&t2) != 3i64 { return 8; }       // variadic tuple impl, arity 2
+        let t3: (i64, i64, i64) = (1i64, 2i64, 3i64);
+        if need_tsum(&t3) != 3i64 { return 9; }       // any arity
+    }
+
+    // @rule trait.bounds.fn-family-by-callable
+    {
+        let c = |x: i64| -> i64 { return x + 1i64; };
+        if call_fn(c, 41i64) != 42i64 { return 10; }  // closure satisfies Fn bound
+    }
+
+    // @rule trait.def.copy-not-a-supertrait
+    {
+        let c: CpyS = CpyS { k: 17i64 };
+        let dc: &dyn WithCopy = &c;                    // valid dyn despite `: Copy`
+        if dc.wc() != 17i64 { return 12; }
+    }
+
+    // @rule trait.impl.type-code-inherit
+    {
+        if type_code_of::<CodedS>() != 141u64 { return 15; }  // inherited from trait
+    }
+
+    // @rule trait.impl.type-code-from-genos-spec
+    {
+        if type_code_of::<IntBag>() != 201u64 { return 16; }  // inherited from genos
+    }
+
+    // @rule trait.impl.trait-arg-resolution
+    {
+        let ps: PS = PS {};
+        if ps.first() != 11i64 { return 17; }         // positional trait args bound
+        if ps.second() != 22i64 { return 18; }
+    }
+
+    // @rule trait.impl.blanket-method-target
+    {
+        let s: S = S { x: 0i64 };
+        if s.conv() != 1000i64 { return 19; }         // blanket method, no collision
+    }
+
+    // @rule trait.impl.method-template-attach
+    {
+        let gi: G<i64> = G { item: 0i64 };
+        let gb: G<bool> = G { item: true };
+        if gi.wv() != 555i64 { return 20; }           // cloned per instantiation
+        if gb.wv() != 555i64 { return 21; }
+    }
+
+    // @rule trait.impl.self-seeding
+    {
+        let v: IdS = IdS { v: 88i64 };
+        let w: IdS = v.ident();                        // Self return = impl target
+        if w.v != 88i64 { return 22; }
+    }
+
+    // @rule trait.default-method.synthesised-when-not-overridden
+    {
+        let g: GS = GS { g: 6i64 };
+        if g.doubled() != 12i64 { return 23; }        // default body synthesised
+    }
+
+    // @rule trait.impl-method.self-binding-by-target-shape
+    {
+        let g: G2<i64> = G2 { item: 0i64 };
+        if g.plus() != 105i64 { return 24; }          // default on generic target
+    }
+
+    // @rule trait.assoc-const.accessor-for-generic-projection
+    {
+        let a: AcS = AcS {};
+        if proj_n(&a) != 42i64 { return 25; }         // T::N projection accessor
+    }
+
+    // @rule trait.default-method.conditional-where-gate
+    {
+        let h: H = H { h: 10i64 };
+        let y: Yes = Yes { v: 5i64 };
+        if h.gated(&y) != 15i64 { return 26; }        // P=Yes : Marker -> default synthesised
+    }
+
+    // @rule trait.default-method.where-gate-deferred-when-typevar
+    {
+        let hg: HG<Yes> = HG { h: 20i64, m: Yes { v: 0i64 } };
+        let y: Yes = Yes { v: 7i64 };
+        if hg.gated(&y) != 27i64 { return 27; }       // gate X:Marker deferred, re-checked @ mono
+    }
+
+    return 0;
+}

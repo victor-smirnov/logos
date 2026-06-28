@@ -1,0 +1,8 @@
+// @rule item.datatype.type-code-unique
+package item_diag_1_datatype_dup_type_code;
+
+#[type_code=200]
+#[type_code=201]
+eidos D { x: i32 }
+
+fn main() -> i32 { return 0i32; }

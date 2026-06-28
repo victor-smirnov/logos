@@ -1,0 +1,7 @@
+// @rule expr.var-ref.undefined
+package expr_diag_1_undefined_var;
+
+fn main() -> i32 {
+    let _x: i32 = nonexistent_thing;
+    return 0i32;
+}

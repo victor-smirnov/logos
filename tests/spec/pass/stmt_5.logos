@@ -1,0 +1,289 @@
+package stmt_5;
+
+// stmt_5 — execution-locked conformance for the `stmt` rules.
+// Each rule is asserted inside its own helper fn (returns 0 ⇒ ok); main calls
+// them and maps any nonzero to a distinct exit code. Every rule has a marker
+// comment immediately above its assertion. All-pass ⇒ main returns 0.
+//
+// Per-rule helper functions (rather than one giant main) keep each rule's
+// lowering isolated and observable.
+
+use logos.lang.option;
+use logos.lang.result;
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+// Drop-instrumented owning type: bumps a counter through a raw pointer on drop.
+trait Drop { fn drop(self: &mut Self); }
+struct Own { tag: i64, c: *mut i64 }
+impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
+
+// Single-variant struct-shaped enum (irrefutable let-destructure).
+enum Wrap { Only { a: i64, b: i64 } }
+
+// Struct of owning fields (let-pattern consume).
+struct Pair { x: Own, y: Own }
+
+// ── dispatch: exercise many statement kinds ─────────────────────────────────
+// let, nested fn item, plain/compound assignment, if, while, for-range, loop,
+// break, continue, match, bare block, unsafe block, return, tail.
+fn ck_dispatch() -> i64 {
+    // @rule stmt.dispatch.kinds
+    let mut acc: i64 = 0i64;                  // let
+    fn dbl(z: i64) -> i64 { return z * 2i64; }   // nested fn item
+    acc = dbl(3i64);                         // plain assignment + call
+    acc += 1i64;                            // compound assignment
+    if acc == 7i64 { acc = acc + 0i64; } else { return 1i64; }   // if
+    let mut i: i64 = 0i64;
+    while i < 3i64 { i += 1i64; }            // while
+    if i != 3i64 { return 2i64; }
+    let mut s: i64 = 0i64;
+    for k in 0i64..3i64 { s += k; }          // for-range
+    if s != 3i64 { return 3i64; }
+    let mut n: i64 = 0i64;
+    loop { n += 1i64; if n == 2i64 { break; } }   // loop + break
+    if n != 2i64 { return 4i64; }
+    let m: i64 = match acc { 7 => 7i64, _ => 0i64 };  // match
+    if m != 7i64 { return 5i64; }
+    { let inner: i64 = 5i64; if inner != 5i64 { return 6i64; } }   // bare block
+    unsafe { let _u: i64 = 1i64; }           // unsafe block statement
+    let mut cc: i64 = 0i64;
+    for k in 0i64..4i64 { if k == 1i64 { continue; } cc += 1i64; } // continue
+    if cc != 3i64 { return 7i64; }
+    return 0i64;                            // tail return
+}
+
+// ── deref-write RHS type hint from pointee ──────────────────────────────────
+// `*p = None` where p: *mut Option<i64> resolves None to Option<i64>, leaving
+// an honest None (not a discriminant-only constant corrupting the slot).
+fn ck_deref_write_hint() -> i64 {
+    let mut slot: Option<i64> = Some(7i64);
+    let p: *mut Option<i64> = &mut slot;
+    // @rule stmt.deref-write.rhs-type-hint
+    unsafe { *p = None; }
+    match slot { None => {} Some(_) => { return 1i64; } }
+    unsafe { *p = Some(9i64); }
+    match slot { Some(v) => { if v != 9i64 { return 2i64; } } None => { return 3i64; } }
+    return 0i64;
+}
+
+// ── unsafe block: body is an ordinary block; context restored afterward ─────
+fn ck_unsafe_block() -> i64 {
+    let mut x: i64 = 0i64;
+    let p: *mut i64 = &mut x;
+    // @rule stmt.unsafe-block.context
+    unsafe { *p = 41i64; *p += 1i64; }       // raw deref needs unsafe context
+    if x != 42i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── labeled loop: label binds; break/continue target the outer loop ─────────
+fn ck_labeled_loop() -> i64 {
+    let mut hits: i64 = 0i64;
+    // @rule stmt.labeled-loop.label-binding
+    'outer: for a in 0i64..3i64 {
+        for b in 0i64..3i64 {
+            if b == 1i64 { continue 'outer; }    // skip rest of inner
+            if a == 2i64 { break 'outer; }
+            hits += 1i64;
+        }
+    }
+    // a=0: b=0 hit, b=1 continue. a=1: b=0 hit, b=1 continue. a=2: break.
+    if hits != 2i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── loop label scope: the immediately-enclosing loop owns the pending label ─
+fn ck_loop_label_scope() -> i64 {
+    let mut total: i64 = 0i64;
+    // @rule stmt.loop.label-scope
+    'a: loop {
+        'b: loop {
+            total += 1i64;
+            break 'a;                        // targets outer 'a, not 'b
+        }
+    }
+    if total != 1i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── block scope drops at fall-through exit, reverse-of-introduction order ────
+fn ck_block_scope_drops() -> i64 {
+    let mut log: i64 = 0i64;
+    let p: *mut i64 = &mut log;
+    // @rule stmt.block.scope-drops-at-exit
+    {
+        let _first  = Own { tag: 1i64, c: p };   // dropped last
+        let _second = Own { tag: 2i64, c: p };   // dropped first
+    }
+    if log != 2i64 { return 1i64; }          // both dropped on fall-through exit
+    return 0i64;
+}
+
+// ── return drops after value eval: e evaluated/hoisted, then drops run ───────
+fn ret_after_drop(p: *mut i64) -> i64 {
+    let _g = Own { tag: 7i64, c: p };
+    // @rule stmt.return.drops-after-value-eval
+    return unsafe { *p };   // reads count (0) before _g's drop bumps it to 1
+}
+fn ck_return_drops() -> i64 {
+    let mut log: i64 = 0i64;
+    let p: *mut i64 = &mut log;
+    let r: i64 = ret_after_drop(p);
+    if r != 0i64 { return 1i64; }            // value computed before the drop ran
+    if log != 1i64 { return 2i64; }          // drop did run (once) on return
+    return 0i64;
+}
+
+// ── break/continue drop to loop boundary (incl. break nested in if) ──────────
+fn ck_break_drops() -> i64 {
+    let mut log: i64 = 0i64;
+    let p: *mut i64 = &mut log;
+    // @rule stmt.break-continue.drops-to-loop-boundary
+    loop {
+        let _g = Own { tag: 3i64, c: p };    // live scope frame
+        if true { break; }                    // break nested in if: drop _g
+    }
+    if log != 1i64 { return 1i64; }          // frame dropped at the loop edge
+    return 0i64;
+}
+
+// ── let-destructure: nested tuple pattern ───────────────────────────────────
+fn ck_nested_tuple() -> i64 {
+    // @rule stmt.let-destruct.nested-tuple
+    let (a, (b, c)) = (1i64, (2i64, 3i64));
+    if a + b + c != 6i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── let-pattern struct destructure consumes the whole move-typed RHS ─────────
+fn ck_let_pat_consumes() -> i64 {
+    let mut log: i64 = 0i64;
+    let p: *mut i64 = &mut log;
+    {
+        let pr = Pair { x: Own { tag: 1i64, c: p }, y: Own { tag: 2i64, c: p } };
+        // @rule stmt.let-pat.consumes-source
+        let Pair { x, y } = pr;              // consumes pr; x,y own their data
+        if x.tag + y.tag != 3i64 { return 1i64; }
+    }
+    if log != 2i64 { return 2i64; }          // each field dropped exactly once
+    return 0i64;
+}
+
+// ── let single-variant struct-shaped enum destructure (irrefutable) ─────────
+fn ck_single_variant_enum() -> i64 {
+    let w: Wrap = Wrap::Only { a: 10i64, b: 32i64 };
+    // @rule stmt.let-pat.single-variant-enum-struct
+    let Wrap::Only { a, b } = w;             // shorthand bindings
+    if a + b != 42i64 { return 1i64; }
+    let w2: Wrap = Wrap::Only { a: 5i64, b: 1i64 };
+    let Wrap::Only { a: ra, b: rb } = w2;    // renamed bindings
+    if ra - rb != 4i64 { return 2i64; }
+    return 0i64;
+}
+
+// ── let-else: bindings live in the outer scope after the statement ──────────
+fn ck_let_else() -> i64 {
+    let opt: Option<i64> = Some(40i64);
+    // @rule stmt.let-else.bindings-in-outer-scope
+    let Some(v) = opt else { return 1i64; };
+    let v2: i64 = v + 2i64;                  // v visible after the let-else
+    if v2 != 42i64 { return 2i64; }
+    return 0i64;
+}
+
+// ── nested fn item lowered as a let-bound (value) binding ────────────────────
+fn ck_nested_fn() -> i64 {
+    // @rule stmt.nested-fn.let-bound-closure
+    fn add(a: i64, b: i64) -> i64 { return a + b; }
+    let g = add;                             // usable as a value binding
+    if g(20i64, 22i64) != 42i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── let: top-level `_` annotation dropped; adopts the RHS type (i64) ─────────
+fn ck_inferred_annotation() -> i64 {
+    // @rule stmt.let.inferred-annotation-deferred
+    let x: _ = 42i64;                        // annotation dropped → i64
+    if x != 42i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── let: non-hole annotation hints RHS inference ────────────────────────────
+// fn-ptr annotation lets the untyped closure params infer; tuple element types
+// make untyped int literals widen to the annotated element type.
+fn ck_annotation_hints() -> i64 {
+    // @rule stmt.let.annotation-type-hints
+    let f: fn(i64) -> i64 = |x| x + 1i64;    // closure params inferred from hint
+    if f(41i64) != 42i64 { return 1i64; }
+    let pr: (i64, i64) = (7, 2);             // literals widen to i64
+    if pr.0 + pr.1 != 9i64 { return 2i64; }
+    return 0i64;
+}
+
+// ── let ref binding sugar: `let ref y = x` gives y: &T ──────────────────────
+fn ck_ref_binding() -> i64 {
+    let x: i64 = 42i64;
+    // @rule stmt.let.ref-binding-sugar
+    let ref y = x;                           // y: &i64
+    if *y != 42i64 { return 1i64; }
+    return 0i64;
+}
+
+// ── let whose RHS is a closure owns its captures' drop slots ────────────────
+fn ck_closure_capture_drop() -> i64 {
+    let mut log: i64 = 0i64;
+    let p: *mut i64 = &mut log;
+    {
+        let cap = Own { tag: 9i64, c: p };
+        // @rule stmt.let.closure-capture-drop-ownership
+        let clo = move || -> i64 { return cap.tag; };   // moves cap into env
+        if clo() != 9i64 { return 1i64; }
+    }
+    if log != 1i64 { return 2i64; }          // captured Own dropped once with clo
+    return 0i64;
+}
+
+// ── loop with a reaching break is non-diverging; code after it runs ─────────
+fn ck_loop_diverges() -> i64 {
+    let mut k: i64 = 0i64;
+    // @rule stmt.loop.diverges-never
+    loop { k += 1i64; if k > 0i64 { break; } }
+    if k != 1i64 { return 1i64; }            // code after the loop runs
+    return 0i64;
+}
+
+// ── loop break value: loop expr type/value is the unified break value ───────
+fn ck_loop_break_value() -> i64 {
+    let mut i: i64 = 0i64;
+    // @rule stmt.loop.break-value-type
+    let r: i64 = loop {
+        i += 1i64;
+        if i == 5i64 { break i * 2i64; }     // loop yields the break value
+    };
+    if r != 10i64 { return 1i64; }
+    return 0i64;
+}
+
+fn main() -> i64 {
+    if ck_dispatch()             != 0i64 { return 1; }
+    if ck_deref_write_hint()     != 0i64 { return 2; }
+    if ck_unsafe_block()         != 0i64 { return 3; }
+    if ck_labeled_loop()         != 0i64 { return 4; }
+    if ck_loop_label_scope()     != 0i64 { return 5; }
+    if ck_block_scope_drops()    != 0i64 { return 6; }
+    if ck_return_drops()         != 0i64 { return 7; }
+    if ck_break_drops()          != 0i64 { return 8; }
+    if ck_nested_tuple()         != 0i64 { return 9; }
+    if ck_let_pat_consumes()     != 0i64 { return 10; }
+    if ck_single_variant_enum()  != 0i64 { return 11; }
+    if ck_let_else()             != 0i64 { return 12; }
+    if ck_nested_fn()            != 0i64 { return 13; }
+    if ck_inferred_annotation()  != 0i64 { return 14; }
+    if ck_annotation_hints()     != 0i64 { return 15; }
+    if ck_ref_binding()          != 0i64 { return 16; }
+    if ck_closure_capture_drop() != 0i64 { return 17; }
+    if ck_loop_diverges()        != 0i64 { return 18; }
+    if ck_loop_break_value()     != 0i64 { return 19; }
+    return 0;
+}

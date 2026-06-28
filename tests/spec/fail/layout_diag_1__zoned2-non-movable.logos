@@ -1,0 +1,11 @@
+// @rule layout.zoned2.all-thin-fields-self-relative
+// A #[zoned2] struct stores its thin-pointer fields self-relative (RelOffset i64)
+// anchored to its slot; it is non-movable and cannot occupy a by-value stack slot.
+package layout_diag_1_zoned2_non_movable;
+
+#[zoned] struct Node { next: *mut i32 }
+
+fn main() -> i32 {
+    let n: Node = Node { next: 0 as *mut i32 };
+    return 0i32;
+}

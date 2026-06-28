@@ -1,0 +1,12 @@
+// @rule expr.enum-lit.unknown-variant
+package expr_diag_2_enum_unknown_variant;
+
+enum E {
+    A,
+    B,
+}
+
+fn main() -> i32 {
+    let _x = E::Nope;
+    return 0i32;
+}

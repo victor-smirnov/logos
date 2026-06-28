@@ -1,0 +1,10 @@
+// @rule expr.index.range-slice
+package expr_diag_2_index_range_slice;
+
+use logos.lang.slice;
+
+fn main() -> i32 {
+    let n = 5i32;
+    let _y = n[0i32..2i32];
+    return 0i32;
+}

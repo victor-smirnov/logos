@@ -1,0 +1,9 @@
+package type_diag_2_intlit_fit_arith;
+// @rule type.binop.intlit-fit-arith
+// In integer arithmetic with a concrete int operand, the literal must fit.
+
+fn main() -> i32 {
+    let x: i32 = 0;
+    let y: i32 = x + 10000000000;
+    return 0;
+}

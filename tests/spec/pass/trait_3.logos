@@ -1,0 +1,189 @@
+package trait_3;
+
+use logos.lang.marker;
+use logos.lang.cell;
+
+// ── auto-trait probes: a bounded generic accepts a value only if its type
+//    structurally satisfies the named auto trait. Each call below COMPILES
+//    AND RUNS only because the argument type satisfies the bound. ──────────
+fn need_send<T: Send>(v: T) -> i64 { return 1i64; }
+fn need_sync<T: Sync>(v: T) -> i64 { return 1i64; }
+fn need_unpin<T: Unpin>(v: T) -> i64 { return 1i64; }
+
+// generic propagation: T: Send forwarded into another T: Send context.
+fn fwd_send<T: Send>(v: T) -> i64 { return need_send::<T>(v); }
+
+// struct whose fields are all scalars => Send/Sync/Unpin by all-fields rule.
+struct Plain { x: i32, y: i64 }
+// nested struct => structural recursion through composition.
+struct Nested { inner: Plain, flag: bool }
+
+// enum whose every payload is scalar => Send by all-payloads rule.
+enum Shape { Dot, Line(i32), Box(i32, i64) }
+
+// ── trait method receiver synthesis: untyped &self / &mut self ───────────
+trait Recv {
+    fn get(&self) -> i64;            // &self  -> receiver &Self
+    fn bump(&mut self) -> i64;       // &mut self -> receiver &mut Self
+}
+struct Cnt { n: i64 }
+impl Recv for Cnt {
+    fn get(&self) -> i64 { return self.n; }
+    fn bump(&mut self) -> i64 { self.n = self.n + 1i64; return self.n; }
+}
+
+// ── where Self: Sized excludes a method from the vtable (object-safe trait) ─
+trait Greet {
+    fn id(&self) -> i64;                                   // vtable method
+    fn make() -> i64 where Self: Sized { return 7i64; }    // excluded from vtable
+}
+struct Hi {}
+impl Greet for Hi { fn id(&self) -> i64 { return 5i64; } }
+
+// ── associated type with default + GAT, impl omits the default ───────────
+trait Assoc {
+    type Item<U>;                 // GAT (carries its own type param)
+    type Def = i64;               // default RHS
+    fn pick(&self) -> i64;
+}
+struct Holder {}
+impl Assoc for Holder {
+    type Item<U> = U;             // GAT supplied
+    // type Def omitted => inherits default i64
+    fn pick(&self) -> i64 { return 3i64; }
+}
+// `Def` projected from the impl that OMITTED it resolves to the default i64.
+fn use_def(x: <Holder as Assoc>::Def) -> i64 { return x; }
+
+// ── associated const with default; impl omits => inherits ────────────────
+trait Sized2 {
+    const SIDES: i32 = 3;
+    const CAP: i64 = 8i64 * 2i64;
+}
+struct Tri {}
+impl Sized2 for Tri {}            // all defaults
+struct Quad {}
+impl Sized2 for Quad { const SIDES: i32 = 4; }   // override one, inherit CAP
+
+// ── default-body method inherited by an impl that omits it ───────────────
+trait Sound {
+    fn base(&self) -> i64;
+    fn doubled(&self) -> i64 { return self.base() * 2i64; }   // default body
+}
+struct Bell {}
+impl Sound for Bell { fn base(&self) -> i64 { return 11i64; } }
+
+// ── impl<T> params from the impl header: generic trait impl on U<T> ───────
+trait Wrap { fn unwrap_val(&self) -> i64; }
+struct Cell2<T> { v: T }
+impl<T> Wrap for Cell2<T> where T: Copy { fn unwrap_val(&self) -> i64 { return 9i64; } }
+
+// ── impl<T> with lifetime-outlives where bound on the header param ───────
+struct Holds<T> { v: T }
+impl<T> Holds<T> where T: 'static { fn count(&self) -> i64 { return 1i64; } }
+
+// ── Self denotes the target type inside the impl ─────────────────────────
+struct Maker { seed: i64 }
+impl Maker {
+    fn fresh() -> Self { return Self { seed: 42i64 }; }   // Self == Maker
+    fn seed_of(&self) -> i64 { return self.seed; }
+}
+
+// ── impl target is a (non-generic) type alias: methods register under the
+//    aliased concrete type, reachable through the alias ─────────────────
+struct Real { k: i64 }
+type RealAlias = Real;
+impl RealAlias { fn kk(&self) -> i64 { return self.k; } }
+
+fn main() -> i64 {
+    // @rule trait.auto.typevar-via-bounds
+    // A type var T satisfies Send iff Send is in its bound list; fwd_send
+    // forwards its T:Send bound into another T:Send context.
+    if fwd_send::<i32>(7) != 1i64 { return 11; }
+
+    // @rule trait.auto.struct-all-fields
+    // Plain has only scalar fields => satisfies Send (all-fields rule).
+    if need_send::<Plain>(Plain { x: 1, y: 2i64 }) != 1i64 { return 12; }
+
+    // @rule trait.auto.structural-satisfaction
+    // Nested satisfies Send by structural recursion through its Plain field.
+    if need_send::<Nested>(Nested { inner: Plain { x: 1, y: 2i64 }, flag: true }) != 1i64 { return 13; }
+
+    // @rule trait.auto.enum-all-payloads
+    // Every payload of Shape is scalar => Shape satisfies Send.
+    if need_send::<Shape>(Shape::Box(1, 2i64)) != 1i64 { return 14; }
+
+    // @rule trait.auto.unsafecell-not-sync
+    // UnsafeCell<T> Send follows T's Send: UnsafeCell<i32> is Send.
+    if need_send::<UnsafeCell<i32>>(UnsafeCell::new(5)) != 1i64 { return 15; }
+
+    // @rule trait.auto.unpin-default-true
+    // A plain struct (no PhantomPinned, not #[pinned]) is Unpin by default.
+    if need_unpin::<Plain>(Plain { x: 1, y: 2i64 }) != 1i64 { return 16; }
+
+    // @rule trait.auto.array-element
+    // [i32; 3] satisfies Send because its element i32 does.
+    if need_send::<[i32; 3]>([1, 2, 3]) != 1i64 { return 17; }
+
+    // @rule trait.auto.tuple-all-elements
+    // (i32, bool) satisfies Send because every element does.
+    if need_send::<(i32, bool)>((1, true)) != 1i64 { return 18; }
+
+    // @rule trait.auto.closure-via-captures
+    // A closure capturing only a scalar is Send (auto-trait over captures).
+    let cap = 5i32;
+    let clo = move || cap + 1;
+    if need_send(clo) != 1i64 { return 19; }
+
+    // @rule trait.method.self-receiver
+    // Untyped &self / &mut self synthesize &Self / &mut Self receivers.
+    let mut c = Cnt { n: 10i64 };
+    if c.get() != 10i64 { return 20; }
+    if c.bump() != 11i64 { return 21; }
+
+    // @rule trait.method.where-self-sized
+    // `make` (where Self: Sized) is callable on the concrete type; `id`
+    // remains in the vtable so Greet stays object-safe via &dyn.
+    if Hi::make() != 7i64 { return 22; }
+    let h = Hi {};
+    let d: &dyn Greet = &h;
+    if d.id() != 5i64 { return 23; }
+
+    // @rule trait.assoc-type.default-and-gat
+    // Holder supplies the GAT Item<U> and omits Def => Def falls back to i64,
+    // so use_def's parameter type is i64 and accepts an i64 argument.
+    if use_def(4i64) != 4i64 { return 24; }
+    if (Holder {}).pick() != 3i64 { return 25; }
+
+    // @rule trait.assoc-const.default
+    // Tri inherits both defaults; Quad overrides SIDES and inherits CAP.
+    if Tri::SIDES != 3 { return 26; }
+    if Tri::CAP != 16i64 { return 27; }
+    if Quad::SIDES != 4 { return 28; }
+    if Quad::CAP != 16i64 { return 29; }
+
+    // @rule trait.method.default-body
+    // Bell omits `doubled` and inherits the trait's default body.
+    if (Bell {}).doubled() != 22i64 { return 30; }
+
+    // @rule trait.impl.params-from-impl-header
+    // impl<T> Wrap for Cell2<T> applies for any T (here i64).
+    if (Cell2::<i64> { v: 8i64 }).unwrap_val() != 9i64 { return 31; }
+
+    // @rule trait.impl.where-outlives-bounds
+    // impl<T> Holds<T> where T: 'static — the outlives bound is collected,
+    // the method is reachable for a 'static element type.
+    if (Holds::<i64> { v: 1i64 }).count() != 1i64 { return 32; }
+
+    // @rule trait.impl.self-binding
+    // Inside impl Maker, `Self` denotes Maker (used as ctor return type).
+    let m = Maker::fresh();
+    if m.seed_of() != 42i64 { return 33; }
+
+    // @rule trait.impl.target-alias-unfold
+    // The impl on alias RealAlias registers under Real; the method is
+    // reachable on a Real value.
+    if (Real { k: 13i64 }).kk() != 13i64 { return 34; }
+
+    return 0;
+}

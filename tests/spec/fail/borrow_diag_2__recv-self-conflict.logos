@@ -1,0 +1,9 @@
+// @rule borrow.recv.bare-place-self-conflict
+package borrow_diag_2_recv_self_conflict;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(10i64);
+    let r: &i64 = &v[0i64];
+    v.push(20i64);
+    return *r as i32;
+}

@@ -1,0 +1,7 @@
+// @rule intrinsic.include.expr-only
+package include_item_pos;
+
+fn main() -> i32 {
+    let x = include!("intrinsic_diag_1__include_item.inc");
+    return 0;
+}

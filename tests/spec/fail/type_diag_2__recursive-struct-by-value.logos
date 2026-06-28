@@ -1,0 +1,7 @@
+package type_diag_2_recursive_struct_by_value;
+// @rule type.recursive.by-value-cycle
+// A struct that contains itself by value is a forbidden recursive-value type.
+
+struct S { next: S }
+
+fn main() -> i32 { return 0; }

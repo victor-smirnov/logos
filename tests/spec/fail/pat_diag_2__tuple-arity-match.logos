@@ -1,0 +1,9 @@
+// @rule pat.tuple.arity-match
+package pat_diag_2_tuple_arity;
+
+fn main() -> i32 {
+    let t: (i32, i32) = (1i32, 2i32);
+    match t {
+        (a, b, c) => { return a; }
+    }
+}

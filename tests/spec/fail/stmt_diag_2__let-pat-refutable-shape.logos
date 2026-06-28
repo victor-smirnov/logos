@@ -1,0 +1,7 @@
+// @rule stmt.let-pat.struct-shapes-only
+package stmt_diag_2_let_pat_refutable;
+
+fn main() -> i32 {
+    let 5i32 = 5i32;
+    return 0i32;
+}

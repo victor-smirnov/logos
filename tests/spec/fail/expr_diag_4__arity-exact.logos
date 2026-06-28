@@ -1,0 +1,9 @@
+// @rule expr.call.arity-exact
+package expr_diag_4_arity_exact;
+
+fn add(a: i32, b: i32) -> i32 { return a + b; }
+
+fn main() -> i32 {
+    let _r: i32 = add(1i32);
+    return 0i32;
+}

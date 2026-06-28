@@ -1,0 +1,9 @@
+// @rule intrinsic.generic-of.signature
+package gof_unknown;
+
+use logos.std.compiler.metaprog;
+
+fn main() -> i32 {
+    let g = generic_of::<NoSuchType>();
+    return 0;
+}

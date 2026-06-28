@@ -1,0 +1,1 @@
+type 'Wrap<NoSend>' does not satisfy auto trait 'Send'

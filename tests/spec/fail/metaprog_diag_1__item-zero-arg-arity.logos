@@ -1,0 +1,11 @@
+// @rule metaprog.fn-macro-item.zero-arg-arity
+package metaprog_diag_1_item_zero_arg_arity;
+
+use logos.std.compiler.metaprog;
+
+#[fn_macro]
+pub fn gen() -> ItemList { return item_list_new(); }
+
+gen!{ 1, 2 }
+
+fn main() -> i32 { return 0i32; }

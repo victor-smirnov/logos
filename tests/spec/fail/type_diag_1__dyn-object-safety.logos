@@ -1,0 +1,14 @@
+// @rule type.dyn.object-safety-required
+package type_diag_1_dyn_object_safety;
+
+trait NotSafe {
+    fn make() -> i32;
+}
+
+fn use_it(x: &dyn NotSafe) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

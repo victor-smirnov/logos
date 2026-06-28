@@ -1,0 +1,14 @@
+// @rule trait.impl.no-standalone-unsafe
+package trait_diag_2_standalone_unsafe;
+
+struct S {
+    x: i32,
+}
+
+unsafe impl S {
+    fn get(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

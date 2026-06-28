@@ -1,0 +1,13 @@
+// @rule expr.static-call.unsafe-requires-unsafe-context
+package expr_diag_4_static_unsafe_context;
+
+struct Foo {}
+
+impl Foo {
+    unsafe fn make() -> i32 { return 7i32; }
+}
+
+fn main() -> i32 {
+    let _r: i32 = Foo::make();
+    return 0i32;
+}

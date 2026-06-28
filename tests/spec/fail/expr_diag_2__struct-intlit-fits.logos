@@ -1,0 +1,11 @@
+// @rule expr.struct-lit.intlit-fits-field
+package expr_diag_2_struct_intlit_fits;
+
+struct S {
+    x: u8,
+}
+
+fn main() -> i32 {
+    let _s = S { x: 999 };
+    return 0i32;
+}

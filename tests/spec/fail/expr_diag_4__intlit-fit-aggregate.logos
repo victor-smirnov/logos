@@ -1,0 +1,9 @@
+// @rule expr.call.intlit-fit-aggregate
+package expr_diag_4_intlit_fit_aggregate;
+
+fn take(a: [u8; 3]) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let _r: i32 = take([1, 2, 999]);
+    return 0i32;
+}

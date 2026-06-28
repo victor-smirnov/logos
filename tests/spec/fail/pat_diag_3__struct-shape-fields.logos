@@ -1,0 +1,12 @@
+// @rule pat.variant.struct-shape-fields
+package pat_diag_3_struct_shape_fields;
+
+enum E { A { x: i32 }, B }
+
+fn main() -> i32 {
+    let e: E = E::A { x: 5i32 };
+    match e {
+        E::A { y } => { return y; }
+        _ => { return 0i32; }
+    }
+}

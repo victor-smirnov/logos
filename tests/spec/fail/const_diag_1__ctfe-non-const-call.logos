@@ -1,0 +1,10 @@
+// @rule const.ctfe.non-const-is-error
+package const_diag_1_ctfe_non_const_call;
+
+use logos.std.compiler.metaprog;
+pub fn rt() -> i32 { return 0i32; }
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen(rt());
+
+fn main() -> i32 { return 0i32; }

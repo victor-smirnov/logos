@@ -1,0 +1,9 @@
+// @rule intrinsic.tuple-all-eq.signature
+package tae_not_tuple;
+
+fn main() -> i32 {
+    let a: i32 = 1;
+    let b: i32 = 1;
+    let r: bool = tuple_all_eq::<i32>(&a, &b);
+    return 0;
+}

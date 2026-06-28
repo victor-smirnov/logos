@@ -1,0 +1,14 @@
+// @rule pat.ident.module-const-value
+package pat_diag_2_ident_const_not_ctfe;
+
+struct P { x: i32, y: i32 }
+
+const K: P = P { x: 1i32, y: 2i32 };
+
+fn main() -> i32 {
+    let p: P = P { x: 1i32, y: 2i32 };
+    match p {
+        K => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

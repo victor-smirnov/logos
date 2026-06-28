@@ -1,0 +1,10 @@
+// @rule pat.match.arm-after-catchall-unreachable
+package pat_diag_3_arm_after_catchall;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        _ => { return 0i32; }
+        1 => { return 1i32; }
+    }
+}

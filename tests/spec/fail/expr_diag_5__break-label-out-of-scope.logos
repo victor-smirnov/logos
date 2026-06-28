@@ -1,0 +1,9 @@
+// @rule expr.break.label-must-be-in-scope
+package expr_diag_5_break_label_out_of_scope;
+
+fn main() -> i32 {
+    loop {
+        break 'outer;
+    }
+    return 0i32;
+}

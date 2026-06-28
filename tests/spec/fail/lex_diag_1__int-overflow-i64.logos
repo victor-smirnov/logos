@@ -1,0 +1,8 @@
+// @rule lex.literal.int-overflow-i64
+package lex_diag_1_int_overflow_i64;
+
+fn main() -> i32 {
+    // Magnitude exceeds the u64 representable range.
+    let _x = 99999999999999999999u64;
+    return 0i32;
+}

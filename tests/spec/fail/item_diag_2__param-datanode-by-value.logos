@@ -1,0 +1,15 @@
+// @rule item.fn-param.datanode-by-value
+package item_diag_2_param_datanode_by_value;
+
+#[datatype] pub struct FakePtr<T> { offset: u32 }
+
+#[datatype] struct Node {
+    value: i32,
+    next:  FakePtr<Node>,
+}
+
+fn process(n: Node) -> i32 {
+    return n.value;
+}
+
+fn main() -> i32 { return 0i32; }

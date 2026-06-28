@@ -1,0 +1,247 @@
+package region_2;
+
+// Conformance test for the `region_2` rule group (region / lifetime / outlives
+// inference + borrow-region CFG). Each locked rule has a runtime-observable
+// *positive* manifestation: the program below type-checks and runs green ONLY
+// IF the region rule holds (e.g. a where-clause outlives chain is honored, a
+// declared lifetime denotes a fresh region, a method's lifetime substitution
+// flows into the return type). Pure-rejection rules (E0597 dangling-borrow,
+// strict outlives DENIALS) and internal solver/normalization invariants that
+// have no positive runtime witness are reported under "untestable".
+
+// ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// ── reflexive identity: <'a>(&'a) -> &'a returns the same region ────────────
+fn id_ref<'a>(x: &'a i64) -> &'a i64 { return x; }
+
+// ── two distinct lifetime params, each a fresh region; return the first ──────
+fn first<'a, 'b>(x: &'a i64, y: &'b i64) -> &'a i64 { return x; }
+
+// ── 'static is the top region: a &'static flows where any &'a is wanted ──────
+fn take_any<'a>(x: &'a i64) -> &'a i64 { return x; }
+
+// ── transitive outlives chain: 'long: 'mid, 'mid: 'short ⇒ 'long: 'short ─────
+struct Hold<'a> { v: &'a i64 }
+fn shorten3<'short, 'mid, 'long>(p: Hold<'long>) -> Hold<'short>
+where 'long: 'mid + 'short, 'mid: 'short {
+    return p;
+}
+
+// ── declared 'a: 'static is honored (a &'a may be used where &'static wanted) ─
+fn to_static<'a>(x: &'a i64) -> &'static i64 where 'a: 'static { return x; }
+
+// ── where T: 'lt type-outlives bound on a type parameter ────────────────────
+struct Wrap<'a, T> { r: &'a T }
+fn keep<'a, T>(r: &'a T) -> Wrap<'a, T> where T: 'a { return Wrap { r: r }; }
+
+// ── impl with a lifetime among the trait type-arguments (region erased) ──────
+trait Show<T> { fn show(&self) -> i64; }
+struct Ref<'a> { v: &'a i64 }
+impl<'a> Show<&'a i64> for Ref<'a> { fn show(&self) -> i64 { return *self.v; } }
+
+// ── method lifetime substitution into the return type ───────────────────────
+//   fn get<'a>(&'a self) -> Item<'a>  called with &'b  yields Item<'b>.
+struct Item<'a> { p: &'a i64 }
+struct Cont<'a> { data: &'a i64 }
+impl<'a> Cont<'a> {
+    fn get<'s>(self: &'s Cont<'a>) -> Item<'s> { return Item { p: self.data }; }
+}
+
+// ── enum whose variant payload carries a lifetime (inferred at construction) ─
+enum Opt<'a> { None, Some(&'a i64) }
+fn unwrap_or<'a>(o: Opt<'a>, d: &'a i64) -> &'a i64 {
+    match o {
+        Opt::Some(r) => { return r; }
+        Opt::None => { return d; }
+    }
+}
+
+fn main() -> i64 {
+    let x: i64 = 7i64;
+    let y: i64 = 11i64;
+
+    // @rule region.outlives.reflexive
+    // r: r holds for every region: <'a>(&'a)->&'a returns the same region; only
+    // well-formed because 'a outlives itself.
+    {
+        let r = id_ref(&x);
+        if *r != 7i64 { return 1; }
+    }
+
+    // @rule region.lifetime.param-fresh-region
+    // Each declared lifetime ('a, 'b) is its own distinct region; `first` ties
+    // the result region to 'a (the first arg) independently of 'b.
+    {
+        let r = first(&x, &y);
+        if *r != 7i64 { return 2; }
+    }
+
+    // @rule region.outlives.static-is-top
+    // 'static: r for every r — a &'static value flows into a slot wanting any
+    // &'a (here 'static narrowed to the call's fresh 'a).
+    {
+        let s: &'static i64 = &x;
+        let r = take_any(s);
+        if *r != 7i64 { return 3; }
+    }
+
+    // @rule region.outlives.static-longest
+    // 'static outlives every lifetime 'a: same witness, a &'static is accepted
+    // wherever a shorter &'a is expected and the value flows through.
+    {
+        let s: &'static i64 = &y;
+        let r = take_any(s);
+        if *r != 11i64 { return 4; }
+    }
+
+    // @rule region.outlives.transitive-bfs
+    // Declared edges 'long:'mid, 'mid:'short ⇒ 'long:'short by BFS over the
+    // adjacency; `shorten3` only type-checks if the chain is followed.
+    {
+        let h = Hold { v: &x };
+        let h2 = shorten3(h);
+        if *h2.v != 7i64 { return 5; }
+    }
+
+    // @rule region.outlives.transitive
+    // Reflexive-transitive closure of declared clauses: the same multi-edge
+    // chain resolves 'long:'short through 'mid, value preserved.
+    {
+        let h = Hold { v: &y };
+        let h2 = shorten3(h);
+        if *h2.v != 11i64 { return 6; }
+    }
+
+    // @rule region.outlives.static-requires-declared
+    // 'a: 'static does NOT hold by default, but an explicitly declared
+    // `where 'a: 'static` edge IS honored — `to_static` compiles and returns a
+    // usable &'static under that declared bound.
+    {
+        let s: &'static i64 = &x;
+        let r: &'static i64 = to_static(s);
+        if *r != 7i64 { return 7; }
+    }
+
+    // @rule region.outlives.static-always-known
+    // 'static is treated as declared in every scope: the &'static annotation
+    // above (and here) is never an undeclared-lifetime error.
+    {
+        let s: &'static i64 = &y;
+        if *s != 11i64 { return 8; }
+    }
+
+    // @rule region.outlives.where-type-outlives
+    // A where-clause `T: 'a` adds the lifetime bound to T; `keep` builds a
+    // Wrap<'a,T> holding &'a T only because the bound T: 'a is in force.
+    {
+        let w = keep::<i64>(&x);
+        if *w.r != 7i64 { return 9; }
+    }
+
+    // @rule region.outlives.where-clause-type-param
+    // Same where-clause-on-type-param machinery (TYPE_PARAM carrying a
+    // LIFETIME_PARAM): the bound attaches to the matching declared T and the
+    // value flows out.
+    {
+        let w = keep::<i64>(&y);
+        if *w.r != 11i64 { return 10; }
+    }
+
+    // @rule region.impl.trait-arg-lifetime-erased
+    // The impl `Show<&'a i64> for Ref<'a>` carries a lifetime among its trait
+    // type-arguments; regions are erased for selection, so the method is found
+    // and dispatched normally.
+    {
+        let rf = Ref { v: &x };
+        if rf.show() != 7i64 { return 11; }
+    }
+
+    // @rule region.method.lifetime-subst
+    // fn get<'s>(&'s self)->Item<'s> called on a &Cont yields Item<the-caller's
+    // region>: the method lifetime is substituted into the return type, so the
+    // returned Item still points at live data.
+    {
+        let c = Cont { data: &x };
+        let it = c.get();
+        if *it.p != 7i64 { return 12; }
+    }
+
+    // @rule region.lifetime-subst.method-param-pairing
+    // The substitution is built by pairing receiver vs param0 then args: the
+    // formal 's binds to the actual receiver region, recursing into pointees.
+    {
+        let c = Cont { data: &y };
+        let it = c.get();
+        if *it.p != 11i64 { return 13; }
+    }
+
+    // @rule expr.enum-lit.lifetime-inference
+    // Constructing `Opt::Some(&x)` infers the enum's lifetime arg by co-walking
+    // the payload formal `&'a i64` against the argument's reference type; the
+    // borrow is preserved and matched back out.
+    {
+        let o = Opt::Some(&x);
+        let d: i64 = 0i64;
+        let r = unwrap_or(o, &d);
+        if *r != 7i64 { return 14; }
+        let none: Opt<'_> = Opt::None;
+        let r2 = unwrap_or(none, &y);
+        if *r2 != 11i64 { return 15; }
+    }
+
+    // @rule region.cfg.loop-back-edge
+    // A borrow live across a loop iteration is live at the loop head (back-edge):
+    // `acc` borrows `x` and is read every iteration; the borrow region spans the
+    // whole loop, so the running read stays valid across all back-edges.
+    {
+        let acc: &i64 = &x;
+        let mut sum: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < 3i64 {
+            sum = sum + *acc;   // borrow read across the loop back-edge
+            i = i + 1i64;
+        }
+        if sum != 21i64 { return 16; }
+    }
+
+    // @rule region.cfg.let-else-diverging
+    // The else-block of a let-else diverges (no edge to the following code);
+    // when the pattern matches, the binding is live afterwards and usable.
+    {
+        let o = Opt::Some(&x);
+        let Opt::Some(r) = o else { return 99; };  // else diverges
+        if *r != 7i64 { return 17; }
+    }
+
+    // @rule region.temp.receiver-hoist
+    // A fresh owning move-type rvalue receiver auto-ref'd to &self/&mut self is
+    // hoisted to a stmt-scoped local and dropped at end-of-statement (Rust temp
+    // scope): the temp R is dropped exactly once after the method call returns.
+    {
+        let mut cnt: i64 = 0i64;
+        let p: *mut i64 = &mut cnt;
+        let v: i64 = mk(p).read();   // fresh R receiver, hoisted + dropped @ ;
+        if v != 0i64 { return 18; }
+        if cnt != 1i64 { return 19; }  // temp dropped exactly once at stmt end
+    }
+
+    // @rule region.e0597.store-borrow-into-place
+    // Storing a borrow into a place records the source against the dest's root
+    // local; while the source is still alive the stored borrow is valid and
+    // readable (the dangling case is the E0597 rejection — see untestable).
+    {
+        let mut holder: Hold<'_> = Hold { v: &x };  // store &x into a field
+        holder.v = &y;                              // store &y into root.f
+        if *holder.v != 11i64 { return 20; }        // source y alive ⇒ valid read
+    }
+
+    return 0;
+}
+
+impl R {
+    fn read(self: &Self) -> i64 { return 0i64; }
+}

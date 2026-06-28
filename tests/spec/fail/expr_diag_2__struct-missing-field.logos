@@ -1,0 +1,12 @@
+// @rule expr.struct-lit.missing-field-error
+package expr_diag_2_struct_missing_field;
+
+struct S {
+    x: i32,
+    y: i32,
+}
+
+fn main() -> i32 {
+    let _s = S { x: 1i32 };
+    return 0i32;
+}

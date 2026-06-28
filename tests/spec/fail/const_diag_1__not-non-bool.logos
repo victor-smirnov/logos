@@ -1,0 +1,10 @@
+// @rule const.unary.not-bool
+package const_diag_1_not_non_bool;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen(!5i32);
+
+fn main() -> i32 { return 0i32; }

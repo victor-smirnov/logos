@@ -1,0 +1,8 @@
+// @rule lex.literal.int128-magnitude
+package lex_diag_1_int128_magnitude;
+
+fn main() -> i32 {
+    // Magnitude exceeds 128 bits (> 2^128).
+    let _x = 999999999999999999999999999999999999999999u128;
+    return 0i32;
+}

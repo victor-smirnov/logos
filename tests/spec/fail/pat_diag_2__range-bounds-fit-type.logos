@@ -1,0 +1,10 @@
+// @rule pat.range.bounds-fit-type
+package pat_diag_2_range_bounds_fit;
+
+fn main() -> i32 {
+    let x: u8 = 5u8;
+    match x {
+        0..=999 => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

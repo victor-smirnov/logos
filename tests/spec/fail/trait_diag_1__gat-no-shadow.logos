@@ -1,0 +1,9 @@
+// @rule trait.assoc-type.gat-no-shadow-impl-param
+package trait_diag_1_gat_shadow;
+trait T { type Item<U>; fn m(&self) -> i64; }
+struct S<G> { x: i64 }
+impl<G> T for S<G> {
+    type Item<G> = i64;
+    fn m(&self) -> i64 { return self.x; }
+}
+fn main() -> i64 { return 0i64; }

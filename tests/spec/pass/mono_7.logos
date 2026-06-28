@@ -1,0 +1,212 @@
+package mono_7;
+
+// Monomorphization conformance (mono_impl / mono_scan internal invariants).
+// Each rule below is exercised by a generic construct whose only correct value
+// depends on mono performing the described instantiation/mangling/binding. The
+// internal mechanism (per-value spec, distinct mangled symbol, positional
+// type-param bind, impl-target unify) is observed via the value it produces or
+// via type_code_of distinctness.
+
+use logos.lang.atomic;
+use logos.lang.pin;
+use logos.lang.marker;
+use logos.mem.boxed;
+
+// ── const-arg specialization (atomic Ordering literal baked into callee) ─────
+// `ord` forwards from this wrapper straight into the atomic intrinsic's
+// Ordering position; a call with a LITERAL Ordering clones a per-value spec
+// with the constant baked in. Observable: the round-trip value is correct.
+fn my_store(p: *mut i64, v: i64, ord: Ordering) {
+    unsafe { logos_atomic_store64_ord(p, v, ord); }
+}
+fn my_load(p: *const i64, ord: Ordering) -> i64 {
+    unsafe { return logos_atomic_load64_ord(p, ord); }
+}
+
+// ── blanket impl instantiated for a coerced-to-dyn target ────────────────────
+trait Bounded { fn base(&self) -> i64; }
+trait Doubled { fn doubled(&self) -> i64; }
+impl<T: Bounded> Doubled for T { fn doubled(&self) -> i64 { return self.base() * 2i64; } }
+struct C { k: i64 }
+impl Bounded for C { fn base(&self) -> i64 { return self.k; } }
+fn via_dyn_doubled(d: &dyn Doubled) -> i64 { return d.doubled(); }
+
+// ── pointer/reference mangle prefixes: distinct indirection => distinct sym ───
+#[datatype] struct PtrTag<T> { x: i64 }
+
+// ── array-size mangling: distinct N => distinct symbol ────────────────────────
+#[datatype] struct ArrTag<T> { x: i64 }
+
+// ── recursive generic-enum mangling: Option<Option<i32>> distinct ────────────
+enum Maybe<T> { Nothing, Just(T) }
+
+// ── const-arg-value mangling: distinct const value => distinct instance ───────
+fn cap_of<const N: i64>() -> i64 { return N; }
+
+// ── owning vs borrowed dyn: Box<dyn> drop must run (owndyn_ kept distinct) ────
+trait Sayer { fn say(&self) -> i64; }
+struct Speaker { v: i64, slot: *mut i64 }
+impl Sayer for Speaker { fn say(&self) -> i64 { return self.v; } }
+impl Drop for Speaker {
+    fn drop(&mut self) { unsafe { *self.slot = *self.slot + 1i64; } }
+}
+
+// ── method overload name match: two same-named methods on a generic struct ────
+struct Ov<T> { v: T }
+impl<T: Copy> Ov<T> {
+    fn get(&self) -> T { return self.v; }
+    fn get_i(&self, n: i64) -> i64 { return n; }
+}
+
+// ── method-level type-param skipped by struct-driven path, bound by call ──────
+struct Holder<T> { v: T }
+impl<T: Copy> Holder<T> {
+    fn map<U: Copy>(&self, u: U) -> U { return u; }
+}
+
+// ── positional type-param bind + variadic absorb (5-tuple Eq via pack impl) ───
+// (variadic pack absorbs all element types — a truncated pack misses index 2.)
+
+fn main() -> i64 {
+    // @rule mono.const.const-arg-specialization
+    // A literal Ordering forwarded into the atomic intrinsic specializes the
+    // callee with the constant baked in; the store/load round-trips correctly.
+    {
+        let mut a: AtomicI64 = atomic_i64_new(0i64);
+        unsafe {
+            let pm: *mut i64 = &mut a.val as *mut i64;
+            let pc: *const i64 = &a.val as *const i64;
+            my_store(pm, 7i64, Ordering::Release);
+            if my_load(pc, Ordering::Acquire) != 7i64 { return 1; }
+        }
+    }
+
+    // @rule mono.dyn.blanket-instantiated-only-for-coerced-targets
+    // The blanket `impl<T: Bounded> Doubled for T` is cloned for C precisely
+    // because C is coerced to `&dyn Doubled`; dispatch through the fat pointer
+    // reaches the blanket body, proving the coerced-target instance exists.
+    {
+        let c: C = C { k: 21i64 };
+        if via_dyn_doubled(&c) != 42i64 { return 2; }
+    }
+
+    // @rule mono.mangle.ptr-ref-prefixes
+    // Indirection is part of the mangled identity: *const T, *mut T, &T, &mut T
+    // are distinct types => distinct type-codes for the same pointee.
+    {
+        let pc: u64 = type_code_of::<PtrTag<*const i64>>();
+        let pm: u64 = type_code_of::<PtrTag<*mut i64>>();
+        let rf: u64 = type_code_of::<PtrTag<&i64>>();
+        let rm: u64 = type_code_of::<PtrTag<&mut i64>>();
+        if pc == pm { return 3; }   // const vs mut raw ptr distinct
+        if rf == rm { return 4; }   // shared vs mut ref distinct
+        if pc == rf { return 5; }   // raw ptr vs ref distinct
+    }
+
+    // @rule mono.mangle.array-size-and-elem
+    // [T; N] mangles with N: distinct N => distinct symbol/type-code.
+    {
+        let a2: u64 = type_code_of::<ArrTag<[i64; 2]>>();
+        let a3: u64 = type_code_of::<ArrTag<[i64; 3]>>();
+        if a2 == a3 { return 6; }   // distinct array length => distinct
+    }
+
+    // @rule mono.mangle.enum-type-args-recursive
+    // A generic enum mangles its type-args recursively; Option<i32> and the
+    // nested Option<Option<i32>> are distinct concrete enums that round-trip
+    // their own payloads without aliasing.
+    {
+        let inner: Maybe<i32> = Maybe::Just(5i32);
+        let outer: Maybe<Maybe<i32>> = Maybe::Just(inner);
+        match outer {
+            Maybe::Just(m) => {
+                match m {
+                    Maybe::Just(x) => { if x != 5i32 { return 7; } }
+                    Maybe::Nothing => { return 8; }
+                }
+            }
+            Maybe::Nothing => { return 9; }
+        }
+        // Maybe<i32> and the nested Maybe<Maybe<i32>> are distinct concrete
+        // enums (distinct mangled symbols): the inner i32 payload survives one
+        // extra Just-wrapping without aliasing the outer enum's storage.
+        let inner2: Maybe<i32> = Maybe::Just(99i32);
+        match inner2 { Maybe::Just(x) => { if x != 99i32 { return 10; } } Maybe::Nothing => { return 23; } }
+    }
+
+    // @rule mono.mangle.const-arg-value
+    // A const-generic argument mangles its value: distinct values yield distinct
+    // instances, each returning its own N.
+    {
+        if cap_of::<8i64>() != 8i64 { return 11; }
+        if cap_of::<64i64>() != 64i64 { return 12; }
+    }
+
+    // @rule mono.mangle.owning-vs-borrowed-dyn
+    // Box<dyn Sayer> is an OWNING trait object (mangled owndyn_) kept distinct
+    // from a borrowed &dyn; the owning form runs element drop. Constructing then
+    // dropping a Box<dyn Sayer> must invoke Speaker::drop exactly once.
+    {
+        let mut hits: i64 = 0i64;
+        {
+            let b: Box<dyn Sayer> = box_new(Speaker { v: 5i64, slot: &mut hits }) as Box<dyn Sayer>;
+            if b.say() != 5i64 { return 13; }
+        } // b dropped here -> owning dyn drop -> Speaker::drop runs once
+        if hits != 1i64 { return 14; }
+    }
+
+    // @rule mono.method-inst.overload-name-match
+    // Two distinct methods on a generic struct are each instantiated as their
+    // own overload, keeping their own signatures.
+    {
+        let o: Ov<i64> = Ov::<i64> { v: 9i64 };
+        if o.get() != 9i64 { return 15; }
+        if o.get_i(3i64) != 3i64 { return 16; }
+    }
+
+    // @rule mono.method-inst.skip-method-tparams
+    // `fn map<U>` carries a type-param beyond the struct's own; the struct-driven
+    // path does not instantiate it — it is bound only by a call site supplying U
+    // (here via inference). The call must compute for two distinct U.
+    {
+        let h: Holder<i64> = Holder::<i64> { v: 0i64 };
+        if h.map::<i64>(77i64) != 77i64 { return 17; }
+        if h.map::<bool>(true) != true { return 18; }
+    }
+
+    // @rule mono.method-inst.positional-tparam-bind
+    // Concrete struct type-args bind to the struct's type-params left-to-right by
+    // position; a variadic type-param absorbs all trailing args as one pack. Eq
+    // on a 5-tuple uses the variadic-pack impl: a truncated pack would miss the
+    // differing index 2.
+    {
+        let a: (i64, i64, i64, i64, i64) = (1i64, 2i64, 3i64, 4i64, 5i64);
+        let b: (i64, i64, i64, i64, i64) = (1i64, 2i64, 3i64, 4i64, 5i64);
+        let c: (i64, i64, i64, i64, i64) = (1i64, 2i64, 9i64, 4i64, 5i64);
+        if !(a == b) { return 19; }   // all five compared equal
+        if a == c { return 20; }      // pack reached index 2 => not equal
+    }
+
+    // @rule mono.method-inst.impl-target-applicability
+    // The method's impl `impl<T: Unpin> Pin<&T>` has a structured target; its
+    // args unify against the concrete Pin<&i64> (T := i64), merging the impl
+    // binding so Pin::new / into_inner apply to this instantiation.
+    {
+        let x: i64 = 88i64;
+        let p: Pin<&i64> = Pin::new(&x);
+        let r: &i64 = p.into_inner();
+        if *r != 88i64 { return 21; }
+    }
+
+    // @rule mono.unify.collect-pattern-typevars-first-order
+    // The free TypeVar of the impl-target pattern Pin<&T> is recovered (T) so a
+    // call's type-arg binds even though Pin::new's own type-param list is empty;
+    // demonstrated by Pin::new succeeding for a concrete T above and here.
+    {
+        let y: i64 = 12i64;
+        let p2: Pin<&i64> = Pin::new(&y);
+        if *p2.into_inner() != 12i64 { return 22; }
+    }
+
+    return 0;
+}

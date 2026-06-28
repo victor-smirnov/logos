@@ -1,0 +1,14 @@
+// @rule expr.method.arity-check
+package expr_diag_3_arity;
+
+trait Adder {
+    fn add(&self, a: i32) -> i32;
+}
+
+fn use_it<T: Adder>(t: &T) -> i32 {
+    return t.add(2i32, 3i32);
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

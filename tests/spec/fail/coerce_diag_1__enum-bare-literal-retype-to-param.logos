@@ -1,0 +1,8 @@
+// @rule coerce.enum.bare-literal-retype-to-param
+package coerce_diag_1_enum_bare_literal_retype_to_param;
+
+fn wants_opt(_o: Option<i32>) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    return wants_opt(Result::Ok(5i32));
+}

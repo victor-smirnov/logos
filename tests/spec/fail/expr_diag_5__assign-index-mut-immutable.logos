@@ -1,0 +1,21 @@
+// @rule expr.assign.index-mut-desugar
+package expr_diag_5_assign_index_mut_immutable;
+
+use logos.lang.ops;
+
+struct Holder { v: i32 }
+
+impl Index<i32> for Holder {
+    type Output = i32;
+    fn index(&self, _i: i32) -> &i32 { return &self.v; }
+}
+
+impl IndexMut<i32> for Holder {
+    fn index_mut(&mut self, _i: i32) -> &mut i32 { return &mut self.v; }
+}
+
+fn main() -> i32 {
+    let h: Holder = Holder { v: 0i32 };
+    h[0i32] = 5i32;
+    return 0i32;
+}

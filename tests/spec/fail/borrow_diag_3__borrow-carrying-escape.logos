@@ -1,0 +1,14 @@
+// @rule borrow.escape.borrow-carrying-value
+package borrow_diag_3_borrow_carrying_escape;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+
+fn make() -> WAny {
+    let h: Writ = writ_new(64i64);
+    let nested: &mut WArray<WAny> = h.array(2i64);
+    nested.push(WAny::from(99i64));
+    return WAny::from(&*nested);
+}
+
+fn main() -> i32 { return 0i32; }

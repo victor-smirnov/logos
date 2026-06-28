@@ -1,0 +1,7 @@
+// @rule expr.arr-fill.size-sizeof-pack
+package expr_diag_3_arr_fill_sizeof;
+
+fn main() -> i32 {
+    let _a = [7i32; sizeof...(P)];
+    return 0i32;
+}

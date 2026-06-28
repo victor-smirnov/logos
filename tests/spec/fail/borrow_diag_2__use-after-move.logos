@@ -1,0 +1,9 @@
+// @rule borrow.var-ref.use-after-move
+package borrow_diag_2_use_after_move;
+use logos.mem.string;
+fn consume(s: String) -> i64 { s.len() as i64 }
+fn main() -> i32 {
+    let s: String = String::from("hi");
+    consume(s);
+    return consume(s) as i32;
+}

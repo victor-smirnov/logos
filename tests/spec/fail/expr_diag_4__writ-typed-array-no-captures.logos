@@ -1,0 +1,13 @@
+// @rule expr.writ.typed-array-no-captures
+package expr_diag_4_writ_typed_array_no_captures;
+
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let x: i32 = 5;
+    let arr: Rc<Writ> = @<I32>[$x, 2, 3];
+    return 0;
+}

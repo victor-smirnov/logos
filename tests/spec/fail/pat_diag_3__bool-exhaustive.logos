@@ -1,0 +1,9 @@
+// @rule pat.match.bool-exhaustive
+package pat_diag_3_bool_exhaustive;
+
+fn main() -> i32 {
+    let b: bool = true;
+    match b {
+        true => { return 1i32; }
+    }
+}

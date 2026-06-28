@@ -1,0 +1,1 @@
+type_apply(name: &[u8], args: [Type; N]) requires exactly 2 arguments

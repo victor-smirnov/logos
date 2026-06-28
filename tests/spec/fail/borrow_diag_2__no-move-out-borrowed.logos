@@ -1,0 +1,6 @@
+// @rule borrow.move.no-move-out-of-borrowed-place
+package borrow_diag_2_no_move_out_borrowed;
+use logos.mem.string;
+struct S { name: String }
+fn f(r: &S) -> String { return r.name; }
+fn main() -> i32 { let _ = f; 0i32 }

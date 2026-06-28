@@ -1,0 +1,10 @@
+// @rule borrow.scoped.call-result-aliases-ref-args
+package borrow_diag_2_call_result_aliases_args;
+fn pick<'a>(a: &'a i32, b: &'a i32) -> &'a i32 { a }
+fn main() -> i32 {
+    let mut a: i32 = 1i32;
+    let b: i32 = 2i32;
+    let r: &i32 = pick(&a, &b);
+    a = 9i32;
+    return *r + a;
+}

@@ -1,0 +1,7 @@
+// @rule coerce.slice.exact-scalar-no-mut-widen
+package coerce_diag_1_slice_exact_scalar_no_mut_widen;
+
+fn main() -> i32 {
+    let _s: &[i64] = &[1i32, 2i32, 3i32];
+    return 0i32;
+}

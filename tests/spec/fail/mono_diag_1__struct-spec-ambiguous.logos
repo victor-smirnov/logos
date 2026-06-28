@@ -1,0 +1,22 @@
+// @rule mono.struct-spec.ambiguous-error
+package mono_diag_1_struct_spec_ambiguous;
+
+// Two partial specializations of Pair<K,V> on the SAME position (K=i32) with
+// an unconstrained second param. Both match Pair<i32, i32> with the identical
+// specificity vector [100, 0] — no strict winner → ambiguous.
+#[datatype] pub struct Pair<K, V> {
+    pub a: u64,
+}
+
+#[datatype] pub struct Pair<i32, V> {
+    pub b: u64,
+}
+
+#[datatype] pub struct Pair<i32, W> {
+    pub b: u64,
+}
+
+unsafe fn main() -> i32 {
+    let p: Pair<i32, i32> = Pair::<i32, i32> { b: 0 as u64 };
+    return 0;
+}

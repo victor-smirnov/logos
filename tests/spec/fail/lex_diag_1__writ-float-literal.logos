@@ -1,0 +1,10 @@
+// @rule lex.writ.float-literal
+package lex_diag_1_writ_float_literal;
+
+fn main() -> i32 {
+    // The lexer accepts `1.5_` as a FLOAT token (dot followed by a digit),
+    // but the fractional digit group ends with a `_` separator, which the
+    // float-literal format rule forbids.
+    let _x: f64 = 1.5_;
+    return 0i32;
+}

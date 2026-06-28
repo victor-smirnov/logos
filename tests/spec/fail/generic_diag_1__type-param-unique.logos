@@ -1,0 +1,8 @@
+// @rule generic.fn.type-param-unique
+package generic_diag_1_type_param_unique;
+
+fn g<T, T>(x: T) {}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+// @rule stmt.assign.undefined-var
+package stmt_diag_2_assign_undefined;
+
+fn main() -> i32 {
+    y = 5i32;
+    return 0i32;
+}

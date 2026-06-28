@@ -1,0 +1,210 @@
+package generic_1;
+
+// ── helper traits / types ───────────────────────────────────────────────────
+
+trait Show2 { fn sh(&self) -> i64; }
+impl Show2 for i64 { fn sh(&self) -> i64 { return *self; } }
+
+trait Animal { fn legs(&self) -> i64; }
+struct Concrete { x: i64 }
+impl Animal for Concrete { fn legs(&self) -> i64 { return self.x; } }
+
+// associated-type carrier
+trait Iter2 { type Item; fn next2(&self) -> Self::Item; }
+struct Counter { v: i64 }
+impl Iter2 for Counter { type Item = i64; fn next2(&self) -> i64 { return self.v; } }
+
+// trait with a lifetime type-arg (record-only at a bound)
+trait Foo<'a> { fn foo(&self) -> i64; }
+impl<'a> Foo<'a> for Concrete { fn foo(&self) -> i64 { return self.x; } }
+
+// container trait with a generic associated type, for a projection where-clause
+trait Cont { type Item<U>; }
+struct MyC {}
+impl Cont for MyC { type Item<U> = i64; }
+
+// ── generic fns exercising bound / param forms ──────────────────────────────
+
+// variadic pack: sizeof...(T) and expansion `args...`
+fn count<T...>(args: T...) -> i64 { return sizeof...(T) as i64; }
+fn sum3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+fn fwd<T...>(args: T...) -> i64 { return sum3(args...); }
+
+// implicit Sized on a plain param
+fn ident<T>(x: T) -> T { return x; }
+
+// Fn-family parenthesized bound form
+fn call<F: FnOnce(i64, i64) -> bool>(f: F, a: i64, b: i64) -> bool { return f(a, b); }
+
+// higher-ranked lifetime binder on a bound
+fn hr<F: for<'a> Fn(&'a i64) -> i64>(f: F, x: i64) -> i64 { return f(&x); }
+
+// associated-type equality on a bound
+fn next_of<I: Iter2<Item = i64>>(i: I) -> i64 { return i.next2(); }
+
+// lifetime arg at a bound's type-arg position
+fn use_foo<'a, T: Foo<'a>>(t: T) -> i64 { return t.foo(); }
+
+// const generic parameter
+fn nval<const N: usize>() -> i64 { return N as i64; }
+
+// type-outlives bound
+fn outlives<T: 'static>(x: T) -> T { return x; }
+
+// where-clause merged with inline + sibling type-param in scope at bound args
+fn whereform<F, T>(f: F, a: T, b: T) -> bool where F: FnOnce(T, T) -> bool { return f(a, b); }
+
+// where with a concrete subject (trivially-checked obligation, introduces no param)
+fn concsub<T>(x: T) -> i64 where i64: Show2, T: Show2 { return x.sh(); }
+
+// where &T: Trait  and  where &mut T: Trait (ref-receiver-flagged)
+fn refsub<T>(x: &T) -> i64 where T: Show2 { return x.sh(); }
+fn mutsub<T>(x: &mut T) -> i64 where T: Show2 { return x.sh(); }
+
+// where with associated-type-projection subject (parse-and-skip, not enforced)
+fn proj<C: Cont, T>(c: C, x: i64) -> i64 where C::Item<T>: Show2 { return x; }
+
+// lifetime-outlives clause on a lifetime parameter
+fn lifeout<'long, 'a>(x: &'long i64) -> i64 where 'long: 'a { return *x; }
+
+// ── generic structs (field rules) ───────────────────────────────────────────
+
+// default type argument
+struct Wrap<T = i64> { v: T }
+
+// field substitution incl a lifetime-parameterized reference field
+struct RefField<'z, T> { r: &'z T }
+
+// variadic field with a non-variadic prefix param (start-of-pack offset = 1)
+struct Mixed<H, T...> { head: H, tail...: T }
+
+// full specialization whose field list differs from the base template
+struct Spec<T> { base: T }
+struct Spec<i64> { spec: i64 }
+
+// ?Sized holder so the tail may be a genuine DST (dyn)
+struct Holder<T: ?Sized> { tag: i32, t: T }
+
+fn main() -> i64 {
+
+    // @rule expr.pack.sizeof-and-expand
+    // `sizeof...(T)` is the pack length; `args...` expands the pack as call args.
+    if count(1i64, 2i64, 3i64) != 3i64 { return 1; }
+    // @rule expr.pack.sizeof-and-expand
+    if fwd(10i64, 20i64, 30i64) != 60i64 { return 2; }
+
+    // @rule generic.param.implicit-sized
+    // A plain `<T>` carries an implicit Sized bound and accepts a sized value;
+    // a `?Sized` param clears it so a genuine DST (dyn tail) is allowed.
+    if ident(5i64) != 5i64 { return 3; }
+    {
+        let h: Holder<Concrete> = Holder { tag: 9i32, t: Concrete { x: 21i64 } };
+        // @rule generic.param.implicit-sized
+        if h.t.legs() != 21i64 { return 4; }
+        let hd: &Holder<dyn Animal> = &h as &Holder<dyn Animal>;
+        unsafe {
+            // @rule generic.param.implicit-sized
+            if hd.t.legs() != 21i64 { return 5; }
+        }
+    }
+
+    // @rule generic.bound.fn-family-paren-form
+    // `F: FnOnce(i64, i64) -> bool` supplies arg/return types via the paren form.
+    if !call(|a: i64, b: i64| -> bool { return a < b; }, 1i64, 2i64) { return 6; }
+
+    // @rule generic.bound.hrtb-binder
+    // `for<'a> Fn(&'a i64) -> i64` binds 'a higher-rank on the bound.
+    if hr(|r: &i64| -> i64 { return *r + 1i64; }, 4i64) != 5i64 { return 7; }
+
+    // @rule generic.bound.assoc-eq
+    // `Iter2<Item = i64>` pins the associated type by equality on the bound.
+    if next_of(Counter { v: 9i64 }) != 9i64 { return 8; }
+
+    // @rule generic.bound.lifetime-arg-not-structural
+    // A lifetime at the bound's type-arg position (`Foo<'a>`) is recorded only;
+    // dispatch still resolves through the concrete impl.
+    if use_foo(Concrete { x: 13i64 }) != 13i64 { return 9; }
+
+    // @rule generic.param.const-generic
+    // `const N: usize` carries a const value usable in the body.
+    if nval::<5>() != 5i64 { return 10; }
+
+    // @rule generic.param.default-type-arg
+    // `Wrap<T = i64>` substitutes the default when the arg is omitted.
+    {
+        let w: Wrap = Wrap { v: 42i64 };
+        if w.v != 42i64 { return 11; }
+    }
+
+    // @rule generic.bound.type-outlives
+    // `T: 'static` records an outlives bound; the value passes through.
+    if outlives(7i64) != 7i64 { return 12; }
+
+    // @rule generic.where.merged-with-inline
+    // @rule generic.param.sibling-in-scope
+    // A `where F: FnOnce(T, T) -> bool` clause merges onto F identically to the
+    // inline form, and the sibling T is in scope when resolving the bound args.
+    if !whereform(|a: i64, b: i64| -> bool { return a == b; }, 3i64, 3i64) { return 13; }
+
+    // @rule generic.where.concrete-subject-obligation
+    // `where i64: Show2` is a trivially-checked obligation; it introduces no
+    // new type parameter and the call still dispatches on T.
+    if concsub(5i64) != 5i64 { return 14; }
+
+    // @rule generic.where.ref-subject
+    // `where &T: Show2` / `where &mut T: Show2` record on T for the matching
+    // reference receiver.
+    {
+        let n: i64 = 7i64;
+        if refsub(&n) != 7i64 { return 15; }
+        let mut m: i64 = 8i64;
+        // @rule generic.where.ref-subject
+        if mutsub(&mut m) != 8i64 { return 16; }
+    }
+
+    // @rule generic.where.projection-subject-skipped
+    // `where C::Item<T>: Show2` (projection subject) parses and is skipped, so
+    // the call type-checks and runs.
+    if proj::<MyC, bool>(MyC {}, 17i64) != 17i64 { return 18; }
+
+    // @rule generic.bound.lifetime-outlives-clause
+    // `'long: 'a` on a lifetime parameter is accepted and the borrow is valid.
+    {
+        let v: i64 = 19i64;
+        if lifeout(&v) != 19i64 { return 19; }
+    }
+
+    // @rule generic.field.spec-overrides-base
+    // `Spec<i64>` resolves its field list from the matching specialization
+    // (field `spec`), not the base template (field `base`).
+    {
+        let a: Spec<bool> = Spec { base: true };
+        if !a.base { return 20; }
+        let b: Spec<i64> = Spec { spec: 42i64 };
+        // @rule generic.field.spec-overrides-base
+        if b.spec != 42i64 { return 21; }
+    }
+
+    // @rule generic.field.subst
+    // A `&'z T` field substitutes T positionally and resolves the lifetime to
+    // the caller's borrow.
+    {
+        let n: i64 = 99i64;
+        let rf: RefField<i64> = RefField { r: &n };
+        if *rf.r != 99i64 { return 22; }
+    }
+
+    // @rule generic.field.variadic-expansion
+    // `tail...: T` with a non-variadic prefix H expands to tail_0, tail_1, …
+    // where tail_<idx> resolves to the type-arg at (preceding-non-variadic + idx).
+    {
+        let m: Mixed<i32, i64, bool> = Mixed { head: 7i32, tail_0: 55i64, tail_1: true };
+        if (m.head as i64) != 7i64 { return 23; }
+        // @rule generic.field.variadic-expansion
+        if m.tail_0 != 55i64 { return 24; }
+        // @rule generic.field.variadic-expansion
+        if !m.tail_1 { return 25; }
+    }
+
+    return 0;
+}

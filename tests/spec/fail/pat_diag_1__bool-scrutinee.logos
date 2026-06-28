@@ -1,0 +1,10 @@
+// @rule pat.bool.scrutinee-bool
+package pat_diag_1_bool_scrut;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    match x {
+        true => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

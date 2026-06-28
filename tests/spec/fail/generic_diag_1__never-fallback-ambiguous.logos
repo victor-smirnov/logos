@@ -1,0 +1,11 @@
+// @rule generic.infer.never-fallback
+package generic_diag_1_never_fallback_ambiguous;
+
+// Body does NOT diverge, so an unbound return-position type-param T is
+// ambiguous (no `!` fallback) and must be rejected.
+fn pick<T>() -> T { return 0; }
+
+fn main() -> i32 {
+    let _x = pick();
+    return 0i32;
+}

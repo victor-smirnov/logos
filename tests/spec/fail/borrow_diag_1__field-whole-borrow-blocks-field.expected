@@ -1,0 +1,1 @@
+cannot borrow 'x.a': 'x' is already mutably borrowed

@@ -1,0 +1,8 @@
+// @rule item.fn-param.unique-names
+package item_diag_2_param_unique_names;
+
+fn f(x: i32, x: i32) -> i32 {
+    return x;
+}
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,6 @@
+// @rule item.type-alias.no-inferred-rhs
+package item_diag_1_type_alias_inferred;
+
+type T = _;
+
+fn main() -> i32 { return 0i32; }

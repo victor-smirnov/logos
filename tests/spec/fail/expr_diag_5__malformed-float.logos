@@ -1,0 +1,7 @@
+// @rule expr.literal.float-format-and-suffix
+package expr_diag_5_malformed_float;
+
+fn main() -> i32 {
+    let _x = 1.0e;
+    return 0i32;
+}

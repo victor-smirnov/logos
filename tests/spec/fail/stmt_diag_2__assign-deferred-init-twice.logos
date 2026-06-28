@@ -1,0 +1,9 @@
+// @rule stmt.assign.deferred-init-once
+package stmt_diag_2_deferred_init_twice;
+
+fn main() -> i32 {
+    let x: i32;
+    x = 5i32;
+    x = 6i32;
+    return x;
+}

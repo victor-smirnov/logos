@@ -1,0 +1,14 @@
+// @rule mono.subst.depth-limit
+package mono_diag_1_depth_limit;
+
+// Unbounded recursive instantiation: S<T> contains *mut S<S<T>>, so each
+// instantiation demands a deeper one — the monomorphizer caps the chain
+// rather than diverge.
+struct S<T> {
+    val: *mut S<S<T> >,
+}
+
+unsafe fn main() -> i32 {
+    let s: *mut S<i32> = 0 as *mut S<i32>;
+    return 0;
+}

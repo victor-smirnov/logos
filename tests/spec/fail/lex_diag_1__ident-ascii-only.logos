@@ -1,0 +1,7 @@
+// @rule lex.ident.ascii-only
+package lex_diag_1_ident_ascii_only;
+
+fn main() -> i32 {
+    let п = 0i32;
+    return 0i32;
+}

@@ -1,0 +1,251 @@
+// Conformance: metaprog_2 — reflection intrinsics, variadic-tuple intrinsics,
+// metaprogram discovery (derive / metacall splice), annotation literals, and
+// cfg predicates. Each block locks ONE rule by executing it; a violation
+// returns a distinct nonzero code. All pass => return 0.
+package metaprog_2;
+
+use logos.std.compiler.metaprog;
+use logos.mem.writ.tag_system;
+use logos.lang.writ.anyval;
+use logos.lang.cmp;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+use logos.lang.option;
+use logos.mem.collections.vec;
+use logos.lang.ptr;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// --- types for reflection ------------------------------------------------
+
+pub enum Empty { }
+pub enum Color { Red, Green, Blue, }
+pub enum Mixed { Tag, Pair(i32, bool), Triple(u8, u8, i64), }
+
+// --- derive trigger (rule: derive.trigger-may-emit-items) ----------------
+
+#[derive_partial_eq]
+struct Pt { x: i32, y: i32 }
+
+// --- metacall item-position splice (rule: metacall.item-position-splice) --
+
+fn emit_one() -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let s: str = "Spliced";
+    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let b: QuoteItemBlob = quote_item! {
+        struct #id { v: i32 }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    return out;
+}
+
+metacall emit_one();
+
+// --- annotations (rules: annot.literal-kinds / float-suffix / escapes /
+//                        no-args-bare / type-code-on-struct) --------------
+
+#[annotation]
+#[datatype] struct Meta {
+    n: i32,
+    ratio: f64,
+    label: str,
+}
+
+#[annotation]
+#[datatype] struct Bare { }
+
+#[Meta(n=42, ratio=3.14f64, label="a\tb")]
+#[datatype] struct Tagged { f: i32 }
+
+#[Bare]
+#[datatype] struct Marked { g: i32 }
+
+#[type_code=200]
+#[datatype] struct CodedStruct { pub a: i32 }
+
+// --- type_code on trait + genos propagation
+//     (rule: annot.type-code-on-trait-genos) -----------------------------
+
+pub trait Bag<T> {
+    unsafe fn count(self: *const Self) -> u64;
+}
+
+#[type_code=170]
+pub trait Bag<i32>;
+
+#[datatype] pub struct IntBag { pub n: u64 }
+
+impl Bag<i32> for IntBag {
+    unsafe fn count(self: *const IntBag) -> u64 { return self.n; }
+}
+
+// --- tag_dispatch on trait (rule: annot.tag-dispatch-on-trait) -----------
+
+#[tag_dispatch(WritTagSystem)]
+trait Counted { unsafe fn total(self: *const Self) -> i32; }
+
+#[type_code=181]
+#[datatype] struct TagNode { val: i32 }
+
+impl Counted for TagNode {
+    pub unsafe fn total(self: *const TagNode) -> i32 { return self.val; }
+}
+
+unsafe fn dispatch_node(o: *const u8) -> i32 {
+    let t: &tagged<WritTagSystem> Counted = o;
+    return t.total();
+}
+
+unsafe fn main() -> i32 {
+    // @rule metaprog.type-intrinsic.type-reflection-value
+    // type_of::<T>() yields a Type struct literal whose fields agree with the
+    // standalone intrinsics: size==sizeof, align==align_of, and uid is the
+    // registered identity (same T => same uid, distinct T => distinct uid).
+    let ti: Type = type_of::<i64>();
+    if ti.size != sizeof::<i64>() { return 1; }
+    if ti.align != align_of::<i64>() { return 1; }
+    if ti.size != 8i64 { return 1; }
+    let ti2: Type = type_of::<i64>();
+    if ti.uid != ti2.uid { return 1; }          // same type => same uid
+    let tb: Type = type_of::<bool>();
+    if ti.uid == tb.uid { return 1; }           // distinct types => distinct uid
+    if tb.size != sizeof::<bool>() { return 1; }
+
+    // @rule metaprog.enum-intrinsic.variant-count-of
+    // i64 count of variants; 0 for a non-enum or empty enum.
+    if variant_count_of::<Empty>() != 0i64 { return 2; }
+    if variant_count_of::<Color>() != 3i64 { return 2; }
+    if variant_count_of::<Mixed>() != 3i64 { return 2; }
+    if variant_count_of::<i32>()   != 0i64 { return 2; }
+
+    // @rule metaprog.enum-intrinsic.variant-names-of
+    // array of variant name strings in declaration order.
+    let names = variant_names_of::<Color>();
+    if names[0].len() != 3i64 { return 3; }     // "Red"
+    if names[0][0] != 82u8 { return 3; }        // 'R'
+    if names[1][0] != 71u8 { return 3; }        // 'G' (Green)
+    if names[2][0] != 66u8 { return 3; }        // 'B' (Blue)
+
+    // @rule metaprog.enum-intrinsic.variant-payload-counts-of
+    // per-variant payload arity in declaration order.
+    let counts = variant_payload_counts_of::<Mixed>();
+    if counts[0] != 0i64 { return 4; }          // Tag
+    if counts[1] != 2i64 { return 4; }          // Pair(i32, bool)
+    if counts[2] != 3i64 { return 4; }          // Triple(u8, u8, i64)
+
+    // @rule metaprog.enum-intrinsic.variant-payload-types-flat-of
+    // flattened, declaration-ordered Type values for every payload of every
+    // variant; substituted to concrete types.
+    let pts = variant_payload_types_flat_of::<Mixed>();
+    let d_i32 = type_of::<i32>();
+    let d_bool = type_of::<bool>();
+    let d_u8 = type_of::<u8>();
+    let d_i64 = type_of::<i64>();
+    if pts[0].uid != d_i32.uid  { return 5; }   // Pair.0
+    if pts[1].uid != d_bool.uid { return 5; }   // Pair.1
+    if pts[2].uid != d_u8.uid   { return 5; }   // Triple.0
+    if pts[3].uid != d_u8.uid   { return 5; }   // Triple.1
+    if pts[4].uid != d_i64.uid  { return 5; }   // Triple.2
+
+    // @rule metaprog.variadic.tuple-all-eq
+    // tuple_all_eq::<T>(a,b) on a concrete tuple expands to the && of
+    // per-element eq; equal => true, any element differing => false.
+    let ea: (i32, i32, i32) = (1, 2, 3);
+    let eb: (i32, i32, i32) = (1, 2, 3);
+    let ec: (i32, i32, i32) = (1, 2, 4);
+    if !tuple_all_eq::<(i32, i32, i32)>(&ea, &eb) { return 6; }
+    if  tuple_all_eq::<(i32, i32, i32)>(&ea, &ec) { return 6; }
+
+    // @rule metaprog.variadic.tuple-each-field-debug
+    // The variadic tuple Debug impl interleaves open/sep/close with each
+    // field's Debug; rendering a tuple exercises the expansion end-to-end.
+    let td: (i32, bool, i32) = (7, true, 9);
+    if !str_eq(fmt_debug_to_string::<(i32, bool, i32)>(&td).as_str(), "(7, true, 9)") { return 7; }
+    let t1: (i32,) = (5,);
+    if !str_eq(fmt_debug_to_string::<(i32,)>(&t1).as_str(), "(5,)") { return 7; }
+
+    // @rule metaprog.derive.trigger-may-emit-items
+    // #[derive_partial_eq] on Pt synthesised the eq/ne methods as new items.
+    let p1: Pt = Pt { x: 1i32, y: 2i32 };
+    let p2: Pt = Pt { x: 1i32, y: 2i32 };
+    let p3: Pt = Pt { x: 1i32, y: 9i32 };
+    if !p1.eq(&p2) { return 8; }
+    if  p1.eq(&p3) { return 8; }
+
+    // @rule metaprog.metacall.item-position-splice
+    // `metacall emit_one();` spliced a top-level `struct Spliced { v: i32 }`.
+    let sp: Spliced = Spliced { v: 17i32 };
+    if sp.v != 17i32 { return 9; }
+
+    // @rule metaprog.annot.literal-kinds
+    // Annotation args accept integer and string literals (and others);
+    // get_annotation reconstructs the instance field-by-field.
+    let m: Option<Meta> = get_annotation::<Tagged, Meta>();
+    match m {
+        Option::Some(mm) => {
+            if mm.n != 42i32 { return 10; }     // integer literal arg
+            // @rule metaprog.annot.float-suffix-strip
+            // ratio=3.14f64 strips the f64 suffix before parsing to a double.
+            let diff: f64 = mm.ratio - 3.14f64;
+            if diff > 0.0001f64 { return 12; }
+            if diff < -0.0001f64 { return 12; }
+            // @rule metaprog.annot.string-escapes
+            // label="a\tb" decodes \t to a tab: bytes 'a', 0x09, 'b'.
+            if mm.label.len() != 3i64 { return 13; }
+            if mm.label[0] != 97u8 { return 13; }   // 'a'
+            if mm.label[1] != 9u8  { return 13; }   // '\t'
+            if mm.label[2] != 98u8 { return 13; }   // 'b'
+        }
+        Option::None => { return 10; }
+    }
+
+    // @rule metaprog.annot.no-args-bare
+    // #[Bare] (no args) attaches an instance with an empty argument list;
+    // it is detectable via has_annotation.
+    if !has_annotation::<Marked, Bare>() { return 14; }
+
+    // @rule metaprog.annot.user-annotation-requires-marker
+    // A user annotation only attaches when its NAME is a registered
+    // datatype carrying the annotation marker (Meta/Bare are #[annotation]);
+    // a type without that annotation reports false.
+    if has_annotation::<Marked, Meta>() { return 15; }  // Marked has Bare, not Meta
+
+    // @rule metaprog.annot.type-code-on-struct
+    // #[type_code=200] sets and registers the type's code; type_code_of
+    // resolves it.
+    if type_code_of::<CodedStruct>() != 200u64 { return 16; }
+
+    // @rule metaprog.annot.type-code-on-trait-genos
+    // #[type_code=170] on the Bag<i32> genos specialization propagates to the
+    // #[datatype] struct implementing it.
+    if type_code_of::<IntBag>() != 170u64 { return 17; }
+
+    // @rule metaprog.annot.tag-dispatch-on-trait
+    // #[tag_dispatch(WritTagSystem)] records the trait's tagged-dispatch
+    // system; a tagged ref over that system dispatches to TagNode::total.
+    let buf: *mut u8 = malloc(64i64);
+    let no: *mut u8 = buf.byte_add(16i64);
+    write_tag(no, type_code_of::<TagNode>());
+    let np: *mut TagNode = no as *mut TagNode;
+    np.val = 33i32;
+    if dispatch_node(no as *const u8) != 33i32 { return 18; }
+    free(buf);
+
+    // @rule metaprog.cfg.key-value-predicates
+    // cfg!(key=value) matches target metadata; pointer width 64 holds, 32 not.
+    if !cfg!(target_pointer_width = "64") { return 19; }
+    if  cfg!(target_pointer_width = "32") { return 19; }
+    if  cfg!(bogus_key = "x") { return 19; }            // unknown key => false
+
+    // @rule metaprog.cfg.bare-flag-predicates
+    // cfg!(unix) matches target_family on this host; cfg!(windows) does not;
+    // an unknown bare flag is feature-checked => false.
+    if !cfg!(unix) { return 20; }
+    if  cfg!(windows) { return 20; }
+    if  cfg!(definitely_not_a_feature) { return 20; }
+
+    return 0;
+}

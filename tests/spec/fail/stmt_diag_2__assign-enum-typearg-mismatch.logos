@@ -1,0 +1,10 @@
+// @rule stmt.assign.enum-lit-hint-retype
+package stmt_diag_2_assign_enum_typearg;
+
+enum MyOpt<T> { Some(T), None }
+
+fn main() -> i32 {
+    let mut a: MyOpt<i32> = MyOpt::None;
+    a = MyOpt::<bool>::Some(true);
+    return 0i32;
+}

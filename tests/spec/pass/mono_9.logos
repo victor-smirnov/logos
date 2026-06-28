@@ -1,0 +1,237 @@
+package mono_9;
+
+// Monomorphization substitution + mangling conformance. Each rule is exercised
+// by a generic construct whose only correct value/dispatch depends on mono
+// performing the described substitution or mangling. The internal mechanism is
+// observed via the value/dispatch it produces.
+
+// ── variadic-tuple pack splice: (A...) expands to the bound tuple's elems ────
+// Eq on a tuple uses a variadic-pack impl whose sole pack element `(A...)` must
+// splice in ALL the concrete tuple's element types; a truncated pack would miss
+// a differing late index.
+
+// ── fn-pointer / closure signature substitution ─────────────────────────────
+// A generic fn taking `fn(T) -> U` substitutes the TypeVars in the signature
+// slot; the supplied function pointer must be callable at the concrete type.
+fn apply_fp<T, U>(f: fn(T) -> U, x: T) -> U { return f(x); }
+fn dbl(x: i64) -> i64 { return x + x; }
+fn is_pos(x: i64) -> bool { return x > 0i64; }
+
+// FnItem identity preserved across substitution: a 2-arg fn-ptr slot.
+fn apply2<T, U, V>(f: fn(T, U) -> V, a: T, b: U) -> V { return f(a, b); }
+fn addi(a: i64, b: i64) -> i64 { return a + b; }
+
+// ── associated-type resolution: <Base as Trait>::Name once Base concrete ─────
+trait Carrier { type Item; fn fetch(self: Self) -> Self::Item; }
+struct CI64 { v: i64 }
+struct CBool { v: bool }
+impl Carrier for CI64  { type Item = i64;  fn fetch(self: CI64)  -> i64  { return self.v; } }
+impl Carrier for CBool { type Item = bool; fn fetch(self: CBool) -> bool { return self.v; } }
+// Generic fn whose return type is the associated-type projection T::Item.
+fn pull<T: Carrier>(c: T) -> T::Item { return c.fetch(); }
+
+// ── associated-type blanket fallback: impl<T: Bound> Trait for T ─────────────
+// No direct Tagged impl for Leaf; the blanket impl over T: Base supplies the
+// associated type and its method for every Base-satisfying concrete type.
+trait Base { fn base_val(self: Self) -> i64; }
+trait Tagged { type Tag; fn tag_val(self: Self) -> Self::Tag; }
+struct Leaf { n: i64 }
+impl Base for Leaf { fn base_val(self: Leaf) -> i64 { return self.n; } }
+impl<T: Base> Tagged for T {
+    type Tag = i64;
+    fn tag_val(self: T) -> i64 { return self.base_val() + 1i64; }
+}
+fn pull_tag<T: Tagged>(c: T) -> T::Tag { return c.tag_val(); }
+
+// ── const-array size substitution: [T; N] with symbolic N ───────────────────
+// The parameter type [i64; N] has symbolic size N; substitution binds N to the
+// concrete array length so the in-body loop bound N matches the storage.
+fn arr_sum<const N: i64>(a: [i64; N]) -> i64 {
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < N { s = s + a[i as usize]; i = i + 1i64; }
+    return s;
+}
+
+// ── ptr/ref unsized canonicalize: &[T] (substituting T) is a fat slice ───────
+// A generic fn taking a slice &[T]; substitution canonicalizes to a fat ptr
+// carrying the length, recoverable via .len().
+fn slice_len<T>(s: &[T]) -> i64 { return s.len() as i64; }
+
+// ── concrete-struct-name + recursive type-arg mangling ──────────────────────
+// Distinct instantiations of a generic struct mangle to distinct concrete
+// names (recursively over the type-arg), so they coexist with independent
+// storage / methods.
+struct Wrap<T> { v: T }
+impl<T> Wrap<T> { fn val(self: Wrap<T>) -> T { return self.v; } }
+
+// ── fn-signature mangling key: same base name, distinct param-type signature ─
+// Two impl methods of the same trait-less name disambiguated only by their
+// concrete param type must each reach their own body.
+struct Sig { n: i64 }
+impl Sig {
+    fn take_i64(self: Sig, x: i64) -> i64 { return self.n + x; }
+    fn take_bool(self: Sig, x: bool) -> i64 { if x { return self.n + 100i64; } return self.n; }
+}
+
+// ── impl-target-pattern preserved: generic impl unified vs concrete receiver ─
+// impl<T> Pair<T> { swap } — the impl's self-pattern Pair<T> must unify against
+// the concrete receiver Pair<i64> so T binds to i64 for the body.
+struct Pair<T> { a: T, b: T }
+impl<T: Copy> Pair<T> {
+    fn second(self: Pair<T>) -> T { return self.b; }
+}
+
+// ── method-level generic specialization ─────────────────────────────────────
+// A method with its OWN type param (not bound by the receiver's params) is
+// routed to a monomorphized specialization per concrete method type-arg.
+struct Holder { base: i64 }
+impl Holder {
+    fn combine<U: Copy>(self: Holder, _u: U, k: i64) -> i64 { return self.base + k; }
+}
+
+// ── trait-typearg disambiguation: impl Trait<u64> vs Trait<u8> for one type ──
+trait Conv<T> { fn conv(self: &Self) -> T; }
+struct MultiT { x: u64 }
+impl Conv<u64> for MultiT { fn conv(self: &MultiT) -> u64 { return self.x; } }
+impl Conv<u8>  for MultiT { fn conv(self: &MultiT) -> u8  { return self.x as u8; } }
+fn conv64<T: Conv<u64>>(x: &T) -> u64 { return x.conv(); }
+fn conv8<T: Conv<u8>>(x: &T) -> u8 { return x.conv(); }
+
+// ── trait-qualified-on-collision: two traits, same method name, same type ────
+trait Alpha { fn name(self: Self) -> i64; }
+trait Beta  { fn name(self: Self) -> i64; }
+struct Dup { n: i64 }
+impl Alpha for Dup { fn name(self: Dup) -> i64 { return self.n + 1i64; } }
+impl Beta  for Dup { fn name(self: Dup) -> i64 { return self.n + 2i64; } }
+fn via_alpha<T: Alpha>(x: T) -> i64 { return x.name(); }
+fn via_beta<T: Beta>(x: T) -> i64 { return x.name(); }
+
+fn main() -> i64 {
+
+    // @rule mono.subst.variadic-tuple-splice
+    // @rule mono.subst.tuple-pack-expansion
+    // Eq on a 5-tuple uses a variadic-pack impl; the wrapper pack (A...) splices
+    // in all five element types. A truncated pack would miss the differing index 2.
+    {
+        let a: (i64, i64, i64, i64, i64) = (1i64, 2i64, 3i64, 4i64, 5i64);
+        let b: (i64, i64, i64, i64, i64) = (1i64, 2i64, 3i64, 4i64, 5i64);
+        let c: (i64, i64, i64, i64, i64) = (1i64, 2i64, 9i64, 4i64, 5i64);
+        if !(a == b) { return 1; }   // all five compared equal
+        if a == c { return 2; }      // pack reached index 2 -> not equal
+    }
+
+    // @rule mono.subst.fn-closure-signature
+    // A generic fn taking `fn(T) -> U` substitutes the TypeVars in the signature
+    // slot; the passed fn pointer is callable at the concrete (i64)->i64 type.
+    {
+        if apply_fp::<i64, i64>(dbl, 21i64) != 42i64 { return 3; }
+        if apply_fp::<i64, bool>(is_pos, 5i64) != true { return 4; }   // distinct U
+    }
+
+    // @rule mono.subst.fn-identity-preserved
+    // A 2-param fn-ptr slot preserves its callable kind and substitutes both
+    // parameter and return TypeVars; the FnItem stays callable after substitution.
+    {
+        if apply2::<i64, i64, i64>(addi, 30i64, 12i64) != 42i64 { return 5; }
+    }
+
+    // @rule mono.subst.assoc-type-resolution
+    // @rule mono.subst.assoc-type-projection
+    // T::Item is resolved once Base is the concrete struct: pull binds Item to
+    // each impl's associated type and returns it; two distinct bases coexist.
+    {
+        if pull::<CI64>(CI64 { v: 77i64 }) != 77i64 { return 6; }
+        if pull::<CBool>(CBool { v: true }) != true { return 7; }
+    }
+
+    // @rule mono.subst.assoc-type-blanket-fallback
+    // @rule mono.subst.assoc-type-typevar-blanket
+    // Leaf has no direct Tagged impl; the blanket impl<T: Base> Tagged for T
+    // supplies Tag = i64 and tag_val. The projection T::Tag falls back through
+    // the blanket whose bound (Base) Leaf satisfies.
+    {
+        if pull_tag::<Leaf>(Leaf { n: 10i64 }) != 11i64 { return 8; }
+    }
+
+    // @rule mono.subst.const-array-size
+    // The parameter type [i64; N] has symbolic size N; N substitutes to the
+    // concrete array length, so the loop bound matches and the full sum is read.
+    {
+        if arr_sum([1i64, 2i64, 3i64]) != 6i64 { return 9; }            // N=3
+        if arr_sum([10i64, 20i64, 30i64, 40i64]) != 100i64 { return 10; } // N=4
+    }
+
+    // @rule mono.subst.ptr-ref-unsized-canonicalize
+    // Substituting T inside &[T] canonicalizes to a fat slice carrying the
+    // length; .len() recovers it for distinct element types.
+    {
+        let xs: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+        if slice_len::<i64>(&xs) != 4i64 { return 11; }
+        let bs: [bool; 2] = [true, false];
+        if slice_len::<bool>(&bs) != 2i64 { return 12; }
+    }
+
+    // @rule mono.mangle.concrete-struct-name
+    // @rule mono.mangle.type-args-recursive
+    // Distinct generic-struct instantiations mangle to distinct concrete names
+    // (recursively over the type-arg incl. nested Wrap<Wrap<i64>>); each holds
+    // and returns its own value independently.
+    {
+        let wi: Wrap<i64> = Wrap { v: 5i64 };
+        let wb: Wrap<bool> = Wrap { v: true };
+        let wn: Wrap<Wrap<i64>> = Wrap { v: Wrap { v: 9i64 } };
+        if wi.val() != 5i64 { return 13; }
+        if wb.val() != true { return 14; }
+        if wn.val().val() != 9i64 { return 15; }   // nested recursive mangle round-trips
+    }
+
+    // @rule mono.mangle.fn-signature-key
+    // Two same-receiver methods sharing no name but disambiguated by param type
+    // each reach their own body (the signature key folds the param-type name).
+    {
+        let s: Sig = Sig { n: 1i64 };
+        if s.take_i64(40i64) != 41i64 { return 16; }
+        if s.take_bool(true) != 101i64 { return 17; }
+    }
+
+    // @rule trait.impl-method.impl-target-pattern-preserved
+    // impl<T> Pair<T>::second unifies its self-pattern Pair<T> against the
+    // concrete receiver Pair<i64>, binding T=i64 so the body returns b: i64.
+    {
+        let p: Pair<i64> = Pair { a: 1i64, b: 88i64 };
+        if p.second() != 88i64 { return 18; }
+        let pb: Pair<bool> = Pair { a: false, b: true };  // distinct pattern bind T=bool
+        if pb.second() != true { return 19; }
+    }
+
+    // @rule mono.method.generic-specialization
+    // combine<U> has a method-level type param (not from Holder); with concrete
+    // U it is routed to a monomorphized specialization that still computes.
+    {
+        let h: Holder = Holder { base: 2i64 };
+        if h.combine::<i64>(0i64, 40i64) != 42i64 { return 20; }
+        if h.combine::<bool>(true, 8i64) != 10i64 { return 21; }  // distinct U specialization
+    }
+
+    // @rule mono.mangle.trait-typearg-disambiguation
+    // MultiT implements Conv<u64> and Conv<u8>; the methods are mangled by the
+    // impl's concrete trait type-arg so both coexist and dispatch independently.
+    {
+        let m: MultiT = MultiT { x: 300u64 };
+        if conv64::<MultiT>(&m) != 300u64 { return 22; }
+        if conv8::<MultiT>(&m) != 44u8 { return 23; }   // 300 % 256 == 44
+    }
+
+    // @rule mono.mangle.trait-qualified-on-collision
+    // Dup implements two traits (Alpha, Beta) each defining `name`; the colliding
+    // methods are re-keyed trait-qualified so each dispatch reaches its own body.
+    {
+        let d: Dup = Dup { n: 10i64 };
+        if via_alpha::<Dup>(d) != 11i64 { return 24; }   // Alpha: n+1
+        let d2: Dup = Dup { n: 10i64 };
+        if via_beta::<Dup>(d2) != 12i64 { return 25; }   // Beta: n+2
+    }
+
+    return 0;
+}

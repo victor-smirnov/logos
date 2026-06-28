@@ -1,0 +1,7 @@
+// @rule const.binop.div-by-literal-zero
+package const_diag_1_div_by_literal_zero;
+
+fn main() -> i32 {
+    let x: i32 = 1i32 / 0;
+    return x;
+}

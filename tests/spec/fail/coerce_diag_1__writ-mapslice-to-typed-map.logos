@@ -1,0 +1,12 @@
+// @rule coerce.writ.mapslice-to-typed-map
+package coerce_diag_1_writ_mapslice_to_typed_map;
+
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let arr: [i32; 2] = [1i32, 2i32];
+    let s: &[i32] = &arr;
+    let _ctr: Rc<Writ> = s as <I32, AnyVal>{};
+    return 0i32;
+}

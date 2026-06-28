@@ -1,0 +1,12 @@
+// @rule pat.match.writ-pattern-view-scrutinee
+package pat_diag_3_writ_view_scrutinee;
+
+use logos.lang.writ.pat;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        @null => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

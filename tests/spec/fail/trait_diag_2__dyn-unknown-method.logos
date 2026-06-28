@@ -1,0 +1,18 @@
+// @rule trait.dispatch.dyn-vtable-supertrait
+package trait_diag_2_dyn_unknown_method;
+
+trait Show {
+    fn show(&self) -> i32;
+}
+
+struct S { x: i32 }
+
+impl Show for S {
+    fn show(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let s = S { x: 1i32 };
+    let d: &dyn Show = &s;
+    return d.nonexistent();
+}

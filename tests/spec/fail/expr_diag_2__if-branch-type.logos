@@ -1,0 +1,7 @@
+// @rule expr.if.branch-type-compatible
+package expr_diag_2_if_branch_type;
+
+fn main() -> i32 {
+    let _x = if true { 1i32 } else { false };
+    return 0i32;
+}

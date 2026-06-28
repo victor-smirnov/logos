@@ -1,0 +1,9 @@
+// @rule borrow.dropck.assign-borrow-into-drop-struct
+package borrow_diag_2_dropck_assign_borrow;
+struct Ref<'a> { p: &'a i64 }
+impl<'a> Drop for Ref<'a> { fn drop(self: &mut Ref<'a>) {} }
+fn main() -> i32 {
+    let outer: Ref;
+    { let x: i64 = 7i64; outer = Ref { p: &x }; }
+    return *outer.p as i32;
+}

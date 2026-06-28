@@ -1,0 +1,8 @@
+// @rule metaprog.fn-macro-item.callee-must-be-fn-macro
+package metaprog_diag_1_item_callee_not_fnmacro;
+
+pub fn foo() -> i32 { return 0i32; }
+
+foo!{}
+
+fn main() -> i32 { return 0i32; }

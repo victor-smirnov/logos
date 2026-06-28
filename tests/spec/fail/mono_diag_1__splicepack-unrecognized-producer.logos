@@ -1,0 +1,27 @@
+// @rule mono.subst.splicepack-producer-fold
+package mono_diag_1_splicepack_unrecognized_producer;
+
+use logos.std.compiler.metaprog;
+
+fn leaf<T>() -> u64 {
+    let t: Type = type_of::<T>();
+    return (t.kind as u64) + (1 as u64);
+}
+
+fn sfold() -> u64 { return 1 as u64; }
+fn sfold<H, T...>() -> u64 { return leaf::<H>() ^ sfold::<T...>(); }
+
+pub struct One { pub x: u8, }
+
+// `field_names_of::<T>()` lowers to the `__field_names_of__` producer, which
+// is NOT one of mono's recognized [Type] producers (field_types_of / args_of /
+// type_refs_of / tuple_elems_of / typelist_tail). Splicing it as a type-arg
+// pack drives the unrecognized-producer hard error in the splicepack fold.
+fn fold_names<T>() -> u64 {
+    let fs = field_names_of::<T>();
+    return sfold::<$fs...>();
+}
+
+unsafe fn main() -> i32 {
+    return fold_names::<One>() as i32;
+}

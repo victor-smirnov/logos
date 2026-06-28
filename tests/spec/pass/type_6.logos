@@ -1,0 +1,262 @@
+package type_6;
+
+use logos.mem.boxed;
+use logos.mem.string;
+
+// type alias (for alias-shadowing / resolution-order)
+type MyInt = i64;
+
+// trait object for smart-pointer-dyn-collapse
+trait Speak { fn speak(&self) -> i64; }
+struct Talker { v: i64 }
+impl Speak for Talker { fn speak(&self) -> i64 { return self.v; } }
+fn take_box_dyn(b: Box<dyn Speak>) -> i64 { return b.speak(); }
+
+// ── helper traits / types ────────────────────────────────────────────────────
+
+// bound + supertrait assoc-type lookup
+trait HasId { fn id(&self) -> i64; }
+struct Widget { n: i64 }
+impl HasId for Widget { fn id(&self) -> i64 { return self.n; } }
+
+trait Base { type Item: HasId; }
+trait Derived: Base {}                       // supertrait chain carries Item
+struct Holder {}
+impl Base for Holder { type Item = Widget; }
+impl Derived for Holder {}
+// `B::Item` where B: Derived → Item found via supertrait Base
+fn via_supertrait<B: Derived>(_b: &B, w: B::Item) -> i64 { return w.id(); }
+
+// impl-trait-context: Self::Assoc resolves to the impl's trait
+trait Producer { type Out; fn produce(&self) -> Self::Out; }
+struct Maker { base: i64 }
+impl Producer for Maker {
+    type Out = i64;
+    fn produce(&self) -> Self::Out { return self.base + 1i64; }  // Self::Out → i64
+}
+
+// concrete-impl fallback / eager concrete projection: two Trait<T> impls on one
+// type must resolve to distinct projections, not collapse.
+trait Conv<T> { fn conv(&self) -> T; }
+struct Src { raw: i64 }
+impl Conv<i64> for Src { fn conv(&self) -> i64 { return self.raw; } }
+impl Conv<i32> for Src { fn conv(&self) -> i32 { return self.raw as i32 + 5i32; } }
+fn as_i64<T: Conv<i64>>(s: &T) -> i64 { return s.conv(); }
+fn as_i32<T: Conv<i32>>(s: &T) -> i32 { return s.conv(); }
+
+// equality-bound normalization: T::A normalizes to the bound value
+trait Foo { type A; fn get(&self) -> Self::A; }
+struct FS {}
+impl Foo for FS { type A = i64; fn get(&self) -> i64 { return 7i64; } }
+fn use_eq<T: Foo<A = i64>>(t: &T) -> i64 { return t.get(); }
+
+// default type-args on a generic struct; later default may reference earlier
+struct DefS<T, U = i64> { a: T, b: U }
+// bare struct with all-default params
+struct AllDef<T = i64, U = i32> { x: T, y: U }
+
+// move classification: non-Copy struct vs Copy struct
+struct Movable { v: i64 }                    // no Copy → move type
+struct CopyPt { x: i64, y: i64 }
+impl Copy for CopyPt {}                       // Copy → not a move type
+fn take_copy(p: CopyPt) -> i64 { return p.x + p.y; }
+
+// enum move classification: droppable payload vs C-like
+enum CLike { A, B, C }                         // C-like → non-move
+enum WithBox { Empty, Has(Box<i64>) }          // droppable payload → move
+
+// typevar conservative move: T: Copy ⇒ non-move (usable after by-value)
+fn dup_copy<T: Copy>(x: T) -> i64 where T: HasId2 { return x.idv() + x.idv(); }
+trait HasId2 { fn idv(&self) -> i64; }
+impl Copy for Tag {}
+struct Tag { v: i64 }
+impl HasId2 for Tag { fn idv(&self) -> i64 { return self.v; } }
+
+fn main() -> i64 {
+
+    // @rule type.assoc-ref.bound-and-supertrait-lookup
+    // `B::Item` (B a type-var bounded by Derived) finds its owning trait by
+    // walking the supertrait chain (Derived → Base) which declares Item.
+    {
+        let h: Holder = Holder {};
+        let w: Widget = Widget { n: 11i64 };
+        if via_supertrait::<Holder>(&h, w) != 11i64 { return 1; }
+    }
+
+    // @rule type.assoc-ref.impl-trait-context
+    // Inside `impl Producer for Maker`, `Self::Out` resolves to this impl's
+    // trait's declared assoc binding (i64).
+    {
+        let m: Maker = Maker { base: 20i64 };
+        if m.produce() != 21i64 { return 2; }
+    }
+
+    // @rule type.assoc-ref.concrete-impl-fallback
+    // The owning trait of a projection on a concrete base is found among the
+    // traits that have an impl for that base type (Conv for Src).
+    {
+        let s: Src = Src { raw: 30i64 };
+        if as_i64::<Src>(&s) != 30i64 { return 3; }
+    }
+
+    // @rule type.assoc-ref.eager-concrete-projection
+    // Two `Conv<T>` impls on Src (R=i64 vs R=i32) project independently rather
+    // than collapsing to a single trait-arg-less node.
+    {
+        let s: Src = Src { raw: 40i64 };
+        if as_i64::<Src>(&s) != 40i64 { return 4; }
+        if (as_i32::<Src>(&s) as i64) != 45i64 { return 5; }   // +5, distinct R
+    }
+
+    // @rule type.assoc-ref.deferred-node
+    // A projection over a generic trait carries the trait's type-args so the two
+    // `Conv<T>` instantiations stay distinct end-to-end (i64 vs i32 results).
+    {
+        let s: Src = Src { raw: 50i64 };
+        let a: i64 = as_i64::<Src>(&s);
+        let b: i32 = as_i32::<Src>(&s);
+        if a == (b as i64) { return 6; }                       // 50 != 55 → distinct nodes
+    }
+
+    // @rule type.assoc-ref.equality-bound-normalization
+    // `T: Foo<A = i64>` normalizes the projection T::A directly to i64.
+    {
+        let fs: FS = FS {};
+        if use_eq::<FS>(&fs) != 7i64 { return 7; }
+    }
+
+    // @rule type.generic-inst.default-type-args
+    // `DefS<i32>` ≡ `DefS<i32, i64>`: the trailing param fills from its default.
+    {
+        let d: DefS<i32> = DefS::<i32> { a: 8i32, b: 9i64 };
+        if (d.a as i64) != 8i64 { return 8; }
+        if d.b != 9i64 { return 9; }                            // b is i64 (default)
+    }
+
+    // @rule type.struct.bare-all-default-inst
+    // A bare struct name whose every param has a default resolves to the fully
+    // defaulted instantiation `AllDef<i64, i32>`.
+    {
+        let ad: AllDef = AllDef { x: 10i64, y: 11i32 };
+        if ad.x != 10i64 { return 10; }                         // x is i64 (default)
+        if (ad.y as i64) != 11i64 { return 11; }                // y is i32 (default)
+    }
+
+    // @rule type.primitive.set
+    // Each primitive scalar keyword names a distinct type; values of the float,
+    // signed/unsigned-integer, bool and char primitives round-trip.
+    {
+        let b: bool = true;
+        let c: char = 'A';
+        let f32v: f32 = 1.5f32;
+        let f64v: f64 = 2.5f64;
+        let i8v: i8 = -8i8;
+        let u8v: u8 = 200u8;
+        let u32v: u32 = 0x8000_0001u32;
+        let i64v: i64 = -64i64;
+        if !b { return 12; }
+        if (c as i64) != 65i64 { return 13; }
+        if (f32v as f64) != 1.5f64 { return 14; }
+        if f64v != 2.5f64 { return 15; }
+        if (i8v as i64) != -8i64 { return 16; }
+        if (u8v as i64) != 200i64 { return 17; }
+        if (u32v as i64) != 2147483649i64 { return 18; }
+        if i64v != -64i64 { return 19; }
+    }
+
+    // @rule type.alias.name-shadowing-order
+    // A 0-arg type alias resolves: `MyInt` (alias = i64) is usable as a type and
+    // a value of it round-trips through an i64.
+    {
+        let a: MyInt = 41i64;
+        if a != 41i64 { return 37; }
+    }
+
+    // @rule type.name.resolution-order
+    // Resolution precedence places the primitive keyword above other namespaces:
+    // `i64` here resolves to the built-in primitive and a literal types as it.
+    {
+        let p: i64 = 42i64;
+        if p != 42i64 { return 38; }
+    }
+
+    // @rule type.generic-inst.smart-pointer-dyn-collapse
+    // `Box<dyn Speak>` collapses to an owning fat trait-object {data,vtable};
+    // moving it into a callee and dispatching reaches the concrete impl.
+    {
+        let bd: Box<dyn Speak> = box_new(Talker { v: 39i64 }) as Box<dyn Speak>;
+        if take_box_dyn(bd) != 39i64 { return 39; }
+    }
+
+    // @rule type.generic-inst.box-slice-dst-collapse
+    // `Box<[T]>` collapses to an owning fat slice {data,len}: len() reports N and
+    // the data half is indexable.
+    {
+        let bs: Box<[i64]> = box_new::<[i64; 3]>([40i64, 41i64, 42i64]) as Box<[i64]>;
+        if bs.len() != 3i64 { return 40; }                      // len half = N
+        if bs[2] != 42i64 { return 41; }                        // data half indexable
+    }
+
+    // @rule type.str.default-fat-slice
+    // `str` is the fat-pointer Slice<u8>: it carries a length (the &[u8] shape).
+    {
+        let s: str = "abcd";
+        if s.len() != 4i64 { return 20; }
+    }
+
+    // @rule type.name.lookup-namespaces
+    // Unqualified type-name precedence: an in-scope generic type parameter T
+    // resolves as a type (used for the param, return, and a local), and the
+    // primitive keyword `i64` resolves to the primitive at the call site.
+    {
+        if lookup_param::<i64>(21i64) != 21i64 { return 21; }
+    }
+
+    // @rule type.move.struct-non-copy
+    // A non-Copy struct is a move type: after by-value use the source slot is
+    // gone (we only read the result). A Copy struct survives by-value use.
+    {
+        let mv: Movable = Movable { v: 22i64 };
+        if consume_movable(mv) != 22i64 { return 22; }          // mv moved into callee
+    }
+
+    // @rule type.move.typevar-conservative
+    // T: Copy makes the type-var provably non-move, so `x: T` is usable twice
+    // by value inside a generic body.
+    {
+        let t: Tag = Tag { v: 12i64 };
+        if dup_copy::<Tag>(t) != 24i64 { return 23; }           // x used by value twice
+    }
+
+    // @rule type.move.enum-droppable-payload
+    // A C-like enum is non-move (Copy-like): it can be used by value and still
+    // be read; an enum with a Box payload is a move type that drops its heap box.
+    {
+        let cl: CLike = CLike::B;
+        if clike_tag(cl) != 1i64 { return 24; }                 // C-like passes by value
+        let wb: WithBox = WithBox::Has(box_new(25i64));
+        if withbox_val(wb) != 25i64 { return 25; }              // droppable payload moves+drops
+    }
+
+    // @rule type.move.owning-heap-pointers
+    // An owning `Box<[T]>` slice owns heap data and is a move type (non-Copy);
+    // moving it into a callee transfers ownership and it drops there.
+    {
+        let bs: Box<[i64]> = box_new::<[i64; 3]>([26i64, 27i64, 28i64]) as Box<[i64]>;
+        if take_box_slice(bs) != 26i64 { return 26; }           // moved, dropped in callee
+    }
+
+    return 0;
+}
+
+// in-scope type-param T resolves as a type in param/return/local positions.
+fn lookup_param<T>(x: T) -> T { let y: T = x; return y; }
+
+fn consume_movable(m: Movable) -> i64 { return m.v; }
+fn clike_tag(c: CLike) -> i64 {
+    match c { CLike::A => { return 0i64; } CLike::B => { return 1i64; } CLike::C => { return 2i64; } }
+}
+fn withbox_val(w: WithBox) -> i64 {
+    match w { WithBox::Empty => { return -1i64; } WithBox::Has(b) => { return *b; } }
+}
+fn take_box_slice(b: Box<[i64]>) -> i64 { return b[0]; }

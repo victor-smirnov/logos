@@ -1,0 +1,10 @@
+// @rule pat.char.scalar-as-integer
+package pat_diag_1_char_bad_unicode;
+
+fn main() -> i32 {
+    let c: char = 'a';
+    match c {
+        '\u{D800}' => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

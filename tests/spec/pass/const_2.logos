@@ -1,0 +1,103 @@
+package const_2;
+
+// const_2 — execution-locked conformance for the `const` domain rules.
+// main returns i64; each rule has a marker comment immediately above its
+// assertion(s) and a distinct nonzero exit code on violation; all-pass ⇒ 0.
+
+use logos.lang.str;
+
+// Writ static @-literal + type-literal reification (generic const re-resolve).
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;   // WView2 / wview2_from_ptr
+use logos.lang.writ.anyval;        // WAny
+use logos.std.compiler.metaprog;   // Type / type_from_anyval
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+struct S {}
+impl S { const C: i64 = 17i64; }              // inherent assoc-const
+
+trait HasK { const K: i64; }
+impl HasK for S { const K: i64 = 23i64; }     // trait assoc-const
+
+const NEG: i64 = -5i64;                        // unary-neg fold + literal read
+
+// Parametric WritStatic const: `<type:T>` slot re-resolves per instantiation.
+const TY<T>: WritStatic = @{ "t": <type:T> };
+
+// cfg!-gated item selection (#[cfg] item dropping).
+#[cfg(target_pointer_width = "64")]
+fn picked() -> i64 { return 64i64; }
+#[cfg(not(target_pointer_width = "64"))]
+fn picked() -> i64 { return 32i64; }
+
+// Reify the `<type:T>` slot of a parametric WritStatic back to its Type uid.
+unsafe fn slot_uid<const W: WritStatic>() -> u64 {
+    let v: WView2 = wview2_from_ptr(W.ptr);
+    let inner: WAny = v.map_get(v.root(), "t");
+    let t: Type = type_from_anyval(inner);
+    return t.uid;
+}
+
+// CTFE round-trip targets (value rendered via render_ctfe_lit, then re-parsed).
+fn id_i64(x: i64) -> i64 { return x; }
+fn id_u32(x: u32) -> u32 { return x; }
+fn id_str(x: str) -> str { return x; }
+
+fn main() -> i64 {
+    // @rule const.assoc.inherent-and-trait-assoc-const-access
+    // `Type::NAME` resolves to an associated constant: inherent assoc-consts
+    // (`impl S { const C }`) first, then trait assoc-consts from impls.
+    if S::C != 17i64 { return 1; }      // inherent
+    if S::K != 23i64 { return 2; }      // trait-provided
+
+    // @rule const.intlit.fold-unary-neg
+    // A constant integer reads an integer literal and folds a unary `-` to its
+    // negation. (Block-unwrap subpath is an internal const-int extractor; not
+    // reachable from a valid pass surface — covered by const decl + fold here.)
+    if NEG != -5i64 { return 3; }
+
+    // @rule const.cfg.predicate-evaluation
+    // `cfg!(...)`/`#[cfg(...)]` evaluate at compile time: all/any/not recurse,
+    // built-in keys resolve against target metadata, a false predicate drops
+    // the item.
+    if picked() != 64i64 { return 4; }                                            // #[cfg] item kept
+    if cfg!(target_pointer_width = "64") != true { return 5; }                    // built-in key
+    if cfg!(not(target_pointer_width = "32")) != true { return 6; }              // not(...)
+    if cfg!(any(target_pointer_width = "32", target_pointer_width = "64")) != true { return 7; } // any(...)
+    if cfg!(all(target_pointer_width = "64", target_endian = "little")) != true { return 8; }    // all(...)
+
+    unsafe {
+        // @rule const.generic.per-instantiation-reresolve
+        // `const TY<T>: WritStatic`'s `<type:T>` slot re-resolves to the
+        // concrete type-arg at each use-site, so each instantiation reifies a
+        // distinct concrete-type identity (per-instantiation, not one alias).
+        let ui: u64 = slot_uid::<TY<i32>>();
+        let uj: u64 = slot_uid::<TY<i64>>();
+        if ui == (0 as u64) { return 9; }    // i32 slot resolved to a concrete type
+        if uj == (0 as u64) { return 10; }   // i64 slot resolved to a concrete type
+        if ui == uj { return 11; }           // distinct per-instantiation identity (i32 ≠ i64)
+
+        // @rule const.literal.integer-suffix-by-kind
+        // A rendered integer constant carries a suffix matching its kind, so a
+        // CTFE value of kind i64/u32 round-trips through render + re-parse.
+        if metacall id_i64(5i64) != 5i64 { return 12; }       // i64 suffix
+        if metacall id_u32(7u32) != (7 as u32) { return 13; } // u32 suffix
+
+        // @rule const.literal.string-escapes
+        // A rendered string constant escapes \\ \" \n \r \t and emits other
+        // bytes verbatim, so it round-trips through render + re-parse byte-exact.
+        let s: str = metacall id_str("x\r\\\"z\n\t");
+        let sb = s.as_bytes();
+        if s.len() != 7i64 { return 14; }
+        if sb[0] != 120u8 { return 15; }   // x verbatim
+        if sb[1] != 13u8  { return 16; }   // \r
+        if sb[2] != 92u8  { return 17; }   // \\  (backslash)
+        if sb[3] != 34u8  { return 18; }   // \"  (quote)
+        if sb[4] != 122u8 { return 19; }   // z verbatim
+        if sb[5] != 10u8  { return 20; }   // \n
+        if sb[6] != 9u8   { return 21; }   // \t
+    }
+
+    return 0;
+}

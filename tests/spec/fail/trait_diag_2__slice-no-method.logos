@@ -1,0 +1,17 @@
+// @rule trait.dispatch.slice-impl
+package trait_diag_2_slice_no_method;
+
+trait Foo {
+    fn foo(&self) -> i32;
+}
+
+impl Foo for [i32] {
+    fn foo(&self) -> i32 { return 0i32; }
+}
+
+fn main() -> i32 {
+    let a: [i32; 3] = [1i32, 2i32, 3i32];
+    let s: &[i32] = &a;
+    // Receiver is a slice but no key matches `nonexistent`.
+    return s.nonexistent();
+}

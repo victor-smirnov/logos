@@ -1,0 +1,13 @@
+// @rule pat.variant.scrutinee-enum-match
+package pat_diag_3_scrutinee_enum_match;
+
+enum E { A, B }
+enum F { X, Y }
+
+fn main() -> i32 {
+    let e: E = E::A;
+    match e {
+        F::X => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

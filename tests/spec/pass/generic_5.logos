@@ -1,0 +1,69 @@
+package generic_5;
+
+static SEVEN: i64 = 7;
+
+// generic.variance.meet:
+//   When a parameter appears in several positions, its variance is the MEET
+//   (most-restrictive demand): BiVar ∧ x = x; x ∧ x = x; Co ∧ Contra = Inv;
+//   Inv ∧ x = Inv.  Observable consequence: a lifetime parameter used in two
+//   covariant positions stays covariant (Co ∧ Co = Co), so it can be shortened;
+//   a parameter used in exactly one position keeps that position's variance
+//   (BiVar ∧ Co = Co).
+
+struct Pair<'a> {
+    fst: &'a i64,
+    snd: &'a i64,
+}
+
+// 'a occurs in two `&'a i64` fields, each a Co position. Co ∧ Co = Co, so
+// Pair<'a> is covariant in 'a and a longer 'a may be supplied where a shorter
+// one is wanted. If the meet were anything but Co this shortening would be
+// rejected.
+fn meet_two_co<'short, 'long>(p: Pair<'long>) -> Pair<'short>
+where 'long: 'short {
+    return p;
+}
+
+// 'a occurs in exactly one Co position. BiVar ∧ Co = Co: still covariant.
+struct One<'a> { v: &'a i64 }
+fn meet_one<'short, 'long>(p: One<'long>) -> One<'short>
+where 'long: 'short {
+    return p;
+}
+
+// generic.variance.compose:
+//   For P used at variance `inner` inside Wrapper<P>, where the Wrapper field
+//   sits in a position of variance `outer`, P's effective variance is
+//   outer ∘ inner.  `&T` is covariant (Co), so a `&'b &'a i64` holds the inner
+//   `&'a` in a Co outer position: Co ∘ Co = Co, hence the inner lifetime 'a can
+//   be shortened through the outer reference.  If composition produced Inv (or
+//   anything non-Co) this would be rejected.
+fn compose_co_co<'a, 'b>(p: &'b &'static i64) -> &'b &'a i64 {
+    return p;
+}
+
+fn main() -> i64 {
+    let x: i64 = 7;
+    let y: i64 = 11;
+
+    // @rule generic.variance.meet
+    // This call only type-checks if Pair<'a> is covariant in 'a (Co ∧ Co = Co)
+    // and One<'a> is covariant (BiVar ∧ Co = Co). Then the values flow through.
+    let p = Pair { fst: &x, snd: &y };
+    let p2 = meet_two_co(p);
+    let o = meet_one(One { v: &x });
+    if *p2.fst != 7 { return 11; }
+    if *p2.snd != 11 { return 12; }
+    if *o.v != 7 { return 13; }
+
+    // @rule generic.variance.compose
+    // This call only type-checks if `&` composes covariantly (Co ∘ Co = Co),
+    // allowing the inner 'static lifetime to be narrowed to 'a through the
+    // outer `&'b` reference.
+    let inner: &'static i64 = &SEVEN;
+    let outer: & &'static i64 = &inner;
+    let r = compose_co_co(outer);
+    if **r != 7 { return 21; }
+
+    return 0;
+}

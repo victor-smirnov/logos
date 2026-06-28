@@ -1,0 +1,17 @@
+// @rule trait.blanket.unbound-param-bail
+package trait_diag_2_blanket_unbound_into;
+
+struct A { x: i32 }
+struct B { y: i32 }
+
+impl From<A> for B {
+    fn from(val: A) -> B { return B { y: val.x }; }
+}
+
+fn main() -> i32 {
+    let a = A { x: 1i32 };
+    // No expected-type annotation: the `Into` blanket's destination param
+    // cannot be inferred, so it does not dispatch.
+    let b = a.into();
+    return 0i32;
+}

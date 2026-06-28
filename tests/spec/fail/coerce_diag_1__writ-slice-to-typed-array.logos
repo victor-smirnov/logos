@@ -1,0 +1,13 @@
+// @rule coerce.writ.slice-to-typed-array
+package coerce_diag_1_writ_slice_to_typed_array;
+
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let x: i32 = 5i32;
+    let _ctr: Rc<Writ> = x as <I32>[];
+    return 0i32;
+}

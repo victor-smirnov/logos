@@ -1,0 +1,126 @@
+package trait_8;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// trait_8 — trait RESOLUTION (engine) rules, exercised through observable
+// program behaviour. Most engine invariants (memoization, impl identity,
+// fact invalidation, cycle guards) are internal and cannot produce a runtime
+// value; they are exercised transitively by every dispatch below and reported
+// separately. What is asserted here is the *behaviour* each rule guarantees.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Direct impl facts.
+trait Animal { fn legs(&self) -> i64; }
+struct Dog { l: i64 }
+impl Animal for Dog { fn legs(&self) -> i64 { return self.l; } }
+
+// Two marker bounds + a blanket that AND-conjoins them.
+trait A { fn a(&self) -> i64; }
+trait B { fn b(&self) -> i64; }
+trait Combined { fn c(&self) -> i64; }
+struct Both { v: i64 }
+impl A for Both { fn a(&self) -> i64 { return 10i64; } }
+impl B for Both { fn b(&self) -> i64 { return 20i64; } }
+// blanket with conjunctive bounds: T must satisfy A AND B.
+impl<T: A + B> Combined for T { fn c(&self) -> i64 { return self.a() + self.b(); } }
+
+// Unconditional value blanket: reaches primitives AND structs.
+trait Tag { fn tv(&self) -> i64; }
+impl<T> Tag for T { fn tv(&self) -> i64 { return 7i64; } }
+
+// A unique applicable blanket (single marker) dispatches with no ambiguity.
+trait OnlyA { }
+trait Uniq { fn u(&self) -> i64; }
+struct Marked { }
+impl OnlyA for Marked {}
+impl<T: OnlyA> Uniq for T { fn u(&self) -> i64 { return 55i64; } }
+
+// Auto-trait bounds (Send/Sync) — derived for every (recursively-satisfying) type.
+struct Inner { a: i64 }
+struct Outer { i: Inner, b: i64 }
+fn needs_send<T: Send>(_x: T) -> i64 { return 42i64; }
+fn needs_sync<T: Sync>(_x: T) -> i64 { return 43i64; }
+
+// Shape-conditioned auto: closures satisfy the Fn family with no explicit impl.
+fn apply<F: Fn(i64) -> i64>(f: F, v: i64) -> i64 { return f(v); }
+
+fn main() -> i64 {
+
+    // @rule trait.resolve.direct-impl-fact
+    // `impl Animal for Dog` makes Dog satisfy Animal directly: the method
+    // dispatches to the registered direct impl.
+    {
+        let d: Dog = Dog { l: 4i64 };
+        if d.legs() != 4i64 { return 1; }
+    }
+
+    // @rule trait.resolve.blanket-and-bounds
+    // @rule trait.resolve.blanket-conjunction
+    // A blanket `impl<T: A + B> Combined for T` derives only when T satisfies
+    // ALL bounds (A AND B). `Both` is both, so the blanket method dispatches and
+    // sees both bound methods.
+    {
+        let x: Both = Both { v: 0i64 };
+        if x.c() != 30i64 { return 2; }      // a()=10 + b()=20
+    }
+
+    // @rule trait.blanket.method-dispatch-unique-or-error
+    // A value blanket reaches a PRIMITIVE receiver as well as a STRUCT receiver
+    // (the unconditional blanket applies to every type).
+    {
+        let n: i64 = 5i64;
+        if n.tv() != 7i64 { return 3; }      // primitive receiver via value blanket
+        let s: Both = Both { v: 0i64 };
+        if s.tv() != 7i64 { return 4; }      // struct receiver via the same blanket
+    }
+
+    // @rule trait.resolve.derivation-modes
+    // Each derivation mode resolves a dispatch: (D) direct impl, (B) blanket
+    // whose bound is satisfied, (A) auto-trait bound, (S) shape-auto closure.
+    {
+        let d: Dog = Dog { l: 9i64 };
+        if d.legs() != 9i64 { return 5; }                       // (D) direct
+        let m: Marked = Marked {};
+        if m.u() != 55i64 { return 6; }                         // (B) blanket via OnlyA
+        if needs_send(Dog { l: 0i64 }) != 42i64 { return 7; }   // (A) auto Send
+        let cl = |z: i64| -> i64 { return z + 1i64; };
+        if apply(cl, 3i64) != 4i64 { return 8; }                // (S) shape-auto Fn
+    }
+
+    // @rule trait.resolve.auto-impl-for-all
+    // An auto-trait (Send) holds for an ordinary type with no explicit impl,
+    // satisfying a `T: Send` bound.
+    {
+        if needs_send(99i64) != 42i64 { return 9; }
+        if needs_sync(99i64) != 43i64 { return 10; }
+    }
+
+    // @rule trait.auto.recursive-structural-satisfaction
+    // A struct satisfies an auto trait iff all its fields recursively do:
+    // `Outer{ Inner{i64}, i64 }` is all-Send/Sync, so it satisfies the bounds.
+    {
+        let o: Outer = Outer { i: Inner { a: 1i64 }, b: 2i64 };
+        if needs_send(o) != 42i64 { return 11; }
+        let o2: Outer = Outer { i: Inner { a: 3i64 }, b: 4i64 };
+        if needs_sync(o2) != 43i64 { return 12; }
+    }
+
+    // @rule trait.resolve.shape-conditioned-auto
+    // @rule trait.resolve.shape-auto-predicate-on-typename
+    // A closure type matches the Fn-family shape predicate (no explicit impl) and
+    // so satisfies a `Fn(i64)->i64` bound; the generic param accepts and calls it.
+    {
+        let add5 = |z: i64| -> i64 { return z + 5i64; };
+        if apply(add5, 10i64) != 15i64 { return 13; }
+    }
+
+    // @rule trait.resolve.memoization-stable-result
+    // satisfies(T,X) is a deterministic function of the fact set: re-querying the
+    // same (trait,type) dispatch (here Dog: Animal) yields the same answer.
+    {
+        let d: Dog = Dog { l: 17i64 };
+        if d.legs() != d.legs() { return 14; }
+        if d.legs() != 17i64 { return 15; }
+    }
+
+    return 0;
+}

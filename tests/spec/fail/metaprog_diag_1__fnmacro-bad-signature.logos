@@ -1,0 +1,12 @@
+// @rule metaprog.fn-macro.signature-shapes
+package metaprog_diag_1_fnmacro_bad_signature;
+
+use logos.std.compiler.metaprog;
+
+#[fn_macro]
+pub fn bad(x: i32) -> i32 { return x; }
+
+fn main() -> i32 {
+    let v: i32 = bad!(1);
+    return v;
+}

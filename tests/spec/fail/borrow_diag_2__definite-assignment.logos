@@ -1,0 +1,6 @@
+// @rule borrow.var-ref.definite-assignment
+package borrow_diag_2_definite_assignment;
+fn main() -> i32 {
+    let x: i32;
+    return x;
+}

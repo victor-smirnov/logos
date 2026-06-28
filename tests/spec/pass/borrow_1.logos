@@ -1,0 +1,209 @@
+package borrow_1;
+
+// Conformance test for the `borrow_1` rule group. Each rule below is locked by
+// EXECUTING a program whose observable result only holds if the rule is true.
+//
+// Many borrow-checker rules manifest only as compile-time *rejection* of bad
+// code (a pass test that runs green cannot observe a rejection). Those are
+// reported under "untestable" (class transitive — the positive side is
+// exercised here, the negative side belongs in fail/* tests). The rules below
+// have a runtime-observable *positive* manifestation and are locked here.
+
+// ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// Struct with two independently-droppable fields (for disjoint field capture).
+struct Pair { a: R, b: R }
+
+// A returned borrow of a PARAMETER must be allowed (prov.locals-only-not-params).
+fn pick(x: &i64) -> &i64 { return x; }
+
+// Disjoint &mut of two fields passed to one call (exclusivity.disjoint-field-paths).
+struct Two { x: i64, y: i64 }
+fn add_into(dst: &mut i64, src: &mut i64) { *dst = *dst + *src; }
+
+fn main() -> i64 {
+
+    // @rule borrow.closure.move-owns-non-move-borrows
+    // A `move` closure transfers ownership of its by-value capture into the env;
+    // the OWNED droppable capture is dropped by the closure's env drop glue and
+    // NOT by the original scope — exactly one owner ⇒ Drop runs exactly once.
+    {
+        let mut c: i64 = 0i64;
+        let p: *mut i64 = &mut c;
+        {
+            let o: R = mk(p);
+            let f = move || -> i64 { return o.i as i64; };
+            let _x = f();
+        }
+        if c != 1i64 { return 1; }   // dropped EXACTLY once (single owner)
+    }
+
+    // @rule borrow.closure.mut-scalar-fnmut-state
+    // For a mutated scalar capture: a `move` closure stores a value copy in the
+    // env and reads/writes through the env field (mutation persists across calls
+    // as FnMut state and never touches the outer Copy variable); a non-`move`
+    // closure stores the outer variable's address so mutations escape to it.
+    {
+        let mut counter: i64 = 0i64;
+        let mut tick = move || -> i64 { counter = counter + 1i64; return counter; };
+        let v1: i64 = tick();          // env copy 0→1
+        let v2: i64 = tick();          // env copy 1→2 (state persists)
+        if v1 != 1i64 { return 2; }
+        if v2 != 2i64 { return 3; }
+        if counter != 0i64 { return 4; }  // outer untouched by `move`
+        let mut n: i64 = 0i64;
+        let mut bump = || { n = n + 1i64; };   // non-move: borrows outer
+        bump();
+        bump();
+        if n != 2i64 { return 5; }     // mutation escaped to outer variable
+    }
+
+    // @rule borrow.closure.disjoint-field-capture
+    // An escaping `move` closure with a narrow field capture owns only the leaf
+    // FIELD value inline (that field's Drop runs via env glue) while the original
+    // root still drops the rest. Counters: only the captured leaf is owned by the
+    // closure, the sibling is dropped by the root binding — total Drop count = 2,
+    // and both counters tick exactly once (no double-drop, no leak).
+    {
+        let mut ca: i64 = 0i64;
+        let mut cb: i64 = 0i64;
+        let pa: *mut i64 = &mut ca;
+        let pb: *mut i64 = &mut cb;
+        {
+            let pr: Pair = Pair { a: mk(pa), b: mk(pb) };
+            // captures ONLY pr.a (the leaf), leaving pr.b with the root.
+            let f = move || -> i64 { return pr.a.i as i64; };
+            let _x = f();
+        }
+        if ca != 1i64 { return 6; }   // captured leaf dropped once
+        if cb != 1i64 { return 7; }   // sibling dropped once by the root
+    }
+
+    // @rule borrow.exclusivity.two-phase
+    // A &mut taken as a call argument is reserved during the rest of argument
+    // evaluation and activated at call entry; the reservation does not block a
+    // concurrent shared read of the same place. The classic two-phase pattern
+    // `acc += read(&acc)` reads `&acc` while `&mut acc` is reserved.
+    {
+        let mut acc: i64 = 5i64;
+        acc = acc + *pick(&acc);   // shared &acc read while &mut acc reserved
+        if acc != 10i64 { return 8; }
+    }
+
+    // @rule borrow.exclusivity.disjoint-field-paths
+    // Disjoint field paths of the same value may be borrowed simultaneously, even
+    // mutably: &mut t.x and &mut t.y are taken at once and both mutate.
+    {
+        let mut t: Two = Two { x: 3i64, y: 4i64 };
+        add_into(&mut t.x, &mut t.y);   // two simultaneous &mut of disjoint paths
+        if t.x != 7i64 { return 9; }
+        if t.y != 4i64 { return 10; }
+    }
+
+    // @rule borrow.scope.lexical-and-nll
+    // A bound borrow is released once the holder's last use has passed (NLL): the
+    // shared borrow `rn` is dead after its last read, so a later &mut of the same
+    // place is permitted (and observable).
+    {
+        let mut xn: i64 = 1i64;
+        let rn: &i64 = &xn;
+        let seen: i64 = *rn;           // last use of rn → borrow ends here (NLL)
+        let mn: &mut i64 = &mut xn;    // allowed only because rn is already dead
+        *mn = seen + 40i64;            // write through the now-exclusive borrow
+        if *mn != 41i64 { return 11; }
+    }
+
+    // @rule borrow.scope.borrows-released-at-scope-end
+    // A borrow is held by the scope frame it was taken in; on exit the target's
+    // borrow availability is restored, so a fresh &mut after the inner scope is OK.
+    {
+        let mut xs: i64 = 2i64;
+        { let rs: &i64 = &xs; if *rs != 2i64 { return 12; } }  // borrow released at }
+        let ms: &mut i64 = &mut xs;   // available again post-scope
+        *ms = 99i64;
+        if *ms != 99i64 { return 13; }
+    }
+
+    // @rule borrow.prov.binding-never-borrows-itself
+    // A reborrow `let r2 = &*r;` records r (not r2) as the source; r2 does not
+    // borrow itself, so the reborrow is well-formed and reads the same place.
+    {
+        let v: i64 = 77i64;
+        let r: &i64 = &v;
+        let r2: &i64 = &*r;            // reborrow: source is r, not r2
+        if *r2 != 77i64 { return 14; }
+    }
+
+    // @rule borrow.prov.locals-only-not-params
+    // A borrow of a function PARAMETER does not dangle within the body and may be
+    // returned: `pick` returns its &i64 param, callable and dereferenceable.
+    {
+        let v: i64 = 64i64;
+        let got: &i64 = pick(&v);     // returns a borrow of a param — allowed
+        if *got != 64i64 { return 15; }
+    }
+
+    // @rule borrow.move.path-overlap
+    // Disjoint sibling field paths do not conflict: moving p.a does not move p.b,
+    // so the sibling p.b remains usable after the partial move.
+    {
+        let mut cm: i64 = 0i64;
+        let pm: *mut i64 = &mut cm;
+        let mut cn: i64 = 0i64;
+        let pn: *mut i64 = &mut cn;
+        let pr: Pair = Pair { a: mk(pm), b: mk(pn) };
+        let moved_a: R = pr.a;        // partial move of the `a` leaf only
+        let still_b: R = pr.b;        // sibling `b` still usable (disjoint path)
+        let _ka = moved_a;
+        let _kb = still_b;
+        if false { return 16; }       // compiling+running proves no false conflict
+    }
+
+    // @rule borrow.move.reinit-clears-deeper
+    // Assigning a path re-initializes it (clearing its moved state) so it may be
+    // used again afterward: move x out, then reassign x and read it.
+    {
+        let mut cz0: i64 = 0i64;
+        let mut cz1: i64 = 0i64;
+        let mut xr: R = mk(&mut cz0);
+        let _gone: R = xr;            // xr moved out
+        xr = mk(&mut cz1);            // reassign xr → moved state cleared
+        if (xr.i as i64) == 0i64 { return 17; }  // xr usable again (non-null ptr)
+        let _kx = xr;
+    }
+
+    // @rule borrow.place.raw-ptr-no-borrow
+    // Dereferencing / indexing a raw pointer is an unsafe raw access that creates
+    // NO tracked borrow of the base. A `*mut i64` is itself Copy, so two aliases
+    // of the same storage coexist and deref-writes through them create no tracked
+    // borrow conflict (aliasing safety is the programmer's job under unsafe).
+    {
+        let mut buf: i64 = 0i64;
+        let p1: *mut i64 = &mut buf;  // one address-of; the raw ptr value is Copy
+        let p2: *mut i64 = p1;        // alias by copying the raw ptr — no borrow
+        unsafe {
+            *p1 = 100i64;
+            *p2 = *p2 + 23i64;        // raw deref-write: no tracked borrow of buf
+        }
+        if buf != 123i64 { return 18; }
+    }
+
+    // @rule borrow.scoped.conditional-borrow-all-branches
+    // A reference formed through a control-flow expr takes a scoped borrow on
+    // EVERY branch's place; mutating through the chosen branch's reference works.
+    {
+        let mut a: i64 = 1i64;
+        let mut b: i64 = 2i64;
+        let cond: bool = true;
+        let r: &mut i64 = if cond { &mut a } else { &mut b };
+        *r = *r + 9i64;               // mutates a (the taken branch place)
+        if a != 10i64 { return 19; }
+        if b != 2i64 { return 20; }   // untaken branch place unchanged
+    }
+
+    return 0;
+}

@@ -1,0 +1,7 @@
+// @rule type.antiquot.quote-ty-only
+package type_diag_1_antiquot;
+
+fn main() -> i32 {
+    let _x: $T = 0i32;
+    return 0i32;
+}

@@ -1,0 +1,6 @@
+// @rule item.enum.discriminant-from-other-enum
+package item_diag_1_enum_disc_unknown_enum;
+
+enum E { A = Other::Foo }
+
+fn main() -> i32 { return 0i32; }

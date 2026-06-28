@@ -1,0 +1,12 @@
+// @rule pat.ident.const-nonscalar-unsupported
+package pat_diag_2_ident_const_nonscalar;
+
+const K: f64 = 1.5f64;
+
+fn main() -> i32 {
+    let x: f64 = 1.5f64;
+    match x {
+        K => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

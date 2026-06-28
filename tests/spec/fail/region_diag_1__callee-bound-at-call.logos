@@ -1,0 +1,12 @@
+// @rule region.outlives.callee-bound-checked-at-call
+package region_diag_1_callee_bound_at_call;
+
+fn needs<'a, 'b>(x: &'a i32, y: &'b i32) -> i32 where 'a: 'b {
+    return 0i32;
+}
+
+fn caller<'p, 'q>(p: &'p i32, q: &'q i32) -> i32 {
+    return needs(p, q);
+}
+
+fn main() -> i32 { return 0i32; }

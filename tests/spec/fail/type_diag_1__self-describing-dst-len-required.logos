@@ -1,0 +1,13 @@
+// @rule type.self-describing.dst-len-required
+package type_diag_1_dst_len_required;
+
+use logos.lang.marker;
+
+#[self_describing]
+struct Block { count: i64, tail: [i64] }
+
+impl SelfDescribing for Block {}
+
+fn main() -> i32 {
+    return 0i32;
+}

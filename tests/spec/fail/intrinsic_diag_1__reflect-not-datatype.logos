@@ -1,0 +1,9 @@
+// @rule intrinsic.reflect.datatype
+package reflect_not_dt;
+
+use logos.lang.writ.wstatic;
+
+unsafe fn main() -> i32 {
+    let info: WritStatic = reflect::<i32>();
+    return 0;
+}

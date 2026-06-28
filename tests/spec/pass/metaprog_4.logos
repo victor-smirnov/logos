@@ -1,0 +1,111 @@
+package metaprog_4;
+
+use logos.mem.string;
+use logos.lang.str;
+use logos.std.fmt;
+
+// Module-level consts for the metacall const-resolver rule.
+const THRESHOLD: i64 = 42i64;
+const SCALE: i64 = 3i64;
+const OFFSET: i64 = 7i64;
+
+// Each `format!` lives in its own single-statement helper fn: this bounds the
+// per-function macro-expansion density and keeps each placeholder/spec assertion
+// isolated. Helpers return bool (true = rule held); main maps the first failing
+// rule to a distinct nonzero exit code.
+
+// metaprog.fmt.trait-spec-types — each spec type char selects a distinct
+// formatting trait, rendering the same value differently.
+fn ts_display() -> bool {
+    // @rule metaprog.fmt.trait-spec-types
+    let s: String = format!("{}", 255i64);
+    return s.eq_str("255");
+}
+fn ts_debug() -> bool { let s: String = format!("{:?}", 255i64); return s.eq_str("255"); }
+fn ts_lowerhex() -> bool { let s: String = format!("{:x}", 255u64); return s.eq_str("ff"); }
+fn ts_upperhex() -> bool { let s: String = format!("{:X}", 255u64); return s.eq_str("FF"); }
+fn ts_octal() -> bool { let s: String = format!("{:o}", 8u64); return s.eq_str("10"); }
+fn ts_binary() -> bool { let s: String = format!("{:b}", 10u64); return s.eq_str("1010"); }
+
+// metaprog.fmt.spec-alignment — `<`/`>`/`^` left/right/center within width.
+fn al_left() -> bool {
+    // @rule metaprog.fmt.spec-alignment
+    let s: String = format!("{:<5}", 42i64);
+    return s.eq_str("42   ");
+}
+fn al_right() -> bool { let s: String = format!("{:>5}", 42i64); return s.eq_str("   42"); }
+fn al_center() -> bool { let s: String = format!("{:^6}", 42i64); return s.eq_str("  42  "); }
+
+// metaprog.fmt.spec-fill-and-flags — fill char, `+` sign, `#` prefix, `0` zero-pad.
+fn ff_fill() -> bool {
+    // @rule metaprog.fmt.spec-fill-and-flags
+    let s: String = format!("{:*>5}", 42i64);
+    return s.eq_str("***42");
+}
+fn ff_sign() -> bool { let s: String = format!("{:+}", 42i64); return s.eq_str("+42"); }
+fn ff_alt() -> bool { let s: String = format!("{:#x}", 255i64); return s.eq_str("0xff"); }
+fn ff_zero() -> bool { let s: String = format!("{:05}", 42i64); return s.eq_str("00042"); }
+
+// metaprog.fmt.spec-width-precision — width pads to a minimum; precision truncates a string.
+fn wp_width() -> bool {
+    // @rule metaprog.fmt.spec-width-precision
+    let s: String = format!("{:5}", 42i64);
+    return s.eq_str("   42");
+}
+fn wp_precision() -> bool { let s: String = format!("{:.3}", "hello"); return s.eq_str("hel"); }
+
+// metaprog.fmt.placeholder-arg-selection — positional auto `{}`, explicit index `{N}`.
+fn pa_auto() -> bool {
+    // @rule metaprog.fmt.placeholder-arg-selection
+    let s: String = format!("{}", 1i64);
+    return s.eq_str("1");
+}
+fn pa_explicit() -> bool { let s: String = format!("{1}", 9i64, 8i64); return s.eq_str("8"); }
+
+// metaprog.fmt.string-segmentation — ordered literal/placeholder segments;
+// `{{`/`}}` are literal-text escapes for `{`/`}`.
+fn sg_literal_and_ph() -> bool {
+    // @rule metaprog.fmt.string-segmentation
+    let s: String = format!("v={}", 7i64);
+    return s.eq_str("v=7");
+}
+fn sg_brace_escape() -> bool { let s: String = format!("{{x}}"); return s.eq_str("{x}"); }
+
+fn main() -> i64 {
+    if !ts_display() { return 1; }
+    if !ts_debug() { return 2; }
+    if !ts_lowerhex() { return 3; }
+    if !ts_upperhex() { return 4; }
+    if !ts_octal() { return 5; }
+    if !ts_binary() { return 6; }
+
+    if !al_left() { return 7; }
+    if !al_right() { return 8; }
+    if !al_center() { return 9; }
+
+    if !ff_fill() { return 10; }
+    if !ff_sign() { return 11; }
+    if !ff_alt() { return 12; }
+    if !ff_zero() { return 13; }
+
+    if !wp_width() { return 14; }
+    if !wp_precision() { return 15; }
+
+    if !pa_auto() { return 16; }
+    if !pa_explicit() { return 17; }
+
+    if !sg_literal_and_ph() { return 18; }
+    if !sg_brace_escape() { return 19; }
+
+    // @rule metaprog.metacall.const-resolver
+    // CTFE of a metacall operand resolves a bare identifier naming a
+    // module-level const to its value, so const arithmetic folds.
+    {
+        let a: i64 = metacall { THRESHOLD + 1i64 };
+        if a != 43i64 { return 20; }
+        let b: i64 = metacall { THRESHOLD * SCALE - OFFSET };
+        if b != 119i64 { return 21; }
+    }
+
+    return 0;
+}

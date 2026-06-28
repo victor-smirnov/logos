@@ -1,0 +1,9 @@
+// @rule expr.writ.typed-map-types
+package expr_diag_4_writ_typed_map_types;
+
+use logos.lang.writ.wstatic;
+
+unsafe fn main() -> i32 {
+    let _x: WritStatic = @<I8>{1: 10, 2: 20};
+    return 0i32;
+}

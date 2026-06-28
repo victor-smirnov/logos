@@ -1,0 +1,12 @@
+// @rule trait.copy.register
+package trait_diag_2_copy_unsafe;
+
+struct S {
+    x: i32,
+}
+
+unsafe impl Copy for S {}
+
+fn main() -> i32 {
+    return 0i32;
+}

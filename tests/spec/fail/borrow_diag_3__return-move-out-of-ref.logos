@@ -1,0 +1,10 @@
+// @rule borrow.return.no-move-out-of-ref
+package borrow_diag_3_return_move_out_of_ref;
+
+fn first(s: &[String]) -> String {
+    return s[0i64];
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

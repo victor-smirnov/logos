@@ -1,0 +1,10 @@
+// @rule borrow.move.var-consume
+package borrow_diag_2_var_consume;
+use logos.mem.string;
+fn consume(s: String) -> i64 { s.len() as i64 }
+fn main() -> i32 {
+    let s: String = String::from("a");
+    let _ = consume(s);
+    let _ = consume(s);
+    0i32
+}

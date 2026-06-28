@@ -1,0 +1,6 @@
+// @rule item.fn-param.self-reserved
+package item_diag_2_param_self_reserved;
+
+fn f(self: i32) {}
+
+fn main() -> i32 { return 0i32; }

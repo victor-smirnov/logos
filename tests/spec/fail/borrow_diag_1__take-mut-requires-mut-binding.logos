@@ -1,0 +1,9 @@
+// @rule borrow.take.mut-requires-mut-binding
+package borrow_diag_1_take_mut_requires_mut_binding;
+// &mut x where x is a non-mut binding -> reject.
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: &mut i32 = &mut x;
+    *r = 7i32;
+    return 0i32;
+}

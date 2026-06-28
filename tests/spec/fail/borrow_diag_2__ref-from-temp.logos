@@ -1,0 +1,12 @@
+// @rule borrow.let.ref-from-temp-dangles
+package borrow_diag_2_ref_from_temp;
+extern fn noop(p: *const u8);
+struct Inner { x: i64 }
+struct H { inner: Inner }
+impl Drop for H { fn drop(self: H) { unsafe { noop(0 as *const u8); } } }
+impl H { fn view(&self) -> &Inner { return &self.inner; } }
+fn make() -> H { return H { inner: Inner { x: 7i64 } }; }
+fn main() -> i32 {
+    let v: &Inner = make().view();
+    return v.x as i32;
+}

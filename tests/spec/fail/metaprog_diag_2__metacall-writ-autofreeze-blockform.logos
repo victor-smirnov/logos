@@ -1,0 +1,10 @@
+// @rule metaprog.metacall.writ-autofreeze
+package metaprog_diag_2_metacall_writ_autofreeze_blockform;
+
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+fn main() -> i32 {
+    let v: i32 = metacall { writ_rc(4096) };
+    return 0;
+}

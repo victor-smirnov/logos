@@ -1,0 +1,12 @@
+// @rule expr.method.vec-get-move-out-rejected
+package expr_diag_3_vec_get_move;
+
+use logos.mem.collections.vec;
+use logos.mem.string;
+
+fn main() -> i32 {
+    let mut v: Vec<String> = Vec::<String>::new();
+    v.push(String::from("a"));
+    let _s: String = v.get(0i64);
+    return 0i32;
+}

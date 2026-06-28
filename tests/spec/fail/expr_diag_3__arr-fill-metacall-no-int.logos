@@ -1,0 +1,7 @@
+// @rule expr.arr-fill.size-metacall
+package expr_diag_3_arr_fill_metacall;
+
+fn main() -> i32 {
+    let _a = [7i32; metacall { }];
+    return 0i32;
+}

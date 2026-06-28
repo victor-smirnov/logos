@@ -1,0 +1,9 @@
+// @rule expr.deref.raw-ptr-unsafe
+package expr_diag_3_deref_raw;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let p: *const i32 = &x;
+    let _v: i32 = *p;
+    return 0i32;
+}

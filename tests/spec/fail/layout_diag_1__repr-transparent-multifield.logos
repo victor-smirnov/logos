@@ -1,0 +1,8 @@
+// @rule layout.repr-transparent.inherits-field
+// A #[repr(transparent)] struct must have exactly one field so its layout is
+// identical to that field's; multi-field transparent is rejected at collect time.
+package layout_diag_1_repr_transparent_multifield;
+
+#[repr(transparent)] struct W { a: i32, b: i32 }
+
+fn main() -> i32 { return 0i32; }

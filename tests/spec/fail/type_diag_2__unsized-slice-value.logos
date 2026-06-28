@@ -1,0 +1,7 @@
+package type_diag_2_unsized_slice_value;
+// @rule type.slice.unsized-not-a-value-type
+// Bare `[T]` is unsized: it cannot appear as a value type, only behind a ref.
+
+fn f(x: [i32]) {}
+
+fn main() -> i32 { return 0; }

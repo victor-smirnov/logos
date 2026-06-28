@@ -1,0 +1,21 @@
+// @rule trait.supertrait.declared-bounds
+package trait_diag_3_supertrait_missing_impl;
+
+trait Super {
+    fn s(&self) -> i32;
+}
+
+trait Child: Super {
+    fn c(&self) -> i32;
+}
+
+struct T {}
+
+// impl Child but NOT Super — supertrait bound unsatisfied.
+impl Child for T {
+    fn c(&self) -> i32 { return 1i32; }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

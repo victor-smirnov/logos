@@ -1,0 +1,335 @@
+package pat_8;
+
+use logos.lang.cmp;
+use logos.lang.cmp.Ordering.{Less, Equal, Greater};
+
+// ── helper types ────────────────────────────────────────────────────────────
+
+trait Drop { fn drop(self: &mut Self); }
+
+// A value whose drop bumps a counter through a raw pointer, so drops are
+// observable at runtime.
+struct Tracked { c: *mut i64 }
+impl Drop for Tracked { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
+
+// Move-typed enum carrying a droppable payload.
+enum Box1 { Has(Tracked), Empty }
+
+// Plain payload enums for binding/guard rules.
+enum Opt { None, Some(i64) }
+enum Wrap { W(Opt) }
+
+// Two-payload enum so both or-alternatives bind the same name `k`.
+enum Opt2 { A(i64), B(i64) }
+
+// Tuple-struct (positional fields) for bare-call-form + rest.
+struct TS(i64, i64, i64);
+
+// Tuple-variant for or-distribution / rest.
+enum TV { V(i64, i64, i64), N }
+
+// Generic enum for type-arg substitution.
+enum GBox<T> { Hold(T), Nil }
+
+// Struct for ref-binding / default-by-ref tests.
+struct Pt { x: i64, y: i64 }
+
+// Type alias over a generic enum (alias-peel rule).
+type AOpt = Opt;
+
+// Constructors returning move-typed temporaries (rvalues).
+fn make_has(c: *mut i64) -> Box1 { return Box1::Has(Tracked { c: c }); }
+
+fn main() -> i64 {
+
+    // @rule pat.match.temp-scrutinee-dropped
+    // A move-typed temporary scrutinee (call result) is owned by the match and
+    // dropped on the exit path when no arm moves the payload out.
+    {
+        let mut na: i64 = 0i64;
+        let pa: *mut i64 = &mut na;
+        match make_has(pa) {           // rvalue scrutinee, payload not moved
+            Box1::Has(_) => { }        // `_` does not move the payload
+            Box1::Empty  => { }
+        }
+        if unsafe { *pa } != 1i64 { return 1; }   // temp dropped exactly once
+        // place scrutinee is NOT dropped by the match (owned by its binding)
+        let mut mb: i64 = 0i64;
+        let pb: *mut i64 = &mut mb;
+        let held: Box1 = Box1::Has(Tracked { c: pb });
+        match held {
+            Box1::Has(_) => { }
+            Box1::Empty  => { }
+        }
+        if unsafe { *pb } != 0i64 { return 2; }   // place scrutinee not dropped here
+    }
+
+    // @rule pat.match.whole-value-binding-moves
+    // An unguarded whole-value binding arm `x => ...` over an owned move-type
+    // temporary moves the scrutinee into `x`; it is dropped once (via x), not twice.
+    {
+        let mut nc: i64 = 0i64;
+        let pc: *mut i64 = &mut nc;
+        match make_has(pc) {
+            x => { let _y = x; }       // moves scrutinee into x, dropped once
+        }
+        if unsafe { *pc } != 1i64 { return 3; }
+    }
+
+    // @rule pat.match.arm-bindings-drop
+    // A pattern binding introduced by an arm is dropped before the arm exits via
+    // fall-through (here the moved-out payload is dropped exactly once).
+    {
+        let mut nd: i64 = 0i64;
+        let pd: *mut i64 = &mut nd;
+        match make_has(pd) {
+            Box1::Has(t) => { let _keep = t; }   // payload bound + dropped on exit
+            Box1::Empty  => { }
+        }
+        if unsafe { *pd } != 1i64 { return 4; }
+    }
+
+    // @rule pat.match.tail-vs-stmt-position
+    // An expression-form arm in a tail-position match produces the function value;
+    // in statement position it is evaluated for side effects only.
+    {
+        let got: i64 = match 2i64 {
+            1i64 => 10i64,
+            _    => 20i64,             // tail-position arm yields the match value
+        };
+        if got != 20i64 { return 5; }
+    }
+
+    // @rule pat.or.single-alt-transparent
+    // A pattern with a single alternative (no `|`) behaves exactly as the inner
+    // pattern.
+    {
+        let got: i64 = match 7i64 {
+            5i64 => 0i64,
+            n    => n,                 // single-alt binding == plain binding
+        };
+        if got != 7i64 { return 6; }
+    }
+
+    // @rule pat.let-else.refutable-inner-guards
+    // A let-else with a refutable inner literal tests the inner value in addition
+    // to the variant discriminant.
+    {
+        // matching inner literal: else NOT taken (returns 0); non-matching same-tag
+        // value goes to the else (returns 1) -> proves inner literal is tested.
+        if le_inner(Opt::Some(1i64)) != 0i64 { return 7; }
+        if le_inner(Opt::Some(2i64)) != 1i64 { return 8; }
+    }
+
+    // @rule pat.match.or-fanout-bindings
+    // An or-pattern arm whose alternatives bind a variable is expanded per
+    // alternative; both alternatives bind the same name `k`, and the matching
+    // alternative supplies it.
+    {
+        let o: Opt2 = Opt2::B(9i64);
+        let got: i64 = match o {
+            Opt2::A(k) | Opt2::B(k) => k,   // binding or-pattern fans out per alt
+        };
+        if got != 9i64 { return 9; }
+    }
+
+    // @rule pat.match.variant-payload-or-distribution
+    // A variant payload that is a multi-alternative or-pattern with a binding
+    // alternative is distributed into one arm per alternative.
+    {
+        let o: Opt = Opt::Some(3i64);
+        let got: i64 = match o {
+            Opt::Some(1i64 | 3i64) => 1i64,   // payload-or distributes, 3 matches
+            _ => 0i64,
+        };
+        if got != 1i64 { return 10; }
+    }
+
+    // @rule pat.match.refutable-inner-guard
+    // A refutable inner literal in a variant payload AND-s a value guard onto the
+    // tag test, so the arm matches only when both hold.
+    {
+        let o: Opt = Opt::Some(5i64);
+        let got: i64 = match o {
+            Opt::Some(1i64) => 1i64,   // tag matches but inner value 1 != 5: skip
+            Opt::Some(5i64) => 2i64,   // tag + inner value both hold
+            _               => 0i64,
+        };
+        if got != 2i64 { return 11; }
+    }
+
+    // @rule pat.wildcard.underscore-non-binding
+    // `_` introduces no binding; any other name is a binding.
+    {
+        let got: i64 = match 8i64 {
+            _ => 100i64,               // no binding reserved
+        };
+        if got != 100i64 { return 12; }
+        let got2: i64 = match 8i64 {
+            named => named,            // name binds the value
+        };
+        if got2 != 8i64 { return 13; }
+    }
+
+    // @rule pat.binding.or-alt-shared-slot
+    // Repeated binding names across or-alternatives map to the same slot, so the
+    // value read out of `k` is whichever alternative actually matched; a separate
+    // arm/match allocates an independent slot (no cross-talk).
+    {
+        let o: Opt2 = Opt2::A(20i64);
+        let got: i64 = match o {
+            Opt2::A(k) | Opt2::B(k) => k,   // shared slot reads matched value (A)
+        };
+        if got != 20i64 { return 14; }
+        // independent slot in a fresh match: same name starts clean.
+        let got2: i64 = match 30i64 {
+            k => k,
+        };
+        if got2 != 30i64 { return 15; }
+    }
+
+    // @rule pat.variant.prelude-shorthand
+    // Unqualified `Some`/`None` resolve to Option's variants.
+    {
+        let o: Option<i64> = Option::Some(4i64);
+        let got: i64 = match o {
+            Some(v) => v,              // prelude shorthand, no qualifier
+            None    => 0i64,
+        };
+        if got != 4i64 { return 16; }
+    }
+
+    // @rule pat.variant.use-variant-alias
+    // A bare variant name imported via `use Type.{V, ...}` resolves to its enum
+    // in a pattern position.
+    {
+        let ord: Ordering = Equal;       // bare alias at value position
+        let got: i64 = match ord {
+            Less    => 1i64,
+            Equal   => 2i64,             // bare alias resolves to Ordering::Equal
+            Greater => 3i64,
+        };
+        if got != 2i64 { return 17; }
+    }
+
+    // @rule pat.variant.type-alias-peel
+    // `Alias::V` where `type Alias = Enum` resolves the variant on the enum.
+    {
+        let o: AOpt = Opt::Some(6i64);
+        let got: i64 = match o {
+            AOpt::Some(v) => v,        // alias peeled to Opt::Some
+            AOpt::None    => 0i64,
+        };
+        if got != 6i64 { return 18; }
+    }
+
+    // @rule pat.tuple-struct.bare-call-form
+    // `Foo(p0, p1, ...)` over a tuple-struct destructures positional fields.
+    {
+        let ts: TS = TS(1i64, 2i64, 3i64);
+        let got: i64 = match ts {
+            TS(a, b, c) => a * 100i64 + b * 10i64 + c,   // positional 0,1,2
+        };
+        if got != 123i64 { return 19; }
+    }
+
+    // @rule pat.rest.single-only
+    // A tuple-variant pattern may use one `..`; pre binds low, post binds tail.
+    {
+        let tv: TV = TV::V(7i64, 8i64, 9i64);
+        let got: i64 = match tv {
+            TV::V(first, .., last) => first * 10i64 + last,  // skip middle
+            TV::N                  => 0i64,
+        };
+        if got != 79i64 { return 20; }
+    }
+
+    // @rule pat.ergonomics.deref-scrutinee
+    // A pattern over `&&Enum` peels all ref layers to match the inner enum.
+    {
+        let o: Opt = Opt::Some(11i64);
+        let r1: &Opt = &o;
+        let r2: &&Opt = &r1;
+        let got: i64 = match r2 {
+            Opt::Some(v) => **v,       // both & layers peeled; v: &&i64
+            Opt::None    => 0i64,
+        };
+        if got != 11i64 { return 21; }
+    }
+
+    // @rule pat.binding.default-by-ref-mode
+    // Under a `&` scrutinee a plain payload binding binds by-reference.
+    {
+        let o: Opt = Opt::Some(13i64);
+        let r: &Opt = &o;
+        let got: i64 = match r {
+            Opt::Some(v) => *v,        // v: &i64 (default by-ref under &scrutinee)
+            Opt::None    => 0i64,
+        };
+        if got != 13i64 { return 22; }
+    }
+
+    // @rule pat.binding.explicit-ref-mut
+    // An explicit `ref v` binds by reference even over an owned scrutinee.
+    {
+        let p: Pt = Pt { x: 14i64, y: 0i64 };
+        let got: i64 = match p {
+            Pt { x: ref rx, y: _ } => *rx,   // rx: &i64 to the field place
+        };
+        if got != 14i64 { return 23; }
+    }
+
+    // @rule pat.variant.type-arg-subst
+    // For `GBox<i64>`, the payload binding's type is the substituted T (i64).
+    {
+        let g: GBox<i64> = GBox::Hold(15i64);
+        let got: i64 = match g {
+            GBox::Hold(v) => v + 1i64,   // v: i64 (T substituted), arithmetic ok
+            GBox::Nil     => 0i64,
+        };
+        if got != 16i64 { return 24; }
+    }
+
+    // @rule pat.refutable.nested-variant-guard
+    // A nested variant inner pattern gates the arm with a synthesized inner match.
+    {
+        let w: Wrap = Wrap::W(Opt::Some(17i64));
+        let got: i64 = match w {
+            Wrap::W(Opt::Some(v)) => v,   // nested variant: outer W, inner Some(v)
+            Wrap::W(Opt::None)    => 0i64,
+        };
+        if got != 17i64 { return 25; }
+        let w2: Wrap = Wrap::W(Opt::None);
+        let got2: i64 = match w2 {
+            Wrap::W(Opt::Some(_)) => 1i64,  // nested inner mismatch: skip
+            Wrap::W(Opt::None)    => 2i64,
+        };
+        if got2 != 2i64 { return 26; }
+    }
+
+    // @rule pat.refutable.range-inner-guard
+    // A range inner pattern `V(lo..=hi)` gates the arm with lo <= s <= hi.
+    {
+        let o: Opt = Opt::Some(5i64);
+        let got: i64 = match o {
+            Opt::Some(1i64..=10i64) => 1i64,   // 5 in [1,10]
+            _                       => 0i64,
+        };
+        if got != 1i64 { return 27; }
+        let o2: Opt = Opt::Some(50i64);
+        let got2: i64 = match o2 {
+            Opt::Some(1i64..=10i64) => 1i64,   // 50 out of range: skip
+            _                       => 0i64,
+        };
+        if got2 != 0i64 { return 28; }
+    }
+
+    return 0;
+}
+
+// let-else helper: returns 0 if the refutable inner literal matched (else not
+// taken), 1 if the else branch fired (inner value rejected).
+fn le_inner(o: Opt) -> i64 {
+    let Opt::Some(1i64) = o else { return 1i64; };
+    return 0i64;
+}

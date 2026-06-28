@@ -1,0 +1,7 @@
+// @rule expr.int-lit.malformed
+package expr_diag_1_malformed_int;
+
+fn main() -> i32 {
+    let _x: i64 = 0x;
+    return 0i32;
+}

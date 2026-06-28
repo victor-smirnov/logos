@@ -1,0 +1,8 @@
+// @rule expr.assign.type-mismatch
+package expr_diag_6_assign_type_mismatch;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    x = true;
+    return 0i32;
+}

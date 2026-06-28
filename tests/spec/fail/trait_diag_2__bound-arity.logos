@@ -1,0 +1,13 @@
+// @rule trait.bound.arity
+package trait_diag_2_bound_arity;
+
+trait Conv<U> {
+    fn conv(&self) -> U;
+}
+
+// Conv takes ONE type arg; supplying none is an arity error.
+fn f<T: Conv>(t: T) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    return 0i32;
+}

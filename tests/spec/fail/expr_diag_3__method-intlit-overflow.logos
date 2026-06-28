@@ -1,0 +1,13 @@
+// @rule expr.method.intlit-fits
+package expr_diag_3_intlit_fits;
+
+struct S { x: i32 }
+impl S {
+    fn take(&self, a: u8) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let s: S = S { x: 1i32 };
+    let _v: i32 = s.take(99999);
+    return 0i32;
+}

@@ -1,0 +1,265 @@
+package pat_5;
+
+// ── Helper types ────────────────────────────────────────────────────────────
+
+enum Opt { None, Some(i64) }
+
+enum Two { A(i64, i64), B(i64) }
+
+struct Point { x: i64, y: i64 }
+
+struct Trip { a: i64, b: i64, c: i64 }
+
+// Payload-less variant used to distinguish a constant/variant pattern from a
+// fresh binding (pat.binding.bare-name-vs-variant-or-const).
+enum Color { Red, Green }
+
+fn main() -> i64 {
+
+    // @rule pat.tuple.shape
+    // A `(a, b, ...)` tuple pattern (>=2 elements) destructures positionally,
+    // and a `..` rest may appear at a single position.
+    {
+        let t: (i64, i64, i64) = (1i64, 2i64, 3i64);
+        let sum: i64 = match t { (a, b, c) => a + b + c };
+        if sum != 6i64 { return 1; }
+        let first: i64 = match t { (a, ..) => a };   // `..` rest ignores the tail
+        if first != 1i64 { return 2; }
+        let last: i64 = match t { (.., c) => c };    // `..` rest ignores the head
+        if last != 3i64 { return 3; }
+    }
+
+    // @rule pat.wild.ident
+    // A bare identifier is an irrefutable binding; `_` is the anonymous wildcard.
+    {
+        let n = 9i64;                 // bare identifier binds the value
+        if n != 9i64 { return 4; }
+        let _ = 100i64;               // `_` matches and binds nothing
+        let got = match 7i64 { _ => 5i64 };
+        if got != 5i64 { return 5; }
+    }
+
+    // @rule pat.bind.variant-and-wild-introduce-bindings
+    // A variant-data pattern injects its binding names into scope; a wildcard
+    // pattern binds its name only when the name is non-empty and not `_`.
+    {
+        let o: Opt = Opt::Some(11i64);
+        let got: i64 = match o {
+            Opt::Some(v) => v,        // payload name `v` is in scope here
+            Opt::None    => 0i64,
+        };
+        if got != 11i64 { return 6; }
+        let named = match 4i64 { k => k + 1i64 };  // wildcard name `k` binds
+        if named != 5i64 { return 7; }
+    }
+
+    // @rule pat.literal.string-content-compare
+    // A string-literal pattern compares string CONTENTS (str_eq), not pointers.
+    {
+        // Two distinct String buffers with equal contents must both match.
+        let s1: str = "abc";
+        let got1: i64 = match s1 { "abc" => 1i64, _ => 0i64 };
+        if got1 != 1i64 { return 8; }
+        let got2: i64 = match s1 { "abd" => 1i64, _ => 0i64 };
+        if got2 != 0i64 { return 9; }
+    }
+
+    // @rule pat.match.catchall-classification
+    // An arm with no guard whose pattern is `_` (or named `_`) is an
+    // unconditional catch-all; it fires for any value.
+    {
+        let got: i64 = match 123456i64 {
+            0i64 => 1i64,
+            _    => 2i64,             // catch-all fires for the non-zero value
+        };
+        if got != 2i64 { return 10; }
+    }
+
+    // @rule pat.or.shared-binding-slot
+    // A name bound in multiple or-pattern alternatives resolves to ONE slot.
+    {
+        let o: Two = Two::B(7i64);
+        let got: i64 = match o {
+            Two::A(x, _) | Two::B(x) => x,   // `x` shared across both alts
+        };
+        if got != 7i64 { return 11; }
+        let o2: Two = Two::A(3i64, 9i64);
+        let got2: i64 = match o2 {
+            Two::A(x, _) | Two::B(x) => x,
+        };
+        if got2 != 3i64 { return 12; }
+    }
+
+    // @rule pat.or.payload-distributes-per-alternative
+    // `Some(P | Q)` fans out to `Some(P) | Some(Q)`; a failing guard on one
+    // alternative backtracks to the next.
+    {
+        let o: Opt = Opt::Some(2i64);
+        let got: i64 = match o {
+            Opt::Some(1i64 | 2i64) => 1i64,  // 2 matches the second alternative
+            _                      => 0i64,
+        };
+        if got != 1i64 { return 13; }
+        let o2: Opt = Opt::Some(5i64);
+        let got2: i64 = match o2 {
+            Opt::Some(1i64 | 2i64) => 1i64,
+            _                      => 0i64,
+        };
+        if got2 != 0i64 { return 14; }
+    }
+
+    // @rule pat.match.ast-exhaustiveness-nested-enum-payload
+    // Exhaustiveness for nested enum-payload patterns descends into each
+    // variant's single payload; all of Some(Some)/Some(None)/None are covered.
+    {
+        let v: Opt = Opt::Some(8i64);
+        let outer: Opt = match v {
+            Opt::Some(8i64) => Opt::Some(1i64),
+            Opt::Some(_)    => Opt::Some(0i64),
+            Opt::None       => Opt::None,
+        };
+        let got: i64 = match outer {
+            Opt::Some(n) => n,
+            Opt::None    => 100i64,
+        };
+        if got != 1i64 { return 15; }
+    }
+
+    // @rule pat.binding.ident-or-wildcard
+    // A wildcard pattern is `_`; a named binding pattern is the identifier.
+    {
+        let bound = match 42i64 { z => z };   // identifier binds
+        if bound != 42i64 { return 16; }
+        let ignored = match 42i64 { _ => 7i64 };  // `_` discards
+        if ignored != 7i64 { return 17; }
+    }
+
+    // @rule pat.literal.int-bool-neg
+    // Patterns may be integer literals (optionally negated) or booleans.
+    {
+        let gi: i64 = match -3i64 { -3i64 => 1i64, _ => 0i64 };  // negated int
+        if gi != 1i64 { return 18; }
+        let gb: i64 = match true { true => 1i64, false => 0i64 };
+        if gb != 1i64 { return 19; }
+    }
+
+    // @rule pat.variant.path-and-data
+    // An enum variant pattern is `Enum::Variant` (data-less) or
+    // `Enum::Variant(args)` (with data).
+    {
+        let c: Color = Color::Green;
+        let gc: i64 = match c { Color::Red => 1i64, Color::Green => 2i64 };
+        if gc != 2i64 { return 21; }
+        let o: Opt = Opt::Some(6i64);
+        let go: i64 = match o { Opt::Some(d) => d, Opt::None => 0i64 };
+        if go != 6i64 { return 22; }
+    }
+
+    // @rule pat.tuple.one-elem-trailing-comma
+    // A single-element tuple pattern requires a trailing comma `(p,)`.
+    {
+        let one: (i64,) = (5i64,);
+        let only: i64 = match one { (p,) => p };   // 1-tuple needs trailing comma
+        if only != 5i64 { return 23; }
+    }
+
+    // @rule pat.or.pipe-separated
+    // Alternative patterns are combined with `|`.
+    {
+        let g: i64 = match 2i64 {
+            1i64 | 2i64 | 3i64 => 1i64,   // any of the three matches
+            _                  => 0i64,
+        };
+        if g != 1i64 { return 24; }
+    }
+
+    // @rule pat.range.inclusive-only
+    // A range pattern `lo..=hi` is inclusive; a bound may be negated.
+    {
+        let g: i64 = match 5i64 {
+            1i64..=10i64 => 1i64,   // 5 is within [1,10]
+            _            => 0i64,
+        };
+        if g != 1i64 { return 25; }
+        let edge: i64 = match 10i64 { 1i64..=10i64 => 1i64, _ => 0i64 };  // hi inclusive
+        if edge != 1i64 { return 26; }
+        let neg: i64 = match -2i64 { -5i64..=-1i64 => 1i64, _ => 0i64 };  // negated bounds
+        if neg != 1i64 { return 27; }
+    }
+
+    // @rule pat.rest.dotdot
+    // A rest pattern `..` may appear among tuple subpatterns to ignore the rest.
+    {
+        let t: (i64, i64, i64) = (1i64, 2i64, 3i64);
+        let head: i64 = match t { (h, ..) => h };   // `..` ignores remaining elements
+        if head != 1i64 { return 29; }
+    }
+
+    // @rule pat.struct.field-forms
+    // A struct pattern is `Name { field [: subpat], ..., [..] }`; a field with
+    // no `: subpat` binds by field name; a trailing `..` ignores the rest.
+    {
+        let p: Point = Point { x: 3i64, y: 4i64 };
+        let Point { x: a, y: b } = p;        // explicit field sub-patterns
+        if a != 3i64 { return 30; }
+        if b != 4i64 { return 31; }
+        let tr: Trip = Trip { a: 7i64, b: 8i64, c: 9i64 };
+        let Trip { a, .. } = tr;             // shorthand + trailing `..`
+        if a != 7i64 { return 32; }
+    }
+
+    // @rule pat.bytes.slice-of-int-subpatterns
+    // A byte-string pattern `b"..."` is a slice of N integer sub-patterns,
+    // an exact (fixed-length) match.
+    {
+        let arr: [u8; 3] = [102u8, 111u8, 111u8];   // "foo"
+        let g: i64 = match arr {
+            b"foo" => 1i64,
+            _      => 0i64,
+        };
+        if g != 1i64 { return 33; }
+        let arr2: [u8; 3] = [98u8, 97u8, 114u8];     // "bar"
+        let g2: i64 = match arr2 {
+            b"foo" => 1i64,
+            _      => 0i64,
+        };
+        if g2 != 0i64 { return 34; }
+    }
+
+    // @rule pat.or.nested-descends-first-alt
+    // Collecting bindings of a pattern with a nested or-pattern uses the first
+    // alternative; both alternatives bind the same name `x`.
+    {
+        let o: Two = Two::A(40i64, 0i64);
+        let got: i64 = match o {
+            Two::A(x, _) | Two::B(x) => x + 2i64,   // `x` collected from first alt
+        };
+        if got != 42i64 { return 35; }
+    }
+
+    // @rule pat.binding.bare-name-vs-variant-or-const
+    // A bare identifier naming a payload-less variant is a variant pattern,
+    // not a new binding; `_` is never a binding.
+    {
+        let c: Color = Color::Red;
+        let g: i64 = match c {
+            Color::Red   => 1i64,    // `Red` is a constant/variant test, not a bind
+            Color::Green => 2i64,
+        };
+        if g != 1i64 { return 36; }
+    }
+
+    // @rule pat.struct.field-shorthand-binds-name
+    // A struct field with no explicit sub-pattern (shorthand) binds a name after
+    // the field; with an explicit sub-pattern it binds what that sub binds.
+    {
+        let p: Point = Point { x: 12i64, y: 30i64 };
+        let Point { x, y } = p;              // shorthand binds `x` and `y`
+        if x != 12i64 { return 37; }
+        if y != 30i64 { return 38; }
+        let Point { x: nx, y: ny } = p;      // explicit sub binds `nx`,`ny`
+        if nx + ny != 42i64 { return 39; }
+    }
+
+    return 0;
+}

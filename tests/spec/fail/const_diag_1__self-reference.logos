@@ -1,0 +1,6 @@
+// @rule const.def.no-self-reference
+package const_diag_1_self_reference;
+
+const X: i32 = X + 1i32;
+
+fn main() -> i32 { return 0i32; }

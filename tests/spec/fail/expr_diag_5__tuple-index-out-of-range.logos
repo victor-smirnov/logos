@@ -1,0 +1,8 @@
+// @rule expr.tuple-index.access
+package expr_diag_5_tuple_index_out_of_range;
+
+fn main() -> i32 {
+    let t: (i32, i32) = (1i32, 2i32);
+    let _x = t.5;
+    return 0i32;
+}

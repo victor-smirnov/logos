@@ -1,0 +1,188 @@
+package type_4;
+
+use logos.lang.drop;
+
+// ── observation channel ────────────────────────────────────────────────────
+// A static-mut accumulator lets drop bodies record their effect (and order):
+// each drop folds its id into LOG via LOG*10+id, so the final value encodes
+// both WHICH destructors ran and in WHAT order — no I/O needed.
+static mut LOG: i64 = 0i64;
+
+struct Res { id: i64 }
+impl Drop for Res { fn drop(self: Res) { unsafe { LOG = LOG * 10i64 + self.id; } } }
+
+// `fn drop(self: &mut Self)` — the canonical stdlib receiver shape (by-ref).
+struct MRes { id: i64 }
+impl Drop for MRes { fn drop(self: &mut Self) { unsafe { LOG = LOG * 10i64 + self.id; } } }
+
+// A drop body that does NOT call drop on its own `self` (no infinite recursion).
+struct SelfDrop { id: i64 }
+impl Drop for SelfDrop { fn drop(self: SelfDrop) { unsafe { LOG = LOG + 1i64; } } }
+
+// `#[no_auto_drop]` (the ManuallyDrop<T> lang-item shape) — suppresses inner
+// field destructors at scope exit.
+#[no_auto_drop]
+struct NoDrop { inner: Res }
+
+struct Pair { a: Res, b: Res }
+fn consume(r: Res) -> i64 { return r.id; }
+
+// ── identity helpers ───────────────────────────────────────────────────────
+// Same name `T` in both params and the return: one type variable.
+fn pick<T>(cond: bool, a: T, b: T) -> T { if cond { return a; } return b; }
+fn through(x: i64) -> i64 { return x; }
+
+// ── associated-type projection normalized via a where-clause equality ───────
+trait Carrier { type Item; fn get(&self) -> i64; }
+struct Holder { v: i64 }
+impl Carrier for Holder { type Item = i64; fn get(&self) -> i64 { return self.v; } }
+// `<T as Carrier>::Item` is normalized to `i64` via the bound `Carrier<Item = i64>`.
+fn project<T: Carrier<Item = i64>>(t: &T) -> <T as Carrier>::Item { return t.get(); }
+
+// ── Copy classification ────────────────────────────────────────────────────
+struct Pt { x: i64, y: i64 }                  // all-Copy fields → auto-Copy
+enum Flag { On, Off }                          // payload-less enum, no Drop → Copy
+struct Mixed { n: i64, p: *const i64, e: Flag } // primitive + raw ptr + payload-less enum
+
+// Copy-bounded type-param as an enum payload — provably non-droppable.
+enum Wrap<T: Copy> { Some(T), None }
+
+// Pointer/reference helper trait.
+trait Tr { fn f(&self) -> i64; }
+
+fn main() -> i64 {
+    // @rule type.identity.typevar-name
+    // `pick<T>` constrains both args and the result to the SAME type variable
+    // `T` (same name ⇒ same var); instantiating at i64 returns the chosen arg.
+    if pick::<i64>(true, 11i64, 22i64) != 11i64 { return 1; }
+    if pick::<i64>(false, 11i64, 22i64) != 22i64 { return 2; }
+
+    // @rule type.identity.primitive-kind
+    // Every occurrence of `i64` is the one interned primitive type, so a value
+    // flows through independent i64-typed sites unchanged.
+    {
+        let a: i64 = 5i64;
+        let c: i64 = through(through(a));
+        if c != 5i64 { return 3; }
+    }
+
+    // @rule type.assoc.normalize-via-where-eq
+    // `<T as Carrier>::Item` normalizes to `i64` through the in-scope bound
+    // `T: Carrier<Item = i64>`, so the projected return type accepts the i64.
+    {
+        let h: Holder = Holder { v: 77i64 };
+        if project::<Holder>(&h) != 77i64 { return 4; }
+    }
+
+    // @rule type.copy.struct-structural-auto
+    // `Pt` (no impl Drop, all fields Copy) is auto-Copy with no #[derive(Copy)]:
+    // after `let b = a` the source `a` is still usable (a copy, not a move).
+    {
+        let a: Pt = Pt { x: 1i64, y: 2i64 };
+        let b: Pt = a;
+        if a.x + b.x != 2i64 { return 5; }
+    }
+
+    // @rule type.copy.field-kinds
+    // A struct whose fields are a primitive (i64), a raw pointer (*const i64),
+    // and a payload-less enum (Flag) is Copy: copying leaves the source usable.
+    {
+        let n: i64 = 9i64;
+        let m: Mixed = Mixed { n: n, p: &n as *const i64, e: Flag::On };
+        let m2: Mixed = m;
+        if m.n != m2.n { return 6; }
+    }
+
+    // @rule type.drop.copy-bounded-typevar-not-droppable
+    // `Wrap<T: Copy>` carries `T` as an enum payload; the Copy bound proves it
+    // non-droppable, so no drop glue is over-triggered — value round-trips.
+    {
+        let w: Wrap<i64> = Wrap::Some(42i64);
+        match w { Wrap::Some(v) => { if v != 42i64 { return 7; } } Wrap::None => { return 8; } }
+    }
+
+    // @rule type.drop.transitive-aggregate-droppable
+    // An aggregate owns drop responsibility for its members: a tuple and an
+    // array of `Res` each run their elements' destructors (LOG becomes nonzero).
+    unsafe { LOG = 0i64; }
+    { let _t: (Res, Res) = (Res { id: 1 }, Res { id: 2 }); }
+    if unsafe { LOG } == 0i64 { return 9; }
+    unsafe { LOG = 0i64; }
+    { let _arr: [Res; 2] = [Res { id: 3 }, Res { id: 4 }]; }
+    if unsafe { LOG } == 0i64 { return 10; }
+
+    // @rule type.drop.no-auto-drop-suppresses-fields
+    // `#[no_auto_drop] struct NoDrop { inner: Res }` runs NO field destructor at
+    // scope exit, so the inner Res (id 9) does not record into LOG.
+    unsafe { LOG = 0i64; }
+    { let _nd: NoDrop = NoDrop { inner: Res { id: 9 } }; }
+    if unsafe { LOG } != 0i64 { return 11; }
+
+    // @rule type.drop.receiver-shapes
+    // A `fn drop(self: &mut Self)` impl is matched by peeling one ref level;
+    // the destructor still fires at scope exit (LOG records id 7).
+    unsafe { LOG = 0i64; }
+    { let _m: MRes = MRes { id: 7 }; }
+    if unsafe { LOG } != 7i64 { return 12; }
+
+    // @rule type.drop.no-self-recursion
+    // `SelfDrop::drop` does not auto-drop its own `self`, so the destructor runs
+    // exactly once (LOG == 1) rather than recursing forever.
+    unsafe { LOG = 0i64; }
+    { let _s: SelfDrop = SelfDrop { id: 0 }; }
+    if unsafe { LOG } != 1i64 { return 13; }
+
+    // @rule type.drop.order-reverse-declaration
+    // Live locals drop in reverse of declaration order: a,b,c (ids 1,2,3) drop
+    // c→b→a, folding into LOG as 3,2,1 ⇒ 321.
+    unsafe { LOG = 0i64; }
+    { let _a: Res = Res { id: 1 }; let _b: Res = Res { id: 2 }; let _c: Res = Res { id: 3 }; }
+    if unsafe { LOG } != 321i64 { return 14; }
+
+    // @rule type.drop.moved-out-fields-skipped
+    // `consume(p.a)` moves field `a` out; its destructor runs inside consume
+    // (id 5) and is SKIPPED at p's scope exit, where only `b` (id 6) drops ⇒ 56
+    // (not 565, which a double-drop of a would produce).
+    unsafe { LOG = 0i64; }
+    {
+        let p: Pair = Pair { a: Res { id: 5 }, b: Res { id: 6 } };
+        let _moved: i64 = consume(p.a);
+    }
+    if unsafe { LOG } != 56i64 { return 15; }
+
+    // @rule type.drop.move-closure-captures
+    // A value moved into a `move` closure is still use-after-move-checked, but
+    // the closure only borrows its storage: the capture drops once at its owning
+    // binding's slot (LOG records id 3 exactly once).
+    unsafe { LOG = 0i64; }
+    {
+        let o: MRes = MRes { id: 3 };
+        let f = move || -> i64 { return o.id; };
+        let _x: i64 = f();
+    }
+    if unsafe { LOG } != 3i64 { return 16; }
+
+    // @rule type.typeof.expr-type-no-eval
+    // `typeof(x)` resolves to x's sema type (i64) without evaluating it; a new
+    // binding of that type holds an independent value.
+    {
+        let x: i64 = 10i64;
+        let y: typeof(x) = 20i64;
+        if y != 20i64 { return 17; }
+    }
+
+    // @rule type.ptr.dyn-is-fat
+    // `*const dyn Tr` (immediate dyn pointee) canonicalises to the inline fat
+    // {data,vtable} TraitObject — 16 bytes, like `&dyn Tr`.
+    if sizeof::<*const dyn Tr>() != 16i64 { return 18; }
+    if sizeof::<*mut dyn Tr>() != 16i64 { return 19; }
+
+    // @rule type.ref.canonicalize-unsized-pointee
+    // `&[U]` folds to a fat Slice {data,len} (16B) and `&str` (str pointee) is
+    // treated as `&[u8]`, also folding to a 16B Slice; `&i64` stays a thin 8B ref.
+    if sizeof::<&[i64]>() != 16i64 { return 20; }
+    if sizeof::<&str>() != 16i64 { return 21; }
+    if sizeof::<&i64>() != 8i64 { return 22; }
+
+    return 0;
+}

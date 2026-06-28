@@ -1,0 +1,9 @@
+// @rule expr.call.intlit-fit-scalar
+package expr_diag_4_intlit_fit_scalar;
+
+fn take(x: u8) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let _r: i32 = take(999);
+    return 0i32;
+}

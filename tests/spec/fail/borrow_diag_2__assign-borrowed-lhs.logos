@@ -1,0 +1,9 @@
+// @rule borrow.assign.borrowed-lhs
+package borrow_diag_2_assign_borrowed_lhs;
+fn read(p: &i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let r: &i32 = &x;
+    x = 1i32;
+    return read(r);
+}

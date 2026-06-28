@@ -1,0 +1,9 @@
+// @rule generic.call.tuple-struct-field-type-check
+package generic_diag_1_tuple_struct_field_type_check;
+
+struct Holder<T>(T);
+
+fn main() -> i32 {
+    let _h = Holder::<bool>(1i64);
+    return 0i32;
+}

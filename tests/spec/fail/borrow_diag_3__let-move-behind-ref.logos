@@ -1,0 +1,11 @@
+// @rule borrow.let.no-move-behind-ref
+package borrow_diag_3_let_move_behind_ref;
+
+fn take(r: &String) -> String {
+    let s = *r;
+    return s;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

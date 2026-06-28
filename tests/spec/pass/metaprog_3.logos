@@ -1,0 +1,254 @@
+// Grouped conformance test for spec unit `metaprog_3` (domain: metaprog).
+// Each `// @rule <id>` marks an assertion that holds only if that rule is true.
+// All pass => `return 0`; any violation returns a distinct nonzero code.
+package metaprog_3;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.anyval;
+use logos.mem.collections.vec;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.result;
+
+pub struct MPair<A, B> { pub a: A, pub b: B }
+
+// ------------------------------------------------------------------
+// cfg_attr splice + cfg-drop gate (metaprog.cfg.cfg-attr-splice) and
+// the no-args / multi-arg-implicit-AND attribute form
+// (metaprog.cfg.attr-multi-arg-implicit-and).
+// ------------------------------------------------------------------
+
+// `#[cfg]` with no args matches (kept); multi-arg list is an implicit AND.
+#[cfg]
+fn no_args_kept() -> i32 { return 1i32; }
+
+#[cfg(unix, not(windows))]      // implicit AND of two predicates -> kept
+fn multi_and_kept() -> i32 { return 2i32; }
+
+#[cfg(unix, windows)]           // implicit AND, second false -> dropped
+fn multi_and_dropped() -> i32 { return 999i32; }
+
+// cfg_attr: when pred true, wrapped attr is spliced in. Here the wrapped
+// attr is `cfg(windows)` (false) => after activation the item is dropped.
+#[cfg_attr(unix, cfg(windows))]
+fn cfgattr_drops() -> i32 { return 999i32; }
+
+// cfg_attr false: entry dropped, wrapped attr NOT re-fed => item kept.
+#[cfg_attr(windows, cfg(false))]
+fn cfgattr_inactive_kept() -> i32 { return 7i32; }
+
+// Same-name platform switch driven by cfg drop (collection + lowering).
+#[cfg(unix)]
+fn plat() -> i32 { return 10i32; }
+#[cfg(windows)]
+fn plat() -> i32 { return 20i32; }
+
+// ------------------------------------------------------------------
+// metaprog_handler registration + trigger invocation
+// (metaprog.handler.register), plus item-emit shims.
+// ------------------------------------------------------------------
+
+// Single QuoteItemBlob return -> one top-level item.
+#[metaprog_handler("emit_single")]
+fn emit_single_hook(_target_offset: u32) -> () {
+    let s_fn: str = "handler_single_marker";
+    let id_fn: Ident = Ident { ptr: s_fn.as_ptr(), len: s_fn.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        fn #(id_fn)() -> i32 { return 33i32; }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[emit_single]
+struct SingleTarget {}
+
+// ItemList return -> every blob emitted in order.
+#[fn_macro]
+pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let s_a: str = "il_alpha";
+    let id_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
+    let b1: QuoteItemBlob = quote_item! { fn #(id_a)() -> i32 { return 4i32; } };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
+    let s_b: str = "il_beta";
+    let id_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let b2: QuoteItemBlob = quote_item! { fn #(id_b)() -> i32 { return 5i32; } };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b2); }
+    return out;
+}
+
+emit_pair!{}
+
+// ------------------------------------------------------------------
+// fn-macro arg-as-ExprBlob + result-is-ExprBlob-spliced
+// (metaprog.fn-macro.arg-passed-as-ast-blob,
+//  metaprog.fn-macro.result-is-exprblob-spliced).
+// The macro receives its argument unevaluated as an ExprBlob and
+// splices a NEW expr (its return value) at the call site, ignoring
+// the argument value entirely.
+// ------------------------------------------------------------------
+#[fn_macro]
+pub fn always_42(args: Vec<ExprBlob>) -> ExprBlob {
+    return quote_expr! { 42i32 };
+}
+
+// ------------------------------------------------------------------
+// token-macro: raw bytes between delimiters forwarded as one `str`,
+// bypassing expression parsing (metaprog.token-macro.raw-text-as-str).
+// ------------------------------------------------------------------
+#[token_macro]
+pub fn raw_demo(s: str) -> ExprBlob {
+    return quote_expr! { 88i32 };
+}
+
+// ------------------------------------------------------------------
+// quote_expr! reify (no antiquots) consumed via metacall
+// (metaprog.quote-expr.reify-ast-to-exprblob,
+//  metaprog.writ-blob.ast-fragment-recurse).
+// ------------------------------------------------------------------
+fn quoted_binop() -> ExprBlob {
+    return quote_expr! { 1 + 2 };
+}
+
+// quote_expr! with an antiquot -> runtime subst path
+// (metaprog.quote-expr.subst-runtime,
+//  metaprog.quote-expr.antiquot-carrier-positions: VAR_REF carrier).
+fn quoted_var() -> ExprBlob {
+    let s: str = "yy";
+    let foo: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    return quote_expr! { #foo };
+}
+
+unsafe fn main() -> i32 {
+    // @rule metaprog.cfg.combinators
+    // all = AND, any = OR, not = single-child negate, true/false literals.
+    if !cfg!(all(unix, not(windows))) { return 11i32; }
+    if !cfg!(any(windows, unix)) { return 12i32; }
+    if cfg!(any(windows)) { return 13i32; }
+    if !cfg!(not(windows)) { return 14i32; }
+    if !cfg!(true) { return 15i32; }
+    if cfg!(false) { return 16i32; }
+
+    // @rule metaprog.fn-macro.cfg-builtin
+    // cfg!(...) is a built-in macro evaluated at sema to a bool literal,
+    // accepting combinators + target keys (usable as a const bool here).
+    let cb: bool = cfg!(all(unix, target_pointer_width = "64"));
+    if !cb { return 17i32; }
+
+    // @rule metaprog.cfg.attr-multi-arg-implicit-and
+    // `#[cfg]` (no args) keeps the item; multi-arg is implicit AND.
+    if no_args_kept() != 1i32 { return 21i32; }
+    if multi_and_kept() != 2i32 { return 22i32; }
+
+    // @rule metaprog.cfg.cfg-attr-splice
+    // cfg_attr-true splices `cfg(windows)` -> item dropped; cfg_attr-false
+    // drops the entry without re-feeding -> item kept; cfg picks the unix plat.
+    if cfgattr_inactive_kept() != 7i32 { return 31i32; }
+    if plat() != 10i32 { return 32i32; }
+
+    // @rule metaprog.handler.register
+    // #[metaprog_handler("emit_single")] fired on #[emit_single] target,
+    // emitting `handler_single_marker`.
+    if handler_single_marker() != 33i32 { return 41i32; }
+
+    // @rule metaprog.item-emit.quoteitemblob-single
+    // The handler returned a single QuoteItemBlob -> exactly one item.
+    if handler_single_marker() != 33i32 { return 42i32; }
+
+    // @rule metaprog.item-emit.itemlist-iteration
+    // emit_pair!{} returned an ItemList -> both items emitted in order.
+    if il_alpha() != 4i32 { return 51i32; }
+    if il_beta() != 5i32 { return 52i32; }
+
+    // @rule metaprog.fn-macro.arg-passed-as-ast-blob
+    // The argument expression is passed unevaluated as an ExprBlob; the
+    // macro never evaluates it (a side-effecting/ill-typed arg is ignored).
+    let am: i32 = always_42!(this_would_not_typecheck_if_evaluated);
+    if am != 42i32 { return 61i32; }
+
+    // @rule metaprog.fn-macro.result-is-exprblob-spliced
+    // The macro call has the callee's ExprBlob result spliced in place,
+    // so the call-site type/value is that of the returned `42i32`.
+    let spliced: i32 = always_42!(0);
+    if spliced != 42i32 { return 62i32; }
+
+    // @rule metaprog.token-macro.raw-text-as-str
+    // Raw bytes (not valid Logos exprs) are forwarded as one str; the
+    // callee splices a constant -> 88.
+    let rt: i32 = raw_demo!{ this is { just } [random] (tokens) };
+    if rt != 88i32 { return 71i32; }
+
+    // @rule metaprog.quote-expr.reify-ast-to-exprblob
+    // quote_expr! { 1 + 2 } with no antiquots reifies the AST; metacall
+    // splices + recurses sema -> evaluates to 3.
+    let qb: i64 = metacall quoted_binop();
+    if qb != 3i64 { return 81i32; }
+
+    // @rule metaprog.writ-blob.ast-fragment-recurse
+    // The spliced WRIT_BLOB root is CAT_AST BINOP, recursively lowered as
+    // an ordinary expr (same value, distinct mechanism witness).
+    let qb2: i64 = metacall quoted_binop();
+    if qb2 != 3i64 { return 82i32; }
+
+    // @rule metaprog.quote-expr.subst-runtime
+    // @rule metaprog.quote-expr.antiquot-carrier-positions
+    // `#foo` (VAR_REF carrier) substitutes ident "yy"; the spliced VAR_REF
+    // resolves to the local `yy` in this scope.
+    let yy: i64 = 42i64;
+    let qv: i64 = metacall quoted_var();
+    if qv != 42i64 { return 91i32; }
+
+    // @rule metaprog.quote-ty.reify-type-to-struct
+    // quote_ty! { T } yields a `Type` whose fields mirror the static T:
+    // kind/size/align/uid equal those of type_of::<T>() / sizeof.
+    let qt: Type = quote_ty! { i32 };
+    let dt: Type = type_of::<i32>();
+    if qt.kind != dt.kind { return 101i32; }
+    if qt.uid != dt.uid { return 102i32; }
+    if qt.size != sizeof::<i32>() { return 103i32; }
+
+    // @rule metaprog.quote-ty.antiquot-type-var
+    // `$x` inside quote_ty! lowers to a var-ref of type `Type` (the in-scope
+    // binding), not a reified static type. Witnessed inside a type-app
+    // carrier: splicing the bound `$tb` reproduces the static instantiation.
+    let ti: Type = type_of::<i32>();
+    let tb: Type = type_of::<bool>();
+    let qp: Type = quote_ty! { MPair<$ti, $tb> };
+    let dp: Type = type_of::<MPair<i32, bool>>();
+    if qp.uid != dp.uid { return 111i32; }
+
+    // @rule metaprog.quote-ty.tuple-antiquot
+    // A tuple with at least one antiquot element builds the tuple Type via
+    // per-element producers (mixed literal/antiquot permitted).
+    let qtuple: Type = quote_ty! { ($ti, bool) };
+    let dtuple: Type = type_of::<(i32, bool)>();
+    if qtuple.uid != dtuple.uid { return 121i32; }
+
+    // @rule metaprog.format.literal-string-checked
+    // @rule metaprog.format.placeholder-trait-dispatch
+    // @rule metaprog.format.expansion-shape
+    // A valid literal format string passes the sema check and expands to a
+    // `String`; `{}`->Display, `{:?}`->Debug (str quoted), hex/oct/bin via
+    // their traits.
+    let fs: String = format!("a={}, b={:?}", 40i32, "hi");
+    if !str_eq(fs.as_str(), "a=40, b=\"hi\"") { return 131i32; }
+    let hx: String = format!("{:x}/{:o}/{:b}", 255u64, 8u64, 10u64);
+    if !str_eq(hx.as_str(), "ff/10/1010") { return 132i32; }
+
+    // @rule metaprog.format.placeholder-trait-dispatch (Display vs Debug)
+    let disp: String = format!("{}", "hi");
+    if !str_eq(disp.as_str(), "hi") { return 133i32; }
+
+    // write!/writeln! build a Formatter over the sink, yield Result, and
+    // writeln! adds a trailing newline (expansion-shape, write family).
+    let mut buf: String = String::new();
+    let _ = write!(buf, "n={}", 99i32);
+    if !str_eq(buf.as_str(), "n=99") { return 141i32; }
+    let _ = writeln!(buf, " m={}", 7i32);
+    if !str_eq(buf.as_str(), "n=99 m=7\n") { return 142i32; }
+
+    return 0i32;
+}

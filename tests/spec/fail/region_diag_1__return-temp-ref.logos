@@ -1,0 +1,10 @@
+// @rule region.return.dangling-local-or-temp
+package region_diag_1_return_temp_ref;
+
+fn mk() -> i32 { return 7i32; }
+
+fn bad() -> &i32 {
+    return &mk();
+}
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,227 @@
+package trait_4;
+
+// ── Targets / traits used across rules ───────────────────────────────────────
+
+trait Speak { fn sp(&self) -> i64; }
+
+struct Holder { v: i64 }
+
+// trait.impl.target-ref: impl Trait for &T  (and &mut T)
+impl Speak for &Holder { fn sp(&self) -> i64 { return 100i64; } }
+impl Speak for &mut Holder { fn sp(&self) -> i64 { return 200i64; } }
+
+// trait.impl.target-unsized: impl Trait for [T]
+trait Len { fn ln(&self) -> i64; }
+impl Len for [i64] { fn ln(&self) -> i64 { return 3i64; } }
+
+// trait.impl.target-tuple: the empty tuple `()` is the unit/void target.
+// (Multi-element `(A,B)` impl-target form is a separate grammar concern.)
+trait Unitish { fn uu(&self) -> i64; }
+impl Unitish for () { fn uu(&self) -> i64 { return 5i64; } }
+
+// trait.impl.target-fnptr-erased: impl Trait for fn(A,B)->C
+trait Callable { fn ar(&self) -> i64; }
+impl Callable for fn(i64, i64) -> i64 { fn ar(&self) -> i64 { return 2i64; } }
+fn call_ar<T: Callable>(t: &T) -> i64 { return t.ar(); }
+
+// trait.impl.trait-type-args-bind: impl Into<i32> for C binds param to i32
+trait MyInto<X> { fn conv(&self) -> X; }
+struct C0 { n: i64 }
+impl MyInto<i32> for C0 { fn conv(&self) -> i32 { return self.n as i32; } }
+
+// trait.impl.self-param-defaults-to-self-ref: &self / &mut self typed as ref-to-Self
+struct Acc { k: i64 }
+impl Acc {
+    fn get(&self) -> i64 { return self.k; }
+    fn bump(&mut self) -> i64 { self.k = self.k + 1i64; return self.k; }
+}
+
+// trait.impl.blanket-detection / blanket-keyed-by-bound / blanket-default-method
+trait Base1 { fn b1(&self) -> i64; }
+trait Wrap1 { fn w1(&self) -> i64 { return 11i64; } }   // default-body method
+impl<T: Base1> Wrap1 for T {}                            // blanket over Base1, default kept
+trait Base2 { fn b2(&self) -> i64; }
+trait Wrap2 { fn w2(&self) -> i64 { return 22i64; } }
+impl<T: Base2> Wrap2 for T {}                            // distinct blanket, distinct bound
+
+struct W { p: i64 }
+impl Base1 for W { fn b1(&self) -> i64 { return self.p; } }
+impl Base2 for W { fn b2(&self) -> i64 { return self.p * 2i64; } }
+
+// trait.assoc-const.inherent-allowed: inherent impl assoc const
+struct Konst { x: i64 }
+impl Konst { const K: i64 = 42i64; fn kk(&self) -> i64 { return Konst::K + self.x; } }
+
+// trait.method.disambiguating-mangle + inherent-preferred:
+// two traits + inherent all define `name()` with same sig on same target.
+trait TA { fn name(&self) -> i64; }
+trait TB { fn name(&self) -> i64; }
+struct Multi { d: i64 }
+impl Multi { fn name(&self) -> i64 { return 1000i64; } }   // inherent: keeps plain base
+impl TA for Multi { fn name(&self) -> i64 { return self.d + 10i64; } }
+impl TB for Multi { fn name(&self) -> i64 { return self.d + 20i64; } }
+
+fn via_ta<T: TA>(t: &T) -> i64 { return t.name(); }
+fn via_tb<T: TB>(t: &T) -> i64 { return t.name(); }
+
+// trait.method.trait-typearg-distinct: two impls of same trait, distinct type-arg
+trait Conv<X> { fn m(&self) -> i64; }
+struct Xt { z: i64 }
+impl Conv<u64> for Xt { fn m(&self) -> i64 { return self.z + 1i64; } }
+impl Conv<u8>  for Xt { fn m(&self) -> i64 { return self.z + 2i64; } }
+fn want64<T: Conv<u64>>(t: &T) -> i64 { return t.m(); }
+fn want8 <T: Conv<u8>>(t: &T) -> i64 { return t.m(); }
+
+// trait.dyn.vtable-layout-order + supertrait upcast
+trait Sup { fn root(&self) -> i64; }
+trait Mid: Sup { fn mid(&self) -> i64; }
+struct DynC { q: i64 }
+impl Sup for DynC { fn root(&self) -> i64 { return self.q; } }
+impl Mid for DynC { fn mid(&self) -> i64 { return self.q * 3i64; } }
+
+// trait.supertrait.via-blanket: Super satisfied via a blanket impl
+trait HasId { fn id(&self) -> i64; }
+trait Super1 { fn sup1(&self) -> i64; }
+impl<U: HasId> Super1 for U { fn sup1(&self) -> i64 { return self.id() + 1i64; } }
+trait Child1: Super1 { fn ch1(&self) -> i64 { return self.sup1() + 100i64; } }
+struct ViaB { e: i64 }
+impl HasId for ViaB { fn id(&self) -> i64 { return self.e; } }
+impl Child1 for ViaB {}                                  // Super1 discharged via blanket on HasId
+
+// trait.supertrait.via-self-bound: blanket impl<T: Super> Child for T {}
+trait SuperX { fn sx(&self) -> i64; }
+trait ChildX: SuperX { fn cx(&self) -> i64 { return self.sx() + 1000i64; } }
+impl<T: SuperX> ChildX for T {}                          // self-bound discharges SuperX
+struct ViaS { f: i64 }
+impl SuperX for ViaS { fn sx(&self) -> i64 { return self.f; } }
+
+// trait.copy.conditional: impl<P: Copy> Copy for Pair<P>
+struct Pair<P> { a: P, b: P }
+impl<P: Copy> Copy for Pair<P> {}
+
+fn main() -> i64 {
+
+    // @rule trait.impl.target-ref
+    {
+        let h: Holder = Holder { v: 1i64 };
+        let r: &Holder = &h;
+        if r.sp() != 100i64 { return 1; }
+        let mut h2: Holder = Holder { v: 2i64 };
+        let rm: &mut Holder = &mut h2;
+        if rm.sp() != 200i64 { return 2; }
+    }
+
+    // @rule trait.impl.target-unsized
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        let sl: &[i64] = &arr;
+        if sl.ln() != 3i64 { return 3; }
+    }
+
+    // @rule trait.impl.target-tuple
+    {
+        let u: () = ();
+        if u.uu() != 5i64 { return 5; }                 // () is the unit/void target
+    }
+
+    // @rule trait.impl.target-fnptr-erased
+    {
+        let fp: fn(i64, i64) -> i64 = add2;
+        if call_ar(&fp) != 2i64 { return 6; }           // fn-ptr impl, dispatched by arity
+    }
+
+    // @rule trait.impl.trait-type-args-bind
+    {
+        let c: C0 = C0 { n: 77i64 };
+        let got: i32 = c.conv();
+        if got != 77i32 { return 7; }
+    }
+
+    // @rule trait.impl.self-param-defaults-to-self-ref
+    {
+        let a: Acc = Acc { k: 8i64 };
+        if a.get() != 8i64 { return 8; }                // &self reads through ref-to-Self
+        let mut am: Acc = Acc { k: 8i64 };
+        if am.bump() != 9i64 { return 9; }              // &mut self mutates through ref
+    }
+
+    // @rule trait.impl.blanket-detection
+    {
+        let w: W = W { p: 3i64 };
+        if w.w1() != 11i64 { return 10; }               // default body via blanket over Base1
+    }
+
+    // @rule trait.impl.blanket-keyed-by-bound
+    {
+        let w: W = W { p: 3i64 };
+        if w.w1() != 11i64 { return 11; }               // Wrap1 (bound Base1)
+        if w.w2() != 22i64 { return 12; }               // Wrap2 (bound Base2) — no collision
+    }
+
+    // @rule trait.impl.blanket-default-method
+    {
+        let w: W = W { p: 4i64 };
+        if w.w1() != 11i64 { return 13; }               // synthesized default surfaces on receiver
+    }
+
+    // @rule trait.assoc-const.inherent-allowed
+    {
+        let k: Konst = Konst { x: 8i64 };
+        if k.kk() != 50i64 { return 14; }               // K(42) + x(8)
+    }
+
+    // @rule trait.method.inherent-preferred
+    {
+        let m: Multi = Multi { d: 5i64 };
+        if m.name() != 1000i64 { return 15; }           // concrete-receiver -> inherent
+        if via_ta(&m) != 15i64 { return 16; }           // T: TA -> qualified trait method
+    }
+
+    // @rule trait.method.disambiguating-mangle
+    {
+        let m: Multi = Multi { d: 5i64 };
+        if via_ta(&m) != 15i64 { return 17; }           // TA::name = d+10
+        if via_tb(&m) != 25i64 { return 18; }           // TB::name = d+20 (both coexist)
+    }
+
+    // @rule trait.method.trait-typearg-distinct
+    {
+        let x: Xt = Xt { z: 100i64 };
+        if want64(&x) != 101i64 { return 19; }          // Conv<u64> impl
+        if want8(&x) != 102i64 { return 20; }           // Conv<u8> impl (distinct mangle)
+    }
+
+    // @rule trait.dyn.vtable-layout-order
+    {
+        let dc: DynC = DynC { q: 6i64 };
+        let md: &dyn Mid = &dc;
+        if md.mid() != 18i64 { return 21; }             // Mid's own method
+        if md.root() != 6i64 { return 22; }             // supertrait Sup method via vtable layout
+        let sup: &dyn Sup = md as &dyn Sup;             // upcast via stored super-vtable slot
+        if sup.root() != 6i64 { return 23; }
+    }
+
+    // @rule trait.supertrait.via-blanket
+    {
+        let v: ViaB = ViaB { e: 7i64 };
+        if v.ch1() != 108i64 { return 24; }             // ch1 -> sup1 (blanket) -> id+1 => 8; +100
+    }
+
+    // @rule trait.supertrait.via-self-bound
+    {
+        let v: ViaS = ViaS { f: 9i64 };
+        if v.cx() != 1009i64 { return 25; }             // cx -> sx(9) + 1000
+    }
+
+    // @rule trait.copy.conditional
+    {
+        let p: Pair<i64> = Pair { a: 1i64, b: 2i64 };   // i64 is Copy => Pair<i64> Copy
+        let q: Pair<i64> = p;                            // copy, not move
+        if p.a != 1i64 { return 26; }                   // original still usable => was copied
+        if q.b != 2i64 { return 27; }
+    }
+
+    return 0;
+}
+
+fn add2(x: i64, y: i64) -> i64 { return x + y; }

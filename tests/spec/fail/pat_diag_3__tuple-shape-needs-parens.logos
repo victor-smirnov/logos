@@ -1,0 +1,12 @@
+// @rule pat.variant.tuple-shape-needs-parens
+package pat_diag_3_tuple_shape_needs_parens;
+
+enum E { A(i32), B }
+
+fn main() -> i32 {
+    let e: E = E::A(5i32);
+    match e {
+        E::A { x } => { return x; }
+        _ => { return 0i32; }
+    }
+}

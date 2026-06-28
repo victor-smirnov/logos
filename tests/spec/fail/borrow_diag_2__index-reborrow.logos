@@ -1,0 +1,10 @@
+// @rule borrow.scoped.index-reborrow-borrows-receiver
+package borrow_diag_2_index_reborrow;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(1i64); v.push(2i64);
+    let a: &mut i64 = &mut v[0];
+    let b: &mut i64 = &mut v[1];
+    *a = *b;
+    0i32
+}

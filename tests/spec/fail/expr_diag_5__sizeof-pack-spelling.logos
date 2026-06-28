@@ -1,0 +1,10 @@
+// @rule expr.sizeof-pack.spelling
+package expr_diag_5_sizeof_pack_spelling;
+
+fn count<T>(x: T) -> u64 {
+    return alignof...(T);
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

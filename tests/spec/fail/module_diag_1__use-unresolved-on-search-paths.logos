@@ -1,0 +1,8 @@
+// @rule module.use.resolution-on-search-paths
+package module_diag_unresolved_use;
+
+// The dotted package name cannot be located in any configured search
+// directory, so resolving this `use` declaration fails.
+use totally.absent.dependency;
+
+fn main() {}

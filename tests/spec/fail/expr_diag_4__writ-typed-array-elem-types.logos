@@ -1,0 +1,9 @@
+// @rule expr.writ.typed-array-elem-types
+package expr_diag_4_writ_typed_array_elem_types;
+
+use logos.lang.writ.wstatic;
+
+unsafe fn main() -> i32 {
+    let _x: WritStatic = @<I128>[1, 2, 3];
+    return 0i32;
+}

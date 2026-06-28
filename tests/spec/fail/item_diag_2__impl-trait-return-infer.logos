@@ -1,0 +1,8 @@
+// @rule item.fn.impl-trait-return-infer
+package item_diag_2_impl_trait_return_infer;
+
+trait Tr {}
+
+fn f() -> impl Tr {}
+
+fn main() -> i32 { return 0i32; }

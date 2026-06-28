@@ -1,0 +1,10 @@
+// @rule borrow.field.mut-binding-required
+package borrow_diag_1_field_mut_binding_required;
+// x is a non-mut value binding; &mut x.p must be rejected.
+struct P { a: i64 }
+fn main() -> i32 {
+    let x: P = P { a: 1i64 };
+    let m: &mut i64 = &mut x.a;
+    *m = 5i64;
+    return 0i32;
+}

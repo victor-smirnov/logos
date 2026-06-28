@@ -1,0 +1,22 @@
+// @rule trait.supertrait.impl-required
+package trait_diag_2_supertrait_impl_required;
+
+trait Base {
+    fn base(&self) -> i32;
+}
+
+trait Derived: Base {
+    fn derived(&self) -> i32;
+}
+
+struct S {
+    x: i32,
+}
+
+impl Derived for S {
+    fn derived(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

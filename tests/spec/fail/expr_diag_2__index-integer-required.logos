@@ -1,0 +1,8 @@
+// @rule expr.index.integer-required
+package expr_diag_2_index_integer_required;
+
+fn main() -> i32 {
+    let a: [i32; 3] = [1i32, 2i32, 3i32];
+    let _y = a[true];
+    return 0i32;
+}

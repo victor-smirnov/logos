@@ -1,0 +1,11 @@
+// @rule metaprog.metacall.return-type
+package metaprog_diag_2_metacall_return_type;
+
+struct Pair { a: i64, b: i64 }
+
+fn make_pair() -> Pair { return Pair { a: 1, b: 2 }; }
+
+fn main() -> i32 {
+    let p: Pair = metacall make_pair();
+    return 0;
+}

@@ -1,0 +1,10 @@
+// @rule expr.unary.not
+package expr_diag_1_not_non_integer;
+
+struct S { x: i32 }
+
+fn main() -> i32 {
+    let s = S { x: 1i32 };
+    let _b = !s;
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// @rule borrow.region.nll-liveness-extent
+package borrow_diag_2_nll_liveness_extent;
+struct Box1 { v: i64 }
+impl Box1 { fn get(self: &Box1) -> &i64 { &self.v } }
+fn main() -> i32 {
+    let outer: &i64;
+    { let b: Box1 = Box1 { v: 5i64 }; outer = b.get(); }
+    return *outer as i32;
+}

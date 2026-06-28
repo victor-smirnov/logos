@@ -1,0 +1,229 @@
+package lex_1;
+
+// lex_1 — execution-locked conformance for the `lex` lexer rules.
+// main returns i64; every testable rule has a marker comment immediately above
+// its assertion and a distinct nonzero exit code on violation; all-pass => 0.
+//
+// Only the rules describing the *Logos* language lexer are runnable here. The
+// HRPC- and Writ-IDL grammar rules (lex.hrpc.*, lex.writ.punctuation) lex a
+// separate schema language consumed by the peg_gen tooling, not `.logos`
+// source, so they cannot be exercised by executing a Logos program — reported
+// untestable. The async/await-reserved and doc-comment-token rules describe
+// tokens with no observable runtime value (parse-time only) — also reported.
+
+use logos.lang.str;
+
+// Read the i-th raw byte of a `str` (lets us inspect decoded literal bytes).
+fn byte_at(s: str, i: i64) -> u8 {
+    unsafe { return *((s.as_ptr() as i64 + i) as *const u8); }
+}
+
+// Lifetime-bearing helpers (lex.token.lifetime).
+struct Wrap<'a> { r: &'a i64 }
+fn first<'a>(x: &'a i64, _y: &'a i64) -> &'a i64 { return x; }
+
+// An identifier exercising the IDENT character class (letters, digits, '_').
+fn _ident0_AZ_az_09(snake_Case99: i64) -> i64 { return snake_Case99; }
+
+// Module-level `const` (the `const` keyword token in item position).
+const K: i64 = 3i64;
+
+fn main() -> i64 {
+    // ── raw string literals ──────────────────────────────────────────────────
+
+    // @rule lex.litstr.raw-hash-count
+    // r#"..."# content is the bytes between the opening `"` and the matching
+    // `"#`; escapes are NOT processed (backslash + n stay two literal bytes),
+    // and an interior `"` is allowed because the closing needs the `#`.
+    {
+        let raw: str = r#"a"b\nc"#;          // a " b \ n c  -> 6 raw bytes
+        if raw.len() != 6i64 { return 1; }
+        if byte_at(raw, 0i64) != 97u8 { return 2; }   // a
+        if byte_at(raw, 1i64) != 34u8 { return 3; }   // "  (interior quote kept)
+        if byte_at(raw, 2i64) != 98u8 { return 4; }   // b
+        if byte_at(raw, 3i64) != 92u8 { return 5; }   // backslash (NOT an escape)
+        if byte_at(raw, 4i64) != 110u8 { return 6; }  // n (literal, not LF)
+        if byte_at(raw, 5i64) != 99u8 { return 7; }   // c
+    }
+
+    // ── non-raw string escape decoding ───────────────────────────────────────
+
+    // @rule lex.litstr.escape-sequences
+    // \n=LF \t=TAB \r=CR \\=backslash \0=NUL \"=quote \'=apostrophe;
+    // \xNN = exactly two hex digits -> one byte; \u{H..} -> UTF-8 of codepoint
+    // (1-4 bytes); an unknown escape is left literal (backslash retained).
+    {
+        let s: str = "n\nt\tr\rb\\z\0q\"a\'h\x41";
+        // bytes: n LF t TAB r CR b \ z NUL q " a ' h A
+        if s.len() != 16i64 { return 8; }
+        if byte_at(s, 1i64) != 10u8 { return 9; }    // \n -> LF
+        if byte_at(s, 3i64) != 9u8 { return 10; }    // \t -> TAB
+        if byte_at(s, 5i64) != 13u8 { return 11; }   // \r -> CR
+        if byte_at(s, 7i64) != 92u8 { return 12; }   // \\ -> backslash
+        if byte_at(s, 9i64) != 0u8 { return 13; }    // \0 -> NUL
+        if byte_at(s, 11i64) != 34u8 { return 14; }  // \" -> quote
+        if byte_at(s, 13i64) != 39u8 { return 15; }  // \' -> apostrophe
+        if byte_at(s, 15i64) != 65u8 { return 16; }  // \x41 -> 'A'
+        // \u{} decodes to UTF-8: 1 byte for U+0041, 3 bytes for U+2764 (heart).
+        if "\u{41}".len() != 1i64 { return 17; }
+        if "\u{2764}".len() != 3i64 { return 18; }
+        // unknown escape \q keeps the backslash literally.
+        let u: str = "\q";
+        if u.len() != 2i64 { return 19; }
+        if byte_at(u, 0i64) != 92u8 { return 20; }   // backslash kept
+        if byte_at(u, 1i64) != 113u8 { return 21; }  // q kept
+    }
+
+    // ── keyword reserved set ─────────────────────────────────────────────────
+
+    // @rule lex.keyword.reserved-set
+    // Reserved keywords are matched as distinct tokens in their grammar roles;
+    // exercise a representative spread (let/mut/const/if/else/while/loop/break/
+    // continue/for/in/as/true/false/return/match) and confirm the constructs
+    // actually drive control flow (a non-keyword token here would not parse).
+    {
+        let mut acc: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < K {
+            acc = acc + (i as i64);
+            i = i + 1i64;
+        }                                    // 0+1+2 = 3
+        for j in 0i64..2i64 {
+            if j == 1i64 { continue; }
+            acc = acc + 10i64;
+        }                                    // +10 (j=0 only) -> 13
+        loop {
+            acc = acc + 100i64;
+            break;
+        }                                    // +100 -> 113
+        let flag: bool = if true { false } else { true };
+        let m: i64 = match flag { true => 1i64, false => 1000i64 };
+        if acc + m != 1113i64 { return 22; }
+    }
+
+    // ── punctuation / operator tokens (longest-match) ────────────────────────
+
+    // @rule lex.punct.symbols
+    // Multi-char operators are matched longest-first: `<<=`/`>>=` beat `<<`/`>>`,
+    // `..=`/`...` beat `..`, `&&`/`||` beat `&`/`|`, `==`/`!=`/`<=`/`>=` beat
+    // their single-char prefixes, and the compound-assign ops decode whole.
+    {
+        let mut x: i64 = 1i64;
+        x <<= 3i64;                          // <<= (not '<' '<' '=') -> 8
+        if x != 8i64 { return 23; }
+        x >>= 1i64;                          // >>= -> 4
+        if x != 4i64 { return 24; }
+        x += 2i64; x -= 1i64; x *= 3i64; x /= 2i64; x %= 4i64;  // 4+2-1=5 *3=15 /2=7 %4=3
+        if x != 3i64 { return 25; }
+        let mut y: i64 = 6i64;
+        y &= 3i64; y |= 8i64; y ^= 1i64;     // 6&3=2 |8=10 ^1=11
+        if y != 11i64 { return 26; }
+        // inclusive vs exclusive range tokens (..= vs ..).
+        let mut n: i64 = 0i64;
+        for _k in 0i64..=2i64 { n = n + 1i64; }   // ..= -> 3 iterations
+        if n != 3i64 { return 27; }
+        // logical-and/or are the two-char tokens, with short-circuit.
+        if !(true && true) { return 28; }
+        if (false || false) { return 29; }
+        // comparison two-char tokens.
+        if !(1i64 == 1i64) { return 30; }
+        if !(1i64 != 2i64) { return 31; }
+        if !(1i64 <= 1i64) { return 32; }
+        if !(2i64 >= 2i64) { return 33; }
+    }
+
+    // ── integer literal forms ────────────────────────────────────────────────
+
+    // @rule lex.literal.integer
+    // Optional leading `-`, decimal/hex(0x)/binary(0b)/octal(0o) magnitude with
+    // `_` digit separators and an optional width-tag suffix.
+    {
+        let dec: i64 = 1_000i64;
+        let hex: u32 = 0xF_Fu32;
+        let bin: u8 = 0b1_010u8;
+        let oct: i32 = 0o1_7i32;
+        let neg: i64 = -42i64;
+        if dec != 1000i64 { return 34; }
+        if hex != 255u32 { return 35; }
+        if bin != 10u8 { return 36; }
+        if oct != 15i32 { return 37; }
+        if neg != -42i64 { return 38; }
+    }
+
+    // ── float literal forms ──────────────────────────────────────────────────
+
+    // @rule lex.literal.float
+    // Integer part, mandatory `.` + fractional part, optional exponent, optional
+    // f32/f64 suffix, `_` separators allowed.
+    {
+        let a: f64 = 1_2.5e1f64;             // 12.5 * 10 = 125.0, sep + exp + suffix
+        let b: f32 = 3.5f32;
+        let c: f64 = 0.25;                    // unsuffixed, no exponent
+        if a != 125.0f64 { return 39; }
+        if b != 3.5f32 { return 40; }
+        if c != 0.25f64 { return 41; }
+    }
+
+    // ── string literal token family ──────────────────────────────────────────
+
+    // @rule lex.literal.string
+    // STRING (escapes), RAW_STRING (no escapes, may hold `"` when hash-delimited)
+    // and BYTE_STRING `b"..."` ([u8;N]) are all recognized literal tokens.
+    {
+        if "ab".len() != 2i64 { return 42; }              // STRING
+        if r#"a"b"#.len() != 3i64 { return 43; }          // raw with interior quote
+        let bs: [u8; 3] = b"a\n\x41";                      // byte string, escapes decode
+        if bs[0] != 97u8 { return 44; }
+        if bs[1] != 10u8 { return 45; }
+        if bs[2] != 65u8 { return 46; }
+    }
+
+    // ── char literal ─────────────────────────────────────────────────────────
+
+    // @rule lex.literal.char
+    // A char literal is one codepoint or one `\`-escape between apostrophes; the
+    // body decodes to the scalar codepoint value.
+    {
+        if ('A' as u32) != 65u32 { return 47; }
+        if ('\n' as u32) != 10u32 { return 48; }
+        if ('\x41' as u32) != 65u32 { return 49; }
+        if ('\u{2764}' as u32) != 10084u32 { return 50; }  // heart codepoint
+    }
+
+    // @rule lex.literal.char-before-lifetime
+    // With a closing apostrophe the lexer prefers the char literal over a
+    // lifetime read: `'a'` is the char 'a' (97), not a lifetime token.
+    {
+        if ('a' as u32) != 97u32 { return 51; }
+    }
+
+    // @rule lex.token.lifetime
+    // A lifetime `'a` (apostrophe + lowercase ident, no closing apostrophe) is a
+    // valid token in type position; code that binds it parses and runs.
+    {
+        let v: i64 = 7i64;
+        let w: Wrap<'_> = Wrap::<'_> { r: &v };
+        if *w.r != 7i64 { return 52; }
+        let p: i64 = 7i64; let q: i64 = 9i64;
+        if *first(&p, &q) != 7i64 { return 53; }
+    }
+
+    // @rule lex.token.ident
+    // IDENT = ASCII letter/underscore then ASCII alphanumerics/underscores; a
+    // name mixing those classes is a single identifier token.
+    {
+        let _ident0_AZ_az_09_val: i64 = 5i64;
+        if _ident0_AZ_az_09(_ident0_AZ_az_09_val) != 5i64 { return 54; }
+    }
+
+    // @rule lex.comment.skip
+    // Whitespace and ordinary line `//` / block `/* */` comments are skipped
+    // between tokens; inserting them mid-expression changes nothing.
+    {
+        let z: i64 = 1i64 /* block */ + /* inter */ 2i64 // trailing line comment
+            + 3i64;                          // -> 6
+        if z != 6i64 { return 55; }
+    }
+
+    return 0;
+}

@@ -1,0 +1,18 @@
+// @rule region.dangling.dyn-trait-ref
+package region_diag_1_return_dyn_trait_local;
+
+trait Speak {
+    fn id(self: &Self) -> i32;
+}
+
+struct Dog {}
+impl Speak for Dog {
+    fn id(self: &Self) -> i32 { return 1i32; }
+}
+
+fn bad() -> &dyn Speak {
+    let d: Dog = Dog {};
+    return &d;
+}
+
+fn main() -> i32 { return 0i32; }

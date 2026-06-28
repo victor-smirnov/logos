@@ -1,0 +1,8 @@
+// @rule expr.method.not-a-struct-error
+package expr_diag_3_recv_not_struct;
+
+fn main() -> i32 {
+    let n: i32 = 5i32;
+    let _x = n.frobnicate();
+    return 0i32;
+}

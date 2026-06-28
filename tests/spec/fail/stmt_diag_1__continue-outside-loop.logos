@@ -1,0 +1,7 @@
+// @rule stmt.continue.outside-loop
+package stmt_diag_1_continue_outside_loop;
+
+fn main() -> i32 {
+    continue;
+    return 0i32;
+}

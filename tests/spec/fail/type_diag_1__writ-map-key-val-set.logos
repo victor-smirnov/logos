@@ -1,0 +1,10 @@
+// @rule type.writ-map.key-val-set
+package type_diag_1_writ_map;
+
+fn f(x: <Bogus,AnyVal>{}) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

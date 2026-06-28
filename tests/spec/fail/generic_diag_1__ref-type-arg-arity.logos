@@ -1,0 +1,9 @@
+// @rule generic.ref.type-arg-arity
+package generic_diag_1_ref_type_arg_arity;
+
+fn ident<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let _f = ident::<i64, i64>;
+    return 0i32;
+}

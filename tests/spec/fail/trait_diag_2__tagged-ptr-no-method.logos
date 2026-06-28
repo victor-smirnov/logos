@@ -1,0 +1,18 @@
+// @rule trait.dispatch.tagged-ptr
+package trait_diag_2_tagged_ptr_no_method;
+
+use logos.mem.writ.tag_system;
+
+#[tag_dispatch(DataTypeTagSystem)]
+trait Checksum {
+    unsafe fn checksum(self: *const Self) -> i32;
+}
+
+unsafe fn dispatch(obj: &tagged<DataTypeTagSystem> Checksum) -> i32 {
+    // `nonexistent` is not declared on Checksum.
+    return obj.nonexistent();
+}
+
+unsafe fn main() -> i32 {
+    return 0i32;
+}

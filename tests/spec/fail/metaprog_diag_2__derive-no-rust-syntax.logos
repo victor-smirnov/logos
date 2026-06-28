@@ -1,0 +1,7 @@
+// @rule metaprog.derive.no-rust-derive-syntax
+package metaprog_diag_2_derive_no_rust_syntax;
+
+#[derive(Clone)]
+struct S { x: i32 }
+
+fn main() -> i32 { return 0; }

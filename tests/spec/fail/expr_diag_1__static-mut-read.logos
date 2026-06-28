@@ -1,0 +1,9 @@
+// @rule expr.static.mut-read-unsafe
+package expr_diag_1_static_mut_read;
+
+static mut COUNTER: i32 = 0i32;
+
+fn main() -> i32 {
+    let _x: i32 = COUNTER;
+    return 0i32;
+}

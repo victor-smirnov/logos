@@ -1,0 +1,89 @@
+package lex_2;
+
+// Lexical conformance for Logos source literals (lex.literal.*, lex.str.*).
+// Each assertion holds only if the corresponding lexer rule is true.
+
+fn main() -> i64 {
+
+    // @rule lex.literal.int-radix-and-separators
+    // Optional leading `-`, radix prefixes 0x/0X 0b/0B 0o/0O (default decimal),
+    // and `_` digit separators ignored in the value. Same magnitude across radices.
+    {
+        if 0xFFi64 != 255i64 { return 1; }            // hex
+        if 0Xffi64 != 255i64 { return 2; }            // uppercase prefix, lower digits
+        if 0b1010i64 != 10i64 { return 3; }           // binary
+        if 0B1010i64 != 10i64 { return 4; }           // uppercase binary prefix
+        if 0o17i64 != 15i64 { return 5; }             // octal
+        if 0O17i64 != 15i64 { return 6; }             // uppercase octal prefix
+        if -42i64 != (0i64 - 42i64) { return 7; }     // leading minus
+        if 1_000_000i64 != 1000000i64 { return 8; }   // decimal separators ignored
+        if 0xFF_FFi64 != 65535i64 { return 9; }       // hex separators ignored
+        if 0b1111_1111i64 != 255i64 { return 10; }    // binary separators ignored
+    }
+
+    // @rule lex.literal.int-format
+    // A valid integer literal: optional `-`, radix-prefixed or decimal body, valid
+    // separators, optionally one recognised integer suffix — usable as a value.
+    {
+        if 0x10u8 != 16u8 { return 11; }              // suffixed hex body
+        if -7i32 != (0i32 - 7i32) { return 12; }      // signed suffix + minus
+        if 255u8 != 0xFFu8 { return 13; }             // decimal == hex magnitude, suffixed
+    }
+
+    // @rule lex.literal.int-suffix
+    // Explicit type suffix selects the literal's kind (i8..i128, u8..u128, usize,
+    // isize); the suffix's static type is observable via overflow/wrap behavior.
+    {
+        let a: i8  = 127i8;     if (a as i64) != 127i64 { return 14; }
+        let b: u8  = 255u8;     if (b as i64) != 255i64 { return 15; }
+        let c: i16 = 1000i16;   if (c as i64) != 1000i64 { return 16; }
+        let d: u32 = 4000000000u32; if (d as i64) != 4000000000i64 { return 17; }
+        let e: i64 = 100i64;    if e != 100i64 { return 18; }
+        let f: usize = 5usize;  if (f as i64) != 5i64 { return 19; }
+        let i128v: i128 = 170141183460469231731687303715884105727i128;
+        if (i128v - 170141183460469231731687303715884105720i128) != 7i128 { return 20; }
+    }
+
+    // @rule lex.literal.float-format
+    // Float = optional `-`, mantissa with a `.` (digits both sides) OR a bare
+    // mantissa with a MANDATORY exponent; a bare integer is NOT a float.
+    {
+        if 1.5f64 != (3.0f64 / 2.0f64) { return 21; }     // decimal-point form
+        if -2.5f64 != (0.0f64 - 2.5f64) { return 22; }    // leading minus
+        if 1.0e3f64 != 1000.0f64 { return 23; }           // point + exponent
+        if 5e3f64 != 5000.0f64 { return 24; }             // bare mantissa + exponent
+        if 5e-3f64 != (5.0f64 / 1000.0f64) { return 25; } // negative exponent
+        if 1.0E2f64 != 100.0f64 { return 26; }            // uppercase exponent
+    }
+
+    // @rule lex.literal.float-suffix
+    // f32 / f64 suffix selects F32 / F64.
+    {
+        let g: f32 = 1.25f32;   if (g as f64) != 1.25f64 { return 27; }
+        let h: f64 = 2.5f64;    if h != 2.5f64 { return 28; }
+    }
+
+    // @rule lex.str.escape-set
+    // String literals support \\ \" \n \r \t \0 and \xHH (control bytes < 0x20);
+    // other bytes appear verbatim. Verify the decoded bytes.
+    {
+        let s: str = "a\\b\"c\n\r\t\0\x1Fz";
+        if s.len() != 11i64 { return 29; }
+        let p: *const u8 = s.as_ptr();
+        unsafe {
+            if (p[0] as i64) != 97i64  { return 30; }   // 'a'
+            if (p[1] as i64) != 92i64  { return 31; }   // '\\' backslash
+            if (p[2] as i64) != 98i64  { return 32; }   // 'b'
+            if (p[3] as i64) != 34i64  { return 33; }   // '\"' quote
+            if (p[4] as i64) != 99i64  { return 34; }   // 'c'
+            if (p[5] as i64) != 10i64  { return 35; }   // '\n'
+            if (p[6] as i64) != 13i64  { return 36; }   // '\r'
+            if (p[7] as i64) != 9i64   { return 37; }   // '\t'
+            if (p[8] as i64) != 0i64   { return 38; }   // '\0'
+            if (p[9] as i64) != 31i64  { return 39; }   // '\x1F' = 31
+            if (p[10] as i64) != 122i64 { return 40; }  // 'z' verbatim
+        }
+    }
+
+    return 0;
+}

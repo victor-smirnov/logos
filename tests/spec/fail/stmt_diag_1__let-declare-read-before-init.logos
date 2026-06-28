@@ -1,0 +1,8 @@
+// @rule stmt.let.declare-without-init
+package stmt_diag_1_let_declare_read_before_init;
+
+fn main() -> i32 {
+    let v: i32;
+    let _w: i32 = v;
+    return 0i32;
+}

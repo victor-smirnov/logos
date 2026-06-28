@@ -1,0 +1,7 @@
+// @rule expr.compound-assign.var-undefined
+package expr_diag_6_compound_undefined;
+
+fn main() -> i32 {
+    nonexistent += 1i32;
+    return 0i32;
+}

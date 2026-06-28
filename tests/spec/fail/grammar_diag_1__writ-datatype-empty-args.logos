@@ -1,0 +1,15 @@
+// @rule grammar.writ.datatype
+package grammar_diag_1_writ_datatype_empty_args;
+
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    // A Writ `datatype` with a present `<...>` arg list must be non-empty.
+    // `I32<>` has an empty generic argument list and fails the grammar.
+    // (`@<I32>[...]` parses; only the empty `<>` is rejected here.)
+    let arr: Rc<Writ> = @<I32<>>[1, 2, 3];
+    return 0i32;
+}

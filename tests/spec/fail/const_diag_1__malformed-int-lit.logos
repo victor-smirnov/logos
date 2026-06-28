@@ -1,0 +1,10 @@
+// @rule const.lit.int-suffix-kind
+package const_diag_1_malformed_int_lit;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen(0x);
+
+fn main() -> i32 { return 0i32; }

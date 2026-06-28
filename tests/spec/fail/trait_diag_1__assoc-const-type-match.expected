@@ -1,0 +1,1 @@
+associated constant 'C' declared as 'i32' but trait requires 'i64'

@@ -1,0 +1,12 @@
+// @rule intrinsic.dyn-from-parts.fat-trait-ptr
+package dfp_argc;
+
+trait Speak { fn says(self: &Self) -> i32; }
+struct Dog { tag: i64 }
+impl Speak for Dog { fn says(self: &Dog) -> i32 { return 1i32; } }
+
+unsafe fn main() -> i32 {
+    let mut dog: Dog = Dog { tag: 7i64 };
+    let d = dyn_from_parts::<Speak>((&mut dog) as *mut u8);
+    return 0;
+}

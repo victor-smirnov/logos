@@ -1,0 +1,16 @@
+// @rule trait.binop.enum-eq-impl
+package trait_diag_2_enum_eq_no_impl;
+
+enum E {
+    A(i32),
+    B(i32),
+}
+
+fn main() -> i32 {
+    let x = E::A(1i32);
+    let y = E::B(2i32);
+    if x == y {
+        return 1i32;
+    }
+    return 0i32;
+}

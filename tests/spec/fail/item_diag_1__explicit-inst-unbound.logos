@@ -1,0 +1,7 @@
+// @rule item.struct.explicit-instantiation-needs-concrete-args
+package item_diag_1_explicit_inst_unbound;
+
+struct Pair<T> { a: T, b: T }
+struct Pair<U>;
+
+fn main() -> i32 { return 0i32; }

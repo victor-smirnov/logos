@@ -1,0 +1,199 @@
+package borrow_5;
+
+// Conformance test for the `borrow_5` rule group. Each rule is locked by
+// EXECUTING a program whose observable result only holds if the rule is true.
+//
+// Most of these rules govern *move/drop bookkeeping*: their visible, positive
+// signature is "Drop runs EXACTLY ONCE" (no double-free, no leak). We observe
+// this with a tick-counting Drop and assert the counter equals the expected
+// drop count. A double-free would tick twice; a leak (missed drop) would tick
+// zero times — either breaks the assertion.
+
+use logos.mem.boxed;
+
+// ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// A move-typed payload for Result/Option-style match scrutinees.
+enum Wrap { Some(R), None }
+
+// Callee that consumes an owning Box<dyn Trait> by value (frees the handle).
+trait Speak { fn val(self: &Self) -> i64; }
+struct Sp { v: i64, t: *mut i64 }
+impl Speak for Sp { fn val(self: &Self) -> i64 { return self.v; } }
+impl Drop for Sp { fn drop(self: &mut Self) { unsafe { *self.t += 1i64; } } }
+fn consume_dyn(b: Box<dyn Speak>) -> i64 { return b.val(); }
+
+// Consumes an R by value (used to mark a return/let source moved).
+fn eat(r: R) -> i64 { return r.i as i64; }
+
+fn main() -> i64 {
+
+    // @rule borrow.drop.break-continue-to-loop-frame
+    // A `break` nested inside an `if` runs the destructors of every frame from
+    // the `if` body down to and including the loop-body frame — so the loop
+    // body's local `g` is dropped exactly once on the break path.
+    {
+        let mut cbreak: i64 = 0i64;
+        let pbreak: *mut i64 = &mut cbreak;
+        let mut i: i64 = 0i64;
+        loop {
+            let g: R = mk(pbreak);        // loop-body local
+            i = i + 1i64;
+            if i >= 1i64 {
+                break;                    // break inside `if` → must drop `g`
+            }
+            let _k = g;
+        }
+        if cbreak != 1i64 { return 1; }   // `g` dropped exactly once on break
+    }
+
+    // @rule borrow.scope.shadowing-fresh-slot
+    // Re-declaring a name (shadowing) allocates a FRESH slot rather than reusing
+    // the prior one: a borrow taken of the pre-shadow binding still reads the OLD
+    // slot's value after the shadow, distinct from the new binding's slot. If the
+    // slot were reused, `*r` would observe the new value.
+    {
+        let s: i64 = 10i64;
+        let r: &i64 = &s;             // borrows the FIRST `s`'s slot
+        let s: i64 = 20i64;           // shadow → fresh slot (old slot untouched)
+        if *r != 10i64 { return 2; }  // old slot intact (not reused)
+        if s != 20i64 { return 3; }   // new binding has its own distinct slot
+    }
+
+    // @rule borrow.move.owning-dyn-by-value
+    // An owning `Box<dyn Trait>` passed by value is MOVED — the callee frees the
+    // handle and the caller marks it moved, so the underlying Sp drops once.
+    {
+        let mut cdyn: i64 = 0i64;
+        let pdyn: *mut i64 = &mut cdyn;
+        {
+            let b: Box<dyn Speak> = box_new(Sp { v: 7i64, t: pdyn }) as Box<dyn Speak>;
+            let r: i64 = consume_dyn(b);  // moves `b`; callee frees → drop once
+            if r != 7i64 { return 4; }
+        }
+        if cdyn != 1i64 { return 5; }     // exactly one owner → one drop
+    }
+
+    // @rule borrow.match.per-arm-move-reset
+    // A variable moved on a falling-through arm is moved post-match; a variable
+    // moved only on a diverging (returning) arm contributes no post-match move.
+    // Here the taken arm does NOT move `keep`, so `keep` is still live & dropped.
+    {
+        let mut ckeep: i64 = 0i64;
+        let pkeep: *mut i64 = &mut ckeep;
+        {
+            let keep: R = mk(pkeep);
+            let w: Wrap = Wrap::None;
+            let chosen: i64 = match w {
+                Wrap::Some(inner) => { let _x = inner; return 6; } // diverges
+                Wrap::None => 0i64,                                // falls through
+            };
+            if chosen != 0i64 { return 7; }
+            let _u = keep.i;              // `keep` not moved by the taken arm
+        }
+        if ckeep != 1i64 { return 8; }    // `keep` dropped once (never moved)
+    }
+
+    // @rule borrow.match.definite-assignment-merge
+    // Definite-assignment merges as the union over non-diverging arms: a var
+    // assigned on the falling-through arm and on the diverging arm is definitely
+    // assigned post-match (diverging arm contributes nothing, but the taken arm
+    // assigns it), so the later read is well-formed.
+    {
+        let w: Wrap = Wrap::None;
+        let out: i64;
+        match w {
+            Wrap::Some(_inner) => { return 9; }  // diverges
+            Wrap::None => { out = 42i64; }       // assigns `out`, falls through
+        }
+        if out != 42i64 { return 10; }    // `out` definitely assigned post-match
+    }
+
+    // @rule borrow.let.move-rhs-variable
+    // `let y = x;` where x is a move type and y is the RHS place marks x moved,
+    // so x's scope-exit drop is suppressed and only y (the new owner) drops.
+    {
+        let mut clet: i64 = 0i64;
+        let plet: *mut i64 = &mut clet;
+        {
+            let x: R = mk(plet);
+            let y: R = x;                 // move out of x → x no longer drops
+            let _u = y.i;
+        }
+        if clet != 1i64 { return 11; }    // single owner (y) → exactly one drop
+    }
+
+    // @rule borrow.let.box-dyn-owning-drop
+    // `let bd: Box<dyn Trait> = box_new(..) as Box<dyn>` genuinely transfers
+    // ownership, so bd is marked for drop and the inner Sp drops once at scope
+    // exit (a non-consumed owning trait object).
+    {
+        let mut cbox: i64 = 0i64;
+        let pbox: *mut i64 = &mut cbox;
+        {
+            let bd: Box<dyn Speak> = box_new(Sp { v: 5i64, t: pbox }) as Box<dyn Speak>;
+            if bd.val() != 5i64 { return 12; }
+        }                                 // bd owns → drop_in_place + free here
+        if cbox != 1i64 { return 13; }    // owning box dropped exactly once
+    }
+
+    // @rule borrow.match.scrutinee-moved-by-binding
+    // `let r = match v { Some(s) => s, .. }` moves the payload OUT of a by-value
+    // move-type scrutinee; the scrutinee is marked moved so its scope-exit Drop
+    // does not double-free the value `r` now owns (G156-2). One value → one drop.
+    {
+        let mut cscrut: i64 = 0i64;
+        let pscrut: *mut i64 = &mut cscrut;
+        {
+            let v: Wrap = Wrap::Some(mk(pscrut));
+            let r: R = match v {          // payload moved out of `v`
+                Wrap::Some(s) => s,
+                Wrap::None => mk(pscrut),
+            };
+            let _u = r.i;                 // `r` owns the value; `v` is moved
+        }
+        if cscrut != 1i64 { return 14; }  // no double-free: dropped once
+    }
+
+    // @rule borrow.match.arm-binding-drop
+    // A pattern binding NOT consumed by its non-divergent value-form arm is
+    // dropped at arm-scope exit. Here the arm yields a scalar and does not use
+    // `s` as its value, so `s` drops once when the arm scope ends.
+    {
+        let mut carm: i64 = 0i64;
+        let parm: *mut i64 = &mut carm;
+        let v: Wrap = Wrap::Some(mk(parm));
+        let got: i64 = match v {
+            Wrap::Some(s) => { let n = s.i as i64; n - n },  // `s` not yielded → dropped at arm end
+            Wrap::None => 0i64,
+        };
+        if got != 0i64 { return 15; }
+        if carm != 1i64 { return 16; }    // arm binding `s` dropped exactly once
+    }
+
+    // @rule borrow.return.mark-moved
+    // A move-type variable appearing in a return expression (here as a call arg)
+    // is marked moved so scope-exit drop collection does not double-free it.
+    // Lock the positive side via a helper whose returned-through value drops once.
+    {
+        let mut cret: i64 = 0i64;
+        let pret: *mut i64 = &mut cret;
+        let n: i64 = ret_through(pret);   // `r` carried into return expr → moved
+        if n == 0i64 { return 17; }
+        if cret != 1i64 { return 18; }    // returned-through value dropped once
+    }
+
+    return 0;
+}
+
+// Helper for borrow.return.mark-moved: `r` is consumed inside the return
+// expression (as a call argument). It must be marked moved so the function's
+// scope-exit drop does not double-free it. `eat` consumes and drops it once.
+fn ret_through(p: *mut i64) -> i64 {
+    let r: R = mk(p);
+    return eat(r);                        // `r` moved into the return expression
+}

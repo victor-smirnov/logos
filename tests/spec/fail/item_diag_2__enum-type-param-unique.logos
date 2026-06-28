@@ -1,0 +1,6 @@
+// @rule item.enum.type-param-unique
+package item_diag_2_enum_type_param_unique;
+
+enum E<T, T> { A(T) }
+
+fn main() -> i32 { return 0i32; }

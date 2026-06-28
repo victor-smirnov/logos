@@ -1,0 +1,9 @@
+// @rule borrow.assign.static-mut-unsafe
+package borrow_diag_3_assign_static_mut_needs_unsafe;
+
+static mut G: i32 = 1i32;
+
+fn main() -> i32 {
+    G = 2i32;
+    return 0i32;
+}

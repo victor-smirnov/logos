@@ -1,0 +1,14 @@
+// @rule metaprog.annot.named-by-field-name
+package metaprog_diag_1_annot_unknown_field;
+
+#[annotation]
+#[datatype] struct Tag {
+    name: i64,
+}
+
+#[Tag(bogus = 3)]
+#[datatype] struct Target {
+    x: i32,
+}
+
+fn main() -> i32 { return 0i32; }

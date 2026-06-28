@@ -1,0 +1,9 @@
+// @rule stmt.while.condition-bool
+package stmt_diag_2_while_cond_not_bool;
+
+fn main() -> i32 {
+    while 3i32 {
+        return 1i32;
+    }
+    return 0i32;
+}

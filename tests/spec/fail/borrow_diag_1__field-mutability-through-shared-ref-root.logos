@@ -1,0 +1,12 @@
+// @rule borrow.field.mutability-through-reference-root
+package borrow_diag_1_field_mutability_through_shared_ref_root;
+// root `a` has shared-reference type (&C); &mut a.v must be rejected (E0596)
+// because mutation legality is decided by the reference TYPE.
+struct C { v: i64 }
+fn main() -> i32 {
+    let x: C = C { v: 1i64 };
+    let a: &C = &x;
+    let m: &mut i64 = &mut a.v;
+    *m = 5i64;
+    return 0i32;
+}

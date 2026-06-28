@@ -1,0 +1,11 @@
+// @rule pat.match.or-alt-binding-consistency
+package pat_diag_3_or_alt_binding_consistency;
+
+enum E { A(i32), B(i32) }
+
+fn main() -> i32 {
+    let e: E = E::A(1i32);
+    match e {
+        E::A(x) | E::B(y) => { return x; }
+    }
+}

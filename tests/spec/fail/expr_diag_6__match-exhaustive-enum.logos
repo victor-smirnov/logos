@@ -1,0 +1,13 @@
+// @rule expr.match.exhaustive-enum
+package expr_diag_6_match_exhaustive_enum;
+
+enum E { A, B, C }
+
+fn main() -> i32 {
+    let x = E::A;
+    let _r = match x {
+        E::A => 1i32,
+        E::B => 2i32,
+    };
+    return 0i32;
+}

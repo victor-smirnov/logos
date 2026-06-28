@@ -1,0 +1,10 @@
+// @rule pat.int.scrutinee-must-be-integer
+package pat_diag_1_int_scrut;
+
+fn main() -> i32 {
+    let b: bool = true;
+    match b {
+        1 => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

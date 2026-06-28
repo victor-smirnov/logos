@@ -1,0 +1,6 @@
+// @rule item.enum.variant-payload-shapes
+package item_diag_1_enum_payload_placeholder;
+
+enum E { A(_) }
+
+fn main() -> i32 { return 0i32; }

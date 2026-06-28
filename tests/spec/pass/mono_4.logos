@@ -1,0 +1,163 @@
+package mono_4;
+
+// mono_4 — reflection / type-introspection intrinsics folded at
+// monomorphization. Each intrinsic is replaced post-substitution by a baked
+// literal (int / bool / string) whose value depends only on the concrete
+// substituted type. We confirm each rule by EXECUTING the folded value.
+
+use logos.std.compiler.metaprog;   // Type struct + type_of()
+use logos.lang.clone;              // a real trait for has_trait queries
+
+// ── helper types ─────────────────────────────────────────────────────────────
+pub struct Pair<A, B> { pub a: A, pub b: B }
+pub struct Triple<A, B, C> { pub a: A, pub b: B, pub c: C }
+pub struct Plain { pub x: i32 }
+
+// Two layout-equivalent structs (no field/struct names enter the structural
+// hash) and one with a different layout.
+pub struct LA { pub x: u64, pub y: u64 }
+pub struct LB { pub p: u64, pub q: u64 }   // same layout as LA
+pub struct LC { pub x: u64 }               // shorter layout
+
+// A user struct with an explicit Clone impl, and one without.
+pub struct Boxed { pub a: i32, pub b: i64 }
+impl Clone for Boxed {
+    fn clone(&self) -> Boxed { return Boxed { a: self.a, b: self.b }; }
+}
+
+fn main() -> i64 {
+
+    // @rule mono.intrinsic.type-kind-of
+    // type_of::<T>().kind is the LogosType kind discriminant of the concrete T:
+    // stable per kind, and distinct across distinct kinds (struct vs integer).
+    {
+        let ka: u32 = type_of::<Plain>().kind;
+        let kb: u32 = type_of::<Plain>().kind;
+        let ki: u32 = type_of::<i64>().kind;
+        if ka != kb { return 1; }            // stable
+        if ka == ki { return 2; }            // struct kind != integer kind
+    }
+
+    // @rule mono.intrinsic.type-hash-of
+    // type_hash::<T>() is a STRUCTURAL FNV-1a-64: layout-equivalent types hash
+    // equal (no names), differing layouts hash differently, and it is stable.
+    {
+        let ha:  u64 = type_hash::<LA>();
+        let ha2: u64 = type_hash::<LA>();
+        let hb:  u64 = type_hash::<LB>();   // layout-equivalent to LA
+        let hc:  u64 = type_hash::<LC>();   // shorter layout
+        if ha != ha2 { return 3; }          // stable (baked literal)
+        if ha != hb  { return 4; }          // layout-equal -> hash-equal
+        if ha == hc  { return 5; }          // layout differs -> hash differs
+        if ha == 0u64 { return 6; }         // nonzero
+    }
+
+    // @rule mono.intrinsic.type-name-of
+    // type_of::<T>().name is the canonical type_str(T) string. For a primitive
+    // it round-trips its spelling; distinct types yield distinct names.
+    {
+        let ni: &[u8] = type_of::<i32>().name;
+        let nu: &[u8] = type_of::<u64>().name;
+        if ni.len() == 0 { return 7; }       // non-empty for a concrete type
+        if ni.len() == nu.len() && eq_bytes(ni, nu) { return 8; } // i32 != u64
+        if !eq_bytes(ni, "i32") { return 9; }                     // canonical
+    }
+
+    // @rule mono.intrinsic.type-uid-of
+    // type_of::<T>().uid is the low 64 bits of the nominal UID; type_uid_hi is
+    // the high 64 over the same canonical input. Both stable; distinct nominal
+    // types (Pair<i32,i32> vs Pair<i32,u32>) differ; uid is nonzero.
+    {
+        let lo_a:  u64 = type_of::<Pair<i32, i32>>().uid;
+        let lo_a2: u64 = type_of::<Pair<i32, i32>>().uid;
+        let lo_b:  u64 = type_of::<Pair<i32, u32>>().uid;
+        let hi_a:  u64 = type_uid_hi::<Pair<i32, i32>>();
+        let hi_a2: u64 = type_uid_hi::<Pair<i32, i32>>();
+        if lo_a != lo_a2 { return 10; }      // low half stable
+        if hi_a != hi_a2 { return 11; }      // high half stable
+        if lo_a == lo_b  { return 12; }      // nominal types differ
+        if lo_a == 0u64  { return 13; }      // nonzero
+    }
+
+    // @rule mono.intrinsic.is-same
+    // is_same::<T1,T2>() is true iff exactly two type-args are equal after subst.
+    {
+        if !is_same::<i64, i64>() { return 14; }
+        if  is_same::<i64, i32>() { return 15; }
+        if !is_same::<Pair<i32, u8>, Pair<i32, u8>>() { return 16; }
+        if  is_same::<Pair<i32, u8>, Pair<i32, u16>>() { return 17; }
+    }
+
+    // @rule mono.intrinsic.type-kind-predicates
+    // each predicate keys off the concrete substituted first type-arg's kind.
+    {
+        if !is_ptr::<*const u8>()  { return 18; }
+        if  is_ptr::<i32>()        { return 19; }
+        if !is_struct::<Plain>()   { return 20; }
+        if !is_enum::<MyEnum>()    { return 21; }
+        if !is_bool::<bool>()      { return 22; }
+        if !is_integer::<i64>()    { return 23; }
+        if !is_integer::<u32>()    { return 24; }
+        if !is_float::<f64>()      { return 25; }
+        if !is_signed::<i32>()     { return 26; }
+        if  is_signed::<u8>()      { return 27; }
+        if !is_unsigned::<u64>()   { return 28; }
+        if !is_primitive::<f64>()  { return 29; }
+        if  is_primitive::<Plain>() { return 30; }
+    }
+
+    // @rule mono.intrinsic.args-count-of
+    // args_count_of::<T>() == count of T's generic type-args (0 for non-generic).
+    {
+        if args_count_of::<Pair<i32, bool>>()       != 2i64 { return 31; }
+        if args_count_of::<Triple<i32, bool, u8>>() != 3i64 { return 32; }
+        if args_count_of::<Plain>()                 != 0i64 { return 33; }
+        if args_count_of::<i32>()                   != 0i64 { return 34; }
+    }
+
+    // @rule mono.intrinsic.has-trait
+    // has_trait::<T, Trait>() recurses the impl tables for concrete T.
+    {
+        if !has_trait::<Boxed, Clone>() { return 35; }   // explicit impl present
+        if  has_trait::<Plain, Clone>() { return 36; }   // no impl -> false
+    }
+
+    // @rule mono.intrinsic.has-trait-of
+    // has_trait_of::<Trait>(t: Type) recovers concrete T from t.uid and runs the
+    // same impl-table recursion; agrees with the keyword form has_trait.
+    {
+        let tboxed: Type = type_of::<Boxed>();
+        let tplain: Type = type_of::<Plain>();
+        if !has_trait_of::<Clone>(tboxed) { return 37; }
+        if  has_trait_of::<Clone>(tplain) { return 38; }
+        // cross-check vs has_trait
+        if has_trait_of::<Clone>(tboxed) != has_trait::<Boxed, Clone>() { return 39; }
+        if has_trait_of::<Clone>(tplain) != has_trait::<Plain, Clone>() { return 40; }
+    }
+
+    // @rule mono.reflect.varref-let-chase
+    // `let t = type_of::<T>(); has_trait_of(t)` must fold identically to passing
+    // the producer directly — the VarRef operand is chased through its let-init.
+    {
+        let t = type_of::<Boxed>();          // producer bound to a var
+        let via_var: bool   = has_trait_of::<Clone>(t);
+        let direct:  bool   = has_trait_of::<Clone>(type_of::<Boxed>());
+        if via_var != direct { return 41; }
+        if !via_var          { return 42; }  // and it actually resolved
+    }
+
+    return 0;
+}
+
+// Byte-slice equality helper (avoids any stdlib String dependency).
+fn eq_bytes(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0;
+    while i < a.len() {
+        if a[i] != b[i] { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub enum MyEnum { A, B(i32) }

@@ -1,0 +1,9 @@
+// @rule intrinsic.has-trait.t-trait-bool
+package has_trait_arity;
+
+use logos.lang.clone;
+
+fn main() -> i32 {
+    let b: bool = has_trait::<i32>();
+    return 0;
+}

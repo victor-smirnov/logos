@@ -1,0 +1,11 @@
+// @rule stmt.let-pat.struct-name-match
+package stmt_diag_2_struct_name_mismatch;
+
+struct Point { x: i32, y: i32 }
+struct Other { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let p: Point = Point { x: 1i32, y: 2i32 };
+    let Other { x, y } = p;
+    return x + y;
+}

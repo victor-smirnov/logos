@@ -1,0 +1,6 @@
+// @rule item.struct.field-name-unique
+package item_diag_2_struct_field_name_unique;
+
+struct S { x: i32, x: i32 }
+
+fn main() -> i32 { return 0i32; }

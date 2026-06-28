@@ -1,0 +1,6 @@
+// @rule intrinsic.offset-of.struct-only
+package offof_not_struct;
+
+fn main() -> i32 {
+    return offset_of!(i32, foo) as i32;
+}

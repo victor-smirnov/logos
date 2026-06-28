@@ -1,0 +1,11 @@
+// @rule expr.match.arm-block-tail-is-value
+package expr_diag_6_match_block_arm_tail;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let _r = match x {
+        1i32 => { let _y: i32 = 2i32; }
+        _ => 0i32,
+    };
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// @rule generic.bound.relaxed-only-sized
+package generic_diag_1_relaxed_only_sized;
+
+trait Speak { fn val(&self) -> i64; }
+
+fn g<T: ?Speak>() {}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// @rule expr.method.unsafe-method-requires-unsafe
+package expr_diag_3_unsafe_trait_method;
+
+trait Danger { unsafe fn boom(&self) -> i32; }
+
+fn use_it<T: Danger>(t: &T) -> i32 {
+    return t.boom();
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,219 @@
+package coerce_3;
+
+use logos.mem.collections.vec;
+
+// ── Helper types/traits/impls ───────────────────────────────────────────────
+
+// A generic struct to exercise element-wise type-arg coercion / inference holes.
+struct Wrap<T> { v: T }
+
+// A trait + impl to exercise struct-to-dyn unsize coercion.
+trait Speak { fn val(&self) -> i64; }
+struct A { n: i64 }
+impl Speak for A { fn val(&self) -> i64 { return self.n; } }
+
+// A struct with a Deref impl to exercise user deref-coercion / chain.
+struct MyBox { inner: i64 }
+impl Deref<i64> for MyBox {
+    fn deref(&self) -> &i64 { return &self.inner; }
+}
+
+// Receiver auto-ref: &self method called on a by-value struct value.
+struct Cell { v: i64 }
+impl Cell { fn get(&self) -> i64 { return self.v; } }
+
+// fn-items with identical signatures, for if-branches LUB-to-fn-pointer.
+fn pick_a(x: i64) -> i64 { return x + 1i64; }
+fn pick_b(x: i64) -> i64 { return x + 2i64; }
+
+// A fn that takes &dyn Speak (forces a coercion at the call site / through ref).
+fn speak_ref(s: &dyn Speak) -> i64 { return s.val(); }
+
+// Deref-bound method fallthrough: `read` lives on the Deref Target, not on T.
+struct Inner { k: i64 }
+impl Inner { fn read(&self) -> i64 { return self.k; } }
+struct DBox { inner: Inner }
+impl Deref<Inner> for DBox { fn deref(&self) -> &Inner { return &self.inner; } }
+fn via_deref<T: Deref<Inner>>(t: &T) -> i64 { return t.read(); }
+
+// Takes a closure by &dyn Fn -> exercises ref-to-closure value coercion.
+fn takes_closure(f: &dyn Fn(i64) -> i64) -> i64 { return f(3i64); }
+
+// A fn taking a slice; pass &Vec to exercise &Vec -> &[T] deref coercion.
+fn sum_slice(s: &[i64]) -> i64 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < s.len() {
+        acc = acc + s[i as usize];
+        i = i + 1i64;
+    }
+    return acc;
+}
+
+// A generic fn whose param is bounded by an Fn trait (closure hint from bound).
+fn apply<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+
+// Binop autoderef on a reference operand.
+fn add_ref(r: &i64) -> i64 { return r + 1i64; }
+// Bitwise autoderef on a reference operand.
+fn and_ref(r: &i64) -> i64 { return r & 6i64; }
+
+fn main() -> i64 {
+
+    // @rule coerce.compatible.equal-implies-compatible
+    // Equal types are always compatible: a plain same-type assignment holds.
+    {
+        let a: i64 = 5i64;
+        let b: i64 = a;            // i64 -> i64 (types_equal)
+        if b != 5i64 { return 1; }
+    }
+
+    // @rule coerce.infer.placeholder-unifies
+    // `_` placeholder unifies with the RHS type; resolution deferred to RHS.
+    {
+        let x: _ = 7i64;           // `_` annotation unifies with RHS i64
+        if x != 7i64 { return 2; }
+    }
+
+    // @rule coerce.struct.elementwise-typeargs
+    // Same struct/pkg, equal arity: compatible iff each type-arg compatible,
+    // allowing an inference hole (Wrap<_> target unifies with Wrap<i64>).
+    {
+        let w: Wrap<_> = Wrap { v: 9i64 };  // Wrap<_> <- Wrap<i64>
+        if w.v != 9i64 { return 3; }
+    }
+
+    // @rule coerce.intlit.to-integer-typevar-float
+    // An untyped int literal coerces to an integer kind and to a float kind.
+    {
+        let i: i32 = 4;           // IntLit -> i32
+        let f: f64 = 4;           // IntLit -> f64
+        if i != 4i32 { return 4; }
+        if f != 4.0f64 { return 5; }
+    }
+
+    // @rule coerce.int.safe-widening
+    // Narrow integer coerces to a wider integer (u32 -> i64, u8 -> u32).
+    {
+        let small: u32 = 300u32;
+        let wide: i64 = small;    // u32 -> i64 (can_widen_int)
+        if wide != 300i64 { return 6; }
+        let b: u8 = 7u8;
+        let m: u32 = b;           // u8 -> u32
+        if m != 7u32 { return 7; }
+    }
+
+    // @rule coerce.array.elementwise
+    // [T;N] compatible with [U;M] iff N==M and elements compatible.
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let copy: [i64; 3] = arr;   // [i64;3] -> [i64;3]
+        if copy[2usize] != 3i64 { return 8; }
+    }
+
+    // @rule coerce.tuple.elementwise
+    // Tuples compatible iff equal arity and element-wise compatible.
+    {
+        let t: (i64, i32) = (1i64, 2i32);
+        let t2: (i64, i32) = t;     // element-wise equal types
+        if t2.0 != 1i64 { return 9; }
+        if t2.1 != 2i32 { return 10; }
+    }
+
+    // @rule coerce.unsize.struct-to-dyn-trait
+    // &Struct coerces to &dyn Trait (unsize); impl deferred to codegen.
+    {
+        let a: A = A { n: 12i64 };
+        let d: &dyn Speak = &a;     // &A -> &dyn Speak
+        if d.val() != 12i64 { return 11; }
+        if speak_ref(&a) != 12i64 { return 12; }  // coercion at the call site
+    }
+
+    // @rule coerce.ref.permission-and-pointee
+    // &mut T coerces to &T (permission dropped, never gained).
+    {
+        let mut x: i64 = 13i64;
+        let rm: &mut i64 = &mut x;
+        let rs: &i64 = rm;          // &mut i64 -> &i64 (drop write)
+        if *rs != 13i64 { return 13; }
+    }
+
+    // @rule coerce.deref.ref-vec-to-slice
+    // &Vec<T> coerces to &[T] (slice prefix of {ptr,len,cap}).
+    {
+        let mut v: Vec<i64> = Vec::new();
+        v.push(4i64);
+        v.push(5i64);
+        if sum_slice(&v) != 9i64 { return 14; }   // &Vec<i64> -> &[i64]
+    }
+
+    // @rule coerce.deref.user-deref-chain
+    // A receiver with a Deref impl deref-coerces to &Target for method use.
+    {
+        let b: MyBox = MyBox { inner: 21i64 };
+        // *b uses Deref::deref to reach the i64 Target.
+        if *b != 21i64 { return 15; }
+    }
+
+    // @rule coerce.binop.autoderef-numeric-ref
+    // &i64 operand is implicitly deref'd before a numeric binop.
+    {
+        let x: i64 = 40i64;
+        if add_ref(&x) != 41i64 { return 16; }    // (&i64) + 1
+    }
+
+    // @rule coerce.binop.bitwise-ref-scalar-deref
+    // &i64 operand is implicitly deref'd before a bitwise binop.
+    {
+        let x: i64 = 7i64;
+        if and_ref(&x) != 6i64 { return 17; }     // (&i64) & 6 == 6
+    }
+
+    // @rule expr.if.fnitem-branches-lub-to-fnptr
+    // Both if-branches are distinct fn-items of the same signature; the join
+    // type is the fn-pointer fn(i64)->i64.
+    {
+        let cond: bool = true;
+        let f: fn(i64) -> i64 = if cond { pick_a } else { pick_b };
+        if f(10i64) != 11i64 { return 18; }       // pick_a selected
+    }
+
+    // @rule coerce.closure.hint-from-fn-bound
+    // A closure passed where an Fn-bounded type param is expected gets its
+    // parameter/return types from the bound.
+    {
+        let r: i64 = apply(|x| x * 3i64, 5i64);   // closure typed from F: Fn(i64)->i64
+        if r != 15i64 { return 19; }
+    }
+
+    // @rule coerce.method-recv.auto-ref
+    // &self method on a by-value struct value: receiver implicitly address-of'd.
+    {
+        let c: Cell = Cell { v: 22i64 };
+        if c.get() != 22i64 { return 20; }        // by-value Cell auto-ref'd to &Cell
+    }
+
+    // @rule coerce.array.to-pointer-decay
+    // &[T;N] decays to *const T over a compatible element type.
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        let p: *const i64 = &arr as *const i64;   // &[i64;3] -> *const i64
+        unsafe { if *p != 10i64 { return 21; } }   // element-0 address
+    }
+
+    // @rule coerce.closure.ref-to-closure
+    // &Closure coerces to a bare (fat-pointer-like) dyn Fn closure value.
+    {
+        let c = |x: i64| -> i64 { return x + 1i64; };
+        if takes_closure(&c) != 4i64 { return 22; }  // &closure -> &dyn Fn value
+    }
+
+    // @rule coerce.method-recv.deref-bound-fallthrough
+    // method `read` not on T but on T's Deref Target: recv rewritten to deref().
+    {
+        let b: DBox = DBox { inner: Inner { k: 9i64 } };
+        if via_deref(&b) != 9i64 { return 23; }    // resolves Inner::read via deref
+    }
+
+    return 0;
+}

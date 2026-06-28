@@ -1,0 +1,7 @@
+// @rule borrow.scope.stored-borrow-outlives-referent
+package borrow_diag_2_stored_borrow_outlives;
+fn main() -> i32 {
+    let outer: &i64;
+    { let x: i64 = 7i64; outer = &x; }
+    return *outer as i32;
+}

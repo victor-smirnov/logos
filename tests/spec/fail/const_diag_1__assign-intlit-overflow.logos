@@ -1,0 +1,8 @@
+// @rule const.assign.intlit-fits
+package const_diag_1_assign_intlit_overflow;
+
+fn main() -> i32 {
+    let mut x: u8 = 0u8;
+    x = 99999;
+    return 0i32;
+}

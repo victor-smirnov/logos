@@ -1,0 +1,10 @@
+// @rule trait.auto.generic-impl-bound-check
+package trait_diag_1_gen_bound;
+struct NoSend { p: *const i64 }
+struct Wrap<T> { tag: i64 }
+unsafe impl<T: Send> Send for Wrap<T> {}
+fn needs_send<T: Send>(x: T) -> i64 { return 0i64; }
+fn main() -> i64 {
+    let w: Wrap<NoSend> = Wrap { tag: 0i64 };
+    return needs_send::<Wrap<NoSend>>(w);
+}

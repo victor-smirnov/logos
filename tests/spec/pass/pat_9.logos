@@ -1,0 +1,130 @@
+package pat_9;
+
+// ── helper types ────────────────────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+
+enum Num { I(i64), B(bool), S(str) }
+
+enum Wrap { Struct(Pt), Tup((i64, i64)) }
+
+// All payload fields are unit `()` — the unit positions are elided from the
+// enum layout, so a named binding becomes a zero-sized `()` local in scope.
+enum UnitPay { U(()), Plain }
+
+fn main() -> i64 {
+
+    // @rule pat.refutable.literal-inner-guard
+    // An int/bool/char literal inner pattern binds the payload to a synth slot
+    // and gates the arm with `synth == <literal>`; a string literal inner gates
+    // with str_eq rather than pointer-comparing the slices.
+    {
+        // int literal inner
+        let ni: Num = Num::I(7i64);
+        let gi: i64 = match ni {
+            Num::I(7i64) => 1i64,   // synth == 7
+            Num::I(_) => 2i64,
+            _ => 0i64,
+        };
+        if gi != 1i64 { return 1; }
+        // bool literal inner
+        let nb: Num = Num::B(true);
+        let gb: i64 = match nb {
+            Num::B(false) => 1i64,
+            Num::B(true) => 2i64,   // synth == true
+            _ => 0i64,
+        };
+        if gb != 2i64 { return 2; }
+        // string literal inner — must use str_eq, not pointer compare
+        let ns: Num = Num::S("foo");
+        let gs: i64 = match ns {
+            Num::S("bar") => 1i64,
+            Num::S("foo") => 2i64,  // str_eq(synth, "foo")
+            _ => 0i64,
+        };
+        if gs != 2i64 { return 4; }
+    }
+
+    // @rule pat.at-binding.payload-bind-and-guard
+    // `n @ <sub>` in a variant payload binds the payload to `n` AND gates the
+    // arm with the refutable guard of `<sub>` built against `n`; `n @ _` binds
+    // with no guard.
+    {
+        // @-binding with a range sub: binds k and gates with the range guard
+        let n1: Num = Num::I(5i64);
+        let g1: i64 = match n1 {
+            Num::I(k @ 1i64..=3i64) => k,    // guard fails (5 not in 1..=3)
+            Num::I(k @ 4i64..=9i64) => k,    // binds k=5, range guard holds
+            _ => -1i64,
+        };
+        if g1 != 5i64 { return 5; }
+        // @-binding with a literal sub: binds and gates with == guard
+        let n2: Num = Num::I(8i64);
+        let g2: i64 = match n2 {
+            Num::I(k @ 8i64) => k,           // binds k=8, == guard holds
+            _ => -1i64,
+        };
+        if g2 != 8i64 { return 6; }
+        // `n @ _` binds with no guard — always matches the variant
+        let n3: Num = Num::I(42i64);
+        let g3: i64 = match n3 {
+            Num::I(k @ _) => k,              // binds k=42, no guard
+            _ => -1i64,
+        };
+        if g3 != 42i64 { return 7; }
+    }
+
+    // @rule pat.variant.nested-struct-tuple-destructure
+    // A nested struct- or tuple-pattern inside a variant payload binds the
+    // payload to a synthetic slot and emits an irrefutable `let <sub> = synth;`
+    // destructure as an arm-body prologue.
+    {
+        let ws: Wrap = Wrap::Struct(Pt { x: 11i64, y: 22i64 });
+        let gs: i64 = match ws {
+            Wrap::Struct(Pt { x: px, y: py }) => px + py,   // nested struct destructure
+            Wrap::Tup((a, b)) => a + b,                     // nested tuple destructure
+        };
+        if gs != 33i64 { return 8; }
+        let wt: Wrap = Wrap::Tup((3i64, 4i64));
+        let gt: i64 = match wt {
+            Wrap::Struct(Pt { x: px, y: py }) => px + py,
+            Wrap::Tup((a, b)) => a + b,                     // a=3, b=4
+        };
+        if gt != 7i64 { return 9; }
+    }
+
+    // @rule pat.variant.unit-payload-binding
+    // When a variant's payload types are all `()`, a `_` binding is dropped and
+    // a named binding is kept as a `()` (zero-sized) local in scope; the unit
+    // payload position itself is omitted from binding types.
+    {
+        // named binding over an all-unit payload: `u` is a `()` local in scope
+        let up: UnitPay = UnitPay::U(());
+        let gn: i64 = match up {
+            UnitPay::U(u) => { let _keep: () = u; 1i64 }   // named unit binding kept
+            UnitPay::Plain => 2i64,
+        };
+        if gn != 1i64 { return 10; }
+        // `_` over an all-unit payload is dropped — arm still selected by tag
+        let up2: UnitPay = UnitPay::U(());
+        let gw: i64 = match up2 {
+            UnitPay::U(_) => 7i64,   // wildcard dropped, tag still discriminates
+            UnitPay::Plain => 8i64,
+        };
+        if gw != 7i64 { return 11; }
+    }
+
+    // @rule pat.unit.no-binding
+    // A `()` (unit) sub-pattern in a variant payload position introduces no
+    // binding (the position is skipped at collection time).
+    {
+        let up: UnitPay = UnitPay::U(());
+        let gu: i64 = match up {
+            UnitPay::U(()) => 5i64,   // () sub-pattern: no binding introduced
+            UnitPay::Plain => 6i64,
+        };
+        if gu != 5i64 { return 12; }
+    }
+
+    return 0;
+}

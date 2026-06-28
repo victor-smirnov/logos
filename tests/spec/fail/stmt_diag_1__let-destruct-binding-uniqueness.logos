@@ -1,0 +1,7 @@
+// @rule stmt.let-destruct.binding-uniqueness
+package stmt_diag_1_let_destruct_binding_uniqueness;
+
+fn main() -> i32 {
+    let (a, a) = (1i32, 2i32);
+    return 0i32;
+}

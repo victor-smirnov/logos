@@ -1,0 +1,10 @@
+// @rule expr.match.exhaustive-bool
+package expr_diag_6_match_exhaustive_bool;
+
+fn main() -> i32 {
+    let b: bool = true;
+    let _r = match b {
+        true => 1i32,
+    };
+    return 0i32;
+}

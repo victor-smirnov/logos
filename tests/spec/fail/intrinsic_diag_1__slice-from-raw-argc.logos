@@ -1,0 +1,9 @@
+// @rule intrinsic.slice-from-raw.ptr-len
+package sfr_argc;
+
+unsafe fn main() -> i32 {
+    let arr: [i64; 2] = [1i64, 2i64];
+    let p: *const i64 = &arr[0] as *const i64;
+    let s: &[i64] = slice_from_raw::<i64>(p);
+    return 0;
+}

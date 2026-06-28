@@ -1,0 +1,8 @@
+// @rule const.def.initializer-const-evaluable
+package const_diag_1_init_bare_call;
+
+fn f() -> i32 { return 1i32; }
+
+const X: i32 = f();
+
+fn main() -> i32 { return 0i32; }

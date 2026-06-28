@@ -1,0 +1,9 @@
+// @rule intrinsic.zone.zone-of
+package intrinsic_diag_2_zone_of_arity;
+
+unsafe fn main() -> i32 {
+    let mut x: i64 = 7i64;
+    let r: &mut i64 = &mut x;
+    let _p: *mut u8 = zone_of(r, r);
+    return 0i32;
+}

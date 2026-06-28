@@ -1,0 +1,12 @@
+// @rule trait.hrtb.universal-bijective
+package trait_diag_1_hrtb;
+trait Foo<X, Y> { fn foo(self: Self, x: X, y: Y) -> i32; }
+struct SomeStruct { _x: i32 }
+impl<'a> Foo<&'a i64, &'a i64> for SomeStruct {
+    fn foo(self: SomeStruct, x: &'a i64, y: &'a i64) -> i32 { return 0i32; }
+}
+fn want_two<T>() where T: for<'a, 'b> Foo<&'a i64, &'b i64> {}
+fn main() -> i32 {
+    want_two::<SomeStruct>();
+    return 0i32;
+}

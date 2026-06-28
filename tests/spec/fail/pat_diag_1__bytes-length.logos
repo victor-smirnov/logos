@@ -1,0 +1,10 @@
+// @rule pat.bytes.length-must-match-array
+package pat_diag_1_bytes_length;
+
+fn main() -> i32 {
+    let a: [u8; 3] = [65u8, 66u8, 67u8];
+    match a {
+        b"ab" => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

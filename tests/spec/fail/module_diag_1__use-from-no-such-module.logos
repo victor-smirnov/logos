@@ -1,0 +1,8 @@
+// @rule module.use.from-module-restricts-candidates
+package module_diag_use_from;
+
+// `logos.std.io` resolves, but the `from <module>` restriction names a
+// module that is not among the loaded modules, which is an error.
+use logos.std.io from "no_such_module";
+
+fn main() {}

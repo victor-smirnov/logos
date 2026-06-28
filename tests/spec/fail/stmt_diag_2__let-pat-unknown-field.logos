@@ -1,0 +1,10 @@
+// @rule stmt.let-pat.unknown-field
+package stmt_diag_2_unknown_field;
+
+struct Point { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let p: Point = Point { x: 1i32, y: 2i32 };
+    let Point { x, z } = p;
+    return x;
+}

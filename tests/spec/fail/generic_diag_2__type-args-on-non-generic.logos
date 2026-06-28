@@ -1,0 +1,9 @@
+// @rule generic.arity.type-args-on-non-generic
+package generic_diag_2_type_args_on_non_generic;
+
+struct S {}
+
+fn main() -> i32 {
+    let _x: S<i32> = S {};
+    return 0i32;
+}

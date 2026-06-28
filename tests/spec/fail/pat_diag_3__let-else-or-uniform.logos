@@ -1,0 +1,10 @@
+// @rule pat.let-else.or-pattern-uniform-bindings
+package pat_diag_3_let_else_or_uniform;
+
+enum E { A(i32), B(i32) }
+
+fn main() -> i32 {
+    let e: E = E::A(1i32);
+    let E::A(x) | E::B(y) = e else { return 0i32; };
+    return x;
+}

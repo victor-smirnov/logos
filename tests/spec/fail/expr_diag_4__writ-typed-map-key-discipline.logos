@@ -1,0 +1,9 @@
+// @rule expr.writ.typed-map-key-discipline
+package expr_diag_4_writ_typed_map_key_discipline;
+
+use logos.lang.writ.wstatic;
+
+unsafe fn main() -> i32 {
+    let _x: WritStatic = @<I32>{"hello": 10};
+    return 0i32;
+}

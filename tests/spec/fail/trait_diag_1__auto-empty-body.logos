@@ -1,0 +1,4 @@
+// @rule trait.auto.empty-body
+package trait_diag_1_auto_empty_body;
+auto trait Marker { fn m(&self) -> i64; }
+fn main() -> i64 { return 0i64; }

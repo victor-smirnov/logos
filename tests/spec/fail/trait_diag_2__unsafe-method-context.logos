@@ -1,0 +1,15 @@
+// @rule trait.unsafe-method.requires-unsafe-context
+package trait_diag_2_unsafe_method_context;
+
+struct S {
+    x: i32,
+}
+
+impl S {
+    unsafe fn danger<T>(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let s = S { x: 1i32 };
+    return s.danger::<i32>();
+}

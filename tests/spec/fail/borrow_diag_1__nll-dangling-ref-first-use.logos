@@ -1,0 +1,10 @@
+// @rule borrow.nll.dangling-ref-first-use-error
+package borrow_diag_1_nll_dangling_ref_first_use;
+fn main() -> i32 {
+    let outer: &i64;
+    {
+        let x: i64 = 5i64;
+        outer = &x;
+    }
+    return *outer as i32;
+}

@@ -1,0 +1,10 @@
+// @rule type.writ-arr.elem-set
+package type_diag_1_writ_arr;
+
+fn f(x: <Bogus>[]) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

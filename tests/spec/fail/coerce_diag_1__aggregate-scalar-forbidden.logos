@@ -1,0 +1,10 @@
+// @rule coerce.cast.aggregate-scalar-forbidden
+package coerce_diag_1_aggregate_scalar_forbidden;
+
+struct S { x: i32 }
+
+fn main() -> i32 {
+    let s = S { x: 1i32 };
+    let _n: i64 = s as i64;
+    return 0i32;
+}

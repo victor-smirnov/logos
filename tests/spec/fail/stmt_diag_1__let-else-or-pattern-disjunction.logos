@@ -1,0 +1,12 @@
+// @rule stmt.let-else.or-pattern-disjunction
+package stmt_diag_1_let_else_or_pattern_disjunction;
+
+enum E { A(i32), B(i32) }
+
+fn main() -> i32 {
+    let v: E = E::A(3i32);
+    let E::A(x) | E::B(y) = v else {
+        return 1i32;
+    };
+    return x;
+}

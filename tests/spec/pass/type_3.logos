@@ -1,0 +1,196 @@
+// Conformance: type_3 — type identity / interning, inference holes, and
+// inhabitedness. Each block locks ONE rule by executing a consequence that
+// only holds if the rule is true; a violation returns a distinct nonzero code.
+// All pass => return 0.
+package type_3;
+
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+
+// ── helper nominal types ─────────────────────────────────────────────────────
+
+// recursive / self-referential type: identity recursion must terminate
+enum List {
+    Cons(i64, Box<List>),
+    Nil,
+}
+
+// generic nominal type — distinct type-args ⇒ distinct instantiations
+struct Wrap<T> { v: T }
+
+// trait used for dyn-identity and fn-item rules
+trait Sayer { fn say(&self) -> i64; }
+struct Speaker { v: i64 }
+impl Sayer for Speaker { fn say(&self) -> i64 { return self.v; } }
+
+// two distinct fns with IDENTICAL signatures — distinct fn-item types, both callable
+fn add_one(x: i64) -> i64 { return x + 1i64; }
+fn add_two(x: i64) -> i64 { return x + 2i64; }
+
+// helper returning a structurally-identical tuple type as a local
+fn make_pair() -> (i64, i64) { return (3i64, 4i64); }
+
+// a function whose body never returns normally: its tail type is Never `!`
+fn diverge(code: i64) -> i64 {
+    if code == 0i64 { return 7i64; }
+    // the `return` expression itself has type `!` and may sit in value position
+    return { return code; };
+}
+
+fn main() -> i64 {
+
+    // @rule type.identity.recursive-cycle-guard
+    // A self-referential struct (Box<Tree> field) has a finite, terminating
+    // structural identity — the program builds, type-checks and runs at all,
+    // and the recursive value is traversable.
+    {
+        let lst: List = List::Cons(1i64, box_new(List::Cons(2i64, box_new(List::Cons(3i64, box_new(List::Nil))))));
+        let mut sum: i64 = 0i64;
+        let mut cur: &List = &lst;
+        loop {
+            match cur {
+                List::Cons(v, rest) => { sum = sum + *v; cur = &**rest; }
+                List::Nil => { break; }
+            }
+        }
+        if sum != 6i64 { return 1; }                    // 1+2+3, recursive type traversed
+    }
+
+    // @rule type.infer.fill-annotation-from-rhs
+    // An `_` hole in a let annotation is filled from the concrete RHS type:
+    // `Vec<_>` against `vec!(1i32)` binds element type i32; bare `_` against an
+    // integer literal defaults to i32, against a float literal to f64.
+    {
+        let v: Vec<_> = vec!(10i32, 20i32);            // Vec<_> ← Vec<i32>
+        if (v[0] as i64) != 10i64 { return 4; }
+        if (v[1] as i64) != 20i64 { return 5; }
+        let n: _ = 42;                                  // bare `_` ← {integer} = i32
+        if (n as i64) != 42i64 { return 6; }
+        let f: _ = 2.5;                                 // bare `_` ← {float} = f64
+        if (f as i64) != 2i64 { return 7; }
+    }
+
+    // @rule type.inhabited.never-uninhabited
+    // The Never type `!` is uninhabited: a `return`-expression (type `!`) may be
+    // used in value position to coerce to ANY type without producing a value;
+    // the surrounding computation simply never observes it.
+    {
+        if diverge(0i64) != 7i64 { return 8; }          // normal arm reached
+        if diverge(9i64) != 9i64 { return 9; }          // `!` value-position arm diverged
+    }
+
+    // @rule type.identity.array-size-significant
+    // [T; N] identity mixes element type AND N: arrays differing only in length
+    // are distinct types, each kept independently with its own length.
+    {
+        let a2: [i64; 2] = [11i64, 12i64];
+        let a3: [i64; 3] = [21i64, 22i64, 23i64];
+        if a2[1] != 12i64 { return 10; }
+        if a3[2] != 23i64 { return 11; }                // [i64;3] is its own type, len 3 honored
+    }
+
+    // @rule type.identity.array-size
+    // Array identity = (length N, element T): two arrays of the SAME length and
+    // element type denote one type and are mutually assignable.
+    {
+        let p: [i64; 3] = [1i64, 2i64, 3i64];
+        let q: [i64; 3] = p;                            // same [i64;3] type ⇒ assignable
+        if q[0] != 1i64 { return 12; }
+        if q[2] != 3i64 { return 13; }
+    }
+
+    // @rule type.identity.tuple
+    // A tuple type's identity is its ordered element sequence; same arity and
+    // pairwise element types ⇒ one type, mutually assignable across origins.
+    {
+        let local: (i64, i64) = (3i64, 4i64);
+        let from_fn: (i64, i64) = make_pair();          // identical tuple type
+        let copy: (i64, i64) = local;                   // assignable: same type
+        if copy.0 != 3i64 { return 14; }
+        if from_fn.1 != 4i64 { return 15; }
+    }
+
+    // @rule type.identity.nominal-args
+    // A generic nominal type's identity includes its ordered type-args: distinct
+    // instantiations (Wrap<i64> vs Wrap<bool>) are distinct types, each carrying
+    // its own arg type independently.
+    {
+        let wi: Wrap<i64> = Wrap { v: 99i64 };
+        let wb: Wrap<bool> = Wrap { v: true };
+        if wi.v != 99i64 { return 16; }
+        if !wb.v { return 17; }                         // Wrap<bool> distinct from Wrap<i64>
+    }
+
+    // @rule type.identity.intern-canonical
+    // Two structurally-identical types intern to one representative: a Wrap<i64>
+    // built here and one built elsewhere denote the SAME type and are assignable
+    // back and forth.
+    {
+        let a: Wrap<i64> = Wrap { v: 5i64 };
+        let b: Wrap<i64> = a;                            // same canonical type
+        if b.v != 5i64 { return 18; }
+    }
+
+    // @rule type.identity.ptr-distinct-by-mut
+    // *const T and *mut T are distinct types; both are usable raw pointers and a
+    // value reachable through each yields the same pointee.
+    {
+        let mut x: i64 = 77i64;
+        {
+            let pc: *const i64 = &x;                     // *const T
+            unsafe { if *pc != 77i64 { return 19; } }    // *const read
+        }
+        {
+            let pm: *mut i64 = &mut x;                   // *mut T — distinct type
+            unsafe { *pm = 78i64; }                      // *mut write (mutating)
+        }
+        if x != 78i64 { return 20; }
+    }
+
+    // @rule type.identity.slice-mut-owning
+    // &[T], &mut [T] and owning Box<[T]> are mutually distinct slice types; each
+    // exposes its elements/len through its own representation.
+    {
+        let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let s: &[i64] = &arr;                            // &[T]
+        if s.len() != 3i64 { return 21; }
+        let bx: Box<[i64]> = box_new::<[i64; 2]>([8i64, 9i64]) as Box<[i64]>;  // owning Box<[T]>
+        if bx.len() != 2i64 { return 22; }
+        if bx[1] != 9i64 { return 23; }
+    }
+
+    // @rule type.identity.dyn-trait
+    // A trait object's identity includes its owning kind: Box<dyn T> and
+    // Rc<dyn T> are distinct types over the same trait; dispatch through each
+    // reaches the concrete impl independently.
+    {
+        let bd: Box<dyn Sayer> = box_new(Speaker { v: 31i64 }) as Box<dyn Sayer>;
+        let rd: Rc<dyn Sayer> = rc_new(Speaker { v: 32i64 }) as Rc<dyn Sayer>;
+        if bd.say() != 31i64 { return 24; }             // Box<dyn> dispatch
+        if rd.say() != 32i64 { return 25; }             // Rc<dyn> — distinct type, own dispatch
+    }
+
+    // @rule type.identity.fnptr-abi
+    // A function-pointer type is identified by (ABI, params, return): a plain
+    // fn(i64)->i64 pointer is a first-class value; calling it routes to its
+    // pointee function.
+    {
+        let fp: fn(i64) -> i64 = add_one;
+        if fp(40i64) != 41i64 { return 26; }            // call via fn-ptr value
+    }
+
+    // @rule type.identity.fnitem-distinct
+    // Two distinct functions with identical signatures have distinct fn-item
+    // types; each is independently usable (here coerced to the shared fn-ptr
+    // type) and routes to its OWN body.
+    {
+        let f1: fn(i64) -> i64 = add_one;               // distinct fn-item → fn-ptr
+        let f2: fn(i64) -> i64 = add_two;               // distinct fn-item → fn-ptr
+        if f1(10i64) != 11i64 { return 27; }            // add_one body
+        if f2(10i64) != 12i64 { return 28; }            // add_two body — distinct item
+    }
+
+    return 0;
+}

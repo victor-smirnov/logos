@@ -1,0 +1,7 @@
+// @rule borrow.mutability.binding-mut-required
+package borrow_diag_1_binding_mut_required;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    x = 10i32;
+    return x;
+}

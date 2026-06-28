@@ -1,0 +1,13 @@
+// @rule expr.method.turbofish-method-args
+package expr_diag_3_typearg_infer;
+
+struct S { x: i32 }
+impl S {
+    fn make<U>(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let s: S = S { x: 1i32 };
+    let _v: i32 = s.make();
+    return 0i32;
+}

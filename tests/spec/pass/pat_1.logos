@@ -1,0 +1,275 @@
+package pat_1;
+
+// ── Helper types ────────────────────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+
+enum Opt { None, Some(i64) }
+
+// Enum carrying an inline struct payload (for ref-to-struct payload binding).
+enum Wrap { W(Pt) }
+
+// Enum carrying a tuple payload.
+enum Pair { P(i64, i64) }
+
+fn main() -> i64 {
+
+    // @rule pat.binding.wildcard-underscore-no-bind
+    // `_` matches anything and binds nothing; a named binder copies the value.
+    {
+        let got: i64 = match 7i64 {
+            _ => 100i64,            // wildcard matches any value
+        };
+        if got != 100i64 { return 1; }
+        let got2: i64 = match 9i64 {
+            n => n,                 // named binder copies the matched value
+        };
+        if got2 != 9i64 { return 2; }
+    }
+
+    // @rule pat.refbind.binds-place-reference
+    // `ref r` binds a reference to the matched place; deref reads the original.
+    {
+        let v: i64 = 41i64;
+        let got: i64 = match v {
+            ref r => *r + 1i64,     // r is &i64 to v; read through it
+        };
+        if got != 42i64 { return 3; }
+    }
+
+    // @rule pat.refpat.peels-reference
+    // a redundant leading `&` on a variant pattern over a `&enum` scrutinee is
+    // peeled: it matches the underlying enum and binds the payload directly.
+    {
+        let o: Opt = Opt::Some(13i64);
+        let ro: &Opt = &o;
+        let got: i64 = match ro {
+            &Opt::Some(v) => v,     // `&` peeled; v binds the i64 payload
+            &Opt::None    => -1i64,
+        };
+        if got != 13i64 { return 4; }
+    }
+
+    // @rule pat.at.binds-whole-and-recurses
+    // `name @ sub` binds the whole value and requires `sub` to match too.
+    {
+        let got: i64 = match 6i64 {
+            n @ 1i64..=10i64 => n * 2i64,   // 6 in range; n bound to 6
+            _ => 0i64,
+        };
+        if got != 12i64 { return 5; }
+        // `@` over an irrefutable sub always matches.
+        let got2: i64 = match 8i64 {
+            m @ _ => m,
+        };
+        if got2 != 8i64 { return 6; }
+    }
+
+    // @rule pat.struct.field-binding
+    // struct pattern binds named field sub-patterns; `..` binds nothing.
+    {
+        let p: Pt = Pt { x: 3i64, y: 4i64 };
+        let Pt { x: a, y: b } = p;
+        if a != 3i64 { return 7; }
+        if b != 4i64 { return 8; }
+        let Pt { x, .. } = p;       // shorthand binds field x; rest ignored
+        if x != 3i64 { return 9; }
+    }
+
+    // @rule pat.slice.fixed-array-elements
+    // slice pattern over an array binds prefix from head and suffix from tail.
+    {
+        let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+        let got: i64 = match arr {
+            [first, .., last] => first + last,   // 10 + 40
+        };
+        if got != 50i64 { return 10; }
+    }
+
+    // @rule pat.binding.scope-limited-to-arm
+    // a name bound in one arm is not visible to other arms; rebinding is fine.
+    {
+        let o: Opt = Opt::Some(2i64);
+        let got: i64 = match o {
+            Opt::Some(v) => v + 1i64,   // v visible only here
+            Opt::None    => 0i64,       // separate arm, no leakage of v
+        };
+        if got != 3i64 { return 11; }
+        // a same-named binder in a fresh match starts clean.
+        let got2: i64 = match 5i64 {
+            v => v + 10i64,
+        };
+        if got2 != 15i64 { return 12; }
+    }
+
+    // @rule pat.tuple.element-binding-and-test
+    // tuple pattern destructures positionally and AND-chains element tests.
+    {
+        let t: (i64, i64) = (1i64, 2i64);
+        let got: i64 = match t {
+            (1i64, b) => b + 100i64,   // first elem literal test, second bound
+            (_, b)    => b,
+        };
+        if got != 102i64 { return 13; }
+        let got2: i64 = match t {
+            (9i64, b) => b,            // literal test fails -> next arm
+            (a, b)    => a + b,        // 1 + 2
+        };
+        if got2 != 3i64 { return 14; }
+    }
+
+    // @rule pat.range.inclusive-bounds
+    // `lo..=hi` matches iff lo <= s <= hi (both inclusive).
+    {
+        let got: i64 = match 10i64 {
+            1i64..=10i64 => 1i64,      // 10 is included (upper bound inclusive)
+            _            => 0i64,
+        };
+        if got != 1i64 { return 15; }
+        let got2: i64 = match 11i64 {
+            1i64..=10i64 => 1i64,
+            _            => 0i64,      // 11 excluded
+        };
+        if got2 != 0i64 { return 16; }
+        // unsigned comparison path: u8 scrutinee.
+        let u: u8 = 200u8;
+        let got3: i64 = match u {
+            100u8..=255u8 => 1i64,     // 200 in range under unsigned compare
+            _             => 0i64,
+        };
+        if got3 != 1i64 { return 17; }
+    }
+
+    // @rule pat.or.bindings-from-first-alternative
+    // an or-pattern's alternatives all bind the same name.
+    {
+        let got: i64 = match 2i64 {
+            1i64 | 2i64 | 3i64 => 7i64,   // any alternative selects this arm
+            _ => 0i64,
+        };
+        if got != 7i64 { return 18; }
+    }
+
+    // @rule pat.bind.wildcard-and-underscore-no-binding
+    // `_` in a let / variant sub-position binds nothing; named binders do.
+    {
+        let p: Pt = Pt { x: 11i64, y: 22i64 };
+        let Pt { x: keep, y: _ } = p;   // y matched but not bound
+        if keep != 11i64 { return 19; }
+        let o: Opt = Opt::Some(33i64);
+        let got: i64 = match o {
+            Opt::Some(_) => 1i64,       // payload matched, not bound
+            Opt::None    => 0i64,
+        };
+        if got != 1i64 { return 20; }
+    }
+
+    // @rule pat.tuple.elementwise-binding
+    // tuple let-pattern recurses into each sub-pattern by position.
+    {
+        let t: (i64, i64, i64) = (4i64, 5i64, 6i64);
+        let (a, b, c) = t;
+        if a + b + c != 15i64 { return 21; }
+    }
+
+    // @rule pat.payload.ref-to-struct-binds-place
+    // `ref` binding a struct payload field yields a place; `.field` projects.
+    {
+        let w: Wrap = Wrap::W(Pt { x: 7i64, y: 8i64 });
+        let got: i64 = match w {
+            Wrap::W(ref pr) => pr.x + pr.y,   // pr is &Pt to the payload slot
+        };
+        if got != 15i64 { return 22; }
+    }
+
+    // @rule pat.payload.inline-aggregate-binds-address
+    // by-value binding of an inline struct payload projects fields directly.
+    {
+        let w: Wrap = Wrap::W(Pt { x: 1i64, y: 9i64 });
+        let got: i64 = match w {
+            Wrap::W(pp) => pp.y,          // pp binds the inline aggregate payload
+        };
+        if got != 9i64 { return 23; }
+    }
+
+    // @rule pat.payload.scalar-binds-loaded-value
+    // a scalar payload field binds the loaded value, an independent copy.
+    {
+        let o: Opt = Opt::Some(55i64);
+        let got: i64 = match o {
+            Opt::Some(n) => n,           // n loaded from payload slot
+            Opt::None    => 0i64,
+        };
+        if got != 55i64 { return 24; }
+    }
+
+    // @rule pat.refute.wildcard-and-ref-irrefutable
+    // `_` and `ref`-binding impose no test: they always match (used as catch-all).
+    {
+        let got: i64 = match 12345i64 {
+            ref _r => 1i64,              // irrefutable: always taken
+        };
+        if got != 1i64 { return 25; }
+    }
+
+    // @rule pat.refute.literal-int-bool-equality
+    // literal pattern matches iff scrutinee equals the literal (bool 1/0).
+    {
+        let got: i64 = match 3i64 {
+            3i64 => 1i64,
+            _    => 0i64,
+        };
+        if got != 1i64 { return 26; }
+        let flag: bool = false;
+        let got2: i64 = match flag {
+            true  => 1i64,
+            false => 2i64,              // false encoded 0
+        };
+        if got2 != 2i64 { return 27; }
+    }
+
+    // @rule pat.refute.range-inclusive-bounds
+    // range refutability test: lo <= v <= hi, signed for i64.
+    {
+        let got: i64 = match -5i64 {
+            -10i64..=0i64 => 1i64,     // signed comparison includes negatives
+            _             => 0i64,
+        };
+        if got != 1i64 { return 28; }
+    }
+
+    // @rule pat.refute.tuple-elementwise-conjunction
+    // tuple test is the conjunction of element tests (all must hold).
+    {
+        let t: (i64, i64) = (1i64, 2i64);
+        let got: i64 = match t {
+            (1i64, 2i64) => 1i64,      // both element tests hold -> selected
+            _            => 0i64,
+        };
+        if got != 1i64 { return 29; }
+        let got2: i64 = match t {
+            (1i64, 9i64) => 1i64,      // second test fails -> conjunction false
+            _            => 0i64,
+        };
+        if got2 != 0i64 { return 30; }
+    }
+
+    // @rule pat.refute.variant-discriminant-test
+    // variant pattern matches iff discriminant equals the variant's.
+    {
+        let o: Opt = Opt::None;
+        let got: i64 = match o {
+            Opt::Some(_) => 1i64,      // wrong discriminant -> skipped
+            Opt::None    => 2i64,      // matching discriminant -> selected
+        };
+        if got != 2i64 { return 31; }
+        // payload sub-binding via a tuple-payload variant.
+        let pr: Pair = Pair::P(3i64, 4i64);
+        let got2: i64 = match pr {
+            Pair::P(a, b) => a * 10i64 + b,   // discriminant matches; binds a,b
+        };
+        if got2 != 34i64 { return 32; }
+    }
+
+    return 0;
+}

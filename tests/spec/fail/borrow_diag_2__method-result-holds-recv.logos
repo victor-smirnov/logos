@@ -1,0 +1,13 @@
+// @rule borrow.scoped.method-result-holds-receiver-borrow
+package borrow_diag_2_method_result_holds_recv;
+struct C { v: i32 }
+impl C {
+    fn get_ref(self: &C) -> &i32 { &self.v }
+    fn set(self: &mut C, n: i32) { self.v = n; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i32 };
+    let v: &i32 = c.get_ref();
+    c.set(9i32);
+    return *v;
+}

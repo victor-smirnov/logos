@@ -1,0 +1,15 @@
+// @rule trait.method-dispatch.bound-provides-method
+package trait_diag_2_no_bound_method;
+
+trait Show {
+    fn show(&self) -> i32;
+}
+
+// T is bounded by Show, but `nonexistent` is on no bound.
+fn call<T: Show>(t: T) -> i32 {
+    return t.nonexistent();
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

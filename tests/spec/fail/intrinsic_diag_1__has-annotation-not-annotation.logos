@@ -1,0 +1,9 @@
+// @rule intrinsic.has-annotation.const-fold
+package hasann_not_ann;
+
+#[datatype] struct OldApi { x: i32 }
+
+fn main() -> i32 {
+    let b: bool = has_annotation::<OldApi, i32>();
+    return 0;
+}

@@ -1,0 +1,10 @@
+// @rule trait.supertrait.known
+package trait_diag_2_supertrait_unknown;
+
+trait Derived: Nonexistent {
+    fn derived(&self) -> i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

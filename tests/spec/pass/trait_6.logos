@@ -1,0 +1,287 @@
+package trait_6;
+
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.mem.writ.tag_system;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper traits / types for the trait-resolution rules below.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Two `Trait<T>` impls of the SAME target with distinct concrete T — the
+// trait-arg suffix must keep both impls' assoc bindings / methods distinct so
+// neither erases the other.
+trait Conv<T> { fn conv(&self) -> i64; }
+struct Cell { v: i64 }
+impl Conv<i32> for Cell { fn conv(&self) -> i64 { return self.v + 1i64; } }
+impl Conv<u8>  for Cell { fn conv(&self) -> i64 { return self.v + 2i64; } }
+
+fn conv_i32<X: Conv<i32>>(x: &X) -> i64 { return x.conv(); }
+fn conv_u8 <X: Conv<u8>> (x: &X) -> i64 { return x.conv(); }
+
+// Blanket impl: provides `tag()` for EVERY type via the synthetic target,
+// `Self` bound to the blanket var, mono-cloned per concrete receiver.
+trait Tagged { fn tag(&self) -> i64; }
+impl<T> Tagged for T { fn tag(&self) -> i64 { return 7i64; } }
+
+// Blanket-bound-transitive + recursive gating: Ext is provided only for types
+// satisfying Base; its default method is reachable through the blanket.
+trait Base { fn base_val(&self) -> i64; }
+trait Ext  { fn ext_val(&self) -> i64 { return 1000i64; } }
+impl<U: Base> Ext for U {}
+
+struct Widget { n: i64 }
+impl Base for Widget { fn base_val(&self) -> i64 { return self.n; } }
+
+// Supertrait DAG search: a bound on Sub reaches Sup's method.
+trait Sup { fn sup_m(&self) -> i64; }
+trait SubT: Sup { fn sub_m(&self) -> i64; }
+struct Node { k: i64 }
+impl Sup  for Node { fn sup_m(&self) -> i64 { return self.k; } }
+impl SubT for Node { fn sub_m(&self) -> i64 { return self.k * 10i64; } }
+// Dispatch a method declared on the SUPERtrait through a bound on the subtrait.
+fn via_super<X: SubT>(x: &X) -> i64 { return x.sup_m(); }
+
+// self-subst-from-bound: a generic trait whose method return type is the
+// trait's type-arg; bound `T: Producer<i64>` -> return is i64.
+trait Producer<R> { fn produce(&self) -> R; }
+struct Maker { seed: i64 }
+impl Producer<i64> for Maker { fn produce(&self) -> i64 { return self.seed * 3i64; } }
+fn run_producer<P: Producer<i64>>(p: &P) -> i64 { return p.produce(); }
+
+// Multi-trait same-method-name collision — trait-qualified mangling picks the
+// right symbol per receiver type.
+trait Alpha { fn run(&self) -> i64; }
+trait Beta  { fn run(&self) -> i64; }
+struct AB { x: i64 }
+impl Alpha for AB { fn run(&self) -> i64 { return self.x + 100i64; } }
+struct BB { y: i64 }
+impl Beta  for BB { fn run(&self) -> i64 { return self.y + 200i64; } }
+fn call_alpha<A: Alpha>(a: &A) -> i64 { return a.run(); }
+fn call_beta <B: Beta> (b: &B) -> i64 { return b.run(); }
+
+// bound-targ-suffix: two `MyT<W>` impls on distinct W of the same target —
+// the args-qualified symbol keeps them distinct under mono.
+trait MyT<W> { fn go(&self) -> i64; }
+struct Holder { h: i64 }
+impl MyT<u64> for Holder { fn go(&self) -> i64 { return self.h + 64i64; } }
+impl MyT<u8>  for Holder { fn go(&self) -> i64 { return self.h + 8i64;  } }
+fn go64<H: MyT<u64>>(h: &H) -> i64 { return h.go(); }
+fn go8 <H: MyT<u8>> (h: &H) -> i64 { return h.go(); }
+
+// typevar-eq-bound: == on a type variable bounded by Eq.
+fn eq_via_bound<T: Eq>(a: T, b: T) -> bool { return a == b; }
+
+// blanket type-param-inference-by-name: extra type param appears only in arg /
+// return position and is inferred by unifying with the argument type.
+trait Mapper { fn apply<Q>(&self, q: Q) -> Q { return q; } }
+impl<T> Mapper for T {}
+
+// ── struct operator overloads + autoref + partial_cmp derive ──
+struct Vec2 { a: i64, b: i64 }
+impl Add for Vec2 { fn add(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a + rhs.a, b: self.b + rhs.b }; } }
+impl Sub for Vec2 { fn sub(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a - rhs.a, b: self.b - rhs.b }; } }
+impl Mul for Vec2 { fn mul(self: Vec2, rhs: Vec2) -> Vec2 { return Vec2 { a: self.a * rhs.a, b: self.b * rhs.b }; } }
+
+// Eq with by-&self method (autoref of value operands).
+struct Pair { p: i64, q: i64 }
+impl Eq for Pair { fn eq(&self, other: &Pair) -> bool { return self.p == other.p && self.q == other.q; } }
+
+// PartialOrd derive: only partial_cmp is implemented (returns Ordering directly),
+// relational ops route through partial_cmp + Ordering::is_<op>.
+struct Score { s: i64 }
+impl Score { fn partial_cmp(&self, other: &Score) -> Ordering {
+    if self.s < other.s { return Ordering::Less; }
+    if self.s > other.s { return Ordering::Greater; }
+    return Ordering::Equal;
+} }
+
+// Tuple Eq impl (at least one non-primitive field -> routes to Eq).
+struct Inner { z: i64 }
+impl Eq for Inner { fn eq(&self, other: &Inner) -> bool { return self.z == other.z; } }
+
+// ── tag-dispatch entry emission (overridden + default-body method) ──
+#[tag_dispatch(DataTypeTagSystem)]
+trait Kind {
+    unsafe fn kind(self: *const Self) -> i32;
+    unsafe fn kind2(self: *const Self) -> i32 { return 5i32; }   // default body -> still emits an entry
+}
+#[type_code=140] #[datatype] struct Blob { d: i32 }
+impl Kind for Blob { pub unsafe fn kind(self: *const Blob) -> i32 { return self.d; } }
+unsafe fn dispatch_kind (o: &tagged<DataTypeTagSystem> Kind) -> i32 { return o.kind();  }
+unsafe fn dispatch_kind2(o: &tagged<DataTypeTagSystem> Kind) -> i32 { return o.kind2(); }
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+fn main() -> i64 {
+
+    // @rule trait.assoc-type.copied-into-impl
+    // Two `Conv<T>` impls of the SAME target (Cell) with distinct concrete T
+    // both resolve through the trait-arg suffix — neither erases the other.
+    {
+        let c: Cell = Cell { v: 10i64 };
+        if conv_i32(&c) != 11i64 { return 1; }   // Conv<i32> impl
+        if conv_u8(&c)  != 12i64 { return 2; }   // Conv<u8>  impl
+    }
+
+    // @rule trait.blanket-impl.synthetic-target-name
+    // The blanket `impl<T> Tagged for T` provides `tag()` for any concrete
+    // receiver via the synthetic target, mono-cloned per type.
+    {
+        let w: Widget = Widget { n: 0i64 };
+        let c: Cell   = Cell { v: 0i64 };
+        if w.tag() != 7i64 { return 3; }
+        if c.tag() != 7i64 { return 4; }
+    }
+
+    // @rule trait.binop.struct-operator-overload
+    // Struct LHS desugars `+`/`-`/`*` to Add::add / Sub::sub / Mul::mul.
+    {
+        let r1: Vec2 = Vec2 { a: 1i64, b: 2i64 } + Vec2 { a: 3i64, b: 4i64 };
+        if r1.a != 4i64 || r1.b != 6i64 { return 5; }
+        let r2: Vec2 = Vec2 { a: 9i64, b: 9i64 } - Vec2 { a: 4i64, b: 2i64 };
+        if r2.a != 5i64 || r2.b != 7i64 { return 6; }
+        let r3: Vec2 = Vec2 { a: 3i64, b: 5i64 } * Vec2 { a: 2i64, b: 2i64 };
+        if r3.a != 6i64 || r3.b != 10i64 { return 7; }
+    }
+
+    // @rule trait.binop.operator-method-autoref
+    // Eq::eq takes `&self`/`&other`; `==` on value Pair operands auto-borrows
+    // both to references to match the method signature.
+    {
+        let x: Pair = Pair { p: 1i64, q: 2i64 };
+        let y: Pair = Pair { p: 1i64, q: 2i64 };
+        let z: Pair = Pair { p: 1i64, q: 9i64 };
+        if !(x == y) { return 8; }     // autoref'd Eq::eq -> true
+        if x == z    { return 9; }     // Eq::eq -> false
+    }
+
+    // @rule trait.binop.partial-ord-derive
+    // Score has no lt/le/gt/ge; `<`/`<=`/`>`/`>=` derive via partial_cmp + the
+    // Ordering::is_<op> accessor (partial_cmp returns Ordering directly here).
+    {
+        let lo: Score = Score { s: 1i64 };
+        let hi: Score = Score { s: 5i64 };
+        if !(lo < hi)  { return 10; }
+        if !(hi > lo)  { return 11; }
+        if !(lo <= hi) { return 12; }
+        if !(hi >= lo) { return 13; }
+        if lo > hi     { return 14; }
+    }
+
+    // @rule trait.binop.tuple-eq-impl
+    // `==` between two tuples whose element type is non-primitive (Inner)
+    // routes to the tuple's Eq impl, auto-borrowed to &Tuple.
+    {
+        let t1: (Inner, i64) = (Inner { z: 3i64 }, 7i64);
+        let t2: (Inner, i64) = (Inner { z: 3i64 }, 7i64);
+        let t3: (Inner, i64) = (Inner { z: 4i64 }, 7i64);
+        if !(t1 == t2) { return 15; }
+        if t1 == t3    { return 16; }
+    }
+
+    // @rule trait.binop.typevar-eq-bound
+    // `==` where the left operand is a type variable `T: Eq` desugars to an
+    // auto-ref'd eq method call resolved after monomorphization.
+    {
+        if !eq_via_bound::<i64>(4i64, 4i64) { return 17; }
+        if eq_via_bound::<i64>(4i64, 5i64)  { return 18; }
+    }
+
+    // @rule trait.blanket.recursive-impl-gating
+    // `Ext` is provided (blanket `impl<U: Base> Ext for U`) only because Widget
+    // satisfies the primary bound Base; its default method is then reachable.
+    {
+        let w: Widget = Widget { n: 42i64 };
+        if w.ext_val() != 1000i64 { return 19; }   // Ext default via Base-gated blanket
+    }
+
+    // @rule trait.blanket.type-param-inference-by-name
+    // The blanket Mapper::apply's extra type-param Q appears only in arg/return
+    // position and is inferred from the argument type (by name, not position).
+    {
+        let w: Widget = Widget { n: 0i64 };
+        if w.apply::<i64>(55i64) != 55i64 { return 20; }
+    }
+
+    // @rule trait.blanket.auto-ref-receiver
+    // Tagged::tag has `&self`; calling it on a VALUE receiver takes its address.
+    {
+        let w: Widget = Widget { n: 0i64 };
+        if w.tag() != 7i64 { return 21; }   // value receiver auto-ref'd to &self
+    }
+
+    // @rule expr.method.typevar-trait-method-dispatch
+    // Method resolved against a type-parameter's declared bound; concrete impl
+    // selected at monomorphization.
+    {
+        let n: Node = Node { k: 6i64 };
+        if call_alpha_or_node(&n) != 60i64 { return 22; }
+    }
+
+    // @rule trait.dispatch.supertrait-dag-search
+    // A method declared on the SUPERtrait (Sup) is found via a bound on the
+    // subtrait (SubT) by searching the supertrait DAG.
+    {
+        let n: Node = Node { k: 9i64 };
+        if via_super(&n) != 9i64 { return 23; }
+    }
+
+    // @rule trait.dispatch.blanket-bound-transitive
+    // `impl<U: Base> Ext for U` + Widget: Base  =>  Widget: Ext, so Ext's
+    // (default) method is searched and dispatched for the call.
+    {
+        let w: Widget = Widget { n: 1i64 };
+        if w.ext_val() != 1000i64 { return 24; }
+    }
+
+    // @rule trait.method-dispatch.self-subst-from-bound
+    // Dispatching Producer::produce binds Self:=Maker and the trait type-arg
+    // R:=i64 from the bound `P: Producer<i64>`; the return type is i64.
+    {
+        let m: Maker = Maker { seed: 4i64 };
+        if run_producer(&m) != 12i64 { return 25; }
+    }
+
+    // @rule trait.method-mangling.trait-qualified-symbol
+    // Two traits (Alpha, Beta) both declare `run`; the trait-qualified symbol
+    // resolves each receiver to its own impl.
+    {
+        let ab: AB = AB { x: 1i64 };
+        let bb: BB = BB { y: 1i64 };
+        if call_alpha(&ab) != 101i64 { return 26; }   // Alpha::run
+        if call_beta(&bb)  != 201i64 { return 27; }   // Beta::run
+    }
+
+    // @rule trait.method-mangling.bound-targ-suffix
+    // Two `MyT<W>` impls on Holder (W = u64 vs u8) resolve to distinct
+    // args-qualified symbols.
+    {
+        let h: Holder = Holder { h: 0i64 };
+        if go64(&h) != 64i64 { return 28; }   // MyT<u64>
+        if go8(&h)  != 8i64  { return 29; }   // MyT<u8>
+    }
+
+    // @rule trait.tag-dispatch.entry-emission
+    // A #[tag_dispatch] trait emits a dispatch entry for BOTH an explicitly
+    // overridden method (kind) and a default-body method (kind2), keyed by the
+    // target's type_code.
+    {
+        unsafe {
+            let buf: *mut u8 = malloc(64);
+            let b: *mut Blob = (buf as i64 + 16) as *mut Blob;
+            write_tag(b as *mut u8, type_code_of::<Blob>());
+            b.d = 33i32;
+            if dispatch_kind(b as *const u8)  != 33i32 { free(buf); return 30; }  // overridden
+            if dispatch_kind2(b as *const u8) != 5i32  { free(buf); return 31; }  // default body
+            free(buf);
+        }
+    }
+
+    return 0;
+}
+
+// Free fn used by the typevar-trait-method-dispatch rule: calls a subtrait
+// method on a bounded type parameter (resolved at mono).
+fn call_alpha_or_node<X: SubT>(x: &X) -> i64 { return x.sub_m(); }

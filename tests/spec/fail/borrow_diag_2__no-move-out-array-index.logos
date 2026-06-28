@@ -1,0 +1,10 @@
+// @rule borrow.move.no-move-out-of-array-index
+package borrow_diag_2_no_move_out_array_index;
+use logos.mem.string;
+fn main() -> i32 {
+    let arr: [String; 2] = [String::from("a"), String::from("b")];
+    let s = arr[0];
+    let _ = s;
+    let _ = arr;
+    0i32
+}

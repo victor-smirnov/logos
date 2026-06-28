@@ -1,0 +1,14 @@
+// @rule expr.writ-map-comp.key-must-be-str
+package expr_diag_3_writ_map_key;
+
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.lang.rc;
+
+fn main() -> i32 {
+    let arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let _doc: Rc<Writ> = @{x: x for x in arr};
+    return 0i32;
+}

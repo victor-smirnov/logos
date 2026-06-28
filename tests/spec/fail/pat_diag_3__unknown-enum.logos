@@ -1,0 +1,10 @@
+// @rule pat.variant.unknown-enum-error
+package pat_diag_3_unknown_enum;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        Nope::A => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

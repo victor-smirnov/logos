@@ -1,0 +1,7 @@
+// @rule expr.char-lit.unicode-scalar
+package expr_diag_1_char_bad_unicode;
+
+fn main() -> i32 {
+    let _c: char = '\u{110000}';
+    return 0i32;
+}

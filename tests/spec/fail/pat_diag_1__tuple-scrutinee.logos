@@ -1,0 +1,9 @@
+// @rule pat.tuple.scrutinee-tuple-or-ref
+package pat_diag_1_tuple_scrut;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    match x {
+        (a, b) => { return a; }
+    }
+}

@@ -1,0 +1,209 @@
+package coerce_4;
+
+use logos.mem.boxed;
+use logos.lang.rc;
+
+// ---------- helpers ----------
+
+trait Sp { fn v(&self) -> i64; }
+
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+// supertrait chain for dyn upcast
+trait Animal { fn legs(&self) -> i64; }
+trait Dog: Animal { fn bark(&self) -> i64; }
+struct Lab { n: i64 }
+impl Animal for Lab { fn legs(&self) -> i64 { return 4i64; } }
+impl Dog for Lab { fn bark(&self) -> i64 { return self.n; } }
+
+// argument-coercion targets
+fn slen(s: &[i64]) -> i64 { return s.len(); }
+fn sread0(s: &[i64]) -> i64 { return s[0]; }
+fn fill0(s: &mut [i64], v: i64) { s[0] = v; }
+fn want_arr3(a: &[i64; 3]) -> i64 { return a[0] + a[1] + a[2]; }
+
+fn take_ref_dyn(d: &dyn Sp) -> i64 { return d.v(); }
+fn take_rc_dyn(r: Rc<dyn Sp>) -> i64 { return r.v(); }
+fn take_box_dyn(b: Box<dyn Sp>) -> i64 { return b.v(); }
+
+fn legs_of(a: &dyn Animal) -> i64 { return a.legs(); }
+
+fn bump(x: &mut i64) { *x += 1i64; }
+fn take_i64(x: i64) -> i64 { return x; }
+fn apply_fn(f: fn(i64) -> i64, v: i64) -> i64 { return f(v); }
+
+fn main() -> i64 {
+    // @rule coerce.method-arg.pipeline
+    // Each call argument runs the canonical coercion pipeline: a non-capturing
+    // closure coerces to a fn-ptr param, a &Concrete coerces to &dyn Trait, and
+    // an i32 widens to an i64 param (widening applied last) — all in one path.
+    {
+        if apply_fn(|x: i64| -> i64 { return x + 1i64; }, 10i64) != 11i64 { return 1; }
+        let a0: A = A { x: 5i64 };
+        if take_ref_dyn(&a0) != 5i64 { return 1; }   // &A -> &dyn Sp at arg
+        let narrow: i32 = 7i32;
+        if take_i64(narrow) != 7i64 { return 1; }     // i32 widens to i64 param
+    }
+
+    // @rule coerce.unsize.array-to-slice
+    // `&a` on an array variable, and on a bare array literal, yields &[T] (len=N),
+    // not &[T;N].
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        if slen(&arr) != 3i64 { return 2; }            // array var -> &[T]
+        if slen(&[1i64, 2i64, 3i64, 4i64]) != 4i64 { return 2; }  // array literal -> &[T]
+    }
+
+    // @rule coerce.deref.box-slice-borrow
+    // `&b` where b: Box<[T]> yields a borrowed &[T] view over the same {data,len}.
+    {
+        let b: Box<[i64]> = box_new::<[i64; 3]>([5i64, 6i64, 7i64]) as Box<[i64]>;
+        if slen(&b) != 3i64 { return 3; }
+        if sread0(&b) != 5i64 { return 3; }
+    }
+
+    // @rule coerce.reborrow.mut-place-at-coercion-site
+    // A &mut binding that is a place is reborrowed (not moved) at each arg site,
+    // so it stays usable across two calls; mutation flows back to the original.
+    {
+        let mut n: i64 = 5i64;
+        let m: &mut i64 = &mut n;
+        bump(m);   // reborrow, not move
+        bump(m);   // still usable -> only possible because the first was a reborrow
+        if n != 7i64 { return 4; }
+    }
+
+    // @rule coerce.reborrow.no-reborrow-of-fresh-borrow
+    // A fresh borrow expression `&mut x` is left as-is (normal borrow path), and
+    // the call still mutates the underlying place.
+    {
+        let mut k: i64 = 1i64;
+        bump(&mut k);   // fresh borrow, recorded through the normal path
+        if k != 2i64 { return 5; }
+    }
+
+    // @rule coerce.dyn.upcast-to-supertrait
+    // &dyn Dog coerces to a &dyn Animal parameter (Animal is a supertrait of Dog).
+    {
+        let lab6: Lab = Lab { n: 7i64 };
+        let dog6: &dyn Dog = &lab6;
+        if legs_of(dog6) != 4i64 { return 6; }
+    }
+
+    // @rule coerce.dyn.arg-to-trait-object
+    // Rc<A> coerces to an Rc<dyn Sp> parameter by CoerceUnsized (inner field
+    // unsized), and &A coerces to a &dyn Sp parameter by cast.
+    {
+        let rc7: Rc<A> = rc_new(A { x: 11i64 });
+        if take_rc_dyn(rc7) != 11i64 { return 7; }
+        let a1: A = A { x: 12i64 };
+        if take_ref_dyn(&a1) != 12i64 { return 7; }
+    }
+
+    // @rule coerce.unsize.struct-coerce-unsized
+    // Rc<A> -> Rc<dyn Sp> at an explicit `as` cast: single inner field unsized,
+    // repacked into the same struct.
+    {
+        let rc8: Rc<A> = rc_new(A { x: 21i64 });
+        let rd8: Rc<dyn Sp> = rc8 as Rc<dyn Sp>;
+        if rd8.v() != 21i64 { return 8; }
+    }
+
+    // @rule coerce.cast.ref-to-scalar-autoderef
+    // Casting &f64 (scalar pointee) to i64 auto-derefs first: the pointee value
+    // is converted, not the pointer bits.
+    {
+        let f9: f64 = 3.0f64;
+        let p9: &f64 = &f9;
+        let x9: i64 = p9 as i64;
+        if x9 != 3i64 { return 9; }
+    }
+
+    // @rule coerce.unsize.box-consumes-source
+    // `bx as Box<dyn Sp>` consumes bx; ownership transfers, so the program runs
+    // and drops cleanly (no double-free), returning the payload.
+    {
+        let bx: Box<A> = box_new::<A>(A { x: 42i64 });
+        if take_box_dyn(bx as Box<dyn Sp>) != 42i64 { return 10; }
+    }
+
+    // @rule coerce.int.implicit-widening
+    // Implicit widenings: i32->i64 (signed), u16->u64 (unsigned), u8->i64
+    // (unsigned->signed, strictly wider). No `as` used.
+    {
+        let a8: i32 = 100i32;
+        let aw: i64 = a8;       if aw != 100i64 { return 11; }
+        let b16: u16 = 300u16;
+        let bw: u64 = b16;      if bw != 300u64 { return 11; }
+        let c8: u8 = 200u8;
+        let cw: i64 = c8;       if cw != 200i64 { return 11; }
+    }
+
+    // @rule coerce.intlit.unify-to-concrete
+    // An unsuffixed IntLit unifies to the other operand's concrete int type.
+    {
+        let d12: i64 = 10i64;
+        if (5 + d12) != 15i64 { return 12; }     // 5 (IntLit) unifies to i64
+        let u12: u32 = 4u32;
+        if (1 + u12) != 5u32 { return 12; }      // 1 (IntLit) unifies to u32
+    }
+
+    // @rule coerce.numericlit.unify-to-concrete
+    // An unsuffixed FloatLit unifies to the other operand's concrete float type.
+    {
+        let f13: f64 = 2.0f64;
+        if (1.5 + f13) != 3.5f64 { return 13; }  // 1.5 (FloatLit) -> f64
+    }
+
+    // @rule coerce.array.ref-to-slice-unsize
+    // &[T;N] unsizes to &[T] {data, len=N}; element type must match.
+    {
+        let arr14: [i64; 4] = [2i64, 4i64, 6i64, 8i64];
+        if slen(&arr14) != 4i64 { return 14; }
+        if sread0(&arr14) != 2i64 { return 14; }
+    }
+
+    // @rule coerce.array.ref-to-slice-preserves-mut
+    // &mut [T;N] unsizes to a mutable slice &mut [T]; the write lands.
+    {
+        let mut arr15: [i64; 3] = [1i64, 2i64, 3i64];
+        fill0(&mut arr15, 99i64);
+        if arr15[0] != 99i64 { return 15; }
+    }
+
+    // @rule coerce.slice.to-array-ref-recovery
+    // `&arr` (lowered to a &[T] slice over an array var) recovers to &[T;N] when
+    // the parameter wants a ref-to-array and the var's size == N.
+    {
+        let arr16: [i64; 3] = [3i64, 4i64, 5i64];
+        if want_arr3(&arr16) != 12i64 { return 16; }
+    }
+
+    // @rule coerce.unsize.ref-concrete-to-dyn-trait
+    // &A unsizes to a &dyn Sp parameter because A implements Sp; the fat pointer
+    // is built at the call site.
+    {
+        let a2: A = A { x: 33i64 };
+        if take_ref_dyn(&a2) != 33i64 { return 17; }
+    }
+
+    // @rule coerce.unsize.dyn-supertrait-upcast
+    // &dyn Dog -> &dyn Animal (Sub has Super as supertrait) at the call site.
+    {
+        let lab18: Lab = Lab { n: 9i64 };
+        let dog18: &dyn Dog = &lab18;
+        if legs_of(dog18) != 4i64 { return 18; }
+    }
+
+    // @rule coerce.unsize.struct-wrapper-coerceunsized
+    // A single-unsizable-field wrapper coerces Wrapper<A> -> Wrapper<dyn Sp> at an
+    // implicit coercion site (let binding here).
+    {
+        let rc19: Rc<A> = rc_new(A { x: 44i64 });
+        let rd19: Rc<dyn Sp> = rc19;   // implicit let-site CoerceUnsized
+        if rd19.v() != 44i64 { return 19; }
+    }
+
+    return 0;
+}

@@ -1,0 +1,11 @@
+// @rule expr.struct-lit.field-type-mismatch-error
+package expr_diag_2_struct_field_type_mismatch;
+
+struct S {
+    x: bool,
+}
+
+fn main() -> i32 {
+    let _s = S { x: 5i32 };
+    return 0i32;
+}

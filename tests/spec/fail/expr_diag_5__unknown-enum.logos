@@ -1,0 +1,7 @@
+// @rule expr.enum-lit.unknown-enum-error
+package expr_diag_5_unknown_enum;
+
+fn main() -> i32 {
+    let _x = NoSuchEnum::Foo;
+    return 0i32;
+}

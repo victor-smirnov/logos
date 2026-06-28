@@ -1,0 +1,16 @@
+// @rule grammar.expr.call-turbofish-method
+package grammar_diag_1_method_turbofish_arity;
+
+struct Foo {}
+
+impl Foo {
+    fn bar<T>(x: T) -> T { return x; }
+}
+
+fn main() -> i32 {
+    // `Foo::bar::<...>` applies the turbofish to the METHOD's own generics.
+    // `bar<T>` has one type parameter, so two type args is an arity error —
+    // proving the args bind to the method (not to the type).
+    let _y: i32 = Foo::bar::<i32, i32>(5i32);
+    return 0i32;
+}

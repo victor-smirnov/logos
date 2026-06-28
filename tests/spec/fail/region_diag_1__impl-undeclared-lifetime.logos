@@ -1,0 +1,12 @@
+// @rule region.impl.outlives-undeclared
+package region_diag_1_impl_undeclared_lifetime;
+
+struct S {}
+
+trait T { fn m(self: &Self) -> i32; }
+
+impl<'a> T for S where 'a: 'b {
+    fn m(self: &Self) -> i32 { return 0i32; }
+}
+
+fn main() -> i32 { return 0i32; }

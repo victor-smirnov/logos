@@ -1,0 +1,10 @@
+// @rule pat.lit.float-rejected
+package pat_diag_1_lit_float_rejected;
+
+fn main() -> i32 {
+    let x: f64 = 1.0f64;
+    match x {
+        1.0f64 => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

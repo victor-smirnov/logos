@@ -1,0 +1,7 @@
+// @rule intrinsic.is-same.two-type-args
+package is_same_arity;
+
+fn main() -> i32 {
+    let b: bool = is_same::<i32>();
+    return 0;
+}

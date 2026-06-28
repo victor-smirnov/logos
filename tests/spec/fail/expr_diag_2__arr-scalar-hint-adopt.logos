@@ -1,0 +1,7 @@
+// @rule expr.arr-lit.scalar-hint-adopt
+package expr_diag_2_arr_scalar_hint_adopt;
+
+fn main() -> i32 {
+    let _a: &[u8] = &[1, 999];
+    return 0i32;
+}

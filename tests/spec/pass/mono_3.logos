@@ -1,0 +1,258 @@
+package mono_3;
+
+// Monomorphization (mono_clone) conformance. Each rule below is exercised by a
+// generic construct whose only correct value depends on mono performing the
+// described substitution/rewrite. The internal mechanism (literal baking, slot
+// carry, mangle+enqueue, DST re-lower) is observed via the value it produces.
+
+use logos.mem.collections.vec;
+use logos.lang.ops;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+// ── const-arg specialization: N read as a baked literal in the body ──────────
+fn const_arg_body<const N: i64>() -> i64 {
+    // every read of N is baked to an integer literal of N's substituted type.
+    let a: i64 = N;
+    let b: i64 = N + N;
+    return a + b;            // == 3*N
+}
+
+// ── non-specialized var ref carried with slot identity ───────────────────────
+fn var_ref_carry<T: Copy>(x: T, y: T) -> T {
+    // x and y are non-specialized var refs; mono must preserve their slots so
+    // the right storage is read back (swap-through-temp exercises slot identity).
+    let t: T = x;
+    let u: T = y;
+    let _ = t;
+    return u;
+}
+
+// ── sizeof(T)/alignof(T) substituted with instance type-args ─────────────────
+struct Pair<T> { a: T, b: T }
+fn size_of_t<T>() -> i64 { return sizeof::<T>(); }
+fn align_of_t<T>() -> i64 { return align_of::<T>(); }
+
+// ── reference to a generic fn with type-args (GenericRef → mangled VarRef) ────
+fn id_fn<T: Copy>(x: T) -> T { return x; }
+fn call_via_generic_ref() -> i64 {
+    // taking/calling id_fn::<i64> forces a GenericRef that mono mangles,
+    // enqueues, and rewrites to a plain symbol; the call must still compute.
+    let f = id_fn::<i64>;
+    return f(41i64) + 1i64;
+}
+
+// ── operator overloads resolved to struct methods after substitution ─────────
+// Local operator traits (same shape as op_overload.logos): sema/mono resolve
+// `-`/`+`/`==`/`<` on a struct to its neg/add/eq/lt methods by mangled name.
+trait Neg { fn neg(self: Self) -> Self; }
+trait Add { fn add(self: Self, rhs: Self) -> Self; }
+trait Eq  { fn eq(self: Self, rhs: Self) -> bool; }
+trait Ord { fn lt(self: Self, rhs: Self) -> bool; }
+struct Num { v: i64 }
+impl Neg for Num { fn neg(self: Num) -> Num { return Num { v: 0i64 - self.v }; } }
+impl Add for Num { fn add(self: Num, rhs: Num) -> Num { return Num { v: self.v + rhs.v }; } }
+impl Eq  for Num { fn eq(self: Num, rhs: Num) -> bool { return self.v == rhs.v; } }
+impl Ord for Num { fn lt(self: Num, rhs: Num) -> bool { return self.v < rhs.v; } }
+// Drive the operators through a generic fn so substitution precedes the rewrite.
+fn op_neg<T: Copy>(_t: T, n: Num) -> Num { return -n; }
+fn op_add<T: Copy>(_t: T, a: Num, b: Num) -> Num { return a + b; }
+fn op_eq<T: Copy>(_t: T, a: Num, b: Num) -> bool { return a == b; }
+fn op_lt<T: Copy>(_t: T, a: Num, b: Num) -> bool { return a < b; }
+
+// ── generic struct literal: concrete monomorphized name ──────────────────────
+struct Box2<T> { x: T }
+fn make_box<T: Copy>(x: T) -> Box2<T> { return Box2::<T> { x: x }; }
+
+// ── generic enum literal: name carries mangled type-args ─────────────────────
+enum Maybe<T> { Nothing, Just(T) }
+fn make_just<T: Copy>(x: T) -> Maybe<T> { return Maybe::<T>::Just(x); }
+fn unwrap_or<T: Copy>(m: Maybe<T>, d: T) -> T {
+    // match arm patterns are type-substituted with the SubstMap.
+    return match m {
+        Maybe::Just(v) => v,
+        Maybe::Nothing => d,
+    };
+}
+
+// ── type_code_of(T): concrete struct yields a stable code, distinct per arg ──
+#[datatype] struct TC<T> { x: i64 }
+
+// ── const-pack expansion in call/array/fill/sizeof positions ─────────────────
+fn add3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+fn pack_call_sum<const N...: i64>() -> i64 { return add3(N...); }      // pack in call args
+fn pack_arr_sum<const N...: i64>() -> i64 {                            // [N...] expand
+    let arr: [i64; sizeof...(N)] = [N...];
+    return arr[0] + arr[1] + arr[2];
+}
+fn pack_fill_sum<const N...: i64>() -> i64 {                           // [v; sizeof...(N)] fill
+    let arr: [i64; sizeof...(N)] = [5; sizeof...(N)];
+    return arr[0] + arr[1] + arr[2];
+}
+fn pack_size<const N...: i64>() -> i64 { return sizeof...(N) as i64; } // __sizeof_pack__
+
+// ── ClosureCall whose callee monomorphizes to a fn value → direct fnptr call ─
+fn invoke<F: FnOnce() -> i64>(f: F) -> i64 { return f(); }
+
+// ── ClosureCall whose callee monomorphizes to a struct impl'ing Fn → method ──
+struct Adder { bias: i64 }
+impl Fn<i64> for Adder {
+    type Output = i64;
+    fn call(&self, x: i64) -> i64 { return self.bias + x; }
+}
+fn apply<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+
+// ── __field_types_of__ over a substituted T: empty for non-struct, fields for
+//    a generic struct (template type-params substituted with T's type-args) ──
+struct GS<T> { a: T, b: i64 }
+fn fcount<T>() -> i64 { return field_count_of::<T>(); }
+fn fsize_sum<T>() -> i64 {
+    let n: i64 = field_count_of::<T>();
+    let ts = field_types_of::<T>();
+    let mut total: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n { total = total + ts[i].size; i = i + 1i64; }
+    return total;
+}
+
+// ── WritLit deep-cloned over its value tree during mono (generic body) ───────
+fn writ_cfg<T>() -> WritStatic { return @{"x": 42, "y": "hello"}; }
+
+fn main() -> i64 {
+
+    // @rule mono.const-arg.literal-substitution
+    // N is baked to an integer literal at each read in the monomorphized body.
+    if const_arg_body::<7>() != 21i64 { return 1; }
+    if const_arg_body::<10>() != 30i64 { return 2; }
+
+    // @rule mono.subst.var-ref
+    // non-specialized var refs keep slot identity across mono: u must read y.
+    if var_ref_carry::<i64>(11i64, 22i64) != 22i64 { return 3; }
+
+    // @rule mono.subst.size-align-of
+    // sizeof/alignof substitute T with the instance's type-arg before querying.
+    if size_of_t::<i64>() != 8i64 { return 4; }
+    if size_of_t::<i32>() != 4i64 { return 5; }
+    if size_of_t::<Pair<i32>>() != 8i64 { return 6; }   // two i32 fields
+    if align_of_t::<i64>() != 8i64 { return 7; }
+    if align_of_t::<i32>() != 4i64 { return 8; }
+
+    // @rule mono.generic-ref.mangle-enqueue
+    // a generic-fn reference with type-args is mangled+enqueued and rewritten to
+    // a plain symbol; the resulting fn-pointer call still computes correctly.
+    if call_via_generic_ref() != 42i64 { return 9; }
+
+    // @rule mono.operator.unary-overload
+    // after substitution, unary `-` on a struct calls its `neg` method.
+    {
+        let m: Num = op_neg::<i64>(0i64, Num { v: 5i64 });
+        if m.v != 0i64 - 5i64 { return 10; }
+    }
+
+    // @rule mono.operator.binop-overload
+    // after substitution, `+`,`==`,`<` on a struct call add/eq/lt methods.
+    {
+        let c: Num = op_add::<i64>(0i64, Num { v: 3i64 }, Num { v: 4i64 });
+        if c.v != 7i64 { return 11; }
+        if !op_eq::<i64>(0i64, Num { v: 7i64 }, Num { v: 7i64 }) { return 12; }
+        if !op_lt::<i64>(0i64, Num { v: 1i64 }, Num { v: 2i64 }) { return 13; }
+    }
+
+    // @rule mono.subst.generic-struct-lit-name
+    // a generic struct literal is emitted under its concrete mono name; the
+    // value round-trips through the instantiated struct.
+    {
+        let bi: Box2<i64> = make_box::<i64>(99i64);
+        if bi.x != 99i64 { return 14; }
+        let bb: Box2<i32> = make_box::<i32>(7i32);   // distinct instantiation
+        if bb.x != 7i32 { return 15; }
+    }
+
+    // @rule mono.subst.generic-enum-lit-mangle
+    // a generic enum literal carries the mangled type-arg in its emitted name;
+    // distinct type-args yield independent concrete enums.
+    {
+        let ji: Maybe<i64> = make_just::<i64>(8i64);
+        if unwrap_or::<i64>(ji, 0i64) != 8i64 { return 16; }
+        let ni: Maybe<i64> = Maybe::<i64>::Nothing;
+        if unwrap_or::<i64>(ni, 5i64) != 5i64 { return 17; }
+    }
+
+    // @rule mono.subst.match-arm-pattern-types
+    // the match in unwrap_or substitutes its arm patterns with T's type-arg for
+    // both Just(v) (binds v:T) and Nothing; verified for two distinct T.
+    {
+        let jb: Maybe<i32> = make_just::<i32>(13i32);
+        if unwrap_or::<i32>(jb, 0i32) != 13i32 { return 18; }
+    }
+
+    // @rule mono.intrinsic.type-code-of
+    // concrete-struct type_code is stable per instantiation and distinct across
+    // different type-args (hash-derived, biased into the high range, nonzero).
+    {
+        let c_i64: u64 = type_code_of::<TC<i64>>();
+        let c_i64b: u64 = type_code_of::<TC<i64>>();
+        let c_i32: u64 = type_code_of::<TC<i32>>();
+        if c_i64 != c_i64b { return 19; }            // stable per instantiation
+        if c_i64 == c_i32 { return 20; }             // distinct per type-arg
+        if c_i64 == 0u64 { return 21; }              // nonzero (biased)
+    }
+
+    // @rule mono.arr-lit.pack-expand
+    // a const pack expanded as an array element yields one int literal per member.
+    if pack_arr_sum::<10, 20, 30>() != 60i64 { return 22; }
+
+    // @rule mono.arr-lit.sizeof-fill
+    // a single-element fill array whose length substitutes to N>1 repeats the
+    // value N times.
+    if pack_fill_sum::<1, 2, 3>() != 15i64 { return 23; }   // [5; 3] -> 5+5+5
+
+    // @rule mono.subst.pack-key-expansion
+    // a call type-arg/value naming a pack key expands to the pack's entries.
+    if pack_call_sum::<4, 5, 6>() != 15i64 { return 24; }
+
+    // @rule mono.intrinsic.sizeof-pack
+    // __sizeof_pack__ becomes the integer count of concrete type-args.
+    if pack_size::<7, 8, 9, 10>() != 4i64 { return 25; }
+    if pack_size::<42>() != 1i64 { return 26; }
+
+    // @rule mono.closure-call.fnptr-switch
+    // a closure passed to an F: FnOnce() bound monomorphizes to a fn value, so
+    // the f() call is rewritten to a direct function-pointer call.
+    {
+        let x: i64 = 21i64;
+        let g = || -> i64 { return x * 2i64; };
+        if invoke(g) != 42i64 { return 27; }
+    }
+
+    // @rule mono.closure-call.struct-fn-method
+    // a struct implementing Fn passed to an F: Fn(..) bound has its f(x) call
+    // rewritten to a `<Struct>__call` method call with the struct as self.
+    {
+        let a: Adder = Adder { bias: 100i64 };
+        if apply::<Adder>(a, 5i64) != 105i64 { return 28; }
+        let b: Adder = Adder { bias: 7i64 };
+        if apply::<Adder>(b, 3i64) != 10i64 { return 29; }
+    }
+
+    // @rule mono.intrinsic.field-types-of-nonstruct-empty
+    // field_types_of::<T> on a non-struct T yields an empty pack (count 0);
+    // on a generic struct it substitutes the template's type-params with T's
+    // type-args (GS<i32>: a:i32(4) + b:i64(8) = 12).
+    if fcount::<i32>() != 0i64 { return 30; }
+    if fcount::<GS<i32>>() != 2i64 { return 31; }
+    if fsize_sum::<GS<i32>>() != 12i64 { return 32; }
+
+    // @rule mono.intrinsic.writ-lit-clone
+    // a WritLit in a generic body is deep-cloned over its value tree each
+    // instantiation; the frozen blob is non-empty and identical across
+    // instantiations (same literal -> same bytes).
+    {
+        let a: WritStatic = writ_cfg::<i32>();
+        let b: WritStatic = writ_cfg::<i64>();
+        if a.size() == 0u64 { return 33; }
+        if a.size() != b.size() { return 34; }
+    }
+
+    return 0;
+}

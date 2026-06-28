@@ -1,0 +1,9 @@
+// @rule metaprog.metacall.no-nested-metacall
+package metaprog_diag_2_metacall_nested;
+
+fn baz(n: i32) -> i32 { return n + 1; }
+fn bar(n: i32) -> i32 { return n + 10; }
+
+pub const X: i32 = metacall bar(metacall baz(5));
+
+fn main() -> i32 { return X; }

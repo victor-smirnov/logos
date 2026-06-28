@@ -1,0 +1,10 @@
+// @rule pat.slice.array-length-check
+package pat_diag_2_slice_arr_len;
+
+fn main() -> i32 {
+    let xs: [i32; 3] = [1i32, 2i32, 3i32];
+    match xs {
+        [a, b] => { return a; }
+        _ => { return 0i32; }
+    }
+}

@@ -1,0 +1,10 @@
+// @rule const.binop.div-mod-by-zero
+package const_diag_1_ctfe_int_div_zero;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen(1i32 / 0i32);
+
+fn main() -> i32 { return 0i32; }

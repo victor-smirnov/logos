@@ -1,0 +1,12 @@
+// @rule type.tagged.thin-ptr-dispatch
+package type_diag_1_tagged_unknown_trait;
+
+struct TagSys { v: i32 }
+
+fn f(x: &tagged<TagSys> NoSuchTrait) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,257 @@
+package expr_10;
+
+// expr_10 — execution-locked conformance for the `expr` deref / call / Writ rules.
+// main returns i64; every rule has a marker comment immediately above its
+// assertion and a distinct nonzero exit code on violation; all-pass ⇒ 0.
+
+use logos.lang.option;
+use logos.lang.result;
+
+// Writ static @-literal reading (value-faithful, formatting-independent).
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;   // WView2 / wview2_from_ptr / SView2
+use logos.lang.writ.anyval;        // WAny
+use logos.mem.writ.stringify;      // stringify(WAny) -> String
+
+// Writ capture (`$ident` / `${expr}`) template path.
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;     // Writ
+use logos.lang.rc;                 // Rc<Writ>
+
+// Type-literal reification.
+use logos.std.compiler.metaprog;   // Type / type_from_anyval
+
+use logos.mem.string;
+use logos.lang.str;
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+struct S { v: i64 }                                  // move (non-Copy) payload
+
+trait Drop { fn drop(self: &mut Self); }
+struct Own { tag: i64, c: *mut i64 }
+impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
+
+// Fn-bounded generic call target (callable-resolution + closure-hint-from-bound).
+fn apply_once<F: FnOnce(i64) -> i64>(g: F, x: i64) -> i64 { return g(x); }
+
+// Free fn with concrete fn-ptr formal (arg-formal-hint-propagation).
+fn apply2(g: fn(i64, i64) -> i64, a: i64, b: i64) -> i64 { return g(a, b); }
+
+// Stringify a Writ static literal's root.
+unsafe fn ss(hs: WritStatic) -> String { return stringify(wview2_from_ptr(hs.ptr).root()); }
+// Read root as int / bool / null.
+unsafe fn iv(hs: WritStatic) -> i64 { let v = wview2_from_ptr(hs.ptr); return v.get_int(v.root()); }
+unsafe fn bv(hs: WritStatic) -> bool { let v = wview2_from_ptr(hs.ptr); return v.get_bool(v.root()); }
+unsafe fn isnull(hs: WritStatic) -> bool { let v = wview2_from_ptr(hs.ptr); return v.root().is_null(); }
+
+fn main() -> i64 {
+    // ── deref ────────────────────────────────────────────────────────────────
+
+    // @rule expr.deref.non-pointer-identity
+    // `*x` on a plain (non-pointer, non-reference, no-Deref) value is identity.
+    {
+        let x: i64 = 5i64;
+        let y: i64 = *x;
+        if y != 5i64 { return 1; }
+    }
+
+    // @rule expr.deref.box-move-out
+    // `*b` for Box<NonCopy> moves the value out (consumes b); for Box<Copy> it
+    // copies out and leaves b live.
+    {
+        let b: Box<S> = Box::new(S { v: 42i64 });
+        let s: S = *b;                       // move out
+        if s.v != 42i64 { return 2; }
+        let bc: Box<i64> = Box::new(7i64);
+        let c: i64 = *bc;                    // copy out, bc stays live
+        let c2: i64 = *bc;
+        if c + c2 != 14i64 { return 3; }
+    }
+
+    // ── call ─────────────────────────────────────────────────────────────────
+
+    // @rule expr.call.callable-resolution
+    // A Closure/fn-value is callable; an Fn-bounded generic param is treated as
+    // a closure with the bound's signature.
+    {
+        let f: fn(i64) -> i64 = |a: i64| -> i64 { return a + 1i64; };
+        if f(41i64) != 42i64 { return 4; }
+        if apply_once(|v: i64| -> i64 { return v * 2i64; }, 21i64) != 42i64 { return 5; }
+    }
+
+    // @rule expr.call.callable-autoderef-ref
+    // `x(args)` where `x: &fn(..)` auto-derefs the reference before calling.
+    {
+        let f: fn(i64) -> i64 = |a: i64| -> i64 { return a * 3i64; };
+        let rf: &fn(i64) -> i64 = &f;
+        if rf(14i64) != 42i64 { return 6; }
+    }
+
+    // @rule expr.call.callable-arg-move
+    // A by-value move-type argument transfers ownership into the callee (dropped
+    // exactly once inside the callee's scope).
+    {
+        let mut cnt: i64 = 0i64;
+        let p: *mut i64 = &mut cnt;
+        let consume = |o: Own| -> i64 { return o.tag; };
+        let o = Own { tag: 5i64, c: p };
+        let r = consume(o);                  // o moved in; dropped in callee
+        if r != 5i64 { return 7; }
+        if cnt != 1i64 { return 8; }         // exactly once
+    }
+
+    // @rule expr.call.arg-formal-hint-propagation
+    // An un-annotated closure-literal arg adopts the formal fn-ptr signature.
+    {
+        if apply2(|a, b| { return a + b; }, 20i64, 22i64) != 42i64 { return 9; }
+    }
+
+    // @rule expr.call.closure-hint-from-fn-bound
+    // For `fn f<F>(g: F) where F: FnOnce(A)->R`, an un-annotated closure infers
+    // its parameter/return types from the bound's signature.
+    {
+        if apply_once(|v| { return v + 1i64; }, 41i64) != 42i64 { return 10; }
+    }
+
+    // @rule expr.call.prelude-enum-shorthand
+    // Bare Some/Ok/Err calls desugar to Option::Some / Result::Ok / Result::Err.
+    {
+        let so: Option<i64> = Some(7i64);
+        match so { Some(v) => { if v != 7i64 { return 11; } } None => { return 12; } }
+        let ro: Result<i64, i64> = Ok(9i64);
+        match ro { Ok(v) => { if v != 9i64 { return 13; } } Err(_) => { return 14; } }
+        let re: Result<i64, i64> = Err(5i64);
+        match re { Ok(_) => { return 15; } Err(v) => { if v != 5i64 { return 16; } } }
+    }
+
+    // ── Writ literals ──────────────────────────────────────────────────────────
+    unsafe {
+        // @rule expr.writ.type-literal
+        // `<type:T>` embeds a Logos type T as a first-class Writ value; reified
+        // back into a metaprog Type (i32 → kind 1, nonzero uid).
+        {
+            let cfg: WritStatic = @{"t": <type:i32>};
+            let v: WView2 = wview2_from_ptr(cfg.ptr);
+            let inner: WAny = v.map_get(v.root(), "t");
+            if inner.is_null() { return 17; }
+            let t: Type = type_from_anyval(inner);
+            if t.kind != (1 as u32) { return 18; }
+            if t.uid == (0 as u64) { return 19; }
+        }
+
+        // @rule expr.writ.neg-int
+        // A Writ negative-integer node negates the parsed magnitude.
+        {
+            if iv((@-7)) != -7i64 { return 20; }
+        }
+
+        // @rule expr.writ.null
+        // A Writ null node yields the null value.
+        {
+            if !isnull((@null)) { return 21; }
+        }
+
+        // @rule expr.writ.bool
+        // A Writ bool node is true iff its payload is present and nonzero.
+        {
+            if bv((@true)) != true { return 22; }
+            if bv((@false)) != false { return 23; }
+        }
+
+        // @rule expr.writ.int-suffix-and-radix
+        // Optional numeric suffix is stripped; 0x = hex, 0b = binary, else
+        // decimal; a leading '-' negates the magnitude.
+        {
+            if iv((@42u32)) != 42i64 { return 24; }    // suffix stripped
+            if iv((@0xff)) != 255i64 { return 25; }    // hex radix
+            if iv((@0b101)) != 5i64 { return 26; }     // binary radix
+            if iv((@-7i32)) != -7i64 { return 27; }    // sign + suffix
+        }
+
+        // @rule expr.writ.float-suffix
+        // A Writ float literal strips an optional f32/f64 suffix.
+        {
+            if !ss((@3.5)).eq_str("3.5") { return 28; }
+            if !ss((@3.5f32)).eq_str("3.5") { return 29; }
+            if !ss((@3.5f64)).eq_str("3.5") { return 30; }
+        }
+
+        // @rule expr.writ.string-escapes
+        // Quotes stripped; \n \t \r \\ \" \0 recognized; unknown \x kept literally.
+        {
+            let lit1: WritStatic = @"a\nb";
+            let v = wview2_from_ptr(lit1.ptr);
+            let sv = v.get_str_view(v.root());
+            if sv.len != 3u64 { return 31; }
+            if *(sv.ptr) != 97u8 { return 32; }                                   // a
+            if *((sv.ptr as i64 + 1i64) as *const u8) != 10u8 { return 33; }       // \n
+            if *((sv.ptr as i64 + 2i64) as *const u8) != 98u8 { return 34; }       // b
+            let lit2: WritStatic = @"\q";
+            let v2 = wview2_from_ptr(lit2.ptr);
+            let sv2 = v2.get_str_view(v2.root());
+            if sv2.len != 2u64 { return 35; }
+            if *(sv2.ptr) != 92u8 { return 36; }                                  // backslash kept
+            if *((sv2.ptr as i64 + 1i64) as *const u8) != 113u8 { return 37; }     // q kept
+        }
+
+        // @rule expr.writ.map-keys
+        // Untyped `@{...}`: string keys (quote-stripped) map to recursively
+        // lowered values.
+        {
+            let litm: WritStatic = @{"a": [1, 2], "b": {"c": 3}};
+            let v = wview2_from_ptr(litm.ptr);
+            let r: WAny = v.root();
+            if v.array_len(v.map_get(r, "a")) != 2u64 { return 38; }
+            if v.get_int(v.array_get(v.map_get(r, "a"), 0u64)) != 1i64 { return 39; }
+            if v.get_int(v.map_get(v.map_get(r, "b"), "c")) != 3i64 { return 40; }  // recursive value
+        }
+
+        // @rule expr.writ.array
+        // Untyped `@[...]` lowers each element recursively, in order.
+        {
+            let lita: WritStatic = @[7, 8, 9];
+            let v = wview2_from_ptr(lita.ptr);
+            let r: WAny = v.root();
+            if v.array_len(r) != 3u64 { return 41; }
+            if v.get_int(v.array_get(r, 0u64)) != 7i64 { return 42; }
+            if v.get_int(v.array_get(r, 2u64)) != 9i64 { return 43; }
+        }
+
+        // @rule expr.writ.typed-array-i32-bounds
+        // `@<I32>[...]` accepts the full i32 range [-2147483648, 2147483647].
+        {
+            if !ss((@<I32>[2147483647, -2147483648, 0])).eq_str("<I32> [2147483647, -2147483648, 0]") { return 44; }
+        }
+
+        // @rule expr.writ.capturable-types
+        // Scalar int / bool / str captures are admissible into a Writ @-literal.
+        {
+            let v0: WView2 = WView2 { base: 0 as *const u8 };
+            let n: i32 = 42;
+            let flag: bool = true;
+            let s: str = "hi";
+            let doc: Rc<Writ> = @{"n": $n, "f": $flag, "s": $s};
+            let h: &Writ = doc.deref();
+            let r: WAny = h.root();
+            if r.is_null() { return 45; }
+            if v0.get_int(v0.map_get(r, "n")) != 42i64 { return 46; }
+            if !v0.get_bool(v0.map_get(r, "f")) { return 47; }
+            if v0.get_str_view(v0.map_get(r, "s")).len != 2u64 { return 48; }
+        }
+
+        // @rule expr.writ-capture.ident-dedup
+        // Two `$ident` captures of the same name reuse one capture value.
+        {
+            let v0: WView2 = WView2 { base: 0 as *const u8 };
+            let k: i32 = 9;
+            let doc: Rc<Writ> = @{"a": $k, "b": $k};
+            let h: &Writ = doc.deref();
+            let r: WAny = h.root();
+            if v0.get_int(v0.map_get(r, "a")) != 9i64 { return 49; }
+            if v0.get_int(v0.map_get(r, "b")) != 9i64 { return 50; }
+        }
+    }
+
+    return 0;
+}

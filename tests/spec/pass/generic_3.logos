@@ -1,0 +1,252 @@
+package generic_3;
+
+// generic_3 — execution-locked conformance for the `generic` rules governing
+// turbofish / inference on enum literals, generic-function calls, generic value
+// references, and generic method dispatch. main returns i64; each rule has a
+// marker comment immediately above its assertion and a distinct nonzero exit
+// code on violation; all-pass ⇒ 0.
+
+use logos.lang.option;
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+// A custom generic enum with a payload-less variant and a TypeVar-payload
+// variant — exercises turbofish-first, intlit-payload-pin, structural-unify.
+enum MyOpt<T> {
+    MNone,
+    MSome(T),
+}
+
+// Variant whose payload structurally mentions the type-param (Pair<T>).
+struct Pair<T> { a: T, b: T }
+enum Holder<T> {
+    HEmpty,
+    HFull(Pair<T>),
+}
+
+// A trait object target for dyn-hint-preference.
+trait Shape { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(self: &Self) -> i64 { return self.s * self.s; } }
+
+// Generic free functions for the call-resolution rules.
+fn ident<T>(x: T) -> T { return x; }
+
+// A generic fn whose param is ?Sized (relaxed) — accepts unsized turbofish targ.
+fn count_of<T: ?Sized>() -> i64 { return 1i64; }
+
+// Two callees for callee-resolution-order: a generic overload + name reuse.
+fn dbl<T>(x: T) -> T { return x; }
+
+// A generic struct with a method carrying its own method-level type-param.
+struct Box2<T> { v: T }
+impl<T: Copy> Box2<T> {
+    fn get(self: &Self) -> T { return self.v; }
+    // method-level type-param U distinct from the struct's T.
+    fn with<U>(self: &Self, u: U) -> U { return u; }
+}
+
+// A trait with a type-param Item; its method takes a closure whose formal type
+// uses Item. Implemented for a concrete Recv with a fixed Item — so a closure
+// arg's parameter type resolves concretely from the impl's trait-type-args.
+trait Apply<Item> { fn run(self: &Self, x: Item) -> i64; }
+struct IntSrc { n: i64 }
+impl Apply<i64> for IntSrc {
+    fn run(self: &Self, x: i64) -> i64 { return self.n + x; }
+}
+
+// A generic enum with a method (instantiate-on-typeargs / enum-method dispatch).
+enum Wrap<T> { W(T) }
+impl<T: Copy> Wrap<T> {
+    fn unwrap_it(self: &Self) -> T {
+        match self { Wrap::W(x) => { return *x; } }
+    }
+}
+
+// impl<T> over a struct whose method type-param appears only in the receiver
+// formal shape (recv-formal-unify): a method on a ref-shaped receiver.
+struct Ptr2<T> { p: T }
+impl<T: Copy> Ptr2<T> {
+    fn deref_get(self: &Self) -> T { return self.p; }
+}
+
+fn main() -> i64 {
+    // ── enum-literal turbofish / inference ───────────────────────────────────
+
+    // @rule generic.enum-lit.turbofish-first
+    // Turbofish type-args on a payload-less variant pin the enum's type-args.
+    {
+        let n: MyOpt<i64> = MyOpt::<i64>::MNone;
+        match n {
+            MyOpt::MNone => {}
+            MyOpt::MSome(_) => { return 1; }
+        }
+    }
+
+    // @rule generic.enum-lit.intlit-payload-pin
+    // An unresolved int-literal payload binds T to the hint's pinned type
+    // (i64 here), widening the literal; without a hint T defaults to i32.
+    {
+        let s: MyOpt<i64> = MyOpt::MSome(3);   // hint pins T = i64
+        match s {
+            MyOpt::MSome(v) => { let w: i64 = v; if w != 3i64 { return 2; } }
+            MyOpt::MNone => { return 3; }
+        }
+    }
+
+    // @rule generic.enum-lit.dyn-hint-preference
+    // Hint pins T to a ref-wrapped trait-object (&dyn Shape); the concrete &Sq
+    // payload is unsize-fattened into the dyn slot, dispatching to Sq::area.
+    {
+        let sq = Sq { s: 5i64 };
+        let o: MyOpt<&dyn Shape> = MyOpt::MSome(&sq);
+        match o {
+            MyOpt::MSome(d) => { if d.area() != 25i64 { return 4; } }
+            MyOpt::MNone => { return 5; }
+        }
+    }
+
+    // @rule generic.enum-lit.structural-unify
+    // Payload formal Pair<T> is unified against the actual Pair<i64> arg to
+    // extract T = i64 with no turbofish or hint.
+    {
+        let h = Holder::HFull(Pair { a: 6i64, b: 7i64 });
+        match h {
+            Holder::HFull(p) => { if p.a + p.b != 13i64 { return 6; } }
+            Holder::HEmpty => { return 7; }
+        }
+    }
+
+    // (generic.enum-lit.hint-ref-ptr-preference is untestable here — see report.)
+
+    // @rule generic.enum-lit.bounds-check
+    // A resolved type-arg satisfying the (implicit Sized) bound constructs
+    // fine; observed by the value round-tripping through the enum.
+    {
+        let b: MyOpt<bool> = MyOpt::MSome(true);
+        match b {
+            MyOpt::MSome(v) => { if !v { return 10; } }
+            MyOpt::MNone => { return 11; }
+        }
+    }
+
+    // ── generic-function calls ───────────────────────────────────────────────
+
+    // @rule generic.call.callee-resolution-order
+    // `dbl::<i64>(..)` resolves to the generic overload `dbl` of arity 1.
+    {
+        if dbl::<i64>(21i64) != 21i64 { return 12; }
+    }
+
+    // @rule generic.call.pub-access-check
+    // A same-package generic call resolves and is callable (visibility OK).
+    {
+        if ident::<i64>(42i64) != 42i64 { return 13; }
+    }
+
+    // @rule generic.call.unsized-targ-for-relaxed-param
+    // count_of<T: ?Sized> accepts an unsized turbofish target [i64].
+    {
+        let cc: i64 = count_of::<[i64]>();
+        if cc != 1i64 { return 14; }
+    }
+
+    // @rule generic.call.underscore-type-arg-inference
+    // `_` turbofish arg is an inference hole filled from the value argument.
+    {
+        if ident::<_>(7i64) != 7i64 { return 15; }
+    }
+
+    // ── generic value references (fn-pointer / variant ctor) ─────────────────
+
+    // @rule generic.ref.value-position-fn-pointer
+    // `ident::<i64>` in value position is a fn-pointer with TARGS substituted.
+    {
+        let f: fn(i64) -> i64 = ident::<i64>;
+        if f(33i64) != 33i64 { return 16; }
+    }
+
+    // @rule generic.ref.turbofish-no-payload-variant
+    // `Option::<i64>::None` in value position constructs None pinned at i64.
+    {
+        let n = Option::<i64>::None;
+        match n {
+            Some(_) => { return 17; }
+            None => {}
+        }
+    }
+
+    // @rule generic.ref.bounds-check-when-concrete
+    // All type-args concrete ⇒ eager bound check passes; the value is usable.
+    {
+        let g: fn(i64) -> i64 = dbl::<i64>;
+        if g(4i64) != 4i64 { return 18; }
+    }
+
+    // ── generic methods ──────────────────────────────────────────────────────
+
+    // @rule expr.method.typeparam-inference-from-args
+    // Method `with<U>` infers U from the argument type (no turbofish).
+    {
+        let bx = Box2 { v: 1i64 };
+        if bx.with(99i64) != 99i64 { return 19; }
+    }
+
+    // @rule generic.method-subst.recv-typeargs
+    // Receiver Box2<i64> binds struct T = i64; `get` returns i64.
+    {
+        let bx = Box2 { v: 8i64 };
+        if bx.get() != 8i64 { return 20; }
+    }
+
+    // @rule generic.method-subst.owning-trait-params-from-impl
+    // The trait's type-param Item is bound from `impl Apply<i64> for IntSrc`,
+    // so the method param's type resolves concretely to i64 and accepts 2i64.
+    {
+        let src = IntSrc { n: 40i64 };
+        if src.run(2i64) != 42i64 { return 26; }
+    }
+
+    // @rule generic.method-typeargs.turbofish-binds-method-params
+    // Explicit turbofish on the method binds the method-level type-param U
+    // (struct-inherited T is skipped).
+    {
+        let bx = Box2 { v: 0i64 };
+        if bx.with::<i64>(55i64) != 55i64 { return 21; }
+    }
+
+    // @rule generic.enum-method.instantiate-on-typeargs
+    // Method on a generic-enum receiver dispatches with the receiver's enum
+    // type-args (T = i64) seeded into the substitution.
+    {
+        let w = Wrap::W(77i64);
+        if w.unwrap_it() != 77i64 { return 22; }
+    }
+
+    // @rule generic.method.recv-typeargs-bind
+    // Receiver Box2<i64> type-args bind positionally to the impl's T as the
+    // substitution context (return type resolves to i64).
+    {
+        let bx = Box2 { v: 13i64 };
+        let r: i64 = bx.get();
+        if r != 13i64 { return 23; }
+    }
+
+    // @rule generic.method.turbofish-wins
+    // Method-level turbofish binds the method tail param; inference runs only
+    // for remaining positions (here none).
+    {
+        let bx = Box2 { v: 0i64 };
+        if bx.with::<i64>(31i64) != 31i64 { return 24; }
+    }
+
+    // @rule generic.method.recv-formal-unify
+    // Impl type-param T appears in the receiver formal Ptr2<T>; unified against
+    // the actual receiver Ptr2<i64> to infer T = i64.
+    {
+        let q = Ptr2 { p: 17i64 };
+        if q.deref_get() != 17i64 { return 25; }
+    }
+
+    return 0;
+}

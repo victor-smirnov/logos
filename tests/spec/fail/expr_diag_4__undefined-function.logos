@@ -1,0 +1,7 @@
+// @rule expr.call.undefined-function-error
+package expr_diag_4_undefined_function;
+
+fn main() -> i32 {
+    let _r: i32 = no_such_function(1i32);
+    return 0i32;
+}

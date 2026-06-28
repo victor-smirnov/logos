@@ -1,0 +1,10 @@
+// @rule pat.slice.scrutinee-array-or-slice
+package pat_diag_2_slice_scrut;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        [a, b] => { return a; }
+        _ => { return 0i32; }
+    }
+}

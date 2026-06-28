@@ -1,0 +1,12 @@
+// @rule expr.writ-capture.ident-lookup
+package expr_diag_4_writ_capture_ident_lookup;
+
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let doc: Rc<Writ> = @{"pt": $undefined_var};
+    return 0;
+}

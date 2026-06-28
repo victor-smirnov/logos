@@ -1,0 +1,121 @@
+package region_3;
+
+// Conformance test for the `region_3` rule group (region / lifetimes).
+//
+// These rules are region/lifetime invariants of the type checker. The ones with
+// a runtime-observable *positive* manifestation are locked here by EXECUTION:
+//   - temporary-scope / temporary-lifetime-extension rules are observed via Drop
+//     counting (a *mut i64 tick counter, Rust-parity Drop),
+//   - outlives / subtyping / covariance rules are observed by code that only
+//     COMPILES AND RUNS if the lifetime relationship is accepted (a borrow that
+//     is fed where a shorter/longer lifetime is required, then dereferenced).
+// Pure type-checker invariants with no positive runtime manifestation (mutref
+// invariance, empty-lifetime wildcard internals, variance-position dispatch,
+// enum lifetime-arg inference) are reported under "untestable".
+
+// ── Drop-counting helper (Rust-parity Drop via a *mut i64 tick counter) ──────
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// A type with a `&self` method returning a copy, so a temporary receiver can be
+// auto-ref'd: `W::mk(p).get()` materializes a temp W, borrows it, reads, drops.
+struct W { i: *mut i64 }
+impl Drop for W { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+impl W {
+    fn mk(i: *mut i64) -> W { return W { i: i }; }
+    fn get(self: &W) -> i64 { return 7i64; }
+}
+
+// `'static` always satisfies an outlives obligation: a fn requiring `'a: 'b`
+// can be called with a 'static-derived borrow on the longer side.
+fn longer<'a, 'b>(x: &'a i64, _y: &'b i64) -> &'a i64 where 'a: 'b { return x; }
+
+// Covariant shared reference: a &'a i64 may be supplied where a shorter borrow
+// is required. A fn taking &i64 and returning a read accepts any input borrow.
+fn read(x: &i64) -> i64 { return *x; }
+
+static G: i64 = 1000i64;
+
+// A temp that materializes statement-temporaries inside a `return <value>`:
+// `W::mk(p).get()` builds a temp W, reads it, the temp must drop BEFORE the
+// return terminator (not be dead code after it).
+fn ret_temp(p: *mut i64) -> i64 { return W::mk(p).get(); }
+
+fn main() -> i64 {
+
+    // @rule region.temp-scope.receiver-temp-end-of-statement
+    // `W::mk(p).get()` auto-refs the temporary W as a `&self` receiver; the temp
+    // lives to end of statement and is then dropped exactly once.
+    {
+        let mut c1: i64 = 0i64;
+        let p1: *mut i64 = &mut c1;
+        let v: i64 = W::mk(p1).get();  // temp W materialized, read, dropped at `;`
+        if v != 7i64 { return 1; }
+        if c1 != 1i64 { return 2; }    // receiver temp dropped exactly once
+    }
+
+    // @rule region.return.temp-drops-before-terminator
+    // In `return W::mk(p).get();` the statement-temporary W drops BEFORE the
+    // return terminator (else its drop is dead code and the temp leaks). The
+    // observed drop count is exactly 1.
+    {
+        let mut c2: i64 = 0i64;
+        let p2: *mut i64 = &mut c2;
+        let v: i64 = ret_temp(p2);     // returns 7, temp W dropped before return
+        if v != 7i64 { return 3; }
+        if c2 != 1i64 { return 4; }    // temp dropped exactly once (not leaked)
+    }
+
+    // @rule region.let.temporary-lifetime-extension
+    // `let r = &mk(p)` extends the rvalue temporary's lifetime to the enclosing
+    // scope: a hidden named temp holds the value and is dropped at scope END
+    // (after the borrow's last use), not at the end of the `let` statement.
+    {
+        let mut c3: i64 = 0i64;
+        let p3: *mut i64 = &mut c3;
+        {
+            let r: &R = &mk(p3);           // temporary lifetime-extended to scope
+            let _ptr: i64 = r.i as i64;    // borrow still valid AFTER the let
+            if c3 != 0i64 { return 5; }    // NOT yet dropped — lives to scope end
+        }
+        if c3 != 1i64 { return 6; }        // dropped exactly once at scope end
+    }
+
+    // @rule region.outlives.static-always-satisfies
+    // `longer` requires `'a: 'b`. Called with a 'static borrow (&G) on the longer
+    // side, the obligation is satisfied without an actual check; result reads G.
+    {
+        let local: i64 = 5i64;
+        let got: &i64 = longer(&G, &local);   // 'a := 'static satisfies 'a: 'b
+        if *got != 1000i64 { return 7; }
+    }
+
+    // @rule expr.call.outlives-cross-check
+    // At this concrete call, `longer`'s declared `where 'a: 'b` is checked against
+    // the actual arguments; the borrows are arranged so 'a outlives 'b, so the
+    // call type-checks and returns the longer-lived borrow.
+    {
+        let outer: i64 = 11i64;          // 'a (outer scope, longer)
+        {
+            let inner: i64 = 22i64;      // 'b (inner scope, shorter)
+            let got: &i64 = longer(&outer, &inner);  // 'a: 'b holds → accepted
+            if *got != 11i64 { return 8; }
+        }
+    }
+
+    // @rule region.subtype.ref-covariant
+    // &'a i64 <: &'b i64 when 'a: 'b (covariant lifetime). A longer-lived borrow
+    // (&G, 'static) is accepted where a shorter borrow (&i64 param of `read`) is
+    // required; the deref reads the pointee.
+    {
+        let n: i64 = 42i64;
+        let a: i64 = read(&G);       // 'static borrow used where &i64 expected
+        let b: i64 = read(&n);       // shorter borrow also accepted
+        if a != 1000i64 { return 9; }
+        if b != 42i64 { return 10; }
+    }
+
+    return 0;
+}

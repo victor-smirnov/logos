@@ -1,0 +1,152 @@
+// Conformance: intrinsic_2 — compile-time reflection intrinsics + drop-glue
+// runtime behavior. Each rule is locked by an executing assertion whose marker
+// comment names the rule id. All pass => exit 0.
+package intrinsic_2;
+
+use logos.std.compiler.metaprog;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.mem.sync;
+
+// ── Drop-observing helper types ──────────────────────────────────────────────
+// A user `Drop` that bumps a counter through a raw pointer, so the runtime
+// drop glue is observable from the language level.
+trait Drop { fn drop(self: &mut Self); }
+
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+
+trait Sp { fn v(&self) -> i64; }
+struct A { c: *mut i64, x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+impl Drop for A { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
+
+fn sink(b: Box<dyn Sp>) -> i64 { return b.v(); }
+
+// ── Reflection-helper types ──────────────────────────────────────────────────
+pub struct Pair<X, Y> { pub a: X, pub b: Y, }
+pub struct Trio<X, Y, Z> { pub a: X, pub b: Y, pub c: Z, }
+pub struct Plain { pub x: i32, }
+pub struct Empty {}
+pub struct Rec { pub a: i32, pub b: i64, pub c: bool, }
+
+struct OffP { a: i32, b: i64, c: u8 }       // a@0, b@8 (pad), c@16
+
+fn pack_len<T...>() -> i64 { return sizeof...(T) as i64; }
+
+unsafe fn main() -> i64 {
+    // Kind tags (LogosType::Kind): I32=1, Bool=5, U8=6, Struct/Generic per producer.
+
+    // @rule intrinsic.reflect.typelist-len
+    if typelist_len::<Pair<i32, bool>>()       != 2i64 { return 1; }
+    if typelist_len::<Trio<i32, bool, u8>>()   != 3i64 { return 2; }
+    if typelist_len::<i32>()                   != 0i64 { return 3; }
+
+    // @rule intrinsic.reflect.typelist-head-nth
+    let h: Type = typelist_head::<Pair<i32, bool>>();
+    if h.kind != 1u32 { return 4; }                              // head idx 0 = i32
+    let n1: Type = typelist_nth::<Trio<i32, bool, u8>>(1);       // literal index
+    if n1.kind != 5u32 { return 5; }                            // nth idx 1 = bool
+
+    // @rule intrinsic.reflect.type-struct-shape
+    let ti: Type = type_of::<i32>();
+    if ti.kind != 1u32 { return 6; }
+    if ti.size != 4i64 { return 7; }
+    if ti.align != 4i64 { return 8; }
+    if ti.uid == 0u64 { return 9; }                             // canonical 64-bit hash, non-zero
+    if ti.name.len() == 0 { return 10; }                       // name = type_str(T)
+
+    // @rule intrinsic.reflect.reify-type
+    let r1: Type = reify_type(type_of::<i32>());                // direct Type producer
+    if r1.uid != ti.uid { return 11; }                         // round-trip preserves uid
+    let r2: Type = reify_type(typelist_nth::<Pair<i32, bool>>(1));  // indexed pack element
+    if r2.kind != 5u32 { return 12; }                          // bool
+
+    // @rule intrinsic.reflect.tuple-count-of
+    if tuple_count_of::<(i32, bool, u8)>() != 3i64 { return 13; }
+    if tuple_count_of::<(i64,)>()          != 1i64 { return 14; }
+    if tuple_count_of::<i32>()             != 0i64 { return 15; } // non-tuple => 0
+
+    // @rule intrinsic.reflect.tuple-elems-of
+    let te = tuple_elems_of::<(i32, bool, u8)>();
+    if te[0i64].kind != 1u32 { return 16; }
+    if te[2i64].kind != 6u32 { return 17; }
+
+    // @rule intrinsic.reflect.field-count-of
+    if field_count_of::<Empty>() != 0i64 { return 18; }
+    if field_count_of::<Rec>()   != 3i64 { return 19; }
+    if field_count_of::<i32>()   != 0i64 { return 20; }          // non-struct => 0
+
+    // @rule intrinsic.reflect.field-names-of
+    let names = field_names_of::<Rec>();
+    if names[1].len() != 1 { return 21; }
+    if names[1][0] != 98u8 { return 22; }                       // 'b' = 98, declaration order
+
+    // @rule intrinsic.reflect.type-descriptor-array
+    let fts = field_types_of::<Rec>();                          // [Type; 3] of struct literals
+    if fts[0].size != 4i64 { return 23; }                      // i32
+    if fts[1].size != 8i64 { return 24; }                      // i64
+    if fts[2].uid == 0u64 { return 25; }                       // each element carries a uid
+
+    // @rule intrinsic.reflect.args-of
+    let ar = args_of::<Pair<i32, bool>>();
+    if ar[0].kind != 1u32 { return 26; }
+    if ar[1].kind != 5u32 { return 27; }
+    if args_of::<Plain>() != [] as [Type; 0] { return 28; }     // non-generic => empty
+
+    // @rule intrinsic.reflect.typelist-tail
+    let tl = typelist_tail::<Trio<i32, bool, u8>>();           // pack minus first
+    if tl[0].kind != 5u32 { return 29; }                       // bool
+    if tl[1].kind != 6u32 { return 30; }                       // u8
+
+    // @rule intrinsic.reflect.apply-generic
+    let g: Type = generic_of::<Pair>();                        // generic handle (arity 2)
+    let applied: Type = apply_generic(g, [type_of::<i32>(), type_of::<bool>()]);
+    let direct: Type = type_of::<Pair<i32, bool>>();
+    if applied.uid != direct.uid { return 36; }
+
+    // @rule intrinsic.sizeof-pack.length-of-type-pack
+    if pack_len::<i32, bool, u8>() != 3i64 { return 37; }       // sizeof...(T) value-position
+    if pack_len::<i64>()           != 1i64 { return 38; }
+
+    // @rule intrinsic.offset-of.compile-time-byte-offset
+    if offset_of!(OffP, a) != 0i64  { return 39; }
+    if offset_of!(OffP, c) != 16i64 { return 40; }             // i64 const offset incl. padding
+
+    // @rule intrinsic.offset-of.form
+    if offset_of!(OffP, b) != 8i64 { return 41; }              // field byte offset within type
+
+    // ── Drop-glue runtime behavior ──────────────────────────────────────────
+
+    // @rule intrinsic.drop.owning-slice
+    let mut c1: i64 = 0i64; let p1: *mut i64 = &mut c1;
+    { let _b: Box<[R]> = box_new::<[R; 3]>([R{i:p1}, R{i:p1}, R{i:p1}]) as Box<[R]>; }
+    if c1 != 3i64 { return 42; }                               // each of 3 elements dropped, buffer freed
+
+    // @rule intrinsic.drop.box-dyn-frees-data
+    let mut c2: i64 = 0i64; let p2: *mut i64 = &mut c2;
+    { let _b: Box<dyn Sp> = box_new(A{c:p2, x:1}) as Box<dyn Sp>; }
+    if c2 != 1i64 { return 43; }                               // drop_in_place(data) once, then free
+
+    // @rule intrinsic.drop.dyn-virtual-dispatch
+    // Move the owning Box<dyn> out; drop fires exactly once (at sink). The
+    // moved-from slot is zeroed, so the null-data path skips a second drop.
+    let mut c3: i64 = 0i64; let p3: *mut i64 = &mut c3;
+    {
+        let b: Box<dyn Sp> = box_new(A{c:p3, x:5}) as Box<dyn Sp>;
+        let _ = sink(b);
+    }
+    if c3 != 1i64 { return 44; }
+
+    // @rule intrinsic.drop.rc-arc-dyn-refcount
+    // Two strong refs: concrete drop only when the count hits zero.
+    let mut c4: i64 = 0i64; let p4: *mut i64 = &mut c4;
+    {
+        let rr:  Rc<dyn Sp>  = rc_new(A{c:p4, x:2});
+        let _rr2: Rc<dyn Sp> = rr.clone_ref();
+        if c4 != 0i64 { return 45; }                           // not dropped while strong > 0
+    }
+    if c4 != 1i64 { return 46; }                               // dropped exactly once at refcount 0
+
+    return 0;
+}

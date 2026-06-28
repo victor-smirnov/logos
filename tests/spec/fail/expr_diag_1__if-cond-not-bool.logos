@@ -1,0 +1,9 @@
+// @rule expr.if.cond-must-be-bool
+package expr_diag_1_if_cond_not_bool;
+
+fn main() -> i32 {
+    if 3i32 {
+        return 1i32;
+    }
+    return 0i32;
+}

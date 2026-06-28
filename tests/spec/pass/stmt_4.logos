@@ -1,0 +1,346 @@
+package stmt_4;
+
+// stmt_4 — execution-locked conformance for the `stmt` rules (statement-level
+// divergence / definite-assignment / temp-scope / tail / break / compound-assign).
+// main returns i64; every rule has a marker comment immediately above its
+// assertion and a distinct nonzero exit code on violation; all-pass => 0.
+
+use logos.lang.ptr;
+use logos.lang.ops;
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+trait Drop { fn drop(self: &mut Self); }
+
+// A droppable that records the order in which it is destroyed by writing an
+// increasing tick into a shared cell at *c == its tag, exposing drop ORDER and
+// drop COUNT to the test.
+struct Rec { tag: i64, c: *mut i64, log: *mut i64 }
+impl Drop for Rec {
+    fn drop(self: &mut Self) {
+        unsafe {
+            let t: i64 = *self.c;          // current tick
+            *self.c = t + 1i64;            // advance tick
+            *((self.log as i64 + self.tag * 8i64) as *mut i64) = t;  // record order at slot=tag
+        }
+    }
+}
+
+// Fresh owned (move-typed) value — an rvalue-producing Call, so a temporary.
+fn mk(tag: i64, c: *mut i64, log: *mut i64) -> Rec { return Rec { tag: tag, c: c, log: log }; }
+// Sum two recs by value (consumes both); used to create two temporaries in one stmt.
+fn sum2(a: Rec, b: Rec) -> i64 { return a.tag + b.tag; }
+
+// A never-returning function annotated `-> !`.
+fn boom() -> ! { loop {} }
+
+// Generic whose return type-param falls back to `!` because the body provably
+// never returns normally (last stmt is a divergent `-> !` call). It is only
+// *called* on a path guarded so it never actually executes.
+fn nev<T>() -> T { boom() }
+
+// DerefMut wrapper for compound-assign-through-deref dispatch.
+struct Cell { v: i64 }
+impl Deref<i64> for Cell { fn deref(&self) -> &i64 { return &self.v; } }
+impl DerefMut<i64> for Cell { fn deref_mut(&mut self) -> &mut i64 { return &mut self.v; } }
+
+fn main() -> i64 {
+
+    // @rule stmt.diverge.return-stmt
+    // A `return` diverges: the statement after it is unreachable, so a value set
+    // only before an unconditional return is what survives.
+    {
+        let r: i64 = {
+            let mut acc: i64 = 7i64;
+            if acc == 7i64 { acc = 1i64; } else { return 1; }   // taken branch sets 1
+            acc
+        };
+        if r != 1i64 { return 2; }
+    }
+
+    // @rule stmt.diverge.if-both-branches
+    // An `if` always returns iff BOTH then and else always return; here both
+    // branches assign `out`, so `out` is definitely-assigned after the if.
+    {
+        let cond: bool = true;
+        let out: i64;
+        if cond { out = 10i64; } else { out = 20i64; }
+        if out != 10i64 { return 3; }
+    }
+
+    // @rule stmt.if.definite-assignment-merge
+    // A var is uninit at the merge iff uninit on ANY non-diverging branch;
+    // a DIVERGING branch (return) contributes nothing, so a then-only init with
+    // a diverging else leaves the var definitely-assigned at the merge.
+    {
+        let cond: bool = true;
+        let v: i64;
+        if cond { v = 5i64; } else { return 4; }   // else diverges -> not in union
+        if v != 5i64 { return 5; }                 // v is definitely-assigned here
+    }
+
+    // @rule stmt.diverge.match-all-arms
+    // A match always returns iff every arm body always returns; here both arms
+    // assign `m`, so `m` is definitely-assigned after the match.
+    {
+        let sel: i64 = 2i64;
+        let m: i64;
+        match sel {
+            1 => { m = 100i64; }
+            _ => { m = 200i64; }
+        }
+        if m != 200i64 { return 6; }
+    }
+
+    // @rule stmt.diverge.block-reaches
+    // A block always returns iff at least one statement always returns: a `return`
+    // makes every following statement unreachable, so a side effect placed after
+    // an unconditional `return` never happens. block_reaches() returns 0 before it
+    // can bump *flag, so the flag stays 0.
+    {
+        let mut flag: i64 = 0i64;
+        let fp: *mut i64 = &mut flag;
+        let _ = block_reaches(fp);
+        if flag != 0i64 { return 8; }   // post-return statement never ran
+    }
+
+    // @rule stmt.diverge.infinite-loop
+    // A `loop { ... }` never falls through. loop_tail()'s body is just a `loop`
+    // (no trailing return) yet compiles with a non-void return type — accepted
+    // ONLY because the loop is recognized as diverging — and returns via break.
+    {
+        if loop_tail() != 3i64 { return 9; }
+    }
+
+    // @rule stmt.diverge.break-continue-divert
+    // `break`/`continue` divert loop-body fallthrough like `return`: a statement
+    // textually after `continue` in the same iteration does not execute.
+    {
+        let mut hit: i64 = 0i64;
+        let mut k: i64 = 0i64;
+        loop {
+            k = k + 1i64;
+            if k <= 2i64 { continue; }   // skips the `hit` increment for k=1,2
+            hit = hit + 1i64;            // runs only for k==3
+            if k == 3i64 { break; }
+        }
+        if hit != 1i64 { return 10; }
+    }
+
+    // @rule stmt.break.target-resolution
+    // A labeled `break 'outer v` targets the nearest enclosing loop with that
+    // label; the value attributes to the OUTER frame, not the inner loop.
+    {
+        let got: i64 = 'outer: loop {
+            let mut j: i64 = 0i64;
+            loop {
+                j = j + 1i64;
+                if j == 4i64 { break 'outer j; }   // breaks the outer loop with 4
+            }
+        };
+        if got != 4i64 { return 11; }
+    }
+
+    // @rule stmt.diverge.never-returning-call
+    // A call to a `-> !` callee (boom) is divergent: control never falls through.
+    // never_call_tail()'s body ends in `boom()` (no trailing return) yet compiles
+    // with a non-void return type — accepted only because the trailing call is
+    // recognized as divergent — returning 12 from its guarded `return`.
+    {
+        if never_call_tail() != 12i64 { return 12; }
+    }
+
+    // @rule stmt.fallback.never-only-on-provable-divergence
+    // A generic return type-param falls back to `!` when the body provably never
+    // returns normally (nev's body is a divergent `-> !` call). We bind its
+    // result type on an unreachable path so the type resolves but never runs.
+    {
+        let cond: bool = false;
+        let val: i64;
+        if cond { val = nev::<i64>(); } else { val = 13i64; }
+        if val != 13i64 { return 13; }
+    }
+
+    // @rule stmt.diverge.let-diverging-init
+    // `let x = <return-expr>;` diverges: the binding never occurs and the next
+    // statement is unreachable. let_div_tail()'s body ends in `let _x = return 14;`
+    // (no trailing return) yet compiles with a non-void return type — accepted
+    // only because the diverging let-initializer makes the body return-reachable.
+    {
+        if let_div_tail() != 14i64 { return 15; }
+    }
+
+    // @rule stmt.diverge.block-value
+    // An expression-statement whose value is a BLOCK that always returns diverges.
+    {
+        let cond: bool = true;
+        let r: i64;
+        { if cond { r = 16i64; } else { return 16; } }   // inner block; else diverges
+        if r != 16i64 { return 17; }
+    }
+
+    // @rule stmt.diverge.tail-expr-context
+    // A trailing expr is an implicit return only in function-body position; in a
+    // block-as-expression it is the block's VALUE, not a return.
+    {
+        let bv: i64 = { let t: i64 = 18i64; t };   // tail `t` is the block value
+        if bv != 18i64 { return 18; }
+    }
+
+    // @rule stmt.tail.implicit-return-nonvoid
+    // A non-void trailing expr at fn-body level is an implicit return; a Void
+    // tail is just an expression-statement. Verified via a helper whose body
+    // ends in a bare expression (no `return`).
+    {
+        if implicit_ret() != 19i64 { return 19; }
+    }
+
+    // @rule stmt.tail.enum-hint-from-ret-type
+    // A tail enum literal is inferred against the fn's declared enum return type,
+    // resolving type params not pinned by the chosen variant.
+    {
+        match none_i64() {
+            Option::Some(_) => { return 20; }
+            Option::None    => {}                  // None's T resolved from ret type
+        }
+    }
+
+    // @rule stmt.tail.closure-inference-return
+    // A non-void tail in an inference-mode closure body is its implicit return.
+    {
+        let f = || { 21i64 };                      // tail `21` is the closure return
+        if f() != 21i64 { return 21; }
+    }
+
+    // @rule stmt.compound-assign.deref-desugar
+    // `*p op= v` desugars to `*p = (*p op v)`: read pointee, apply op, write back.
+    {
+        let mut n: i64 = 20i64;
+        let p: *mut i64 = &mut n;
+        unsafe { *p += 2i64; }                     // *p = (*p + 2)
+        if n != 22i64 { return 22; }
+    }
+
+    // @rule stmt.compound-assign.deref-mut-dispatch
+    // `*w op= v` for a DerefMut struct desugars through w.deref_mut().
+    {
+        let mut c: Cell = Cell { v: 20i64 };
+        *c += 3i64;                                 // *(c.deref_mut()) = *(c.deref_mut()) + 3
+        if c.v != 23i64 { return 23; }
+    }
+
+    // @rule stmt.deref-write.user-deref-mut
+    // `*x = v` for a DerefMut struct dispatches x.deref_mut() and writes through it.
+    {
+        let mut c: Cell = Cell { v: 0i64 };
+        *c = 24i64;                                 // c.deref_mut() then store
+        if c.v != 24i64 { return 24; }
+    }
+
+    // @rule stmt.scope.temp-drop-at-stmt-end
+    // Fresh owned temporaries created while lowering a statement are dropped at
+    // the END of that statement, in REVERSE order of creation. temp_order()
+    // builds sum2(mk(1),mk(2)) (temp tag=1 then tag=2); both drop at the stmt's
+    // end, the last-created (tag=2) first. It returns the recorded drop ticks
+    // packed as tag1_tick*10 + tag2_tick.
+    {
+        let packed: i64 = temp_order();
+        if packed != 10i64 { return 25; }   // tag1 tick=1, tag2 tick=0 -> 1*10+0
+    }
+
+    // @rule stmt.expr.discarded-rvalue-dropped
+    // A statement-expression `mk(..);` producing a fresh owned move value is
+    // bound to a synthetic local and dropped at statement end (exactly once).
+    // discard_rvalue() returns the drop count, which must be exactly 1.
+    {
+        if discard_rvalue() != 1i64 { return 28; }
+    }
+
+    // @rule stmt.scope.return-temps-dropped-before-terminator
+    // `return <val>` materializing temporaries drops them BEFORE the terminator,
+    // so the drop side effects are observable by the caller. ret_with_temp writes
+    // the post-return-drop tick count into *out before returning its value.
+    {
+        let mut seen: i64 = 0i64;
+        let sp: *mut i64 = &mut seen;
+        let r: i64 = ret_with_temp(sp);
+        if r != 3i64 { return 30; }
+        if seen != 2i64 { return 31; }      // caller sees both temps already dropped
+    }
+
+    return 0;
+}
+
+// Body ends in a bare non-void expression: implicit return of 19.
+fn implicit_ret() -> i64 { 19i64 }
+
+// Tail enum literal inferred against the declared Option<i64> return type.
+fn none_i64() -> Option<i64> { Option::None }
+
+// Builds two temporaries in one statement; their reverse-order, stmt-end drop is
+// recorded into `order[tag]`. Returns tag1_tick*10 + tag2_tick.
+fn temp_order() -> i64 {
+    let mut tick: i64 = 0i64;
+    let mut order: [i64; 3] = [-1i64, -1i64, -1i64];
+    {
+        let tp: *mut i64 = &mut tick;
+        let op: *mut i64 = &mut order[0u64];
+        let s: i64 = sum2(mk(1i64, tp, op), mk(2i64, tp, op));   // two temps, dropped at ;
+        let _ = s;
+    }
+    return order[1u64] * 10i64 + order[2u64];
+}
+
+// A discarded fresh rvalue `mk(..)` is bound to a synthetic local and dropped at
+// statement end exactly once; returns the resulting drop count.
+fn discard_rvalue() -> i64 {
+    let mut tick: i64 = 0i64;
+    let mut sink: [i64; 3] = [-1i64, -1i64, -1i64];
+    {
+        let tp: *mut i64 = &mut tick;
+        let op: *mut i64 = &mut sink[0u64];
+        mk(1i64, tp, op);                  // discarded rvalue -> dropped at this ;
+    }
+    return tick;
+}
+
+// `return <val>` materializing temporaries drops them BEFORE the terminator. We
+// observe this by using the caller-owned counter `out` AS the drop-tick cell:
+// each temporary's Rec::drop bumps *out, so by the time the value reaches the
+// caller both drops have already run and *out == 2.
+fn ret_with_temp(out: *mut i64) -> i64 {
+    let mut sink: [i64; 3] = [-1i64, -1i64, -1i64];
+    let op: *mut i64 = &mut sink[0u64];
+    return sum2(mk(1i64, out, op), mk(2i64, out, op));
+}
+
+// A `return` makes the rest of the block unreachable: the *flag bump after the
+// return never executes, so the caller observes flag unchanged.
+fn block_reaches(flag: *mut i64) -> i64 {
+    return 0i64;
+    unsafe { *flag = 1i64; }   // unreachable: dominated by the return above
+}
+
+// Body's last statement is a `loop` (no trailing return); accepted only because
+// the loop is recognized as diverging. Exits via break with value 3.
+fn loop_tail() -> i64 {
+    let mut i: i64 = 0i64;
+    loop {
+        i = i + 1i64;
+        if i == 3i64 { return i; }
+    }
+}
+
+// Body's last statement is a divergent `-> !` call (boom); accepted only because
+// that call is recognized as never-returning. The guarded return runs first.
+fn never_call_tail() -> i64 {
+    let cond: bool = true;
+    if cond { return 12i64; }
+    boom()
+}
+
+// Body's last statement is `let _x = return 14;`; the diverging initializer makes
+// the body return-reachable even though there is no trailing return.
+fn let_div_tail() -> i64 {
+    let _x: i64 = return 14i64;
+}

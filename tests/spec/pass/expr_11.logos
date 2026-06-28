@@ -1,0 +1,301 @@
+package expr_11;
+
+use logos.lang.option;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.lang.writ.wstatic;
+use logos.lang.rc;
+
+// ---------------------------------------------------------------------------
+// Helpers for the static-call / enum-lit / path rules.
+// ---------------------------------------------------------------------------
+
+// A plain struct with an inherent static method (qualified path / Self::).
+struct Maker { v: i64 }
+impl Maker {
+    fn make(n: i64) -> Maker { return Maker { v: n }; }
+    fn make_self(n: i64) -> Maker { return Self::make(n); }   // Self -> Maker
+    const TAG: i64 = 7i64;                                    // inherent assoc const
+}
+
+// An enum with both a variant and a trait-impl static method of the same shape.
+enum E { A(i64), B }
+impl E {
+    fn from_raw(n: i64) -> E { return E::A(n); }   // static method (not a variant)
+    fn self_unit() -> E { return Self::B; }        // Self -> enclosing enum (unit variant)
+    fn self_payload(n: i64) -> E { return Self::A(n); } // Self -> enclosing enum (payload)
+}
+
+// Non-generic type alias to a struct and to an enum.
+type MakerAlias = Maker;
+type EAlias = E;
+
+// A trait with a static method (for trait-qualified UFCS / type-param dispatch)
+// and an assoc const (for trait assoc-const access).
+trait Named {
+    fn tag_of(w: &Self, x: i64) -> i64;   // assoc fn; first arg = receiver type
+    const KIND: i64;
+}
+struct Widget {}
+impl Named for Widget {
+    fn tag_of(w: &Widget, x: i64) -> i64 { return x + 1i64; }
+    const KIND: i64 = 99i64;
+}
+
+// Bounded type-param static dispatch: S::tag_of routes through the bound.
+fn via_bound<S: Named>(w: &S, x: i64) -> i64 {
+    // @rule expr.static-call.type-param-shadows-struct
+    // @rule expr.path.typaram-static-method-call
+    return S::tag_of(w, x);
+}
+
+// A method usable as a fn-pointer value.
+struct Adder {}
+impl Adder {
+    fn plus(a: i64) -> i64 { return a + 10i64; }
+}
+
+// A pointee struct WITHOUT a user is_null (so builtin null check applies).
+struct Cell { n: i64 }
+
+fn apply(f: fn(i64) -> i64, v: i64) -> i64 { return f(v); }
+
+// A generic struct with a generic static method (type-param from the impl):
+// callable with argument inference and with explicit turbofish type-args.
+struct Pair<T> { a: T, b: T }
+impl<T> Pair<T> {
+    fn dup(x: T) -> Pair<T> { return Pair { a: x, b: x }; }
+}
+
+// A concrete partial-spec impl that registers a static method ONLY under the
+// concrete instantiation name (no blanket `spec_make`); base lookup misses, so
+// resolution must rebuild the concrete name from turbofish args.
+struct Spec<T> { v: i64 }
+impl Spec<i32> {
+    fn spec_make() -> Spec<i32> { return Spec { v: 100i64 }; }
+}
+
+fn main() -> i64 {
+    // -----------------------------------------------------------------------
+    // Writ @-literal rules.
+    // -----------------------------------------------------------------------
+
+    // @rule expr.writ-lit.result-type
+    // An @-literal with no captures has type WritStatic; one with $-captures
+    // has the writ_build_from_template return type (Rc<Writ>).
+    {
+        let stat: WritStatic = @{"k": 1};
+        if stat.size() == 0u64 { return 1; }
+        let id: i32 = 42i32;
+        let dyn_doc: Rc<Writ> = @{"id": $id};
+        let h: &Writ = dyn_doc.deref();
+        if h.root().is_null() { return 2; }
+    }
+
+    // @rule expr.writ-capture.expr-no-dedup
+    // A ${expr} capture lowers its inner expr and always allocates a fresh
+    // capture slot (no dedup). Two captures of the same expr text are distinct
+    // values; both reproduce the computed result.
+    {
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
+        let a: i32 = 3i32;
+        let b: i32 = 4i32;
+        let doc: Rc<Writ> = @{"x": ${a + b}, "y": ${a + b}};
+        let h: &Writ = doc.deref();
+        let root: WAny = h.root();
+        if v0.get_int(v0.map_get(root, "x")) != 7i64 { return 3; }
+        if v0.get_int(v0.map_get(root, "y")) != 7i64 { return 4; }
+    }
+
+    // @rule expr.writ-lit.capture-context-save-restore
+    // A static @-literal nested inside a ${expr} capture does not disturb the
+    // outer $-captures: both the outer $-capture and the sibling capture survive.
+    {
+        let v0: WView2 = WView2 { base: 0 as *const u8 };
+        let outer: i32 = 11i32;
+        let doc: Rc<Writ> = @{"a": ${ inner_static_size() }, "b": $outer};
+        let h: &Writ = doc.deref();
+        let root: WAny = h.root();
+        if v0.get_int(v0.map_get(root, "a")) == 0i64 { return 5; }
+        if v0.get_int(v0.map_get(root, "b")) != 11i64 { return 6; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Slice / str method rules.
+    // -----------------------------------------------------------------------
+
+    // @rule expr.slice.len-as-ptr-builtin
+    // On a slice receiver, .len() yields element count as i64 and .as_ptr()
+    // yields the data pointer as *const u8.
+    {
+        let arr: [u8; 4] = [10u8, 20u8, 30u8, 40u8];
+        let s: &[u8] = &arr;
+        if s.len() != 4i64 { return 7; }
+        let p: *const u8 = s.as_ptr();
+        unsafe { if *p != 10u8 { return 8; } }
+    }
+
+    // @rule expr.str.as-bytes-identity
+    // &str is Slice<u8>; s.as_bytes() returns the receiver verbatim (same len).
+    {
+        let s: &str = "abcd";
+        let bytes: &[u8] = s.as_bytes();
+        if bytes.len() != 4i64 { return 9; }
+        if bytes[0u64] != 97u8 { return 10; }   // 'a'
+    }
+
+    // @rule expr.str.method-forwarding
+    // On a &str receiver, method-call shapes desugar to the named stdlib free fns.
+    {
+        if !"hello world".starts_with("hello") { return 11; }
+        if !"hello world".ends_with("world") { return 12; }
+        if !"hello world".contains("lo wo") { return 13; }
+        if "hello world".index_of("world") != 6i64 { return 14; }
+        if "  trim  ".trim().len() != 4i64 { return 15; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Raw-pointer is_null rule.
+    // -----------------------------------------------------------------------
+
+    // @rule expr.raw-ptr.is-null-safe
+    // On a raw-pointer receiver, p.is_null() is the safe (recv as i64) == 0.
+    {
+        let c: Cell = Cell { n: 5i64 };
+        let p: *const Cell = &c;
+        if p.is_null() { return 16; }
+        let np: *const Cell = 0 as *const Cell;
+        if !np.is_null() { return 17; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Static-call rules.
+    // -----------------------------------------------------------------------
+
+    // @rule expr.static-call.qualified-path-drops-package-prefix
+    // A package-qualified static call resolves on the LAST dotted segment (type).
+    {
+        let m: Maker = expr_11.Maker::make(3i64);
+        if m.v != 3i64 { return 18; }
+    }
+
+    // @rule expr.static-call.self-resolves-to-impl-type
+    // Inside impl Maker, Self::make resolves Self to Maker.
+    {
+        let m: Maker = Maker::make_self(4i64);
+        if m.v != 4i64 { return 19; }
+    }
+
+    // @rule expr.static-call.enum-variant-vs-static-method
+    // E::A(n) is a variant construction; E::from_raw(n) (not a variant) falls
+    // through to ordinary static-method resolution.
+    {
+        let va: E = E::A(8i64);
+        match va { E::A(x) => { if x != 8i64 { return 20; } } E::B => { return 21; } }
+        let fr: E = E::from_raw(9i64);
+        match fr { E::A(x) => { if x != 9i64 { return 22; } } E::B => { return 23; } }
+    }
+
+    // @rule expr.static-call.type-alias-resolution
+    // A non-generic type alias to a struct resolves to its target before mangling.
+    {
+        let m: Maker = MakerAlias::make(6i64);
+        if m.v != 6i64 { return 24; }
+    }
+
+    // @rule expr.static-call.trait-qualified-ufcs
+    // Trait::method(recv, ...) dispatches on the first argument's concrete type.
+    {
+        let w: Widget = Widget {};
+        if Named::tag_of(&w, 41i64) != 42i64 { return 25; }
+    }
+
+    // @rule expr.static-call.type-param-shadows-struct
+    // (also covered inside via_bound) — bounded type-param dispatches via bound.
+    {
+        let w: Widget = Widget {};
+        if via_bound::<Widget>(&w, 41i64) != 42i64 { return 26; }
+    }
+
+    // @rule expr.static-call.generic-method-infers-type-args
+    // A generic static method called outside a generic context is resolved by
+    // turbofish args if present, else by argument inference, then instantiated.
+    {
+        let p_inf: Pair<i64> = Pair::dup(21i64);          // T inferred from arg
+        if p_inf.a + p_inf.b != 42i64 { return 37; }
+        let p_tf: Pair<i32> = Pair::<i32>::dup(5i32);     // T from turbofish
+        if p_tf.a + p_tf.b != 10i32 { return 38; }
+    }
+
+    // @rule expr.static-call.turbofish-concrete-partial-spec
+    // Type::<A>::method where the method is registered only under the concrete
+    // partial-spec name: base lookup misses, concrete instantiation re-resolves.
+    {
+        let s: Spec<i32> = Spec::<i32>::spec_make();
+        if s.v != 100i64 { return 39; }
+    }
+
+    // @rule expr.static-call.arg-count-and-type-check
+    // A non-generic static call checks arg count/type; a correct call succeeds.
+    {
+        let m: Maker = Maker::make(12i64);
+        if m.v != 12i64 { return 27; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Enum-literal rules.
+    // -----------------------------------------------------------------------
+
+    // @rule expr.enum-lit.self-resolves-to-enclosing-enum
+    // Inside impl E, Self::B (unit) and Self::A(n) (payload) resolve to E.
+    {
+        let u: E = E::self_unit();
+        match u { E::B => {} E::A(_) => { return 28; } }
+        let pl: E = E::self_payload(13i64);
+        match pl { E::A(x) => { if x != 13i64 { return 29; } } E::B => { return 30; } }
+    }
+
+    // @rule expr.enum-lit.type-alias-peel
+    // A variant-literal path head naming a non-generic alias to an enum is
+    // rewritten to the underlying enum before variant lookup.
+    {
+        let v: E = EAlias::A(14i64);
+        match v { E::A(x) => { if x != 14i64 { return 31; } } E::B => { return 32; } }
+    }
+
+    // @rule expr.enum-lit.unit-variant-hint-type-args
+    // Option::None takes its type args from the surrounding hint.
+    {
+        let n: Option<i64> = Option::None;
+        match n { Option::None => {} Option::Some(_) => { return 33; } }
+    }
+
+    // -----------------------------------------------------------------------
+    // Path rules.
+    // -----------------------------------------------------------------------
+
+    // @rule expr.path.assoc-const-disambiguation
+    // Maker::TAG resolves as inherent assoc const; Widget::KIND as trait assoc const.
+    {
+        if Maker::TAG != 7i64 { return 34; }
+        if Widget::KIND != 99i64 { return 35; }
+    }
+
+    // @rule expr.path.method-as-fn-pointer
+    // Adder::plus in value position denotes a fn-pointer value.
+    {
+        let fp: fn(i64) -> i64 = Adder::plus;
+        if apply(fp, 32i64) != 42i64 { return 36; }
+    }
+
+    return 0;
+}
+
+// Helper called from inside a ${expr} that itself contains a static @-literal,
+// exercising the capture-context save/restore rule.
+fn inner_static_size() -> i64 {
+    let lit: WritStatic = @[1, 2, 3];
+    return lit.size() as i64;
+}

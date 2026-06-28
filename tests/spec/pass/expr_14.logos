@@ -1,0 +1,176 @@
+package expr_14;
+
+use logos.lang.ops;
+use logos.lang.result;
+
+// --- Drop counter helpers (drop-before-replace / temp-scrutinee-dropped) ---
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+struct Holder { o: Owner }
+fn mk_owner(ip: *mut i64) -> Owner { return Owner { i: ip }; }
+
+// --- union (union-field-safe) ---
+union Bits { a: i32, b: i32 }
+
+// --- compound-assign: AddAssign present (dispatch), Add-only (fallback) ---
+struct Acc { v: i32 }
+impl AddAssign for Acc { fn add_assign(&mut self, rhs: Acc) { self.v = self.v + rhs.v; } }
+impl SubAssign for Acc { fn sub_assign(&mut self, rhs: Acc) { self.v = self.v - rhs.v; } }
+impl MulAssign for Acc { fn mul_assign(&mut self, rhs: Acc) { self.v = self.v * rhs.v; } }
+
+// Cnt has only Add (no AddAssign) -> `+=` must desugar to `Cnt = Cnt + Cnt`.
+struct Cnt { v: i32 }
+impl Add for Cnt { fn add(self: Cnt, rhs: Cnt) -> Cnt { return Cnt { v: self.v + rhs.v }; } }
+
+// --- uninhabited payload (exhaustive-enum-uninhabited) ---
+enum Void {}
+fn unwrap_ok(r: Result<i32, Void>) -> i32 {
+    // Err's payload Void is uninhabited under these type-args, so omitting the
+    // Err arm is still exhaustive.
+    match r {
+        Result::Ok(n) => n,
+    }
+}
+
+// --- guarded arms do not count toward exhaustiveness; final `_` does ---
+fn classify(x: i64) -> i64 {
+    match x {
+        v if v > 0i64 => 1i64,
+        v if v < 0i64 => 2i64,
+        _             => 3i64,
+    }
+}
+
+fn main() -> i64 {
+    // @rule expr.unsafe.block-in-expr-position
+    // `unsafe { ... }` sits in expression position as a let initializer.
+    let ub: i64 = unsafe { 7i64 };
+    if ub != 7i64 { return 1; }
+
+    // @rule expr.match.result-type-lub
+    // The match value type is the LUB of its arms' value types (both i64 here).
+    {
+        let sel: i32 = 1i32;
+        let m: i64 = match sel {
+            0i32 => 10i64,
+            _    => 20i64,
+        };
+        if m != 20i64 { return 2; }
+    }
+
+    // @rule expr.match.never-arm-ignored
+    // A `!`-typed arm (the `false` arm returns) contributes no type; the match
+    // result type comes from the live `true` arm (i64).
+    {
+        let cond: bool = true;
+        let n: i64 = match cond {
+            true  => 42i64,
+            false => { return 3; }
+        };
+        if n != 42i64 { return 4; }
+    }
+
+    // @rule expr.match.intlit-result-widen
+    // Arms are unconstrained int-literals; one exceeds i32 range, so the match
+    // result type is fixed to i64 (the binding holds the large value).
+    {
+        let sel: i32 = 0i32;
+        let w = match sel {
+            0i32 => 5000000000,
+            _    => 1,
+        };
+        if w != 5000000000i64 { return 5; }
+    }
+
+    // @rule expr.assign.union-field-safe
+    // Writing a union field needs no `unsafe`; only the read does.
+    {
+        let mut bits: Bits = Bits { a: 0i32 };
+        bits.a = 99i32;                          // safe place-write
+        if unsafe { bits.a } != 99i32 { return 6; }
+    }
+
+    // @rule expr.assign.drop-before-replace
+    // Assigning to a field place over a live owned root drops the prior value
+    // before the store; the replacement is later released at scope-end.
+    {
+        let mut dc: i64 = 0i64;
+        let dcp: *mut i64 = &mut dc;
+        {
+            let mut h: Holder = Holder { o: mk_owner(dcp) };
+            h.o = mk_owner(dcp);                 // drops the old o exactly once
+            if dc != 1i64 { return 7; }
+        }
+        if dc != 2i64 { return 8; }              // scope-end drops the new o
+    }
+
+    // @rule expr.match.temp-scrutinee-dropped
+    // A droppable move-rvalue scrutinee is bound to a synthetic local and dropped
+    // on fall-through after the result is bound.
+    {
+        let mut tc: i64 = 0i64;
+        let tcp: *mut i64 = &mut tc;
+        {
+            let _r: i64 = match mk_owner(tcp) {
+                _ => 1i64,
+            };
+        }
+        if tc != 1i64 { return 9; }              // synthetic temp dropped once
+    }
+
+    // @rule expr.match.str-literal-arm-guard
+    // Top-level `&str` literal arms match via a synthesized str-equality guard;
+    // the right arm is selected.
+    {
+        let s: &str = "bar";
+        let sr: i64 = match s {
+            "foo" => 1i64,
+            "bar" => 2i64,
+            _     => 3i64,
+        };
+        if sr != 2i64 { return 10; }
+    }
+
+    // @rule expr.match.exhaustive-enum-uninhabited
+    // `Result<i32, Void>` matched with only the Ok arm is exhaustive because the
+    // Err payload (Void) is uninhabited after type-arg substitution.
+    {
+        if unwrap_ok(Result::<i32, Void>::Ok(42i32)) != 42i32 { return 11; }
+    }
+
+    // @rule expr.match.guarded-arm-not-exhaustive
+    // The two guarded arms do not satisfy exhaustiveness; only the trailing
+    // unguarded `_` does. All three outcomes are reachable.
+    {
+        if classify(5i64)  != 1i64 { return 12; }
+        if classify(-5i64) != 2i64 { return 13; }
+        if classify(0i64)  != 3i64 { return 14; }
+    }
+
+    // @rule expr.compound-assign.op-trait-mapping
+    // @rule expr.compound-assign.opassign-dispatch
+    // For a struct place with an *Assign impl, `place op= rhs` calls the mapped
+    // in-place method: += -> add_assign, -= -> sub_assign, *= -> mul_assign.
+    {
+        let mut a: Acc = Acc { v: 10i32 };
+        a += Acc { v: 4i32 };                    // add_assign -> 14
+        if a.v != 14i32 { return 15; }
+        a -= Acc { v: 2i32 };                    // sub_assign -> 12
+        if a.v != 12i32 { return 16; }
+        a *= Acc { v: 3i32 };                    // mul_assign -> 36
+        if a.v != 36i32 { return 17; }
+    }
+
+    // @rule expr.compound-assign.base-op-strip
+    // @rule expr.compound-assign.opassign-fallback-binop
+    // Cnt has no AddAssign, so `c += rhs` strips the `=` to the base op `+` and
+    // desugars to `c = c + rhs`, dispatching through Add (constructs a fresh Cnt).
+    {
+        let mut c: Cnt = Cnt { v: 5i32 };
+        c += Cnt { v: 3i32 };                    // c = c + rhs via Add::add
+        if c.v != 8i32 { return 18; }
+    }
+
+    return 0;
+}

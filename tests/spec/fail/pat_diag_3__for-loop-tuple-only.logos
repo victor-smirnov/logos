@@ -1,0 +1,10 @@
+// @rule pat.for-loop.tuple-only
+package pat_diag_3_for_loop_tuple_only;
+
+fn main() -> i32 {
+    let xs: [i32; 3] = [1i32, 2i32, 3i32];
+    for (a, b) in xs {
+        return a;
+    }
+    return 0i32;
+}

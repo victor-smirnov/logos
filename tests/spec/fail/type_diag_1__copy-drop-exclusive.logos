@@ -1,0 +1,14 @@
+// @rule type.copy.drop-mutually-exclusive
+package type_diag_1_copy_drop;
+
+struct X { v: i32 }
+
+impl Copy for X {}
+
+impl Drop for X {
+    fn drop(self: &mut X) {}
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

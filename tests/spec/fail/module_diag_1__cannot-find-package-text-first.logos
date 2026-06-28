@@ -1,0 +1,7 @@
+// @rule module.resolve.text-over-binary
+package module_diag_text_first;
+
+// No source package and no binary archive declares this package, so resolution
+// fails after both the text index and the binary index are consulted.
+use no.such.module.here;
+fn main() {}

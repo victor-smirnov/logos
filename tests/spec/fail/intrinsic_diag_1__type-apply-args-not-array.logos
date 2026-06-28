@@ -1,0 +1,14 @@
+// @rule intrinsic.reflect.type-apply-pack-splice
+package type_apply_args_not_array;
+
+use logos.std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+
+fn get_args() -> [Type; 2] { return [type_of::<i32>(), type_of::<bool>()]; }
+
+unsafe fn main() -> i32 {
+    let t = type_apply("Pair", get_args());
+    if t.uid == 0u64 { return 1; }
+    return 0;
+}

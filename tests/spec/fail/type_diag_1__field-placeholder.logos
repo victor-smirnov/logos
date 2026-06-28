@@ -1,0 +1,10 @@
+// @rule type.field.placeholder-type-rejected
+package type_diag_1_field_placeholder;
+
+struct Bad {
+    x: _,
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

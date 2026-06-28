@@ -1,0 +1,224 @@
+package item_2;
+
+// ─────────────────────────────────────────────────────────────────────────
+// item_2 — item-definition grammar/sema rules, locked by execution.
+// Each rule's syntactic form is *used* and an observable consequence asserted.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── eidos (datatype) definition + explicit instantiation w/ type_code ──────
+eidos Cell<T> { v: T }
+
+// @rule item.datatype.explicit-inst
+// `#[type_code=N] eidos Cell<i64>;` (no body) binds the annotation to the
+// concrete instantiation; type_code_of recovers exactly that N.
+#[type_code=4242]
+eidos Cell<i64>;
+
+// @rule item.datatype.is-zoned
+// An eidos definition is always a zoned datatype: a distinct instantiation
+// with no explicit code still gets a non-zero auto type_code (it was lowered
+// as a real datatype, not dropped).
+eidos Cell<bool>;
+
+// ── genos (trait-family) explicit specialization w/ type_code ──────────────
+pub trait Tagged<T> { fn tag(&self) -> i64; }
+
+// @rule item.trait.explicit-inst
+// `#[type_code=N] pub trait Tagged<i32>;` (no body) binds the annotation to a
+// concrete trait specialization; an implementing datatype inherits the code.
+#[type_code=515]
+pub trait Tagged<i32>;
+
+#[datatype] pub struct IntTag { pub n: u64 }
+impl Tagged<i32> for IntTag { fn tag(&self) -> i64 { return self.n as i64; } }
+
+// @rule item.genos.specialization-decl
+// A second bodyless specialization registers its own code under the like-named
+// datatype's name; the two codes are independent.
+#[type_code=516]
+pub trait Tagged<i64>;
+#[datatype] pub struct LongTag { pub n: u64 }
+impl Tagged<i64> for LongTag { fn tag(&self) -> i64 { return self.n as i64; } }
+
+// ── struct explicit instantiation (binds annotation to generic inst) ───────
+#[datatype] pub struct Wrap<T> { pub x: u32 }
+
+// @rule item.struct.explicit-inst
+// `#[type_code=N] struct Wrap<i32>;` (TYPE_REF carrying args, no body) binds
+// the annotation to the generic struct instantiation.
+#[type_code=701]
+#[datatype] pub struct Wrap<i32>;
+
+// ── named-field struct: generics + where-clause + inline method ────────────
+trait Doubler { fn dbl(&self) -> i64; }
+
+// @rule item.struct.named-def
+// Named-field struct with a type-param, a where-clause, and an inline method.
+pub struct Boxed<T> where T: Doubler {
+    inner: T,
+    fn run(&self) -> i64 { return self.inner.dbl(); }
+}
+
+struct Two { k: i64 }
+impl Doubler for Two { fn dbl(&self) -> i64 { return self.k * 2; } }
+
+// ── tuple struct: synthesized field names 0/1, per-field pub ────────────────
+// @rule item.struct.tuple-def
+pub struct Pair(pub i32, i32);
+
+// ── union: named fields, collected as is_union struct ──────────────────────
+// @rule item.union.def
+union Bits { i: i32, f: f32 }
+
+// ── named field with contextual-keyword name + trailing comma ──────────────
+// @rule item.field.named
+struct Slot { new: i64, null: i64, }
+
+// ── variadic field (IS_VARIADIC) ───────────────────────────────────────────
+// @rule item.field.variadic
+struct VarStruct<T...> { items...: T }
+
+// ── extern block ("C" ABI inherited) + bare extern-block items ─────────────
+// @rule item.extern.block
+extern "C" {
+    // @rule item.extern.block-item
+    fn abs(x: i32) -> i32;
+}
+
+// ── single extern fn def carrying its ABI verbatim ─────────────────────────
+// @rule item.extern.fn-def
+extern "C" fn labs(x: i64) -> i64;
+
+// ── Rust-2024 `unsafe extern` marker accepted, no extra semantics ──────────
+unsafe extern "C" {
+    fn llabs(x: i64) -> i64;
+}
+
+// ── where-clause forms: param bound + multi-bound ──────────────────────────
+trait A1 { fn a1(&self) -> i64; }
+trait A2 { fn a2(&self) -> i64; }
+
+// @rule item.where.clause
+fn sum_bounds<T>(x: &T) -> i64 where T: A1 + A2 { return x.a1() + x.a2(); }
+struct AB { p: i64, q: i64 }
+impl A1 for AB { fn a1(&self) -> i64 { return self.p; } }
+impl A2 for AB { fn a2(&self) -> i64 { return self.q; } }
+
+// ── pub(module) visibility (IDENT validated == "module") ────────────────────
+// @rule item.visibility.pub-module
+pub(module) fn module_helper() -> i64 { return 9; }
+
+// ── fn item: pub + unsafe + generics + where + return type ─────────────────
+// @rule item.fn.def
+pub unsafe fn ident_copy<T>(x: T) -> T where T: Copy { return x; }
+
+// ── variadic parameter `IDENT : T ...` (IS_VARIADIC), pack-expanded ─────────
+// @rule item.fn.param-variadic
+fn vsum() -> i64 { return 0; }
+fn vsum<H, T...>(first: H, rest: T...) -> i64 { return (first as i64) + vsum(rest...); }
+
+// ── fn params: &/&mut self shorthand, `ref ident: T`, `mut ident: T` ───────
+struct Counter { n: i64 }
+impl Counter {
+    // `&mut IDENT` (reference binding, type elided) — the self shorthand.
+    fn bump(&mut self) -> i64 { self.n = self.n + 1; return self.n; }
+    // `&IDENT` (reference binding, type elided) — the &self shorthand.
+    fn peek(&self) -> i64 { return self.n; }
+}
+// `mut IDENT : T` — mutable local binding, mutability invisible to callers.
+fn reassign(mut m: i64) -> i64 { m = m + 5; return m; }
+
+fn main() -> i64 {
+    // @rule item.datatype.explicit-inst
+    if type_code_of::<Cell<i64>>() != 4242u64 { return 1; }
+
+    // @rule item.datatype.is-zoned
+    {
+        let cb: u64 = type_code_of::<Cell<bool>>();
+        if cb == 0u64 { return 2; }
+        if cb == 4242u64 { return 3; }   // distinct instantiation ⇒ distinct code
+    }
+
+    // @rule item.trait.explicit-inst
+    {
+        let it: IntTag = IntTag { n: 7u64 };
+        if it.tag() != 7i64 { return 4; }
+        if type_code_of::<IntTag>() != 515u64 { return 5; }
+    }
+
+    // @rule item.genos.specialization-decl
+    {
+        let lt: LongTag = LongTag { n: 8u64 };
+        if lt.tag() != 8i64 { return 6; }
+        if type_code_of::<LongTag>() != 516u64 { return 7; }
+    }
+
+    // @rule item.struct.explicit-inst
+    if type_code_of::<Wrap<i32>>() != 701u64 { return 8; }
+
+    // @rule item.struct.named-def
+    {
+        let b: Boxed<Two> = Boxed { inner: Two { k: 21 } };
+        if b.run() != 42i64 { return 9; }
+    }
+
+    // @rule item.struct.tuple-def
+    {
+        let p: Pair = Pair(3i32, 4i32);
+        if p.0 != 3i32 { return 10; }
+        if p.1 != 4i32 { return 11; }       // synthesized names "0"/"1"; per-field pub
+    }
+
+    // @rule item.union.def
+    {
+        let u: Bits = Bits { i: 123i32 };
+        if unsafe { u.i } != 123i32 { return 13; }
+    }
+
+    // @rule item.field.named
+    {
+        let s: Slot = Slot { new: 100i64, null: 200i64 };
+        if s.new != 100i64 { return 14; }
+        if s.null != 200i64 { return 15; }
+    }
+
+    // @rule item.field.variadic
+    {
+        let vs: VarStruct<i64, bool> = VarStruct { items_0: 55i64, items_1: true };
+        if vs.items_0 != 55i64 { return 16; }
+        if !vs.items_1 { return 17; }
+    }
+
+    // @rule item.extern.block
+    // @rule item.extern.block-item
+    if unsafe { abs(0i32 - 5i32) } != 5i32 { return 18; }
+
+    // @rule item.extern.fn-def
+    if unsafe { labs(0i64 - 99i64) } != 99i64 { return 19; }
+    if unsafe { llabs(0i64 - 77i64) } != 77i64 { return 20; }
+
+    // @rule item.where.clause
+    {
+        let ab: AB = AB { p: 10i64, q: 20i64 };
+        if sum_bounds(&ab) != 30i64 { return 21; }
+    }
+
+    // @rule item.visibility.pub-module
+    if module_helper() != 9i64 { return 22; }
+
+    // @rule item.fn.def
+    if unsafe { ident_copy::<i64>(314i64) } != 314i64 { return 23; }
+
+    // @rule item.fn.param-variadic
+    if vsum::<i64, i64, i64>(5i64, 7i64, 30i64) != 42i64 { return 28; }
+
+    // @rule item.fn.param-self-shorthand
+    {
+        let mut c: Counter = Counter { n: 41i64 };
+        if c.bump() != 42i64 { return 24; }       // &mut self shorthand wrote through
+        if c.peek() != 42i64 { return 25; }       // &self shorthand reads it back
+        if reassign(10i64) != 15i64 { return 27; }// mut ident: T (local-mut)
+    }
+
+    return 0;
+}

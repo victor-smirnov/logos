@@ -1,0 +1,11 @@
+// @rule expr.enum-lit.arg-type-compat
+package expr_diag_2_enum_arg_type;
+
+enum E {
+    One(i32),
+}
+
+fn main() -> i32 {
+    let _x = E::One(true);
+    return 0i32;
+}

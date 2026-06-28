@@ -1,0 +1,138 @@
+package const_1;
+
+// Conformance test for the "const_1" rule group: compile-time const
+// evaluation (CTFE), enum discriminants, integer/float/bool binop semantics,
+// const-path folding, and Writ-static content identity.
+//
+// CTFE is only exercised in genuine compile-time contexts: enum discriminant
+// initializers, `[T; metacall { .. }]` array lengths, and `metacall fn(arg)`
+// argument folding. Plain runtime expressions would NOT lock these rules.
+
+use logos.lang.writ.wstatic;
+
+// ── Enum discriminants (CTFE-evaluated initializers) ─────────────────────────
+// Bare literal, negated literal, shift, cross-enum ref, and a general
+// const-expr (with parens) all as discriminant values.
+enum Disc {
+    Bare    = 5,        // bare integer literal
+    Lo      = -1,       // negated literal
+    Shifted = 1 << 1,   // const-expr: 1<<1 == 2
+}
+enum Disc2 {
+    FromOther = Disc::Bare as i64,   // cross-enum reference (cast type dropped)
+    Computed  = (2 + 3) * 2,         // general const-expr, parenthesized
+}
+
+// Signed CTFE arithmetic giving negative results (signedness + arithmetic >>).
+enum Signed {
+    Div = -7i64 / 2i64,   // signed division: -3
+    Shr = -8i64 >> 1i64,  // arithmetic shift right on signed: -4
+    Sub = 3i64 - 10i64,   // -7
+}
+
+// ── const-path folding sources ───────────────────────────────────────────────
+const BASE: i64 = 3;
+const N: i64 = BASE + 1;   // transitive const-of-const == 4
+
+// ── metacall fn-arg CTFE helpers ─────────────────────────────────────────────
+fn idb(x: bool) -> bool { return x; }
+fn idf(x: f64) -> f64 { return x; }
+fn idu(x: u64) -> u64 { return x; }
+
+// ── Writ-static content identity (position-free content hash) ─────────────────
+trait Schema { const SHAPE: WritStatic; }
+struct SA {}
+struct SB {}
+struct SC {}
+// SA and SB hold structurally identical literals at DIFFERENT source positions.
+impl Schema for SA { const SHAPE: WritStatic = @{"x": 1, "y": [1, 2, 3]}; }
+impl Schema for SB { const SHAPE: WritStatic = @{"x": 1, "y": [1, 2, 3]}; }
+// SC differs in content.
+impl Schema for SC { const SHAPE: WritStatic = @{"x": 1, "y": [9]}; }
+
+unsafe fn main() -> i64 {
+
+    // @rule const.enum.discriminant
+    // bare literal, negated literal, shift const-expr, cross-enum ref, paren expr.
+    if (Disc::Bare as i64)     != 5i64  { return 1; }
+    // @rule const.enum.discriminant
+    if (Disc::Lo as i64)       != -1i64 { return 2; }
+    // @rule const.enum.discriminant
+    if (Disc::Shifted as i64)  != 2i64  { return 3; }
+    // @rule const.enum.discriminant
+    if (Disc2::FromOther as i64) != 5i64  { return 4; }
+    // @rule const.enum.discriminant
+    if (Disc2::Computed as i64)  != 10i64 { return 5; }
+
+    // @rule const.binop.int-promotion
+    // 1<<1 (polymorphic IntLit operands) folds in the i64-backed discriminant.
+    if (Disc::Shifted as i64) != 2i64 { return 6; }
+
+    // @rule const.binop.int-signedness
+    // signed division/subtraction yield negative results under signed semantics.
+    if (Signed::Div as i64) != -3i64 { return 7; }
+    // @rule const.binop.int-signedness
+    if (Signed::Sub as i64) != -7i64 { return 8; }
+
+    // @rule const.binop.shift-mask
+    // '>>' is arithmetic when the result kind is signed (sign bit propagated).
+    if (Signed::Shr as i64) != -4i64 { return 9; }
+    // @rule const.binop.shift-mask
+    // shift amount masked to low 6 bits: 1 << 65 == 1 << (65 & 63) == 1 << 1 == 2.
+    let masked: [i64; metacall { 1 << 65 }] = [0i64; metacall { 1 << 65 }];
+    if masked.len() != 2i64 { return 10; }
+
+    // @rule const.eval.paren-transparent
+    // ((3)) + 1 == 4; parens change neither value nor kind.
+    let paren: [i64; metacall { ((3)) + 1 }] = [0i64; metacall { ((3)) + 1 }];
+    if paren.len() != 4i64 { return 11; }
+
+    // @rule const.eval.bare-ident-const-fold
+    // a bare const identifier inside metacall{} folds to its registered RHS value.
+    let folded: [i64; metacall { N }] = [0i64; metacall { N }];
+    if folded.len() != 4i64 { return 12; }
+
+    // @rule const.eval.path-to-const
+    // a const path resolves through the resolver to the const's RHS expression.
+    let pathed: [i64; metacall { BASE }] = [0i64; metacall { BASE }];
+    if pathed.len() != 3i64 { return 13; }
+
+    // @rule const.ctfe.path-to-const-resolution
+    // transitive const-of-const: N == BASE + 1 resolves recursively to 4.
+    let trans: [i64; metacall { N }] = [0i64; metacall { N }];
+    if trans.len() != 4i64 { return 14; }
+
+    // @rule const.binop.bool-eq
+    // '==' / '!=' on two Bool-yielding comparisons produce Bool.
+    let eqv: bool = metacall idb(1i64 == 1i64);
+    if !eqv { return 15; }
+    // @rule const.binop.bool-eq
+    let nev: bool = metacall idb(1i64 != 1i64);
+    if nev { return 16; }
+
+    // @rule const.binop.float-promotion
+    // float arithmetic in CTFE yields an F64 value (2.5 + 1.0 == 3.5).
+    let fv: f64 = metacall idf(2.5f64 + 1.0f64);
+    if fv != 3.5f64 { return 17; }
+
+    // @rule const.ctfe.supported-expr-forms
+    // CTFE accepts integer-literal binops as constants (unsigned division here).
+    let uv: u64 = metacall idu(7u64 / 2u64);
+    if uv != 3u64 { return 18; }
+
+    // @rule const.wstatic.content-identity
+    // structurally identical @{...} literals at different positions share a blob;
+    // differing content gets a distinct blob (position-free content hash).
+    let a: WritStatic = SA::SHAPE;
+    let b: WritStatic = SB::SHAPE;
+    let c: WritStatic = SC::SHAPE;
+    if a.ptr != b.ptr { return 19; }   // same content -> same blob ptr
+    if a.ptr == c.ptr { return 20; }   // different content -> different blob ptr
+
+    // @rule const.def.writ-static-literal-compat
+    // a const declared WritStatic accepts a @{...} (WStaticLit) initializer; the
+    // blob is non-empty, confirming the literal was accepted and materialized.
+    if a.size() == 0u64 { return 21; }
+
+    return 0;
+}

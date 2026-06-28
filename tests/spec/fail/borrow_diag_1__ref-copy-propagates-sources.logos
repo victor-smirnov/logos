@@ -1,0 +1,13 @@
+// @rule borrow.prov.ref-copy-propagates-sources
+package borrow_diag_1_ref_copy_propagates_sources;
+// r borrows `local`; o = r makes o borrow `local` too. Returning o then
+// escapes a borrow of a local -> dangling reference.
+struct Val { x: i32 }
+fn bad<'a>(p: &'a Val) -> &'a Val {
+    let mut r: &'a Val = p;
+    let local = Val { x: 7i32 };
+    r = &local;
+    let o: &'a Val = r;
+    return o;
+}
+fn main() -> i32 { let _ = bad; return 0i32; }

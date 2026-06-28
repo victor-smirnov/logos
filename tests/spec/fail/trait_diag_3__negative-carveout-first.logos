@@ -1,0 +1,16 @@
+// @rule trait.resolve.priority-order
+package trait_diag_3_negative_carveout_first;
+use logos.lang.marker;
+
+// An empty struct is inherently Send (auto-trait would derive it). The
+// negative carve-out must be consulted FIRST and win over the auto
+// derivation, so the `X: Send` bound is rejected.
+struct T {}
+impl !Send for T {}
+
+fn needs_send<X: Send>(x: X) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let t: T = T {};
+    return needs_send::<T>(t);
+}

@@ -1,0 +1,10 @@
+// @rule item.fn.all-paths-return
+package item_diag_2_all_paths_return;
+
+fn f(b: bool) -> i32 {
+    if b {
+        return 1i32;
+    }
+}
+
+fn main() -> i32 { return 0i32; }

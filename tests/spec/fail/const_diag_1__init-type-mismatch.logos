@@ -1,0 +1,6 @@
+// @rule const.def.type-checked-initializer
+package const_diag_1_init_type_mismatch;
+
+const C: bool = 5i32;
+
+fn main() -> i32 { return 0i32; }

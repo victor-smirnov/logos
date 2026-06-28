@@ -1,0 +1,11 @@
+// @rule expr.enum-lit.arity
+package expr_diag_2_enum_arity;
+
+enum E {
+    Pair(i32, i32),
+}
+
+fn main() -> i32 {
+    let _x = E::Pair(1i32);
+    return 0i32;
+}

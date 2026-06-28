@@ -1,0 +1,5 @@
+// @rule trait.impl.unknown-trait-error
+package trait_diag_1_unknown_trait;
+struct S { x: i64 }
+impl Bogus for S { fn f(&self) -> i64 { return self.x; } }
+fn main() -> i64 { return 0i64; }

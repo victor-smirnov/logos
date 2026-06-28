@@ -1,0 +1,10 @@
+// @rule stmt.return.fallthrough-void-implicit
+package stmt_diag_1_return_fallthrough_nonvoid;
+
+fn f() -> i32 {
+    let _x: i32 = 1i32;
+}
+
+fn main() -> i32 {
+    return f();
+}

@@ -1,0 +1,12 @@
+// @rule metaprog.fn-macro.item-position
+package metaprog_diag_1_item_position_needs_braces;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+#[fn_macro]
+pub fn gen(args: Vec<ExprBlob>) -> ItemList { return item_list_new(); }
+
+gen!(1, 2);
+
+fn main() -> i32 { return 0i32; }

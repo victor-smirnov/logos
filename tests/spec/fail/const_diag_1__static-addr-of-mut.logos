@@ -1,0 +1,7 @@
+// @rule const.def.static-reads-static
+package const_diag_1_static_addr_of_mut;
+
+static mut X: i32 = 5i32;
+static R: &i32 = &mut X;
+
+fn main() -> i32 { return 0i32; }

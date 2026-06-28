@@ -1,0 +1,10 @@
+// @rule expr.method.no-method-error
+package expr_diag_3_no_method;
+
+struct S { x: i32 }
+
+fn main() -> i32 {
+    let s: S = S { x: 1i32 };
+    let _y = s.nonexistent_method();
+    return 0i32;
+}

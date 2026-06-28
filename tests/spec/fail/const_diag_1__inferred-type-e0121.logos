@@ -1,0 +1,6 @@
+// @rule const.def.no-inferred-type
+package const_diag_1_inferred_type_e0121;
+
+const C: _ = 5i32;
+
+fn main() -> i32 { return 0i32; }

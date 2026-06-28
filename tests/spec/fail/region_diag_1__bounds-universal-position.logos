@@ -1,0 +1,17 @@
+// @rule region.bounds.universal-lifetime-position
+package region_diag_1_bounds_universal_position;
+
+trait Trait<T> { fn run(self: Self, x: T) -> i32; }
+
+struct OnlyStatic { _x: i32 }
+impl Trait<&'static i64> for OnlyStatic {
+    fn run(self: OnlyStatic, x: &'static i64) -> i32 { return (*x) as i32; }
+}
+
+fn use_universal<F>(f: F) -> i32 where F: for<'a> Trait<&'a i64> {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return use_universal::<OnlyStatic>(OnlyStatic { _x: 0i32 });
+}

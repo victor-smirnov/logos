@@ -1,0 +1,16 @@
+// @rule region.bounds.hrtb-outlives-unsat
+package region_diag_1_bounds_hrtb_outlives_unsat;
+
+trait Foo<X, Y> { fn foo(self: Self, x: X, y: Y) -> i32; }
+
+struct SomeStruct { _x: i32 }
+impl<'a, 'b> Foo<&'a i64, &'b i64> for SomeStruct where 'a: 'b {
+    fn foo(self: SomeStruct, x: &'a i64, y: &'b i64) -> i32 { return 0i32; }
+}
+
+fn want_two<T>() where T: for<'a, 'b> Foo<&'a i64, &'b i64> {}
+
+fn main() -> i32 {
+    want_two::<SomeStruct>();
+    return 0i32;
+}

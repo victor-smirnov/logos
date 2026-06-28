@@ -1,0 +1,9 @@
+// @rule pat.ref.scrutinee-reference
+package pat_diag_2_ref_scrut;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        &y => { return y; }
+    }
+}

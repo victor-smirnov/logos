@@ -1,0 +1,8 @@
+// @rule type.enum.backing-integer
+package type_diag_1_enum_backing;
+
+enum E : bool { A }
+
+fn main() -> i32 {
+    return 0i32;
+}

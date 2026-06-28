@@ -1,0 +1,11 @@
+// @rule expr.method.unsafe-context
+package expr_diag_3_unsafe_prim_method;
+
+trait Danger { unsafe fn boom(&self) -> i32; }
+impl Danger for i32 { unsafe fn boom(&self) -> i32 { return *self; } }
+
+fn main() -> i32 {
+    let n: i32 = 5i32;
+    let _v: i32 = n.boom();
+    return 0i32;
+}

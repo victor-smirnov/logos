@@ -1,0 +1,144 @@
+package module_3;
+
+// ─────────────────────────────────────────────────────────────────────────
+// module_3 — module-system rules, locked by execution.
+// Most module rules govern multi-module link/mangling behaviour that is not
+// observable from a single in-process executable; those are reported as
+// untestable/transitive. The rules below have a runtime-observable
+// consequence within one compilation unit and are asserted here.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Bring an stdlib enum's variants into bare scope (capitalised Type group).
+// @rule module.use.enum-variant-alias
+use logos.lang.cmp.Ordering.{Less, Equal, Greater};
+
+// Lowercase group head desugars to wildcard imports of each listed item, so
+// names from logos.lang.math become resolvable unqualified.
+// @rule module.use.brace-group-import
+use logos.lang.{math};
+
+// A second variant-import form (same syntactic family) — bare-name aliases.
+// @rule module.use.variant-alias
+
+// @rule module.use.variant-alias-into-scope
+
+// ── pub(module): module-only visibility on a struct + a fn ──────────────────
+// @rule module.vis.struct-pub-and-module-only
+pub(module) struct ModOnly { pub a: i64, b: i64 }
+
+// @rule module.visibility.pub-module-only
+pub(module) fn mod_only_fn() -> i64 { return 77; }
+
+impl ModOnly {
+    fn sum(&self) -> i64 { return self.a + self.b; }
+}
+
+// A plain struct with a non-pub field, accessed from the same package.
+struct SamePkg { hidden: i64 }
+
+fn main() -> i64 {
+    // @rule module.use.enum-variant-alias
+    // The bare variant names resolve as Ordering::* because the group import
+    // aliased them into scope.
+    {
+        let l: Ordering = Less;
+        let e: Ordering = Equal;
+        let g: Ordering = Greater;
+        if !l.is_lt() { return 1; }
+        if !e.is_eq() { return 2; }
+        if !g.is_gt() { return 3; }
+    }
+
+    // @rule module.use.variant-alias
+    // The same bare alias also matches its qualifying enum in a match arm.
+    {
+        let o: Ordering = Less;
+        match o {
+            Less => {}
+            _ => { return 4; }
+        }
+    }
+
+    // @rule module.use.variant-alias-into-scope
+    // Both the qualified form Ordering::Greater and the bare alias Greater
+    // denote the same value (last-write-wins aliasing is consistent).
+    {
+        let a: Ordering = Ordering::Greater;
+        let b: Ordering = Greater;
+        if !a.is_gt() { return 5; }
+        if !b.is_gt() { return 15; }
+    }
+
+    // @rule module.prelude.implicit-injection
+    // Option + its bare variants Some/None come from the implicitly-injected
+    // prelude package; they resolve unqualified with NO explicit `use`.
+    {
+        let s: Option<i64> = Some(42i64);
+        let n: Option<i64> = None;
+        match s {
+            Some(v) => { if v != 42i64 { return 6; } }
+            None => { return 7; }
+        }
+        match n {
+            Some(_) => { return 8; }
+            None => {}
+        }
+    }
+
+    // @rule module.lookup.unqualified-name-scope
+    // A type (Ordering) imported via wildcard-bearing use is known by its
+    // unqualified name as an annotation type.
+    {
+        let o: Ordering = Equal;
+        if !o.is_eq() { return 9; }
+    }
+
+    // @rule module.resolve.scope-order
+    // A type declared in the current package (ModOnly) resolves unqualified,
+    // taking precedence ahead of imported packages.
+    {
+        let m: ModOnly = ModOnly { a: 10i64, b: 20i64 };
+        if m.sum() != 30i64 { return 10; }
+    }
+
+    // @rule module.vis.struct-pub-and-module-only
+    // A pub(module) struct is constructible and its pub field readable; a
+    // non-pub field is still reachable from inside the same package.
+    {
+        let m: ModOnly = ModOnly { a: 1i64, b: 2i64 };
+        if m.a != 1i64 { return 11; }
+        if m.b != 2i64 { return 12; }
+    }
+
+    // @rule module.visibility.pub-module-only
+    // The pub(module) free function is callable from within its own module.
+    if mod_only_fn() != 77i64 { return 13; }
+
+    // @rule module.visibility.same-package
+    // A non-pub field is accessible because the defining package equals the
+    // current package (visibility check skipped for same-package access).
+    {
+        let sp: SamePkg = SamePkg { hidden: 99i64 };
+        if sp.hidden != 99i64 { return 14; }
+    }
+
+    // @rule module.use.brace-group-import
+    // The lowercase brace-group desugared `logos.lang.{math}` to a wildcard
+    // import of logos.lang.math, so its free function resolves unqualified.
+    {
+        let r: f64 = sqrt_f64(16.0);
+        if r < 3.999 { return 16; }
+        if r > 4.001 { return 17; }
+    }
+
+    // @rule module.path.qualified-call
+    // A dotted package qualifier on a call restricts free-function resolution
+    // to that package; the call resolves to logos.lang.math::sqrt_f64.
+    {
+        let r: f64 = logos.lang.math::sqrt_f64(81.0);
+        if r < 8.999 { return 18; }
+        if r > 9.001 { return 19; }
+    }
+
+    return 0;
+}

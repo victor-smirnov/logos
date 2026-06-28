@@ -1,0 +1,12 @@
+// @rule metaprog.fn-macro-item.raw-text-as-expr-list
+package metaprog_diag_1_item_raw_not_expr;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+#[fn_macro]
+pub fn gen(args: Vec<ExprBlob>) -> ItemList { return item_list_new(); }
+
+gen!{ struct Z }
+
+fn main() -> i32 { return 0i32; }

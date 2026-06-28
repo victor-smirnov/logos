@@ -1,0 +1,10 @@
+// @rule stmt.return.value-required
+package stmt_diag_2_return_without_value;
+
+fn get() -> i32 {
+    return;
+}
+
+fn main() -> i32 {
+    return get();
+}

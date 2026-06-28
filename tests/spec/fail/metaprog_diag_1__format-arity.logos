@@ -1,0 +1,11 @@
+// @rule metaprog.format.arity-check
+package metaprog_diag_1_format_arity;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let _s: String = format!("{} {}", 1i32);
+    return 0i32;
+}

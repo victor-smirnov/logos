@@ -1,0 +1,9 @@
+// @rule stmt.if.cond-must-be-bool
+package stmt_diag_1_if_cond_not_bool;
+
+fn main() -> i32 {
+    if 5i32 {
+        return 1i32;
+    }
+    return 0i32;
+}

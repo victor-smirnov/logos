@@ -1,0 +1,282 @@
+package pat_4;
+
+// Conformance test for the `pat_4` rule group (pattern syntax). Each rule below
+// is locked by EXECUTING a match whose observable result holds only if the rule
+// is true; on a violation the program returns a distinct nonzero code. All pass
+// => return 0.
+//
+// Writ (`@...`) patterns are exercised through `logos.lang.writ` static literals
+// and the `logos.lang.writ.pat` helpers; everything else is pure language.
+
+use logos.lang.writ.pat;
+use logos.lang.writ.wstatic;
+
+// ── Helper types ────────────────────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+struct TS(i64, i64);
+
+enum E {
+    Some(i64),
+    Many(i64, i64, i64),
+    Rec { a: i64, b: i64 },
+    None,
+}
+
+// ── pat.or.alternatives ──────────────────────────────────────────────────────
+// One+ pat_single alts separated by `|` with optional leading `|`; a single alt
+// passes through transparently; a variant-payload arg may be an or-pattern.
+fn or_leading(x: i64) -> i64 { match x { | 1i64 | 2i64 | 3i64 => 1i64, _ => 0i64 } }
+fn or_single(x: i64) -> i64 { match x { 5i64 => 1i64, _ => 0i64 } }
+fn or_payload(e: E) -> i64 { match e { E::Some(7i64 | 8i64) => 1i64, _ => 0i64 } }
+
+// ── pat.struct.field ─────────────────────────────────────────────────────────
+// field forms: `..` rest, `name: subpat`, `0: subpat` (tuple-struct index),
+// `ref name`, `ref mut name`, bare `name` shorthand.
+fn sf_shorthand(p: Pt) -> i64 { match p { Pt { x, y } => x + y } }
+fn sf_named(p: Pt) -> i64 { match p { Pt { x: a, y: b } => a * b } }
+fn sf_rest(p: Pt) -> i64 { match p { Pt { x, .. } => x } }
+fn sf_tsindex(t: TS) -> i64 { match t { TS { 0: a, 1: b } => a + b } }
+fn sf_refname(p: &Pt) -> i64 { match p { Pt { x: ref rx, .. } => *rx } }
+fn sf_refmut(p: &mut Pt) -> i64 { match p { Pt { x: ref mut rx, .. } => { *rx = *rx + 1i64; *rx } } }
+
+// ── pat.slice.elem-rest ──────────────────────────────────────────────────────
+// `name @ ..` binds the trailing/middle sub-slice; `..` anonymous rest; or a
+// regular sub-pattern.
+fn sl_named_mid(v: &[i64]) -> i64 {
+    match v { [first, mid @ .., last] => first + last + (mid.len() as i64), _ => -1i64 }
+}
+fn sl_anon_rest(v: &[i64]) -> i64 { match v { [x, ..] => x, [] => -1i64 } }
+
+// ── pat.tuple.elem-rest ──────────────────────────────────────────────────────
+// a tuple element may be `..` (skips preserving fixed arity) or an or-pattern.
+fn tu_rest(t: (i64, i64, i64)) -> i64 { match t { (a, .., c) => a + c } }
+fn tu_or(t: (i64, i64)) -> i64 { match t { (1i64 | 2i64, b) => b, _ => -1i64 } }
+
+// ── pat.at.binding ───────────────────────────────────────────────────────────
+// `name @ subpat` binds name to the matched value; `ref name @ subpat` by ref.
+fn at_plain(x: i64) -> i64 { match x { n @ 1i64..=10i64 => n, _ => -1i64 } }
+fn at_ref(x: i64) -> i64 { match x { ref r @ 1i64..=10i64 => *r, _ => -1i64 } }
+
+// ── pat.ref.binding-mode ─────────────────────────────────────────────────────
+// `ref x` shared ref; `ref mut x` mut ref; `mut x` fresh mutable by-value binding.
+fn bm_ref(p: &Pt) -> i64 { match p { Pt { y: ref ry, .. } => *ry } }
+fn bm_refmut(p: &mut Pt) -> i64 { match p { Pt { y: ref mut ry, .. } => { *ry = *ry + 2i64; *ry } } }
+fn bm_mut(x: i64) -> i64 { match x { mut m => { m = m + 1i64; m } } }
+
+// ── pat.ref.reference-pattern ────────────────────────────────────────────────
+// `&pat` matches a reference, peeling one scrutinee reference layer; the inner
+// pattern then matches the pointee (here an enum variant with a payload binding).
+// (The two-layer `&&pat` form is not locked here — see "untestable".)
+fn rp_one(e: &E) -> i64 { match e { &E::Some(n) => n, _ => -1i64 } }
+
+// ── pat.variant.tuple ────────────────────────────────────────────────────────
+// `E::V(args)` tuple-variant payload incl `..` rest; bare `Foo(a,b)` matches a
+// tuple-struct when the name resolves as a tuple-struct.
+fn vt_some(e: E) -> i64 { match e { E::Some(n) => n, _ => -1i64 } }
+fn vt_rest(e: E) -> i64 { match e { E::Many(a, .., c) => a + c, _ => -1i64 } }
+fn vt_bare_ts(t: TS) -> i64 { match t { TS(a, b) => a + b } }
+
+// ── pat.variant.struct-shape ─────────────────────────────────────────────────
+fn vs_rec(e: E) -> i64 { match e { E::Rec { a, b } => a + b, _ => -1i64 } }
+
+// ── pat.variant.fieldless ────────────────────────────────────────────────────
+fn vf_none(e: E) -> i64 { match e { E::None => 1i64, _ => 0i64 } }
+
+// ── pat.struct.shape ─────────────────────────────────────────────────────────
+fn ss_pt(p: Pt) -> i64 { match p { Pt { x, y } => x - y } }
+
+// ── pat.slice.shape ──────────────────────────────────────────────────────────
+fn sh_slice(v: &[i64]) -> i64 { match v { [a, b] => a + b, [] => 0i64, _ => -1i64 } }
+
+// ── pat.range.integer ────────────────────────────────────────────────────────
+// closed inclusive `lo..=hi`, closed exclusive `lo..hi`, half-open `a..`,
+// `..=b`, `..b`, negated endpoints, open bounds clamp to type min/max.
+fn ri_all(x: i64) -> i64 {
+    match x {
+        0i64..=9i64    => 1i64,   // closed inclusive
+        10i64..20i64   => 2i64,   // closed exclusive (upper exclusive)
+        20i64..        => 3i64,   // RangeFrom (clamps to TYPE_MAX)
+        ..=-10i64      => 4i64,   // RangeToInclusive (negated bound)
+        ..-5i64        => 5i64,   // RangeToExclusive (negated bound)
+        _              => 0i64,
+    }
+}
+
+// ── pat.lit.integer ──────────────────────────────────────────────────────────
+fn li_int(x: i64) -> i64 { match x { 42i64 => 1i64, -7i64 => 2i64, _ => 0i64 } }
+
+// ── pat.range.char ───────────────────────────────────────────────────────────
+fn rc_char(c: char) -> i64 { match c { 'a' => 1i64, 'b'..='d' => 2i64, _ => 0i64 } }
+
+// ── pat.lit.string ───────────────────────────────────────────────────────────
+fn ls_str(s: str) -> i64 { match s { "foo" => 1i64, "bar" => 2i64, _ => 0i64 } }
+
+// ── pat.lit.bool ─────────────────────────────────────────────────────────────
+fn lb_bool(b: bool) -> i64 { match b { true => 1i64, false => 2i64 } }
+
+// ── pat.group.paren ──────────────────────────────────────────────────────────
+// `(P)` is exactly P; `(P | Q)` a grouped or-pattern; `(..)` any tuple, no bind.
+fn gp_single(x: i64) -> i64 { match x { (7i64) => 1i64, _ => 0i64 } }
+fn gp_or(x: i64) -> i64 { match x { (1i64 | 2i64) => 1i64, _ => 0i64 } }
+fn gp_tuple(t: (i64, i64)) -> i64 { match t { (..) => 9i64 } }
+
+// ── pat.writ.scalar ──────────────────────────────────────────────────────────
+unsafe fn wsc(d: &WritStatic) -> i32 {
+    match d { @null => 1, @true => 2, @-7 => 3, @42 => 4, @"hi" => 5, _ => 0 }
+}
+
+// ── pat.writ.typed-container ─────────────────────────────────────────────────
+unsafe fn wtc(d: &WritStatic) -> i32 {
+    match d { @<I32>[..] => 1, @<I32, AnyVal>{..} => 2, _ => 0 }
+}
+
+// ── pat.writ.container ───────────────────────────────────────────────────────
+unsafe fn wc(d: &WritStatic) -> i32 {
+    match d { @{"k": @1} => 1, @{} => 2, @[@1, ..] => 3, @[] => 4, _ => 0 }
+}
+
+fn main() -> i64 {
+
+    // @rule pat.or.alternatives
+    if or_leading(2i64) != 1i64 { return 1; }       // leading `|`, alt matched
+    if or_leading(9i64) != 0i64 { return 2; }       // none matched
+    if or_single(5i64) != 1i64 { return 3; }        // single alt passes through
+    if or_payload(E::Some(8i64)) != 1i64 { return 4; }  // payload or-pattern
+    if or_payload(E::Some(9i64)) != 0i64 { return 5; }
+
+    // @rule pat.struct.field
+    if sf_shorthand(Pt { x: 3i64, y: 4i64 }) != 7i64 { return 6; }  // bare name
+    if sf_named(Pt { x: 3i64, y: 4i64 }) != 12i64 { return 7; }     // name: subpat
+    if sf_rest(Pt { x: 5i64, y: 9i64 }) != 5i64 { return 8; }       // `..` rest
+    if sf_tsindex(TS(5i64, 6i64)) != 11i64 { return 9; }            // `0:` index
+    {
+        let p = Pt { x: 8i64, y: 1i64 };
+        if sf_refname(&p) != 8i64 { return 10; }                    // ref name
+        let mut q = Pt { x: 1i64, y: 2i64 };
+        if sf_refmut(&mut q) != 2i64 { return 11; }                 // ref mut name
+        if q.x != 2i64 { return 12; }
+    }
+
+    // @rule pat.slice.elem-rest
+    {
+        let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+        if sl_named_mid(&arr[..]) != 52i64 { return 13; }   // 10+40+2 (mid len)
+        if sl_anon_rest(&arr[..]) != 10i64 { return 14; }   // [x, ..]
+    }
+
+    // @rule pat.tuple.elem-rest
+    if tu_rest((1i64, 2i64, 3i64)) != 4i64 { return 15; }   // (a, .., c)
+    if tu_or((2i64, 9i64)) != 9i64 { return 16; }           // or-pattern element
+
+    // @rule pat.at.binding
+    if at_plain(5i64) != 5i64 { return 17; }    // n @ subpat binds whole value
+    if at_ref(6i64) != 6i64 { return 18; }      // ref name @ subpat (by ref)
+
+    // @rule pat.ref.binding-mode
+    {
+        let p = Pt { x: 0i64, y: 7i64 };
+        if bm_ref(&p) != 7i64 { return 19; }                // ref x (shared)
+        let mut q = Pt { x: 0i64, y: 5i64 };
+        if bm_refmut(&mut q) != 7i64 { return 20; }         // ref mut x
+        if q.y != 7i64 { return 21; }
+        if bm_mut(10i64) != 11i64 { return 22; }            // mut x by value
+    }
+
+    // @rule pat.ref.reference-pattern
+    {
+        let s = E::Some(9i64);
+        if rp_one(&s) != 9i64 { return 23; }       // &pat peels one reference layer
+        if rp_one(&E::None) != -1i64 { return 24; }
+    }
+
+    // @rule pat.variant.tuple
+    if vt_some(E::Some(13i64)) != 13i64 { return 25; }      // E::V(args)
+    if vt_rest(E::Many(1i64, 2i64, 3i64)) != 4i64 { return 26; }  // payload `..`
+    if vt_bare_ts(TS(3i64, 4i64)) != 7i64 { return 27; }   // bare tuple-struct
+
+    // @rule pat.variant.struct-shape
+    if vs_rec(E::Rec { a: 5i64, b: 6i64 }) != 11i64 { return 28; }
+
+    // @rule pat.variant.fieldless
+    if vf_none(E::None) != 1i64 { return 29; }
+    if vf_none(E::Some(0i64)) != 0i64 { return 30; }
+
+    // @rule pat.struct.shape
+    if ss_pt(Pt { x: 9i64, y: 4i64 }) != 5i64 { return 31; }
+
+    // @rule pat.slice.shape
+    {
+        let arr: [i64; 2] = [3i64, 4i64];
+        if sh_slice(&arr[..]) != 7i64 { return 32; }
+        let empty: [i64; 0] = [];
+        if sh_slice(&empty[..]) != 0i64 { return 33; }
+    }
+
+    // @rule pat.range.integer
+    if ri_all(5i64) != 1i64 { return 34; }       // closed inclusive
+    if ri_all(15i64) != 2i64 { return 35; }      // closed exclusive
+    if ri_all(19i64) != 2i64 { return 36; }      // exclusive upper still in
+    if ri_all(25i64) != 3i64 { return 37; }      // RangeFrom (a..)
+    if ri_all(-20i64) != 4i64 { return 38; }     // ..=b (negated)
+    if ri_all(-7i64) != 5i64 { return 39; }      // ..b (negated)
+    if ri_all(-3i64) != 0i64 { return 40; }      // below all ranges
+
+    // @rule pat.lit.integer
+    if li_int(42i64) != 1i64 { return 41; }      // N
+    if li_int(-7i64) != 2i64 { return 42; }      // -N
+
+    // @rule pat.range.char
+    if rc_char('a') != 1i64 { return 43; }       // char literal
+    if rc_char('c') != 2i64 { return 44; }       // inclusive char range
+    if rc_char('z') != 0i64 { return 45; }
+
+    // @rule pat.lit.string
+    if ls_str("foo") != 1i64 { return 46; }      // string equality match
+    if ls_str("baz") != 0i64 { return 47; }
+
+    // @rule pat.lit.bool
+    if lb_bool(true) != 1i64 { return 48; }
+    if lb_bool(false) != 2i64 { return 49; }
+
+    // @rule pat.group.paren
+    if gp_single(7i64) != 1i64 { return 50; }            // (P) is exactly P
+    if gp_or(1i64) != 1i64 { return 51; }                // (P | Q) grouped or
+    if gp_tuple((1i64, 2i64)) != 9i64 { return 52; }     // (..) any tuple, no bind
+
+    // @rule pat.writ.scalar
+    unsafe {
+        let snull: WritStatic = @null;
+        let strue: WritStatic = @true;
+        let sneg: WritStatic = @-7;
+        let sint: WritStatic = @42;
+        let sstr: WritStatic = @"hi";
+        if wsc(&snull) != 1 { return 53; }   // @null
+        if wsc(&strue) != 2 { return 54; }   // @true
+        if wsc(&sneg) != 3 { return 55; }    // @-N
+        if wsc(&sint) != 4 { return 56; }    // @N
+        if wsc(&sstr) != 5 { return 57; }    // @"str"
+    }
+
+    // @rule pat.writ.typed-container
+    unsafe {
+        let ti: WritStatic = @<I32>[1, 2, 3];
+        let tm: WritStatic = @<I32, AnyVal>{1: 10};
+        if wtc(&ti) != 1 { return 58; }      // @<T>[..]
+        if wtc(&tm) != 2 { return 59; }      // @<T,R>{..}
+    }
+
+    // @rule pat.writ.container
+    unsafe {
+        let cmap: WritStatic = @{"k": 1};
+        let cempty: WritStatic = @{};
+        let carr: WritStatic = @[1, 2];
+        let cearr: WritStatic = @[];
+        if wc(&cmap) != 1 { return 60; }     // @{ key: pat }
+        if wc(&cempty) != 2 { return 61; }   // @{}
+        if wc(&carr) != 3 { return 62; }     // @[ elem, .. ]
+        if wc(&cearr) != 4 { return 63; }    // @[]
+    }
+
+    return 0;
+}

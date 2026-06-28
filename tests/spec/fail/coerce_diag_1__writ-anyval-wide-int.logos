@@ -1,0 +1,13 @@
+// @rule coerce.writ-anyval.wide-int-no-implicit
+package coerce_diag_1_writ_anyval_wide_int;
+
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.rc;
+
+fn main() -> i32 {
+    let xs: [i64; 2] = [1 as i64, 2 as i64];
+    let _doc: Rc<Writ> = @[x for x in xs];
+    return 0i32;
+}

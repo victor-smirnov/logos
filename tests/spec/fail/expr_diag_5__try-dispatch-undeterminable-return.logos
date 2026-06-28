@@ -1,0 +1,19 @@
+// @rule expr.try.trait-dispatch-from-residual
+package expr_diag_5_try_dispatch_undeterminable_return;
+
+use logos.lang.control_flow;
+use logos.lang.try_trait;
+
+struct WrapErr {}
+struct Wrap { v: i32 }
+
+impl Try<i32, WrapErr> for Wrap {
+    fn branch(self: Wrap) -> ControlFlow<WrapErr, i32> {
+        return ControlFlow::Continue(self.v);
+    }
+}
+
+fn main() -> i32 {
+    let f = |w: Wrap| { let _v = w?; };
+    return 0i32;
+}

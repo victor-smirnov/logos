@@ -1,0 +1,7 @@
+// @rule generic.call.undefined-callee-error
+package generic_diag_1_undefined_callee;
+
+fn main() -> i32 {
+    let _x = nonexistent_fn();
+    return 0i32;
+}

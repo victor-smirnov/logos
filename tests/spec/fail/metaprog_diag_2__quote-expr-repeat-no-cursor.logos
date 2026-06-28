@@ -1,0 +1,11 @@
+// @rule metaprog.quote-expr.repeat-needs-cursor
+package metaprog_diag_2_quote_expr_repeat_no_cursor;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+fn build_expr() -> ExprBlob {
+    return quote_expr! { #( 1 + 2 ),* };
+}
+
+fn main() -> i32 { return 0; }

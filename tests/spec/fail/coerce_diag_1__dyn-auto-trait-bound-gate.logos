@@ -1,0 +1,21 @@
+// @rule coerce.unsize.dyn-auto-trait-bound-gate
+package coerce_diag_1_dyn_auto_trait_bound_gate;
+
+trait Speak {
+    fn speak(&self) -> i32;
+}
+
+struct NotSend {
+    ptr: *mut u8,
+}
+
+impl Speak for NotSend {
+    fn speak(&self) -> i32 { return 42i32; }
+}
+
+fn hear(s: &dyn Speak + Send) -> i32 { return s.speak(); }
+
+fn main() -> i32 {
+    let n: NotSend = NotSend { ptr: 0 as *mut u8 };
+    return hear(&n);
+}

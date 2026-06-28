@@ -1,0 +1,10 @@
+// @rule expr.fmt.type-char-set
+package expr_diag_5_fmt_unknown_type_char;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let _s = format!("{:z}", x);
+    return 0i32;
+}

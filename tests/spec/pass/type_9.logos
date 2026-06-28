@@ -1,0 +1,131 @@
+package type_9;
+
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+// ── helpers ──────────────────────────────────────────────────────────────
+
+// Body always diverges (panic-tail) → an otherwise-unbound T falls back to `!`.
+fn diverge<T>() -> T { panic("unreachable"); }
+
+// `!` (Never) coerces to the return type at a call site whose T is unbound and
+// whose body diverges; the non-diverging path returns a concrete i64.
+fn pick(cond: bool) -> i64 {
+    // @rule type.infer.never-fallback-on-divergent-body
+    // diverge::<T>() has T unbound here; its body always panics, so T falls back
+    // to ! and the `!` value coerces to the i64 return type. If T did NOT fall
+    // back to !, this would be an ambiguity error and the program would not link.
+    if cond { return diverge(); }
+    return 42i64;
+}
+
+fn add(a: i64, b: i64) -> i64 { return a + b; }
+fn take_ref(x: &i64) -> i64 { return *x; }
+
+struct Wrap<T> { v: T }
+
+fn main() -> i64 {
+
+    // @rule type.infer.never-fallback-on-divergent-body
+    if pick(false) != 42i64 { return 1; }
+
+    // @rule type.numeric.classification
+    // f64, f32, and integer kinds are all `numeric`: arithmetic operators apply
+    // to each. (integer ⊂ numeric.)
+    {
+        let i: i64 = 2i64 + 3i64;
+        let d: f64 = 1.5f64 + 2.5f64;
+        let s: f32 = 1.5f32 + 2.5f32;
+        if i != 5i64 { return 2; }
+        if d != 4.0f64 { return 3; }
+        if s != 4.0f32 { return 4; }
+    }
+
+    // @rule type.let.intlit-default-i32
+    // An unannotated let with an integer-literal RHS binds at i32 when the value
+    // fits i32 (assigning it into an i32 slot needs NO narrowing cast, which
+    // i64→i32 would require) ...
+    {
+        let small = 100;            // i32 by default
+        let s32: i32 = small;       // ok only because `small` already IS i32
+        if s32 != 100i32 { return 5; }
+    }
+    // @rule type.let.intlit-default-i32
+    // ... and is upgraded to i64 when the literal falls outside i32 range.
+    {
+        let big = 3000000000;       // > i32::MAX ⇒ i64
+        let b64: i64 = big;         // ok: big IS i64
+        if b64 != 3000000000i64 { return 6; }
+    }
+
+    // @rule type.let.floatlit-default-f64
+    // An unannotated let with a float-literal RHS binds at f64.
+    {
+        let f = 2.5;                // f64 by default
+        let d: f64 = f;             // ok: f IS f64
+        if d != 2.5f64 { return 7; }
+    }
+
+    // @rule type.subtype.relation-purpose
+    // A value of `sub` may be used where `sup` is expected: the cross-kind
+    // &mut→& coercion is accepted (subtype defers cross-kind shapes to the
+    // compatibility check, which permits &mut i64 where &i64 is wanted).
+    {
+        let mut m: i64 = 11i64;
+        let r: &mut i64 = &mut m;
+        if take_ref(r) != 11i64 { return 8; }
+    }
+
+    // @rule type.subtype.tuple-array-slice-covariant
+    // Tuples are covariant per-element and arrays covariant in element type:
+    // a same-shape value is assignable, element types agreeing position-wise.
+    {
+        let t: (i64, bool) = (4i64, true);
+        let t2: (i64, bool) = t;
+        if t2.0 != 4i64 { return 9; }
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let arr2: [i64; 3] = arr;
+        if arr2[1usize] != 2i64 { return 10; }
+    }
+
+    // @rule type.subtype.enum-covariant
+    // Same-enum positions are covariant (Option<i64> roundtrips through an
+    // Option<i64> binding, type-arg agreeing).
+    {
+        let o: Option<i64> = Option::Some(9i64);
+        let o2: Option<i64> = o;
+        match o2 {
+            Option::Some(v) => { if v != 9i64 { return 11; } }
+            Option::None => { return 12; }
+        }
+    }
+
+    // @rule type.subtype.struct-variance-table
+    // For the same struct the variance table defaults each type-arg to covariant:
+    // Wrap<i64> is assignable to a Wrap<i64> binding (Co default holds).
+    {
+        let w: Wrap<i64> = Wrap { v: 8i64 };
+        let w2: Wrap<i64> = w;
+        if w2.v != 8i64 { return 13; }
+    }
+
+    // @rule type.subtype.fn-contra-params-co-ret
+    // A fn item is usable as a fn-pointer of matching shape (params and return
+    // agree); the identity case of contravariant-params / covariant-return.
+    {
+        let f: fn(i64, i64) -> i64 = add;
+        if f(2i64, 3i64) != 5i64 { return 14; }
+    }
+
+    // @rule type.equal.lifetime-aware-structural
+    // Invariant-position structural equality: a Vec<i64> roundtrips through a
+    // Vec<i64> binding (its element type compared structurally, equal).
+    {
+        let mut vv: Vec<i64> = Vec::new();
+        vv.push(6i64);
+        let vv2: Vec<i64> = vv;
+        if vv2[0usize] != 6i64 { return 15; }
+    }
+
+    return 0;
+}

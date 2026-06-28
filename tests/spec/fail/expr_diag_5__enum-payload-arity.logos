@@ -1,0 +1,11 @@
+// @rule expr.enum-lit.payload-arity-check
+package expr_diag_5_enum_payload_arity;
+
+enum E {
+    A(i32),
+}
+
+fn main() -> i32 {
+    let _x = E::A(1i32, 2i32);
+    return 0i32;
+}

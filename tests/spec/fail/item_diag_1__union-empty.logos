@@ -1,0 +1,6 @@
+// @rule item.union.no-empty
+package item_diag_1_union_empty;
+
+union U {}
+
+fn main() -> i32 { return 0i32; }

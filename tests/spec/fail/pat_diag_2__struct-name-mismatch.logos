@@ -1,0 +1,12 @@
+// @rule pat.struct.scrutinee-name-match
+package pat_diag_2_struct_name_mismatch;
+
+struct P { x: i32, y: i32 }
+struct Q { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let p: P = P { x: 1i32, y: 2i32 };
+    match p {
+        Q { x, y } => { return x; }
+    }
+}

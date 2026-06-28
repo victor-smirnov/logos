@@ -1,0 +1,204 @@
+// Conformance: intrinsic_3 — compiler intrinsics / builtin macros.
+// Each block locks ONE rule by executing it; a violation returns a distinct
+// nonzero code. All pass => return 0.
+package intrinsic_3;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
+
+// --- structs for reflection / layout / annotations -----------------------
+
+struct Triple { a: i32, b: i64, c: bool }
+struct GB<T> { hdr: i64, val: T }
+struct Pair<A, B> { a: A, b: B }
+
+#[datatype] pub struct ZPlain { pub x: i32, pub y: i32 }
+
+#[datatype] pub struct ZFoo<T> { pub x: u32 }
+#[type_code=200]
+#[datatype] pub struct ZFoo<i32>;
+
+#[annotation]
+#[datatype] struct Priority { level: i32 }
+
+#[Priority(level=5)]
+#[datatype] struct Urgent { y: i32 }
+
+#[datatype] struct Plain { z: i32 }
+
+trait Marker { fn m(self: &Self) -> i32; }
+struct HasMarker { v: i32 }
+impl Marker for HasMarker { fn m(self: &Self) -> i32 { return self.v; } }
+struct NoMarker { v: i32 }
+
+unsafe fn check_str(got: String, want: str, code: i32) -> i32 {
+    if !str_eq(got.as_str(), want) { return code; }
+    return 0;
+}
+
+unsafe fn main() -> i32 {
+    // @rule intrinsic.reflect.field-types-of
+    // field_types_of::<T>() is a [Type; N] of the fields in declaration order;
+    // Triple = (i32=4, i64=8, bool=1) => sizes sum to 13. Non-struct => empty.
+    let ts = field_types_of::<Triple>();
+    let nf: i64 = field_count_of::<Triple>();
+    let mut total: i64 = 0;
+    let mut fi: i64 = 0;
+    while fi < nf {
+        total = total + ts[fi].size;
+        fi = fi + 1i64;
+    }
+    if total != 13i64 { return 1; }
+    if ts[0].size != 4i64 { return 1; }   // a: i32, declaration order
+    if ts[1].size != 8i64 { return 1; }   // b: i64
+    if ts[2].size != 1i64 { return 1; }   // c: bool
+
+    // @rule intrinsic.fmt.tuple-debug-synth
+    // Debug of a tuple: open '(', element Debug renderings separated by ", ",
+    // close ')'; the n==1 case uses the distinct "(x,)" close form.
+    let t1: (i32,) = (5,);
+    let r1: i32 = check_str(fmt_debug_to_string::<(i32,)>(&t1), "(5,)", 2);
+    if r1 != 0 { return r1; }
+    let t2: (i32, bool) = (7, true);
+    let r2: i32 = check_str(fmt_debug_to_string::<(i32, bool)>(&t2), "(7, true)", 2);
+    if r2 != 0 { return r2; }
+    let t3: (i32, i32, i32) = (1, 2, 3);
+    let r3: i32 = check_str(fmt_debug_to_string::<(i32, i32, i32)>(&t3), "(1, 2, 3)", 2);
+    if r3 != 0 { return r3; }
+
+    // @rule intrinsic.has-trait-of.lowering
+    // has_trait_of::<Trait>(t) identifies the trait by name; must agree with
+    // the has_trait::<T, Trait>() keyword form for the same trait.
+    let thm = type_of::<HasMarker>();
+    let tnm = type_of::<NoMarker>();
+    if has_trait_of::<Marker>(thm) != has_trait::<HasMarker, Marker>() { return 3; }
+    if has_trait_of::<Marker>(tnm) != has_trait::<NoMarker, Marker>() { return 3; }
+    if !has_trait_of::<Marker>(thm) { return 3; }
+    if  has_trait_of::<Marker>(tnm) { return 3; }
+
+    // @rule intrinsic.tuple-all-eq.typevar-defer
+    // tuple_all_eq::<T>(a,b): on a concrete tuple it expands at sema time to
+    // per-element eq; equal tuples => true, differing => false.
+    let ea: (i32, i32) = (1, 2);
+    let eb: (i32, i32) = (1, 2);
+    let ec: (i32, i32) = (1, 3);
+    if !tuple_all_eq::<(i32, i32)>(&ea, &eb) { return 4; }
+    if  tuple_all_eq::<(i32, i32)>(&ea, &ec) { return 4; }
+
+    // @rule intrinsic.generic-of.value
+    // generic_of::<X>() => Type with kind=Generic, name=X, size=arity, align=0,
+    // uid = FNV-1a("generic:" ++ X). Check kind, arity and name.
+    let g = generic_of::<Pair>();
+    if g.kind != 37u32 { return 5; }   // Kind::Generic == 37
+    if g.size != 2i64  { return 5; }   // arity of Pair<A,B>
+    if g.align != 0i64 { return 5; }
+    if g.name.len() != 4i64 { return 5; }
+    if g.name[0] != 80u8  { return 5; }  // 'P'
+    if g.name[3] != 114u8 { return 5; }  // 'r'
+
+    // @rule intrinsic.type-code-of.signature
+    // type_code_of::<T>() requires exactly one type arg and yields a u64.
+    let tc_plain: u64 = type_code_of::<ZPlain>();
+    if tc_plain == 0u64 { return 6; }   // a concrete ZonedStruct gets a nonzero code
+
+    // @rule intrinsic.type-code-of.compute
+    // For a concrete ZonedStruct: explicit #[type_code=N] wins; raw codes < 128
+    // are biased up by +128 so the result is never in 0..127 for a hashed code.
+    let tc_foo_i32: u64 = type_code_of::<ZFoo<i32>>();
+    if tc_foo_i32 != 200u64 { return 7; }       // explicit #[type_code=200]
+    if tc_plain < 128u64 { return 7; }          // hashed code reserved above 127
+
+    // @rule intrinsic.type-code-of.typevar-defer
+    // A different concrete instantiation (no explicit annotation) gets its own
+    // hashed code, distinct from the annotated one and nonzero.
+    let tc_foo_bool: u64 = type_code_of::<ZFoo<bool>>();
+    if tc_foo_bool == 200u64 { return 8; }
+    if tc_foo_bool == 0u64   { return 8; }
+
+    // @rule intrinsic.reflect.writ-trait
+    // reflect::<T>() yields a WritStatic reflection; root is a non-null map
+    // carrying "name"/"kind" keys (kind==2 datatype for ZPlain).
+    let info: WritStatic = reflect::<ZPlain>();
+    let wv: WView2 = wview2_from_ptr(info.ptr);
+    let root: WAny = wv.root();
+    if root.is_null() { return 9; }
+    if !root.is_ref() { return 9; }
+    let kind_av: WAny = wv.map_get(root, "kind");
+    if kind_av.is_null() { return 9; }
+    if wv.get_int(kind_av) != 2i64 { return 9; }
+
+    // @rule intrinsic.get-annotation.value
+    // get_annotation::<T, A>() => Some(A{..}) reconstructed field-by-field when
+    // present, None when absent. Urgent carries #[Priority(level=5)]; Plain none.
+    let opt: Option<Priority> = get_annotation::<Urgent, Priority>();
+    match opt {
+        Option::Some(p) => { if p.level != 5i32 { return 10; } }
+        Option::None => { return 10; }
+    }
+    let opt_none: Option<Priority> = get_annotation::<Plain, Priority>();
+    match opt_none {
+        Option::Some(_q) => { return 10; }
+        Option::None => {}
+    }
+
+    // @rule intrinsic.offset-of.value
+    // offset_of!(T, f) = byte offset by sequential aligned layout; result i64.
+    if offset_of!(Triple, a) != 0i64 { return 11; }  // i32 @0
+    if offset_of!(Triple, b) != 8i64 { return 11; }  // i64 aligned to 8
+    if offset_of!(Triple, c) != 16i64 { return 11; } // bool after i64
+
+    // @rule intrinsic.offset-of.generic-subst
+    // Generic struct: concrete type-args substituted before layout, so the
+    // i64 hdr forces val to @8 regardless of the (smaller) val type.
+    if offset_of!(GB<i64>, hdr) != 0i64 { return 12; }
+    if offset_of!(GB<i64>, val) != 8i64 { return 12; }
+    if offset_of!(GB<i32>, val) != 8i64 { return 12; }  // i32 val still @8
+
+    // @rule intrinsic.cfg.macro
+    // cfg!(predicate) evaluates the predicate at compile time => bool literal.
+    let c64: bool = cfg!(target_pointer_width = "64");
+    let c32: bool = cfg!(target_pointer_width = "32");
+    if !c64 { return 13; }
+    if c32  { return 13; }
+    if !cfg!(not(target_os = "windows")) { return 13; }
+
+    // @rule intrinsic.vec.builtin-macro
+    // vec!(..) builds a Vec of its elements (builtin prelude macro). Empty form
+    // vec!() builds an empty Vec; non-empty preserves elements and order.
+    let v: Vec<i64> = vec!(10i64, 20i64, 30i64);
+    if v.get(0i64) + v.get(1i64) + v.get(2i64) != 60i64 { return 14; }
+    if v.get(2i64) != 30i64 { return 14; }
+    let ve: Vec<i64> = vec!();
+    if ve.len() != 0i64 { return 14; }
+
+    // @rule intrinsic.line.macro
+    // line!() => current source line as u32 (nonzero here); column!() => u32 0.
+    let ln: u32 = line!();
+    if ln == 0u32 { return 15; }
+    let col: u32 = column!();
+    if col != 0u32 { return 15; }
+
+    // @rule intrinsic.file.macro
+    // file!() => current file path (&str, nonempty); module_path!() => package name.
+    let fp: str = file!();
+    if fp.len() == 0i64 { return 16; }
+    let mp: str = module_path!();
+    if !str_eq(mp, "intrinsic_3") { return 16; }
+
+    // @rule intrinsic.include-str.macro
+    // include_str!/include_bytes! read a file at compile time (path relative to
+    // the including file) and yield its contents as a &str/Slice<u8> literal.
+    let inc: str = include_str!("intrinsic_3_data/inc.txt");
+    if inc.len() != 23i64 { return 17; }
+    let incb: str = include_bytes!("intrinsic_3_data/inc.txt");
+    if incb.len() != 23i64 { return 17; }
+
+    return 0;
+}

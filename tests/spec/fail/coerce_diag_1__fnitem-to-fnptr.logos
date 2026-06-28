@@ -1,0 +1,10 @@
+// @rule coerce.fn.fnitem-to-fnptr
+package coerce_diag_1_fnitem_to_fnptr;
+
+fn add1(x: i32) -> i32 { return x + 1i32; }
+fn sub1(x: i32) -> i32 { return x - 1i32; }
+
+fn main() -> i32 {
+    let _arr = [add1, sub1];
+    return 0i32;
+}

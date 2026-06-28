@@ -1,0 +1,11 @@
+// @rule intrinsic.metaprog.type-apply
+package intrinsic_diag_2_type_apply_arity;
+
+use logos.std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+
+unsafe fn main() -> i32 {
+    let _t: Type = type_apply("Pair");
+    return 0i32;
+}

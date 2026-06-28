@@ -1,0 +1,221 @@
+package expr_8;
+
+use logos.lang.ops;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.lang.writ.comp_builder;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.static_view;
+use logos.lang.rc;
+
+// --- user Index impl (concrete __index, non-integer key) ---
+struct Grid { a: i64, b: i64, c: i64 }
+impl Index<i64, i64> for Grid {
+    fn index(&self, idx: i64) -> &i64 {
+        if idx == 0i64 { return &self.a; }
+        if idx == 1i64 { return &self.b; }
+        return &self.c;
+    }
+}
+
+// --- struct with Deref to an indexable (autoderef at index position) ---
+struct SliceWrap { s: Vec<i64> }
+impl Deref<Vec<i64>> for SliceWrap {
+    fn deref(&self) -> &Vec<i64> { return &self.s; }
+}
+
+// --- dyn-hint-unsize helpers ---
+trait Speak { fn val(&self) -> i64; }
+struct Dog {}
+struct Cat {}
+impl Speak for Dog { fn val(&self) -> i64 { return 1i64; } }
+impl Speak for Cat { fn val(&self) -> i64 { return 2i64; } }
+
+// --- fn-ptr-hint helpers ---
+fn add1(x: i64) -> i64 { return x + 1i64; }
+fn add2(x: i64) -> i64 { return x + 2i64; }
+
+// --- generic Fn-bound receiver ---
+fn apply_fn<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+
+// --- fn-ptr-value receiver ---
+fn dbl(x: i64) -> i64 { return x * 2i64; }
+
+fn main() -> i64 {
+    // @rule expr.invoke.callable-receiver
+    // Closure-typed receiver -> closure call; fn-ptr value receiver -> fn-ptr
+    // call; TypeVar receiver bounded by Fn synthesizes the call.
+    {
+        let clo = |x: i64| -> i64 { return x + 100i64; };
+        if (clo)(1i64) != 101i64 { return 1; }                 // closure receiver
+        let fp: fn(i64) -> i64 = dbl;
+        if (fp)(21i64) != 42i64 { return 2; }                  // fn-ptr value receiver
+        if apply_fn(|x: i64| -> i64 { return x * 3i64; }, 4i64) != 12i64 { return 3; } // Fn-bound TypeVar receiver
+    }
+
+    // @rule expr.index.place-real-slot
+    // IndexMut on a plain variable takes &mut of the real slot, so the write
+    // through index persists in the variable.
+    {
+        let mut pv: Vec<i64> = vec_new::<i64>();
+        pv.push(10i64);
+        pv.push(20i64);
+        pv[0i64] = 77i64;                                       // IndexMut via real slot
+        if pv[0i64] != 77i64 { return 4; }
+    }
+
+    // @rule expr.index.user-index-read
+    // a[i] on a struct impling Index lowers to *(a.index(i)); the concrete
+    // __index method is called and the result deref'd.
+    {
+        let g: Grid = Grid { a: 5i64, b: 6i64, c: 7i64 };
+        if g[1i64] != 6i64 { return 5; }
+        if g[2i64] != 7i64 { return 6; }
+    }
+
+    // @rule expr.index.autoderef
+    // A struct at index position w/o its own Index impl is deref'd to an
+    // indexable type (array) and indexed.
+    {
+        let mut inner: Vec<i64> = vec_new::<i64>();
+        inner.push(11i64);
+        inner.push(22i64);
+        inner.push(33i64);
+        let sw: SliceWrap = SliceWrap { s: inner };
+        if sw[1i64] != 22i64 { return 7; }
+    }
+
+    // @rule expr.index.generic-index-via-method
+    // Vec<T> has a generic Index impl; v[i] lowers to *v.index(i) yielding T.
+    {
+        let mut gv: Vec<i64> = vec_new::<i64>();
+        gv.push(9i64);
+        gv.push(8i64);
+        if gv[1i64] != 8i64 { return 8; }                      // element type i64
+    }
+
+    // @rule expr.index.receiver-kind
+    // Built-in index on Array / Slice / ref yields the element type.
+    {
+        let arr: [i64; 3] = [4i64, 5i64, 6i64];
+        if arr[2u64] != 6i64 { return 9; }                     // array receiver
+        let sl: &[i64] = &arr;
+        if sl[0u64] != 4i64 { return 10; }                     // slice receiver
+    }
+
+    // @rule expr.index.ref-to-slice-retype
+    // A reference to a slice (&s where s:&[T]) is retyped to the pointee slice,
+    // so (&s)[i] indexes the {data,len} pair and yields element type T.
+    {
+        let base: [i64; 3] = [70i64, 80i64, 90i64];
+        let s: &[i64] = &base;
+        // `&s` has type &(&[i64]); it is retyped to the pointee slice so (&s)[i]
+        // indexes the underlying {data,len} pair and yields element type i64.
+        if (&s)[2u64] != 90i64 { return 11; }
+    }
+
+    // @rule expr.arr-lit.empty-needs-hint
+    // An empty array literal takes its element type from the annotation,
+    // building [T;0] which borrows to an empty &[T].
+    {
+        let empty: [i64; 0] = [];
+        let es: &[i64] = &empty;
+        if es.len() != 0i64 { return 12; }
+    }
+
+    // @rule expr.arr-lit.fnptr-hint
+    // Under a [fn(..)->R; N] hint, distinct function items coerce to a common
+    // fn-ptr element type.
+    {
+        let fns: [fn(i64) -> i64; 2] = [add1, add2];
+        if fns[0u64](10i64) != 11i64 { return 13; }
+        if fns[1u64](10i64) != 12i64 { return 14; }
+    }
+
+    // @rule expr.arr-lit.dyn-hint-unsize
+    // Under a [&dyn Trait; N] hint, distinct &Concrete refs unify to &dyn Trait
+    // via per-element unsize coercion.
+    {
+        let d: Dog = Dog {};
+        let c: Cat = Cat {};
+        let animals: [&dyn Speak; 2] = [&d, &c];
+        if animals[0u64].val() != 1i64 { return 15; }
+        if animals[1u64].val() != 2i64 { return 16; }
+    }
+
+    // @rule expr.arr-lit.intlit-i64-widen
+    // When an element overflows i32, the inferred element type is upgraded to
+    // i64 so the large value round-trips.
+    {
+        let big = [1i64, 5000000000i64];                       // > i32 range -> i64
+        if big[1u64] != 5000000000i64 { return 17; }
+    }
+
+    // @rule expr.list-comp.desugar-vec
+    // [value for x in iter] desugars to a Vec<T> built by push over iter.
+    {
+        let src: [i64; 3] = [1i64, 2i64, 3i64];
+        let mut doubled = [x * 2i64 for x in src];
+        if doubled[0i64] != 2i64 { return 18; }
+        if doubled[2i64] != 6i64 { return 19; }
+    }
+
+    // @rule expr.list-comp.bind-scope
+    // The loop var x is bound (element type) over the value and guard
+    // expressions; the guard filters and x is used in both.
+    {
+        let src: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+        let mut evens = [x * 10i64 for x in src if (x % 2i64) == 0i64];
+        if evens.length() != 2i64 { return 20; }
+        if evens[0i64] != 20i64 { return 21; }                 // x=2 -> 20
+        if evens[1i64] != 40i64 { return 22; }                 // x=4 -> 40
+    }
+
+    // @rule expr.map-comp.desugar-hashmap
+    // {key: value for x in iter} desugars to a HashMap<K,V> built by insert.
+    {
+        let src: [i64; 3] = [1i64, 2i64, 3i64];
+        let mut m = {x: x * x for x in src};
+        unsafe {
+            let pm: *mut HashMap<i64, i64> = &mut m;
+            let k2: i64 = 2i64;
+            let k3: i64 = 3i64;
+            if *pm.get(&k2) != 4i64 { return 23; }
+            if *pm.get(&k3) != 9i64 { return 24; }
+        }
+    }
+
+    // @rule expr.writ-list-comp.desugar
+    // @[value for x in iter] desugars to a writ builder (Rc<Writ>) array.
+    {
+        let src: [i32; 4] = [1, 2, 3, 4];
+        let doc: Rc<Writ> = @[x * x for x in src];
+        unsafe {
+            let v0: WView2 = WView2 { base: 0 as *const u8 };
+            let h: &Writ = doc.deref();
+            let root: WAny = h.root();
+            if !root.is_array() { return 25; }
+            if v0.array_len(root) != 4u64 { return 26; }
+            if v0.get_int(v0.array_get(root, 3u64)) != 16i64 { return 27; }
+        }
+    }
+
+    // @rule expr.writ-map-comp.desugar
+    // @{key: value for x in iter} desugars to a writ builder (Rc<Writ>) map.
+    {
+        let keys: [str; 3] = ["a", "b", "c"];
+        let idx: [i32; 3] = [0, 1, 2];
+        let doc: Rc<Writ> = @{keys[x as i64]: x * 100 for x in idx};
+        unsafe {
+            let v0: WView2 = WView2 { base: 0 as *const u8 };
+            let h: &Writ = doc.deref();
+            let root: WAny = h.root();
+            if !root.is_map() { return 28; }
+            if v0.get_int(v0.map_get(root, "a")) != 0i64 { return 29; }
+            if v0.get_int(v0.map_get(root, "c")) != 200i64 { return 30; }
+        }
+    }
+
+    return 0;
+}

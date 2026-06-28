@@ -1,0 +1,12 @@
+// @rule metaprog.fn-macro.single-arg-arity
+package metaprog_diag_1_fnmacro_single_arg_arity;
+
+use logos.std.compiler.metaprog;
+
+#[fn_macro]
+pub fn ident(e: ExprBlob) -> ExprBlob { return e; }
+
+fn main() -> i32 {
+    let v: i32 = ident!(1, 2);
+    return v;
+}

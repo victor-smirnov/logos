@@ -1,0 +1,9 @@
+// @rule expr.call.generic-inference-from-args
+package generic_diag_1_infer_from_args;
+
+fn produce<T>() -> i64 { return 0i64; }
+
+fn main() -> i32 {
+    let _x = produce();
+    return 0i32;
+}

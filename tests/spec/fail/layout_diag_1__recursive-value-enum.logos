@@ -1,0 +1,8 @@
+// @rule layout.enum.value-repr-inline
+// A tagged enum stored inline by value cannot contain itself by value; the
+// recursive-by-value cycle is rejected (making inline {disc,payload} storage sound).
+package layout_diag_1_recursive_value_enum;
+
+enum List { Nil, Cons(i32, List) }
+
+fn main() -> i32 { return 0i32; }

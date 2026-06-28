@@ -1,0 +1,16 @@
+// @rule pat.refutable.raw-pointer-rejected
+package pat_diag_3_raw_pointer_rejected;
+
+enum Inner { X(i32), Y }
+enum Outer { S(Inner), T }
+
+unsafe fn check(p: *const Outer) -> i32 {
+    match p {
+        Outer::S(Inner::X(v)) => { return v; }
+        _ => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

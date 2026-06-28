@@ -1,0 +1,9 @@
+// @rule borrow.region.contains-origin
+package borrow_diag_2_region_contains_origin;
+fn bad() -> &i32 {
+    let s: i32 = 42i32;
+    return &s;
+}
+fn main() -> i32 {
+    return *bad();
+}

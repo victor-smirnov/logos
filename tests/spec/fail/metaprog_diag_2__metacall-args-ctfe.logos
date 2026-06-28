@@ -1,0 +1,10 @@
+// @rule metaprog.metacall.args-ctfe-constant
+package metaprog_diag_2_metacall_args_ctfe;
+
+fn add(a: i64, b: i64) -> i64 { return a + b; }
+
+fn main() -> i32 {
+    let x: i64 = 7;
+    let n: i64 = metacall add(x, 3);
+    return 0;
+}

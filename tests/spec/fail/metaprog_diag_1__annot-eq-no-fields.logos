@@ -1,0 +1,13 @@
+// @rule metaprog.annot.eq-value-first-field
+package metaprog_diag_1_annot_eq_no_fields;
+
+#[annotation]
+#[datatype] struct Empty {
+}
+
+#[Empty = 5]
+#[datatype] struct Target {
+    x: i32,
+}
+
+fn main() -> i32 { return 0i32; }

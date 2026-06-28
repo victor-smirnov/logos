@@ -1,0 +1,18 @@
+// @rule expr.writ-capture.capturable-types
+package expr_diag_4_writ_capture_capturable_types;
+
+use logos.lang.writ.typed_arr;
+use logos.lang.writ.tmpl;
+use logos.lang.writ.container;
+use logos.lang.rc;
+
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    let p: Point = Point { x: 1, y: 2 };
+    let doc: Rc<Writ> = @{"pt": $p};
+    return 0;
+}

@@ -1,0 +1,12 @@
+// @rule pat.match.exhaustive-required
+package pat_diag_3_exhaustive_required;
+
+enum E { A, B, C }
+
+fn main() -> i32 {
+    let e: E = E::A;
+    match e {
+        E::A => { return 1i32; }
+        E::B => { return 2i32; }
+    }
+}

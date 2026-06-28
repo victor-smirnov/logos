@@ -1,0 +1,8 @@
+// @rule expr.assign.place-nesting-bound
+package expr_diag_5_assign_place_nesting_bound;
+
+fn main() -> i32 {
+    let mut t: ((i32, i32), i32) = ((1i32, 2i32), 3i32);
+    t.0.0 = 9i32;
+    return 0i32;
+}

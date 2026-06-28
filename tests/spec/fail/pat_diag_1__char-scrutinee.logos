@@ -1,0 +1,10 @@
+// @rule pat.char.scrutinee-char-or-int
+package pat_diag_1_char_scrut;
+
+fn main() -> i32 {
+    let b: bool = true;
+    match b {
+        'a' => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

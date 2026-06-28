@@ -1,0 +1,199 @@
+package item_4;
+
+use logos.mem.boxed;   // Box for the owning Box<dyn Trait> parameter rule
+
+// ── Helper types/traits/impls ───────────────────────────────────────────────
+
+// Generic struct with INLINE-body methods (no impl block). Exercises
+// inline-method collection with Self bound to the generic self-type and the
+// struct's type params installed as impl type-params for static calls.
+struct Pair<A, B> {
+    a: A,
+    b: B,
+
+    // static generic method -> Pair::<i64,i64>::make() substitutes the params.
+    static fn make(x: A, y: B) -> Self { return Pair { a: x, b: y }; }
+    // &self method: Self resolves to Pair<A,B>, receiver is &Self; returns &A.
+    fn first(&self) -> &A { return &self.a; }
+}
+
+// Non-generic struct with an inline-body method (Self = Counter).
+struct Counter {
+    n: i64,
+
+    fn get(&self) -> i64 { return self.n; }
+    // &mut self receiver: type is &mut Self, mutates original storage.
+    fn inc(&mut self) { self.n = self.n + 1i64; }
+}
+
+// Forward reference: this fn names `Later` (declared below) and the trait
+// `Greet` (declared below) before their definitions appear.
+fn build_later() -> Later { return Later { z: 41i64 }; }
+
+struct Later { z: i64 }
+
+trait Greet { fn hi(&self) -> i64; }
+impl Greet for Later { fn hi(&self) -> i64 { return self.z + 1i64; } }
+
+// cfg-gated same-name struct: only one registers, so no duplicate-name error.
+// On this (unix) platform the unix variant is active.
+#[cfg(unix)]
+struct Plat { tag: i64 }
+#[cfg(windows)]
+struct Plat { tag: i64 }
+
+// Union shares the type namespace with structs/enums; a type alias resolves it.
+union UPair { a: i64, b: i64 }
+type UAlias = UPair;
+
+// Signature overloading: two same-named fns distinguished by parameter types.
+fn over(x: i64) -> i64 { return x + 1i64; }
+fn over(x: i64, y: i64) -> i64 { return x + y; }
+
+// fn with NO declared return type -> return type () (void). Side effect only.
+struct Sink { v: i64 }
+fn touch(s: &mut Sink) { s.v = 7i64; }
+
+// impl-Trait parameter in ARGUMENT position desugars to a generic param.
+fn greet_any(g: impl Greet) -> i64 { return g.hi(); }
+
+// Owning Box<dyn Trait> by-value parameter: callee owns the box.
+fn consume_dyn(b: Box<dyn Greet>) -> i64 { return b.hi(); }
+
+// Struct-pattern parameter: irrefutable destructure of a struct argument.
+struct Point { x: i64, y: i64 }
+fn psum(Point { x, y }: Point) -> i64 { return x + y; }
+
+// Tuple-pattern parameter.
+fn tsum((a, b): (i64, i64)) -> i64 { return a + b; }
+
+// mut-binding parameter: caller-invisible mutable local.
+fn bump(mut x: i64) -> i64 { x = x + 1i64; return x; }
+
+// Tail-expression is the implicit return value (no `return`).
+fn tail_add(a: i64, b: i64) -> i64 { a + b }
+
+// Tail `match` as return: each expr arm is the function's return value.
+enum Sel { Lo, Hi(i64) }
+fn from_sel(s: Sel) -> i64 {
+    match s {
+        Sel::Lo => 5i64,
+        Sel::Hi(v) => v + 1i64,
+    }
+}
+
+fn main() -> i64 {
+
+    // @rule item.struct.inline-methods-self-binding
+    // Inline-declared generic static method: Pair::<i32,i32>::make substitutes
+    // the struct's params; inline &self method reads through &Self.
+    {
+        let p: Pair<i64, i64> = Pair::<i64, i64>::make(3i64, 4i64);
+        if p.b != 4i64 { return 2; }
+        if *p.first() != 3i64 { return 1; }
+        // non-generic struct inline method, Self = Counter.
+        let mut c: Counter = Counter { n: 10i64 };
+        if c.get() != 10i64 { return 3; }
+        c.inc();
+        if c.get() != 11i64 { return 4; }
+    }
+
+    // @rule item.name.forward-reference
+    // build_later (above) named Later/Greet before their later definitions; the
+    // name-collection pass registers them so this resolves and runs.
+    {
+        let l: Later = build_later();
+        if l.z != 41i64 { return 5; }
+        if l.hi() != 42i64 { return 6; }   // cross-decl impl Greet for Later
+    }
+
+    // @rule item.cfg.gate-before-registration
+    // Only the cfg-true `Plat` registered (no duplicate-name error); it is usable.
+    {
+        let pl: Plat = Plat { tag: 99i64 };
+        if pl.tag != 99i64 { return 7; }
+    }
+
+    // @rule item.union.shared-namespace
+    // Union occupies the type namespace; `type UAlias = UPair` resolves it.
+    {
+        let u: UAlias = UPair { a: 55i64 };
+        let got: i64 = unsafe { u.a };
+        if got != 55i64 { return 8; }
+    }
+
+    // @rule item.fn.signature-overloading
+    // Same base name `over`, distinct param signatures -> both coexist.
+    {
+        if over(10i64) != 11i64 { return 9; }            // 1-arg overload
+        if over(10i64, 20i64) != 30i64 { return 10; }    // 2-arg overload
+    }
+
+    // @rule item.fn.empty-body-void
+    // touch declares no return type -> returns () (void); only side effect.
+    {
+        let mut s: Sink = Sink { v: 0i64 };
+        touch(&mut s);
+        if s.v != 7i64 { return 11; }
+    }
+
+    // @rule item.fn.self-ref-param-type
+    // &self / &mut self receivers take types &Self / &mut Self respectively;
+    // &mut self mutated the original Counter storage above (c.inc), &self read it.
+    {
+        let mut c: Counter = Counter { n: 0i64 };
+        let rc: &Counter = &c;
+        if rc.get() != 0i64 { return 12; }   // &self over &Self
+        c.inc();                             // &mut self over &mut Self
+        if c.n != 1i64 { return 13; }
+    }
+
+    // @rule item.fn.impl-trait-param-desugar
+    // `impl Greet` arg desugars to a fresh generic param; call dispatches to impl.
+    {
+        let l: Later = Later { z: 7i64 };
+        if greet_any(l) != 8i64 { return 14; }
+    }
+
+    // @rule item.fn-param.owning-box-dyn
+    // by-value Box<dyn Greet>: arg coerced to heap fat handle, callee owns/drops it.
+    {
+        let b: Box<dyn Greet> = Box::new(Later { z: 100i64 });
+        if consume_dyn(b) != 101i64 { return 15; }
+    }
+
+    // @rule item.fn-param.struct-pattern
+    // struct-pattern param binds named fields as body-visible locals.
+    {
+        if psum(Point { x: 6i64, y: 9i64 }) != 15i64 { return 16; }
+    }
+
+    // @rule item.fn-param.tuple-pattern
+    // tuple-pattern param binds elements as body-visible locals.
+    {
+        if tsum((4i64, 5i64)) != 9i64 { return 17; }
+    }
+
+    // @rule item.fn-param.mut-binding
+    // `mut x: i64` is a mutable caller-invisible local; reassign in body.
+    {
+        let orig: i64 = 41i64;
+        if bump(orig) != 42i64 { return 18; }
+        if orig != 41i64 { return 19; }   // caller value unaffected (by-value move)
+    }
+
+    // @rule item.fn.tail-expr-is-return
+    // block tail expr is the implicit return value.
+    {
+        if tail_add(20i64, 22i64) != 42i64 { return 20; }
+    }
+
+    // @rule item.fn.tail-match-as-return
+    // each expr arm of the tail match is the fn return value.
+    {
+        if from_sel(Sel::Lo) != 5i64 { return 21; }
+        if from_sel(Sel::Hi(40i64)) != 41i64 { return 22; }
+    }
+
+    return 0;
+}

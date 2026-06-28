@@ -1,0 +1,9 @@
+// @rule expr.raw-ptr.arith-unsafe
+package expr_diag_4_raw_ptr_arith_unsafe;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let p: *const i32 = &x as *const i32;
+    let _q: *const i32 = p.add(1i64);
+    return 0i32;
+}

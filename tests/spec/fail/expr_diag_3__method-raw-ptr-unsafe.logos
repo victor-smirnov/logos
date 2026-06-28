@@ -1,0 +1,14 @@
+// @rule expr.method.raw-ptr-recv-unsafe
+package expr_diag_3_method_raw_ptr;
+
+struct S { x: i32 }
+impl S {
+    fn val(&self) -> i32 { return self.x; }
+}
+
+fn main() -> i32 {
+    let s: S = S { x: 1i32 };
+    let p: *const S = &s;
+    let _v: i32 = p.val();
+    return 0i32;
+}

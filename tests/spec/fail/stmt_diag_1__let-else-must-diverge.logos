@@ -1,0 +1,12 @@
+// @rule stmt.let-else.refutable-binding-diverging-else
+package stmt_diag_1_let_else_must_diverge;
+
+enum Opt { Some(i32), None }
+
+fn main() -> i32 {
+    let v: Opt = Opt::Some(3i32);
+    let Opt::Some(x) = v else {
+        let _y: i32 = 0i32;
+    };
+    return x;
+}

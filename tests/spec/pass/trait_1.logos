@@ -1,0 +1,259 @@
+package trait_1;
+
+use logos.lang.writ.anyval;
+use logos.mem.writ.tag_system;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// ── trait.def.modifiers / trait.method.signatures / trait.assoc.type-and-const ─
+// `[pub] [auto|unsafe] trait NAME [: super + super] { items }`; items are
+// method decls (default body OR `;`-required), associated types, and assoc
+// consts (with optional default).
+trait Animal { fn legs(&self) -> i64; }
+trait Dog: Animal {                                 // supertrait list after `:`
+    fn bark(&self) -> i64;                           // required method `;`-terminated
+    fn loud(&self) -> i64 { return self.bark() * 2i64; }  // default-body method
+}
+unsafe trait Marked { fn marker(&self) -> i64; }    // `unsafe` leading modifier
+
+trait Counter {
+    type Item;                                        // associated type
+    const BASE: i64 = 100i64;                         // associated const w/ default
+    fn count(&self) -> i64;
+}
+
+struct Concrete { x: i64, y: i64 }
+impl Animal for Concrete { fn legs(&self) -> i64 { return self.x; } }
+impl Dog    for Concrete { fn bark(&self) -> i64 { return self.y; } }
+unsafe impl Marked for Concrete { fn marker(&self) -> i64 { return 7i64; } }
+impl Counter for Concrete {
+    type Item = i64;
+    fn count(&self) -> i64 { return Concrete::BASE + self.x; }
+}
+
+// ── trait.impl.blanket-and-semantics ─────────────────────────────────────────
+// Unconditional blanket impl (empty bound) is always satisfied; reachable for
+// any T, including via &dyn coercion.
+trait Named { fn name_val(&self) -> i64; }
+impl<T> Named for T { fn name_val(&self) -> i64 { return 99i64; } }
+
+// ── trait.closure.fn-family-auto-impl ────────────────────────────────────────
+// Every closure type implements Fn/FnMut/FnOnce with no explicit impl; a
+// generic param bounded by Fn accepts a closure.
+fn apply<F: Fn(i64) -> i64>(f: F, v: i64) -> i64 { return f(v); }
+
+// ── tag-dispatch worlds (trait.tagdispatch.*) ────────────────────────────────
+// Tier-1: explicit small type_codes in [1,255] -> dense direct-indexed table.
+#[tag_dispatch(DataTypeTagSystem)]
+trait Checksum { unsafe fn checksum(self: *const Self) -> i32; }
+
+#[type_code=130] #[datatype] struct Point { a: i32, b: i32 }
+#[type_code=131] #[datatype] struct Color { r: i32, g: i32 }
+
+impl Checksum for Point { pub unsafe fn checksum(self: *const Point) -> i32 { return self.a + self.b; } }
+impl Checksum for Color { pub unsafe fn checksum(self: *const Color) -> i32 { return self.r + self.g; } }
+
+// Tier-2: auto-hash type_codes >= 256 -> sorted (code, fn) binary-search table.
+#[tag_dispatch(DataTypeTagSystem)]
+trait Hashed { unsafe fn hashed(self: *const Self) -> i32; }
+
+#[datatype] struct Widget { p: i32, q: i32 }        // no #[type_code]: auto-hash >= 256
+impl Hashed for Widget { pub unsafe fn hashed(self: *const Widget) -> i32 { return self.p * self.q; } }
+
+unsafe fn dispatch_checksum(o: &tagged<DataTypeTagSystem> Checksum) -> i32 { return o.checksum(); }
+unsafe fn dispatch_hashed(o: &tagged<DataTypeTagSystem> Hashed) -> i32 { return o.hashed(); }
+
+// Public registry lookup (trait.tagdispatch.registry-lookup-api): code -> fn_ptr.
+extern fn __logos_dispatch_lookup__DataTypeTagSystem__Checksum__checksum(code: u64) -> *const u8;
+
+fn main() -> i64 {
+
+    // @rule trait.def.modifiers
+    // A `: super`-bearing trait + its required method are callable on a concrete
+    // impl; the supertrait method is reachable on the same value.
+    {
+        let c: Concrete = Concrete { x: 3i64, y: 4i64 };
+        if c.bark() != 4i64 { return 1; }              // Dog (has supertrait Animal)
+        if c.legs() != 3i64 { return 2; }              // supertrait method
+    }
+
+    // @rule trait.method.signatures
+    // A required method (`;`) is impl-supplied; a default-body method is
+    // synthesized for the impl and observes the impl's required methods.
+    {
+        let c: Concrete = Concrete { x: 3i64, y: 5i64 };
+        if c.bark() != 5i64 { return 3; }              // required method
+        if c.loud() != 10i64 { return 4; }             // default body: bark()*2
+    }
+
+    // @rule trait.assoc.type-and-const
+    // Associated const default is observable; method using the assoc type/const
+    // returns BASE + value.
+    {
+        let c: Concrete = Concrete { x: 11i64, y: 0i64 };
+        if c.count() != 111i64 { return 5; }           // BASE(100) + x(11)
+    }
+
+    // @rule trait.impl.blanket-and-semantics
+    // The unconditional blanket `impl<T> Named for T` is satisfied for any
+    // concrete type with no explicit per-type impl.
+    {
+        let c: Concrete = Concrete { x: 0i64, y: 0i64 };
+        if c.name_val() != 99i64 { return 6; }         // reached via blanket impl
+    }
+
+    // @rule trait.closure.fn-family-auto-impl
+    // A closure passed to a generic param bounded by `Fn(i64)->i64` type-checks
+    // and dispatches (closure auto-implements the Fn family).
+    {
+        let add5 = |z: i64| -> i64 { return z + 5i64; };
+        if apply(add5, 10i64) != 15i64 { return 7; }
+    }
+
+    // @rule trait.dyn.fat-pointer-vtable-dispatch
+    // A method call on `&dyn Trait` loads the data ptr as self and the method
+    // fn ptr from the vtable, calling indirectly: dispatch reaches the concrete.
+    {
+        let c: Concrete = Concrete { x: 21i64, y: 22i64 };
+        let d: &dyn Animal = &c;
+        if d.legs() != 21i64 { return 8; }
+    }
+
+    // @rule trait.dyn.vtable-static
+    // Two `&dyn` coercions of the SAME concrete type both dispatch to the same
+    // concrete impl (a single shared static vtable; coercion is address-of, not
+    // a fresh fill) — behaviourally: both handles agree.
+    {
+        let c: Concrete = Concrete { x: 31i64, y: 32i64 };
+        let d1: &dyn Animal = &c;
+        let d2: &dyn Animal = &c;
+        if d1.legs() != d2.legs() { return 9; }
+        if d1.legs() != 31i64 { return 10; }
+    }
+
+    // @rule trait.dyn.blanket-vtable-synthesis
+    // A concrete type reaching `&dyn Named` only via the blanket impl gets a
+    // synthesized vtable from the trait's method names; dispatch works.
+    {
+        let c: Concrete = Concrete { x: 0i64, y: 0i64 };
+        let d: &dyn Named = &c;                         // only blanket impl exists
+        if d.name_val() != 99i64 { return 11; }
+    }
+
+    // @rule trait.dyn.upcast-via-stored-super-vtable
+    // `&dyn Dog` upcast to `&dyn Animal` recovers Animal's vtable from a super-
+    // vtable slot stored in Dog's vtable; same data ptr, Animal dispatch holds.
+    {
+        let c: Concrete = Concrete { x: 41i64, y: 42i64 };
+        let sub: &dyn Dog = &c;
+        let sup: &dyn Animal = sub as &dyn Animal;     // upcast via stored super-vtable
+        if sup.legs() != 41i64 { return 12; }
+    }
+
+    // @rule trait.dyn.drop-full-concrete
+    // dyn dispatch with a heap-backed concrete (Box<dyn>) drops the full
+    // concrete on scope exit (drop_in_place glue runs the concrete Drop); the
+    // value is usable through the fat pointer before the drop.
+    {
+        let bd: Box<dyn Animal> = box_new(Concrete { x: 51i64, y: 52i64 }) as Box<dyn Animal>;
+        if bd.legs() != 51i64 { return 13; }
+    }                                                   // bd dropped here via slot-0 glue
+
+    // @rule trait.tagdispatch.dispatch-table-layout
+    // A `#[tag_dispatch]` trait call resolves the impl through a per-(system,
+    // trait,method) table keyed by the receiver's type_code; the registered
+    // impl runs.
+    {
+        unsafe {
+            let buf: *mut u8 = malloc(64);
+            let obj: *mut Point = (buf as i64 + 16) as *mut Point;
+            write_tag(obj as *mut u8, type_code_of::<Point>());
+            obj.a = 10i32; obj.b = 32i32;
+            if dispatch_checksum(obj as *const u8) != 42i32 { free(buf); return 14; }
+            free(buf);
+        }
+    }
+
+    // @rule trait.tagdispatch.type-code-keyed
+    // Resolution reads the receiver's type_code via the TagSystem and indexes by
+    // it: two sibling concretes in one table dispatch to their own impls.
+    {
+        unsafe {
+            let buf: *mut u8 = malloc(64);
+            let p: *mut Point = (buf as i64 + 16) as *mut Point;
+            write_tag(p as *mut u8, type_code_of::<Point>());
+            p.a = 1i32; p.b = 2i32;
+            let cl: *mut Color = (buf as i64 + 40) as *mut Color;
+            write_tag(cl as *mut u8, type_code_of::<Color>());
+            cl.r = 3i32; cl.g = 4i32;
+            if dispatch_checksum(p as *const u8) != 3i32 { free(buf); return 15; }   // Point impl
+            if dispatch_checksum(cl as *const u8) != 7i32 { free(buf); return 16; }  // Color impl
+            free(buf);
+        }
+    }
+
+    // @rule trait.tagdispatch.two-tier-codespace
+    // Codes in [1,255] dispatch via the dense tier-1 table; codes >= 256 dispatch
+    // via the tier-2 binary-search table. Both resolve to their impls.
+    {
+        if (type_code_of::<Point>() >= 256u64) { return 17; }   // tier-1 small code
+        if (type_code_of::<Widget>() < 256u64) { return 18; }   // tier-2 auto-hash code
+        unsafe {
+            let buf: *mut u8 = malloc(64);
+            let w: *mut Widget = (buf as i64 + 16) as *mut Widget;
+            write_tag(w as *mut u8, type_code_of::<Widget>());
+            w.p = 6i32; w.q = 7i32;
+            if dispatch_hashed(w as *const u8) != 42i32 { free(buf); return 19; }    // tier-2 hit
+            free(buf);
+        }
+    }
+
+    // @rule trait.tagdispatch.tier2-binary-search-sorted
+    // Tier-2 (auto-hash code >= 256) resolves its registered impl via the sorted
+    // binary-search table.
+    {
+        unsafe {
+            let buf: *mut u8 = malloc(64);
+            let w: *mut Widget = (buf as i64 + 16) as *mut Widget;
+            write_tag(w as *mut u8, type_code_of::<Widget>());
+            w.p = 5i32; w.q = 8i32;
+            if dispatch_hashed(w as *const u8) != 40i32 { free(buf); return 20; }    // 5*8
+            free(buf);
+        }
+    }
+
+    // @rule trait.tagdispatch.registry-lookup-api
+    // The public `type_code -> fn_ptr` lookup returns a non-null callable for a
+    // registered code and null for an unregistered one.
+    {
+        unsafe {
+            let tc: u64 = type_code_of::<Point>();
+            let f_raw: *const u8 = __logos_dispatch_lookup__DataTypeTagSystem__Checksum__checksum(tc);
+            if f_raw == (0 as *const u8) { return 21; }                              // registered -> non-null
+            let miss: *const u8 = __logos_dispatch_lookup__DataTypeTagSystem__Checksum__checksum(7u64);
+            if miss != (0 as *const u8) { return 22; }                              // unregistered -> null
+            // resolved pointer is callable with the impl ABI (self: *const u8)
+            let buf: *mut u8 = malloc(64);
+            let p: *mut Point = (buf as i64 + 16) as *mut Point;
+            write_tag(p as *mut u8, tc);
+            p.a = 20i32; p.b = 22i32;
+            let f: fn(*const u8) -> i32 = f_raw as fn(*const u8) -> i32;
+            let got: i32 = f(p as *const u8);
+            free(buf);
+            if got != 42i32 { return 23; }
+        }
+    }
+
+    // @rule trait.tagdispatch.startup-table-init
+    // Tables are filled at startup before user code: by the time main runs, a
+    // registered code already resolves (no per-call-site const fold).
+    {
+        unsafe {
+            let f_raw: *const u8 = __logos_dispatch_lookup__DataTypeTagSystem__Checksum__checksum(type_code_of::<Color>());
+            if f_raw == (0 as *const u8) { return 24; }     // populated before main body
+        }
+    }
+
+    return 0;
+}

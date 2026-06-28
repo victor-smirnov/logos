@@ -1,0 +1,15 @@
+// @rule borrow.dropck.drop-binding-must-outlive-borrowed-local
+package borrow_diag_1_dropck_binding_outlive;
+// Guard<'a> has a Drop impl AND a lifetime parameter -> dropck-relevant.
+// It borrows `local`; `local` dies at the inner-scope end while `g` (declared
+// in the outer scope) still lives, so g's Drop would run after local dies.
+struct Guard<'a> { r: &'a i32 }
+impl<'a> Drop for Guard<'a> { fn drop(self: &mut Guard<'a>) { } }
+fn main() -> i32 {
+    let g: Guard;
+    {
+        let local: i32 = 7i32;
+        g = Guard { r: &local };
+    }
+    return 0i32;
+}

@@ -1,0 +1,142 @@
+package mono_2;
+
+use logos.lang.option;
+use logos.lang.cmp;
+
+// ── helpers for struct monomorphization rules ───────────────────────────────
+
+// Generic struct; its method gets renamed Box__get → <mono>__get per instance.
+struct Wrap<T> { v: T }
+impl<T> Wrap<T> {
+    fn get(self: Wrap<T>) -> T { return self.v; }   // by-value self: T moves out cleanly
+}
+
+// Generic struct with a concrete full specialization that carries an extra
+// field AND a concrete method that overrides the blanket `get`.
+struct Spec<T> { a: T }
+impl<T> Spec<T> {
+    fn tag(&self) -> i64 { return 1i64; }       // blanket
+}
+struct Spec<i64> { a: i64, bonus: i64 }
+impl Spec<i64> {
+    fn tag(&self) -> i64 { return self.bonus; } // concrete override beats blanket
+}
+
+// Generic fallback-template struct (no specialization): binds T positionally.
+struct Cell<T> { x: T }
+
+// A two-param generic struct with a partial specialization on the first arg.
+// best-by-specificity must pick Box2<bool, V> over the base when first arg is bool.
+struct Box2<K, V> { k: K, v: V }
+struct Box2<bool, V> { k: bool, v: V, marker: i64 }
+fn box2_marker(b: Box2<bool, i64>) -> i64 { return b.marker; }
+
+// Generic function whose body holds a >64-bit literal; the mono CLONE must
+// preserve the HIGH 64 bits (lo=0 for 2^100, so only the hi half proves it).
+fn wide_of<T>(_t: T) -> u128 { return 1267650600228229401496703205376u128; } // 2^100
+
+// const-generic value used in expression position (spliced as its int literal).
+fn cap_of<const N: i64>() -> i64 { return N; }
+
+fn main() -> i64 {
+    // @rule mono.struct.method-rename
+    // After monomorphizing Wrap<i64>, its method `Wrap__get` is renamed to the
+    // instance's name; the call must resolve and return the stored field.
+    {
+        let w: Wrap<i64> = Wrap { v: 42i64 };
+        if w.get() != 42i64 { return 1; }
+        let w2: Wrap<bool> = Wrap { v: true };       // a 2nd instance, distinct rename
+        if w2.get() != true { return 2; }
+    }
+
+    // @rule mono.struct.specialization-override
+    // Spec<i64> has a user-written concrete method `tag`; for that instantiation
+    // the blanket impl<T> tag is NOT cloned — the concrete one (returns bonus) wins.
+    {
+        let s: Spec<i64> = Spec { a: 7i64, bonus: 99i64 };
+        if s.tag() != 99i64 { return 3; }            // concrete override (not blanket 1)
+        let sb: Spec<bool> = Spec { a: true };       // no concrete spec → blanket
+        if sb.tag() != 1i64 { return 4; }
+    }
+
+    // @rule mono.struct-spec.fallback-template
+    // Cell<T> has no specialization: the generic template is used and T bound
+    // positionally to the type-arg, so the field round-trips at each instance.
+    {
+        let c: Cell<i64> = Cell { x: 555i64 };
+        if c.x != 555i64 { return 5; }
+        let cb: Cell<bool> = Cell { x: false };
+        if cb.x != false { return 6; }
+    }
+
+    // @rule mono.struct-spec.best-by-specificity
+    // Box2<bool, i64> matches the partial spec Box2<bool, V> (greater specificity
+    // than the base Box2<K, V>); that spec adds `marker`, recoverable here.
+    {
+        let b: Box2<bool, i64> = Box2 { k: true, v: 8i64, marker: 123i64 };
+        if box2_marker(b) != 123i64 { return 7; }
+    }
+
+    // @rule mono.subst.i128-literal-high-half
+    // wide_of<T> returns 2^100 (lo=0, hi=2^36). Cloning the generic body must
+    // keep the HIGH half: a naive low-only clone would yield 0.
+    {
+        let big: u128 = wide_of::<i64>(0i64);
+        if big == 0u128 { return 8; }                          // hi half survived
+        if (big >> 64u32) as u64 != 68719476736u64 { return 9; } // hi == 2^36
+        let big2: u128 = wide_of::<bool>(true);                // 2nd instance, same literal
+        if big2 != big { return 10; }
+    }
+
+    // @rule mono.subst.const-generic-value-use
+    // cap_of<const N> uses N in expression position; mono splices the concrete
+    // value as an int literal, so each instantiation returns its own N.
+    {
+        if cap_of::<8i64>() != 8i64 { return 11; }
+        if cap_of::<64i64>() != 64i64 { return 12; }
+    }
+
+    // @rule mono.subst.variadic-pack-absorb
+    // Eq on a 5-tuple uses a variadic-pack impl; the pack must absorb ALL five
+    // element types (a truncated pack would miss the differing index 2).
+    {
+        let a: (i64, i64, i64, i64, i64) = (1i64, 2i64, 3i64, 4i64, 5i64);
+        let b: (i64, i64, i64, i64, i64) = (1i64, 2i64, 3i64, 4i64, 5i64);
+        let c: (i64, i64, i64, i64, i64) = (1i64, 2i64, 9i64, 4i64, 5i64);
+        if !(a == b) { return 13; }   // all five compared equal
+        if a == c { return 14; }      // pack reached index 2 → not equal
+    }
+
+    // @rule mono.enum.method-dual-mangling
+    // `==`/`!=` on Option<i64> lower to the cname-insert mangling of the cloned
+    // generic enum method; both the equal and unequal cases must dispatch.
+    {
+        let x: Option<i64> = Option::Some(5i64);
+        let y: Option<i64> = Option::Some(5i64);
+        let z: Option<i64> = Option::Some(6i64);
+        if !(x == y) { return 15; }
+        if x == z { return 16; }
+    }
+
+    // @rule mono.enum.method-bound-gate
+    // Option<i64>::eq requires T: Eq; i64 satisfies the bound so the cloned
+    // method exists and equality works (proven by the dispatch above succeeding
+    // for a concrete bounded T).
+    {
+        let p: Option<i64> = Option::Some(11i64);
+        let q: Option<i64> = Option::None;
+        if p == q { return 17; }       // Some vs None: bounded eq cloned & correct
+    }
+
+    // @rule mono.enum.self-referential-method-skip
+    // Option::as_ref(&Option<T>) -> Option<&T> is self-referential (return arg is
+    // structurally larger than a bare T and still contains a type-var); it is not
+    // eagerly cloned but a real call site enqueues the needed specialization.
+    {
+        let o: Option<i64> = Option::Some(77i64);
+        let r: Option<&i64> = o.as_ref();
+        match r { Option::Some(rv) => { if *rv != 77i64 { return 18; } } Option::None => { return 19; } }
+    }
+
+    return 0;
+}

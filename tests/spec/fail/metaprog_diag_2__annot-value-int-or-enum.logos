@@ -1,0 +1,9 @@
+// @rule metaprog.annot.value-int-or-enum-variant
+package metaprog_diag_2_annot_value_int_or_enum;
+
+enum Tag { Foo, Bar }
+
+#[type_code = Tag::Nope]
+struct S { x: i32 }
+
+fn main() -> i32 { return 0; }

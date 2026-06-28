@@ -1,0 +1,11 @@
+// @rule trait.dyn.object-safety
+package trait_diag_1_objsafe;
+trait T { fn g<X>(&self, x: X) -> i64; }
+struct S { x: i64 }
+impl T for S { fn g<X>(&self, x: X) -> i64 { return self.x; } }
+fn use_dyn(d: &dyn T) -> i64 { return 0i64; }
+fn main() -> i64 {
+    let s: S = S { x: 1i64 };
+    let d: &dyn T = &s;
+    return use_dyn(d);
+}

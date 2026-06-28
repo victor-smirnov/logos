@@ -1,0 +1,9 @@
+// @rule expr.call.unsafe-context-required
+package expr_diag_4_unsafe_context_required;
+
+unsafe fn danger() -> i32 { return 7i32; }
+
+fn main() -> i32 {
+    let _r: i32 = danger();
+    return 0i32;
+}

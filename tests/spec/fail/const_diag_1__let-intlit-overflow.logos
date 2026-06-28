@@ -1,0 +1,7 @@
+// @rule const.let.intlit-fits-annotation
+package const_diag_1_let_intlit_overflow;
+
+fn main() -> i32 {
+    let x: u8 = 99999;
+    return 0i32;
+}

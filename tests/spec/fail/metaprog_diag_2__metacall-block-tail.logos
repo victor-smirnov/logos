@@ -1,0 +1,7 @@
+// @rule metaprog.metacall.block-tail-required
+package metaprog_diag_2_metacall_block_tail;
+
+fn main() -> i32 {
+    let v: i32 = metacall { let z: i32 = 5; };
+    return 0;
+}

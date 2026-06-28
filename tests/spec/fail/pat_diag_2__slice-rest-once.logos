@@ -1,0 +1,10 @@
+// @rule pat.slice.rest-once
+package pat_diag_2_slice_rest_once;
+
+fn main() -> i32 {
+    let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    match xs {
+        [a, .., b, ..] => { return a; }
+        _ => { return 0i32; }
+    }
+}

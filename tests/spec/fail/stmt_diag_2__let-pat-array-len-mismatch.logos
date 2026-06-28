@@ -1,0 +1,8 @@
+// @rule stmt.let-pat.array-fixed-no-rest
+package stmt_diag_2_array_len_mismatch;
+
+fn main() -> i32 {
+    let arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let [a, b] = arr;
+    return a + b;
+}

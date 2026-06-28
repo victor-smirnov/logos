@@ -1,0 +1,11 @@
+// @rule type.struct.dst-tail-slice-last-field
+package type_diag_1_dst_tail_not_last;
+
+struct Bad {
+    tail: [i64],
+    count: i64,
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+// @rule generic.ref.no-variadic-packs
+package generic_diag_1_ref_no_variadic_packs;
+
+fn variadic_fn<T...>() {}
+
+fn main() -> i32 {
+    let _f = variadic_fn::<i64, i64>;
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// @rule type.datatype.pod-field-restriction
+package type_diag_1_datatype_pod;
+
+struct Wrapper { data: i32 }
+
+#[datatype] struct Bad {
+    x: Wrapper,
+}
+
+fn main() -> i32 { return 0i32; }

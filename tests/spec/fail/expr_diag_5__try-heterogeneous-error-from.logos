@@ -1,0 +1,20 @@
+// @rule expr.try.heterogeneous-error-from
+package expr_diag_5_try_heterogeneous_error_from;
+
+use logos.lang.result;
+
+struct EA {}
+struct EB {}
+
+fn inner() -> Result<i32, EA> {
+    return Result::Ok(1i32);
+}
+
+fn outer() -> Result<i32, EB> {
+    let v: i32 = inner()?;
+    return Result::Ok(v);
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

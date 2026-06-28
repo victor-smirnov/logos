@@ -1,0 +1,11 @@
+// @rule layout.pinned.non-movable-type
+// A #[pinned] type's bits are anchored to its storage slot: it is non-movable and
+// may not occupy a by-value slot (a `let` binding moves by value → rejected).
+package layout_diag_1_pinned_non_movable;
+
+#[pinned] struct WAnyRel { raw: i64 }
+
+fn main() -> i32 {
+    let x: WAnyRel = WAnyRel { raw: 0i64 };
+    return x.raw as i32;
+}

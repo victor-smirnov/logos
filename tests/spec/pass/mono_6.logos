@@ -1,0 +1,199 @@
+package mono_6;
+
+// Monomorphization substitution conformance (mono_clone / mono_const_arg /
+// mono_impl). Each rule is exercised by a generic construct whose only correct
+// value depends on mono re-emitting statements/params/types with the described
+// substitution and side-channel preservation. The internal mechanism (stmt
+// re-emit, drop-fn remangle, pack expansion, lifetime identity, pkg-qualified
+// instance keying) is observed through the value it produces.
+
+use logos.mem.boxed;
+use logos.mem.string;
+
+// ── stmt-structure-preserved: a generic body with many statement kinds whose
+//    result depends on every sub-expr/sub-block/pattern being re-substituted ──
+fn stmt_zoo<T: Copy>(seed: T, a: i64, b: i64) -> i64 {
+    let mut acc: i64 = a;          // let with init
+    let keep: T = seed;            // let typed by T (no-op carry)
+    let _ = keep;
+    if a < b { acc = acc + b; }    // if + assign sub-stmt
+    else { acc = acc - b; }
+    let mut i: i64 = 0i64;
+    while i < 3i64 {               // while with sub-block
+        acc = acc + 1i64;
+        i = i + 1i64;
+    }
+    return acc;                    // return with sub-expr
+}
+
+// ── assign-drop-old-preserved: reassign a droppable local (String) and a
+//    deref-write through a *mut; the drop-old flag must survive substitution so
+//    the final observed value is the last-written one (no leak/corruption) ────
+fn reassign_string<T: Copy>(_t: T) -> i64 {
+    let mut s: String = String::from("aa");   // initialized droppable
+    s = String::from("bbbb");                  // assign: drop old "aa", keep new
+    return s.len() as i64;                      // == 4
+}
+fn deref_write<T: Copy>(_t: T, mut s: String) -> i64 {
+    let p: *mut String = &mut s;
+    unsafe { *p = String::from("ccc"); }       // deref-write: drop old, store new
+    return s.len() as i64;                      // == 3
+}
+
+// ── drop.typevar-pending-resolve: a generic local of type T whose Drop is the
+//    pending sentinel resolves to the concrete T's drop glue. A droppable T
+//    (Counter) runs its drop once; a non-Drop T (i64) is skipped (no crash). ──
+struct Counter<U> { val: U, slot: *mut i64 }
+impl<U> Drop for Counter<U> {
+    fn drop(&mut self) { unsafe { *self.slot = *self.slot + 1i64; } }
+}
+fn drop_pending<T>(x: T) -> T { return x; }   // T flows through; drop resolved per-inst
+
+// ── drop.generic-struct-remangle: a generic struct with Drop, instantiated at
+//    two type-args; each instance's drop-fn is remangled to its concrete name ─
+fn drop_two_instances() -> i64 {
+    let mut hits: i64 = 0i64;
+    {
+        let _a: Counter<i64> = Counter::<i64> { val: 1i64, slot: &mut hits };
+        let _b: Counter<bool> = Counter::<bool> { val: true, slot: &mut hits };
+    } // both dropped → each concrete __drop runs once
+    return hits;   // == 2
+}
+
+// ── foreach-symbolic-len-rederive: a generic fn iterates a `[T; 3]` array; sema
+//    records symbolic length, mono re-derives the concrete length so the loop
+//    visits exactly the 3 elements ─────────────────────────────────────────-─
+fn sum_arr3<T: Copy>(arr: [T; 3], z: i64) -> i64 {
+    let mut acc: i64 = z;
+    let mut i: i64 = 0i64;
+    for _x in arr {        // length re-derived from the substituted [T;3]
+        acc = acc + 1i64;
+    }
+    return acc;            // == z + 3
+}
+
+// ── variadic-param-expand: a variadic value param `rest: T...` bound to a pack
+//    of length N expands into N named params; non-variadic head is unchanged ──
+fn count_args<H: Copy, T...>(first: H, rest: T...) -> i64 {
+    return 1i64 + count_rest(rest...);
+}
+fn count_rest() -> i64 { return 0i64; }
+fn count_rest<H, T...>(_first: H, rest: T...) -> i64 {
+    return 1i64 + count_rest(rest...);
+}
+
+// ── lifetime-identity: a generic fn with a lifetime param returns the borrow;
+//    only the type param is substituted, the lifetime is copied verbatim ──────
+fn pick<'a, T: Copy>(r: &'a T, _other: T) -> &'a T { return r; }
+
+// ── instance-is-monomorphic: every generic call above is an instance whose
+//    type-param list is empty and whose signature flags are preserved; observed
+//    by the instances simply computing correctly. (one direct witness here) ───
+fn ident<T: Copy>(x: T) -> T { return x; }
+
+// ── coexist.package-qualified-instance-key + lookup.bare-fallback-package-
+//    bounded: a user `Box<T>` and stdlib `std.mem.box.Box<T>` with DIFFERENT
+//    fields/methods both instantiate at i64 under distinct pkg-qualified keys;
+//    the user struct never resolves to the stdlib generic of the same bare name.
+struct Box<T> { v: T }
+trait Heft { fn heft(self: Self) -> i64; }
+impl Heft for Box<i64> { fn heft(self: Box<i64>) -> i64 { return self.v; } }
+
+// ── spec.partial-specialization-preferred: a 2-arg generic with a partial spec
+//    on the first arg; the concrete instance must pick the more specific def
+//    (which adds a field), proving the emitted definition is the spec ──────────
+struct Pick<K, V> { k: K, v: V }
+struct Pick<bool, V> { k: bool, v: V, extra: i64 }
+fn pick_extra(p: Pick<bool, i64>) -> i64 { return p.extra; }
+
+fn main() -> i64 {
+
+    // @rule mono.subst.stmt-structure-preserved
+    // every statement kind in stmt_zoo is re-emitted with substituted children;
+    // the arithmetic only matches if let/if/while/assign/return all survive.
+    if stmt_zoo::<i64>(0i64, 2i64, 5i64) != 10i64 { return 1; }  // 2+5 then +3
+    if stmt_zoo::<bool>(true, 9i64, 1i64) != 11i64 { return 2; } // 9-1 then +3
+
+    // @rule mono.subst.assign-drop-old-preserved
+    // assign `s = ...` carries the drop-old flag so the new String is observed
+    // and the old one is dropped (len of the LAST write).
+    if reassign_string::<i64>(0i64) != 4i64 { return 3; }
+    // @rule mono.subst.assign-drop-old-preserved
+    // deref-write `*p = ...` likewise carries drop-old; final len is the new one.
+    if deref_write::<i64>(0i64, String::from("zz")) != 3i64 { return 4; }
+
+    // @rule mono.drop.typevar-pending-resolve
+    // a pending-drop T resolves to concrete glue: droppable Counter<i64> runs
+    // its drop exactly once when the returned value goes out of scope.
+    {
+        let mut hits: i64 = 0i64;
+        {
+            let c: Counter<i64> = Counter::<i64> { val: 7i64, slot: &mut hits };
+            let _c2: Counter<i64> = drop_pending::<Counter<i64>>(c); // moved through generic
+        } // _c2 dropped → resolved concrete drop runs once
+        if hits != 1i64 { return 5; }
+        // non-Drop T (i64) is skipped: drop_pending::<i64> must not crash.
+        if drop_pending::<i64>(99i64) != 99i64 { return 6; }
+    }
+
+    // @rule mono.drop.generic-struct-remangle
+    // two instances of the generic Drop struct each get their own remangled
+    // concrete __drop; both run once → hits == 2.
+    if drop_two_instances() != 2i64 { return 7; }
+
+    // @rule mono.subst.foreach-symbolic-len-rederive
+    // for-over-[T;3] re-derives the concrete length post-substitution: exactly
+    // three iterations regardless of T.
+    if sum_arr3::<i64>([10i64, 20i64, 30i64], 100i64) != 103i64 { return 10; }
+    if sum_arr3::<bool>([true, false, true], 0i64) != 3i64 { return 11; }
+
+    // @rule mono.subst.variadic-param-expand
+    // the variadic `rest: T...` expands into N params; counting head+tail yields
+    // the exact arity for two distinct pack lengths.
+    if count_args::<i64, i64, i64>(1i64, 2i64, 3i64) != 3i64 { return 12; }
+    if count_args::<i64, i64, i64, i64>(1i64, 2i64, 3i64, 4i64) != 4i64 { return 13; }
+
+    // @rule mono.subst.lifetime-identity
+    // pick<'a, T> substitutes only T; the lifetime is identity, so the returned
+    // borrow still points at the first arg and reads its value.
+    {
+        let x: i64 = 77i64;
+        let r: &i64 = pick::<i64>(&x, 0i64);
+        if *r != 77i64 { return 14; }
+    }
+
+    // @rule mono.clone.instance-is-monomorphic
+    // an instantiated generic fn is monomorphic and behaves per-instance; two
+    // distinct type-args yield independent correct results.
+    if ident::<i64>(5i64) != 5i64 { return 15; }
+    if ident::<bool>(true) != true { return 16; }
+
+    // @rule mono.coexist.package-qualified-instance-key
+    // user Box<i64> (field v) and stdlib Box<i64> (ptr) coexist under distinct
+    // pkg-qualified keys; each keeps its own layout/methods.
+    {
+        let ub: Box<i64> = Box::<i64> { v: 13i64 };
+        let sb = box_new::<i64>(29i64);       // stdlib Box (distinct pkg key)
+        if ub.heft() != 13i64 { return 17; }  // user field v
+        if *sb != 29i64 { return 18; }        // stdlib Deref
+    }
+
+    // @rule mono.lookup.bare-fallback-package-bounded
+    // the user (package-local) Box<i64> resolves to the user struct, never to the
+    // same-named stdlib generic: reading user field `v` would be impossible if it
+    // had collapsed to the stdlib def.
+    {
+        let ub2: Box<i64> = Box::<i64> { v: 8i64 };
+        if ub2.v != 8i64 { return 19; }
+    }
+
+    // @rule mono.spec.partial-specialization-preferred
+    // Pick<bool, i64> picks the partial spec (which adds `extra`); the field is
+    // only present if the emitted def is the specialization, not the base.
+    {
+        let p: Pick<bool, i64> = Pick { k: true, v: 1i64, extra: 55i64 };
+        if pick_extra(p) != 55i64 { return 20; }
+    }
+
+    return 0;
+}

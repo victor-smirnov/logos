@@ -1,0 +1,11 @@
+// @rule intrinsic.has-trait-of.signature
+package htof_arity;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+
+unsafe fn main() -> i32 {
+    let t = type_of::<i32>();
+    let b: bool = has_trait_of::<Clone>(t, t);
+    return 0;
+}

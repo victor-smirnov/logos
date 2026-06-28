@@ -1,0 +1,13 @@
+// @rule borrow.move.borrowed-cannot-move
+package borrow_diag_1_borrowed_cannot_move;
+// move b while a &mut borrow of b is live -> reject (E0505).
+struct Buf { data: i32 }
+impl Drop for Buf { fn drop(self: &mut Buf) { } }
+fn consume(b: Buf) -> i32 { return b.data; }
+fn main() -> i32 {
+    let mut b = Buf { data: 7i32 };
+    let r: &mut Buf = &mut b;
+    let n: i32 = consume(b);
+    (*r).data = 0i32;
+    return n;
+}

@@ -1,0 +1,10 @@
+// @rule const.unary.neg-numeric
+package const_diag_1_neg_non_numeric;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen(-true);
+
+fn main() -> i32 { return 0i32; }

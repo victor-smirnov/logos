@@ -1,0 +1,11 @@
+// @rule stmt.let-pat.field-binding-forms
+package stmt_diag_2_nested_not_struct;
+
+struct Inner { v: i32 }
+struct Outer { n: i32 }
+
+fn main() -> i32 {
+    let o: Outer = Outer { n: 7i32 };
+    let Outer { n: Inner { v } } = o;
+    return v;
+}

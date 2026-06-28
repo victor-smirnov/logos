@@ -1,0 +1,8 @@
+// @rule generic.fn.lifetime-param-unique
+package generic_diag_1_lifetime_param_unique;
+
+fn g<'a, 'a>(x: &'a i32) {}
+
+fn main() -> i32 {
+    return 0i32;
+}

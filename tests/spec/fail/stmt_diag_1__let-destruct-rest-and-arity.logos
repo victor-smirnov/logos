@@ -1,0 +1,7 @@
+// @rule stmt.let-destruct.rest-and-arity
+package stmt_diag_1_let_destruct_rest_and_arity;
+
+fn main() -> i32 {
+    let (a, b, c) = (1i32, 2i32);
+    return 0i32;
+}

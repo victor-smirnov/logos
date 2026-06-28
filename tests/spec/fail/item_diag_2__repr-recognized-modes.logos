@@ -1,0 +1,7 @@
+// @rule item.repr.recognized-modes
+package item_diag_2_repr_recognized_modes;
+
+#[repr(packed)]
+struct S { x: i32 }
+
+fn main() -> i32 { return 0i32; }

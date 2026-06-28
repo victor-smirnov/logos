@@ -1,0 +1,12 @@
+// @rule stmt.while-let.chain-trailing-cond-must-be-bool
+package stmt_diag_2_while_let_chain_cond;
+
+enum Opt { Some(i32), None }
+
+fn main() -> i32 {
+    let o: Opt = Opt::Some(5i32);
+    while let Opt::Some(x) = o && (x + 1i32) {
+        return x;
+    }
+    return 0i32;
+}

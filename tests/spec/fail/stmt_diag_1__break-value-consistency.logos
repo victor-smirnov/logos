@@ -1,0 +1,12 @@
+// @rule stmt.break.value-consistency
+package stmt_diag_1_break_value_consistency;
+
+fn main() -> i32 {
+    let _x: i32 = loop {
+        if true {
+            break 1i32;
+        }
+        break;
+    };
+    return 0i32;
+}

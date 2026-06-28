@@ -1,0 +1,8 @@
+// @rule lex.literal.digit-separator-placement
+package lex_diag_1_digit_separator_placement;
+
+fn main() -> i32 {
+    // Consecutive `__` digit separators are forbidden.
+    let _x = 1__000i32;
+    return 0i32;
+}

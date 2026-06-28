@@ -1,0 +1,123 @@
+package intrinsic_5;
+
+use logos.std.compiler.metaprog;
+use logos.lang.option;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
+
+// ---- helper types ----
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+
+pub enum Empty { }
+pub enum Color { Red, Green, Blue, }
+pub enum Mixed { Tag, Pair(i32, bool), Triple(u8, u8, i64), }
+
+// Plain (non-datatype) struct: should be DataPlain (true) and type_code 0.
+struct Plain { v: i32 }
+
+// DataPlain datatype — only primitive fields.
+#[datatype] struct Point { x: i32, y: i32 }
+
+// DataNode — generic datatype field (conservative).
+#[datatype] struct Cell<T> { v: T }
+#[datatype] struct Node { value: i32, next: Cell<i64> }
+
+// Padded struct: {i32, pad4, i64} = size 16, align 8.
+struct Pad { a: i32, b: i64 }
+
+// Annotation machinery for get_annotation.
+#[annotation]
+#[datatype] struct Deprecated { msg: str, since: str }
+#[annotation]
+#[datatype] struct Priority { level: i32 }
+
+#[Deprecated(msg="use v2", since="0.3")]
+#[datatype] struct OldApi { x: i32 }
+
+// reflect target.
+#[datatype] struct ReflPoint { rx: i32, ry: i32 }
+
+// An ordinary (non-intrinsic) callee, to prove unknown names resolve normally.
+fn ordinary_add(p: i32, q: i32) -> i32 { return p + q; }
+
+// type_refs_of over a pack inside a generic fn.
+unsafe fn pack_first_uid<A, B>() -> u64 {
+    let ts = type_refs_of::<A, B>();
+    return ts[0].uid;
+}
+
+unsafe fn main() -> i64 {
+    // @rule intrinsic.generic-of.unapplied-ctor
+    let g = generic_of::<Pair>();
+    if g.kind != (37 as u32) { return 1; }      // Kind::Generic == 37
+    if g.size != (2 as i64) { return 2; }       // size carries arity = 2
+    if g.name.len() != 4 { return 3; }          // name == "Pair"
+    if g.name[0] != (80 as u8) { return 4; }    // 'P'
+
+    // @rule intrinsic.variant-reflect.enum-family
+    if variant_count_of::<Empty>() != (0 as i64) { return 6; }
+    if variant_count_of::<Color>() != (3 as i64) { return 7; }
+    if variant_count_of::<i32>() != (0 as i64) { return 8; }   // non-enum → 0
+    let names = variant_names_of::<Color>();
+    if names[0].len() != 3 { return 9; }                       // "Red"
+    if names[0][0] != (82 as u8) { return 10; }                // 'R'
+    let counts = variant_payload_counts_of::<Mixed>();
+    if counts[0] != (0 as i64) { return 11; }
+    if counts[1] != (2 as i64) { return 12; }
+    if counts[2] != (3 as i64) { return 13; }
+    let pts = variant_payload_types_flat_of::<Mixed>();
+    if pts[0].uid != type_of::<i32>().uid { return 14; }
+    if pts[4].uid != type_of::<i64>().uid { return 15; }
+
+    // @rule intrinsic.type-refs-of.pack-array
+    let ts = type_refs_of::<i32, bool>();
+    if ts[0].uid != type_of::<i32>().uid { return 16; }
+    if ts[1].uid != type_of::<bool>().uid { return 17; }
+    if pack_first_uid::<u8, i64>() != type_of::<u8>().uid { return 18; }
+
+    // @rule intrinsic.sizeof.byte-size
+    if sizeof::<i64>() != (8 as i64) { return 19; }
+    if sizeof::<Pad>() != (16 as i64) { return 20; }   // padding accounted
+
+    // @rule intrinsic.align-of.alignment
+    if align_of::<i8>() != (1 as i64) { return 21; }
+    if align_of::<i64>() != (8 as i64) { return 22; }
+    if align_of::<Pad>() != (8 as i64) { return 23; }
+
+    // @rule intrinsic.type-code-of.writ-code
+    let tc: u64 = type_code_of::<Point>();
+    if tc < (128 as u64) { return 24; }                // datatype code >= 128
+    if type_code_of::<i32>() != (0 as u64) { return 25; }  // non-datatype → 0
+
+    // @rule intrinsic.is-data-plain-of.copyable-predicate
+    if is_data_plain_of::<i32>() == false { return 26; }    // scalar → true
+    if is_data_plain_of::<Plain>() == false { return 27; }  // ordinary struct → true
+    if is_data_plain_of::<Point>() == false { return 28; }  // primitive-field datatype → true
+    if is_data_plain_of::<Node>() == true { return 29; }    // generic-datatype field → false
+
+    // @rule intrinsic.reflect.typeinfo-rodata
+    let info: WritStatic = reflect::<ReflPoint>();
+    let view: WView2 = wview2_from_ptr(info.ptr);
+    let root: WAny = view.root();
+    if root.is_null() { return 30; }                   // resolves to non-null rodata addr
+
+    // @rule intrinsic.get-annotation.option-result
+    let some_opt: Option<Deprecated> = get_annotation::<OldApi, Deprecated>();
+    match some_opt {
+        Option::Some(d) => {}
+        Option::None => { return 31; }                 // OldApi carries Deprecated → Some
+    }
+    let none_opt: Option<Priority> = get_annotation::<OldApi, Priority>();
+    match none_opt {
+        Option::Some(p) => { return 32; }              // OldApi lacks Priority → None
+        Option::None => {}
+    }
+
+    // @rule intrinsic.unknown-callee.passthrough
+    // A non-intrinsic callee falls through to ordinary call resolution.
+    if ordinary_add(40, 2) != 42 { return 33; }
+
+    return 0;
+}

@@ -1,0 +1,24 @@
+// @rule expr.struct-lit.dyn-auto-bounds-at-field-init
+package expr_diag_2_struct_dyn_auto_bounds;
+
+trait Speak {
+    fn go(&self) -> i32;
+}
+
+struct NotSend {
+    p: *const i32,
+}
+
+impl Speak for NotSend {
+    fn go(&self) -> i32 { return 0i32; }
+}
+
+struct Holder {
+    d: &dyn Speak + Send,
+}
+
+fn main() -> i32 {
+    let n = NotSend { p: 0 as *const i32 };
+    let _h = Holder { d: &n };
+    return 0i32;
+}

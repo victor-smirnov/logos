@@ -1,0 +1,13 @@
+// @rule pat.writ.typed-map-key-value-types
+package pat_diag_2_writ_typed_map;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.wstatic;
+
+unsafe fn main() -> i32 {
+    let m: WritStatic = @<I32, AnyVal>{1: 10, 2: 20};
+    match m {
+        @<Bogus, AnyVal>{..} => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

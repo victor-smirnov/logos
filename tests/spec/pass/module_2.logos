@@ -1,0 +1,30 @@
+package module_2;
+
+// The only rule in unit `module_2` that is observable from a single
+// self-contained source program is the lowercase brace-group `use` desugar.
+// All other rules concern compiler-internal module-loader / manifest /
+// binary-archive mechanisms that cannot be exercised from one .logos file
+// (they require multiple packages, manifest files, or precompiled archives).
+// See the test report's "untestable" list for the per-rule rationale.
+
+// @rule module.use.brace-group-desugar
+// `use pkg.{a, b};` with a lowercase head segment desugars to the wildcard
+// imports `pkg.a.*` and `pkg.b.*`. Here it brings in BOTH logos.mem.boxed
+// (Box / box_new) AND logos.mem.string (String) from the single grouped use;
+// if the desugar were wrong neither set of items would resolve. We then
+// EXERCISE one item from each desugared wildcard package at runtime.
+use logos.mem.{boxed, string};
+
+fn main() -> i64 {
+    // @rule module.use.brace-group-desugar
+    // box_new comes from the desugared `logos.mem.boxed.*` wildcard;
+    // String::new comes from the desugared `logos.mem.string.*` wildcard.
+    // Both resolving + behaving correctly confirms the lowercase brace-group
+    // head was treated as a package path and expanded to N wildcard imports.
+    let b: Box<i64> = box_new(7i64);
+    if *b != 7i64 { return 1; }
+    let s: String = String::new();
+    if s.len() != 0i64 { return 2; }
+
+    return 0;
+}

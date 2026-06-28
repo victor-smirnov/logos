@@ -1,0 +1,8 @@
+// @rule generic.param.variadic-last
+package generic_diag_1_variadic_last;
+
+fn g<T..., U>() {}
+
+fn main() -> i32 {
+    return 0i32;
+}

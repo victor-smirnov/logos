@@ -1,0 +1,7 @@
+// @rule expr.char-lit.escapes
+package expr_diag_1_char_bad_escape;
+
+fn main() -> i32 {
+    let _c: char = '\q';
+    return 0i32;
+}

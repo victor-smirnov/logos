@@ -1,0 +1,14 @@
+// @rule coerce.intlit.dispatch-unsuffixed-fits-narrower
+package coerce_diag_1_intlit_dispatch_unsuffixed_fits_narrower;
+
+struct C {}
+
+impl C {
+    fn put(&self, _x: u8) -> i32 { return 1i32; }
+    fn put(&self, _x: i64) -> i32 { return 2i32; }
+}
+
+fn main() -> i32 {
+    let c = C {};
+    return c.put(9u64);
+}

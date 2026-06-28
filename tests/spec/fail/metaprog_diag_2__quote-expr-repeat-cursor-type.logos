@@ -1,0 +1,13 @@
+// @rule metaprog.quote-expr.repeat-cursor-type
+package metaprog_diag_2_quote_expr_repeat_cursor_type;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+fn build_expr() -> ExprBlob {
+    let s: str = "a";
+    let foo: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    return quote_expr! { #( #foo ),* };
+}
+
+fn main() -> i32 { return 0; }

@@ -1,0 +1,329 @@
+package pat_6;
+
+use logos.lang.writ.pat;
+use logos.lang.writ.wstatic;
+
+// ── helper types ─────────────────────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+
+// A move-only (non-Copy) field carrier — has a String-like owning member.
+// We use a struct holding a Vec to make it move-only.
+
+enum Opt { None, Some(i64) }
+enum Shape { Circle(i64), Rect { w: i64, h: i64 } }
+
+// Enum with distinct no-payload variant names for bare-variant matching.
+enum Light { Red, Green(i64) }
+
+// Generic struct for type-arg substitution under struct patterns.
+struct GPair<A, B> { a: A, b: B }
+
+// Struct with a move-only (String) field for default-binding-mode tests.
+struct Holder { name: String, n: i64 }
+
+// ── Writ pattern helpers (require unsafe + WritStatic scrutinee) ──────────────
+
+// pat.writ.scalar-leaves : @null / @true / @false / @<int> / @"str"
+unsafe fn writ_scalar(d: &WritStatic) -> i32 {
+    match d {
+        @null    => 1,
+        @true    => 2,
+        @false   => 3,
+        @42      => 4,
+        @"hi"    => 5,
+        _        => 0,
+    }
+}
+
+// pat.writ.map-shape : @{k: p, ...} matches iff map AND each listed key present
+//                       with matching slot; unlisted keys ignored (non-exhaustive).
+unsafe fn writ_map(d: &WritStatic) -> i32 {
+    match d {
+        @{"kind": @"error", "code": @404} => 1, // both entries match
+        @{"kind": @"error"}               => 2, // present-key, value matches; extra key ignored
+        _                                 => 0,
+    }
+}
+
+// pat.writ.array-len-and-rest : exact length without rest, >= with trailing rest.
+unsafe fn writ_arr(d: &WritStatic) -> i32 {
+    match d {
+        @[@1, @2, @3] => 1, // exact length 3, each element matches
+        @[@1, ..]     => 2, // len >= 1, first element matches
+        _             => 0,
+    }
+}
+
+// pat.writ.wildcard-binding : a non-`_` name binds the sub-value and always matches.
+unsafe fn writ_bind(d: &WritStatic) -> i32 {
+    match d {
+        @[@1, x] => if x.is_int() { x.as_i24() } else { -1 },
+        _        => 0,
+    }
+}
+
+fn main() -> i64 {
+
+    // @rule pat.tuple.str-element-via-guard
+    // A string-literal tuple element lowers to a str_eq guard (NOT a pointer ==).
+    // Observable: it matches a structurally-equal but distinct string instance.
+    {
+        let key: str = "alpha";
+        let t: (str, i64) = (key, 9i64);
+        let got: i64 = match t {
+            ("alpha", n) => n,   // would fail under pointer-compare against the literal
+            (_, _) => -1i64,
+        };
+        if got != 9i64 { return 1; }
+    }
+
+    // @rule pat.tuple.default-ref-move-only
+    // Through a `&` tuple scrutinee, a move-only element binds by reference (&T),
+    // a Copy element binds by value. We bind a String element by ref and an i64 by value.
+    {
+        let s: String = "hi".to_string();
+        let t: (String, i64) = (s, 7i64);
+        let rt: &(String, i64) = &t;
+        let got: i64 = match rt {
+            (sr, n) => {
+                // sr is &String (move-only -> by ref); n is i64 (Copy -> by value).
+                let l: i64 = sr.len() as i64;
+                l + n
+            }
+        };
+        if got != 9i64 { return 2; }   // "hi".len()==2 + 7
+        // t still usable: the String was borrowed, not moved out.
+        if t.0.len() != 2 { return 3; }
+    }
+
+    // @rule pat.range.half-open-clamp
+    // Omitted bound clamps to the scrutinee int type's min/max.
+    {
+        let u: u8 = 250u8;
+        let got: i64 = match u {
+            200u8.. => 1i64,   // missing hi clamps to u8 MAX (255); 250 in [200,255]
+            _       => 0i64,
+        };
+        if got != 1i64 { return 4; }
+        let v: u8 = 5u8;
+        let got2: i64 = match v {
+            ..=10u8 => 1i64,   // missing lo clamps to u8 MIN (0); 5 in [0,10]
+            _       => 0i64,
+        };
+        if got2 != 1i64 { return 5; }
+    }
+
+    // @rule pat.at.binds-whole-and-sub
+    // `name @ sub` binds name to the whole scrutinee and also matches sub.
+    {
+        let got: i64 = match 6i64 {
+            n @ 1i64..=10i64 => n * 2i64,  // n == 6 (whole), sub-range matches
+            _ => -1i64,
+        };
+        if got != 12i64 { return 6; }
+    }
+
+    // @rule pat.ref-binding.binds-by-reference
+    // `ref x` binds x to &T of the scrutinee place (no move/copy).
+    {
+        let v: i64 = 41i64;
+        let got: i64 = match v {
+            ref r => *r + 1i64,   // r: &i64
+        };
+        if got != 42i64 { return 7; }
+    }
+
+    // @rule pat.ident.bare-no-payload-variant
+    // A bare identifier naming a no-payload variant is a refutable variant pattern,
+    // not an irrefutable binding. Covers prelude None and unqualified user variants.
+    {
+        let lt: Light = Light::Red;
+        let got: i64 = match lt {
+            Red           => 2i64,   // bare `Red` — no-payload variant pattern, refutable
+            Light::Green(_) => 3i64,
+        };
+        if got != 2i64 { return 8; }
+        // prelude Option None as a bare variant pattern.
+        let p: Option<i64> = Option::None;
+        let got2: i64 = match p {
+            None => 5i64,      // bare None is the variant test, refutable
+            Some(_) => 6i64,
+        };
+        if got2 != 5i64 { return 9; }
+    }
+
+    // @rule pat.struct.shorthand-binds-field
+    // `{ f }` shorthand binds a new variable f to the field value; `_` non-binding.
+    {
+        let p: Pt = Pt { x: 3i64, y: 4i64 };
+        let Pt { x, y } = p;   // shorthand binds x and y
+        if x != 3i64 { return 10; }
+        if y != 4i64 { return 11; }
+    }
+
+    // @rule pat.struct.field-ref-shorthand
+    // A field marked `ref` with no sub-pattern binds f to &T of the field.
+    {
+        let p: Pt = Pt { x: 12i64, y: 0i64 };
+        match p {
+            Pt { ref x, y: _ } => {
+                if *x != 12i64 { return 12; }   // x: &i64 to the field place
+            }
+        }
+    }
+
+    // @rule pat.struct.literal-field-guard
+    // A literal field sub-pattern `S { f: <lit> }` gates the arm with synth == lit.
+    {
+        let p: Pt = Pt { x: 5i64, y: 9i64 };
+        let got: i64 = match p {
+            Pt { x: 5i64, y: yy } => yy,    // x gated == 5, y bound
+            _ => -1i64,
+        };
+        if got != 9i64 { return 13; }
+        let q: Pt = Pt { x: 6i64, y: 9i64 };
+        let got2: i64 = match q {
+            Pt { x: 5i64, y: _ } => 1i64,   // x gate fails (6 != 5)
+            _ => 2i64,
+        };
+        if got2 != 2i64 { return 14; }
+    }
+
+    // @rule pat.slice.rest-binding
+    // `name @ ..` binds name to the rest sub-slice; bare `..` is anonymous.
+    {
+        let arr: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+        let s: &[i64] = &arr[..];
+        let got: i64 = match s {
+            [head, mid @ .., tail] => {
+                if *head != 1i64 { return 15; }
+                if *tail != 5i64 { return 16; }
+                mid.len() as i64    // rest sub-slice of length 3
+            }
+            _ => -1i64,
+        };
+        if got != 3i64 { return 17; }
+    }
+
+    // @rule pat.ident.const-str-guard
+    // A str-literal pattern lowers to a str_eq guard against the scrutinee.
+    {
+        let s: str = "foo";
+        let got: i64 = match s {
+            "foo" => 1i64,   // str_eq("foo")
+            "bar" => 2i64,
+            _ => 0i64,
+        };
+        if got != 1i64 { return 18; }
+    }
+
+    // @rule pat.ident.binding-and-mut
+    // A bare identifier (not a variant/const) is a fresh binding; `mut x` is mutable.
+    {
+        let got: i64 = match 99i64 {
+            n => n,    // fresh binding of the whole scalar
+        };
+        if got != 99i64 { return 19; }
+        let got2: i64 = match 4i64 {
+            mut m => { m = m + 1i64; m },   // mut binding is reassignable
+        };
+        if got2 != 5i64 { return 20; }
+    }
+
+    // @rule pat.bind.wildcard-no-binding
+    // `_` introduces no variable (across variant-data, tuple, struct-field).
+    {
+        let p: Pt = Pt { x: 11i64, y: 22i64 };
+        let Pt { x: keep, y: _ } = p;   // y matched, not bound
+        if keep != 11i64 { return 21; }
+        let o: Opt = Opt::Some(33i64);
+        let got: i64 = match o {
+            Opt::Some(_) => 1i64,       // payload matched, not bound
+            Opt::None => 0i64,
+        };
+        if got != 1i64 { return 22; }
+    }
+
+    // @rule pat.bind.struct-generic-subst
+    // Matching a struct pattern over S<A,B> binds fields at substituted types.
+    {
+        let g: GPair<u8, u16> = GPair { a: 7u8, b: 300u16 };
+        match g {
+            GPair { a, b } => {
+                let ai: i64 = a as i64;   // a: u8
+                let bi: i64 = b as i64;   // b: u16 (300 only fits u16, not u8)
+                if ai != 7i64 { return 23; }
+                if bi != 300i64 { return 24; }
+            }
+        }
+        // through a reference scrutinee: dereffed first to read type-args.
+        let rg: &GPair<u8, u16> = &g;
+        match rg {
+            GPair { a, b } => {
+                let ai: i64 = *a as i64;
+                let bi: i64 = *b as i64;
+                if ai != 7i64 { return 35; }
+                if bi != 300i64 { return 36; }
+            }
+        }
+    }
+
+    // @rule pat.bind.default-binding-mode-struct
+    // Under a `&` struct scrutinee, a move-only field binds by &T; Copy by value.
+    {
+        let h: Holder = Holder { name: "abc".to_string(), n: 4i64 };
+        let rh: &Holder = &h;
+        let got: i64 = match rh {
+            Holder { name, n } => {
+                // name: &String (move-only -> by ref), n: i64 (Copy -> by value)
+                (name.len() as i64) + n
+            }
+        };
+        if got != 7i64 { return 25; }   // 3 + 4
+        // h.name not moved out — still readable.
+        if h.name.len() != 3 { return 26; }
+    }
+
+    // @rule pat.writ.scalar-leaves
+    {
+        let n: WritStatic = @null;
+        let b: WritStatic = @true;
+        let f: WritStatic = @false;
+        let i: WritStatic = @42;
+        let s: WritStatic = @"hi";
+        let o: WritStatic = @99;
+        let sum: i32 = unsafe {
+            writ_scalar(&n) + writ_scalar(&b) + writ_scalar(&f)
+                + writ_scalar(&i) + writ_scalar(&s) + writ_scalar(&o)
+        };
+        if sum != 15 { return 27; }   // 1+2+3+4+5+0
+    }
+
+    // @rule pat.writ.map-shape
+    {
+        let a: WritStatic = @{"kind": "error", "code": 404};  // -> 1
+        let b: WritStatic = @{"kind": "error", "code": 500};  // extra key ignored, "code" gate skips arm1 -> 2
+        let c: WritStatic = @{"kind": "ok"};                  // -> 0
+        let sum: i32 = unsafe { writ_map(&a) + writ_map(&b) + writ_map(&c) };
+        if sum != 3 { return 28; }    // 1 + 2 + 0
+    }
+
+    // @rule pat.writ.array-len-and-rest
+    {
+        let a: WritStatic = @[1, 2, 3];     // exact len 3 -> 1
+        let b: WritStatic = @[1, 9];        // not len 3; rest arm len>=1 -> 2
+        let c: WritStatic = @[9, 9];        // first elem != 1 -> 0
+        let sum: i32 = unsafe { writ_arr(&a) + writ_arr(&b) + writ_arr(&c) };
+        if sum != 3 { return 29; }    // 1 + 2 + 0
+    }
+
+    // @rule pat.writ.wildcard-binding
+    {
+        let a: WritStatic = @[1, 55];
+        let v: i32 = unsafe { writ_bind(&a) };
+        if v != 55 { return 30; }     // x bound to second element, returned
+    }
+
+    return 0;
+}

@@ -1,0 +1,6 @@
+// @rule item.enum.discriminant-fits
+package item_diag_1_enum_disc_too_big;
+
+enum E : u8 { A = 1000 }
+
+fn main() -> i32 { return 0i32; }

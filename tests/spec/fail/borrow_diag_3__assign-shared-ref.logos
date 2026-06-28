@@ -1,0 +1,11 @@
+// @rule borrow.assign.shared-ref
+package borrow_diag_3_assign_shared_ref;
+
+struct S { f: i32 }
+
+fn main() -> i32 {
+    let mut s: S = S { f: 1i32 };
+    let r: &S = &s;
+    r.f = 2i32;
+    return s.f;
+}

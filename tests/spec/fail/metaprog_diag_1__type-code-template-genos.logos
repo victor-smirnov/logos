@@ -1,0 +1,9 @@
+// @rule metaprog.annot.type-code-on-template-genos-forbidden
+package metaprog_diag_1_type_code_template_genos;
+
+#[type_code=55]
+pub trait Bag<T> {
+    unsafe fn count(self: *const Self) -> u64;
+}
+
+fn main() -> i32 { return 0i32; }

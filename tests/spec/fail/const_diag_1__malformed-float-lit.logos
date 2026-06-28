@@ -1,0 +1,10 @@
+// @rule const.lit.float-suffix-kind
+package const_diag_1_malformed_float_lit;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen(1.2e);
+
+fn main() -> i32 { return 0i32; }

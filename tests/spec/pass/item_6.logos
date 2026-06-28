@@ -1,0 +1,173 @@
+package item_6;
+
+// ─────────────────────────────────────────────────────────────────────────
+// item_6 — item-definition surface rules, locked by execution.
+// Each rule's syntactic form is *used*, and an observable consequence asserted.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── use declaration: dot-separated path segments after the head ─────────────
+// @rule item.use.path-form
+use logos.mem.collections.vec;
+
+// ── union: write is safe, read needs unsafe ────────────────────────────────
+// @rule item.union.field-write-safety
+union Bits { i: i32, f: f32 }
+
+// ── tuple struct: synthetic positional field names "0", "1" ─────────────────
+// @rule item.tuple-struct.synthetic-field-names
+struct Pair(i32, i64);
+
+// ── const item: typed, non-generic form ────────────────────────────────────
+// @rule item.const.generic-and-typed
+const SEVEN: i64 = 7i64;
+
+// ── type alias: generic form ───────────────────────────────────────────────
+// @rule item.type-alias.generic
+type MyPair<T> = Pair;
+
+// ── enum: discriminant repr type + explicit (incl negative) discriminants ──
+// @rule item.enum.repr-and-variants
+enum Code : i32 {
+    Lo = -1,
+    Zero = 0,
+    Hi = 5,
+}
+
+// payload-carrying variant + bare variant (variant `NAME [(types...)]`).
+enum Shape {
+    Dot,
+    Line(i64),
+}
+
+// ── struct: inline inherent method == separate impl block; field-less form ──
+// @rule item.struct.fields-and-inherent-methods
+struct Counter {
+    n: i64,
+    fn get(&self) -> i64 { return self.n; }
+}
+// field-less struct: `struct NAME ;`
+struct Unit;
+impl Unit {
+    fn answer(&self) -> i64 { return 42i64; }
+}
+
+// ── impl block: trait impl + inherent impl ─────────────────────────────────
+// @rule item.impl.trait-and-inherent
+trait Speak { fn val(&self) -> i64; }
+struct Dog { k: i64 }
+impl Speak for Dog { fn val(&self) -> i64 { return self.k; } }   // trait impl
+impl Dog { fn twice(&self) -> i64 { return self.k * 2i64; } }    // inherent impl
+
+// ── fn signature forms: pub + return type; bodyless extern declaration ──────
+// @rule item.fn.signature-form
+pub fn add3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+extern "C" fn labs(x: i64) -> i64;   // bodyless declaration, terminated by `;`
+
+// ── parameters: &self / &mut self receivers; plain typed params ─────────────
+// @rule item.param.self-receiver-and-modifiers
+struct Acc { v: i64 }
+impl Acc {
+    fn read(&self) -> i64 { return self.v; }        // &self receiver
+    fn bump(&mut self, by: i64) { self.v = self.v + by; }  // &mut self receiver
+}
+
+// ── annotation forms: `#[NAME]`, `#[NAME = literal]`, `#[NAME(args...)]` ─────
+// @rule item.annotation.attribute-forms
+#[datatype] pub struct Tagged<T> { pub x: u32 }     // `#[NAME]` bare form
+// `#[NAME = literal]` (binds the literal to a concrete instantiation) and
+// `#[NAME(args...)]` with an array-literal arg value — both parse and attach.
+#[annotation(kinds = [ 1, 2, 3 ])]
+#[type_code=6606]
+#[datatype] pub struct Tagged<i32>;
+
+fn main() -> i64 {
+    // @rule item.use.path-form
+    {
+        // `use logos.mem.collections.vec;` brings `Vec` into scope through a
+        // dot-separated path; the imported item is usable.
+        let mut v: Vec<i64> = Vec::new();
+        v.push(70i64);
+        v.push(71i64);
+        if v.len() != 2i64 { return 19; }
+        if v[1] != 71i64 { return 20; }
+    }
+
+    // @rule item.annotation.attribute-forms
+    {
+        // `#[type_code=6606]` (the `#[NAME = literal]` form) attached to the
+        // `#[datatype]`/`#[annotation(... = [..])]`-decorated instantiation;
+        // type_code_of recovers exactly the bound literal.
+        if type_code_of::<Tagged<i32>>() != 6606u64 { return 21; }
+    }
+
+    // @rule item.union.field-write-safety
+    {
+        // Writing a union field is safe — no `unsafe` block around the write.
+        let mut u: Bits = Bits { i: 0i32 };
+        u.i = 321i32;                       // safe write
+        if unsafe { u.i } != 321i32 { return 1; }   // read needs `unsafe`
+    }
+
+    // @rule item.tuple-struct.synthetic-field-names
+    {
+        let p: Pair = Pair(9i32, 100i64);
+        if p.0 != 9i32 { return 2; }       // field named "0"
+        if p.1 != 100i64 { return 3; }     // field named "1"
+    }
+
+    // @rule item.const.generic-and-typed
+    if SEVEN != 7i64 { return 4; }
+
+    // @rule item.type-alias.generic
+    {
+        let p: MyPair<i64> = Pair(2i32, 3i64);  // alias resolves to Pair
+        if p.0 != 2i32 { return 5; }
+        if p.1 != 3i64 { return 6; }
+    }
+
+    // @rule item.enum.repr-and-variants
+    {
+        // discriminant repr i32 with explicit (incl negative) discriminants.
+        if (Code::Lo as i32) != -1i32 { return 7; }
+        if (Code::Zero as i32) != 0i32 { return 8; }
+        if (Code::Hi as i32) != 5i32 { return 9; }
+        // payload variant carries its data.
+        let s: Shape = Shape::Line(13i64);
+        let got: i64 = match s {
+            Shape::Line(v) => v,
+            Shape::Dot => -1i64,
+        };
+        if got != 13i64 { return 10; }
+    }
+
+    // @rule item.struct.fields-and-inherent-methods
+    {
+        let c: Counter = Counter { n: 55i64 };
+        if c.get() != 55i64 { return 11; }   // inline method behaves as impl
+        let u: Unit = Unit;                  // field-less struct value
+        if u.answer() != 42i64 { return 12; }
+    }
+
+    // @rule item.impl.trait-and-inherent
+    {
+        let d: Dog = Dog { k: 4i64 };
+        if d.val() != 4i64 { return 13; }    // trait-impl method
+        if d.twice() != 8i64 { return 14; }  // inherent-impl method
+    }
+
+    // @rule item.fn.signature-form
+    {
+        if add3(1i64, 2i64, 3i64) != 6i64 { return 15; }          // pub fn w/ ret
+        if unsafe { labs(0i64 - 88i64) } != 88i64 { return 16; }  // bodyless decl
+    }
+
+    // @rule item.param.self-receiver-and-modifiers
+    {
+        let mut a: Acc = Acc { v: 10i64 };
+        if a.read() != 10i64 { return 17; }   // &self
+        a.bump(5i64);                          // &mut self mutates in place
+        if a.read() != 15i64 { return 18; }
+    }
+
+    return 0;
+}

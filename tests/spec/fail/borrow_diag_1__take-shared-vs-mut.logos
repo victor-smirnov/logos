@@ -1,0 +1,11 @@
+// @rule borrow.take.shared-vs-mut
+package borrow_diag_1_take_shared_vs_mut;
+// &x while x is mutably borrowed -> reject.
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let r1: &mut i32 = &mut x;
+    let r2: &i32 = &x;
+    *r1 = 1i32;
+    let _ = *r2;
+    return 0i32;
+}

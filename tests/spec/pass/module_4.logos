@@ -1,0 +1,69 @@
+// Conformance test for spec unit "module_4": cross-package name resolution.
+// Each rule below is locked by a runnable assertion against the standard
+// library packages reachable via the implicit prelude / explicit imports.
+package module_4;
+
+// Rule 3 fixture: restrict the option package's symbols to its owning module.
+// `Option` (a TYPE) must still resolve, proving the `from <module>` restriction
+// admits a candidate whose package IS owned by the named module.
+use logos.lang.option from "logos-lang";
+
+// Rule 4 fixture: bring `logos.lang.mem` into scope so its free fns can be
+// addressed by an explicit dotted package qualifier.
+use logos.lang.mem;
+
+fn main() -> i64 {
+
+    // @rule module.reexport.transitive-pub-use
+    // `Option` lives in package `logos.lang.option`. It reaches main's scope
+    // only through a chain of `pub use` re-exports in the implicit prelude
+    // (std.prelude -> mem.prelude -> lang.prelude -> lang.option). If the
+    // resolver did not search re-exports transitively (and cycle-safely),
+    // this name would be unresolved and the program would not compile.
+    {
+        let o: Option<i64> = Option::Some(7i64);
+        let got: i64 = match o {
+            Option::Some(v) => v,
+            Option::None => -1i64,
+        };
+        if got != 7i64 { return 1; }
+    }
+
+    // @rule module.visibility.bare-cross-package-pub-check
+    // `String` is a `pub` item belonging to a package (logos.mem.string)
+    // different from the current package. It is resolved through the bare /
+    // unqualified key and must pass the same pub-access check a qualified hit
+    // would; a `pub` item passes, so construction succeeds.
+    {
+        let s: String = String::new();
+        if s.len() != 0i64 { return 2; }
+    }
+
+    // @rule module.import.use-pkg-from-module
+    // `use logos.lang.option from "logos-lang";` restricts the option package's
+    // TYPES (not just free fns) to the module "logos-lang". Because the option
+    // package IS owned by that module, the type `Option` resolves; a candidate
+    // owned by a different module than the one named would be skipped.
+    {
+        let p: Option<i64> = Option::None;
+        let is_none: bool = match p {
+            Option::Some(_) => false,
+            Option::None => true,
+        };
+        if !is_none { return 3; }
+    }
+
+    // @rule module.call.package-qualifier-disambiguates
+    // An explicit dotted package qualifier restricts free-fn resolution to a
+    // function whose `.package` equals that qualifier exactly. `swap_ref` is a
+    // member of `logos.lang.mem`; the qualified call selects it precisely.
+    {
+        let mut a: i64 = 5i64;
+        let mut b: i64 = 9i64;
+        logos.lang.mem::swap_ref(&mut a, &mut b);
+        if a != 9i64 { return 4; }
+        if b != 5i64 { return 5; }
+    }
+
+    return 0;
+}

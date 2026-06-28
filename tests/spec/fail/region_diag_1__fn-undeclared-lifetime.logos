@@ -1,0 +1,8 @@
+// @rule region.outlives.undeclared-lifetime-error
+package region_diag_1_fn_undeclared_lifetime;
+
+fn f<'a>(x: &'a i32) -> &'a i32 where 'a: 'b {
+    return x;
+}
+
+fn main() -> i32 { return 0i32; }

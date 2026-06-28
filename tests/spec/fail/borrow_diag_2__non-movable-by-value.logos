@@ -1,0 +1,8 @@
+// @rule borrow.move.non-movable-by-value-rejected
+package borrow_diag_2_non_movable_by_value;
+#[rel_ptr] struct RP<T> { _o: i64 }
+struct Node { next: RP<i64>, tag: i64 }
+fn main() -> i32 {
+    let a: Node = Node { next: RP::<i64> { _o: 0i64 }, tag: 7i64 };
+    return a.tag as i32;
+}

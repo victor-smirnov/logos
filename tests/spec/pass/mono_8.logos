@@ -1,0 +1,218 @@
+package mono_8;
+
+// Monomorphization reachability, dedup, specialization-selection, and
+// substitution conformance (mono_scan / mono_subst). Each rule is exercised by
+// a generic/overloaded/coercion construct whose only correct value depends on
+// mono performing the described selection or substitution. The internal slot
+// (mangle key, specificity vector, impl-target unify, pack binding, DST canon)
+// is observed via the value it produces.
+
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+
+// ── method overloads sharing one user-facing name (dedup-per-overload) ───────
+struct Ovl { n: i64 }
+impl Ovl {
+    fn f(&self, a: i64) -> i64 { return self.n + a; }
+    fn f(&self, a: i64, b: i64) -> i64 { return (self.n + a) + b; }
+}
+
+// ── concrete-impl free fn beats the blanket/generic method body ──────────────
+struct Foo<T> { x: i64 }
+impl<T> Foo<T> { fn tag(&self) -> i64 { return 1i64; } }
+impl Foo<i32> { fn tag(&self) -> i64 { return 42i64; } }   // specialization wins
+
+// ── generic free fn: explicit type-args force one instance, keyed by mangle ──
+fn id<T: Copy>(x: T) -> T { return x; }
+
+// ── transitive reachability: main → outer → inner ───────────────────────────
+fn inner(x: i64) -> i64 { return x + 1i64; }
+fn outer(x: i64) -> i64 { return inner(x) + 1i64; }
+
+// ── most-specific specialization wins over generic template ──────────────────
+fn describe<T>(x: T) -> i64 { return 0i64; }
+fn describe<i32>(x: i32) -> i64 { return 1i64; }
+fn describe<bool>(x: bool) -> i64 { return 2i64; }
+
+// ── struct tparams then method tparams (prefix=struct, suffix=method) ────────
+struct W<T> { v: T }
+impl<T: Copy> W<T> {
+    fn pick<U: Copy>(&self, other: U) -> U { return other; }   // T then U
+    fn first(&self) -> T { return self.v; }
+}
+
+// ── impl-target unification: impl<T,E> Pair<Vec<T>, E> (structured pattern) ──
+struct Pair<A, B> { a: A, b: B }
+impl<T, E> Pair<Vec<T>, E> { fn kind(&self) -> i64 { return 7i64; } }
+impl Pair<i64, i64>       { fn kind(&self) -> i64 { return 9i64; } }
+
+// ── variadic pack tail: leading positional, rest collected into pack ─────────
+fn sum_all() -> i64 { return 0i64; }
+fn sum_all<H, T...>(first: H, rest: T...) -> i64 {
+    return (first as i64) + sum_all(rest...);
+}
+
+// ── const-pack typed: each scalar arg wraps as a typed integer literal ───────
+fn add3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+fn cpack_sum<const N...: i64>() -> i64 { return add3(N...); }
+fn cpack_size<const N...: i64>() -> i64 { return sizeof...(N) as i64; }
+
+// ── array length from const-generic N (array-const-size) ─────────────────────
+// The parameter type `[i64; N]` has its symbolic length resolved through the
+// substitution map to a concrete literal; index 0 and N-1 are both in-bounds.
+fn arr_const<const N: i64>(a: [i64; N]) -> i64 {
+    return a[0] + a[(N - 1i64)];
+}
+
+// ── array length sizeof...(P) over a pack (array-sizeof-pack) ─────────────────
+fn arr_pack<const N...: i64>() -> i64 {
+    let a: [i64; sizeof...(N)] = [N...];
+    return a[0] + a[1] + a[2];
+}
+
+// ── substitution maps TypeVar T to concrete bound (subst.type-var) ───────────
+struct Cell<T> { v: T }
+fn wrap<T: Copy>(x: T) -> Cell<T> { return Cell::<T> { v: x }; }
+
+// ── generic-struct & non-generic-enum instantiation recorded ─────────────────
+fn opt_or(o: Option<i32>, d: i32) -> i32 {
+    return match o { Option::Some(v) => v, Option::None => d };
+}
+
+// ── dyn coercion (plain trait): &X vs box X both dispatch ─────────────────────
+trait Speak { fn val(&self) -> i64; }
+struct Dog { n: i64 }
+impl Speak for Dog { fn val(&self) -> i64 { return self.n; } }
+fn via_ref(d: &dyn Speak) -> i64 { return d.val(); }
+fn via_box(d: Box<dyn Speak>) -> i64 { return d.val(); }
+
+// ── dyn coercion instantiates a BLANKET impl (keyed by trait + concrete Self) ─
+trait Bounded { fn base(&self) -> i64; }
+trait Doubled { fn doubled(&self) -> i64; }
+impl<T: Bounded> Doubled for T { fn doubled(&self) -> i64 { return self.base() * 2i64; } }
+struct C { k: i64 }
+impl Bounded for C { fn base(&self) -> i64 { return self.k; } }
+fn via_doubled(d: &dyn Doubled) -> i64 { return d.doubled(); }
+
+fn main() -> i64 {
+
+    // @rule mono.method-inst.dedup-per-concrete-overload
+    // Two methods share user-facing name `f`; each overload (by signature)
+    // collapses to one instance and dispatches to its own body.
+    {
+        let s: Ovl = Ovl { n: 10i64 };
+        if s.f(1i64) != 11i64 { return 1; }
+        if s.f(1i64, 2i64) != 13i64 { return 2; }
+    }
+
+    // @rule mono.method-inst.specialization-free-fn-wins
+    // `impl Foo<i32>` provides a concrete tag(); Foo<i32> uses it (42) instead
+    // of cloning the blanket `impl<T> Foo<T>` body (1). Other T keep blanket.
+    {
+        let fi: Foo<i32>  = Foo::<i32>  { x: 0i64 };
+        let fb: Foo<bool> = Foo::<bool> { x: 0i64 };
+        if fi.tag() != 42i64 { return 3; }
+        if fb.tag() != 1i64  { return 4; }
+    }
+
+    // @rule mono.reach.generic-call-enqueues-instance
+    // A call with explicit type-args forces one mono instance per type-arg set;
+    // i64 and bool instances coexist and behave independently.
+    if id::<i64>(7i64) != 7i64 { return 5; }
+    if id::<bool>(true) != true { return 6; }
+
+    // @rule mono.reach.transitive-from-roots
+    // outer is reachable from main and its body calls inner; the transitive
+    // closure pulls inner so the full chain computes.
+    if outer(40i64) != 42i64 { return 7; }
+
+    // @rule mono.spec.most-specific-wins
+    // A matching full specialization is preferred over the generic template:
+    // describe::<i32> → 1, describe::<bool> → 2 (not the generic 0).
+    if describe::<i32>(0i32) != 1i64 { return 8; }
+    if describe::<bool>(true) != 2i64 { return 9; }
+    if describe::<i64>(0i64) != 0i64 { return 10; }   // no spec → template
+
+    // @rule mono.subst.struct-then-method-tparams
+    // For W<i64>::pick::<i32>, the type-arg vector is [struct T=i64, method
+    // U=i32]; the struct prefix binds T, the suffix binds the method's U.
+    {
+        let w: W<i64> = W::<i64> { v: 5i64 };
+        if w.pick::<i32>(7i32) != 7i32 { return 11; }   // U=i32 returned
+        if w.first() != 5i64 { return 12; }             // T=i64 field
+    }
+
+    // @rule mono.subst.impl-target-unification
+    // `impl<T,E> Pair<Vec<T>, E>` is a structured target; Pair<Vec<i64>,i64>
+    // unifies T,E by name (→7), while the concrete impl Pair<i64,i64> (→9) is
+    // a distinct, more specific target.
+    {
+        let v: Vec<i64> = Vec::<i64>::new();
+        let pv: Pair<Vec<i64>, i64> = Pair::<Vec<i64>, i64> { a: v, b: 0i64 };
+        if pv.kind() != 7i64 { return 13; }
+        let pc: Pair<i64, i64> = Pair::<i64, i64> { a: 1i64, b: 2i64 };
+        if pc.kind() != 9i64 { return 14; }
+    }
+
+    // @rule mono.subst.variadic-pack-tail
+    // `<H, T...>`: the leading H binds positionally, the rest are collected into
+    // the variadic pack T and forwarded recursively.
+    if sum_all::<i64, i64, i64, i64, i64>(5i64, 7i64, 9i64, 11i64, 10i64) != 42i64 { return 15; }
+
+    // @rule mono.subst.const-pack-typed
+    // Each scalar type-arg of a const-pack is wrapped as a typed ConstVar so the
+    // pack expands to typed i64 literals that sum correctly.
+    if cpack_sum::<4, 5, 6>() != 15i64 { return 16; }
+    if cpack_size::<7, 8, 9, 10>() != 4i64 { return 17; }
+
+    // @rule mono.subst.array-const-size
+    // `[i64; N]` with const-generic N resolves N to a concrete literal length;
+    // index 0 and index N-1 are both in-bounds for the substituted length.
+    if arr_const::<4>([10i64, 20i64, 30i64, 40i64]) != 50i64 { return 18; }  // a[0]+a[3]
+
+    // @rule mono.subst.array-sizeof-pack
+    // `[i64; sizeof...(N)]` sets its literal length to the count of the concrete
+    // pack expansion (3), so all three elements exist.
+    if arr_pack::<10, 20, 30>() != 60i64 { return 19; }
+
+    // @rule mono.subst.type-var
+    // Substitution maps the body's TypeVar T to the concrete bound; the value
+    // round-trips through the concrete Cell<T> for two distinct T.
+    {
+        let ci: Cell<i64> = wrap::<i64>(99i64);
+        if ci.v != 99i64 { return 20; }
+        let cb: Cell<bool> = wrap::<bool>(true);
+        if cb.v != true { return 21; }
+    }
+
+    // @rule mono.subst.generic-struct-instantiation
+    // A generic struct (Cell<i32>) and a non-generic use of a generic enum
+    // (Option<i32>) are both recorded/instantiated and round-trip their values.
+    {
+        let cc: Cell<i32> = wrap::<i32>(8i32);
+        if cc.v != 8i32 { return 22; }
+        if opt_or(Option::Some(13i32), 0i32) != 13i32 { return 23; }
+        if opt_or(Option::None, 5i32) != 5i32 { return 24; }
+    }
+
+    // @rule mono.dyn.coerce-instantiates-blanket-impl
+    // Coercing C to &dyn Doubled makes the blanket `impl<T:Bounded> Doubled`
+    // reachable for Self=C; the vtable slot is populated and dispatch works.
+    {
+        let c: C = C { k: 21i64 };
+        if via_doubled(&c) != 42i64 { return 25; }
+    }
+
+    // @rule mono.dyn.self-derivation-ref-vs-box
+    // For `&Dog as &dyn` Self=Dog (pointee); for `box Dog as Box<dyn>` Self=Dog
+    // (one Box unwrap). Both derivations key on the same Dog method, so both
+    // dispatch to Dog::val.
+    {
+        let d: Dog = Dog { n: 42i64 };
+        if via_ref(&d) != 42i64 { return 26; }
+        let bd: Box<dyn Speak> = box_new::<Dog>(Dog { n: 13i64 }) as Box<dyn Speak>;
+        if via_box(bd) != 13i64 { return 27; }
+    }
+
+    return 0;
+}

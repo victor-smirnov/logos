@@ -1,0 +1,176 @@
+package generic_2;
+
+// generic_2 — generics: VARIANCE inference + SPECIALIZATION dispatch + generic
+// BOUND checking. Most variance rules have no runtime value: their lock is a
+// lifetime-subtyping coercion that *only type-checks if the variance holds* —
+// the helper fn existing + being reachable from main is the lock (a wrong
+// variance makes this file fail to COMPILE, i.e. go red). Spec-dispatch and
+// bound rules ARE observable as distinct return values and are asserted as such.
+
+// ── helper traits / types ────────────────────────────────────────────────────
+trait Marker { fn m(&self) -> i64; }
+impl Marker for i32 { fn m(&self) -> i64 { return 1i64; } }
+
+struct Wc<T> { p: *const T }              // raw-ptr-bearing wrapper
+struct Holder<T> { v: T }                 // plain ADT (covariant by table default)
+enum Opt<T> { Some(T), None }             // enum (covariant in payload)
+struct LtMarker<'a> { p: i64 }            // lifetime never used in a field
+
+// ── variance helpers (compile-locks; called from main so they are checked) ────
+
+// @rule generic.variance.raw-ptr
+// `*const T` is covariant in pointee T: a wrapper over `&'long` shortens to
+// `&'short`. (`*mut T`'s invariance is the negative dual — see "untestable".)
+fn v_raw_ptr<'short, 'long>(v: Wc<&'long i32>) -> Wc<&'short i32>
+    where 'long: 'short { return v; }
+
+// @rule generic.variance.tuple-array-slice-covariant
+// A tuple is covariant in each element, and `[T; N]` / `[T]` are covariant in T:
+// each shortens its element lifetime.
+fn v_tuple<'short, 'long>(t: (&'long i32, &'long i32)) -> (&'short i32, &'short i32)
+    where 'long: 'short { return t; }
+fn v_array<'short, 'long>(a: [&'long i32; 2]) -> [&'short i32; 2]
+    where 'long: 'short { return a; }
+fn v_slice<'short, 'long>(s: &'short [&'long i32]) -> &'short [&'short i32]
+    where 'long: 'short { return s; }
+
+// @rule generic.variance.adt-by-table
+// A struct ADT's type-arg variance is the (table-driven, default-Co) compose:
+// Holder<&'long> shortens to Holder<&'short>.
+fn v_adt<'short, 'long>(h: Holder<&'long i32>) -> Holder<&'short i32>
+    where 'long: 'short { return h; }
+
+// @rule generic.variance.fixpoint
+// The fixpoint seeds each param BiVar then meets field contributions to a stable
+// variance; `Holder<T>` converges to Co (its only field is `v: T`), so the
+// shortening coercion above is admitted. Re-exercise with a second ADT shape.
+fn v_fixpoint<'short, 'long>(o: Opt<&'long i32>) -> Opt<&'short i32>
+    where 'long: 'short { return o; }
+
+// @rule generic.variance.fn-contravariant-params
+// `fn(&T) -> i32` is contravariant in the parameter ref (a fn accepting a
+// shorter-lived ref may stand in where a longer-lived one is expected) and
+// covariant in its return.
+fn v_fn_param<'short, 'long>(f: fn(&'short i32) -> i32) -> fn(&'long i32) -> i32
+    where 'long: 'short { return f; }
+fn v_fn_ret<'short, 'long>(f: fn() -> &'long i32) -> fn() -> &'short i32
+    where 'long: 'short { return f; }
+
+// @rule generic.variance.unknown-type-bivariant
+// A type that never mentions the param contributes BiVar (identity for meet):
+// the unused lifetime imposes no constraint, so any instantiation flows freely.
+fn v_bivariant<'short, 'long>(v: LtMarker<'long>) -> LtMarker<'short> { return v; }
+
+// ── specialization-dispatch helpers (observable return values) ────────────────
+
+// describe legs: generic fallback, two concrete (bare-ident) legs, a partial
+// pointer pattern, and a full pointer pattern.
+fn describe<T>(x: T) -> i64 { return 0i64; }
+fn describe<i32>(x: i32) -> i64 { return 1i64; }
+fn describe<bool>(x: bool) -> i64 { return 2i64; }
+fn describe<*const T>(x: *const T) -> i64 { return 3i64; }
+fn describe<*const i32>(x: *const i32) -> i64 { return 4i64; }
+
+// ── bound-checking helpers ────────────────────────────────────────────────────
+fn need_marker<T: Marker>(x: T) -> i64 { return x.m(); }     // parametrized bound
+fn no_params(x: i64) -> i64 { return x + 1i64; }             // zero type params
+fn defer_outer<U: Marker>(x: U) -> i64 { return need_marker::<U>(x); } // typevar-bearing arg
+
+fn main() -> i64 {
+
+    // Reference data with a concrete (anonymous) lifetime so the variance
+    // helpers can be instantiated and thus type-checked + codegen'd.
+    let n: i32 = 5i32;
+
+    // @rule generic.variance.raw-ptr
+    {
+        let w: Wc<&i32> = Wc::<&i32> { p: 0 as *const &i32 };
+        let _w: Wc<&i32> = v_raw_ptr(w);                 // compiles iff *const T is Co
+    }
+
+    // @rule generic.variance.tuple-array-slice-covariant
+    {
+        let t: (&i32, &i32) = (&n, &n);
+        let _t: (&i32, &i32) = v_tuple(t);               // tuple Co in each element
+        let a: [&i32; 2] = [&n, &n];
+        let _a: [&i32; 2] = v_array(a);                  // [T; N] Co in T
+        let sa: [&i32; 2] = [&n, &n];
+        let _s: &[&i32] = v_slice(&sa);                  // [T] Co in T
+    }
+
+    // @rule generic.variance.adt-by-table
+    {
+        let h: Holder<&i32> = Holder::<&i32> { v: &n };
+        let _h: Holder<&i32> = v_adt(h);                 // ADT Co via default table entry
+    }
+
+    // @rule generic.variance.fixpoint
+    {
+        let o: Opt<&i32> = Opt::<&i32>::Some(&n);
+        let _o: Opt<&i32> = v_fixpoint(o);               // fixpoint converges Holder/Opt to Co
+    }
+
+    // @rule generic.variance.fn-contravariant-params
+    {
+        let f: fn(&i32) -> i32 = some_fn;
+        let _g: fn(&i32) -> i32 = v_fn_param(f);         // fn Contra in param
+        let r: fn() -> &i32 = ret_static;
+        let _r: fn() -> &i32 = v_fn_ret(r);              // fn Co in return
+    }
+
+    // @rule generic.variance.unknown-type-bivariant
+    {
+        let lm: LtMarker = LtMarker { p: 7i64 };
+        let _lm: LtMarker = v_bivariant(lm);             // unused lifetime → BiVar, no constraint
+    }
+
+    // @rule generic.spec.bare-ident-resolution
+    // A bare-IDENT spec slot naming a known type (`i32`, `bool`) is a concrete
+    // leg; an arg with no matching leg (`i64`) falls to the generic base.
+    {
+        let v: i32 = 0i32;
+        if describe::<i32>(v) != 1i64 { return 20; }     // concrete i32 leg
+        if describe::<bool>(true) != 2i64 { return 21; } // concrete bool leg
+        if describe::<i64>(8i64) != 0i64 { return 22; }  // generic fallback (no i64 leg)
+    }
+
+    // @rule generic.spec.pattern-list
+    // Structured-type patterns (`*const T`, `*const i32`) drive dispatch: the
+    // full pointer leg beats the partial pattern; an unmatched pointee uses the
+    // partial pattern (T stays a free TypeVar).
+    {
+        let vi: i32 = 0i32;
+        let p: *const i32 = &vi;
+        let q: *const i64 = &(9i64);
+        if describe(p) != 4i64 { return 23; }            // full *const i32 beats partial
+        if describe(q) != 3i64 { return 24; }            // partial *const T (TypeVar T)
+    }
+
+    // @rule generic.bounds.substitute-call-args
+    // A turbofish T=i32 is substituted into the bound `T: Marker` before checking,
+    // so the bound is verified against i32 (which impls Marker) and the call runs.
+    {
+        if need_marker::<i32>(5i32) != 1i64 { return 25; }
+    }
+
+    // @rule generic.bounds.no-empty-params
+    // A target with no type parameters skips bound checking entirely and runs.
+    {
+        if no_params(4i64) != 5i64 { return 26; }
+    }
+
+    // @rule generic.bounds.defer-typevar-bearing
+    // Inside `defer_outer<U>`, the arg to `need_marker` has TypeVar type U whose
+    // trait satisfaction is undecidable there and is deferred to mono; with
+    // U=i32 substituted the bound re-checks and the call resolves.
+    {
+        if defer_outer::<i32>(9i32) != 1i64 { return 27; }
+    }
+
+    return 0;
+}
+
+// fn-pointer targets used by the variance helpers above.
+fn some_fn(x: &i32) -> i32 { return *x; }
+fn ret_static() -> &'static i32 { return &GLOBAL; }
+static GLOBAL: i32 = 0i32;

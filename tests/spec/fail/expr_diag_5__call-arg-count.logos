@@ -1,0 +1,11 @@
+// @rule expr.call.arg-count
+package expr_diag_5_call_arg_count;
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn main() -> i32 {
+    let _r = add(1i32);
+    return 0i32;
+}

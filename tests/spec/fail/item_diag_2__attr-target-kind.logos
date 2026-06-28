@@ -1,0 +1,7 @@
+// @rule item.attr.target-kind-validity
+package item_diag_2_attr_target_kind;
+
+#[datatype]
+enum E { A, B }
+
+fn main() -> i32 { return 0i32; }

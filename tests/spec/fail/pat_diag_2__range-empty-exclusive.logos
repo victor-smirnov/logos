@@ -1,0 +1,10 @@
+// @rule pat.range.exclusive-to-inclusive
+package pat_diag_2_range_empty_excl;
+
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    match x {
+        9..3 => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

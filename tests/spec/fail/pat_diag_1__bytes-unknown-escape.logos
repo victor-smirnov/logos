@@ -1,0 +1,10 @@
+// @rule pat.bytes.escape-set
+package pat_diag_1_bytes_unknown_escape;
+
+fn main() -> i32 {
+    let a: [u8; 1] = [65u8];
+    match a {
+        b"\q" => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

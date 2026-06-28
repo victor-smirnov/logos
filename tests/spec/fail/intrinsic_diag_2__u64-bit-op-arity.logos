@@ -1,0 +1,7 @@
+// @rule intrinsic.bits.u64-bit-ops
+package intrinsic_diag_2_u64_bit_op_arity;
+
+unsafe fn main() -> i32 {
+    let _pc: u32 = popcount_u64(255u64, 1u64);
+    return 0i32;
+}

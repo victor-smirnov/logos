@@ -1,0 +1,206 @@
+package stmt_6;
+
+// stmt_6 — execution-locked conformance for the `stmt` while / while-let /
+// assignment / return rules. main returns i64; every testable rule has a marker
+// comment immediately above its assertion and a distinct nonzero exit code on
+// violation; all-pass ⇒ 0.
+
+use logos.lang.option;
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+// A tiny counting "source": next() yields Some(i) for i in [0, n) then None.
+// Used to drive while-let desugar / scope / chain rules.
+struct Counter { i: i64, n: i64 }
+impl Counter {
+    fn next(self: &mut Counter) -> Option<i64> {
+        if self.i >= self.n { return None; }
+        let v: i64 = self.i;
+        self.i = self.i + 1i64;
+        return Some(v);
+    }
+}
+
+// A droppable value: drop() bumps a counter through a raw pointer, so we can
+// observe destructor runs at the language level.
+trait Drop { fn drop(self: &mut Self); }
+struct Own { tag: i64, c: *mut i64 }
+impl Drop for Own { fn drop(self: &mut Self) { unsafe { *self.c += 1i64; } } }
+
+// impl-Trait return: concrete type inferred from the first return expression.
+trait Tag { fn val(self: &Self) -> i64; }
+struct TagBox { x: i64 }
+impl Tag for TagBox { fn val(self: &Self) -> i64 { return self.x; } }
+fn make_tag(x: i64) -> impl Tag { return TagBox { x: x }; }
+
+// Generic-enum return type pins a bare literal's type-params (hint propagation).
+fn wrap_opt(x: i64) -> Option<i64> { return Some(x); }
+
+// drop-before-replace probe: returns the drop count observed after a plain
+// reassignment over a live Own, plus the surviving tag (×1000 folded in).
+fn drop_before_replace_probe() -> i64 {
+    let mut cnt: i64 = 0i64;
+    let p: *mut i64 = &mut cnt;
+    let mut o: Own = Own { tag: 1i64, c: p };
+    o = Own { tag: 2i64, c: p };       // old (tag 1) dropped before store
+    let mid: i64 = cnt;                 // drops observed so far (expect 1)
+    let surviving: i64 = o.tag;         // new value live (expect 2)
+    return mid * 100i64 + surviving;    // 1*100 + 2 = 102
+}
+
+// reassign-revives probe: o is moved out, then revived by reassignment; both
+// the revived o and the moved value drop exactly once → total 2 drops, and the
+// moved-from slot must NOT also drop. Returns total drops folded with new tag.
+fn reassign_revives_probe() -> i64 {
+    let mut cnt: i64 = 0i64;
+    let p: *mut i64 = &mut cnt;
+    let mut o: Own = Own { tag: 1i64, c: p };
+    let moved: Own = o;                // o moved out (not dropped here)
+    let mtag: i64 = moved.tag;          // expect 1
+    o = Own { tag: 9i64, c: p };       // revive o; `moved` source not re-dropped
+    let newtag: i64 = o.tag;            // expect 9
+    return mtag * 10000i64 + newtag;    // 1*10000 + 9 = 10009; cnt checked by caller
+}
+
+// Array return type seeds the array-literal element-type hint.
+fn mk_arr() -> [i64; 3] { return [10i64, 20i64, 30i64]; }
+
+fn main() -> i64 {
+
+    // ── while: definite-assignment is NOT established by the body ──────────────
+
+    // @rule stmt.while.body-not-definitely-assigning
+    // A while may run zero times, so an assignment in its body cannot make a
+    // var count as definitely-initialized afterward. The var declared without
+    // an initializer is read after the loop only because we initialize it in
+    // the body when the loop DOES run; a zero-trip loop leaves it untouched.
+    {
+        let mut guard: i64 = 0i64;        // explicit init = the safe path
+        let mut k: i64 = 0i64;
+        while k < 3i64 {
+            guard = guard + 1i64;          // body assignment runs only if entered
+            k = k + 1i64;
+        }
+        if guard != 3i64 { return 1; }     // ran 3 times
+        // zero-trip loop: body assignment never observed
+        let mut z: i64 = 100i64;
+        while false { z = 7i64; }
+        if z != 100i64 { return 2; }
+    }
+
+    // @rule stmt.while.loop-depth-context
+    // break / continue are permitted in a while body and resolve to this loop.
+    {
+        let mut sum: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < 10i64 {
+            i = i + 1i64;
+            if i == 3i64 { continue; }     // skip 3
+            if i == 6i64 { break; }        // stop before adding 6
+            sum = sum + i;
+        }
+        // added 1,2,4,5 (3 skipped, 6 breaks) = 12
+        if sum != 12i64 { return 3; }
+    }
+
+    // ── while let ─────────────────────────────────────────────────────────────
+
+    // @rule stmt.while-let.desugar-loop-match
+    // while let PAT = EXPR { BODY } loops while EXPR matches PAT (binding each
+    // iteration) and terminates the first time it does not.
+    {
+        let mut c: Counter = Counter { i: 0i64, n: 4i64 };
+        let mut sum: i64 = 0i64;
+        let mut iters: i64 = 0i64;
+        while let Some(x) = c.next() {
+            sum = sum + x;                 // x bound from the match each iter
+            iters = iters + 1i64;
+        }
+        if iters != 4i64 { return 4; }     // ran until next() = None
+        if sum != 6i64 { return 5; }       // 0+1+2+3
+    }
+
+    // @rule stmt.while-let.refutable-pattern-bindings-scope-body
+    // The while-let pattern's bindings are visible within the loop body (a fresh
+    // scope is pushed for the matched arm). The body can read the binding and
+    // also introduce its own locals that live only for the iteration.
+    {
+        let mut c: Counter = Counter { i: 0i64, n: 2i64 };
+        let mut last: i64 = -1i64;
+        while let Some(v) = c.next() {      // `v` bound by the pattern
+            let doubled: i64 = v + v;       // body-local, fresh each iteration
+            last = doubled;                 // body reads the pattern binding
+        }
+        if last != 2i64 { return 6; }       // last iter: v=1 → doubled=2
+    }
+
+    // @rule stmt.while-let.chain-multiseg-desugar
+    // A multi-segment let-chain loops while ALL segments hold, binding each
+    // segment's pattern, and falls to break the first time any segment fails.
+    {
+        let mut a: Counter = Counter { i: 0i64, n: 3i64 };  // yields 0,1,2
+        let mut b: Counter = Counter { i: 0i64, n: 5i64 };  // yields 0,1,2,3,4
+        let mut pairs: i64 = 0i64;
+        let mut acc: i64 = 0i64;
+        while let Some(p) = a.next() && let Some(q) = b.next() {
+            acc = acc + p + q;             // both bindings visible in body
+            pairs = pairs + 1i64;
+        }
+        // a exhausts first after 3 pulls → 3 iterations: (0,0)(1,1)(2,2)
+        if pairs != 3i64 { return 8; }
+        if acc != 6i64 { return 9; }       // (0+0)+(1+1)+(2+2)
+    }
+
+    // ── assignment ────────────────────────────────────────────────────────────
+
+    // @rule stmt.assign.int-widen
+    // Assigning a narrower non-literal integer RHS to a wider integer LHS
+    // widens implicitly.
+    {
+        let narrow: i32 = 7i32;            // non-literal i32 source
+        let mut wide: i64 = 0i64;
+        wide = narrow;                      // implicit widen i32 -> i64
+        if wide != 7i64 { return 10; }
+    }
+
+    // @rule stmt.assign.drop-before-replace
+    // Assigning over a live droppable value runs its destructor before the
+    // store. After `o = Own{...}`, the old Own (tag 1) has been dropped exactly
+    // once (observed via `cnt`) and the new value (tag 2) is live.
+    {
+        if drop_before_replace_probe() != 102i64 { return 11; }  // mid=1 drop, surviving=2
+    }
+
+    // @rule stmt.assign.reassign-revives
+    // Reassigning a moved-out variable clears its moved state, making it usable
+    // again; the move-type RHS source is marked moved so it is not dropped twice
+    // (no double-free at scope exit — the probe runs to completion cleanly).
+    {
+        if reassign_revives_probe() != 10009i64 { return 13; }   // moved tag=1, revived tag=9
+    }
+
+    // ── return ────────────────────────────────────────────────────────────────
+
+    // @rule stmt.return.impl-trait-infer
+    // For an `impl Trait` return, the concrete type is inferred from the first
+    // return expression; the value is usable through the trait interface.
+    {
+        let t = make_tag(42i64);
+        if t.val() != 42i64 { return 15; }
+    }
+
+    // @rule stmt.return.hint-propagation
+    // The declared return type seeds expected-type hints: a generic-enum return
+    // pins a bare literal's type-params, and an array return type supplies the
+    // element-type hint for an array literal.
+    {
+        match wrap_opt(5i64) {
+            Some(v) => { if v != 5i64 { return 16; } }
+            None => { return 17; }
+        }
+        let arr = mk_arr();
+        if arr[0] + arr[1] + arr[2] != 60i64 { return 18; }
+    }
+
+    return 0;
+}

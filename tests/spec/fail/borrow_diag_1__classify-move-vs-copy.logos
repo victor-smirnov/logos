@@ -1,0 +1,12 @@
+// @rule borrow.classify.move-vs-copy
+package borrow_diag_1_classify_move_vs_copy;
+use logos.mem.string;
+// (String, i64) is a MOVE type because it structurally carries a String.
+// Moving it then using it again is a use-after-move — proving the aggregate
+// was classified Move, not Copy.
+fn use_t(t: (String, i64)) -> i64 { return t.1; }
+fn main() -> i32 {
+    let t: (String, i64) = (String::from("x"), 1i64);
+    let _u: (String, i64) = t;
+    return use_t(t) as i32;
+}

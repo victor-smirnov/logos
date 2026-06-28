@@ -1,0 +1,11 @@
+// @rule intrinsic.get-annotation.signature
+package getann_not_ann;
+
+use logos.lang.option;
+
+#[datatype] struct OldApi { x: i32 }
+
+fn main() -> i32 {
+    let opt: Option<i32> = get_annotation::<OldApi, i32>();
+    return 0;
+}

@@ -1,0 +1,10 @@
+// @rule borrow.assign.shared-slice-elem
+package borrow_diag_3_assign_shared_slice_elem;
+
+fn write(s: &[i32]) {
+    s[0i64] = 9i32;
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

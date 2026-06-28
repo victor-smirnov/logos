@@ -1,0 +1,11 @@
+// @rule expr.call.intlit-fits
+package expr_diag_5_call_intlit_overflow;
+
+fn want_u8(x: u8) -> i32 {
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let _r = want_u8(999);
+    return 0i32;
+}

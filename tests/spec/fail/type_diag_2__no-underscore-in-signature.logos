@@ -1,0 +1,7 @@
+package type_diag_2_no_underscore_in_signature;
+// @rule type.infer.no-underscore-in-item-signature
+// The `_` placeholder is not permitted within types in item signatures.
+
+fn f(x: _) {}
+
+fn main() -> i32 { return 0; }

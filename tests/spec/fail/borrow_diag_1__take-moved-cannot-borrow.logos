@@ -1,0 +1,12 @@
+// @rule borrow.take.moved-cannot-borrow
+package borrow_diag_1_take_moved_cannot_borrow;
+// move x, then take a borrow of the moved value -> reject.
+struct Owned { val: i32 }
+impl Drop for Owned { fn drop(self: &mut Owned) { } }
+fn consume(o: Owned) -> i32 { return o.val; }
+fn main() -> i32 {
+    let x = Owned { val: 1i32 };
+    let _ = consume(x);
+    let r: &Owned = &x;
+    return (*r).val;
+}

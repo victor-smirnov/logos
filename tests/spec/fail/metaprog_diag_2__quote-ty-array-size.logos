@@ -1,0 +1,14 @@
+// @rule metaprog.quote-ty.array-antiquot-literal-size
+package metaprog_diag_2_quote_ty_array_size;
+
+use logos.std.compiler.metaprog;
+
+unsafe fn make<const N: u64>() -> Type {
+    let ti = type_of::<i32>();
+    return quote_ty! { [$ti; N] };
+}
+
+unsafe fn main() -> i32 {
+    let t = make::<4>();
+    return 0;
+}

@@ -1,0 +1,169 @@
+package expr_9;
+
+use logos.lang.ops;
+use logos.lang.convert;
+use logos.mem.boxed;
+use logos.lang.ptr;
+
+// ── helpers for Deref / autoderef rules ─────────────────────────────────
+struct Inner { v: i64 }
+impl Inner {
+    fn inner_only(&self) -> i64 { return self.v + 1i64; }   // method on Target
+    fn bump(&mut self) -> i64 { self.v += 1i64; return self.v; } // &mut Self method
+}
+struct Wrap { inner: Inner }
+impl Deref<Inner> for Wrap { fn deref(&self) -> &Inner { return &self.inner; } }
+impl DerefMut<Inner> for Wrap { fn deref_mut(&mut self) -> &mut Inner { return &mut self.inner; } }
+impl Wrap {
+    // method on the OUTER type that shadows a Deref-target method name
+    fn shared(&self) -> i64 { return 1000i64; }
+}
+impl Inner {
+    fn shared(&self) -> i64 { return 1i64; }   // target also has `shared`
+}
+
+// ── helper with turbofish-able generic method ───────────────────────────
+struct TF {}
+impl TF {
+    fn pick<T>(&self, x: T) -> T { return x; }
+}
+
+// ── autoref ladder / auto-ref-self helpers ──────────────────────────────
+struct Cnt { n: i64 }
+impl Cnt {
+    fn get(&self) -> i64 { return self.n; }          // &self : needs auto-ref of value
+    fn set(&mut self, v: i64) { self.n = v; }        // &mut self : auto-ref mut
+}
+
+// ── unary operator overload helpers ─────────────────────────────────────
+struct MyNum { v: i64 }
+impl Neg for MyNum { fn neg(self: MyNum) -> MyNum { return MyNum { v: -self.v }; } }
+impl Not for MyNum { fn not(self: MyNum) -> MyNum { return MyNum { v: self.v + 100i64 }; } }
+
+// ── callable-field helper ───────────────────────────────────────────────
+fn add_one(x: i64) -> i64 { return x + 1i64; }
+struct Holder { op: fn(i64) -> i64 }
+
+// ── user Deref for *x lowering ──────────────────────────────────────────
+struct Cell { val: i64 }
+impl Deref<i64> for Cell { fn deref(&self) -> &i64 { return &self.val; } }
+
+// ── module statics for &S address-identity rule ─────────────────────────
+static SVAL: i64 = 7i64;
+static mut SMUT: i64 = 11i64;
+
+fn main() -> i64 {
+    // @rule expr.method.deref-autoderef-resolution
+    // Wrap has no `inner_only`; Wrap: Deref<Inner>, so resolution dereferences
+    // to Inner and finds it. A same-named outer method wins over the target's.
+    {
+        let w: Wrap = Wrap { inner: Inner { v: 9i64 } };
+        if w.inner_only() != 10i64 { return 1; }     // resolved via Deref to Inner
+        if w.shared() != 1000i64 { return 2; }       // outer method wins
+    }
+
+    // @rule expr.method.deref-step-prefers-mut
+    // `bump` takes &mut Self on the Deref target; Wrap: DerefMut, so the mut
+    // deref step is taken yielding a mutable place and the write sticks.
+    {
+        let mut w: Wrap = Wrap { inner: Inner { v: 0i64 } };
+        if w.bump() != 1i64 { return 3; }
+        if w.bump() != 2i64 { return 4; }            // mutation persisted through DerefMut
+    }
+
+    // @rule expr.method.turbofish-bypasses-inference
+    // Explicit turbofish supplies T directly; inference from the arg is bypassed.
+    {
+        let tf: TF = TF {};
+        let r: i64 = tf.pick::<i64>(42i64);
+        if r != 42i64 { return 5; }
+    }
+
+    // @rule expr.method.array-len-builtin
+    // `a.len()` on a fixed array [T; N] is the compile-time N as i64.
+    {
+        let a: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+        if a.len() != 4i64 { return 6; }
+    }
+
+    // @rule expr.method.autoref-ladder
+    // `c.get()` (method on &T) matches by auto-referencing the value receiver.
+    {
+        let c: Cnt = Cnt { n: 5i64 };
+        if c.get() != 5i64 { return 7; }
+    }
+
+    // @rule expr.method.auto-ref-self
+    // `c.set(..)` first formal is &mut Self; the value place is auto-&mut'd.
+    {
+        let mut c: Cnt = Cnt { n: 0i64 };
+        c.set(99i64);
+        if c.get() != 99i64 { return 8; }
+    }
+
+    // @rule expr.method.blanket-on-primitive
+    // The convert blanket `impl<S,T:From<S>> Into<T> for S` is reachable on a
+    // primitive receiver: u8 value -> .into() -> i64 via From<u8> for i64.
+    {
+        let small: u8 = 5u8;
+        let big: i64 = small.into();
+        if big != 5i64 { return 9; }
+    }
+
+    // @rule expr.call.callable-field
+    // `h.op(args)` finds no method `op` but field `op` is a fn-ptr: lower as
+    // field read + fn-ptr call.
+    {
+        let h: Holder = Holder { op: add_one };
+        if h.op(41i64) != 42i64 { return 10; }
+    }
+
+    // @rule expr.addr-of.static
+    // `&SVAL` yields the global's own address; reading through it sees the
+    // static's value, and two `&SVAL` share identity (same address).
+    {
+        let r1: &i64 = &SVAL;
+        let r2: &i64 = &SVAL;
+        if *r1 != 7i64 { return 11; }
+        if (r1 as *const i64) != (r2 as *const i64) { return 12; }   // address identity
+    }
+
+    // @rule expr.unary.operator-overload
+    // For a struct operand `-x` -> Neg::neg, `!x` -> Not::not via mangled lookup.
+    {
+        let m: MyNum = MyNum { v: 3i64 };
+        let neg: MyNum = -m;
+        if neg.v != -3i64 { return 13; }
+        let m2: MyNum = MyNum { v: 1i64 };
+        let nt: MyNum = !m2;
+        if nt.v != 101i64 { return 14; }
+    }
+
+    // @rule expr.unary.neg-numeric
+    // `-x` on a numeric non-struct operand has the operand's type/value.
+    {
+        let x: i64 = 5i64;
+        if -x != -5i64 { return 15; }
+    }
+
+    // @rule expr.unary.not-bool-or-integer
+    // `!x` on bool gives bool; on an integer it is bitwise-not of same type.
+    {
+        let b: bool = false;
+        if !b != true { return 16; }
+        let i: i32 = 0i32;
+        if !i != -1i32 { return 17; }     // bitwise NOT of 0 = -1 (two's complement)
+    }
+
+    // @rule expr.deref.user-deref-impl
+    // `*x` for a user type implementing Deref lowers to `*(x.deref())`.
+    {
+        let cell: Cell = Cell { val: 77i64 };
+        if *cell != 77i64 { return 18; }
+        // Box<T>: Deref<T> from stdlib — same generic-aware machinery.
+        let bx: Box<i64> = box_new(123i64);
+        if *bx != 123i64 { return 19; }
+    }
+
+    return 0;
+}

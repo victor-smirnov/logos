@@ -1,0 +1,9 @@
+// @rule intrinsic.template-of.signature
+package tof_unknown;
+
+use logos.std.compiler.metaprog;
+
+fn main() -> i32 {
+    let t = template_of::<NoSuchItem>();
+    return 0;
+}

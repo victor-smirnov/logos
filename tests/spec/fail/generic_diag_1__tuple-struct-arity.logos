@@ -1,0 +1,9 @@
+// @rule generic.call.tuple-struct-arity
+package generic_diag_1_tuple_struct_arity;
+
+struct Pair(i64, i64);
+
+fn main() -> i32 {
+    let _p = Pair(1i64);
+    return 0i32;
+}

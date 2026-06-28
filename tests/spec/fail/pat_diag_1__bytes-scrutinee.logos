@@ -1,0 +1,10 @@
+// @rule pat.bytes.scrutinee-must-be-u8-array
+package pat_diag_1_bytes_scrut;
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    match x {
+        b"ab" => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}

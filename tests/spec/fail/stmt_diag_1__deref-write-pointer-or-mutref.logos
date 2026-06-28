@@ -1,0 +1,10 @@
+// @rule stmt.deref-write.pointer-or-mutref
+package stmt_diag_1_deref_write_pointer_or_mutref;
+
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    unsafe {
+        *x = 1i32;
+    }
+    return 0i32;
+}

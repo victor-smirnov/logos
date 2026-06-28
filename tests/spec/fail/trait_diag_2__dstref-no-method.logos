@@ -1,0 +1,18 @@
+// @rule trait.dispatch.dstref-unsafe
+package trait_diag_2_dstref_no_method;
+
+struct Foo {
+    header: i64,
+    tail: [u8],
+}
+
+impl Foo {
+    unsafe fn hdr(&self) -> i64 { return self.header; }
+}
+
+unsafe fn call(f: &Foo) -> i64 {
+    // `&Foo` is a DstRef; `nonexistent` is on no impl of Foo.
+    return f.nonexistent();
+}
+
+unsafe fn main() -> i32 { return 0i32; }

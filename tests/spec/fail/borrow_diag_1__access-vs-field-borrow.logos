@@ -1,0 +1,11 @@
+// @rule borrow.path.access-vs-field-borrow
+package borrow_diag_1_access_vs_field_borrow;
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s = S { a: 1i64, b: 2i64 };
+    let r: &mut i64 = &mut s.a;
+    let x = s.a;
+    *r += 1i64;
+    let _ = x;
+    return 0i32;
+}

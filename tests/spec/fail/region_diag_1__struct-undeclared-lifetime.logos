@@ -1,0 +1,8 @@
+// @rule region.outlives.lifetime-must-be-declared
+package region_diag_1_struct_undeclared_lifetime;
+
+struct S<'a> where 'a: 'b {
+    x: &'a i32,
+}
+
+fn main() -> i32 { return 0i32; }

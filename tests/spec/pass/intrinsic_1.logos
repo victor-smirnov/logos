@@ -1,0 +1,272 @@
+package intrinsic_1;
+
+use logos.lang.arith;
+use logos.lang.str;
+use logos.lang.atomic;
+use logos.std.compiler.metaprog;
+
+// ---- Drop-observation scaffolding ------------------------------------------
+// A global side-effect log so Drop runs are observable at runtime.
+static mut DROP_LOG: i64 = 0i64;
+
+fn log_drop(tag: i64) {
+    unsafe { DROP_LOG = DROP_LOG * 10i64 + tag; }
+}
+
+struct Noisy { id: i64 }
+impl Drop for Noisy {
+    fn drop(self: &mut Noisy) { log_drop(self.id); }
+}
+
+// Struct whose user drop runs, then the owner drops its Noisy field.
+struct Holder { inner: Noisy, mark: i64 }
+impl Drop for Holder {
+    fn drop(self: &mut Holder) { log_drop(self.mark); }
+}
+
+// ---- dyn-reconstruct scaffolding -------------------------------------------
+trait Speak { fn says(self: &Self) -> i32; }
+struct Dog { tag: i64 }
+struct Cat { tag: i64, breed: i32 }
+impl Speak for Dog { fn says(self: &Dog) -> i32 { return 1i32; } }
+impl Speak for Cat { fn says(self: &Cat) -> i32 { return 2i32; } }
+
+// ---- Box<dyn> drop scaffolding ---------------------------------------------
+trait Beep { fn beep(self: &Self) -> i32; }
+struct Bell { id: i64 }
+impl Drop for Bell { fn drop(self: &mut Bell) { log_drop(self.id); } }
+impl Beep for Bell { fn beep(self: &Bell) -> i32 { return 5i32; } }
+
+fn make_dyn_speak(c: &Cat) -> i32 {
+    // exercised below
+    return 0i32;
+}
+
+unsafe fn main() -> i64 {
+    // ===================================================================
+    // intrinsic.sizeof.unified-layout-size
+    // sizeof includes inter-field + trailing alignment padding.
+    // @rule intrinsic.sizeof.unified-layout-size
+    if sizeof::<(i32, i64)>() != 16i64 { return 1i64; }
+
+    // ===================================================================
+    // intrinsic.alignof.unified-layout-align
+    // alignof from the same unified layout; {i32,i64} aligns to 8.
+    // @rule intrinsic.alignof.unified-layout-align
+    if align_of::<(i32, i64)>() != 8i64 { return 2i64; }
+    // @rule intrinsic.alignof.unified-layout-align
+    if align_of::<i8>() != 1i64 { return 3i64; }
+
+    // ===================================================================
+    // intrinsic.ptr-arith.element-vs-byte-scaling
+    // .add scales by sizeof(pointee); .byte_add scales by bytes.
+    let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+    let base: *const i64 = &arr[0] as *const i64;
+    // @rule intrinsic.ptr-arith.element-vs-byte-scaling
+    {
+        let elt2: *const i64 = base.add(2i64);          // base + 2 elements
+        if *elt2 != 30i64 { return 4i64; }
+        let byte8: *const i64 = base.byte_add(8i64);    // base + 8 bytes = 1 elem
+        if *byte8 != 20i64 { return 5i64; }
+        let back: *const i64 = elt2.sub(1i64);          // back one element
+        if *back != 20i64 { return 6i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.ptr-diff.byte-and-element
+    // offset_from = element count; byte_offset_from = raw bytes.
+    // @rule intrinsic.ptr-diff.byte-and-element
+    {
+        let p0: *const i64 = &arr[0] as *const i64;
+        let p3: *const i64 = &arr[3] as *const i64;
+        if p3.offset_from(p0) != 3i64 { return 7i64; }
+        if p3.byte_offset_from(p0) != 24i64 { return 8i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.wrapping.silent-twos-complement
+    // wrapping_{add,sub,mul} wrap silently (no overflow trap).
+    // @rule intrinsic.wrapping.silent-twos-complement
+    {
+        let a: i32 = 2147483647i32;                       // INT_MAX
+        if wrapping_add(a, 1i32) != ((0i64 - 2147483648i64) as i32) { return 9i64; }
+        if wrapping_mul(0xFFFFFFFFu32, 2u32) != 0xFFFFFFFEu32 { return 10i64; }
+        if wrapping_sub(0u8, 1u8) != 255u8 { return 11i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.bits.count-ops-return-u32
+    // popcount/leading/trailing return u32; bswap returns u64.
+    // @rule intrinsic.bits.count-ops-return-u32
+    {
+        let pc: u32 = popcount_u64(255u64);
+        if pc != 8u32 { return 12i64; }
+        let bw: u64 = bswap_u64(0x00000000000000FFu64);
+        if bw != 0xFF00000000000000u64 { return 13i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.bits.ctlz-cttz-zero-defined
+    // ctlz/cttz on 0 yield the bit width (64), no poison.
+    // @rule intrinsic.bits.ctlz-cttz-zero-defined
+    {
+        if leading_zeros_u64(0u64) != 64u32 { return 14i64; }
+        if trailing_zeros_u64(0u64) != 64u32 { return 15i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.str.from-raw-fatptr
+    // str_from_raw builds {data,len}; len controls the slice.
+    // @rule intrinsic.str.from-raw-fatptr
+    {
+        let src: str = "hello world";
+        let s: str = str_from_raw(src.as_ptr(), 5i64);
+        if s.len() != 5i64 { return 16i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.atomic.primitive-set
+    // load/store/fetch_add/cas/swap/fetch_* over 32/64-bit cells.
+    // @rule intrinsic.atomic.primitive-set
+    {
+        let mut a32: AtomicU32 = atomic_u32_new(7u32);
+        let p32: *mut AtomicU32 = &mut a32 as *mut AtomicU32;
+        p32.store(13u32);
+        if a32.load() != 13u32 { return 17i64; }
+        let prev: u32 = a32.fetch_add(5u32);
+        if prev != 13u32 { return 18i64; }
+        if a32.load() != 18u32 { return 19i64; }
+
+        let mut a64: AtomicI64 = atomic_i64_new(100i64);
+        if a64.load() != 100i64 { return 20i64; }
+        a64.store(200i64);
+        if a64.load() != 200i64 { return 21i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.atomic.default-ordering-seqcst
+    // non-_ord form is sequentially consistent: round-trip is observable.
+    // @rule intrinsic.atomic.default-ordering-seqcst
+    {
+        let mut a: AtomicI32 = atomic_i32_new(0i32);
+        a.store(42i32);
+        if a.load() != 42i32 { return 22i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.atomic.ordering-enum-layout
+    // _ord variants take Ordering literals; cas takes (success, failure).
+    // @rule intrinsic.atomic.ordering-enum-layout
+    {
+        let mut a: AtomicI32 = atomic_i32_new(10i32);
+        a.store_ordered(100i32, Ordering::Release);
+        if a.load_ordered(Ordering::Acquire) != 100i32 { return 23i64; }
+        let prev: i32 = a.fetch_add_ordered(5i32, Ordering::AcqRel);
+        if prev != 100i32 { return 24i64; }
+        let ok: bool = a.compare_exchange_ordered(
+            105i32, 999i32, Ordering::AcqRel, Ordering::Acquire);
+        if !ok { return 25i64; }
+        if a.load() != 999i32 { return 26i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.atomic.nonliteral-ordering-fallback
+    // a non-literal Ordering arg still yields correct (>= requested) results.
+    // @rule intrinsic.atomic.nonliteral-ordering-fallback
+    {
+        let mut a: AtomicI32 = atomic_i32_new(1i32);
+        let ord: Ordering = Ordering::Acquire;   // non-literal at the callsite
+        a.store_ordered(7i32, Ordering::Release);
+        if a.load_ordered(ord) != 7i32 { return 27i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.dyn.vtable-of  +  intrinsic.dyn.from-parts
+    // vtable_of returns the impl's vtable; dyn_from_parts assembles a working
+    // fat pointer through which dispatch lands on the right impl.
+    // @rule intrinsic.dyn.vtable-of
+    // @rule intrinsic.dyn.from-parts
+    {
+        let mut dog: Dog = Dog { tag: 7i64 };
+        let vt: *const u8 = vtable_of::<Speak, Dog>();
+        if vt == (0 as *const u8) { return 28i64; }
+        let d = dyn_from_parts::<Speak>((&mut dog) as *mut u8, vt);
+        if (*d).says() != 1i32 { return 29i64; }
+
+        let mut cat: Cat = Cat { tag: 9i64, breed: 3i32 };
+        let vtc: *const u8 = vtable_of::<Speak, Cat>();
+        let dc = dyn_from_parts::<Speak>((&mut cat) as *mut u8, vtc);
+        if (*dc).says() != 2i32 { return 30i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.drop.recursive-by-type  +
+    // intrinsic.drop.owner-drops-fields-after-user-drop
+    // Holder::drop runs (mark=2), THEN owner drops the Noisy field (id=1).
+    // Observed order in DROP_LOG: 2 then 1  => log == 21.
+    // @rule intrinsic.drop.recursive-by-type
+    // @rule intrinsic.drop.owner-drops-fields-after-user-drop
+    {
+        DROP_LOG = 0i64;
+        {
+            let _h: Holder = Holder { inner: Noisy { id: 1i64 }, mark: 2i64 };
+        }
+        if DROP_LOG != 21i64 { return 31i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.drop.skip-moved-out-paths
+    // Moving a field out of an owner suppresses that field's drop; siblings
+    // still drop. Move `inner` out (its drop happens at the new binding's
+    // scope end), so the owner does NOT re-drop it.
+    // @rule intrinsic.drop.skip-moved-out-paths
+    {
+        DROP_LOG = 0i64;
+        {
+            let h: Holder = Holder { inner: Noisy { id: 4i64 }, mark: 9i64 };
+            let moved: Noisy = h.inner;     // move field out
+            // `moved` drops here (4) at end of this block; Holder::drop (9) too,
+            // but the moved-out `inner` is NOT double-dropped.
+            log_drop(0i64);                 // separator marker = 0
+        }
+        // Drops at scope end run in reverse declaration order: `moved`(4)
+        // first, then `h` -> Holder::drop(9) [owner], and the moved-out
+        // `inner` is NOT re-dropped by the owner (skip-moved-out-paths).
+        // Sequence: separator 0 -> moved 4 -> Holder 9 => 49.
+        // A double-drop of the moved field would make the 4 appear twice.
+        if DROP_LOG != 49i64 { return 32i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.drop.owning-dyn-handle
+    // Dropping a Box<dyn Trait> runs the concrete destructor via vtable[0].
+    // @rule intrinsic.drop.owning-dyn-handle
+    {
+        DROP_LOG = 0i64;
+        {
+            let b: Box<dyn Beep> = Box::new(Bell { id: 6i64 }) as Box<dyn Beep>;
+            if b.beep() != 5i32 { return 33i64; }
+        }
+        // Bell::drop must have run through the fat-pointer vtable slot 0.
+        if DROP_LOG != 6i64 { return 34i64; }
+    }
+
+    // ===================================================================
+    // intrinsic.closure.drop-glue  +  intrinsic.drop.closure-env-drop-glue
+    // An owned closure capturing a droppable value runs that value's drop
+    // when the closure itself is dropped.
+    // @rule intrinsic.closure.drop-glue
+    // @rule intrinsic.drop.closure-env-drop-glue
+    {
+        DROP_LOG = 0i64;
+        {
+            let captured: Noisy = Noisy { id: 8i64 };
+            let cl = move || -> i64 { return captured.id; };
+            if cl() != 8i64 { return 35i64; }
+            // closure `cl` drops at block end -> drops captured Noisy(8).
+        }
+        if DROP_LOG != 8i64 { return 36i64; }
+    }
+
+    return 0i64;
+}

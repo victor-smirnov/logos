@@ -1,0 +1,8 @@
+// @rule expr.field.not-a-struct-error
+package expr_diag_2_field_not_struct;
+
+fn main() -> i32 {
+    let n = 5i32;
+    let _y = n.foo;
+    return 0i32;
+}

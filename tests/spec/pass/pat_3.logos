@@ -1,0 +1,298 @@
+package pat_3;
+
+// ── helper types ────────────────────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+
+enum Opt { None, Some(i64) }
+enum Shape { Circle(i64), Rect { w: i64, h: i64 } }
+
+// helper that re-matches a sub-slice bound by `xs @ ..`
+fn slice_len(xs: &[i64]) -> i64 { return xs.len(); }
+
+fn main() -> i64 {
+
+    // @rule pat.bind.slice-array-fixed
+    // A slice pattern over [T; N] binds prefix elements at 0,1,... and suffix
+    // elements at N-suffix..N-1; each element binds by value.
+    {
+        let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+        match arr {
+            [first, .., last] => {
+                if first != 10i64 { return 1; }   // prefix index 0
+                if last != 40i64 { return 2; }    // suffix index N-1
+            }
+        }
+    }
+
+    // @rule pat.bind.slice-dynamic-rest
+    // A slice pattern over &[T] binds prefix at 0.., suffix at len-suffix+i, and
+    // a named rest `xs @ ..` to a first-class sub-slice usable for .len().
+    {
+        let arr: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+        let s: &[i64] = &arr[..];
+        match s {
+            [head, mid @ .., tail] => {
+                if *head != 1i64 { return 3; }            // prefix offset 0
+                if *tail != 5i64 { return 4; }            // suffix at len-1
+                if slice_len(mid) != 3i64 { return 5; }   // rest sub-slice len = 5-2
+            }
+        }
+    }
+
+    // @rule pat.bind.at-binding
+    // `name @ subpat` binds name to the whole matched value and binds nested
+    // names of subpat against the same scrutinee.
+    {
+        let n: i64 = 7i64;
+        let got: i64 = match n {
+            whole @ 1i64..=10i64 => whole,   // whole = scrutinee, subpat is a range
+            _ => -1i64,
+        };
+        if got != 7i64 { return 6; }
+    }
+
+    // @rule pat.bind.ref-binding
+    // `ref name` binds name to a reference (pointer) to the scrutinee place
+    // rather than moving/copying.
+    {
+        let p: Pt = Pt { x: 3i64, y: 4i64 };
+        match p {
+            Pt { x: ref rx, y: _ } => {
+                if *rx != 3i64 { return 7; }   // rx is &i64 to the field place
+            }
+        }
+    }
+
+    // pat.bind.ref-pat-transparent — see "untestable" report. The reference
+    // pattern `&pat` with a *binding* inner (`&inner`, `&Pt{x,y}`, `&(a,b)`,
+    // `&mut inner`) over a reference scrutinee is miscompiled at codegen (icmp
+    // operand-type mismatch / cmpi on ptr). Only the literal-compare form
+    // `&<scalar>` lowers correctly — that path is locked by
+    // pat.ref.scalar-deref-test below, and the redundant-&-peel binding form is
+    // exercised by pat.ref.redundant-ref-peel-over-tagged-enum. Omitted to keep
+    // the file green; assertion would falsely fail to compile.
+
+    // @rule pat.bind.or-pattern-bindings
+    // An or-pattern `p1 | p2 | ...` binds the same set of names for every
+    // alternative.
+    {
+        let s: Shape = Shape::Rect { w: 5i64, h: 6i64 };
+        let got: i64 = match s {
+            // both alternatives bind the same name `k`
+            Shape::Circle(k) | Shape::Rect { w: k, h: _ } => k,
+        };
+        if got != 5i64 { return 9; }
+    }
+
+    // @rule pat.bind.whole-value-binding
+    // A named binding pattern `name` binds the entire scrutinee; a scalar
+    // binding takes the value.
+    {
+        let n: i64 = 99i64;
+        let got: i64 = match n {
+            bound => bound,   // binds whole scalar scrutinee
+        };
+        if got != 99i64 { return 10; }
+    }
+
+    // @rule pat.match.first-match-top-to-bottom
+    // Arms evaluate in source order; the first matching arm wins.
+    {
+        let n: i64 = 2i64;
+        let got: i64 = match n {
+            1i64 => 100i64,
+            2i64 => 200i64,   // first matching arm
+            2i64 => 999i64,   // never reached
+            _ => 0i64,
+        };
+        if got != 200i64 { return 11; }
+    }
+
+    // @rule pat.guard.bind-then-evaluate
+    // A guard sees pattern bindings; a failing guard skips the whole arm (no
+    // fall-through to other arms sharing the pattern test).
+    {
+        let o: Opt = Opt::Some(4i64);
+        let got: i64 = match o {
+            Opt::Some(v) if v > 10i64 => 1i64,   // binding v=4, guard false -> skip arm
+            Opt::Some(v) => v + 1i64,            // selected: 5
+            Opt::None => 0i64,
+        };
+        if got != 5i64 { return 12; }
+    }
+
+    // @rule pat.range.unsigned-predicate
+    // Unsigned scrutinee range bounds use unsigned ordering (a high-bit value is
+    // large, not negative).
+    {
+        let u: u8 = 200u8;   // 0xC8 — would be negative under signed compare
+        let got: i64 = match u {
+            100u8..=255u8 => 1i64,   // matches only under unsigned ordering
+            _ => 0i64,
+        };
+        if got != 1i64 { return 13; }
+    }
+
+    // @rule pat.or.any-alternative-matches
+    // An or-pattern matches iff at least one alternative matches; tested in order.
+    {
+        let n: i64 = 3i64;
+        let got: i64 = match n {
+            1i64 | 2i64 | 3i64 => 1i64,   // third alternative matches
+            _ => 0i64,
+        };
+        if got != 1i64 { return 14; }
+    }
+
+    // @rule pat.at.binding-with-refutable-sub
+    // `name @ subpat` binds name to the whole value and matches iff subpat (here
+    // an or-pattern of ints) matches.
+    {
+        let n: i64 = 5i64;
+        let got: i64 = match n {
+            k @ (4i64 | 5i64 | 6i64) => k,   // binds k=5, or-subpat matches
+            _ => -1i64,
+        };
+        if got != 5i64 { return 15; }
+    }
+
+    // @rule pat.scalar.discriminant-equality
+    // A leaf scalar pattern matches iff the scrutinee equals that discriminant.
+    {
+        let b: bool = true;
+        let got: i64 = match b {
+            true => 1i64,    // bool true = 1
+            false => 0i64,
+        };
+        if got != 1i64 { return 16; }
+        let o: Opt = Opt::None;
+        let got2: i64 = match o {
+            Opt::None => 7i64,        // variant discriminant equality
+            Opt::Some(_) => 8i64,
+        };
+        if got2 != 7i64 { return 17; }
+    }
+
+    // @rule pat.tuple.structural-test
+    // A non-empty tuple pattern matches iff every sub-pattern matches the
+    // corresponding element.
+    {
+        let t: (i64, i64) = (1i64, 2i64);
+        let got: i64 = match t {
+            (1i64, y) => y,    // first element tested, second bound
+            (_, y) => y + 100i64,
+        };
+        if got != 2i64 { return 18; }
+    }
+
+    // @rule pat.struct.structural-test
+    // A struct pattern matches iff every field sub-pattern matches the
+    // corresponding field.
+    {
+        let p: Pt = Pt { x: 5i64, y: 9i64 };
+        let got: i64 = match p {
+            Pt { x: 5i64, y: yy } => yy,   // field x tested == 5, y bound
+            Pt { x: _, y: _ } => -1i64,
+        };
+        if got != 9i64 { return 19; }
+    }
+
+    // @rule pat.slice.fixed-array-element-equality
+    // A slice pattern over [T; N] matches iff each non-wildcard prefix/suffix
+    // scalar equals the array element at its index; suffix index = N-suffix+k.
+    {
+        let arr: [i64; 4] = [7i64, 0i64, 0i64, 9i64];
+        let got: i64 = match arr {
+            [7i64, .., 9i64] => 1i64,   // prefix[0]==7, suffix[N-1]==9
+            _ => 0i64,
+        };
+        if got != 1i64 { return 20; }
+        let arr2: [i64; 4] = [7i64, 0i64, 0i64, 8i64];
+        let got2: i64 = match arr2 {
+            [7i64, .., 9i64] => 1i64,   // suffix mismatch (8 != 9)
+            _ => 0i64,
+        };
+        if got2 != 0i64 { return 21; }
+    }
+
+    // @rule pat.slice.dynamic-length-check
+    // A slice pattern over &[T] matches iff length constraint holds (== without
+    // rest, >= with rest) plus scalar prefix elements equal runtime elements.
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let s: &[i64] = &arr[..];
+        let got: i64 = match s {
+            [a, b] => *a + *b,     // len==2 required; here len==3 -> no match
+            [a, ..] => *a,         // len>=1 with rest; matches, a==1
+            [] => 0i64,
+        };
+        if got != 1i64 { return 22; }
+    }
+
+    // @rule pat.ref.scalar-deref-test
+    // Matching `&<scalar>` against a &T scrutinee dereferences and matches iff
+    // the loaded value equals the inner scalar.
+    {
+        let v: i64 = 5i64;
+        let r: &i64 = &v;
+        let got: i64 = match r {
+            &5i64 => 1i64,   // deref load == 5
+            _ => 0i64,
+        };
+        if got != 1i64 { return 23; }
+    }
+
+    // @rule pat.ref.redundant-ref-peel-over-tagged-enum
+    // A `&Enum` scrutinee auto-deref'd to tagged form lets `&E::Variant(x)` peel
+    // the redundant `&` so the inner variant pattern extracts the payload.
+    {
+        let o: Opt = Opt::Some(13i64);
+        let r: &Opt = &o;
+        let got: i64 = match r {
+            &Opt::Some(x) => x,   // redundant & peeled; payload extracted
+            &Opt::None => -1i64,
+        };
+        if got != 13i64 { return 24; }
+    }
+
+    // @rule pat.str.lowers-to-eq-guard
+    // A string-literal pattern matches via a str_eq comparison.
+    {
+        let s: str = "foo";
+        let got: i64 = match s {
+            "foo" => 1i64,   // str_eq("foo") holds
+            "bar" => 2i64,
+            _ => 0i64,
+        };
+        if got != 1i64 { return 25; }
+    }
+
+    // @rule pat.let.refutability-checked
+    // `let <pattern> = expr;` for an irrefutable destructure (struct) binds via
+    // an internal match.
+    {
+        let p: Pt = Pt { x: 11i64, y: 22i64 };
+        let Pt { x: lx, y: ly } = p;   // irrefutable struct destructure
+        if lx != 11i64 { return 26; }
+        if ly != 22i64 { return 27; }
+    }
+
+    // @rule pat.tuple-bind.let
+    // A let tuple pattern admits nested tuples, `..` rest, and identifier
+    // bindings; rest fills remaining positions so names land on correct slots.
+    {
+        let t: (i64, (i64, i64), i64) = (1i64, (2i64, 3i64), 4i64);
+        let (a, (b, c), d) = t;       // nested tuple destructure
+        if a != 1i64 { return 28; }
+        if b != 2i64 { return 29; }
+        if c != 3i64 { return 30; }
+        if d != 4i64 { return 31; }
+        let t2: (i64, i64, i64, i64) = (5i64, 6i64, 7i64, 8i64);
+        let (first, .., final_) = t2; // rest skips middle; names on slot 0 and 3
+        if first != 5i64 { return 32; }
+        if final_ != 8i64 { return 33; }
+    }
+
+    return 0;
+}

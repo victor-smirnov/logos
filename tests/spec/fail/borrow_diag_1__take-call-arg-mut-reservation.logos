@@ -1,0 +1,9 @@
+// @rule borrow.take.call-arg-mut-reservation
+package borrow_diag_1_take_call_arg_mut_reservation;
+// Two overlapping &mut x reservations in the same call still conflict.
+struct C { v: i64 }
+fn two(a: &mut C, b: &mut C) -> i64 { return a.v + b.v; }
+fn main() -> i32 {
+    let mut x: C = C { v: 1i64 };
+    return two(&mut x, &mut x) as i32;
+}

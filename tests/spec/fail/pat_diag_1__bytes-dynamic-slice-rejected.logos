@@ -1,0 +1,14 @@
+// @rule pat.lit.bytes-rejected
+package pat_diag_1_bytes_dynamic_slice;
+
+fn check(s: &[u8]) -> i32 {
+    match s {
+        b"ab" => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    let a: [u8; 2] = [97u8, 98u8];
+    return check(&a);
+}

@@ -1,0 +1,11 @@
+// @rule pat.or.alternative-binding-uniformity
+package pat_diag_1_or_alternative_binding_uniformity;
+
+enum E { A(i32), B(i32) }
+
+fn main() -> i32 {
+    let e: E = E::A(1i32);
+    match e {
+        E::A(x) | E::B(y) => { return x; }
+    }
+}

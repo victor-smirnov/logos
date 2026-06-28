@@ -1,0 +1,12 @@
+// @rule stmt.if-let.let-chain-trailing-cond
+package stmt_diag_1_if_let_chain_cond_not_bool;
+
+enum Opt { Some(i32), None }
+
+fn main() -> i32 {
+    let v: Opt = Opt::Some(3i32);
+    if let Opt::Some(x) = v && x + 1i32 {
+        return 1i32;
+    }
+    return 0i32;
+}

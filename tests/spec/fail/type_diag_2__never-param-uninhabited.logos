@@ -1,0 +1,7 @@
+package type_diag_2_never_param_uninhabited;
+// @rule type.never.param-uninhabited
+// A parameter typed `!` (never) is uninhabited: no value can be supplied.
+
+fn f(x: !) {}
+
+fn main() -> i32 { return 0; }

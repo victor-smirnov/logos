@@ -1,0 +1,11 @@
+package type_diag_2_recursion_enum_finite_size;
+// @rule type.recursion.enum-finite-size
+// An enum whose variant payload transitively contains the enum itself by
+// value is ill-formed; break the recursion with a pointer.
+
+enum List {
+    Nil,
+    Cons(i32, List),
+}
+
+fn main() -> i32 { return 0; }

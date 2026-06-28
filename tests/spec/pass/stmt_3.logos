@@ -1,0 +1,291 @@
+package stmt_3;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+
+enum Opt { None, Some(i64) }
+
+fn main() -> i64 {
+
+    // @rule stmt.let.forms
+    // tuple destructure, `let ref`, `let mut`, typed-only-no-init, and full-pat.
+    {
+        let (a, b): (i64, i64) = (3i64, 4i64);
+        if a + b != 7i64 { return 1; }
+        let x: i64 = 10i64;
+        let ref rx = x;             // `let ref x = e` is sugar for `let x = &e`
+        if *rx != 10i64 { return 2; }
+        let mut m: i64;              // type-only mutable decl, no init
+        m = 5i64;
+        if m != 5i64 { return 3; }
+        let mut n: i64 = 1i64;      // mutable with init
+        n = n + 1i64;
+        if n != 2i64 { return 4; }
+    }
+
+    // @rule stmt.while.forms
+    // plain while, while-let, and a while-let chain (>=2 let segments).
+    {
+        let mut i: i64 = 0i64;
+        while i < 3i64 { i = i + 1i64; }
+        if i != 3i64 { return 5; }
+        let mut o: Opt = Opt::Some(42i64);
+        let mut hit: i64 = 0i64;
+        while let Opt::Some(v) = o { hit = v; o = Opt::None; }
+        if hit != 42i64 { return 6; }
+        // while let-chain: two let segments + a trailing cond; loops while all hold.
+        let ca: Opt = Opt::Some(1i64);
+        let cb: Opt = Opt::Some(2i64);
+        let mut k: i64 = 0i64;
+        let mut sum: i64 = 0i64;
+        while let Opt::Some(pv) = ca && let Opt::Some(qv) = cb && k < 1i64 {
+            sum = sum + pv + qv;
+            k = k + 1i64;
+        }
+        if sum != 3i64 { return 7; }
+    }
+
+    // @rule stmt.return.form
+    // return with value from enclosing fn (checked by reaching return 0 below).
+    {
+        let r: i64 = ret_val();
+        if r != 99i64 { return 8; }
+    }
+
+    // @rule stmt.assign.simple
+    // `name = expr;` writes a simple variable place.
+    {
+        let mut v: i64 = 1i64;
+        v = 77i64;
+        if v != 77i64 { return 9; }
+    }
+
+    // @rule stmt.assign.place
+    // arbitrary postfix-chain lvalue: chained index and deref+tuple-index.
+    {
+        let mut grid: [[i64; 2]; 2] = [[0i64, 0i64], [0i64, 0i64]];
+        grid[1][0] = 5i64;
+        if grid[1][0] != 5i64 { return 10; }
+        let mut t: (i64, i64) = (0i64, 0i64);
+        { let p: &mut (i64, i64) = &mut t; (*p).0 = 8i64; }  // deref+tuple-index place
+        if t.0 != 8i64 { return 11; }
+    }
+
+    // @rule stmt.assign.destructure
+    // tuple, array, and struct destructuring assignment into existing places.
+    {
+        let mut a: i64 = 0i64;
+        let mut b: i64 = 0i64;
+        (a, b) = (1i64, 2i64);
+        if a != 1i64 { return 12; }
+        if b != 2i64 { return 13; }
+        let mut c: i64 = 0i64;
+        let mut d: i64 = 0i64;
+        [c, d] = [3i64, 4i64];
+        if c + d != 7i64 { return 14; }
+        let mut e: i64 = 0i64;
+        let mut f: i64 = 0i64;
+        Pt { x: e, y: f } = Pt { x: 5i64, y: 6i64 };
+        if e != 5i64 { return 15; }
+        if f != 6i64 { return 16; }
+    }
+
+    // @rule stmt.assign.compound-place
+    // compound assign over a place: bare var path and an indexed place.
+    {
+        let mut v: i64 = 10i64;
+        v += 5i64;
+        if v != 15i64 { return 17; }
+        let mut arr: [i64; 2] = [1i64, 2i64];
+        arr[1] += 8i64;            // place op= : place = place op rhs
+        if arr[1] != 10i64 { return 18; }
+    }
+
+    // @rule stmt.let.definite-assignment
+    // declared without init, assigned on every path before read; read is OK.
+    {
+        let cond: bool = true;
+        let y: i64;
+        if cond { y = 1i64; } else { y = 2i64; }
+        if y != 1i64 { return 19; }
+    }
+
+    // @rule stmt.let-chain.nested-if-let-desugar
+    // `if a && let P = e && b` desugars to nested if-let/if over segments.
+    {
+        let e: Opt = Opt::Some(7i64);
+        let f: Opt = Opt::Some(3i64);
+        let b: bool = true;
+        let mut got: i64 = 0i64;
+        if let Opt::Some(v) = e && let Opt::Some(w) = f && b { got = v + w; } else { got = -1i64; }
+        if got != 10i64 { return 20; }
+    }
+
+    // @rule stmt.let.binding-form
+    // `let [mut] NAME [: TYPE] = VALUE ;` with init and trailing `;`.
+    {
+        let mut z: i64 = 3i64;
+        z = z + 1i64;
+        if z != 4i64 { return 21; }
+    }
+
+    // @rule stmt.return.optional-value
+    // return without a value in a unit-returning fn.
+    {
+        let mut side: i64 = 0i64;
+        early_unit(true, &mut side);
+        if side != 0i64 { return 22; }   // returned before incrementing
+    }
+
+    // @rule stmt.expr.trailing-semicolon
+    // expr-stmt terminated by `;`; tail-expr in a block carries no `;`.
+    {
+        let tail: i64 = { let k: i64 = 5i64; k + 1i64 };  // tail-expr, no `;`
+        if tail != 6i64 { return 23; }
+    }
+
+    // @rule stmt.assign.place-forms
+    // NAME=, NAME OP=, *NAME=, *NAME OP=, RECEIVER.FIELD=, chained .PATH=.
+    {
+        let mut s: i64 = 1i64;
+        s = 2i64;                       // NAME = VALUE
+        if s != 2i64 { return 24; }
+        let mut s2: i64 = 4i64;
+        s2 += 3i64;                     // NAME OP= VALUE
+        if s2 != 7i64 { return 25; }
+        let mut w: i64 = 0i64;
+        {
+            let p: &mut i64 = &mut w;
+            *p = 10i64;                 // *NAME = VALUE
+            *p += 1i64;                 // *NAME OP= VALUE
+        }
+        if w != 11i64 { return 26; }
+        let mut pt: Pt = Pt { x: 0i64, y: 0i64 };
+        pt.x = 7i64;                    // RECEIVER.FIELD = VALUE
+        if pt.x != 7i64 { return 27; }
+    }
+
+    // @rule stmt.while.cond-or-let
+    // condition-form and while-let-form.
+    {
+        let mut i: i64 = 0i64;
+        while i < 2i64 { i = i + 1i64; }
+        if i != 2i64 { return 42; }
+        let mut o: Opt = Opt::Some(5i64);
+        let mut seen: i64 = 0i64;
+        while let Opt::Some(v) = o { seen = v; o = Opt::None; }
+        if seen != 5i64 { return 43; }
+    }
+
+    // @rule stmt.loop.forms
+    // `loop { }` infinite loop and a labeled loop with `'LABEL:` sigil.
+    {
+        let mut i: i64 = 0i64;
+        loop { i = i + 1i64; if i == 3i64 { break; } }
+        if i != 3i64 { return 28; }
+        let mut j: i64 = 0i64;
+        'outer: loop {
+            j = j + 1i64;
+            if j == 2i64 { break 'outer; }
+        }
+        if j != 2i64 { return 29; }
+    }
+
+    // @rule stmt.for.range-and-iter
+    // for-over-range with `..` (exclusive) and `..=` (inclusive).
+    {
+        let mut sum: i64 = 0i64;
+        for k in 0i64..3i64 { sum = sum + k; }      // 0+1+2
+        if sum != 3i64 { return 30; }
+        let mut sum2: i64 = 0i64;
+        for k in 0i64..=3i64 { sum2 = sum2 + k; }   // 0+1+2+3 inclusive
+        if sum2 != 6i64 { return 31; }
+    }
+
+    // @rule stmt.break-continue.label-value
+    // labeled break carrying a value; continue with a label.
+    {
+        let got: i64 = 'lp: loop {
+            break 'lp 55i64;            // break 'LABEL VALUE
+        };
+        if got != 55i64 { return 32; }
+        let mut acc: i64 = 0i64;
+        'a: for i in 0i64..3i64 {
+            if i == 1i64 { continue 'a; }   // labeled continue
+            acc = acc + i;
+        }
+        if acc != 2i64 { return 33; }       // 0 + 2 (1 skipped)
+    }
+
+    // @rule stmt.block.scoping-and-unsafe
+    // bare scoping block and an `unsafe { }` block at statement position.
+    {
+        let mut a: i64 = 1i64;
+        { a = a + 1i64; }               // bare scoping block
+        unsafe { a = a + 1i64; }        // unsafe block at stmt position
+        if a != 3i64 { return 34; }
+    }
+
+    // @rule stmt.if.no-trailing-semi
+    // `if` in statement position needs no trailing `;`.
+    {
+        let mut a: i64 = 0i64;
+        if true { a = 1i64; }           // no trailing `;` after the brace
+        if a != 1i64 { return 35; }
+    }
+
+    // @rule stmt.if-let.desugar-to-match
+    // `if let P = e {THEN} else {ELSE}` lowers to a match over e.
+    {
+        let e: Opt = Opt::Some(9i64);
+        let mut out: i64 = 0i64;
+        if let Opt::Some(v) = e { out = v; } else { out = -1i64; }
+        if out != 9i64 { return 36; }
+        let none: Opt = Opt::None;
+        if let Opt::Some(v) = none { out = v; } else { out = 100i64; }
+        if out != 100i64 { return 37; }
+    }
+
+    // @rule stmt.if-let.refutable-inner-guards
+    // nested literal payload predicate becomes a then-arm guard; mismatch falls
+    // through to the else-arm.
+    {
+        let e: Opt = Opt::Some(2i64);
+        let mut r: i64 = 0i64;
+        // inner literal pattern `1` is refutable; payload is 2 => falls to else.
+        if let Opt::Some(1i64) = e { r = 1i64; } else { r = 9i64; }
+        if r != 9i64 { return 38; }
+        let e2: Opt = Opt::Some(1i64);
+        if let Opt::Some(1i64) = e2 { r = 1i64; } else { r = 9i64; }
+        if r != 1i64 { return 39; }
+    }
+
+    // @rule stmt.if.move-merge-by-branch
+    // post-if state merges non-diverging branches; a branch ending in return
+    // diverges and contributes nothing.
+    {
+        let cond: bool = false;
+        let r: i64 = branchy(cond);
+        if r != 20i64 { return 40; }    // else (non-diverging) path taken
+        let r2: i64 = branchy(true);
+        if r2 != 10i64 { return 41; }   // then path diverges via return
+    }
+
+    return 0;
+}
+
+// returns a value (exercises stmt.return.form).
+fn ret_val() -> i64 { return 99i64; }
+
+// returns with no value early (exercises stmt.return.optional-value).
+fn early_unit(skip: bool, out: &mut i64) {
+    if skip { return; }
+    *out = *out + 1i64;
+}
+
+// then-branch diverges by return; else-branch falls through (move-merge).
+fn branchy(c: bool) -> i64 {
+    if c { return 10i64; }
+    return 20i64;
+}

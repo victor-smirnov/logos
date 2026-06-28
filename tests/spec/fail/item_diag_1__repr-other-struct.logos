@@ -1,0 +1,6 @@
+// @rule item.struct.repr-other-rejected
+package item_diag_1_repr_other_struct;
+
+#[repr(packed)] struct W { a: i32 }
+
+fn main() -> i32 { return 0i32; }

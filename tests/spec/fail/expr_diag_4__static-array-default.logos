@@ -1,0 +1,13 @@
+// @rule expr.static-call.array-default
+package expr_diag_4_static_array_default;
+
+struct NoDefault {
+    x: i32,
+}
+
+type M = [NoDefault; 4];
+
+fn main() -> i32 {
+    let _a: M = M::default();
+    return 0i32;
+}

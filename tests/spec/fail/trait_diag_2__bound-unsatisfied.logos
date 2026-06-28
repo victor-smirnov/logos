@@ -1,0 +1,17 @@
+// @rule trait.bounds.unsatisfied-error
+package trait_diag_2_bound_unsatisfied;
+
+trait Show {
+    fn show(&self) -> i32;
+}
+
+struct NoImpl {
+    x: i32,
+}
+
+fn need<T: Show>(t: T) -> i32 { return t.show(); }
+
+fn main() -> i32 {
+    let n = NoImpl { x: 1i32 };
+    return need::<NoImpl>(n);
+}

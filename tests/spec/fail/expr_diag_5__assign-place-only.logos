@@ -1,0 +1,11 @@
+// @rule expr.assign.place-only
+package expr_diag_5_assign_place_only;
+
+fn f() -> i32 {
+    return 1i32;
+}
+
+fn main() -> i32 {
+    f() = 2i32;
+    return 0i32;
+}

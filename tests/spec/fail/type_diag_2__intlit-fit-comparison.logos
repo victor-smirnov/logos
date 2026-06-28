@@ -1,0 +1,9 @@
+package type_diag_2_intlit_fit_comparison;
+// @rule type.binop.intlit-fit-comparison
+// In a comparison with a concrete int operand, the literal must fit its range.
+
+fn main() -> i32 {
+    let x: i32 = 0;
+    let b: bool = x == 10000000000;
+    return 0;
+}

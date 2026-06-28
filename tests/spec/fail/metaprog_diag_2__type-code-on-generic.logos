@@ -1,0 +1,7 @@
+// @rule metaprog.annot.type-code-not-on-generic
+package metaprog_diag_2_type_code_on_generic;
+
+#[type_code = 42]
+struct S<T> { x: T }
+
+fn main() -> i32 { return 0; }

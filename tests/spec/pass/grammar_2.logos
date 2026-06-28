@@ -1,0 +1,212 @@
+// Grouped conformance test for unit "grammar_2".
+// Each rule is locked by EXECUTING an assertion that holds only if the
+// rule is true; a violation returns a distinct nonzero code, all-pass
+// returns 0. Markers "// @rule <id>" sit adjacent to each assertion.
+package grammar_2;
+
+use logos.std.compiler.metaprog;   // type_of/Type/quote_ty/quote_expr/quote_item
+
+// ── helpers ───────────────────────────────────────────────────────
+
+// Free fn for call-arg-list / call forms.
+fn add3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+
+// Generic struct with static + turbofish-bearing assoc fns.
+struct Pair<T> { a: T, b: T }
+impl<T: Copy> Pair<T> {
+    fn make(x: T, y: T) -> Pair<T> { return Pair::<T> { a: x, b: y }; }
+    fn new(x: T) -> Pair<T> { return Pair::<T> { a: x, b: x }; }
+}
+
+// Trait + impl for UFCS-qualified call.
+trait HasId { fn ident() -> i64; }
+struct Foo {}
+impl HasId for Foo { fn ident() -> i64 { return 7i64; } }
+
+// Generic fn with a type-param-list, a default param, and a trait bound.
+fn pick<T: Copy>(x: T, _y: T) -> T { return x; }
+
+// Type param with default (grammar.generic.type-param-default):
+// when the second arg is omitted at instantiation, U defaults to i64.
+struct Defd<T, U = i64> { a: T, b: U }
+
+// HRTB-prefixed bound (parsed-then-dropped; for<'a> Tr ≡ Tr).
+fn hrtb_call<F: for<'a> Fn(i64) -> i64>(f: F, v: i64) -> i64 { return f(v); }
+
+// Plain bound (Fn-family parenthesized trait-bound form).
+fn apply_fn<F: Fn(i64) -> i64>(f: F, v: i64) -> i64 { return f(v); }
+
+// Lifetime param with outlives bound (grammar.generic.lifetime-param-outlives)
+// and a type-param-list reused on a generic fn.
+fn longest<'a, 'b: 'a>(x: &'a i64, _y: &'b i64) -> &'a i64 { return x; }
+
+// quote_item! produces an item blob that metacall splices in.
+fn emit_inst() -> QuoteItemBlob {
+    return quote_item! { instantiate Pair<i64>; };
+}
+metacall emit_inst();
+
+// quote_expr! { expr } reified as an ExprBlob, consumed via metacall.
+fn quoted_42() -> ExprBlob {
+    return quote_expr! { 6 * 7 };
+}
+
+fn main() -> i64 {
+
+    // ── grammar.expr.array-literal ────────────────────────────────
+    // Bracket-delimited comma list of exprs, optional trailing comma.
+    // @rule grammar.expr.array-literal
+    let arr: [i64; 3] = [10i64, 20i64, 12i64,];
+    if (arr[0] + arr[1] + arr[2]) != 42i64 { return 1; }
+
+    // ── grammar.expr.tuple-literal ────────────────────────────────
+    // 2+ elements => tuple; single element REQUIRES a trailing comma.
+    // @rule grammar.expr.tuple-literal
+    let t2: (i64, bool) = (40i64, true);
+    let t1: (i64,) = (2i64,);
+    if t2.0 + t1.0 != 42i64 { return 2; }
+    if !t2.1 { return 2; }
+
+    // ── grammar.expr.paren-expr ───────────────────────────────────
+    // '(expr)' alone is grouping, NOT a tuple: it has no .0 field and
+    // is just the inner i64 value.
+    // @rule grammar.expr.paren-expr
+    let p: i64 = (20i64 + 1i64) * 2i64;   // grouping changes precedence
+    if p != 42i64 { return 3; }
+
+    // ── grammar.expr.closure-param-untyped ────────────────────────
+    // '|x|' (no annotation) is accepted; the type is inferred from the
+    // fn(T)->R formal at the call site.
+    // @rule grammar.expr.closure-param-untyped
+    let f: fn(i64) -> i64 = |x| x + 1i64;
+    if f(41i64) != 42i64 { return 4; }
+
+    // ── grammar.expr.closure-expr ─────────────────────────────────
+    // Brace-less expr-body closure '|x| expr', '|| expr', and a
+    // 'move' + '-> T' block-body form; body expr stops at the ')'.
+    // @rule grammar.expr.closure-expr
+    let g = |x: i64| x * 2i64;            // expr-body
+    let z = || 21i64;                     // '||' no params, expr-body
+    let cap: i64 = 5i64;
+    let mv = move || -> i64 { cap + 16i64 };
+    if g(z()) != 42i64 { return 5; }
+    if mv() != 21i64 { return 5; }
+
+    // ── grammar.metaprog.quote-ty ─────────────────────────────────
+    // quote_ty! { type } yields a first-class Type (same shape as
+    // type_of::<T>()); the resolved type's uid matches.
+    // @rule grammar.metaprog.quote-ty
+    let qt: Type = quote_ty! { i32 };
+    if qt.uid != type_of::<i32>().uid { return 6; }
+
+    // ── grammar.metaprog.quote-expr ───────────────────────────────
+    // quote_expr! { expr } reifies a single expression as an ExprBlob;
+    // spliced via metacall it evaluates to that expr's value.
+    // @rule grammar.metaprog.quote-expr
+    let qv: i64 = metacall quoted_42();
+    if qv != 42i64 { return 7; }
+
+    // ── grammar.metaprog.quote-item ───────────────────────────────
+    // quote_item! { item* } (above) produced `instantiate Pair<i64>;`,
+    // which metacall spliced as a top-level item; the instance resolves.
+    // @rule grammar.metaprog.quote-item
+    let inst: Pair<i64> = Pair::<i64> { a: 19i64, b: 23i64 };
+    if inst.a + inst.b != 42i64 { return 8; }
+
+    // ── grammar.generic.type-param-list ───────────────────────────
+    // '<T>' on a generic fn; turbofish reuses the same list shape.
+    // @rule grammar.generic.type-param-list
+    if pick::<i64>(42i64, 0i64) != 42i64 { return 9; }
+
+    // ── grammar.generic.type-arg-list ─────────────────────────────
+    // Generic instantiation arg list 'Pair<i64>' (and trailing comma).
+    // @rule grammar.generic.type-arg-list
+    let pa: Pair<i64> = Pair::<i64> { a: 30i64, b: 12i64 };
+    if pa.a + pa.b != 42i64 { return 10; }
+
+    // ── grammar.generic.type-param-default ────────────────────────
+    // 'U = i64' default applies when the second type arg is omitted.
+    // @rule grammar.generic.type-param-default
+    let d: Defd<bool> = Defd::<bool> { a: true, b: 42i64 };  // U defaulted to i64
+    if d.b != 42i64 { return 11; }
+    if !d.a { return 11; }
+
+    // ── grammar.generic.type-param-forms ──────────────────────────
+    // A type param admits a trait-bounded form 'T: Copy' (used by pick
+    // and Pair); exercising those generics drives the bound form.
+    // @rule grammar.generic.type-param-forms
+    if pick::<bool>(true, false) { } else { return 12; }
+
+    // ── grammar.generic.hrtb-binder ───────────────────────────────
+    // 'for<'a> Fn(i64)->i64' binder is parsed then dropped: semantically
+    // equivalent to the unbound Fn bound. The hrtb-bounded fn runs.
+    // @rule grammar.generic.hrtb-binder
+    if hrtb_call(|x: i64| x + 2i64, 40i64) != 42i64 { return 13; }
+
+    // ── grammar.trait.bound-forms ─────────────────────────────────
+    // Fn-family parenthesized bound 'F: Fn(i64) -> i64'.
+    // @rule grammar.trait.bound-forms
+    if apply_fn(|x: i64| x * 6i64, 7i64) != 42i64 { return 14; }
+
+    // ── grammar.generic.lifetime-param-outlives ───────────────────
+    // 'a, 'b: 'a outlives bound on a generic fn; the borrow returns x.
+    // @rule grammar.generic.lifetime-param-outlives
+    let xa: i64 = 42i64;
+    let xb: i64 = 7i64;
+    if *longest(&xa, &xb) != 42i64 { return 15; }
+
+    // ── grammar.expr.call-arg-list ────────────────────────────────
+    // Value arg list with a trailing comma.
+    // @rule grammar.expr.call-arg-list
+    if add3(10i64, 20i64, 12i64,) != 42i64 { return 16; }
+
+    // ── grammar.expr.call-package-qualified ───────────────────────
+    // Dotted package path 'logos.lang.mem::swap_ref' restricts free-fn
+    // resolution to that package's member.
+    // @rule grammar.expr.call-package-qualified
+    {
+        let mut sa: i64 = 5i64;
+        let mut sb: i64 = 9i64;
+        logos.lang.mem::swap_ref(&mut sa, &mut sb);
+        if sa != 9i64 { return 17; }
+        if sb != 5i64 { return 17; }
+    }
+
+    // ── grammar.expr.call-turbofish-type ──────────────────────────
+    // 'Type::<T>::method(args)' applies the type args to the type, then
+    // selects the assoc fn.
+    // @rule grammar.expr.call-turbofish-type
+    let mk: Pair<i64> = Pair::<i64>::make(20i64, 22i64);
+    if mk.a + mk.b != 42i64 { return 18; }
+
+    // ── grammar.expr.call-ufcs-qualified ──────────────────────────
+    // '<Foo as HasId>::ident()' dispatches on the concrete Foo.
+    // @rule grammar.expr.call-ufcs-qualified
+    if <Foo as HasId>::ident() != 7i64 { return 19; }
+
+    // ── grammar.expr.call-static ──────────────────────────────────
+    // 'Type::IDENT(args)' and 'Type::new(args)' invoke assoc fns.
+    // @rule grammar.expr.call-static
+    let st: Pair<i64> = Pair::<i64>::new(21i64);
+    if st.a + st.b != 42i64 { return 20; }
+
+    // ── grammar.trait.bound-arg-assoc-eq ──────────────────────────
+    // A trait bound carrying an associated-type equality clause
+    // 'Producer<Out = i64>' — bound_arg ::= IDENT '=' type_ref. The
+    // generic consumer only resolves if that clause parses and binds.
+    // @rule grammar.trait.bound-arg-assoc-eq
+    let src: I64Src = I64Src { v: 42i64 };
+    if consume_out(src) != 42i64 { return 21; }
+
+    return 0;
+}
+
+// Trait with an associated type, plus a consumer constrained by an
+// associated-type-equality clause (Producer<Out = i64>); this locks
+// grammar.trait.bound-arg-assoc-eq by requiring the clause to parse and
+// resolve before the generic can be instantiated and run.
+trait Producer { type Out; fn produce(self: Self) -> Self::Out; }
+struct I64Src { v: i64 }
+impl Producer for I64Src { type Out = i64; fn produce(self: I64Src) -> i64 { return self.v; } }
+
+fn consume_out<P: Producer<Out = i64>>(p: P) -> i64 { return p.produce(); }

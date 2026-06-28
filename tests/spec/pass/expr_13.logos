@@ -1,0 +1,260 @@
+package expr_13;
+
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;   // WView2
+use logos.lang.writ.anyval;        // WAny
+use logos.mem.writ.stringify;      // stringify(WAny)
+use logos.std.compiler.metaprog;   // Type, type_from_anyval
+
+// ---- helpers ----------------------------------------------------------
+
+// A trait declaring a const, projected through an abstract type-param.
+trait Cap {
+    const N: i64;
+}
+struct Small {}
+impl Cap for Small { const N: i64 = 7i64; }
+
+// Generic projection T::N where T is an abstract type-param bound by Cap.
+fn cap_of<T: Cap>() -> i64 {
+    // @rule expr.assoc-const.generic-typeparam-projection
+    // T::N (abstract T bound by Cap) lowers to a zero-arg accessor; mono fills T.
+    return T::N;
+}
+
+// A Never-returning function (divergent callee).
+fn boom() -> ! {
+    loop {}
+}
+
+// Free fn with a type-param, called with turbofish.
+fn id_val<T>(x: T) -> T {
+    return x;
+}
+
+// Static/associated fn for the static-turbofish-before-method rule.
+// Generic receiver type so the turbofish attaches to the receiver before ::method.
+struct Mk<T> { seed: T }
+impl<T> Mk<T> {
+    fn make(x: T) -> Mk<T> { return Mk::<T> { seed: x }; }
+}
+
+// Method with a turbofish type arg after the method name.
+struct Holder { v: i64 }
+impl Holder {
+    fn pick<T>(&self, x: T) -> T { return x; }
+}
+
+// Fn-family-bounded type-param: untyped closure infers params from the bound.
+fn apply<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 {
+    return f(x);
+}
+
+// Tuple struct-ish helper for field / tuple-index access.
+struct Pair { a: i64, b: i64 }
+
+// Struct literal mixing FIELD_INIT (`a: ..`) and FIELD_SHORTHAND (`b`).
+fn mk_pair(b: i64) -> Pair {
+    return Pair { a: 70i64, b };   // a: init, b: shorthand
+}
+
+fn main() -> i64 {
+    // @rule expr.loop.empty-loop-diverges
+    // `loop {}` with no break reaching it is `!`, so it unifies with the i64
+    // taken from the other branch; the value-yielding form `loop { break v }`
+    // reads its break frame and becomes that value type.
+    {
+        let picked: i64 = if false { loop {} } else { 11i64 };
+        if picked != 11i64 { return 1; }
+        let yielded: i64 = loop { break 12i64; };
+        if yielded != 12i64 { return 2; }
+    }
+
+    // @rule expr.call.divergent-never-returning
+    // A call to a `-> !` fn is a divergent position: it can stand where a
+    // value is expected (here the else arm) without contributing a type.
+    {
+        let cond: bool = true;
+        let v: i64 = if cond { 13i64 } else { boom() };
+        if v != 13i64 { return 3; }
+    }
+
+    // @rule expr.tail.implicit-return-in-fn-body
+    // The fn body's trailing tail-expr is the implicit return, while a tail
+    // inside a block-as-expression (here the if-as-expr / inner block) is the
+    // block's *value*, not a function return.
+    {
+        let blockval: i64 = { let t: i64 = 20i64; t + 1i64 };  // tail = block value
+        if blockval != 21i64 { return 4; }
+        let ifval: i64 = if true { 22i64 } else { 0i64 };      // tail = arm value
+        if ifval != 22i64 { return 5; }
+        if tail_fn() != 23i64 { return 6; }                    // tail = implicit return
+    }
+
+    // @rule expr.deref.generic-autoderef-via-method-call
+    // Box<T>: deref through the generic Deref impl is emitted as a deref() method
+    // call (monomorphized later); `*b` and deref-to-method both reach the target.
+    {
+        let b: Box<i64> = Box::new(31i64);
+        let x: i64 = *b;             // generic autoderef -> deref() call
+        if x != 31i64 { return 7; }
+        let bs: Box<String> = Box::new(String::from("abcd"));
+        if bs.len() != 4i64 { return 8; }   // deref-to-method through Box
+    }
+
+    // @rule expr.assoc-const.generic-typeparam-projection
+    if cap_of::<Small>() != 7i64 { return 9; }
+
+    // @rule expr.closure.infer-params-from-fn-bound
+    // The untyped closure `|x| ..` infers its param type from the Fn(i64)->i64 bound.
+    {
+        let r: i64 = apply(|x| x * 2i64, 21i64);
+        if r != 42i64 { return 10; }
+    }
+
+    // @rule expr.deref.prefix-star
+    // Dereference is prefix `*`.
+    {
+        let n: i64 = 41i64;
+        let r: &i64 = &n;
+        if *r != 41i64 { return 11; }
+    }
+
+    // @rule expr.call.turbofish-free-fn
+    // Turbofish after the callee name, before the arg list.
+    {
+        if id_val::<i64>(42i64) != 42i64 { return 12; }
+    }
+
+    // @rule expr.call.static-turbofish-before-method
+    // Turbofish on the receiver type precedes the ::method segment.
+    {
+        let mk: Mk<i64> = Mk::<i64>::make(43i64);
+        if mk.seed != 43i64 { return 13; }
+    }
+
+    // @rule expr.method-call.turbofish-after-name
+    // Method call receiver.method::<T>(args): turbofish after the method name.
+    {
+        let h: Holder = Holder { v: 0i64 };
+        if h.pick::<i64>(44i64) != 44i64 { return 14; }
+    }
+
+    // @rule expr.field.dot-access
+    // Named field access receiver.field.
+    {
+        let p: Pair = Pair { a: 5i64, b: 6i64 };
+        if p.a != 5i64 { return 15; }
+        if p.b != 6i64 { return 16; }
+    }
+
+    // @rule expr.tuple-index.dot-number
+    // Tuple element access receiver.N.
+    {
+        let t: (i64, i64) = (7i64, 8i64);
+        if t.0 != 7i64 { return 17; }
+        if t.1 != 8i64 { return 18; }
+    }
+
+    // @rule expr.index.bracket
+    // Indexing receiver[index].
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        if arr[1u64] != 2i64 { return 19; }
+    }
+
+    // @rule expr.tuple-lit.one-elem-trailing-comma
+    // A single-element tuple needs a trailing comma: (e,) is a 1-tuple, distinct
+    // from a parenthesized expr; its .0 yields the element.
+    {
+        let one: (i64,) = (50i64,);
+        if one.0 != 50i64 { return 20; }
+    }
+
+    // @rule expr.array-lit.bracket-comma
+    // Array literal: comma-separated elements in brackets.
+    {
+        let a: [i64; 3] = [60i64, 61i64, 62i64];
+        if a[0u64] + a[1u64] + a[2u64] != 183i64 { return 21; }
+    }
+
+    // @rule expr.struct-lit.field-init-and-shorthand
+    // Struct literal Name { f: v, shorthand }: FIELD_INIT plus FIELD_SHORTHAND.
+    {
+        let sp: Pair = mk_pair(71i64);
+        if sp.a != 70i64 { return 22; }
+        if sp.b != 71i64 { return 23; }
+    }
+
+    // @rule expr.if.let-condition
+    // `if cond { }` takes a bool; `if let PAT = expr { }` matches a pattern;
+    // else is a block or a chained else-if.
+    {
+        let cond: bool = true;
+        let mut acc: i64 = 0i64;
+        if cond { acc = acc + 1i64; } else { acc = acc + 100i64; }
+        let opt: Box<i64> = Box::new(5i64);
+        if *opt == 5i64 { acc = acc + 10i64; } else if false { acc = acc + 1000i64; }
+        if acc != 11i64 { return 24; }
+    }
+
+    // @rule expr.match.arm-forms
+    // match with a guarded arm (if GUARD) and both block / expr-with-comma bodies.
+    {
+        let x: i64 = 5i64;
+        let r: i64 = match x {
+            n if n > 10i64 => { 100i64 }     // guard + block body
+            5i64 => 200i64,                   // expr body + comma
+            _ => 300i64,
+        };
+        if r != 200i64 { return 25; }
+    }
+
+    // @rule expr.writ.outer-at-prefix
+    // Writ literals in expr position carry a leading `@`: @null, @true/@false,
+    // @INT, @-INT, @"str", @{..}, @[..]. Confirm via SDN stringify.
+    {
+        let l_null: WritStatic = @null;
+        if !stringify(wview2_from_ptr(l_null.ptr).root()).eq_str("null") { return 26; }
+        let l_true: WritStatic = @true;
+        if !stringify(wview2_from_ptr(l_true.ptr).root()).eq_str("true") { return 27; }
+        let l_int: WritStatic = @42;
+        if !stringify(wview2_from_ptr(l_int.ptr).root()).eq_str("42") { return 28; }
+        let l_neg: WritStatic = @-1;
+        if !stringify(wview2_from_ptr(l_neg.ptr).root()).eq_str("-1") { return 29; }
+        let l_str: WritStatic = @"hi";
+        if !stringify(wview2_from_ptr(l_str.ptr).root()).eq_str("\"hi\"") { return 30; }
+        let l_arr: WritStatic = @[1, 2, 3];
+        if !stringify(wview2_from_ptr(l_arr.ptr).root()).eq_str("[1, 2, 3]") { return 31; }
+    }
+
+    // @rule expr.writ.map-entry-colon
+    // A Writ map @{ key: value } uses comma-separated `key: value` entries;
+    // nested scalar values omit the inner `@`.
+    {
+        let m: WritStatic = @{"k": 99};
+        if !stringify(wview2_from_ptr(m.ptr).root()).eq_str("{\"k\": 99}") { return 32; }
+    }
+
+    // @rule expr.writ.embedded-type-lit
+    // A Logos type embeds in a Writ literal as <type:T>; reading it back reifies
+    // a metaprog Type (kind != 0, uid != 0) — i32 -> kind 1.
+    {
+        let cfg: WritStatic = @{"t": <type:i32>};
+        let v: WView2 = wview2_from_ptr(cfg.ptr);
+        let inner: WAny = v.map_get(v.root(), "t");
+        if inner.is_null() { return 33; }
+        let t: Type = type_from_anyval(inner);
+        if t.kind != (1 as u32) { return 34; }
+        if t.uid == (0 as u64) { return 35; }
+    }
+
+    return 0;
+}
+
+// Helper whose tail-expr is the implicit return value of the fn body.
+fn tail_fn() -> i64 {
+    23i64
+}

@@ -1,0 +1,11 @@
+// @rule borrow.assign.raw-ptr-unsafe
+package borrow_diag_3_assign_raw_const_ptr;
+
+fn main() -> i32 {
+    let mut x: i32 = 1i32;
+    let p: *const i32 = &x as *const i32;
+    unsafe {
+        *p = 2i32;
+    }
+    return x;
+}

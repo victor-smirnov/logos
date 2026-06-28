@@ -1,0 +1,291 @@
+package expr_12;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.ptr;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.lang.str;
+use logos.std.fmt;
+
+// --- struct-shaped enum variant ---
+enum Shape {
+    Rect { w: i64, h: i64 },
+    Empty {},
+    Unit,
+}
+
+// --- generic enum for payload-type-inference ---
+enum Wrap<T> { Of(T), Nil }
+
+// --- dyn-payload-arg helpers ---
+trait Area { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Area for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+enum Carry<T> { Has(T), No }
+
+// --- mut-deref-reborrow via DerefMut ---
+struct Cell { v: i64 }
+impl DerefMut<i64> for Cell { fn deref_mut(&mut self) -> &mut i64 { return &mut self.v; } }
+impl Deref<i64> for Cell { fn deref(&self) -> &i64 { return &self.v; } }
+
+// --- try-operator helper fns ---
+fn pull_ok(r: Result<i64, i64>) -> Result<i64, i64> {
+    let v: i64 = r?;
+    return Result::Ok(v + 1i64);
+}
+fn pull_some(o: Option<i64>) -> Option<i64> {
+    let v: i64 = o?;
+    return Option::Some(v + 1i64);
+}
+
+// --- module-level static (static-mut) ---
+static mut SM: i64 = 5i64;
+
+// --- module const for name-resolution fallback ---
+const KAY: i64 = 77i64;
+
+fn main() -> i64 {
+    // @rule expr.enum-lit.struct-shape-named-fields
+    // Named field initializers bind to the variant's declared payload by name;
+    // an empty struct-shape variant `E::Empty {}` is accepted with empty payload.
+    {
+        let r: Shape = Shape::Rect { w: 3i64, h: 4i64 };
+        match r {
+            Shape::Rect { w, h } => { if w * h != 12i64 { return 1; } }
+            Shape::Empty {}      => { return 2; }
+            Shape::Unit          => { return 3; }
+        }
+        let e: Shape = Shape::Empty {};
+        match e {
+            Shape::Empty {} => { }
+            Shape::Rect { w: _, h: _ } => { return 4; }
+            Shape::Unit => { return 5; }
+        }
+    }
+
+    // @rule expr.enum-lit.payload-type-inference
+    // For a generic enum, the type param is inferred from the payload argument;
+    // here Wrap::Of(7i64) binds T = i64 with no explicit type-arg.
+    {
+        let w = Wrap::Of(7i64);
+        match w {
+            Wrap::Of(v) => { if v + 1i64 != 8i64 { return 6; } }
+            Wrap::Nil   => { return 7; }
+        }
+    }
+
+    // @rule expr.enum-lit.dyn-payload-arg
+    // Hint pins T to Box<dyn Area> but the payload arg is a concrete Box<Sq>; the
+    // payload unsize-fattens into the dyn slot and dispatch finds Sq::area.
+    {
+        let c: Carry<Box<dyn Area>> = Carry::Has(box_new(Sq { s: 6i64 }) as Box<dyn Area>);
+        match c {
+            Carry::Has(b) => { if b.area() != 36i64 { return 8; } }
+            Carry::No     => { return 9; }
+        }
+    }
+
+    // @rule expr.addr-of.static-mut
+    // `&mut STATIC` for an unshadowed non-array module static yields `&mut T` to
+    // the global's address; writing through it mutates the global.
+    unsafe {
+        let p: &mut i64 = &mut SM;
+        *p = *p + 1i64;
+        if SM != 6i64 { return 10; }
+    }
+
+    // @rule expr.addr-of.mut-array-whole
+    // `&mut arr` for `arr: [T; N]` produces `&mut [T; N]` (whole array ref).
+    {
+        let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let ar: &mut [i64; 3] = &mut arr;   // whole-array ref (typed [i64;3])
+        (*ar)[1u64] = 20i64;
+        if arr[1u64] != 20i64 { return 11; }
+        if (*ar).len() != 3i64 { return 38; }   // whole array, not a single elem
+    }
+
+    // @rule expr.addr-of.mut-deref-reborrow
+    // `&mut *p` where p is a MutRef is a reborrow yielding `&mut Pointee`; for a
+    // struct with a DerefMut impl it lowers to `p.deref_mut()`.
+    {
+        let mut base: i64 = 100i64;
+        let p: &mut i64 = &mut base;
+        let q: &mut i64 = &mut *p;   // reborrow
+        *q = 101i64;
+        if base != 101i64 { return 12; }
+
+        let mut cell: Cell = Cell { v: 200i64 };
+        let dm: &mut i64 = &mut *cell;   // DerefMut: cell.deref_mut()
+        *dm = 201i64;
+        if cell.v != 201i64 { return 13; }
+    }
+
+    // @rule expr.try.result-option-extract
+    // `e?` extracts Ok(v)/Some(v) and early-returns Err(e)/None; valid only when
+    // the function's return type is the same enum.
+    {
+        match pull_ok(Result::Ok(41i64)) {
+            Result::Ok(v)  => { if v != 42i64 { return 14; } }
+            Result::Err(_) => { return 15; }
+        }
+        match pull_ok(Result::Err(9i64)) {
+            Result::Ok(_)  => { return 16; }
+            Result::Err(e) => { if e != 9i64 { return 17; } }   // Err early-returned
+        }
+        match pull_some(Option::Some(41i64)) {
+            Option::Some(v) => { if v != 42i64 { return 18; } }
+            Option::None    => { return 19; }
+        }
+        match pull_some(Option::None) {
+            Option::Some(_) => { return 20; }
+            Option::None    => { }                              // None early-returned
+        }
+    }
+
+    // @rule expr.range.desugar-range-struct
+    // Exclusive `lo..hi` lowers to a range; iterating yields lo..(hi-1).
+    {
+        let mut sum: i64 = 0i64;
+        for i in 0i64..4i64 { sum = sum + i; }   // 0+1+2+3
+        if sum != 6i64 { return 21; }
+    }
+
+    // @rule expr.control-flow.diverging-is-never
+    // `return`/`break`/`continue` in expression position have type `!`, coercing
+    // to the surrounding expected type; here `return` sits where an i64 is wanted.
+    {
+        let mut acc: i64 = 0i64;
+        let mut n: i64 = 0i64;
+        while n < 5i64 {
+            // `continue` (type !) used in expr position of the `if`-arm.
+            let step: i64 = if n == 2i64 { n = n + 1i64; continue; } else { 1i64 };
+            acc = acc + step;
+            n = n + 1i64;
+        }
+        if acc != 4i64 { return 22; }   // counted n in {0,1,3,4}
+    }
+
+    // @rule expr.break.value-loop-typing
+    // @rule expr.loop.as-expr-type
+    // `break value` attributes its type to the loop frame, making `loop {...}` a
+    // value-yielding expression of the common break-value type.
+    {
+        let mut k: i64 = 0i64;
+        let got: i64 = loop {
+            k = k + 1i64;
+            if k == 3i64 { break k * 10i64; }
+        };
+        if got != 30i64 { return 23; }
+    }
+
+    // @rule expr.unsafe-block.tail-value
+    // `unsafe { ... }` in expression position yields the trailing expression's
+    // value (not a return).
+    {
+        let u: i64 = unsafe {
+            let t: i64 = 4i64;
+            t + 5i64
+        };
+        if u != 9i64 { return 24; }
+    }
+
+    // @rule expr.tuple.unit-and-element-typing
+    // `()` is the unit value of type `()`; a tuple's type is the tuple of its
+    // element types and elements are accessed positionally.
+    {
+        let _unit: () = ();
+        let tup: (i64, i64) = (10i64, 20i64);
+        if tup.0 + tup.1 != 30i64 { return 25; }
+    }
+
+    // @rule expr.call.arg-coercions
+    // An array-ref argument coerces to a `&[T]` slice parameter at the call site.
+    {
+        let arr: [i64; 3] = [4i64, 5i64, 6i64];
+        if sum_slice(&arr) != 15i64 { return 26; }   // &[i64;3] -> &[i64]
+    }
+
+    // @rule expr.call.move-by-value-args
+    // A by-value move (non-Copy) arg is marked moved so its scope-exit Drop does
+    // not fire on the caller's storage after ownership transfers to the callee.
+    {
+        let s: String = String::from("xyz");
+        let n: i64 = take_string(s);   // s moved into callee
+        if n != 3i64 { return 27; }
+        // s is moved-from here; no double-drop occurs (program runs to 0).
+    }
+
+    // @rule expr.fmt.brace-escape
+    // `{{` -> literal `{`, `}}` -> literal `}`; each doubled brace contributes one.
+    {
+        let s: String = format!("{{}}");
+        if !s.eq_str("{}") { return 28; }
+    }
+
+    // @rule expr.fmt.placeholder-syntax
+    // A placeholder `{` arg_id? (`:` spec)? `}` substitutes an argument.
+    {
+        let s: String = format!("a={}", 7i64);
+        if !s.eq_str("a=7") { return 29; }
+    }
+
+    // @rule expr.fmt.implicit-positional-counter
+    // Implicit placeholders take consecutive indices from 0; an explicit index in
+    // between does not advance the implicit counter.
+    {
+        let s: String = format!("{}-{0}-{}", 1i64, 2i64);
+        if !s.eq_str("1-1-2") { return 30; }   // implicit#0=1, {0}=1, implicit#1=2
+    }
+
+    // @rule expr.fmt.arg-id-kind
+    // A leading-digit arg_id is an explicit positional index; a leading-alpha/`_`
+    // arg_id is a named argument.
+    {
+        let s: String = format!("{1}/{0}", 9i64, 8i64);
+        if !s.eq_str("8/9") { return 31; }
+    }
+
+    // @rule expr.fmt.spec-field-order
+    // After `:` the spec fields appear in fixed order; `{:+05}` = sign then
+    // zero-pad-width yields a `+`, leading zeros, then digits.
+    {
+        let s: String = format!("{:+05}", 42i64);
+        if !s.eq_str("+0042") { return 32; }
+    }
+
+    // @rule expr.fmt.fill-align
+    // A fill char is recognized only before an alignment marker; `<`=Left,
+    // `>`=Right, `^`=Center; `{:*>5}` right-aligns with fill `*`.
+    {
+        let s: String = format!("{:*>5}", 42i64);
+        if !s.eq_str("***42") { return 33; }
+    }
+
+    // @rule expr.name.innermost-scope-wins
+    // A name resolves to its innermost in-scope local; falling back to a
+    // module-level const only when no local binding shadows it.
+    {
+        if KAY != 77i64 { return 34; }      // no local `KAY` -> module const
+        let nm: i64 = 5i64;                 // outer local binding
+        if nm != 5i64 { return 35; }
+        {
+            let nm: i64 = 9i64;             // inner local shadows outer
+            if nm != 9i64 { return 36; }    // innermost local wins
+        }
+        if nm != 5i64 { return 37; }        // outer local restored after inner scope
+    }
+
+    return 0;
+}
+
+fn sum_slice(xs: &[i64]) -> i64 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < xs.len() { acc = acc + xs[i as u64]; i = i + 1i64; }
+    return acc;
+}
+
+fn take_string(s: String) -> i64 {
+    return s.len();
+}

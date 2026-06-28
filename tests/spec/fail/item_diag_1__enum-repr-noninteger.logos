@@ -1,0 +1,6 @@
+// @rule item.enum.repr-int-width
+package item_diag_1_enum_repr_noninteger;
+
+#[repr(C)] enum E { A, B }
+
+fn main() -> i32 { return 0i32; }

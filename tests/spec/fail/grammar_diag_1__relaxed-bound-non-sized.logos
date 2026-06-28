@@ -1,0 +1,8 @@
+// @rule grammar.trait.relaxed-bound-question
+package grammar_diag_1_relaxed_bound_non_sized;
+
+fn foo<T: ?Clone>(_x: &T) {}
+
+fn main() -> i32 {
+    return 0i32;
+}

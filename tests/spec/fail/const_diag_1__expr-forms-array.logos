@@ -1,0 +1,10 @@
+// @rule const.eval.expr-forms
+package const_diag_1_expr_forms_array;
+
+use logos.std.compiler.metaprog;
+
+pub fn gen(x: i32) -> QuoteItemBlob { return quote_item! { struct Z { a: i32 } }; }
+
+metacall gen([1i32, 2i32]);
+
+fn main() -> i32 { return 0i32; }

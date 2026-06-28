@@ -1,0 +1,11 @@
+// @rule borrow.field.overlapping-path-conflict
+package borrow_diag_1_field_overlapping_path_conflict;
+// x.a is shared-borrowed; &mut x.a overlaps (equal path) -> reject.
+struct P { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut x: P = P { a: 1i64, b: 2i64 };
+    let s: &i64 = &x.a;
+    let m: &mut i64 = &mut x.a;
+    *m = 5i64;
+    return *s as i32;
+}

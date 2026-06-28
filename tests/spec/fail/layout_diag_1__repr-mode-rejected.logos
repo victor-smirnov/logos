@@ -1,0 +1,8 @@
+// @rule layout.repr-transparent.inherit-field-layout
+// Only `transparent` inherits the field layout exactly; other `#[repr(...)]` modes
+// (`C`/`packed`/`align`) are parsed then rejected in the core layout pass.
+package layout_diag_1_repr_mode_rejected;
+
+#[repr(C)] struct W { a: i32, b: i32 }
+
+fn main() -> i32 { return 0i32; }

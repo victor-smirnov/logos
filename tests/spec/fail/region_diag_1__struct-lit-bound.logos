@@ -1,0 +1,14 @@
+// @rule region.outlives.struct-lit-bound-checked
+package region_diag_1_struct_lit_bound;
+
+struct Pair<'a, 'b> where 'a: 'b {
+    x: &'a i32,
+    y: &'b i32,
+}
+
+fn make<'a, 'b>(a: &'a i32, b: &'b i32) -> i32 {
+    let _p = Pair::<'a, 'b> { x: a, y: b };
+    return 0i32;
+}
+
+fn main() -> i32 { return 0i32; }
