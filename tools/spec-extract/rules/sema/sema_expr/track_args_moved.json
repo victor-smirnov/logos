@@ -1,0 +1,111 @@
+{
+  "unit": "sema/sema_expr/track_args_moved",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L6433-L7114",
+  "source_hash": "44612c5243a1c82e",
+  "rules": [
+    {
+      "id": "borrow.move.by-value-args",
+      "domain": "borrow",
+      "title": "By-value call arguments are moved",
+      "statement": "Passing an argument by value to a call moves it: each move-type l-value argument (and each owning `Box<dyn Trait>` binding consumed by a by-value parameter) is marked moved, suppressing scope-end auto-Drop on the caller's binding. Non-move-type / non-owning arguments are unaffected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6433-L6441"],
+      "related": ["borrow.move.by-value-receiver"]
+    },
+    {
+      "id": "borrow.move.by-value-receiver",
+      "domain": "borrow",
+      "title": "By-value method receiver is moved",
+      "statement": "When the resolved method's formal `self` type is not a reference/pointer (kind not in {Ref, MutRef, Ptr}), the call consumes the receiver: the receiver l-value (move type or owning `Box<dyn Trait>`) is marked moved so scope-end auto-Drop does not double-free ownership transferred into the result. A `&self`/`&mut self`/`*self` receiver is not moved.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6450-L6458"],
+      "related": ["borrow.move.by-value-args"]
+    },
+    {
+      "id": "expr.slice.len-as-ptr-builtin",
+      "domain": "expr",
+      "title": "Built-in slice/str length and pointer methods",
+      "statement": "On a slice receiver, `recv.len()` yields the element count as `i64`, and `recv.as_ptr()` yields the data pointer as `*const u8`. These are intrinsic (not user-resolved).",
+      "evidence": ["src/compiler/sema_expr.cpp#L6463-L6471"]
+    },
+    {
+      "id": "expr.str.as-bytes-identity",
+      "domain": "expr",
+      "title": "&str.as_bytes() is the identity",
+      "statement": "Because `&str` is represented as `Slice<u8>` (same fat-pointer ABI as `&[u8]`), `s.as_bytes()` on a `Slice<u8>` receiver returns the receiver verbatim with no conversion.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6472-L6481"],
+      "divergence": "Logos models &str as Slice<u8> (writ/string-repr); identity conversion."
+    },
+    {
+      "id": "expr.str.method-forwarding",
+      "domain": "expr",
+      "title": "&str methods forward to stdlib free functions",
+      "statement": "On a `Slice<u8>` (= `&str`) receiver, the methods {starts_with→str_starts_with, ends_with→str_ends_with, contains→str_contains, eq_str→str_eq, cmp→str_cmp, index_of→str_index_of, find→str_index_of, trim→str_trim, trim_start→str_trim_start, trim_end→str_trim_end, split→split} desugar to a call of the named stdlib free function with the receiver as the first argument, when that function exists.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6482-L6517"]
+    },
+    {
+      "id": "trait.dispatch.slice-impl",
+      "domain": "trait",
+      "title": "Method dispatch on slice/str impls",
+      "statement": "A method call on a slice receiver resolves user `impl Trait for [T]` / `impl Trait for str` methods via sentinel keys, in order: concrete `$slice$<elem>__<m>`, generic blanket `$slice$T__<m>`, and (for `Slice<u8>`) `str__<m>`. A `&[U]` argument whose formal parameter wants a flat `Slice` is reborrowed by stripping its `&`/`&mut` wrapper. If the receiver is a slice but no key matches, it is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6518-L6613"]
+    },
+    {
+      "id": "expr.raw-ptr.arith-unsafe",
+      "domain": "expr",
+      "title": "Raw-pointer arithmetic methods require unsafe",
+      "statement": "On a raw-pointer (`Ptr`) receiver, the offset methods {add, sub, byte_add, byte_sub} and the distance methods {offset_from, byte_offset_from} are built-in, each require an `unsafe` context, take exactly one argument, and have result type: offset → the receiver pointer type (argument coerced to `i64`); distance → `i64` (argument must be a pointer).",
+      "evidence": ["src/compiler/sema_expr.cpp#L6615-L6660"]
+    },
+    {
+      "id": "expr.raw-ptr.is-null-safe",
+      "domain": "expr",
+      "title": "Raw-pointer is_null is safe; user impl wins",
+      "statement": "On a raw-pointer receiver, `p.is_null()` is safe (no dereference), takes zero arguments, and lowers to `(p as i64) == 0 : bool` — UNLESS the pointee type declares an inherent `is_null` method, in which case that user-defined method is dispatched instead.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6661-L6692"],
+      "divergence": "Logos lets an inherent fn on the pointee shadow the built-in pointer is_null."
+    },
+    {
+      "id": "trait.dispatch.tagged-ptr",
+      "domain": "trait",
+      "title": "Tag-based dispatch on &tagged<TS> Trait",
+      "statement": "On a `TaggedPtr` receiver carrying tag-system TS and trait T, a method call resolves against T's declared methods (T must exist, method must exist), checks arg count = method param count − 1, requires `unsafe` if the method is unsafe, substitutes `Self`→receiver type in the return type, and emits a tag-dispatched method call (runtime type_code read via TS).",
+      "evidence": ["src/compiler/sema_expr.cpp#L6699-L6743"]
+    },
+    {
+      "id": "trait.dispatch.dstref-unsafe",
+      "domain": "trait",
+      "title": "Method call through &DstStruct requires unsafe unless self-describing",
+      "statement": "On a `DstRef` receiver of struct S, a method call dispatches `S__<m>` (concrete signature then generic). It requires an `unsafe` context unless S is `#[self_describing]` (tail length recovered in-band), in which case it is safe. No matching method is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6752-L6794"]
+    },
+    {
+      "id": "trait.dispatch.dyn-inherent-first",
+      "domain": "trait",
+      "title": "Inherent impls on dyn override vtable dispatch",
+      "statement": "On a `dyn Trait` (or `&dyn Trait` / `&mut dyn Trait`) receiver, an inherent `impl Trait for dyn Foo` method (mangled `$dyn$Foo__<m>`) is tried before vtable dispatch; if found and applicable it is called directly rather than virtually.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6801-L6856"]
+    },
+    {
+      "id": "trait.dispatch.dyn-vtable-supertrait",
+      "domain": "trait",
+      "title": "Virtual dispatch over the flattened supertrait vtable",
+      "statement": "Failing inherent resolution, a `dyn Trait` method call dispatches virtually: the method index is its slot in the supertrait-closure vtable layout (supertrait methods occupy real slots). Arg count must equal method params − 1, an unsafe method requires `unsafe`, and arguments are coerced to formal parameter types (arg-to-dyn, implicit reborrow, int widening) with type/variance/int-fit checks. Unknown method is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6857-L6916", "src/compiler/sema_expr.cpp#L7003-L7010"],
+      "related": ["coerce.arg.dyn-reborrow-widen"]
+    },
+    {
+      "id": "trait.dispatch.dyn-return-subst",
+      "domain": "trait",
+      "title": "Self and trait args substituted in dyn return type",
+      "statement": "The return type of a virtual `dyn Trait` method is computed by substituting `Self`→receiver type plus the owning trait's type/const params from the TraitObject's trait args (read from the peeled `dyn` type, not from a `&dyn` reference whose own type_args are empty), so trait params do not leak unsubstituted to the call site.",
+      "evidence": ["src/compiler/sema_expr.cpp#L6979-L7001"]
+    },
+    {
+      "id": "trait.dispatch.tuple-impl",
+      "domain": "trait",
+      "title": "Method dispatch on tuple impls with autoref/autoderef",
+      "statement": "On a (possibly `&`/`&mut`-wrapped) tuple receiver of arity N, a method call resolves user `impl Trait for (T1..TN)` via keys concrete `$tuple$N$<t1>..$<tN>__<m>` then generic blanket `$tuple$N__<m>`, trying receiver shapes {Self, &Self, &mut Self}. The receiver is auto-referenced (mut per formal) when the formal `self` is a reference but the receiver is a value, or auto-dereferenced when the formal is by-value but the receiver is a reference. No match yields nullopt (falls through to standard diagnostics).",
+      "evidence": ["src/compiler/sema_expr.cpp#L7018-L7113"]
+    }
+  ]
+}

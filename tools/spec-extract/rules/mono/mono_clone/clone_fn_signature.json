@@ -1,0 +1,139 @@
+{
+  "unit": "mono/mono_clone/clone_fn_signature",
+  "layer": "mono",
+  "source": "src/compiler/mono_clone.cpp#L4859-L5460",
+  "source_hash": "a1c057490bcaca70",
+  "rules": [
+    {
+      "id": "mono.subst.fn-signature",
+      "domain": "mono",
+      "title": "Function signature monomorphization substitutes type params",
+      "statement": "Monomorphizing a function clones its signature applying the type substitution s to the return type and to every non-variadic parameter type; non-type signature attributes (name, package, extern/vararg flags, local slot count, lifetime params, lifetime outlives) are preserved verbatim.",
+      "evidence": ["src/compiler/mono_clone.cpp#L4866-L4908"]
+    },
+    {
+      "id": "mono.subst.variadic-pack-expand",
+      "domain": "mono",
+      "title": "Variadic type-pack parameter expands to N concrete params",
+      "statement": "A variadic parameter whose type is a TypeVar pack P, when P is bound in the pack map to a list of N types, expands into N distinct parameters named `<param>$<i>` (i in 0..N), each typed by the i-th pack member; if P is not bound the parameter is dropped.",
+      "evidence": ["src/compiler/mono_clone.cpp#L4889-L4902", "src/compiler/mono_clone.cpp#L4897"],
+      "uncertainty": "Expanded name form `make_pack_arg_name` inferred from call; exact separator defined elsewhere."
+    },
+    {
+      "id": "trait.closure.fn-family-auto-impl",
+      "domain": "trait",
+      "title": "Closure types automatically satisfy Fn/FnMut/FnOnce",
+      "statement": "Every closure type (canonical name beginning with `|`, i.e. `|T1,...| -> R`) is treated as implementing Fn, FnMut, and FnOnce without any explicit `impl`; the trait engine answers satisfies(Fn-family, closure) = true.",
+      "evidence": ["src/compiler/mono_clone.cpp#L4943-L4948"],
+      "divergence": "A10"
+    },
+    {
+      "id": "trait.impl.blanket-and-semantics",
+      "domain": "trait",
+      "title": "Blanket impl bounds combine conjunctively; empty bounds = impl-for-all",
+      "statement": "A blanket impl is satisfied iff ALL of its bounds hold (primary bound first, then extra bounds, conjoined). A blanket impl with empty primary bound and no extras is an unconditional impl-for-all (always satisfied).",
+      "evidence": ["src/compiler/mono_clone.cpp#L4926-L4935"]
+    },
+    {
+      "id": "trait.impl.ref-target-key",
+      "domain": "trait",
+      "title": "Reference-type impl lookup key is structure-aware",
+      "statement": "An `impl Trait for &T` / `&mut T` is keyed by structure: prefix `$ref_`/`$mut_ref_` followed by the struct name when the pointee is a (possibly zoned) struct, otherwise followed by the full ref's type string; `&&i32` and `&i32` thus resolve to distinct keys (no `&`-stripping collision).",
+      "evidence": ["src/compiler/mono_clone.cpp#L4967-L4984", "src/compiler/mono_clone.cpp#L5011-L5018"]
+    },
+    {
+      "id": "trait.impl.str-is-byte-slice",
+      "domain": "trait",
+      "title": "str impls are keyed under &[u8]'s wire form",
+      "statement": "For impl lookup, the concrete type `&[u8]` is the canonical wire form of `str`; a concrete name of `&[u8]` is renamed to `str` before bound checking so impls registered for `str` apply.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5024-L5028"],
+      "uncertainty": "Mirrors a legacy enum bound check; direction (str↔&[u8]) is normative for lookup keys only."
+    },
+    {
+      "id": "trait.bound.generic-arg-recursion",
+      "domain": "trait",
+      "title": "Generic instantiation bound satisfaction recurses into type-args",
+      "statement": "For a generic struct/enum instantiation, satisfying `Concrete<A..>: Trait` requires not only that a matching impl exists by bare name, but also that for each impl type-param, after unifying the impl target pattern against Concrete, every bound on that param holds for the unified argument (recursively). Non-generic / argument-free concrete types are accepted on the bare-name impl check alone.",
+      "evidence": ["src/compiler/mono_clone.cpp#L4986-L5089", "src/compiler/mono_clone.cpp#L5036-L5088"]
+    },
+    {
+      "id": "trait.bound.fn-family-intrinsic",
+      "domain": "trait",
+      "title": "Fn-family bound satisfied by callable shapes intrinsically",
+      "statement": "A parenthesized Fn/FnMut/FnOnce bound is satisfied intrinsically (no registered impl needed) by any fn-value kind, Closure, TypeVar (deferred to outer mono pass), or Struct/ZonedStruct (struct-with-Fn-impl bridge); any other kind fails the bound.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5072-L5081", "src/compiler/mono_clone.cpp#L5154-L5178"],
+      "divergence": "A10"
+    },
+    {
+      "id": "trait.bound.where-clause-gate",
+      "domain": "trait",
+      "title": "Method where-bounds gate method instantiation",
+      "statement": "A method with a where-bound `Subject: Trait` is only instantiated for a concrete substitution if the substituted Subject satisfies Trait; if the substituted Subject still contains a TypeVar the check is deferred to an outer mono pass (not a failure). Unsatisfied where-bounds suppress synthesis of that method.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5091-L5110"]
+    },
+    {
+      "id": "trait.bound.auto-trait-structural",
+      "domain": "trait",
+      "title": "Auto-trait bounds checked structurally, not via impls",
+      "statement": "When a method type-param bound names an auto trait, satisfaction is decided by structural auto-trait analysis of the concrete type (is_auto_satisfied) rather than by impl lookup.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5179-L5187"]
+    },
+    {
+      "id": "trait.hrtb.universal-bijective",
+      "domain": "trait",
+      "title": "HRTB bound satisfaction requires universal-position, bijective lifetime mapping",
+      "statement": "When a trait bound carries lifetime type-args, the bound's lifetimes must align with the impl's lifetime params: a bound lifetime that is empty/'static must match exactly or map to a universally-quantified impl lifetime; a named bound lifetime requires the impl side be universal and the impl-lt→bound-lt map be 1-1 (injective). An impl outlives constraint `'a: 'b` where both sides map to bound-side binder (skolem) lifetimes is unsatisfiable and rejected.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5189-L5280"],
+      "uncertainty": "Region soundness rule; full statement deferred to sema_collect region_ok per comment."
+    },
+    {
+      "id": "mono.struct.markers-preserved",
+      "domain": "mono",
+      "title": "Struct repr/zone markers preserved through monomorphization",
+      "statement": "Cloning a generic struct to a monomorphic instance preserves its markers: zoned, self-describing, rel-ptr, borrow-carrying, zone-mut, zoned2, non-null, union, and lifetime params/outlives; type_params are cleared (result is monomorphic).",
+      "evidence": ["src/compiler/mono_clone.cpp#L5301-L5328"]
+    },
+    {
+      "id": "mono.struct.dst-inheritance",
+      "domain": "mono",
+      "title": "DST-ness inherited when last field instantiates to unsized",
+      "statement": "A monomorphized struct becomes a custom-DST if, after substitution, its LAST field has an unsized type (UnsizedSlice or UnsizedDyn); the template's own DST flag is otherwise preserved.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5302", "src/compiler/mono_clone.cpp#L5350-L5361"]
+    },
+    {
+      "id": "mono.struct.method-rename",
+      "domain": "mono",
+      "title": "Struct methods renamed from Base__m to Instance__m on clone",
+      "statement": "When a generic struct is monomorphized to a new name, each method `Base__method` is renamed to `<new_name>__method`, preserving any package prefix before the bare name.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5286-L5287", "src/compiler/mono_clone.cpp#L5411-L5426"]
+    },
+    {
+      "id": "mono.struct.specialization-override",
+      "domain": "mono",
+      "title": "Concrete impl method overrides blanket method for that instantiation",
+      "statement": "If a non-generic function exists whose bare name equals the renamed method name (a user-written concrete `impl Foo<Concrete>` method), the blanket `impl<T> Foo<T>` method is NOT cloned for that instantiation; the concrete definition is used instead.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5428-L5438"]
+    },
+    {
+      "id": "mono.struct.structured-self-pattern-skip",
+      "domain": "mono",
+      "title": "Structured-impl method skipped when its self pattern mismatches",
+      "statement": "For a method from a structured-self impl (e.g. `impl<T> Pin<&T>` on `struct Pin<P>`), impl-level params are bound by unifying the impl target pattern's args against the concrete struct args; if unification of any decidable arg fails, the method does not belong to this instantiation and is not cloned. Args still containing TypeVars, or projection/associated-type args, are skipped (deferred / not structurally decidable) rather than failing.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5374-L5408"]
+    },
+    {
+      "id": "mono.method.binary-symbol-stub",
+      "domain": "mono",
+      "title": "Methods present in prebuilt archive get signature-only stubs",
+      "statement": "If a method's final (renamed) name is present in the binary-symbol set (body in a prebuilt stdlib archive), only its signature is cloned (no body); code-gen skips body emission and relies on the archive.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5440-L5449"]
+    },
+    {
+      "id": "mono.struct.lazy-method-defer",
+      "domain": "mono",
+      "title": "Generic struct methods cloned lazily on demand",
+      "statement": "In lazy-methods mode, a generic struct (non-empty type_params) is cloned with an empty METHODS array; its methods are cloned on demand later (call-site / dispatch pin / root pin), with the bound gate applied at that time.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5366-L5371"]
+    }
+  ]
+}

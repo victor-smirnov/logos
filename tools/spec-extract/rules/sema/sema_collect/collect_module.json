@@ -1,0 +1,208 @@
+{
+  "unit": "sema/sema_collect/collect_module",
+  "layer": "sema",
+  "source": "src/compiler/sema_collect.cpp#L1323-L2105",
+  "source_hash": "63dbe573874caedb",
+  "rules": [
+    {
+      "id": "item.extern.abi-whitelist",
+      "domain": "item",
+      "title": "extern ABI string whitelist",
+      "statement": "The ABI string of an `extern \"ABI\" { … }` block or an `extern \"ABI\" fn …` item must be one of \"C\", \"C-unwind\", \"system\", or \"Rust\" (enclosing quotes optional); any other string is rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1334-L1344", "src/compiler/sema_collect.cpp#L1379-L1381"],
+      "examples": ["extern \"C\" { fn puts(s: *const u8) -> i32; }"],
+      "divergence": "A7: \"C-unwind\" is accepted at parse but unwinding-across-FFI is moot (panic=abort)."
+    },
+    {
+      "id": "item.extern.block-flatten",
+      "domain": "item",
+      "title": "extern block flattening and ABI inheritance",
+      "statement": "An `extern \"ABI\" { extern_fn* }` block flattens to a linear item worklist; each child extern-fn that does not carry its own ABI inherits the block's ABI string, and item collection treats grouped and flat extern fns identically.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1346-L1383"]
+    },
+    {
+      "id": "item.union.collected-as-struct",
+      "domain": "item",
+      "title": "union shares struct collection shape",
+      "statement": "A `union NAME { … }` is collected with the same named-field/type-param shape as a struct and registered as a known type, with its `is_union` flag set.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1457-L1469"],
+      "examples": ["union U { i: i32, f: f32 }"]
+    },
+    {
+      "id": "item.union.no-empty",
+      "domain": "item",
+      "title": "fieldless union rejected",
+      "statement": "A union with zero fields is rejected; a union must declare at least one field.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1474-L1480"],
+      "examples": ["union U {} // error"]
+    },
+    {
+      "id": "item.union.field-copy-restriction",
+      "domain": "item",
+      "title": "union field types restricted to non-move types",
+      "statement": "Each non-generic union field type must not be a move type (Vec/Box/String/owning trait object); allowed are Copy types, references, ManuallyDrop<T>, or aggregates thereof. A field whose type is a bare type-parameter is exempt at collection (checked at monomorphization); a field that is itself a union is allowed.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1502-L1530"],
+      "uncertainty": "Slice-1 uses is_move_type as the rejection oracle; full ManuallyDrop/tuple/array recursion is a follow-up.",
+      "divergence": "B: generic-union Copy check is deferred to mono rather than enforced at use site as in Rust."
+    },
+    {
+      "id": "item.struct.repr-transparent",
+      "domain": "item",
+      "title": "#[repr(transparent)] requires single field",
+      "statement": "`#[repr(transparent)]` on a struct sets repr_transparent (the wrapper inherits its single field's layout) and requires the struct to have exactly one field, else it is rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1581-L1604"],
+      "examples": ["#[repr(transparent)] struct W(i32)"]
+    },
+    {
+      "id": "item.struct.repr-other-rejected",
+      "domain": "item",
+      "title": "non-transparent struct repr modes rejected",
+      "statement": "On a struct, `#[repr]` with no argument is an error, and any repr mode other than `transparent` (e.g. `C`, `packed`, `align(...)`) is parse-then-reject (not silently accepted).",
+      "evidence": ["src/compiler/sema_collect.cpp#L1583-L1610"]
+    },
+    {
+      "id": "item.struct.attr-flags",
+      "domain": "item",
+      "title": "structural struct attribute flags",
+      "statement": "Recognised structural struct attributes set per-struct flags: no_auto_drop, self_describing, rel_ptr, pinned, zone_mut, zoned (zoned2), borrow_carrying, non_null.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1557-L1573"],
+      "divergence": "Logos addition (zone/memory-model attributes)."
+    },
+    {
+      "id": "item.datatype.type-code-unique",
+      "domain": "item",
+      "title": "exclusive datatype annotations are unique",
+      "statement": "On a datatype, the exclusive annotations `#[type_code]` and `#[annotation]` may each appear at most once; a duplicate occurrence is rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1641-L1652"],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "item.datatype.type-code-register",
+      "domain": "item",
+      "title": "#[type_code=N] registers explicit type code",
+      "statement": "`#[type_code=N]` on a datatype registers N as the explicit type code for the datatype's fully-qualified name, making it resolvable by impl-collection in the same pass; `#[annotation]` flags the datatype as a user-annotation type.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1654-L1667"],
+      "divergence": "Logos addition (Writ datatype family)."
+    },
+    {
+      "id": "item.enum.repr-int-width",
+      "domain": "item",
+      "title": "#[repr(uN/iN)] sets enum discriminant width",
+      "statement": "`#[repr(I)]` on an enum where I is an integer type (u8/u16/u32/u64/i8/i16/i32/i64/usize/isize) sets the enum's backing (discriminant) type; it conflicts with (errors against) an already-declared `enum Foo : I'` backing type when I≠I'. `#[repr(C)]` and other non-integer modes are parse-then-reject.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1698-L1744"],
+      "examples": ["#[repr(u8)] enum E { A, B }"]
+    },
+    {
+      "id": "item.enum.zoned-attr",
+      "domain": "item",
+      "title": "#[zoned]/#[borrow_carrying] on enum",
+      "statement": "`#[zoned]` on an enum sets its zoned2 flag (niche-enum Ref arm stored self-relative at rest, absolute as value); `#[borrow_carrying]` sets the borrow_carrying flag.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1681-L1692"],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "item.fn.no-mangle",
+      "domain": "item",
+      "title": "#[no_mangle] keeps bare symbol name",
+      "statement": "`#[no_mangle]` on a function causes the bare base name to be used as the symbol name (no name mangling).",
+      "evidence": ["src/compiler/sema_collect.cpp#L1753-L1764"]
+    },
+    {
+      "id": "item.fn.test-attrs",
+      "domain": "item",
+      "title": "test-harness function attributes",
+      "statement": "`#[test]`, `#[ignore]`, and `#[should_panic]` are recognised on a function; `#[should_panic(expected = \"…\")]` records the expected panic substring from its string-literal argument.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1767-L1797"]
+    },
+    {
+      "id": "metaprog.handler.register",
+      "domain": "metaprog",
+      "title": "#[metaprog_handler(\"trigger\")] registers a hook",
+      "statement": "`#[metaprog_handler(\"trigger\")]` on a function registers (trigger, fn-name); the trigger is the first positional string-literal argument and the host driver invokes the hook on each user item carrying a matching `#[trigger]`.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1798-L1834"],
+      "divergence": "Logos addition (three-layer metaprog)."
+    },
+    {
+      "id": "item.static.link-symbol",
+      "domain": "item",
+      "title": "static link symbol qualification",
+      "statement": "A `static` with a value is registered with a module-qualified link symbol `<module_id>.<pkg>$<name>` (bare `<pkg>$<name>` when module_id empty) so two modules declaring the same `pkg::NAME` do not collide; an extern static (no value) links against the bare name.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1859-L1880"]
+    },
+    {
+      "id": "item.static.unsafe-access",
+      "domain": "item",
+      "title": "static mut and extern static require unsafe",
+      "statement": "A `static mut` is recorded as a mutable static (its reads/writes require `unsafe`); an extern static (declared with no value) is recorded as an extern static, every access of which requires `unsafe`.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1881-L1887"]
+    },
+    {
+      "id": "item.cfg.drop-disabled",
+      "domain": "item",
+      "title": "cfg-disabled items are dropped",
+      "statement": "Before collecting an item, `cfg_attr` activations are applied and `cfg(...)` predicates evaluated against pending annotations; if any predicate is false the item is dropped entirely (neither collected nor lowered) together with its pending annotations.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1437-L1446"]
+    },
+    {
+      "id": "item.doc.comment-strip",
+      "domain": "item",
+      "title": "doc comment accumulation and prefix stripping",
+      "statement": "`///` line docs strip the leading `///` plus one optional space; `/** */` outer block docs and `/*! */`/`//!` inner docs accumulate; outer docs attach to the next non-doc item, inner docs accumulate into a per-module inner-doc buffer joined by newlines and never attach to a specific item.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1404-L1436"]
+    },
+    {
+      "id": "type.enum.backing-integer",
+      "domain": "type",
+      "title": "enum backing type must be integer",
+      "statement": "An explicit enum backing type `enum Foo : T { … }` must be an integer kind; a non-integer T is rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1917-L1925"],
+      "examples": ["enum E : u64 { A }"]
+    },
+    {
+      "id": "item.enum.empty-legal",
+      "domain": "item",
+      "title": "empty enum body is legal",
+      "statement": "An enum with an empty body is legal (an uninhabited / marker type); no diagnostic is emitted.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1900-L1902"],
+      "examples": ["enum Void {}"]
+    },
+    {
+      "id": "item.enum.discriminant-default",
+      "domain": "item",
+      "title": "implicit enum discriminant sequencing",
+      "statement": "An enum variant without an explicit discriminant takes the value 0 for the first such variant and previous+1 thereafter; an explicit value resets the running counter to value+1.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1926-L1942", "src/compiler/sema_collect.cpp#L2097"]
+    },
+    {
+      "id": "item.enum.discriminant-fits",
+      "domain": "item",
+      "title": "enum discriminant must fit backing type",
+      "statement": "When an enum has a backing type, each variant's discriminant value must fit in that backing integer type, else it is rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L2028-L2032"]
+    },
+    {
+      "id": "item.enum.discriminant-const-expr",
+      "domain": "item",
+      "title": "enum discriminant from const expression",
+      "statement": "An enum discriminant may be given by a general const expression (e.g. `1 << 1`), evaluated via CTFE; a `metacall { <expr> }` discriminant must contain a single integer tail expression, evaluated via CTFE to the discriminant value.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1985-L2026"],
+      "examples": ["enum E { A = 1 << 1, B = metacall { 4 } }"],
+      "divergence": "A1: const-eval at discriminant position is via metacall/CTFE rather than miri."
+    },
+    {
+      "id": "item.enum.discriminant-from-other-enum",
+      "domain": "item",
+      "title": "enum discriminant referencing another enum's variant",
+      "statement": "An enum discriminant may be `OtherEnum::OtherVariant` (with optional `as T` cast dropped): the referent is resolved among already-collected enums and its discriminant value is used verbatim; an unknown enum or variant is rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1943-L1984"]
+    },
+    {
+      "id": "item.enum.variant-payload-shapes",
+      "domain": "item",
+      "title": "enum variant payload shapes",
+      "statement": "Enum variant payloads may be tuple-style (positional types), struct-shape (named fields, in declaration order, names must be unique), or variadic (single type ref); payload type positions are item signatures in which `_` is rejected (E0121).",
+      "evidence": ["src/compiler/sema_collect.cpp#L2033-L2091"],
+      "examples": ["enum E { Tup(i32, i32), Rec { x: i32 }, Var(i32) }"]
+    }
+  ]
+}

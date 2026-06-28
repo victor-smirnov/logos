@@ -1,0 +1,7 @@
+{
+  "unit": "grammar/hrpc/meta",
+  "layer": "grammar",
+  "source": "tools/peg_gen/grammars/hrpc.peg#L6-L11",
+  "source_hash": "70be26640cae793c",
+  "rules": []
+}

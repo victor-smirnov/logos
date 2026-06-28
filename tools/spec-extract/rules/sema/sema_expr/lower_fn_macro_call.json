@@ -1,0 +1,100 @@
+{
+  "unit": "sema/sema_expr/lower_fn_macro_call",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L18476-L19141",
+  "source_hash": "dd45ba05719fc8eb",
+  "rules": [
+    {
+      "id": "metaprog.fn-macro.callee-must-be-marked",
+      "domain": "metaprog",
+      "title": "name!(...) callee must be a #[fn_macro] or #[token_macro] fn",
+      "statement": "A `name!(...)` invocation resolves `name` against the function overload set; the callee selected must be a fn annotated `#[fn_macro]` or `#[token_macro]`. If `name` is unknown, or no overload bears such an annotation, the call is rejected. Only macro-annotated fns are callable via `name!(...)` syntax.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18497-L18517"],
+      "uncertainty": "Resolution is restricted to non-generic funcs_ (generic fn_macro out of scope for this slice)."
+    },
+    {
+      "id": "metaprog.fn-macro.signature-shapes",
+      "domain": "metaprog",
+      "title": "Accepted fn-macro/token-macro signatures",
+      "statement": "A `#[fn_macro]` callee must have exactly one parameter and signature `(ExprBlob) -> ExprBlob` (single-arg form) or `(Vec<ExprBlob>) -> ExprBlob` (N-arg packed form). A `#[token_macro]` callee must have signature `(str) -> ExprBlob`. Any other signature is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18525-L18555"]
+    },
+    {
+      "id": "metaprog.fn-macro.single-arg-arity",
+      "domain": "metaprog",
+      "title": "Single-arg fn-macro takes exactly one argument",
+      "statement": "For a callee with signature `(ExprBlob) -> ExprBlob`, the `name!(...)` invocation must supply exactly one argument; supplying any other count is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18536-L18539", "src/compiler/sema_expr.cpp#L19017-L19022"]
+    },
+    {
+      "id": "metaprog.fn-macro.args-are-expr-list",
+      "domain": "metaprog",
+      "title": "name!(...) arguments parse as a comma-separated expression list",
+      "statement": "The raw text between the parentheses of `name!(...)` is parsed as a comma-separated list of expressions (each becoming one macro ARG). If it does not parse as such, the invocation is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18566-L18681"]
+    },
+    {
+      "id": "metaprog.fn-macro.arg-passed-as-ast-blob",
+      "domain": "metaprog",
+      "title": "Each fn-macro argument is passed as its serialized AST subtree (ExprBlob)",
+      "statement": "Each argument expression of `name!(...)` is passed to the callee unevaluated as an `ExprBlob` referencing the serialized AST subtree of that argument; the callee receives the syntax tree, not a runtime value. For the Vec form, all argument ExprBlobs are packed into a `Vec<ExprBlob>` in source order.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19028-L19116"]
+    },
+    {
+      "id": "metaprog.token-macro.raw-text-as-str",
+      "domain": "metaprog",
+      "title": "token-macro receives unparsed raw text as str",
+      "statement": "For a `#[token_macro]` callee, the raw bytes between the delimiters of `name!(...)` are forwarded verbatim as a single `str` argument, bypassing expression-list parsing and per-argument AST serialization.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18576-L18619"]
+    },
+    {
+      "id": "metaprog.fn-macro.result-is-exprblob-spliced",
+      "domain": "metaprog",
+      "title": "fn-macro call expands to the ExprBlob it returns",
+      "statement": "A `name!(...)` expression has the callee's return type `ExprBlob`; at expansion the AST produced by the macro (the returned ExprBlob) is spliced in place of the call site before final sema.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19118-L19132"]
+    },
+    {
+      "id": "metaprog.fn-macro.cfg-builtin",
+      "domain": "metaprog",
+      "title": "cfg!(...) is a compile-time built-in predicate",
+      "statement": "The built-in macro `cfg!(...)` is evaluated at compile (sema) time to a bool literal, before user fn-macro resolution. It accepts built-in target keys, the boolean combinators `all`/`any`/`not`, and user feature flags supplied via `--cfg`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18489-L18493"]
+    },
+    {
+      "id": "metaprog.format.literal-string-checked",
+      "domain": "metaprog",
+      "title": "Format-family macros validate a literal format string at compile time",
+      "statement": "For the format family (`format`, `print`, `println`, `eprint`, `eprintln`, `panic`, `format_args_str`) and the write family (`write`, `writeln`), when the format-string argument is a string literal it is parsed and validated at sema time (brace balance, placeholder structure). A non-literal format-string argument skips the check (mirroring Rust `format_args!`). The format string is arg[0] for the format family and arg[1] for the write family.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18683-L18728", "src/compiler/sema_expr.cpp#L18701-L18722"]
+    },
+    {
+      "id": "metaprog.format.arity-check",
+      "domain": "metaprog",
+      "title": "Format placeholder count must match the argument count",
+      "statement": "When no explicit `{N}` index appears, the number of value placeholders in the format string must equal the number of value arguments provided (args after the format string, and after the sink for write/writeln). When explicit indices are used, the number of value arguments must be at least max(explicit-index)+1. Otherwise the macro is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18754-L18792"]
+    },
+    {
+      "id": "metaprog.format.placeholder-trait-dispatch",
+      "domain": "metaprog",
+      "title": "Each format placeholder dispatches to its format-trait method",
+      "statement": "Each format placeholder lowers to a call dispatching to the format trait selected by the placeholder's trait kind (e.g. `{}` -> Display, `{:?}` -> Debug, plus hex/oct/bin/exp variants), invoked on the argument value with a `&mut Formatter`. Per-placeholder format spec fields (fill, alignment, sign, alternate, zero-pad, width, precision) are applied to the Formatter before each dispatch and reset between placeholders.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18843-L18918"]
+    },
+    {
+      "id": "metaprog.format.expansion-shape",
+      "domain": "metaprog",
+      "title": "Format-family expansion builds a String/Formatter block",
+      "statement": "format!/format_args_str! expand to a block yielding a `String` built via a `Formatter` over a `__buf`. The print family (`println`/`print`/`eprintln`/`eprint`) appends a drain of the buffer to stdout/stderr; `panic!` drains to a panic. write!/writeln! build a `Formatter` directly over the sink (via `(sink).as_formatter()`), stream placeholders into it, and yield `Result<(),Error>` (always Ok — per-placeholder errors are discarded); writeln! additionally writes a trailing newline.",
+      "evidence": ["src/compiler/sema_expr.cpp#L18828-L18941"]
+    },
+    {
+      "id": "metaprog.format.requires-format-arg",
+      "domain": "metaprog",
+      "title": "Format/write macros require a format-string argument",
+      "statement": "A format-family or write-family invocation must supply at least the format-string argument; an empty argument list is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19011-L19014"]
+    }
+  ]
+}

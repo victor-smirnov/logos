@@ -1,0 +1,87 @@
+{
+  "unit": "sema/trait_engine/logos",
+  "layer": "sema",
+  "source": "src/compiler/trait_engine.cpp#L24-L219",
+  "source_hash": "91bfee2f026c21b4",
+  "rules": [
+    {
+      "id": "trait.resolve.derivation-modes",
+      "domain": "trait",
+      "title": "Trait satisfaction derivation modes",
+      "statement": "satisfies(T, X) holds iff at least one derivation succeeds: (D) a direct impl fact impls(T,X); (B) a blanket impl blanket(T←{Tb...}) whose every bound Tb satisfies satisfies(Tb,X); (A) an auto impl auto(T) with no negative carve-out; or (S) a shape-auto impl shape_auto(T,S) whose predicate S(X) matches with no negative carve-out.",
+      "evidence": ["src/compiler/trait_engine.cpp#L98-L148", "src/compiler/trait_engine.cpp#L151-L153"]
+    },
+    {
+      "id": "trait.resolve.negative-priority",
+      "domain": "trait",
+      "title": "Negative impls beat all derivations",
+      "statement": "A negative fact !impls(T,X) makes satisfies(T,X) false unconditionally; it is checked before and overrides direct, blanket, auto and shape-auto derivations.",
+      "evidence": ["src/compiler/trait_engine.cpp#L82-L83", "src/compiler/trait_engine.cpp#L66-L70"]
+    },
+    {
+      "id": "trait.resolve.priority-order",
+      "domain": "trait",
+      "title": "Fixed derivation priority order",
+      "statement": "Resolution tries derivations in strict order: negative carve-out (reject), then direct, then blanket, then auto, then shape-auto. The first kind that succeeds determines the result; later kinds are not consulted.",
+      "evidence": ["src/compiler/trait_engine.cpp#L98-L148"],
+      "uncertainty": "Phase-1 simple priority ordering; coherence/overlap checks are stated to live elsewhere."
+    },
+    {
+      "id": "trait.resolve.blanket-conjunction",
+      "domain": "trait",
+      "title": "Blanket impl bounds are an AND-conjunction",
+      "statement": "A blanket impl blanket(T←{Tb1..Tbn}) derives satisfies(T,X) only if every bound trait Tbi satisfies satisfies(Tbi,X) for the same type X. An empty bound set {} is an unconditional impl-for-all-types of T.",
+      "evidence": ["src/compiler/trait_engine.cpp#L104-L121"]
+    },
+    {
+      "id": "trait.resolve.blanket-first-match",
+      "domain": "trait",
+      "title": "First fully-satisfied blanket wins",
+      "statement": "When multiple blanket impls target the same trait T, the first one (in declaration/registration order) whose bounds are all satisfied is selected; remaining candidate blankets are not considered.",
+      "evidence": ["src/compiler/trait_engine.cpp#L108-L121"],
+      "uncertainty": "Coherence is deferred; overlapping blankets are resolved by order rather than rejected here."
+    },
+    {
+      "id": "trait.resolve.cycle-terminates-no-impl",
+      "domain": "trait",
+      "title": "Cyclic blanket bounds resolve to no-impl on the cyclic path",
+      "statement": "If resolving satisfies(T,X) recursively re-enters the same query (T,X) through a blanket-bound chain, that recursive path yields no impl rather than diverging, allowing outer rules to try alternatives; resolution always terminates.",
+      "evidence": ["src/compiler/trait_engine.cpp#L89-L96", "src/compiler/trait_engine.cpp#L14-L17"]
+    },
+    {
+      "id": "trait.resolve.memoization-stable-result",
+      "domain": "trait",
+      "title": "Resolution result per (trait,type) is memoized and stable",
+      "statement": "satisfies(T,X) is a deterministic function of the current fact set: results (including negative/no-impl outcomes) are memoized per (T,X) pair and re-queries return the same answer until the fact set changes.",
+      "evidence": ["src/compiler/trait_engine.cpp#L85-L87", "src/compiler/trait_engine.cpp#L99-L148"]
+    },
+    {
+      "id": "trait.resolve.fact-monotonic-invalidation",
+      "domain": "trait",
+      "title": "Adding a fact may flip previous negative results",
+      "statement": "Adding any impl fact (direct, blanket, auto, shape-auto, or negative) invalidates all previously cached resolution results, because a prior 'no impl' may become satisfiable (or vice versa).",
+      "evidence": ["src/compiler/trait_engine.cpp#L34", "src/compiler/trait_engine.cpp#L48", "src/compiler/trait_engine.cpp#L55", "src/compiler/trait_engine.cpp#L62", "src/compiler/trait_engine.cpp#L68"]
+    },
+    {
+      "id": "trait.resolve.direct-impl-idempotent",
+      "domain": "trait",
+      "title": "Duplicate direct impls collapse to one impl identity",
+      "statement": "Registering a direct impl for an already-implemented (T,X) pair does not create a new impl; the original impl identity is returned, so impls(T,X) names a single impl.",
+      "evidence": ["src/compiler/trait_engine.cpp#L28-L37"]
+    },
+    {
+      "id": "trait.resolve.derived-impl-distinct-identity",
+      "domain": "trait",
+      "title": "Derived auto/shape impls get a fresh stable impl identity per (trait,type)",
+      "statement": "Auto and shape-auto derivations produce a fresh impl identity the first time a given (T,X) pair is queried; that identity is memoized so subsequent queries of the same pair compare equal.",
+      "evidence": ["src/compiler/trait_engine.cpp#L125-L145"]
+    },
+    {
+      "id": "trait.resolve.shape-auto-predicate-on-typename",
+      "domain": "trait",
+      "title": "Shape-auto impls match by a predicate over the type name",
+      "statement": "A shape-auto impl applies to type X iff its shape predicate evaluates true on X's type name; a shape-auto impl with no predicate never matches.",
+      "evidence": ["src/compiler/trait_engine.cpp#L136-L145"]
+    }
+  ]
+}

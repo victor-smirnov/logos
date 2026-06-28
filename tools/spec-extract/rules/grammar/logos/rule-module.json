@@ -1,0 +1,237 @@
+{
+  "unit": "grammar/logos/rule-module",
+  "layer": "grammar",
+  "source": "tools/peg_gen/grammars/logos.peg#L476-L1095",
+  "source_hash": "e9e53ace1c25cfeb",
+  "rules": [
+    {
+      "id": "module.package.decl",
+      "domain": "module",
+      "title": "Package declaration header",
+      "statement": "A compilation unit begins with `package NAME ('.' IDENT)* ';'`, optionally preceded by inner doc-comments (`//!`, `/*! */`) and inner attributes (`#![...]`). The dotted path gives the package's full name to arbitrary depth (first component = NAME, remaining components = PATH_PARTS). After the package line come zero-or-more use-declarations, then zero-or-more items.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L489-L490"],
+      "examples": ["package a.b.c;", "//! crate doc\n#![no_implicit_prelude]\npackage app;"],
+      "divergence": "Rust uses no `package` header; module name is path-derived. Logos requires an explicit `package` line with a dotted package path."
+    },
+    {
+      "id": "module.use.from-module",
+      "domain": "module",
+      "title": "use with explicit source module",
+      "statement": "`[pub] use pkg('.'IDENT)* IDENT use_module ';'` imports `pkg.path` from a named module; the trailing bare IDENT is the contextual `from` keyword and `use_module` is the source (a bare name or a quoted string for hyphenated ids, with quotes stripped). The from-bearing alternative is tried before the plain form.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L498-L521"],
+      "examples": ["use foo.Bar from \"logos-lang\";", "pub use a.b.C from othermod;"],
+      "divergence": "`use ... from <module>` clause has no Rust analog."
+    },
+    {
+      "id": "module.use.path",
+      "domain": "module",
+      "title": "Plain use declaration",
+      "statement": "`[pub] use pkg('.'IDENT)* ';'` brings a dotted package path into scope. `pub use` re-exports it. Path components after the head use a leading-dot separator (`.IDENT`).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L500-L516", "tools/peg_gen/grammars/logos.peg#L526-L527"],
+      "examples": ["use std.collections.HashMap;", "pub use core.Option;"]
+    },
+    {
+      "id": "module.use.variant-shorthand",
+      "domain": "module",
+      "title": "Enum-variant bare-name import",
+      "statement": "`use pkg.Path.Type.{V1, V2, ...} ;` brings the named variants of enum `Type` into bare (unqualified) scope. The last dotted component before `.{...}` is the enum type name; the brace-list (trailing comma allowed) names the variants.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L506-L511", "tools/peg_gen/grammars/logos.peg#L523-L527"],
+      "examples": ["use core.Option.{Some, None};"],
+      "divergence": "Uses `.`-separated path with `.{}` variant group; Rust spells this `use core::Option::{Some, None};` (A: `::`-item / `.`-pkg path model)."
+    },
+    {
+      "id": "item.kinds.set",
+      "domain": "item",
+      "title": "Module item alternatives",
+      "statement": "A module item is one of: doc-comment, annotation, template decl, const/static def, type alias, enum def, datatype def/inst, trait def/inst, struct unit/def/inst, instantiate decl, item-position metacall, fn-macro item invocation, union def, impl block, extern block, extern fn, or fn def — each in plain and `pub` forms where visibility applies.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L529"]
+    },
+    {
+      "id": "item.doc.outer-line",
+      "domain": "item",
+      "title": "Outer line doc-comment binds to next item",
+      "statement": "An outer line doc-comment (`///`, captured as DOC_LINE) is an item-stream element; consecutive outer doc-comments accumulate and attach to the next real item.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L536-L537"]
+    },
+    {
+      "id": "item.doc.inner-module",
+      "domain": "item",
+      "title": "Inner doc-comment is module summary",
+      "statement": "An inner doc-comment (`//!` line or `/*! */` block) accumulates into the enclosing module's doc summary and is never attached to a specific item.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L541-L554"]
+    },
+    {
+      "id": "item.doc.outer-block",
+      "domain": "item",
+      "title": "Outer block doc-comment",
+      "statement": "An outer block doc-comment `/** ... */` is an item/member-stream element with the same next-item binding role as line doc-comments; the `/**` envelope and per-line leading `*` are stripped and lines joined with newline.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L544-L549"]
+    },
+    {
+      "id": "metaprog.metacall.item-position",
+      "domain": "metaprog",
+      "title": "Item-position metacall",
+      "statement": "`metacall <call-expr> ;` at module top level invokes a metafunction that returns an item-blob; the produced items are spliced into the program at that position.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L581-L582"],
+      "examples": ["metacall gen_items::<Foo>();"]
+    },
+    {
+      "id": "metaprog.fn-macro.item-position",
+      "domain": "metaprog",
+      "title": "Item-position fn-macro invocation",
+      "statement": "`IDENT ! { ... }` at item position invokes a function-like macro whose body is captured as raw text; the macro must use brace delimiters at item position (parens/brackets are reserved for expression position). The callee returns a list of items.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L573-L574"],
+      "examples": ["my_macro! { struct A; }"]
+    },
+    {
+      "id": "mono.instantiate.decl",
+      "domain": "mono",
+      "title": "Explicit instantiation root-pin",
+      "statement": "`[pub] instantiate <type_ref> ;` materializes the named generic instance as a monomorphization root: all its inherent and trait methods become roots, transitively pulling everything they call. `pub instantiate` additionally marks the instance as part of the package's public API surface.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L591-L595"],
+      "examples": ["instantiate Vec<i32>;", "pub instantiate Foo<T>;"],
+      "divergence": "No Rust equivalent; analog of C++ `template class Foo<int>;`."
+    },
+    {
+      "id": "metaprog.template.decl",
+      "domain": "metaprog",
+      "title": "Template declaration",
+      "statement": "`template <item>` wraps a struct/enum/datatype/trait/impl/fn declaration as inert data (an AST blob) rather than a real binding; the inner names are never registered, so referencing the template as a type yields an unknown-type diagnostic. Templates are consumed by metafunctions via apply/metacall.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L604-L612"],
+      "examples": ["template struct Pair<A,B> { a: A, b: B }"],
+      "divergence": "No Rust equivalent."
+    },
+    {
+      "id": "item.annotation.forms",
+      "domain": "item",
+      "title": "Outer attribute forms",
+      "statement": "An attribute is `#[ NAME (args) ]`, `#[ NAME = val ]`, or `#[ NAME ]`. The `= val` form admits an enum literal `IDENT::IDENT` or an integer.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L619-L641"],
+      "examples": ["#[derive(Debug)]", "#[repr = 8]", "#[inline]"]
+    },
+    {
+      "id": "item.annotation.inner-attribute",
+      "domain": "item",
+      "title": "Inner attribute attaches to enclosing module",
+      "statement": "An inner attribute `#![ ... ]` (with the same `(args)` / `= val` / flag payload shapes as an outer attribute) attaches to the enclosing module rather than the following item. (Currently only `#![no_implicit_prelude]`.)",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L631-L636"],
+      "examples": ["#![no_implicit_prelude]"]
+    },
+    {
+      "id": "item.annotation.arg-forms",
+      "domain": "item",
+      "title": "Attribute argument forms",
+      "statement": "Within an attribute argument list, an argument is one of: `IDENT(args)` (nested call), `IDENT = lit` (key-value), a bare literal (positional), or a bare IDENT (legacy). A literal may be an enum ref `IDENT::IDENT`, raw/normal string, float, integer, `true`/`false`, or a bracketed array of literals. Lists allow a trailing comma.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L648-L672"],
+      "examples": ["#[cfg(target = \"x86\")]", "#[align(8)]", "#[list([1, 2, 3])]"]
+    },
+    {
+      "id": "item.const.def",
+      "domain": "item",
+      "title": "Module-level constant definition",
+      "statement": "A module constant is `[pub] (const|let) NAME [<params>] : T = expr ;`. The `const` keyword admits an optional type-parameter list, making the RHS a generic compile-time factory substituted at each use site; `let` stays non-generic. Both forms require an explicit type annotation and an initializer.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L688-L699"],
+      "examples": ["pub const MAX: i32 = 100;", "const PMap<K,V>: WritStatic = @{...};", "let X: u8 = 1;"],
+      "divergence": "`let` accepted as a const keyword at module level; generic `const NAME<...>` factory has no direct Rust analog."
+    },
+    {
+      "id": "item.static.def",
+      "domain": "item",
+      "title": "Module-level static definition",
+      "statement": "`[pub] static [mut] NAME : T = expr ;` defines a true global with stable storage and address (one global symbol; `&STATIC` identity holds), distinct from `const` inline substitution. The `mut` form (matched before the immutable form) marks mutable storage; without `mut`, reads are safe and writes are rejected.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L705-L716"],
+      "examples": ["static COUNTER: u64 = 0;", "static mut FLAG: bool = false;"]
+    },
+    {
+      "id": "item.type-alias.def",
+      "domain": "item",
+      "title": "Type alias definition",
+      "statement": "`[pub] type NAME [<params>] = <type_ref> ;` introduces a type alias, optionally generic via a type-parameter list.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L720-L727"],
+      "examples": ["type Pair = (i32, i32);", "pub type Map<K,V> = HashMap<K,V>;"]
+    },
+    {
+      "id": "item.enum.def",
+      "domain": "item",
+      "title": "Enum definition",
+      "statement": "`[pub] enum NAME [<params>] [: backing_type] [where ...] { variants }` defines an enum, with optional generic params, an optional explicit backing integer type after `:`, and an optional where-clause. A metacall-named form `enum #(<expr>) ...` derives the enum name from a compile-time expression. Where-clauses are permitted only on IDENT-named (not expr-named) enums.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L735-L751"],
+      "examples": ["enum Color { Red, Green, Blue }", "enum Tags : u64 { X = 0xdead }", "pub enum Option<T> { Some(T), None }"]
+    },
+    {
+      "id": "item.enum.variant-shapes",
+      "domain": "item",
+      "title": "Enum variant shapes",
+      "statement": "A variant is one of: unit `Name`; tuple `Name(T, ...)`; variadic-tuple `Name(...T)`; struct-shape `Name { f: T, ... }` (fields may be `pub`); empty struct-shape `Name {}`; or a discriminant-bearing `Name = <disc>`. Variant lists allow leading doc-comments per variant and a trailing comma.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L753-L786", "tools/peg_gen/grammars/logos.peg#L757-L775"],
+      "examples": ["Some(T)", "Point { x: i32, y: i32 }", "Empty {}", "Args(...i32)"],
+      "divergence": "Variadic-tuple variant `Name(...T)` has no Rust analog."
+    },
+    {
+      "id": "const.enum.discriminant",
+      "domain": "const",
+      "title": "Enum discriminant value forms",
+      "statement": "A variant discriminant `Name = D` may be: a bare (optionally negated) integer literal that is the complete value (no trailing binary operator); `metacall <block>`; a cross-enum reference `OtherEnum::Variant` (with optional `as T` cast whose type is dropped, width governed by the enclosing enum's backing/repr); or a general constant expression evaluated via CTFE. A bare literal alt only matches when no binary operator follows; otherwise the value falls through to the const-expr alternative.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L788-L812", "tools/peg_gen/grammars/logos.peg#L760-L763"],
+      "examples": ["Green = 5", "Lo = -1", "Purple = 1 << 1", "X = Other::Y as u8"],
+      "divergence": "Cross-enum discriminant reference `OtherEnum::Variant` as a discriminant value has no Rust analog."
+    },
+    {
+      "id": "trait.def.modifiers",
+      "domain": "trait",
+      "title": "Trait definition modifiers and supertraits",
+      "statement": "`[pub] [auto|unsafe] trait NAME [<params>] [: super + super ...] { items }` defines a trait; the supertrait list after `:` is a `+`-separated list of trait bounds. `auto` and `unsafe` are mutually-exclusive leading modifiers. Generic params, supertraits, both, or neither may be present.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L819-L876", "tools/peg_gen/grammars/logos.peg#L828-L829"],
+      "examples": ["trait Foo: Bar + Baz { }", "auto trait Send { }", "unsafe trait Sync { }", "pub trait Iterator<T> { }"]
+    },
+    {
+      "id": "trait.method.signatures",
+      "domain": "trait",
+      "title": "Trait method declarations",
+      "statement": "A trait item is a method declaration (`[unsafe] fn NAME [<params>] (params) [-> T] [where ...] (block | ';')`) — body-bearing alts give a default impl, `;`-terminated alts are required methods — or an associated type/const. Method names may be `new`/`null` keywords. A `where` clause may follow the signature (before block or `;`); on a default body it gates per-impl default synthesis (skip the default when the bound fails for the impl's concrete type).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L885-L963", "tools/peg_gen/grammars/logos.peg#L933-L951"],
+      "examples": ["fn next(self) -> Option<Item>;", "fn max(self) -> Item where Item: Ord { ... }", "fn new() -> Self;"]
+    },
+    {
+      "id": "trait.assoc.type-and-const",
+      "domain": "trait",
+      "title": "Associated type and const declarations in traits",
+      "statement": "Trait associated items: `type NAME [<params>] [= T] ;` (optional default and optional bound list `: B + B`) declares an associated type; `const NAME : T [= expr] ;` declares an associated const, optionally with a default value.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L952-L963"],
+      "examples": ["type Item;", "type Item: Ord = i32;", "const N: usize = 0;"]
+    },
+    {
+      "id": "item.impl.targets",
+      "domain": "item",
+      "title": "Impl block forms and targets",
+      "statement": "`[unsafe] impl [<impl_params>] [Trait [<args>] for] <target> [where ...] { items }` defines an impl. Trait impls use `Trait for Target`; standalone (inherent) impls omit the trait. The target may be a simple type, pointer, reference, bare slice `[T]`, `dyn Trait`, tuple, or fn-pointer type. Each form admits an optional where-clause before the body.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L972-L1051", "tools/peg_gen/grammars/logos.peg#L1021-L1030"],
+      "examples": ["impl Foo { ... }", "impl<T> Trait for Struct<T> { ... }", "impl Debug for (A, B) { ... }", "impl<T> MyTrait for [T] { ... }"]
+    },
+    {
+      "id": "item.impl.negative",
+      "domain": "item",
+      "title": "Negative impl",
+      "statement": "`impl [<params>] !Trait for <target> [where ...] {}` declares a negative impl (the body must be empty), asserting that the target does not implement Trait.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L992-L1004"],
+      "examples": ["impl !Send for Foo {}"]
+    },
+    {
+      "id": "item.impl.items",
+      "domain": "item",
+      "title": "Impl item kinds",
+      "statement": "An impl item is a method definition, an associated-type impl `type NAME [<params>] = T ;`, or an associated-const impl `const NAME : T = expr ;`. Doc-comments may precede impl items.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L1054-L1060", "tools/peg_gen/grammars/logos.peg#L567"],
+      "examples": ["type Item = i32;", "const N: usize = 4;"]
+    },
+    {
+      "id": "item.static-fn.def",
+      "domain": "item",
+      "title": "Static (associated) function definition",
+      "statement": "`[pub] static [unsafe] fn NAME [<params>] (params) [-> T] { ... }` defines an associated/free function with no `self` receiver; its own optional type-parameter list follows the name, matching instance/free fn generics. The name may be the `new` keyword.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L1067-L1093"],
+      "examples": ["static fn make<T>(x: T) -> Self { ... }", "pub static fn new() -> Self { ... }"],
+      "divergence": "`static fn` spelling for associated (no-self) functions; Rust uses an `fn` without a `self` parameter inside an impl."
+    }
+  ]
+}

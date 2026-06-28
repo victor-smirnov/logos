@@ -1,0 +1,111 @@
+{
+  "unit": "mono/mono_clone/logos.part6",
+  "layer": "mono",
+  "source": "src/compiler/mono_clone.cpp#L2646-L3172",
+  "source_hash": "be097b728411f8c8",
+  "rules": [
+    {
+      "id": "intrinsic.reflect.tuple-count-of",
+      "domain": "intrinsic",
+      "title": "tuple_count_of::<T>() yields tuple arity",
+      "statement": "tuple_count_of::<T>() evaluates at compile time to an i64 literal equal to the number of element types of T when T is a tuple type, and to 0 for any non-tuple T.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2685-L2698"]
+    },
+    {
+      "id": "intrinsic.reflect.field-count-of",
+      "domain": "intrinsic",
+      "title": "field_count_of::<T>() yields struct field count",
+      "statement": "field_count_of::<T>() evaluates at compile time to an i64 literal equal to the number of declared fields of T when T is a struct (or zoned struct) type; for any non-struct or unresolvable T it is 0. The struct template is matched by name, preferring a package-qualified match (T.pkg) and falling back to name-only.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2703-L2730"]
+    },
+    {
+      "id": "intrinsic.reflect.field-names-of",
+      "domain": "intrinsic",
+      "title": "field_names_of::<T>() yields array of field-name strings",
+      "statement": "field_names_of::<T>() evaluates at compile time to an array [&str; N] whose elements are the declared field names of struct T in declaration order; for non-struct or unresolvable T it is the empty array. Struct lookup prefers a package-qualified match and falls back to name-only.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2733-L2768"]
+    },
+    {
+      "id": "intrinsic.reflect.type-descriptor-array",
+      "domain": "intrinsic",
+      "title": "type-reflection intrinsics produce [Type; N] descriptors",
+      "statement": "args_of::<T>(), type_refs_of, tuple_elems_of, typelist_tail, and field_types_of each evaluate at compile time to an array [Type; N] of struct literals. Each Type element has fields {kind: u32 = the type's kind tag, name: &str = the type's printed name, size: i64 = size_of, align: i64 = align_of, uid: u64 = a canonical 64-bit type hash}. N and the per-element source types are determined per-intrinsic (see related rules).",
+      "evidence": ["src/compiler/mono_clone.cpp#L2774-L2869"]
+    },
+    {
+      "id": "intrinsic.reflect.args-of",
+      "domain": "intrinsic",
+      "title": "args_of::<T>() yields T's generic type arguments",
+      "statement": "args_of::<T>() produces a [Type; N] descriptor array of the generic type-arguments of T (in order); for a non-generic T the array is empty.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2780-L2783"],
+      "related": ["intrinsic.reflect.type-descriptor-array"]
+    },
+    {
+      "id": "intrinsic.reflect.typelist-tail",
+      "domain": "intrinsic",
+      "title": "typelist_tail::<T>() drops the first type argument",
+      "statement": "typelist_tail::<T>() produces a [Type; N] descriptor array of T's generic type-arguments excluding the first (i.e. the tail beginning at index 1); empty when T has fewer than two type arguments.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2784-L2789"],
+      "related": ["intrinsic.reflect.type-descriptor-array"]
+    },
+    {
+      "id": "intrinsic.reflect.tuple-elems-of",
+      "domain": "intrinsic",
+      "title": "tuple_elems_of::<T>() yields tuple element types",
+      "statement": "tuple_elems_of::<T>() produces a [Type; N] descriptor array of the element types of T when T is a tuple; empty otherwise.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2790-L2796"],
+      "related": ["intrinsic.reflect.type-descriptor-array"]
+    },
+    {
+      "id": "intrinsic.reflect.field-types-of",
+      "domain": "intrinsic",
+      "title": "field_types_of::<T>() yields substituted struct field types",
+      "statement": "field_types_of::<T>() produces a [Type; N] descriptor array of the field types of struct (or zoned struct) T in declaration order, with the struct template's type parameters substituted by T's actual type arguments (positional binding of template params to T.type_args); empty for non-struct or unresolvable T.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2797-L2827"],
+      "related": ["intrinsic.reflect.type-descriptor-array"]
+    },
+    {
+      "id": "intrinsic.fmt.tuple-debug-synth",
+      "domain": "intrinsic",
+      "title": "Debug formatting of tuples is synthesized element-wise",
+      "statement": "Debug formatting of a tuple T=(t0,..,t_{n-1}) emits an open delimiter, then for each element the element's Debug rendering separated by separators, then a close delimiter (a distinct close form for n==1). Each non-tuple element is formatted by a recursive `fmt` method-call dispatched on the element's Debug impl; a nested tuple element recurses through the same builder. A &[u8] slice element is formatted as `str`.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2646-L2682", "src/compiler/mono_clone.cpp#L2663-L2671"]
+    },
+    {
+      "id": "mono.pack.type-pack-expansion-args",
+      "domain": "mono",
+      "title": "Type-pack expansion in call arguments",
+      "statement": "A pack-expansion call argument over a type-pack variable expands at monomorphization to one argument per bound pack element, each a per-element variable reference into the callee signature; when the callee is a generic template, the pack's element types are also appended to the call's type arguments.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2871-L2904"]
+    },
+    {
+      "id": "mono.pack.const-pack-expansion-args",
+      "domain": "mono",
+      "title": "Const-pack expansion in call arguments",
+      "statement": "A pack-expansion call argument over a const-pack variable expands at monomorphization to one literal-int argument per bound element, each carrying the pack element's underlying numeric type.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2877-L2899"]
+    },
+    {
+      "id": "mono.dispatch.trait-static-callee-rewrite",
+      "domain": "mono",
+      "title": "Generic trait-static dispatch rewrites the receiver-type prefix",
+      "statement": "A call whose mangled callee is `[pkg.]<DT>__<method...>` where DT is a generic type parameter bound by the substitution map is rewritten to dispatch on the concrete bound type: the `<DT>` prefix is replaced by the concrete receiver name and the substituted type's package (falling back to the original callee package). The concrete name is the concrete struct name for a struct, the mangled enum name `<base>__<arg>...` for an enum, `$ref_`/`$mut_ref_` prefixed for a `&T`/`&mut T` receiver, and the printed type name otherwise; a `&[u8]` receiver name is normalized to `str`.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2909-L2967"]
+    },
+    {
+      "id": "mono.dispatch.method-tparam-inference",
+      "domain": "mono",
+      "title": "Inferring method type-args at trait-static dispatch",
+      "statement": "When a rewritten trait-static call carries no explicit type arguments but the target method has method-level type parameters, the call is re-formed into a template callee and supplied inferred type arguments so the correct specialization is instantiated; without this a `.collect::<C>()`-style call would lower to an un-parameterized callee that is never emitted.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2969-L3049"]
+    },
+    {
+      "id": "mono.dispatch.assoc-type-projection-disambig",
+      "domain": "mono",
+      "title": "Associated-type projection disambiguates multi-impl trait-static dispatch",
+      "statement": "When trait-static dispatch on `Self::method` is ambiguous among multiple trait-qualified candidates `<Self>__<Trait>$G..__<m>` distinguished only by a trait type-argument that is not a method parameter but an associated type of an argument, the correct candidate is selected by associated-type projection: for each argument type, find non-blanket impls whose target unifies with it, substitute the impl's type-params, and mangle the impl's trait type-args; pick the unique candidate whose `$G..` token an argument carries. A re-instantiable template is preferred over an already-monomorphized spec sharing the same token.",
+      "evidence": ["src/compiler/mono_clone.cpp#L3050-L3172"],
+      "uncertainty": "Selection mechanism inferred from candidate-gathering and token-matching logic; only the disambiguation start is within this unit (completion continues past L3172)."
+    }
+  ]
+}

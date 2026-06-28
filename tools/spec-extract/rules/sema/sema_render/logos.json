@@ -1,0 +1,247 @@
+{
+  "unit": "sema/sema_render/logos",
+  "layer": "sema",
+  "source": "src/compiler/sema_render.cpp#L33-L687",
+  "source_hash": "ffdd9bb3ce3a9803",
+  "rules": [
+    {
+      "id": "lex.str.escape-set",
+      "domain": "lex",
+      "title": "String literal escape set",
+      "statement": "String literals support the escape sequences \\\\, \\\", \\n, \\r, \\t, \\0, and \\xHH (two hex digits) for control bytes < 0x20; all other bytes appear verbatim.",
+      "evidence": ["src/compiler/sema_render.cpp#L41-L65"]
+    },
+    {
+      "id": "expr.binop.parenthesized",
+      "domain": "expr",
+      "title": "Binary operator is infix",
+      "statement": "A binary operation is written `lhs OP rhs` with OP an infix operator token.",
+      "evidence": ["src/compiler/sema_render.cpp#L121-L126"]
+    },
+    {
+      "id": "expr.unary.prefix-no-space",
+      "domain": "expr",
+      "title": "Unary operators are prefix",
+      "statement": "Unary operators (`&`, `!`, `-`, etc.) are prefix and bind directly to their operand with no intervening space: `OP operand`.",
+      "evidence": ["src/compiler/sema_render.cpp#L128-L133"]
+    },
+    {
+      "id": "expr.cast.as-keyword",
+      "domain": "expr",
+      "title": "Cast syntax",
+      "statement": "A cast is written `expr as Type`.",
+      "evidence": ["src/compiler/sema_render.cpp#L135-L139"]
+    },
+    {
+      "id": "expr.deref.prefix-star",
+      "domain": "expr",
+      "title": "Dereference operator",
+      "statement": "Dereference is written with prefix `*`: `*expr`.",
+      "evidence": ["src/compiler/sema_render.cpp#L314-L316"]
+    },
+    {
+      "id": "expr.call.turbofish-free-fn",
+      "domain": "expr",
+      "title": "Free-function turbofish placement",
+      "statement": "Explicit type arguments to a free-function call use turbofish after the callee name and before the argument list: `callee::<T1, T2>(args)`.",
+      "evidence": ["src/compiler/sema_render.cpp#L172-L201"]
+    },
+    {
+      "id": "expr.call.static-turbofish-before-method",
+      "domain": "expr",
+      "title": "Static-call turbofish precedes method name",
+      "statement": "In an associated/static call, turbofish type arguments attach to the receiver type and precede the `::method` segment: `Recv::<T>::method(args)`.",
+      "evidence": ["src/compiler/sema_render.cpp#L203-L241"],
+      "divergence": "Rust places the turbofish after the method for trait/inherent fns (e.g. T::method::<U>); Logos surface form puts it before the method name on the type path."
+    },
+    {
+      "id": "expr.method-call.turbofish-after-name",
+      "domain": "expr",
+      "title": "Method-call turbofish placement",
+      "statement": "A method call is `receiver.method(args)`; explicit type arguments are turbofish placed after the method name: `receiver.method::<T>(args)`.",
+      "evidence": ["src/compiler/sema_render.cpp#L243-L280"]
+    },
+    {
+      "id": "expr.field.dot-access",
+      "domain": "expr",
+      "title": "Field access",
+      "statement": "Named field access is `receiver.field`.",
+      "evidence": ["src/compiler/sema_render.cpp#L282-L295"]
+    },
+    {
+      "id": "expr.tuple-index.dot-number",
+      "domain": "expr",
+      "title": "Tuple index access",
+      "statement": "Tuple element access uses a numeric field after a dot: `receiver.N`.",
+      "evidence": ["src/compiler/sema_render.cpp#L297-L303"]
+    },
+    {
+      "id": "expr.index.bracket",
+      "domain": "expr",
+      "title": "Index expression",
+      "statement": "Indexing is written `receiver[index]`.",
+      "evidence": ["src/compiler/sema_render.cpp#L305-L312"]
+    },
+    {
+      "id": "expr.tuple-lit.one-elem-trailing-comma",
+      "domain": "expr",
+      "title": "One-element tuple requires trailing comma",
+      "statement": "A tuple literal is `(e0, e1, ...)`; a single-element tuple is distinguished from a parenthesized expression by a mandatory trailing comma: `(e,)`.",
+      "evidence": ["src/compiler/sema_render.cpp#L318-L331"]
+    },
+    {
+      "id": "expr.array-lit.bracket-comma",
+      "domain": "expr",
+      "title": "Array literal",
+      "statement": "An array literal is a comma-separated element list in brackets: `[e0, e1, ...]`.",
+      "evidence": ["src/compiler/sema_render.cpp#L333-L344"]
+    },
+    {
+      "id": "expr.struct-lit.field-init-and-shorthand",
+      "domain": "expr",
+      "title": "Struct literal field forms",
+      "statement": "A struct literal is `Name { f: v, ... }`; fields are either `name: value` (FIELD_INIT) or shorthand `name` (FIELD_SHORTHAND). The name may carry turbofish type args `Name::<T> { ... }`.",
+      "evidence": ["src/compiler/sema_render.cpp#L346-L385"]
+    },
+    {
+      "id": "expr.struct-lit.functional-update",
+      "domain": "expr",
+      "title": "Struct functional-update base",
+      "statement": "A struct literal may end with a functional-update base `..expr` that supplies remaining fields.",
+      "evidence": ["src/compiler/sema_render.cpp#L386-L391"]
+    },
+    {
+      "id": "expr.if.let-condition",
+      "domain": "expr",
+      "title": "if and if-let",
+      "statement": "`if cond { ... }` takes a boolean condition; `if let PAT = expr { ... }` matches a pattern. An `else` branch is either a block or a chained `else if`.",
+      "evidence": ["src/compiler/sema_render.cpp#L395-L420"]
+    },
+    {
+      "id": "expr.match.arm-forms",
+      "domain": "expr",
+      "title": "match arm syntax",
+      "statement": "`match scrutinee { PAT [if GUARD] => RHS, ... }`; each arm has an optional `if`-guard and an arm body that is either a block or an expression followed by a comma.",
+      "evidence": ["src/compiler/sema_render.cpp#L422-L447"]
+    },
+    {
+      "id": "expr.writ.outer-at-prefix",
+      "domain": "expr",
+      "title": "Writ literal outer `@` prefix",
+      "statement": "Writ (data) literals in expression position are introduced with a leading `@`: `@null`, `@true`/`@false`, `@INT`, `@-INT`, `@FLOAT`, `@\"str\"`, `@{ ... }` (map), `@[ ... ]` (array).",
+      "evidence": ["src/compiler/sema_render.cpp#L463-L509"],
+      "divergence": "Logos-specific Writ data-literal syntax; no Rust equivalent."
+    },
+    {
+      "id": "expr.writ.map-entry-colon",
+      "domain": "expr",
+      "title": "Writ map entry syntax",
+      "statement": "A Writ map literal `@{ ... }` contains comma-separated entries `key: value`; nested scalar values omit the `@` prefix in inner position.",
+      "evidence": ["src/compiler/sema_render.cpp#L479-L497"],
+      "divergence": "Logos-specific Writ syntax."
+    },
+    {
+      "id": "expr.writ.embedded-type-lit",
+      "domain": "expr",
+      "title": "Embedded type in Writ literal",
+      "statement": "A Logos type can be embedded inside a Writ literal as `<type:T>`.",
+      "evidence": ["src/compiler/sema_render.cpp#L510-L516"],
+      "divergence": "Logos-specific Writ syntax."
+    },
+    {
+      "id": "expr.writ.cfg-slot-type",
+      "domain": "expr",
+      "title": "WritStatic const-generic slot type",
+      "statement": "A slot of a WritStatic-typed const-generic is referenced as `<type:CFG.slot.path>` with dot-separated step names.",
+      "evidence": ["src/compiler/sema_render.cpp#L517-L531"],
+      "divergence": "Logos-specific const-generic/Writ syntax."
+    },
+    {
+      "id": "metaprog.antiquot.capture-forms",
+      "domain": "metaprog",
+      "title": "Writ antiquotation capture syntax",
+      "statement": "Within a quoted/Writ literal, an antiquotation captures a value either by identifier `$name` or by expression block `${expr}`.",
+      "evidence": ["src/compiler/sema_render.cpp#L532-L537"],
+      "divergence": "Logos metaprogramming antiquotation; no Rust equivalent."
+    },
+    {
+      "id": "metaprog.antiquot.callee-skips-payload-arg",
+      "domain": "metaprog",
+      "title": "Antiquoted callee drops synthetic first arg",
+      "statement": "When a call's callee is produced by antiquotation substitution, the grammar's bulk `$...` capture inserts the antiquot payload as the first argument; semantically that first argument is not a real call argument and is skipped.",
+      "evidence": ["src/compiler/sema_render.cpp#L141-L170"],
+      "uncertainty": "Inferred from renderer mirroring lower_call; exact substitution mechanism defined elsewhere."
+    },
+    {
+      "id": "expr.unsafe.block-in-expr-position",
+      "domain": "expr",
+      "title": "unsafe block as expression",
+      "statement": "An `unsafe { ... }` block may appear in expression position (e.g. as a let initializer).",
+      "evidence": ["src/compiler/sema_render.cpp#L538-L542"]
+    },
+    {
+      "id": "pat.binding.ident-or-wildcard",
+      "domain": "pat",
+      "title": "Binding and wildcard patterns",
+      "statement": "A wildcard pattern is `_`; a named binding pattern is the identifier itself.",
+      "evidence": ["src/compiler/sema_render.cpp#L553-L557"]
+    },
+    {
+      "id": "pat.literal.int-bool-neg",
+      "domain": "pat",
+      "title": "Literal patterns",
+      "statement": "Patterns may be integer literals (optionally negated with leading `-`), boolean literals (`true`/`false`), or unit `()`.",
+      "evidence": ["src/compiler/sema_render.cpp#L558-L572"]
+    },
+    {
+      "id": "pat.variant.path-and-data",
+      "domain": "pat",
+      "title": "Variant pattern forms",
+      "statement": "An enum variant pattern is written `Enum::Variant` (data-less) or with data `Enum::Variant(args)`; the bare/tuple-struct form `Variant(args)` omits the enum qualifier.",
+      "evidence": ["src/compiler/sema_render.cpp#L573-L607"]
+    },
+    {
+      "id": "pat.tuple.one-elem-trailing-comma",
+      "domain": "pat",
+      "title": "Tuple pattern trailing comma",
+      "statement": "A tuple pattern is `(p0, p1, ...)`; a single-element tuple pattern requires a trailing comma `(p,)`.",
+      "evidence": ["src/compiler/sema_render.cpp#L608-L621"]
+    },
+    {
+      "id": "pat.or.pipe-separated",
+      "domain": "pat",
+      "title": "Or-pattern",
+      "statement": "Alternative patterns are combined with `|`: `p0 | p1 | ...`.",
+      "evidence": ["src/compiler/sema_render.cpp#L622-L632"]
+    },
+    {
+      "id": "pat.range.inclusive-only",
+      "domain": "pat",
+      "title": "Range pattern is inclusive",
+      "statement": "A range pattern is written `lo..=hi` (inclusive); either bound may be negated with a leading `-`.",
+      "evidence": ["src/compiler/sema_render.cpp#L633-L650"],
+      "uncertainty": "Renderer only emits `..=`; exclusive range patterns (if any) not represented here."
+    },
+    {
+      "id": "pat.ref.amp-mut",
+      "domain": "pat",
+      "title": "Reference pattern",
+      "statement": "A reference pattern is `&pat` or `&mut pat`.",
+      "evidence": ["src/compiler/sema_render.cpp#L651-L659"]
+    },
+    {
+      "id": "pat.rest.dotdot",
+      "domain": "pat",
+      "title": "Rest pattern",
+      "statement": "A rest/ignore-remaining pattern is written `..` and may appear among struct or tuple subpatterns.",
+      "evidence": ["src/compiler/sema_render.cpp#L660-L660", "src/compiler/sema_render.cpp#L675-L677"]
+    },
+    {
+      "id": "pat.struct.field-forms",
+      "domain": "pat",
+      "title": "Struct pattern",
+      "statement": "A struct pattern is `Name { field [: subpat], ..., [..] }`; a field with no `: subpat` binds by field name (shorthand), and a trailing `..` ignores remaining fields.",
+      "evidence": ["src/compiler/sema_render.cpp#L661-L682"]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "unit": "sema/sema/type_str",
+  "layer": "sema",
+  "source": "src/compiler/sema.cpp#L2074-L2688",
+  "source_hash": "79a3d8e046bc8072",
+  "rules": [
+    {
+      "id": "type.primitive.set",
+      "domain": "type",
+      "title": "Built-in primitive scalar types",
+      "statement": "The language has primitive scalar types: void, bool, char, the floats f32/f64, and the integers i8/u8, i16/u16, i24/u24, i32/u32, i56/u56, i64/u64, i128/u128, isize/usize. Each is a distinct type identified by its keyword name.",
+      "evidence": ["src/compiler/sema.cpp#L2077-L2097", "src/compiler/sema.cpp#L2530-L2551"],
+      "divergence": "A: extra fixed-width widths i24/u24/i56/u56 and 128-bit i128/u128 beyond Rust's standard set."
+    },
+    {
+      "id": "type.str.default-fat-slice",
+      "domain": "type",
+      "title": "str defaults to &[u8] fat-slice shape",
+      "statement": "The `str` keyword resolves to the fat-pointer slice form `Slice<u8>` (the &[u8] shape) by default; in a context that explicitly permits an unsized result (e.g. a `T: ?Sized` turbofish position) it resolves to the unsized `[u8]` form so `&T` routes to the same Slice<u8> ABI without double-wrapping.",
+      "evidence": ["src/compiler/sema.cpp#L2552-L2561"],
+      "uncertainty": "str modeled as u8 slice rather than a distinct str primitive; unsized vs fat-slice choice is context-driven via unsized_ok_."
+    },
+    {
+      "id": "type.alias.name-shadowing-order",
+      "domain": "type",
+      "title": "Type-alias name resolution shadowing order",
+      "statement": "A bare type name N resolves to a 0-arg type alias by probing in order: (1) the current package's own alias `pkg::N`, (2) the bare/unqualified alias N, (3) aliases from wildcard-imported packages. The current package's alias thus shadows a same-named imported/stdlib alias (Rust scoping).",
+      "evidence": ["src/compiler/sema.cpp#L2562-L2581"]
+    },
+    {
+      "id": "type.struct.bare-all-default-inst",
+      "domain": "type",
+      "title": "Bare generic struct name with all-default params instantiates defaults",
+      "statement": "A bare struct name N (written without `<...>`) referring to a generic struct whose every type parameter has a default resolves to the defaulted instantiation `N<d0, d1, ...>`, where each default may reference earlier defaults via substitution. If any parameter lacks a default, the bare name resolves to the uninstantiated struct type.",
+      "evidence": ["src/compiler/sema.cpp#L2583-L2610"]
+    },
+    {
+      "id": "type.name.lookup-namespaces",
+      "domain": "type",
+      "title": "Type-name lookup precedence across namespaces",
+      "statement": "An unqualified type name resolves with precedence: primitive keyword > in-scope generic type parameter > type alias > struct > datatype > enum; the first match wins. An unresolved name yields no type.",
+      "evidence": ["src/compiler/sema.cpp#L2530-L2620"]
+    },
+    {
+      "id": "type.move.struct-non-copy",
+      "domain": "type",
+      "title": "Struct is a move type unless Copy",
+      "statement": "A struct-typed value is a move type (its source slot is invalidated on by-value use and dropped on scope exit) unless the struct implements Copy. Copy holds either unconditionally or conditionally (e.g. `impl<P: Copy> Copy for Pin<P>`), the latter requiring every recorded copy-relevant type-argument position to hold a non-move (Copy) type.",
+      "evidence": ["src/compiler/sema.cpp#L2630-L2641", "src/compiler/sema.cpp#L2681-L2685"]
+    },
+    {
+      "id": "type.move.enum-droppable-payload",
+      "domain": "type",
+      "title": "Enum is a move type iff droppable",
+      "statement": "An enum is a move type iff it has a user `impl Drop` or carries a droppable payload field; a C-like enum or one whose payloads are all Copy is non-move.",
+      "evidence": ["src/compiler/sema.cpp#L2676-L2680"]
+    },
+    {
+      "id": "type.move.typevar-conservative",
+      "domain": "type",
+      "title": "Generic type parameter is move unless bounded Copy",
+      "statement": "A type parameter T is treated as a move type within a generic body unless its bounds include `Copy`, in which case T is provably Copy (Copy and Drop are mutually exclusive) and by-value use of `x: T` does not move. Only an explicit Copy bound makes T non-move; otherwise the conservative move classification holds.",
+      "evidence": ["src/compiler/sema.cpp#L2663-L2673"]
+    },
+    {
+      "id": "type.move.owning-heap-pointers",
+      "domain": "type",
+      "title": "Owning heap pointers are move types",
+      "statement": "Owning heap-backed types are move types: an owning `Box<dyn Trait>`, an owning `Box<[T]>` slice, and an owning `Box<Foo>` custom-DST each own heap data and are non-Copy, hence move. The corresponding borrowed forms (`&dyn`, `&[T]`) are Copy-like and not move types.",
+      "evidence": ["src/compiler/sema.cpp#L2646-L2656"]
+    }
+  ]
+}

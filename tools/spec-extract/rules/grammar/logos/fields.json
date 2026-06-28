@@ -1,0 +1,26 @@
+{
+  "unit": "grammar/logos/fields",
+  "layer": "grammar",
+  "source": "tools/peg_gen/grammars/logos.peg#L20-L106",
+  "source_hash": "1431a3b4e4f2e4d9",
+  "rules": [
+    {
+      "id": "grammar.module.from-contextual-keyword",
+      "domain": "grammar",
+      "title": "`from` in `use pkg from <module>` is a contextual keyword",
+      "statement": "In `use pkg from <module>;` the token `from` is a contextual keyword: it is lexed as a bare identifier and recognized as the import-source separator only by position, not reserved globally. Hence `from` remains usable as an ordinary identifier elsewhere (e.g. the `From::from` method).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L91-L96"],
+      "examples": ["use net from \"std/net\";", "let x = From::from(y);"],
+      "uncertainty": "Production and the sema-side check `ident == \"from\"` live in grammar/logos/rule-module; this unit only documents the contextual-keyword status."
+    },
+    {
+      "id": "grammar.trait.relaxed-bound-sized-only",
+      "domain": "grammar",
+      "title": "Relaxed bound `?Trait` accepts only `?Sized`",
+      "statement": "A relaxed trait bound `?Trait` on a trait-bound (the RELAXED marker) is valid only for `?Sized`; no other relaxed bounds are accepted.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L75"],
+      "examples": ["fn f<T: ?Sized>(x: &T) {}"],
+      "uncertainty": "Documented as 'Phase 1' restriction; enforcement occurs outside this slot-table unit."
+    }
+  ]
+}

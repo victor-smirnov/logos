@@ -1,0 +1,209 @@
+{
+  "unit": "grammar/logos/rule-compound_assign_op",
+  "layer": "grammar",
+  "source": "tools/peg_gen/grammars/logos.peg#L2324-L2923",
+  "source_hash": "e6bb1ef3aa10f2cc",
+  "rules": [
+    {
+      "id": "expr.assign.compound-op-set",
+      "domain": "expr",
+      "title": "Compound assignment operators",
+      "statement": "The compound-assignment operators are `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`. A compound-assign statement is `place OP value ;` where `place` is an atom (postfix-chained lvalue) and `value` is a full `expr`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2324-L2327"]
+    },
+    {
+      "id": "expr.assign.deref-write",
+      "domain": "expr",
+      "title": "Dereference write statement",
+      "statement": "`* p = v ;` writes value `v` through dereferenced place `p` (a `unary_expr`). `* p OP v ;` performs compound assignment through a bare dereference and is defined to lower to `*p = *p OP v`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2335-L2340"],
+      "divergence": "Logos addition: distinct DEREF_WRITE/DEREF_COMPOUND statement forms; semantics match Rust place-expression assignment."
+    },
+    {
+      "id": "expr.if.let-chain",
+      "domain": "expr",
+      "title": "if let-chain",
+      "statement": "An `if` may chain conditions with `&&` where the first segment is a `let` binding: `if let P = e && seg (&& seg)* { THEN } [else …]`. Each subsequent seg is either `let P = e` or a bare condition (level `cmp_expr_ns`). The chain requires the first segment to be a `let` and at least two `&&`-joined segments. Desugars to nested matching: all let-patterns must match and all conditions hold for THEN.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2342-L2381"]
+    },
+    {
+      "id": "expr.if.single-let-guard",
+      "domain": "expr",
+      "title": "if-let with single guard condition",
+      "statement": "`if let P = e && cond { THEN } [else ELSE]` (single let plus trailing condition) desugars to `match e { P if cond => THEN, _ => ELSE }`; the let scrutinee is parsed at `cmp_expr_ns` so the `&&` belongs to the guard.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2357-L2364"]
+    },
+    {
+      "id": "expr.if.no-struct-lit-cond",
+      "domain": "expr",
+      "title": "if/while/for condition restricts struct literals",
+      "statement": "In `if`/`while`/`for` condition position the scrutinee uses the no-struct-lit expression grammar (`expr_ns`): a top-level `IDENT { … }` is NOT parsed as a struct literal, so the brace opens the control-flow block. A struct literal in condition position must be parenthesized. Restriction applies only to the top-level primary; inside parens/brackets/calls full `expr` resumes.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2411-L2417", "tools/peg_gen/grammars/logos.peg#L2512-L2516"]
+    },
+    {
+      "id": "expr.range.family",
+      "domain": "expr",
+      "title": "Range expressions",
+      "statement": "Range value-expressions: `lo..hi` (half-open), `lo..=hi` (inclusive), `lo..` (from), `..hi` (to), `..=hi` (to-inclusive), `..` (full). An omitted side leaves the corresponding bound unspecified. Sema lowers each to a stdlib Range struct implementing `Iterator`. Range sits at the top of the value-expression precedence cascade (below it: logical operators).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2392-L2409"]
+    },
+    {
+      "id": "expr.binop.precedence-cascade",
+      "domain": "expr",
+      "title": "Binary operator precedence",
+      "statement": "Binary precedence, lowest→highest: logical (`&&`/`||`) < comparison (`==` `!=` `<=` `>=` `<` `>`) < bitor `|` < bitxor `^` < bitand `&` < shift (`<<` `>>`) < additive (`+` `-`) < multiplicative (`*` `/` `%`) < `as`-cast < unary. All binary levels are left-associative.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2585-L2636", "tools/peg_gen/grammars/logos.peg#L2602-L2606"]
+    },
+    {
+      "id": "expr.cmp.non-chainable",
+      "domain": "expr",
+      "title": "Comparison operators are non-chainable",
+      "statement": "Comparison operators are non-chainable: at most one comparison per level is well-formed. A chain of 2+ comparators (e.g. `a < b < c`) is parsed as a distinct CHAINED_CMP node so sema can reject it with a dedicated diagnostic rather than a generic syntax error.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2589-L2600", "tools/peg_gen/grammars/logos.peg#L2424-L2431"],
+      "divergence": "Rust-conformant outcome (chained comparison is an error); Logos detects it grammatically for a better diagnostic."
+    },
+    {
+      "id": "expr.unary.operator-set",
+      "domain": "expr",
+      "title": "Unary / prefix operators",
+      "statement": "Prefix unary operators (highest binding among operators): `*` deref, `&` borrow, `&mut` mutable borrow, `-` negate, `!` not. `&&v` (lexed as the AND token) means a double reference and lowers to nested address-of.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2648-L2656"]
+    },
+    {
+      "id": "expr.cast.as-chain",
+      "domain": "expr",
+      "title": "as-cast chaining",
+      "statement": "`as`-casts (`v as T`) bind below unary operators and chain left-associatively, so `x as T1 as T2` folds as `(x as T1) as T2`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2638-L2646", "tools/peg_gen/grammars/logos.peg#L2632"]
+    },
+    {
+      "id": "expr.postfix.chain",
+      "domain": "expr",
+      "title": "Postfix operator chain",
+      "statement": "A primary expression may be followed by zero or more left-associative postfix suffixes: method call `.m(args)` (optionally `.m::<T>(args)` with explicit turbofish type args), expression-callee invocation `e(args)`, field read `.field`, tuple index `.N`, indexing `[i]`, and the try operator `?`. Chains parse left-to-right (`a.b.c`, `a.f().b`).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2658-L2694"]
+    },
+    {
+      "id": "expr.try.operator",
+      "domain": "expr",
+      "title": "Try operator",
+      "statement": "Postfix `e?` is the try operator; it propagates the error/none case of a Result/Option-like value and yields the success payload.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2692-L2693"]
+    },
+    {
+      "id": "expr.literal.kinds",
+      "domain": "expr",
+      "title": "Primary literal forms",
+      "statement": "Primary literals: integer, float, char, string, raw string, byte string, and `true`/`false` booleans. A byte-string literal lowers to a `[u8; N]` array literal of its decoded bytes (escapes \\n \\t \\r \\0 \\\\ \\\" \\x.. supported).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2762-L2773", "tools/peg_gen/grammars/logos.peg#L2764-L2768"]
+    },
+    {
+      "id": "expr.control.never-position",
+      "domain": "expr",
+      "title": "Diverging control-flow as expression",
+      "statement": "`return [e]`, `break [label] [e]`, and `continue [label]` may appear in expression position with type `!` (never), permitting forms like `let x = if c { v } else { return e };` and `_ => break`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2716-L2728"]
+    },
+    {
+      "id": "expr.block.as-value",
+      "domain": "expr",
+      "title": "Block / control constructs as expressions",
+      "statement": "`{ … }` blocks, `unsafe { … }`, `loop { … }`, `if … {} else {}`, and `match … {}` are all primary expressions producing a value (block/loop yield their tail/break value).",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2711-L2715"]
+    },
+    {
+      "id": "expr.turbofish.generic-ref",
+      "domain": "expr",
+      "title": "Turbofish generic reference and static call",
+      "statement": "`IDENT::<T,…>` is a generic reference (explicit type arguments to a function/item). `IDENT::<T,…>::METHOD` is a static call on the type-applied receiver.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2756-L2760"]
+    },
+    {
+      "id": "expr.macro.fn-style-call",
+      "domain": "metaprog",
+      "title": "Function-style macro invocation",
+      "statement": "Function-style macros invoke as `name!(…)`, `name![…]`, or `name!{…}`; the contents between balanced delimiters are captured as raw source text and re-interpreted at sema time per the callee's macro kind (#[fn_macro] re-parses as an expression list; #[token_macro] lexes as a TokenStream). In no-struct-lit (condition) position the brace form `name!{…}` is excluded.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2743-L2754", "tools/peg_gen/grammars/logos.peg#L2550-L2559"]
+    },
+    {
+      "id": "metaprog.metacall.forms",
+      "domain": "metaprog",
+      "title": "metacall expression forms",
+      "statement": "`metacall` accepts a block (`metacall { … }`), a parenthesized expression (`metacall (e)`), or a call expression (`metacall f(…)`), and evaluates its argument at compile time.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2731-L2736"],
+      "divergence": "Logos addition: explicit compile-time evaluation operator (no implicit const-eval)."
+    },
+    {
+      "id": "intrinsic.offset-of.form",
+      "domain": "intrinsic",
+      "title": "offset_of! intrinsic",
+      "statement": "`offset_of!(Type, field)` yields the byte offset of `field` within `Type`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2729-L2730"]
+    },
+    {
+      "id": "expr.pack.sizeof-and-expand",
+      "domain": "generic",
+      "title": "Variadic pack size and expansion",
+      "statement": "`P...(N)` yields the length of variadic pack `P` (sizeof-pack), and `P...` in expression position expands the pack `P`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2737-L2738", "tools/peg_gen/grammars/logos.peg#L2774"]
+    },
+    {
+      "id": "expr.enum-lit.forms",
+      "domain": "expr",
+      "title": "Enum variant literal forms",
+      "statement": "Enum variants are written `E::V` (unit), `E::V(args)` (tuple payload), `E::V { f: e, … }` (struct-shape payload), with optional turbofish `E::V::<T,…>`. The qualified-as form `<T as Trait>::V` and dotted-package-prefix form `pkg.path.E::V` are also accepted. Struct-shape variant fields are resolved by name to positional indices.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2787-L2816"]
+    },
+    {
+      "id": "expr.struct-lit.forms",
+      "domain": "expr",
+      "title": "Struct literal forms",
+      "statement": "Struct literals: `T { f: e, … }`, generic `T::<A,…> { f: e, … }`, and functional-update `T { f: e, .. base }` / `T { .. base }` / `T { .. base, f: e }`. Explicit fields always override the base regardless of field order.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2818-L2838", "tools/peg_gen/grammars/logos.peg#L2823-L2831"]
+    },
+    {
+      "id": "expr.struct-lit.field-init",
+      "domain": "expr",
+      "title": "Struct field initializers and shorthand",
+      "statement": "A struct field initializer is `name: expr` or the shorthand `name` (FIELD_SHORTHAND, binding the in-scope variable of that name). Tuple-struct fields may be initialized by their numeric name `S { 0: a, 1: b }` since fields of `struct S(T0,T1)` are named \"0\"/\"1\".",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2843-L2861", "tools/peg_gen/grammars/logos.peg#L2851-L2855"]
+    },
+    {
+      "id": "expr.array.literal-forms",
+      "domain": "expr",
+      "title": "Array literal and fill forms",
+      "statement": "Array literals: element list `[e1, e2, …]` and fill form `[value; N]` where N is an integer literal, a named const, `sizeof...(P)` (variadic pack length), or a `metacall` block. The fill form is preferred over the list form to resolve ambiguity.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2863-L2873", "tools/peg_gen/grammars/logos.peg#L2703-L2704"]
+    },
+    {
+      "id": "expr.comprehension.list-and-map",
+      "domain": "expr",
+      "title": "List and map comprehensions",
+      "statement": "List comprehension `[expr for x in iter (if pred)?]` and map comprehension `{kexpr: vexpr for x in iter (if pred)?}` produce a collection by iterating `iter`, binding `x`, optionally filtering by `pred`.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2875-L2885"],
+      "divergence": "Logos addition: Python-style comprehensions; not present in Rust."
+    },
+    {
+      "id": "expr.writ.sdn-literal",
+      "domain": "expr",
+      "title": "Writ SDN literals",
+      "statement": "Writ structured-data literals use the `@` sigil: `@{k:v,…}` map, `@[v,…]` array, `@\"s\"` string, `@42`/`@-1` int, `@<float>` float, `@true`/`@false` bool, `@null`. Typed forms `@<Elem>[…]` (dense array) and `@<K,V>{…}` / `@<K>{…}` (typed map). Comprehension forms `@[expr for x in iter (if p)?]` and `@{k:v for …}`. Only the outermost literal needs the `@` sigil; inner values are plain.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2887-L2923"],
+      "divergence": "Logos addition: Writ self-describing data-notation literals."
+    },
+    {
+      "id": "expr.index.read",
+      "domain": "expr",
+      "title": "Index expression",
+      "statement": "`e[i]` is a postfix index-read; with a range index (`s[a..b]`, `s[a..]`, `s[..b]`, `s[..]`) it produces a slice.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2690-L2691", "tools/peg_gen/grammars/logos.peg#L2394-L2396"]
+    },
+    {
+      "id": "expr.field.tuple-index",
+      "domain": "expr",
+      "title": "Tuple / field access",
+      "statement": "Postfix `.field` reads a named field and `.N` (integer) reads the Nth tuple/tuple-struct element.",
+      "evidence": ["tools/peg_gen/grammars/logos.peg#L2684-L2685", "tools/peg_gen/grammars/logos.peg#L2678-L2679"]
+    }
+  ]
+}

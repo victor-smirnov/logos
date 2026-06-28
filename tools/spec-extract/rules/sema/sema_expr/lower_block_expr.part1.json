@@ -1,0 +1,104 @@
+{
+  "unit": "sema/sema_expr/lower_block_expr.part1",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L13652-L14080",
+  "source_hash": "ffe4f987d8336c3e",
+  "rules": [
+    {
+      "id": "expr.block.empty-is-void",
+      "domain": "expr",
+      "title": "Empty block has type ()",
+      "statement": "A block expression `{}` with no statements evaluates to the unit/void type `()`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13653-L13656"]
+    },
+    {
+      "id": "expr.block.tail-expr-value",
+      "domain": "expr",
+      "title": "Block value is its trailing tail expression",
+      "statement": "The type and value of a block `{ s1; ...; e }` are those of its final element when that element is a tail/expression statement (or a non-statement expression form); a block whose final element is a `let`, destructuring-let, `return`, or `;`-terminated expr-stmt produces no tail value and types as `()`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13676-L13724"]
+    },
+    {
+      "id": "expr.block.tail-divergent-call-never",
+      "domain": "expr",
+      "title": "Block with diverging tail call types as !",
+      "statement": "If a block's final tail expression is a call to a `-> !` (diverging) callee, the block types as the never type `!`; the diverging call is still emitted and the block contributes no concrete value type to its context.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13692-L13696"],
+      "related": ["expr.if.never-branch-skipped"]
+    },
+    {
+      "id": "expr.block.tail-return-adopts-value-type",
+      "domain": "expr",
+      "title": "Block ending in `return e` adopts e's type",
+      "statement": "A block whose final statement is `return e` is non-diverging in the value system: the block's result type is taken as `typeof(e)` even though no value is produced, so the divergent block is usable at a non-void expected type (e.g. inside a tuple/struct literal). The `return` is still lowered and executed.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13664-L13672", "src/compiler/sema_expr.cpp#L13706-L13720"],
+      "divergence": "No real `!`/never subtyping for tail-return; the return-value's type is adopted as a block-type proxy instead of `!`.",
+      "uncertainty": "Behavior is a stated workaround pending full never-type support."
+    },
+    {
+      "id": "expr.if.requires-else-in-expr-position",
+      "domain": "expr",
+      "title": "if/if-let in expression position requires else",
+      "statement": "An `if` or `if let` used as an expression (yielding a value) must have an `else` branch; an `if` without `else` is only valid in statement position.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13820-L13823", "src/compiler/sema_expr.cpp#L13913-L13916"]
+    },
+    {
+      "id": "expr.if.cond-must-be-bool",
+      "domain": "expr",
+      "title": "if condition must be bool",
+      "statement": "The condition of a non-`let` `if` must have type `bool`; the error/never types are also accepted (error recovery and diverging conditions).",
+      "evidence": ["src/compiler/sema_expr.cpp#L13901-L13906"]
+    },
+    {
+      "id": "expr.if.let-desugars-to-match",
+      "domain": "expr",
+      "title": "if-let expression lowers to a two-arm match",
+      "statement": "`if let P = e { THEN } else { ELSE }` in expression position is equivalent to `match e { P => THEN, _ => ELSE }`; the pattern's bindings are in scope only within THEN, and the result type is that of the THEN branch.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13815-L13897"]
+    },
+    {
+      "id": "expr.if.branch-type-compatible",
+      "domain": "expr",
+      "title": "if-expr branches must have compatible types",
+      "statement": "In an `if` expression, the THEN and ELSE branch types must be mutually compatible (one assignable to the other); incompatible non-error, non-never branch types are an error. The result type is the unification (LUB) of the two branch types.",
+      "evidence": ["src/compiler/sema_expr.cpp#L14000-L14037"]
+    },
+    {
+      "id": "expr.if.never-branch-skipped",
+      "domain": "expr",
+      "title": "Never/error branch yields the other branch's type",
+      "statement": "A branch typed `!` (never) or error contributes no type to an `if` expression: the expression's type is the other branch's type. `!` behaves as a subtype of every type at the join. A branch whose final statement is `return`/`break`/`continue` (or a diverging tail call) is typed `!`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13959-L13970", "src/compiler/sema_expr.cpp#L13998-L14005"],
+      "related": ["expr.block.tail-divergent-call-never"]
+    },
+    {
+      "id": "expr.if.fnitem-branches-lub-to-fnptr",
+      "domain": "coerce",
+      "title": "Two fn-item branches join to a fn pointer",
+      "statement": "When both `if` branches are distinct fn-item values with the same signature, the result type is the corresponding fn-pointer type `fn(params)->ret` (fn-item-to-fn-pointer coercion at the join), since two distinct fn-items are not directly type-compatible.",
+      "evidence": ["src/compiler/sema_expr.cpp#L14007-L14027"]
+    },
+    {
+      "id": "expr.if.intlit-result-overflow-i64",
+      "domain": "type",
+      "title": "Integer-literal if-result widens to i64 on i32 overflow",
+      "statement": "If an `if` expression's result type is an unresolved integer literal and either branch's literal value exceeds the i32 range, the result type is i64.",
+      "evidence": ["src/compiler/sema_expr.cpp#L14038-L14052"]
+    },
+    {
+      "id": "expr.if-let-chain.min-two-segments",
+      "domain": "expr",
+      "title": "if-let chain requires at least two segments",
+      "statement": "An `if let ... && ...` chain must contain at least two segments (let-bindings and/or conditions); fewer is an error. The chain desugars inside-out into nested `if let`/`if` with the `else` branch duplicated at each fall-through.",
+      "evidence": ["src/compiler/sema_expr.cpp#L13745-L13797"],
+      "uncertainty": "ELSE duplication at each fall-through is documented as an accepted limitation, not a fundamental rule."
+    },
+    {
+      "id": "coerce.closure.hint-from-fn-bound",
+      "domain": "coerce",
+      "title": "Closure type hint derived from a Fn-family type-param bound",
+      "statement": "When the expected type is a type parameter bounded by an Fn-family trait (Fn/FnMut/FnOnce(params)->ret), a closure literal in that position is given the inferred closure type with parameter and return types taken from the bound (after generic substitution).",
+      "evidence": ["src/compiler/sema_expr.cpp#L14061-L14080"]
+    }
+  ]
+}

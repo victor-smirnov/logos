@@ -1,0 +1,117 @@
+{
+  "unit": "mono/mono_clone/find_best_struct_spec",
+  "layer": "mono",
+  "source": "src/compiler/mono_clone.cpp#L5461-L6240",
+  "source_hash": "6314bae0038543fb",
+  "rules": [
+    {
+      "id": "mono.struct-spec.best-by-specificity",
+      "domain": "mono",
+      "title": "Generic struct instantiation selects the most specific matching specialization",
+      "statement": "For a generic struct base B applied to type-args A, among all declared specializations of B whose pattern arity equals |A| and each of whose patterns matches the corresponding A[i], the one selected is that with the lexicographically greatest specificity vector. Non-matching or arity-mismatched specializations are excluded.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5461-L5491"],
+      "related": ["mono.struct-spec.ambiguous-error"]
+    },
+    {
+      "id": "mono.struct-spec.ambiguous-error",
+      "domain": "mono",
+      "title": "Two equally-specific matching struct specializations is an error",
+      "statement": "If two or more matching struct specializations share the maximal specificity vector (no strict winner), instantiation is rejected with an 'ambiguous specializations for struct' error.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5484-L5496"],
+      "related": ["mono.struct-spec.best-by-specificity"]
+    },
+    {
+      "id": "mono.struct-spec.fallback-template",
+      "domain": "mono",
+      "title": "Absent a matching specialization, the bare generic template is used",
+      "statement": "When no declared specialization matches a struct instantiation, the generic template for (pkg, base) is used and its type-params are bound positionally to the instantiation's type-args; a trailing variadic type-param absorbs all remaining type-args as a pack.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5724-L5743"],
+      "related": ["mono.subst.variadic-pack-absorb"]
+    },
+    {
+      "id": "mono.subst.variadic-pack-absorb",
+      "domain": "mono",
+      "title": "Variadic type-param absorbs trailing type-args as a pack",
+      "statement": "During positional binding of a template's type-params to type-args, a variadic type-param `...T` binds to a pack consisting of all remaining type-args from its position onward; non-variadic params bind one-to-one.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5734-L5742", "src/compiler/mono_clone.cpp#L5893-L5901", "src/compiler/mono_clone.cpp#L6117-L6125"]
+    },
+    {
+      "id": "mono.inst.pkg-identity-from-generic",
+      "domain": "mono",
+      "title": "An instantiation's package identity comes from the generic's home package",
+      "statement": "A monomorphized struct instance is assigned the package of its generic template, not that of the matched specialization; a specialization living in a different package contributes layout only, not conceptual identity.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5751-L5758"]
+    },
+    {
+      "id": "mono.inst.explicit-type-code",
+      "domain": "mono",
+      "title": "Explicit instantiation annotation sets a fixed type_code",
+      "statement": "A declared explicit instantiation annotation matching an instance's mangled name and carrying a nonzero type_code (e.g. `#[type_code=100] eidos Array<AnyVal>;`) overrides that instance's type_code with the annotated value.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5766-L5772"]
+    },
+    {
+      "id": "mono.enum.instance-drops-metadata",
+      "domain": "mono",
+      "title": "Enum instances carry only name/pkg/zoned2/variants",
+      "statement": "A monomorphized enum instance preserves its name, package, zoned2 (niche/at-rest-relative) marker, and variants; type_params, backing_type, borrow_carrying, and doc are dropped on the instance.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5812-L5859"]
+    },
+    {
+      "id": "mono.enum.variadic-variant-payload",
+      "domain": "mono",
+      "title": "Variadic enum variant payload expands its pack",
+      "statement": "An enum variant whose first payload type is a variadic type-var (e.g. `Multi(...T)`) expands to one payload per element of the bound pack, each substituted; a non-pack-bound variadic payload substitutes as a single type.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5829-L5858"]
+    },
+    {
+      "id": "mono.enum.void-payload-spec-skip",
+      "domain": "mono",
+      "title": "Enum instantiation with a void type-arg emits no methods",
+      "statement": "When a generic enum is instantiated with a `()`/void type-argument (e.g. `Option<()>`, `Result<(),E>`), the enum's variants are still materialized but no impl methods are cloned, since a void-typed bound value carries no slot and cannot be passed or returned.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5905-L5926"],
+      "uncertainty": "Spec-level: such instances are usable only for marker/discriminant matching, not value-carrying method calls."
+    },
+    {
+      "id": "mono.enum.self-referential-method-skip",
+      "domain": "mono",
+      "title": "Eager clone of self-referential enum methods is skipped",
+      "statement": "A generic enum method is not eagerly cloned when any of its parameter or return types references the same enum base with a type-arg that is structurally larger than a bare type-var AND still contains a type-var (e.g. `Option::as_ref(&Option<T>) -> Option<&T>`); fully-concrete recursive args (`Result<(),Error>`) do not trigger the skip. Real call sites still enqueue the needed specialization.",
+      "evidence": ["src/compiler/mono_clone.cpp#L5954-L5995", "src/compiler/mono_clone.cpp#L6076"]
+    },
+    {
+      "id": "mono.enum.method-bound-gate",
+      "domain": "mono",
+      "title": "Generic enum method clone is gated by type-param bound satisfaction",
+      "statement": "An impl-derived generic enum method (e.g. `impl<T: Echo> Echo for Option<T>`) is cloned for a concrete instantiation only if each bounded type-param's concrete binding satisfies its trait bound; auto-traits are checked by auto-satisfaction and ordinary bounds by recursion-aware concrete-satisfies-bound. Failing bounds suppress the clone.",
+      "evidence": ["src/compiler/mono_clone.cpp#L6140-L6186"]
+    },
+    {
+      "id": "mono.enum.method-fully-bound-gate",
+      "domain": "mono",
+      "title": "A blanket method with unbound type-params is not cloned",
+      "statement": "A generic (blanket free-fn / impl) enum method is cloned only if every non-variadic type-param receives a binding (subst or pack) from this instantiation; if any param remains unbound (e.g. an output `D` in `impl<S, D: From<S>> Into<D> for S`), the clone is suppressed and the correct specialization is emitted by the full call site instead.",
+      "evidence": ["src/compiler/mono_clone.cpp#L6194-L6201"]
+    },
+    {
+      "id": "mono.enum.method-partial-spec-target",
+      "domain": "mono",
+      "title": "Partial-spec impl target binds type-params by unification",
+      "statement": "When a generic enum method carries an impl_target_pattern that is not the bare enum (e.g. `Result<Vec<T>, E>` vs `Result<T, E>`), its impl-level type-params are bound by unifying the concrete receiver type-args against the pattern, rather than by positional assignment.",
+      "evidence": ["src/compiler/mono_clone.cpp#L6089-L6126"]
+    },
+    {
+      "id": "mono.enum.method-dual-mangling",
+      "domain": "mono",
+      "title": "Generic enum methods are emitted under both cname-insert and type-arg-append names",
+      "statement": "A generic enum method may be demanded under two mangled forms: the cname-insert form (`Option__i8__eq`, used for direct concrete-receiver calls and `==`/`!=` operator lowering) and the type-arg-append form (`Option__eq__g__sig__i8`, used for trait-bound dispatch). The same body is emitted under whichever of the two names a caller demands but no path has yet produced.",
+      "evidence": ["src/compiler/mono_clone.cpp#L6031-L6075", "src/compiler/mono_clone.cpp#L6209-L6230"]
+    },
+    {
+      "id": "mono.struct-spec.bound-str-canonical",
+      "domain": "mono",
+      "title": "&[u8] canonicalizes to str for bound checking",
+      "statement": "When checking a type-param bound, a concrete type of `&[u8]` is treated as `str` (its canonical wire form) for purposes of trait-impl lookup.",
+      "evidence": ["src/compiler/mono_clone.cpp#L6158-L6160"]
+    }
+  ]
+}

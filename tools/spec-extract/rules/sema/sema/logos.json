@@ -1,0 +1,7 @@
+{
+  "unit": "sema/sema/logos",
+  "layer": "sema",
+  "source": "src/compiler/sema.cpp#L36-L743",
+  "source_hash": "db27f6d1c3a37b8f",
+  "rules": []
+}

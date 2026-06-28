@@ -1,0 +1,131 @@
+{
+  "unit": "sema/sema_stmt/lower_loop",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L6844-L7464",
+  "source_hash": "c8d9fd10071554fe",
+  "rules": [
+    {
+      "id": "stmt.loop.conservative-init",
+      "domain": "stmt",
+      "title": "Loop body may run zero times for init analysis",
+      "statement": "A `loop { ... }` body is treated as possibly executing zero times: any variable that becomes definitely-initialized only inside the loop body remains uninitialized in the enclosing scope after the loop (the pre-loop uninit set is restored once the body is lowered).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6853-L6856", "src/compiler/sema_stmt.cpp#L6870"]
+    },
+    {
+      "id": "stmt.loop.diverges-never",
+      "domain": "stmt",
+      "title": "Loop with no reachable break diverges (type !)",
+      "statement": "A `loop` whose body contains no `break` reaching the loop diverges; in expression position its type is `!` (never). A loop is non-diverging iff some `break` targeting it carries a value (giving a result type) or breaks without value.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6863-L6873"]
+    },
+    {
+      "id": "stmt.loop.break-value-type",
+      "domain": "stmt",
+      "title": "Loop expression value comes from break values",
+      "statement": "If any `break <expr>` targets the loop, the loop expression's type is the unified type of those break values, and the loop yields that value at exit; `break` without value gives the loop unit/no-value but marks it non-diverging.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6863-L6866", "src/compiler/sema_stmt.cpp#L6877-L6880"]
+    },
+    {
+      "id": "stmt.loop.label-scope",
+      "domain": "stmt",
+      "title": "Loop label active only within its body",
+      "statement": "A loop label is bound (pushed onto the active label set) only for the duration of lowering the loop body, and is captured before body lowering so the label of the immediately-enclosing loop is the pending label; nested loops push/pop their labels with their bodies.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6846-L6848", "src/compiler/sema_stmt.cpp#L6859-L6867"]
+    },
+    {
+      "id": "expr.assign.place-only",
+      "domain": "expr",
+      "title": "Assignment LHS must be an assignable place",
+      "statement": "The left side of a compound place assignment must be a genuine lvalue shape: an index `a[i]`, field access `a.f`, tuple index `a.N`, or dereference `*p`. Any other LHS (call result, literal, arithmetic) is rejected as 'not an assignable place'.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7213-L7224"]
+    },
+    {
+      "id": "expr.assign.index-mut-desugar",
+      "domain": "expr",
+      "title": "Indexed assignment uses IndexMut",
+      "statement": "For a type implementing `IndexMut`, `a[i] = v` desugars to a store through `*index_mut(&mut a, i)` (the trait method produces the writable place); the receiver `a` must be a mutable binding.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7106-L7163", "src/compiler/sema_stmt.cpp#L7225-L7236"]
+    },
+    {
+      "id": "borrow.assign.immutable-var",
+      "domain": "borrow",
+      "title": "Write to immutable binding rejected",
+      "statement": "A write whose place is rooted at a non-`mut` local variable is rejected ('assignment to immutable variable').",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6995-L6998"]
+    },
+    {
+      "id": "borrow.assign.shared-ref",
+      "domain": "borrow",
+      "title": "Write through shared reference rejected",
+      "statement": "A write through a place rooted at a shared reference `&T` (or a shared `&DstStruct`) is rejected; a write through `&mut T` (or a `&mut DstStruct`) is permitted.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6958-L6969", "src/compiler/sema_stmt.cpp#L7011-L7013"]
+    },
+    {
+      "id": "borrow.assign.raw-ptr-unsafe",
+      "domain": "borrow",
+      "title": "Write through raw pointer requires *mut and unsafe",
+      "statement": "A write through a place rooted at a raw pointer `*const T` is rejected; through `*mut T` it is permitted only inside an `unsafe` context.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6970-L6979", "src/compiler/sema_stmt.cpp#L7007-L7020", "src/compiler/sema_stmt.cpp#L7043-L7053"]
+    },
+    {
+      "id": "borrow.assign.static-mut-unsafe",
+      "domain": "borrow",
+      "title": "static mut write requires unsafe; immutable static not writable",
+      "statement": "A write to a place rooted at a `static mut` is permitted (storage is mutable) but requires an `unsafe` block; a write to a plain immutable `static` is rejected.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6981-L6994"],
+      "divergence": "Rust-conformant (items.static.mut.safety)"
+    },
+    {
+      "id": "borrow.assign.shared-slice-elem",
+      "domain": "borrow",
+      "title": "Element write through shared slice rejected",
+      "statement": "Writing an element through a shared slice `&[T]` (`s[i] = v`) is rejected; a `&mut [T]` slice is writable.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7034-L7042"]
+    },
+    {
+      "id": "expr.assign.place-nesting-bound",
+      "domain": "expr",
+      "title": "Deeply-nested assignment targets rejected",
+      "statement": "A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable, `*p`, and index/field/tuple-index chains bounded over those roots; deeper nestings (e.g. 3-level `a[i][j][k]`, `g.rows[i].cells[j].v`) are rejected with a clean diagnostic rather than miscompiled.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L6929-L6940", "src/compiler/sema_stmt.cpp#L7316-L7321"],
+      "uncertainty": "The exact accepted shape set is defined by place_write_supported/place_field_base_ok recursion; bound is an implementation limitation, not a language-design boundary."
+    },
+    {
+      "id": "expr.assign.dataref-field-unsafe",
+      "domain": "expr",
+      "title": "DataRef<ZonedStruct> field write desugars via mut_ptr and needs unsafe",
+      "statement": "`p.field = v` where `p: DataRef<Z>` with `Z` a zoned struct desugars to `{ let t = p.mut_ptr(); (*t).field = v; }` (the DerefMut analog); it requires an `unsafe` context, `p` must be a mutable binding, and `v` must be type-compatible with the field type.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7170-L7211", "src/compiler/sema_stmt.cpp#L7303-L7312"]
+    },
+    {
+      "id": "expr.assign.drop-before-replace",
+      "domain": "expr",
+      "title": "Field assignment drops old value first",
+      "statement": "Assigning to a field place over an owned local root drops the place's prior value before the store, provided the value is live (root owned, definitely-initialized, no overlapping moved-out path) and droppable; assigning to a path also lifts drop-suppression for the covered (equal-or-deeper) moved paths so the scope-end drop releases the new value.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7237-L7299", "src/compiler/sema_stmt.cpp#L7450-L7455", "src/compiler/sema_stmt.cpp#L7461-L7462"],
+      "divergence": "Rust-conformant (expr.assign.drop-target / B8)"
+    },
+    {
+      "id": "expr.assign.type-mismatch",
+      "domain": "expr",
+      "title": "Assignment value must match place type",
+      "statement": "The assigned value's type must be compatible with the place's type (modulo `#[rel_ptr]`↔`*T` relations); otherwise a type-mismatch error is raised. Before the store the value is integer-widened to the place type, and the place type hints enum/struct literal RHS resolution.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7354-L7373", "src/compiler/sema_stmt.cpp#L7448"]
+    },
+    {
+      "id": "const.assign.intlit-fits",
+      "domain": "const",
+      "title": "Integer-literal RHS must fit the place's integer type",
+      "statement": "An integer-literal RHS (scalar, or each element of an array/tuple literal RHS, recursively through nested array/tuple literals) must fit the corresponding narrow integer place type; a value that does not fit is rejected.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7374-L7447"]
+    },
+    {
+      "id": "expr.assign.union-field-safe",
+      "domain": "expr",
+      "title": "Writing a union field is safe",
+      "statement": "Writing to a union field is safe (no `unsafe` required for the write): the place-write LHS suppresses the union unsafe gate that otherwise applies when reading a union field.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7325-L7331"],
+      "divergence": "Rust-conformant (items.union.fields.write-safety)"
+    }
+  ]
+}

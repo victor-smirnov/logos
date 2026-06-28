@@ -1,0 +1,146 @@
+{
+  "unit": "sema/borrow_check/logos",
+  "layer": "sema",
+  "source": "src/compiler/borrow_check.cpp#L43-L647",
+  "source_hash": "f124296ea3543c39",
+  "rules": [
+    {
+      "id": "borrow.classify.move-vs-copy",
+      "domain": "borrow",
+      "title": "Move vs Copy classification",
+      "statement": "A value is a Move type (consuming it invalidates its source, and it cannot be moved while borrowed) iff it owns droppable resources and is not Copy; otherwise it is Copy. Structs/enums with a Drop impl are droppable; primitives, raw pointers, &T, and Copy-impl types are Copy. Classification recurses structurally over tuples, arrays, struct fields, and enum payloads, so an aggregate carrying any Move element (e.g. (String, i64)) is itself Move.",
+      "evidence": ["src/compiler/borrow_check.cpp#L266-L321", "src/compiler/borrow_check.cpp#L237-L264", "src/compiler/borrow_check.cpp#L102-L104"]
+    },
+    {
+      "id": "borrow.classify.mut-ref-is-move",
+      "domain": "borrow",
+      "title": "&mut T is move, &T is copy",
+      "statement": "&mut T is a Move type: passing or binding a &mut reference moves the unique mutable borrow. &T is Copy.",
+      "evidence": ["src/compiler/borrow_check.cpp#L277-L283"]
+    },
+    {
+      "id": "borrow.classify.type-param-move-unless-copy",
+      "domain": "borrow",
+      "title": "Bare type parameter moves unless Copy-bounded",
+      "statement": "Inside a generic body a bare type-parameter T is a Move type unless it carries an explicit `T: Copy` bound; partial moves of fields typed T are tracked accordingly.",
+      "evidence": ["src/compiler/borrow_check.cpp#L284-L297"],
+      "divergence": "B1"
+    },
+    {
+      "id": "borrow.classify.drop-implies-droppable",
+      "domain": "borrow",
+      "title": "Drop impl or droppable field makes a type need-drop",
+      "statement": "A struct needs drop iff it has a Drop impl or has any field that (transitively) needs drop; generic instantiations are matched by their concrete (mono-mangled) name so droppable fields of generic containers are not missed.",
+      "evidence": ["src/compiler/borrow_check.cpp#L237-L264"]
+    },
+    {
+      "id": "borrow.move.consume-once",
+      "domain": "borrow",
+      "title": "Affine ownership: move consumes once",
+      "statement": "A Move variable is consumed on its first use in value position; any subsequent use (whole-value or of an already-moved field) is an error (use-after-move).",
+      "evidence": ["src/compiler/borrow_check.cpp#L5-L8", "src/compiler/borrow_check.cpp#L326-L342"]
+    },
+    {
+      "id": "borrow.exclusivity.shared-vs-mut",
+      "domain": "borrow",
+      "title": "Shared vs exclusive borrow exclusivity",
+      "statement": "&T (shared) may be held multiply and blocks moves and &mut of the same place; &mut T (exclusive) permits one at a time and blocks moves and all other borrows of the same place.",
+      "evidence": ["src/compiler/borrow_check.cpp#L10-L14", "src/compiler/borrow_check.cpp#L327-L336"]
+    },
+    {
+      "id": "borrow.exclusivity.two-phase",
+      "domain": "borrow",
+      "title": "Two-phase borrows for &mut call arguments",
+      "statement": "A &mut x taken as a function-call argument is reserved during the rest of argument evaluation and activated at call entry; a reservation does not block concurrent shared reads but does block other mutable borrows.",
+      "evidence": ["src/compiler/borrow_check.cpp#L333-L336"]
+    },
+    {
+      "id": "borrow.exclusivity.disjoint-field-paths",
+      "domain": "borrow",
+      "title": "Disjoint field paths borrow independently",
+      "statement": "Borrows are tracked by dotted field path; disjoint field paths of the same value may be borrowed simultaneously, even mutably. Two borrows conflict iff one path is a prefix of the other (equal included); a whole-value borrow is path \"\" and conflicts with every field path.",
+      "evidence": ["src/compiler/borrow_check.cpp#L343-L350", "src/compiler/borrow_check.cpp#L521-L529"]
+    },
+    {
+      "id": "borrow.scope.lexical-and-nll",
+      "domain": "borrow",
+      "title": "Borrow scope: lexical with NLL release",
+      "statement": "A bound borrow lives in the scope of its holder binding but is released once the holder's last use has passed (non-lexical lifetimes). Call-site borrows (&x in arguments) not bound to a holder are transient and released after the call.",
+      "evidence": ["src/compiler/borrow_check.cpp#L13-L14", "src/compiler/borrow_check.cpp#L507-L529"]
+    },
+    {
+      "id": "borrow.mutability.binding-mut-required",
+      "domain": "borrow",
+      "title": "Mutation/&mut requires a mut binding",
+      "statement": "Taking &mut x or assigning to x requires x to be a `let mut` binding; against an immutable binding both are rejected.",
+      "evidence": ["src/compiler/borrow_check.cpp#L337-L339"]
+    },
+    {
+      "id": "region.dangling.no-return-local-ref",
+      "domain": "region",
+      "title": "No returning a reference to a local",
+      "statement": "A function returning &T or &mut T must not return a reference whose provenance includes a local variable; parameters outlive the call and are safe to borrow from, locals are not.",
+      "evidence": ["src/compiler/borrow_check.cpp#L16-L18", "src/compiler/borrow_check.cpp#L426-L443"]
+    },
+    {
+      "id": "region.dangling.dyn-trait-ref",
+      "domain": "region",
+      "title": "&dyn Trait data half is a borrowed reference",
+      "statement": "A borrowing trait object (&dyn Trait, non-owning Kind::TraitObject) is treated as a reference kind for dangling-return detection: returning &dyn Trait to a local is rejected; an owning Box<dyn Trait> does not qualify.",
+      "evidence": ["src/compiler/borrow_check.cpp#L488-L501"],
+      "divergence": "logos-core 2.1 default trait-object lifetime rule"
+    },
+    {
+      "id": "region.temp.ref-into-temporary-dangles-on-escape",
+      "domain": "region",
+      "title": "Reference into a statement-scoped temporary dangles on escape",
+      "statement": "A reference borrowing into a statement-scoped temporary (a fresh value with no named storage: a literal, struct/tuple/array/enum literal, or call/method/closure-call result, including compiler-materialized `__rtmp_N` receivers) dangles the moment it escapes its enclosing statement (e.g. `let v = make().view();`).",
+      "evidence": ["src/compiler/borrow_check.cpp#L436-L443", "src/compiler/borrow_check.cpp#L457-L481"],
+      "divergence": "Rust E0716 (temporary dropped while borrowed)"
+    },
+    {
+      "id": "region.provenance.ref-aliases-params-or-local",
+      "domain": "region",
+      "title": "Reference provenance tracks param/local origin",
+      "statement": "Each reference-typed variable tracks the set of function parameters it may alias and whether any path originates from a local; provenance from a global or function return value is treated as safe to return. Provenance merges across branches by union of param-sets and OR of the is_local/is_temp flags.",
+      "evidence": ["src/compiler/borrow_check.cpp#L426-L455"]
+    },
+    {
+      "id": "region.borrow-carrying.escape-tracked",
+      "domain": "region",
+      "title": "#[borrow_carrying] values are escape-tracked like references",
+      "statement": "A value of a `#[borrow_carrying]` struct or enum holds a borrow into an arena and is escape-tracked like a reference; returning it escapes the borrow as if returning the bare reference. Borrow-carrying-ness propagates transitively: a struct with an inline field, or an enum with a variant payload, of a (transitively) borrow-carrying type is itself borrow-carrying, as is a container whose generic type-argument is borrow-carrying (e.g. Vec<WAny>).",
+      "evidence": ["src/compiler/borrow_check.cpp#L52-L54", "src/compiler/borrow_check.cpp#L137-L164", "src/compiler/borrow_check.cpp#L204-L227"],
+      "divergence": "Logos addition (no Rust equivalent)"
+    },
+    {
+      "id": "region.borrow-carrying.residency-holder-exempt",
+      "domain": "region",
+      "title": "Residency-holder packages are exempt from borrow-carrying",
+      "statement": "A struct with an Rc/Arc field (a residency-holder / laundered-escape package such as Held<T>/HeldAny) ref-counts the arena alive independent of any local, so it is NOT borrow-carrying and may safely escape — even via its type-arguments. An explicit `#[borrow_carrying]` annotation overrides this auto-exemption.",
+      "evidence": ["src/compiler/borrow_check.cpp#L55-L60", "src/compiler/borrow_check.cpp#L165-L203", "src/compiler/borrow_check.cpp#L207-L209"],
+      "divergence": "Logos addition (no Rust equivalent)"
+    },
+    {
+      "id": "borrow.place.field-path-extraction",
+      "domain": "borrow",
+      "title": "Borrow place: field path with index/deref granularity",
+      "statement": "The borrowed place of &expr is computed by walking field reads (accumulating a dotted path), index/slice steps (whole-element granularity: prior path components are discarded and the path is the route to the container, no disjointness on the index value), and reference/owning-container derefs (which root the borrow on the deref'd variable). The walk terminates at a variable reference giving the root; `&*r` roots on r.",
+      "evidence": ["src/compiler/borrow_check.cpp#L537-L644"]
+    },
+    {
+      "id": "borrow.place.raw-ptr-no-borrow",
+      "domain": "borrow",
+      "title": "Indexing or dereferencing a raw pointer creates no tracked borrow",
+      "statement": "Indexing through a raw pointer (p[i], p: *mut/*const T) or dereferencing a raw pointer (*p) is an unsafe raw access that creates no tracked borrow of the base; aliasing safety is the programmer's responsibility inside unsafe (Rust parity).",
+      "evidence": ["src/compiler/borrow_check.cpp#L577-L602", "src/compiler/borrow_check.cpp#L603-L629"]
+    },
+    {
+      "id": "borrow.merge.moves-union",
+      "domain": "borrow",
+      "title": "Branch merge unions move state; borrows are scope-local",
+      "statement": "At control-flow joins, move (Phase-1) state is merged conservatively by union of moved sets; borrows are scope-local (released by scope pop) and do not survive merges. Variables of outer scope moved inside a loop body are dead after the loop.",
+      "evidence": ["src/compiler/borrow_check.cpp#L20-L23", "src/compiler/borrow_check.cpp#L646-L652"]
+    }
+  ]
+}

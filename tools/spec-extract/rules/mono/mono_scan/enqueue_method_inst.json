@@ -1,0 +1,64 @@
+{
+  "unit": "mono/mono_scan/enqueue_method_inst",
+  "layer": "mono",
+  "source": "src/compiler/mono_scan.cpp#L713-L914",
+  "source_hash": "e546b47f36bb307f",
+  "rules": [
+    {
+      "id": "mono.method-inst.struct-receiver-only",
+      "domain": "mono",
+      "title": "Method instantiation requires a struct receiver",
+      "statement": "Demand-driven method instantiation applies only when the concrete receiver type is a (possibly zoned) struct; receivers of any other type kind produce no method instances.",
+      "evidence": ["src/compiler/mono_scan.cpp#L715-L718"]
+    },
+    {
+      "id": "mono.method-inst.overload-name-match",
+      "domain": "mono",
+      "title": "Overload matching by user name plus signature suffix",
+      "statement": "A method reference name M matches a struct method whose stored short-name S satisfies S == M or S == M ++ \"__g__\" ++ sig; every match is instantiated as a distinct overload, each keeping its own signature.",
+      "evidence": ["src/compiler/mono_scan.cpp#L730-L743"]
+    },
+    {
+      "id": "mono.method-inst.skip-method-tparams",
+      "domain": "mono",
+      "title": "Method-level type-params are not bound by struct instantiation",
+      "statement": "A method carrying type-params beyond the struct's own (e.g. `fn map<U>`) is NOT instantiated by the struct-driven monomorphization path; its method-level type-params can only be bound by an actual call site supplying them (turbofish/inference).",
+      "evidence": ["src/compiler/mono_scan.cpp#L750-L767"]
+    },
+    {
+      "id": "mono.method-inst.positional-tparam-bind",
+      "domain": "mono",
+      "title": "Struct type-args bind struct type-params positionally with variadic tail",
+      "statement": "Concrete struct type-arguments bind to the struct's type-parameters left-to-right by position; a variadic type-parameter absorbs all remaining trailing type-arguments as one pack.",
+      "evidence": ["src/compiler/mono_scan.cpp#L774-L784"]
+    },
+    {
+      "id": "mono.method-inst.impl-target-applicability",
+      "domain": "mono",
+      "title": "Structured impl self-type gates method applicability by unification",
+      "statement": "When a method's impl has a structured target pattern (e.g. `impl<T> Pin<&T>`), the pattern's args are unified against the concrete struct's args: failure to unify means the method does not apply to this instantiation and is skipped; success merges the impl-level bindings (T) into the substitution alongside the struct-level bindings.",
+      "evidence": ["src/compiler/mono_scan.cpp#L786-L814"]
+    },
+    {
+      "id": "mono.method-inst.defer-unresolved-args",
+      "domain": "mono",
+      "title": "Non-concrete or projection args defer applicability decision",
+      "statement": "When unifying an impl target pattern, a concrete struct arg that is null, contains a type-variable, or whose pattern position is an associated-type projection is not structurally decidable and is skipped (deferred to a later fully-concrete pass) rather than treated as a mismatch.",
+      "evidence": ["src/compiler/mono_scan.cpp#L799-L803"]
+    },
+    {
+      "id": "mono.method-inst.dedup-per-concrete-overload",
+      "domain": "mono",
+      "title": "Method instances dedup per concrete type and overload",
+      "statement": "At most one instance is produced per (concrete struct type, user-facing method name, overload short-name); overloads sharing one user-facing name collapse to a single slot per signature, matching eager-clone semantics.",
+      "evidence": ["src/compiler/mono_scan.cpp#L769-L772", "src/compiler/mono_scan.cpp#L870-L878"]
+    },
+    {
+      "id": "mono.method-inst.specialization-free-fn-wins",
+      "domain": "mono",
+      "title": "Concrete impl specialization preempts blanket method clone",
+      "statement": "If a non-generic `impl Foo<Concrete>` already provides a free function under the target method's mangled name, the blanket/generic method body is not cloned for that instantiation; the concrete specialization is used instead.",
+      "evidence": ["src/compiler/mono_scan.cpp#L879-L886"]
+    }
+  ]
+}

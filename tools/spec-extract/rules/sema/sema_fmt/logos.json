@@ -1,0 +1,93 @@
+{
+  "unit": "sema/sema_fmt/logos",
+  "layer": "sema",
+  "source": "src/compiler/sema_fmt.cpp#L9-L275",
+  "source_hash": "7595d9a3a6cbc8d0",
+  "rules": [
+    {
+      "id": "expr.fmt.brace-escape",
+      "domain": "expr",
+      "title": "Doubled braces escape a literal brace",
+      "statement": "In a format string, `{{` denotes a literal `{` and `}}` denotes a literal `}`; each doubled brace contributes exactly one brace to the literal output and is not treated as a placeholder delimiter.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L121-L134"]
+    },
+    {
+      "id": "expr.fmt.unmatched-close-brace",
+      "domain": "expr",
+      "title": "Unescaped `}` is an error",
+      "statement": "A `}` that is not part of a `}}` escape and does not close a placeholder is a compile error (`unmatched `}``); use `}}` to emit a literal `}`.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L135-L142"]
+    },
+    {
+      "id": "expr.fmt.unmatched-open-brace",
+      "domain": "expr",
+      "title": "Unterminated placeholder is an error",
+      "statement": "A `{` opening a placeholder must be closed by a matching `}`; if the placeholder body ends without `}`, it is a compile error (`unmatched `{``).",
+      "evidence": ["src/compiler/sema_fmt.cpp#L259-L265"]
+    },
+    {
+      "id": "expr.fmt.placeholder-syntax",
+      "domain": "expr",
+      "title": "Placeholder grammar",
+      "statement": "A placeholder has form `{` arg_id? (`:` format_spec)? `}` where arg_id is either an unsigned integer (explicit positional index) or an identifier (named argument); absence of arg_id means the next implicit positional argument.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L148-L170"]
+    },
+    {
+      "id": "expr.fmt.implicit-positional-counter",
+      "domain": "expr",
+      "title": "Implicit positional argument assignment",
+      "statement": "Placeholders without an explicit arg_id are assigned consecutive positional indices starting at 0, incremented per implicit placeholder; explicit-index and named placeholders do not advance this counter.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L166-L169"]
+    },
+    {
+      "id": "expr.fmt.arg-id-kind",
+      "domain": "expr",
+      "title": "Explicit-index vs named argument id",
+      "statement": "If the first arg_id char is a digit it is parsed as an explicit positional index; if it is an alphabetic char or `_` it is parsed as a named-argument identifier ([A-Za-z_][A-Za-z0-9_]*).",
+      "evidence": ["src/compiler/sema_fmt.cpp#L75-L89", "src/compiler/sema_fmt.cpp#L157-L165"]
+    },
+    {
+      "id": "expr.fmt.spec-field-order",
+      "domain": "expr",
+      "title": "Format spec field ordering",
+      "statement": "After `:` the format spec fields appear in fixed order: (fill align)? sign? `#`? `0`? width? (`.` precision)? type? where align in {`<`,`>`,`^`}, sign in {`+`,`-`}, width and precision are unsigned integers, and type is a single char.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L172-L256"]
+    },
+    {
+      "id": "expr.fmt.fill-align",
+      "domain": "expr",
+      "title": "Fill+align detection",
+      "statement": "A fill character is recognized only when immediately followed by an alignment marker (`<`,`>`,`^`), forming a 2-char fill+align prefix; a bare alignment marker uses the default fill; `<`=Left, `>`=Right, `^`=Center.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L176-L196"]
+    },
+    {
+      "id": "expr.fmt.precision-requires-number",
+      "domain": "expr",
+      "title": "Precision dot requires a number",
+      "statement": "A `.` in the format spec must be followed by an unsigned-integer precision; a `.` not followed by a digit is a compile error.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L224-L235"],
+      "divergence": "Rust additionally permits `.*` and `.N$` precision forms; Logos here requires a literal number after `.`."
+    },
+    {
+      "id": "expr.fmt.type-char-set",
+      "domain": "expr",
+      "title": "Format type chars select a formatting trait",
+      "statement": "The type char selects the formatting trait: `?`=Debug, `x`=LowerHex, `X`=UpperHex, `o`=Octal, `b`=Binary, `e`=LowerExp, `E`=UpperExp; absence means Display; any other char before `}` is a compile error (`unknown type char`).",
+      "evidence": ["src/compiler/sema_fmt.cpp#L237-L256", "src/compiler/sema_fmt.cpp#L43-L55"]
+    },
+    {
+      "id": "trait.fmt.trait-method-names",
+      "domain": "trait",
+      "title": "Formatting-trait method names",
+      "statement": "Each formatting trait maps to a method name used by macro lowering: Display=`fmt`, Debug=`dbg`, LowerHex=`fmt_lower_hex`, UpperHex=`fmt_upper_hex`, Octal=`fmt_octal`, Binary=`fmt_binary`, LowerExp=`fmt_lower_exp`, UpperExp=`fmt_upper_exp`.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L11-L23"]
+    },
+    {
+      "id": "trait.fmt.trait-dispatcher-fn",
+      "domain": "trait",
+      "title": "Formatting-trait free-fn dispatchers",
+      "statement": "Format macro lowering dispatches via free-fn wrappers bound at sema-time through a generic trait bound (rather than a `.method()` dot-call): Display=`fmt_display`, Debug=`fmt_debug`, and hex/oct/bin/exp variants named identically to their method names.",
+      "evidence": ["src/compiler/sema_fmt.cpp#L25-L41"]
+    }
+  ]
+}

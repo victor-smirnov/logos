@@ -1,0 +1,7 @@
+{
+  "unit": "grammar/writ/meta",
+  "layer": "grammar",
+  "source": "tools/peg_gen/grammars/writ.peg#L10-L15",
+  "source_hash": "24541718692acb49",
+  "rules": []
+}

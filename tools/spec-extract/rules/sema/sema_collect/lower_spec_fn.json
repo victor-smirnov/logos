@@ -1,0 +1,194 @@
+{
+  "unit": "sema/sema_collect/lower_spec_fn",
+  "layer": "sema",
+  "source": "src/compiler/sema_collect.cpp#L4404-L5019",
+  "source_hash": "c8ea8d7d95ea6e10",
+  "rules": [
+    {
+      "id": "generic.spec.pattern-list",
+      "domain": "generic",
+      "title": "Specialization function pattern parameters",
+      "statement": "A specialization fn's type-parameter list is interpreted as a list of type PATTERNS (not plain generic params): each entry is resolved into a SPEC_PATTERNS type that can be a structured type (e.g. `*T`, `[T; N]`), a TypeVar (bounded or unbounded type-param), or a concrete known type. The patterns drive dispatch to the matching specialization leg.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4414-L4474"],
+      "uncertainty": "Logos has a specialization mechanism with no direct stable-Rust analogue (Rust specialization is unstable)."
+    },
+    {
+      "id": "generic.spec.lifetime-param-skip",
+      "domain": "generic",
+      "title": "Lifetime params ignored in spec patterns",
+      "statement": "Lifetime parameters in a specialization fn's type-param list contribute no spec pattern (deferred to the borrow checker).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4431"]
+    },
+    {
+      "id": "generic.spec.bare-ident-resolution",
+      "domain": "generic",
+      "title": "Bare-ident spec param: known type is concrete, else fresh TypeVar",
+      "statement": "A bare-IDENT type-param in a specialization pattern that names a known type resolves to that CONCRETE type (a specialization leg); otherwise it is treated as a fresh unbounded TypeVar scoped over the fn signature and body.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4454-L4464"]
+    },
+    {
+      "id": "generic.spec.bounded-param-is-typevar",
+      "domain": "generic",
+      "title": "Bounded spec type-param stays a TypeVar",
+      "statement": "A type-param carrying trait bounds in a specialization pattern is always a TypeVar (never coerced to a concrete leg), with its declared trait bounds recorded.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4437-L4453"]
+    },
+    {
+      "id": "item.fn.self-ref-param-type",
+      "domain": "item",
+      "title": "self-receiver parameter type",
+      "statement": "A `&self` / `&mut self` receiver parameter takes the type `&Self` / `&mut Self`, where `Self` is the in-scope Self type; mutability follows the `mut` marker.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4498-L4502", "src/compiler/sema_collect.cpp#L4643-L4647"]
+    },
+    {
+      "id": "item.fn.tail-expr-is-return",
+      "domain": "item",
+      "title": "Tail expression is implicit return",
+      "statement": "Inside a fn body, a block's tail expression acts as an implicit return value (typed against the declared return type) for both lowering and reachability analysis.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4519-L4523"]
+    },
+    {
+      "id": "item.fn.all-paths-return",
+      "domain": "item",
+      "title": "Non-void fn must return on every path",
+      "statement": "A fn with a non-void, non-error return type is rejected (\"not all paths return a value\") unless every control-flow path through its body returns (or diverges).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4524-L4528"]
+    },
+    {
+      "id": "item.fn.empty-body-void",
+      "domain": "item",
+      "title": "Omitted return type defaults to void",
+      "statement": "A fn that declares no return type has return type `()` (void).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4477-L4479", "src/compiler/sema_collect.cpp#L4669-L4671"]
+    },
+    {
+      "id": "generic.spec.method-shadows-impl-param-warn",
+      "domain": "generic",
+      "title": "Method type-param shadowing impl param is a silent specialization",
+      "statement": "When a method's bare-IDENT type-param has the same name as an enclosing impl-block type-param, the method is silently treated as a specialization on the impl's param; the compiler emits a warning advising a rename.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4551-L4586"],
+      "divergence": "Rust treats the method param as a fresh shadowing generic; Logos reinterprets it as a specialization leg (warned)."
+    },
+    {
+      "id": "generic.shadow.type-param-shadows-type-warn",
+      "domain": "generic",
+      "title": "Type-param shadowing a type/trait warned",
+      "statement": "A fn type-parameter whose name shadows an existing struct/datatype/enum/trait is warned because it currently breaks fn-name resolution at use sites.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4619-L4630"],
+      "uncertainty": "Stated as a current implementation limitation rather than a designed rule."
+    },
+    {
+      "id": "item.param.no-infer-placeholder",
+      "domain": "item",
+      "title": "`_` rejected in fn signature type positions",
+      "statement": "The inferred-type placeholder `_` is rejected (E0121) when it appears in a fn signature's parameter or return type positions.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4660-L4662", "src/compiler/sema_collect.cpp#L4667-L4672"]
+    },
+    {
+      "id": "item.fn.impl-trait-param-desugar",
+      "domain": "item",
+      "title": "`impl Trait` param desugars to a generic param",
+      "statement": "An `impl Trait` parameter type is desugared into a synthetic generic type-parameter (with the corresponding trait bound) appended to the fn's type-param list.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4656-L4666"]
+    },
+    {
+      "id": "item.fn.never-fallback-precompute",
+      "domain": "item",
+      "title": "Body-diverges flag for `!` fallback",
+      "statement": "A fn whose body always diverges is flagged so that type-argument inference can apply the Rust-2024 `!`-fallback rule.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4673-L4679"]
+    },
+    {
+      "id": "item.extern-fn.implicit-pub-unsafe",
+      "domain": "item",
+      "title": "extern fn is implicitly pub + unsafe",
+      "statement": "An `extern fn` declaration is implicitly public, unsafe, and extern.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4684-L4688"]
+    },
+    {
+      "id": "item.extern-fn.no-mangle-abi-symbol",
+      "domain": "item",
+      "title": "extern fn keeps its bare ABI symbol",
+      "statement": "An extern fn keeps its raw name as the link symbol (no package/signature mangling); duplicate extern declarations of the same name+signature across modules deduplicate to a single symbol rather than erroring.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4715-L4729", "src/compiler/sema_collect.cpp#L4873-L4874"]
+    },
+    {
+      "id": "item.fn.signature-overloading",
+      "domain": "item",
+      "title": "Functions overloadable by signature",
+      "statement": "Functions are keyed by a signature derived from base name, parameter types, and vararg-ness, allowing multiple same-named functions to coexist; only an exact symbol-name collision (same package, base, signature) is a \"duplicate function\" error.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4712-L4713", "src/compiler/sema_collect.cpp#L4837-L4881"],
+      "divergence": "Rust does not permit free-function overloading by signature."
+    },
+    {
+      "id": "trait.method.disambiguating-mangle",
+      "domain": "trait",
+      "title": "Same-name same-sig trait methods coexist via trait-qualified mangling",
+      "statement": "When two distinct traits define a method with identical name and signature on the same target type, both coexist: the colliding methods are re-keyed under a trait-qualified base `<target>__<trait>__<method>`; non-colliding methods keep the plain base.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4731-L4835"]
+    },
+    {
+      "id": "trait.method.trait-typearg-distinct",
+      "domain": "trait",
+      "title": "Distinct trait type-args mangle distinctly",
+      "statement": "Two impls of the same trait with different concrete type-arguments (e.g. `impl Trait<u64> for X` vs `impl Trait<u8> for X`) for a same-name+signature method are treated as distinct and mangled with the trait type-arg suffix (`X__Trait$u64__m` vs `X__Trait$u8__m`).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4742-L4749", "src/compiler/sema_collect.cpp#L4778-L4782", "src/compiler/sema_collect.cpp#L4808-L4821"]
+    },
+    {
+      "id": "trait.method.inherent-preferred",
+      "domain": "trait",
+      "title": "Inherent method preferred over same-name trait method",
+      "statement": "When an inherent method and a trait method share name and signature on a type, the inherent method keeps the plain base (found by concrete-receiver dispatch) and only the trait method is trait-qualified; a `T: Trait`-bounded dispatch resolves to the qualified trait method.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4776-L4777", "src/compiler/sema_collect.cpp#L4787-L4801"]
+    },
+    {
+      "id": "item.fn.runtime-abi-no-mangle",
+      "domain": "item",
+      "title": "main, no_mangle, metacall thunks keep bare symbol",
+      "statement": "`main`, `#[no_mangle]` functions, and `__metacall_thunk_*` functions suppress package/signature mangling and keep their bare names as link symbols.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4858-L4868"]
+    },
+    {
+      "id": "generic.fn.cross-pkg-coexist",
+      "domain": "generic",
+      "title": "Cross-package same-name generics coexist",
+      "statement": "Generic functions are keyed by package-qualified mangled symbol; same base+signature in different packages produce distinct symbols and coexist; a duplicate error fires only on an exact symbol-name match within a package.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4837-L4856"]
+    },
+    {
+      "id": "trait.dyn.vtable-layout-order",
+      "domain": "trait",
+      "title": "dyn-Trait vtable slot ordering",
+      "statement": "A dyn-Trait vtable is laid out by post-order DFS over the trait's transitive supertrait graph (deepest deduped ancestors first, root trait's own methods last); each method's position is its vtable slot index. Transitive supertraits (every visited trait except the root, same deepest-first order) each get one stored super-vtable-pointer slot after the methods; the `Copy` marker contributes no vtable.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4903-L4921"]
+    },
+    {
+      "id": "trait.supertrait.known",
+      "domain": "trait",
+      "title": "Supertrait must name a known trait",
+      "statement": "Every supertrait listed on a trait must refer to a known trait (except the `Copy` marker); otherwise it is an \"unknown supertrait\" error.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4928-L4937", "src/compiler/sema_collect.cpp#L4930"]
+    },
+    {
+      "id": "trait.supertrait.impl-completeness",
+      "domain": "trait",
+      "title": "Implementing a trait requires implementing its supertraits",
+      "statement": "For an `impl Trait for T`, an impl of each of Trait's supertraits for T must also exist (transitively); missing supertrait impls are an error. Order of definitions across files does not matter (deferred check). The impl's own canonically-captured trait is used (not a same-named trait).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4954-L4972", "src/compiler/sema_collect.cpp#L5013-L5014"]
+    },
+    {
+      "id": "trait.supertrait.via-blanket",
+      "domain": "trait",
+      "title": "Supertrait satisfied by a blanket impl",
+      "statement": "A supertrait requirement `T: Super` is satisfied if a blanket `impl<U: Bound> Super for U` exists and T implements `Bound` (and all extra bounds), directly or via another blanket.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4973-L4991"]
+    },
+    {
+      "id": "trait.supertrait.via-self-bound",
+      "domain": "trait",
+      "title": "Supertrait satisfied by impl's own type-param bound",
+      "statement": "For a blanket `impl<T: Super> Child for T {}`, the supertrait requirement on T is discharged by the impl's own where-clause bound on T, where the bound trait directly is or transitively reaches the required supertrait via its own supertrait chain.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4992-L5012"]
+    }
+  ]
+}

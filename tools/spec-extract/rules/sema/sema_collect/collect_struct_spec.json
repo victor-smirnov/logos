@@ -1,0 +1,92 @@
+{
+  "unit": "sema/sema_collect/collect_struct_spec",
+  "layer": "sema",
+  "source": "src/compiler/sema_collect.cpp#L3794-L4403",
+  "source_hash": "410af5e40c12869c",
+  "rules": [
+    {
+      "id": "generic.spec.struct-pattern-classification",
+      "domain": "generic",
+      "title": "Struct specialization detection",
+      "statement": "A `struct Name<...>` decl is a specialization (not a fresh generic base) iff (a) some type-param slot is a structured pattern (`*T`, `[T;N]`), OR (b) some slot is a concrete/known type name (primitive, alias, struct, datatype, or enum). A bare type-param name is treated as a concrete user-type spec only when a base of the same name is already registered in the current package AND the name is in the pre-scanned decl-name set; otherwise the decl is registered as a generic base. Specializations are not added to `structs_`; they are lowered directly.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3974-L3976", "src/compiler/sema_collect.cpp#L4258-L4304"],
+      "divergence": "A6: Logos supports user struct specialization (`struct Map<Bitmap, V> {...}`), which Rust lacks for structs.",
+      "uncertainty": "Order-independence relies on pass0_decl_names_; classification of a name colliding across modules is gated on a same-name base existing."
+    },
+    {
+      "id": "generic.spec.partial-pattern-typevars",
+      "domain": "generic",
+      "title": "Partial specialization keeps unbound params as type variables",
+      "statement": "In a struct specialization's pattern list, each slot that does not resolve to a known type stays a free type variable (e.g. `Map<Bitmap, V>` keeps `V`). The concrete spec name derives from `concrete_struct_name(make_generic_struct(name, patterns))`, so both full and partial specs are registered and later matched by best-fit at lookup. Pattern type variables are scoped only during collection and removed afterward.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3810-L3833", "src/compiler/sema_collect.cpp#L3858-L3860"],
+      "divergence": "A6: partial specialization of user structs is a Logos addition."
+    },
+    {
+      "id": "type.datatype.pod-field-restriction",
+      "domain": "type",
+      "title": "Writ datatype fields must be POD-compatible",
+      "statement": "A field of a `datatype` (Writ fabric type) must be one of: a primitive scalar (i8..i128/u8..u128 incl. packed i24/u24/i56/u56, f32/f64, bool, integer/float literal types), an array whose element is datatype-safe, another datatype (ZonedStruct), a plain struct that is a `#[rel_ptr]` self-relative pointer, or an unresolved type variable (checked later by mono). Any other field type is rejected. Annotation types (compile-time only) are exempt and may hold non-POD fields such as `str`.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3892-L3933"],
+      "divergence": "A6/A11: Writ datatype fabric is a Logos-only feature; uses extra packed int widths."
+    },
+    {
+      "id": "type.datatype.data-plain-inference",
+      "domain": "type",
+      "title": "DataPlain vs DataNode inference for datatypes",
+      "statement": "A datatype is DataPlain unless it (transitively, through array element types) embeds a datatype field that is not itself DataPlain, or a generic/unknown datatype field; such fields demote the enclosing datatype to DataNode. A by-value concrete DataPlain nested datatype does NOT demote the outer type; generic datatype fields (non-empty type args, e.g. `RelPtr<Node>`) and forward-/cross-package-referenced datatypes are treated conservatively as DataNode.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3945-L3964"],
+      "divergence": "A6: Writ datatype DataPlain/DataNode classification is Logos-only."
+    },
+    {
+      "id": "item.struct.tuple-struct-fields",
+      "domain": "item",
+      "title": "Tuple-struct field shape and synthetic names",
+      "statement": "A struct whose first field definition carries no NAME is a tuple struct. Its positional fields are assigned synthetic decimal names \"0\", \"1\", … in declaration order, so member access (`foo.0`) and patterns (`Foo(a, b)`) reuse named-field machinery.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4007-L4015", "src/compiler/sema_collect.cpp#L4035-L4048"]
+    },
+    {
+      "id": "type.struct.dst-tail-slice-last-field",
+      "domain": "type",
+      "title": "Custom-DST slice tail only at last field",
+      "statement": "A struct field may have an unsized slice type `[T]` only at the last field position; such a struct is marked dynamically-sized (DST). Unsized field types are otherwise rejected.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4023-L4029", "src/compiler/sema_collect.cpp#L4055-L4069"],
+      "divergence": "B2: custom-DST tail-slice (DONE) — Logos supports `struct Foo { hdr: H, tail: [T] }`.",
+      "related": ["item.struct.tuple-struct-fields"]
+    },
+    {
+      "id": "type.field.placeholder-type-rejected",
+      "domain": "type",
+      "title": "Field types may not be inferred",
+      "statement": "Struct/datatype field types are item signatures: the inference placeholder `_` is rejected at field-type resolution (E0121).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4062-L4067"]
+    },
+    {
+      "id": "item.struct.inline-methods-self-binding",
+      "domain": "item",
+      "title": "Inline struct-body methods get Self + struct type-params in scope",
+      "statement": "Methods declared inline in a struct body are collected with `Self` bound to the struct's (possibly generic) self-type and the struct's type parameters installed as impl type-params, identically to `impl`-block methods. For a generic struct, `Self = Name<TVs...>` and generic methods are routed so static calls (`Pair::<i32,i32>::make()`) substitute the struct's params; for a non-generic struct `Self = Name`.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4084-L4128"]
+    },
+    {
+      "id": "type.name.resolution-order",
+      "domain": "type",
+      "title": "Type-name resolution precedence",
+      "statement": "A bare type name resolves in order: (1) an in-scope type parameter wins over all global lookups; (2) built-in primitive (i8..i128/u8..u128, i24/u24/i56/u56, usize/isize, f32/f64, bool, char, void); (3) a non-generic type alias (generic aliases are deferred to use-site); (4) a struct, then datatype, then enum of that name. Unresolved names yield no type.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4132-L4178"]
+    },
+    {
+      "id": "module.lookup.unqualified-name-scope",
+      "domain": "module",
+      "title": "Unqualified type name lookup scope",
+      "statement": "An unqualified type name is known if it matches a primitive, an in-scope type param, or — for structs/datatypes/enums/aliases — a binding keyed unqualified, or in the current package, or in any wildcard-imported package.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4181-L4204"]
+    },
+    {
+      "id": "module.vis.struct-pub-and-module-only",
+      "domain": "module",
+      "title": "Struct/datatype visibility flags",
+      "statement": "A struct, datatype, or struct field is public iff marked `pub`; a struct/datatype may additionally be `pub(module)` (module-only visibility). Field publicness is read per-field from the IS_PUB flag.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3849-L3851", "src/compiler/sema_collect.cpp#L3990-L3994"]
+    }
+  ]
+}

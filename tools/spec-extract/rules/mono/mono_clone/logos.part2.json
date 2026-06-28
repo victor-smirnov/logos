@@ -1,0 +1,109 @@
+{
+  "unit": "mono/mono_clone/logos.part2",
+  "layer": "mono",
+  "source": "src/compiler/mono_clone.cpp#L539-L1065",
+  "source_hash": "e8f58b0cbec81559",
+  "rules": [
+    {
+      "id": "mono.const-arg.literal-substitution",
+      "domain": "mono",
+      "title": "Const generic param baked to literal in spec clone",
+      "statement": "When a value parameter is specialized to a compile-time const argument, every read of that parameter in the monomorphized body is replaced by a literal of the parameter's substituted type: an integer literal for scalar const args, or an enum literal (enum_name, variant, discriminant) for enum-typed const args.",
+      "evidence": ["src/compiler/mono_clone.cpp#L564-L577"],
+      "related": ["mono.subst.var-ref"]
+    },
+    {
+      "id": "mono.subst.var-ref",
+      "domain": "mono",
+      "title": "Variable references preserve var slot across mono",
+      "statement": "A non-specialized variable reference is cloned as a VarRef carrying the (substituted) type and the original variable slot, so that post-monomorphization passes retain slot identity rather than re-keying by name.",
+      "evidence": ["src/compiler/mono_clone.cpp#L578-L582"]
+    },
+    {
+      "id": "mono.subst.size-align-of",
+      "domain": "mono",
+      "title": "sizeof/alignof operand type is substituted",
+      "statement": "sizeof(T) and alignof(T) are monomorphized by substituting type variables in T with the instance's type arguments before emitting the size/align query; the result type is unchanged.",
+      "evidence": ["src/compiler/mono_clone.cpp#L594-L605"]
+    },
+    {
+      "id": "mono.generic-ref.mangle-enqueue",
+      "domain": "mono",
+      "title": "Generic function reference resolved to mangled instantiation",
+      "statement": "A reference to a generic function with type arguments is monomorphized by substituting its type arguments, mangling base+args into a concrete symbol, scheduling that instantiation for emission, and rewriting the node into a plain VarRef carrying the mangled symbol and the substituted function-pointer type; later passes never observe a GenericRef.",
+      "evidence": ["src/compiler/mono_clone.cpp#L606-L623"]
+    },
+    {
+      "id": "mono.dst.field-prefix-relower",
+      "domain": "mono",
+      "title": "Custom-DST sized prefix field re-lowered per instantiation",
+      "statement": "When a field-read receiver monomorphizes to a custom-DST fat pointer (DstRef) and the field is a sized prefix field at byte offset off, the access is re-emitted as a typed deref of (data_half + off) rather than a thin struct GEP.",
+      "evidence": ["src/compiler/mono_clone.cpp#L630-L713", "src/compiler/mono_clone.cpp#L706-L711"],
+      "uncertainty": "Field layout offset computed by mono_dst_prefix_field (defined elsewhere); rule states observable result."
+    },
+    {
+      "id": "mono.dst.field-slice-tail",
+      "domain": "mono",
+      "title": "Custom-DST unsized slice tail projects to fat slice",
+      "statement": "For a custom-DST receiver, an unsized slice tail field projects to a slice value `&[U]` whose data pointer is (data_half + off) cast to `*U` and whose length is the receiver fat pointer's metadata half.",
+      "evidence": ["src/compiler/mono_clone.cpp#L693-L705"]
+    },
+    {
+      "id": "mono.dst.field-dyn-tail",
+      "domain": "mono",
+      "title": "Custom-DST unsized dyn tail projects to fat dyn",
+      "statement": "For a custom-DST receiver, an unsized dyn (UnsizedDyn, or borrow-owned TraitObject) tail field projects to a `&dyn Trait` value whose data pointer is (data_half + off) and whose metadata is the receiver fat pointer's vtable (metadata half), retyped as TraitObject with the field's trait name and type-args carried over.",
+      "evidence": ["src/compiler/mono_clone.cpp#L668-L692"]
+    },
+    {
+      "id": "mono.arr-lit.pack-expand",
+      "domain": "mono",
+      "title": "Array-literal pack expansion",
+      "statement": "An array element that is a parameter-pack expansion is monomorphized by expanding it to one element per pack member: a const pack yields per-member integer literals; a type/value pack yields per-member VarRefs named by the pack arg naming scheme.",
+      "evidence": ["src/compiler/mono_clone.cpp#L794-L832"]
+    },
+    {
+      "id": "mono.arr-lit.sizeof-fill",
+      "domain": "mono",
+      "title": "Fill-array `[v; sizeof...(P)]` repeats value N times",
+      "statement": "A single-element fill array literal whose array length type variable substitutes to N>1 is monomorphized by re-substituting the source value expression N times so the resulting array has N elements.",
+      "evidence": ["src/compiler/mono_clone.cpp#L833-L843"]
+    },
+    {
+      "id": "mono.closure-call.fnptr-switch",
+      "domain": "mono",
+      "title": "Closure call to a substituted fn-value becomes a fn-pointer call",
+      "statement": "A ClosureCall whose callee monomorphizes to a function-value type (fn pointer / Fn-family bound resolved to a concrete fn value) is rewritten to a direct function-pointer call.",
+      "evidence": ["src/compiler/mono_clone.cpp#L848-L864"]
+    },
+    {
+      "id": "mono.closure-call.struct-fn-method",
+      "domain": "mono",
+      "title": "Closure call to a struct implementing Fn-family routes to its call method",
+      "statement": "A ClosureCall whose callee monomorphizes to a (zoned) struct that implements an Fn/FnMut/FnOnce trait is rewritten to a method call on that struct: the receiver is prepended as the self argument, and the called method is the first of `call`, `call_mut`, `call_once` for which an impl method exists (defaulting to `call`), resolved on the concrete struct name including type-args.",
+      "evidence": ["src/compiler/mono_clone.cpp#L865-L936"]
+    },
+    {
+      "id": "mono.operator.unary-overload",
+      "domain": "mono",
+      "title": "Unary operator on struct dispatches to overload method",
+      "statement": "After substitution, a unary operator whose operand is a struct is rewritten to a call to the struct's operator method: `-` -> `neg`, `!` -> `not`; resolved on the concrete struct name within the struct's package.",
+      "evidence": ["src/compiler/mono_clone.cpp#L1002-L1024"],
+      "divergence": "T2-15: the logical-not overload method is named `not` (not Rust `Not::not` symbol but conformant in spirit); note earlier name was `not_`."
+    },
+    {
+      "id": "mono.operator.binop-overload",
+      "domain": "mono",
+      "title": "Binary operator on struct dispatches to overload method",
+      "statement": "After substitution, a binary operator whose left operand is a struct is rewritten to a two-argument call to the struct's operator method: + add, - sub, * mul, / div, % rem, == eq, != ne, < lt, <= le, > gt, >= ge; resolved on the concrete struct name within the struct's package.",
+      "evidence": ["src/compiler/mono_clone.cpp#L1025-L1058"]
+    },
+    {
+      "id": "mono.reflect-of.zoned-request",
+      "domain": "mono",
+      "title": "reflect_of on a non-generic zoned struct registers a reflect request",
+      "statement": "When reflect_of(T) monomorphizes to a ZonedStruct with no type arguments, the struct's fully-qualified name (pkg::name) is recorded as a reflect request for the emitted program.",
+      "evidence": ["src/compiler/mono_clone.cpp#L988-L1001"]
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "unit": "sema/sema/normalize_assoc_eq",
+  "layer": "sema",
+  "source": "src/compiler/sema.cpp#L2689-L3289",
+  "source_hash": "d69859d45d7aeb79",
+  "rules": [
+    {
+      "id": "type.assoc.normalize-via-where-eq",
+      "domain": "type",
+      "title": "Associated-type projection normalized by where-clause equality bound",
+      "statement": "An associated-type projection `<TV as Trait>::A` (where `TV` is a generic type-param) is normalized to the concrete type `C` whenever an in-scope where-clause bound on `TV` records an associated-type equality `Trait::A = C`. When the projection records a trait, only equalities from a bound whose trait matches (or whose trait is unrecorded) apply; the first matching equality wins. If no matching equality exists, the projection is left unchanged.",
+      "evidence": ["src/compiler/sema.cpp#L2689-L2704"]
+    },
+    {
+      "id": "type.copy.struct-structural-auto",
+      "domain": "type",
+      "title": "Structural auto-Copy for plain-data structs",
+      "statement": "A plain-data `struct` with no `impl Drop` and at least one field, whose every field type is Copy, is itself Copy — no `#[derive(Copy)]` opt-in is required. Determined by fixpoint over the struct dependency graph (a struct may become Copy once all its struct-typed fields are known Copy). Zero-field structs are not auto-promoted.",
+      "evidence": ["src/compiler/sema.cpp#L2867-L2880", "src/compiler/sema.cpp#L2955-L2981"],
+      "divergence": "Logos auto-derives Copy structurally; Rust requires explicit `#[derive(Copy)]`. Capability-equivalent (a Copy type stays usable after by-value use)."
+    },
+    {
+      "id": "type.copy.field-kinds",
+      "domain": "type",
+      "title": "Copy field-type classification",
+      "statement": "For auto-Copy, a field type counts as Copy iff it is: a primitive integer/float/bool/char/usize/isize; a raw pointer (`*const`/`*mut`); a shared reference (`&T`); a function pointer or fn-item; a payload-less enum (no variant carries a payload and the enum has no `impl Drop`); a non-owning slice (`&[T]`); a struct already classified Copy; or a tuple all of whose elements are Copy. A `&mut T` exclusive reference is NOT Copy (move-only). Owning slices `Box<[T]>`, arrays, closures, type-vars, trait-objects, and payload-bearing enums are not Copy.",
+      "evidence": ["src/compiler/sema.cpp#L2883-L2953"]
+    },
+    {
+      "id": "type.copy.drop-mutually-exclusive",
+      "domain": "type",
+      "title": "Copy and Drop are mutually exclusive (E0184)",
+      "statement": "A type may not both implement Copy and Drop. An `impl Drop for X` blocks X from auto-Copy; an explicit `impl Copy for X` coexisting with `impl Drop for X` is a compile error (E0184), since bitwise duplication of a Copy value would re-run the destructor on each copy (double-free).",
+      "evidence": ["src/compiler/sema.cpp#L2878-L2879", "src/compiler/sema.cpp#L2971", "src/compiler/sema.cpp#L2983-L3000"]
+    },
+    {
+      "id": "type.drop.copy-bounded-typevar-not-droppable",
+      "domain": "type",
+      "title": "Copy-bounded type-param is non-droppable",
+      "statement": "A generic type-param `T` with an explicit `Copy` bound is provably non-droppable (Copy and Drop are mutually exclusive), so it contributes no drop glue when it appears as a tuple element, array element, or enum payload — even though a bare type-param otherwise defers its drop decision to monomorphization.",
+      "evidence": ["src/compiler/sema.cpp#L2784-L2802"]
+    },
+    {
+      "id": "type.drop.transitive-aggregate-droppable",
+      "domain": "type",
+      "title": "Aggregate types are droppable if any owned member is",
+      "statement": "A type owns drop responsibility for its members: an array `[T;N]` is droppable iff `T` is; a tuple is droppable iff any element is; an enum is droppable iff any variant's payload field is (generic payloads concretized through the enum's type-params); a struct is droppable iff it has a drop fn or any field is (transitively) droppable. Owning `Box<dyn Trait>`, owning `Box<[T]>`, and owning `Box<Foo>` custom-DST are always droppable; their borrowed (`&dyn`, `&[T]`) counterparts are not.",
+      "evidence": ["src/compiler/sema.cpp#L2804-L2864"]
+    },
+    {
+      "id": "type.drop.no-auto-drop-suppresses-fields",
+      "domain": "type",
+      "title": "#[no_auto_drop] suppresses field destructors",
+      "statement": "A struct marked `#[no_auto_drop]` (the `ManuallyDrop<T>` lang-item shape) is treated as having no droppable fields: the compiler does not run its inner field destructors at scope exit.",
+      "evidence": ["src/compiler/sema.cpp#L2856-L2859"]
+    },
+    {
+      "id": "type.drop.same-package-impl",
+      "domain": "type",
+      "title": "Drop impl must belong to the same package as the type",
+      "statement": "A candidate `Drop` impl is selected for type `t` only if its target type belongs to the same package as `t` (an empty package on either side acts as a wildcard). Two distinct types sharing a bare concrete name across packages do not borrow each other's Drop impl.",
+      "evidence": ["src/compiler/sema.cpp#L2720-L2731", "src/compiler/sema.cpp#L2778"]
+    },
+    {
+      "id": "type.drop.receiver-shapes",
+      "domain": "type",
+      "title": "Drop method accepted by-value or by-reference receiver",
+      "statement": "The drop method for type `T` is matched whether its single parameter is `T` by value, `&T`, or `&mut T` (`fn drop(&mut self)` / `fn drop(&self)` are the canonical stdlib shapes); the by-reference forms are accepted by peeling one reference level. A generic `impl<T> Drop for Foo<T>` is matched against a concrete `Foo<C>` by struct base-name (re-mangled to the concrete name at monomorphization).",
+      "evidence": ["src/compiler/sema.cpp#L2742-L2780"]
+    },
+    {
+      "id": "type.drop.no-self-recursion",
+      "domain": "type",
+      "title": "self of a Drop body is not auto-dropped",
+      "statement": "The `self` parameter of a `Drop::drop` method is not auto-dropped at the end of that method's body — calling drop on `self` from inside its own drop body would be infinite recursion. Detected when the resolved drop fn equals the function currently being lowered (modulo package prefix and overload-disambiguation suffix).",
+      "evidence": ["src/compiler/sema.cpp#L3157-L3180"]
+    },
+    {
+      "id": "trait.dyn.object-safety",
+      "domain": "trait",
+      "title": "Object-safety (dyn-compatibility) constraints (E0038)",
+      "statement": "A trait may be used as `dyn Trait` only if every method has a vtable slot. A method is rejected if it: is generic (`fn f<T>`); has no `self` receiver (associated fn); returns `Self` by value; returns `impl Trait` (opaque); takes `Self` by value as a parameter; or takes `impl Trait` as a parameter. A method with a `where Self: Sized` bound is excluded from the vtable and so never affects object-safety. A trait owning a generic associated type (GAT) is also not object-safe. The diagnostic is emitted once per trait.",
+      "evidence": ["src/compiler/sema.cpp#L3031-L3130"]
+    },
+    {
+      "id": "trait.assoc.typearg-suffixed-lookup",
+      "domain": "trait",
+      "title": "Associated-type lookup prefers trait-arg-suffixed key",
+      "statement": "When resolving an associated type of `Trait` for a target type, if the current impl context fixes the trait's type-arguments, the lookup first tries a key suffixed with those arguments — so two `Trait<T>` impls for one type at distinct `T` register and resolve their associated types independently — falling back to the unsuffixed `Trait::target::aname` key.",
+      "evidence": ["src/compiler/sema.cpp#L3015-L3029"]
+    },
+    {
+      "id": "type.drop.order-reverse-declaration",
+      "domain": "type",
+      "title": "Locals drop in reverse declaration order at scope exit",
+      "statement": "At scope exit, a frame's live (non-moved) locals are dropped in reverse of declaration order. Drops respect early-exit edges: `return` collects drops across enclosing frames up to (and not across) a closure boundary; `break`/`continue` collects drops up to and including the loop-body frame, stopping at a loop or closure boundary.",
+      "evidence": ["src/compiler/sema.cpp#L3213-L3273"]
+    },
+    {
+      "id": "type.drop.moved-out-fields-skipped",
+      "domain": "type",
+      "title": "Partially-moved fields are excluded from a value's drop",
+      "statement": "When a local is dropped, fields (at any depth) that were moved out of it are excluded from its destructor: an exact field-path match skips that field, while a deeper moved path recurses and still drops the field's non-moved siblings.",
+      "evidence": ["src/compiler/sema.cpp#L3181-L3202"]
+    },
+    {
+      "id": "type.drop.move-closure-captures",
+      "domain": "type",
+      "title": "Captures moved into a move-closure still drop, at the closure binding's slot",
+      "statement": "A variable moved into a `move` closure remains use-after-move-checked, but its destructor still runs (the closure only borrows its storage): such captures drop at their owning closure binding's slot, in capture order, even if the binding's own drop was skipped — same-frame owners only. A `return` inside a closure body drops only the closure's own frames, never the enclosing function's captured locals.",
+      "evidence": ["src/compiler/sema.cpp#L3205-L3240", "src/compiler/sema.cpp#L3254-L3258"]
+    }
+  ]
+}

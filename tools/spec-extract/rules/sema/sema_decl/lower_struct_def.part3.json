@@ -1,0 +1,108 @@
+{
+  "unit": "sema/sema_decl/lower_struct_def.part3",
+  "layer": "sema",
+  "source": "src/compiler/sema_decl.cpp#L2173-L2681",
+  "source_hash": "be6caa14055a4316",
+  "rules": [
+    {
+      "id": "trait.impl-method.visibility-inherits-trait",
+      "domain": "trait",
+      "title": "Trait-impl methods inherit the trait's visibility",
+      "statement": "A method defined in a trait-impl block (`impl Trait for T`) is always callable wherever the trait is reachable; it is treated as public regardless of declaration. The `pub` modifier is not permitted on trait-impl methods. Inherent-impl methods (no trait) keep their explicit `pub`/private distinction.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2202-L2208", "src/compiler/sema_decl.cpp#L2442"]
+    },
+    {
+      "id": "trait.default-method.synthesised-when-not-overridden",
+      "domain": "trait",
+      "title": "Unoverridden trait default methods are synthesised into the impl",
+      "statement": "For each trait method that has a default body and is not overridden by the impl, the default body is lowered into the impl (with `Self` bound to the impl's target type), so the method is available on the implementing type.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2304-L2316"]
+    },
+    {
+      "id": "trait.default-method.conditional-where-gate",
+      "domain": "trait",
+      "title": "Default-method per-method where-clause gates synthesis",
+      "statement": "A trait default method carrying a per-method where-bound `where P: Trait2` is synthesised for a concrete impl only if the impl's concrete trait-argument bound to trait-parameter P satisfies `Trait2`. If the concrete argument is fully concrete and does not implement `Trait2`, default synthesis is silently skipped and the method is unavailable for that impl (conditional-default semantics).",
+      "evidence": ["src/compiler/sema_decl.cpp#L2317-L2378"]
+    },
+    {
+      "id": "trait.default-method.where-gate-deferred-when-typevar",
+      "domain": "trait",
+      "title": "Where-gate deferred to mono when concrete arg mentions a type variable",
+      "statement": "If the trait-argument bound to the gated parameter still mentions any type variable (recursively: under references, type args, tuple/closure positions) or an error type, the where-clause gate is undecidable at sema and deferred to monomorphization; the default template is synthesised and re-checked per concrete instantiation. Blanket impls (Self is a type variable) always defer.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2330-L2354", "src/compiler/sema_decl.cpp#L2366-L2376"],
+      "uncertainty": "Recursion set (pointee/elem/type_args/tuple/closure) read directly; exhaustiveness over all type kinds assumed from the listed traversal."
+    },
+    {
+      "id": "trait.default-method.where-bounds-carried-to-mono",
+      "domain": "trait",
+      "title": "Deferred where-bounds carried as type-expression bounds for mono re-gating",
+      "statement": "When a default method's where-bounds are deferred, each is carried on the synthesised function as a (subject-type, trait-name) bound where the subject is the impl's trait-argument expressed in the impl's generic terms; monomorphization substitutes the subject with concrete clone arguments and re-gates, rejecting clones whose substituted argument does not implement the required trait.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2443-L2472", "src/compiler/sema_decl.cpp#L2494-L2530"]
+    },
+    {
+      "id": "trait.impl-method.self-binding-by-target-shape",
+      "domain": "trait",
+      "title": "Self binding for default-method synthesis follows the impl target shape",
+      "statement": "When synthesising a default method, `Self` is bound to: the impl's structured target pattern when the target has a shaped (non-typevar, non-constvar) type argument; otherwise a generic struct/datatype over the impl's type-parameters as type variables when the impl has type parameters; otherwise the bare struct/datatype type; for a primitive target, the primitive type; and for a blanket impl, a type variable named for the target.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2379-L2433"]
+    },
+    {
+      "id": "trait.impl-method.method-vs-impl-param-split",
+      "domain": "generic",
+      "title": "Impl-level type params dropped from method TYPE_PARAMS, kept as IMPL_TYPE_PARAMS",
+      "statement": "When an impl-block method is attached to a generic struct template, impl-level type parameters are removed from the method's own type-parameter list (mono re-injects them at struct instantiation) while method-level type parameters are retained; the impl-level parameters with their bounds are preserved separately so monomorphization can gate instantiation on bound satisfaction.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2216-L2240", "src/compiler/sema_decl.cpp#L2478-L2530"]
+    },
+    {
+      "id": "trait.impl-method.impl-target-pattern-preserved",
+      "domain": "mono",
+      "title": "Impl target pattern preserved for impl-arg to receiver mapping",
+      "statement": "Each lowered impl method carries the impl's structured self-type target pattern so monomorphization can unify the pattern against the concrete receiver and map impl-level type arguments to the type's concrete arguments, rather than binding positionally by base name.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2241-L2257", "src/compiler/sema_decl.cpp#L2531-L2541"]
+    },
+    {
+      "id": "trait.assoc-const.accessor-for-generic-projection",
+      "domain": "trait",
+      "title": "Associated const in concrete trait impl emits a zero-arg accessor",
+      "statement": "An associated const in a concrete (non-generic, non-blanket) trait impl emits a zero-argument accessor function `Target__kassoc_<name>` returning the const value, so a generic projection `T::<name>` (lowered as `T__kassoc_<name>()` and rewritten by mono once T is substituted) has a concrete function to call. Generic/blanket-target associated consts are not given accessors; concrete `Target::<name>` reads use the direct value path.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2260-L2295"]
+    },
+    {
+      "id": "trait.assoc-type.copied-into-impl",
+      "domain": "trait",
+      "title": "Associated type bindings recorded per impl under a trait-arg-suffixed key",
+      "statement": "Associated-type bindings of a trait impl are recorded under a key prefixed by `trait_name + trait-arg-suffix + \"::\" + target + \"::\"`; blanket impls use the synthetic `$blanket$Trait$Bound$Target` name. The trait-argument suffix disambiguates two `Trait<T>` impls of the same target type (distinct concrete T) so neither erases the other.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2563-L2585"]
+    },
+    {
+      "id": "trait.blanket-impl.synthetic-target-name",
+      "domain": "trait",
+      "title": "Blanket impl methods lowered under a synthetic target name",
+      "statement": "Blanket-impl methods and defaults are lowered under the synthetic target `$blanket$Trait$Bound$Target` with `Self` bound to the blanket type variable, producing an LIR template that mono clones per concrete receiver; this avoids collision with `T::method` of any other generic T.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2308-L2315", "src/compiler/sema_decl.cpp#L2381-L2382", "src/compiler/sema_decl.cpp#L2566-L2569"]
+    },
+    {
+      "id": "trait.tag-dispatch.entry-emission",
+      "domain": "trait",
+      "title": "Tag-dispatch entries emitted for concrete impls of tag-dispatched traits",
+      "statement": "When a trait carries `#[tag_dispatch(TS)]`, the impl is non-generic, and the concrete target datatype has a known nonzero type_code, one dispatch entry (tag-system, trait, method, fn-symbol, type-name, type-code) is emitted for each trait method that is either explicitly overridden or has a default body. The type_code is taken from the struct's annotation-applied code, else an explicit `#[type_code=N]`, else computed from a 56-bit hash of the type's canonical name with values below 128 biased into [128, ...).",
+      "evidence": ["src/compiler/sema_decl.cpp#L2590-L2679"],
+      "divergence": "Logos addition: trait tag-dispatch table for zoned/data types has no Rust analogue."
+    },
+    {
+      "id": "type.fnptr.methods-emit-non-generic",
+      "domain": "type",
+      "title": "Function-pointer impl methods emit once, non-generic",
+      "statement": "A function-pointer impl target (`$fnptr$...`) is type-erased to a uniform pointer, so its impl methods are emitted once as non-generic functions; impl-level type parameters are cleared so no never-instantiated generic template is produced.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2183-L2187"]
+    },
+    {
+      "id": "trait.impl-method.unsized-self-seed",
+      "domain": "type",
+      "title": "Self seeded for unsized and str impl targets",
+      "statement": "For an impl whose target is unsized (slice/dyn) or `str`, `Self` is seeded before method lowering: an unsized-slice/unsized-dyn target binds `Self` to that type, and `impl ... for str` binds `Self` to an unsized slice of `u8`, so `self: &Self` / `&Self` / `Self::...` in method bodies resolve.",
+      "evidence": ["src/compiler/sema_decl.cpp#L2142-L2145", "src/compiler/sema_decl.cpp#L2160-L2173"]
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "unit": "grammar/hrpc/rule-file",
+  "layer": "grammar",
+  "source": "tools/peg_gen/grammars/hrpc.peg#L98-L172",
+  "source_hash": "5ab7a47051a163af",
+  "rules": [
+    {
+      "id": "grammar.hrpc.file-structure",
+      "domain": "grammar",
+      "title": "HRPC file top-level structure",
+      "statement": "file := package_def? import_def* top_def* — an HRPC source file is an optional single package declaration, followed by zero+ imports, followed by zero+ top-level definitions, in that order.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L100-L101"]
+    },
+    {
+      "id": "grammar.hrpc.package-decl",
+      "domain": "grammar",
+      "title": "Package declaration",
+      "statement": "package_def := 'package' qualified_name ';' — at most one package declaration per file (production is optional, non-repeating).",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L104-L105", "tools/peg_gen/grammars/hrpc.peg#L100"]
+    },
+    {
+      "id": "grammar.hrpc.import-decl",
+      "domain": "grammar",
+      "title": "Import declaration",
+      "statement": "import_def := 'import' STRING ';' — import path is a string literal.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L108-L109"]
+    },
+    {
+      "id": "grammar.hrpc.option-decl",
+      "domain": "grammar",
+      "title": "Option declaration",
+      "statement": "option_def := 'option' IDENT '=' option_value ';' where option_value := STRING | INTEGER | IDENT. Options may appear at top level and inside message bodies.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L112-L115", "tools/peg_gen/grammars/hrpc.peg#L118", "tools/peg_gen/grammars/hrpc.peg#L124"]
+    },
+    {
+      "id": "grammar.hrpc.top-def",
+      "domain": "grammar",
+      "title": "Top-level definition kinds",
+      "statement": "top_def := message_def | enum_def | service_def | option_def — the four item kinds permitted at file scope.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L118"]
+    },
+    {
+      "id": "grammar.hrpc.message-decl",
+      "domain": "grammar",
+      "title": "Message definition",
+      "statement": "message_def := 'message' IDENT '{' message_body* '}' where message_body := field_def | oneof_def | enum_def | message_def | option_def. Messages nest (message/enum may appear inside a message body).",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L121-L124"]
+    },
+    {
+      "id": "grammar.hrpc.field-decl",
+      "domain": "grammar",
+      "title": "Message field definition",
+      "statement": "field_def := field_label? type_ref IDENT '=' INTEGER ';' where field_label := 'optional' | 'required' | 'repeated'. Every field carries an explicit numeric tag; the label is optional.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L127-L130"]
+    },
+    {
+      "id": "grammar.hrpc.oneof-decl",
+      "domain": "grammar",
+      "title": "Oneof definition",
+      "statement": "oneof_def := 'oneof' IDENT '{' oneof_field* '}'; oneof_field := type_ref IDENT '=' INTEGER ';'. Oneof members are unlabeled tagged fields and may not nest other oneofs/messages.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L133-L137"]
+    },
+    {
+      "id": "grammar.hrpc.enum-decl",
+      "domain": "grammar",
+      "title": "Enum definition",
+      "statement": "enum_def := 'enum' IDENT '{' enum_value_def* '}'; enum_value_def := IDENT '=' INTEGER ';'. Each enum value binds a name to an explicit integer.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L140-L144"]
+    },
+    {
+      "id": "grammar.hrpc.service-decl",
+      "domain": "grammar",
+      "title": "Service definition",
+      "statement": "service_def := 'service' IDENT '{' rpc_def* '}' — a service body contains zero+ rpc method declarations only.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L147-L148"]
+    },
+    {
+      "id": "grammar.hrpc.rpc-method",
+      "domain": "grammar",
+      "title": "RPC method declaration",
+      "statement": "rpc_def := 'rpc' IDENT '(' rpc_type ')' 'returns' '(' rpc_type ')' ';' — each method has exactly one input and one output rpc_type.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L150-L151"]
+    },
+    {
+      "id": "grammar.hrpc.rpc-stream",
+      "domain": "grammar",
+      "title": "Streaming RPC type",
+      "statement": "rpc_type := 'stream' type_ref | type_ref — an rpc input or output may be marked streaming with the 'stream' keyword prefix.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L154-L156"]
+    },
+    {
+      "id": "grammar.hrpc.type-ref",
+      "domain": "grammar",
+      "title": "Type reference",
+      "statement": "type_ref := 'map' '<' type_ref ',' type_ref '>' | qualified_name — a type is either a map with key and value type arguments or a qualified name; maps may nest.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L160-L162"]
+    },
+    {
+      "id": "grammar.hrpc.qualified-name",
+      "domain": "grammar",
+      "title": "Dotted qualified name",
+      "statement": "qualified_name := IDENT ('.' IDENT)* — a non-empty dot-separated sequence of identifier components.",
+      "evidence": ["tools/peg_gen/grammars/hrpc.peg#L166-L171"]
+    }
+  ]
+}

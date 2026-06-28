@@ -1,0 +1,32 @@
+{
+  "unit": "mono/mono/mono_pass",
+  "layer": "mono",
+  "source": "src/compiler/mono.cpp#L1009-L1030",
+  "source_hash": "8e7d88bc6021bb24",
+  "rules": [
+    {
+      "id": "mono.depth.bounded-instantiation",
+      "domain": "mono",
+      "title": "Monomorphization bounded by max instantiation depth",
+      "statement": "The monomorphization pass is parameterized by a maximum instantiation depth; generic instantiation that would exceed this depth is not performed (guards against unbounded/infinite recursive instantiation).",
+      "evidence": ["src/compiler/mono.cpp#L1009-L1011", "src/compiler/mono.cpp#L1014-L1015"],
+      "uncertainty": "Entry point only declares the bound; the actual depth-limit check and the on-exceed diagnostic are enforced in Mono::run / the worklist driver outside this slice."
+    },
+    {
+      "id": "mono.incremental.preserve-prior-instances",
+      "domain": "mono",
+      "title": "Incremental mono preserves already-cloned instances",
+      "statement": "When monomorphization is invoked with a previous pass output (prev_out) as seed, generic instances already cloned and non-generic items already passed through in the prior output are preserved and not re-cloned in the current invocation.",
+      "evidence": ["src/compiler/mono.cpp#L1014-L1023"],
+      "uncertainty": "Statement read from MonoOpts dispatch + comment at L1017-L1023; the done_-set seeding that realizes it lives outside this slice."
+    },
+    {
+      "id": "mono.prune.entry-point-reachability",
+      "domain": "mono",
+      "title": "Entry-point-driven reachability mono",
+      "statement": "Monomorphization may be restricted to a supplied set of entry points; in this mode only items reachable from those entry points are instantiated, supported additionally by a non-owning stdlib template catalog.",
+      "evidence": ["src/compiler/mono.cpp#L1014-L1027"],
+      "uncertainty": "Reachability semantics inferred from set_entry_points / set_stdlib_exports forwarding; the prune walk is implemented elsewhere in the file."
+    }
+  ]
+}

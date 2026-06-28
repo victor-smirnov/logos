@@ -1,0 +1,126 @@
+{
+  "unit": "sema/borrow_check/visit",
+  "layer": "sema",
+  "source": "src/compiler/borrow_check.cpp#L3272-L3875",
+  "source_hash": "2eca0a4418492548",
+  "rules": [
+    {
+      "id": "borrow.move.var-consume",
+      "domain": "borrow",
+      "title": "Reading a variable in a consuming position moves a non-Copy value",
+      "statement": "A bare variable reference `x` evaluated in a consuming position moves `x` when its type is a move (non-Copy) type; the binding is thereafter dead and any later use is an error. In a non-consuming position the variable is only checked-live, not consumed.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3294-L3314"]
+    },
+    {
+      "id": "borrow.move.partial-field-path",
+      "domain": "borrow",
+      "title": "Partial move tracks full dotted field paths",
+      "statement": "Moving a place `root.a.b...` of move type marks that exact path on `root` as moved. A subsequent use is an error if it overlaps the moved path: reading the same path, anything inside it, or any containing parent (including the whole value `root`). Disjoint sibling paths (e.g. `root.a.t` vs moved `root.a.s`) stay usable. A strict-parent read (`root.a` while `root.a.s` moved) errors only for a genuine whole-value read, not when it is merely an intermediate projection toward a disjoint deeper leaf (place-base position).",
+      "evidence": ["src/compiler/borrow_check.cpp#L3442-L3520"],
+      "divergence": "B78/T1-10: full dotted-path granularity (Rust-conformant partial moves)."
+    },
+    {
+      "id": "borrow.move.no-flow-through-raw-ptr",
+      "domain": "borrow",
+      "title": "Ownership does not flow through a raw pointer",
+      "statement": "A move out of `(*p).field` where any hop in the field chain (including the root) is `*const T`/`*mut T`-typed is NOT a partial move of any tracked owned root; raw-pointer-rooted projections are excluded from move tracking. References (`&`/`&mut`) keep ordinary tracking.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3457-L3481"]
+    },
+    {
+      "id": "borrow.mut.require-mut-binding",
+      "domain": "borrow",
+      "title": "&mut of a place requires a mut binding (or parameter)",
+      "statement": "Taking `&mut x` (explicit AddrOf or implicit AddrOfTemp auto-borrow) requires the root binding `x` to be declared `mut`, unless it is a function parameter. Borrowing through a reference root (`&`/`&mut`) needs no `mut` on the reference binding. A raw-pointer root is unchecked.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3321-L3373"]
+    },
+    {
+      "id": "borrow.conflict.mut-while-borrowed",
+      "domain": "borrow",
+      "title": "Cannot take &mut a place that is already borrowed",
+      "statement": "A new borrow of `root.path` conflicts when `root` (or an overlapping path) is already borrowed: a `&mut` borrow conflicts with any existing mutable borrow, with any existing shared borrow, and with any existing shared-field or mut-field borrow whose path overlaps `path`. Path overlap is prefix-or-equal in either direction.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3393-L3424"],
+      "divergence": "B81/B93.2: method-receiver/auto-borrow sites get the same path-aware conflict checks as explicit &mut."
+    },
+    {
+      "id": "borrow.conflict.read-vs-mut-borrow",
+      "domain": "borrow",
+      "title": "Whole/field read collides with an outstanding mut borrow (E0503)",
+      "statement": "Reading a whole value or a field path while an overlapping mut borrow is outstanding is an error (E0503). A shared field borrow leaves whole/overlapping reads legal; only mut field borrows block reads. A partial MOVE of a path collides with ANY outstanding overlapping borrow (E0505: need_exclusive). Skipped in borrow-source position (`&root.path`), where the AddrOf site already resolved the conflict.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3300-L3313", "src/compiler/borrow_check.cpp#L3504-L3514"]
+    },
+    {
+      "id": "borrow.autoborrow.method-receiver-transient",
+      "domain": "borrow",
+      "title": "Method-call receiver borrow is scoped to the call",
+      "statement": "A `&self`/`&mut self` method borrows its receiver for the duration of the call only; the implicit receiver borrow is released at the enclosing scope-pop (NLL), so consecutive calls `b.foo(); b.bar();` do not conflict. A bare-place receiver (VarRef/FieldRead, not an explicit AddrOfTemp) still incurs the whole-root conflict check: `&mut self` (kind 2) vs an outstanding borrow of the receiver root errors (iterator-invalidation, e.g. `let r=&v[i]; v.push(..)`).",
+      "evidence": ["src/compiler/borrow_check.cpp#L3344-L3433", "src/compiler/borrow_check.cpp#L3543-L3562"],
+      "divergence": "B93.2/B94: auto-borrows are check-only and NLL-released, not recorded."
+    },
+    {
+      "id": "borrow.nll.capture-flow-store",
+      "domain": "borrow",
+      "title": "Storing a borrowing argument into a receiver taints the receiver's provenance",
+      "statement": "When a `&mut self` method is called on a tracked local receiver and a by-value borrow-carrying argument (or an argument whose ref-type equals the receiver container's element type, e.g. `Vec<&T>::push(&x)`) is stored into the receiver, the receiver transitively acquires the argument's borrow of the source local. A later use of the receiver after that source local dies is then E0597. `&self` reads and `&x` ref-args do not taint (so `v.contains(&x)`/`v.len()` stay clean).",
+      "evidence": ["src/compiler/borrow_check.cpp#L3563-L3604"],
+      "divergence": "B6: NLL E0597 via capture-flow on container-element stores."
+    },
+    {
+      "id": "borrow.flow.if-branch-merge",
+      "domain": "borrow",
+      "title": "If-expression merges move/provenance state across branches",
+      "statement": "An `if`/`else` expression evaluates the condition consuming, then each branch from the same pre-branch state; the post-state is the merge of both branches (a value moved in either branch is treated as moved after; provenance is unioned).",
+      "evidence": ["src/compiler/borrow_check.cpp#L3674-L3688"]
+    },
+    {
+      "id": "borrow.flow.match-branch-merge",
+      "domain": "borrow",
+      "title": "Match merges move/provenance across arms; arm bindings are arm-scoped",
+      "statement": "A `match` evaluates the scrutinee non-consuming, then each arm from the same pre-match state with its pattern bindings declared in an arm-local scope (guard evaluated consuming). The post-match state merges all arms: a place moved in any arm (when present in the pre-state) is treated as moved after; provenance is unioned across arms.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3691-L3723"]
+    },
+    {
+      "id": "borrow.live.closure-captures",
+      "domain": "borrow",
+      "title": "Closure capture requires live captured variables",
+      "statement": "Forming a closure checks each captured variable is live (not moved/dead) at the point of capture.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3760-L3764"]
+    },
+    {
+      "id": "borrow.eval.consuming-positions",
+      "domain": "borrow",
+      "title": "Operand consumption is determined by expression position",
+      "statement": "Operands are evaluated consuming in value positions and non-consuming in place/borrow positions: BinOp/Unary operands, call arguments, struct/array/tuple/enum-payload literal elements, and index expressions are consuming; Deref, AddrOf source, place-base receivers (FieldRead/IndexRead/TupleIndex receivers), slice/closure-callee operands are non-consuming; Cast and Try and Block-result propagate the surrounding consuming flag.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3436-L3439", "src/compiler/borrow_check.cpp#L3526-L3536", "src/compiler/borrow_check.cpp#L3630-L3672", "src/compiler/borrow_check.cpp#L3727-L3772"]
+    },
+    {
+      "id": "borrow.callargs.scope-ref-borrows",
+      "domain": "borrow",
+      "title": "Call-site reference arguments create scoped borrows released after the call",
+      "statement": "Each call's arguments are evaluated inside a fresh call-site borrow scope: a reference-typed argument takes its referenced borrows for the call, a non-reference argument is consumed, and all such call-site borrows are released when the scope pops after the call.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3281-L3290", "src/compiler/borrow_check.cpp#L3609-L3627"]
+    },
+    {
+      "id": "borrow.pass.generic-template-checked",
+      "domain": "borrow",
+      "title": "Generic fn bodies are borrow-checked even when never instantiated",
+      "statement": "A dedicated pre-monomorphization pass borrow-checks generic function bodies directly (exclusivity-only mode, no region inference, imprecise move tracking on TypeVars), so an uninstantiated generic is still checked. The post-mono pass checks concrete functions and specializations with full region inference. Functions loaded from a precompiled binary module and extern functions are skipped (already checked when their layer was built).",
+      "evidence": ["src/compiler/borrow_check.cpp#L3788-L3818", "src/compiler/borrow_check.cpp#L3849-L3852"],
+      "divergence": "Rust-conformant (uninstantiated generics are still checked)."
+    },
+    {
+      "id": "borrow.pass.region-conflict-diag",
+      "domain": "borrow",
+      "title": "Region inference reports overlapping-borrow conflicts",
+      "statement": "Region inference runs before the lexical borrow check and shares the same declared `'a: 'b` outlives source; it reports a conflict when two borrows of the same target have overlapping live regions where at least one is mutable. The later borrow (by source line) is the offending one and the earlier is reported as the still-live borrow.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3805-L3846"],
+      "divergence": "B72/B73: NLL region-based conflict diagnostics."
+    },
+    {
+      "id": "borrow.diag.dedupe-across-mono",
+      "domain": "borrow",
+      "title": "Identical borrow diagnostics across instantiations are de-duplicated",
+      "statement": "A generic template and each of its monomorphizations report the same borrow error (same level/line/context/message, mono suffix stripped); such identical diagnostics are collapsed so the user sees one error rather than one per instantiation.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3854-L3870"]
+    }
+  ]
+}

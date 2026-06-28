@@ -1,0 +1,176 @@
+{
+  "unit": "sema/sema_stmt/lower_let_else",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L1569-L2259",
+  "source_hash": "b47eaa2952290889",
+  "rules": [
+    {
+      "id": "stmt.let-else.diverging-else",
+      "domain": "stmt",
+      "title": "let-else else-block must diverge",
+      "statement": "In `let PAT = EXPR else { BLOCK };` the else BLOCK must unconditionally diverge (end in return / break / continue / panic / `loop {}`); a non-diverging else-block is a compile error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1604-L1614"],
+      "examples": ["let Some(x) = opt else { return; };"]
+    },
+    {
+      "id": "stmt.let-else.bindings-in-outer-scope",
+      "domain": "stmt",
+      "title": "let-else pattern bindings escape to the enclosing scope",
+      "statement": "Bindings introduced by the let-else pattern are defined in the enclosing (outer) scope and remain visible after the statement; the else-block is lowered in a separate nested scope. Each binding takes its type from the matched pattern position. Bindings named `_` are not introduced.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1604-L1662", "src/compiler/sema_stmt.cpp#L1630-L1633", "src/compiler/sema_stmt.cpp#L1648-L1649"]
+    },
+    {
+      "id": "pat.let-else.refutable-inner-guards",
+      "domain": "pat",
+      "title": "Refutable inner-literal tests preserved in let-else",
+      "statement": "A let-else pattern with refutable inner sub-patterns (e.g. `let Some(1) = e else`) tests the inner literal in addition to the variant discriminant; these inner-value guards are evaluated AFTER the bindings are bound, not dropped.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1593-L1602", "src/compiler/sema_stmt.cpp#L1669"],
+      "examples": ["let Some(1) = opt else { return; };"]
+    },
+    {
+      "id": "pat.let-else.or-pattern-uniform-bindings",
+      "domain": "pat",
+      "title": "or-pattern alternatives in let-else bind identical names/types",
+      "statement": "In an or-pattern let-else (`let A(x) | B(x) = v else …`) all alternatives must bind the same names with the same types; bindings are taken from the first alternative.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1650-L1658"]
+    },
+    {
+      "id": "stmt.nested-fn.let-bound-closure",
+      "domain": "stmt",
+      "title": "Statement-position fn desugars to a let-bound closure",
+      "statement": "A function item at statement position `fn inner(params) [-> T] { body }` is lowered as an immutable local binding `let inner = |params| -> T { body }`; the binding's type is the closure's inferred type.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1673-L1691"]
+    },
+    {
+      "id": "stmt.let.inferred-annotation-deferred",
+      "domain": "stmt",
+      "title": "Top-level `_` annotation defers to RHS type",
+      "statement": "A top-level placeholder annotation `let x: _ = rhs` drops the annotation entirely and adopts the RHS type. A nested `_` inside a composite annotation (`Vec<_>`) is a hole filled from the RHS during inference rather than dropped.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1713-L1721", "src/compiler/sema_stmt.cpp#L2179-L2183"]
+    },
+    {
+      "id": "stmt.let.annotation-type-hints",
+      "domain": "stmt",
+      "title": "let annotation supplies a type hint to RHS inference",
+      "statement": "A non-hole let annotation hints RHS literal/inference: enum/struct annotations with type-args, fn-ptr/closure annotations (so untyped closure params infer), array/slice element types (incl. through `&[T]`/`&mut [T]`), and tuple element types (so untyped int literals widen to the annotated element type instead of defaulting).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1723-L1771"],
+      "examples": ["let f: fn(i64)->i64 = |x| x+1;", "let p:(i64,i64) = (7, 2);"]
+    },
+    {
+      "id": "region.let.temporary-lifetime-extension",
+      "domain": "region",
+      "title": "let-init borrow of an rvalue extends the temporary",
+      "statement": "`let p = &<rvalue>` / `let p = &mut <rvalue>` (rvalue = scalar literal or value-producing call/struct/tuple literal) extends the temporary's lifetime to the enclosing scope: a hidden named temporary holds the value and is dropped at scope end, and the binding is rewritten to borrow that named temporary. A void/Never/error-typed rvalue keeps the degenerate inline spill (nothing to drop).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1773-L1895"],
+      "examples": ["let p = &String::from(\"x\");"]
+    },
+    {
+      "id": "stmt.let.ref-binding-sugar",
+      "domain": "stmt",
+      "title": "`let ref y = x` is sugar for `let y = &x`",
+      "statement": "A `ref` binding `let ref y = x` (or `let ref y: T = x`) lowers to taking the address of the RHS, giving `y` type `&T`.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1897-L1931"],
+      "divergence": "P4-pm-14"
+    },
+    {
+      "id": "expr.deref.box-move-out",
+      "domain": "expr",
+      "title": "let-binding a deref of a Box moves the content out",
+      "statement": "`let s = *b` where `b: Box<T>` and `T` is a move type moves the boxed value out (consuming `b`) and frees the block without dropping the content (Rust's built-in `*b` move). Copy-T Box and non-Box derefs use the normal copy/deref path.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1915-L1922"]
+    },
+    {
+      "id": "borrow.let.no-move-behind-ref",
+      "domain": "borrow",
+      "title": "Cannot move a move-typed value out of a reference deref (E0507)",
+      "statement": "`let s = *r` that would move a move-typed value out of a `&`/`&mut` deref of a reference variable is rejected (E0507); copy-typed values copy out fine.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1932-L1941"]
+    },
+    {
+      "id": "stmt.let.declare-uninit",
+      "domain": "stmt",
+      "title": "let without initializer declares an uninitialised binding",
+      "statement": "`let v: T;` / `let mut v: T;` (annotation, no value) declares the binding with the annotated type and no value; the binding is recorded as declared-uninitialised so a later assignment registers the value without a drop-before-replace, and the variable must be assigned before use. `let` without value and without annotation is an error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1942-L1962"]
+    },
+    {
+      "id": "coerce.let.reborrow-mut-at-ascription",
+      "domain": "coerce",
+      "title": "Type-ascription let reborrows &mut RHS",
+      "statement": "A type-ascribed let `let _: T = rhs` is a coercion site: when rhs is `&mut U` and the annotation is a reference/pointer kind (`&mut`, `&`, `*`), the RHS is implicitly reborrowed, so the original `&mut` is restored after the binding's last use (NLL).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1991-L2003"]
+    },
+    {
+      "id": "coerce.let.unsize-and-decays",
+      "domain": "coerce",
+      "title": "Implicit coercions at let-init when RHS type differs from annotation",
+      "statement": "When the RHS type is not directly compatible with the annotation, the binding applies, in order: CoerceUnsized for smart-pointer structs (`Rc<A>` → `Rc<dyn Tr>`); `&mut [T;N]` → `&mut [T]` array-ref-to-slice decay; non-capturing closure literal → `fn(..)->T`. If none apply (and not impl-Trait / not ExprBlob) a type-mismatch error is reported.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1991-L2044"]
+    },
+    {
+      "id": "coerce.let.impl-trait-uses-concrete",
+      "domain": "coerce",
+      "title": "impl Trait let annotation adopts the concrete RHS type",
+      "statement": "When the annotation is `impl Trait`, the binding's type is the concrete RHS type (so inherent/method calls resolve), rather than the abstract impl-Trait type.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2004-L2007", "src/compiler/sema_stmt.cpp#L2179-L2183"]
+    },
+    {
+      "id": "coerce.let.implicit-int-widening",
+      "domain": "coerce",
+      "title": "Implicit safe integer widening at let-init",
+      "statement": "At a let-init coercion site, a concrete (non-IntLit, non-enum) integer RHS whose type can safely widen to the annotated integer type is implicitly widened (e.g. u32→i64, i32→i64, u8→u32) without an explicit `as`.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2054-L2061"],
+      "divergence": "Rust requires an explicit `as` cast for any integer width change; Logos performs implicit safe widening."
+    },
+    {
+      "id": "coerce.let.literal-retype-to-float",
+      "domain": "coerce",
+      "title": "Numeric literal RHS retyped to float annotation",
+      "statement": "A FloatLit RHS is retyped to an `f32`/`f64` annotation; an IntLit RHS under a float annotation becomes a float literal (simple literal) or an `as`-cast to float (non-literal IntLit expression).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2062-L2082"]
+    },
+    {
+      "id": "const.let.intlit-fits-annotation",
+      "domain": "const",
+      "title": "Integer literal must fit the annotated type",
+      "statement": "An integer literal RHS (scalar, or per-element of an array/tuple literal, recursively into nested array/tuple literals) whose value does not fit in the annotated (element) integer type is a compile error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2083-L2178"]
+    },
+    {
+      "id": "type.let.intlit-default-i32",
+      "domain": "type",
+      "title": "Unannotated integer literal binding defaults to i32 (i64 on overflow)",
+      "statement": "An unannotated let whose RHS is an integer literal binds at type i32, upgraded to i64 when the literal value falls outside the i32 range.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2191-L2202"],
+      "divergence": "Rust defaults unconstrained integer literals to i32 but never silently widens to i64 on overflow (it is a compile error); Logos auto-upgrades to i64."
+    },
+    {
+      "id": "type.let.floatlit-default-f64",
+      "domain": "type",
+      "title": "Unannotated float literal binding defaults to f64",
+      "statement": "An unannotated let whose RHS is a float literal binds at type f64.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2203-L2207"]
+    },
+    {
+      "id": "borrow.let.move-rhs-variable",
+      "domain": "borrow",
+      "title": "let of a move-typed place marks the source moved",
+      "statement": "If the RHS of a let is a place (variable reference or struct-field-read chain) of a move type, the source is marked moved (recording dotted paths so per-field auto-drop on the source struct is suppressed).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2242-L2247"]
+    },
+    {
+      "id": "stmt.let.closure-capture-drop-ownership",
+      "domain": "stmt",
+      "title": "A closure-RHS let owns its captures' drop slots",
+      "statement": "A let whose RHS is a closure literal owns the drop slots of that closure's (un-skipped) captures; they are dropped together with the binding, in capture order.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L2210-L2222"]
+    },
+    {
+      "id": "borrow.let.box-dyn-owning-drop",
+      "domain": "borrow",
+      "title": "Owning Box<dyn Trait> binding drops only when ownership is transferred",
+      "statement": "An `let x: Box<dyn Trait>` binding (which collapses to a bare owning TraitObject) is marked for drop (drop_in_place + free) only when the RHS genuinely transfers ownership — a `box_new(..) as Box<dyn>` cast or a value-returning constructor call. Reads of a handle copy out of a container (deref / index / method-call) are excluded to avoid double-free.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1706-L1712", "src/compiler/sema_stmt.cpp#L2223-L2240"]
+    }
+  ]
+}

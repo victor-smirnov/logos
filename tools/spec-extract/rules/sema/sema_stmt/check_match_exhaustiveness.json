@@ -1,0 +1,107 @@
+{
+  "unit": "sema/sema_stmt/check_match_exhaustiveness",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L7465-L8126",
+  "source_hash": "3eb1338cd2aa3fb2",
+  "rules": [
+    {
+      "id": "pat.match.exhaustive-required",
+      "domain": "pat",
+      "title": "match must be exhaustive",
+      "statement": "A `match` over a scrutinee of type T must cover every value of T. If a reachable value is uncovered the program is rejected (e.g. enum: 'match is not exhaustive — missing variant(s): ...'; bool: 'match on bool is not exhaustive — missing true/false').",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7540-L7542", "src/compiler/sema_stmt.cpp#L7577-L7579"]
+    },
+    {
+      "id": "pat.match.uninhabited-trivially-exhaustive",
+      "domain": "pat",
+      "title": "match on uninhabited scrutinee is exhaustive",
+      "statement": "A match whose scrutinee type is uninhabited — the `Never` type, or an enum with zero variants — is trivially exhaustive and requires no arms; a bare `match x {}` is accepted.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7470-L7479"]
+    },
+    {
+      "id": "pat.match.wildcard-covers",
+      "domain": "pat",
+      "title": "unguarded wildcard arm makes match exhaustive",
+      "statement": "An arm whose pattern is an unguarded wildcard `_` covers all remaining values, making the match exhaustive regardless of which enum variants or bool values are otherwise matched.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7480-L7486", "src/compiler/sema_stmt.cpp#L7512"]
+    },
+    {
+      "id": "pat.match.guarded-arm-not-counted",
+      "domain": "pat",
+      "title": "guarded arms do not contribute to exhaustiveness",
+      "statement": "An arm carrying a guard (`if <cond>`) is not counted toward exhaustiveness coverage; only unguarded arms cover variants/values, since a guard may fail at runtime.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7482", "src/compiler/sema_stmt.cpp#L7503", "src/compiler/sema_stmt.cpp#L7570"]
+    },
+    {
+      "id": "pat.match.enum-variant-coverage",
+      "domain": "pat",
+      "title": "enum match coverage by variant",
+      "statement": "For an enum scrutinee, an unguarded `Variant` or `VariantData` pattern covers that variant (identified by discriminant); an or-pattern covers the union of its alternatives. A match without a wildcard is exhaustive iff every (constructable) variant is covered.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7487-L7542", "src/compiler/sema_stmt.cpp#L7494-L7511"]
+    },
+    {
+      "id": "pat.match.uninhabited-variant-omittable",
+      "domain": "pat",
+      "title": "variant with uninhabited payload may be omitted",
+      "statement": "An enum variant whose payload (after substituting the scrutinee's type arguments into the enum's type parameters) contains an uninhabited type can never be constructed and need not have an arm; its omission does not break exhaustiveness.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7516-L7535"],
+      "examples": ["match r: Result<i32, Void> { Ok(x) => x }  // Err arm omittable when Void is empty"]
+    },
+    {
+      "id": "pat.match.redundant-wildcard-warn",
+      "domain": "pat",
+      "title": "redundant wildcard arm over fully-covered unit enum",
+      "statement": "A wildcard arm is reported unreachable ('unreachable wildcard arm: every variant of the enum is already covered explicitly') when the enum is non-empty, all its variants are unit (payload-free), and every variant is explicitly covered. For payload-bearing variants the warning is suppressed (disc-only coverage cannot distinguish refutable inner patterns).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7543-L7564"]
+    },
+    {
+      "id": "pat.match.bool-exhaustive",
+      "domain": "pat",
+      "title": "bool match must cover true and false",
+      "statement": "A match on a `bool` scrutinee without a wildcard arm must include unguarded `true` and `false` patterns; otherwise it is rejected as non-exhaustive.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7567-L7580"]
+    },
+    {
+      "id": "pat.match.scrutinee-moved-by-binding",
+      "domain": "pat",
+      "title": "match consumes scrutinee when an arm moves out a value",
+      "statement": "Matching a by-value (move-type) scrutinee whose arm binds out a value by name marks the scrutinee place moved. This applies to: whole-value bindings, struct destructures that bind a move-only field by value, tuple destructures that bind a move-only element by value, and variant-data arms that bind a move-only payload by value. `_` bindings and `ref` bindings move nothing and leave the scrutinee live.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7604-L7820", "src/compiler/sema_stmt.cpp#L7624-L7629", "src/compiler/sema_stmt.cpp#L7677-L7685", "src/compiler/sema_stmt.cpp#L7711-L7716", "src/compiler/sema_stmt.cpp#L7725-L7816"]
+    },
+    {
+      "id": "pat.bind.ref-does-not-move",
+      "domain": "pat",
+      "title": "ref bindings and _ borrow/discard rather than move",
+      "statement": "A `ref`-bound binding borrows its place and a `_` (anonymous wildcard) discards it; neither consumes the matched value, recursively through nested tuple and struct sub-patterns. A by-value name binding (including struct-field shorthand `{ name }`) consumes the value.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7652-L7676", "src/compiler/sema_stmt.cpp#L7733-L7769", "src/compiler/sema_stmt.cpp#L7742"]
+    },
+    {
+      "id": "pat.variant.prelude-shorthand-resolution",
+      "domain": "pat",
+      "title": "bare variant names resolve via prelude/alias remap",
+      "statement": "A variant pattern written with only a variant name (no enum qualifier) resolves its enum: `Some`/`None` → `Option`, `Ok`/`Err` → `Result`, and otherwise via the importing module's variant aliases.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7922-L7944"]
+    },
+    {
+      "id": "pat.match.scrutinee-ref-peeled",
+      "domain": "pat",
+      "title": "pattern matching peels references",
+      "statement": "When checking exhaustiveness against a scrutinee type, reference and pointer layers (`&T`, `&mut T`, `*T`) are peeled (up to a fixed depth) to the underlying type before variant analysis; matching `&E` covers `E`'s variants.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7897-L7901"]
+    },
+    {
+      "id": "pat.match.nested-payload-exhaustive",
+      "domain": "pat",
+      "title": "exhaustiveness recurses into single-field variant payloads",
+      "statement": "A variant covered only by a refutable single-field payload pattern is treated as covered iff the inner patterns collectively exhaust the (substituted) payload type; an all-wildcard payload, an empty payload-arg list, or a bare `Variant` pattern covers the variant fully.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7967-L7991"]
+    },
+    {
+      "id": "pat.or.flatten-and-at-unwrap",
+      "domain": "pat",
+      "title": "or-patterns flatten and @-bindings unwrap for coverage",
+      "statement": "For exhaustiveness, or-patterns (`p1 | p2`) are flattened to their alternatives and `@`-bindings (`name @ p`) are unwrapped to their inner sub-pattern.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L7904-L7918"]
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "unit": "sema/sema_expr/lower_field_read.part2",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L9695-L10248",
+  "source_hash": "776503c5a230325a",
+  "rules": [
+    {
+      "id": "expr.struct-lit.explicit-type-args-seed-inference",
+      "domain": "expr",
+      "title": "Explicit type args seed struct-lit inference",
+      "statement": "In a struct literal `S::<A1,...,Ak> { ... }` for generic `S`, supplied type args are bound positionally to S's type-params (up to the number of params) and used to seed the inferred-arg map; each supplied arg is resolved and ignored if it resolves to an error type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9696-L9713"]
+    },
+    {
+      "id": "expr.struct-lit.full-explicit-args-select-spec",
+      "domain": "expr",
+      "title": "Fully-supplied type args select a matching specialization",
+      "statement": "If all type args of a generic struct are explicitly supplied and a matching (full or partial) specialization exists, the literal's field set and field types are taken from that specialization rather than the primary template.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9715-L9719", "src/compiler/sema_expr.cpp#L9766-L9777"]
+    },
+    {
+      "id": "expr.struct-lit.infer-typevar-from-field",
+      "domain": "expr",
+      "title": "Infer struct type-param from a directly-typed field value",
+      "statement": "A struct type-param `T` used directly as a field's declared type is inferred from that field's value type; an uninferred-T field value of IntLit type defaults to T's hint (else i32), and of FloatLit type defaults to T's hint (else f64).",
+      "evidence": ["src/compiler/sema_expr.cpp#L9779-L9791"]
+    },
+    {
+      "id": "expr.struct-lit.infer-typevar-from-array-field",
+      "domain": "expr",
+      "title": "Infer T from `[T; N]` field via element type",
+      "statement": "For a field declared `[T; N]` with type-param element T, T is inferred from the element type of an array-typed field value; an IntLit element defaults to T's hint (else i32).",
+      "evidence": ["src/compiler/sema_expr.cpp#L9792-L9805"]
+    },
+    {
+      "id": "expr.struct-lit.infer-typevar-from-ptr-field",
+      "domain": "expr",
+      "title": "Infer T from `*T`/`&T`/`&mut T` field via pointee",
+      "statement": "For a field declared as a pointer/reference to type-param T (`*T`, `&T`, `&mut T`), T is inferred from the pointee of a ref-like field value type, provided that pointee is not an error type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9806-L9818"]
+    },
+    {
+      "id": "expr.struct-lit.infer-nested-typevar",
+      "domain": "expr",
+      "title": "Recursive inference of nested struct type-params",
+      "statement": "A struct type-param appearing nested inside a compound field type (generic struct/enum type-args, array/pointer element, tuple element, or fn-ptr/closure parameter and return types) is inferred by parallel structural walk of the declared field type and the field value type; only the struct's own as-yet-uninferred type-params are bound, and binding to an Error/IntLit/FloatLit value type is skipped.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9730-L9764", "src/compiler/sema_expr.cpp#L9819-L9823"]
+    },
+    {
+      "id": "expr.struct-lit.uninferred-typevar-fallback-hint",
+      "domain": "expr",
+      "title": "Fallback type-param resolution from hint then error",
+      "statement": "Any struct type-param not inferred from fields is resolved from the expected-type hint if available; a param still unresolved after the hint becomes an error type (poisoning the instantiation). The hint struct type also supplies type-args positionally and variadic params consume the hint's trailing type-args.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9825-L9856"]
+    },
+    {
+      "id": "expr.struct-lit.field-type-mismatch-error",
+      "domain": "expr",
+      "title": "Struct-lit field value must be compatible with declared field type",
+      "statement": "Each initialized field's value type must be compatible with the field's declared type (after substituting struct type-params into the declared type), else a 'expected X, got Y' error; comparison is deferred to mono when the substituted field type still contains a TypeVar/ConstVar/CfgSlotType/AssocType. A closure value coercible to the declared fn-ptr type is accepted.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9906-L9953", "src/compiler/sema_expr.cpp#L9916-L9921", "src/compiler/sema_expr.cpp#L9926-L9944"]
+    },
+    {
+      "id": "expr.struct-lit.unknown-field-error",
+      "domain": "expr",
+      "title": "Struct-lit may not name a field absent from the definition",
+      "statement": "A field name in a struct literal that is neither a field of the effective struct definition nor a variadic-field expansion is an 'unknown field' error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9878-L9899", "src/compiler/sema_expr.cpp#L10049-L10076"]
+    },
+    {
+      "id": "expr.struct-lit.duplicate-field-error",
+      "domain": "expr",
+      "title": "Struct-lit may not initialize a field twice",
+      "statement": "Initializing the same field more than once in a struct literal is a 'duplicate field' error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9900-L9905", "src/compiler/sema_expr.cpp#L10077-L10082"]
+    },
+    {
+      "id": "expr.struct-lit.intlit-fits-field",
+      "domain": "expr",
+      "title": "IntLit field value must fit the declared field type",
+      "statement": "An integer-literal field value must fit within the declared field type's range; otherwise a 'value V does not fit in T' error. The same fit-check applies element-wise to array-literal, tuple-literal, and nested array/tuple-literal field values against the corresponding narrow element types.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9962-L9967", "src/compiler/sema_expr.cpp#L10102-L10168"]
+    },
+    {
+      "id": "expr.struct-lit.variadic-field-expansion",
+      "domain": "expr",
+      "title": "Variadic struct field accepts expansion names `name_*`",
+      "statement": "A variadic struct field named `name` accepts literal field names of the form `name_<suffix>`; each such expansion value is type-checked against the variadic field's type and the variadic field is marked initialized.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9882-L9897", "src/compiler/sema_expr.cpp#L10052-L10074"],
+      "divergence": "A6"
+    },
+    {
+      "id": "expr.struct-lit.functional-update",
+      "domain": "expr",
+      "title": "Functional struct update `..base` fills unset fields",
+      "statement": "With `S { ..., ..base }`, the `base` expression must have struct type S (same struct name); every field not explicitly initialized is read from base via field-read, with the struct's type-params substituted into the carried field's declared type (generic path). A base of differing struct type is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9970-L10013", "src/compiler/sema_expr.cpp#L10171-L10213"]
+    },
+    {
+      "id": "expr.struct-lit.missing-field-error",
+      "domain": "expr",
+      "title": "All non-union struct fields must be initialized",
+      "statement": "Every field of a non-union struct must be initialized (directly, via variadic expansion, or via `..base`); an uninitialized field is a 'field not initialized' error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10015-L10021", "src/compiler/sema_expr.cpp#L10215-L10221"]
+    },
+    {
+      "id": "expr.struct-lit.union-single-field",
+      "domain": "expr",
+      "title": "Union literals initialize exactly one field; missing-field check skipped",
+      "statement": "For a union struct, the all-fields-initialized check is suppressed: a union literal initializes only one (active) field by design.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10015-L10021", "src/compiler/sema_expr.cpp#L10215-L10221"],
+      "divergence": "A6"
+    },
+    {
+      "id": "expr.struct-lit.field-value-moved",
+      "domain": "expr",
+      "title": "Move-typed field values are consumed by the literal",
+      "statement": "When constructing a struct literal, each field value whose type is a move type is marked moved (consumed) in the surrounding scope, preventing later use and double-drop.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10023-L10033", "src/compiler/sema_expr.cpp#L10223-L10227"]
+    },
+    {
+      "id": "expr.struct-lit.field-variance-check",
+      "domain": "expr",
+      "title": "Variance check at struct-lit field initialization",
+      "statement": "Each field initialization is variance-checked between the value type and the declared field type in permissive mode (the struct's lifetime args are bound at the construction site, so elided source regions are filled by the caller's region inference); the check is skipped when the field type still contains a type-param.",
+      "evidence": ["src/compiler/sema_expr.cpp#L9954-L9961", "src/compiler/sema_expr.cpp#L10092-L10097"]
+    },
+    {
+      "id": "expr.struct-lit.outlives-check",
+      "domain": "expr",
+      "title": "Struct `where 'a: 'b` outlives constraints enforced at literal",
+      "statement": "A struct literal must satisfy the struct's declared lifetime outlives constraints (`where 'a: 'b`), checked against the literal's lifetime args, the struct's field types, and the supplied field values.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10035-L10041", "src/compiler/sema_expr.cpp#L10232-L10238"]
+    },
+    {
+      "id": "expr.struct-lit.dyn-auto-bounds-at-field-init",
+      "domain": "expr",
+      "title": "Auto-trait bounds checked at dyn field-init coercion",
+      "statement": "When a field value is coerced to a field type that is a dyn-trait with auto-trait bounds (e.g. `&dyn Trait + Send`), the value's type must satisfy those auto-trait bounds.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10098-L10101"]
+    }
+  ]
+}

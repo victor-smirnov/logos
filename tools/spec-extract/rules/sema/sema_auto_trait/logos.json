@@ -1,0 +1,148 @@
+{
+  "unit": "sema/sema_auto_trait/logos",
+  "layer": "sema",
+  "source": "src/compiler/sema_auto_trait.cpp#L20-L260",
+  "source_hash": "38044f3c7b7c84a0",
+  "rules": [
+    {
+      "id": "trait.auto.structural-satisfaction",
+      "domain": "trait",
+      "title": "Auto traits are satisfied structurally",
+      "statement": "An auto trait (e.g. Send, Sync, Unpin) is satisfied by a concrete type via structural recursion over its composition rather than by an explicit impl, except where an explicit (possibly negative) impl overrides. The error type and the unit/never-shaped Error kind vacuously satisfy every auto trait.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L24-L30", "src/compiler/sema_auto_trait.cpp#L87-L257"]
+    },
+    {
+      "id": "trait.auto.cycle-guard",
+      "domain": "trait",
+      "title": "Recursive types terminate as satisfied",
+      "statement": "Auto-trait checking memoizes on key (type, trait); revisiting an in-progress (type, trait) pair during recursion is treated as satisfied (true), so a recursive type does not loop and is not rejected merely for self-reference.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L32-L35"]
+    },
+    {
+      "id": "trait.auto.scalars-and-fnptr",
+      "domain": "trait",
+      "title": "Scalars and function pointers satisfy all auto traits",
+      "statement": "Every scalar type (bool, unit/void, iN/uN incl. i24/u24/i56/u56/i128/u128, f32/f64, integer/float literal types), function items, and function pointers satisfy every auto trait unconditionally.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L89-L99"]
+    },
+    {
+      "id": "trait.auto.raw-pointer-not-send-sync",
+      "domain": "trait",
+      "title": "Raw pointers are !Send/!Sync absent an explicit impl",
+      "statement": "A raw pointer type (*const T / *mut T) does not satisfy a Send/Sync-shaped auto trait unless an explicit positive impl exists for that exact pointer type; a matching explicit impl is honoured (positive accepts, negative rejects).",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L107-L117"]
+    },
+    {
+      "id": "trait.auto.pointer-always-unpin",
+      "domain": "trait",
+      "title": "Pointers/references are always Unpin",
+      "statement": "Raw pointers, &T, and &mut T are Unpin regardless of the pointee's pin-ness, unless an explicit negative Unpin impl exists for that exact pointer type; references never carry a negative Unpin impl and are unconditionally Unpin.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L101-L112", "src/compiler/sema_auto_trait.cpp#L121", "src/compiler/sema_auto_trait.cpp#L126"]
+    },
+    {
+      "id": "trait.auto.shared-ref-via-sync",
+      "domain": "trait",
+      "title": "&T auto-trait reduces to T: Sync",
+      "statement": "For a shared reference &T, both Send and Sync are satisfied iff T: Sync. (Send(&T) = Sync(T), Sync(&T) = Sync(T).)",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L120-L122"]
+    },
+    {
+      "id": "trait.auto.mut-ref-send-sync",
+      "domain": "trait",
+      "title": "&mut T: Send iff T:Send, Sync iff T:Sync",
+      "statement": "For a mutable reference &mut T, Send(&mut T) = Send(T) and Sync(&mut T) = Sync(T).",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L125-L130"]
+    },
+    {
+      "id": "trait.auto.typevar-via-bounds",
+      "domain": "trait",
+      "title": "Type parameter satisfies an auto trait iff bounded by it",
+      "statement": "A type variable T satisfies auto trait A iff A appears in T's declared bound list in the current generic context; otherwise it does not.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L133-L140"]
+    },
+    {
+      "id": "trait.auto.explicit-impl-override",
+      "domain": "trait",
+      "title": "Explicit impl overrides structural check for struct/enum",
+      "statement": "For struct/enum (and zoned struct) types, an explicit auto-trait impl is consulted first by candidate key (mangled concrete name, then full type string, then base name): a positive impl accepts and a negative impl rejects, short-circuiting the structural field/variant walk.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L37-L85", "src/compiler/sema_auto_trait.cpp#L168-L170", "src/compiler/sema_auto_trait.cpp#L203-L205"]
+    },
+    {
+      "id": "trait.auto.generic-impl-bound-check",
+      "domain": "trait",
+      "title": "Generic positive impl honours its type-param auto-trait bounds",
+      "statement": "When a positive auto-trait impl has impl type parameters and a generic target, each impl type param is substituted with the corresponding query type argument; for every bound on that param that names an auto trait, the substituted argument must itself satisfy that auto trait, else the impl is rejected.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L56-L84"]
+    },
+    {
+      "id": "trait.auto.struct-all-fields",
+      "domain": "trait",
+      "title": "Struct satisfies auto trait iff all fields do",
+      "statement": "Absent an overriding impl, a struct/zoned-struct satisfies auto trait A iff every field type satisfies A, with generic field TypeVars substituted by the struct's concrete type arguments. An unknown struct (no struct/datatype info) is leniently treated as satisfying.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L171-L198"]
+    },
+    {
+      "id": "trait.auto.enum-all-payloads",
+      "domain": "trait",
+      "title": "Enum satisfies auto trait iff all variant payloads do",
+      "statement": "Absent an overriding impl, an enum satisfies auto trait A iff every payload type of every variant satisfies A. An unknown enum is leniently treated as satisfying.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L202-L218"]
+    },
+    {
+      "id": "trait.auto.unsafecell-not-sync",
+      "domain": "trait",
+      "title": "UnsafeCell<T> is !Sync; Send follows T",
+      "statement": "The lang-item logos.lang.cell.UnsafeCell<T> never satisfies Sync; it satisfies Send iff its wrapped T satisfies Send (no arg => not Send). Recognition is by qualified name to avoid clashing with same-named user types.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L145-L160"]
+    },
+    {
+      "id": "trait.auto.phantompinned-not-unpin",
+      "domain": "trait",
+      "title": "PhantomPinned and #[pinned] types are !Unpin",
+      "statement": "The lang-item logos.lang.marker.PhantomPinned does not satisfy Unpin; likewise a #[pinned] (arena-resident) struct does not satisfy Unpin. These structural opt-outs propagate via the all-fields rule.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L164-L167", "src/compiler/sema_auto_trait.cpp#L176"]
+    },
+    {
+      "id": "trait.auto.unpin-default-true",
+      "domain": "trait",
+      "title": "Unpin is satisfied by default",
+      "statement": "Unpin holds for all types except those that (transitively) contain PhantomPinned, are #[pinned], or carry an explicit negative Unpin impl.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L101-L112", "src/compiler/sema_auto_trait.cpp#L164-L176"]
+    },
+    {
+      "id": "trait.auto.array-element",
+      "domain": "trait",
+      "title": "Array satisfies auto trait iff element does",
+      "statement": "An array type [T; N] satisfies auto trait A iff its element type T satisfies A; an array with no element type vacuously satisfies.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L221-L222"]
+    },
+    {
+      "id": "trait.auto.slice-via-sync",
+      "domain": "trait",
+      "title": "Slice auto-trait reduces to element Sync",
+      "statement": "A slice type [T] (a shared-reference-shaped view) satisfies Send and Sync iff its element type T satisfies Sync (not the queried trait); an empty-element slice vacuously satisfies.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L224-L227"]
+    },
+    {
+      "id": "trait.auto.tuple-all-elements",
+      "domain": "trait",
+      "title": "Tuple satisfies auto trait iff all elements do",
+      "statement": "A tuple type satisfies auto trait A iff every element type satisfies A.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L230-L233"]
+    },
+    {
+      "id": "trait.auto.closure-via-captures",
+      "domain": "trait",
+      "title": "Closure auto trait follows its captured types",
+      "statement": "A closure type satisfies auto trait A iff every captured value's type satisfies A (by-ref captures recorded as &/&mut so reference rules apply). A closure type with no recorded capture set (e.g. a bare dyn Fn annotation without + Send) does not satisfy. Auto-trait satisfaction is computed over captures, not parameter types.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L246-L252"]
+    },
+    {
+      "id": "trait.auto.conservative-false",
+      "domain": "trait",
+      "title": "Other types conservatively fail auto traits",
+      "statement": "Any type kind not otherwise handled (e.g. trait objects) is conservatively treated as not satisfying any auto trait.",
+      "evidence": ["src/compiler/sema_auto_trait.cpp#L254-L256"]
+    }
+  ]
+}

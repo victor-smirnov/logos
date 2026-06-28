@@ -1,0 +1,182 @@
+{
+  "unit": "sema/sema_expr/unify_types",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L3606-L4366",
+  "source_hash": "0306f0647f2cea3b",
+  "rules": [
+    {
+      "id": "generic.infer.literal-default",
+      "domain": "generic",
+      "title": "Literal types default before type-param binding",
+      "statement": "During unification an actual operand of type IntLit defaults to i32 and FloatLit defaults to f64 before it is used to bind any type parameter. A variadic pack element of literal type is likewise widened (IntLit→i32, FloatLit→f64) before being recorded as a pack type-arg.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3612-L3617", "src/compiler/sema_expr.cpp#L3971-L3976"],
+      "related": ["generic.infer.bind-first-wins"]
+    },
+    {
+      "id": "generic.infer.bind-first-wins",
+      "domain": "generic",
+      "title": "Type-param unification binds first occurrence",
+      "statement": "Unifying a formal type-parameter (TypeVar or ConstVar) against an actual type T records the binding param→T only if the parameter is not already bound; subsequent occurrences do not overwrite. A const-generic parameter at type-argument position (ConstVar) is bound the same way as a type-generic parameter.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3619-L3637"],
+      "related": ["generic.infer.literal-default"]
+    },
+    {
+      "id": "generic.infer.no-bind-self",
+      "domain": "generic",
+      "title": "Self is never bound by unification",
+      "statement": "A formal type-parameter named `Self` is never bound during unification (it is resolved by the impl/receiver, not inferred from arguments).",
+      "evidence": ["src/compiler/sema_expr.cpp#L3628"]
+    },
+    {
+      "id": "generic.infer.no-bind-infer-hole",
+      "domain": "generic",
+      "title": "Inference holes never bind a type-param",
+      "statement": "Unifying a type-parameter against an inference hole `_` (InferredType) leaves the parameter unbound; the hole is resolved by other arguments or later uses, never pinned to the literal `_`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3629-L3634"]
+    },
+    {
+      "id": "generic.infer.structural-recursion",
+      "domain": "generic",
+      "title": "Unification recurses structurally on matching constructors",
+      "statement": "Unification of two types with the same constructor recurses into components: Ptr/Ref/MutRef into pointee; Array/Slice into element; Struct (resp. Enum) into positional type-args when struct (resp. enum) names match; Tuple into positional elements; Fn-item/Fn-ptr/Closure into positional parameter types and return type. Mismatched constructors bind nothing.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3640-L3756"]
+    },
+    {
+      "id": "generic.infer.ptr-ref-cross",
+      "domain": "generic",
+      "title": "Pointer/reference families cross-unify on pointee",
+      "statement": "A formal Ptr unifies against an actual Ptr, Ref, or MutRef by recursing on pointee. A formal Ref or MutRef unifies against an actual Ref, MutRef, or Ptr by recursing on pointee. Reference/pointer mutability and kind do not block unification; only the pointee is matched.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3641-L3653"],
+      "uncertainty": "Mutability compatibility is enforced elsewhere (arg type-check / B6); unify itself is mutability-agnostic."
+    },
+    {
+      "id": "generic.infer.ref-unsize-pointee",
+      "domain": "generic",
+      "title": "?Sized inference through reference to slice/dyn",
+      "statement": "When a formal `&T`/`&mut T` is unified against an actual slice value (Kind::Slice → `&[U]`/`*const [U]`) or trait object (`&dyn Trait`), the actual is treated as a reference whose pointee is the unsized form UnsizedSlice<U> (resp. UnsizedDyn<Trait>), so a `T: ?Sized` formal pointee binds to that unsized type; substitution later canonicalises Ref/MutRef/Ptr-of-unsized back to the original Slice/TraitObject (same ABI).",
+      "evidence": ["src/compiler/sema_expr.cpp#L3654-L3681"]
+    },
+    {
+      "id": "generic.infer.array-len-const",
+      "domain": "generic",
+      "title": "Const-generic array length inferred from concrete length",
+      "statement": "Unifying a formal array `[T; N]` (N a const-generic length parameter) against a concrete `[U; M]` binds N → IntLit(M) (if N not already bound and M > 0), in addition to unifying element types.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3683-L3698"]
+    },
+    {
+      "id": "generic.infer.fn-bound-propagation",
+      "domain": "generic",
+      "title": "Fn-family bound drives inference of its signature params",
+      "statement": "When a type-parameter F with an Fn-family bound `F: Fn*(X..)->Y` is bound to an actual closure/fn-ptr, the actual callable's parameter types and return type are unified against the bound's fn_params/fn_ret, so type-params X/Y that appear only inside F's bound are inferred from the actual callable's signature.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3867-L3901"]
+    },
+    {
+      "id": "generic.infer.trait-bound-impl-args",
+      "domain": "generic",
+      "title": "Trait-bound type-args inferred via the bound impl",
+      "statement": "When a type-parameter I is bound to a concrete struct and carries a non-Fn trait bound `I: Trait<A..>`, inference looks up I's impl of Trait, unifies the impl's target pattern against I's actual type, substitutes the impl's recorded trait type-args, and unifies those against the bound's args A.. — so a type-param appearing only inside another param's trait bound becomes deducible.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3903-L3934"]
+    },
+    {
+      "id": "generic.infer.return-type-hint",
+      "domain": "generic",
+      "title": "Return-type hint participates in inference",
+      "statement": "When an expected return type is in scope (e.g. from a let-binding annotation), the function's (partially substituted) return type is unified against the expected type, inferring type-params that appear only in return position. The expected-type hint may legitimately bind a parameter even when overload pre-selection found no argument binding for it.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3800-L3811", "src/compiler/sema_expr.cpp#L3936-L3944", "src/compiler/sema_expr.cpp#L4061-L4067"]
+    },
+    {
+      "id": "generic.infer.never-fallback",
+      "domain": "generic",
+      "title": "Unbound type-param falls back to ! for diverging callees",
+      "statement": "If a non-variadic type-parameter remains unbound after inference, it is an error (ambiguous) UNLESS the callee's body is statically known to always diverge (panic/loop/never-returning tail), in which case the parameter falls back to the never type `!`. The discriminator is the callee body, not the surrounding callsite divergence: `fn f<T>()->T { return 0; }` errors as ambiguous while `fn f<T>()->T { panic(); }` resolves T = `!`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3946-L3966"],
+      "divergence": "A7 — abort-only panic; `!`-fallback for diverging bodies follows Rust-2024 inference."
+    },
+    {
+      "id": "generic.infer.variadic-pack",
+      "domain": "generic",
+      "title": "Variadic type-pack collects one element per trailing arg",
+      "statement": "For a function with a trailing variadic type-parameter, each value argument beyond the fixed parameters contributes one element to the type pack (with IntLit/FloatLit defaulted to i32/f64). The pack length is recorded for `sizeof...` / `[T; sizeof...(P)]` resolution under a symbolic key, and a single-type-param variadic also binds that param to the tuple of pack elements.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3968-L3978", "src/compiler/sema_expr.cpp#L4123-L4147"]
+    },
+    {
+      "id": "generic.overload.score-select",
+      "domain": "generic",
+      "title": "Generic overload selection by argument fit score",
+      "statement": "Among ≥2 generic overloads of a name, each arity-compatible candidate is scored by per-argument fit after substituting inferred bindings: exact type match = 2, compatible (incl. autoderef receiver / general type-compatibility) = 1; any incompatible argument disqualifies the candidate. A candidate whose fixed type-params cannot all be bound is rejected (unless its body always diverges, or a return-type hint is present). The highest-scoring candidate wins; ties are broken in favour of a candidate defined in the current package.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3759-L3845"]
+    },
+    {
+      "id": "generic.overload.receiver-autoref-autoderef",
+      "domain": "generic",
+      "title": "Method receiver autoref/autoderef in overload matching",
+      "statement": "For the receiver argument of a method overload, a by-value actual matching a `&self`/`&mut self` formal pointee (autoref) ranks as an exact match (score 2); a reference actual matching a by-value `self` formal pointee (autoderef) ranks one below (score 1). The receiver is unified through these autoref/autoderef shapes so unification does not see Ref-vs-Struct and bind nothing.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3783-L3797", "src/compiler/sema_expr.cpp#L3821-L3835"]
+    },
+    {
+      "id": "generic.call.turbofish-arity",
+      "domain": "generic",
+      "title": "Type-argument count validation",
+      "statement": "A generic call supplying more type-arguments than the function has type-parameters is an error. With a variadic type-param, fewer than the non-variadic count is an error. Supplying fewer than the full count (partial turbofish), or interior `_` placeholders, is permitted: the explicit head is pre-bound and the remaining/`_` positions are inferred from argument types and the return-type hint; a still-uninferable position is an error directing the user to turbofish.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4001-L4082"]
+    },
+    {
+      "id": "generic.call.impl-target-pattern-unify",
+      "domain": "generic",
+      "title": "Impl-level type-params bound by target-pattern unification",
+      "statement": "For a method on `impl<...> Trait for Foo<Pat..>`, the impl-level type-parameters are bound by structurally unifying the recorded impl-target pattern against the receiver-positional type-arguments (e.g. pattern `Vec<T>` vs concrete `Vec<i32>` ⇒ T=i32), not positionally; method-level type-arguments are then layered positionally on top. Positional binding is used when no target pattern is recorded.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4085-L4122", "src/compiler/sema_expr.cpp#L4033-L4052"]
+    },
+    {
+      "id": "generic.call.sized-enforcement",
+      "domain": "generic",
+      "title": "Sized bound enforced at type-argument substitution",
+      "statement": "Every type-parameter carries an implicit `Sized` bound unless declared `?Sized`. Passing an unsized type-argument (UnsizedSlice/UnsizedDyn), or a `?Sized` outer type-parameter, at a Sized-required parameter position is an error (\"requires `Sized`\"), reported before trait-bound checking.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4150-L4184"]
+    },
+    {
+      "id": "expr.call.unsafe-context",
+      "domain": "expr",
+      "title": "Calling an unsafe function requires unsafe context",
+      "statement": "A call to a function marked `unsafe` is an error unless it occurs inside an unsafe context; this applies to both inferred and explicit-turbofish call paths.",
+      "evidence": ["src/compiler/sema_expr.cpp#L3995-L3997"]
+    },
+    {
+      "id": "expr.call.arg-count",
+      "domain": "expr",
+      "title": "Call argument count must match",
+      "statement": "A non-variadic call must supply exactly as many value arguments as the function has parameters; a variadic call must supply at least the fixed parameter count. Otherwise it is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4235-L4237", "src/compiler/sema_expr.cpp#L4262-L4265"]
+    },
+    {
+      "id": "expr.call.arg-coercions",
+      "domain": "expr",
+      "title": "Implicit coercions applied per argument at a call",
+      "statement": "Each value argument is, in order, retyped if a bare payload-less enum literal, coerced closure→fn-ptr, array-ref↔slice coerced, implicitly mut-reborrowed, struct-unsize coerced (e.g. `Rc<A>`→`Rc<dyn Tr>`), and integer-widened toward the (substituted) parameter type before type checking.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4267-L4275"],
+      "related": ["coerce.unsize.struct-smart-ptr"]
+    },
+    {
+      "id": "expr.call.arg-type-compatible",
+      "domain": "expr",
+      "title": "Argument type must be compatible with parameter type",
+      "statement": "After coercions, each argument's type must be compatible with the (substituted) parameter type; an incompatible non-error, non-TypeVar, non-AssocType parameter yields an \"expected X, got Y\" error. Variance is additionally checked for non-TypeVar/non-AssocType parameters.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4276-L4287"]
+    },
+    {
+      "id": "expr.call.intlit-fits",
+      "domain": "expr",
+      "title": "Integer-literal argument must fit the parameter type",
+      "statement": "An integer-literal argument (including literal elements nested in array- and tuple-literal arguments, recursively) must fit within the target integer type; a value out of range is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4288-L4293", "src/compiler/sema_expr.cpp#L4294-L4353"]
+    },
+    {
+      "id": "expr.call.move-by-value-args",
+      "domain": "expr",
+      "title": "By-value move-type arguments are marked moved",
+      "statement": "By-value arguments of move (non-Copy) type at a call are marked moved so their scope-exit Drop does not fire on storage whose ownership transferred to the callee.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4358-L4363"],
+      "related": ["borrow.move.by-value-call"]
+    }
+  ]
+}

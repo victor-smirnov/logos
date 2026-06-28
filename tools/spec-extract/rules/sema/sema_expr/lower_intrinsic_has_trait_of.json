@@ -1,0 +1,160 @@
+{
+  "unit": "sema/sema_expr/lower_intrinsic_has_trait_of",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L4367-L5011",
+  "source_hash": "891830dede4ce0e0",
+  "rules": [
+    {
+      "id": "intrinsic.has-trait-of.signature",
+      "domain": "intrinsic",
+      "title": "has_trait_of arity and shape",
+      "statement": "`has_trait_of::<Trait>(t)` requires exactly one trait type-argument (a single named type in the turbofish) and exactly one value argument; violating either is a compile error. It evaluates to `bool`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4367-L4410"],
+      "divergence": "Logos addition (reflection intrinsic); no Rust equivalent.",
+      "examples": ["let b: bool = has_trait_of::<Display>(x);"]
+    },
+    {
+      "id": "intrinsic.has-trait-of.lowering",
+      "domain": "intrinsic",
+      "title": "has_trait_of dispatches to runtime helper with trait name",
+      "statement": "`has_trait_of::<Trait>(t)` lowers to a call `__has_trait_of__(name, t)` where `name` is the trait's identifier passed as a `[u8]` string literal; the trait is identified by name only.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4400-L4410"],
+      "uncertainty": "Trait identity is by bare name string; package-qualification semantics not enforced at this site."
+    },
+    {
+      "id": "intrinsic.tuple-all-eq.signature",
+      "domain": "intrinsic",
+      "title": "tuple_all_eq arity and tuple constraint",
+      "statement": "`tuple_all_eq::<T>(a, b)` requires exactly one type argument T which must be a tuple type, and exactly two value arguments; otherwise a compile error. Result type is `bool`. An empty tuple yields the constant `true`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4413-L4451"],
+      "divergence": "Logos addition (variadic-tuple support intrinsic)."
+    },
+    {
+      "id": "intrinsic.tuple-all-eq.typevar-defer",
+      "domain": "intrinsic",
+      "title": "tuple_all_eq defers to mono on unbound tuple elements",
+      "statement": "If any element type of the tuple T is an unbound TypeVar, `tuple_all_eq::<T>(a,b)` is deferred to monomorphization as a `__tuple_all_eq__` call carrying T; otherwise it is expanded at sema time.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4452-L4468"],
+      "related": ["mono.subst.const-arg"]
+    },
+    {
+      "id": "intrinsic.tuple-all-eq.concrete-expansion",
+      "domain": "intrinsic",
+      "title": "tuple_all_eq concrete expansion via per-element eq",
+      "statement": "For a fully concrete tuple T = (T0,..,Tn-1), `tuple_all_eq::<T>(a,b)` expands to the `&&`-conjunction over i of `Ti::eq(&a.i, &b.i)`, where each `eq` impl is resolved by candidate lookup on `<Ti>__eq` requiring a 2-parameter signature `(&Ti, &Ti)`. If no `eq` impl exists for some element type, it is a compile error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4469-L4514"]
+    },
+    {
+      "id": "intrinsic.generic-of.signature",
+      "domain": "intrinsic",
+      "title": "generic_of requires a bare struct/enum name",
+      "statement": "`generic_of::<X>()` requires its single type-argument to be a bare named struct or enum (a TYPE_REF or GENERIC_INST with a NAME); the name must resolve to a declared struct or enum in the current program, otherwise a compile error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4517-L4551"],
+      "divergence": "Logos addition (compile-time reflection intrinsic)."
+    },
+    {
+      "id": "intrinsic.generic-of.value",
+      "domain": "intrinsic",
+      "title": "generic_of yields a Type descriptor",
+      "statement": "`generic_of::<X>()` evaluates to a `Type` struct literal with kind = Generic, name = X, size = X's type-parameter arity (count of declared type params), align = 0, and a uid = FNV-1a hash of \"generic:\" ++ X.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4552-L4573"]
+    },
+    {
+      "id": "intrinsic.template-of.signature",
+      "domain": "intrinsic",
+      "title": "template_of requires a top-level item name in the current file",
+      "statement": "`template_of::<X>()` requires its single type-argument to be a bare named item; X must name a top-level declaration in the current source file, otherwise a compile error. It also requires `use logos.std.compiler.metaprog` (the `template_of_at` shim) to be in scope.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4576-L4632"],
+      "divergence": "Logos addition (metaprogramming intrinsic)."
+    },
+    {
+      "id": "intrinsic.template-of.lowering",
+      "domain": "intrinsic",
+      "title": "template_of lowers to runtime AST-node anchoring",
+      "statement": "`template_of::<X>()` lowers to `template_of_at(off)` where `off` is the holder-relative AST node offset of the matching top-level item, producing a `Template` whose `raw` is anchored to the module-AST OView base at runtime.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4612-L4631"]
+    },
+    {
+      "id": "intrinsic.type-code-of.signature",
+      "domain": "intrinsic",
+      "title": "type_code_of arity and result type",
+      "statement": "`type_code_of::<T>()` requires exactly one type argument and evaluates to a `u64` type code.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4634-L4647", "src/compiler/sema_expr.cpp#L4712"],
+      "divergence": "Logos addition (Writ/zoned reflection intrinsic)."
+    },
+    {
+      "id": "intrinsic.type-code-of.compute",
+      "domain": "intrinsic",
+      "title": "type_code_of derivation for zoned structs",
+      "statement": "For a concrete ZonedStruct T, type_code_of(T) = an explicit `#[type_code=N]` annotation on T (keyed by `pkg::Name`) if present, else a hash derived as type_hash_56bit(type_hash_23(canonical)) of the package-qualified canonical name, with raw codes < 128 biased up by +128 (reserving 0..127).",
+      "evidence": ["src/compiler/sema_expr.cpp#L4649-L4707"]
+    },
+    {
+      "id": "intrinsic.type-code-of.typevar-defer",
+      "domain": "intrinsic",
+      "title": "type_code_of defers on TypeVar-bearing arguments",
+      "statement": "If T is a bare TypeVar, or a generic ZonedStruct any of whose type-args is a TypeVar, `type_code_of::<T>()` is deferred to monomorphization so each concrete instantiation gets its own type code; non-zoned non-typevar types yield code 0.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4677-L4712"]
+    },
+    {
+      "id": "intrinsic.dst-from-raw-parts.unsafe",
+      "domain": "intrinsic",
+      "title": "dst_from_raw_parts requires unsafe and a custom-DST struct",
+      "statement": "`dst_from_raw_parts::<S>(ptr, len)` (and `_mut`) requires unsafe context, exactly one type argument S that is a (Zoned)Struct whose last field resolves to `[T]` or `dyn Trait` (directly is_dst or via type-parameter substitution), and exactly two value arguments.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4740-L4802"],
+      "divergence": "Logos addition (custom-DST construction intrinsic)."
+    },
+    {
+      "id": "intrinsic.dst-from-raw-parts.value",
+      "domain": "intrinsic",
+      "title": "dst_from_raw_parts builds a fat DstRef",
+      "statement": "`dst_from_raw_parts::<S>(ptr, len)` produces a `DstRef` to S ({data, len} fat-pair, same ABI as a slice); the `_mut` callee sets the DstRef mut flag. The length argument is widened to i64. The DstRef carries S's type-args for later tail-element field access.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4803-L4812"]
+    },
+    {
+      "id": "intrinsic.zone-mut-ref.unsafe",
+      "domain": "intrinsic",
+      "title": "zone_mut_ref signature and unsafe requirement",
+      "statement": "`zone_mut_ref::<T>(ptr, zone)` requires unsafe context, exactly one type argument T, and exactly two value arguments.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4820-L4843"],
+      "divergence": "Logos addition (zoned-reference construction intrinsic)."
+    },
+    {
+      "id": "intrinsic.zone-mut-ref.value",
+      "domain": "intrinsic",
+      "title": "zone_mut_ref builds a fat &mut T carrying the zone",
+      "statement": "`zone_mut_ref::<T>(ptr, zone)` produces a fat `&mut T` whose data slot = ptr and whose metadata slot = zone pointer cast to i64.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4844-L4847"]
+    },
+    {
+      "id": "intrinsic.reflect.writ-trait",
+      "domain": "intrinsic",
+      "title": "reflect on a writ trait registers a reflect request",
+      "statement": "`reflect::<Tr>()` where Tr names a writ trait (is_writ) registers a reflect request for `pkg::Tr` and evaluates to a `WritStatic` reflection of that trait/datatype.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4851-L4876"],
+      "divergence": "Logos addition (Writ reflection intrinsic)."
+    },
+    {
+      "id": "intrinsic.reflect.datatype",
+      "domain": "intrinsic",
+      "title": "reflect on a concrete datatype",
+      "statement": "`reflect::<T>()` requires exactly one type argument. A bare TypeVar T is deferred to mono. Otherwise T must be a concrete (non-generic, no type-args) ZonedStruct datatype; it registers a reflect request for `pkg::T` and yields a `WritStatic`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4877-L4899"]
+    },
+    {
+      "id": "intrinsic.get-annotation.signature",
+      "domain": "intrinsic",
+      "title": "get_annotation arity and annotation-type constraint",
+      "statement": "`get_annotation::<T, A>()` requires exactly two type arguments; A must be a ZonedStruct that is an annotation type. `Option` must be in scope. Result type is `Option<A>`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4901-L4938"],
+      "divergence": "Logos addition (compile-time annotation reflection intrinsic)."
+    },
+    {
+      "id": "intrinsic.get-annotation.value",
+      "domain": "intrinsic",
+      "title": "get_annotation materializes the annotation instance",
+      "statement": "`get_annotation::<T, A>()` returns `Option::None` if T carries no annotation of type A; otherwise `Option::Some(A{...})` where the A literal is reconstructed field-by-field from the stored annotation values (int/float/bool/string/enum/array kinds), matched by annotation fqn or bare name.",
+      "evidence": ["src/compiler/sema_expr.cpp#L4942-L5010"]
+    }
+  ]
+}

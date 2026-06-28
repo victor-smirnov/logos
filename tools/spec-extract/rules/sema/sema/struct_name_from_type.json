@@ -1,0 +1,98 @@
+{
+  "unit": "sema/sema/struct_name_from_type",
+  "layer": "sema",
+  "source": "src/compiler/sema.cpp#L3290-L3935",
+  "source_hash": "94d77aa75cd08425",
+  "rules": [
+    {
+      "id": "generic.bound.lifetime-outlives-clause",
+      "domain": "generic",
+      "title": "Lifetime outlives bounds in generic param list",
+      "statement": "A lifetime parameter may carry outlives bounds `'long: 'a + 'b + 'c`, which desugar to the set of pairwise constraints {('long,'a), ('long,'b), ('long,'c)} meaning 'long outlives each listed shorter lifetime.",
+      "evidence": ["src/compiler/sema.cpp#L3324-L3351"],
+      "uncertainty": "Encoding read here; enforcement of the outlives relation is elsewhere."
+    },
+    {
+      "id": "trait.assoc.equality-bound-satisfaction",
+      "domain": "trait",
+      "title": "Associated-type equality bound satisfaction",
+      "statement": "A bound of form `T: Trait<Assoc = X>` is satisfied iff the impl of `Trait` for the concrete type defines `type Assoc = Y` with Y type-equal to X. The impl's binding is looked up first for the concrete name, then for the base (template) name. If no direct impl provides Assoc, a matching blanket impl whose bound-trait and extra-bounds are all satisfied supplies its `type Assoc = ...`, with the blanket target type-var substituted by the concrete type and recursively resolved before the equality check.",
+      "evidence": ["src/compiler/sema.cpp#L3358-L3420"],
+      "examples": ["K: Primitive => K: HasPrim<P = K::Prim = i32>"]
+    },
+    {
+      "id": "metaprog.cfg.key-value-predicates",
+      "domain": "metaprog",
+      "title": "cfg key=value predicate resolution",
+      "statement": "A cfg key=value predicate matches against compile-target metadata: target_arch, target_os, target_endian, target_family, target_pointer_width resolve to the host/target platform values; `feature = \"name\"` matches iff name is in the active feature set. Any unknown key evaluates to false.",
+      "evidence": ["src/compiler/sema.cpp#L3507-L3517", "src/compiler/sema.cpp#L3572-L3575"],
+      "divergence": "Unknown-key-false matches Rust per inline comment."
+    },
+    {
+      "id": "metaprog.cfg.bare-flag-predicates",
+      "domain": "metaprog",
+      "title": "cfg bare-identifier flag resolution",
+      "statement": "A cfg bare identifier matches as: `unix`/`windows` against target_family; `test`/`debug_assertions` against the feature set; otherwise as a feature-like flag checked against the active feature set.",
+      "evidence": ["src/compiler/sema.cpp#L3519-L3528", "src/compiler/sema.cpp#L3582"]
+    },
+    {
+      "id": "metaprog.cfg.combinators",
+      "domain": "metaprog",
+      "title": "cfg all/any/not combinators and boolean literals",
+      "statement": "cfg predicates compose: `all(p...)` is the AND of its children, `any(p...)` the OR, `not(p)` requires exactly one child and negates it (else error/false). The literals `cfg(true)`/`cfg(false)` evaluate to true/false directly. Unknown combinators evaluate to false / raise an error in attribute position.",
+      "evidence": ["src/compiler/sema.cpp#L3553-L3582", "src/compiler/sema.cpp#L3692-L3708", "src/compiler/sema.cpp#L3721-L3737"],
+      "divergence": "cfg(true)/cfg(false) per Rust 1.80 RFC 3695 (noted inline)."
+    },
+    {
+      "id": "metaprog.cfg.attr-multi-arg-implicit-and",
+      "domain": "metaprog",
+      "title": "cfg attribute multi-arg implicit AND",
+      "statement": "In `#[cfg(...)]` attribute position, a top-level multi-argument list is an implicit AND of its arguments; `#[cfg]` with no args matches (true).",
+      "evidence": ["src/compiler/sema.cpp#L3654-L3673"],
+      "divergence": "Multi-arg implicit AND matches Rust (noted inline)."
+    },
+    {
+      "id": "metaprog.cfg.cfg-attr-splice",
+      "domain": "metaprog",
+      "title": "cfg_attr predicate-gated attribute splicing and item drop",
+      "statement": "`#[cfg_attr(pred, attrs...)]` activates first: when pred is true its wrapped attrs are spliced into the item's annotation list, when false the entry is dropped (wrapped attrs are NOT re-fed to cfg_attr). After activation, every plain `#[cfg(...)]` is evaluated; an item is dropped from compilation iff any of its cfg predicates is false. The drop gate applies uniformly to both the collection and lowering walks.",
+      "evidence": ["src/compiler/sema.cpp#L3606-L3652"]
+    },
+    {
+      "id": "layout.dst.effective-dst-detection",
+      "domain": "layout",
+      "title": "Effective-DST classification of a struct instance",
+      "statement": "A struct/zoned-struct type is an (effective) DST iff: it is declared unsized; or, after substituting its type-args into the template's LAST field, that field type is UnsizedSlice or UnsizedDyn; or the last field is the bare tail type-var bound to a borrow-owning TraitObject. A field reached only through a pointer is always sized (a self-referential struct is not a DST via its pointer tail).",
+      "evidence": ["src/compiler/sema.cpp#L3740-L3791"]
+    },
+    {
+      "id": "coerce.rel-ptr.pointer-compatibility",
+      "domain": "coerce",
+      "title": "#[rel_ptr] struct / GAT pointer ↔ raw pointer compatibility",
+      "statement": "A concrete `#[rel_ptr]` struct `RP<U>` is pointer-compatible with `*U`/`&U`/`&mut U` (pointee type-equal to its type-arg); a type-erased rel_ptr (no type-arg) is compatible only with a thin `*u8` pointer. An abstract GAT projection `Z::Ptr<U>` (assoc base a type-var) is compatible with a raw pointer iff its GAT arg equals the pointee. Compatibility is symmetric.",
+      "evidence": ["src/compiler/sema.cpp#L3793-L3829"]
+    },
+    {
+      "id": "type.dst.self-describing-fat-ref-requires-impl",
+      "domain": "type",
+      "title": "Self-describing DST borrowed as fat ref must impl SelfDescribing",
+      "statement": "Borrowing a `#[self_describing]` effective-DST struct as a fat reference `&S`/`&mut S` (which materializes by recovering the tail length via `dst_len`) requires the struct to `impl SelfDescribing`; otherwise it is an error. A self-describing DST used only via raw pointers/byte arithmetic is not subject to this requirement.",
+      "evidence": ["src/compiler/sema.cpp#L3831-L3860"]
+    },
+    {
+      "id": "layout.abi.scalar-byte-sizes",
+      "domain": "layout",
+      "title": "ABI byte sizes of scalar and pointer types",
+      "statement": "ABI byte sizes: void=0; bool/u8/i8=1; i16/u16=2; i24/u24=3; i32/u32/f32/char/int-literal=4; i56/u56=7; i64/u64/f64/float-literal/usize/isize and all thin pointers (raw/ref/fn-ptr/fn-item/tagged-ptr)=8; i128/u128=16; fat values (slice/closure/trait-object/dst-ref)=16; unsized slice/dyn=0; unknown types default to pointer size 8.",
+      "evidence": ["src/compiler/sema.cpp#L3862-L3883", "src/compiler/sema.cpp#L3932"]
+    },
+    {
+      "id": "layout.abi.aggregate-byte-size",
+      "domain": "layout",
+      "title": "ABI byte size of arrays, tuples, structs, enums",
+      "statement": "Array size = N × elem size. Tuple/struct size = fields laid out sequentially, each aligned to min(field-size, 8), with the total padded to the max field alignment. Enum size = 4 (i32 tag) + the maximum total payload size across variants (void payload components contribute 0). Recursive struct fields are cycle-guarded to pointer size 8.",
+      "evidence": ["src/compiler/sema.cpp#L3884-L3931"],
+      "uncertainty": "Comment notes enum layout is a simplification mirroring mlir-gen."
+    }
+  ]
+}

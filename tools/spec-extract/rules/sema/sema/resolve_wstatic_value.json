@@ -1,0 +1,107 @@
+{
+  "unit": "sema/sema/resolve_wstatic_value",
+  "layer": "sema",
+  "source": "src/compiler/sema.cpp#L6392-L7150",
+  "source_hash": "b644f09c17508af8",
+  "rules": [
+    {
+      "id": "const.wstatic.content-identity",
+      "domain": "const",
+      "title": "Writ static literal type-arg identity is content-only",
+      "statement": "A Writ static literal `@{...}` used at type-argument position is reduced to a `WStaticLit` type whose identity is a position-free content hash of the literal AST (schema-aware FNV-1a over node CODE plus value bytes/string children). Two structurally identical `@{...}` literals at different source positions yield the SAME type; differing content yields distinct types. First-write-wins: the first lowering of a given hash registers the materialising LExpr that mono later substitutes for `__const_param:CFG` references.",
+      "evidence": ["src/compiler/sema.cpp#L6392-L6499", "src/compiler/sema.cpp#L6486-L6498"],
+      "divergence": "A6 — Writ is a Logos-only feature; no Rust analogue.",
+      "uncertainty": "Identity-as-content-hash inferred from the walk + first-write-wins registry; the const_val stores the hash bit-pattern read as u64 by mangling."
+    },
+    {
+      "id": "const.wstatic.dup-key-error",
+      "domain": "const",
+      "title": "Duplicate keys in a Writ map literal are rejected",
+      "statement": "Within a Writ map literal (`WRIT_MAP`), two entries with the same key (after stripping surrounding quotes) are an error: \"duplicate key '<k>' in Writ map literal\". Empty keys are ignored. This applies to map literals at type-argument position, not only `pub const … = @{...}`.",
+      "evidence": ["src/compiler/sema.cpp#L6425-L6440"],
+      "divergence": "A6 — Writ-specific."
+    },
+    {
+      "id": "const.wstatic.type-lit-resolves-scope",
+      "domain": "const",
+      "title": "Writ type literals resolve type params in current scope",
+      "statement": "A `@type(T)` (`WRIT_TYPE_LIT`) child resolves its TYPE node with the in-scope type parameters and contributes its canonical `type_str` to the literal's content identity; thus the same syntactic literal under different type-param bindings produces distinct WStaticLit types. A legacy NAME-only shape substitutes the bound type param when present, else uses the bare name.",
+      "evidence": ["src/compiler/sema.cpp#L6462-L6482"],
+      "divergence": "A6 — Writ-specific.",
+      "related": ["const.wstatic.content-identity"]
+    },
+    {
+      "id": "generic.spec.most-specific-match",
+      "domain": "generic",
+      "title": "Partial-spec selection picks the most specific matching pattern",
+      "statement": "Among struct specializations sharing a base name with arity equal to the supplied type-args, a spec is a candidate iff every pattern position matches the corresponding type-arg (TypeVar binds any type but must bind consistently within one spec; concrete kinds must match structurally; Struct/ZonedStruct match by name). The selected spec is the one whose per-position specificity scores are lexicographically greatest (specificity: 0 for a TypeVar, 100 for a concrete leaf, 1+inner for Ptr/Array). No candidate ⇒ no specialization.",
+      "evidence": ["src/compiler/sema.cpp#L6506-L6563"],
+      "uncertainty": "Specificity ordering inferred from specificity_sema constants and lexicographic vector compare."
+    },
+    {
+      "id": "generic.field.spec-overrides-base",
+      "domain": "generic",
+      "title": "Field type comes from the matching specialization when one exists",
+      "statement": "For a field of an instantiated generic struct, if a partial/full specialization matches the type-args, the field type is taken from that specialization's field list (and a field absent there resolves to nothing); only when no specialization matches is the field looked up on the base template and substituted.",
+      "evidence": ["src/compiler/sema.cpp#L6586-L6603"],
+      "related": ["generic.spec.most-specific-match", "generic.field.subst"]
+    },
+    {
+      "id": "generic.field.subst",
+      "domain": "generic",
+      "title": "Generic struct field types are substituted with the instance's type and lifetime args",
+      "statement": "For a non-specialized instantiated generic struct, each base field type is substituted by mapping the struct's (non-variadic) type parameters to the supplied type-args positionally and its lifetime parameters to the supplied lifetime-args positionally; `&'z T` fields thus resolve to the caller's lifetime.",
+      "evidence": ["src/compiler/sema.cpp#L6644-L6655"],
+      "related": ["generic.field.variadic-expansion"]
+    },
+    {
+      "id": "generic.field.variadic-expansion",
+      "domain": "generic",
+      "title": "Variadic field `name_N` selects the Nth element of the variadic type-arg pack",
+      "statement": "A variadic struct field declared `name: A...` expands to fields `name_0, name_1, …`; field `name_<idx>` whose declared type is the variadic type parameter resolves to the type-arg at (start-of-pack + idx), where start-of-pack is the count of preceding non-variadic type parameters. Out-of-range or non-TypeVar variadic field types fall back to the raw declared type.",
+      "evidence": ["src/compiler/sema.cpp#L6578-L6582", "src/compiler/sema.cpp#L6606-L6631"],
+      "divergence": "A6 — variadic type/field packs are Logos-only.",
+      "related": ["generic.field.subst"]
+    },
+    {
+      "id": "module.prelude.implicit-injection",
+      "domain": "module",
+      "title": "Implicit prelude is wildcard-imported into source modules",
+      "statement": "Each source-side module (not binary-archive ASTs) implicitly gains a wildcard import of the configured prelude package, unless the module is the prelude itself or already imports it. A module opts out with the inner annotation `#![no_implicit_prelude]`.",
+      "evidence": ["src/compiler/sema.cpp#L6911-L6936"],
+      "divergence": "A6/note — prelude package is Logos's package-model analogue of Rust's std prelude.",
+      "related": ["module.use.brace-group-desugar"]
+    },
+    {
+      "id": "module.use.brace-group-desugar",
+      "domain": "module",
+      "title": "`use pkg.{a, b, c}` with a lowercase head desugars to N wildcard imports",
+      "statement": "A grouped use whose head segment begins with a lowercase letter is treated as a package path: `use pkg.{a, b, c}` desugars to wildcard imports `pkg.a.*`, `pkg.b.*`, `pkg.c.*`. A head segment beginning uppercase is instead the enum-variant import form.",
+      "evidence": ["src/compiler/sema.cpp#L6835-L6861"],
+      "divergence": "note — Logos path model uses `.` for packages, `::` for items."
+    },
+    {
+      "id": "module.use.variant-alias",
+      "domain": "module",
+      "title": "`use Enum::{V, W}` brings bare variant names into scope aliased to their enum",
+      "statement": "An enum-variant use form records each listed bare variant name as an alias to its qualifying enum type, so the variant may be referred to unqualified within the module.",
+      "evidence": ["src/compiler/sema.cpp#L6862-L6881"]
+    },
+    {
+      "id": "module.use.from-module-restriction",
+      "domain": "module",
+      "title": "`use pkg from \"module\"` restricts the import to a specific module id",
+      "statement": "A use of the form `use pkg from \"module\";` resolves the quoted module name to a module id and restricts the imported package's symbol resolution to that module's exports; the restriction is in force during lowering, not only collection.",
+      "evidence": ["src/compiler/sema.cpp#L6882-L6905"],
+      "divergence": "note — part of Logos's C++-style module-linkage system; no direct Rust equivalent."
+    },
+    {
+      "id": "item.impl.method-reattach-by-package",
+      "domain": "item",
+      "title": "Impl methods are attached to their target template only within the same package",
+      "statement": "An impl method (mangled `<Struct>__<method>__[fg]__<sig>`) whose `<Struct>` names a generic template is hosted on that template only when the template's package equals the method's package; a method with no package attaches to a sole same-named candidate. A cross-package bare-name collision (e.g. user `Rc` vs stdlib `Rc<T>`) does NOT cause adoption, so the method stays with its own struct's emission.",
+      "evidence": ["src/compiler/sema.cpp#L7002-L7054"],
+      "uncertainty": "This is an emission/hosting invariant observable as: same-named generics in distinct packages keep their own methods; surfaced as a language-level guarantee against method mis-hosting."
+    }
+  ]
+}

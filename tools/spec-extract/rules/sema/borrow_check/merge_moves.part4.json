@@ -1,0 +1,86 @@
+{
+  "unit": "sema/borrow_check/merge_moves.part4",
+  "layer": "sema",
+  "source": "src/compiler/borrow_check.cpp#L2222-L2732",
+  "source_hash": "7943f6e055926ee6",
+  "rules": [
+    {
+      "id": "borrow.closure.capture-by-ref-loan",
+      "domain": "borrow",
+      "title": "Non-move closure captures register field-path borrows of captured places",
+      "statement": "A non-`move` closure capturing place `p` by reference registers a borrow of `p` held for the closure value's lifetime: a mutated/`&mut` capture registers a `&mut` (exclusive) loan, a shared capture registers a `&` (shared) loan. Captures of a strict sub-field `p.x` register a precise FIELD-PATH borrow (so disjoint sibling access `&mut p.y` beside `|| p.x` is allowed, conflicting `&mut p.x` is rejected); a whole-root capture registers a whole-value borrow for `&mut` (or a liveness check for shared). The loan is released at the closure holder's last use (NLL).",
+      "evidence": ["src/compiler/borrow_check.cpp#L2233-L2267"],
+      "divergence": "RFC-2229 disjoint closure capture: field-path precision, but a whole-var SHARED capture is treated as a liveness check only (not a recorded shared borrow) to avoid blocking sibling mutation",
+      "related": ["borrow.closure.move-takes-ownership"]
+    },
+    {
+      "id": "borrow.closure.move-takes-ownership",
+      "domain": "borrow",
+      "title": "move closure captures take ownership, registering no borrow",
+      "statement": "A `move` closure takes ownership of each captured place; it registers no borrow (the captured value is consumed into the closure rather than loaned).",
+      "evidence": ["src/compiler/borrow_check.cpp#L2243", "src/compiler/borrow_check.cpp#L2238-L2239"],
+      "related": ["borrow.closure.capture-by-ref-loan"]
+    },
+    {
+      "id": "borrow.aggregate.literal-held-borrow",
+      "domain": "borrow",
+      "title": "Borrows inside an aggregate literal are held by the binding the aggregate flows into",
+      "statement": "A `&`/`&mut` borrow placed into a struct/tuple/array LITERAL field or element is held for the lifetime of the binding the aggregate flows into (same holder), released at that holder's last use (NLL). Non-borrow fields/elements are consumed (move-tracked) as ordinary values.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2278-L2295", "src/compiler/borrow_check.cpp#L2269-L2277"],
+      "examples": ["let g = Guard { r: &mut f };", "let t = (&a, &b);", "let arr = [&x];"]
+    },
+    {
+      "id": "borrow.nll.release-at-last-use",
+      "domain": "borrow",
+      "title": "Borrows are non-lexical: released once the holder's last use has passed",
+      "statement": "Each named local has a last-use line = the maximum line at which it is read across the function body. A borrow whose holder's last-use line is <= the current statement line is released (its loan on the borrowed place is cleared). Both whole-value and field-path borrows release this way; borrows with no named holder are never released by this mechanism.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2304-L2311", "src/compiler/borrow_check.cpp#L2579-L2623"]
+    },
+    {
+      "id": "borrow.loop.body-borrows-scoped",
+      "domain": "borrow",
+      "title": "Loop bodies: borrows are body-scoped, only moves of outer vars propagate",
+      "statement": "A loop body is analyzed in its own scope; borrows taken inside are released at body end. Only moves of OUTER variables propagate out of the loop. Provenance is merged conservatively across the loop (the body may execute zero or more times). Loop-iteration variables are local to the body.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2636-L2655"]
+    },
+    {
+      "id": "borrow.let.ref-from-temp-dangles",
+      "domain": "borrow",
+      "title": "A let-bound reference borrowing into a per-statement temporary is rejected (E0716)",
+      "statement": "Binding a reference (or borrow-carrying value) whose provenance is a temporary value dropped at the end of the binding statement is an error: the reference would outlive the temporary it borrows into. The owning value must first be bound to a variable so it outlives the borrow.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2701-L2714"],
+      "divergence": "Rust E0716 (temporary dropped while borrowed)",
+      "examples": ["let v = make().view();  // error", "let h = make(); let v = h.view();  // ok"]
+    },
+    {
+      "id": "borrow.let.borrow-carrying-routes-loan",
+      "domain": "borrow",
+      "title": "let RHS that is a reference / closure / borrow-carrying value / aggregate literal records a loan held by the binding",
+      "statement": "When a `let name = val` has a value that is a reference, a closure, a borrow-carrying-typed value (e.g. `v.iter_mut()`), or an aggregate literal containing borrows, the borrows in `val` are recorded as loans held by `name` (released at `name`'s last use, NLL). Otherwise the value is consumed (move-tracked).",
+      "evidence": ["src/compiler/borrow_check.cpp#L2666-L2697"],
+      "related": ["borrow.aggregate.literal-held-borrow", "borrow.closure.capture-by-ref-loan"]
+    },
+    {
+      "id": "borrow.let.provenance-propagation",
+      "domain": "borrow",
+      "title": "Provenance flows from RHS to a let binding of reference, borrow-carrying, or lifetime-parameterized struct type",
+      "statement": "A `let` binding whose declared type is a reference or borrow-carrying type inherits the RHS reference-provenance. A binding of a struct/zoned-struct type that carries lifetime arguments also inherits the RHS provenance (it borrows through its lifetime parameter).",
+      "evidence": ["src/compiler/borrow_check.cpp#L2701-L2718"]
+    },
+    {
+      "id": "borrow.dropck.record-local-borrow-sources",
+      "domain": "borrow",
+      "title": "Dropck-relevant let bindings record the local places they borrow from",
+      "statement": "When a `let` binds a value whose type is Drop-and-lifetime (dropck) relevant, the local variables the value borrows from are recorded against the binding (with its line), so that drop-order checking can detect a borrowed referent being dropped before the borrowing binding.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2719-L2727"]
+    },
+    {
+      "id": "borrow.scope.stored-borrow-outlives-referent",
+      "domain": "borrow",
+      "title": "Every binding records its borrow sources for end-of-scope outlives checking (E0597)",
+      "statement": "Every `let` binding records the local borrow sources of its value, so that at scope exit a stored borrow that outlives its referent can be detected and rejected.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2728-L2730"],
+      "divergence": "Rust E0597 (borrowed value does not live long enough)"
+    }
+  ]
+}

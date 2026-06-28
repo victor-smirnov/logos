@@ -1,0 +1,135 @@
+{
+  "unit": "sema/sema_expr/lower_method_call.part2",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L7612-L8130",
+  "source_hash": "786506226f94fbec",
+  "rules": [
+    {
+      "id": "trait.method-dispatch.bound-provides-method",
+      "domain": "trait",
+      "title": "Type-parameter method dispatch via trait bound",
+      "statement": "A method call `t.m(args)` where `t : T` (T a type parameter) resolves `m` only if some in-scope bound `T: Trait` (or supertrait reference) declares a method named `m`; the chosen trait/method drive the call. If no in-scope bound on T provides `m` and no Deref/DerefMut bound applies, it is an error: \"type parameter '<T>' has no trait bound providing method '<m>'\".",
+      "evidence": ["src/compiler/sema_expr.cpp#L7613-L7635", "src/compiler/sema_expr.cpp#L7822-L7826"]
+    },
+    {
+      "id": "trait.method-dispatch.self-subst-from-bound",
+      "domain": "trait",
+      "title": "Substitute Self and trait type-params from the receiver bound",
+      "statement": "When dispatching a trait method on receiver of type T, the substitution binds `Self := T` and binds each trait type-parameter to the matching concrete type-argument from the in-scope bound `T: Trait<A0,A1,...>` (positional pairing, type_params[i] := type_args[i] when present). The method return type is computed by applying this substitution.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7617-L7636", "src/compiler/sema_expr.cpp#L7670"]
+    },
+    {
+      "id": "region.lifetime-subst.method-param-pairing",
+      "domain": "region",
+      "title": "Lifetime substitution by structural pairing of method formals vs actuals",
+      "statement": "Lifetime parameters of a dispatched method are substituted by structurally walking each formal parameter type against its actual argument type (receiver vs param0, then arg[i] vs param[i+1]): for matching Ref/MutRef pairs the formal lifetime maps to the actual lifetime and the walk recurses into pointees; for matching nominal types (Struct/ZonedStruct/Enum) lifetime-args are paired positionally. First binding wins per formal lifetime.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7637-L7669"]
+    },
+    {
+      "id": "trait.assoc-type.stamp-bound-targs-on-return",
+      "domain": "trait",
+      "title": "Associated-type return projection carries the bound's concrete trait type-args",
+      "statement": "If a dispatched trait method's substituted return type is an associated-type projection, its trait name is rewritten to the trait-name suffixed with the bound's concrete trait type-args (`Trait<...>` -> mangled args suffix), so projections from two distinct `impl Trait<T>` for one type, and the caller's declared `-> P::Item`, resolve to the same impl.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7671-L7694"],
+      "uncertainty": "Disambiguation among multiple Trait<T> impls; tied to G156-1 trait-type-arg mangling (still narrow per memory)."
+    },
+    {
+      "id": "coerce.method-recv.auto-ref",
+      "domain": "coerce",
+      "title": "Auto-ref of receiver to match &self / &mut self",
+      "statement": "If the dispatched method's first formal is a reference (`&self`/`&mut self`) and the receiver value is neither a reference nor a raw pointer, the receiver is implicitly wrapped in an address-of (`&` or `&mut` per the formal's mutability) producing a reference-typed receiver.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7696-L7711", "src/compiler/sema_expr.cpp#L8061-L8080"]
+    },
+    {
+      "id": "trait.method-mangling.trait-qualified-symbol",
+      "domain": "trait",
+      "title": "Trait-qualified method symbol when a method name is provided by a trait",
+      "statement": "When at least one trait declares a method of the given name, the call is tagged with the chosen trait so monomorphization may resolve the trait-qualified symbol `<Concrete>__<Trait>__<method>`; mono falls back to the plain name when no qualified symbol exists. This disambiguates multi-trait collisions and cases where a same-named inherent method occupies the plain symbol.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7753-L7793"]
+    },
+    {
+      "id": "trait.method-mangling.bound-targ-suffix",
+      "domain": "trait",
+      "title": "Trait tag folds concrete bound type-args into a $G<n>$ suffix",
+      "statement": "When the receiver bound carries concrete trait type-args (`T: MyTrait<u64>`), the trait tag becomes `Trait` + `$G<n>$<args>` suffix, so mono resolves the args-qualified symbol `<Concrete>__MyTrait$G1$u64__method`, distinct from a sibling `impl MyTrait<u8>`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7778-L7792"]
+    },
+    {
+      "id": "trait.method-typeargs.propagate-trait-and-method-params",
+      "domain": "trait",
+      "title": "Propagate trait-level then method-level type-args to the call",
+      "statement": "The lowered method call carries type-args in order: first each owning-trait type-parameter (bound from the Self-substitution), then each method-level type-parameter inferred by unifying substituted formal param types against actual argument types. Unbound positions are left null.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7713-L7746"]
+    },
+    {
+      "id": "coerce.method-recv.deref-bound-fallthrough",
+      "domain": "coerce",
+      "title": "Autoderef through a Deref/DerefMut bound when no bound provides the method",
+      "statement": "If no in-scope bound on type-parameter T provides method `m`, but T has a bound `T: Deref<C>` (or `DerefMut<C>`), the receiver is rewritten to `recv.deref()` (resp. `deref_mut()`), typed `&C` (resp. `&mut C`), and method resolution falls through to the ordinary inherent/struct-method path on C.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7798-L7821"]
+    },
+    {
+      "id": "type.method-recv.deref-before-lookup",
+      "domain": "type",
+      "title": "Receiver reference stripped to its pointee for nominal method lookup",
+      "statement": "For method-formal hinting and dispatch, a receiver of reference type (`&T`/`&mut T`) is reduced to its pointee T before extracting the struct/enum name and binding the receiver's nominal type-arguments into the substitution.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7874-L7894"]
+    },
+    {
+      "id": "generic.method-subst.recv-typeargs",
+      "domain": "generic",
+      "title": "Receiver nominal type-args bound into method formal substitution",
+      "statement": "When the receiver is a generic Struct/ZonedStruct or Enum carrying type-args, the nominal type's declared type-parameters are bound positionally to those args; this substitution is applied to the method's formal parameter types when computing argument type hints.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7877-L7894", "src/compiler/sema_expr.cpp#L7938-L7941"]
+    },
+    {
+      "id": "generic.method-subst.owning-trait-params-from-impl",
+      "domain": "generic",
+      "title": "Owning-trait type-params bound from the receiver's impl",
+      "statement": "For a method belonging to a trait, the trait's type-parameters (e.g. `Iterator<Item>`) are bound from the receiver type's `impl Trait for Recv` trait-type-args (positional, only filling names not already bound by the receiver's own type-args), so Fn-family bound argument types resolve concretely for closure-formal hints.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7895-L7918"]
+    },
+    {
+      "id": "generic.method-typeargs.turbofish-binds-method-params",
+      "domain": "generic",
+      "title": "Turbofish binds method-level type-params in order, skipping already-bound",
+      "statement": "An explicit turbofish on a method call (`it.fold::<i32>(..)`) provides the method-level type-arguments in order; each is bound to the next method type-parameter not already bound by the receiver substitution (struct-inherited params bound from the receiver are skipped).",
+      "evidence": ["src/compiler/sema_expr.cpp#L7919-L7936"]
+    },
+    {
+      "id": "type.closure-arg.hint-from-formal",
+      "domain": "type",
+      "title": "Closure/literal argument types hinted from method formal parameter",
+      "statement": "Each argument is lowered with a type hint derived from the corresponding method formal: a single Ref/MutRef wrapper on the formal is stripped, then a function/closure formal seeds the closure hint, a generic Enum/Struct (with type-args) seeds the enum/struct hint, and a Tuple formal seeds the tuple hint. An Fn-family-bounded bare type-parameter formal synthesizes a Closure hint from the bound's signature so an untyped closure (`|i|`) infers its parameter types.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7942-L7986", "src/compiler/sema_expr.cpp#L7958-L7979"]
+    },
+    {
+      "id": "grammar.method-call.args-shape",
+      "domain": "grammar",
+      "title": "Method-call argument list shape depends on turbofish presence",
+      "statement": "A method call without turbofish carries its arguments as a flat array under ARGS; a turbofish method call wraps the arguments as `{ ITEMS: [...] }` (mirroring generic/static calls).",
+      "evidence": ["src/compiler/sema_expr.cpp#L7987-L8002", "src/compiler/sema_expr.cpp#L7831-L7837"]
+    },
+    {
+      "id": "generic.enum-method.instantiate-on-typeargs",
+      "domain": "generic",
+      "title": "Generic-enum method dispatch instantiates the method template",
+      "statement": "For a receiver of generic Enum type (`Enum<...>` with type-args) whose method is a generic template, dispatch routes through the generic-call path with type-args = receiver enum type-args (struct-level prefix) followed by inferred or turbofish-supplied method-level type-args; the receiver's enum type-params are pre-seeded into the substitution before inference.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8004-L8088"]
+    },
+    {
+      "id": "trait.unsafe-method.requires-unsafe-context",
+      "domain": "trait",
+      "title": "Calling an unsafe method requires an unsafe context",
+      "statement": "A call to a method marked unsafe outside an unsafe context is an error: \"call to unsafe method '<name>' requires unsafe context\".",
+      "evidence": ["src/compiler/sema_expr.cpp#L8025-L8028"]
+    },
+    {
+      "id": "type.primitive-method.mangled-lookup",
+      "domain": "type",
+      "title": "Primitive-receiver methods resolved via TypeName__method with receiver-shape variants",
+      "statement": "For a receiver with no struct name, the method is looked up as `<type-name>__<method>` matched against the actual argument signature; if no direct match, receiver-shape variants are tried in order: `&T`, `&mut T`, `*const T`, `*mut T`, and (for reference receivers) the `$ref_<...>` / `$mut_ref_<...>` mangling used to register `impl Trait for &T` / `&mut T`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8089-L8130"]
+    }
+  ]
+}

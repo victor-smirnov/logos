@@ -1,0 +1,131 @@
+{
+  "unit": "sema/sema_expr/lower_quote_ty",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L16172-L17007",
+  "source_hash": "9f777da4686c4002",
+  "rules": [
+    {
+      "id": "metaprog.quote-ty.reify-type-to-struct",
+      "domain": "metaprog",
+      "title": "quote_ty! reifies a type into a runtime Type value",
+      "statement": "`quote_ty! { T }` evaluates to a value of struct type `Type` whose fields are { kind: u32 = __type_kind_of__::<T>(), name: &[u8] = __type_name_of__::<T>(), size: i64 = size_of::<T>(), align: i64 = align_of::<T>(), uid: u64 = __type_uid_of__::<T>() }.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16357-L16383", "src/compiler/sema_expr.cpp#L16179"],
+      "divergence": "A6 (Logos addition; metaprog reflection intrinsic)",
+      "related": ["intrinsic.type-reflect.kind", "intrinsic.type-reflect.name", "intrinsic.type-reflect.uid"]
+    },
+    {
+      "id": "metaprog.quote-ty.antiquot-type-var",
+      "domain": "metaprog",
+      "title": "$ident antiquot inside quote_ty! refers to a bound Type value",
+      "statement": "An ANTIQUOT_TYPE `$x` inside `quote_ty!` lowers to a variable reference of type `Type` (the in-scope binding named `x`), instead of being reified from a static type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16182-L16184", "src/compiler/sema_expr.cpp#L16314-L16316"],
+      "divergence": "A6 (Logos addition)"
+    },
+    {
+      "id": "metaprog.quote-ty.tuple-antiquot",
+      "domain": "metaprog",
+      "title": "quote_ty! tuple with antiquot lowers to __tuple_type_apply__",
+      "statement": "`quote_ty! { ($t1, $t2, ...) }` where at least one element is an antiquot lowers to `__tuple_type_apply__([p1, p2, ...])` where each pi is the per-element Type producer (var-ref for `$x`, reified `Type` literal otherwise); mixed literal/antiquot elements are permitted.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16209-L16234"],
+      "divergence": "A6 (Logos addition)"
+    },
+    {
+      "id": "metaprog.quote-ty.array-antiquot-literal-size",
+      "domain": "metaprog",
+      "title": "quote_ty! array with antiquot element requires literal integer size",
+      "statement": "`quote_ty! { [$t; N] }` lowers to `__array_type_apply__(elem_producer, N)`; the size N MUST be a literal integer (a non-numeric/symbolic size is rejected with \"array antiquot requires literal integer size\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16238-L16263"],
+      "divergence": "A6 (Logos addition)"
+    },
+    {
+      "id": "metaprog.quote-ty.pack-splice",
+      "domain": "metaprog",
+      "title": "quote_ty! generic pack-splice lowers to __type_apply__ with runtime array",
+      "statement": "`quote_ty! { Foo<$ts...> }`, where the sole generic argument is an ANTIQUOT_PACK `$ts...`, lowers to `__type_apply__(\"Foo\", ts)` where ts is a var-ref to a runtime `Array<Type>`. A pack-splice mixed with any other generic argument (`Foo<$t, $ts...>`) is rejected (\"mixed pack-splice with other args not yet supported\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16271-L16294"],
+      "divergence": "A6 (Logos addition)",
+      "uncertainty": "Mixed-pack rejection is a current implementation limit, not a permanent language rule."
+    },
+    {
+      "id": "metaprog.quote-ty.generic-inst-antiquot",
+      "domain": "metaprog",
+      "title": "quote_ty! generic instantiation with antiquot args lowers to __type_apply__",
+      "statement": "`quote_ty! { Foo<args...> }` with at least one `$ident` antiquot among the args lowers to `__type_apply__(\"Foo\", [elems])`, where each elem is a var-ref (for `$x`) or a reified `Type` struct literal (for a concrete type arg). Lifetime args and pack-expand args in this position are rejected (\"lifetime / pack args not yet supported\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16299-L16355"],
+      "divergence": "A6 (Logos addition)"
+    },
+    {
+      "id": "metaprog.quote-expr.reify-ast-to-exprblob",
+      "domain": "metaprog",
+      "title": "quote_expr! reifies an expression AST into an ExprBlob",
+      "statement": "`quote_expr! { e }` evaluates to a value of struct type `ExprBlob` carrying the serialized AST of `e`. With no antiquots, the AST is emitted as a static rodata blob and wrapped directly as `ExprBlob { ptr }`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16386-L16423", "src/compiler/sema_expr.cpp#L16806-L16813"],
+      "divergence": "A3/A6 (replaces Rust macro/quote layer)"
+    },
+    {
+      "id": "metaprog.quote-expr.antiquot-must-be-in-scope",
+      "domain": "metaprog",
+      "title": "Antiquot variable in quote_expr! must be a bound local",
+      "statement": "A `#name` antiquot inside `quote_expr!` is an error unless `name` is a variable in scope at the quote site (\"`#name` — variable not in scope\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16510-L16514"],
+      "divergence": "A3/A6"
+    },
+    {
+      "id": "metaprog.quote-expr.scalar-antiquot-type",
+      "domain": "metaprog",
+      "title": "Scalar antiquot must be Ident, or Ident/ExprBlob outside ident-only positions",
+      "statement": "A `#name` antiquot outside a repetition group, in a general expression position, must bind a value of type `Ident` or `ExprBlob`; in ident-only positions (field names, struct type name, field-read selector) it must bind an `Ident`. Otherwise it is rejected (\"expected Ident\" / \"expected Ident or ExprBlob\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16549-L16560", "src/compiler/sema_expr.cpp#L16618-L16621", "src/compiler/sema_expr.cpp#L16661-L16685"],
+      "divergence": "A3/A6"
+    },
+    {
+      "id": "metaprog.quote-expr.repeat-cursor-type",
+      "domain": "metaprog",
+      "title": "Repetition cursor must be [Ident;N], Vec<Ident>, or Vec<ExprBlob>",
+      "statement": "A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected (\"expected [Ident; N], Vec<Ident>, or Vec<ExprBlob>\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16523-L16538", "src/compiler/sema_expr.cpp#L16469-L16492"],
+      "divergence": "A3/A6"
+    },
+    {
+      "id": "metaprog.quote-expr.repeat-cursor-length-agree",
+      "domain": "metaprog",
+      "title": "Fixed-length cursors in one repetition group must agree on length",
+      "statement": "Within a single `#(...)*` group, all fixed-size `[Ident; N]` cursors must share the same length N; a sibling cursor with a different N is rejected (\"cursor length mismatches sibling cursor in same #(...)*\"). A `Vec`-backed (dynamic) cursor makes the group dynamic and waives the fixed-length agreement check.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16539-L16548"],
+      "divergence": "A3/A6"
+    },
+    {
+      "id": "metaprog.quote-expr.repeat-needs-cursor",
+      "domain": "metaprog",
+      "title": "A repetition group must contain at least one cursor antiquot",
+      "statement": "A `#(...)*` repetition group body must contain at least one cursor antiquot `#x` of a cursor type; an empty-cursor body is rejected (\"`#(...)*` body has no cursor `#x`\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16600-L16605"],
+      "divergence": "A3/A6"
+    },
+    {
+      "id": "metaprog.quote-expr.no-nested-repeat",
+      "domain": "metaprog",
+      "title": "Nested repetition groups are not allowed",
+      "statement": "A `#(...)` repetition group may not be nested inside another `#(...)` group (\"nested `#(...)` repetition not supported\").",
+      "evidence": ["src/compiler/sema_expr.cpp#L16589-L16597"],
+      "divergence": "A3/A6"
+    },
+    {
+      "id": "metaprog.quote-expr.antiquot-carrier-positions",
+      "domain": "metaprog",
+      "title": "Antiquots are recognized only in defined AST carrier positions",
+      "statement": "Antiquots and repetition groups are recognized only within the supported carrier set: VAR_REF, BINOP (lhs/rhs), PAREN/UNARY/CAST/DEREF (value), FIELD_READ (selector + receiver), CALL/METHOD_CALL/STATIC_CALL (callee-name-var, receiver, args), STRUCT_LIT/FIELD_INIT/FIELD_SHORTHAND, ARR_LIT/TUPLE_LIT/BLOCK items, statement carriers (LET, LET_DESTRUCT, EXPR_STMT, TAIL_EXPR, RETURN), and control flow (IF, WHILE, FOR, LOOP, ASSIGN, COMPOUND_ASSIGN). Antiquots in unsupported shapes are not substituted.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16586-L16747"],
+      "divergence": "A3/A6",
+      "uncertainty": "The exact carrier set is an evolving implementation surface (slices noted in comments), not a frozen spec."
+    },
+    {
+      "id": "metaprog.quote-expr.subst-runtime",
+      "domain": "metaprog",
+      "title": "quote_expr! with antiquots substitutes at runtime via logos_quote_expr_subst",
+      "statement": "`quote_expr!` containing N>0 antiquots lowers to a block that binds the static template blob and one `IdentSpan { ptr, count, kind }` per placeholder, then calls `logos_quote_expr_subst(template_ptr, size, &spans[0], N) -> *const u8` and wraps the result as `ExprBlob { ptr }`. Span kind is 0 for Ident slots, 1 for ExprBlob slots, 2 for Vec<ExprBlob> cursors.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16815-L16981", "src/compiler/sema_expr.cpp#L16866-L16943"],
+      "divergence": "A3/A6"
+    }
+  ]
+}

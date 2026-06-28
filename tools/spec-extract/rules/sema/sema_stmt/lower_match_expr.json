@@ -1,0 +1,237 @@
+{
+  "unit": "sema/sema_stmt/lower_match_expr",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L8868-L9715",
+  "source_hash": "d38e7959ac2f59b9",
+  "rules": [
+    {
+      "id": "expr.match.result-type-lub",
+      "domain": "expr",
+      "title": "match-expression result type is the LUB of its arms",
+      "statement": "The type of a `match` expression is the least-upper-bound of its arms' value types. Arms are unified left-to-right: error-typed and Never-typed arms contribute no type; numeric arms unify via numeric-LUB. If two arms have types that are mutually incompatible (neither `types_compatible` direction holds) the match is a type error.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9497-L9534"
+      ],
+      "related": [
+        "expr.match.never-arm-ignored",
+        "expr.match.fnitem-arms-lub-fnptr",
+        "expr.match.intlit-result-widen"
+      ]
+    },
+    {
+      "id": "expr.match.never-arm-ignored",
+      "domain": "expr",
+      "title": "Never-typed (diverging) arms do not constrain the result type",
+      "statement": "An arm whose value type is `!` (Never) contributes no type to the match result; Never is a subtype of every type. If the accumulated result type is still `!` or Error, the next arm's type replaces it.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9494-L9501"
+      ],
+      "related": [
+        "expr.match.result-type-lub"
+      ]
+    },
+    {
+      "id": "expr.match.fnitem-arms-lub-fnptr",
+      "domain": "expr",
+      "title": "distinct fn-item arms LUB to the common fn-pointer type",
+      "statement": "When two arms produce distinct FnItem values with the same signature (e.g. `=> a_f` and `=> b_f`), the match result type is the corresponding `fn(...)->R` pointer type, since FnItem\u2192FnItem coercion is rejected; both arms coerce to that FnPtr.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9502-L9523"
+      ],
+      "divergence": "Rust-conformant: matches Rust LUB for fn-item match arms.",
+      "related": [
+        "expr.match.result-type-lub"
+      ]
+    },
+    {
+      "id": "expr.match.intlit-result-widen",
+      "domain": "expr",
+      "title": "integer-literal match result widens to i64 on i32 overflow",
+      "statement": "If the inferred match result type is the unconstrained integer-literal type, and any arm's literal value exceeds the i32 range (> INT32_MAX or < INT32_MIN), the result type is fixed to i64.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9535-L9550"
+      ],
+      "related": [
+        "expr.match.result-type-lub"
+      ]
+    },
+    {
+      "id": "expr.match.guard-bool",
+      "domain": "expr",
+      "title": "match guard must be bool",
+      "statement": "An arm guard expression (`pat if <guard> =>`) must have type `bool` (or Error); any other type is a diagnostic.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9343-L9348"
+      ]
+    },
+    {
+      "id": "expr.match.arm-after-catchall-unreachable",
+      "domain": "expr",
+      "title": "arm after a catch-all `_` arm is unreachable",
+      "statement": "A match arm that follows an unguarded catch-all (`_`) arm is unreachable and is diagnosed (closes B-pt-07 expr position).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8946-L8959"
+      ]
+    },
+    {
+      "id": "pat.match.or-alt-binding-consistency",
+      "domain": "pat",
+      "title": "or-pattern alternatives must bind the same names",
+      "statement": "Every alternative of a top-level or-pattern arm (`A | B =>`) must bind the identical set of variable names (E0408).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9125-L9128"
+      ]
+    },
+    {
+      "id": "expr.match.exhaustive-enum",
+      "domain": "expr",
+      "title": "match on enum must be exhaustive",
+      "statement": "A `match` on an enum scrutinee without a wildcard/catch-all arm (and without AST-level proof of exhaustiveness for nested patterns) must cover every constructible variant; uncovered variants are reported as 'missing variant(s)'. A variant all of whose (substituted) payload types are uninhabited is unconstructable and need not be covered.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9603-L9680"
+      ],
+      "related": [
+        "expr.match.exhaustive-enum-uninhabited"
+      ]
+    },
+    {
+      "id": "expr.match.exhaustive-enum-uninhabited",
+      "domain": "expr",
+      "title": "uninhabited-payload variants are exempt from exhaustiveness",
+      "statement": "Exhaustiveness substitutes the scrutinee's type-arguments into each variant's (generic) payload types before the uninhabited check; a variant with any uninhabited payload (e.g. `Result<T, Void>`'s Err) is unconstructable and omitting its arm remains exhaustive (T2-29).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9650-L9675"
+      ],
+      "related": [
+        "expr.match.exhaustive-enum"
+      ]
+    },
+    {
+      "id": "expr.match.exhaustive-bool",
+      "domain": "expr",
+      "title": "match on bool must cover true and false",
+      "statement": "A `match` on a `bool` scrutinee without a wildcard arm must have both a `true` and a `false` unguarded literal arm; a missing case is diagnosed.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9681-L9694"
+      ]
+    },
+    {
+      "id": "expr.match.guarded-arm-not-exhaustive",
+      "domain": "expr",
+      "title": "guarded arms do not count toward exhaustiveness",
+      "statement": "An arm with a guard (`if`) does not contribute to exhaustiveness coverage; only unguarded patterns are counted as covering variants/wildcards.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9612",
+        "src/compiler/sema_stmt.cpp#L9618-L9623",
+        "src/compiler/sema_stmt.cpp#L9639-L9640"
+      ]
+    },
+    {
+      "id": "expr.match.arm-block-tail-is-value",
+      "domain": "expr",
+      "title": "block arm yields its tail expression, not an implicit return",
+      "statement": "A block-form arm (`pat => { stmts }`) yields its trailing expression as the arm value (tail-as-return disabled inside match arms). A non-diverging block arm whose last statement is not an expression is a diagnostic ('block arm must end with an expression or always return'). A block arm all of whose paths diverge contributes Error and is skipped in unification.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9414-L9467"
+      ]
+    },
+    {
+      "id": "expr.match.arm-requires-body",
+      "domain": "expr",
+      "title": "every arm must have an expr or block body",
+      "statement": "A match arm must have either an expression body (`=> expr`) or a block body (`=> { ... }`); an arm with neither is a diagnostic.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9412-L9471"
+      ]
+    },
+    {
+      "id": "expr.match.temp-scrutinee-dropped",
+      "domain": "expr",
+      "title": "a droppable rvalue scrutinee is dropped after the match value",
+      "statement": "When the scrutinee of a match-expression is a droppable move-type rvalue (not a place: not a var/field/tuple-index/deref/index read), it is bound to a synthetic local and dropped on every exit path. On fall-through the temporary is dropped after the match result is bound (unless an arm moved its payload); an arm that returns drops it via its own drop set.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8875-L8937",
+        "src/compiler/sema_stmt.cpp#L8884-L8903"
+      ],
+      "related": [
+        "borrow.match.scrutinee-moved-by-binding"
+      ]
+    },
+    {
+      "id": "borrow.match.scrutinee-moved-by-binding",
+      "domain": "borrow",
+      "title": "binding+moving a payload out of a by-value scrutinee marks it moved",
+      "statement": "A match-expression that binds and moves a payload out of a by-value move-type scrutinee (`let x = match v { Ok(s) => s }`) marks the scrutinee moved, so its scope-exit Drop does not double-free a value the result already owns (G156-2).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8938-L8944"
+      ],
+      "related": [
+        "expr.match.temp-scrutinee-dropped",
+        "borrow.match.arm-binding-drop"
+      ]
+    },
+    {
+      "id": "borrow.match.arm-binding-drop",
+      "domain": "borrow",
+      "title": "arm-scope pattern bindings are dropped before the arm value escapes",
+      "statement": "Pattern bindings introduced by a non-divergent value-form arm are dropped at arm-scope exit; bindings consumed by the arm value are first marked moved (lower_return semantics), then remaining droppables are dropped after the arm value is hoisted into a temporary that is yielded. Error/Never-typed arm values skip this.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9552-L9592"
+      ],
+      "related": [
+        "borrow.match.scrutinee-moved-by-binding"
+      ]
+    },
+    {
+      "id": "expr.match.str-literal-arm-guard",
+      "domain": "expr",
+      "title": "string-literal arms lower to wildcard + str-eq guard",
+      "statement": "A top-level string-literal arm (`match s { \"foo\" => ... }`) matches via a wildcard pattern plus a synthesized `str_eq(scrutinee, \"foo\")` guard, AND-ed ahead of any user guard; the scrutinee is hoisted into a synthetic local first (G172-1).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9034-L9067",
+        "src/compiler/sema_stmt.cpp#L9193-L9211",
+        "src/compiler/sema_stmt.cpp#L9350-L9359"
+      ]
+    },
+    {
+      "id": "expr.match.writ-pattern-needs-view",
+      "domain": "expr",
+      "title": "Writ patterns require a view scrutinee",
+      "statement": "A match arm containing a Writ scalar pattern (PAT_WRIT_NULL/BOOL/INT/STR/MAP/ARR/TYPED_ARR/TYPED_MAP, including inside an or-pattern) requires the scrutinee to be a Writ view (Writ, WritView, or WritStatic; use `&` to borrow); otherwise a diagnostic is emitted.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8961-L9003"
+      ],
+      "divergence": "Logos extension: Writ structured-data pattern matching (not in Rust)."
+    },
+    {
+      "id": "pat.match.or-fanout-bindings",
+      "domain": "pat",
+      "title": "or-patterns with bindings/non-scalar shapes fan out into separate arms",
+      "statement": "An or-pattern arm whose alternatives bind variables or have non-scalar/refutable shapes is expanded into one synthetic arm per alternative, each lowered through the normal single-arm path. Pure scalar-literal or-patterns (only PAT_INT/PAT_BOOL/PAT_CHAR alternatives) stay merged into a single arm.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9075-L9142",
+        "src/compiler/sema_stmt.cpp#L9084-L9095"
+      ]
+    },
+    {
+      "id": "pat.match.variant-payload-or-distribution",
+      "domain": "pat",
+      "title": "variant whose single payload is a multi-alt or-pattern distributes",
+      "statement": "A variant-data pattern whose single payload argument is a multi-alternative or-pattern with at least one non-merge-safe alternative is distributed: one synthetic arm per payload alternative (B170-E).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9096-L9118",
+        "src/compiler/sema_stmt.cpp#L9135-L9139"
+      ]
+    },
+    {
+      "id": "pat.match.refutable-inner-guard",
+      "domain": "pat",
+      "title": "refutable inner sub-patterns become AND-ed payload guards",
+      "statement": "A refutable inner sub-pattern in a variant payload (e.g. literal/variant like `Foo::FooUint(1)` or `Option::Some(1)`) contributes a guard testing the payload value; these guards are AND-ed into the arm guard so the arm matches only when both the variant tag and the inner value match (G145-2).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L9185-L9189",
+        "src/compiler/sema_stmt.cpp#L9369-L9383"
+      ]
+    }
+  ]
+}

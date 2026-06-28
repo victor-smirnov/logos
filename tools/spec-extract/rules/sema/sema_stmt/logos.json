@@ -1,0 +1,241 @@
+{
+  "unit": "sema/sema_stmt/logos",
+  "layer": "sema",
+  "source": "src/compiler/sema_stmt.cpp#L16-L661",
+  "source_hash": "96597ffa2a56a208",
+  "rules": [
+    {
+      "id": "stmt.diverge.return-stmt",
+      "domain": "stmt",
+      "title": "return statement always returns",
+      "statement": "A `return` statement is a diverging statement: control never falls through to the following statement.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L28-L29"]
+    },
+    {
+      "id": "stmt.diverge.never-returning-call",
+      "domain": "stmt",
+      "title": "call to a Never-returning fn diverges",
+      "statement": "A call expression `f(...)` (including the macro form `panic!(...)` which parses as FN_MACRO_CALL) in expression-statement, tail-expression, or let-initializer position is divergent — control never falls through — iff the callee is named `panic` OR any candidate function with that name has return type `!` (Never). `panic` is recognized by name even without a `!` annotation.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L34-L53", "src/compiler/sema_stmt.cpp#L208-L218"],
+      "divergence": "A: `panic` recognized as divergent by hardcoded callee name (Logos historically lacked the `!` type); now generalized to any `-> !` callee."
+    },
+    {
+      "id": "stmt.diverge.block-value",
+      "domain": "stmt",
+      "title": "block/if/match in expr-stmt position diverges if body does",
+      "statement": "An expression-statement or tail-expression whose value is a BLOCK, IF, or MATCH diverges iff that nested construct always returns; a value of RETURN/BREAK/CONTINUE expression form always diverges.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L54-L64"]
+    },
+    {
+      "id": "stmt.diverge.tail-expr-context",
+      "domain": "stmt",
+      "title": "tail expression counts as implicit return only at fn-body context",
+      "statement": "A trailing expression (TAIL_EXPR, no semicolon) is treated as an implicit return — and thus a diverging tail — only when it is in function-body position; in match-arm-body or block-as-expression contexts the same node is the block's value, not a return.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L65-L69"]
+    },
+    {
+      "id": "stmt.diverge.let-diverging-init",
+      "domain": "stmt",
+      "title": "let with diverging initializer never binds",
+      "statement": "`let x = <e>;` diverges when its initializer `<e>` is a RETURN/BREAK/CONTINUE expression, a divergent call, a BLOCK that always returns, or an IF/MATCH that always returns; the binding never occurs.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L87-L95"]
+    },
+    {
+      "id": "stmt.diverge.infinite-loop",
+      "domain": "stmt",
+      "title": "loop without break diverges",
+      "statement": "A `loop { ... }` statement never falls through to the next statement (it is an infinite loop, diverging unless exited by a non-fallthrough construct).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L96-L99"]
+    },
+    {
+      "id": "stmt.diverge.if-both-branches",
+      "domain": "stmt",
+      "title": "if/else diverges iff both branches diverge",
+      "statement": "An `if` always returns iff it has an `else` and both the then-block and the else-branch always return; an `if` without `else` never forces a return.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L100-L109"]
+    },
+    {
+      "id": "stmt.diverge.match-all-arms",
+      "domain": "stmt",
+      "title": "match diverges iff all arms diverge",
+      "statement": "A non-empty `match` always returns iff every arm's body always returns; an expression arm (`pat => expr`) provides a value and does not count as diverging; an empty match does not force a return.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L110-L131"]
+    },
+    {
+      "id": "stmt.diverge.block-reaches",
+      "domain": "stmt",
+      "title": "block diverges if any statement diverges",
+      "statement": "A block always returns iff at least one of its statements always returns (a diverging statement makes all following statements unreachable).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L135-L143"]
+    },
+    {
+      "id": "stmt.diverge.break-continue-divert",
+      "domain": "stmt",
+      "title": "break/continue divert control flow",
+      "statement": "`break` and `continue` are divergent for loop-body fallthrough analysis: like `return`, control does not fall through to the following statement. if/else and match propagate diversion when all branches/arms divert.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L145-L182"]
+    },
+    {
+      "id": "stmt.fallback.never-only-on-provable-divergence",
+      "domain": "stmt",
+      "title": "Never-fallback gated on provably non-returning body",
+      "statement": "A generic return type-param may fall back to `!` only when the callee body provably never returns normally — i.e. the body's last statement is a divergent call (`panic`/`-> !`), a `loop`, or an expression-statement/tail wrapping a `loop`. A body ending in `return 0;` does NOT qualify (that is a normal return, leaving the type-param ambiguous).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L194-L226"],
+      "divergence": "A: implements a Rust-2024-style `!`-fallback but with a stricter, narrower divergence predicate than full `block_always_returns`."
+    },
+    {
+      "id": "stmt.scope.temp-drop-at-stmt-end",
+      "domain": "stmt",
+      "title": "statement-scoped temporaries dropped at end of statement",
+      "statement": "Fresh owned (droppable) temporaries materialized while lowering a statement live to the end of that statement and have their destructors run there, in REVERSE order of creation (Rust temporary-scope semantics). Place/borrow expressions (VarRef, FieldRead, IndexRead, Deref, TupleIndex, SliceIndex, SlicePtr, AddrOf, AddrOfTemp) are not hoistable temporaries; only rvalue-producing kinds (Call, MethodCall, StructLit, EnumLitData, …) are.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L230-L294"]
+    },
+    {
+      "id": "stmt.scope.return-temps-dropped-before-terminator",
+      "domain": "stmt",
+      "title": "temporaries in a return value drop before the return terminator",
+      "statement": "When `return <val>` materializes statement-scoped temporaries, the value is bound to a synthetic local while the temporaries live, the temporaries are then dropped, and only afterward does the return terminator execute — so drops precede the terminator rather than being dead code past it.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L274-L291"]
+    },
+    {
+      "id": "stmt.expr.discarded-rvalue-dropped",
+      "domain": "stmt",
+      "title": "discarded statement-expression rvalue runs its destructor",
+      "statement": "A statement-expression `e;` that produces a fresh owned move-typed value (a non-place rvalue, e.g. `make(p);`) is bound to a synthetic local and dropped at the end of the statement. A bare place expression (`existing_var;`) is not re-dropped, avoiding double-drop against its scope drop.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L337-L369"]
+    },
+    {
+      "id": "stmt.tail.implicit-return-nonvoid",
+      "domain": "stmt",
+      "title": "non-void tail expression is an implicit return at fn body",
+      "statement": "At function-body level with a non-void declared return type, a trailing expression (no semicolon) is an implicit `return <e>`. If its type is Void it is lowered as an expression-statement instead; only a non-void tail becomes an implicit return.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L371-L450"]
+    },
+    {
+      "id": "stmt.tail.closure-inference-return",
+      "domain": "stmt",
+      "title": "non-void tail in closure inference body is the implicit return",
+      "statement": "In a closure body lowered in inference mode (no declared return type), a non-void, non-error tail expression is the closure's implicit return; a void/error tail is an expression-statement. No return-type compatibility check is applied (the closure has no declared type).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L390-L398"]
+    },
+    {
+      "id": "stmt.tail.enum-hint-from-ret-type",
+      "domain": "stmt",
+      "title": "tail enum-literal inference threads the fn return type",
+      "statement": "When the function's declared return type is an enum, a tail-position enum literal (`Result::Ok(v)`, `Either::L(x)`) is inferred against that return type so the enum's type parameters not constrained by the chosen variant are resolved from the return type rather than inferred as error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L402-L419"]
+    },
+    {
+      "id": "stmt.tail.return-type-mismatch",
+      "domain": "stmt",
+      "title": "tail implicit return type-checked like explicit return",
+      "statement": "The type of a tail-position implicit return must be compatible with the declared return type, must pass the variance gate, and must satisfy dyn+auto bound checks at coercion — identically to an explicit `return`. Moving out of a value behind a reference or out of an index in tail-return position is rejected (E0507).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L427-L447"]
+    },
+    {
+      "id": "stmt.break.outside-loop",
+      "domain": "stmt",
+      "title": "break only inside a loop",
+      "statement": "A `break` is an error outside any loop. A labeled `break 'l` is an error unless `'l` is an active in-scope loop label.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L456-L465"]
+    },
+    {
+      "id": "stmt.break.target-resolution",
+      "domain": "stmt",
+      "title": "break targets the matching labeled or innermost loop",
+      "statement": "A labeled `break 'l v` targets the nearest enclosing loop with label `'l` (searched innermost-out); an unlabeled `break v` targets the innermost loop. The break value attributes to the target frame, so a value breaking to an outer labeled loop is not consumed by an inner loop.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L466-L502"]
+    },
+    {
+      "id": "stmt.break.value-consistency",
+      "domain": "stmt",
+      "title": "all breaks of a loop must agree on value presence and type",
+      "statement": "All breaks targeting the same loop must agree: a loop cannot mix value-carrying and value-less breaks (`break v` vs `break`); and all break values must have mutually compatible types, the loop's break type being the unification of them.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L483-L501"]
+    },
+    {
+      "id": "stmt.continue.outside-loop",
+      "domain": "stmt",
+      "title": "continue only inside a loop with in-scope label",
+      "statement": "A `continue` is an error outside any loop. A labeled `continue 'l` is an error unless `'l` is an active in-scope loop label.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L504-L514"]
+    },
+    {
+      "id": "stmt.compound-assign.deref-desugar",
+      "domain": "stmt",
+      "title": "*p op= v desugars to *p = *p op v",
+      "statement": "A deref-compound assignment `*p op= v` desugars to `*p = (*p op v)`, reading the pointee, applying the binary operator, and writing the result back.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L516-L568"]
+    },
+    {
+      "id": "stmt.compound-assign.deref-mut-dispatch",
+      "domain": "stmt",
+      "title": "compound deref-assign on a DerefMut struct dispatches deref_mut",
+      "statement": "When the left side of `*w op= v` is a struct (or zoned struct) implementing DerefMut<T>, the operation desugars through `w.deref_mut()` (yielding &mut T): `*(w.deref_mut()) = *(w.deref_mut()) op v`.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L529-L552"]
+    },
+    {
+      "id": "stmt.deref-write.pointer-or-mutref",
+      "domain": "stmt",
+      "title": "deref-write/compound left side must be pointer or mutable reference",
+      "statement": "The left side of `*p = v` (and `*p op= v`) must be a pointer or a mutable reference; otherwise it is an error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L553-L557", "src/compiler/sema_stmt.cpp#L629-L631"]
+    },
+    {
+      "id": "stmt.deref-write.raw-ptr-unsafe",
+      "domain": "stmt",
+      "title": "writing through a raw pointer requires unsafe",
+      "statement": "Writing through `&mut T` is safe; writing through a raw pointer (`*mut`/`*const`) requires an unsafe context. Outside unsafe, a raw-pointer deref-write/compound is an error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L558-L560", "src/compiler/sema_stmt.cpp#L625-L628"]
+    },
+    {
+      "id": "stmt.deref-write.const-ptr-readonly",
+      "domain": "stmt",
+      "title": "cannot write through a *const pointer",
+      "statement": "A `*const T` pointer is read-only; writing through it is an error — only `*mut T` or `&mut T` may be written through.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L561-L562", "src/compiler/sema_stmt.cpp#L632-L634"]
+    },
+    {
+      "id": "stmt.deref-write.user-deref-mut",
+      "domain": "stmt",
+      "title": "*x = v on a DerefMut struct dispatches deref_mut",
+      "statement": "When `*x = v` is applied to a struct `x` implementing DerefMut<T>, it dispatches `x.deref_mut()` (returning &mut T) and writes `v` through the resulting reference; this requires `x` to be a mutable binding for `&mut self` materialization.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L597-L624"]
+    },
+    {
+      "id": "stmt.deref-write.variance-invariant",
+      "domain": "stmt",
+      "title": "deref-write value must invariantly match the pointee type",
+      "statement": "In `*ptr = val` the value's type must invariant-match (strict, fn-scope-fixed lifetimes) the pointee type of the pointer/reference.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L635-L639"]
+    },
+    {
+      "id": "stmt.deref-write.rhs-type-hint",
+      "domain": "stmt",
+      "title": "deref-write RHS inferred against the pointee type",
+      "statement": "The RHS of `*p = v` is inferred with an enum/struct type hint taken from the pointee type when the pointee is a parameterized enum or struct, so a bare `None` resolves to `Option<T>` matching the slot rather than a discriminant-only constant.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L575-L595"]
+    },
+    {
+      "id": "stmt.unsafe-block.context",
+      "domain": "stmt",
+      "title": "unsafe block establishes an unsafe context for its body",
+      "statement": "An `unsafe { ... }` block lowers its body with an unsafe context active for the duration of the block, restoring the prior context afterward; the body is otherwise an ordinary block.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L643-L651"]
+    },
+    {
+      "id": "stmt.dispatch.kinds",
+      "domain": "stmt",
+      "title": "statement forms recognized",
+      "statement": "Statements comprise: let / let-else / let-destructure / let-pattern bindings, nested fn items, assignment (plain / destructuring / compound / place / deref-write / deref-compound), return, if / if-let-chain, labeled loops, while / for / for-each / loop, match, expression-statement, trailing tail-expression, break, continue, unsafe block, and bare block statement. An if-let-chain in statement position is desugared via the expression form and wrapped as a statement-expression.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L296-L336"]
+    },
+    {
+      "id": "stmt.labeled-loop.label-binding",
+      "domain": "stmt",
+      "title": "labeled loop binds its label to the inner loop",
+      "statement": "`'label: <loop>` extracts the label, makes it the pending loop label, and lowers the inner for/while/loop with that label in scope so break/continue can target it.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L317-L330"]
+    }
+  ]
+}

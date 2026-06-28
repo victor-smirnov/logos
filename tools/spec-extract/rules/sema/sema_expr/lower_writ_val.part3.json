@@ -1,0 +1,68 @@
+{
+  "unit": "sema/sema_expr/lower_writ_val.part3",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L15759-L16171",
+  "source_hash": "c6fd9e1ddf62135d",
+  "rules": [
+    {
+      "id": "metaprog.quote-item.synthetic-main-module",
+      "domain": "metaprog",
+      "title": "quote_item! produces a synthetic `package main` module",
+      "statement": "`quote_item! { item* }` constructs a synthetic AST module whose root is MODULE with NAME=\"main\", empty PATH_PARTS, ITEMS = the deep-cloned quoted items, and SRC_LINE=1. The result is emitted as a serialized WritStatic blob carried by a `QuoteItemBlob` value.",
+      "evidence": ["src/compiler/sema_expr.cpp#L15859-L15894", "src/compiler/sema_expr.cpp#L15805-L15819"],
+      "divergence": "Logos metaprogramming addition (no Rust equivalent)."
+    },
+    {
+      "id": "metaprog.quote-item.inherit-import-scope",
+      "domain": "metaprog",
+      "title": "quote_item! inherits the metafn's import scope",
+      "statement": "The synthetic module inherits the enclosing metafn's wildcard `use` packages, plus a self-use of the metafn's own package (if non-empty), so that unqualified names inside the quoted items resolve through the metafn's `use`-list. Each inherited package becomes one USE node carrying the full dotted package name in NAME.",
+      "evidence": ["src/compiler/sema_expr.cpp#L15821-L15857"],
+      "divergence": "Logos metaprogramming addition; controls hygiene/name resolution of quoted items."
+    },
+    {
+      "id": "metaprog.quote-item.placeholder-walk-balance",
+      "domain": "metaprog",
+      "title": "Source and destination placeholder counts must match",
+      "statement": "The number of antiquot placeholders discovered while scanning the source items must equal the number of placeholder slots rewritten in the cloned destination tree; a mismatch is a compile error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L15797-L15802"],
+      "divergence": "Logos metaprogramming addition.",
+      "uncertainty": "This is an internal consistency invariant; user-observable only as a diagnostic."
+    },
+    {
+      "id": "metaprog.quote-item.blob-result-type",
+      "domain": "metaprog",
+      "title": "quote_item! evaluates to a QuoteItemBlob value",
+      "statement": "`quote_item!` evaluates to a `QuoteItemBlob` struct value with fields { template_ptr, template_size, idents_blob, blobs_blob, cursors_blob }, where template_ptr/template_size address the serialized synthetic-module blob and the *_blob fields carry the packed antiquot substitution data (null when the corresponding placeholder kind has zero occurrences).",
+      "evidence": ["src/compiler/sema_expr.cpp#L16133-L16144", "src/compiler/sema_expr.cpp#L15907-L15910"],
+      "divergence": "Logos metaprogramming addition."
+    },
+    {
+      "id": "metaprog.quote-item.ident-antiquot-packing",
+      "domain": "metaprog",
+      "title": "`#name`/`#(expr)` Ident antiquots are packed as Ident pointers",
+      "statement": "Each scalar Ident antiquot site (`#name` shortcut or `#(expr)` yielding Ident) contributes one `*const Ident` to the idents blob, in DFS placeholder order; a `#(expr)` form binds the lowered expression to a fresh local whose address is taken. When there are no Ident sites, idents_blob is null.",
+      "evidence": ["src/compiler/sema_expr.cpp#L15953-L16003"],
+      "divergence": "Logos metaprogramming addition.",
+      "related": ["metaprog.quote-item.blob-result-type"]
+    },
+    {
+      "id": "metaprog.quote-item.exprblob-antiquot-packing",
+      "domain": "metaprog",
+      "title": "ExprBlob antiquots are packed by their .ptr field",
+      "statement": "Each `#(expr)` antiquot whose lowered expression has type ExprBlob contributes one `*const u8` (the ExprBlob's `ptr` field) to the blobs blob, in DFS placeholder order; the lowered ExprBlob is bound to a local that outlives the array. When there are no ExprBlob sites, blobs_blob is null.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16005-L16054"],
+      "divergence": "Logos metaprogramming addition.",
+      "related": ["metaprog.quote-item.blob-result-type"]
+    },
+    {
+      "id": "metaprog.quote-item.cursor-repetition-packing",
+      "domain": "metaprog",
+      "title": "Cursor (`#(...)*`) antiquots carry a per-site nesting depth",
+      "statement": "Each repetition-cursor antiquot site contributes a `*const u8` (the address of a Vec cursor variable) plus a parallel per-site depth byte: depth 1 = Vec<Ident>, depth 2 = Vec<Vec<Ident>> (nested `#(...)*`). The element type is the neutral `*const u8`; pack reads each cursor according to its depth. When there are no cursor sites, cursors_blob is null.",
+      "evidence": ["src/compiler/sema_expr.cpp#L16056-L16127", "src/compiler/sema_expr.cpp#L15939-L15944"],
+      "divergence": "Logos metaprogramming addition.",
+      "related": ["metaprog.quote-item.blob-result-type"]
+    }
+  ]
+}

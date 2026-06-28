@@ -1,0 +1,131 @@
+{
+  "unit": "sema/sema_expr/lower_index_place",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L10249-L10884",
+  "source_hash": "9ab0fac09ede7d6d",
+  "rules": [
+    {
+      "id": "expr.index.indexmut-place",
+      "domain": "expr",
+      "title": "Mutable index place requires IndexMut, shared requires Index",
+      "statement": "For an index place `&mut a[i]` the receiver type must impl `IndexMut`; for `&a[i]` an `Index` impl suffices. The place lowers to a call of the impl's `__index_mut` / `__index` method (the unique 2-parameter candidate), returning the reference produced by that method directly (no extra deref). Trait presence is checked against both the concrete struct name and the base (generic) struct name.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10258-L10268", "src/compiler/sema_expr.cpp#L10300-L10305"],
+      "related": ["expr.index.user-index-read"]
+    },
+    {
+      "id": "expr.index.place-real-slot",
+      "domain": "expr",
+      "title": "Index-place receiver uses the real variable slot",
+      "statement": "When the index-place receiver is a plain variable, its address is taken from the real variable slot (`&mut v`), not a spilled copy, so the mutation through `IndexMut` persists. A receiver already of reference/pointer kind is passed through unchanged; other receiver shapes materialize a temporary reference.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10286-L10296"]
+    },
+    {
+      "id": "expr.index.user-index-read",
+      "domain": "expr",
+      "title": "Index read dispatches to user Index impl as *recv.index(i)",
+      "statement": "`a[i]` for a struct `a` that impls `Index<Idx, Output>` lowers to `*(a.index(i))`: the impl's `__index` method (unique 2-param candidate) is called with a materialized `&a` receiver and the index, and the result reference is dereferenced to yield the element place. The integer-literal index is widened to the formal index parameter type. User `Index` dispatch is attempted before the built-in integer-index check, so an impl may accept non-integer keys.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10396-L10453"],
+      "related": ["expr.index.indexmut-place", "expr.index.generic-index-via-method"]
+    },
+    {
+      "id": "expr.index.autoderef",
+      "domain": "expr",
+      "title": "Autoderef at index position through Deref",
+      "statement": "A struct receiver at index position without its own `Index` impl is dereferenced through its `Deref` impl(s) until an indexable type appears, mirroring method-resolution autoderef. The walk is bounded to 4 steps. If a step yields a Slice or trait-object (fat) value, that value is taken directly as the receiver.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10399-L10424"]
+    },
+    {
+      "id": "expr.index.generic-index-via-method",
+      "domain": "expr",
+      "title": "Generic-struct Index impl routed through method-call machinery",
+      "statement": "When a struct impls `Index` but no concrete `__index` symbol exists yet (a generic impl, e.g. `impl<T> Index for Vec<T>`), `v[i]` lowers to `*v.index(i)` via the method-call path. The element type is the impl's `Index<Idx, Output>` second trait-arg with the struct's type-args substituted for the impl's type params (matched positionally against `TypeVar`s in the impl target pattern); the index is widened to the substituted `Idx` when it is not a type variable.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10454-L10485"],
+      "related": ["expr.index.user-index-read"]
+    },
+    {
+      "id": "expr.index.integer-required",
+      "domain": "expr",
+      "title": "Built-in index requires an integer index",
+      "statement": "For built-in (non-user-Index) indexing the index expression must have integer type; otherwise an `array index must be integer` error is reported.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10489-L10490"]
+    },
+    {
+      "id": "expr.index.receiver-kind",
+      "domain": "expr",
+      "title": "Built-in index receiver must be array, slice, or pointer/reference",
+      "statement": "A built-in index `a[i]` requires the receiver to be a Slice, Array, raw Ptr, or reference (`Ref`/`MutRef`); any other receiver kind is a type error. Slice indexing lowers to a dedicated slice-index operation; an array/ref/ptr yields the element type, auto-dereferencing a single reference/pointer layer (and through a `[T;N]` array pointee) to the element.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10492-L10526"]
+    },
+    {
+      "id": "expr.index.raw-ptr-unsafe",
+      "domain": "expr",
+      "title": "Indexing through a raw pointer requires unsafe",
+      "statement": "Indexing a value of raw-pointer kind (`*const`/`*mut`) is only permitted inside an `unsafe` context; outside one it is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10506-L10508"]
+    },
+    {
+      "id": "expr.index.ref-to-slice-retype",
+      "domain": "expr",
+      "title": "Indexing a reference-to-slice GEPs through the fat-pointer pair",
+      "statement": "When the receiver type is a reference to a slice (`Ref/MutRef -> Slice`, e.g. `&s` where `s: &[T]`), it is retyped to the pointee Slice rather than loaded, so `(&s)[i]` indexes the underlying `{data,len}` pair and yields element type `T` instead of the whole slice.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10311-L10326"]
+    },
+    {
+      "id": "expr.index.range-slice",
+      "domain": "expr",
+      "title": "Range indexing produces a sub-slice",
+      "statement": "A range index `recv[lo..hi]`, `recv[lo..]`, `recv[..hi]`, `recv[..]`, or inclusive `recv[lo..=hi]` produces a sub-slice `&[T]` via `slice_get_range(recv, lo, hi)`. The receiver must be a slice, array (decayed to `&[T]` via addr-of + slice-coercion), or reference-to-slice; otherwise an error is reported. Missing `lo` defaults to 0; missing `hi` defaults to INT64_MAX (clamped to len); an inclusive upper bound is lowered as `hi+1`. Bounds are widened to i64. `slice_get_range` must be in scope (`use logos.lang.slice`).",
+      "evidence": ["src/compiler/sema_expr.cpp#L10328-L10389"],
+      "divergence": "Range-slicing relies on stdlib `slice_get_range`; open/inclusive ends are clamped to length rather than panicking on out-of-range as Rust does."
+    },
+    {
+      "id": "expr.arr-lit.empty-needs-hint",
+      "domain": "expr",
+      "title": "Empty array literal element type comes from an annotation hint",
+      "statement": "An empty array literal `[]` takes its element type from an enclosing `[T;N]`/`[T]`/`&[T]` annotation or return-type hint, building `[T;0]` (which borrows to an empty `&[T]`). Without such a hint the element type is unknown and a warning is emitted.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10529-L10548"]
+    },
+    {
+      "id": "expr.arr-lit.scalar-hint-adopt",
+      "domain": "expr",
+      "title": "Concrete scalar element hint retypes literal elements up front",
+      "statement": "When an array literal has a concrete scalar integer/float element hint and every element is either already of the hint type or an in-range integer/float literal, all literal elements are retyped to the hint and the hint becomes the element type. An integer literal that does not fit the hinted width is an error (not a silent fall-back to the default int type).",
+      "evidence": ["src/compiler/sema_expr.cpp#L10554-L10602"]
+    },
+    {
+      "id": "expr.arr-lit.fnptr-hint",
+      "domain": "expr",
+      "title": "FnPtr element hint unifies distinct FnItems",
+      "statement": "Under a `[fn(...) -> R; N]` annotation, a heterogeneous array of distinct function items coerces to a common function-pointer element type when every element is compatible with the hint; each non-matching element is cast to the hint and the hint becomes the element type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10603-L10628"]
+    },
+    {
+      "id": "expr.arr-lit.dyn-hint-unsize",
+      "domain": "expr",
+      "title": "&dyn Trait element hint unifies concrete refs via unsize coercion",
+      "statement": "Under a `[&dyn Trait; N]` annotation, a heterogeneous array of distinct `&Concrete` refs unifies to `&dyn Trait` when every element is compatible with, or unsize-coercible to, the dyn element type. Each not-already-`&dyn` element is wrapped in an explicit dyn-coercion cast (building the fat pointer / vtable per element); the homogeneity check is then skipped.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10629-L10677"]
+    },
+    {
+      "id": "expr.arr-lit.homogeneous",
+      "domain": "expr",
+      "title": "Array literal elements must be mutually compatible and range-checked",
+      "statement": "Absent a unifying hint, all array-literal elements must be pairwise compatible; the element type is the numeric unification of the elements. Integer-literal elements (including those nested in array/tuple literal elements, and element 0 retroactively against a later concrete anchor) are range-checked against the inferred concrete element type, reporting an out-of-range error per offending element/sub-element.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10678-L10843"]
+    },
+    {
+      "id": "expr.arr-lit.intlit-i64-widen",
+      "domain": "expr",
+      "title": "IntLit element type widens to i64 on overflow of i32",
+      "statement": "When the inferred element type is the untyped integer-literal type, it is upgraded to i64 if any element value overflows the i32 range; otherwise it stays IntLit so annotation-based coercion (e.g. `[i64;N] = [1,2,3]`) remains applicable.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10844-L10856"]
+    },
+    {
+      "id": "expr.arr-lit.const-pack-expand",
+      "domain": "expr",
+      "title": "Const-pack array expansion builds a symbolic-length array",
+      "statement": "An array literal `[N...]` over a `<const N...: T>` pack with a single pack-expand element of const-var element type builds a `[T; sizeof...(N)]` symbolic-length array; monomorphization later replaces the single pack-expand element with one integer literal per pack member.",
+      "evidence": ["src/compiler/sema_expr.cpp#L10858-L10873"]
+    }
+  ]
+}
