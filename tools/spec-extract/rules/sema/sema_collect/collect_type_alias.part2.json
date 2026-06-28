@@ -12,7 +12,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L2685-L2699"
       ],
-      "divergence": "Note: §4 module/package visibility model; trait must be pub-accessible to be implemented across package boundaries."
+      "divergence": "Note: §4 module/package visibility model; trait must be pub-accessible to be implemented across package boundaries.",
+      "testability": "untestable"
     },
     {
       "id": "trait.impl.unknown-trait-error",
@@ -128,7 +129,8 @@
       "statement": "Methods in a trait impl take their accessibility from the trait: if the trait is reachable, its impl methods are public (forced is_pub). `pub fn` is disallowed inside trait/trait-impl blocks. Methods of an inherent impl (no trait) keep their explicit pub/private status.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L3175-L3212"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.impl.self-param-defaults-to-self-ref",

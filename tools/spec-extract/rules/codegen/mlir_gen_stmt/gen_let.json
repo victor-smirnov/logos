@@ -9,137 +9,215 @@
       "domain": "stmt",
       "title": "let without initializer",
       "statement": "`let v: T;` (no initializer) introduces a binding of declared type T whose storage is uninitialized; the type annotation is mandatory (cannot infer) and a later assignment initializes it. Reading before assignment is forbidden (enforced by earlier definite-assignment analysis).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1402-L1434"],
-      "related": ["stmt.let.fresh-decl-resets-drop-state", "stmt.assign.first-assign-no-drop"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1402-L1434"
+      ],
+      "related": [
+        "stmt.let.fresh-decl-resets-drop-state",
+        "stmt.assign.first-assign-no-drop"
+      ]
     },
     {
       "id": "stmt.let.fresh-decl-resets-drop-state",
       "domain": "stmt",
       "title": "Re-declaration resets init/drop state",
       "statement": "A fresh `let` of a name shadowing an earlier same-named binding (e.g. in sequential blocks or per loop iteration) resets that name's definite-assignment and drop-flag state; if the declaration is in a loop body the drop-flag is re-initialized to 0 on each iteration.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1416-L1433"],
-      "related": ["stmt.let.declare-without-init"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1416-L1433"
+      ],
+      "related": [
+        "stmt.let.declare-without-init"
+      ]
     },
     {
       "id": "stmt.let.uninit-drop-flag-vs-static",
       "domain": "stmt",
       "title": "Conditional init tracked by runtime drop flag",
       "statement": "For a declare-without-init binding: if every later assignment statically dominates the binding's uses, initialization is tracked statically and drops are placed unconditionally; if assignment is conditional (e.g. assigned only inside an `if`/loop), a runtime drop flag (initialized 0) governs both drop-before-replace and scope-exit drop.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1418-L1433"],
-      "related": ["stmt.assign.drop-before-replace-conditional"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1418-L1433"
+      ],
+      "related": [
+        "stmt.assign.drop-before-replace-conditional"
+      ]
     },
     {
       "id": "stmt.let.copy-rebind-independent",
       "domain": "stmt",
       "title": "let binding from a place is an independent copy",
       "statement": "Binding `let b = a` where the RHS denotes an existing place of aggregate type (struct, enum value-repr, array, slice/str, fat pointer) produces an independent value: the source's full type footprint (sizeof T bytes) is copied into a fresh storage slot, so later mutation of the source does not alias the binding. Move-vs-copy soundness (no double-free) is enforced separately by move analysis.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1577-L1591", "src/compiler/mlir_gen_stmt.cpp#L1616-L1624"],
-      "related": ["stmt.assign.struct-rebind-copy", "stmt.assign.fatptr-rebind-copy", "stmt.assign.array-rebind-copy"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1577-L1591",
+        "src/compiler/mlir_gen_stmt.cpp#L1616-L1624"
+      ],
+      "related": [
+        "stmt.assign.struct-rebind-copy",
+        "stmt.assign.fatptr-rebind-copy",
+        "stmt.assign.array-rebind-copy"
+      ]
     },
     {
       "id": "stmt.let.array-rebind-copy",
       "domain": "stmt",
       "title": "Array let-rebind copies whole array",
       "statement": "`let b: [T; N] = a;` where `a` is an existing array place copies all N*sizeof(T) bytes of the source array into the binding's slot (not just a pointer), yielding an independent array binding.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1820-L1838"],
-      "related": ["stmt.let.copy-rebind-independent"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1820-L1838"
+      ],
+      "related": [
+        "stmt.let.copy-rebind-independent"
+      ]
     },
     {
       "id": "stmt.let.scalar-coercion",
       "domain": "stmt",
       "title": "Scalar let coerces RHS to annotated type",
       "statement": "For a scalar-typed binding `let v: T = e`, the RHS value is coerced to the declared integer/float type T (integer widening/narrowing and float conversion) before storage.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1839-L1841"],
-      "related": ["coerce.int.safe-widening"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1839-L1841"
+      ],
+      "related": [
+        "coerce.int.safe-widening"
+      ]
     },
     {
       "id": "coerce.unsize.box-concrete-to-box-dyn",
       "domain": "coerce",
       "title": "Box<Concrete> unsizes to Box<dyn Trait>",
       "statement": "Binding a `Box<Concrete>` value to a `Box<dyn Trait>` (or `&Concrete`/`&dyn`/`*dyn`) target coerces the thin pointer to a fat {data, vtable} pair whose vtable is selected for the concrete type's impl of Trait. An owning `Box<dyn Trait>` is droppable: its drop runs drop_in_place on the data and frees it; a `&dyn`/`&mut dyn` borrow yields a non-owning fat pair; only raw `*const/*mut dyn` retains a separately-allocated 8-byte heap handle.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1665-L1748", "src/compiler/mlir_gen_stmt.cpp#L1721-L1745"],
-      "related": ["coerce.unsize.struct-to-dyn-trait"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1665-L1748",
+        "src/compiler/mlir_gen_stmt.cpp#L1721-L1745"
+      ],
+      "related": [
+        "coerce.unsize.struct-to-dyn-trait"
+      ]
     },
     {
       "id": "coerce.unsize.already-fat-passthrough",
       "domain": "coerce",
       "title": "Fat-pointer source needs no rebuild",
       "statement": "When coercing to `dyn Trait`, if the RHS value is already a fat pointer (its type is `dyn Trait`, or `&/&mut/*` to `dyn Trait`, with Box<dyn> collapsing to the trait object), the existing {data, vtable} handle is used directly rather than rebuilt from the concrete type.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1688-L1709"],
-      "related": ["coerce.unsize.box-concrete-to-box-dyn"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1688-L1709"
+      ],
+      "related": [
+        "coerce.unsize.box-concrete-to-box-dyn"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "coerce.anyval.let-binds-i32",
       "domain": "coerce",
       "title": "AnyVal-typed let binds an i32",
       "statement": "A binding declared with type `AnyVal` coerces its RHS to a 32-bit integer and stores it as a scalar binding.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1444-L1454"],
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1444-L1454"
+      ],
       "uncertainty": "AnyVal is a compiler-internal/metaprogramming type; the i32 coercion may be an implementation default rather than a stable language guarantee.",
-      "divergence": "No Rust equivalent (AnyVal is a Logos addition)."
+      "divergence": "No Rust equivalent (AnyVal is a Logos addition).",
+      "testability": "untestable"
     },
     {
       "id": "stmt.assign.drop-before-replace-static",
       "domain": "stmt",
       "title": "Reassignment drops the old value (static)",
       "statement": "An assignment `x = e` to a binding holding a live droppable value first evaluates e, then runs the full destructor (user Drop impl + owned children) of the OLD value, then stores the new value. Evaluating the RHS before the old-value drop makes `x = f(x)` read the old x safely.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1885-L1937"],
-      "related": ["stmt.assign.first-assign-no-drop", "stmt.assign.drop-before-replace-conditional"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1885-L1937"
+      ],
+      "related": [
+        "stmt.assign.first-assign-no-drop",
+        "stmt.assign.drop-before-replace-conditional"
+      ]
     },
     {
       "id": "stmt.assign.first-assign-no-drop",
       "domain": "stmt",
       "title": "First assignment to uninitialized binding does not drop",
       "statement": "For a binding whose init state is statically tracked, the first (dominating) assignment overwrites uninitialized storage and performs NO drop of the prior contents; subsequent assignments drop the live value unconditionally.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1926-L1934"],
-      "related": ["stmt.let.uninit-drop-flag-vs-static"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1926-L1934"
+      ],
+      "related": [
+        "stmt.let.uninit-drop-flag-vs-static"
+      ]
     },
     {
       "id": "stmt.assign.drop-before-replace-conditional",
       "domain": "stmt",
       "title": "Conditional drop-before-replace via flag",
       "statement": "When a binding's initialization is not statically known, assignment drops the old value only if the runtime drop flag is set (value live), then marks the slot live; this makes `x = b` after a conditional `if c { x = a; }` drop `a` iff the conditional ran.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1901-L1937"],
-      "related": ["stmt.let.uninit-drop-flag-vs-static"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1901-L1937"
+      ],
+      "related": [
+        "stmt.let.uninit-drop-flag-vs-static"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "stmt.assign.struct-rebind-copy",
       "domain": "stmt",
       "title": "Whole-struct reassignment copies payload",
       "statement": "Reassigning a struct/zoned-struct binding from another struct place copies the full sizeof(T) byte payload into the destination slot (not a pointer store), keeping the binding's storage independent.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1959-L1974"],
-      "related": ["stmt.let.copy-rebind-independent"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1959-L1974"
+      ],
+      "related": [
+        "stmt.let.copy-rebind-independent"
+      ]
     },
     {
       "id": "stmt.assign.fatptr-rebind-copy",
       "domain": "stmt",
       "title": "Fat-pointer reassignment copies 16 bytes",
       "statement": "Reassigning a slice, closure, or trait-object binding copies the full 16-byte {data, len|vtable} pair, so neither half (data nor len/vtable) is left stale.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1975-L1990"],
-      "related": ["stmt.let.copy-rebind-independent", "layout.fatptr.slice-dyn-16-bytes"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1975-L1990"
+      ],
+      "related": [
+        "stmt.let.copy-rebind-independent",
+        "layout.fatptr.slice-dyn-16-bytes"
+      ]
     },
     {
       "id": "stmt.assign.array-rebind-copy",
       "domain": "stmt",
       "title": "Whole-array reassignment copies payload",
       "statement": "Reassigning an array binding from another array place copies the full sizeof([T;N]) byte payload into the destination, not just a pointer.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1991-L2004"],
-      "related": ["stmt.let.array-rebind-copy"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1991-L2004"
+      ],
+      "related": [
+        "stmt.let.array-rebind-copy"
+      ]
     },
     {
       "id": "stmt.assign.enum-rebind-copy",
       "domain": "stmt",
       "title": "Enum reassignment copies inline value-repr",
       "statement": "Reassigning a tagged-enum binding copies the new value's inline {disc, payload} footprint into the slot; a bare discriminant value (e.g. `o = None` with no inferred type args) writes only the discriminant word.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1938-L1958"],
-      "related": ["stmt.let.copy-rebind-independent"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1938-L1958"
+      ],
+      "related": [
+        "stmt.let.copy-rebind-independent"
+      ]
     },
     {
       "id": "layout.value.scalar-vs-aggregate-storage",
       "domain": "layout",
       "title": "Storage representation by type kind",
       "statement": "A binding's storage representation is fixed by type kind: scalars/fn-pointers/fn-items hold the value inline; structs, zoned-structs, arrays, and value-repr enums hold inline storage addressed by a pointer; tuples, closures, and slices/str are pointer-to-aggregate ({ptr,len} for slices); FnItem (per-instantiation ZST) lowers identically to a function pointer.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1457-L1557", "src/compiler/mlir_gen_stmt.cpp#L1528-L1541", "src/compiler/mlir_gen_stmt.cpp#L1599-L1630"],
-      "related": ["layout.fatptr.slice-dyn-16-bytes"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1457-L1557",
+        "src/compiler/mlir_gen_stmt.cpp#L1528-L1541",
+        "src/compiler/mlir_gen_stmt.cpp#L1599-L1630"
+      ],
+      "related": [
+        "layout.fatptr.slice-dyn-16-bytes"
+      ]
     }
   ]
 }

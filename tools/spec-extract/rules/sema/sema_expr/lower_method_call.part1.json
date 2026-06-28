@@ -11,7 +11,8 @@
       "statement": "For a method call `r.m(...)`, if the receiver type is a (non-raw) reference-like type whose pointee is itself reference-like (`&&T`, `&&mut T`, etc.), the extra reference layers are removed by explicit derefs until a single reference layer remains: `r.m()` for `r:&&T` ≡ `(*r).m()`. Raw pointers (`*const`/`*mut`) are not peeled here.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L7124-L7130"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.method.vec-get-move-out-rejected",
@@ -69,7 +70,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L7301-L7312",
         "src/compiler/sema_expr.cpp#L7324-L7327"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.typevar-trait-method-dispatch",
@@ -109,7 +111,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L7341-L7366",
         "src/compiler/sema_expr.cpp#L7444-L7458"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.dispatch.blanket-bound-transitive",
@@ -145,7 +148,8 @@
       "statement": "Each method argument is coerced toward its substituted parameter type in canonical order applying: unsize-to-dyn, implicit reborrow, and integer widening. After coercion, a non-Error/non-TypeVar/non-AssocType param type that is incompatible with the argument type is a type-mismatch error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L7525-L7540"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "const.intlit.method-arg-range-check",

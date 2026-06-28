@@ -34,14 +34,15 @@
       "id": "expr.match.fnitem-arms-lub-fnptr",
       "domain": "expr",
       "title": "distinct fn-item arms LUB to the common fn-pointer type",
-      "statement": "When two arms produce distinct FnItem values with the same signature (e.g. `=> a_f` and `=> b_f`), the match result type is the corresponding `fn(...)->R` pointer type, since FnItem\u2192FnItem coercion is rejected; both arms coerce to that FnPtr.",
+      "statement": "When two arms produce distinct FnItem values with the same signature (e.g. `=> a_f` and `=> b_f`), the match result type is the corresponding `fn(...)->R` pointer type, since FnItem→FnItem coercion is rejected; both arms coerce to that FnPtr.",
       "evidence": [
         "src/compiler/sema_stmt.cpp#L9502-L9523"
       ],
       "divergence": "Rust-conformant: matches Rust LUB for fn-item match arms.",
       "related": [
         "expr.match.result-type-lub"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.match.intlit-result-widen",
@@ -71,7 +72,8 @@
       "statement": "A match arm that follows an unguarded catch-all (`_`) arm is unreachable and is diagnosed (closes B-pt-07 expr position).",
       "evidence": [
         "src/compiler/sema_stmt.cpp#L8946-L8959"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "pat.match.or-alt-binding-consistency",
@@ -142,7 +144,8 @@
       "statement": "A match arm must have either an expression body (`=> expr`) or a block body (`=> { ... }`); an arm with neither is a diagnostic.",
       "evidence": [
         "src/compiler/sema_stmt.cpp#L9412-L9471"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.match.temp-scrutinee-dropped",
@@ -201,7 +204,8 @@
       "evidence": [
         "src/compiler/sema_stmt.cpp#L8961-L9003"
       ],
-      "divergence": "Logos extension: Writ structured-data pattern matching (not in Rust)."
+      "divergence": "Logos extension: Writ structured-data pattern matching (not in Rust).",
+      "testability": "transitive"
     },
     {
       "id": "pat.match.or-fanout-bindings",

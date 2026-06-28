@@ -28,7 +28,8 @@
       "divergence": "A6: WritStatic is a Logos addition.",
       "related": [
         "metaprog.writ-blob.ast-fragment-recurse"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "metaprog.metacall.no-nested-metacall",
@@ -121,7 +122,8 @@
       "divergence": "A3/A6: ExprBlob is the Logos metaprog AST-fragment return.",
       "related": [
         "metaprog.writ-blob.ast-fragment-recurse"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "metaprog.metacall.writ-autofreeze",
@@ -148,7 +150,8 @@
       "divergence": "A1/A6: compile-time splice model.",
       "related": [
         "metaprog.metacall.return-type"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

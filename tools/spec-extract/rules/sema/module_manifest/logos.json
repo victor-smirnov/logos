@@ -9,77 +9,114 @@
       "domain": "module",
       "title": "Manifest is line-oriented key/value",
       "statement": "A module manifest is parsed line by line. Each non-empty, non-comment line is split into a key (first whitespace-delimited token) and a value (remainder, trimmed). Surrounding whitespace on the line is trimmed before parsing.",
-      "evidence": ["src/compiler/module_manifest.cpp#L24-L33"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L24-L33"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.blank-and-comment-skip",
       "domain": "module",
       "title": "Blank and # comment lines ignored",
       "statement": "A manifest line that is empty after trimming, or whose first non-whitespace character is '#', is ignored.",
-      "evidence": ["src/compiler/module_manifest.cpp#L26-L27"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L26-L27"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.unknown-key-ignored",
       "domain": "module",
       "title": "Unknown directives ignored for forward compatibility",
       "statement": "A manifest key that matches no known directive is silently ignored (forward compatibility); it is not an error.",
-      "evidence": ["src/compiler/module_manifest.cpp#L66"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L66"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.directive-set",
       "domain": "module",
       "title": "Recognized manifest directives",
       "statement": "Recognized manifest directives are: `module` (canonical name), `version`, `id` (mangle key), `root` (source directory), `depends`, `exclude`, `ast_only`, `lowering`, `tier`, `prelude`. `depends`/`exclude`/`ast_only` accumulate one value per occurrence (empty values skipped); the rest set a single value.",
-      "evidence": ["src/compiler/module_manifest.cpp#L35-L65"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L35-L65"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.required-module-and-root",
       "domain": "module",
       "title": "module and root are required",
       "statement": "A manifest is invalid (parse fails with an error) unless it declares a non-empty `module` name and a non-empty `root` directory.",
-      "evidence": ["src/compiler/module_manifest.cpp#L69-L70"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L69-L70"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.version-default",
       "domain": "module",
       "title": "Version defaults to 0.0",
       "statement": "If no `version` directive is present, the module version defaults to \"0.0\".",
-      "evidence": ["src/compiler/module_manifest.cpp#L71"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L71"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.lowering-eager-default",
       "domain": "module",
       "title": "lowering directive: lazy|eager, default eager",
       "statement": "The `lowering` directive must be exactly `lazy` or `eager`; any other value is an error. Absent the directive, lowering is eager (emit .o + LIR blob); `lazy` emits only the parsed-AST artifact and defers lowering to the consumer.",
-      "evidence": ["src/compiler/module_manifest.cpp#L42-L49"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L42-L49"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.tier-closed-set",
       "domain": "module",
       "title": "tier directive restricted to lang|mem|std",
       "statement": "The `tier` directive must be exactly one of `lang`, `mem`, or `std`; any other (including empty) value is an error. lang = no-alloc/no-OS, mem = heap/no-OS, std = full. An absent tier means tier-not-declared (no availability enforcement).",
-      "evidence": ["src/compiler/module_manifest.cpp#L50-L58", "src/compiler/module_manifest.hpp#L52-L60"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L50-L58",
+        "src/compiler/module_manifest.hpp#L52-L60"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.manifest.prelude-nonempty",
       "domain": "module",
       "title": "prelude requires a package name",
       "statement": "If a `prelude` directive is present, its value must be a non-empty (dotted) package name; an empty value is an error. The named package is injected as an implicit `use <pkg>;` at the head of every file in the module that lacks `#![no_implicit_prelude]`.",
-      "evidence": ["src/compiler/module_manifest.cpp#L59-L65", "src/compiler/module_manifest.hpp#L62-L66"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L59-L65",
+        "src/compiler/module_manifest.hpp#L62-L66"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.id.explicit-or-derived",
       "domain": "module",
       "title": "Effective module id: explicit id else path hash",
       "statement": "The effective module identifier used in symbol mangling is the explicit manifest `id` (sanitized) when set; otherwise it is derived as the FNV-1a 64-bit hash of the module's target install path, formatted as 'm' followed by 16 lowercase hex digits. The 'm' prefix guarantees the token never begins with a digit.",
-      "evidence": ["src/compiler/module_manifest.cpp#L85-L98", "src/compiler/module_manifest.hpp#L73-L79"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L85-L98",
+        "src/compiler/module_manifest.hpp#L73-L79"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.id.mangle-legal-sanitize",
       "domain": "module",
       "title": "Module id sanitized to mangle-legal token",
       "statement": "An explicit module `id` is sanitized into a mangle-legal token: every character that is not [A-Za-z0-9_] is replaced by '_'. The resulting token is what is baked into symbol mangling to disambiguate same-named packages from different modules/versions.",
-      "evidence": ["src/compiler/module_manifest.cpp#L76-L83", "src/compiler/module_manifest.cpp#L88"]
+      "evidence": [
+        "src/compiler/module_manifest.cpp#L76-L83",
+        "src/compiler/module_manifest.cpp#L88"
+      ],
+      "testability": "untestable"
     }
   ]
 }

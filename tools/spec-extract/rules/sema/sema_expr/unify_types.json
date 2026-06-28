@@ -36,7 +36,8 @@
       "statement": "A formal type-parameter named `Self` is never bound during unification (it is resolved by the impl/receiver, not inferred from arguments).",
       "evidence": [
         "src/compiler/sema_expr.cpp#L3628"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "generic.infer.no-bind-infer-hole",
@@ -64,7 +65,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L3641-L3653"
       ],
-      "uncertainty": "Mutability compatibility is enforced elsewhere (arg type-check / B6); unify itself is mutability-agnostic."
+      "uncertainty": "Mutability compatibility is enforced elsewhere (arg type-check / B6); unify itself is mutability-agnostic.",
+      "testability": "transitive"
     },
     {
       "id": "generic.infer.ref-unsize-pointee",
@@ -140,7 +142,8 @@
       "statement": "Among ≥2 generic overloads of a name, each arity-compatible candidate is scored by per-argument fit after substituting inferred bindings: exact type match = 2, compatible (incl. autoderef receiver / general type-compatibility) = 1; any incompatible argument disqualifies the candidate. A candidate whose fixed type-params cannot all be bound is rejected (unless its body always diverges, or a return-type hint is present). The highest-scoring candidate wins; ties are broken in favour of a candidate defined in the current package.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L3759-L3845"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.overload.receiver-autoref-autoderef",

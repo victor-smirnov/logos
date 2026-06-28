@@ -91,7 +91,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L3216",
         "src/compiler/sema_expr.cpp#L3406-L3411"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.call.arity-exact",
@@ -122,7 +123,8 @@
         "src/compiler/sema_expr.cpp#L3234",
         "src/compiler/sema_expr.cpp#L3257",
         "src/compiler/sema_expr.cpp#L3514"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.call.intlit-fit-scalar",
@@ -170,7 +172,8 @@
       "statement": "A `#[fn_macro]` or `#[token_macro]` overload of a name is invocable only via `name!(...)` syntax; plain `name(...)` call resolution excludes such overloads.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L3336-L3344"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.call.generic-inference-from-args",

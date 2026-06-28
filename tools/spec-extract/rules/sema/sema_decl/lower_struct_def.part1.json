@@ -80,7 +80,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1200-L1201"
       ],
-      "divergence": "A: #[non_null] attribute is a Logos addition mirroring Rust NonNull niche."
+      "divergence": "A: #[non_null] attribute is a Logos addition mirroring Rust NonNull niche.",
+      "testability": "untestable"
     },
     {
       "id": "type.struct.self-describing-thin-ptr",
@@ -90,7 +91,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1186-L1189"
       ],
-      "divergence": "A: Writ/RefRepr Logos addition, no Rust analog."
+      "divergence": "A: Writ/RefRepr Logos addition, no Rust analog.",
+      "testability": "untestable"
     },
     {
       "id": "type.struct.zone-mut-fat-ref",
@@ -100,7 +102,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1190-L1192"
       ],
-      "divergence": "A: Writ zone model Logos addition; Rust &mut is thin."
+      "divergence": "A: Writ zone model Logos addition; Rust &mut is thin.",
+      "testability": "untestable"
     },
     {
       "id": "type.struct.zoned2-relative-fields",
@@ -110,7 +113,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1193"
       ],
-      "divergence": "A: Writ zoned2 Logos addition, no Rust analog."
+      "divergence": "A: Writ zoned2 Logos addition, no Rust analog.",
+      "testability": "untestable"
     },
     {
       "id": "type.struct.rel-ptr-offset-storage",
@@ -120,7 +124,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1194-L1196"
       ],
-      "divergence": "A: RefRepr RelOffset Logos addition, no Rust analog."
+      "divergence": "A: RefRepr RelOffset Logos addition, no Rust analog.",
+      "testability": "untestable"
     },
     {
       "id": "borrow.escape.borrow-carrying-struct",
@@ -152,7 +157,8 @@
       "statement": "When lowering a body method of a generic struct, type parameters that coincide with the struct's own type parameters are removed from the method's TYPE_PARAMS (mono re-injects them via IMPL_TYPE_PARAMS); only method-introduced type parameters remain method-level.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L1342-L1364"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.enum.type-param-unique",
@@ -237,7 +243,8 @@
       "statement": "A trait object's vtable layout is the method order over the trait's supertrait closure, together with an ordered list of upcast target supertraits; this single layout is the canonical slot order used for dispatch and upcasting.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L1626-L1639"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

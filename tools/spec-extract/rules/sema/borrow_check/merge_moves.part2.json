@@ -142,7 +142,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1433-L1456"
       ],
-      "divergence": "Rust NLL E0597 conformant; line-granular release (DIVERGENCES B6 closed)"
+      "divergence": "Rust NLL E0597 conformant; line-granular release (DIVERGENCES B6 closed)",
+      "testability": "transitive"
     },
     {
       "id": "borrow.use.moved-or-mut-borrowed",
@@ -170,7 +171,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1506-L1528"
       ],
-      "divergence": "Rust NLL conformant (DIVERGENCES B6)"
+      "divergence": "Rust NLL conformant (DIVERGENCES B6)",
+      "testability": "transitive"
     },
     {
       "id": "region.elision.method-result-borrows-self",
@@ -189,7 +191,8 @@
       "statement": "For an operator-desugared/trait method call carrying an empty resolved symbol (e.g. `v[i]`, `*p`), the result borrows the receiver iff EVERY method with that unmangled name is self-borrowing; any disagreement or no match yields not-self-borrowing.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1550-L1567"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.escape.borrow-carrying-type",
@@ -199,7 +202,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1626-L1651"
       ],
-      "divergence": "Logos addition (#[borrow_carrying] arena escape model)"
+      "divergence": "Logos addition (#[borrow_carrying] arena escape model)",
+      "testability": "untestable"
     },
     {
       "id": "region.escape.value-local-root-walk",
@@ -209,7 +213,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1653-L1689"
       ],
-      "divergence": "Rust parity (raw-pointer deref breaks provenance, cf. box_leak)"
+      "divergence": "Rust parity (raw-pointer deref breaks provenance, cf. box_leak)",
+      "testability": "transitive"
     },
     {
       "id": "borrow.recv.bare-place-self-conflict",

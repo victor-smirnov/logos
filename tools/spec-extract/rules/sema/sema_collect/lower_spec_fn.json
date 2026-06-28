@@ -21,7 +21,8 @@
       "statement": "Lifetime parameters in a specialization fn's type-param list contribute no spec pattern (deferred to the borrow checker).",
       "evidence": [
         "src/compiler/sema_collect.cpp#L4431"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "generic.spec.bare-ident-resolution",
@@ -39,7 +40,8 @@
       "statement": "A type-param carrying trait bounds in a specialization pattern is always a TypeVar (never coerced to a concrete leg), with its declared trait bounds recorded.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L4437-L4453"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.fn.self-ref-param-type",
@@ -78,7 +80,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L4551-L4586"
       ],
-      "divergence": "Rust treats the method param as a fresh shadowing generic; Logos reinterprets it as a specialization leg (warned)."
+      "divergence": "Rust treats the method param as a fresh shadowing generic; Logos reinterprets it as a specialization leg (warned).",
+      "testability": "untestable"
     },
     {
       "id": "generic.shadow.type-param-shadows-type-warn",
@@ -88,7 +91,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L4619-L4630"
       ],
-      "uncertainty": "Stated as a current implementation limitation rather than a designed rule."
+      "uncertainty": "Stated as a current implementation limitation rather than a designed rule.",
+      "testability": "untestable"
     },
     {
       "id": "item.param.no-infer-placeholder",
@@ -107,7 +111,8 @@
       "statement": "A fn whose body always diverges is flagged so that type-argument inference can apply the Rust-2024 `!`-fallback rule.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L4673-L4679"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.extern-fn.implicit-pub-unsafe",
@@ -116,7 +121,8 @@
       "statement": "An `extern fn` declaration is implicitly public, unsafe, and extern.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L4684-L4688"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.extern-fn.no-mangle-abi-symbol",
@@ -126,7 +132,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L4715-L4729",
         "src/compiler/sema_collect.cpp#L4873-L4874"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.fn.signature-overloading",
@@ -176,7 +183,8 @@
       "statement": "`main`, `#[no_mangle]` functions, and `__metacall_thunk_*` functions suppress package/signature mangling and keep their bare names as link symbols.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L4858-L4868"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.fn.cross-pkg-coexist",
@@ -185,7 +193,8 @@
       "statement": "Generic functions are keyed by package-qualified mangled symbol; same base+signature in different packages produce distinct symbols and coexist; a duplicate error fires only on an exact symbol-name match within a package.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L4837-L4856"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.dyn.vtable-layout-order",

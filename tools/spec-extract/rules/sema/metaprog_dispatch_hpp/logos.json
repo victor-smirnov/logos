@@ -12,7 +12,8 @@
       "evidence": [
         "src/compiler/metaprog_dispatch.hpp#L94-L100"
       ],
-      "uncertainty": "Header doc comment; the loop body lives in the .cpp. Behavior of exceeding the cap (error vs silent stop) is not specified here."
+      "uncertainty": "Header doc comment; the loop body lives in the .cpp. Behavior of exceeding the cap (error vs silent stop) is not specified here.",
+      "testability": "transitive"
     },
     {
       "id": "metaprog.derive.trigger-may-emit-items",
@@ -43,7 +44,8 @@
         "src/compiler/metaprog_dispatch.hpp#L94-L95",
         "src/compiler/metaprog_dispatch.hpp#L82-L87"
       ],
-      "uncertainty": "Exact set of skipped work is described only via comment."
+      "uncertainty": "Exact set of skipped work is described only via comment.",
+      "testability": "untestable"
     }
   ]
 }

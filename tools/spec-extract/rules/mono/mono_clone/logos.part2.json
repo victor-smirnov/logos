@@ -52,7 +52,8 @@
         "src/compiler/mono_clone.cpp#L630-L713",
         "src/compiler/mono_clone.cpp#L706-L711"
       ],
-      "uncertainty": "Field layout offset computed by mono_dst_prefix_field (defined elsewhere); rule states observable result."
+      "uncertainty": "Field layout offset computed by mono_dst_prefix_field (defined elsewhere); rule states observable result.",
+      "testability": "transitive"
     },
     {
       "id": "mono.dst.field-slice-tail",
@@ -61,7 +62,8 @@
       "statement": "For a custom-DST receiver, an unsized slice tail field projects to a slice value `&[U]` whose data pointer is (data_half + off) cast to `*U` and whose length is the receiver fat pointer's metadata half.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L693-L705"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.dst.field-dyn-tail",
@@ -70,7 +72,8 @@
       "statement": "For a custom-DST receiver, an unsized dyn (UnsizedDyn, or borrow-owned TraitObject) tail field projects to a `&dyn Trait` value whose data pointer is (data_half + off) and whose metadata is the receiver fat pointer's vtable (metadata half), retyped as TraitObject with the field's trait name and type-args carried over.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L668-L692"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.arr-lit.pack-expand",
@@ -133,7 +136,8 @@
       "statement": "When reflect_of(T) monomorphizes to a ZonedStruct with no type arguments, the struct's fully-qualified name (pkg::name) is recorded as a reflect request for the emitted program.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L988-L1001"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

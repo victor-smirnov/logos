@@ -9,84 +9,116 @@
       "domain": "mono",
       "title": "Generic call site forces instantiation",
       "statement": "A reachable call expression carrying explicit type-arguments forces monomorphization of the callee specialized to those type-arguments; the instantiation is keyed by the mangled callee name and instantiated at most once.",
-      "evidence": ["src/compiler/mono_scan.cpp#L145-L156", "src/compiler/mono_scan.cpp#L458-L460", "src/compiler/mono_scan.cpp#L625"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L145-L156",
+        "src/compiler/mono_scan.cpp#L458-L460",
+        "src/compiler/mono_scan.cpp#L625"
+      ]
     },
     {
       "id": "mono.reach.transitive-from-roots",
       "domain": "mono",
       "title": "Reachability is the transitive closure over function bodies",
       "statement": "The set of instantiated/emitted functions is the transitive closure of calls reachable from the entry points: every sub-expression and sub-block of a reachable function body is scanned, and each call therein contributes its callee to the reachable set.",
-      "evidence": ["src/compiler/mono_scan.cpp#L26-L36", "src/compiler/mono_scan.cpp#L142-L396"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L26-L36",
+        "src/compiler/mono_scan.cpp#L142-L396"
+      ]
     },
     {
       "id": "mono.spec.most-specific-wins",
       "domain": "mono",
       "title": "Most-specific specialization is selected",
       "statement": "Among the specialization patterns of a function whose arity equals the call's type-argument count and that all match the type-arguments, the one with the strictly greatest specificity vector is selected; a matching specialization is preferred over the generic template.",
-      "evidence": ["src/compiler/mono_scan.cpp#L427-L446", "src/compiler/mono_scan.cpp#L627-L636"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L427-L446",
+        "src/compiler/mono_scan.cpp#L627-L636"
+      ]
     },
     {
       "id": "mono.spec.ambiguous-is-error",
       "domain": "mono",
       "title": "Tied specializations are an error",
       "statement": "If two or more matching specializations have equal greatest specificity (no unique most-specific match), instantiation fails with an 'ambiguous specializations' error.",
-      "evidence": ["src/compiler/mono_scan.cpp#L439-L451"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L439-L451"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.subst.depth-limit",
       "domain": "mono",
       "title": "Instantiation recursion depth is bounded",
       "statement": "Monomorphization recursion is bounded by a maximum instantiation depth; exceeding it (an unbounded recursive instantiation chain) is a compile error rather than nontermination.",
-      "evidence": ["src/compiler/mono_scan.cpp#L618-L623"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L618-L623"
+      ]
     },
     {
       "id": "mono.subst.struct-then-method-tparams",
       "domain": "mono",
       "title": "Generic method type-args split struct-level then method-level",
       "statement": "For a call to a method of a generic struct, the call's type-argument vector is the struct-level type-parameters followed by the method-level type-parameters; substitution binds the struct prefix to the struct tparams and the remaining suffix to the method's own tparams in order.",
-      "evidence": ["src/compiler/mono_scan.cpp#L469-L474", "src/compiler/mono_scan.cpp#L588-L610"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L469-L474",
+        "src/compiler/mono_scan.cpp#L588-L610"
+      ]
     },
     {
       "id": "mono.subst.impl-target-unification",
       "domain": "mono",
       "title": "Partial-spec impl target is unified to bind impl params",
       "statement": "When an impl block's target is a structured pattern (e.g. impl<T,E> for Foo<Vec<T>,E>), the call's positional type-arguments are unified against the impl-target pattern to bind the impl-level type-parameters by name, rather than bound positionally; method-level type-arguments are then layered positionally after the impl-level prefix.",
-      "evidence": ["src/compiler/mono_scan.cpp#L573-L587", "src/compiler/mono_scan.cpp#L650-L681"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L573-L587",
+        "src/compiler/mono_scan.cpp#L650-L681"
+      ]
     },
     {
       "id": "mono.subst.variadic-pack-tail",
       "domain": "mono",
       "title": "Trailing variadic type-parameter binds remaining type-args as a pack",
       "statement": "If a template's last type-parameter is variadic, the non-variadic leading type-parameters bind positionally and all remaining type-arguments are collected into a pack bound to the variadic parameter.",
-      "evidence": ["src/compiler/mono_scan.cpp#L645-L702"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L645-L702"
+      ]
     },
     {
       "id": "mono.subst.const-pack-typed",
       "domain": "mono",
       "title": "Const variadic-pack elements carry their numeric type",
       "statement": "When a variadic type-parameter is a const-pack, each scalar type-argument is wrapped as a ConstVar carrying both the parameter's numeric type and the constant value, so pack expansion can emit a typed integer literal.",
-      "evidence": ["src/compiler/mono_scan.cpp#L682-L701"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L682-L701"
+      ]
     },
     {
       "id": "mono.dyn.coerce-instantiates-blanket-impl",
       "domain": "mono",
       "title": "Concrete-to-dyn coercion instantiates the blanket impl for the source type",
       "statement": "An unsize coercion of a concrete value to a trait object (&X as &dyn Trait, box X as Box<dyn Trait>) makes the trait's blanket implementation for the concrete source type reachable; the instance is keyed by the trait name and the concrete Self type so the instance name matches the vtable key.",
-      "evidence": ["src/compiler/mono_scan.cpp#L242-L280"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L242-L280"
+      ]
     },
     {
       "id": "mono.dyn.self-derivation-ref-vs-box",
       "domain": "mono",
       "title": "Self type for dyn coercion: pointee for ref/ptr, one Box-unwrap for box value",
       "statement": "For a coercion to a trait object the Self type is derived as: for a reference/pointer source, the pointee (no Box unwrapping, so &Box<T> as &dyn keys on Box<T>); for a Box-value source (box X), the boxed type by unwrapping exactly one Box.",
-      "evidence": ["src/compiler/mono_scan.cpp#L249-L264"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L249-L264"
+      ]
     },
     {
       "id": "mono.reach.writ-builder-fn",
       "domain": "mono",
       "title": "Writ container cast pulls in its builder function",
       "statement": "A Writ container cast (e.g. &[T] as <I32>[], or an @{...} comprehension with captures) lowers to a call to a named builder function; that builder function is made reachable even though the cast is not itself a call node.",
-      "evidence": ["src/compiler/mono_scan.cpp#L231-L239"]
+      "evidence": [
+        "src/compiler/mono_scan.cpp#L231-L239"
+      ],
+      "testability": "untestable"
     }
   ]
 }

@@ -123,7 +123,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L13745-L13797"
       ],
-      "uncertainty": "ELSE duplication at each fall-through is documented as an accepted limitation, not a fundamental rule."
+      "uncertainty": "ELSE duplication at each fall-through is documented as an accepted limitation, not a fundamental rule.",
+      "testability": "untestable"
     },
     {
       "id": "coerce.closure.hint-from-fn-bound",

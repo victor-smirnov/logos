@@ -9,91 +9,124 @@
       "domain": "mono",
       "title": "Multi-impl trait method disambiguated by argument-type signature",
       "statement": "When a multi-parameter trait `Trait<A> for Self` has several impls for the SAME `Self` differing only in `A` (e.g. `impl Sum<i32> for i32` and `impl Sum<&i32> for i32`), a call is resolved to the impl whose parameter signature matches the call's concrete argument types: among candidate symbols `<Self>__<m>__[fg]__<sig>`, the one whose `<sig>` equals the mangled concatenation of the call's argument types is selected. This override applies only when more than one candidate matches; single-impl dispatch is unchanged.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3183-L3227"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3183-L3227"
+      ]
     },
     {
       "id": "mono.subst.method-vs-receiver-tparam-split",
       "domain": "mono",
       "title": "Method-level type params separated from receiver-level for inference",
       "statement": "For a generic method on a generic receiver, the template's type-parameter list is partitioned: names matching the receiver type's (struct or enum) type-parameter names are receiver-level; the rest are method-level. Method-level type arguments are inferred by structurally matching the call's argument types against the template's parameter types; the call is only retargeted to a concrete callee when ALL method-level params are thereby bound.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3240-L3298", "src/compiler/mono_clone.cpp#L3261-L3271"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3240-L3298",
+        "src/compiler/mono_clone.cpp#L3261-L3271"
+      ]
     },
     {
       "id": "mono.subst.impl-target-pattern-unify",
       "domain": "mono",
       "title": "Impl-level bindings recovered by unifying impl target pattern",
       "statement": "When an impl's target is a structured pattern (e.g. `impl<T,E> Foo<Vec<T>,E>`) rather than the bare shape `Foo<T,E>`, impl-level type parameters are bound by unifying the recorded impl-target pattern against the concrete receiver type, not by positional copy of the receiver's type arguments. If no pattern is recorded or unification fails, positional binding from the receiver's type arguments is used as fallback. The final monomorphized type-argument vector is [receiver/impl-level..., method-level...].",
-      "evidence": ["src/compiler/mono_clone.cpp#L3299-L3350", "src/compiler/mono_clone.cpp#L3313-L3347"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3299-L3350",
+        "src/compiler/mono_clone.cpp#L3313-L3347"
+      ]
     },
     {
       "id": "mono.subst.struct-self-type-pattern-args",
       "domain": "mono",
       "title": "Structured impl self-type yields substituted pattern args for the concrete receiver",
       "statement": "For a fully-concrete generic call rewritten to a struct-method callee, when the impl has a structured self-type (e.g. `impl<T> Pin<&T>`), the concrete struct's type arguments are the impl-target pattern args after substituting the impl-level and method-level type arguments, not the raw impl-level params; positional copy is used only when no pattern exists or substitution leaves a TypeVar/assoc-type unresolved.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3403-L3446"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3403-L3446"
+      ]
     },
     {
       "id": "mono.dispatch.receiver-only-spec-guard",
       "domain": "mono",
       "title": "Receiver-concretization only when no method-level type-arg tail remains",
       "statement": "A generic struct-method call is rewritten to a concrete-struct callee (`<concrete-struct>__<method>`) with cleared type_args ONLY when every type argument is concrete (no TypeVar) AND the type-argument count does not exceed the impl-level type-parameter count (no method-level tail). If a method-level tail remains, the bare-template callee plus full type_args is retained so a single full specialization can be driven.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3375-L3458", "src/compiler/mono_clone.cpp#L3396-L3399"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3375-L3458",
+        "src/compiler/mono_clone.cpp#L3396-L3399"
+      ]
     },
     {
       "id": "mono.mangle.generic-call-callee",
       "domain": "mono",
       "title": "Instantiated generic call mangles callee from type arguments",
       "statement": "After a generic call is instantiated with non-empty type arguments and not rewritten as a struct-method, its callee symbol is the base name mangled together with its type arguments.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3374-L3463"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3374-L3463"
+      ]
     },
     {
       "id": "mono.dispatch.dyn-receiver-vtable-retarget",
       "domain": "mono",
       "title": "Generic receiver monomorphized to a trait object dispatches through the vtable",
       "statement": "A generic method call whose receiver, after substitution, becomes a (possibly reference-wrapped) trait object / unsized-dyn with a known trait — and that carries no resolved symbol, tag, or vtable index — is re-typed to a bare TraitObject and dispatched virtually: the vtable slot is the method's index in the trait's declared method order, and the call is emitted as a dynamic method call. Gated on an unset vtable index (24-bit sign-bit set) with empty resolved symbol/tag so an already-resolved dispatch is never disturbed.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3486-L3538", "src/compiler/mono_clone.cpp#L3499-L3522"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3486-L3538",
+        "src/compiler/mono_clone.cpp#L3499-L3522"
+      ]
     },
     {
       "id": "mono.dispatch.projection-receiver-retarget",
       "domain": "mono",
       "title": "TypeVar / assoc-projection receiver retargeted to concrete symbol after subst",
       "statement": "A method call whose original receiver (after peeling one pointer/reference layer) is a TypeVar or associated-type projection is retargeted to a concrete callee symbol only when substitution makes the receiver concrete (kind is not TypeVar/AssocType); an unresolved projection is left as-is.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3539-L3570"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3539-L3570"
+      ]
     },
     {
       "id": "mono.mangle.concrete-receiver-cname",
       "domain": "mono",
       "title": "Concrete receiver name from struct/enum/pointer kind",
       "statement": "The concrete receiver class name for symbol keying is: the concrete struct name for Struct/ZonedStruct; `<enum>__<arg1>__<arg2>...` (each arg mangled) for Enum; for a pointer/reference receiver, the pointee's struct/enum name, else the pointer's own type string if a `<ptr>__<method>` symbol exists, else the pointee's type string.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3571-L3610", "src/compiler/mono_clone.cpp#L3579-L3589"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3571-L3610",
+        "src/compiler/mono_clone.cpp#L3579-L3589"
+      ]
     },
     {
       "id": "mono.dispatch.tuple-receiver-sentinel",
       "domain": "mono",
       "title": "Tuple receiver dispatches via $tuple$N sentinel keys",
       "statement": "For a (possibly `&`/`&mut`) tuple receiver, method dispatch prefers the concrete sentinel key `$tuple$N$<t1>$...` (N = arity, each element type-string), falling back to the generic `$tuple$N` blanket, then `$tuple$variadic`, choosing the first whose `<key>__<method>` symbol exists.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3611-L3657"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3611-L3657"
+      ]
     },
     {
       "id": "mono.dispatch.fnptr-receiver-sentinel",
       "domain": "mono",
       "title": "Function-pointer receiver dispatches via $fnptr$N sentinel key",
       "statement": "For a (possibly `&`/`&mut`) function-value receiver, a method from `impl<...> Trait for fn(...)->R` is dispatched via the arity-keyed sentinel `$fnptr$N` (N = parameter count) when a `$fnptr$N__<method>` symbol exists.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3658-L3684"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3658-L3684"
+      ]
     },
     {
       "id": "mono.dispatch.slice-receiver-is-str",
       "domain": "mono",
       "title": "&[u8] receiver class name maps to str",
       "statement": "A receiver whose computed class name is `&[u8]` is keyed as `str` for method dispatch.",
-      "evidence": ["src/compiler/mono_clone.cpp#L3685-L3686"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3685-L3686"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.dispatch.ref-impl-symbol-preference",
       "domain": "mono",
       "title": "Reference receiver prefers an `impl Trait for &C` symbol when it exists",
       "statement": "A `&`/`&mut` receiver over a concrete type whose peeled class name is `<C>` is keyed to the ref-impl symbol (`$ref_<C>__m` / `$mut_ref_<C>__m`) instead of the plain `<C>__m` when the plain symbol is absent but the ref-impl symbol exists; otherwise the plain symbol is used (a plain `&Struct` call without a ref-impl is unaffected).",
-      "evidence": ["src/compiler/mono_clone.cpp#L3687-L3699"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L3687-L3699"
+      ],
+      "testability": "transitive"
     }
   ]
 }

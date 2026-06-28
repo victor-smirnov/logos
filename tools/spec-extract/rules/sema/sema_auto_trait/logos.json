@@ -11,7 +11,8 @@
       "statement": "Auto-trait checking memoizes on key (type, trait); revisiting an in-progress (type, trait) pair during recursion is treated as satisfied (true), so a recursive type does not loop and is not rejected merely for self-reference.",
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L32-L35"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.auto.scalars-and-fnptr",
@@ -20,7 +21,8 @@
       "statement": "Every scalar type (bool, unit/void, iN/uN incl. i24/u24/i56/u56/i128/u128, f32/f64, integer/float literal types), function items, and function pointers satisfy every auto trait unconditionally.",
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L89-L99"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.auto.raw-pointer-not-send-sync",
@@ -40,7 +42,8 @@
         "src/compiler/sema_auto_trait.cpp#L101-L112",
         "src/compiler/sema_auto_trait.cpp#L121",
         "src/compiler/sema_auto_trait.cpp#L126"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.auto.shared-ref-via-sync",
@@ -49,7 +52,8 @@
       "statement": "For a shared reference &T, both Send and Sync are satisfied iff T: Sync. (Send(&T) = Sync(T), Sync(&T) = Sync(T).)",
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L120-L122"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.auto.mut-ref-send-sync",
@@ -58,7 +62,8 @@
       "statement": "For a mutable reference &mut T, Send(&mut T) = Send(T) and Sync(&mut T) = Sync(T).",
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L125-L130"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.auto.typevar-via-bounds",
@@ -78,7 +83,8 @@
         "src/compiler/sema_auto_trait.cpp#L37-L85",
         "src/compiler/sema_auto_trait.cpp#L168-L170",
         "src/compiler/sema_auto_trait.cpp#L203-L205"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.auto.generic-impl-bound-check",
@@ -124,7 +130,8 @@
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L164-L167",
         "src/compiler/sema_auto_trait.cpp#L176"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.auto.unpin-default-true",
@@ -152,7 +159,8 @@
       "statement": "A slice type [T] (a shared-reference-shaped view) satisfies Send and Sync iff its element type T satisfies Sync (not the queried trait); an empty-element slice vacuously satisfies.",
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L224-L227"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.auto.tuple-all-elements",
@@ -179,7 +187,8 @@
       "statement": "Any type kind not otherwise handled (e.g. trait objects) is conservatively treated as not satisfying any auto trait.",
       "evidence": [
         "src/compiler/sema_auto_trait.cpp#L254-L256"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.auto.structural-satisfaction",

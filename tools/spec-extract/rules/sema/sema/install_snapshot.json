@@ -9,51 +9,77 @@
       "domain": "type",
       "title": "Types are interned by canonical structural identity",
       "statement": "Every type has a canonical identity: two types constructed structurally identically (per the per-kind identity fields below, computed bottom-up over already-canonical sub-types) denote the same type and intern to one shared representative; structurally distinct types intern to distinct representatives.",
-      "evidence": ["src/compiler/sema.cpp#L801-L940", "src/compiler/sema.cpp#L1099-L1109", "src/compiler/sema.cpp#L1345-L1354"],
-      "related": ["type.identity.ref-vs-typeuid", "type.identity.lifetime-ignored"]
+      "evidence": [
+        "src/compiler/sema.cpp#L801-L940",
+        "src/compiler/sema.cpp#L1099-L1109",
+        "src/compiler/sema.cpp#L1345-L1354"
+      ],
+      "related": [
+        "type.identity.ref-vs-typeuid",
+        "type.identity.lifetime-ignored"
+      ]
     },
     {
       "id": "type.identity.lifetime-ignored",
       "domain": "type",
       "title": "Lifetimes excluded from type identity for & / &mut",
       "statement": "Reference types `&'a T` and `&mut 'a T` have identity determined solely by mutability and pointee `T`; the lifetime `'a` is NOT part of type identity (matches types_equal). Lifetime args on struct/enum/assoc types likewise do not affect type equality.",
-      "evidence": ["src/compiler/sema.cpp#L817-L821", "src/compiler/sema.cpp#L954-L959"],
-      "divergence": "Rust treats lifetimes as part of the type but as a separate region-check phase; identity-collapse of lifetimes here matches Rust's type-equality-modulo-regions."
+      "evidence": [
+        "src/compiler/sema.cpp#L817-L821",
+        "src/compiler/sema.cpp#L954-L959"
+      ],
+      "divergence": "Rust treats lifetimes as part of the type but as a separate region-check phase; identity-collapse of lifetimes here matches Rust's type-equality-modulo-regions.",
+      "testability": "transitive"
     },
     {
       "id": "type.identity.ptr-distinct-by-mut",
       "domain": "type",
       "title": "Raw pointer identity = (mutability, pointee, zoned-flag)",
       "statement": "Raw pointer `*const T`, `*mut T`, and `*zoned T` are mutually distinct types: identity = (mut flag, zoned flag carried in const_val bit 0, pointee T). `*zoned T` interns distinctly from a plain `*T`.",
-      "evidence": ["src/compiler/sema.cpp#L808-L816", "src/compiler/sema.cpp#L974-L975"]
+      "evidence": [
+        "src/compiler/sema.cpp#L808-L816",
+        "src/compiler/sema.cpp#L974-L975"
+      ]
     },
     {
       "id": "type.identity.array-size",
       "domain": "type",
       "title": "Array identity includes the length",
       "statement": "Array `[T; N]` identity = (length N, symbolic-length variable name, element T). Arrays with different lengths (concrete or symbolic) are distinct types.",
-      "evidence": ["src/compiler/sema.cpp#L822-L826", "src/compiler/sema.cpp#L980-L983"]
+      "evidence": [
+        "src/compiler/sema.cpp#L822-L826",
+        "src/compiler/sema.cpp#L980-L983"
+      ]
     },
     {
       "id": "type.identity.nominal-args",
       "domain": "type",
       "title": "Struct/enum identity = (package, name, type-args)",
       "statement": "A nominal struct or enum type's identity = (package name, type/enum name, ordered type arguments). Two instantiations of a generic nominal type with different type arguments are distinct types; zoned structs share this scheme.",
-      "evidence": ["src/compiler/sema.cpp#L827-L837", "src/compiler/sema.cpp#L984-L994"]
+      "evidence": [
+        "src/compiler/sema.cpp#L827-L837",
+        "src/compiler/sema.cpp#L984-L994"
+      ]
     },
     {
       "id": "type.identity.tuple",
       "domain": "type",
       "title": "Tuple identity = ordered element types",
       "statement": "A tuple type's identity is the ordered sequence of its element types; tuples are equal iff same arity and pairwise-equal elements.",
-      "evidence": ["src/compiler/sema.cpp#L838-L840", "src/compiler/sema.cpp#L995-L996"]
+      "evidence": [
+        "src/compiler/sema.cpp#L838-L840",
+        "src/compiler/sema.cpp#L995-L996"
+      ]
     },
     {
       "id": "type.identity.slice-mut-owning",
       "domain": "type",
       "title": "Slice identity = (mutability, owning kind, element)",
       "statement": "Slice types are distinguished by element T, mutability, and owning kind (const_val): `&[T]`, `&mut [T]`, and owning `Box<[T]>` are mutually distinct types.",
-      "evidence": ["src/compiler/sema.cpp#L841-L847", "src/compiler/sema.cpp#L997-L1003"],
+      "evidence": [
+        "src/compiler/sema.cpp#L841-L847",
+        "src/compiler/sema.cpp#L997-L1003"
+      ],
       "divergence": "A3 (custom-DST / Box<[T]> as owning slice kind)"
     },
     {
@@ -61,80 +87,117 @@
       "domain": "type",
       "title": "Trait-object identity = (owning kind, auto-traits, trait, type-args)",
       "statement": "A trait-object `dyn Trait<..>` identity = (owning kind {Borrow/Box/Rc/Arc} in const_val low byte, `+Send` bit 8, `+Sync` bit 9, trait name, trait type-args). `&dyn T` and `&dyn T + Send` are distinct types; the same trait behind Box vs Rc vs Arc are distinct.",
-      "evidence": ["src/compiler/sema.cpp#L884-L892", "src/compiler/sema.cpp#L1032-L1035"]
+      "evidence": [
+        "src/compiler/sema.cpp#L884-L892",
+        "src/compiler/sema.cpp#L1032-L1035"
+      ]
     },
     {
       "id": "type.identity.dstref",
       "domain": "type",
       "title": "Custom-DST reference identity = (package, name, mutability, owning kind, type-args)",
       "statement": "A custom-DST reference type's identity = (package, struct name, mutability, owning kind {Borrow/Box}, type-args); an owning `Box<Foo>` custom-DST is distinct from a borrowed `&Foo`.",
-      "evidence": ["src/compiler/sema.cpp#L855-L863", "src/compiler/sema.cpp#L1009-L1014"],
-      "divergence": "A3 (custom-DST)"
+      "evidence": [
+        "src/compiler/sema.cpp#L855-L863",
+        "src/compiler/sema.cpp#L1009-L1014"
+      ],
+      "divergence": "A3 (custom-DST)",
+      "testability": "untestable"
     },
     {
       "id": "type.identity.fnptr-abi",
       "domain": "type",
       "title": "Function-pointer identity = (ABI tag, params, return)",
       "statement": "A function-pointer type identity = (extern-ABI tag where empty = default Rust ABI, ordered parameter types, return type). Function pointers differing only in ABI are distinct types.",
-      "evidence": ["src/compiler/sema.cpp#L864-L869", "src/compiler/sema.cpp#L1015-L1019"]
+      "evidence": [
+        "src/compiler/sema.cpp#L864-L869",
+        "src/compiler/sema.cpp#L1015-L1019"
+      ]
     },
     {
       "id": "type.identity.fnitem-distinct",
       "domain": "type",
       "title": "Each function item is a distinct zero-sized type",
       "statement": "A function-item type's identity = (function symbol name, turbofish type-args, signature params, return). Two distinct functions with identical signatures get distinct fn-item types, and distinct instantiations of one generic function (even when the resulting fn-ptr signature collapses, e.g. unused type param) get distinct fn-item types.",
-      "evidence": ["src/compiler/sema.cpp#L874-L883", "src/compiler/sema.cpp#L1023-L1031"]
+      "evidence": [
+        "src/compiler/sema.cpp#L874-L883",
+        "src/compiler/sema.cpp#L1023-L1031"
+      ]
     },
     {
       "id": "type.identity.assoc-type",
       "domain": "type",
       "title": "Associated-type identity = (trait, assoc name, base, GAT args)",
       "statement": "An associated/projection type identity = (trait name, associated-type name, base type, generic-associated-type arguments). GATs differing in their args are distinct projection types.",
-      "evidence": ["src/compiler/sema.cpp#L903-L908", "src/compiler/sema.cpp#L1044-L1049"]
+      "evidence": [
+        "src/compiler/sema.cpp#L903-L908",
+        "src/compiler/sema.cpp#L1044-L1049"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.identity.int-lit-value",
       "domain": "type",
       "title": "Integer-literal placeholder identity carries its value",
       "statement": "An inferred integer-literal type `{integer}` carrying a const value is identified by that value (const_val); two literal placeholders with different values do not collapse to one type.",
-      "evidence": ["src/compiler/sema.cpp#L909-L916"]
+      "evidence": [
+        "src/compiler/sema.cpp#L909-L916"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.identity.wstatic-config",
       "domain": "type",
       "title": "WritStatic-literal type identity = its byte-hash",
       "statement": "A type parameterized by a WritStatic literal config (`Foo::<@{...}>`) is identified by the byte-hash of that literal; distinct configurations instantiate to distinct types and do not dedupe.",
-      "evidence": ["src/compiler/sema.cpp#L917-L922"],
-      "divergence": "Logos addition (WritStatic const-config type parameters)"
+      "evidence": [
+        "src/compiler/sema.cpp#L917-L922"
+      ],
+      "divergence": "Logos addition (WritStatic const-config type parameters)",
+      "testability": "untestable"
     },
     {
       "id": "type.identity.cfg-slot",
       "domain": "type",
       "title": "Config-slot type identity = (cfg-typevar name, slot key)",
       "statement": "A config-slot type is identified by the pair (config type-variable name, slot key); distinct slots intern to distinct types.",
-      "evidence": ["src/compiler/sema.cpp#L923-L929", "src/compiler/sema.cpp#L1050-L1052"],
-      "divergence": "Logos addition (zone/config slots)"
+      "evidence": [
+        "src/compiler/sema.cpp#L923-L929",
+        "src/compiler/sema.cpp#L1050-L1052"
+      ],
+      "divergence": "Logos addition (zone/config slots)",
+      "testability": "untestable"
     },
     {
       "id": "type.identity.typevar-name",
       "domain": "type",
       "title": "Type/const variable identity = name",
       "statement": "A type variable or const variable is identified by its name (plus const_val); two type parameters with the same name denote the same type variable.",
-      "evidence": ["src/compiler/sema.cpp#L899-L902", "src/compiler/sema.cpp#L1040-L1043"]
+      "evidence": [
+        "src/compiler/sema.cpp#L899-L902",
+        "src/compiler/sema.cpp#L1040-L1043"
+      ]
     },
     {
       "id": "type.identity.primitive-kind",
       "domain": "type",
       "title": "Primitive types identified by kind alone",
       "statement": "Primitive types carry no structural fields; their kind tag alone identifies them, so all occurrences of a given primitive are the same interned type.",
-      "evidence": ["src/compiler/sema.cpp#L930-L932", "src/compiler/sema.cpp#L1053-L1055"]
+      "evidence": [
+        "src/compiler/sema.cpp#L930-L932",
+        "src/compiler/sema.cpp#L1053-L1055"
+      ]
     },
     {
       "id": "type.identity.ref-vs-typeuid",
       "domain": "type",
       "title": "Post-interning, type equality = pointer/UID equality",
       "statement": "After interning, every type has a unique representative, so type equality reduces to representative-identity: equal hash/UID implies type-equal, and identical reference trivially implies type-equal (lifetime, package, lifetime-args, const_val being the only fields that may share a hash bucket while differing).",
-      "evidence": ["src/compiler/sema.cpp#L1345-L1354", "src/compiler/sema.cpp#L1099-L1104"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1345-L1354",
+        "src/compiler/sema.cpp#L1099-L1104"
+      ],
+      "testability": "transitive"
     }
   ]
 }

@@ -69,7 +69,8 @@
       "statement": "Explicit `#[type_code=N]` values with 1 <= N <= 128 are reserved for stdlib primitive tags (TypeTagSystem); user code outside package `std`/`std.*` using a reserved value is warned and should use codes >= 129.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L1798-L1811"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "pat.match.catchall-classification",
@@ -161,7 +162,8 @@
         "src/compiler/sema_impl.hpp#L2096-L2146",
         "src/compiler/sema_impl.hpp#L2126-L2142"
       ],
-      "divergence": "Logos addition (zones/pin): `#[pinned]`/`#[zoned2]`/`#[rel_ptr]` anchoring has no Rust analog."
+      "divergence": "Logos addition (zones/pin): `#[pinned]`/`#[zoned2]`/`#[rel_ptr]` anchoring has no Rust analog.",
+      "testability": "untestable"
     },
     {
       "id": "trait.copy.auto-derive-conditions",
@@ -189,7 +191,8 @@
       "statement": "A static declared in an extern block (declaration only, foreign storage) requires `unsafe` at every access.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L1931-L1933"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

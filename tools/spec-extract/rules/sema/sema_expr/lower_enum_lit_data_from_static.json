@@ -95,7 +95,8 @@
       "statement": "When the context hint for type-param T is `&U`/`&mut U` and inference produced bare `U`, the hint's reference type is used for T; when the hint is `*const U`/`*mut U` over the same pointee as an inferred reference/pointer, the hint's raw-pointer type is used (preserving the annotated repr, e.g. tagged `Option<*const T>` rather than niche `Option<&T>`).",
       "evidence": [
         "src/compiler/sema_expr.cpp#L12464-L12501"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "generic.enum-lit.bounds-check",

@@ -9,7 +9,9 @@
       "domain": "expr",
       "title": "Writ type-literal <type:T>",
       "statement": "A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like Vec<u8> all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. \"Vec<u8>\") and serves as the value's identity label.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14937-L14979"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14937-L14979"
+      ],
       "divergence": "Logos addition: Writ first-class type values have no Rust equivalent."
     },
     {
@@ -17,7 +19,9 @@
       "domain": "expr",
       "title": "Bare type-name in <type:T> must be a known type or in-scope type-param",
       "statement": "When `<type:T>` names a bare type identifier that is neither a resolvable known type nor an in-scope type-param, it is a compile error; the diagnostic directs the user to declare T as a type-param of the enclosing const (`pub const X<T>: WritStatic = ...`) or use a concrete type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14954-L14966"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14954-L14966"
+      ],
       "divergence": "Logos addition (Writ type literals)."
     },
     {
@@ -25,7 +29,9 @@
       "domain": "expr",
       "title": "<type:CFG.path> at writ-value position",
       "statement": "`<type:CFG.path>` resolves the config path eagerly and must denote a concrete top-level alias; if it resolves to a const-generic config-slot parameter (kind CfgSlotType) it is rejected with a compile error (parametric Writ literals are not supported).",
-      "evidence": ["src/compiler/sema_expr.cpp#L14982-L15009"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14982-L15009"
+      ],
       "uncertainty": "Restriction is stated as a current limitation in the source.",
       "divergence": "Logos addition (Writ/CFG type literals)."
     },
@@ -34,7 +40,9 @@
       "domain": "expr",
       "title": "Writ negative integer literal",
       "statement": "A Writ negative-integer node yields an integer Writ value equal to the negation of the parsed decimal magnitude.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15012-L15016"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15012-L15016"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -42,7 +50,9 @@
       "domain": "expr",
       "title": "Writ null literal",
       "statement": "A Writ null node yields the null Writ value.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15018-L15019"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15018-L15019"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -50,7 +60,9 @@
       "domain": "expr",
       "title": "Writ bool literal",
       "statement": "A Writ bool node yields a boolean Writ value; the value is true iff its byte payload is present and nonzero.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15021-L15025"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15021-L15025"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -58,7 +70,9 @@
       "domain": "expr",
       "title": "Writ integer literal: suffix stripping and radix",
       "statement": "A Writ integer literal accepts an optional numeric-type suffix (i8/i16/i24/i32/i56/i64/i128, u8/u16/u24/u32/u56/u64/u128, usize, isize) which is stripped before parsing, an optional leading '-', and a radix prefix: `0x` = hexadecimal, `0b` = binary, otherwise decimal. The resulting magnitude is negated if the sign was present.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15027-L15050"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15027-L15050"
+      ],
       "divergence": "Logos addition (Writ literals); note i24/i56/u24/u56 width suffixes."
     },
     {
@@ -66,7 +80,9 @@
       "domain": "expr",
       "title": "Writ float literal: suffix stripping",
       "statement": "A Writ float literal accepts an optional `f32` or `f64` suffix which is stripped before parsing the value as a double-precision float.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15052-L15060"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15052-L15060"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -74,7 +90,9 @@
       "domain": "expr",
       "title": "Writ string literal: quote stripping and escapes",
       "statement": "A Writ string literal has surrounding double-quotes stripped and recognizes escape sequences \\n, \\t, \\r, \\\\, \\\", \\0; an unrecognized escape `\\x` is kept literally as backslash followed by x.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15062-L15086"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15062-L15086"
+      ],
       "divergence": "Logos addition (Writ literals); escape set is a fixed subset."
     },
     {
@@ -82,7 +100,9 @@
       "domain": "expr",
       "title": "Writ map literal keys (string or integer)",
       "statement": "An untyped Writ map `@{...}` has entries whose key is either a quoted string (quote-stripped and escape-processed like a Writ string) or an integer; an integer key is negated when the entry carries the negative-key marker. Values are recursively lowered Writ values.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15088-L15129"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15088-L15129"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -90,7 +110,9 @@
       "domain": "expr",
       "title": "Writ untyped array literal",
       "statement": "An untyped Writ array `@[...]` lowers each element as a recursive Writ value in order.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15131-L15143"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15131-L15143"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -98,7 +120,9 @@
       "domain": "expr",
       "title": "Typed Writ array element types",
       "statement": "A typed Writ array `@<E>[...]` requires E to be one of I8, U8, I16, U16, I32, U32, I64, U64, F32, F64; any other element type is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15145-L15168"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15145-L15168"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -106,7 +130,9 @@
       "domain": "expr",
       "title": "Typed Writ arrays reject $-captures",
       "statement": "Within a typed Writ array `@<E>[...]`, a $-capture element ($ident or $expr) is a compile error because typed arrays store raw element values rather than AnyVal; an untyped `@[...]` literal must be used instead.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15174-L15187"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15174-L15187"
+      ],
       "divergence": "Logos addition (Writ literals/captures)."
     },
     {
@@ -114,7 +140,9 @@
       "domain": "expr",
       "title": "@<I32> array element range check",
       "statement": "Each integer element of an `@<I32>[...]` typed array is bounds-checked at compile time to the i32 range [-2147483648, 2147483647]; out-of-range values are a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15190-L15203"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15190-L15203"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -122,7 +150,9 @@
       "domain": "expr",
       "title": "Typed Writ map key/value types",
       "statement": "A typed Writ map `@<K>{...}` or `@<K,V>{...}` requires K ∈ {I32, U32, I64, U64, Varchar} and, if V is given, V == AnyVal; any other key or value type is a compile error. Varchar keys produce the same representation as the untyped object map.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15209-L15252"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15209-L15252"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -130,7 +160,9 @@
       "domain": "expr",
       "title": "Typed integer-map key discipline",
       "statement": "In a typed integer-keyed Writ map, a string key is a compile error (integer maps require integer keys); integer keys are negated when marked negative, and are bounds/sign-checked per key type: I32 to [-2^31, 2^31-1], U32 to [0, 2^32-1], U64 to non-negative.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15255-L15311"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15255-L15311"
+      ],
       "divergence": "Logos addition (Writ literals)."
     },
     {
@@ -138,15 +170,20 @@
       "domain": "expr",
       "title": "$-capture only inside capturable @-literal",
       "statement": "A $-capture ($ident or $expr) in a Writ value is a compile error unless it occurs inside a capturable @-literal context.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15319-L15323"],
-      "divergence": "Logos addition (Writ captures)."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15319-L15323"
+      ],
+      "divergence": "Logos addition (Writ captures).",
+      "testability": "untestable"
     },
     {
       "id": "expr.writ.capturable-types",
       "domain": "expr",
       "title": "Types capturable by $-capture into a Writ value",
       "statement": "A captured Logos expression is admissible into a Writ @-literal iff its type is: a scalar integer (i8/i16/i32/i64/u8/u16/u32/u64) or bool (coerced to inline AnyVal); F32/F64/float-literal (zone-allocated F64); AnyVal or a string-view struct; a pointer to u8 (*const u8 / *mut u8, captured as C-string varchar); or a u8 slice (str/&[u8], captured as varchar with length). Other types are not capturable.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15325-L15350"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15325-L15350"
+      ],
       "divergence": "Logos addition (Writ captures)."
     }
   ]

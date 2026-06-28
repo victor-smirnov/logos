@@ -53,7 +53,8 @@
       "statement": "A module item is one of: doc-comment, annotation, template decl, const/static def, type alias, enum def, datatype def/inst, trait def/inst, struct unit/def/inst, instantiate decl, item-position metacall, fn-macro item invocation, union def, impl block, extern block, extern fn, or fn def — each in plain and `pub` forms where visibility applies.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L529"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.doc.outer-line",
@@ -62,7 +63,8 @@
       "statement": "An outer line doc-comment (`///`, captured as DOC_LINE) is an item-stream element; consecutive outer doc-comments accumulate and attach to the next real item.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L536-L537"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.doc.outer-block",
@@ -71,7 +73,8 @@
       "statement": "An outer block doc-comment `/** ... */` is an item/member-stream element with the same next-item binding role as line doc-comments; the `/**` envelope and per-line leading `*` are stripped and lines joined with newline.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L544-L549"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "metaprog.metacall.item-position",
@@ -136,7 +139,8 @@
         "#[derive(Debug)]",
         "#[repr = 8]",
         "#[inline]"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.annotation.inner-attribute",
@@ -148,7 +152,8 @@
       ],
       "examples": [
         "#![no_implicit_prelude]"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.annotation.arg-forms",
@@ -162,7 +167,8 @@
         "#[cfg(target = \"x86\")]",
         "#[align(8)]",
         "#[list([1, 2, 3])]"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.const.def",
@@ -190,7 +196,8 @@
       "examples": [
         "static COUNTER: u64 = 0;",
         "static mut FLAG: bool = false;"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.type-alias.def",
@@ -363,7 +370,8 @@
         "tools/peg_gen/grammars/logos.peg#L541-L554",
         "src/compiler/sema.cpp#L7412-L7428",
         "src/compiler/sema.cpp#L8022-L8030"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.use.from-module",
@@ -377,7 +385,8 @@
         "use foo.Bar from \"logos-lang\";",
         "pub use a.b.C from othermod;"
       ],
-      "divergence": "`use ... from <module>` clause has no Rust analog."
+      "divergence": "`use ... from <module>` clause has no Rust analog.",
+      "testability": "untestable"
     }
   ]
 }

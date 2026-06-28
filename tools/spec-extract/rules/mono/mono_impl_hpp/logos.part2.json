@@ -14,7 +14,8 @@
       ],
       "examples": [
         "// Option<(A, B)> with A a TypeVar is NOT cloned until A resolves"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.gate.assoc-type-defer",
@@ -23,7 +24,8 @@
       "statement": "A pattern argument containing an associated-type projection (e.g. D::Resources in impl<D: Device> Tr for Foo<D, D::Resources>) cannot be structurally unified against a concrete argument; such a position must DEFER (bind nothing), not report a mismatch — its resolution requires the trait-impl table. Detection recurses through type-args, pointee, element, and tuple elements.",
       "evidence": [
         "src/compiler/mono_impl.hpp#L622-L634"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.queue.record-generic-only",
@@ -33,7 +35,8 @@
       "evidence": [
         "src/compiler/mono_impl.hpp#L637-L645",
         "src/compiler/mono_impl.hpp#L658-L662"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.queue.instantiation-depth-limit",
@@ -44,7 +47,8 @@
         "src/compiler/mono_impl.hpp#L648-L654",
         "src/compiler/mono_impl.hpp#L666-L672",
         "src/compiler/mono_impl.hpp#L1099-L1112"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.mangle.ptr-ref-prefixes",
@@ -89,7 +93,8 @@
       "statement": "A monomorphic symbol name is formed from a base name with each type argument appended as '__<mangled-type>' in declaration order.",
       "evidence": [
         "src/compiler/mono_impl.hpp#L757-L765"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.uid.module-fingerprint-tags",
@@ -99,7 +104,8 @@
       "evidence": [
         "src/compiler/mono_impl.hpp#L772-L808"
       ],
-      "divergence": "A9 — Logos coexistence of same-named types across modules; no Rust crate-disjointness analog."
+      "divergence": "A9 — Logos coexistence of same-named types across modules; no Rust crate-disjointness analog.",
+      "testability": "untestable"
     },
     {
       "id": "mono.match.shallow-name-only",
@@ -108,7 +114,8 @@
       "statement": "Shallow pattern matching of concrete c against pattern p: a TypeVar or ConstVar pattern binds by name (already-bound -> require type-equality with the concrete; unbound -> bind it). Otherwise kinds must be equal; Ptr requires equal mutability and matches pointee; Ref/MutRef match pointee; Array requires equal size and matches element; Struct matches by struct-name ONLY (no type-arg descent); all other kinds fall back to full type-equality.",
       "evidence": [
         "src/compiler/mono_impl.hpp#L907-L938"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.unify.deep-impl-target",
@@ -117,7 +124,8 @@
       "statement": "Deep unification binds impl-level type-params from a partial-spec impl target (e.g. Result<Vec<T>, E>) against a concrete receiver (Result<Vec<i32>, i32>): TypeVar/ConstVar bind by name (re-binding requires type-equality); kinds must match; Ptr requires equal mutability; Array requires equal size; Struct/ZonedStruct and Enum require equal name and equal arity then unify type-args positionally; Tuple unifies elements positionally; Slice unifies element. Returns false on structural mismatch or conflicting bindings; succeeds with partial binding when the concrete side itself carries TypeVars.",
       "evidence": [
         "src/compiler/mono_impl.hpp#L949-L1007"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.unify.collect-pattern-typevars-first-order",
@@ -135,7 +143,8 @@
       "statement": "Among overlapping partial specializations, candidates are ranked by per-position specificity: a TypeVar (or null) scores 0; Ptr/Array score 1 + specificity(pointee/elem); any other concrete type scores 100. Selection uses both the summed score and the per-position specificity vector (lexicographic) so specs equal by sum but differing positionally (Map<Bitmap,V> vs Map<K,AnyVal>) are disambiguated.",
       "evidence": [
         "src/compiler/mono_impl.hpp#L1029-L1050"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.instances-are-monomorphic",
@@ -144,7 +153,8 @@
       "statement": "An instantiated function instance is monomorphic: it is renamed to its mangled name and carries no generic type-params (clones never emit the template's type_params).",
       "evidence": [
         "src/compiler/mono_impl.hpp#L1099-L1112"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.mangle.owning-vs-borrowed-dyn",

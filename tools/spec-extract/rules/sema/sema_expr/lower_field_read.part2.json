@@ -88,7 +88,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L9878-L9899",
         "src/compiler/sema_expr.cpp#L10049-L10076"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.struct-lit.duplicate-field-error",
@@ -98,7 +99,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L9900-L9905",
         "src/compiler/sema_expr.cpp#L10077-L10082"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.struct-lit.intlit-fits-field",

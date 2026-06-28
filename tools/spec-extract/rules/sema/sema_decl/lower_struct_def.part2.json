@@ -22,7 +22,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1688-L1820",
         "src/compiler/sema_decl.cpp#L1782-L1814"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.alias.impl-target-unfold",

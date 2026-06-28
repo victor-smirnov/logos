@@ -129,7 +129,8 @@
         "src/compiler/mlir_gen_types.cpp#L32",
         "src/compiler/mlir_gen_types.cpp#L445",
         "src/compiler/mlir_gen_types.cpp#L199-L210"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.char.is-u32",

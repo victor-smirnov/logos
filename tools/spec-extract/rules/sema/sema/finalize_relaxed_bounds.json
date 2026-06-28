@@ -9,53 +9,78 @@
       "domain": "generic",
       "title": "Only ?Sized is a permitted relaxed bound",
       "statement": "A relaxed bound `?Trait` on a type parameter is permitted only when Trait = Sized. `?Sized` clears the parameter's implicit Sized bound; any other `?Trait` is a hard error \"relaxed bound '?T' is not permitted (only `?Sized` is supported)\".",
-      "evidence": ["src/compiler/sema.cpp#L3944-L3954", "src/compiler/sema.cpp#L3957-L3968"],
-      "examples": ["fn f<T: ?Sized>(x: &T) {}", "fn g<T: ?Clone>() {}  // error"]
+      "evidence": [
+        "src/compiler/sema.cpp#L3944-L3954",
+        "src/compiler/sema.cpp#L3957-L3968"
+      ],
+      "examples": [
+        "fn f<T: ?Sized>(x: &T) {}",
+        "fn g<T: ?Clone>() {}  // error"
+      ]
     },
     {
       "id": "generic.bound.relaxed-not-propagated",
       "domain": "generic",
       "title": "Relaxed markers are consumed, never positive bounds",
       "statement": "A relaxed `?Trait` marker is removed from a type parameter's bound set during finalization; it is never carried forward as a positive bound to monomorphization or bound-checking.",
-      "evidence": ["src/compiler/sema.cpp#L3937-L3954"]
+      "evidence": [
+        "src/compiler/sema.cpp#L3937-L3954"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "generic.param.implicit-sized",
       "domain": "generic",
       "title": "Type parameters are implicitly Sized",
       "statement": "Every type parameter carries an implicit `Sized` bound by default; it is cleared only by an explicit `?Sized` relaxed bound.",
-      "evidence": ["src/compiler/sema.cpp#L3938-L3946"]
+      "evidence": [
+        "src/compiler/sema.cpp#L3938-L3946"
+      ]
     },
     {
       "id": "generic.bound.fn-family-paren-form",
       "domain": "generic",
       "title": "Fn-family parenthesized bound syntax",
       "statement": "The traits Fn, FnMut, FnOnce admit a parenthesized bound form `Fn(P1, ..., Pn) -> R`; the parenthesized list supplies the argument types and `-> R` the return type (both optional), distinct from the `<...>` type-argument list.",
-      "evidence": ["src/compiler/sema.cpp#L3969-L3992"],
-      "examples": ["fn call<F: FnOnce(i32, i32) -> bool>(f: F) {}"]
+      "evidence": [
+        "src/compiler/sema.cpp#L3969-L3992"
+      ],
+      "examples": [
+        "fn call<F: FnOnce(i32, i32) -> bool>(f: F) {}"
+      ]
     },
     {
       "id": "generic.bound.hrtb-binder",
       "domain": "generic",
       "title": "Higher-ranked trait bound binders",
       "statement": "A trait bound may carry a `for<'a, 'b, ...>` higher-ranked lifetime binder; the bound lifetime names are recorded on the bound.",
-      "evidence": ["src/compiler/sema.cpp#L3994-L4017"],
-      "examples": ["fn f<F: for<'a> Fn(&'a i32)>(f: F) {}"]
+      "evidence": [
+        "src/compiler/sema.cpp#L3994-L4017"
+      ],
+      "examples": [
+        "fn f<F: for<'a> Fn(&'a i32)>(f: F) {}"
+      ]
     },
     {
       "id": "generic.bound.assoc-eq",
       "domain": "generic",
       "title": "Associated-type equality constraints in bounds",
       "statement": "A trait bound may bind associated types by equality, `Trait<Assoc = Ty>`; each `Assoc = Ty` is recorded as an associated-type equality on the bound.",
-      "evidence": ["src/compiler/sema.cpp#L4025-L4033"],
-      "examples": ["fn f<I: Iterator<Item = i32>>(i: I) {}"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4025-L4033"
+      ],
+      "examples": [
+        "fn f<I: Iterator<Item = i32>>(i: I) {}"
+      ]
     },
     {
       "id": "generic.bound.lifetime-arg-not-structural",
       "domain": "generic",
       "title": "Lifetime args in trait bounds are recorded but not dispatched on",
       "statement": "A lifetime argument at a trait bound's type-argument position (e.g. `Foo<'a>`) is captured for record only; regions are not tracked structurally for bound dispatch.",
-      "evidence": ["src/compiler/sema.cpp#L4034-L4041"],
+      "evidence": [
+        "src/compiler/sema.cpp#L4034-L4041"
+      ],
       "divergence": "Logos does not track regions structurally for bound dispatch; lifetime bound-args carry no dispatch significance."
     },
     {
@@ -63,15 +88,22 @@
       "domain": "generic",
       "title": "Const generic parameters",
       "statement": "A type parameter list may contain const parameters `const N: T`; each carries a const value-type T and may be marked variadic.",
-      "evidence": ["src/compiler/sema.cpp#L4070-L4080", "src/compiler/sema.cpp#L4147-L4158"],
-      "examples": ["fn f<const N: usize>() -> [i32; N] {}"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4070-L4080",
+        "src/compiler/sema.cpp#L4147-L4158"
+      ],
+      "examples": [
+        "fn f<const N: usize>() -> [i32; N] {}"
+      ]
     },
     {
       "id": "generic.param.variadic-last",
       "domain": "generic",
       "title": "Variadic type parameter must be last",
       "statement": "A variadic type parameter `T...` must be the final entry in the type-parameter list; a non-final variadic param is an error \"variadic type parameter must be last\".",
-      "evidence": ["src/compiler/sema.cpp#L4188-L4190"],
+      "evidence": [
+        "src/compiler/sema.cpp#L4188-L4190"
+      ],
       "divergence": "Variadic type/const parameters are a Logos addition not present in Rust."
     },
     {
@@ -79,43 +111,58 @@
       "domain": "generic",
       "title": "Default type arguments",
       "statement": "A type parameter may declare a default `<T = Default>` (or `<T: Bound = Default>`); the default type is recorded and substituted at use sites when the argument is omitted.",
-      "evidence": ["src/compiler/sema.cpp#L4105-L4112", "src/compiler/sema.cpp#L4180-L4187"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4105-L4112",
+        "src/compiler/sema.cpp#L4180-L4187"
+      ]
     },
     {
       "id": "generic.bound.type-outlives",
       "domain": "generic",
       "title": "Type-outlives bounds",
       "statement": "A type parameter may carry type-outlives bounds `T: 'a (+ 'b)*`; the outlived lifetime names are recorded on the parameter.",
-      "evidence": ["src/compiler/sema.cpp#L4098-L4102"],
-      "examples": ["fn f<T: 'static>(x: T) {}"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4098-L4102"
+      ],
+      "examples": [
+        "fn f<T: 'static>(x: T) {}"
+      ]
     },
     {
       "id": "generic.where.merged-with-inline",
       "domain": "generic",
       "title": "where-clause bounds merge into parameter bounds",
       "statement": "Bounds from a `where T: Trait, U: Trait2` clause are merged onto the corresponding type parameters; an inline `<T, F: Bound>` and the equivalent `where`-clause form are semantically identical, and sibling type-params are in scope when resolving where-clause bound arguments.",
-      "evidence": ["src/compiler/sema.cpp#L4195-L4295"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4195-L4295"
+      ]
     },
     {
       "id": "generic.where.concrete-subject-obligation",
       "domain": "generic",
       "title": "where-clause with concrete subject is an obligation, not a param",
       "statement": "A `where <ConcreteType>: Trait` clause (subject names a known type, e.g. `where i32: Show`) is a trivially-checked obligation and does not introduce a new type parameter; only a genuinely-undeclared type-param name in a where clause is added as a parameter.",
-      "evidence": ["src/compiler/sema.cpp#L4260-L4279"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4260-L4279"
+      ]
     },
     {
       "id": "generic.where.ref-subject",
       "domain": "generic",
       "title": "where-clause with reference subject",
       "statement": "A `where &T: Trait` / `where &mut T: Trait` clause records its bounds on the underlying type-param T, flagged as applying only to a matching (shared/mut) reference receiver.",
-      "evidence": ["src/compiler/sema.cpp#L4210-L4259"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4210-L4259"
+      ]
     },
     {
       "id": "generic.where.projection-subject-skipped",
       "domain": "generic",
       "title": "where-clause projection subject is parsed but not enforced",
       "statement": "A `where C::Item<T>: Bound` clause whose subject is an associated-type projection is accepted but not yet enforced (parse-and-skip).",
-      "evidence": ["src/compiler/sema.cpp#L4218-L4227"],
+      "evidence": [
+        "src/compiler/sema.cpp#L4218-L4227"
+      ],
       "uncertainty": "Statement reflects current parse-and-skip behavior; full projection-bound checking is noted as a separate unimplemented feature."
     },
     {
@@ -123,86 +170,122 @@
       "domain": "generic",
       "title": "Sibling type-params visible to bound argument resolution",
       "statement": "When resolving a type-parameter's bound arguments, all sibling type-param names in the same list are in scope as type variables (so `where F: FnOnce(T, T) -> bool` resolves T).",
-      "evidence": ["src/compiler/sema.cpp#L4055-L4066", "src/compiler/sema.cpp#L4131-L4142"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4055-L4066",
+        "src/compiler/sema.cpp#L4131-L4142"
+      ]
     },
     {
       "id": "type.infer.fill-annotation-from-rhs",
       "domain": "type",
       "title": "Inferred holes in let-annotation filled from RHS type",
       "statement": "An `_` (inferred) hole in a let annotation is filled from the structurally-matching concrete RHS type (e.g. `let v: Vec<_> = vec![1]` binds as `Vec<i32>`); the annotation's concrete parts win, holes take the RHS side. Mismatched shapes leave the annotation unchanged. A bare `_` against an integer-literal RHS defaults to i32 and against a float-literal RHS to f64.",
-      "evidence": ["src/compiler/sema.cpp#L4395-L4402", "src/compiler/sema.cpp#L4310-L4318"],
-      "examples": ["let v: Vec<_> = vec![1];  // Vec<i32>"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4395-L4402",
+        "src/compiler/sema.cpp#L4310-L4318"
+      ],
+      "examples": [
+        "let v: Vec<_> = vec![1];  // Vec<i32>"
+      ]
     },
     {
       "id": "type.infer.hole-detection",
       "domain": "type",
       "title": "A type contains an inferred hole transitively",
       "statement": "A type is considered to contain an inferred hole if it is `_` or if any of its type arguments, tuple elements, element type, or pointee transitively contains one.",
-      "evidence": ["src/compiler/sema.cpp#L4343-L4351"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4343-L4351"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.inhabited.never-uninhabited",
       "domain": "type",
       "title": "The Never type is uninhabited",
       "statement": "The Never type `!` is uninhabited.",
-      "evidence": ["src/compiler/sema.cpp#L4357-L4358"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4357-L4358"
+      ]
     },
     {
       "id": "type.inhabited.enum",
       "domain": "type",
       "title": "Enum inhabitedness",
       "statement": "An enum is uninhabited iff it has zero variants, or every variant has at least one uninhabited payload type; it is inhabited as soon as one variant is constructable (all its payload types inhabited).",
-      "evidence": ["src/compiler/sema.cpp#L4363-L4376"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4363-L4376"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.inhabited.struct-tuple-array",
       "domain": "type",
       "title": "Composite inhabitedness",
       "statement": "A struct is uninhabited iff any field type is uninhabited; a tuple iff any element type is uninhabited; an array `[T; N]` iff N > 0 and T is uninhabited (zero-length arrays are always inhabited).",
-      "evidence": ["src/compiler/sema.cpp#L4377-L4392"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4377-L4392"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.inhabited.ref-conservative",
       "domain": "type",
       "title": "References to uninhabited types are treated as inhabited",
       "statement": "A reference or pointer to an uninhabited type is conservatively treated as inhabited (only value-carrying composites are marked uninhabited).",
-      "evidence": ["src/compiler/sema.cpp#L4359-L4362"],
-      "divergence": "Rust treats `&!` as uninhabited; Logos stays conservative and treats `&Never` as inhabited."
+      "evidence": [
+        "src/compiler/sema.cpp#L4359-L4362"
+      ],
+      "divergence": "Rust treats `&!` as uninhabited; Logos stays conservative and treats `&Never` as inhabited.",
+      "testability": "untestable"
     },
     {
       "id": "mono.subst.const-array-size",
       "domain": "mono",
       "title": "Substitution resolves symbolic array sizes",
       "statement": "Substituting an array type `[T; N]` whose size is a symbolic const-var N: if N maps to a concrete const value, the size becomes that value; if it maps to another ConstVar, the symbolic name is updated.",
-      "evidence": ["src/compiler/sema.cpp#L4495-L4513"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4495-L4513"
+      ]
     },
     {
       "id": "mono.subst.ptr-ref-unsized-canonicalize",
       "domain": "mono",
       "title": "Substitution canonicalizes unsized inner types under ptr/ref",
       "statement": "When substitution yields an UnsizedSlice inside a `&`/`&mut`/`*const`/`*mut`, it canonicalizes to a slice type (fat pointer); an UnsizedDyn canonicalizes to a trait object. A safe reference drops per-instance lifetime info on the slice (Logos lifetime model is elision-based at this layer).",
-      "evidence": ["src/compiler/sema.cpp#L4514-L4527", "src/compiler/sema.cpp#L4555-L4572"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4514-L4527",
+        "src/compiler/sema.cpp#L4555-L4572"
+      ]
     },
     {
       "id": "mono.subst.dst-ref",
       "domain": "mono",
       "title": "Substitution forms DstRef for references to DST structs",
       "statement": "Substituting a `&`/`&mut`/`*const`/`*mut` to an effective DST struct yields a wide DstRef (carrying the struct name, package, mutability, and type-args) — UNLESS the struct is `#[self_describing]`, in which case a raw pointer stays thin (8B), its tail length recoverable in-band at deref.",
-      "evidence": ["src/compiler/sema.cpp#L4528-L4551", "src/compiler/sema.cpp#L4573-L4584"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4528-L4551",
+        "src/compiler/sema.cpp#L4573-L4584"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.preserves-pkg-qualification",
       "domain": "mono",
       "title": "Substitution preserves package qualification",
       "statement": "Substituting a struct or enum type preserves its package qualification (pkg_name) on the result.",
-      "evidence": ["src/compiler/sema.cpp#L4588-L4637"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4588-L4637"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.variadic-tuple-splice",
       "domain": "mono",
       "title": "Variadic-tuple pack expansion",
       "statement": "A single-element tuple whose sole element is a pack type-var `(A...)` splices in the elements of the concrete tuple A maps to during substitution, yielding the full concrete tuple.",
-      "evidence": ["src/compiler/sema.cpp#L4639-L4659"],
+      "evidence": [
+        "src/compiler/sema.cpp#L4639-L4659"
+      ],
       "divergence": "Variadic tuples are a Logos addition not present in Rust."
     },
     {
@@ -210,28 +293,36 @@
       "domain": "mono",
       "title": "Substitution preserves Closure/FnItem/FnPtr kind and FnItem identity",
       "statement": "Substituting a callable type preserves its kind (Closure vs FnItem vs FnPtr) and substitutes parameter and return types; a FnItem additionally preserves its identity (struct_name + type_args), substituting the type_args.",
-      "evidence": ["src/compiler/sema.cpp#L4722-L4750"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4722-L4750"
+      ]
     },
     {
       "id": "mono.subst.assoc-type-projection",
       "domain": "mono",
       "title": "Associated-type projection resolution during substitution",
       "statement": "Substituting an associated-type projection `Base::Assoc` first substitutes Base; if Base becomes a concrete type, the projection resolves via the impl's `type Assoc = ...` (direct keyed lookup, then generic base-name lookup, then a blanket-impl whose bound is satisfied by the concrete type), substituting impl and GAT parameters; otherwise it remains a projection with substituted base, GAT args, and lifetime args.",
-      "evidence": ["src/compiler/sema.cpp#L4816-L4959"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4816-L4959"
+      ]
     },
     {
       "id": "mono.subst.assoc-type-typevar-blanket",
       "domain": "mono",
       "title": "Projection on a still-typevar base reduces via a satisfied blanket impl",
       "statement": "A projection `K::Assoc` where K remains a type-var reduces when K's recorded bounds include a trait for which a blanket `impl<DT: BoundTrait> Trait for DT` exists (with all extra bounds also among K's bounds); the result substitutes the blanket's target typevar with K (kept as a type-var).",
-      "evidence": ["src/compiler/sema.cpp#L4849-L4886"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4849-L4886"
+      ]
     },
     {
       "id": "const.eval.bare-ident-const-fold",
       "domain": "const",
       "title": "CTFE folds bare-ident const paths to their value",
       "statement": "Compile-time const evaluation resolves a bare-identifier const path (e.g. inside `metacall { N }`) to its registered right-hand-side value.",
-      "evidence": ["src/compiler/sema.cpp#L4320-L4341"]
+      "evidence": [
+        "src/compiler/sema.cpp#L4320-L4341"
+      ]
     }
   ]
 }

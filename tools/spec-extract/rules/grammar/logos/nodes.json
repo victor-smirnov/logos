@@ -213,7 +213,8 @@
       "statement": "`#![name]` / `#![name(args)]` / `#![name=val]` is a file/module-level inner attribute, distinct from per-item `#[...]` attributes.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L310"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "metaprog.metacall.explicit-comptime-call",
@@ -250,7 +251,8 @@
       "statement": "Outer doc comments (`///`, `/** */`) accumulate and attach to the next item; inner doc comments (`//!`, `/*! */`) accumulate into the module-level inner documentation. The comment markers are stripped.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L305-L308"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

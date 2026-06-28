@@ -61,7 +61,8 @@
       "evidence": [
         "src/compiler/mlir_gen_expr.cpp#L835-L884"
       ],
-      "divergence": "A13: always traps on integer +/-/* overflow regardless of build profile (Rust wraps in release, panics in debug); explicit wrapping_* for wraparound."
+      "divergence": "A13: always traps on integer +/-/* overflow regardless of build profile (Rust wraps in release, panics in debug); explicit wrapping_* for wraparound.",
+      "testability": "untestable"
     },
     {
       "id": "expr.binop.div-rem-signedness",

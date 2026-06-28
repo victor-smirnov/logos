@@ -9,78 +9,108 @@
       "domain": "generic",
       "title": "Variance of a parameter is the meet over its occurrences",
       "statement": "The variance of a type/lifetime parameter `p` in a type `T` is `variance_in_type(T,p,ambient=Co)`, computed structurally: a leaf occurrence of `p` contributes the ambient variance; a parameter that does not occur is bivariant (BiVar). The overall variance combines occurrences via the meet operator (variance_meet); an unmentioned parameter stays BiVar (unconstrained).",
-      "evidence": ["src/compiler/sema.cpp#L8047-L8053", "src/compiler/sema.cpp#L8165-L8166"],
-      "uncertainty": "variance_meet/variance_compose lattice (BiVar top, Co/Contra, Inv bottom) defined elsewhere; semantics inferred from usage."
+      "evidence": [
+        "src/compiler/sema.cpp#L8047-L8053",
+        "src/compiler/sema.cpp#L8165-L8166"
+      ],
+      "uncertainty": "variance_meet/variance_compose lattice (BiVar top, Co/Contra, Inv bottom) defined elsewhere; semantics inferred from usage.",
+      "testability": "untestable"
     },
     {
       "id": "generic.variance.ref-covariant",
       "domain": "generic",
       "title": "Shared reference is covariant in lifetime and pointee",
       "statement": "`&'a T` is covariant in its lifetime `'a` (contributes ambient) and covariant in its pointee `T` (recurses with unchanged ambient).",
-      "evidence": ["src/compiler/sema.cpp#L8054-L8061"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8054-L8061"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.variance.mutref-invariant-pointee",
       "domain": "generic",
       "title": "Mutable reference is covariant in lifetime, invariant in pointee",
       "statement": "`&'a mut T` is covariant in its lifetime `'a`, but invariant in its pointee `T` (recurses with ambient composed with Inv).",
-      "evidence": ["src/compiler/sema.cpp#L8062-L8071"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8062-L8071"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.variance.raw-ptr",
       "domain": "generic",
       "title": "Raw pointers: *const covariant, *mut invariant",
       "statement": "`*const T` is covariant in pointee `T`; `*mut T` is invariant in pointee `T` (ambient composed with Co or Inv respectively). Matches Rust.",
-      "evidence": ["src/compiler/sema.cpp#L8072-L8076"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8072-L8076"
+      ]
     },
     {
       "id": "generic.variance.tuple-array-slice-covariant",
       "domain": "generic",
       "title": "Tuples, arrays, and slices are covariant in element types",
       "statement": "A tuple is covariant in each element type (meet over elements, unchanged ambient); `[T; N]` and `[T]` are covariant in element type `T` (recurse with unchanged ambient).",
-      "evidence": ["src/compiler/sema.cpp#L8077-L8086"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8077-L8086"
+      ]
     },
     {
       "id": "generic.variance.adt-by-table",
       "domain": "generic",
       "title": "ADT variance is per-parameter from the computed variance table",
       "statement": "For a struct/zoned-struct/enum `D<A0..,'L0..>`, the variance contribution of each type argument `Ai` (resp. lifetime arg) is the meet over arguments of `compose(ambient, declared_variance(D,#i))` recursed into `Ai`, where `declared_variance(D,#i)` (`@i` for lifetimes) comes from the variance table keyed by `pkg.Name`; a parameter absent from the table defaults to covariant (Co).",
-      "evidence": ["src/compiler/sema.cpp#L8087-L8132"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8087-L8132"
+      ]
     },
     {
       "id": "generic.variance.unsafecell-invariant",
       "domain": "generic",
       "title": "UnsafeCell<T> is invariant in T",
       "statement": "`logos.lang.cell::UnsafeCell<T>` (the interior-mutability lang item, recognised by qualified name) is invariant in each type argument (ambient composed with Inv), overriding the table-driven ADT rule.",
-      "evidence": ["src/compiler/sema.cpp#L8090-L8104"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8090-L8104"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.variance.fn-contravariant-params",
       "domain": "generic",
       "title": "Function types are contravariant in parameters, covariant in return",
       "statement": "A function item or function pointer `fn(P0..)->R` is contravariant in each parameter type `Pi` (ambient composed with Contra) and covariant in the return type `R`.",
-      "evidence": ["src/compiler/sema.cpp#L8134-L8143"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8134-L8143"
+      ]
     },
     {
       "id": "generic.variance.dyn-trait",
       "domain": "generic",
       "title": "Trait objects: covariant in lifetime bound, invariant in type args",
       "statement": "`dyn Trait<A...> + 'a` is covariant in its lifetime bound `'a` (the erased object's storage must outlive `'a`) and invariant in each type argument `Ai` (ambient composed with Inv); auto-trait bounds (Send/Sync) are set-membership and contribute nothing to variance.",
-      "evidence": ["src/compiler/sema.cpp#L8144-L8163"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8144-L8163"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.variance.unknown-type-bivariant",
       "domain": "generic",
       "title": "Type kinds not contributing the parameter are bivariant",
       "statement": "A type that does not mention the target parameter (or whose kind is not variance-relevant) contributes BiVar (the identity for meet, i.e. no constraint).",
-      "evidence": ["src/compiler/sema.cpp#L8047", "src/compiler/sema.cpp#L8053", "src/compiler/sema.cpp#L8164-L8166"]
+      "evidence": [
+        "src/compiler/sema.cpp#L8047",
+        "src/compiler/sema.cpp#L8053",
+        "src/compiler/sema.cpp#L8164-L8166"
+      ]
     },
     {
       "id": "generic.variance.fixpoint",
       "domain": "generic",
       "title": "ADT variances computed by monotone fixpoint over fields",
       "statement": "Variances of all struct/datatype/enum parameters are computed by a fixpoint iteration: each parameter is seeded BiVar, then on each round its variance is set to the meet over all field types (enum: over all variant payload types) of `variance_in_type(field, param, ambient=Co)`; iteration repeats until no entry changes, bounded at 32 rounds.",
-      "evidence": ["src/compiler/sema.cpp#L8171-L8261"],
+      "evidence": [
+        "src/compiler/sema.cpp#L8171-L8261"
+      ],
       "uncertainty": "The 32-round cap is an implementation safety bound; the language semantics is the least fixpoint."
     }
   ]

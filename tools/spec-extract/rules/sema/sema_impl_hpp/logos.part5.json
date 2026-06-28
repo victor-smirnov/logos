@@ -85,7 +85,8 @@
       "statement": "A struct is plain-data (is_data_plain) unless any of its fields has zoned-struct kind, in which case it is a (non-plain) zoned datatype.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L2424"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.struct.tuple-struct-positional",
@@ -112,7 +113,8 @@
       "statement": "A struct whose LAST field has unsized type (`[T]`, `dyn Trait`, or nested DST) is itself unsized (is_dst); such a struct may appear only behind `&`/`&mut`/`*const`/`*mut`/`Box`, and is constructed via unsafe raw-parts assembly (never by value).",
       "evidence": [
         "src/compiler/sema_impl.hpp#L2428-L2434"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.struct.self-describing-thin-ptr",
@@ -121,7 +123,8 @@
       "statement": "A custom-DST struct marked `#[self_describing]` has in-band recoverable tail length/metadata, so raw `*const T`/`*mut T` to it is a THIN pointer (metadata recovered at deref) rather than a fat DstRef.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L2435-L2439"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.rel-ptr.self-relative-offset",
@@ -307,7 +310,8 @@
       "evidence": [
         "src/compiler/sema_impl.hpp#L2529-L2530",
         "src/compiler/sema_impl.hpp#L2720-L2728"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "module.visibility.pub-module-only",

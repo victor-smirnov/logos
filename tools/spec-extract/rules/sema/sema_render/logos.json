@@ -187,7 +187,8 @@
       "evidence": [
         "src/compiler/sema_render.cpp#L517-L531"
       ],
-      "divergence": "Logos-specific const-generic/Writ syntax."
+      "divergence": "Logos-specific const-generic/Writ syntax.",
+      "testability": "untestable"
     },
     {
       "id": "metaprog.antiquot.capture-forms",
@@ -197,7 +198,8 @@
       "evidence": [
         "src/compiler/sema_render.cpp#L532-L537"
       ],
-      "divergence": "Logos metaprogramming antiquotation; no Rust equivalent."
+      "divergence": "Logos metaprogramming antiquotation; no Rust equivalent.",
+      "testability": "transitive"
     },
     {
       "id": "metaprog.antiquot.callee-skips-payload-arg",
@@ -207,7 +209,8 @@
       "evidence": [
         "src/compiler/sema_render.cpp#L141-L170"
       ],
-      "uncertainty": "Inferred from renderer mirroring lower_call; exact substitution mechanism defined elsewhere."
+      "uncertainty": "Inferred from renderer mirroring lower_call; exact substitution mechanism defined elsewhere.",
+      "testability": "transitive"
     },
     {
       "id": "expr.unsafe.block-in-expr-position",
@@ -280,7 +283,8 @@
       "statement": "A reference pattern is `&pat` or `&mut pat`.",
       "evidence": [
         "src/compiler/sema_render.cpp#L651-L659"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "pat.rest.dotdot",

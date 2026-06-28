@@ -9,7 +9,9 @@
       "domain": "stmt",
       "title": "let binding surface form",
       "statement": "A let statement has the form `let [mut] NAME [: TYPE] = VALUE ;`: the `mut` keyword is present iff the binding is declared mutable, the `: TYPE` ascription is optional, and an initializer expression VALUE and trailing `;` are always present.",
-      "evidence": ["src/compiler/sema_render.cpp#L694-L709"],
+      "evidence": [
+        "src/compiler/sema_render.cpp#L694-L709"
+      ],
       "uncertainty": "Inferred from the canonical source-rendering; renderer always emits an initializer, suggesting let without `=` is not a form handled here."
     },
     {
@@ -17,84 +19,109 @@
       "domain": "stmt",
       "title": "return statement with optional value",
       "statement": "A return statement is `return [VALUE] ;`; the value expression is optional (return without a value when no VALUE is present).",
-      "evidence": ["src/compiler/sema_render.cpp#L711-L722"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L711-L722"
+      ]
     },
     {
       "id": "stmt.expr.trailing-semicolon",
       "domain": "stmt",
       "title": "expression statement vs tail expression",
       "statement": "An expression in statement position is terminated by `;` (EXPR_STMT), whereas a block's final expression in tail position (TAIL_EXPR) carries no trailing `;`.",
-      "evidence": ["src/compiler/sema_render.cpp#L724-L733"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L724-L733"
+      ]
     },
     {
       "id": "stmt.assign.place-forms",
       "domain": "stmt",
       "title": "assignment place forms",
       "statement": "Assignment statements take the forms: `NAME = VALUE ;`, `NAME OP VALUE ;` (compound assign), `*NAME = VALUE ;` (deref write), `*NAME OP VALUE ;` (deref compound assign), `RECEIVER.FIELD = VALUE ;` (field write), and `RECEIVER.PATH... = VALUE ;` (chained field write through a dot-separated path).",
-      "evidence": ["src/compiler/sema_render.cpp#L739-L885"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L739-L885"
+      ]
     },
     {
       "id": "stmt.while.cond-or-let",
       "domain": "stmt",
       "title": "while and while-let",
       "statement": "A while statement is either `while COND BLOCK` (condition form) or `while let PAT = VALUE BLOCK` (while-let form).",
-      "evidence": ["src/compiler/sema_render.cpp#L777-L790"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L777-L790"
+      ]
     },
     {
       "id": "stmt.loop.forms",
       "domain": "stmt",
       "title": "loop and labeled loop",
       "statement": "An infinite loop is `loop BLOCK`; a labeled loop is `'LABEL: BLOCK` where labels use a leading single-quote sigil.",
-      "evidence": ["src/compiler/sema_render.cpp#L792-L804"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L792-L804"
+      ]
     },
     {
       "id": "stmt.for.range-and-iter",
       "domain": "stmt",
       "title": "for over range and for-each over iterator",
       "statement": "A for-over-range loop is `for NAME in LHS (`..`|`..=`) RHS BLOCK`, where `..=` denotes an inclusive upper bound and `..` an exclusive one; a for-each loop is `for NAME in ITER BLOCK`.",
-      "evidence": ["src/compiler/sema_render.cpp#L806-L831"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L806-L831"
+      ]
     },
     {
       "id": "stmt.break-continue.label-value",
       "domain": "stmt",
       "title": "break and continue with optional label and value",
       "statement": "`break ['LABEL] [VALUE] ;` may carry an optional loop label (single-quote sigil) and an optional break value; `continue ['LABEL] ;` may carry an optional loop label.",
-      "evidence": ["src/compiler/sema_render.cpp#L833-L855"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L833-L855"
+      ]
     },
     {
       "id": "stmt.block.scoping-and-unsafe",
       "domain": "stmt",
       "title": "block statement and unsafe block at statement position",
       "statement": "A bare brace-delimited block `{ stmts... }` is a valid statement (scoping block), and `unsafe { stmts... }` wraps a block with the unsafe modifier at statement position; both contain a sequence of statements.",
-      "evidence": ["src/compiler/sema_render.cpp#L894-L927"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L894-L927"
+      ]
     },
     {
       "id": "stmt.if.no-trailing-semi",
       "domain": "stmt",
       "title": "if at statement position needs no trailing semicolon",
       "statement": "An `if` used in statement position requires no trailing `;` because it is a brace-bounded expression.",
-      "evidence": ["src/compiler/sema_render.cpp#L887-L892"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L887-L892"
+      ]
     },
     {
       "id": "const.literal.float-needs-decimal-point",
       "domain": "const",
       "title": "float CTFE literal must be syntactically distinguishable from int",
       "statement": "A floating-point constant value rendered to source must contain a decimal point, exponent, or nan/inf marker so it lexes as a float literal and not an integer literal; otherwise `.0` is appended. F32 values carry an `f32` suffix and F64 a `f64` suffix.",
-      "evidence": ["src/compiler/sema_render.cpp#L978-L991"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L978-L991"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "const.literal.string-escapes",
       "domain": "const",
       "title": "string constant escape set",
       "statement": "A string constant value renders with the escapes `\\\\`, `\\\"`, `\\n`, `\\r`, `\\t`; all other bytes are emitted verbatim within double quotes.",
-      "evidence": ["src/compiler/sema_render.cpp#L963-L977"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L963-L977"
+      ]
     },
     {
       "id": "const.literal.integer-suffix-by-kind",
       "domain": "const",
       "title": "integer constant suffix by type kind",
       "statement": "An integer constant carries a type suffix matching its kind (i8/i16/i32/i64/u8/u16/u32/u64); IntLit and the non-power-of-two-byte kinds I24/U24/I56/U56 are emitted unsuffixed. Signedness is determined by the kind (signed: i8/i16/i24/i32/i56/i64/i128/IntLit).",
-      "evidence": ["src/compiler/sema_render.cpp#L992-L1016"],
+      "evidence": [
+        "src/compiler/sema_render.cpp#L992-L1016"
+      ],
       "divergence": "Logos has additional integer widths I24/U24/I56/U56 beyond Rust's fixed set."
     },
     {
@@ -102,7 +129,9 @@
       "domain": "item",
       "title": "const item with optional generics and type",
       "statement": "A const item is `[pub] const NAME [<type-params>] [: TYPE] = VALUE ;`; const items may be generic.",
-      "evidence": ["src/compiler/sema_render.cpp#L1192-L1211"],
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1192-L1211"
+      ],
       "divergence": "Generic const items (const with type parameters) are a Logos extension."
     },
     {
@@ -110,21 +139,29 @@
       "domain": "item",
       "title": "type alias with optional generics",
       "statement": "A type alias is `[pub] type NAME [<type-params>] = TYPE ;`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1213-L1224"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1213-L1224"
+      ]
     },
     {
       "id": "item.enum.repr-and-variants",
       "domain": "item",
       "title": "enum item form",
       "statement": "An enum is `[pub] enum NAME [<type-params>] [: TYPE] { variant, ... }` where the optional `: TYPE` gives the discriminant representation type; each variant is `NAME [(types...)] [= [-]discriminant]`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1152-L1174", "src/compiler/sema_render.cpp#L1226-L1249"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1152-L1174",
+        "src/compiler/sema_render.cpp#L1226-L1249"
+      ]
     },
     {
       "id": "item.struct.fields-and-inherent-methods",
       "domain": "item",
       "title": "struct item form with optional inherent methods",
       "statement": "A struct is `[pub] struct NAME [<type-params>] { fields... }`, or `[pub] struct NAME [<type-params>] ;` when field-less; each field is `[pub] NAME : TYPE [...]`. Inherent methods may be declared in the struct body, which is equivalent to a separate `impl NAME { ... }` block.",
-      "evidence": ["src/compiler/sema_render.cpp#L1140-L1150", "src/compiler/sema_render.cpp#L1251-L1308"],
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1140-L1150",
+        "src/compiler/sema_render.cpp#L1251-L1308"
+      ],
       "divergence": "Legacy `struct Foo { fields, fn ... }` form (methods inside the struct body) is accepted; not a Rust form."
     },
     {
@@ -132,36 +169,48 @@
       "domain": "item",
       "title": "impl block forms",
       "statement": "An impl block is `[unsafe] impl[<impl-type-params>] TRAIT[<type-args>] for TYPE { items }` (trait impl) or `[unsafe] impl[<type-params>] TYPE { items }` (inherent impl); negative impls are permitted.",
-      "evidence": ["src/compiler/sema_render.cpp#L1310-L1373"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1310-L1373"
+      ]
     },
     {
       "id": "item.fn.signature-form",
       "domain": "item",
       "title": "function item signature form",
       "statement": "A function is `[pub] [unsafe] [extern] fn NAME [<type-params>] (params) [-> RET_TYPE] BLOCK`, or terminated with `;` when bodyless (declaration only).",
-      "evidence": ["src/compiler/sema_render.cpp#L1375-L1398"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1375-L1398"
+      ]
     },
     {
       "id": "item.param.self-receiver-and-modifiers",
       "domain": "item",
       "title": "function parameter and self-receiver forms",
       "statement": "A parameter is `[mut] NAME [: TYPE] [...]`; a self-receiver is rendered as `&[mut] self` (a reference parameter without an explicit type). The `...` suffix marks a variadic parameter.",
-      "evidence": ["src/compiler/sema_render.cpp#L1101-L1125"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1101-L1125"
+      ]
     },
     {
       "id": "generic.param.bounds-and-const",
       "domain": "generic",
       "title": "type-parameter and const-parameter forms",
       "statement": "A type parameter is `NAME [: bound + bound + ...]`; a const generic parameter is `const NAME : TYPE`. Either may be marked variadic with `...`. Bounds are joined with `+`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1052-L1099"],
-      "divergence": "Variadic type/const parameters (`...`) are a Logos extension."
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1052-L1099"
+      ],
+      "divergence": "Variadic type/const parameters (`...`) are a Logos extension.",
+      "testability": "transitive"
     },
     {
       "id": "item.use.path-form",
       "domain": "item",
       "title": "use declaration path form",
       "statement": "A use declaration is `[pub] use NAME(.part)* ;`, where path segments after the head are dot-separated.",
-      "evidence": ["src/compiler/sema_render.cpp#L1036-L1050", "src/compiler/sema_render.cpp#L1182-L1190"],
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1036-L1050",
+        "src/compiler/sema_render.cpp#L1182-L1190"
+      ],
       "divergence": "Logos paths use `.` for package/module segments rather than Rust's `::`."
     },
     {
@@ -169,7 +218,9 @@
       "domain": "item",
       "title": "annotation/attribute syntax",
       "statement": "An annotation is `#[NAME]`, `#[NAME = literal]`, or `#[NAME(args...)]`; arguments may be positional or `key = value`, and an argument value may be an array literal `[ ... ]`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1400-L1460"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1400-L1460"
+      ]
     }
   ]
 }

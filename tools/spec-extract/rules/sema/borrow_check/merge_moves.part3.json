@@ -20,7 +20,8 @@
       "statement": "`&x` (AddrOf) where x is a tracked local (not a parameter, not a materialized temp) has provenance is_local=true. Such a borrow is valid in scope but dangles if it escapes (e.g. is returned).",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1707-L1714"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.materialized-temp-statement-scoped",
@@ -30,7 +31,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1710-L1711",
         "src/compiler/borrow_check.cpp#L1716-L1732"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.temp-lifetime-extension",
@@ -40,7 +42,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1737-L1744"
       ],
-      "uncertainty": "Distinction between materialized __rtmp temp (statement-scoped) and direct &temp (lifetime-extended) inferred from the two AddrOfTemp branches."
+      "uncertainty": "Distinction between materialized __rtmp temp (statement-scoped) and direct &temp (lifetime-extended) inferred from the two AddrOfTemp branches.",
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.value-local-root-borrow",
@@ -49,7 +52,8 @@
       "statement": "A borrow rooted at a by-value local through field/index/deref chains (`&c.x`, `&c.a[i]`, `&*h` where h is a value-local smart pointer) has provenance is_local=true and dangles if returned.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1745-L1749"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.unknown-conservative-accept",
@@ -59,7 +63,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1750",
         "src/compiler/borrow_check.cpp#L1846-L1848"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "region.provenance.projection-transparent",
@@ -96,7 +101,8 @@
       "statement": "When a ref-self method (self by reference, method_self_kind != 0) is called on a temporary receiver, the result points into that temporary, so provenance is_temp=true. A by-value-self adapter (self: Self) instead consumes/moves the temporary into the result and does not produce a statement-temp escape.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1789-L1806"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.bare-value-local-receiver",
@@ -105,7 +111,8 @@
       "statement": "If a method's reference/borrow-carrying result has otherwise-empty provenance but its receiver roots at a value-local (e.g. `Rc::deref` on `h` directly), the result provenance is marked is_local.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1799-L1806"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.borrow-carrying-call-aliases-ref-args",
@@ -114,7 +121,8 @@
       "statement": "A free-function/constructor call returning a #[borrow_carrying] value has provenance equal to the merge of the provenances of its reference-typed arguments (`WAny::from(&x)` aliases x). A non-borrow-carrying call result is caller-owned (empty provenance). Value (non-ref) arguments contribute no provenance.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1808-L1820"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "region.provenance.aggregate-literal-merge",
@@ -123,7 +131,8 @@
       "statement": "A struct literal, tuple literal, or enum-data literal has provenance equal to the merge of the provenances of its field values / elements / payloads; returning the aggregate escapes any borrow carried by a borrow-carrying field. Pod/owned fields contribute empty provenance.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1821-L1845"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.return.dangling-local-or-temp",
@@ -141,7 +150,8 @@
       "statement": "When the return type has an explicit (non-'_) lifetime 'ret, each traced parameter source's declared lifetime 'src must satisfy 'src == 'ret OR 'src outlives 'ret (an explicit `where 'src: 'ret`, or 'static); otherwise a 'lifetime mismatch: return type has lifetime 'ret but <src> has lifetime 'src' error is reported.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1884-L1940"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.return.non-ref-param-source-deferred",
@@ -161,7 +171,8 @@
       "statement": "When the return lifetime is elided ('_) and exactly one reference-typed parameter exists, the returned reference's provenance must include that sole parameter; otherwise 'lifetime elision: return reference must derive from <p> (the only reference parameter)' is reported. With multiple ref parameters the source is ambiguous and any param source is accepted.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1944-L1960"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "region.return.untraced-is-safe",
@@ -226,7 +237,8 @@
       "statement": "When the borrowed place's root is a union, a field-path borrow is redirected to a whole-value borrow of the root (all sibling fields of a union alias).",
       "evidence": [
         "src/compiler/borrow_check.cpp#L2071-L2107"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.scoped.index-subexpr-visited-before-borrow",
@@ -235,7 +247,8 @@
       "statement": "When a borrowed place contains an index or other sub-expression, the inner expression is visited (its sub-checks run) before the borrow is registered on the root, avoiding a spurious self-conflict where the recursive visit of the root sees its own freshly-set borrow.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L2075-L2107"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.scoped.call-result-aliases-ref-args",
@@ -273,7 +286,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L2153-L2159",
         "src/compiler/borrow_check.cpp#L2173-L2199"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.scoped.rc-arc-root-exempt",

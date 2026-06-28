@@ -106,7 +106,8 @@
       "statement": "When a `let` binds a value whose type is Drop-and-lifetime (dropck) relevant, the local variables the value borrows from are recorded against the binding (with its line), so that drop-order checking can detect a borrowed referent being dropped before the borrowing binding.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L2719-L2727"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.scope.stored-borrow-outlives-referent",

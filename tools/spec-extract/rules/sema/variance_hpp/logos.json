@@ -9,24 +9,39 @@
       "domain": "generic",
       "title": "Generic-parameter variance kinds",
       "statement": "Each type/lifetime parameter of a struct/enum has a variance in {BiVar, Co, Contra, Inv}: Co (covariant) preserves the subtype direction (Foo<Sub> <: Foo<Super>, &'long T <: &'short T when 'long: 'short); Contra (contravariant) reverses it (fn-argument position); Inv (invariant) requires both directions (mutable-reference content); BiVar (bivariant) places no constraint, used when the parameter appears only in phantom/absent positions.",
-      "evidence": ["include/logos/compiler/variance.hpp#L31"],
-      "related": ["generic.variance.meet", "generic.variance.compose"]
+      "evidence": [
+        "include/logos/compiler/variance.hpp#L31"
+      ],
+      "related": [
+        "generic.variance.meet",
+        "generic.variance.compose"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.variance.meet",
       "domain": "generic",
       "title": "Variance meet (combine multiple uses of a parameter)",
       "statement": "When a parameter is used in several positions, its variance is the meet (most-restrictive demand): BiVar ∧ x = x; x ∧ x = x; Co ∧ Contra = Inv; Inv ∧ x = Inv. The lattice ordering is BiVar < {Co, Contra} < Inv.",
-      "evidence": ["include/logos/compiler/variance.hpp#L33-L38"],
-      "related": ["generic.variance.four-kinds"]
+      "evidence": [
+        "include/logos/compiler/variance.hpp#L33-L38"
+      ],
+      "related": [
+        "generic.variance.four-kinds"
+      ]
     },
     {
       "id": "generic.variance.compose",
       "domain": "generic",
       "title": "Variance composition under nesting",
       "statement": "For a parameter P used at variance `inner` inside Wrapper<P>, where the Wrapper field occupies a position of variance `outer` in the enclosing type, P's effective variance there is outer ∘ inner: BiVar absorbs (BiVar ∘ x = x ∘ BiVar = BiVar); Inv dominates the non-BiVar cases (Inv ∘ x = x ∘ Inv = Inv); otherwise the result is Contra iff exactly one of outer/inner is Contra (sign-flip rule: Co∘Co=Co, Co∘Contra=Contra, Contra∘Co=Contra, Contra∘Contra=Co).",
-      "evidence": ["include/logos/compiler/variance.hpp#L40-L46"],
-      "related": ["generic.variance.four-kinds", "generic.variance.meet"]
+      "evidence": [
+        "include/logos/compiler/variance.hpp#L40-L46"
+      ],
+      "related": [
+        "generic.variance.four-kinds",
+        "generic.variance.meet"
+      ]
     }
   ]
 }

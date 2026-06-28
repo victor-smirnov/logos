@@ -9,88 +9,119 @@
       "domain": "item",
       "title": "`_` reserved as a function name",
       "statement": "A function declaration whose name is the single underscore `_` is ill-formed; `_` is reserved for ignored bindings (so `_(...)` cannot become a valid call expression).",
-      "evidence": ["src/compiler/sema_decl.cpp#L144-L146"],
-      "examples": ["fn _() {}  // error: '_' is reserved for ignored bindings"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L144-L146"
+      ],
+      "examples": [
+        "fn _() {}  // error: '_' is reserved for ignored bindings"
+      ]
     },
     {
       "id": "region.outlives.implied-from-references",
       "domain": "region",
       "title": "Implied outlives from nested references",
       "statement": "For each `&'a T` (or `&'a mut T`) appearing in a parameter or return type, every reference lifetime `'b` (and struct/enum/zoned lifetime-arg) nested strictly inside its referent yields an implied bound `'b: 'a` (the inner must outlive the enclosing reference). Implied bounds are emitted only when both lifetimes are declared on the fn (or `'static`); template-internal generic lifetimes are not surfaced.",
-      "evidence": ["src/compiler/sema_decl.cpp#L38-L82"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L38-L82"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "region.outlives.static-always-known",
       "domain": "region",
       "title": "`'static` is an always-declared lifetime",
       "statement": "The lifetime `'static` (spelled `'static` or `static`) is treated as declared in every scope; it is never an undeclared-lifetime error.",
-      "evidence": ["src/compiler/sema_decl.cpp#L33-L37", "src/compiler/sema_decl.cpp#L115-L119"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L33-L37",
+        "src/compiler/sema_decl.cpp#L115-L119"
+      ]
     },
     {
       "id": "region.outlives.undeclared-lifetime-error",
       "domain": "region",
       "title": "Outlives/bound lifetimes must be declared",
       "statement": "Every lifetime name used in a function's outlives clause, or in a type-parameter's `T: 'lt` bound, must be a lifetime parameter declared on that function (or `'static`); use of an undeclared lifetime name is ill-formed.",
-      "evidence": ["src/compiler/sema_decl.cpp#L113-L134"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L113-L134"
+      ]
     },
     {
       "id": "region.outlives.where-type-outlives",
       "domain": "region",
       "title": "where-clause type-outlives bounds attach to type params",
       "statement": "A where-clause entry `T: 'lt` adds the lifetime bound `'lt` to the matching type parameter `T`; where-clause lifetime-outlives entries are merged into the function's outlives set.",
-      "evidence": ["src/compiler/sema_decl.cpp#L83-L111"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L83-L111"
+      ]
     },
     {
       "id": "type.param.unit-type-forbidden",
       "domain": "type",
       "title": "Unit-typed parameters forbidden",
       "statement": "A function parameter may not have the unit type `()`; a unit-typed parameter carries no information and is ill-formed.",
-      "evidence": ["src/compiler/sema_decl.cpp#L303-L308"],
-      "divergence": "Logos restriction: Rust permits `()`-typed parameters."
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L303-L308"
+      ],
+      "divergence": "Logos restriction: Rust permits `()`-typed parameters.",
+      "testability": "untestable"
     },
     {
       "id": "type.impl-trait.param-position-forbidden",
       "domain": "type",
       "title": "`impl Trait` not allowed at parameter position",
       "statement": "`impl Trait` is not supported in parameter position; use an explicit generic `fn f<T: Trait>(x: T)` or `&dyn Trait` instead.",
-      "evidence": ["src/compiler/sema_decl.cpp#L309-L318"],
-      "divergence": "Logos restriction: Rust supports argument-position impl Trait (APIT)."
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L309-L318"
+      ],
+      "divergence": "Logos restriction: Rust supports argument-position impl Trait (APIT).",
+      "testability": "untestable"
     },
     {
       "id": "type.return.datanode-by-value-forbidden",
       "domain": "type",
       "title": "DataNode eidos cannot be returned by value",
       "statement": "A non-plain zoned-struct DataNode type (`#[data]` node) cannot be a by-value return type; the function must return `DataRef<T>` instead. The check looks through array nesting to the innermost element.",
-      "evidence": ["src/compiler/sema_decl.cpp#L479-L500"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L479-L500"
+      ]
     },
     {
       "id": "type.return.non-movable-by-value-forbidden",
       "domain": "type",
       "title": "Location-anchored types cannot be returned by value",
       "statement": "A type that is non-movable — containing a self-relative `#[rel_ptr]` field, or being `#[pinned]` — may not be returned by value; return a pointer (`*mut T` / `&T`) into its zone segment instead. (Crossing a function boundary by value would invalidate the self-relative anchor.)",
-      "evidence": ["src/compiler/sema_decl.cpp#L501-L513"],
-      "divergence": "A8"
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L501-L513"
+      ],
+      "divergence": "A8",
+      "testability": "untestable"
     },
     {
       "id": "generic.fn.lifetime-param-unique",
       "domain": "generic",
       "title": "Lifetime parameters of a fn must be unique",
       "statement": "A function's lifetime parameter names must be pairwise distinct; a duplicate lifetime parameter is ill-formed.",
-      "evidence": ["src/compiler/sema_decl.cpp#L463-L467"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L463-L467"
+      ]
     },
     {
       "id": "generic.fn.type-param-unique",
       "domain": "generic",
       "title": "Type parameters of a fn must be unique",
       "statement": "A function's type parameter names must be pairwise distinct; a duplicate type parameter is ill-formed.",
-      "evidence": ["src/compiler/sema_decl.cpp#L521-L524"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L521-L524"
+      ]
     },
     {
       "id": "type.self.impl-binding-precedence",
       "domain": "type",
       "title": "`Self` resolves to the enclosing impl's type",
       "statement": "Within a method body, `Self` denotes the impl's target type; when the impl fixed `Self = Foo<T>` with type-args, a bare same-named `Self` from an unrelated impl is treated as stale and replaced. A datatype binding for `Self` takes precedence over a struct binding when both names exist; a primitive target binds `Self` to that primitive.",
-      "evidence": ["src/compiler/sema_decl.cpp#L207-L242"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L207-L242"
+      ],
       "uncertainty": "Precedence/staleness handling inferred from impl-context heuristics; observable effect is Self resolution."
     },
     {
@@ -98,7 +129,9 @@
       "domain": "type",
       "title": "Bare `self` parameter is `&Self` / `&mut Self`",
       "statement": "A method parameter written as `self` (no explicit type) has type `&Self` by default, or `&mut Self` when marked mutable.",
-      "evidence": ["src/compiler/sema_decl.cpp#L321-L328"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L321-L328"
+      ]
     }
   ]
 }

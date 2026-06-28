@@ -9,7 +9,11 @@
       "domain": "intrinsic",
       "title": "Type-introspection intrinsics fold after substitution at mono",
       "statement": "Type-trait/type-introspection intrinsics taking type-args are not evaluated at sema; each lowers to a magic `__<name>__` call carrying its type-args, and is folded to a concrete value only after monomorphization substitutes those type-args. Inside a generic body where T is still a type variable the call is preserved (never frozen to 'TypeVar' semantics).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5014-L5017", "src/compiler/sema_expr.cpp#L5079-L5087", "src/compiler/sema_expr.cpp#L5142-L5146"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5014-L5017",
+        "src/compiler/sema_expr.cpp#L5079-L5087",
+        "src/compiler/sema_expr.cpp#L5142-L5146"
+      ],
       "divergence": "Logos addition: compile-time type reflection intrinsics (no Rust equivalent)."
     },
     {
@@ -17,7 +21,9 @@
       "domain": "intrinsic",
       "title": "is_same arity and result",
       "statement": "`is_same::<T1, T2>()` requires exactly two type arguments and yields `bool`; structural/identity equality of T1 and T2 is resolved post-substitution at mono. Wrong arity is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5018-L5026"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5018-L5026"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -25,7 +31,9 @@
       "domain": "intrinsic",
       "title": "slice_from_raw builds a slice fat pointer",
       "statement": "`slice_from_raw::<T>(ptr: *const T, len: i64) -> &[T]` requires exactly one type argument and exactly two value arguments; it materialises a slice fat-pointer of element type T (uniform fat-pointer layout shared with str_from_raw). Wrong type-arg count or value-arg count is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5032-L5057"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5032-L5057"
+      ],
       "divergence": "Logos addition (unsafe raw-parts constructor)."
     },
     {
@@ -33,7 +41,9 @@
       "domain": "intrinsic",
       "title": "wstatic_hash_of identity hash",
       "statement": "`wstatic_hash_of::<CFG>()` requires exactly one type argument and yields `u64`, the byte-hash identity of a WritStatic value; folded at mono once CFG is a concrete WStaticLit.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5064-L5072"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5064-L5072"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -41,34 +51,50 @@
       "domain": "intrinsic",
       "title": "type_hash is layout-structural",
       "statement": "`type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args (Foo<i32> != Foo<u32>).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5073-L5087"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5073-L5087"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.type-uid.nominal-u64"]
+      "related": [
+        "intrinsic.type-uid.nominal-u64"
+      ]
     },
     {
       "id": "intrinsic.type-uid.nominal-u64",
       "domain": "intrinsic",
       "title": "type_uid is nominal identity",
       "statement": "`type_uid::<T>()` requires one type argument and yields `u64`: a NOMINAL 64-bit type identity (hash of the canonical named type string), so distinct nominal types differ even at identical layout (unlike type_hash). It is the low 64 bits of the 128-bit type UID and equals the `.uid` field exposed by type_of.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5088-L5102", "src/compiler/sema_expr.cpp#L5172-L5174"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5088-L5102",
+        "src/compiler/sema_expr.cpp#L5172-L5174"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.type-uid-hi.high-half", "intrinsic.type-hash.structural-u64"]
+      "related": [
+        "intrinsic.type-uid-hi.high-half",
+        "intrinsic.type-hash.structural-u64"
+      ]
     },
     {
       "id": "intrinsic.type-uid-hi.high-half",
       "domain": "intrinsic",
       "title": "type_uid_hi is the high half of the 128-bit UID",
       "statement": "`type_uid_hi::<T>()` requires one type argument and yields `u64`, the HIGH 64 bits of the 128-bit nominal type UID; together with type_uid (low half) they form a 128-bit TypeId.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5103-L5115"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5103-L5115"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.type-uid.nominal-u64"]
+      "related": [
+        "intrinsic.type-uid.nominal-u64"
+      ]
     },
     {
       "id": "intrinsic.is-kind.predicate-family",
       "domain": "intrinsic",
       "title": "Type-kind predicate family",
       "statement": "The predicates is_ptr / is_ref / is_mut_ref / is_struct / is_zoned / is_enum / is_tuple / is_slice / is_array / is_integer / is_signed / is_unsigned / is_float / is_bool / is_primitive each take exactly one type argument and yield `bool`, resolved against the substituted T at mono. Wrong arity is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5127-L5140"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5127-L5140"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -76,7 +102,9 @@
       "domain": "intrinsic",
       "title": "type_of constructs a Type reflection struct",
       "statement": "`type_of::<T>()` requires exactly one type argument and yields a `Type` struct literal with fields {kind: u32 (from __type_kind_of__), name: &[u8] (from __type_name_of__), size: i64 (size_of T), align: i64 (align_of T), uid: u64 (type_uid of T)}. Each component is concretized at mono.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5142-L5183"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5142-L5183"
+      ],
       "divergence": "Logos addition (type reflection)."
     },
     {
@@ -84,61 +112,87 @@
       "domain": "intrinsic",
       "title": "args_of yields generic type arguments",
       "statement": "`args_of::<T>()` requires one type argument and yields `[Type; N]` listing T's generic type arguments; for non-generic T the result is `[Type; 0]`. The array length is fixed at mono once T is concrete.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5185-L5211"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5185-L5211"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.args-count-of.arg-count"]
+      "related": [
+        "intrinsic.args-count-of.arg-count"
+      ]
     },
     {
       "id": "intrinsic.args-count-of.arg-count",
       "domain": "intrinsic",
       "title": "args_count_of yields generic-arg count",
       "statement": "`args_count_of::<T>()` requires one type argument and yields `i64` = number of T's generic type arguments (0 for primitive or non-generic struct).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5213-L5233"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5213-L5233"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.args-of.type-arg-array"]
+      "related": [
+        "intrinsic.args-of.type-arg-array"
+      ]
     },
     {
       "id": "intrinsic.has-trait.t-trait-bool",
       "domain": "intrinsic",
       "title": "has_trait queries impl tables",
       "statement": "`has_trait::<T, Trait>()` requires two type arguments and yields `bool`: whether concrete T implements Trait, resolved at mono against the same impl tables (concrete + recursive blanket lookup) that drive method dispatch. The second argument is read by its identifier name only (passed as a string literal arg), not resolved as a type. Missing T or empty Trait name is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5235-L5270"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5235-L5270"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.has-trait-of.type-method"]
+      "related": [
+        "intrinsic.has-trait-of.type-method"
+      ]
     },
     {
       "id": "intrinsic.has-trait-of.type-method",
       "domain": "intrinsic",
       "title": "has_trait_of is the Type-method form of has_trait",
       "statement": "`has_trait_of::<Trait>(t: Type) -> bool` recovers concrete T from the value t's Type.uid field and runs the same impl-table recursion as has_trait.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5272-L5276"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5272-L5276"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.has-trait.t-trait-bool"]
+      "related": [
+        "intrinsic.has-trait.t-trait-bool"
+      ]
     },
     {
       "id": "intrinsic.vtable-of.static-vtable-addr",
       "domain": "intrinsic",
       "title": "vtable_of yields a static vtable address",
       "statement": "`vtable_of::<Trait, T>() -> *const u8` yields the address of the static vtable for `impl Trait for T`. Trait is read by NAME (must be a known trait, else error); T is resolved as a type and substituted at mono. Missing trait name or type is a compile error; an unknown trait name is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5278-L5312"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5278-L5312"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.dyn-from-parts.fat-trait-ptr"]
+      "related": [
+        "intrinsic.dyn-from-parts.fat-trait-ptr"
+      ]
     },
     {
       "id": "intrinsic.dyn-from-parts.fat-trait-ptr",
       "domain": "intrinsic",
       "title": "dyn_from_parts builds a trait object from raw halves",
       "statement": "`dyn_from_parts::<Trait>(data: *mut u8, vtable: *const u8) -> *mut dyn Trait` forms a fat {data, vtable} trait-object pointer. Exactly one trait type argument (its own type-args, if any, are carried so the produced object matches a parameterized `dyn Trait<...>` annotation, skipping lifetime/auto-trait bound sub-nodes) and exactly two value arguments are required. Trait must be a known, object-safe trait. The result is the bare canonical TraitObject (matching `*mut dyn`/`&dyn`), not a thin pointer.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5314-L5391"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5314-L5391"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.vtable-of.static-vtable-addr"]
+      "related": [
+        "intrinsic.vtable-of.static-vtable-addr"
+      ]
     },
     {
       "id": "intrinsic.typelist.probe-family",
       "domain": "intrinsic",
       "title": "typelist O(1) probes over a type pack",
       "statement": "Over L's type-pack (L.type_args()), one type argument required: `typelist_len::<L>() -> i64`; `typelist_head::<L>() -> Type` (error if pack empty); `typelist_nth::<L>(i) -> Type` requiring exactly one i64 index arg (out-of-range = error); `typelist_tail::<L>() -> [Type; N-1]`. Substituted after L is concrete.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5393-L5457"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5393-L5457"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -146,7 +200,9 @@
       "domain": "intrinsic",
       "title": "tuple_all_eq expands an element-wise eq chain",
       "statement": "`tuple_all_eq::<T>(a, b)` expands to the conjunction `a.0.eq(&b.0) && ... && a.{N-1}.eq(&b.{N-1})`. If T is a concrete tuple the chain is expanded at sema; if any element is a type variable a `__tuple_all_eq__` placeholder is emitted and expanded at mono once T's arity is concrete.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5459-L5471"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5459-L5471"
+      ],
       "divergence": "Logos addition (variadic-tuple support)."
     },
     {
@@ -154,7 +210,9 @@
       "domain": "intrinsic",
       "title": "tuple_each_field_debug formats every tuple field",
       "statement": "`tuple_each_field_debug::<T>(self, f)` requires one type argument that MUST be a tuple type (else compile error) and exactly two value arguments; result type is the enclosing function's return type. It Debug-formats every field of T into Formatter f, deferring to a `__tuple_each_field_debug__` placeholder expanded at mono.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5473-L5514"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5473-L5514"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -162,25 +220,35 @@
       "domain": "intrinsic",
       "title": "tuple_count_of yields tuple element count",
       "statement": "`tuple_count_of::<T>()` requires one type argument and yields `i64` = number of elements in tuple T (0 for non-tuple T).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5516-L5534"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5516-L5534"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.tuple-elems-of.elem-types"]
+      "related": [
+        "intrinsic.tuple-elems-of.elem-types"
+      ]
     },
     {
       "id": "intrinsic.tuple-elems-of.elem-types",
       "domain": "intrinsic",
       "title": "tuple_elems_of yields tuple element types",
       "statement": "`tuple_elems_of::<T>()` requires one type argument and yields `[Type; N]` of T's element types; empty array for non-tuple T.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5536-L5560"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5536-L5560"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.tuple-count-of.elem-count"]
+      "related": [
+        "intrinsic.tuple-count-of.elem-count"
+      ]
     },
     {
       "id": "intrinsic.field-count-of.struct-field-count",
       "domain": "intrinsic",
       "title": "field_count_of yields struct field count",
       "statement": "`field_count_of::<T>()` requires one type argument and yields `i64` = number of declared fields of struct T (0 for non-struct or unknown-struct T).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5562-L5582"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5562-L5582"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -188,7 +256,9 @@
       "domain": "intrinsic",
       "title": "field_types_of / field_names_of reflect struct fields",
       "statement": "`field_types_of::<T>()` yields `[Type; N]` of T's field types and `field_names_of::<T>()` yields `[&[u8]; N]` of T's field names; each requires one type argument; non-struct T yields empty arrays. At mono field types are substituted via the SubstMap built from the struct template's type_params -> T.type_args().",
-      "evidence": ["src/compiler/sema_expr.cpp#L5584-L5613"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5584-L5613"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -196,7 +266,9 @@
       "domain": "intrinsic",
       "title": "generic_of yields a handle for an unapplied generic constructor",
       "statement": "`generic_of::<X>()` yields a Type-shaped value-handle for the unapplied generic constructor X (struct or enum) with kind=Generic, name=X, size=arity, and UID = FNV-1a of \"generic:X\".",
-      "evidence": ["src/compiler/sema_expr.cpp#L5615-L5619"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5615-L5619"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -204,15 +276,20 @@
       "domain": "intrinsic",
       "title": "template_of yields a Template handle to a declaration",
       "statement": "`template_of::<X>()` resolves X at sema, locates the declaration item named X in the current AST root, and yields a `Template { raw: AnyVal { raw: <offset> } }` baking that declaration's arena offset as a u32 literal (same-AST scope).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5621-L5627"],
-      "divergence": "Logos addition."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5621-L5627"
+      ],
+      "divergence": "Logos addition.",
+      "testability": "untestable"
     },
     {
       "id": "intrinsic.variant-reflect.enum-family",
       "domain": "intrinsic",
       "title": "Enum-variant decompose intrinsics",
       "statement": "Each requires one type argument E: `variant_count_of::<E>() -> i64`; `variant_names_of::<E>() -> [&[u8]; N]`; `variant_payload_counts_of::<E>() -> [i64; N]`; `variant_payload_types_flat_of::<E>() -> [Type; M]`. For non-enum or unknown E all yield 0 / empty arrays.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5629-L5668"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5629-L5668"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -220,7 +297,9 @@
       "domain": "intrinsic",
       "title": "type_refs_of reflects a type pack",
       "statement": "`type_refs_of::<T...>()` yields `[Type; N]` with one Type value per pack member, substituted after pack expansion at mono. When the pack reduces to a single type-variable pack, the placeholder array carries a pack-size marker so let-bound/return types lift to the concrete `[Type; N]` automatically.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5670-L5701"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5670-L5701"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -228,7 +307,9 @@
       "domain": "intrinsic",
       "title": "sizeof yields byte size",
       "statement": "`sizeof::<T>()` requires exactly one type argument and yields `i64` = byte size of T.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5703-L5716"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5703-L5716"
+      ],
       "divergence": "Logos spelling of size_of; result is i64 (Rust mem::size_of -> usize)."
     },
     {
@@ -236,7 +317,9 @@
       "domain": "intrinsic",
       "title": "align_of yields alignment",
       "statement": "`align_of::<T>()` requires exactly one type argument and yields `i64` = alignment of T.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5718-L5731"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5718-L5731"
+      ],
       "divergence": "Result is i64 (Rust mem::align_of -> usize)."
     },
     {
@@ -244,7 +327,9 @@
       "domain": "intrinsic",
       "title": "type_code_of yields the Writ type code",
       "statement": "`type_code_of::<T>()` yields `u64`, the Writ type_code of a concrete datatype = SHA-256 of \"package::Name\" truncated to 56 bits, shifted to >= 128 if needed (codes 1-127 reserved for inline AnyVal). For non-datatype T it yields 0.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5733-L5737"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5733-L5737"
+      ],
       "divergence": "Logos addition (Writ substrate)."
     },
     {
@@ -252,7 +337,9 @@
       "domain": "intrinsic",
       "title": "is_data_plain_of predicates DataPlain layout",
       "statement": "`is_data_plain_of::<T>()` yields `bool`: true iff T is a DataPlain datatype (no relative-pointer fields). Array wrappers are stripped ([D; N] checks D). Non-datatype types (scalars, ordinary structs) always yield true; a generic (type-arg-bearing) zoned datatype yields false (conservative); an unknown datatype defaults to true.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5739-L5779"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5739-L5779"
+      ],
       "divergence": "Logos addition (zoned/Writ datatypes)."
     },
     {
@@ -260,7 +347,9 @@
       "domain": "intrinsic",
       "title": "reflect requests TypeInfo rodata",
       "statement": "`reflect::<T>() -> WritStatic` is a compile-time request that registers T for reflection so a TypeInfo global is emitted; the expression resolves to the address of that emitted TypeInfo rodata.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5781-L5784"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5781-L5784"
+      ],
       "divergence": "Logos addition."
     },
     {
@@ -268,7 +357,9 @@
       "domain": "intrinsic",
       "title": "has_annotation is a compile-time annotation check",
       "statement": "`has_annotation::<T, A>()` requires exactly two type arguments and const-folds to `bool`: true iff datatype T carries a user annotation of annotation-type A. A must be a known annotation datatype (else compile error); the check matches against T's declared annotation instances by fully-qualified or simple name.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5786-L5823"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5786-L5823"
+      ],
       "divergence": "Logos addition (annotation metaprogramming)."
     },
     {
@@ -276,16 +367,22 @@
       "domain": "intrinsic",
       "title": "get_annotation yields the annotation instance as Option<A>",
       "statement": "`get_annotation::<T, A>() -> Option<A>` const-folds to `Some(A{...})` if datatype T carries annotation A, else `None`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5825-L5827"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5825-L5827"
+      ],
       "divergence": "Logos addition.",
-      "related": ["intrinsic.has-annotation.const-fold"]
+      "related": [
+        "intrinsic.has-annotation.const-fold"
+      ]
     },
     {
       "id": "intrinsic.unknown-callee.passthrough",
       "domain": "intrinsic",
       "title": "Unrecognized callee is not a type intrinsic",
       "statement": "A callee not matching any recognized type-intrinsic name yields no lowering here (the dispatcher returns nothing), leaving the call to ordinary resolution.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5828"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5828"
+      ]
     }
   ]
 }

@@ -40,7 +40,8 @@
         "src/compiler/sema_collect.cpp#L3235-L3248",
         "src/compiler/sema_collect.cpp#L3281-L3295"
       ],
-      "divergence": "G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key."
+      "divergence": "G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key.",
+      "testability": "untestable"
     },
     {
       "id": "trait.assoc-const.inherent-allowed",
@@ -87,7 +88,8 @@
       "statement": "An impl method satisfies a trait method when arities agree and each non-receiver parameter type is equal, where a trait parameter that is a type variable or associated-type projection (possibly under &/&mut/*) is treated as polymorphic and matches any concrete impl type; the receiver (param 0) is always skipped.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L3389-L3458"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.impl.variadic-pack-param",
@@ -106,7 +108,8 @@
       "statement": "For `impl Trait for <scalar primitive>` (i8..i128/u8..u128/usize/isize/f32/f64/bool/char), Self resolves to the primitive so inherited default method bodies using `&Self` typecheck; this binding is restricted to scalar kinds and excludes `str` and enum targets, whose defaults keep Self as a type variable.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L3545-L3567"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.impl.blanket-default-method",
@@ -124,7 +127,8 @@
       "statement": "A default trait method registered into an impl is marked public (inheriting trait accessibility); all newly-registered overloads of that method are marked pub, not only the first.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L3601-L3608"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.assoc-type.completeness-with-default",
@@ -188,7 +192,8 @@
       "statement": "Two non-generic, non-negative impls of the same trait (canonical name) with the same trait type-arguments for the same target type conflict and are an error. The coherence key includes the trait's spelled-out type-args (so `From<i8>` and `From<i16>` for one target do not collide) and uses the canonical scope-resolved trait name (so distinct same-name traits do not collide). Generic impls (with impl type/lifetime params) and negative impls are exempt.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L3729-L3773"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.str.slice-alias",

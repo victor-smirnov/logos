@@ -9,35 +9,47 @@
       "domain": "expr",
       "title": "Compound-assign operator → *Assign trait/method",
       "statement": "Each compound-assign operator `op=` maps to a trait + method: `+=`→AddAssign::add_assign, `-=`→SubAssign::sub_assign, `*=`→MulAssign::mul_assign, `/=`→DivAssign::div_assign, `%=`→RemAssign::rem_assign, `&=`→BitAndAssign::bitand_assign, `|=`→BitOrAssign::bitor_assign, `^=`→BitXorAssign::bitxor_assign, `<<=`→ShlAssign::shl_assign, `>>=`→ShrAssign::shr_assign. Operators outside this set have no *Assign trait.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2260-L2274"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2260-L2274"
+      ]
     },
     {
       "id": "expr.compound-assign.base-op-strip",
       "domain": "expr",
       "title": "Compound-assign base operator",
       "statement": "A compound-assign token `op=` denotes the binary operator `op` obtained by stripping the trailing `=`; the place is the receiver and the right side is the value operand.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2277-L2294"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2277-L2294"
+      ]
     },
     {
       "id": "expr.compound-assign.var-undefined",
       "domain": "expr",
       "title": "Compound-assign to undefined variable is an error",
       "statement": "`x op= e` where `x` is not a bound variable is rejected: \"compound assignment to undefined variable\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2295-L2300"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2295-L2300"
+      ]
     },
     {
       "id": "expr.compound-assign.var-immutable",
       "domain": "expr",
       "title": "Compound-assign requires a mutable place",
       "statement": "`x op= e` requires `x` to be declared `mut`; an immutable target is rejected: \"compound assignment to immutable variable\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2301-L2302", "src/compiler/sema_stmt.cpp#L2416-L2417"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2301-L2302",
+        "src/compiler/sema_stmt.cpp#L2416-L2417"
+      ]
     },
     {
       "id": "expr.compound-assign.opassign-dispatch",
       "domain": "expr",
       "title": "Compound-assign dispatches via *Assign impl when present",
       "statement": "For a place of struct type S, if an impl of the operator's *Assign trait exists for S (matched by concrete or base struct name), `place op= rhs` lowers to the in-place call `op_assign(&mut place, rhs)` (void result, no assign-back). The trait method's Rhs parameter need not equal Self: the impl is selected by the actual rhs operand type, falling back to the Self-Rhs signature if the rhs-typed one does not resolve.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2315-L2351", "src/compiler/sema_stmt.cpp#L2484-L2509"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2315-L2351",
+        "src/compiler/sema_stmt.cpp#L2484-L2509"
+      ],
       "divergence": "Rust-conformant operator-overload semantics; Logos struct-name-keyed impl lookup."
     },
     {
@@ -45,28 +57,39 @@
       "domain": "expr",
       "title": "Compound-assign without *Assign impl desugars to read-modify-write",
       "statement": "Absent a matching *Assign impl, `place op= rhs` desugars to `place = (place) op rhs` (read-twice / double-eval of the place), dispatching `op` through the corresponding binary-operator trait (Add/Sub/…), which constructs a fresh Self.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2304-L2305", "src/compiler/sema_stmt.cpp#L2361-L2363", "src/compiler/sema_stmt.cpp#L2511-L2525"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2304-L2305",
+        "src/compiler/sema_stmt.cpp#L2361-L2363",
+        "src/compiler/sema_stmt.cpp#L2511-L2525"
+      ]
     },
     {
       "id": "expr.compound-assign.type-mismatch",
       "domain": "expr",
       "title": "Compound-assign RHS type-compatibility",
       "statement": "In the read-modify-write path, the rhs type must be compatible with the place type; otherwise \"compound assignment: type mismatch — expected T, got U\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2353-L2360", "src/compiler/sema_stmt.cpp#L2512-L2518"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2353-L2360",
+        "src/compiler/sema_stmt.cpp#L2512-L2518"
+      ]
     },
     {
       "id": "expr.compound-assign.index-mut-dispatch",
       "domain": "expr",
       "title": "Compound-assign through IndexMut on a struct",
       "statement": "`a[i] op= v` where `a` has struct type with an `IndexMut` impl lowers to `*index_mut(&mut a, i) = (*index(&a, i)) op v`, using the `Index` read accessor for the current value when present (else `index_mut`); `a` must be `mut`, and the rhs must be compatible with the indexed output type.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2400-L2467"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2400-L2467"
+      ]
     },
     {
       "id": "expr.compound-assign.place-too-nested",
       "domain": "expr",
       "title": "Compound-assign target nesting limit",
       "statement": "A compound-assign target too deeply nested to write in place is rejected with guidance to bind an intermediate `&mut` reference.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2472-L2477"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2472-L2477"
+      ],
       "uncertainty": "Implementation-capability limit rather than a designed language restriction."
     },
     {
@@ -74,49 +97,65 @@
       "domain": "stmt",
       "title": "Assignment to undefined variable is an error",
       "statement": "`x = e` where `x` is not bound is rejected: \"assignment to undefined variable\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2529-L2537"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2529-L2537"
+      ]
     },
     {
       "id": "stmt.assign.static-mut-unsafe",
       "domain": "stmt",
       "title": "Writing a mutable static requires unsafe",
       "statement": "Writing to a module-level `static mut` requires an enclosing `unsafe` block: outside unsafe it is rejected (Rust `items.static.mut.safety`). A local binding (or type parameter) shadowing the static's name reclassifies the write as a normal local assignment, suppressing the static-mut gate.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2538-L2557"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2538-L2557"
+      ]
     },
     {
       "id": "stmt.assign.immutable-var",
       "domain": "stmt",
       "title": "Assignment to immutable variable is an error",
       "statement": "Assigning to a non-`mut` variable is rejected (\"assignment to immutable variable\"), except the single deferred-initialization write to a `let x: T;` declared without initializer.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2558-L2566"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2558-L2566"
+      ]
     },
     {
       "id": "stmt.assign.deferred-init-once",
       "domain": "stmt",
       "title": "Deferred initialization permits one write without mut",
       "statement": "A non-`mut` local declared without an initializer (`let x: T;`) may be assigned exactly once; that first assignment initializes it. A second assignment to the same non-`mut` local is rejected.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2558-L2566", "src/compiler/sema_stmt.cpp#L2746-L2753"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2558-L2566",
+        "src/compiler/sema_stmt.cpp#L2746-L2753"
+      ]
     },
     {
       "id": "stmt.assign.enum-lit-hint-retype",
       "domain": "stmt",
       "title": "Assignment LHS pins enum-literal type",
       "statement": "When the LHS variable has enum type, the RHS is lowered with that enum as the expected-type hint; an incompletely-typed generic enum literal RHS (no type-args, or any Error type-arg) is retyped to the LHS's concrete enum spec, provided the LHS is fully concrete and every known (non-error) literal type-arg already matches the LHS at its position (arity must match). A genuine type-arg mismatch is left for the compatibility check to reject.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2576-L2629"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2576-L2629"
+      ]
     },
     {
       "id": "stmt.assign.type-mismatch",
       "domain": "stmt",
       "title": "Assignment RHS type-compatibility",
       "statement": "`x = e` requires `typeof(e)` compatible with `typeof(x)`; otherwise \"assignment: type mismatch — expected T, got U\". A `#[rel_ptr]` ↔ `*T` relation is also accepted.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2630-L2637"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2630-L2637"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "stmt.assign.int-widen",
       "domain": "stmt",
       "title": "Implicit integer widening on assignment",
       "statement": "On assignment to an integer variable, a non-literal non-enum integer RHS of a narrower integer kind that can widen safely to the LHS kind is implicitly widened.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2638-L2644"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2638-L2644"
+      ],
       "divergence": "Rust has no implicit integer widening on assignment."
     },
     {
@@ -124,91 +163,118 @@
       "domain": "stmt",
       "title": "Integer-literal assignment must fit target type",
       "statement": "An integer-literal RHS (including elements of array/tuple literals, recursively through nested arrays/tuples) must fit in the target's (element's) integer type; an out-of-range value is rejected: \"value V does not fit in T\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2645-L2713"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2645-L2713"
+      ]
     },
     {
       "id": "stmt.assign.drop-before-replace",
       "domain": "stmt",
       "title": "Assignment drops the old value before overwrite",
       "statement": "Assigning to a variable that currently holds a live droppable value runs that value's destructor before the store, and after evaluating the RHS (so `x = f(x)` is sound). The drop is suppressed when the variable was declared without an initializer (runtime drop-flag governs it instead) or is currently whole- or partially moved-out.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2714-L2745"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2714-L2745"
+      ]
     },
     {
       "id": "stmt.assign.reassign-revives",
       "domain": "stmt",
       "title": "Reassignment revives a moved variable",
       "statement": "Assigning a new value to a variable clears its moved-out state, making it usable again; the RHS source, if a move-type, is marked moved so its scope-exit drop is suppressed.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2746-L2756"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2746-L2756"
+      ]
     },
     {
       "id": "stmt.return.value-required",
       "domain": "stmt",
       "title": "Return-without-value only in unit/never/impl-Trait functions",
       "statement": "`return;` (no value) is rejected in a function whose return type is not unit, error, or `impl Trait`: \"return without value in function returning T\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2994-L3001"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2994-L3001"
+      ]
     },
     {
       "id": "stmt.return.type-mismatch",
       "domain": "stmt",
       "title": "Return value type-compatibility",
       "statement": "`return e` requires `typeof(e)` compatible with the declared return type, after normalizing associated-type projections via equality bounds (`T: Trait<A=V>`); otherwise \"return type mismatch — expected T, got U\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2835-L2843"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2835-L2843"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "stmt.return.impl-trait-infer",
       "domain": "stmt",
       "title": "impl-Trait return type inferred from first return",
       "statement": "When the declared return type is `impl Trait`, the concrete return type is inferred from the first non-error return expression.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2830-L2834"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2830-L2834"
+      ]
     },
     {
       "id": "stmt.return.hint-propagation",
       "domain": "stmt",
       "title": "Return type hints literal/closure inference",
       "statement": "The declared return type seeds expected-type hints while lowering the return value: a generic enum/struct return type pins literal type-params; a fn-ptr/closure or wrapped-callable (`Box<dyn Fn(..)>`) return type infers an untyped closure literal's params; a (possibly `&`-wrapped) array/slice return type supplies an array-literal element-type hint.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2775-L2808"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2775-L2808"
+      ]
     },
     {
       "id": "coerce.return.closure-to-fnptr",
       "domain": "coerce",
       "title": "Non-capturing closure coerces to fn-ptr at return",
       "statement": "A non-capturing closure literal returned where a fn-value type is expected coerces to that fn-pointer type (same coercion as let-annotation and call-arg sites).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2819-L2825"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2819-L2825"
+      ]
     },
     {
       "id": "coerce.return.unsize-struct",
       "domain": "coerce",
       "title": "CoerceUnsized applied implicitly at return",
       "statement": "A return value whose type can be unsized to the return type (e.g. `Rc<T>` → `Rc<dyn Tr>`) is implicitly coerced by rebuilding the smart-pointer struct, without an explicit `as`.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2826-L2829"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2826-L2829"
+      ]
     },
     {
       "id": "coerce.return.float-lit",
       "domain": "coerce",
       "title": "Float-literal return retyped to return type",
       "statement": "A float-literal return value is retyped to the concrete f32/f64 return type when the return type is a float; otherwise it defaults to f64.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2852-L2857"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2852-L2857"
+      ]
     },
     {
       "id": "borrow.return.no-move-out-of-ref",
       "domain": "borrow",
       "title": "Cannot return a move-out of a reference/index",
       "statement": "Returning a move-type value taken out of a value behind a reference or out of an index is rejected (E0507).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2849-L2850"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2849-L2850"
+      ]
     },
     {
       "id": "borrow.return.intlit-fits",
       "domain": "stmt",
       "title": "Integer-literal return must fit return type",
       "statement": "An integer-literal return value (including elements of returned array/tuple literals, recursively) must fit the return type's (element's) integer kind; otherwise \"return: literal value V does not fit in T\".",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2858-L2927"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2858-L2927"
+      ]
     },
     {
       "id": "borrow.return.mark-moved",
       "domain": "borrow",
       "title": "Return expression moves its move-type subexpressions",
       "statement": "Any move-type variable or field appearing in the return expression (recursing through enum-payloads, call args, struct/tuple-literal fields, and block-expr results) is marked moved so scope-exit drop collection does not double-free it.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L2928-L2977"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L2928-L2977"
+      ]
     }
   ]
 }

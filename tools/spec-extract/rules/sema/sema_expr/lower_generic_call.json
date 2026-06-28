@@ -9,42 +9,55 @@
       "domain": "generic",
       "title": "Generic call callee resolution precedence",
       "statement": "For a call `f::<TARGS>(args)` with n value args, the callee resolves in order: (1) a generic function overload matching name `f` and arity n; (2) if none, a single non-generic candidate named `f`. If exactly one of these is found it is the callee; otherwise fall through to alternative interpretations (struct ctor / enum variant) before erroring.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5854-L5861"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5854-L5861"
+      ]
     },
     {
       "id": "generic.call.turbofish-tuple-struct-ctor",
       "domain": "generic",
       "title": "Turbofish on a tuple-struct constructor",
       "statement": "If callee resolution finds no function but `f` names a tuple struct, `f::<TARGS>(args)` constructs that struct: the explicit turbofish TARGS pin the leading struct type-params positionally, any remaining type-params are inferred by unifying each field type with its argument type, and the result is a struct literal of `f` with fields '0','1',… . Argument count must equal the struct's field count.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5862-L5920"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5862-L5920"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.call.tuple-struct-arity",
       "domain": "generic",
       "title": "Tuple-struct constructor arity check",
       "statement": "A tuple-struct constructor call is an error if the number of arguments differs from the number of struct fields.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5880-L5884"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5880-L5884"
+      ]
     },
     {
       "id": "generic.call.tuple-struct-field-type-check",
       "domain": "generic",
       "title": "Tuple-struct constructor field type checking",
       "statement": "For each tuple-struct constructor argument, the corresponding field type (after substitution) is the expected type: integer literals are widened to it, and a non-TypeVar non-error field type that is incompatible with the argument type is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5893-L5907"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5893-L5907"
+      ]
     },
     {
       "id": "expr.ctor.prelude-option-result-shorthand",
       "domain": "expr",
       "title": "Bare Some/Ok/Err prelude variant constructor",
       "statement": "If no function named `Some`/`Ok`/`Err` resolves, a bare call `Some(x)`/`Ok(x)`/`Err(x)` constructs the corresponding `Option`/`Result` variant, provided that enum (with that variant) is in scope; a user-defined function of the same name shadows this (function lookup runs first).",
-      "evidence": ["src/compiler/sema_expr.cpp#L5921-L5942"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5921-L5942"
+      ]
     },
     {
       "id": "expr.ctor.variant-alias-shorthand",
       "domain": "expr",
       "title": "Bare enum-variant constructor via use-alias",
       "statement": "A `use Enum.{V, …};` import registers variant aliases; a bare call `V(payload)` whose name is an imported variant alias constructs that enum's variant `V` (typed via enum-literal lowering with payload typing), when no function of that name resolved.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5943-L5953"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5943-L5953"
+      ],
       "divergence": "Logos `use Type.{V}` variant-import surface (pkg `.` / item `::` path model)"
     },
     {
@@ -52,134 +65,176 @@
       "domain": "generic",
       "title": "Undefined-function diagnostic gated by metaprog mode",
       "statement": "If a call's callee resolves to nothing (no fn, struct ctor, or variant), it is an error `call to undefined function 'f'`, EXCEPT in metaprog mode where the call silently lowers with `<error>` type so a not-yet-emitted derive-synthesized function can resolve in a later sema pass.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5954-L5960"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5954-L5960"
+      ]
     },
     {
       "id": "generic.call.pub-access-check",
       "domain": "generic",
       "title": "Callee visibility check",
       "statement": "Once a generic-call callee is resolved, its visibility (pub / module-only) is enforced relative to the calling package and module.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5962", "src/compiler/sema_expr.cpp#L6110"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5962",
+        "src/compiler/sema_expr.cpp#L6110"
+      ]
     },
     {
       "id": "generic.call.unsized-targ-for-relaxed-param",
       "domain": "generic",
       "title": "?Sized type-param relaxes unsized turbofish argument",
       "statement": "When resolving the i-th explicit turbofish type argument, a bare unsized type (`[T]`, `dyn Trait`) is accepted iff the i-th target type-param was declared `?Sized` (implicit_sized=false); otherwise the unsized-by-value diagnostic applies.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5964-L6007", "src/compiler/sema_expr.cpp#L6112-L6127"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5964-L6007",
+        "src/compiler/sema_expr.cpp#L6112-L6127"
+      ]
     },
     {
       "id": "generic.call.underscore-type-arg-inference",
       "domain": "generic",
       "title": "`_` turbofish argument is an inference hole",
       "statement": "An explicit type argument written `_` becomes an inference hole (TypeVar `_`) and is inferred from the value arguments during call finishing rather than pinned.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5982-L6003"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5982-L6003"
+      ]
     },
     {
       "id": "generic.call.antiquot-pack-type-arg",
       "domain": "generic",
       "title": "Type-arg antiquote pack splices a reflected type list",
       "statement": "An antiquote pack `$v...` in a generic call's type arguments splices a runtime-produced list of types (e.g. a struct's field types) into the callee's type args; it is carried as a marker TypeVar `__splicepack$v` that flows like a variadic pack and is expanded during monomorphization by chasing the variable to its type-list producer.",
-      "evidence": ["src/compiler/sema_expr.cpp#L5985-L6000"],
-      "divergence": "Logos metaprog reflection extension (no Rust analogue)"
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L5985-L6000"
+      ],
+      "divergence": "Logos metaprog reflection extension (no Rust analogue)",
+      "testability": "untestable"
     },
     {
       "id": "generic.ref.value-position-fn-pointer",
       "domain": "generic",
       "title": "`IDENT::<TARGS>` as a value yields a fn-pointer literal",
       "statement": "`f::<TARGS>` in expression (non-call) position evaluates to a function-pointer value whose type is the callee signature with TARGS substituted (params and return). TARGS containing TypeVars are deferred: the node carries (base, type_args) and is mangled/substituted at monomorphization time.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6043-L6182"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6043-L6182"
+      ]
     },
     {
       "id": "generic.ref.turbofish-no-payload-variant",
       "domain": "generic",
       "title": "Turbofish on a no-payload enum variant in value position",
       "statement": "In value position, `V::<TARGS>` where `V` is a no-payload variant of `Option`/`Result` (or a use-aliased variant) constructs that variant, pinning the enum's type-args from the turbofish when the turbofish arity matches the enum's type-param count.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6071-L6109"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6071-L6109"
+      ]
     },
     {
       "id": "generic.ref.no-variadic-packs",
       "domain": "generic",
       "title": "Variadic type packs forbidden in generic-ref value",
       "statement": "A generic-ref value of a function whose last type-param is a variadic pack is an error; variadic type packs are not supported in value position.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6129-L6134"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6129-L6134"
+      ]
     },
     {
       "id": "generic.ref.type-arg-arity",
       "domain": "generic",
       "title": "Generic-ref requires exact type-arg arity",
       "statement": "A generic-ref value must supply exactly as many type arguments as the function has type-params; a mismatch is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6135-L6139"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6135-L6139"
+      ]
     },
     {
       "id": "generic.ref.bounds-check-when-concrete",
       "domain": "generic",
       "title": "Generic-ref bound check deferred when TARGS contain TypeVars",
       "statement": "Type-param bound checking on a generic-ref value runs eagerly only when all type arguments are concrete; if any type argument is a TypeVar the real bound check is deferred to monomorphization.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6141-L6150"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6141-L6150"
+      ]
     },
     {
       "id": "generic.ref.sized-enforcement",
       "domain": "generic",
       "title": "Sized enforcement at generic-ref substitution",
       "statement": "Substituting a generic-ref type argument of unsized kind (`[T]` slice or `dyn`) into a type-param that requires `Sized` (implicit_sized true) is an error, suggesting `T: ?Sized` to relax the bound.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6152-L6168"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6152-L6168"
+      ]
     },
     {
       "id": "expr.invoke.callable-receiver",
       "domain": "expr",
       "title": "Expression-as-callee (IIFE) must be callable",
       "statement": "`(expr)(args)` invokes the receiver expression: a Closure-typed receiver lowers to a closure call, an fn-value-kind (fn-ptr) receiver to a fn-ptr call, and a TypeVar receiver bounded by an Fn/FnMut/FnOnce family bound synthesizes a closure type from that bound for arity/arg checks (without retyping the receiver). A receiver of any other type is a non-callable error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6187-L6294"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6187-L6294"
+      ]
     },
     {
       "id": "expr.invoke.arity-and-arg-types",
       "domain": "expr",
       "title": "Closure/fn-ptr call arity and argument typing",
       "statement": "A closure or fn-ptr call must supply exactly the parameter count; each argument is coerced to its parameter type and a non-error argument type incompatible with the parameter type is an error; variance is checked per argument.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6221-L6243"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6221-L6243"
+      ]
     },
     {
       "id": "borrow.invoke.by-value-arg-moved",
       "domain": "borrow",
       "title": "By-value move-type call argument is marked moved",
       "statement": "A by-value argument of move (non-Copy) type passed to a closure/fn-ptr call is marked moved so its owning scope does not also drop it (preventing double-free). Arguments are NOT marked moved when the parameter is a reference (`&T`/`&mut T`) or when the argument's type is an un-substituted TypeVar (move-ness unknown in a generic body).",
-      "evidence": ["src/compiler/sema_expr.cpp#L6246-L6288"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6246-L6288"
+      ]
     },
     {
       "id": "trait.blanket.recursive-impl-gating",
       "domain": "trait",
       "title": "Blanket method dispatch gated by recursive bound satisfaction",
       "statement": "A blanket impl provides a method for a receiver type only if the receiver satisfies the blanket's primary bound trait (checked recursively, including supertraits) and all extra bounds, AND every associated-type-equality clause on the primary and extra bounds is satisfied for the receiver.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6296-L6335"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6296-L6335"
+      ]
     },
     {
       "id": "trait.blanket.overlap-ambiguity",
       "domain": "trait",
       "title": "Two applicable distinct blanket impls are ambiguous",
       "statement": "If two or more distinct blanket impls of the same method both apply to the receiver, the method call is an ambiguity error naming both impls.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6336-L6351"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6336-L6351"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.blanket.type-param-inference-by-name",
       "domain": "trait",
       "title": "Blanket type-params inferred by name from receiver, args, and return hint",
       "statement": "For a dispatched blanket method, the blanket's target type-param (and `Self`) bind to the receiver's concrete type (unwrapped from ref/ptr); remaining type-params appearing only in argument or return position are inferred by unifying parameter types with argument types and, when present, the return type with the call-site return-type hint. Binding is by name, not position.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6362-L6384"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6362-L6384"
+      ]
     },
     {
       "id": "trait.blanket.auto-ref-receiver",
       "domain": "trait",
       "title": "Auto-ref of receiver for &self/&mut self blanket method",
       "statement": "When a dispatched blanket method's self parameter is `&self`/`&mut self` but the receiver is a value (not already a ref/ptr), the receiver's address is taken (mutably for `&mut self`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L6385-L6401"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6385-L6401"
+      ]
     },
     {
       "id": "trait.blanket.unbound-param-bail",
       "domain": "trait",
       "title": "Blanket dispatch bails when a type-param is uninferable",
       "statement": "If any of a dispatched blanket method's type-params cannot be inferred (e.g. the destination of `x.into()` with no expected-type annotation), the blanket impl does not dispatch; the normal 'cannot resolve' / type-annotation-needed diagnostic fires instead.",
-      "evidence": ["src/compiler/sema_expr.cpp#L6402-L6417"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L6402-L6417"
+      ]
     }
   ]
 }

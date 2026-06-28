@@ -29,7 +29,8 @@
       "divergence": "Logos built-in; struct-literal syntax over a scalar type",
       "related": [
         "layout.anyval.scalar-i32"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.zone-mut-ref.fat-data-zone",

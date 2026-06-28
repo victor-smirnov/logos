@@ -12,7 +12,8 @@
       "evidence": [
         "src/compiler/module_loader.hpp#L126-L146",
         "src/compiler/module_loader.hpp#L142"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.use.resolution-on-search-paths",
@@ -32,7 +33,8 @@
       "evidence": [
         "src/compiler/module_loader.hpp#L19",
         "src/compiler/module_loader.hpp#L17-L19"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.identity.empty-disables-qualified-mangling",
@@ -41,7 +43,8 @@
       "statement": "A module's owning-MODULE identity is the unit of distribution it belongs to: `module_id` is the mangle key and `module_name` the canonical handle. A plain user program (no module) has empty identity, which disables module-qualified symbol mangling for its items.",
       "evidence": [
         "src/compiler/module_loader.hpp#L23-L30"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "module.prelude.binary-modules-not-augmented",
@@ -50,7 +53,8 @@
       "statement": "Files loaded from a binary archive are never re-augmented with the consumer's implicit prelude; the prelude in effect at their original build time is final.",
       "evidence": [
         "src/compiler/module_loader.hpp#L131-L134"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.exclude.path-prefix-defers-to-binary",
@@ -59,7 +63,8 @@
       "statement": "Absolute path prefixes declared as excludes (mirroring the manifest `exclude` directive) remove matching files from the text-package index: a `use` whose resolution begins with an excluded prefix is not loaded from source, deferring that package to a binary archive instead.",
       "evidence": [
         "src/compiler/module_loader.hpp#L135-L141"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.binary.archive-membership",
@@ -69,7 +74,8 @@
       "evidence": [
         "src/compiler/module_loader.hpp#L21",
         "src/compiler/module_loader.hpp#L24-L27"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.binary.lazy-local-lowering",
@@ -78,7 +84,8 @@
       "statement": "A lazy-mode binary archive ships only the parsed AST (no object text, no LIR blob); the consumer must lower such a module's items locally (sema/mono/codegen treat them as user code).",
       "evidence": [
         "src/compiler/module_loader.hpp#L32-L37"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.exports.template-catalog-non-generic-excluded",
@@ -88,7 +95,8 @@
       "evidence": [
         "src/compiler/module_loader.hpp#L40-L45",
         "src/compiler/module_loader.hpp#L73-L78"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.exports.blanket-impl-catalog",
@@ -97,7 +105,8 @@
       "statement": "An exported blanket impl `impl<T: Bound + Extra...> Trait for T` is catalogued as (trait, primary bound, extra bounds), with the target type being the type variable by definition; an unbounded blanket impl has empty primary bound.",
       "evidence": [
         "src/compiler/module_loader.hpp#L79-L86"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.exports.concrete-impl-catalog-drops-negative-dst",
@@ -106,7 +115,8 @@
       "statement": "An exported concrete impl `impl Trait for Target` is catalogued as (trait, target); negative impls and DST target patterns are dropped from the catalog (which is a fast-path lookup index only, not the authoritative impl set).",
       "evidence": [
         "src/compiler/module_loader.hpp#L87-L93"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.exports.merge-later-archive-wins",
@@ -115,7 +125,8 @@
       "statement": "When export catalogs from multiple archives are unioned, archive order is preserved and a later archive wins on a duplicate function-template mangled symbol (occurs only when a project redefines a stdlib mangled symbol).",
       "evidence": [
         "src/compiler/module_loader.hpp#L106-L112"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

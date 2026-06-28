@@ -32,7 +32,8 @@
       "statement": "A `use pkg;` whose package is already in the module's wildcard import scope is a warning (duplicate import); it is otherwise a no-op.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L176-L183"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.use.self-import-noop",
@@ -41,7 +42,8 @@
       "statement": "`use P;` where P is the current module's own package is a no-op (own-package symbols always resolve first) and produces a redundancy warning.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L184-L190"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.use.pub-reexport",
@@ -50,7 +52,8 @@
       "statement": "`pub use pkg;` registers pkg as a re-export from the current package, making it visible to importers of the current package.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L226-L235"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.dup.odr-dedup",
@@ -62,7 +65,8 @@
         "src/compiler/sema_collect.cpp#L267-L282",
         "src/compiler/sema_collect.cpp#L378-L446"
       ],
-      "divergence": "Logos addition: ODR dedup of metacall-emitted items (Rust has no metacall splice model)."
+      "divergence": "Logos addition: ODR dedup of metacall-emitted items (Rust has no metacall splice model).",
+      "testability": "untestable"
     },
     {
       "id": "item.name.forward-reference",
@@ -90,7 +94,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L366-L431"
       ],
-      "divergence": "Logos addition: datatype/annotation/zoned attributes (no Rust equivalent)."
+      "divergence": "Logos addition: datatype/annotation/zoned attributes (no Rust equivalent).",
+      "testability": "transitive"
     },
     {
       "id": "item.union.shared-namespace",
@@ -108,7 +113,8 @@
       "statement": "A trait name predeclared during name-collection carries its declared `pub` visibility, so a cross-package reference resolving before the trait's body is collected sees the correct public/private status.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L447-L475"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.attr.unknown-warn",
@@ -117,7 +123,8 @@
       "statement": "A top-level user `#[name]` attribute that is neither a builtin attribute, a registered metaprog-handler trigger, nor the name of an `#[annotation]` datatype is a warning (likely typo, missing import, or removed handler).",
       "evidence": [
         "src/compiler/sema_collect.cpp#L607-L665"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.rec.no-by-value-cycle",
@@ -164,7 +171,8 @@
       "statement": "A function type-parameter that appears nowhere in the function's signature is a warning.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L552-L554"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.prelude.implicit-injection",

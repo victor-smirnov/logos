@@ -22,7 +22,8 @@
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L2945-L2946"
       ],
-      "divergence": "No Rust analogue; Writ embedded-type slot."
+      "divergence": "No Rust analogue; Writ embedded-type slot.",
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.capture-placeholders",
@@ -277,7 +278,8 @@
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L3230-L3237"
       ],
-      "divergence": "No Rust analogue; metaprogramming callee splice."
+      "divergence": "No Rust analogue; metaprogramming callee splice.",
+      "testability": "transitive"
     },
     {
       "id": "grammar.expr.call-free",

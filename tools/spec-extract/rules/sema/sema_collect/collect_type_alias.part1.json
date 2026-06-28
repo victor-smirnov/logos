@@ -9,115 +9,153 @@
       "domain": "item",
       "title": "Type alias uniqueness per package",
       "statement": "Two type aliases with the same name in the same package are an error. A same-name alias from a different package is permitted: the incumbent (first/other-package) keeps the bare name slot and the newcomer registers only under its package-qualified key `pkg::Name`. Lookup probes `cur_package_::name` first, so user code resolves to its own alias.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2127-L2142"],
-      "uncertainty": "Cross-package shadowing semantics inferred from the registration logic and comment."
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2127-L2142"
+      ],
+      "uncertainty": "Cross-package shadowing semantics inferred from the registration logic and comment.",
+      "testability": "untestable"
     },
     {
       "id": "item.type-alias.no-inferred-rhs",
       "domain": "item",
       "title": "Type alias RHS may not be the inferred placeholder",
       "statement": "A type alias RHS is resolved in item-signature context; `type T = _;` is rejected (no inference context for item signatures). (Rust E0121)",
-      "evidence": ["src/compiler/sema_collect.cpp#L2114-L2119"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2114-L2119"
+      ]
     },
     {
       "id": "const.def.no-inferred-type",
       "domain": "const",
       "title": "Const item type may not be inferred",
       "statement": "A const item with an explicit type annotation resolves it in item-signature context; `const C: _ = …` is rejected. (Rust E0121)",
-      "evidence": ["src/compiler/sema_collect.cpp#L2148-L2152"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2148-L2152"
+      ]
     },
     {
       "id": "const.def.duplicate",
       "domain": "const",
       "title": "Const item uniqueness",
       "statement": "A const name that collides with an already-collected module const or generic const in the same scope is an error.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2158-L2163"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2158-L2163"
+      ]
     },
     {
       "id": "const.def.no-self-reference",
       "domain": "const",
       "title": "Const initializer may not reference the const itself",
       "statement": "A const initializer that directly references the const being defined is an error (e.g. `const X = X` or `const X = X + N`).",
-      "evidence": ["src/compiler/sema_collect.cpp#L2179-L2208"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2179-L2208"
+      ]
     },
     {
       "id": "const.def.initializer-const-evaluable",
       "domain": "const",
       "title": "Const/static initializer must be const-evaluable",
       "statement": "A const/static initializer must be one of: a literal (int/bool/str/float/char/bytes/wstatic); a WritStatic literal (writ map/array/str/int/float/bool/null); a `metacall fn(...)`; a CAST/PAREN/UNARY of a const-evaluable operand; a BINOP whose both operands are const-evaluable; an array/tuple literal (deferred to a later, more specific check); a struct literal all of whose field-init values are const-evaluable (field-shorthand rejected); a VAR_REF to an already-collected module const/static or to a known free fn (fn-pointer constant); or `&X` where X is a VAR_REF to a module const or otherwise const-evaluable. Any other form (notably a bare fn call) is rejected, because it would silently inline at every read site rather than produce a compile-time constant.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2218-L2327"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2218-L2327"
+      ],
       "divergence": "A2 — const-evaluable bare fn calls are not supported; the escape hatch is explicit `metacall fn(...)` (Rust would allow `const fn`).",
-      "related": ["const.def.no-self-reference"]
+      "related": [
+        "const.def.no-self-reference"
+      ]
     },
     {
       "id": "const.def.static-reads-static",
       "domain": "const",
       "title": "Static initializer may read other module items",
       "statement": "A const/static initializer may refer to and read another already-collected module const/static via a bare VAR_REF, and may take its address via `&X` (shared ref); `&mut X` in static-init position is not const-evaluable here and is rejected.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2277-L2318"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2277-L2318"
+      ]
     },
     {
       "id": "const.wstatic.type-alias-binding",
       "domain": "const",
       "title": "Non-generic WritStatic const binds as a type alias",
       "statement": "A non-generic `const X: WritStatic = @{…};` whose value resolves to a WStaticLit type registers X as a type alias to that WStaticLit, so X usable at type-arg positions with byte-hash identity (replacing the legacy `type X = @{…};` form).",
-      "evidence": ["src/compiler/sema_collect.cpp#L2331-L2384"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2331-L2384"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "const.wstatic.generic-per-use-instantiation",
       "domain": "const",
       "title": "Generic WritStatic const instantiated per use-site",
       "statement": "A generic `const X<T1,…>: WritStatic = @{… <type:T1> …}` is recorded as a generic const (its type params and value AST saved) and instantiated per use-site, rather than bound as a single type alias.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2385-L2407"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2385-L2407"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.def.duplicate",
       "domain": "trait",
       "title": "Trait uniqueness per package",
       "statement": "Two traits with the same name in the same package are an error. A user trait colliding with an already-registered trait of the same bare name from a different package is a distinct trait: the incumbent keeps the bare slot and the newcomer registers only under `pkg::Name`; lookup probes `cur_package_::Name` first.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2661-L2677"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2661-L2677"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.auto.empty-body",
       "domain": "trait",
       "title": "Auto trait must have empty body",
       "statement": "An `auto trait` must declare no members; a body containing any FN, associated type, or associated const is an error. Visibility modifiers, type params, and supertraits do not count as members.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2445-L2461"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2445-L2461"
+      ]
     },
     {
       "id": "trait.method.self-receiver",
       "domain": "trait",
       "title": "Trait method self-receiver inference",
       "statement": "A trait method's first parameter is the `self` receiver iff it lacks an explicit type (`self`/`&self`/`&mut self`) or is named `self`. For an untyped `&self`/`&mut self`, the receiver type is synthesized as `Self` / `&Self` / `&mut Self` (mut taken from the param's mut marker).",
-      "evidence": ["src/compiler/sema_collect.cpp#L2563-L2589"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2563-L2589"
+      ]
     },
     {
       "id": "trait.method.where-self-sized",
       "domain": "trait",
       "title": "where Self: Sized excludes method from vtable",
       "statement": "A trait method with a `where Self: Sized` bound is flagged requires-sized-self: it is excluded from the trait's vtable and thus does not affect object safety. Other where-bounds on trait type-params are recorded for per-impl default-synthesis gating.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2599-L2631"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2599-L2631"
+      ]
     },
     {
       "id": "trait.assoc-type.default-and-gat",
       "domain": "trait",
       "title": "Associated type defaults and GATs",
       "statement": "An associated type may carry its own type params (GAT, e.g. `type Item<T>`), trait-bound constraints, and a default RHS (`type Item = i32;`); an impl that omits the assoc type falls back to the declared default.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2491-L2520"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2491-L2520"
+      ]
     },
     {
       "id": "trait.assoc-const.default",
       "domain": "trait",
       "title": "Associated const declaration and default",
       "statement": "An associated const declares a type, and may provide a default value (`const X: i32 = 42;`); an impl that omits the const falls back to the recorded default.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2523-L2542"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2523-L2542"
+      ]
     },
     {
       "id": "trait.method.default-body",
       "domain": "trait",
       "title": "Trait method default body",
       "statement": "A trait method that provides a body has a default implementation; impls may omit it and inherit the default.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2632-L2636"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2632-L2636"
+      ]
     }
   ]
 }

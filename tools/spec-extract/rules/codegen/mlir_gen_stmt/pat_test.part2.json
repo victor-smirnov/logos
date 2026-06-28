@@ -9,91 +9,126 @@
       "domain": "pat",
       "title": "Match auto-derefs reference scrutinees",
       "statement": "Matching a scrutinee of type &T, &mut T, or *T against patterns for T behaves identically to matching T directly: the reference is transparently dereferenced for enum/tuple/struct discrimination and binding (default binding modes).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3783-L3823", "src/compiler/mlir_gen_stmt.cpp#L3824-L3836", "src/compiler/mlir_gen_stmt.cpp#L3882-L3890"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L3783-L3823",
+        "src/compiler/mlir_gen_stmt.cpp#L3824-L3836",
+        "src/compiler/mlir_gen_stmt.cpp#L3882-L3890"
+      ]
     },
     {
       "id": "pat.match.enum-discriminant-test",
       "domain": "pat",
       "title": "Enum match tests the discriminant",
       "statement": "Matching a tagged (data-carrying) enum value loads its discriminant and dispatches arms by discriminant equality; a fieldless C-like enum value is its discriminant directly (an integer), and a reference to a fieldless enum is dereferenced to compare the discriminant rather than the pointer.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3796-L3811", "src/compiler/mlir_gen_stmt.cpp#L3812-L3821"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L3796-L3811",
+        "src/compiler/mlir_gen_stmt.cpp#L3812-L3821"
+      ]
     },
     {
       "id": "pat.match.exhaustive-no-default",
       "domain": "pat",
       "title": "Exhaustive discrete match needs no reachable default",
       "statement": "A match whose unguarded arms cover all values of a discrete scrutinee — a bool with both true and false (or a wildcard), an enum with every variant discriminant covered (or a wildcard), or a tuple with an irrefutable arm — is exhaustive; the fall-through default branch is unreachable.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3850-L3927", "src/compiler/mlir_gen_stmt.cpp#L3928-L3937"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L3850-L3927",
+        "src/compiler/mlir_gen_stmt.cpp#L3928-L3937"
+      ]
     },
     {
       "id": "pat.bind.tuple-destructure",
       "domain": "pat",
       "title": "Tuple pattern destructures by position",
       "statement": "A tuple pattern is irrefutable and binds each element positionally from the tuple's inline storage, recursing per element (wildcard, scalar, nested tuple, enum-payload, or-pattern).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3857-L3862", "src/compiler/mlir_gen_stmt.cpp#L3944-L3957"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L3857-L3862",
+        "src/compiler/mlir_gen_stmt.cpp#L3944-L3957"
+      ]
     },
     {
       "id": "pat.bind.struct-field-shorthand-rename",
       "domain": "pat",
       "title": "Struct pattern field binding forms",
       "statement": "In a struct pattern, `S { x }` binds field x under name x (shorthand); `S { x: a }` binds field x under name a (rename); both bind a struct-typed field as a place (its address, preserving mutation through the binding) and a scalar field by value.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3993-L4032", "src/compiler/mlir_gen_stmt.cpp#L3998-L4024"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L3993-L4032",
+        "src/compiler/mlir_gen_stmt.cpp#L3998-L4024"
+      ]
     },
     {
       "id": "pat.bind.struct-field-ref",
       "domain": "pat",
       "title": "ref binding to a struct field",
       "statement": "In a struct pattern, `S { x: ref px }` binds px to a reference to field x; for a struct-typed field px aliases the field place (so `px.f` projects through it), for a scalar field px holds the field address.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4033-L4063"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4033-L4063"
+      ]
     },
     {
       "id": "pat.bind.struct-field-nested-subpattern",
       "domain": "pat",
       "title": "Nested refutable sub-pattern in struct field",
       "statement": "A refutable sub-pattern on a struct field (`S { x: Variant(..) }`, nested struct/tuple/or) binds its inner names recursively against the field place.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4064-L4075"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4064-L4075"
+      ]
     },
     {
       "id": "pat.bind.slice-array-fixed",
       "domain": "pat",
       "title": "Slice pattern over a fixed array",
       "statement": "A slice pattern over an array [T; N] binds prefix elements at indices 0,1,... and suffix elements at indices N-suffix_count,...,N-1; each element binds by value (`x`) or by reference (`ref x` → pointer to element).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4080-L4120"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4080-L4120"
+      ]
     },
     {
       "id": "pat.bind.slice-dynamic-rest",
       "domain": "pat",
       "title": "Slice pattern over a dynamic slice with rest binding",
       "statement": "A slice pattern over a dynamic slice &[T] binds prefix elements at offsets 0,1,...; suffix elements relative to the runtime length at len-suffix_count+i; and a named rest `xs @ ..` to a first-class sub-slice {data+prefix, len-prefix-suffix} usable for `.len()` and re-matching.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4121-L4199", "src/compiler/mlir_gen_stmt.cpp#L4164-L4174", "src/compiler/mlir_gen_stmt.cpp#L4180-L4198"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4121-L4199",
+        "src/compiler/mlir_gen_stmt.cpp#L4164-L4174",
+        "src/compiler/mlir_gen_stmt.cpp#L4180-L4198"
+      ]
     },
     {
       "id": "pat.bind.at-binding",
       "domain": "pat",
       "title": "@ pattern binds whole value and recurses",
       "statement": "An `name @ subpat` pattern binds name to the whole matched value (or its place) and then binds the nested names of subpat against the same scrutinee.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4204-L4217"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4204-L4217"
+      ]
     },
     {
       "id": "pat.bind.ref-binding",
       "domain": "pat",
       "title": "ref binding produces a reference to the scrutinee",
       "statement": "A `ref name` pattern binds name to a reference (pointer) to the scrutinee place rather than moving/copying the value.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4219-L4245"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4219-L4245"
+      ]
     },
     {
       "id": "pat.bind.ref-pat-transparent",
       "domain": "pat",
       "title": "&pat unwraps one reference level",
       "statement": "A reference pattern `&pat` / `&mut pat` matches a reference scrutinee by binding the inner pattern against the referent.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4246-L4251"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4246-L4251"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "pat.bind.or-pattern-bindings",
       "domain": "pat",
       "title": "Or-pattern binds a consistent name set",
       "statement": "An or-pattern `p1 | p2 | ...` binds the same set of names for every alternative; bindings are extracted from a single alternative's structure.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4252-L4260"],
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4252-L4260"
+      ],
       "uncertainty": "Codegen extracts from the first alternative only; the requirement that all alternatives bind the same names is enforced earlier (sema), not in this unit."
     },
     {
@@ -101,7 +136,10 @@
       "domain": "pat",
       "title": "Named wildcard binds (moves) the whole scrutinee",
       "statement": "A named binding pattern `name` binds the entire scrutinee: an owned struct binding aliases the scrutinee's storage (by-pointer, single drop ownership transfers, scrutinee marked moved) while a scalar/other binding takes the value.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4261-L4292", "src/compiler/mlir_gen_stmt.cpp#L4266-L4282"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4261-L4292",
+        "src/compiler/mlir_gen_stmt.cpp#L4266-L4282"
+      ]
     }
   ]
 }

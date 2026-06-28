@@ -95,7 +95,8 @@
       "statement": "A concrete `#[rel_ptr]` struct `RP<U>` is pointer-compatible with `*U`/`&U`/`&mut U` (pointee type-equal to its type-arg); a type-erased rel_ptr (no type-arg) is compatible only with a thin `*u8` pointer. An abstract GAT projection `Z::Ptr<U>` (assoc base a type-var) is compatible with a raw pointer iff its GAT arg equals the pointee. Compatibility is symmetric.",
       "evidence": [
         "src/compiler/sema.cpp#L3793-L3829"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.dst.self-describing-fat-ref-requires-impl",

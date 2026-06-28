@@ -57,7 +57,8 @@
       "statement": "A CFG_SLOT_TYPE denotes a type referenced by a dotted path: a head NAME followed by zero or more `.`-separated step NAMEs, rendered `<type: name.step1.step2…>`.",
       "evidence": [
         "src/compiler/sema_render.cpp#L1532-L1545"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.array-render",

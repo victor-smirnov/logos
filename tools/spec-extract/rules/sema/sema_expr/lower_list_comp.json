@@ -9,7 +9,9 @@
       "domain": "expr",
       "title": "List comprehension desugars to Vec build loop",
       "statement": "A list comprehension `[value for x in iter (if guard)?]` desugars to a block that binds `let mut v: Vec<T> = vec_new::<T>()`, iterates `x` over `iter`, (optionally gated by `guard`) calls `Vec::push(&mut v, value)`, and evaluates to `v`. T is the iterator element type; the block's type is `Vec<T>`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L10885-L10986"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L10885-L10986"
+      ],
       "divergence": "Logos-specific surface syntax (Python-style comprehension); not present in Rust."
     },
     {
@@ -17,7 +19,12 @@
       "domain": "expr",
       "title": "Comprehension iterables restricted to array/slice",
       "statement": "The iterable of any comprehension form must have type `[T; N]` (array) or `[T]` (slice); any other iterator type is rejected. Element type defaults to i32 when the array/slice element type is absent.",
-      "evidence": ["src/compiler/sema_expr.cpp#L10896-L10907", "src/compiler/sema_expr.cpp#L11002-L11013", "src/compiler/sema_expr.cpp#L11112-L11123", "src/compiler/sema_expr.cpp#L11245-L11256"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L10896-L10907",
+        "src/compiler/sema_expr.cpp#L11002-L11013",
+        "src/compiler/sema_expr.cpp#L11112-L11123",
+        "src/compiler/sema_expr.cpp#L11245-L11256"
+      ],
       "divergence": "Narrower than Rust: only concrete array/slice, no IntoIterator/Iterator protocol.",
       "uncertainty": "i32 default for missing elem type is a fallback; normally elem type is always present."
     },
@@ -26,22 +33,32 @@
       "domain": "expr",
       "title": "List comprehension requires Vec in scope",
       "statement": "A list comprehension is ill-formed unless the `Vec` struct and the generic `vec_new` function are visible (via `use logos.mem.collections.vec;`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L10909-L10921"],
-      "divergence": "Logos-specific: surface sugar depends on a stdlib import being present."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L10909-L10921"
+      ],
+      "divergence": "Logos-specific: surface sugar depends on a stdlib import being present.",
+      "testability": "transitive"
     },
     {
       "id": "expr.list-comp.bind-scope",
       "domain": "expr",
       "title": "Comprehension binds the loop variable in value/guard scope",
       "statement": "The loop variable `x` is bound (immutable, element type) in a new scope covering the value/key expressions and the guard; it is not visible outside the comprehension.",
-      "evidence": ["src/compiler/sema_expr.cpp#L10939-L10946", "src/compiler/sema_expr.cpp#L11030-L11037", "src/compiler/sema_expr.cpp#L11142-L11149", "src/compiler/sema_expr.cpp#L11275-L11283"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L10939-L10946",
+        "src/compiler/sema_expr.cpp#L11030-L11037",
+        "src/compiler/sema_expr.cpp#L11142-L11149",
+        "src/compiler/sema_expr.cpp#L11275-L11283"
+      ]
     },
     {
       "id": "expr.map-comp.desugar-hashmap",
       "domain": "expr",
       "title": "Map comprehension desugars to HashMap build loop",
       "statement": "A map comprehension `{key: value for x in iter (if guard)?}` desugars to a block that binds `let mut m: HashMap<K,V> = hashmap_new::<K,V>()`, iterates `x` over `iter`, (optionally gated by `guard`) calls `HashMap::insert(&mut m, key, value)`, and evaluates to `m`. K = type of `key`, V = type of `value`; block type is `HashMap<K,V>`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L10992-L11090"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L10992-L11090"
+      ],
       "divergence": "Logos-specific surface syntax; not present in Rust."
     },
     {
@@ -49,15 +66,20 @@
       "domain": "expr",
       "title": "Map comprehension requires HashMap in scope",
       "statement": "A map comprehension is ill-formed unless the `HashMap` struct and the generic `hashmap_new` function are visible (via `use logos.mem.collections.hashmap;`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L11015-L11026"],
-      "divergence": "Logos-specific."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11015-L11026"
+      ],
+      "divergence": "Logos-specific.",
+      "testability": "transitive"
     },
     {
       "id": "expr.writ-list-comp.desugar",
       "domain": "expr",
       "title": "Writ list comprehension desugars to a Writ array builder loop",
       "statement": "A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. Rc<Writ>), iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11098-L11226"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11098-L11226"
+      ],
       "divergence": "Logos-specific Writ data-substrate sugar; no Rust equivalent."
     },
     {
@@ -65,22 +87,30 @@
       "domain": "expr",
       "title": "Writ list comprehension requires comp_builder import",
       "statement": "A writ list comprehension is ill-formed unless arity-1 `writ_list_comp_new` and arity-2 `writ_list_comp_push` are visible (via `use logos.lang.writ.comp_builder;`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L11125-L11135"],
-      "divergence": "Logos-specific."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11125-L11135"
+      ],
+      "divergence": "Logos-specific.",
+      "testability": "transitive"
     },
     {
       "id": "expr.writ-comp.guard-must-be-bool",
       "domain": "expr",
       "title": "Writ comprehension guard must be bool",
       "statement": "In a writ list/map comprehension the `guard` expression must have type `bool`; any other type is rejected (errors on Error type are swallowed to avoid cascades).",
-      "evidence": ["src/compiler/sema_expr.cpp#L11158-L11172", "src/compiler/sema_expr.cpp#L11305-L11318"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11158-L11172",
+        "src/compiler/sema_expr.cpp#L11305-L11318"
+      ]
     },
     {
       "id": "expr.writ-map-comp.desugar",
       "domain": "expr",
       "title": "Writ map comprehension desugars to a Writ object-map builder loop",
       "statement": "A writ map comprehension `@{key: value for x in iter (if guard)?}` desugars to a block that binds `let mut c = writ_map_comp_new(cap_hint, slot_hint)`, iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_map_comp_put(&c, key, value)`, and evaluates to `c`. slot_hint = arr_size (else 64); cap_hint = arr_size*48+256 (else 4096).",
-      "evidence": ["src/compiler/sema_expr.cpp#L11231-L11375"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11231-L11375"
+      ],
       "divergence": "Logos-specific Writ sugar; no Rust equivalent."
     },
     {
@@ -88,7 +118,9 @@
       "domain": "expr",
       "title": "Writ map comprehension key must be str",
       "statement": "In a writ map comprehension v1 the `key` expression must have type `str` (a `&[u8]` slice with u8 element); any other key type is rejected.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11285-L11296"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11285-L11296"
+      ],
       "divergence": "Logos-specific (v1 limitation: string keys only)."
     },
     {
@@ -96,15 +128,20 @@
       "domain": "expr",
       "title": "Writ map comprehension requires comp_builder import",
       "statement": "A writ map comprehension is ill-formed unless arity-2 `writ_map_comp_new` and arity-3 `writ_map_comp_put` are visible (via `use logos.lang.writ.comp_builder;`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L11258-L11268"],
-      "divergence": "Logos-specific."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11258-L11268"
+      ],
+      "divergence": "Logos-specific.",
+      "testability": "transitive"
     },
     {
       "id": "coerce.writ-anyval.scalar-helpers",
       "domain": "coerce",
       "title": "Implicit coercion of comprehension element to AnyVal",
       "statement": "Inside a Writ comprehension element/value, the value is coerced to AnyVal: WAny and legacy AnyVal struct values pass through unchanged; bool/i8/i16/i32/IntLit/u8/u16/u32 are wrapped via the matching `writ_coerce_<ty>` helper; `str` (`&[u8]`) is wrapped via `writ_coerce_str` (taking `&ctr` first). Any other type is rejected with a message to cast explicitly or wrap with AnyVal::embed_*.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11382-L11458"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11382-L11458"
+      ],
       "divergence": "Logos-specific Writ value model."
     },
     {
@@ -112,7 +149,10 @@
       "domain": "coerce",
       "title": "Wide integers not implicitly coerced to AnyVal",
       "statement": "i64/u64/i24/u24/i56/u56/i128/u128 are intentionally NOT auto-coerced to AnyVal (implicit i32 embedding would silently truncate); the user must cast explicitly (`x as i32`) or wrap with WAny::from.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11418-L11427", "src/compiler/sema_expr.cpp#L11430-L11436"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11418-L11427",
+        "src/compiler/sema_expr.cpp#L11430-L11436"
+      ],
       "divergence": "Logos-specific anti-truncation rule."
     },
     {
@@ -120,14 +160,19 @@
       "domain": "expr",
       "title": "Array fill literal repeats the element to length N",
       "statement": "`[v; N]` produces an array literal of element type T (= type of v) with N copies; the element is re-lowered for each slot. N must be a positive integer; the element IntLit is left unresolved so struct-literal type inference can widen it.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11461-L11529", "src/compiler/sema_expr.cpp#L11517-L11528"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11461-L11529",
+        "src/compiler/sema_expr.cpp#L11517-L11528"
+      ]
     },
     {
       "id": "expr.arr-fill.size-sizeof-pack",
       "domain": "expr",
       "title": "Array fill length via sizeof...(P)",
       "statement": "`[v; sizeof...(P)]` where P is an in-scope type parameter yields a single-element array literal whose length is symbolic (`__sizeof_pack:P`); monomorphization repeats the element to the variadic pack's expanded length. Any spread operator other than `sizeof` is rejected; an undefined P is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11468-L11485"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11468-L11485"
+      ],
       "divergence": "Logos variadic-pack feature."
     },
     {
@@ -135,7 +180,9 @@
       "domain": "expr",
       "title": "Array fill length via metacall splice",
       "statement": "`[v; metacall { <expr> }]` evaluates the block's tail expression by compile-time evaluation (CTFE), and the integer result becomes the array length. The metacall block must contain an integer tail expression. This is Logos's replacement for Rust const-eval at the array-length position.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11486-L11516"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11486-L11516"
+      ],
       "divergence": "Logos explicit-metacall model replaces Rust const-expression array lengths."
     }
   ]

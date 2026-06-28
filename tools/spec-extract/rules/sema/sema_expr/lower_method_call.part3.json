@@ -9,98 +9,150 @@
       "domain": "expr",
       "title": "Calling an unsafe method requires an unsafe context",
       "statement": "A method-call expression `r.m(..)` whose resolved method is declared `unsafe` is a compile error unless it occurs inside an unsafe context (`unsafe { .. }` block or unsafe fn).",
-      "evidence": ["src/compiler/sema_expr.cpp#L8259-L8261"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8259-L8261"
+      ]
     },
     {
       "id": "expr.method.autoref-ladder",
       "domain": "expr",
       "title": "Method receiver auto-ref ladder",
       "statement": "When resolving `r.m(args)`, candidate receiver types are tried in order: the receiver type T as-is, then `&T`, then `&mut T` (and for primitive/raw receivers also `*const T`, `*mut T`). The first signature-matching method wins; if matched against an autoref'd variant, the receiver is wrapped with the corresponding `&`/`&mut` address-of before the call.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8137-L8154", "src/compiler/sema_expr.cpp#L8386-L8420", "src/compiler/sema_expr.cpp#L8503-L8520"],
-      "related": ["expr.method.autoderef-lowest-priority", "expr.method.auto-ref-self"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8137-L8154",
+        "src/compiler/sema_expr.cpp#L8386-L8420",
+        "src/compiler/sema_expr.cpp#L8503-L8520"
+      ],
+      "related": [
+        "expr.method.autoderef-lowest-priority",
+        "expr.method.auto-ref-self"
+      ]
     },
     {
       "id": "expr.method.auto-ref-self",
       "domain": "expr",
       "title": "Auto-reference/auto-address receiver for &Self / &mut Self / *Self methods",
       "statement": "If the resolved method's first formal parameter is `&Self`/`&mut Self` (or `*const Self`/`*mut Self`) and the receiver is a non-reference, non-pointer value, the receiver is automatically taken by reference (resp. raw address-of) with the matching mutability before the call.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8283-L8294", "src/compiler/sema_expr.cpp#L8303-L8324", "src/compiler/sema_expr.cpp#L8581-L8589"],
-      "related": ["expr.method.autoref-ladder"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8283-L8294",
+        "src/compiler/sema_expr.cpp#L8303-L8324",
+        "src/compiler/sema_expr.cpp#L8581-L8589"
+      ],
+      "related": [
+        "expr.method.autoref-ladder"
+      ]
     },
     {
       "id": "expr.method.autoderef-lowest-priority",
       "domain": "expr",
       "title": "By-value-self via auto-deref is lowest dispatch priority",
       "statement": "A method whose `self` is by value, reachable only by auto-dereferencing a `&T`/`&mut T`/`*T` receiver, is selected only if no exact or auto-ref candidate at the current deref level matches. When chosen, the receiver is auto-dereferenced (copying/moving the pointee out, subject to downstream Copy/move borrow checks).",
-      "evidence": ["src/compiler/sema_expr.cpp#L8484-L8491", "src/compiler/sema_expr.cpp#L8524-L8557", "src/compiler/sema_expr.cpp#L8563-L8580"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8484-L8491",
+        "src/compiler/sema_expr.cpp#L8524-L8557",
+        "src/compiler/sema_expr.cpp#L8563-L8580"
+      ],
       "divergence": "Mirrors Rust autoderef order: try T/&T/&mut T at a deref level before stepping deeper.",
-      "related": ["expr.method.autoref-ladder"]
+      "related": [
+        "expr.method.autoref-ladder"
+      ]
     },
     {
       "id": "expr.method.mut-ref-to-shared-demotion",
       "domain": "expr",
       "title": "&mut T receiver may call a &self method",
       "statement": "A `&mut T` receiver may dispatch to a method declared on `&T` (shared self): for resolution the `&mut T` is coerced to `&T` (same pointee, weaker mutability); the receiver value is reused unchanged since `&mut`/`&` share ABI.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8231-L8245"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8231-L8245"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.ref-impl-target",
       "domain": "expr",
       "title": "Dispatch to impls declared on reference receiver types",
       "statement": "An `impl Trait for &T` (or `&mut T`) provides methods reachable by a `&T`/`&mut T` receiver; these are preferred over auto-deref to T. For a struct pointee both the concrete-arg form and the base form are tried; for a non-struct pointee the impl target is keyed by the full receiver type string.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8156-L8161", "src/compiler/sema_expr.cpp#L8358-L8379", "src/compiler/sema_expr.cpp#L8396-L8409"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8156-L8161",
+        "src/compiler/sema_expr.cpp#L8358-L8379",
+        "src/compiler/sema_expr.cpp#L8396-L8409"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.ref-blanket-impl",
       "domain": "expr",
       "title": "Generic reference blanket impl dispatch",
       "statement": "An `impl<T> Trait for &T` is reachable from a reference receiver `&U`: T is bound to the pointee U, the receiver is auto-referenced, and the call is monomorphized with T=U.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8156-L8177"],
-      "related": ["expr.method.ref-impl-target"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8156-L8177"
+      ],
+      "related": [
+        "expr.method.ref-impl-target"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.str-slice-alias",
       "domain": "expr",
       "title": "str method lookup aliases &[u8]",
       "statement": "When a receiver's type renders as `&[u8]` (the representation of `str`) and no method is found under that name, methods registered under `str__<method>` are tried as a fallback.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8186-L8195"],
-      "uncertainty": "str is modeled as Slice<u8>/&[u8]; alias is a representation detail surfaced as a resolution rule."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8186-L8195"
+      ],
+      "uncertainty": "str is modeled as Slice<u8>/&[u8]; alias is a representation detail surfaced as a resolution rule.",
+      "testability": "untestable"
     },
     {
       "id": "expr.method.turbofish-method-args",
       "domain": "expr",
       "title": "Method turbofish supplies type args verbatim, else inferred",
       "statement": "For a generic method `r.m::<A,..>(args)`, the explicit turbofish type arguments are used verbatim (positionally); missing trailing args are errors/placeholders. With no turbofish, method-level type args are inferred from arguments with seed `Self = typeof(recv)`; failure to infer is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8265-L8282"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8265-L8282"
+      ]
     },
     {
       "id": "expr.method.generic-struct-base-fallback",
       "domain": "expr",
       "title": "Generic-struct methods resolvable under the base type name",
       "statement": "For a receiver of a monomorphized generic struct type (e.g. `Foo$G1$i32`), if no method is found under the concrete name, methods registered under the base struct name (`Foo`) are tried, with the struct's type parameters substituted from the receiver's type arguments.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8460-L8478", "src/compiler/sema_expr.cpp#L8591-L8651"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8460-L8478",
+        "src/compiler/sema_expr.cpp#L8591-L8651"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.ref-impl-typeparam-subst",
       "domain": "expr",
       "title": "Reference-impl method binds pointee type args",
       "statement": "When dispatching through a reference impl on a generic struct (`impl<T> Foo for &Pair<T>`), the impl/struct type parameters are bound from the pointee's type arguments; non-generic returns are substituted, generic methods are monomorphized with the derived args.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8421-L8453"],
-      "related": ["expr.method.ref-impl-target"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8421-L8453"
+      ],
+      "related": [
+        "expr.method.ref-impl-target"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.blanket-on-primitive",
       "domain": "expr",
       "title": "Value blanket impls dispatch on primitive receivers",
       "statement": "A value blanket impl (`impl<T> Trait for T`) is reachable on a primitive receiver (enabling From→Into, TryFrom→TryInto, identity Borrow, etc.) before the not-a-struct error is reported.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8330-L8335"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8330-L8335"
+      ]
     },
     {
       "id": "expr.method.not-a-struct-error",
       "domain": "expr",
       "title": "Method on non-struct receiver with no resolution is an error",
       "statement": "If no method resolves for a primitive/non-struct receiver, it is a compile error 'receiver is not a struct'. Exception: in metaprog mode, an `<error>`-typed receiver (or `&`/`*` to an `<error>` pointee) silently propagates `<error>` without diagnostic.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8336-L8349"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8336-L8349"
+      ]
     }
   ]
 }

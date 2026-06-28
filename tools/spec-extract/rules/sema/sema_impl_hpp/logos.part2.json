@@ -12,7 +12,8 @@
       "evidence": [
         "src/compiler/sema_impl.hpp#L593-L618"
       ],
-      "uncertainty": "Compatibility predicate `types_compatible` defined elsewhere; here only the gating conditions are observable."
+      "uncertainty": "Compatibility predicate `types_compatible` defined elsewhere; here only the gating conditions are observable.",
+      "testability": "transitive"
     },
     {
       "id": "coerce.closure.noncapturing-to-fnptr",
@@ -78,7 +79,8 @@
       "statement": "A struct type is effectively custom-DST if the template was declared DST, or if generic instantiation bound the template's `?Sized` last-field type-var to an unsized type; effective-DST status governs `&S` -> fat DstRef canonicalisation at borrow/pointer-resolve time.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L794-L800"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "coerce.relptr.transparent-to-thin-ptr",
@@ -87,7 +89,8 @@
       "statement": "A `#[rel_ptr]` struct `RP<T>` is value-transparent to `*T`/`&T`/`&mut T`: its computed form is an absolute thin pointer (only storage is a self-relative offset), so the coercion is accepted in both directions at value-flow sites.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L801-L804"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.dst.self-describing-borrow-is-fat",
@@ -96,7 +99,8 @@
       "statement": "Borrowing (`&`/`&mut`) a `#[self_describing]` custom-DST struct produces the fat `DstRef` type matching its `&Foo` annotation; the fat length is materialized at codegen via `dst_len`.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L805-L809"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.traitobject.owning-kind-distinct",
@@ -155,7 +159,8 @@
       "statement": "An implicit-prelude package, when configured, is added to the wildcard import scope of every non-binary compilation unit that does not carry `#![no_implicit_prelude]`; an empty prelude name means no implicit prelude.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L786-L792"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "module.symbol.mangle-by-module-id",
@@ -164,7 +169,8 @@
       "statement": "Each compilation unit carries an owning-module id that is baked into symbol mangling, so identically-named packages from different modules (or versions) produce distinct symbols (C++ module-linkage model). One package maps to one module id within a coherent build.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L1083-L1095"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.use.variant-alias-into-scope",
@@ -186,7 +192,8 @@
       "divergence": "Logos-specific: type/package coexistence across modules sharing a package name (no Rust analog).",
       "related": [
         "module.use.from-clause-syntax"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "pat.or.alt-binding-consistency",

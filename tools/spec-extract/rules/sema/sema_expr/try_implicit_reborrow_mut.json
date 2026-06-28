@@ -9,79 +9,106 @@
       "domain": "coerce",
       "title": "Implicit reborrow of `&mut T` place at call/method argument sites",
       "statement": "At an argument coercion site, an expression of type `&mut T` that is a PLACE (VarRef, FieldRead, or IndexRead) and whose formal parameter is ref-shaped — `&mut U`, `&U`, or `*U` — is implicitly reborrowed as `AddrOfTemp(Deref(e))` rather than moved, registering a borrow on the original `&mut T` binding instead of consuming it. Reborrow is structural: the result has the SAME pointee type as the source; the genuine argument type-check runs afterward.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12924-L12955"],
-      "examples": ["fn f(x: &mut T) { g(x); h(x); }  // x reborrowed, not moved"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12924-L12955"
+      ],
+      "examples": [
+        "fn f(x: &mut T) { g(x); h(x); }  // x reborrowed, not moved"
+      ]
     },
     {
       "id": "coerce.reborrow.no-reborrow-of-fresh-borrow",
       "domain": "coerce",
       "title": "No reborrow of a fresh borrow expression",
       "statement": "Implicit reborrow applies only when the `&mut T` operand is a place expression (VarRef / FieldRead / IndexRead). A fresh borrow expression (e.g. `&mut x`, `&mut p.f`) is left as-is and never wrapped in a reborrow shape, so its borrow is recorded through the normal path.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12947-L12951"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12947-L12951"
+      ]
     },
     {
       "id": "coerce.reborrow.downgrade-mut-to-shared",
       "domain": "coerce",
       "title": "Downgrading reborrow `&mut T` → `&T` gated on allow_downgrade",
       "statement": "When the formal is `&T` (shared), a `&mut T` argument may be implicitly reborrowed as a shared `&T` only when downgrade is permitted (fn-arg coercion). At method-receiver position downgrade is forbidden, because a formal `&Self` whose Self IS a `&mut X` (impl on a ref type) would otherwise dispatch through the wrong impl key. For a `*U` formal, dest mutability follows the formal pointer's mutability bit.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12926-L12939"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12926-L12939"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "coerce.dyn.upcast-to-supertrait",
       "domain": "coerce",
       "title": "Implicit `dyn Sub` → `dyn Super` upcast",
       "statement": "An argument of trait-object type `dyn Sub` (bare or behind `&`/`&mut`) implicitly coerces (via cast) to a distinct formal trait-object type `dyn Super` iff Super is a transitive supertrait of Sub (Sub != Super). Identical dyn types do not coerce.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12958-L12993"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12958-L12993"
+      ]
     },
     {
       "id": "coerce.dyn.arg-to-trait-object",
       "domain": "coerce",
       "title": "Implicit unsize coercion of a concrete argument to a `dyn Trait` formal",
       "statement": "When a formal is a trait object (bare or behind `&`/`&mut`) and the argument is not already compatible, the argument coerces by: (a) CoerceUnsized of a smart-pointer/wrapper struct (`Rc<A>` → `Rc<dyn Tr>`) rebuilt by unsizing the inner field; or (b) cast to the dyn type when the argument's (ref) type satisfies the target trait object.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12996-L13014"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12996-L13014"
+      ]
     },
     {
       "id": "expr.static-call.qualified-path-drops-package-prefix",
       "domain": "expr",
       "title": "`pkg.path.Type::method()` resolves on the last segment as the type",
       "statement": "In a qualified static call `pkg.path.Type::member(args)`, the LAST dotted segment names the type/class; the package prefix is dropped (type/method resolution and arg lowering are not package-filtered, only free-fn lookups are).",
-      "evidence": ["src/compiler/sema_expr.cpp#L13087-L13094"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13087-L13094"
+      ]
     },
     {
       "id": "expr.static-call.self-resolves-to-impl-type",
       "domain": "expr",
       "title": "`Self::method()` resolves Self to the impl's concrete type",
       "statement": "Inside an impl body, `Self::method()` resolves `Self` to the impl's concrete type name (struct/zoned-struct via concrete name, enum via enum name) before static-method resolution, equivalent to writing the type name.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13099-L13111"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13099-L13111"
+      ]
     },
     {
       "id": "expr.static-call.enum-variant-vs-static-method",
       "domain": "expr",
       "title": "`Enum::Name(...)` constructs a variant only when Name is a variant",
       "statement": "When the class is an enum (directly or via a non-generic type-alias to an enum), `Enum::Name(args)` lowers as a variant construction iff Name matches a declared variant; otherwise it falls through to ordinary static-method resolution (trait-impl-on-enum).",
-      "evidence": ["src/compiler/sema_expr.cpp#L13113-L13146"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13113-L13146"
+      ]
     },
     {
       "id": "expr.static-call.type-alias-resolution",
       "domain": "expr",
       "title": "Static calls resolve non-generic type aliases to the target type",
       "statement": "A non-generic type alias used as a static-call class resolves to its target struct/zoned-struct (using the concrete name when type-args are present) before mangling the method symbol.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13149-L13164"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13149-L13164"
+      ]
     },
     {
       "id": "expr.static-call.array-default",
       "domain": "expr",
       "title": "`<[E; N]>::default()` synthesizes elementwise default",
       "statement": "`default()` with no args on an array type (named via a non-generic alias `type M = [E; N]`) synthesizes `[E::default(); N]`; if the element type has no Default impl it is an error. Arrays carry no `__default` symbol.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13183-L13196"],
-      "examples": ["type M = [i32; 4]; let a = M::default();"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13183-L13196"
+      ],
+      "examples": [
+        "type M = [i32; 4]; let a = M::default();"
+      ]
     },
     {
       "id": "expr.static-call.trait-qualified-ufcs",
       "domain": "expr",
       "title": "Trait-qualified UFCS `Trait::method(recv, ...)`",
       "statement": "When the class names a TRAIT (not a struct/enum/datatype/type-param) and args are non-empty, `Trait::method(recv, ...)` dispatches on the first argument's concrete receiver type (auto-derefed through refs/ptrs): struct/zoned-struct by name, enum by name, or primitive by type_str. The rewrite to `<recv-type>__<method>` commits only if that concrete symbol actually resolves; otherwise normal resolution and error reporting proceed.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13198-L13248"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13198-L13248"
+      ],
       "divergence": "Rust-conformant (DIVERGENCES.md: trait-qualified UFCS supported)"
     },
     {
@@ -89,56 +116,75 @@
       "domain": "expr",
       "title": "In-scope abstract type-param shadows a same-name concrete type",
       "statement": "A bounded type-param used as the static-call class (`S::method` with `S: Bound`) dispatches through the trait bound and NOT through a same-name concrete struct in scope; an active abstract type-param (resolves to a TypeVar) suppresses concrete-symbol lookup so resolution falls to generic-static dispatch.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13250-L13263", "src/compiler/sema_expr.cpp#L13268-L13269"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13250-L13263",
+        "src/compiler/sema_expr.cpp#L13268-L13269"
+      ]
     },
     {
       "id": "expr.static-call.turbofish-concrete-partial-spec",
       "domain": "expr",
       "title": "Turbofish on a partial-spec static call builds the concrete mangled name",
       "statement": "For `Type::<A, B>::method(...)` where a concrete partial-spec impl registers methods under the concrete mangled name, if base lookup misses and all turbofish args are concrete (non-TypeVar), the concrete instantiation name (datatype vs struct) is built and the symbol re-resolved.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13296-L13328"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13296-L13328"
+      ]
     },
     {
       "id": "const.assoc.inherent-and-trait-assoc-const-access",
       "domain": "const",
       "title": "`Type::CONST` accesses inherent then trait associated constants",
       "statement": "When no function symbol resolves, `Type::NAME` is treated as an associated-constant access: inherent assoc-consts (`impl S { const C }`) are tried first (keyed per type-name, turbofish-independent), then assoc-consts from each trait implemented by the type. The const value is lowered once and cached (retyped to its declared type).",
-      "evidence": ["src/compiler/sema_expr.cpp#L13330-L13362"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13330-L13362"
+      ]
     },
     {
       "id": "trait.static-dispatch.via-type-param-bound",
       "domain": "trait",
       "title": "Generic static dispatch `T::method()` through type-param trait bounds",
       "statement": "`T::method()` where T is a type-param resolves the static method (first param not Self) by searching the transitive supertrait closure of T's bounds. Single-dispatch traits route through the uniform generic-call resolver (turbofish/arg-infer/return-hint); multi-param traits (`Sum<Item>`) emit empty type-args and an abstract `T__method` symbol that monomorphization retargets to the concrete impl.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13363-L13432", "src/compiler/sema_expr.cpp#L13016-L13074"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13363-L13432",
+        "src/compiler/sema_expr.cpp#L13016-L13074"
+      ]
     },
     {
       "id": "trait.static-dispatch.trait-qualified-self-inference",
       "domain": "trait",
       "title": "`Trait::static_method(args)` infers Self from hint or unique bounded type-param",
       "statement": "A trait-qualified static call `Trait::method(args)` inside a generic fn resolves Self by: (a) the let-annotation/return hint's concrete type if it implements Trait (keyed on bare struct base or concrete-spec name), emitting `<Type>__<method>` directly; else (b) the unique in-scope type-param whose transitive bound-closure includes Trait, emitting `<param>__<method>` for mono to retarget. Ambiguity (>1 candidate) leaves it unresolved.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13433-L13525"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13433-L13525"
+      ]
     },
     {
       "id": "expr.static-call.unsafe-requires-unsafe-context",
       "domain": "expr",
       "title": "Calling an unsafe static method requires an unsafe context",
       "statement": "A call to an unsafe static method outside an unsafe context is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13532-L13533", "src/compiler/sema_expr.cpp#L13409-L13410"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13532-L13533",
+        "src/compiler/sema_expr.cpp#L13409-L13410"
+      ]
     },
     {
       "id": "expr.static-call.generic-method-infers-type-args",
       "domain": "expr",
       "title": "Generic static method infers concrete type-args outside generic context",
       "statement": "A generic static method (type-params from the enclosing impl) called outside a generic context (no TypeVar/AssocType in value or explicit type-args) is resolved by turbofish args if present, else by argument inference, then routed through the generic-call finisher to trigger the concrete instantiation. Inside a generic body, it is emitted with TypeVar type-args (or turbofish) and the return type substituted, for mono to rename to the concrete struct method.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13538-L13618"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13538-L13618"
+      ]
     },
     {
       "id": "expr.static-call.arg-count-and-type-check",
       "domain": "expr",
       "title": "Static call arity and per-argument type checking",
       "statement": "A non-generic static call checks argument count against the parameter list (error on mismatch) and coerces then type-checks each argument against its parameter (error on incompatibility). By-value move-typed args (and owning Box<dyn>) are marked moved so scope-end drops do not fire on transferred locals.",
-      "evidence": ["src/compiler/sema_expr.cpp#L13621-L13643"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L13621-L13643"
+      ]
     }
   ]
 }

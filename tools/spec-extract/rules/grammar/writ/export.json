@@ -9,8 +9,11 @@
       "domain": "grammar",
       "title": "Writ grammar public entry rules",
       "statement": "The Writ data-format grammar exposes exactly the rules { value, map, array, typed_value, typed_collection } as importable entry points; importing grammars may start parsing at any of these and at no other Writ rule.",
-      "evidence": ["tools/peg_gen/grammars/writ.peg#L17-L17"],
-      "uncertainty": "PEG-tooling directive (grammar-composition surface), not a Logos-source language rule; included as the observable export contract of the Writ literal sub-grammar."
+      "evidence": [
+        "tools/peg_gen/grammars/writ.peg#L17-L17"
+      ],
+      "uncertainty": "PEG-tooling directive (grammar-composition surface), not a Logos-source language rule; included as the observable export contract of the Writ literal sub-grammar.",
+      "testability": "untestable"
     }
   ]
 }

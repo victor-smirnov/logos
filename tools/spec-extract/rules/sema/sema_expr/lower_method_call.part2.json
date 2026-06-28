@@ -41,7 +41,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L7671-L7694"
       ],
-      "uncertainty": "Disambiguation among multiple Trait<T> impls; tied to G156-1 trait-type-arg mangling (still narrow per memory)."
+      "uncertainty": "Disambiguation among multiple Trait<T> impls; tied to G156-1 trait-type-arg mangling (still narrow per memory).",
+      "testability": "transitive"
     },
     {
       "id": "trait.method-mangling.trait-qualified-symbol",
@@ -134,7 +135,8 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L7987-L8002",
         "src/compiler/sema_expr.cpp#L7831-L7837"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "generic.enum-method.instantiate-on-typeargs",

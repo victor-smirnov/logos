@@ -11,7 +11,8 @@
       "statement": "`offset_of!(Type, field)` requires both a type argument and a field name; either missing is a compile error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L17630-L17634"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "intrinsic.offset-of.struct-only",
@@ -165,7 +166,8 @@
       "statement": "`compile_error!(\"msg\")` takes one string-literal argument and emits that message as a compile-time error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L18392-L18409"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "intrinsic.matches.macro",

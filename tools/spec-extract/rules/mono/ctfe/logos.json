@@ -9,50 +9,66 @@
       "domain": "const",
       "title": "CTFE-evaluable expression forms",
       "statement": "Compile-time constant evaluation accepts exactly: integer/float/bool/string literals, parenthesized expressions (transparent), unary expressions, binary expressions, and bare identifier references (VAR_REF) resolvable to a const. Any other expression form is not a compile-time constant and is rejected.",
-      "evidence": ["src/compiler/ctfe.cpp#L249-L271"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L249-L271"
+      ]
     },
     {
       "id": "const.lit.int-suffix-kind",
       "domain": "const",
       "title": "Integer literal kind from suffix",
       "statement": "An integer literal must be well-formed; its CTFE kind is its explicit integer suffix kind (e.g. i32, u64) if present, else the polymorphic IntLit. Its value is parsed as a 64-bit integer (both signed and unsigned views retained).",
-      "evidence": ["src/compiler/ctfe.cpp#L68-L81"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L68-L81"
+      ]
     },
     {
       "id": "const.lit.float-suffix-kind",
       "domain": "const",
       "title": "Float literal kind from suffix; underscores stripped",
       "statement": "A float literal must be well-formed; underscore separators are removed before parsing. Its CTFE kind is its explicit float suffix kind (f32/f64) if present, else the polymorphic FloatLit.",
-      "evidence": ["src/compiler/ctfe.cpp#L83-L97"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L83-L97"
+      ]
     },
     {
       "id": "const.lit.bool-value",
       "domain": "const",
       "title": "Bool literal value",
       "statement": "A bool literal evaluates to kind Bool; its value is true iff its stored byte is nonzero.",
-      "evidence": ["src/compiler/ctfe.cpp#L99-L107"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L99-L107"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "const.lit.str-as-slice",
       "domain": "const",
       "title": "String literal CTFE representation",
       "statement": "A string literal evaluates with kind Slice (a stand-in for str / Slice<u8>); the literal's actual &str/Slice<u8> typeref is validated separately by the caller.",
-      "evidence": ["src/compiler/ctfe.cpp#L109-L118"],
-      "uncertainty": "Slice kind is a CTFE-internal stand-in; the actual surface type check happens outside this unit."
+      "evidence": [
+        "src/compiler/ctfe.cpp#L109-L118"
+      ],
+      "uncertainty": "Slice kind is a CTFE-internal stand-in; the actual surface type check happens outside this unit.",
+      "testability": "untestable"
     },
     {
       "id": "const.unary.neg-numeric",
       "domain": "const",
       "title": "Unary '-' requires numeric operand",
       "statement": "Unary '-' negates an integer or float operand (preserving its kind); applied to any non-numeric operand it is rejected.",
-      "evidence": ["src/compiler/ctfe.cpp#L127-L135"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L127-L135"
+      ]
     },
     {
       "id": "const.unary.not-bool",
       "domain": "const",
       "title": "Unary '!' requires bool operand",
       "statement": "Unary '!' logically negates a Bool operand; applied to any non-bool operand it is rejected. (No bitwise-not on integers in CTFE.)",
-      "evidence": ["src/compiler/ctfe.cpp#L136-L139"],
+      "evidence": [
+        "src/compiler/ctfe.cpp#L136-L139"
+      ],
       "uncertainty": "Bitwise '!' on integers is not handled here; only bool is accepted."
     },
     {
@@ -60,14 +76,19 @@
       "domain": "const",
       "title": "&& and || require bool operands",
       "statement": "Binary '&&' and '||' require both operands to be Bool and yield Bool; otherwise rejected.",
-      "evidence": ["src/compiler/ctfe.cpp#L159-L163"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L159-L163"
+      ]
     },
     {
       "id": "const.binop.int-promotion",
       "domain": "const",
       "title": "Integer kind promotion in binary ops",
       "statement": "For an integer binop, the result kind is the promotion of the two operand kinds: equal kinds stay; a polymorphic IntLit yields to the other operand's kind; otherwise the result is I64.",
-      "evidence": ["src/compiler/ctfe.cpp#L51-L57", "src/compiler/ctfe.cpp#L192-L197"],
+      "evidence": [
+        "src/compiler/ctfe.cpp#L51-L57",
+        "src/compiler/ctfe.cpp#L192-L197"
+      ],
       "uncertainty": "Mixed concrete-int kinds (e.g. i32 op u32) fall back to I64 rather than a Rust-style type error."
     },
     {
@@ -75,21 +96,28 @@
       "domain": "const",
       "title": "Integer arithmetic/comparison uses result-kind signedness",
       "statement": "Integer +,-,*,/,%,comparisons are computed using signed semantics iff the promoted result kind is signed, else unsigned; both signed and unsigned representations of the result are kept.",
-      "evidence": ["src/compiler/ctfe.cpp#L192-L235"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L192-L235"
+      ]
     },
     {
       "id": "const.binop.div-mod-by-zero",
       "domain": "const",
       "title": "Division/modulo by zero is a CTFE error",
       "statement": "Integer '/' or '%' with a zero divisor, and float '/' with a zero divisor, are rejected as compile-time errors (no panic, no UB at CTFE).",
-      "evidence": ["src/compiler/ctfe.cpp#L179-L182", "src/compiler/ctfe.cpp#L201-L219"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L179-L182",
+        "src/compiler/ctfe.cpp#L201-L219"
+      ]
     },
     {
       "id": "const.binop.shift-mask",
       "domain": "const",
       "title": "Shift amount masked to 6 bits",
       "statement": "Integer '<<' and '>>' mask the shift amount to its low 6 bits (& 63). '<<' is computed unsigned; '>>' is arithmetic when the result kind is signed, logical otherwise.",
-      "evidence": ["src/compiler/ctfe.cpp#L221-L226"],
+      "evidence": [
+        "src/compiler/ctfe.cpp#L221-L226"
+      ],
       "uncertainty": "Mask 63 assumes a 64-bit shift width regardless of operand bit-width (e.g. u8)."
     },
     {
@@ -97,28 +125,37 @@
       "domain": "const",
       "title": "Mixed int/float binop coerces to float",
       "statement": "When either operand of an arithmetic/comparison binop is a float, integer operands are coerced to double; result kind is F64 if either side is F64, else F32 if either is F32, else FloatLit.",
-      "evidence": ["src/compiler/ctfe.cpp#L58-L62", "src/compiler/ctfe.cpp#L166-L190"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L58-L62",
+        "src/compiler/ctfe.cpp#L166-L190"
+      ]
     },
     {
       "id": "const.binop.bool-eq",
       "domain": "const",
       "title": "Bool equality comparisons",
       "statement": "Binary '==' and '!=' on two Bool operands compare their values and yield Bool.",
-      "evidence": ["src/compiler/ctfe.cpp#L240-L243"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L240-L243"
+      ]
     },
     {
       "id": "const.eval.paren-transparent",
       "domain": "const",
       "title": "Parenthesized expression is transparent",
       "statement": "A parenthesized expression evaluates to its inner expression's CTFE value (no effect on kind or value).",
-      "evidence": ["src/compiler/ctfe.cpp#L255"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L255"
+      ]
     },
     {
       "id": "const.eval.path-to-const",
       "domain": "const",
       "title": "Identifier resolves to const RHS via resolver",
       "statement": "A bare identifier in const-eval position (VAR_REF) is resolved, when a resolver is supplied, to the named const's RHS expression and its owning holder, then evaluated recursively; cross-package consts resolve provided the resolver knows them. Without a resolver, or if unresolved, the identifier is not a compile-time constant.",
-      "evidence": ["src/compiler/ctfe.cpp#L258-L271"]
+      "evidence": [
+        "src/compiler/ctfe.cpp#L258-L271"
+      ]
     }
   ]
 }

@@ -9,156 +9,212 @@
       "domain": "expr",
       "title": "Integer literals that exceed their type range are rejected",
       "statement": "An integer literal whose value cannot be represented (would silently saturate/truncate) is a compile error: 'integer literal out of range'. ≤64-bit literals are bound-checked against i64/destination range; literals with u128/i128 suffix are bound-checked against the 128-bit range.",
-      "evidence": ["src/compiler/sema_expr.cpp#L233-L235", "src/compiler/sema_expr.cpp#L249-L252"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L233-L235",
+        "src/compiler/sema_expr.cpp#L249-L252"
+      ]
     },
     {
       "id": "expr.int-lit.suffix-range",
       "domain": "expr",
       "title": "Suffixed integer literal bound-checked against suffix type",
       "statement": "A suffixed integer literal `Nsuf` is given type `suf` and its magnitude is bound-checked against that type's range: signed types permit |min| (e.g. i8 down to -128, up to 127), unsigned types permit 0..2^N-1. Exceeding the bound is 'integer literal out of range for its suffix type'.",
-      "evidence": ["src/compiler/sema_expr.cpp#L255-L293"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L255-L293"
+      ]
     },
     {
       "id": "expr.int-lit.negate-fold",
       "domain": "expr",
       "title": "Leading unary minus folds into integer literal for range check",
       "statement": "A leading unary minus is folded into the integer literal before range checking, so the magnitude is bounded by |min| rather than max (e.g. `-128i8` is valid, equal to i8::MIN).",
-      "evidence": ["src/compiler/sema_expr.cpp#L219-L221", "src/compiler/sema_expr.cpp#L262-L271"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L219-L221",
+        "src/compiler/sema_expr.cpp#L262-L271"
+      ]
     },
     {
       "id": "expr.int-lit.unsigned-negative",
       "domain": "expr",
       "title": "Negative value with unsigned suffix is rejected",
       "statement": "A negative integer literal with an unsigned suffix (u8/u16/u32/u64/u128) is a compile error: 'negative value with unsigned suffix'.",
-      "evidence": ["src/compiler/sema_expr.cpp#L238-L241", "src/compiler/sema_expr.cpp#L283-L286"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L238-L241",
+        "src/compiler/sema_expr.cpp#L283-L286"
+      ]
     },
     {
       "id": "expr.int-lit.unsuffixed-type",
       "domain": "expr",
       "title": "Unsuffixed integer literal has inferred-integer type",
       "statement": "An integer literal without a suffix is given a polymorphic integer-literal type whose concrete type is resolved later by destination-type coercion; only suffixed literals get a fixed primitive type at lowering.",
-      "evidence": ["src/compiler/sema_expr.cpp#L256-L258", "src/compiler/sema_expr.cpp#L292-L293"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L256-L258",
+        "src/compiler/sema_expr.cpp#L292-L293"
+      ]
     },
     {
       "id": "expr.int-lit.malformed",
       "domain": "expr",
       "title": "Malformed integer literal is rejected",
       "statement": "An integer literal whose textual form is not a valid integer literal is a compile error: 'malformed integer literal'.",
-      "evidence": ["src/compiler/sema_expr.cpp#L223-L226"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L223-L226"
+      ]
     },
     {
       "id": "expr.char-lit.escapes",
       "domain": "expr",
       "title": "Character literal escape sequences",
       "statement": "A char literal `'c'` accepts the escapes \\n \\t \\r \\0 \\\\ \\' \\\" ; \\xNN (exactly 2 hex digits, byte 0..255); and \\u{H..} (1..6 hex digits in braces). Any other escape is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L314-L374"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L314-L374"
+      ]
     },
     {
       "id": "expr.char-lit.unicode-scalar",
       "domain": "expr",
       "title": "char value must be a valid Unicode scalar",
       "statement": "A \\u{H..} char value must be a Unicode scalar value: ≤ U+10FFFF and not in the surrogate range U+D800..U+DFFF; otherwise it is a compile error. A char literal lowers to a value of type `char`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L364-L368", "src/compiler/sema_expr.cpp#L402"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L364-L368",
+        "src/compiler/sema_expr.cpp#L402"
+      ]
     },
     {
       "id": "expr.char-lit.utf8-body",
       "domain": "expr",
       "title": "Multibyte char literal body decoded as one UTF-8 codepoint",
       "statement": "A char literal whose body is a single multibyte character is decoded as exactly one UTF-8 codepoint; a malformed or length-mismatched UTF-8 body is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L376-L401"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L376-L401"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.bytes-lit.type",
       "domain": "expr",
       "title": "Byte-string literal has type [u8; N]",
       "statement": "A byte-string literal `b\"…\"` lowers to an array literal of type `[u8; N]` where N is the decoded byte count; it accepts the escapes \\n \\t \\r \\0 \\\\ \\' \\\" and \\xNN (2 hex digits). Unknown or malformed escapes are compile errors.",
-      "evidence": ["src/compiler/sema_expr.cpp#L405-L471"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L405-L471"
+      ]
     },
     {
       "id": "expr.var-ref.undefined",
       "domain": "expr",
       "title": "Reference to an undefined name is an error",
       "statement": "A variable reference whose name resolves to no local binding, const-generic parameter, function, enum variant, or unit struct is a compile error: 'undefined variable'.",
-      "evidence": ["src/compiler/sema_expr.cpp#L583-L584"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L583-L584"
+      ]
     },
     {
       "id": "expr.var-ref.const-param-value-use",
       "domain": "expr",
       "title": "Const-generic parameter usable in value position",
       "statement": "A const-generic parameter `<const N: T>` referenced in expression position evaluates to a value of its underlying numeric type T (default i64); monomorphization substitutes the concrete constant.",
-      "evidence": ["src/compiler/sema_expr.cpp#L481-L490"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L481-L490"
+      ]
     },
     {
       "id": "expr.var-ref.fn-item-type",
       "domain": "expr",
       "title": "Bare function name has a distinct per-function fn-item type",
       "statement": "A function name used as a value has a zero-sized fn-item type unique to that function (distinct type per function/instantiation), which auto-coerces to the corresponding `fn(T)->R` pointer type at value-use sites.",
-      "evidence": ["src/compiler/sema_expr.cpp#L491-L510"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L491-L510"
+      ]
     },
     {
       "id": "expr.var-ref.unit-struct-value",
       "domain": "expr",
       "title": "Unit struct name in value position constructs it",
       "statement": "A bare name of a known zero-field, non-generic struct in value position constructs that struct (unit-struct construction); a fielded struct still requires `S { … }` form.",
-      "evidence": ["src/compiler/sema_expr.cpp#L573-L582"],
-      "related": ["expr.var-ref.undefined"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L573-L582"
+      ],
+      "related": [
+        "expr.var-ref.undefined"
+      ]
     },
     {
       "id": "expr.var-ref.bare-variant-alias",
       "domain": "expr",
       "title": "Imported no-payload enum variant usable as a bareword",
       "statement": "A no-payload enum variant brought into scope via `use Type.{V, …};` (or the prelude bareword `None`) can be referenced as a bare identifier, constructing that variant; payload-carrying variants require call syntax.",
-      "evidence": ["src/compiler/sema_expr.cpp#L511-L571"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L511-L571"
+      ]
     },
     {
       "id": "borrow.var-ref.use-after-move",
       "domain": "borrow",
       "title": "Use of a moved variable is an error",
       "statement": "Reading a variable after its value has been moved out is a compile error: 'use of moved variable'.",
-      "evidence": ["src/compiler/sema_expr.cpp#L586-L587"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L586-L587"
+      ]
     },
     {
       "id": "borrow.var-ref.definite-assignment",
       "domain": "borrow",
       "title": "Use of a possibly-uninitialised binding is an error",
       "statement": "Reading a binding declared without an initializer (`let x: T;`) before a definite assignment on the current path is a compile error (Rust E0381); at if/match merge points a binding is uninitialised if uninitialised on any incoming path.",
-      "evidence": ["src/compiler/sema_expr.cpp#L588-L594"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L588-L594"
+      ]
     },
     {
       "id": "expr.static.mut-read-unsafe",
       "domain": "expr",
       "title": "Reading a mutable static requires unsafe",
       "statement": "Reading a `static mut` outside an `unsafe` block is a compile error (Rust items.static.mut.safety); the gate is suppressed when the name is shadowed by a local binding or a const-generic parameter.",
-      "evidence": ["src/compiler/sema_expr.cpp#L595-L628"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L595-L628"
+      ]
     },
     {
       "id": "expr.static.extern-access-unsafe",
       "domain": "expr",
       "title": "Accessing an extern static requires unsafe",
       "statement": "Any access to an extern static outside an `unsafe` block is a compile error (Rust items.extern.static), with the same local/const-param shadowing suppression as mutable statics.",
-      "evidence": ["src/compiler/sema_expr.cpp#L604-L607", "src/compiler/sema_expr.cpp#L620-L623"],
-      "related": ["expr.static.mut-read-unsafe"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L604-L607",
+        "src/compiler/sema_expr.cpp#L620-L623"
+      ],
+      "related": [
+        "expr.static.mut-read-unsafe"
+      ]
     },
     {
       "id": "coerce.deref.user-deref-chain",
       "domain": "coerce",
       "title": "Deref coercion through user/stdlib Deref(Mut) impls",
       "statement": "A receiver of struct type with a Deref/DerefMut impl deref-coerces by calling `deref`/`deref_mut` to obtain `&Target`; for an unsized Target (dyn or slice) the returned fat reference is the value itself with no further place-deref. A mutable deref step may fall back to the Deref Target when only Deref is implemented (shared supertrait Target).",
-      "evidence": ["src/compiler/sema_expr.cpp#L100-L217"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L100-L217"
+      ]
     },
     {
       "id": "trait.deref.multi-impl-target-match",
       "domain": "trait",
       "title": "Deref impl selected by strict self-type match among multiple impls",
       "statement": "When a type carries several Deref impls distinguished by self type-args (e.g. Pin<&T>/Pin<&mut T>/Pin<Box<T>>), the impl whose target pattern strictly unifies-substitutes-and-equals the receiver type is selected; a non-matching impl is used only as a loose fallback.",
-      "evidence": ["src/compiler/sema_expr.cpp#L123-L158"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L123-L158"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "region.temp.receiver-hoist",
       "domain": "region",
       "title": "Droppable rvalue auto-ref receiver lives to end of statement",
       "statement": "A fresh owning (move-type) rvalue receiver auto-referenced to `&self`/`&mut self` is hoisted into the enclosing statement's block as a named local so it lives to end-of-statement and is then dropped by scope exit, matching Rust temporary-scope semantics; non-droppable or place/borrow receivers keep a plain temp spill.",
-      "evidence": ["src/compiler/sema_expr.cpp#L80-L98"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L80-L98"
+      ]
     }
   ]
 }

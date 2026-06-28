@@ -14,7 +14,8 @@
       ],
       "related": [
         "borrow.flow.diverged-arm-skipped"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.flow.diverged-arm-skipped",
@@ -24,7 +25,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L784-L788"
       ],
-      "uncertainty": "Merge-skip logic enforcing this lives in If/Match merge sites outside this slice; here only the cur_diverged_ flag is declared."
+      "uncertainty": "Merge-skip logic enforcing this lives in If/Match merge sites outside this slice; here only the cur_diverged_ flag is declared.",
+      "testability": "untestable"
     },
     {
       "id": "borrow.scope.borrows-released-at-scope-end",
@@ -64,7 +66,8 @@
       "statement": "Because union fields share storage, a borrow of any one field of a union implicitly borrows ALL fields; field-path borrows of a union root are coerced to whole-root borrows so any other field-path of the same union overlaps and conflicts.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L934-L949"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.path.prefix-conflict",
@@ -74,7 +77,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L1112-L1125",
         "src/compiler/borrow_check.cpp#L1140-L1141"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.path.access-vs-field-borrow",

@@ -12,7 +12,8 @@
       "evidence": [
         "include/logos/compiler/outlives.hpp#L29-L33",
         "include/logos/compiler/outlives.hpp#L35-L37"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.outlives.static-is-top",
@@ -31,7 +32,8 @@
       "statement": "If the shorter side of an outlives query is empty/elided, the constraint r: <empty> is vacuously satisfied for any longer region r.",
       "evidence": [
         "include/logos/compiler/outlives.hpp#L67"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.outlives.transitive-bfs",
@@ -52,7 +54,8 @@
         "include/logos/compiler/outlives.hpp#L68",
         "include/logos/compiler/outlives.hpp#L86-L92"
       ],
-      "uncertainty": "Permissive vs strict is a mode flag; default at general sites is permissive."
+      "uncertainty": "Permissive vs strict is a mode flag; default at general sites is permissive.",
+      "testability": "untestable"
     },
     {
       "id": "region.outlives.permissive-unmentioned-pair",
@@ -62,7 +65,8 @@
       "evidence": [
         "include/logos/compiler/outlives.hpp#L86-L102"
       ],
-      "divergence": "Permissive default; Rust requires the outlives relation to be explicitly established (would reject)."
+      "divergence": "Permissive default; Rust requires the outlives relation to be explicitly established (would reject).",
+      "testability": "untestable"
     },
     {
       "id": "region.outlives.reflexive",

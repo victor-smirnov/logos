@@ -58,7 +58,8 @@
       ],
       "related": [
         "expr.closure.capture-by-ref-on-mutation"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.closure.writ-capture-exprs",
@@ -136,7 +137,8 @@
       "statement": "A closure type's auto-trait (Send/Sync) membership is determined by its captured values' types, not its parameter types. By-reference captures enter as `&T`/`&mut T` (so the reference auto-trait rules apply: `&T: Send` iff `T: Sync`); owned (move) captures enter as `T`; narrow captures use the captured field's type. Since closure types intern by signature, the recorded capture set is the union across all same-signature literals, so the type is `!Send`/`!Sync` if any such literal captures a `!Send`/`!Sync` value.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L14900-L14925"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

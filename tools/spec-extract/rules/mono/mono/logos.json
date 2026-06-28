@@ -9,28 +9,44 @@
       "domain": "mono",
       "title": "Generic functions monomorphized per distinct type-argument set",
       "statement": "A function with type parameters is not emitted as-is; for each distinct set of type arguments demanded by reachable code, the compiler clones the template body with the substitution applied and emits one concrete instance. Non-generic free functions are emitted directly (cloned once).",
-      "evidence": ["src/compiler/mono.cpp#L380-L383", "src/compiler/mono.cpp#L591-L618", "src/compiler/mono.cpp#L621-L653", "src/compiler/mono.cpp#L646-L646"]
+      "evidence": [
+        "src/compiler/mono.cpp#L380-L383",
+        "src/compiler/mono.cpp#L591-L618",
+        "src/compiler/mono.cpp#L621-L653",
+        "src/compiler/mono.cpp#L646-L646"
+      ]
     },
     {
       "id": "mono.inst.dedup-by-mangled-name",
       "domain": "mono",
       "title": "Each monomorphized instance emitted at most once",
       "statement": "Monomorphization is idempotent per mangled symbol: an instance whose mangled name has already been produced is not re-emitted. The mangled name is the deduplication key (function instances keyed by mangled name; structs/enums by pkg-qualified or bare name; methods by `Struct__method`).",
-      "evidence": ["src/compiler/mono.cpp#L68-L68", "src/compiler/mono.cpp#L86-L86", "src/compiler/mono.cpp#L194-L223"]
+      "evidence": [
+        "src/compiler/mono.cpp#L68-L68",
+        "src/compiler/mono.cpp#L86-L86",
+        "src/compiler/mono.cpp#L194-L223"
+      ]
     },
     {
       "id": "mono.inst.demand-driven-closure",
       "domain": "mono",
       "title": "Instantiation set is the demand-driven reachable closure",
       "statement": "The set of monomorphized instances is the fixpoint closure of demand: scanning each emitted body discovers further generic-fn instances, method instances, free-fn callees and generic struct/enum uses, which are enqueued and drained until no work remains. Nothing not transitively demanded is instantiated.",
-      "evidence": ["src/compiler/mono.cpp#L615-L615", "src/compiler/mono.cpp#L650-L650", "src/compiler/mono.cpp#L805-L843"]
+      "evidence": [
+        "src/compiler/mono.cpp#L615-L615",
+        "src/compiler/mono.cpp#L650-L650",
+        "src/compiler/mono.cpp#L805-L843"
+      ]
     },
     {
       "id": "mono.blanket.eager-over-satisfying-types",
       "domain": "mono",
       "title": "Blanket-impl methods instantiated for every concrete type satisfying the bound",
       "statement": "For a blanket impl `impl<T: Bound> Trait for T`, the methods are instantiated for each non-generic concrete type that satisfies `Bound` (and all extra bounds, recursively, including chain-satisfaction through other blanket impls). An unbounded blanket `impl<T> Trait for T` instantiates for every non-generic struct and enum in the program.",
-      "evidence": ["src/compiler/mono.cpp#L396-L446", "src/compiler/mono.cpp#L511-L555"],
+      "evidence": [
+        "src/compiler/mono.cpp#L396-L446",
+        "src/compiler/mono.cpp#L511-L555"
+      ],
       "uncertainty": "Primitives/references are excluded from the eager candidate list; they are instantiated lazily via the dyn-coercion supplementary pass (mono.blanket.dyn-coercion-targets)."
     },
     {
@@ -38,64 +54,90 @@
       "domain": "mono",
       "title": "Blanket instantiation requires associated-type equality clauses to hold",
       "statement": "A blanket impl carrying associated-type equality bounds `Trait<Assoc = U>` is instantiated for a concrete type only if, for every such clause, the type's resolved associated type equals `U`. The associated type is resolved from a direct impl when present, otherwise from a satisfying blanket impl's `type Assoc = ...` definition with the target type-var substituted.",
-      "evidence": ["src/compiler/mono.cpp#L452-L510", "src/compiler/mono.cpp#L539-L544"]
+      "evidence": [
+        "src/compiler/mono.cpp#L452-L510",
+        "src/compiler/mono.cpp#L539-L544"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.blanket.transparent-output-param-deferred",
       "domain": "mono",
       "title": "Blanket methods with unbound (output) type params instantiate at the call site",
       "statement": "A blanket method carrying type parameters not bound by the blanket's target type-var (e.g. the output `D` in `impl<S, D: From<S>> Into<D> for S`) is not eagerly instantiated; such methods are left transparent and instantiated at the actual call site with full type arguments.",
-      "evidence": ["src/compiler/mono.cpp#L72-L79"]
+      "evidence": [
+        "src/compiler/mono.cpp#L72-L79"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.blanket.dyn-coercion-targets",
       "domain": "mono",
       "title": "Blanket methods instantiated for types coerced to dyn Trait",
       "statement": "Any concrete type (including primitives and generic struct instantiations) that is coerced to `dyn Trait` by reachable code triggers instantiation of the blanket impl methods of `Trait` for that type, so the vtable slot is populated. Such targets are still bound-filtered: a coerced pointee that does not satisfy the blanket's bound is not instantiated.",
-      "evidence": ["src/compiler/mono.cpp#L656-L716", "src/compiler/mono.cpp#L684-L696"]
+      "evidence": [
+        "src/compiler/mono.cpp#L656-L716",
+        "src/compiler/mono.cpp#L684-L696"
+      ]
     },
     {
       "id": "mono.dispatch.generic-impl-entries",
       "domain": "mono",
       "title": "Dispatch entries synthesized for trait impls over generic structs",
       "statement": "For `impl<T> Trait for GenericStruct<T>`, a tag-dispatch entry is emitted for each monomorphized instance of the struct (those with a nonzero type code) and each trait method that was actually cloned onto that instance, keyed by (tag_system, trait, method, type_code). Entries duplicating ones already emitted for concrete specializations are skipped.",
-      "evidence": ["src/compiler/mono.cpp#L912-L975"]
+      "evidence": [
+        "src/compiler/mono.cpp#L912-L975"
+      ]
     },
     {
       "id": "mono.dispatch.requires-cloned-method",
       "domain": "mono",
       "title": "Dispatch entry emitted only when its target method body exists",
       "statement": "A dispatch entry is emitted only if the implementing method symbol was actually monomorphized (present as a cloned method on the struct or as an emitted function); the entry records the actual pkg-qualified, signature-suffixed symbol. If no such symbol exists, no entry is emitted.",
-      "evidence": ["src/compiler/mono.cpp#L944-L953", "src/compiler/mono.cpp#L962-L970"]
+      "evidence": [
+        "src/compiler/mono.cpp#L944-L953",
+        "src/compiler/mono.cpp#L962-L970"
+      ]
     },
     {
       "id": "mono.coexist.module-qualified-instances",
       "domain": "mono",
       "title": "Type-keyed instance names are module-qualified for cross-module coexistence",
       "statement": "Monomorphized type-keyed symbols (e.g. blanket-method instances `Concrete__method`) are module-qualified by the concrete type's package so that two modules' instances of the same-named type do not collide at link time.",
-      "evidence": ["src/compiler/mono.cpp#L46-L67", "src/compiler/mono.cpp#L135-L136"]
+      "evidence": [
+        "src/compiler/mono.cpp#L46-L67",
+        "src/compiler/mono.cpp#L135-L136"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.drop.implicit-drop-pinned",
       "domain": "mono",
       "title": "Drop::drop is instantiated even without an explicit call site",
       "statement": "For a type with `impl Drop`, the `drop` method is treated as a demanded root and instantiated even though it is invoked only implicitly by drop-glue; otherwise the destructor would silently never run for a generic struct's Drop impl.",
-      "evidence": ["src/compiler/mono.cpp#L873-L883"]
+      "evidence": [
+        "src/compiler/mono.cpp#L873-L883"
+      ]
     },
     {
       "id": "mono.inst.explicit-instantiate-pins-methods",
       "domain": "mono",
       "title": "`instantiate Foo<T>;` pins every inherent and trait method of the instance",
       "statement": "An explicit `instantiate Foo<T>;` (or `pub instantiate`) item forces instantiation of every inherent and trait method of that concrete instance as a demand root (the C++ `template class Foo<int>;` analog), independent of whether any call site references them.",
-      "evidence": ["src/compiler/mono.cpp#L741-L778"]
+      "evidence": [
+        "src/compiler/mono.cpp#L741-L778"
+      ]
     },
     {
       "id": "mono.assoc.suffixed-projection-resolution",
       "domain": "mono",
       "title": "Associated types resolve per trait type-args when a type has multiple impls of one trait",
       "statement": "When a type has multiple impls of one parameterized trait at distinct type-args (e.g. two `Trait<T>` impls), an associated-type projection `<P as Trait<i64>>::A` resolves to the impl matching the trait's concrete type-args (via a type-args suffix key); a bare projection resolves first-wins.",
-      "evidence": ["src/compiler/mono.cpp#L251-L277"],
-      "divergence": "G156-1: addresses two same-trait impls at distinct type-args; tracked as a known narrow area."
+      "evidence": [
+        "src/compiler/mono.cpp#L251-L277"
+      ],
+      "divergence": "G156-1: addresses two same-trait impls at distinct type-args; tracked as a known narrow area.",
+      "testability": "untestable"
     }
   ]
 }

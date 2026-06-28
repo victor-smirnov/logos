@@ -9,39 +9,56 @@
       "domain": "expr",
       "title": "Field access auto-derefs through Deref",
       "statement": "For receiver `r` of struct type S that has no field `f` but `S: Deref<Target=U>`, `r.f` is equivalent to `(*r).f`; the deref step repeats (bounded, up to 16 levels) until a type bearing field `f` is reached. Generalizes Box/Rc/Arc and any user Deref uniformly.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9166-L9181"],
-      "related": ["expr.field.ref-peel"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9166-L9181"
+      ],
+      "related": [
+        "expr.field.ref-peel"
+      ]
     },
     {
       "id": "expr.field.ref-peel",
       "domain": "expr",
       "title": "Field access peels reference layers",
       "statement": "For receiver of reference-like type, `r.f` peels extra reference layers via explicit derefs so a multiply-referenced base (`&&S`) accesses the field of the underlying struct: `r.f` for `r: &&S` ≡ `(*r).f`. One reference layer remains for the single-level field projection.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9252-L9264"],
-      "related": ["expr.field.autoderef-via-deref"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9252-L9264"
+      ],
+      "related": [
+        "expr.field.autoderef-via-deref"
+      ]
     },
     {
       "id": "expr.field.raw-ptr-unsafe",
       "domain": "expr",
       "title": "Field read through raw pointer requires unsafe",
       "statement": "Reading a field through a raw pointer receiver (type `*const T`/`*mut T`) is only permitted inside an `unsafe` context; otherwise it is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9182-L9184", "src/compiler/sema_expr.cpp#L9251"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9182-L9184",
+        "src/compiler/sema_expr.cpp#L9251"
+      ]
     },
     {
       "id": "expr.field.self-describing-thin-tail",
       "domain": "expr",
       "title": "Self-describing DST tail through a thin raw pointer",
       "statement": "For a thin raw pointer `p: *const/*mut Self` to a `#[self_describing]` struct whose last field is the unsized-slice tail, `p.tail` yields a slice `{ (p as *u8)+prefix_offset, dst_len(p) }`, where prefix_offset is the natural-aligned byte offset after all sized prefix fields and the tail length is recovered by calling the struct's `SelfDescribing::dst_len` method. Slice mutability follows the pointer's mutability.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9185-L9248"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9185-L9248"
+      ],
       "divergence": "Custom-DST / self-describing model — see DIVERGENCES B2.",
-      "related": ["expr.field.dst-tail-slice"]
+      "related": [
+        "expr.field.dst-tail-slice"
+      ]
     },
     {
       "id": "expr.field.dst-ref-unsafe",
       "domain": "expr",
       "title": "Field read through a non-self-describing &DstStruct requires unsafe",
       "statement": "Field access on a fat-pointer (DstRef) receiver `&DstStruct` requires an `unsafe` context, EXCEPT when the struct is `#[self_describing]` (its tail length is recovered in-band, so the borrow is a complete safe reference).",
-      "evidence": ["src/compiler/sema_expr.cpp#L9275-L9281"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9275-L9281"
+      ],
       "divergence": "Custom-DST raw-pointer-shaped field access — see DIVERGENCES B2."
     },
     {
@@ -49,7 +66,10 @@
       "domain": "expr",
       "title": "Slice-tail projection on a DstRef",
       "statement": "For a fat-pointer receiver to a custom-DST struct whose last field `tail` has unsized-slice type `[T]`, `r.tail` yields a slice `{ data_ptr + prefix_byte_size, len }` reusing the fat pointer's len half; prefix_byte_size is the offset after all sized prefix fields, aligned to size_of(T) (capped at 8). Slice mutability follows the receiver: `(&mut Foo).tail: &mut [T]`, `(&Foo).tail: &[T]`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9296-L9345", "src/compiler/sema_expr.cpp#L9369-L9393"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9296-L9345",
+        "src/compiler/sema_expr.cpp#L9369-L9393"
+      ],
       "divergence": "Custom-DST model — see DIVERGENCES B2."
     },
     {
@@ -57,7 +77,10 @@
       "domain": "expr",
       "title": "dyn-tail projection on a DstRef shares the carried vtable",
       "statement": "For a fat-pointer receiver to a custom-DST struct whose last field has unsized-dyn type `dyn Tr`, `r.tail` yields a `&dyn Tr` fat pair `{ data = base + prefix_byte_size, vtable = the receiver's OWN carried vtable }`. The tail's metadata is the wide pointer's metadata (no static vtable lookup). The dyn prefix offset is aligned to pointer width (8) since the concrete payload alignment is not known statically.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9330-L9335", "src/compiler/sema_expr.cpp#L9346-L9368"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9330-L9335",
+        "src/compiler/sema_expr.cpp#L9346-L9368"
+      ],
       "divergence": "Custom-DST dyn-tail model — see DIVERGENCES B2/B3.",
       "uncertainty": "Conservative 8-byte alignment for dyn tails noted as over-aligning vs Rust."
     },
@@ -66,7 +89,9 @@
       "domain": "expr",
       "title": "Prefix (non-tail) field access on a DstRef is positional",
       "statement": "For a fat-pointer receiver to a custom-DST struct, a non-tail prefix field is addressed positionally: its byte offset is computed by walking the sized prefix fields (with the DstRef's type-args substituted), and the field is read by dereferencing `data_ptr + offset` typed as the field type. This works uniformly for generic and non-generic DST instances, including those with no registered monomorphized layout.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9394-L9429"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9394-L9429"
+      ],
       "divergence": "Custom-DST model — see DIVERGENCES B2."
     },
     {
@@ -74,52 +99,70 @@
       "domain": "expr",
       "title": "DataRef<T> ergonomic field read",
       "statement": "For receiver `p: DataRef<T>` where T is a zoned struct having field `f`, `p.f` is equivalent to `p.ptr().f`. The access requires an `unsafe` context.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9440-L9458"],
-      "uncertainty": "DataRef is a Logos-specific zone/Writ type; no direct Rust analogue."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9440-L9458"
+      ],
+      "uncertainty": "DataRef is a Logos-specific zone/Writ type; no direct Rust analogue.",
+      "testability": "untestable"
     },
     {
       "id": "expr.field.not-a-struct-error",
       "domain": "expr",
       "title": "Field read receiver must be a struct/class",
       "statement": "A field read whose receiver does not resolve to a struct or class type is an error ('receiver is not a struct or class'), except during metaprog discovery when the receiver (or its pointee) is already of error type, in which case the error type is propagated silently.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9460-L9478"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9460-L9478"
+      ]
     },
     {
       "id": "expr.field.unknown-field-error",
       "domain": "expr",
       "title": "Unknown field is an error",
       "statement": "Reading a field name not declared on the resolved struct type is an error ('struct S has no field f').",
-      "evidence": ["src/compiler/sema_expr.cpp#L9481-L9485"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9481-L9485"
+      ]
     },
     {
       "id": "expr.field.union-read-unsafe",
       "domain": "expr",
       "title": "Union field read requires unsafe",
       "statement": "Reading a field of a union requires an enclosing `unsafe` block (only one field is active at a time). Writing to a union field is safe; the read-safety check is suppressed when the access is the LHS of an in-place write.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9495-L9509"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9495-L9509"
+      ]
     },
     {
       "id": "expr.field.pub-access",
       "domain": "expr",
       "title": "Private field access restricted to defining package",
       "statement": "A non-`pub` field is accessible only within the package that defines the struct (checked via check_pub_access against the struct's package). Variadic field families (`name_<n>`) are matched by prefix for the access check.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9486-L9528"],
-      "related": ["module.vis.pub-field"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9486-L9528"
+      ],
+      "related": [
+        "module.vis.pub-field"
+      ]
     },
     {
       "id": "expr.field.hoist-droppable-rvalue-temp",
       "domain": "expr",
       "title": "Droppable fresh-rvalue field base is hoisted to a statement temp",
       "statement": "When a field is read off a fresh owned rvalue base of a move (droppable) type (`make().x`), the base is hoisted into a named statement-scoped temporary so it lives to end of statement and its Drop runs at scope exit; the field is then read from that local. A place or borrow base is left untouched.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9151-L9164"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9151-L9164"
+      ]
     },
     {
       "id": "expr.field.name-from-field-or-name-slot",
       "domain": "expr",
       "title": "Field name resolved from FIELD then NAME slot",
       "statement": "The accessed field name is taken from the FIELD slot; if empty (e.g. a substituted antiquotation that landed at the field-name position via NAME_VAR→NAME rewrite), it falls back to the NAME slot.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9147-L9150"],
-      "uncertainty": "Fallback is a metaprog-substitution artifact, not a user-facing surface rule."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9147-L9150"
+      ],
+      "uncertainty": "Fallback is a metaprog-substitution artifact, not a user-facing surface rule.",
+      "testability": "untestable"
     }
   ]
 }

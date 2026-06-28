@@ -13,7 +13,8 @@
         "src/compiler/mlir_gen_stmt.cpp#L4812-L4813",
         "src/compiler/mlir_gen_stmt.cpp#L4955-L4962",
         "src/compiler/mlir_gen_stmt.cpp#L5027-L5028"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "stmt.let-else.wildcard-irrefutable",

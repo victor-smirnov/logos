@@ -11,7 +11,8 @@
       "statement": "After collection, every declared type position is canonicalized by an identity substitution: struct field types, enum variant payload types, free + generic function parameter/return types, type-alias bodies, module-const types, associated-const impl types, and associated-type impl bodies. Non-generic forms (e.g. `type Inner<T> = i32`) resolve to their concrete type; forms still mentioning a TypeVar are left unchanged for later substitution.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L703-L729"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "module.path.package-name",
@@ -21,7 +22,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L731-L744"
       ],
-      "divergence": "A9"
+      "divergence": "A9",
+      "testability": "transitive"
     },
     {
       "id": "module.visibility.same-package",
@@ -39,7 +41,8 @@
       "statement": "An item not marked `pub` (and not `pub(module)`) is inaccessible from a different package; cross-package reference is an error.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L760-L761"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.satisfy.blanket-recursive",
@@ -76,7 +79,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L812-L833"
       ],
-      "divergence": "A6"
+      "divergence": "A6",
+      "testability": "transitive"
     },
     {
       "id": "generic.bounds.substitute-call-args",
@@ -209,7 +213,8 @@
       "statement": "A `dyn Trait` (TraitObject / UnsizedDyn) value satisfies a `T: Bound` bound iff the trait object's trait equals Bound or transitively reaches it through supertraits.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L1273-L1296"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.bounds.unsatisfied-error",
@@ -228,7 +233,8 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L751-L759",
         "src/compiler/sema_impl.hpp#L3119-L3129"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

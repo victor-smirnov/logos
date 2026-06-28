@@ -9,7 +9,9 @@
       "domain": "trait",
       "title": "Associated const projection on a bound type parameter",
       "statement": "For a path `T::C` where `T` is a type parameter with bound `T: Tr` and `C` is an associated const declared by `Tr` (or by any transitive supertrait of `Tr`), the expression resolves to a per-impl accessor that yields the const's value; its type is the declared associated-const type, defaulting to i64 when undeclared.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11540-L11567"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11540-L11567"
+      ],
       "uncertainty": "i64 default for an associated const with no declared type is implementation-driven; Rust requires an explicit type."
     },
     {
@@ -17,112 +19,153 @@
       "domain": "trait",
       "title": "Associated const lookup closes over supertraits",
       "statement": "Resolution of an associated const on a bound type parameter searches the transitive supertrait closure of every stated bound, deduplicated, so a const declared on a supertrait of a stated bound is found.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11544-L11565"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11544-L11565"
+      ]
     },
     {
       "id": "expr.enum-lit.self-resolves-to-enclosing-enum",
       "domain": "expr",
       "title": "`Self::Variant` resolves to the enclosing enum",
       "statement": "Inside an `impl Enum` body, the path head `Self` in a unit-variant or struct/tuple-shaped variant literal resolves to the enclosing enum's name, provided `Self` is bound to a type of enum kind.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11585-L11590", "src/compiler/sema_expr.cpp#L11732-L11737"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11585-L11590",
+        "src/compiler/sema_expr.cpp#L11732-L11737"
+      ]
     },
     {
       "id": "expr.enum-lit.type-alias-peel",
       "domain": "expr",
       "title": "Variant path through a non-generic enum type alias",
       "statement": "A variant-literal path head that names a non-generic type alias whose aliased type is an enum is rewritten to the underlying enum name before variant lookup; generic aliases are not peeled here.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11591-L11598", "src/compiler/sema_expr.cpp#L11738-L11745"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11591-L11598",
+        "src/compiler/sema_expr.cpp#L11738-L11745"
+      ]
     },
     {
       "id": "expr.path.assoc-const-disambiguation",
       "domain": "expr",
       "title": "`Type::member` not naming an enum variant is tried as an associated const",
       "statement": "When a `Name::member` path parses as an enum literal but `Name` is not a known enum, it is resolved as an associated const access in order: (1) inherent assoc const `impl Name { const member }`; (2) trait assoc const `<Tr>::member` for any trait `Tr` impl'd for `Name`; (3) generic assoc-const projection when `Name` is a bound type parameter. The const's value AST is lowered once and cached.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11604-L11638", "src/compiler/sema_expr.cpp#L11691-L11700"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11604-L11638",
+        "src/compiler/sema_expr.cpp#L11691-L11700"
+      ]
     },
     {
       "id": "expr.path.method-as-fn-pointer",
       "domain": "expr",
       "title": "Path to a non-generic method in value position becomes a fn pointer",
       "statement": "A path `Type::method` (or `Trait::method`) used in value position, not naming a variant or const, denotes a function-pointer value when it resolves to a single non-generic method: its type is `FnPtr(param_types) -> ret`. For a trait-qualified head, resolution succeeds only when exactly one impl of the trait is in scope; otherwise it is ambiguous.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11639-L11680", "src/compiler/sema_expr.cpp#L11773-L11814"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11639-L11680",
+        "src/compiler/sema_expr.cpp#L11773-L11814"
+      ]
     },
     {
       "id": "expr.path.typaram-static-method-call",
       "domain": "expr",
       "title": "`Z::method::<..>(args)` on a bound type parameter",
       "statement": "A call `Z::method::<TArgs>(args)` where `Z` is a type parameter bound by a trait declaring a static `method` dispatches to the bound's static method, disambiguated from generic enum-variant construction by `Z` being a bound type parameter.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11815-L11837"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11815-L11837"
+      ]
     },
     {
       "id": "expr.enum-lit.unknown-enum-error",
       "domain": "expr",
       "title": "Unknown enum / unknown variant diagnostics",
       "statement": "A variant-literal path whose head names no enum (after Self/alias resolution and all assoc-const/fn-ptr fallbacks) is an error `unknown enum '<name>'`; a known enum with no matching variant is an error `enum '<E>' has no variant '<V>'`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11681-L11682", "src/compiler/sema_expr.cpp#L11701-L11702", "src/compiler/sema_expr.cpp#L11838-L11847"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11681-L11682",
+        "src/compiler/sema_expr.cpp#L11701-L11702",
+        "src/compiler/sema_expr.cpp#L11838-L11847"
+      ]
     },
     {
       "id": "expr.enum-lit.unit-variant-hint-type-args",
       "domain": "expr",
       "title": "Payload-less variant on a generic enum infers type args from the surrounding hint",
       "statement": "A payload-less variant of a generic enum (e.g. `Option::None`) takes its type arguments from the surrounding type hint when the hint is the same enum with a matching type-arg arity; otherwise the result type is the bare (un-parameterized) enum.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11704-L11725"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11704-L11725"
+      ]
     },
     {
       "id": "expr.enum-lit.struct-shape-named-fields",
       "domain": "expr",
       "title": "Struct-shaped variant literal `E::V { f: e, .. }`",
       "statement": "A struct-shaped variant literal binds named field initializers (and shorthands `name` ⇒ `name` var-ref) to the variant's declared payload fields by name, producing positional payload in declaration order. Errors: unknown field name, field specified more than once, missing field(s) (all reported together), and using `{}` form on a non-struct-shape variant. An empty struct-shape variant `E::Empty {}` is accepted with empty payload.",
-      "evidence": ["src/compiler/sema_expr.cpp#L11853-L11966"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L11853-L11966"
+      ]
     },
     {
       "id": "expr.enum-lit.payload-arity-check",
       "domain": "expr",
       "title": "Non-variadic variant payload arity must match",
       "statement": "For a non-variadic variant, the number of supplied payload arguments must equal the declared payload arity; mismatch is an error `<E>::<V> expects N args, got M`. Each payload argument's type must be compatible with the declared (substituted) payload type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12168-L12180"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12168-L12180"
+      ]
     },
     {
       "id": "expr.enum-lit.intlit-payload-fits",
       "domain": "expr",
       "title": "Integer-literal payload must fit the declared payload type",
       "statement": "An integer-literal payload argument (directly, or as an element of an array/tuple payload, recursively) must fit within the declared narrow integer payload type; an out-of-range value is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12180-L12251"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12180-L12251"
+      ]
     },
     {
       "id": "expr.enum-lit.payload-type-inference",
       "domain": "expr",
       "title": "Generic enum type-arg inference from payload and hint",
       "statement": "For a generic enum, each type parameter is inferred from the corresponding payload: a bare-TypeVar payload binds the param to the argument's type; a structural payload type is unified against the argument to extract nested bindings. Unresolved integer/float literal payloads default to i32/f64 unless the surrounding hint pins the param to a concrete type, in which case the hint wins and the literal is widened to it. Params still unresolved after payload inference are filled from a matching enum hint.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12059-L12138", "src/compiler/sema_expr.cpp#L12082-L12127"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12059-L12138",
+        "src/compiler/sema_expr.cpp#L12082-L12127"
+      ]
     },
     {
       "id": "expr.enum-lit.dyn-payload-arg",
       "domain": "expr",
       "title": "Concrete payload into a dyn-typed enum slot widens the type arg",
       "statement": "When the hint pins a type parameter to a trait-object-wrapping type (e.g. `Box<dyn Tr>`) but the payload argument is a concrete coercible value (e.g. `Box<Sq>`), the constructed enum's type argument records the dyn type while the payload expression stays concrete; the store later unsize-fattens it into the dyn slot.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12097-L12119"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12097-L12119"
+      ]
     },
     {
       "id": "region.enum-lit.lifetime-arg-inference",
       "domain": "region",
       "title": "Enum lifetime args inferred from payload reference lifetimes",
       "statement": "An enum's lifetime parameters are inferred by walking each (declared payload type, actual argument type) pair, mapping reference/struct/enum/tuple lifetimes back to the enum's lifetime parameters; unresolved lifetime parameters yield empty lifetime args on the constructed type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12018-L12053", "src/compiler/sema_expr.cpp#L12146-L12165"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12018-L12053",
+        "src/compiler/sema_expr.cpp#L12146-L12165"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.enum-lit.payload-consumes-source",
       "domain": "borrow",
       "title": "Enum payload arguments are moved",
       "statement": "Each payload argument of move type is marked moved at construction; constructing an enum literal consumes its move-type payload sources, preventing later use.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12268-L12276"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12268-L12276"
+      ]
     },
     {
       "id": "type.enum-lit.type-bounds-checked",
       "domain": "type",
       "title": "Generic enum type args are bound-checked",
       "statement": "The inferred type arguments of a generic enum literal are checked against the enum's type-parameter bounds.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12145"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12145"
+      ]
     }
   ]
 }

@@ -29,7 +29,8 @@
       "statement": "A move out of `(*p).field` where any hop in the field chain (including the root) is `*const T`/`*mut T`-typed is NOT a partial move of any tracked owned root; raw-pointer-rooted projections are excluded from move tracking. References (`&`/`&mut`) keep ordinary tracking.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L3457-L3481"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.mut.require-mut-binding",
@@ -146,7 +147,8 @@
       "statement": "Region inference runs before the lexical borrow check and shares the same declared `'a: 'b` outlives source; it reports a conflict when two borrows of the same target have overlapping live regions where at least one is mutable. The later borrow (by source line) is the offending one and the earlier is reported as the still-live borrow.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L3805-L3846"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.diag.dedupe-across-mono",
@@ -155,7 +157,8 @@
       "statement": "A generic template and each of its monomorphizations report the same borrow error (same level/line/context/message, mono suffix stripped); such identical diagnostics are collapsed so the user sees one error rather than one per instantiation.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L3854-L3870"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

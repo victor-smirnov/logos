@@ -9,127 +9,176 @@
       "domain": "stmt",
       "title": "Unreachable code after a terminator is warned",
       "statement": "Within a block, a statement S that follows a hard terminator statement (return / break / continue) is unreachable; the compiler emits a `unreachable code after terminator` warning. Annotation statements following a terminator do not trigger the warning, and only the first such occurrence per block is reported.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L671-L697"],
-      "divergence": "Rust-conformant (unreachable_code lint, here always a warning not deny-by-default)"
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L671-L697"
+      ],
+      "divergence": "Rust-conformant (unreachable_code lint, here always a warning not deny-by-default)",
+      "testability": "untestable"
     },
     {
       "id": "stmt.block.scope-drops-at-exit",
       "domain": "stmt",
       "title": "Owned values are dropped at block exit",
       "statement": "Each block introduces a lexical scope; on normal fall-through exit (block does not end in return/break/continue), every still-owned value bound in the scope is dropped in reverse-of-introduction order. If the block ends in a terminator, end-of-block drops are not emitted (the terminator path emits its own).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L664", "src/compiler/sema_stmt.cpp#L739-L755"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L664",
+        "src/compiler/sema_stmt.cpp#L739-L755"
+      ]
     },
     {
       "id": "stmt.return.drops-after-value-eval",
       "domain": "stmt",
       "title": "Return value evaluated before scope drops",
       "statement": "On `return e`, e is fully evaluated before any pending scope drops run: the value is hoisted into a fresh temporary, then all in-scope drops execute, then the temporary is returned. This ordering guarantees e may borrow locals that the drops would otherwise release first.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L699-L724"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L699-L724"
+      ]
     },
     {
       "id": "stmt.break-continue.drops-to-loop-boundary",
       "domain": "stmt",
       "title": "break/continue drops frames up to and including the loop body",
       "statement": "A `break` or `continue` (including one nested inside an `if`) exits via the loop edge; before the control transfer it drops every live scope frame from the current point down to and including the loop body frame, bypassing the intervening blocks' normal end-of-block drops.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L665-L670", "src/compiler/sema_stmt.cpp#L725-L735"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L665-L670",
+        "src/compiler/sema_stmt.cpp#L725-L735"
+      ]
     },
     {
       "id": "stmt.let-destruct.tuple-required",
       "domain": "stmt",
       "title": "let (..) = e requires tuple RHS",
       "statement": "A tuple-binding `let (a, b, ...) = e;` requires e to have tuple type; otherwise it is an error.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L762-L767"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L762-L767"
+      ]
     },
     {
       "id": "stmt.let-destruct.rest-and-arity",
       "domain": "stmt",
       "title": "let-tuple binding arity and single rest",
       "statement": "In `let (..) = e;` the binding list binds positionally against the tuple's arity. At most one `..` rest is permitted; with no rest the binding count must equal the tuple arity; with a rest the count of named bindings must not exceed the arity. Names before the rest bind low positions, names after bind the tail positions.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L791-L811", "src/compiler/sema_stmt.cpp#L823-L836"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L791-L811",
+        "src/compiler/sema_stmt.cpp#L823-L836"
+      ]
     },
     {
       "id": "stmt.let-destruct.nested-tuple",
       "domain": "stmt",
       "title": "Nested tuple patterns in let-destructure",
       "statement": "A tuple-binding element may itself be a nested tuple pattern `(b, c)`, recursively destructuring the corresponding tuple-typed element.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L841-L843"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L841-L843"
+      ]
     },
     {
       "id": "stmt.let-destruct.binding-uniqueness",
       "domain": "stmt",
       "title": "let-tuple binding names must be unique",
       "statement": "All binding names introduced by a `let (..)` destructure (across nesting) must be distinct.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L860-L863"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L860-L863"
+      ]
     },
     {
       "id": "stmt.let-destruct.move-on-bind",
       "domain": "stmt",
       "title": "let-destructure consumes the source",
       "statement": "Destructuring a move-typed value binds each element by moving it out of the source; the source place (and each consumed element) is marked moved so its scope-exit drop is suppressed, preventing double-free.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L812-L822", "src/compiler/sema_stmt.cpp#L848-L853"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L812-L822",
+        "src/compiler/sema_stmt.cpp#L848-L853"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "stmt.destructure-assign.tuple-array-struct",
       "domain": "stmt",
       "title": "Destructuring assignment into existing places",
       "statement": "Destructuring assignment (RFC 2909) assigns into pre-existing places: `(a,b)=e` reads tuple positions, `[a,b]=e` reads array indices, `S{x:a,y}=e` reads struct fields. The RHS type must match the form (tuple / array / struct respectively); a struct form also requires a struct/zoned-struct RHS.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L870-L877", "src/compiler/sema_stmt.cpp#L914-L948", "src/compiler/sema_stmt.cpp#L1028-L1039"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L870-L877",
+        "src/compiler/sema_stmt.cpp#L914-L948",
+        "src/compiler/sema_stmt.cpp#L1028-L1039"
+      ]
     },
     {
       "id": "stmt.destructure-assign.place-checks",
       "domain": "stmt",
       "title": "Destructuring-assignment places must be mutable locals or `_`",
       "statement": "Each destructuring-assignment place must name an existing variable, which must be mutable; `_` (or empty) discards by evaluating the accessor for effect only. Assignment to an undefined or immutable variable is an error. Each assigned place is treated as initialised (cleared from the uninitialised set).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L895-L912"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L895-L912"
+      ]
     },
     {
       "id": "stmt.destructure-assign.rest-and-redundant-parens",
       "domain": "stmt",
       "title": "Destructuring-assignment rest and redundant parens",
       "statement": "At most one `..` rest is allowed in a tuple/array destructuring-assignment list; places before it map to low positions and after it to the tail. With no rest the place count must equal the source arity; with a rest the named-place count must not exceed it. A single nested-tuple place whose source arity is not 1 (`((a,b)) = e`) is unwrapped to `(a,b) = e`.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L959-L989", "src/compiler/sema_stmt.cpp#L998-L1004"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L959-L989",
+        "src/compiler/sema_stmt.cpp#L998-L1004"
+      ]
     },
     {
       "id": "stmt.let-pat.struct-shapes-only",
       "domain": "stmt",
       "title": "let <pattern> = e supports only irrefutable shapes",
       "statement": "`let <pattern> = e;` accepts only irrefutable pattern shapes: struct patterns `S { .. }`, tuple-struct patterns `S(..)`, fixed-array patterns `[a,b,..]` matching the array length, and single-variant enum struct patterns `E::V { .. }`. Other (refutable) shapes are rejected, directing the user to `match` or let-else.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1118-L1127"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1118-L1127"
+      ]
     },
     {
       "id": "stmt.let-pat.struct-name-match",
       "domain": "stmt",
       "title": "let struct-pattern name must match RHS struct",
       "statement": "In `let S { .. } = e;` (and the tuple-struct form), the named struct must equal the RHS value's struct name, and the RHS must be a struct/zoned-struct; otherwise it is an error.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1316-L1321", "src/compiler/sema_stmt.cpp#L1398-L1409"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1316-L1321",
+        "src/compiler/sema_stmt.cpp#L1398-L1409"
+      ]
     },
     {
       "id": "stmt.let-pat.unknown-field",
       "domain": "stmt",
       "title": "let struct-pattern fields must exist",
       "statement": "Each field named in a `let` struct pattern must be a declared field of the matched struct; an unknown field is an error. Generic struct field types are substituted with the RHS's type arguments before binding.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1504-L1520"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1504-L1520"
+      ]
     },
     {
       "id": "stmt.let-pat.field-binding-forms",
       "domain": "stmt",
       "title": "let struct-pattern field binding forms",
       "statement": "A `let` struct-pattern field is bound either by shorthand `{ x }` (binds to the field name), by alias `{ x: a }` where the value is a plain identifier, or by a nested struct pattern `{ x: S2 { .. } }` (recursive destructure). A nested pattern requires the field's type to be a struct whose name matches the nested pattern; other nested-pattern kinds are rejected.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1490-L1503", "src/compiler/sema_stmt.cpp#L1535-L1554"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1490-L1503",
+        "src/compiler/sema_stmt.cpp#L1535-L1554"
+      ]
     },
     {
       "id": "stmt.let-pat.consumes-source",
       "domain": "stmt",
       "title": "let struct-destructure consumes the whole value",
       "statement": "A `let` struct/tuple-struct/array destructure of a move-typed RHS consumes the whole value: the source is marked moved so its scope-exit drop is suppressed; each field/element binding owns and later drops its own data.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1462-L1471", "src/compiler/sema_stmt.cpp#L1558-L1563", "src/compiler/sema_stmt.cpp#L1264-L1276"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1462-L1471",
+        "src/compiler/sema_stmt.cpp#L1558-L1563",
+        "src/compiler/sema_stmt.cpp#L1264-L1276"
+      ]
     },
     {
       "id": "stmt.let-pat.union-requires-unsafe",
       "domain": "stmt",
       "title": "let pattern on a union requires unsafe and exactly one field",
       "statement": "An irrefutable `let U { f } = u;` over a union type requires an enclosing `unsafe` block (it reads the named field's memory) and must name exactly one field with no `..` rest.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1410-L1457"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1410-L1457"
+      ],
       "divergence": "Rust-conformant (items.union.pattern.safety / one-field)"
     },
     {
@@ -137,21 +186,29 @@
       "domain": "stmt",
       "title": "let array pattern requires exact length, no rest",
       "statement": "`let [a, b, ..] = arr;` is irrefutable only over a fixed-size array whose length equals the pattern's element count and with no `..` rest (rest is refutable for slices); element bindings must be plain identifiers (`_` discards). Length mismatch, a rest, or a non-identifier element is an error.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1111-L1121", "src/compiler/sema_stmt.cpp#L1229-L1308"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1111-L1121",
+        "src/compiler/sema_stmt.cpp#L1229-L1308"
+      ]
     },
     {
       "id": "stmt.let-pat.tuple-struct-rest",
       "domain": "stmt",
       "title": "let tuple-struct pattern field arity and single rest",
       "statement": "`let S(a, b, ..) = e;` over a tuple struct binds by field position; at most one `..` rest is allowed (names before it bind low fields, after it bind the tail). Without a rest the binding count must equal the field count; the named-binding count must not exceed the arity; only plain-identifier element bindings are supported (`_` skips).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1331-L1393"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1331-L1393"
+      ]
     },
     {
       "id": "stmt.let-pat.single-variant-enum-struct",
       "domain": "stmt",
       "title": "let E::V { f } over a single-variant enum is irrefutable",
       "statement": "`let E::V { f1, f2 } = e;` is permitted when E is a single-variant enum and V is a struct-shaped variant (irrefutable by construction); each user binding is bound to the corresponding payload field, with shorthand `f` or rename `f: x` forms, and only plain-identifier bindings are supported at let-position.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L1077-L1108", "src/compiler/sema_stmt.cpp#L1128-L1228"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L1077-L1108",
+        "src/compiler/sema_stmt.cpp#L1128-L1228"
+      ]
     }
   ]
 }

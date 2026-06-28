@@ -9,57 +9,90 @@
       "domain": "mono",
       "title": "Atomic intrinsic ordering operands are const-read",
       "statement": "The atomic intrinsics const-evaluate their memory-ordering operand(s) at the following 0-based arg positions: load{32,64}_ord at {1}; store/swap/fetch_{add,or,and,xor}{32,64}_ord at {2}; cas{32,64}_ord at {3,4}. These positions must be supplied a compile-time-constant ordering value to receive the corresponding ordering semantics; otherwise a seq_cst fallback applies.",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L23-L36"],
-      "uncertainty": "Positions are the seed registry of which intrinsic operands the backend name-keys; the seq_cst fallback is documented in the unit header comment (L7-L9) not enforced here."
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L23-L36"
+      ],
+      "uncertainty": "Positions are the seed registry of which intrinsic operands the backend name-keys; the seq_cst fallback is documented in the unit header comment (L7-L9) not enforced here.",
+      "testability": "untestable"
     },
     {
       "id": "mono.const-arg.literal-arg-class",
       "domain": "mono",
       "title": "Const-specializable argument values",
       "statement": "Only an integer literal or an enum literal (with statically known discriminant) counts as a compile-time-constant argument eligible for const-arg specialization; any other (runtime) argument value yields no specialization.",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L202-L221", "src/compiler/mono_const_arg.cpp#L177"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L202-L221",
+        "src/compiler/mono_const_arg.cpp#L177"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.const-arg.transparent-forward-peel",
       "domain": "mono",
       "title": "Value-transparent wrapper peeling for const forwarding",
       "statement": "When determining whether an argument is a bare forward of a parameter or a constant, the following value-transparent wrappers are peeled through: `as`-casts, unary operators, and dereferences. An argument seen as a parameter VarRef through these wrappers is treated as forwarding that parameter to the callee position.",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L51-L66", "src/compiler/mono_const_arg.cpp#L104-L108", "src/compiler/mono_const_arg.cpp#L202-L203"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L51-L66",
+        "src/compiler/mono_const_arg.cpp#L104-L108",
+        "src/compiler/mono_const_arg.cpp#L202-L203"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.const-arg.transitive-want-propagation",
       "domain": "mono",
       "title": "Transitive const-want through forwarding calls",
       "statement": "A function parameter is const-want (worth baking into a specialized clone) iff its value, possibly through wrapper-peeled forwards, reaches a callee argument position that is itself const-want — transitively closed from the seed atomic intrinsics. A function with no body (extern/bodyless/unknown) contributes no const-want.",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L68-L150", "src/compiler/mono_const_arg.cpp#L101-L109", "src/compiler/mono_const_arg.cpp#L78-L79"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L68-L150",
+        "src/compiler/mono_const_arg.cpp#L101-L109",
+        "src/compiler/mono_const_arg.cpp#L78-L79"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.const-arg.recursion-guard",
       "domain": "mono",
       "title": "Const-want recursion guard",
       "statement": "While computing the const-want set of a function, that function is treated as having no const-want, so recursive/mutually-recursive call cycles terminate (conservatively yielding no specialization rather than diverging).",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L72-L73", "src/compiler/mono_const_arg.cpp#L148"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L72-L73",
+        "src/compiler/mono_const_arg.cpp#L148"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.const-arg.spec-clone-emission",
       "domain": "mono",
       "title": "Per-value specialized clone emission and naming",
       "statement": "At a call site, if at least one const-want parameter receives a compile-time-constant argument, a specialized clone of the callee is emitted with those parameters bound to their constant values; the call is rewritten to the clone. The clone is named by appending `__cv` plus, per bound param, `_<pos>_<enum-name|i><ival>`; identical specializations are emitted once (deduplicated by name).",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L157-L196", "src/compiler/mono_const_arg.cpp#L171-L182", "src/compiler/mono_const_arg.cpp#L185-L194"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L157-L196",
+        "src/compiler/mono_const_arg.cpp#L171-L182",
+        "src/compiler/mono_const_arg.cpp#L185-L194"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.const-arg.intrinsic-not-spec-target",
       "domain": "mono",
       "title": "Seed intrinsics are never specialization targets",
       "statement": "A function that is itself a seed atomic intrinsic is never const-specialized (its const operand is already a literal at the call site, and renaming it would hide it from the backend's name-keyed atomic lowering).",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L160-L162"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L160-L162"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.const-arg.method-receiver-self-mapping",
       "domain": "mono",
       "title": "Const-arg index identity across method-to-call rewrite",
       "statement": "For a method call rewritten to a free call, the receiver is args[0] and self is params[0]; a const-want parameter index therefore maps to the same argument index with no offset, so const-arg specialization applies uniformly to free calls and method calls.",
-      "evidence": ["src/compiler/mono_const_arg.cpp#L152-L156", "src/compiler/mono_const_arg.cpp#L173-L178"]
+      "evidence": [
+        "src/compiler/mono_const_arg.cpp#L152-L156",
+        "src/compiler/mono_const_arg.cpp#L173-L178"
+      ],
+      "testability": "transitive"
     }
   ]
 }

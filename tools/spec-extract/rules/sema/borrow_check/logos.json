@@ -22,7 +22,8 @@
       "statement": "&mut T is a Move type: passing or binding a &mut reference moves the unique mutable borrow. &T is Copy.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L277-L283"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.classify.type-param-move-unless-copy",
@@ -32,7 +33,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L284-L297"
       ],
-      "divergence": "B1"
+      "divergence": "B1",
+      "testability": "transitive"
     },
     {
       "id": "borrow.classify.drop-implies-droppable",
@@ -41,7 +43,8 @@
       "statement": "A struct needs drop iff it has a Drop impl or has any field that (transitively) needs drop; generic instantiations are matched by their concrete (mono-mangled) name so droppable fields of generic containers are not missed.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L237-L264"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.move.consume-once",
@@ -61,7 +64,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L10-L14",
         "src/compiler/borrow_check.cpp#L327-L336"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.exclusivity.two-phase",
@@ -129,7 +133,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L436-L443",
         "src/compiler/borrow_check.cpp#L457-L481"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.provenance.ref-aliases-params-or-local",
@@ -150,7 +155,8 @@
         "src/compiler/borrow_check.cpp#L137-L164",
         "src/compiler/borrow_check.cpp#L204-L227"
       ],
-      "divergence": "Logos addition (no Rust equivalent)"
+      "divergence": "Logos addition (no Rust equivalent)",
+      "testability": "transitive"
     },
     {
       "id": "region.borrow-carrying.residency-holder-exempt",
@@ -171,7 +177,8 @@
       "statement": "The borrowed place of &expr is computed by walking field reads (accumulating a dotted path), index/slice steps (whole-element granularity: prior path components are discarded and the path is the route to the container, no disjointness on the index value), and reference/owning-container derefs (which root the borrow on the deref'd variable). The walk terminates at a variable reference giving the root; `&*r` roots on r.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L537-L644"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.place.raw-ptr-no-borrow",
@@ -191,7 +198,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L20-L23",
         "src/compiler/borrow_check.cpp#L646-L652"
-      ]
+      ],
+      "testability": "transitive"
     }
   ]
 }

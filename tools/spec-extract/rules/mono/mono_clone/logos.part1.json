@@ -14,7 +14,8 @@
         "src/compiler/mono_clone.cpp#L56-L78",
         "src/compiler/mono_clone.cpp#L80-L185"
       ],
-      "uncertainty": "Concrete code values are an implementation detail; the normative content is name-independence + per-shape distinctness."
+      "uncertainty": "Concrete code values are an implementation detail; the normative content is name-independence + per-shape distinctness.",
+      "testability": "untestable"
     },
     {
       "id": "type.identity.struct-field-recursion",
@@ -23,7 +24,8 @@
       "statement": "Structural identity of a struct type S<A...> mixes the struct shape tag, the field count, and the identity of each field type after substituting S's type-params by the concrete type-args A.... Generic struct instances thus get distinct identity per instantiation by their concrete field layouts.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L141-L178"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.identity.recursive-cycle-guard",
@@ -51,7 +53,8 @@
       "statement": "A raw pointer type *const T / *mut T does NOT auto-satisfy Send or Sync; it satisfies them only if an explicit (unsafe) impl is present for that pointer type. Matches Rust.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L216-L220"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.auto.ref-send-iff-pointee-sync",
@@ -156,7 +159,8 @@
       "statement": "When resolving the field layout of a struct instance S<A...>, the best-matching partial specialization (e.g. WMap<WString,V> over base WMap<K,V>) is selected and its pattern type-vars bound by matching the concrete type-args against the spec patterns; only if no spec matches is the base template used with positional type-param binding.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L327-L346"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.const-generic-value-use",

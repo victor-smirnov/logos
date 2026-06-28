@@ -29,7 +29,8 @@
       "statement": "Liveness over program points (block, stmt-index) is solved by the standard backward dataflow equations: live_out(P) = ∪ live_in(succ(P)); live_in(P) = use(P) ∪ (live_out(P) \\ def(P)). Within a block the successor of a statement is the next statement; the successor of the last statement is the union of live_in at the first statement of each CFG successor block; an empty block forwards its successors' live-in. The solution is the least fixed point.",
       "evidence": [
         "src/compiler/region_infer.cpp#L772-L835"
-      ]
+      ],
+      "testability": "transitive"
     }
   ]
 }

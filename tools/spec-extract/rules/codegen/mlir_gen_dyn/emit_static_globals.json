@@ -9,7 +9,10 @@
       "domain": "item",
       "title": "static items get zero-init storage filled at program startup",
       "statement": "A non-extern `static` has global storage that is zero-initialized at link time and assigned its declared initializer value at program startup (before `main`), via a synthesized startup initializer running every static's init expression in declaration order. A `static`'s initializer is thus an ordinary runtime-evaluated expression, not a compile-time constant.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L702-L714", "src/compiler/mlir_gen_dyn.cpp#L716-L758"],
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L702-L714",
+        "src/compiler/mlir_gen_dyn.cpp#L716-L758"
+      ],
       "divergence": "Rust requires `static` initializers to be const-evaluable; Logos evaluates them at runtime startup instead."
     },
     {
@@ -17,77 +20,108 @@
       "domain": "item",
       "title": "immutable static stays writable storage; immutability enforced at sema",
       "statement": "Storage for an immutable (non-`mut`) `static` is NOT a read-only constant; it is writable storage assigned once at startup. Immutability of a non-`mut` static is enforced by rejecting writes during semantic analysis, not by making the storage constant.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L702-L708"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L702-L708"
+      ]
     },
     {
       "id": "item.static.aggregate-init-by-copy",
       "domain": "item",
       "title": "aggregate static initialized by value-copy",
       "statement": "If a static's type is an aggregate (struct, zoned struct, tuple, array, slice, closure, or a tagged enum) and its initializer evaluates to a pointer to the value, the static is initialized by copying the full value (size = size_of(T)) into the static's storage; scalar (non-aggregate) statics are initialized by a single store.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L741-L756"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L741-L756"
+      ]
     },
     {
       "id": "module.static.library-defers-to-executable",
       "domain": "module",
       "title": "library build declares statics extern; only the executable owns storage + init",
       "statement": "In a library build (no `main`), every `static` is emitted as an external declaration with no storage and no startup initializer. The final executable, which transitively re-lowers all used statics from imported module metadata, is the sole owner of each static's storage and its startup initialization. Extern (`extern`-declared / FFI) statics are always external declarations regardless of build kind.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L668-L681", "src/compiler/mlir_gen_dyn.cpp#L694-L701", "src/compiler/mlir_gen_dyn.cpp#L716-L723"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L668-L681",
+        "src/compiler/mlir_gen_dyn.cpp#L694-L701",
+        "src/compiler/mlir_gen_dyn.cpp#L716-L723"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.dyn.vtable-header-drop-size-align",
       "domain": "layout",
       "title": "dyn-trait vtable layout: [drop_in_place, size, align, methods..., supers...]",
       "statement": "Every `dyn Trait` vtable for a concrete type T is a homogeneous pointer array laid out as: slot 0 = drop_in_place(T) glue, slot 1 = size_of(T), slot 2 = align_of(T), slots 3..3+M = the M trait methods in supertrait-closure slot order, then one slot per transitive upcast supertrait (in upcast order) holding that supertrait's vtable pointer for T.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1135-L1161", "src/compiler/mlir_gen_dyn.cpp#L976-L998"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1135-L1161",
+        "src/compiler/mlir_gen_dyn.cpp#L976-L998"
+      ]
     },
     {
       "id": "layout.dyn.vtable-slot-order-supertrait-closure",
       "domain": "layout",
       "title": "vtable method slots follow full supertrait closure order",
       "statement": "Vtable method slots are ordered by the trait's full supertrait-closure method order (supertrait methods occupy real, dispatchable slots so they are callable through `&dyn Sub`); a trait with no supertraits uses its own declared method order.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L826-L833", "src/compiler/mlir_gen_dyn.cpp#L876-L882"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L826-L833",
+        "src/compiler/mlir_gen_dyn.cpp#L876-L882"
+      ]
     },
     {
       "id": "trait.object-safety.method-generic-not-dispatchable",
       "domain": "trait",
       "title": "method-level generic methods are not dispatchable through dyn",
       "statement": "A trait method whose every implementation carries method-level type parameters (e.g. `fn fold<Acc>(...)`) is not callable through `&dyn Trait`: it occupies a non-dispatchable (empty) vtable slot rather than a method pointer (Rust object-safety rule).",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L909-L931"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L909-L931"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.dyn.blanket-impl-vtable-synthesis",
       "domain": "trait",
       "title": "blanket impl supplies dyn vtable for concrete types",
       "statement": "When no explicit (trait, type) vtable is registered but the trait has a blanket impl `impl<T> Trait for T`, the concrete type's vtable methods are the blanket instantiations named `<type>__<method>` (possibly package-qualified / `__g__`/`__f__`-suffixed), enabling `&Concrete as &dyn BlanketTrait`.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1089-L1133"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1089-L1133"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.dyn.upcast-via-stored-super-vtable",
       "domain": "trait",
       "title": "trait upcast recovers super-vtable from a stored slot",
       "statement": "An upcast `&dyn Sub` → `&dyn Super` recovers Super's vtable for the concrete type by loading the super-vtable slot stored at index `3 + |methods| + idx(Super)` of Sub's vtable; each transitive supertrait has exactly one such slot.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1149-L1161"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1149-L1161"
+      ]
     },
     {
       "id": "intrinsic.drop.drop-in-place-glue",
       "domain": "intrinsic",
       "title": "drop_in_place glue runs the concrete type's full drop",
       "statement": "`drop_in_place(T)` is a function taking a pointer to a T that runs T's full recursive drop; for a Copy or drop-less type it is an emitted no-op. It is slot 0 of every vtable. Size/align drop slots distinct from Rust's are present (slots 1,2); no separate dealloc slot because deallocation = libc free.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L971-L998"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L971-L998"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "intrinsic.drop.closure-env-drop-glue",
       "domain": "intrinsic",
       "title": "closure drop glue drops captures then frees heap env",
       "statement": "A closure's drop glue takes the env pointer and drops each owned droppable capture at env field i+1 (field 0 reserved for the function pointer); under RFC-2229 narrowing the dropped type is the captured narrow field type when present, else the root capture type. If the env is heap-allocated (escaping closure), the env block is freed after the captures are dropped.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1001-L1053"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1001-L1053"
+      ]
     },
     {
       "id": "layout.dyn.fat-pointer-data-vtable-pair",
       "domain": "layout",
       "title": "dyn trait object is a 16-byte {data, vtable} fat pair by value",
       "statement": "`&dyn Trait`, `*dyn Trait`, and `Box<dyn Trait>` share a uniform 16-byte fat representation: a `{data_ptr, vtable_ptr}` pair stored inline. `data_ptr` is the concrete value's address (heap concrete for an owning `Box<dyn>`). The pair travels by value; escape consumers copy the 16 bytes into their own inline storage rather than holding a heap handle.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1204-L1234", "src/compiler/mlir_gen_dyn.cpp#L1264-L1270"],
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1204-L1234",
+        "src/compiler/mlir_gen_dyn.cpp#L1264-L1270"
+      ],
       "divergence": "B2/B3: fat-pointer model for owned dyn; Box<dyn> is the owning trait object."
     },
     {
@@ -95,22 +129,30 @@
       "domain": "coerce",
       "title": "unsizing a concrete to dyn stores data + vtable into the fat pair",
       "statement": "Coercing a concrete pointer to `&dyn Trait` builds the fat pair by storing the data pointer at field 0 and the vtable pointer (the address of the static per-(trait,type) vtable) at field 1. The source type name used to select the vtable is the concrete struct mangled name for (zoned) structs, else the plain type string.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1204-L1234", "src/compiler/mlir_gen_dyn.cpp#L1259-L1270"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1204-L1234",
+        "src/compiler/mlir_gen_dyn.cpp#L1259-L1270"
+      ]
     },
     {
       "id": "coerce.unsize.box-dyn-deref-then-unsize",
       "domain": "coerce",
       "title": "implicit value-to-dyn coercion unwraps refs and Box before unsizing",
       "statement": "When a value's expected slot type is a trait object but the value's type is not, the value is coerced to dyn: references and `Box<T>` are first unwrapped to reach the concrete pointee, an already-`dyn` value is passed through unchanged, and a non-pointer value is spilled to a stack slot to obtain an address before forming the fat pair.",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1236-L1271"]
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1236-L1271"
+      ]
     },
     {
       "id": "intrinsic.dyn.tagged-dispatch-tier-split",
       "domain": "intrinsic",
       "title": "tagged-trait dispatch splits at type_code 223 into table vs lookup",
       "statement": "Dispatch through a `&tagged<TS> Trait` reads the object's type_code (i64) at its known offset, then for type_code < 223 (tier-1) indexes a static dispatch table by type_code, and for type_code >= 223 (tier-2) calls a tier-2 lookup function with the type_code, in both cases obtaining a function pointer through which the call is made indirectly with (obj_ptr, args...).",
-      "evidence": ["src/compiler/mlir_gen_dyn.cpp#L1273-L1283"],
-      "uncertainty": "The 223 threshold and dispatch sequence are described in a comment heading the next unit's function; the full mechanism is in gen_tagged_dispatch."
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1273-L1283"
+      ],
+      "uncertainty": "The 223 threshold and dispatch sequence are described in a comment heading the next unit's function; the full mechanism is in gen_tagged_dispatch.",
+      "testability": "transitive"
     }
   ]
 }

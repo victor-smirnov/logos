@@ -9,101 +9,143 @@
       "domain": "mono",
       "title": "Type/const variable substitution",
       "statement": "Monomorphization substitution maps a type position of kind TypeVar or ConstVar to the concrete type bound for its name in the active substitution map; an unbound variable is left unchanged.",
-      "evidence": ["src/compiler/mono_subst.cpp#L28-L32"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L28-L32"
+      ]
     },
     {
       "id": "mono.subst.identity-preservation",
       "domain": "mono",
       "title": "Substitution preserves identity when nothing changes",
       "statement": "Substitution is structural and recursive over every type constructor (Array, Ptr/Ref/MutRef, Struct, Enum, Slice, Tuple, Fn/Closure, TraitObject, DstRef, etc.); when no contained component is altered by the map, the original type is returned unchanged rather than a fresh allocation.",
-      "evidence": ["src/compiler/mono_subst.cpp#L62", "src/compiler/mono_subst.cpp#L185-L187", "src/compiler/mono_subst.cpp#L199", "src/compiler/mono_subst.cpp#L232", "src/compiler/mono_subst.cpp#L339", "src/compiler/mono_subst.cpp#L360"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L62",
+        "src/compiler/mono_subst.cpp#L185-L187",
+        "src/compiler/mono_subst.cpp#L199",
+        "src/compiler/mono_subst.cpp#L232",
+        "src/compiler/mono_subst.cpp#L339",
+        "src/compiler/mono_subst.cpp#L360"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.array-const-size",
       "domain": "mono",
       "title": "Array length from const-generic binding",
       "statement": "For an array type [T; N] whose length is a symbolic const-generic name, substitution resolves N through the map: a binding with a concrete const value becomes a literal length; a binding that is still a ConstVar keeps a (renamed) symbolic length.",
-      "evidence": ["src/compiler/mono_subst.cpp#L33-L67"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L33-L67"
+      ]
     },
     {
       "id": "mono.subst.array-sizeof-pack",
       "domain": "mono",
       "title": "Array length sizeof...(P) equals pack arity",
       "statement": "An array length written as sizeof...(P) over a type-parameter pack P lowers to a special size marker; at monomorphization its literal length is set to the number of types in the concrete expansion of P.",
-      "evidence": ["src/compiler/mono_subst.cpp#L36-L48"],
-      "examples": ["[T; sizeof...(P)]"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L36-L48"
+      ],
+      "examples": [
+        "[T; sizeof...(P)]"
+      ]
     },
     {
       "id": "mono.subst.unsized-slice-to-slice",
       "domain": "mono",
       "title": "?Sized binding to slice canonicalizes pointer to fat Slice",
       "statement": "When a `?Sized` type parameter under a pointer/reference wrapper (&T, &mut T, *const T, *mut T) is bound to an UnsizedSlice<U>, the result is canonicalized to a fat-pointer Slice<U> (the slice fat-pointer ABI).",
-      "evidence": ["src/compiler/mono_subst.cpp#L70-L83"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L70-L83"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.unsized-dyn-to-traitobject",
       "domain": "mono",
       "title": "?Sized binding to dyn canonicalizes pointer to TraitObject",
       "statement": "When a `?Sized` type parameter under a pointer/reference wrapper is bound to an UnsizedDyn (bare `dyn Trait`), the result is canonicalized to a TraitObject carrying the trait name and trait type-args (the dyn fat-pointer form).",
-      "evidence": ["src/compiler/mono_subst.cpp#L84-L90"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L84-L90"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.dst-pointee-to-dstref",
       "domain": "mono",
       "title": "Pointer to DST struct canonicalizes to fat DstRef",
       "statement": "A pointer/reference whose pointee substitutes to a struct (or zoned struct) that is a custom-DST — either because the struct template is flagged is_dst, or because this instantiation bound its bare unsized tail type-parameter to an unsized arg (UnsizedDyn, UnsizedSlice, or a bare `dyn` TraitObject of owning-kind Borrow) — is canonicalized to a fat DstRef carrying the struct name, package, mutability, and type-args.",
-      "evidence": ["src/compiler/mono_subst.cpp#L91-L183"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L91-L183"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.subst.self-describing-dst-thin-ptr",
       "domain": "mono",
       "title": "Raw pointer to self-describing DST stays thin",
       "statement": "When the pointee struct is `#[self_describing]` (recovers its tail length from an in-band prefix field), a raw `*const Self`/`*mut Self` (kind Ptr) stays a thin 8-byte pointer and is NOT canonicalized to fat DstRef; `&Self`/`&mut Self` still take the fat representation.",
-      "evidence": ["src/compiler/mono_subst.cpp#L164-L174"],
-      "divergence": "Logos-specific Writ/RefRepr self-describing-DST contract; no Rust analogue."
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L164-L174"
+      ],
+      "divergence": "Logos-specific Writ/RefRepr self-describing-DST contract; no Rust analogue.",
+      "testability": "untestable"
     },
     {
       "id": "mono.subst.generic-struct-instantiation",
       "domain": "mono",
       "title": "Generic struct/enum type-arg substitution records instantiation",
       "statement": "Substituting a Struct/ZonedStruct/Enum recurses into its type-args; the resulting concrete instantiation is recorded as a needed monomorphization. For enums the need is recorded even when no type-arg changed (e.g. a non-generic use of Option<i32>).",
-      "evidence": ["src/compiler/mono_subst.cpp#L189-L229"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L189-L229"
+      ]
     },
     {
       "id": "mono.subst.tuple-pack-expansion",
       "domain": "mono",
       "title": "Variadic tuple pack expansion",
       "statement": "A tuple whose sole element is a TypeVar that maps to (or is a pack name in cur_packs_ of) a concrete tuple/type-list is spliced in place: the wrapper tuple's elements become the recursively-substituted elements of the bound list, so `(A...)` expands to `(T1, T2, ...)`.",
-      "evidence": ["src/compiler/mono_subst.cpp#L298-L331"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L298-L331"
+      ]
     },
     {
       "id": "mono.subst.fn-closure-signature",
       "domain": "mono",
       "title": "Fn/closure signature substitution",
       "statement": "Substituting an FnItem, FnPtr, or Closure type recurses into each parameter type and the return type; signatures sharing the closure_params/closure_ret slots (e.g. `fn(T, U) -> V`) substitute their TypeVars accordingly.",
-      "evidence": ["src/compiler/mono_subst.cpp#L344-L365"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L344-L365"
+      ]
     },
     {
       "id": "mono.subst.assoc-type-resolution",
       "domain": "mono",
       "title": "Associated-type projection resolution",
       "statement": "An AssocType `<Base as Trait>::Name` is resolved by first substituting Base; once Base is a concrete struct, zoned struct, enum, or scalar primitive, the key Trait::ConcreteBase::Name is looked up in the recorded associated-type impls and the bound type is returned (with nested associated-type chains collapsed fully).",
-      "evidence": ["src/compiler/mono_subst.cpp#L366-L402", "src/compiler/mono_subst.cpp#L425-L430"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L366-L402",
+        "src/compiler/mono_subst.cpp#L425-L430"
+      ]
     },
     {
       "id": "mono.subst.assoc-type-blanket-fallback",
       "domain": "mono",
       "title": "Associated-type blanket-impl fallback",
       "statement": "When no direct associated-type impl matches, an associated-type projection falls back to a blanket impl `impl<T: Bound> Trait for T` whose required bound (and all extra bounds) the concrete base recursively satisfies; the blanket's associated type is returned with its target type-var bound to the concrete base.",
-      "evidence": ["src/compiler/mono_subst.cpp#L403-L423"]
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L403-L423"
+      ]
     },
     {
       "id": "mono.subst.cfg-slot-type-projection",
       "domain": "mono",
       "title": "CFG-slot type projection from Writ config",
       "statement": "A CfgSlotType `<type:CFG.path>` resolves CFG (a const-generic param or inlined Writ static literal) to a WStaticLit, walks the encoded path (string-keyed 'F', int-keyed 'I' map fields and 'A' array indices joined by 0x1F) through the Writ value, and yields the type named at the terminal Type node (primitive, struct, or enum); if CFG is not yet concrete or any step misses, the projection stays deferred (unchanged).",
-      "evidence": ["src/compiler/mono_subst.cpp#L432-L535"],
-      "divergence": "Logos-specific compile-time Writ-config-driven type projection; no Rust analogue."
+      "evidence": [
+        "src/compiler/mono_subst.cpp#L432-L535"
+      ],
+      "divergence": "Logos-specific compile-time Writ-config-driven type projection; no Rust analogue.",
+      "testability": "untestable"
     }
   ]
 }

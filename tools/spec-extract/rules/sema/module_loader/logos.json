@@ -12,7 +12,8 @@
       "evidence": [
         "src/compiler/module_loader.cpp#L95-L103"
       ],
-      "divergence": "Logos uses a named prelude *package*; the model parallels Rust's std prelude but is package-granular."
+      "divergence": "Logos uses a named prelude *package*; the model parallels Rust's std prelude but is package-granular.",
+      "testability": "transitive"
     },
     {
       "id": "module.prelude.opt-out-attribute",
@@ -22,7 +23,8 @@
       "evidence": [
         "src/compiler/module_loader.cpp#L57-L78",
         "src/compiler/module_loader.cpp#L96"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.use.dotted-path",
@@ -62,7 +64,8 @@
       "statement": "Cyclic `use` dependencies between packages are legal (e.g. option <-> result, where each package's methods reference the other). Mutually-dependent packages form a strongly-connected component and are compiled together.",
       "evidence": [
         "src/compiler/module_loader.cpp#L228-L233"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.deps.dependency-first-ordering",
@@ -72,7 +75,8 @@
       "evidence": [
         "src/compiler/module_loader.cpp#L213-L244",
         "src/compiler/module_loader.cpp#L378-L388"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.package.decl-syntax",
@@ -95,7 +99,8 @@
       "divergence": "Logos-specific: type/package coexistence across modules sharing a package name (no Rust analog).",
       "related": [
         "module.use.from-module-disambiguation"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

@@ -9,23 +9,36 @@
       "domain": "type",
       "title": "Config-slot type projection",
       "statement": "`<type:CFG.path>` extracts a type from a WritStatic-typed binding `CFG` by walking a path of steps; each step is a struct-field access by name (on a string-keyed Writ map), an integer-field access by index (on an int-keyed Writ map), or an array index (on a Writ array). The path must be non-empty. The final reached Writ value must be a Type value; its named type is then resolved as the result.",
-      "evidence": ["src/compiler/sema.cpp#L4969-L4981", "src/compiler/sema.cpp#L5038-L5041", "src/compiler/sema.cpp#L5067-L5096"],
-      "uncertainty": "Logos-specific construct (no Rust analogue); semantics inferred from path-walk logic."
+      "evidence": [
+        "src/compiler/sema.cpp#L4969-L4981",
+        "src/compiler/sema.cpp#L5038-L5041",
+        "src/compiler/sema.cpp#L5067-L5096"
+      ],
+      "uncertainty": "Logos-specific construct (no Rust analogue); semantics inferred from path-walk logic.",
+      "testability": "untestable"
     },
     {
       "id": "type.cfg-slot.const-generic-defer",
       "domain": "type",
       "title": "Deferred cfg-slot when base is a const type-param",
       "statement": "When `CFG` names a const-generic type-parameter of the enclosing item, `<type:CFG.path>` is NOT resolved eagerly; it yields a deferred CfgSlotType carrying the CFG ident and an encoded path, which monomorphization resolves once the parameter is bound to a concrete WritStatic value.",
-      "evidence": ["src/compiler/sema.cpp#L4972-L4981", "src/compiler/sema.cpp#L4982-L4983", "src/compiler/sema.cpp#L5055", "src/compiler/sema.cpp#L5101-L5105"],
-      "uncertainty": "Logos-specific; const-generic-of-WritStatic kind."
+      "evidence": [
+        "src/compiler/sema.cpp#L4972-L4981",
+        "src/compiler/sema.cpp#L4982-L4983",
+        "src/compiler/sema.cpp#L5055",
+        "src/compiler/sema.cpp#L5101-L5105"
+      ],
+      "uncertainty": "Logos-specific; const-generic-of-WritStatic kind.",
+      "testability": "untestable"
     },
     {
       "id": "type.cfg-slot.const-param-must-be-writstatic",
       "domain": "type",
       "title": "cfg-slot base type-param must be const WritStatic",
       "statement": "If `CFG` in `<type:CFG.path>` names a type-parameter, that parameter must be declared `const CFG: WritStatic`; otherwise a diagnostic is raised (the param must be a const-generic whose type is the WritStatic struct).",
-      "evidence": ["src/compiler/sema.cpp#L4985-L5004"],
+      "evidence": [
+        "src/compiler/sema.cpp#L4985-L5004"
+      ],
       "uncertainty": "Logos-specific WritStatic const-generic requirement."
     },
     {
@@ -33,43 +46,60 @@
       "domain": "type",
       "title": "Eager cfg-slot resolution against a WStaticLit alias",
       "statement": "When `CFG` is not a type-param but resolves to a type alias bound to a WStaticLit (`pub type Cfg = @{...};`), the path is walked eagerly through that literal's registered Writ value at resolution time, producing the concrete projected type directly.",
-      "evidence": ["src/compiler/sema.cpp#L4974-L4976", "src/compiler/sema.cpp#L5055-L5099"],
-      "uncertainty": "Logos-specific."
+      "evidence": [
+        "src/compiler/sema.cpp#L4974-L4976",
+        "src/compiler/sema.cpp#L5055-L5099"
+      ],
+      "uncertainty": "Logos-specific.",
+      "testability": "untestable"
     },
     {
       "id": "type.assoc-ref.bound-and-supertrait-lookup",
       "domain": "type",
       "title": "Associated-type projection on a type-parameter",
       "statement": "For `base::Item` where `base` is a type-variable, the owning trait of `Item` is found by searching the bounds of `base` (with `Self` mapped to the enclosing trait) and walking each bound trait's supertrait chain; the first trait declaring an associated type named `Item` is selected, carrying that bound's concrete trait type-args.",
-      "evidence": ["src/compiler/sema.cpp#L5108-L5112", "src/compiler/sema.cpp#L5146-L5185"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5108-L5112",
+        "src/compiler/sema.cpp#L5146-L5185"
+      ]
     },
     {
       "id": "type.assoc-ref.gat-args",
       "domain": "type",
       "title": "Generic associated type arguments",
       "statement": "An associated-type reference may carry type arguments (`T::Item<i32>`, a GAT) and lifetime arguments (`T::Item<'a>`); lifetime args are collected separately from type args. The number of supplied GAT type-args must equal the associated type's declared GAT type-param count, and those args must satisfy the GAT type-params' trait bounds.",
-      "evidence": ["src/compiler/sema.cpp#L5113-L5139", "src/compiler/sema.cpp#L5258-L5274", "src/compiler/sema.cpp#L5320-L5325"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5113-L5139",
+        "src/compiler/sema.cpp#L5258-L5274",
+        "src/compiler/sema.cpp#L5320-L5325"
+      ]
     },
     {
       "id": "type.assoc-ref.impl-trait-context",
       "domain": "type",
       "title": "Assoc projection resolves against the enclosing impl trait",
       "statement": "Inside an `impl Trait<Args> for C`, an unresolved projection `Self::Assoc` resolves to the impl's trait when that trait declares `Assoc`, binding the projection to this impl's concrete trait type-args.",
-      "evidence": ["src/compiler/sema.cpp#L5212-L5231"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5212-L5231"
+      ]
     },
     {
       "id": "type.assoc-ref.concrete-impl-fallback",
       "domain": "type",
       "title": "Assoc projection fallback to implementing trait",
       "statement": "If no owning trait is found from bounds or impl context, the projection's owning trait is found among traits that have an impl for the concrete base type (tried under both the full concrete type name and the bare struct name); if still none declares `Assoc`, a diagnostic 'no associated type Assoc found for <base>' is raised.",
-      "evidence": ["src/compiler/sema.cpp#L5232-L5257"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5232-L5257"
+      ]
     },
     {
       "id": "type.assoc-ref.eager-concrete-projection",
       "domain": "type",
       "title": "Eager projection for concrete base with generic trait",
       "statement": "When the base is a concrete type and the resolved trait is generic (has type-args), the projection is resolved immediately by looking up the trait+args-suffixed assoc-type impl and substituting the base's type-args; this disambiguates two `Trait<T>` impls on one type that would otherwise intern to a single trait-arg-less deferred node and collapse.",
-      "evidence": ["src/compiler/sema.cpp#L5275-L5307"],
+      "evidence": [
+        "src/compiler/sema.cpp#L5275-L5307"
+      ],
       "divergence": "G156-1 disambiguation of multiple Trait<T> impls."
     },
     {
@@ -77,21 +107,27 @@
       "domain": "type",
       "title": "Deferred associated-type node carries trait args",
       "statement": "An unresolved projection yields a deferred AssocType node {base, trait, name, gat_args}; the trait name is suffixed with the concrete trait type-args so distinct `Trait<T>` instantiations produce distinct nodes (empty suffix for non-generic traits preserves the bare name). Bounds declared on the assoc type are propagated into the projection's bound context.",
-      "evidence": ["src/compiler/sema.cpp#L5308-L5337"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5308-L5337"
+      ]
     },
     {
       "id": "type.assoc-ref.equality-bound-normalization",
       "domain": "type",
       "title": "Associated-type equality bound normalization",
       "statement": "If the base type-param carries an equality bound `Trait<A = V>`, the projection `T::A` is normalized directly to `V` at resolution time.",
-      "evidence": ["src/compiler/sema.cpp#L5338-L5342"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5338-L5342"
+      ]
     },
     {
       "id": "type.generic-inst.generic-const",
       "domain": "type",
       "title": "Generic compile-time const instantiation",
       "statement": "Applying type-args to a generic const `pub const X<T..>: WritStatic = @{...}` re-evaluates the const's value AST under the supplied type-arg bindings, yielding a fresh per-instantiation WStaticLit identity. The argument count must equal the const's type-param count.",
-      "evidence": ["src/compiler/sema.cpp#L5345-L5392"],
+      "evidence": [
+        "src/compiler/sema.cpp#L5345-L5392"
+      ],
       "uncertainty": "Logos-specific WritStatic generic const."
     },
     {
@@ -99,14 +135,18 @@
       "domain": "type",
       "title": "Generic type alias instantiation",
       "statement": "A generic type alias `type Foo<T> = Bar<T>` instantiated as `Foo<A>` resolves to its RHS with type- and lifetime-args substituted; the supplied type-arg count and lifetime-arg count must equal the alias's declared type-param and lifetime-param counts respectively.",
-      "evidence": ["src/compiler/sema.cpp#L5394-L5429"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5394-L5429"
+      ]
     },
     {
       "id": "type.generic-inst.smart-pointer-dyn-collapse",
       "domain": "type",
       "title": "Box<dyn Trait> collapses to an owning trait object",
       "statement": "`Box<dyn Trait>` (FQN-gated to the stdlib Box) collapses to an owning fat-pair trait object {data, vtable} tagged Box. Rc/Arc no longer collapse and instead resolve as ordinary generic structs whose inner pointer is a fat DST reference.",
-      "evidence": ["src/compiler/sema.cpp#L5432-L5477"],
+      "evidence": [
+        "src/compiler/sema.cpp#L5432-L5477"
+      ],
       "uncertainty": "Mirrors Rust owned_box + CoerceUnsized lang item; Rc/Arc flip is Logos-specific."
     },
     {
@@ -114,7 +154,9 @@
       "domain": "type",
       "title": "Box<[T]> and Box<DST-struct> collapse to owning fat references",
       "statement": "`Box<[T]>` collapses to an owning fat slice {data, len} (same layout as `&[T]`, move-only, droppable). `Box<Foo>` where Foo is a custom-DST tail-slice struct collapses to an owning DstRef {data, len}.",
-      "evidence": ["src/compiler/sema.cpp#L5478-L5501"],
+      "evidence": [
+        "src/compiler/sema.cpp#L5478-L5501"
+      ],
       "uncertainty": "Logos custom-DST machinery; analogous to Rust CoerceUnsized."
     },
     {
@@ -122,35 +164,47 @@
       "domain": "type",
       "title": "?Sized type-param relaxes unsized type-args",
       "statement": "A type-argument at a generic param declared `?Sized` (implicit_sized=false) may be a bare unsized type (`[T]`, `dyn Trait`); a type-arg at a `Sized` param must not be unsized. Passing an unsized type, or a `?Sized` outer type-param, to a `Sized` param is a diagnostic.",
-      "evidence": ["src/compiler/sema.cpp#L5562-L5586", "src/compiler/sema.cpp#L5605-L5635"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5562-L5586",
+        "src/compiler/sema.cpp#L5605-L5635"
+      ]
     },
     {
       "id": "type.generic-inst.default-type-args",
       "domain": "type",
       "title": "Trailing default type arguments",
       "statement": "When fewer type-args are supplied than the generic has params, trailing params are filled from their declared defaults (`struct S<T, U = i64>`: `S<A>` ≡ `S<A, i64>`); a default may reference an earlier param and is substituted with the already-bound args.",
-      "evidence": ["src/compiler/sema.cpp#L5588-L5604"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5588-L5604"
+      ]
     },
     {
       "id": "type.generic-inst.arity-and-bounds",
       "domain": "type",
       "title": "Generic instantiation arity and bound checks",
       "statement": "After default-filling, the type-argument count must match the struct/enum/datatype declared type-param count, and each argument must satisfy its param's trait bounds.",
-      "evidence": ["src/compiler/sema.cpp#L5636-L5654"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5636-L5654"
+      ]
     },
     {
       "id": "type.generic-inst.kind-disambiguation-local-shadow",
       "domain": "type",
       "title": "Local declaration shadows imported same-named type",
       "statement": "When a name resolves to multiple kinds (struct/datatype/enum) across packages, a declaration local to the current package wins over any non-local same-named declaration of another kind.",
-      "evidence": ["src/compiler/sema.cpp#L5505-L5526"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5505-L5526"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.generic-inst.unknown-type-metaprog-defer",
       "domain": "type",
       "title": "Unknown generic type deferred during metaprog discovery",
       "statement": "An unknown generic type name is an error, except during the metaprog discovery pass (before derive hooks emit items), where it silently yields error-type so a later non-metaprog pass can re-resolve once synthesized items exist.",
-      "evidence": ["src/compiler/sema.cpp#L5527-L5538"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5527-L5538"
+      ]
     }
   ]
 }

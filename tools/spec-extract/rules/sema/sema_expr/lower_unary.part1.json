@@ -11,7 +11,8 @@
       "statement": "`&&v` (lexed as a single AND token) is the double address-of of `v`: it lowers to `&(&v)` with type `& & typeof(v)`. If `typeof(v)` is an error type the whole expression is an error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L2476-L2486"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.addr-of.static",
@@ -48,7 +49,8 @@
       "statement": "`&b` where `b` is an owning DST reference (`Box<Foo>`) yields a borrowed `&Foo` with the same reference value re-typed non-owning; mutability is inherited.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L2522-L2532"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.reborrow.ref-deref",
@@ -66,7 +68,8 @@
       "statement": "`&f[i]` over a value implementing the Index trait yields the place reference returned by `index()` directly (no intermediate deref or temporary).",
       "evidence": [
         "src/compiler/sema_expr.cpp#L2554-L2558"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.addr-of.range-index-identity",
@@ -75,7 +78,8 @@
       "statement": "`&e` where `e` is a range-index `a[i..j]` that already has slice kind `&[T]` yields that slice value unchanged (no additional reference wrapper), since the slice kind is already the borrowed fat form.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L2562-L2569"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.addr-of.temp-materialize",
@@ -84,7 +88,8 @@
       "statement": "`&e` for a non-place expression `e` materializes `e` into a stack temporary and yields `&typeof(e)`. If `typeof(e)` is an error type the expression is an error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L2559-L2588"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.unary.neg-literal-fold",
@@ -177,7 +182,8 @@
       "statement": "If a qualified `pkg.path.Member(args)` has no free function of that name in the package, the last dotted segment is interpreted as a type and the call is resolved as a static/associated method call `pkg.path.Type::method(...)`. A matching free function takes precedence.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L2772-L2781"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.call.tuple-struct-ctor",

@@ -30,7 +30,8 @@
       "statement": "An `if` may chain conditions with `&&` where the first segment is a `let` binding: `if let P = e && seg (&& seg)* { THEN } [else …]`. Each subsequent seg is either `let P = e` or a bare condition (level `cmp_expr_ns`). The chain requires the first segment to be a `let` and at least two `&&`-joined segments. Desugars to nested matching: all let-patterns must match and all conditions hold for THEN.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L2342-L2381"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.if.single-let-guard",
@@ -49,7 +50,8 @@
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L2411-L2417",
         "tools/peg_gen/grammars/logos.peg#L2512-L2516"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.range.family",

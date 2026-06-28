@@ -20,7 +20,8 @@
       "statement": "A declared bound `'longer: 'shorter` imposes the constraint region('longer) ⊇ region('shorter) (longer must contain everything shorter contains). A clause naming a lifetime not declared on the function is ignored at this stage (already a sema error).",
       "evidence": [
         "src/compiler/region_infer.cpp#L55-L70"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "region.outlives.static-longest",
@@ -58,7 +59,8 @@
       "evidence": [
         "src/compiler/region_infer.cpp#L127-L128"
       ],
-      "uncertainty": "Empty-string lifetime denotes the unconstrained/anonymous case; mapping to surface syntax inferred."
+      "uncertainty": "Empty-string lifetime denotes the unconstrained/anonymous case; mapping to surface syntax inferred.",
+      "testability": "transitive"
     },
     {
       "id": "borrow.region.contains-origin",
@@ -124,7 +126,8 @@
       "statement": "Each region's set of CFG points is the least solution satisfying: Contains(r, P) ⟹ P ∈ r; Outlives(longer, shorter) ⟹ points(shorter) ⊆ points(longer). Lifetimes propagate monotonically from shorter to longer.",
       "evidence": [
         "src/compiler/region_infer.cpp#L154-L180"
-      ]
+      ],
+      "testability": "transitive"
     }
   ]
 }

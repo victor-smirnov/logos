@@ -34,7 +34,9 @@
         "src/compiler/mlir_gen_fn.cpp#L138-L143"
       ],
       "divergence": "A3/A4 fat-pointer return representation",
-      "related": ["coerce.return.aggregate-by-value"]
+      "related": [
+        "coerce.return.aggregate-by-value"
+      ]
     },
     {
       "id": "type.anyval.repr-i32",
@@ -46,7 +48,8 @@
         "src/compiler/mlir_gen_fn.cpp#L98-L101",
         "src/compiler/mlir_gen_fn.cpp#L113-L114"
       ],
-      "uncertainty": "i32 likely encodes a handle/index into an AnyVal table; exact semantics inferred from representation only."
+      "uncertainty": "i32 likely encodes a handle/index into an AnyVal table; exact semantics inferred from representation only.",
+      "testability": "untestable"
     },
     {
       "id": "coerce.param.array-by-pointer",
@@ -74,7 +77,10 @@
       "evidence": [
         "src/compiler/mlir_gen_fn.cpp#L219-L235"
       ],
-      "related": ["module.symbol.function-symbol-name"]
+      "related": [
+        "module.symbol.function-symbol-name"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "module.symbol.method-link-prefix",
@@ -85,7 +91,10 @@
         "src/compiler/mlir_gen_fn.cpp#L164-L168",
         "src/compiler/mlir_gen_fn.cpp#L186-L208"
       ],
-      "related": ["item.fn.unique-mangled-name"]
+      "related": [
+        "item.fn.unique-mangled-name"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "stmt.return.fallthrough-void-implicit",

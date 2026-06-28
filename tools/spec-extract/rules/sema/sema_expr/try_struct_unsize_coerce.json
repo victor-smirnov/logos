@@ -29,7 +29,8 @@
       ],
       "related": [
         "coerce.unsize.struct-coerce-unsized"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "coerce.writ.slice-to-typed-array",
@@ -266,7 +267,8 @@
       "statement": "A `$`-capture node (WRIT_CAP_IDENT / WRIT_CAP_EXPR) is only valid inside a writ value literal; appearing as a standalone expression is an error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L1489-L1494"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

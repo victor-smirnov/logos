@@ -9,77 +9,106 @@
       "domain": "pat",
       "title": "`_` and empty name are non-binding wildcards",
       "statement": "A wildcard pattern named `_` (or unnamed) introduces no binding and reserves no slot; any other name in a wildcard position is a binding that reserves a fresh dense slot.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3004-L3010"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3004-L3010"
+      ]
     },
     {
       "id": "pat.binding.or-alt-shared-slot",
       "domain": "pat",
       "title": "Or-pattern alternatives share binding slots; distinct patterns start fresh",
       "statement": "Within one top-level pattern, repeated binding names across or-pattern alternatives map to the SAME dense slot; binding-slot allocation is reset at the start of each top-level pattern, so separate match arms / let patterns allocate independent slots.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3012-L3023", "src/compiler/sema_stmt.cpp#L3951-L3956"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3012-L3023",
+        "src/compiler/sema_stmt.cpp#L3951-L3956"
+      ]
     },
     {
       "id": "pat.variant.prelude-shorthand",
       "domain": "pat",
       "title": "Prelude variant shorthand in patterns",
       "statement": "Unqualified variant patterns `Some`/`None`/`Ok`/`Err` resolve to `Option`/`Result` variants when no enum qualifier is given and the prelude enum carries that variant.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3029-L3047", "src/compiler/sema_stmt.cpp#L3094-L3114"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3029-L3047",
+        "src/compiler/sema_stmt.cpp#L3094-L3114"
+      ]
     },
     {
       "id": "pat.variant.use-variant-alias",
       "domain": "pat",
       "title": "`use Type.{V,..}` bare-variant alias resolves in patterns",
       "statement": "A bare (unqualified) variant name in a pattern resolves to its enum when that name was imported via a `use Type.{V, ...}` variant-alias.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3048-L3053", "src/compiler/sema_stmt.cpp#L3115-L3120"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3048-L3053",
+        "src/compiler/sema_stmt.cpp#L3115-L3120"
+      ]
     },
     {
       "id": "pat.variant.type-alias-peel",
       "domain": "pat",
       "title": "Type-alias to enum peels in variant patterns",
       "statement": "A variant pattern `Alias::V` / `Alias::V(..)` where `type Alias<..> = Enum<..>` resolves the variant on the underlying enum; alias type-arguments do not affect which variant matches.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3055-L3066", "src/compiler/sema_stmt.cpp#L3186-L3196"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3055-L3066",
+        "src/compiler/sema_stmt.cpp#L3186-L3196"
+      ]
     },
     {
       "id": "pat.variant.unknown-enum-error",
       "domain": "pat",
       "title": "Unknown enum / variant in pattern is an error",
       "statement": "A variant pattern naming an enum not in scope, or a variant not declared by the resolved enum, is rejected.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3071-L3084", "src/compiler/sema_stmt.cpp#L3202-L3208"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3071-L3084",
+        "src/compiler/sema_stmt.cpp#L3202-L3208"
+      ]
     },
     {
       "id": "pat.variant.scrutinee-enum-match",
       "domain": "pat",
       "title": "Variant pattern enum must equal scrutinee enum",
       "statement": "When the scrutinee has a concrete enum type, a variant pattern naming a different enum is rejected.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3074-L3078"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3074-L3078"
+      ]
     },
     {
       "id": "pat.tuple-struct.bare-call-form",
       "domain": "pat",
       "title": "Bare `Foo(a,b)` tuple-struct pattern destructures positional fields",
       "statement": "An unqualified call-form pattern `Foo(p0, p1, ...)` whose name resolves to a tuple-struct destructures it as a struct pattern with synthetic positional field names \"0\",\"1\",...; sub-pattern j binds field j.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3122-L3184"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3122-L3184"
+      ]
     },
     {
       "id": "pat.tuple-struct.arity-check",
       "domain": "pat",
       "title": "Tuple-struct pattern arity must match (absent `..`)",
       "statement": "Without a `..` rest, a tuple-struct pattern must supply exactly as many sub-patterns as the struct's field count; with `..`, the supplied count must not exceed the arity.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3168-L3175"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3168-L3175"
+      ]
     },
     {
       "id": "pat.rest.single-only",
       "domain": "pat",
       "title": "At most one `..` rest per tuple/tuple-struct pattern",
       "statement": "A tuple-struct or tuple-variant pattern may contain at most one `..` rest; sub-patterns before the rest bind low positions and those after bind tail positions, with skipped positions binding nothing.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3140-L3167", "src/compiler/sema_stmt.cpp#L3718-L3733"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3140-L3167",
+        "src/compiler/sema_stmt.cpp#L3718-L3733"
+      ]
     },
     {
       "id": "pat.ergonomics.deref-scrutinee",
       "domain": "pat",
       "title": "Match ergonomics peel all &/&mut/* layers",
       "statement": "Pattern matching peels all `&`, `&mut`, and `*` layers of the scrutinee type to obtain the concrete payload shape, so a pattern over `&&Enum<T>` (arbitrary depth) unifies against the inner `Enum<T>`.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3220-L3243", "src/compiler/sema_stmt.cpp#L3828-L3851"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3220-L3243",
+        "src/compiler/sema_stmt.cpp#L3828-L3851"
+      ],
       "divergence": "Rust-conformant (RFC 2005 default binding modes)"
     },
     {
@@ -87,7 +116,10 @@
       "domain": "pat",
       "title": "Default binding modes wrap payload bindings by reference",
       "statement": "Under a `&`/`&mut` scrutinee, every plain named payload binding binds by-reference: the binding type is wrapped in `&`/`&mut` once per scrutinee ref-layer, with the outermost layer carrying mut iff any peeled layer was `&mut`. Bindings to `_` and synthesized slots are exempt.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3252-L3265", "src/compiler/sema_stmt.cpp#L3915-L3949"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3252-L3265",
+        "src/compiler/sema_stmt.cpp#L3915-L3949"
+      ],
       "divergence": "Rust-conformant (RFC 2005); historical move-only-type restriction now lifted"
     },
     {
@@ -95,35 +127,49 @@
       "domain": "pat",
       "title": "`ref`/`ref mut` payload binding wraps type in &/&mut",
       "statement": "An explicit `ref v` (resp. `ref mut v`) sub-pattern in a variant payload binds by reference: the binding type is wrapped in `&` (resp. `&mut`), binding the payload slot's address rather than a load. Explicit ref overrides default-binding-mode wrapping.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3680-L3690", "src/compiler/sema_stmt.cpp#L3734-L3748", "src/compiler/sema_stmt.cpp#L3918-L3923"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3680-L3690",
+        "src/compiler/sema_stmt.cpp#L3734-L3748",
+        "src/compiler/sema_stmt.cpp#L3918-L3923"
+      ]
     },
     {
       "id": "pat.variant.type-arg-subst",
       "domain": "pat",
       "title": "Generic enum type-args substitute into payload binding types",
       "statement": "For a generic enum scrutinee `Enum<A,..>`, each variant payload binding's type is the declared payload type with the enum's type parameters substituted by the scrutinee's type-arguments (after peeling ref/ptr layers).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3236-L3242", "src/compiler/sema_stmt.cpp#L3266-L3270", "src/compiler/sema_stmt.cpp#L3825-L3857"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3236-L3242",
+        "src/compiler/sema_stmt.cpp#L3266-L3270",
+        "src/compiler/sema_stmt.cpp#L3825-L3857"
+      ]
     },
     {
       "id": "pat.variant.struct-shape-fields",
       "domain": "pat",
       "title": "Struct-shape variant pattern resolves fields by name",
       "statement": "A `E::V { f0, f1: p, .. }` pattern is allowed only for struct-shaped variants; named fields resolve to payload positions, shorthand `f` binds field `f` to name `f`, an unknown or duplicate field name is an error, and absent `..` every field must be specified.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3562-L3679"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3562-L3679"
+      ]
     },
     {
       "id": "pat.variant.tuple-shape-needs-parens",
       "domain": "pat",
       "title": "Tuple-shape variant rejects brace pattern",
       "statement": "A tuple-shaped variant (positional payload, no field names) cannot be matched with brace `{ .. }` pattern syntax.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3569-L3572"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3569-L3572"
+      ]
     },
     {
       "id": "pat.refutable.nested-variant-guard",
       "domain": "pat",
       "title": "Nested variant inner pattern lowers to a synthesized guard",
       "statement": "A nested variant inner pattern (e.g. `Some(Color::Red)`, `Some(Some(v))`) binds the outer payload to a synthetic name and gates the arm with a synthesized `match synth { <inner> => <check>, _ => false }`; binding-carrying inners additionally re-extract their bindings in the arm body via a let-else, composing to arbitrary depth.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3284-L3453"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3284-L3453"
+      ],
       "divergence": "A — guarded nested-variant arms need a catch-all for exhaustiveness (DIVERGENCES.md: finite-enum coverage of guarded arms not yet proven)"
     },
     {
@@ -131,49 +177,66 @@
       "domain": "pat",
       "title": "Range inner pattern lowers to `>= && <=` guard",
       "statement": "A range inner pattern `V(lo..=hi)` (or `V(n @ lo..hi)`) binds the payload to `synth`/the @-name and gates the arm with `synth >= lo && synth <= hi`; an exclusive `lo..hi` lowers to `lo..=(hi-1)`. Under by-ref ergonomics the synth is dereferenced for the comparison.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3454-L3503"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3454-L3503"
+      ]
     },
     {
       "id": "pat.refutable.literal-inner-guard",
       "domain": "pat",
       "title": "Literal inner pattern lowers to `==` guard (str via str_eq)",
       "statement": "An int/neg-int/bool/char literal inner pattern binds the payload to `synth` and gates the arm with `synth == <literal>`; a string literal inner gates with `str_eq(synth, \"..\")` rather than pointer-comparing slices.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3510-L3560", "src/compiler/sema_stmt.cpp#L3511-L3526"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3510-L3560",
+        "src/compiler/sema_stmt.cpp#L3511-L3526"
+      ]
     },
     {
       "id": "pat.at-binding.payload-bind-and-guard",
       "domain": "pat",
       "title": "`n @ sub` binds payload and applies sub-pattern guard",
       "statement": "An `@`-binding `n @ <sub>` in a variant payload binds the payload to name `n` and additionally gates the arm with the refutable guard of `<sub>` (range/literal/variant) built against `n`; `n @ _` binds with no guard.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3504-L3509", "src/compiler/sema_stmt.cpp#L3769-L3788"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3504-L3509",
+        "src/compiler/sema_stmt.cpp#L3769-L3788"
+      ]
     },
     {
       "id": "pat.or.inner-bindingless-only",
       "domain": "pat",
       "title": "Or-pattern inner must be bindingless",
       "statement": "An or-pattern inner `V(A | B)` is lowered to a `match synth { A | B => true, _ => false }` guard only if every alternative binds nothing (literals, unit variants, bindingless-data variants, or a bare wildcard `_`); a binding-carrying alternative is rejected.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3391-L3413"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3391-L3413"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "pat.refutable.raw-pointer-rejected",
       "domain": "pat",
       "title": "Match ergonomics excludes raw pointers",
       "statement": "Binding-carrying nested-variant patterns over a raw-pointer (`*const`/`*mut`) scrutinee are rejected; match ergonomics (by-ref binding) applies only to `&`/`&mut`.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3334-L3336"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3334-L3336"
+      ]
     },
     {
       "id": "pat.variant.nested-struct-tuple-destructure",
       "domain": "pat",
       "title": "Irrefutable nested struct/tuple payload destructures in arm body",
       "statement": "A nested struct- or tuple-pattern inside a variant payload binds the payload to a synthetic slot and emits an irrefutable `let <sub> = __synth;` destructure as an arm-body prologue.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3749-L3768"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3749-L3768"
+      ]
     },
     {
       "id": "pat.variant.unit-payload-binding",
       "domain": "pat",
       "title": "Named binding against unit-typed payload is a zero-sized local",
       "statement": "When a variant's payload types are all `()`, a `_` binding is dropped and a named binding is kept with a `()` binding type (a zero-sized local in scope), since unit fields are elided from the enum layout. The unit payload position itself is omitted from binding types.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3852-L3886"],
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3852-L3886"
+      ],
       "divergence": "Rust-conformant (rustc issue-41888 `Err(err)` over `Result<(),()>`)"
     },
     {
@@ -181,14 +244,18 @@
       "domain": "pat",
       "title": "Variant payload binding count must match payload arity",
       "statement": "The number of payload bindings in a variant-data pattern must equal the number of (non-unit) payload types of the variant.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3887-L3889"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3887-L3889"
+      ]
     },
     {
       "id": "pat.unit.no-binding",
       "domain": "pat",
       "title": "`()` unit sub-pattern binds nothing",
       "statement": "A `()` (unit) sub-pattern in a variant payload position introduces no binding.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L3717"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L3717"
+      ]
     }
   ]
 }

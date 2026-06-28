@@ -144,7 +144,8 @@
       "evidence": [
         "src/compiler/mlir_gen_expr.cpp#L3979-L4068",
         "src/compiler/mlir_gen_expr.cpp#L4566-L4645"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "pat.binding.scope-limited-to-arm",

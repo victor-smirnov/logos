@@ -33,7 +33,8 @@
       "statement": "When `&L` (an address-of an integer literal materialized as a temporary) is passed where `&T`/`&mut T` is expected and T is a wider integer type that L can widen to or fits, the inner literal is cast to T before being addressed, so the temporary's storage slot is sized to T (preventing a narrow temp read as the wider pointee).",
       "evidence": [
         "src/compiler/sema_impl.hpp#L4365-L4400"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.writ.container-kinds",
@@ -43,7 +44,8 @@
       "evidence": [
         "src/compiler/sema_impl.hpp#L4133-L4149"
       ],
-      "uncertainty": "Matches by struct name only; does not check Rc's type argument is Writ."
+      "uncertainty": "Matches by struct name only; does not check Rc's type argument is Writ.",
+      "testability": "untestable"
     },
     {
       "id": "stmt.let-chain.nested-if-let-desugar",
@@ -129,7 +131,8 @@
       ],
       "related": [
         "mono.mangle.type-args-recursive"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

@@ -11,7 +11,8 @@
       "statement": "A Writ value parses to exactly one node kind from the closed set { MAP, ARRAY, STRING, INTEGER, FLOAT, BOOLEAN, NULL_VAL, TYPED_VALUE, DATATYPE, MAP_ENTRY, PARAM_VAL }. Each node carries a CODE field equal to its kind code.",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L31-L43"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.typed-value-form",
@@ -20,7 +21,8 @@
       "statement": "A TYPED_VALUE node represents a typename-applied-to-value construction of the form Typename(value), e.g. Date(\"2026-01-01\").",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L39"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.datatype-form",
@@ -29,7 +31,8 @@
       "statement": "A DATATYPE node represents a type name with optional generic parameters of the form Typename<Param, ...>.",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L40"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

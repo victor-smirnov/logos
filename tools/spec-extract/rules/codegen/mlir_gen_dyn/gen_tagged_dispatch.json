@@ -15,7 +15,8 @@
         "src/compiler/mlir_gen_dyn.cpp#L1375-L1442"
       ],
       "divergence": "Logos addition: tiered type-code dispatch table; no Rust analogue.",
-      "uncertainty": "Comment text says 'type_code < 223' but the emitted boundary constant is kTier1Size=256; the code is authoritative."
+      "uncertainty": "Comment text says 'type_code < 223' but the emitted boundary constant is kTier1Size=256; the code is authoritative.",
+      "testability": "untestable"
     },
     {
       "id": "trait.dyn.fat-pointer-vtable-dispatch",
@@ -105,7 +106,8 @@
       "statement": "A closure that escapes its defining frame (e.g. boxed as `Box<dyn Fn>`) and has captures must heap-allocate its env so the {fn, env_ptr} value outlives the frame; a non-escaping closure with captures uses a stack env; a capture-less closure uses a null env pointer (its drop is a no-op).",
       "evidence": [
         "src/compiler/mlir_gen_dyn.cpp#L2081-L2115"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.closure.uniform-drop-glue-slot",
@@ -115,7 +117,8 @@
       "evidence": [
         "src/compiler/mlir_gen_dyn.cpp#L1843-L1849",
         "src/compiler/mlir_gen_dyn.cpp#L2117-L2165"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.tagdispatch.type-code-keyed",

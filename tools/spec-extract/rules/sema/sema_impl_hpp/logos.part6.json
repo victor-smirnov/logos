@@ -11,7 +11,8 @@
       "statement": "A `/** ... */` doc comment yields its body with each line stripped of leading whitespace, one optional leading `*`, and one optional space after that `*`; trailing whitespace is removed; the envelope's own leading/trailing empty lines (from `/**\\n ... \\n*/`) are dropped.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L2791-L2827"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.static.mut-requires-unsafe",
@@ -30,7 +31,8 @@
       "evidence": [
         "src/compiler/sema_impl.hpp#L2886-L2892",
         "src/compiler/sema_impl.hpp#L2905-L2910"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.static.shadowing-by-binding",
@@ -168,7 +170,8 @@
       "statement": "When a type parameter carrying `?Sized` is passed as a type-argument to a callee whose corresponding parameter requires `Sized`, the same unsized-substitution diagnostic is emitted as for an explicit unsized substitution.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L2996-L3001"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.assoc.eq-clause-satisfaction",

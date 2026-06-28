@@ -118,7 +118,8 @@
       "statement": "`let v: T;` / `let mut v: T;` (annotation, no value) declares the binding with the annotated type and no value; the binding is recorded as declared-uninitialised so a later assignment registers the value without a drop-before-replace, and the variable must be assigned before use. `let` without value and without annotation is an error.",
       "evidence": [
         "src/compiler/sema_stmt.cpp#L1942-L1962"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "coerce.let.reborrow-mut-at-ascription",

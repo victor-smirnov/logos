@@ -114,7 +114,8 @@
         "src/compiler/sema.cpp#L7290-L7291",
         "src/compiler/sema.cpp#L7395-L7429",
         "src/compiler/sema.cpp#L8019-L8020"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "metaprog.annot.type-code-on-struct",
@@ -163,7 +164,8 @@
       "statement": "Structural attributes #[zone_mut], #[zoned2], #[rel_ptr], #[self_describing], #[borrow_carrying] each set the corresponding boolean struct flag when present; a present flag can only set, never clear, the base value.",
       "evidence": [
         "src/compiler/sema.cpp#L7337-L7346"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.struct.zoned-promotes-to-datatype",
@@ -172,7 +174,8 @@
       "statement": "A struct carrying #[zoned] (promotes_to_datatype) is lowered with IS_ZONED set, treated as a zoned struct/datatype rather than a plain struct.",
       "evidence": [
         "src/compiler/sema.cpp#L7625-L7660"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.datatype.is-zoned",
@@ -242,7 +245,8 @@
       "statement": "An extern block's child items (extern fn declarations) are spliced in order into the flat module-item worklist; the block itself produces no item.",
       "evidence": [
         "src/compiler/sema.cpp#L7378-L7391"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.doc.outer-line-block",
@@ -251,7 +255,8 @@
       "statement": "`///` line doc-comments (with leading '/// ' stripped, joined by newline) and `/** ... */` outer block doc-comments accumulate into the pending doc buffer and become the DOC of the next item.",
       "evidence": [
         "src/compiler/sema.cpp#L7399-L7411"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.cfg.conditional-compilation",
@@ -272,7 +277,8 @@
       "statement": "On a function, #[test] marks it a test, #[ignore] marks it ignored, and #[should_panic] marks expect-panic; #[should_panic(expected=\"msg\")] records the expected panic substring (string literal, quotes stripped). These flags are reset per-function before reading.",
       "evidence": [
         "src/compiler/sema.cpp#L7791-L7836"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.static.global-storage",

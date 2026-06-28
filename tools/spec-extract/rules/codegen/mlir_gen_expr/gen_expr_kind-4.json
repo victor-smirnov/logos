@@ -171,7 +171,8 @@
       "statement": "Using the format() built-in requires the __format_impl runtime function to be available, provided by importing std.lang.text; absence is a compile error.",
       "evidence": [
         "src/compiler/mlir_gen_expr.cpp#L5375-L5386"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.closure.fn-env-pair",

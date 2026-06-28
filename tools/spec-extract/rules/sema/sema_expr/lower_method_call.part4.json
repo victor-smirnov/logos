@@ -40,7 +40,8 @@
       "statement": "A resolved method call is subject to the method's pub/module-only visibility; calling a non-visible method from outside its allowed scope is an error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L8734"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.method.unsafe-required",

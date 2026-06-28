@@ -11,7 +11,8 @@
       "statement": "value <- param_val / typed_value / typed_collection / map / array / STRING / FLOAT / INTEGER / TRUE / FALSE / NULL. The ordered alternation is the embeddable entry point for a Writ value; PEG ordering means earlier alternatives win (param_val, typed_value, and typed_collection are attempted before bare map/array/scalars).",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L81-L91"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.scalar-literals",
@@ -29,7 +30,8 @@
       "statement": "map_entry <- (STRING / IDENT) ':' value producing {CODE:MAP_ENTRY, KEY, VALUE}. A key may be either a quoted STRING or a bare IDENT; the value is any Writ value.",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L97-L98"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.typed-value-ctor",
@@ -38,7 +40,8 @@
       "statement": "typed_value <- datatype '(' value ')' producing {CODE:TYPED_VALUE, NAME:datatype, VALUE:value}. Exactly one inner value is wrapped by the named type constructor (e.g. Date(\"2026-01-01\")).",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L104-L106"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.typed-collection",
@@ -47,7 +50,8 @@
       "statement": "typed_collection <- typed_array / typed_map; typed_array <- '<' datatype '>' array; typed_map <- '<' datatype '>' map | '<' datatype ',' datatype '>' map. Type parameters preceding the collection are parse-time hints only: the parser still yields plain ARRAY/MAP nodes. A typed map may declare just the key type (value type defaults to AnyVal) or both key and value types.",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L114-L119"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.datatype",
@@ -65,7 +69,8 @@
       "statement": "type_arg <- datatype / INTEGER. A generic argument is either a nested datatype or a non-type integer literal (C++-style const generic argument).",
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L127-L128"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "grammar.writ.array-literal",
@@ -85,7 +90,8 @@
       "evidence": [
         "tools/peg_gen/grammars/writ.peg#L130-L133",
         "tools/peg_gen/grammars/writ.peg#L42"
-      ]
+      ],
+      "testability": "untestable"
     }
   ]
 }

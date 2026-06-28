@@ -40,7 +40,8 @@
       ],
       "related": [
         "region.subtype.ref-covariant"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.subtype.rawptr-variance",
@@ -49,7 +50,8 @@
       "statement": "Raw pointers carry no lifetime. *const T is covariant in pointee (*const T <: *const U iff T <: U); *mut T is invariant in pointee (*mut T <: *mut U iff T == U with lifetimes). A const-vs-mut pointer-kind mismatch is a shape difference, deferred to the compatibility check (subtype returns true).",
       "evidence": [
         "include/logos/compiler/subtype.hpp#L226-L235"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.subtype.tuple-array-slice-covariant",
@@ -99,7 +101,8 @@
       "evidence": [
         "include/logos/compiler/subtype.hpp#L310-L329",
         "include/logos/compiler/subtype.hpp#L93-L113"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.subtype.inferred-wildcard",
@@ -109,7 +112,8 @@
       "evidence": [
         "include/logos/compiler/subtype.hpp#L62-L63",
         "include/logos/compiler/subtype.hpp#L57-L61"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "region.subtype.empty-lifetime-wildcard",
@@ -119,7 +123,8 @@
       "evidence": [
         "include/logos/compiler/subtype.hpp#L65-L72",
         "include/logos/compiler/subtype.hpp#L49-L53"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.equal.lifetime-aware-structural",
@@ -138,7 +143,8 @@
       "evidence": [
         "include/logos/compiler/subtype.hpp#L203-L204"
       ],
-      "uncertainty": "Conservative termination guard, not a language-design choice."
+      "uncertainty": "Conservative termination guard, not a language-design choice.",
+      "testability": "untestable"
     },
     {
       "id": "region.subtype.variance-positions",
@@ -147,7 +153,8 @@
       "statement": "At a position with variance v: Bivariant always holds; Covariant requires sub <: sup (lifetimes: 'sub: 'sup); Contravariant requires sup <: sub (lifetimes: 'sup: 'sub); Invariant requires equality (lifetime-aware structural equality for types; normalized-lifetime identity for lifetimes).",
       "evidence": [
         "include/logos/compiler/subtype.hpp#L154-L183"
-      ]
+      ],
+      "testability": "transitive"
     }
   ]
 }

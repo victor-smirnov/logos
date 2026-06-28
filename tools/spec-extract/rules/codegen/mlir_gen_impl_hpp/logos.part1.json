@@ -99,7 +99,8 @@
       "statement": "A struct field of pointer or reference type (*T / &T / &mut T) does not own the pointee; automatic Drop of the containing struct must NOT drop through such fields.",
       "evidence": [
         "src/compiler/mlir_gen_impl.hpp#L52-L55"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.dyn.vtable-static",
@@ -120,7 +121,8 @@
       ],
       "related": [
         "trait.dyn.drop-full-concrete"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.dyn.drop-full-concrete",
@@ -141,7 +143,8 @@
       "statement": "A dyn Trait vtable carries, after its method slots, a pointer slot per transitive supertrait; an upcast &dyn Sub -> &dyn Super selects the corresponding super-vtable pointer. A trait with no supertraits has no extra slots (unchanged vtable layout).",
       "evidence": [
         "src/compiler/mlir_gen_impl.hpp#L422-L427"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.dyn.blanket-vtable-synthesis",
@@ -168,7 +171,8 @@
       "statement": "A method reference <struct>__<method> resolves to the actual mangled symbol, which may be package-qualified ([pkg.]Base__method) and may carry an overload-mangling suffix __f__<sig> or __g__<sig>; the bare convention name is the fallback when no mangled match exists.",
       "evidence": [
         "src/compiler/mlir_gen_impl.hpp#L228-L274"
-      ]
+      ],
+      "testability": "transitive"
     }
   ]
 }

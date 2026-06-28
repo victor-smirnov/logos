@@ -9,76 +9,114 @@
       "domain": "stmt",
       "title": "while condition must be bool",
       "statement": "In `while COND { ... }`, COND must have type `bool` (or be an error type); any other type is a type error.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6225-L6230"],
-      "examples": ["while x < 10 { }"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6225-L6230"
+      ],
+      "examples": [
+        "while x < 10 { }"
+      ]
     },
     {
       "id": "stmt.while.body-not-definitely-assigning",
       "domain": "stmt",
       "title": "while body does not establish definite assignment",
       "statement": "A `while`/`while let` loop may execute zero times, so assignments/initializations performed in its body do not count as definitely-initialized in the enclosing scope; the definite-assignment state is restored to its pre-loop value on every exit path.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6050-L6058"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6050-L6058"
+      ]
     },
     {
       "id": "stmt.while.label-binds-loop",
       "domain": "stmt",
       "title": "loop label attaches to the while loop itself",
       "statement": "A leading loop label `'a:` on a `while`/`while let` binds to that loop (added to the active-label set for its body) and is consumed before lowering the body, so an unlabeled nested loop inside the body cannot capture it; `break 'a` / `continue 'a` inside the body resolve to the labeled loop.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6111-L6116", "src/compiler/sema_stmt.cpp#L6170-L6176", "src/compiler/sema_stmt.cpp#L6220-L6246"],
-      "examples": ["'a: while cond { while inner { break 'a; } }"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6111-L6116",
+        "src/compiler/sema_stmt.cpp#L6170-L6176",
+        "src/compiler/sema_stmt.cpp#L6220-L6246"
+      ],
+      "examples": [
+        "'a: while cond { while inner { break 'a; } }"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "stmt.while.loop-depth-context",
       "domain": "stmt",
       "title": "while body is in loop context",
       "statement": "Statements in a `while`/`while let` body execute in loop context (loop depth incremented, a break-frame pushed), so `break` and `continue` are permitted there and resolve to this loop.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6168-L6177", "src/compiler/sema_stmt.cpp#L6233-L6242"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6168-L6177",
+        "src/compiler/sema_stmt.cpp#L6233-L6242"
+      ]
     },
     {
       "id": "stmt.while-let.desugar-loop-match",
       "domain": "stmt",
       "title": "while-let desugars to loop + match",
       "statement": "`while let PAT = EXPR { BODY }` is equivalent to `loop { match EXPR { PAT => { BODY }, _ => break } }`: the loop continues while EXPR matches PAT (binding PAT each iteration), and terminates the first time it does not.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6108-L6217"],
-      "examples": ["while let Some(x) = iter.next() { use(x); }"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6108-L6217"
+      ],
+      "examples": [
+        "while let Some(x) = iter.next() { use(x); }"
+      ]
     },
     {
       "id": "stmt.while-let.refutable-pattern-bindings-scope-body",
       "domain": "stmt",
       "title": "while-let pattern bindings scope over body",
       "statement": "Bindings introduced by the `while let` pattern are in scope only within the loop body (a fresh scope is pushed for the matched arm and popped after the body).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6133-L6185"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6133-L6185"
+      ]
     },
     {
       "id": "stmt.while-let.chain-trailing-cond-must-be-bool",
       "domain": "stmt",
       "title": "while-let trailing chain condition must be bool",
       "statement": "In a `while let PAT = EXPR && COND` chain, the trailing condition COND must have type `bool` (or error); it is evaluated with the pattern's bindings in scope and folded into the match-arm guard so the loop continues only when the pattern matches AND COND holds.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6138-L6166", "src/compiler/sema_stmt.cpp#L6199-L6205"],
-      "examples": ["while let Some(x) = it.next() && x > 0 { }"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6138-L6166",
+        "src/compiler/sema_stmt.cpp#L6199-L6205"
+      ],
+      "examples": [
+        "while let Some(x) = it.next() && x > 0 { }"
+      ]
     },
     {
       "id": "stmt.while-let.chain-cond-no-nested-variant-bindings",
       "domain": "stmt",
       "title": "while-let chain condition cannot reference nested enum-variant bindings",
       "statement": "A `while let` chain trailing condition may not reference bindings introduced by a nested enum-variant subpattern of the same pattern; such a reference is an error (match in the body instead).",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6149-L6155"],
-      "uncertainty": "Stated as a current implementation limitation ('cannot yet'); likely a temporary divergence rather than an intended language rule."
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6149-L6155"
+      ],
+      "uncertainty": "Stated as a current implementation limitation ('cannot yet'); likely a temporary divergence rather than an intended language rule.",
+      "testability": "untestable"
     },
     {
       "id": "stmt.while-let.chain-multiseg-desugar",
       "domain": "stmt",
       "title": "multi-segment while-let chain desugars to nested if-let-else-break",
       "statement": "A multi-segment let-chain `while let P1 = e1 && (let P2 = e2 | cond) && ... { BODY }` desugars to `loop { { if let P1 = e1 { { if let P2 = e2 { ... BODY ... } else { break; } } } else { break; } } }`, building inside-out so each segment (a `let PAT = VALUE` or a boolean condition) wraps the running body and falls to `break` on failure; a chain requires at least 2 segments.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6065-L6107"],
-      "examples": ["while let Some(a) = x.next() && let Some(b) = y.next() { f(a, b); }"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6065-L6107"
+      ],
+      "examples": [
+        "while let Some(a) = x.next() && let Some(b) = y.next() { f(a, b); }"
+      ]
     },
     {
       "id": "stmt.while.line-maps-to-header",
       "domain": "stmt",
       "title": "while loop maps to its header source line",
       "statement": "The emitted `while` loop is attributed to the source line of the `while` keyword (the loop header), not the last line of its body, for debug/stepping purposes.",
-      "evidence": ["src/compiler/sema_stmt.cpp#L6059-L6064", "src/compiler/sema_stmt.cpp#L6243-L6247"]
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L6059-L6064",
+        "src/compiler/sema_stmt.cpp#L6243-L6247"
+      ],
+      "testability": "untestable"
     }
   ]
 }

@@ -9,8 +9,12 @@
       "domain": "coerce",
       "title": "Auto-deref reference operand to primitive in scalar binops",
       "statement": "For binary operators in {+,-,*,/,%,<,<=,>,>=,==,!=,&,|,^,<<,>>}, an operand of type &T or &mut T whose pointee T is an integer, f32, f64, bool, or char is implicitly dereferenced to T before operator resolution; struct pointees are not peeled.",
-      "evidence": ["src/compiler/sema_expr.cpp#L1718-L1742"],
-      "examples": ["fn f(r: &i32) -> i32 { r + 1 }"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L1718-L1742"
+      ],
+      "examples": [
+        "fn f(r: &i32) -> i32 { r + 1 }"
+      ],
       "divergence": "Models Rust's `impl Add<i32> for &i32` family via auto-deref rather than blanket ref impls."
     },
     {
@@ -18,15 +22,21 @@
       "domain": "coerce",
       "title": "Auto-deref &T for bitwise/shift when T is integer (or bool for bitwise-only)",
       "statement": "For bitwise/shift operators {&,|,^,<<,>>}, an operand of type &T is implicitly dereferenced to T when T is an integer type, or when the operator is one of {&,|,^} and T is bool; shift operators never deref a bool pointee.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2389-L2402"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2389-L2402"
+      ]
     },
     {
       "id": "expr.binop.string-vs-str-eq",
       "domain": "expr",
       "title": "String == str views String as str",
       "statement": "For == and !=, when one operand is the struct String and the other is str (Slice<u8>), the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.",
-      "evidence": ["src/compiler/sema_expr.cpp#L1782-L1808"],
-      "examples": ["s == \"lit\""],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L1782-L1808"
+      ],
+      "examples": [
+        "s == \"lit\""
+      ],
       "divergence": "Mirrors Rust `impl PartialEq<str> for String`."
     },
     {
@@ -34,35 +44,45 @@
       "domain": "expr",
       "title": "str equality compares contents via str_eq",
       "statement": "== / != between two str operands (both Slice<u8> with u8 element) desugar to a call to stdlib `str_eq` (content comparison); != negates the result. With no `str_eq` in scope, falls back to (incorrect) pointer comparison.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2194-L2221"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2194-L2221"
+      ]
     },
     {
       "id": "expr.binop.str-relational-cmp",
       "domain": "expr",
       "title": "str ordering via str_cmp compared to 0",
       "statement": "Relational operators {<,<=,>,>=} between two str operands desugar to `str_cmp(lhs, rhs) OP 0`, where str_cmp returns lexicographic -1/0/1 (i32).",
-      "evidence": ["src/compiler/sema_expr.cpp#L2223-L2250"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2223-L2250"
+      ]
     },
     {
       "id": "trait.binop.struct-operator-overload",
       "domain": "trait",
       "title": "Operator overloading on struct LHS desugars to trait method",
       "statement": "When the left operand is a struct, the operator desugars to the corresponding trait method: + Add::add, - Sub::sub, * Mul::mul, / Div::div, % Rem::rem, & BitAnd::bitand, | BitOr::bitor, ^ BitXor::bitxor, << Shl::shl, >> Shr::shr, == Eq::eq, != Eq::ne, < Ord::lt, <= Ord::le, > Ord::gt, >= Ord::ge.",
-      "evidence": ["src/compiler/sema_expr.cpp#L1930-L1958"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L1930-L1958"
+      ]
     },
     {
       "id": "trait.binop.operator-method-autoref",
       "domain": "trait",
       "title": "Operator-method operands auto-borrowed to match by-ref formals",
       "statement": "When the resolved operator-overload method takes an operand by reference (&self / &other), the corresponding value operand is auto-borrowed (addr_of_temp) to match; by-value method formals receive the operand by value unchanged.",
-      "evidence": ["src/compiler/sema_expr.cpp#L1956-L1988"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L1956-L1988"
+      ]
     },
     {
       "id": "trait.binop.partial-ord-derive",
       "domain": "trait",
       "title": "Relational ops derive from partial_cmp when direct method absent",
       "statement": "For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns Option<Ordering> it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.",
-      "evidence": ["src/compiler/sema_expr.cpp#L1990-L2055"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L1990-L2055"
+      ],
       "divergence": "Mirrors Rust's default PartialOrd lt/le/gt/ge bodies."
     },
     {
@@ -70,7 +90,9 @@
       "domain": "trait",
       "title": "Tuple == / != routes to Eq impl only for non-primitive tuples",
       "statement": "== / != between two tuples of equal arity routes to the tuple's Eq eq/ne impl (keyed concrete `$tuple$N$...`, then arity `$tuple$N`, then variadic `$tuple$variadic`) ONLY when at least one field is non-primitive; an all-primitive tuple falls through to per-field value comparison and never requires the Eq trait. Operands are auto-borrowed to &Tuple.",
-      "evidence": ["src/compiler/sema_expr.cpp#L1812-L1928"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L1812-L1928"
+      ],
       "divergence": "Primitive-tuple fast path avoids requiring f64:Eq (f64 is PartialEq-only, Rust parity)."
     },
     {
@@ -78,88 +100,123 @@
       "domain": "trait",
       "title": "== / != on bounded type variable dispatches to Eq method",
       "statement": "== / != where the left operand is a type variable whose bounds (transitively, through supertraits) provide an `eq` method desugar to an auto-ref'd eq/ne method call dispatched after monomorphization; if more than one trait in scope provides `eq`, the call is tagged with trait Eq for disambiguation. Absent an eq-providing bound, falls through to the generic operator check.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2060-L2112"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2060-L2112"
+      ]
     },
     {
       "id": "trait.binop.enum-eq-impl",
       "domain": "trait",
       "title": "== / != on same-named enums requires structural Eq impl for payload enums",
       "statement": "== / != between two enums of the same name route to the enum's eq/ne impl (a 2-param candidate keyed `EnumName__eq`, concrete or generic) when one exists, auto-borrowing operands; a payload-less (C-like) enum without an impl falls through to discriminant comparison, while a payload-carrying enum with no Eq/PartialEq impl is rejected.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2114-L2192"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2114-L2192"
+      ]
     },
     {
       "id": "type.binop.enum-lit-rehint",
       "domain": "type",
       "title": "Bare enum-literal operand re-lowered with peer's concrete type",
       "statement": "In an enum == / != where one operand is a bare enum literal (no type-args, e.g. Option::None) and the other carries concrete type-args, the bare operand is re-lowered with the peer's enum type as the hint so both sides share the same concrete layout for the eq impl.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2124-L2150"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2124-L2150"
+      ]
     },
     {
       "id": "type.binop.never-operand",
       "domain": "type",
       "title": "Diverging operand makes binop type !",
       "statement": "If either operand has the never type !, the binary expression type-checks against any operator (no numeric/bool requirement) and its result type is !.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2255-L2261"],
-      "examples": ["1 + return 7", "x * break"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2255-L2261"
+      ],
+      "examples": [
+        "1 + return 7",
+        "x * break"
+      ]
     },
     {
       "id": "type.binop.error-propagation",
       "domain": "type",
       "title": "Error operand yields error type",
       "statement": "If either operand has the error type, the binary expression's result type is the error type (error already reported upstream; no cascade).",
-      "evidence": ["src/compiler/sema_expr.cpp#L2253-L2254"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2253-L2254"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.binop.logical-bool",
       "domain": "type",
       "title": "&& and || require bool operands, yield bool",
       "statement": "Operators && and || require each operand to be bool or the never type !; the result type is bool.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2262-L2271"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2262-L2271"
+      ]
     },
     {
       "id": "type.binop.comparison-bool",
       "domain": "type",
       "title": "Comparison operators yield bool with compatible operands",
       "statement": "Comparison operators {==,!=,<,<=,>,>=} require the two operand types to be mutually compatible (in either direction) and produce type bool.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2272-L2303"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2272-L2303"
+      ]
     },
     {
       "id": "expr.binop.ptr-null-compare",
       "domain": "expr",
       "title": "Pointer compared only against integer literal 0",
       "statement": "A raw pointer may be compared (== / != / relational) with an integer literal, but the literal must be 0; comparing a pointer with any non-zero literal is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2274-L2289"],
-      "examples": ["ptr == 0"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2274-L2289"
+      ],
+      "examples": [
+        "ptr == 0"
+      ]
     },
     {
       "id": "type.binop.intlit-fit-comparison",
       "domain": "type",
       "title": "Comparison literal must fit the peer integer type",
       "statement": "In a comparison where one operand is an integer literal and the other a concrete integer type, the literal value must fit in that type's range; otherwise the comparison is rejected (it could never hold).",
-      "evidence": ["src/compiler/sema_expr.cpp#L2290-L2302"],
-      "examples": ["let x: i32; x == 10000000000"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2290-L2302"
+      ],
+      "examples": [
+        "let x: i32; x == 10000000000"
+      ]
     },
     {
       "id": "type.binop.arith-numeric",
       "domain": "type",
       "title": "Arithmetic operators require numeric operands",
       "statement": "Arithmetic operators {+,-,*,/,%} require both operands to be numeric; the result type is the unified integer type of the operands when both are integers, otherwise unify_numeric, with a TypeVar operand propagated as the result when the other is an integer literal.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2304-L2383"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2304-L2383"
+      ]
     },
     {
       "id": "const.binop.div-by-literal-zero",
       "domain": "const",
       "title": "Division or remainder by literal zero rejected at compile time",
       "statement": "/ or % whose right operand is an integer literal 0 is a compile-time error; restricted to untyped IntLit RHS so statically-unreachable guarded divides are not rejected.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2309-L2318", "src/compiler/sema_expr.cpp#L2335-L2337"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2309-L2318",
+        "src/compiler/sema_expr.cpp#L2335-L2337"
+      ]
     },
     {
       "id": "const.binop.intlit-fold-overflow",
       "domain": "const",
       "title": "Integer-literal arithmetic is folded; i64 overflow is rejected",
       "statement": "When both arithmetic operands are integer literals with recoverable values, +,-,*,/,% are constant-folded to a single integer literal (of untyped IntLit type); if the fold overflows i64 the expression is rejected rather than silently wrapped.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2319-L2355"],
-      "examples": ["2147483647 + 1"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2319-L2355"
+      ],
+      "examples": [
+        "2147483647 + 1"
+      ],
       "divergence": "Rust folds in the inferred type; Logos folds in i64 and errors on i64 overflow, deferring per-type fit to the coercion site."
     },
     {
@@ -167,14 +224,19 @@
       "domain": "type",
       "title": "Arithmetic literal operand must fit the peer integer type",
       "statement": "In integer arithmetic where one operand is an integer literal and the other a concrete integer type, the literal value must fit in that concrete type's range.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2367-L2382"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2367-L2382"
+      ]
     },
     {
       "id": "type.binop.bitwise-integer-or-bool",
       "domain": "type",
       "title": "Bitwise/shift operands must be integer (or bool for bitwise-only)",
       "statement": "Bitwise operators {&,|,^} require integer or bool operands; shift operators {<<,>>} require integer operands only. The result type is the unified integer type of the operands.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2384-L2416", "src/compiler/sema_expr.cpp#L2454-L2454"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2384-L2416",
+        "src/compiler/sema_expr.cpp#L2454-L2454"
+      ],
       "divergence": "Matches Rust `impl BitAnd/BitOr/BitXor for bool`."
     },
     {
@@ -182,22 +244,31 @@
       "domain": "const",
       "title": "Negative literal shift count rejected",
       "statement": "<< or >> whose right operand is a negative integer literal is a compile-time error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2417-L2423"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2417-L2423"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "const.binop.shift-count-overflow-width",
       "domain": "const",
       "title": "Literal shift count >= LHS bit-width rejected",
       "statement": "<< or >> whose shift count is a literal value >= the bit-width of the left operand's type is a compile-time error (shifting by >= width is undefined); widths: i8/u8=8, i16/u16=16, i24/u24=24, i32/u32=32, i56/u56=56, i64/u64=64, i128/u128=128, usize/isize=64.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2424-L2453"],
-      "divergence": "usize/isize fixed at 64-bit (target-specific)."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2424-L2453"
+      ],
+      "divergence": "usize/isize fixed at 64-bit (target-specific).",
+      "testability": "transitive"
     },
     {
       "id": "expr.binop.unknown-operator",
       "domain": "expr",
       "title": "Unknown binary operator is an error",
       "statement": "A binary operator not in the recognized set is rejected as an unknown binary operator.",
-      "evidence": ["src/compiler/sema_expr.cpp#L2466-L2467"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L2466-L2467"
+      ],
+      "testability": "untestable"
     }
   ]
 }

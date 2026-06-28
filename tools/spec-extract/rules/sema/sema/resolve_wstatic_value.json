@@ -24,7 +24,8 @@
       "evidence": [
         "src/compiler/sema.cpp#L6425-L6440"
       ],
-      "divergence": "A6 — Writ-specific."
+      "divergence": "A6 — Writ-specific.",
+      "testability": "untestable"
     },
     {
       "id": "const.wstatic.type-lit-resolves-scope",
@@ -37,7 +38,8 @@
       "divergence": "A6 — Writ-specific.",
       "related": [
         "const.wstatic.content-identity"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.spec.most-specific-match",
@@ -47,7 +49,8 @@
       "evidence": [
         "src/compiler/sema.cpp#L6506-L6563"
       ],
-      "uncertainty": "Specificity ordering inferred from specificity_sema constants and lexicographic vector compare."
+      "uncertainty": "Specificity ordering inferred from specificity_sema constants and lexicographic vector compare.",
+      "testability": "untestable"
     },
     {
       "id": "generic.field.spec-overrides-base",
@@ -115,7 +118,8 @@
       "evidence": [
         "src/compiler/sema.cpp#L6882-L6905"
       ],
-      "divergence": "note — part of Logos's C++-style module-linkage system; no direct Rust equivalent."
+      "divergence": "note — part of Logos's C++-style module-linkage system; no direct Rust equivalent.",
+      "testability": "untestable"
     },
     {
       "id": "item.impl.method-reattach-by-package",
@@ -125,7 +129,8 @@
       "evidence": [
         "src/compiler/sema.cpp#L7002-L7054"
       ],
-      "uncertainty": "This is an emission/hosting invariant observable as: same-named generics in distinct packages keep their own methods; surfaced as a language-level guarantee against method mis-hosting."
+      "uncertainty": "This is an emission/hosting invariant observable as: same-named generics in distinct packages keep their own methods; surfaced as a language-level guarantee against method mis-hosting.",
+      "testability": "untestable"
     }
   ]
 }

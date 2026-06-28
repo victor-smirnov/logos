@@ -14,7 +14,8 @@
       ],
       "examples": [
         "struct S { x: i32, x: i32 } // error: duplicate field 'x'"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "generic.arity.exact-or-variadic-tail",
@@ -75,7 +76,8 @@
       "evidence": [
         "src/compiler/sema_impl.hpp#L1430-L1460"
       ],
-      "divergence": "Logos-specific memory/zone attribute set; no Rust analogue."
+      "divergence": "Logos-specific memory/zone attribute set; no Rust analogue.",
+      "testability": "transitive"
     },
     {
       "id": "item.repr.recognized-modes",
@@ -95,7 +97,8 @@
       "evidence": [
         "src/compiler/sema_impl.hpp#L1488-L1493"
       ],
-      "uncertainty": "The 'only valid in combination with #[test]' constraint is enforced downstream, not in this unit (comment-stated)."
+      "uncertainty": "The 'only valid in combination with #[test]' constraint is enforced downstream, not in this unit (comment-stated).",
+      "testability": "untestable"
     },
     {
       "id": "generic.lint.unused-type-param",
@@ -108,7 +111,8 @@
       "examples": [
         "fn f<T>(x: i32) {} // warn: type parameter 'T' is unused",
         "fn f<_T>(x: i32) {} // ok"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.bound.unknown-trait",

@@ -9,16 +9,23 @@
       "domain": "item",
       "title": "Writ datatype definition",
       "statement": "A datatype item is `[pub[(vis)]] eidos NAME [<type-params>] { field_def_or_doc* }`. It declares a Writ-fabric datatype with named/repeat-group fields; the optional generic parameter list and visibility marker are accepted.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1096-L1100"],
-      "examples": ["pub eidos Point<T> { x: T, y: T }"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1096-L1100"
+      ],
+      "examples": [
+        "pub eidos Point<T> { x: T, y: T }"
+      ],
+      "divergence": "A6",
+      "testability": "untestable"
     },
     {
       "id": "item.datatype.explicit-inst",
       "domain": "item",
       "title": "Explicit datatype instantiation declaration",
       "statement": "`[pub[(vis)]] eidos TYPE_REF ;` (no body) is an explicit-instantiation declaration that binds metadata annotations (e.g. `#[type_code=N]`) to a concrete generic instantiation, e.g. `#[type_code=42] datatype Array<i32>;`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1102-L1109"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1102-L1109"
+      ],
       "divergence": "A6"
     },
     {
@@ -26,7 +33,9 @@
       "domain": "item",
       "title": "Explicit genos/trait specialization declaration",
       "statement": "`[pub[(vis)]] <trait-kw> TYPE_REF ;` (no body) binds annotations to a logical-family (genos) specialization of a concrete trait instantiation; implementing eidos inherit the metadata via impl.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1111-L1118"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1111-L1118"
+      ],
       "divergence": "A6"
     },
     {
@@ -34,15 +43,22 @@
       "domain": "item",
       "title": "Unit struct declaration",
       "statement": "`[pub] struct IDENT ;` declares a zero-field (unit) struct. A bare IDENT immediately followed by `;` is a unit struct; `struct Foo<...>;` (IDENT then `<`) is instead parsed as an explicit instantiation. This rule MUST be matched before struct_inst.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1120-L1131"],
-      "examples": ["pub struct Foo;"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1120-L1131"
+      ],
+      "examples": [
+        "pub struct Foo;"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.struct.explicit-inst",
       "domain": "item",
       "title": "Explicit struct instantiation declaration",
       "statement": "`[pub[(vis)]] struct TYPE_REF ;` where TYPE_REF carries type arguments (e.g. `struct Foo<i64>;`) is an explicit-instantiation declaration binding annotations to a generic struct instantiation. The dedicated `instantiate Foo<T>;` form is preferred.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1133-L1138"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1133-L1138"
+      ],
       "divergence": "A6: see B-item-92 — bare `struct Foo;` is the unit struct, generic form kept for the unbound-typevar diagnostic"
     },
     {
@@ -50,46 +66,67 @@
       "domain": "item",
       "title": "Named-field struct definition",
       "statement": "`[pub[(vis)]] struct IDENT [<type-params>] [where-clause] { field_def_or_doc* method_def_or_doc* }` defines a struct with named fields, optional generics, an optional where-clause, and optional inline method definitions.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1149-L1150", "tools/peg_gen/grammars/logos.peg#L1160-L1161"],
-      "examples": ["pub struct S<T> where T: Clone { x: T, fn get(&self) -> &T { &self.x } }"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1149-L1150",
+        "tools/peg_gen/grammars/logos.peg#L1160-L1161"
+      ],
+      "examples": [
+        "pub struct S<T> where T: Clone { x: T, fn get(&self) -> &T { &self.x } }"
+      ]
     },
     {
       "id": "item.struct.tuple-def",
       "domain": "item",
       "title": "Tuple struct definition",
       "statement": "`[pub[(vis)]] struct IDENT [<type-params>] ( tuple_field (, tuple_field)* ) ;` defines a tuple struct whose fields are types only; field names are synthesized as \"0\",\"1\",… so `foo.0` and pattern `Foo(a,b)` work uniformly with named-field structs. Each tuple_field may carry its own `pub`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1151-L1152", "tools/peg_gen/grammars/logos.peg#L1174-L1180"],
-      "examples": ["pub struct Pair(pub i32, i32);"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1151-L1152",
+        "tools/peg_gen/grammars/logos.peg#L1174-L1180"
+      ],
+      "examples": [
+        "pub struct Pair(pub i32, i32);"
+      ]
     },
     {
       "id": "item.struct.where-clause-named-only",
       "domain": "item",
       "title": "Where-clause only on IDENT-name struct alternatives",
       "statement": "A struct/enum definition where-clause is accepted only on the IDENT-NAME alternatives, not on the antiquot (NAME_VAR / `#`-prefixed) alternatives, because WHERE and NAME_VAR share an AST slot.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1140-L1150"],
-      "uncertainty": "Slot-sharing is an implementation constraint surfaced as a grammar restriction."
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1140-L1150"
+      ],
+      "uncertainty": "Slot-sharing is an implementation constraint surfaced as a grammar restriction.",
+      "testability": "untestable"
     },
     {
       "id": "item.union.def",
       "domain": "item",
       "title": "Union definition",
       "statement": "`[pub[(vis)]] union IDENT [<type-params>] [where-clause] { field_def_or_doc* }` defines a union with named fields and optional generics. It is collected internally as a struct flagged `is_union`; no tuple shape, no methods.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1163-L1172"],
-      "examples": ["union U { a: i32, b: f32 }"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1163-L1172"
+      ],
+      "examples": [
+        "union U { a: i32, b: f32 }"
+      ]
     },
     {
       "id": "item.field.named",
       "domain": "item",
       "title": "Named field definition",
       "statement": "A struct field is `[pub] IDENT : TYPE_REF [,]`. The contextual keywords `new` and `null` are also accepted as field names. A trailing comma is permitted.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1191-L1202"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1191-L1202"
+      ]
     },
     {
       "id": "item.field.variadic",
       "domain": "item",
       "title": "Variadic field",
       "statement": "A field of form `IDENT ... : TYPE_REF` marks a variadic field (IS_VARIADIC).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1203-L1204"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1203-L1204"
+      ],
       "divergence": "A6"
     },
     {
@@ -97,46 +134,66 @@
       "domain": "item",
       "title": "Repeat-group field (quote)",
       "statement": "`#( field_def ),*` and `#( field_def )*` denote a repeat-group of field definitions (REPEAT_GROUP, OP=1 comma-separated / OP=0 plain), for use in quoted item bodies.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1183-L1186"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1183-L1186"
+      ],
+      "divergence": "A6",
+      "testability": "untestable"
     },
     {
       "id": "item.extern.block",
       "domain": "item",
       "title": "Extern block",
       "statement": "`[unsafe] extern [\"ABI\"] { extern_block_item* }` groups same-ABI externs. The optional ABI string applies to all items in the block (inherited at splice). The Rust-2024 `unsafe extern` marker is accepted with no extra semantics.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1209-L1227"],
-      "examples": ["unsafe extern \"C\" { fn puts(s: *const u8) -> i32; }"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1209-L1227"
+      ],
+      "examples": [
+        "unsafe extern \"C\" { fn puts(s: *const u8) -> i32; }"
+      ]
     },
     {
       "id": "item.extern.block-item",
       "domain": "item",
       "title": "Extern block item (fn / static)",
       "statement": "Inside an extern block, items use bare `fn IDENT(params [, ...]) [-> T] ;` (no `extern` keyword; trailing `, ...` makes it variadic) or `static [mut] IDENT : T ;`. The produced extern fn carries no ABI of its own; an extern static with no value is marked external (no initializer).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1228-L1243"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1228-L1243"
+      ]
     },
     {
       "id": "item.extern.fn-def",
       "domain": "item",
       "title": "Standalone extern fn declaration",
       "statement": "`extern [\"ABI\"] fn IDENT(params [, ...]) [-> T] ;` declares a single FFI function carrying its ABI string verbatim. A trailing `, ...` makes it variadic. Omitting the ABI string selects the default (Logos-internal) calling convention.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1209-L1216", "tools/peg_gen/grammars/logos.peg#L1244-L1255"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1209-L1216",
+        "tools/peg_gen/grammars/logos.peg#L1244-L1255"
+      ]
     },
     {
       "id": "item.where.clause",
       "domain": "item",
       "title": "Where clause",
       "statement": "`where where_pred (, where_pred)*`. A predicate is `<subject> : trait_bound (+ trait_bound)*` where subject is an associated-type ref, a reference type (`&T`, incl. `for<'a> &'a T`), or a plain type-param; or it is a bare type_param.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1257-L1271"],
-      "examples": ["where T: Clone + Send, &T: Into<U>"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1257-L1271"
+      ],
+      "examples": [
+        "where T: Clone + Send, &T: Into<U>"
+      ]
     },
     {
       "id": "item.visibility.pub-module",
       "domain": "item",
       "title": "Visibility marker pub / pub(module)",
       "statement": "Item visibility is `pub` (fully exported) or `pub(IDENT)` where IDENT is a contextual keyword validated == \"module\" in sema, meaning module-linkage: visible to other packages of the SAME module but not exported to consumers.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1273-L1284"],
-      "examples": ["pub(module) fn helper() {}"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1273-L1284"
+      ],
+      "examples": [
+        "pub(module) fn helper() {}"
+      ],
       "divergence": "Logos uses `pub(module)` for module-linkage; Rust uses `pub(crate)`/path-restricted visibilities."
     },
     {
@@ -144,45 +201,65 @@
       "domain": "item",
       "title": "Function definition",
       "statement": "A function item is `[pub[(vis)]] [unsafe] fn NAME [<type-params>] ( [param_list] ) [-> T] [where-clause] block`. NAME may be IDENT or the contextual keywords `new`/`null`. The where-clause and return type are optional.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1286-L1335"],
-      "examples": ["pub unsafe fn f<T>(x: T) -> T where T: Copy { x }"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1286-L1335"
+      ],
+      "examples": [
+        "pub unsafe fn f<T>(x: T) -> T where T: Copy { x }"
+      ]
     },
     {
       "id": "item.fn.antiquot-name",
       "domain": "item",
       "title": "Function with antiquoted name",
       "statement": "`[pub] [unsafe] fn #(expr) [<type-params>] ( [params] ) [-> T] block` carries an expr-TOM name (NAME_VAR), valid only inside a quote body; these alts omit the where-clause because NAME_VAR and WHERE share a slot.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1286-L1293", "tools/peg_gen/grammars/logos.peg#L1312-L1319"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1286-L1293",
+        "tools/peg_gen/grammars/logos.peg#L1312-L1319"
+      ],
+      "divergence": "A6",
+      "testability": "untestable"
     },
     {
       "id": "item.fn.param-list-trailing-comma",
       "domain": "item",
       "title": "Parameter list trailing comma",
       "statement": "A parameter list is `param (, param)* (,)?`, but a trailing comma is forbidden when immediately followed by `...` (the variadic marker), so `, ...` separators are unambiguous.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1337-L1342"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1337-L1342"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.fn.param-self-shorthand",
       "domain": "item",
       "title": "Self-receiver / ref-binding parameter shorthand",
       "statement": "A parameter may be `&[mut] IDENT` (reference binding, type elided), `ref IDENT : T`, or `mut IDENT : T` (mutable local binding, mutability invisible to callers).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1344-L1355"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1344-L1355"
+      ]
     },
     {
       "id": "item.fn.param-pattern",
       "domain": "item",
       "title": "Pattern-binding parameters",
       "statement": "A parameter may bind an irrefutable pattern: a tuple-destructure `(a, b, ...) : T`, a struct pattern `Name { f, .. } : T`, or a slice pattern `[h, t] : T`. Refutable patterns at the fn boundary are rejected in sema with the same diagnostic as for `let`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1356-L1393"],
-      "examples": ["fn f(Point { x, y }: Point) {}"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1356-L1393"
+      ],
+      "examples": [
+        "fn f(Point { x, y }: Point) {}"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.fn.param-variadic",
       "domain": "item",
       "title": "Variadic parameter",
       "statement": "`IDENT : T ...` marks a variadic parameter (IS_VARIADIC); plain `IDENT : T` is the ordinary typed parameter.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1379-L1382"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1379-L1382"
+      ],
       "divergence": "A6"
     },
     {
@@ -190,45 +267,62 @@
       "domain": "type",
       "title": "Type-reference ordered choice",
       "statement": "A type reference resolves by ordered choice: antiquot, typeof, cfg-slot-assoc, cfg-slot, writ-array, writ-map, pointer, array, slice, tagged, dyn, reference, impl-Trait, unit, never, closure, fn-pointer, tuple, paren, qualified-assoc, assoc-type-ref, then simple type. Associated-type forms precede simple_type so `T::Item` matches before `T`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1421"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1421"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.paren.unwrap",
       "domain": "type",
       "title": "Parenthesized type",
       "statement": "`( T )` is a parenthesized type, distinct from `()` (unit), `(T,)` (1-tuple) and `(T1,T2)` (n-tuple); sema unwraps it to its inner type T.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1423-L1426"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1423-L1426"
+      ]
     },
     {
       "id": "type.impl-trait.param",
       "domain": "type",
       "title": "impl Trait type",
       "statement": "`impl Trait`, `impl Trait<args>`, and `impl Fn(args) [-> R]` are accepted in type position; an impl-Trait parameter desugars to a synthetic generic parameter bounded by the same trait (Fn-family args→PARAMS, return→RET_TYPE, generic args→TYPE_PARAMS).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1395-L1414"],
-      "examples": ["fn f(x: impl Display) {}"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1395-L1414"
+      ],
+      "examples": [
+        "fn f(x: impl Display) {}"
+      ]
     },
     {
       "id": "type.cfg-slot.projection",
       "domain": "type",
       "title": "Type-level cfg-slot projection",
       "statement": "`<type:CFG.path>` projects, at mono-time, the type stored at a path within a WritStatic-typed type-level binding. Path steps are `.IDENT` (string key), `.INTEGER` (int key) and `.[INTEGER]` (array index). At least one path step is required. `<type:CFG.SLOT>::Assoc` projects an associated type on the slot base.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1428-L1449"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1428-L1449"
+      ],
+      "divergence": "A6",
+      "testability": "transitive"
     },
     {
       "id": "type.writ.lit-and-array-map",
       "domain": "type",
       "title": "Writ literal / typed array / typed map types",
       "statement": "`@{...}` at type position is a WritStatic value literal type (LIT_WSTATIC). `<Elem>[]` is a Writ typed-array type and `<K[,V]>{}` is a Writ typed-map type (used in `as` casts).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1451-L1473"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1451-L1473"
+      ],
+      "divergence": "A6",
+      "testability": "transitive"
     },
     {
       "id": "type.antiquot.quote-ty-only",
       "domain": "type",
       "title": "Type antiquotation",
       "statement": "`$ident` in type position is a type antiquotation valid only inside `quote_ty! { ... }`; resolving it elsewhere is an error.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1456-L1459"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1456-L1459"
+      ],
       "divergence": "A6"
     },
     {
@@ -236,53 +330,74 @@
       "domain": "type",
       "title": "typeof type",
       "statement": "`typeof(expr)` is the compile-time type of expr; the expression is not evaluated.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1461-L1463"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1461-L1463"
+      ],
+      "divergence": "A6",
+      "testability": "transitive"
     },
     {
       "id": "type.assoc.projection",
       "domain": "type",
       "title": "Associated-type projection",
       "statement": "`T::Item` and `T::Item<A,B>` (GAT with type args) are associated-type references; the `::Name[<args>]` tail may chain one or more times. `<T as Trait>::Assoc` is the fully-qualified form, with the disambiguating trait recorded for resolution.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1475-L1488"],
-      "examples": ["<Vec<T> as IntoIterator>::IntoIter"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1475-L1488"
+      ],
+      "examples": [
+        "<Vec<T> as IntoIterator>::IntoIter"
+      ]
     },
     {
       "id": "type.tagged.thin-pointer",
       "domain": "type",
       "title": "tagged thin pointer type",
       "statement": "`&tagged<T> Name` is a thin tag-dispatched pointer: a type_code tag is stored in memory before the object, and call sites read the tag, look up the dispatch table, and call indirectly.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1490-L1494"],
-      "divergence": "A6"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1490-L1494"
+      ],
+      "divergence": "A6",
+      "testability": "transitive"
     },
     {
       "id": "type.dyn.trait-object",
       "domain": "type",
       "title": "dyn trait-object type",
       "statement": "`dyn Trait`, `&dyn Trait`, `&mut dyn Trait` (optionally lifetime-annotated and HRTB-quantified `for<'a>`) form trait objects (fat pointer: data + vtable). Type args use `<...>`; Fn-family `dyn Fn(args)[-> R]` puts args in PARAMS/return in RET_TYPE. Trailing `+ Ident` (auto-trait, e.g. Send/Sync) and `+ 'lt` (lifetime) bounds are accepted; auto-trait bounds are enforced at unsize coercion, lifetime bounds are recorded but not enforced.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1496-L1616"],
-      "examples": ["&dyn Display + Send", "Box<dyn for<'a> Fn(&'a i32) -> i32>"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1496-L1616"
+      ],
+      "examples": [
+        "&dyn Display + Send",
+        "Box<dyn for<'a> Fn(&'a i32) -> i32>"
+      ]
     },
     {
       "id": "type.slice.ref",
       "domain": "type",
       "title": "Slice type",
       "statement": "`&[T]` and `&mut [T]` are slice types (fat pointer: ptr + len); an explicit lifetime `&'a [T]` / `&'a mut [T]` is accepted (captured but not distinctly enforced).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1618-L1629"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1618-L1629"
+      ]
     },
     {
       "id": "type.ref.borrow",
       "domain": "type",
       "title": "Reference types",
       "statement": "`&T`, `&mut T`, `&'a T`, `&'a mut T` are safe borrow-checked reference types. `&&T` / `&&mut T` (no whitespace, tokenized as AND) denote double-references; arbitrary-depth `& & … T` stacks are accepted at type position.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1631-L1655"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1631-L1655"
+      ]
     },
     {
       "id": "type.closure.type",
       "domain": "type",
       "title": "Closure type",
       "statement": "`|T1, T2| -> R` is a closure type used in parameter annotations; the zero-arg form `|| -> R` is accepted (the `||` token is split).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1657-L1664"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1657-L1664"
+      ],
       "divergence": "A6: Rust spells closures via Fn-family bounds; Logos has a dedicated `|..|->R` closure type syntax."
     },
     {
@@ -290,8 +405,12 @@
       "domain": "type",
       "title": "Function-pointer type",
       "statement": "`fn(T1,T2) -> R` is a bare function-pointer type. Qualifiers/prefixes are accepted: `unsafe fn(...)` (IS_UNSAFE), `extern \"ABI\" fn(...)` (ABI threaded to the calling convention), and `for<'a> fn(...)` (HRTB binders captured for future region inference).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L1666-L1715"],
-      "examples": ["extern \"C\" fn(i32) -> i32"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L1666-L1715"
+      ],
+      "examples": [
+        "extern \"C\" fn(i32) -> i32"
+      ]
     }
   ]
 }

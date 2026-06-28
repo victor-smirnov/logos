@@ -9,14 +9,21 @@
       "domain": "expr",
       "title": "$-capture requires a capturable @-literal context",
       "statement": "A `$ident` or `${expr}` capture node is only valid lexically inside a capturable @-literal (Writ) context; using one elsewhere is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15319-L15323"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15319-L15323"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.writ-capture.capturable-types",
       "domain": "expr",
       "title": "Set of types capturable in an @-literal",
       "statement": "A value may be captured into an @-literal iff its type is one of: integer scalars i8/i16/i32/i64/u8/u16/u32/u64, bool (→ inline AnyVal); f64/f32/FloatLit (→ zone-allocated F64, type_code 31); AnyVal (passthrough) or StringView (→ varchar) struct types; `*const u8`/`*mut u8` (→ C-string varchar); or `str`/`&[u8]` slice of u8 (→ length-bearing varchar). All other types are rejected.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15325-L15350", "src/compiler/sema_expr.cpp#L15360-L15367", "src/compiler/sema_expr.cpp#L15387-L15394"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15325-L15350",
+        "src/compiler/sema_expr.cpp#L15360-L15367",
+        "src/compiler/sema_expr.cpp#L15387-L15394"
+      ],
       "divergence": "Logos addition: @-literal (Writ) capture has no Rust analogue."
     },
     {
@@ -24,42 +31,54 @@
       "domain": "expr",
       "title": "$ident capture resolves a variable by name",
       "statement": "A `$ident` capture (WRIT_CAP_IDENT) resolves `ident` against the enclosing scope; an unknown variable is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15352-L15359"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15352-L15359"
+      ]
     },
     {
       "id": "expr.writ-capture.ident-dedup",
       "domain": "expr",
       "title": "Identical $ident captures share one value slot",
       "statement": "Two `$ident` captures of the same identifier name reuse the same capture value index (deduplicated), while each occurrence consumes a distinct parameter slot.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15368-L15380"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15368-L15380"
+      ]
     },
     {
       "id": "expr.writ-capture.expr-no-dedup",
       "domain": "expr",
       "title": "${expr} captures are never deduplicated",
       "statement": "A `${expr}` capture (WRIT_CAP_EXPR) lowers its inner expression and always allocates a fresh capture value index (no deduplication, since the expression may have side effects).",
-      "evidence": ["src/compiler/sema_expr.cpp#L15381-L15399"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15381-L15399"
+      ]
     },
     {
       "id": "expr.writ-lit.capture-context-save-restore",
       "domain": "expr",
       "title": "Nested @-literals do not clobber the outer capture context",
       "statement": "Lowering an @-literal establishes a fresh capture context for the duration of the literal and restores the prior context afterward, so a static @-literal nested inside a `${expr}` capture does not disturb outer `$`-captures.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15407-L15421"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15407-L15421"
+      ]
     },
     {
       "id": "expr.writ-lit.result-type",
       "domain": "expr",
       "title": "@-literal result type depends on presence of captures",
       "statement": "An @-literal with no captures has type `WritStatic`; an @-literal with one or more `$`-captures has the return type of `writ_build_from_template` (an Rc<Writ>), which requires `use logos.lang.writ.tmpl;` to be in scope.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15422-L15444"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15422-L15444"
+      ]
     },
     {
       "id": "metaprog.quote-item.name-antiquot-forms",
       "domain": "metaprog",
       "title": "quote_item! accepts #name and #(expr) name antiquotations",
       "statement": "Within `quote_item! { ... }`, a NAME_VAR placeholder accepts two forms: `#name` (shortcut) looks the variable up in the metafn scope and requires type Ident; `#(expr)` lowers the inner expression in the metafn scope and requires type Ident or ExprBlob. Any other pointee kind is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15569-L15625"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15569-L15625"
+      ],
       "divergence": "Logos metaprogramming construct; no Rust equivalent."
     },
     {
@@ -67,21 +86,29 @@
       "domain": "metaprog",
       "title": "#(...)* repetition binds cursor placeholders by Vec nesting depth",
       "statement": "Inside a `#(...)*` repetition group, a `#name` placeholder becomes a Cursor whose depth equals its Vec nesting (1 for Vec<Ident>, 2 for Vec<Vec<Ident>>); the variable's cursor depth d must be non-zero and ≤ the current repeat depth, else an error. Outside any repetition group, `#name` must be a scalar Ident.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15582-L15606", "src/compiler/sema_expr.cpp#L15523-L15533"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15582-L15606",
+        "src/compiler/sema_expr.cpp#L15523-L15533"
+      ]
     },
     {
       "id": "metaprog.quote-item.repeat-nesting-limit",
       "domain": "metaprog",
       "title": "#(...) repetition nesting limited to 2 levels",
       "statement": "`#(...)` repetition groups in `quote_item!` may nest at most 2 levels deep; deeper nesting is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15554-L15568"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15554-L15568"
+      ]
     },
     {
       "id": "metaprog.quote-item.placeholder-walk-order",
       "domain": "metaprog",
       "title": "Placeholder index is fixed by source-tree DFS order",
       "statement": "Placeholder indices are assigned by a deterministic depth-first walk of the quoted item subtrees (recursing into all pointer-valued TOM keys and array elements except NAME_VAR), and the destination rewrite mirrors the same recursion so producer indices align with placeholder slots.",
-      "evidence": ["src/compiler/sema_expr.cpp#L15541-L15661"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L15541-L15661"
+      ],
+      "testability": "transitive"
     }
   ]
 }

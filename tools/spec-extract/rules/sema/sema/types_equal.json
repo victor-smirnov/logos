@@ -11,7 +11,8 @@
       "statement": "types_equal(a,b) holds iff both are non-null, drawn from the same type pool, and have equal canonical UIDs (uid_of(a)==uid_of(b)); types from different pools are never equal. Pointer-identical refs are trivially equal.",
       "evidence": [
         "src/compiler/sema.cpp#L1355-L1362"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "coerce.compatible.equal-implies-compatible",
@@ -87,7 +88,8 @@
       "statement": "A CfgSlotType (deferred WritStatic-bound primitive) behaves like a TypeVar for coercion: IntLit/FloatLit to CfgSlot accepted, and any integer or float on either side is compatible with a CfgSlot in both directions; mono enforces the resolved-type compatibility.",
       "evidence": [
         "src/compiler/sema.cpp#L1909-L1921"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "coerce.enum.to-integer-discriminant",
@@ -188,7 +190,8 @@
       "statement": "Any *T (Ptr) coerces to a TaggedPtr (&tagged<TS> Trait, a thin pointer to a tagged object); the tag is read at dispatch time.",
       "evidence": [
         "src/compiler/sema.cpp#L2062-L2066"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.mangle.concrete-struct-name",
@@ -216,7 +219,8 @@
       "evidence": [
         "src/compiler/sema.cpp#L1404-L1415",
         "src/compiler/sema.cpp#L1460-L1463"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.mangle.fn-signature-key",
@@ -234,7 +238,8 @@
       "statement": "A function's link symbol is built from {module_id, package, base, signature, is_generic, is_method, is_extern} via the canonical sym::mangle encoder. Extern functions keep their bare ABI/C name; struct methods (base containing '__') are disambiguated by their struct's pkg-qualified name rather than re-qualified here. Two packages defining the same base+signature get distinct symbols.",
       "evidence": [
         "src/compiler/sema.cpp#L1543-L1568"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.overload.candidate-visibility-filter",
@@ -243,7 +248,8 @@
       "statement": "Function-name resolution collects all overloads (concrete and generic) then filters to those visible from the call site: own package, wildcard-imported packages, or empty-package (extern/prelude). A `use pkg from <module>` import deliberately excludes other modules' same-pkg fns. An explicit `pkg::fn(...)` qualifier restricts to that package only with no empty-fallback. Otherwise, if filtering leaves nothing and no deliberate `from`-exclusion occurred, all candidates are returned (synthetic-phase robustness).",
       "evidence": [
         "src/compiler/sema.cpp#L1638-L1700"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.overload.generic-arity-and-package",
@@ -252,7 +258,8 @@
       "statement": "Generic-function lookup among an overload set keeps only candidates passing the package-qualifier filter; with an arg count, a candidate matches if its arity equals n (or n>=arity when vararg). An arity match in the current package wins immediately; else the first matching-arity candidate; else a wrong-arity fallback.",
       "evidence": [
         "src/compiler/sema.cpp#L1578-L1608"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.lookup.exact-signature-fnitem-coerce",
@@ -261,7 +268,8 @@
       "statement": "Exact-signature function lookup requires equal vararg-ness and param arity, and each param either types_equal or (arg-side FnItem vs candidate FnPtr) compatible. This mirrors the FnItem to FnPtr coercion on the otherwise exact-match path.",
       "evidence": [
         "src/compiler/sema.cpp#L1610-L1636"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.call.overload-best-match-scoring",
@@ -270,7 +278,8 @@
       "statement": "Among arity-matching non-generic candidates, each is scored by its worst param match: exact (types_equal) = 2, compatible-only = 1; if any param is incompatible the candidate is rejected. The unique highest-scoring candidate wins. A score tie is ambiguous, broken by preferring the candidate whose package equals the current package (local shadows imported); an unbroken tie is an 'ambiguous call' error.",
       "evidence": [
         "src/compiler/sema.cpp#L1724-L1793"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.call.divergent-never-return",

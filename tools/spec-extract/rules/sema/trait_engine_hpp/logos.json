@@ -51,7 +51,8 @@
       "statement": "A negative fact `X does NOT implement T` overrides (beats) any auto-impl or shape-auto-impl fact for (T, X); satisfies(T, X) is then false even if an auto/shape rule would otherwise derive it.",
       "evidence": [
         "src/compiler/trait_engine.hpp#L87-L90"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.resolve.satisfies-fixpoint",
@@ -61,7 +62,8 @@
       "evidence": [
         "src/compiler/trait_engine.hpp#L92-L99",
         "src/compiler/trait_engine.hpp#L153-L156"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.resolve.recursive-bound-cycle-terminates",
@@ -70,7 +72,8 @@
       "statement": "Recursive bound resolution is cycle-guarded: a query (T, X) that re-asks itself through a circular blanket bound resolves that inner query as not-satisfied (NO_IMPL) rather than diverging, and the outer rule then decides.",
       "evidence": [
         "src/compiler/trait_engine.hpp#L145-L148"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "trait.resolve.impl-id-dispatch-selection",
@@ -80,7 +83,8 @@
       "evidence": [
         "src/compiler/trait_engine.hpp#L101-L103",
         "src/compiler/trait_engine.hpp#L28-L29"
-      ]
+      ],
+      "testability": "transitive"
     }
   ]
 }

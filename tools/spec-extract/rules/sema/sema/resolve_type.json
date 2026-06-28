@@ -9,14 +9,19 @@
       "domain": "type",
       "title": "Antiquotation valid only inside quote_ty!",
       "statement": "A type antiquotation `$name` or pack-splice `$name...` is a hard error outside a `quote_ty! { ... }` context.",
-      "evidence": ["src/compiler/sema.cpp#L5660-L5671"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5660-L5671"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.typeof.expr-type-no-eval",
       "domain": "type",
       "title": "typeof(expr) yields the sema type without evaluation",
       "statement": "`typeof(expr)` resolves to the sema-computed type of `expr`; the expression is type-checked but never evaluated at runtime.",
-      "evidence": ["src/compiler/sema.cpp#L5673-L5681"],
+      "evidence": [
+        "src/compiler/sema.cpp#L5673-L5681"
+      ],
       "divergence": "Logos addition: Rust has no `typeof` operator."
     },
     {
@@ -24,80 +29,111 @@
       "domain": "type",
       "title": "Raw-pointer modifiers",
       "statement": "A raw pointer type is written `*const T`, `*mut T`, or `*zoned T`/`*zoned mut T`; any other word after `*` is a hard error (`unknown raw-pointer modifier`).",
-      "evidence": ["src/compiler/sema.cpp#L5685-L5699", "src/compiler/sema.cpp#L5741"],
-      "divergence": "`*zoned` is a Logos-only zoned-pointer modifier (F3)."
+      "evidence": [
+        "src/compiler/sema.cpp#L5685-L5699",
+        "src/compiler/sema.cpp#L5741"
+      ],
+      "divergence": "`*zoned` is a Logos-only zoned-pointer modifier (F3).",
+      "testability": "untestable"
     },
     {
       "id": "type.ptr.dyn-is-fat",
       "domain": "type",
       "title": "Raw pointer to bare dyn is a fat trait object",
       "statement": "`*const dyn Trait` / `*mut dyn Trait` (immediate `dyn` pointee) canonicalises to the inline fat {data,vtable} TraitObject, identical to `&dyn Trait`'s representation.",
-      "evidence": ["src/compiler/sema.cpp#L5703-L5713"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5703-L5713"
+      ]
     },
     {
       "id": "type.ptr.dst-thin-if-self-describing",
       "domain": "type",
       "title": "Raw pointer to a DST struct: thin iff self-describing",
       "statement": "For a raw pointer whose pointee is an effective-DST struct: if the struct is self-describing (tail metadata recoverable in-band) the pointer stays thin (8B `Ptr<T>`); otherwise it becomes a fat DstRef carrying the tail length.",
-      "evidence": ["src/compiler/sema.cpp#L5714-L5741"],
-      "uncertainty": "`is_effective_dst`/`self_describing` are per-instance struct properties evaluated outside this unit."
+      "evidence": [
+        "src/compiler/sema.cpp#L5714-L5741"
+      ],
+      "uncertainty": "`is_effective_dst`/`self_describing` are per-instance struct properties evaluated outside this unit.",
+      "testability": "untestable"
     },
     {
       "id": "type.ref.canonicalize-unsized-pointee",
       "domain": "type",
       "title": "Reference to bare unsized pointee folds to the fat-pointer form",
       "statement": "`&T`/`&mut T` whose immediate pointee is bare `[U]` folds to `Slice<U>` (mut-tracked); bare `dyn Tr` folds to TraitObject; an effective-DST struct folds to DstRef. `&str` (`str` pointee) is treated as `&[u8]` and folds to `Slice<u8>`.",
-      "evidence": ["src/compiler/sema.cpp#L5744-L5847"],
-      "related": ["type.ptr.dyn-is-fat", "type.slice.str-is-byte-slice"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5744-L5847"
+      ],
+      "related": [
+        "type.ptr.dyn-is-fat",
+        "type.slice.str-is-byte-slice"
+      ]
     },
     {
       "id": "type.ref.unsized-pointee-gated",
       "domain": "type",
       "title": "Unsized reference pointees allowed only at the immediate position",
       "statement": "A bare unsized pointee (`[T]`, `dyn`, `str`) is permitted directly under `&`/`&mut` but the unsized-ok relaxation does not leak into nested type-arg resolution (e.g. `dyn` inside `&Box<dyn>` is still subject to the Box Sized bound).",
-      "evidence": ["src/compiler/sema.cpp#L5744-L5777", "src/compiler/sema.cpp#L5810-L5822"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5744-L5777",
+        "src/compiler/sema.cpp#L5810-L5822"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.ref.double-ref",
       "domain": "type",
       "title": "Double-reference types",
       "statement": "`&&T` resolves to `&(&T)` and `&&mut T` to `&(&mut T)` (lexer collapses `&&`).",
-      "evidence": ["src/compiler/sema.cpp#L5849-L5861"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5849-L5861"
+      ]
     },
     {
       "id": "type.slice.sized-vs-unsized",
       "domain": "type",
       "title": "Sized slice vs bare unsized slice",
       "statement": "A `[T]` written under a reference/pointer (SLICE_TYPE) resolves to a sized fat Slice (mut bit tracked); a bare `[T]` by value (UNSIZED_SLICE_TYPE) resolves to an unsized slice.",
-      "evidence": ["src/compiler/sema.cpp#L5863-L5894"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5863-L5894"
+      ]
     },
     {
       "id": "type.unsized.by-value-rejected",
       "domain": "type",
       "title": "Unsized type by value is an error",
       "statement": "A bare unsized slice `[T]` in a value position (param/return/field/alias/local) is a hard error unless an explicit unsized-ok context (e.g. a turbofish arg for a `T: ?Sized` parameter) is active; it must be wrapped in `&[T]`/`*const [T]`/`*mut [T]`.",
-      "evidence": ["src/compiler/sema.cpp#L5870-L5894", "src/compiler/sema.cpp#L5999-L6008"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5870-L5894",
+        "src/compiler/sema.cpp#L5999-L6008"
+      ]
     },
     {
       "id": "type.paren.transparent",
       "domain": "type",
       "title": "Parenthesized type is transparent",
       "statement": "`(T)` resolves structurally identical to `T`.",
-      "evidence": ["src/compiler/sema.cpp#L5896-L5900"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5896-L5900"
+      ]
     },
     {
       "id": "type.tuple.unit-and-elements",
       "domain": "type",
       "title": "Tuple type, unit, and variadic pack",
       "statement": "`()` (or an empty tuple) resolves to the unit/void type; `(T1,...,Tn)` resolves to a tuple of the element types; `(A...)` resolves to a Tuple of one TypeVar naming the variadic pack.",
-      "evidence": ["src/compiler/sema.cpp#L5902-L5926"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5902-L5926"
+      ]
     },
     {
       "id": "type.dyn.fn-family-is-closure",
       "domain": "type",
       "title": "dyn Fn/FnMut/FnOnce resolves to Closure",
       "statement": "`dyn Fn(P...) -> R`, `dyn FnMut(...)`, `dyn FnOnce(...)` resolve directly to the Closure type {fn_ptr, env_ptr}; there is no distinct Fn-trait-object vtable layer.",
-      "evidence": ["src/compiler/sema.cpp#L5928-L5952"],
+      "evidence": [
+        "src/compiler/sema.cpp#L5928-L5952"
+      ],
       "divergence": "A10"
     },
     {
@@ -105,36 +141,49 @@
       "domain": "type",
       "title": "dyn over an unknown trait is an error",
       "statement": "`dyn Trait` where Trait is not a registered trait (and not an Fn-family name) is a hard error (`unknown trait '...' in &dyn type`).",
-      "evidence": ["src/compiler/sema.cpp#L5964-L5965"],
-      "uncertainty": "Bare-name lookup: a package-local trait shadowed by a prelude trait of the same name resolves to the prelude trait (known gap, dyn-local-trait-shadowing)."
+      "evidence": [
+        "src/compiler/sema.cpp#L5964-L5965"
+      ],
+      "uncertainty": "Bare-name lookup: a package-local trait shadowed by a prelude trait of the same name resolves to the prelude trait (known gap, dyn-local-trait-shadowing).",
+      "testability": "untestable"
     },
     {
       "id": "type.dyn.auto-trait-and-lifetime-bounds",
       "domain": "type",
       "title": "dyn auto-trait and lifetime bounds",
       "statement": "In `dyn Trait<T,...> + Send + Sync + 'a`, type-args drive the TraitObject's type_args; `+ Send`/`+ Sync` set marker bits on the object; lifetime bounds (`+ 'a`, LIFETIME_PARAM) are recorded but not enforced and are excluded from the trait dispatch identity.",
-      "evidence": ["src/compiler/sema.cpp#L5966-L5998", "src/compiler/sema.cpp#L6013-L6018"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5966-L5998",
+        "src/compiler/sema.cpp#L6013-L6018"
+      ]
     },
     {
       "id": "type.dyn.object-safety-required",
       "domain": "type",
       "title": "Forming &dyn Trait requires object safety",
       "statement": "Forming a fat `&dyn Trait` (non-unsized-ok context) requires Trait to be object-safe (dyn-compatible); a non-object-safe trait is rejected at type resolution.",
-      "evidence": ["src/compiler/sema.cpp#L6009-L6012"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6009-L6012"
+      ]
     },
     {
       "id": "type.dyn.unsized-vs-fat",
       "domain": "type",
       "title": "Bare dyn unsized vs fat trait object",
       "statement": "In an unsized-ok context (turbofish for `T: ?Sized`), bare `dyn Trait` resolves to the unsized-dyn form; otherwise it resolves to the fat-pointer TraitObject.",
-      "evidence": ["src/compiler/sema.cpp#L5999-L6018"]
+      "evidence": [
+        "src/compiler/sema.cpp#L5999-L6018"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.tagged.thin-ptr-dispatch",
       "domain": "type",
       "title": "&tagged<TS> Trait",
       "statement": "`&tagged<TS> Trait` resolves to a thin TaggedPtr with tag-based dispatch; Trait must be a registered trait and TS must resolve to a concrete struct type, else hard error.",
-      "evidence": ["src/compiler/sema.cpp#L6021-L6039"],
+      "evidence": [
+        "src/compiler/sema.cpp#L6021-L6039"
+      ],
       "divergence": "Logos-only tagged-dispatch pointer."
     },
     {
@@ -142,35 +191,45 @@
       "domain": "type",
       "title": "impl Trait position semantics",
       "statement": "`impl Trait` in parameter position desugars to a fresh implicitly-Sized synthetic generic type-param bounded by Trait (a once-used generic, capturing full bound args); in return position it resolves to the dedicated ImplTrait type.",
-      "evidence": ["src/compiler/sema.cpp#L6041-L6065"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6041-L6065"
+      ]
     },
     {
       "id": "type.closure-type.params-ret",
       "domain": "type",
       "title": "Closure type literal",
       "statement": "A closure type literal resolves to Closure with the listed parameter types and a return type defaulting to unit/void when absent.",
-      "evidence": ["src/compiler/sema.cpp#L6067-L6082"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6067-L6082"
+      ]
     },
     {
       "id": "type.fn-ptr.abi-identity",
       "domain": "type",
       "title": "Function-pointer type and ABI identity",
       "statement": "`fn(P...) -> R` resolves to a single-pointer FnPtr; an `extern \"ABI\"` prefix is part of the type identity. Accepted ABIs are `C`/`C-unwind`/`system`/`Rust`; default and `\"Rust\"` normalize to the same identity, a foreign ABI is tagged, any other ABI string is a hard error. Return type defaults to void.",
-      "evidence": ["src/compiler/sema.cpp#L6084-L6125"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6084-L6125"
+      ]
     },
     {
       "id": "type.lit-int.const-generic-arg",
       "domain": "type",
       "title": "Integer literal as type",
       "statement": "An integer literal in type position resolves to an IntLit type carrying the (optionally negated) parsed value, for use as a const-generic argument.",
-      "evidence": ["src/compiler/sema.cpp#L6127-L6138"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6127-L6138"
+      ]
     },
     {
       "id": "type.array.length-forms",
       "domain": "type",
       "title": "Array type length forms",
       "statement": "`[T; N]` length is determined by: a `metacall { expr }` block whose tail integer is CTFE-evaluated; `sizeof...(P)` over an in-scope type-param pack (symbolic `__sizeof_pack:P`); a literal integer; or a symbolic const parameter name. A missing/empty metacall tail or an unknown pack/op is a hard error.",
-      "evidence": ["src/compiler/sema.cpp#L6140-L6226"],
+      "evidence": [
+        "src/compiler/sema.cpp#L6140-L6226"
+      ],
       "divergence": "Array length via `metacall {..}` replaces Rust const-eval at this position (MP-mc-01)."
     },
     {
@@ -178,7 +237,9 @@
       "domain": "type",
       "title": "Writ typed array type <Elem>[]",
       "statement": "`<Elem>[]` resolves to a generic struct `WritArr<elem>`; Elem must be one of I8/U8/I16/U16/I32/U32/I64/U64/F32/F64 (mapped to the Logos primitive), else hard error.",
-      "evidence": ["src/compiler/sema.cpp#L6234-L6266"],
+      "evidence": [
+        "src/compiler/sema.cpp#L6234-L6266"
+      ],
       "divergence": "Logos-only Writ container type-expression."
     },
     {
@@ -186,7 +247,9 @@
       "domain": "type",
       "title": "Writ typed map type <K,V>{}",
       "statement": "`<K,V>{}` resolves to `WritMap<key,val>`; key must be I32/U32/I64/U64 and value must be `AnyVal` (default), else hard error.",
-      "evidence": ["src/compiler/sema.cpp#L6267-L6297"],
+      "evidence": [
+        "src/compiler/sema.cpp#L6267-L6297"
+      ],
       "divergence": "Logos-only Writ container type-expression."
     },
     {
@@ -194,43 +257,59 @@
       "domain": "type",
       "title": "Pack expansion in type-arg position",
       "statement": "`T...` in type-arg position resolves to the in-scope variadic type parameter's TypeVar; an undefined pack name is a hard error.",
-      "evidence": ["src/compiler/sema.cpp#L6299-L6310"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6299-L6310"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.name.inference-placeholder",
       "domain": "type",
       "title": "`_` placeholder type",
       "statement": "`_` resolves to an inferred-type placeholder, but is a hard error (E0121 analog) in item-signature position (fn params/return, const item type) where no inference context exists.",
-      "evidence": ["src/compiler/sema.cpp#L6326-L6344"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6326-L6344"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.name.self-typevar",
       "domain": "type",
       "title": "Self resolves to the bound Self type parameter",
       "statement": "`Self` resolves to the current `Self` type-param binding when one is in scope.",
-      "evidence": ["src/compiler/sema.cpp#L6345-L6348"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6345-L6348"
+      ]
     },
     {
       "id": "type.name.qualified-by-last-segment",
       "domain": "type",
       "title": "Qualified type path resolves by its last segment",
       "statement": "A fully-qualified type `pkg.path.Type` is resolved by the final path segment alone; the package prefix is dropped.",
-      "evidence": ["src/compiler/sema.cpp#L6312-L6325"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6312-L6325"
+      ]
     },
     {
       "id": "type.name.lookup-or-error",
       "domain": "type",
       "title": "Named-type resolution and unknown-type diagnostics",
       "statement": "A type name resolves via name lookup; if not found it is a hard error (`unknown type`), specialized to `generic type alias requires type arguments` when the name is a parameterized alias used without args. In metaprog discovery mode unknown names resolve silently to error_t (may be synthesised by a later hook).",
-      "evidence": ["src/compiler/sema.cpp#L6349-L6366"]
+      "evidence": [
+        "src/compiler/sema.cpp#L6349-L6366"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.wstatic.literal-arg",
       "domain": "type",
       "title": "WritStatic literal in type-arg position",
       "statement": "A WritStatic literal `Foo::<@{...}>` (or a bare writ-lit value-AST in const recognition) resolves to the value's WritStatic type; a missing payload is a hard error.",
-      "evidence": ["src/compiler/sema.cpp#L6370-L6386"],
-      "divergence": "Logos-only WritStatic value-as-type-arg."
+      "evidence": [
+        "src/compiler/sema.cpp#L6370-L6386"
+      ],
+      "divergence": "Logos-only WritStatic value-as-type-arg.",
+      "testability": "untestable"
     }
   ]
 }

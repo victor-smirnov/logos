@@ -12,7 +12,8 @@
       "evidence": [
         "src/compiler/mono_clone.cpp#L3716-L3737"
       ],
-      "divergence": "Logos-specific name-mangling scheme; see G156-1 baghunt for two-impl collision"
+      "divergence": "Logos-specific name-mangling scheme; see G156-1 baghunt for two-impl collision",
+      "testability": "transitive"
     },
     {
       "id": "mono.dispatch.ref-receiver-fallback",
@@ -21,7 +22,8 @@
       "statement": "If a method `<recv>__<method>` does not exist but a reference-typed variant `$ref_<recv>__<method>` (or `$mut_ref_<recv>__<method>` for a mut-ref receiver) does, the call resolves to the reference-typed symbol.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L3700-L3715"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.enum-receiver-spec-synthesis",
@@ -78,7 +80,8 @@
       "evidence": [
         "src/compiler/mono_clone.cpp#L3913-L3963"
       ],
-      "divergence": "Logos-specific (T9-tr-02) plus variadic-pack handling"
+      "divergence": "Logos-specific (T9-tr-02) plus variadic-pack handling",
+      "testability": "untestable"
     },
     {
       "id": "mono.subst.mangle-and-enqueue-method-generic",
@@ -118,7 +121,8 @@
       "evidence": [
         "src/compiler/mono_clone.cpp#L4083-L4139"
       ],
-      "divergence": "Logos-specific monomorphization fixup"
+      "divergence": "Logos-specific monomorphization fixup",
+      "testability": "transitive"
     },
     {
       "id": "mono.subst.const-arg-method-specialize",
@@ -127,7 +131,8 @@
       "statement": "For a concrete method call kept as a method call, const-argument specialization treats the receiver as parameter index 0 (a combined [receiver, args...] view) so a const-wanting parameter at any position, including the receiver, is mapped and the callee specialized.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L4144-L4156"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "mono.subst.closure-substitution",

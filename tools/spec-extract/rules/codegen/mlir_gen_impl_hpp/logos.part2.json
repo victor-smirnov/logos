@@ -29,7 +29,8 @@
       "statement": "Converting a float to a wider float type extends; to a narrower float type truncates.",
       "evidence": [
         "src/compiler/mlir_gen_impl.hpp#L561-L568"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "coerce.int.to-float-by-signedness",
@@ -148,7 +149,8 @@
       "statement": "A struct type's identity carries its package prefix (pkg.Name); same-named structs in different packages are distinct types and do not alias. Method-symbol mangling uses the package-agnostic bare struct name.",
       "evidence": [
         "src/compiler/mlir_gen_impl.hpp#L667-L691"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "intrinsic.closure.drop-glue",

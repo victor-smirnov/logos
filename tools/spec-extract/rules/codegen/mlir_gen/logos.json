@@ -48,7 +48,8 @@
         "src/compiler/mlir_gen.cpp#L215-L268",
         "src/compiler/mlir_gen.cpp#L447-L478"
       ],
-      "uncertainty": "Function-pointer/closure values stored without an immediate call are conservatively over-pruned per the source comment."
+      "uncertainty": "Function-pointer/closure values stored without an immediate call are conservatively over-pruned per the source comment.",
+      "testability": "untestable"
     }
   ]
 }
