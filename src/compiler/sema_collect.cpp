@@ -4907,7 +4907,11 @@ void SemaChecker::trait_vtable_layout(
     logos::compiler::StrSet seen;
     std::function<void(const std::string&)> walk = [&](const std::string& tn) {
         if (!seen.insert(tn).second) return;
-        auto it = traits_.find(tn);
+        // ADV1-H: resolve scope-aware (cur_package::name first), so a trait OR a
+        // SUPERTRAIT whose bare name shadows a prelude/imported one (e.g. user
+        // `Sub: Add` both shadowing operators) walks the USER traits' methods,
+        // not the incumbents'. No-op for non-colliding names (falls to bare).
+        auto it = find_trait_iter_scoped(tn);
         if (it == traits_.end()) return;
         for (auto& s : it->second.supertraits) {
             if (s.trait_name == "Copy") continue;   // marker, no vtable

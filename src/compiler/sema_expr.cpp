@@ -6887,14 +6887,24 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
             }
         }
     }
-    auto tit = traits_.find(tname);
+    // ADV1-H (dyn-local-trait-shadowing): the TraitObject carries the trait's
+    // BARE name; a user trait whose name collides with a prelude/imported one is
+    // registered under its package-qualified key (B-mv-02). Resolve the registry
+    // key scope-aware (cur_package::name first) so dispatch binds to the USER's
+    // trait, not the incumbent — else `traits_.find(tname)` returns the prelude
+    // trait and the call fails with "trait '<X>' has no method". The vtable index
+    // (mi) below stays consistent with mlir-gen: the EMIT side single-sources the
+    // same flattened slot order from this trait's own def (sema_decl lowers it via
+    // the same scope-aware key), and the mlir vtable registry is target-keyed.
+    auto canon = find_trait_iter_scoped(tname);
+    auto tit = canon;
     if (tit != traits_.end()) {
         // Supertrait-closure vtable order: a supertrait method is dispatchable
         // through `&dyn Sub` because it owns a real slot in Sub's vtable. The
         // index in this flattened order IS the vtable slot (matches mlir-gen).
         std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
         std::vector<std::string> upsup_unused;
-        trait_vtable_layout(tname, vtab, upsup_unused);
+        trait_vtable_layout(canon->first, vtab, upsup_unused);
         for (size_t mi = 0; mi < vtab.size(); ++mi) {
             const std::string& owner_trait = vtab[mi].first;
             auto& m = *vtab[mi].second;

@@ -1590,7 +1590,19 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
     auto tname = std::string(str_of(node.get(la::NAME.code)));
     DeclBuilder b(*cur_prog_, lir_schema::decl::Code::Trait, /*cap=*/16);
     b.str_always(tk::NAME, tname);
-    auto tit = traits_.find(tname);
+    // ADV1-H (dyn-local-trait-shadowing): a user trait whose bare name collides
+    // with a prelude/imported same-name trait registers under its package-
+    // qualified key (B-mv-02), so the bare `traits_.find(tname)` here would bind
+    // this LTraitDef to the WRONG (incumbent) trait's methods / vtable order.
+    // Resolve THIS def's own info scope-aware (cur_package::name first), and use
+    // its registry key when single-sourcing the vtable layout below. The emitted
+    // tk::NAME stays BARE: the impl/vtable ecosystem is bare-keyed and target-
+    // disambiguated by design (sema_collect.cpp impls_ key), so mlir-gen's
+    // `td_name::target` emit key and `trait_name::type` dispatch key still agree.
+    auto tit_scoped = find_trait_iter_scoped(tname);
+    std::string vtab_key =
+        (tit_scoped != traits_.end()) ? tit_scoped->first : tname;
+    auto tit = tit_scoped;
     if (tit != traits_.end()) {
         if (!tit->second.assoc_types.empty()) {
             auto arr = b.array(tk::ASSOC_TYPES);
@@ -1627,7 +1639,7 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
         // ordered upcast targets) for mlir-gen to consume verbatim.
         std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
         std::vector<std::string> upcast;
-        trait_vtable_layout(tname, vtab, upcast);
+        trait_vtable_layout(vtab_key, vtab, upcast);
         {
             auto arr = b.array(tk::UPCAST_SUPERTRAITS);
             for (auto& u : upcast) arr.push_str(u);
