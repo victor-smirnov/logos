@@ -5,12 +5,17 @@ export const meta = {
   phases: [{ title: 'Author+verify', detail: 'one agent per test-unit: write grouped test, compile/run, iterate to green' }],
 }
 
-// args: {
-//   units: [{ stem, kind: 'pass'|'fail', rules:[{id,domain,statement,examples,evidence,divergence}] }],
-//   tests_dir, lib_dir, logosc, run_test, repo
-// }
+// args, two ways:
+//   inline:  { units: [{ stem, kind, rules:[{id,domain,statement,examples,evidence}] }], ... }
+//   by path: { plan_path: "tmp/tp.json", work: [{stem, kind}], ... }
+//            (each agent reads its unit's rules from plan_path — keeps args tiny)
+// plus runtime: tests_dir, lib_dir, logosc, run_test
 const P = (typeof args === 'string') ? JSON.parse(args) : args
-if (!P || !Array.isArray(P.units)) throw new Error('spec-test: pass {units:[...]} as args')
+if (!P || (!Array.isArray(P.units) && !P.plan_path)) {
+  throw new Error('spec-test: pass {units:[...]} or {plan_path, work:[{stem,kind}]}')
+}
+const PLAN = P.plan_path
+const work = PLAN ? (P.work || []) : P.units
 const TESTS = P.tests_dir || 'tests/spec'
 const LIBDIR = P.lib_dir
 const LOGOSC = P.logosc || 'build/bin/logosc'
@@ -34,11 +39,16 @@ const RET = {
   },
 }
 
+function rulesBlock(u) {
+  return PLAN
+    ? `Read ${PLAN}; find the object in its "units" array whose "stem" == "${u.stem}". Use exactly its "rules" array (id, statement, examples, evidence) as the RULES to confirm.`
+    : `RULES to confirm:\n${JSON.stringify(u.rules.map(r => ({ id: r.id, statement: r.statement, examples: r.examples || [], evidence: r.evidence })), null, 1)}`
+}
+
 function passPrompt(u) {
   return `Write ONE grouped conformance test that locks these Logos language rules by EXECUTING them. The test must actually compile and run green — a test that doesn't run locks nothing.
 
-RULES to confirm (domain "${u.rules[0].domain}", group "${u.stem}"):
-${JSON.stringify(u.rules.map(r => ({ id: r.id, statement: r.statement, examples: r.examples || [], evidence: r.evidence })), null, 1)}
+${rulesBlock(u)}
 
 WRITE ${TESTS}/pass/${u.stem}.logos :
 - "package ${u.stem.replace(/[^a-z0-9_]/g, '_')};" then any helper structs/impls/fns, then "fn main() -> i64 { ... }".
@@ -57,8 +67,7 @@ Return the structured result: stem, green (final run exit 0?), covered (rule ids
 function failPrompt(u) {
   return `Write conformance FAIL tests that lock these DIAGNOSTIC rules — each is a program that must be REJECTED by the compiler with a characteristic message. A fail test is one program per diagnostic (a compile error aborts the whole file, so they cannot be grouped into one compile).
 
-RULES (each "X is rejected/an error"):
-${JSON.stringify(u.rules.map(r => ({ id: r.id, statement: r.statement, evidence: r.evidence })), null, 1)}
+${rulesBlock(u)}
 
 For EACH rule write ${TESTS}/fail/${u.stem}__<short-slug>.logos :
 - a minimal "package ...;" program that triggers exactly that error and nothing else;
@@ -73,8 +82,8 @@ Return: stem, green, covered (rule ids with a passing fail-test), untestable, fi
 }
 
 phase('Author+verify')
-log(`generating ${P.units.length} test-unit(s)`)
-const results = (await parallel(P.units.map(u => () =>
+log(`generating ${work.length} test-unit(s)`)
+const results = (await parallel(work.map(u => () =>
   agent(u.kind === 'fail' ? failPrompt(u) : passPrompt(u),
     { label: `${u.kind}:${u.stem}`, phase: 'Author+verify', schema: RET })
 ))).filter(Boolean)

@@ -564,6 +564,34 @@ def cmd_coverage(cfg, args):
         print(f"  {dom:10s} {cov:4d} / {tot}{bar}")
 
 
+def cmd_mark_testability(cfg, args):
+    """Apply {id: class} testability marks (from a spec-test run's `untestable`
+    report) to the rule artifacts, so `coverage` excludes not-directly-testable
+    rules honestly instead of counting them as gaps."""
+    marks = json.load(open(args.marks))
+    valid = {"behavioral", "diagnostic", "transitive", "untestable"}
+    bad = {k: v for k, v in marks.items() if v not in valid}
+    if bad:
+        raise SystemExit(f"mark-testability: invalid classes {set(bad.values())}")
+    by_file = collections.defaultdict(dict)
+    for f, _, r in iter_all_rules(cfg):
+        if r["id"] in marks:
+            by_file[f][r["id"]] = marks[r["id"]]
+    applied = 0
+    for relf, idmap in by_file.items():
+        art = json.load(open(os.path.join(REPO, relf)))
+        for r in art["rules"]:
+            if r["id"] in idmap:
+                r["testability"] = idmap[r["id"]]
+                applied += 1
+        with open(os.path.join(REPO, relf), "w") as fh:
+            json.dump(art, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+    missing = sorted(set(marks) - {r["id"] for _, _, r in iter_all_rules(cfg)})
+    print(f"mark-testability: set {applied} rule(s) across {len(by_file)} file(s)"
+          + (f"; {len(missing)} id(s) not found" if missing else ""), file=sys.stderr)
+
+
 _DIAG = re.compile(r"\b(reject|rejected|forbidden|not allowed|not permitted|"
                    r"must |cannot |disallow|illegal|is an error|is a (compile )?error)", re.I)
 
@@ -730,11 +758,14 @@ def main():
     sptp.add_argument("--layer", action="append", help="restrict to layer(s)")
     sptp.add_argument("--cap", type=int, default=22, help="max rules per generated test file (default 22)")
     sptp.add_argument("--limit", type=int, help="emit at most N units (partial rollout)")
+    spmt = sub.add_parser("mark-testability", help="apply {id:class} testability marks to artifacts")
+    spmt.add_argument("marks", help="JSON object mapping rule id -> behavioral|diagnostic|transitive|untestable")
 
     args = p.parse_args()
     {"manifest": cmd_manifest, "plan": cmd_plan, "ids": cmd_ids, "status": cmd_status,
      "collisions": cmd_collisions, "apply-dedup": cmd_apply_dedup, "mdsafe": cmd_mdsafe,
-     "coverage": cmd_coverage, "test-plan": cmd_test_plan}[args.cmd](cfg, args)
+     "coverage": cmd_coverage, "test-plan": cmd_test_plan,
+     "mark-testability": cmd_mark_testability}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
