@@ -5,19 +5,6 @@
   "source_hash": "bd2dcf3540117090",
   "rules": [
     {
-      "id": "trait.tagdispatch.type-code-keyed",
-      "domain": "trait",
-      "title": "Tag-based dispatch keys on a runtime type-code read from the receiver",
-      "statement": "A `#[tag_dispatch]`-style trait call resolves the target method at runtime by (1) reading an integer `type_code` from the receiver value via the trait's TagSystem `read_tag(self=null, obj_ptr) -> i64`, then (2) indexing a per-(tag_system, trait, method) dispatch structure by that type_code to obtain the method function pointer, then (3) calling it indirectly with the receiver pointer as `self: *const u8` followed by the user args. The TagSystem is a stateless unit struct (self passed as null).",
-      "evidence": [
-        "src/compiler/mlir_gen_dyn.cpp#L1308-L1356",
-        "src/compiler/mlir_gen_dyn.cpp#L1360-L1364",
-        "src/compiler/mlir_gen_dyn.cpp#L1444-L1474"
-      ],
-      "divergence": "Logos addition: runtime type-code/TagSystem dispatch has no direct Rust analogue (Rust uses vtables only).",
-      "uncertainty": "TagSystem read_tag encoding variants (legacy 2-byte / vlen / TOM inline header) are noted in comments but not enforced in this unit."
-    },
-    {
       "id": "trait.tagdispatch.tier-boundary-256",
       "domain": "trait",
       "title": "Tag dispatch is two-tier with a type-code boundary of 256",
@@ -128,6 +115,22 @@
       "evidence": [
         "src/compiler/mlir_gen_dyn.cpp#L1843-L1849",
         "src/compiler/mlir_gen_dyn.cpp#L2117-L2165"
+      ]
+    },
+    {
+      "id": "trait.tagdispatch.type-code-keyed",
+      "domain": "trait",
+      "title": "Tag-based dispatch keys on a runtime type-code read from the receiver",
+      "statement": "A `#[tag_dispatch]`-style trait call resolves the target method at runtime by (1) reading an integer `type_code` from the receiver value via the trait's TagSystem `read_tag(self=null, obj_ptr) -> i64`, then (2) indexing a per-(tag_system, trait, method) dispatch structure by that type_code to obtain the method function pointer, then (3) calling it indirectly with the receiver pointer as `self: *const u8` followed by the user args. The TagSystem is a stateless unit struct (self passed as null).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1308-L1356",
+        "src/compiler/mlir_gen_dyn.cpp#L1360-L1364",
+        "src/compiler/mlir_gen_dyn.cpp#L1444-L1474"
+      ],
+      "divergence": "Logos addition: runtime type-code/TagSystem dispatch has no direct Rust analogue (Rust uses vtables only).",
+      "uncertainty": "TagSystem read_tag encoding variants (legacy 2-byte / vlen / TOM inline header) are noted in comments but not enforced in this unit.",
+      "related": [
+        "trait.tagdispatch.dispatch-table-layout"
       ]
     }
   ]

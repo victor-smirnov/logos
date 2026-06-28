@@ -9,7 +9,9 @@
       "domain": "module",
       "title": "Implicit prelude auto-imported per file",
       "statement": "Every source file implicitly imports the prelude package in addition to its explicit `use` declarations, unless the file opts out. The implicit prelude is deduplicated against explicit uses (no duplicate import if already named).",
-      "evidence": ["src/compiler/module_loader.cpp#L95-L103"],
+      "evidence": [
+        "src/compiler/module_loader.cpp#L95-L103"
+      ],
       "divergence": "Logos uses a named prelude *package*; the model parallels Rust's std prelude but is package-granular."
     },
     {
@@ -17,37 +19,40 @@
       "domain": "module",
       "title": "#![no_implicit_prelude] suppresses implicit prelude",
       "statement": "A file-level inner attribute `#![no_implicit_prelude]` suppresses the implicit prelude import for that file. It is recognized as an INNER_ANNOTATION item with name `no_implicit_prelude`.",
-      "evidence": ["src/compiler/module_loader.cpp#L57-L78", "src/compiler/module_loader.cpp#L96"]
+      "evidence": [
+        "src/compiler/module_loader.cpp#L57-L78",
+        "src/compiler/module_loader.cpp#L96"
+      ]
     },
     {
       "id": "module.use.dotted-path",
       "domain": "module",
       "title": "Dotted use path",
       "statement": "`use a.b.c;` names the package whose dotted path is the concatenation of the head identifier and successive `.`-separated path parts: `a.b.c`. Package paths use `.` as the separator.",
-      "evidence": ["src/compiler/module_loader.cpp#L135-L158"],
-      "related": ["module.path.package-name"]
-    },
-    {
-      "id": "module.use.from-module-disambiguation",
-      "domain": "module",
-      "title": "use ... from <module> disambiguates provider",
-      "statement": "`use pkg from <module>;` binds the import to the named module, disambiguating which archive provides `pkg` when two modules share a package name. The `<module>` operand may be a bare identifier or a double-quoted string literal (surrounding quotes are stripped). Absence of `from` means default resolution.",
-      "evidence": ["src/compiler/module_loader.cpp#L115-L133", "src/compiler/module_loader.cpp#L206-L207"],
-      "divergence": "Logos-specific: type/package coexistence across modules sharing a name (no Rust analog)."
+      "evidence": [
+        "src/compiler/module_loader.cpp#L135-L158"
+      ],
+      "related": [
+        "module.path.package-name"
+      ]
     },
     {
       "id": "module.use.group-desugar",
       "domain": "module",
       "title": "use group desugars to N imports",
       "statement": "`use pkg.{a, b, c};` (USE_GROUP / USE_VARIANTS form) desugars to N separate package imports, one per group member, where each lowercase-leading group prefix forms a sub-package: `use pkg.sub.{a,b}` yields imports `pkg.sub.a`, `pkg.sub.b`.",
-      "evidence": ["src/compiler/module_loader.cpp#L159-L196"]
+      "evidence": [
+        "src/compiler/module_loader.cpp#L159-L196"
+      ]
     },
     {
       "id": "module.use.variant-vs-subpackage-by-case",
       "domain": "module",
       "title": "Group target classified by first-character case",
       "statement": "In a USE_VARIANTS group `use pkg.X.{...};`, the bracketed target `X` is classified by its first character: lowercase-leading `X` is treated as a grouped sub-package import (each member becomes `pkg.X.<member>`); uppercase-leading `X` is treated as an enum-variant import, importing the enclosing package `pkg` as a wildcard so the type is in scope. This relies on the convention that enum/type names are capitalized.",
-      "evidence": ["src/compiler/module_loader.cpp#L167-L204"],
+      "evidence": [
+        "src/compiler/module_loader.cpp#L167-L204"
+      ],
       "divergence": "Disambiguation by identifier capitalization is a Logos convention, not a Rust rule."
     },
     {
@@ -55,21 +60,42 @@
       "domain": "module",
       "title": "Package-level dependency cycles are legal",
       "statement": "Cyclic `use` dependencies between packages are legal (e.g. option <-> result, where each package's methods reference the other). Mutually-dependent packages form a strongly-connected component and are compiled together.",
-      "evidence": ["src/compiler/module_loader.cpp#L228-L233"]
+      "evidence": [
+        "src/compiler/module_loader.cpp#L228-L233"
+      ]
     },
     {
       "id": "module.deps.dependency-first-ordering",
       "domain": "module",
       "title": "Modules processed dependencies-first",
       "statement": "Modules are ordered so that for any `use`-edge from package u to package v, v is processed before u. Ordering is package-granular: all files of a package move together, preserving first-seen order within a package and within an SCC; absent a forcing dep edge, original load order is preserved (stable).",
-      "evidence": ["src/compiler/module_loader.cpp#L213-L244", "src/compiler/module_loader.cpp#L378-L388"]
+      "evidence": [
+        "src/compiler/module_loader.cpp#L213-L244",
+        "src/compiler/module_loader.cpp#L378-L388"
+      ]
     },
     {
       "id": "module.package.decl-syntax",
       "domain": "module",
       "title": "package declaration",
       "statement": "A file's package is declared by a leading `package <dotted-ident>;` statement, where `<dotted-ident>` is a sequence of `[A-Za-z0-9_.]` characters. The declaration may be preceded only by comments, blank lines, and inner attribute lines (`#![...]`); the first non-trivia token must be `package` or the file has no package declaration.",
-      "evidence": ["src/compiler/module_loader.cpp#L403-L455"]
+      "evidence": [
+        "src/compiler/module_loader.cpp#L403-L455"
+      ]
+    },
+    {
+      "id": "module.use.from-clause-syntax",
+      "domain": "module",
+      "title": "`use pkg from <module>` clause: operand syntax and extraction",
+      "statement": "The optional `from <module>` clause of a `use` names the providing module as its operand. The operand may be a bare identifier or a double-quoted string literal; surrounding quotes are stripped to yield the module name. Absence of the `from` clause records an empty module name, selecting default resolution. The clause is recorded as a (package dotted-path, from-module) pair.",
+      "evidence": [
+        "src/compiler/module_loader.cpp#L115-L133",
+        "src/compiler/module_loader.cpp#L206-L207"
+      ],
+      "divergence": "Logos-specific: type/package coexistence across modules sharing a package name (no Rust analog).",
+      "related": [
+        "module.use.from-module-disambiguation"
+      ]
     }
   ]
 }

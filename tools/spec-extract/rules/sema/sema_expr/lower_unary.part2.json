@@ -9,7 +9,9 @@
       "domain": "expr",
       "title": "Formal parameter types hint argument inference",
       "statement": "When a free-function call's callee is uniquely resolvable (a generic entry, or exactly one candidate), each argument is lowered with the corresponding formal parameter type as an inference hint: a closure-literal arg adopts the formal's Fn-family signature (TypeVar formal: from its Fn-family bound; FnPtr/Closure formal: used directly), a payload-carrying enum-literal arg adopts a fully-concrete enum formal, a tuple-literal arg adopts a Tuple formal, and an array-literal arg adopts the element type of a Slice/Array formal with non-TypeVar element. Hints from generic (unresolved) formals are NOT applied.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3026-L3113"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3026-L3113"
+      ],
       "uncertainty": "Hint applicability conditions inferred from the per-kind lambdas; exact resolution precedence (generic vs single-candidate) is implementation-derived."
     },
     {
@@ -17,14 +19,18 @@
       "domain": "expr",
       "title": "Closure param/return types inferred from callee Fn-family bound",
       "statement": "For a generic free fn `fn f<F>(g: F) where F: FnOnce(A)->R`, an un-annotated closure argument infers its parameter and return types from the bound's Fn-family signature `(A)->R` (missing return → unit).",
-      "evidence": ["src/compiler/sema_expr.cpp#L3031-L3051"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3031-L3051"
+      ]
     },
     {
       "id": "intrinsic.str.str-from-raw",
       "domain": "intrinsic",
       "title": "str_from_raw constructs a str fat pointer",
       "statement": "`str_from_raw(ptr: *const u8, len: i64) -> str` is a compiler intrinsic taking exactly 2 arguments; it yields a value of type `&[u8]`/str fat-pointer. Wrong arity is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3117-L3127"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3117-L3127"
+      ],
       "divergence": "Logos addition: no Rust equivalent free function."
     },
     {
@@ -32,7 +38,9 @@
       "domain": "intrinsic",
       "title": "zone_of recovers the Writ zone pointer of a fat &mut T",
       "statement": "`zone_of(r: &mut T) -> *mut u8` takes exactly 1 argument and yields the metadata half of the fat reference reinterpreted as a `*mut u8` (dual of zone_mut_ref). Wrong arity is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3129-L3137"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3129-L3137"
+      ],
       "divergence": "Logos addition: Writ/zone memory model intrinsic."
     },
     {
@@ -40,7 +48,9 @@
       "domain": "intrinsic",
       "title": "reify_type round-trips a Type value at mono time",
       "statement": "`reify_type(t: Type) -> Type` takes exactly 1 argument and lowers to the `__reify_type__` mono intercept, which substitutes the argument and re-emits a fresh `Type` struct literal from its uid. Wrong arity is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3139-L3154"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3139-L3154"
+      ],
       "divergence": "Logos addition: type-reflection metaprogramming intrinsic."
     },
     {
@@ -48,7 +58,9 @@
       "domain": "intrinsic",
       "title": "type_apply / apply_generic instantiate a type-level template",
       "statement": "`type_apply(name: &[u8], args: [Type; N]) -> Type` and `apply_generic(g: Type, args: [Type; N]) -> Type` each take exactly 2 arguments and lower to the `__type_apply__` / `__apply_generic__` mono intercepts, which recover concrete TypeRefs from each element and emit a fresh `Type` struct literal for `Name<T0,...>`. Wrong arity is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3156-L3184"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3156-L3184"
+      ],
       "divergence": "Logos addition: type-level composition metaprogramming intrinsics."
     },
     {
@@ -56,7 +68,9 @@
       "domain": "intrinsic",
       "title": "u64 bitwise intrinsics",
       "statement": "`popcount_u64`, `leading_zeros_u64`, `trailing_zeros_u64` each take 1 u64 argument and return u32; `bswap_u64`, `bitreverse_u64` each take 1 u64 argument and return u64. Wrong arity is an error. (Lower to the corresponding LLVM intrinsics; ctlz/cttz are non-poison at zero.)",
-      "evidence": ["src/compiler/sema_expr.cpp#L3186-L3204"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3186-L3204"
+      ],
       "divergence": "Logos addition: explicit free-function bit-op intrinsics."
     },
     {
@@ -64,105 +78,136 @@
       "domain": "expr",
       "title": "Calling an unsafe fn requires an unsafe context",
       "statement": "A call to a function declared `unsafe` is an error unless it occurs inside an unsafe context.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3217-L3218", "src/compiler/sema_expr.cpp#L3409-L3410"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3217-L3218",
+        "src/compiler/sema_expr.cpp#L3409-L3410"
+      ]
     },
     {
       "id": "expr.call.pub-access-check",
       "domain": "expr",
       "title": "Free-function call respects visibility",
       "statement": "A free-function call checks the callee's pub/package/module-only visibility against the call site; an inaccessible callee is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3216", "src/compiler/sema_expr.cpp#L3406-L3411"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3216",
+        "src/compiler/sema_expr.cpp#L3406-L3411"
+      ]
     },
     {
       "id": "expr.call.arity-exact",
       "domain": "expr",
       "title": "Non-vararg call arity must match",
       "statement": "For a non-vararg function, the argument count must equal the declared parameter count; otherwise an error 'expected N args, got M'.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3242-L3244", "src/compiler/sema_expr.cpp#L3499-L3501"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3242-L3244",
+        "src/compiler/sema_expr.cpp#L3499-L3501"
+      ]
     },
     {
       "id": "expr.call.arity-vararg-minimum",
       "domain": "expr",
       "title": "Vararg call requires at least the fixed-parameter count",
       "statement": "For a vararg function, the argument count must be >= the number of declared (fixed) parameters; fewer is an error 'expected at least N args, got M'. Only the fixed parameters are type-checked against formals.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3219-L3241", "src/compiler/sema_expr.cpp#L3475-L3498"]
-    },
-    {
-      "id": "expr.call.arg-type-compatible",
-      "domain": "expr",
-      "title": "Each argument must be type-compatible with its formal",
-      "statement": "After coercion, each argument's type must be compatible with the corresponding parameter type (or satisfy a `&T`→`dyn` reference match); incompatibility is an error 'expected E, got G'. Error-typed args/params are exempt.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3247-L3256", "src/compiler/sema_expr.cpp#L3503-L3513"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3219-L3241",
+        "src/compiler/sema_expr.cpp#L3475-L3498"
+      ]
     },
     {
       "id": "expr.call.arg-variance-check",
       "domain": "expr",
       "title": "Argument passing enforces variance",
       "statement": "Each argument/parameter pair is variance-checked at the call site (lifetime/subtyping soundness).",
-      "evidence": ["src/compiler/sema_expr.cpp#L3234", "src/compiler/sema_expr.cpp#L3257", "src/compiler/sema_expr.cpp#L3514"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3234",
+        "src/compiler/sema_expr.cpp#L3257",
+        "src/compiler/sema_expr.cpp#L3514"
+      ]
     },
     {
       "id": "expr.call.intlit-fit-scalar",
       "domain": "expr",
       "title": "Integer-literal argument must fit the formal's integer type",
       "statement": "An untyped integer-literal argument coerced to an integer parameter type is an error if its value does not fit that type's range ('value V does not fit in T').",
-      "evidence": ["src/compiler/sema_expr.cpp#L3235-L3239", "src/compiler/sema_expr.cpp#L3515-L3519"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3235-L3239",
+        "src/compiler/sema_expr.cpp#L3515-L3519"
+      ]
     },
     {
       "id": "expr.call.intlit-fit-aggregate",
       "domain": "expr",
       "title": "Integer-literal elements of array/tuple args must fit narrowed element types",
       "statement": "When an array-literal or tuple-literal argument is checked against an Array/Tuple formal, each untyped integer-literal element (recursively through nested arrays/tuples) must fit the corresponding narrowed element type; overflow is an error naming the element index.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3263-L3322", "src/compiler/sema_expr.cpp#L3520-L3579"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3263-L3322",
+        "src/compiler/sema_expr.cpp#L3520-L3579"
+      ]
     },
     {
       "id": "expr.call.outlives-cross-check",
       "domain": "region",
       "title": "Caller cross-checks callee where 'a: 'b bounds",
       "statement": "At a non-generic concrete call, the callee's declared lifetime-outlives constraints (`where 'a: 'b`) are checked against the actual arguments.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3326-L3328"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3326-L3328"
+      ]
     },
     {
       "id": "expr.call.args-move-tracking",
       "domain": "borrow",
       "title": "By-value move-type arguments are marked moved",
       "statement": "Passing a by-value argument of a move type (including an owning `Box<dyn>`) marks the source binding as moved.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3330", "src/compiler/sema_expr.cpp#L3583-L3584"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3330",
+        "src/compiler/sema_expr.cpp#L3583-L3584"
+      ]
     },
     {
       "id": "expr.call.macro-overloads-not-callable-as-fn",
       "domain": "expr",
       "title": "fn_macro/token_macro overloads are not callable via plain call syntax",
       "statement": "A `#[fn_macro]` or `#[token_macro]` overload of a name is invocable only via `name!(...)` syntax; plain `name(...)` call resolution excludes such overloads.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3336-L3344"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3336-L3344"
+      ]
     },
     {
       "id": "expr.call.generic-inference-from-args",
       "domain": "generic",
       "title": "Type arguments of a generic call are inferred from argument types",
       "statement": "When a callee is generic and the call is not in a generic/pack-expansion context, type arguments are inferred from the actual argument types; if not all can be inferred it is an error directing the user to explicit `f::<T>(...)` syntax.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3413-L3457"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3413-L3457"
+      ]
     },
     {
       "id": "expr.call.generic-inference-deferred-in-generic-context",
       "domain": "generic",
       "title": "Generic-call inference is deferred inside a generic context",
       "statement": "If any argument is a pack expansion or has a TypeVar/AssocType type (partially-substituted context), call inference is deferred to monomorphization: the generic overload is selected and the call shape is preserved (callee type-vars and substituted return type) rather than pinning a concrete instantiation.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3435-L3462", "src/compiler/sema_expr.cpp#L3586-L3601"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3435-L3462",
+        "src/compiler/sema_expr.cpp#L3586-L3601"
+      ]
     },
     {
       "id": "expr.call.prelude-enum-shorthand",
       "domain": "expr",
       "title": "Some/Ok/Err call shorthand constructs enum literals",
       "statement": "When `Some`, `Ok`, or `Err` is not resolvable as a function, the call is treated as the corresponding `Option::Some` / `Result::Ok` / `Result::Err` enum-variant literal (honoring any enum type hint for parameter substitution). `None` is not handled here (it is a bare-ident path).",
-      "evidence": ["src/compiler/sema_expr.cpp#L3381-L3403"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3381-L3403"
+      ]
     },
     {
       "id": "expr.call.undefined-function-error",
       "domain": "expr",
       "title": "Call to an undefined function is an error",
       "statement": "A call whose callee resolves to no function (and is not a prelude enum shorthand) is an error 'call to undefined function', except in metaprog mode where it is permitted to pass through with error type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L3377-L3404"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L3377-L3404"
+      ]
     }
   ]
 }

@@ -9,42 +9,49 @@
       "domain": "region",
       "title": "Lifetime names normalized to leading-apostrophe form",
       "statement": "A lifetime region name is identified by its with-apostrophe spelling: the bare form `a` and the prefixed form `'a` denote the same region. Both `'static` and `static` denote the 'static region. Region identity comparisons and graph keys are taken after this normalization.",
-      "evidence": ["include/logos/compiler/outlives.hpp#L29-L33", "include/logos/compiler/outlives.hpp#L35-L37"]
-    },
-    {
-      "id": "region.outlives.reflexive",
-      "domain": "region",
-      "title": "Outlives is reflexive",
-      "statement": "For any region r, r: r holds (r outlives itself).",
-      "evidence": ["include/logos/compiler/outlives.hpp#L70"]
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L29-L33",
+        "include/logos/compiler/outlives.hpp#L35-L37"
+      ]
     },
     {
       "id": "region.outlives.static-is-top",
       "domain": "region",
       "title": "'static outlives every region",
       "statement": "'static: r holds for every region r ('static is the longest-living region). Conversely, no region other than 'static satisfies r: 'static unless r is 'static or r reaches 'static through the explicit graph.",
-      "evidence": ["include/logos/compiler/outlives.hpp#L69", "include/logos/compiler/outlives.hpp#L91"]
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L69",
+        "include/logos/compiler/outlives.hpp#L91"
+      ]
     },
     {
       "id": "region.outlives.unconstrained-short",
       "domain": "region",
       "title": "Empty (elided) shorter side is satisfied by any region",
       "statement": "If the shorter side of an outlives query is empty/elided, the constraint r: <empty> is vacuously satisfied for any longer region r.",
-      "evidence": ["include/logos/compiler/outlives.hpp#L67"]
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L67"
+      ]
     },
     {
       "id": "region.outlives.transitive-bfs",
       "domain": "region",
       "title": "Outlives is transitive over the explicit constraint graph",
       "statement": "Given an explicit outlives graph of declared pairs (longer: shorter) parsed from `where 'long: 'short [+ 'mid ...]`, long: short holds if short is reachable from long by following declared outlives edges (transitive closure / BFS over the directed adjacency longer->shorter).",
-      "evidence": ["include/logos/compiler/outlives.hpp#L42-L50", "include/logos/compiler/outlives.hpp#L72-L85"]
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L42-L50",
+        "include/logos/compiler/outlives.hpp#L72-L85"
+      ]
     },
     {
       "id": "region.outlives.permissive-elided-source",
       "domain": "region",
       "title": "Elided longer side treated as compatible at coercion sites; strict at borrow-return",
       "statement": "An empty/elided longer (source) region is treated as satisfying any named outlives constraint at variance/subtype-coercion sites, deferring to call-site region inference (permissive mode). Strict-mode callers (the borrow-check return path) reject an elided source against a named target.",
-      "evidence": ["include/logos/compiler/outlives.hpp#L68", "include/logos/compiler/outlives.hpp#L86-L92"],
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L68",
+        "include/logos/compiler/outlives.hpp#L86-L92"
+      ],
       "uncertainty": "Permissive vs strict is a mode flag; default at general sites is permissive."
     },
     {
@@ -52,8 +59,20 @@
       "domain": "region",
       "title": "Two unmentioned named regions assumed compatible in permissive mode",
       "statement": "In permissive mode, if two named non-static regions L and S neither equal nor reach one another and NEITHER appears anywhere in the explicit outlives graph, L: S is assumed to hold (region inference is expected to unify them). If either L or S appears in the graph (but no path connects them), L: S is rejected. In strict mode, an unestablished named constraint is always rejected.",
-      "evidence": ["include/logos/compiler/outlives.hpp#L86-L102"],
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L86-L102"
+      ],
       "divergence": "Permissive default; Rust requires the outlives relation to be explicitly established (would reject)."
+    },
+    {
+      "id": "region.outlives.reflexive",
+      "domain": "region",
+      "title": "Outlives is reflexive",
+      "statement": "The outlives relation is reflexive: for any region/lifetime r, r: r holds (every region outlives itself).",
+      "evidence": [
+        "include/logos/compiler/outlives.hpp#L70",
+        "src/compiler/region_infer.cpp#L110-L111"
+      ]
     }
   ]
 }

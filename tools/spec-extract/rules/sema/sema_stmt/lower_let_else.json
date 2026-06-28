@@ -103,15 +103,6 @@
       ]
     },
     {
-      "id": "expr.deref.box-move-out",
-      "domain": "expr",
-      "title": "let-binding a deref of a Box moves the content out",
-      "statement": "`let s = *b` where `b: Box<T>` and `T` is a move type moves the boxed value out (consuming `b`) and frees the block without dropping the content (Rust's built-in `*b` move). Copy-T Box and non-Box derefs use the normal copy/deref path.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1915-L1922"
-      ]
-    },
-    {
       "id": "borrow.let.no-move-behind-ref",
       "domain": "borrow",
       "title": "Cannot move a move-typed value out of a reference deref (E0507)",

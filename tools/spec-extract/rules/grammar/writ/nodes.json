@@ -9,28 +9,27 @@
       "domain": "grammar",
       "title": "Writ AST node kinds",
       "statement": "A Writ value parses to exactly one node kind from the closed set { MAP, ARRAY, STRING, INTEGER, FLOAT, BOOLEAN, NULL_VAL, TYPED_VALUE, DATATYPE, MAP_ENTRY, PARAM_VAL }. Each node carries a CODE field equal to its kind code.",
-      "evidence": ["tools/peg_gen/grammars/writ.peg#L31-L43"]
+      "evidence": [
+        "tools/peg_gen/grammars/writ.peg#L31-L43"
+      ]
     },
     {
       "id": "grammar.writ.typed-value-form",
       "domain": "grammar",
       "title": "TYPED_VALUE node",
       "statement": "A TYPED_VALUE node represents a typename-applied-to-value construction of the form Typename(value), e.g. Date(\"2026-01-01\").",
-      "evidence": ["tools/peg_gen/grammars/writ.peg#L39"]
+      "evidence": [
+        "tools/peg_gen/grammars/writ.peg#L39"
+      ]
     },
     {
       "id": "grammar.writ.datatype-form",
       "domain": "grammar",
       "title": "DATATYPE node",
       "statement": "A DATATYPE node represents a type name with optional generic parameters of the form Typename<Param, ...>.",
-      "evidence": ["tools/peg_gen/grammars/writ.peg#L40"]
-    },
-    {
-      "id": "grammar.writ.param-placeholder",
-      "domain": "grammar",
-      "title": "PARAM_VAL positional placeholder",
-      "statement": "A PARAM_VAL node is a positional parameter placeholder written $N; it is assigned the reserved type_hash 127 (tag 0xFF).",
-      "evidence": ["tools/peg_gen/grammars/writ.peg#L42"]
+      "evidence": [
+        "tools/peg_gen/grammars/writ.peg#L40"
+      ]
     }
   ]
 }

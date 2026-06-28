@@ -5,63 +5,77 @@
   "source_hash": "8d52667da1279e6a",
   "rules": [
     {
-      "id": "layout.closure.fn-env-pair",
-      "domain": "layout",
-      "title": "Closure value is a {fn_ptr, env_ptr} pair",
-      "statement": "A closure value is represented as a two-field aggregate: field 0 = function pointer, field 1 = environment pointer. Calling a closure invokes the function pointer with env_ptr prepended as the implicit first argument, followed by the user arguments.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4759-L4799"],
-      "divergence": "A10 — dyn Fn/FnMut/FnOnce collapse to this Closure pair; no separate Fn-trait vtable.",
-      "related": ["layout.fnptr.bare-call-no-env"]
-    },
-    {
       "id": "layout.fnptr.bare-call-no-env",
       "domain": "layout",
       "title": "Bare function-pointer call passes no environment",
       "statement": "A bare function-pointer value `fn_ptr` is a thin pointer; calling it `fn_ptr(a1,a2,...)` passes only the user arguments (no implicit environment), distinguishing it from a closure call.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4807-L4846"],
-      "related": ["layout.closure.fn-env-pair"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4807-L4846"
+      ],
+      "related": [
+        "layout.closure.fn-env-pair"
+      ]
     },
     {
       "id": "layout.call.aggregate-return-by-value",
       "domain": "layout",
       "title": "Indirect calls return aggregates by value",
       "statement": "For both closure and bare-function-pointer indirect calls, the call's return type matches the callee ABI: tuple/struct/enum results are returned by aggregate value rather than as a pointer; an aggregate result is materialized into stack storage (a fresh slot) so downstream code can treat it by-address.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4787-L4804", "src/compiler/mlir_gen_expr.cpp#L4831-L4853"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4787-L4804",
+        "src/compiler/mlir_gen_expr.cpp#L4831-L4853"
+      ]
     },
     {
       "id": "layout.ref.repr-kinds",
       "domain": "layout",
       "title": "Reference representation kinds",
       "statement": "Every reference type has a representation kind: ThinPtr / NotARef hold a single data pointer (8B); FatDyn holds a {data, vtable} pair (16B); FatSlice / FatCustomDst hold a {data, len:i64} pair (16B). For all fat reprs field 0 (offset 0) is the data pointer and field 1 is the metadata (vtable for dyn, length otherwise).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4863-L4886", "src/compiler/mlir_gen_expr.cpp#L5244-L5261"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4863-L4886",
+        "src/compiler/mlir_gen_expr.cpp#L5244-L5261"
+      ]
     },
     {
       "id": "layout.ref.relptr-self-relative",
       "domain": "layout",
       "title": "RelOffset reference stores a self-relative byte offset",
       "statement": "A RelOffset reference stores at its slot an i64 byte offset = target_addr − slot_addr, where the slot's own address is the anchor. Materializing computes target = slot + offset (GEP by bytes); a null target is encoded as offset = −slot and materializes back to address 0.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5088-L5096", "src/compiler/mlir_gen_expr.cpp#L5107-L5116"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5088-L5096",
+        "src/compiler/mlir_gen_expr.cpp#L5107-L5116"
+      ]
     },
     {
       "id": "layout.ref.fat-lower-memcpy-16",
       "domain": "layout",
       "title": "Lowering a fat reference copies the 16-byte pair",
       "statement": "Lowering a fat reference (FatDyn/FatSlice/FatCustomDst) to its storage slot copies the full 16-byte {data, meta} pair; thin/non-ref reprs store the single pointer value.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5102-L5122"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5102-L5122"
+      ]
     },
     {
       "id": "layout.enum.tagged-disc-i32",
       "domain": "layout",
       "title": "Tagged enum layout {i32 disc, payload}",
       "statement": "A non-niche enum is laid out as {i32 discriminant at offset 0, payload at field 1}. The discriminant is read/written as an i32 at field 0; the payload is accessed at field 1.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4922-L4925", "src/compiler/mlir_gen_expr.cpp#L4942-L4946", "src/compiler/mlir_gen_expr.cpp#L4989-L4992"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4922-L4925",
+        "src/compiler/mlir_gen_expr.cpp#L4942-L4946",
+        "src/compiler/mlir_gen_expr.cpp#L4989-L4992"
+      ]
     },
     {
       "id": "layout.enum.niche-null-pointer",
       "domain": "layout",
       "title": "Null-pointer niche enum has no discriminant word",
       "statement": "A null-pointer-niche enum (Option<&T> shape) has no separate discriminant word: the payload (a non-null pointer) occupies offset 0; the `none` variant is encoded as a null pointer at offset 0, and the `some` variant's non-null payload pointer is itself the discriminant. Decoding: null → none_disc, non-null → some_disc.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4920-L4921", "src/compiler/mlir_gen_expr.cpp#L4932-L4941", "src/compiler/mlir_gen_expr.cpp#L4977-L4988"],
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4920-L4921",
+        "src/compiler/mlir_gen_expr.cpp#L4932-L4941",
+        "src/compiler/mlir_gen_expr.cpp#L4977-L4988"
+      ],
       "divergence": "Niche layout is an unspecified Rust optimization; here it is observable/normative for Option<&T>-shaped enums."
     },
     {
@@ -69,7 +83,11 @@
       "domain": "layout",
       "title": "Low-bit niche enum packs tag into the payload word's low bit",
       "statement": "A LowBit-niche enum packs a 64-bit word where the low bit distinguishes arms: low bit 0 → pointer arm (the aligned word IS the pointer, ptr_disc), low bit 1 → value arm. The value-arm payload is encoded as (v<<1)|1 and decoded as word>>1 (arithmetic shift if signed, logical otherwise), yielding val_disc. In raw mode (WAny Pod(u64)) both arms read the word verbatim with no decode.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4897-L4919", "src/compiler/mlir_gen_expr.cpp#L4926-L4931", "src/compiler/mlir_gen_expr.cpp#L4963-L4976"],
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4897-L4919",
+        "src/compiler/mlir_gen_expr.cpp#L4926-L4931",
+        "src/compiler/mlir_gen_expr.cpp#L4963-L4976"
+      ],
       "divergence": "Niche layout is a Logos-defined packing not specified by Rust."
     },
     {
@@ -77,7 +95,10 @@
       "domain": "layout",
       "title": "Zoned niche enum stores Ref arm self-relative",
       "statement": "A #[zoned2] niche enum's at-rest 8-byte word encodes: r==0 → null; r&1==1 → Pod (position-independent, copied raw); else Ref → self-relative offset (anchor = slot address). Materialize: Ref → absolute = slot + r (null/Pod identity). Lower: Ref → delta = val − slot (null/Pod identity).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5034-L5074", "src/compiler/mlir_gen_expr.cpp#L5076-L5081"],
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5034-L5074",
+        "src/compiler/mlir_gen_expr.cpp#L5076-L5081"
+      ],
       "divergence": "Logos-only zoned representation; no Rust analogue.",
       "uncertainty": "Exact bit-encoding of Pod vs Ref inferred from comments and the AND/shift sequence."
     },
@@ -86,14 +107,19 @@
       "domain": "layout",
       "title": "DstRef is fat only with a literal slice tail",
       "statement": "A DstRef whose pointee struct's last field is a literal slice ([T] or unsized [T]) is genuinely fat (16B {data,len}); a DstRef with a dyn-tail or type-variable tail is physically thin (8B pointer).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4995-L5005"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4995-L5005"
+      ]
     },
     {
       "id": "layout.dst.self-describing-thin",
       "domain": "layout",
       "title": "self_describing DST reference is thin",
       "statement": "A DstRef whose pointee struct is #[self_describing] is physically THIN (8B pointer straight to the header); its tail length is not carried out-of-band but recovered in-band by calling SelfDescribing::dst_len(header_ptr). This contrasts with a plain [T]-tail DstRef which is an 8B pointer to a 16-byte {data,len} pair.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5007-L5032", "src/compiler/mlir_gen_expr.cpp#L5124-L5157"],
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5007-L5032",
+        "src/compiler/mlir_gen_expr.cpp#L5124-L5157"
+      ],
       "divergence": "Logos-only self_describing DST model (Rust's DST metadata is always out-of-band)."
     },
     {
@@ -101,35 +127,59 @@
       "domain": "type",
       "title": "self_describing struct must implement SelfDescribing::dst_len",
       "statement": "A #[self_describing] struct must provide a SelfDescribing::dst_len method (sema-enforced) used to recover the in-band tail length from the thin header pointer; for a generic DST the method resolves to its monomorphized concrete instance.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5129-L5156"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5129-L5156"
+      ]
     },
     {
       "id": "expr.slice-index.element-projection",
       "domain": "expr",
       "title": "Slice indexing strides by element footprint",
       "statement": "Indexing a slice `s[i]` loads the data pointer from field 0 and GEPs by index. Struct/ZonedStruct elements lay out inline (stride = sizeof(element)) and the element address is returned (caller copies aggregates by value); fat-reference elements (16B pairs stored inline) stride by the pair footprint and the slot address is returned; thin scalar/reference elements are loaded by value. An unsigned index narrower than 64 bits is zero-extended for the GEP.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5175-L5238"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5175-L5238"
+      ]
     },
     {
       "id": "expr.slice.len-and-ptr-projection",
       "domain": "expr",
       "title": "Slice .len() and .ptr() project metadata and data halves",
       "statement": "For a fat slice receiver, `.len()` yields the metadata half (field 1, i64) and `.ptr()`/data yields the data half (field 0). For a thin #[self_describing] DstRef receiver, `.len()` is recovered in-band via dst_len(header_ptr) since it carries no out-of-band metadata.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5263-L5284"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5263-L5284"
+      ]
     },
     {
       "id": "expr.format.arg-widen-to-i64",
       "domain": "expr",
       "title": "format() widens each argument to i64 by signedness",
       "statement": "The format() built-in passes a parallel [i32 tags] and [i64 data] array: each argument is widened to i64 — pointers via ptrtoint, unsigned integers narrower than 64 bits via zero-extension, all other integers via sign-extending coercion. The type tag is computed per argument type (e.g. i32→0, i64→1, ptr/slice→2, bool→3, u8→4, u32/u16→5, u64/u24/u56/u128→6, i8→7; i16→i32, i24/i56/i128→i64).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5290-L5373"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5290-L5373"
+      ]
     },
     {
       "id": "expr.format.requires-text-import",
       "domain": "expr",
       "title": "format() requires std.lang.text import",
       "statement": "Using the format() built-in requires the __format_impl runtime function to be available, provided by importing std.lang.text; absence is a compile error.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5375-L5386"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5375-L5386"
+      ]
+    },
+    {
+      "id": "layout.closure.fn-env-pair",
+      "domain": "layout",
+      "title": "Closure value is a {fn_ptr, env_ptr} pair",
+      "statement": "A closure value is represented as a two-field aggregate (16 bytes on a 64-bit target): field 0 = function pointer, field 1 = environment pointer. Calling a closure invokes the function pointer with env_ptr prepended as the implicit first argument, followed by the user arguments.",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L4759-L4799",
+        "src/compiler/mlir_gen_types.cpp#L957-L960"
+      ],
+      "divergence": "A10 — dyn Fn/FnMut/FnOnce collapse to this Closure pair; no separate Fn-trait vtable.",
+      "related": [
+        "layout.fnptr.bare-call-no-env"
+      ]
     }
   ]
 }

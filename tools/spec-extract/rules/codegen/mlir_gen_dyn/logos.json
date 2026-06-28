@@ -5,18 +5,6 @@
   "source_hash": "e8ea5b3656613453",
   "rules": [
     {
-      "id": "trait.tagdispatch.type-code-keyed",
-      "domain": "trait",
-      "title": "Tagged dynamic dispatch is keyed by per-type type_code",
-      "statement": "Tag-dispatch (an alternative to vtable-based dyn dispatch) selects a method implementation at runtime by a per-concrete-type integer `type_code` (logically u64). For each (tag_system, trait, method) triple a dispatch table maps `type_code -> fn_ptr`; a runtime lookup with `type_code == 0` is treated as 'no impl registered'.",
-      "evidence": [
-        "src/compiler/mlir_gen_dyn.cpp#L181-L186",
-        "src/compiler/mlir_gen_dyn.cpp#L302-L321"
-      ],
-      "divergence": "Logos addition: tag-dispatch dispatch model has no Rust analogue (Rust uses fat-pointer vtables only).",
-      "uncertainty": "type_code allocation policy (which integers map to which types) is defined elsewhere; only the dispatch-table consumption is observable here."
-    },
-    {
       "id": "trait.tagdispatch.two-tier-codespace",
       "domain": "trait",
       "title": "type_code space is split into two dispatch tiers",
@@ -85,6 +73,21 @@
         "src/compiler/mlir_gen_dyn.cpp#L394-L396"
       ],
       "divergence": "Module/separate-compilation model; no direct Rust analogue."
+    },
+    {
+      "id": "trait.tagdispatch.dispatch-table-layout",
+      "domain": "trait",
+      "title": "Tag-dispatch table maps per-type type_code to fn_ptr per (tag_system, trait, method)",
+      "statement": "Tag-dispatch (an alternative to vtable-based dyn dispatch) is backed by a per-(tag_system, trait, method) dispatch table mapping a per-concrete-type integer `type_code` (logically u64) to the implementing method `fn_ptr`. A `type_code == 0` entry is the unset sentinel meaning 'no impl registered' and is skipped at table build / treated as no-impl at lookup.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L181-L186",
+        "src/compiler/mlir_gen_dyn.cpp#L302-L321"
+      ],
+      "divergence": "Logos addition: tag-dispatch dispatch model has no Rust analogue (Rust uses fat-pointer vtables only).",
+      "uncertainty": "type_code allocation policy (which integers map to which types) is defined elsewhere; only the dispatch-table consumption is observable here.",
+      "related": [
+        "trait.tagdispatch.type-code-keyed"
+      ]
     }
   ]
 }

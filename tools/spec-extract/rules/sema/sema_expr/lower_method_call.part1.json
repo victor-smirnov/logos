@@ -130,15 +130,6 @@
       ]
     },
     {
-      "id": "expr.method.arity-check",
-      "domain": "expr",
-      "title": "Method call argument count must match",
-      "statement": "A method call must supply exactly (param count − 1) explicit arguments (excluding the `self` receiver); a mismatch is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L7492-L7497"
-      ]
-    },
-    {
       "id": "expr.method.typeparam-inference-from-args",
       "domain": "generic",
       "title": "Method type params inferred by unifying params with arg types",
@@ -163,6 +154,16 @@
       "statement": "An integer-literal argument (including elements of array/tuple literals, recursively through nested arrays and tuples) passed to a method parameter of a concrete integer type must fit that type; an out-of-range value is an error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L7541-L7609"
+      ]
+    },
+    {
+      "id": "expr.method.arity-check",
+      "domain": "expr",
+      "title": "Method call argument count must match",
+      "statement": "A method call must supply exactly `param_count - 1` explicit arguments (excluding the implicit `self` receiver); for a zero-parameter signature the expected count is 0. A mismatch between supplied and expected explicit argument counts is an error ('expected N args, got M').",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7492-L7497",
+        "src/compiler/sema_expr.cpp#L8867-L8871"
       ]
     }
   ]

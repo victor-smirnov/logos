@@ -1,6 +1,8 @@
 # Traits & Generics
 
-Scope: trait declarations, trait impls, generic parameters/bounds, associated items, trait/method resolution, dispatch (static, dynamic, tag), variance, and monomorphization-facing rules. Source layers: grammar, sema, mono, codegen (rule artifacts under `tools/spec-extract/rules`, domains `trait` and `generic`).
+Scope: trait-system and generics rules (domains `trait`, `generic`) of the Logos language specification, extracted from the compiler implementation layers — grammar (`tools/peg_gen`), sema (`src/compiler/sema*`), monomorphization (`src/compiler/mono*`), and codegen (`src/compiler/mlir_gen*`). Each `### ` heading is a stable, linkable rule id; never rename one.
+
+## Trait System
 
 ## Trait Definitions
 
@@ -22,8 +24,6 @@ Two traits with the same name in the same package are an error. A user trait col
 
 `[pub] [auto|unsafe] trait NAME [<params>] [: super + super ...] { items }` defines a trait; the supertrait list after `:` is a `+`-separated list of trait bounds. `auto` and `unsafe` are mutually-exclusive leading modifiers. Generic params, supertraits, both, or neither may be present.
 
-**Examples**
-
 ```logos
 trait Foo: Bar + Baz { }
 auto trait Send { }
@@ -38,6 +38,232 @@ pub trait Iterator<T> { }
 A trait object's vtable layout is the method order over the trait's supertrait closure, together with an ordered list of upcast target supertraits; this single layout is the canonical slot order used for dispatch and upcasting.
 
 **Evidence:** `src/compiler/sema_decl.cpp#L1626-L1639`
+
+## Trait Methods
+
+### `expr.method.typevar-trait-method-dispatch` — Method on a bounded type parameter resolves via its trait bounds
+
+If the receiver (after peeling one reference/raw-pointer layer) is a type parameter `T` (or, conditionally, an associated-type projection), the method is resolved against the traits in `T`'s declared bounds; the concrete impl is selected later during monomorphization.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7320-L7340`, `src/compiler/sema_expr.cpp#L7367-L7375`, `src/compiler/sema_expr.cpp#L7439-L7443`
+
+### `trait.method.default-body` — Trait method default body
+
+A trait method that provides a body has a default implementation; impls may omit it and inherit the default.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L2632-L2636`
+
+### `trait.method.disambiguating-mangle` — Same-name same-sig trait methods coexist via trait-qualified mangling
+
+When two distinct traits define a method with identical name and signature on the same target type, both coexist: the colliding methods are re-keyed under a trait-qualified base `<target>__<trait>__<method>`; non-colliding methods keep the plain base.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4731-L4835`
+
+### `trait.method.inherent-preferred` — Inherent method preferred over same-name trait method
+
+When an inherent method and a trait method share name and signature on a type, the inherent method keeps the plain base (found by concrete-receiver dispatch) and only the trait method is trait-qualified; a `T: Trait`-bounded dispatch resolves to the qualified trait method.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4776-L4777`, `src/compiler/sema_collect.cpp#L4787-L4801`
+
+### `trait.method.multi-trait-ambiguity` — Method provided by multiple traits is ambiguous
+
+If a method name `m` on type `S` is provided by more than one trait, the plain unqualified call `s.m(...)` is an error; the call must be disambiguated via a trait-bounded generic context or an explicit trait-qualified call.
+
+**Divergence:** A1: collision removes the plain base from the registry; Rust resolves by receiver/inference where unambiguous
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8683-L8700`
+
+### `trait.method.overload-mangling` — Method symbol resolution under overload mangling
+
+A method reference <struct>__<method> resolves to the actual mangled symbol, which may be package-qualified ([pkg.]Base__method) and may carry an overload-mangling suffix __f__<sig> or __g__<sig>; the bare convention name is the fallback when no mangled match exists.
+
+**Evidence:** `src/compiler/mlir_gen_impl.hpp#L228-L274`
+
+### `trait.method.self-receiver` — Trait method self-receiver inference
+
+A trait method's first parameter is the `self` receiver iff it lacks an explicit type (`self`/`&self`/`&mut self`) or is named `self`. For an untyped `&self`/`&mut self`, the receiver type is synthesized as `Self` / `&Self` / `&mut Self` (mut taken from the param's mut marker).
+
+**Evidence:** `src/compiler/sema_collect.cpp#L2563-L2589`
+
+### `trait.method.signatures` — Trait method declarations
+
+A trait item is a method declaration (`[unsafe] fn NAME [<params>] (params) [-> T] [where ...] (block | ';')`) — body-bearing alts give a default impl, `;`-terminated alts are required methods — or an associated type/const. Method names may be `new`/`null` keywords. A `where` clause may follow the signature (before block or `;`); on a default body it gates per-impl default synthesis (skip the default when the bound fails for the impl's concrete type).
+
+```logos
+fn next(self) -> Option<Item>;
+fn max(self) -> Item where Item: Ord { ... }
+fn new() -> Self;
+```
+
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L885-L963`, `tools/peg_gen/grammars/logos.peg#L933-L951`
+
+### `trait.method.trait-typearg-distinct` — Distinct trait type-args mangle distinctly
+
+Two impls of the same trait with different concrete type-arguments (e.g. `impl Trait<u64> for X` vs `impl Trait<u8> for X`) for a same-name+signature method are treated as distinct and mangled with the trait type-arg suffix (`X__Trait$u64__m` vs `X__Trait$u8__m`).
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4742-L4749`, `src/compiler/sema_collect.cpp#L4778-L4782`, `src/compiler/sema_collect.cpp#L4808-L4821`
+
+### `trait.method.where-self-sized` — where Self: Sized excludes method from vtable
+
+A trait method with a `where Self: Sized` bound is flagged requires-sized-self: it is excluded from the trait's vtable and thus does not affect object safety. Other where-bounds on trait type-params are recorded for per-impl default-synthesis gating.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L2599-L2631`
+
+## Associated Items (general)
+
+### `trait.assoc.eq-clause-satisfaction` — Associated-type equality clauses must hold
+
+A bound `Trait<Assoc = Type>` holds for a concrete type only if each expected associated type equals the impl's actual `type Assoc = ...` resolution after substitution.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3258-L3266`
+
+### `trait.assoc.equality-bound-satisfaction` — Associated-type equality bound satisfaction
+
+A bound of form `T: Trait<Assoc = X>` is satisfied iff the impl of `Trait` for the concrete type defines `type Assoc = Y` with Y type-equal to X. The impl's binding is looked up first for the concrete name, then for the base (template) name. If no direct impl provides Assoc, a matching blanket impl whose bound-trait and extra-bounds are all satisfied supplies its `type Assoc = ...`, with the blanket target type-var substituted by the concrete type and recursively resolved before the equality check.
+
+```logos
+K: Primitive => K: HasPrim<P = K::Prim = i32>
+```
+
+**Evidence:** `src/compiler/sema.cpp#L3358-L3420`
+
+### `trait.assoc.type-and-const` — Associated type and const declarations in traits
+
+Trait associated items: `type NAME [<params>] [= T] ;` (optional default and optional bound list `: B + B`) declares an associated type; `const NAME : T [= expr] ;` declares an associated const, optionally with a default value.
+
+```logos
+type Item;
+type Item: Ord = i32;
+const N: usize = 0;
+```
+
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L952-L963`
+
+### `trait.assoc.typearg-suffixed-lookup` — Associated-type lookup prefers trait-arg-suffixed key
+
+When resolving an associated type of `Trait` for a target type, if the current impl context fixes the trait's type-arguments, the lookup first tries a key suffixed with those arguments — so two `Trait<T>` impls for one type at distinct `T` register and resolve their associated types independently — falling back to the unsuffixed `Trait::target::aname` key.
+
+**Evidence:** `src/compiler/sema.cpp#L3015-L3029`
+
+## Associated Types & GATs
+
+### `trait.assoc-type.completeness-with-default` — Associated-type completeness with trait default fallback
+
+A non-blanket trait impl must provide every associated type the trait declares; if the impl omits one, the trait's declared default associated type is used, and only the absence of both impl definition and trait default is an error. Blanket impls skip this check (assoc types are per-instantiation).
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3617-L3642`
+
+### `trait.assoc-type.copied-into-impl` — Associated type bindings recorded per impl under a trait-arg-suffixed key
+
+Associated-type bindings of a trait impl are recorded under a key prefixed by `trait_name + trait-arg-suffix + "::" + target + "::"`; blanket impls use the synthetic `$blanket$Trait$Bound$Target` name. The trait-argument suffix disambiguates two `Trait<T>` impls of the same target type (distinct concrete T) so neither erases the other.
+
+**Evidence:** `src/compiler/sema_decl.cpp#L2563-L2585`
+
+### `trait.assoc-type.default-and-gat` — Associated type defaults and GATs
+
+An associated type may carry its own type params (GAT, e.g. `type Item<T>`), trait-bound constraints, and a default RHS (`type Item = i32;`); an impl that omits the assoc type falls back to the declared default.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L2491-L2520`
+
+### `trait.assoc-type.dual-impl-ambiguous-projection` — Ambiguous bare associated-type projection across generic-trait impls
+
+When two impls of a generic trait Trait<T> for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.
+
+**Divergence:** G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3235-L3248`, `src/compiler/sema_collect.cpp#L3281-L3295`
+
+### `trait.assoc-type.dual-trait-typearg-key` — Associated-type lookup keyed by trait type-args when ambiguous
+
+Associated-type resolution for two distinct `Trait<T>` impls of one target type is disambiguated by a `$G<n>$<a1>$..` suffix encoding the concrete trait type-args, preferring the suffixed key when args are known from the current impl context and falling back to the plain key for single/non-generic-trait impls.
+
+**Related:** `mono.mangle.type-args-recursive`
+
+**Evidence:** `src/compiler/sema_impl.hpp#L4282-L4300`
+
+### `trait.assoc-type.duplicate` — Duplicate associated type in impl rejected
+
+An impl block must define each associated type at most once for a given (trait, trait-type-args, target, name); a second definition with the same key is an error.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3247-L3252`
+
+### `trait.assoc-type.gat-and-default` — Associated types may be generic (GAT) and have a default
+
+A trait associated type may carry its own type-params (`type Item<T>` — a GAT) with bounds, and may declare a default (`type Item = i32;`) used by impls that omit it.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L2618-L2624`
+
+### `trait.assoc-type.gat-arity-match` — Impl GAT arity must match trait declaration
+
+The number of type parameters on an impl's associated type definition must equal the count the trait declares for that associated type.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3261-L3273`
+
+### `trait.assoc-type.gat-no-shadow-impl-param` — GAT params must not shadow impl type params
+
+A generic associated type's own type parameters (`type Item<T> = ...`) must not share a name with any of the enclosing impl's type parameters.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3253-L3260`
+
+### `trait.assoc-type.stamp-bound-targs-on-return` — Associated-type return projection carries the bound's concrete trait type-args
+
+If a dispatched trait method's substituted return type is an associated-type projection, its trait name is rewritten to the trait-name suffixed with the bound's concrete trait type-args (`Trait<...>` -> mangled args suffix), so projections from two distinct `impl Trait<T>` for one type, and the caller's declared `-> P::Item`, resolve to the same impl.
+
+**Uncertainty:** Disambiguation among multiple Trait<T> impls; tied to G156-1 trait-type-arg mangling (still narrow per memory).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7671-L7694`
+
+## Associated Constants
+
+### `trait.assoc-const.accessor-for-generic-projection` — Associated const in concrete trait impl emits a zero-arg accessor
+
+An associated const in a concrete (non-generic, non-blanket) trait impl emits a zero-argument accessor function `Target__kassoc_<name>` returning the const value, so a generic projection `T::<name>` (lowered as `T__kassoc_<name>()` and rewritten by mono once T is substituted) has a concrete function to call. Generic/blanket-target associated consts are not given accessors; concrete `Target::<name>` reads use the direct value path.
+
+**Evidence:** `src/compiler/sema_decl.cpp#L2260-L2295`
+
+### `trait.assoc-const.completeness-with-default` — Associated-constant completeness with trait default fallback
+
+A trait impl must provide every associated constant the trait declares; if omitted, the trait's default value is projected into the impl, and only the absence of both impl value and trait default is an error.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3643-L3663`
+
+### `trait.assoc-const.default` — Associated const declaration and default
+
+An associated const declares a type, and may provide a default value (`const X: i32 = 42;`); an impl that omits the const falls back to the recorded default.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L2523-L2542`
+
+### `trait.assoc-const.default-projected-to-impl` — Associated const default projected into omitting impls
+
+A trait associated const may declare a default (`const X: i32 = 42;`); each `impl Trait for T` that omits the const inherits the default so `T::CONST` resolves to it.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L2625-L2633`
+
+### `trait.assoc-const.generic-projection` — Associated const projection on a bound type parameter
+
+For a path `T::C` where `T` is a type parameter with bound `T: Tr` and `C` is an associated const declared by `Tr` (or by any transitive supertrait of `Tr`), the expression resolves to a per-impl accessor that yields the const's value; its type is the declared associated-const type, defaulting to i64 when undeclared.
+
+**Uncertainty:** i64 default for an associated const with no declared type is implementation-driven; Rust requires an explicit type.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L11540-L11567`
+
+### `trait.assoc-const.inherent-allowed` — Inherent associated constants permitted
+
+An inherent impl (no trait) may declare associated constants `const C: T = ...;`, registered under the target type.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3296-L3308`
+
+### `trait.assoc-const.supertrait-closure` — Associated const lookup closes over supertraits
+
+Resolution of an associated const on a bound type parameter searches the transitive supertrait closure of every stated bound, deduplicated, so a const declared on a supertrait of a stated bound is found.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L11544-L11565`
+
+### `trait.assoc-const.type-match` — Impl associated-constant type must match trait declaration
+
+An impl's associated constant must have a type equal to the type the trait declares for that constant.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3313-L3326`
 
 ## Supertraits
 
@@ -77,740 +303,7 @@ For a blanket `impl<T: Super> Child for T {}`, the supertrait requirement on T i
 
 **Evidence:** `src/compiler/sema_collect.cpp#L4992-L5012`
 
-## Trait Visibility
-
-### `trait.vis.placeholder-carries-pub` — predeclared trait carries its visibility
-
-A trait name predeclared during name-collection carries its declared `pub` visibility, so a cross-package reference resolving before the trait's body is collected sees the correct public/private status.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L447-L475`
-
-## Auto Traits
-
-### `trait.auto.aggregate-structural` — Tuples, structs, and enums auto-satisfy a trait iff all components do
-
-A tuple/struct/enum auto-satisfies an auto-trait (Send/Sync) iff every component type satisfies it: tuple elements, (substituted) struct fields, and every enum-variant payload type. Auto-trait membership is structural over the substituted constituent types.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L237-L289`
-
-### `trait.auto.array-element` — Array satisfies auto trait iff element does
-
-An array type [T; N] satisfies auto trait A iff its element type T satisfies A; an array with no element type vacuously satisfies.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L221-L222`
-
-### `trait.auto.closure-over-captures` — Closure auto-trait membership is computed over capture types
-
-A closure type's auto-trait (Send/Sync) membership is determined by its captured values' types, not its parameter types. By-reference captures enter as `&T`/`&mut T` (so the reference auto-trait rules apply: `&T: Send` iff `T: Sync`); owned (move) captures enter as `T`; narrow captures use the captured field's type. Since closure types intern by signature, the recorded capture set is the union across all same-signature literals, so the type is `!Send`/`!Sync` if any such literal captures a `!Send`/`!Sync` value.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L14900-L14925`
-
-### `trait.auto.closure-via-captures` — Closure auto trait follows its captured types
-
-A closure type satisfies auto trait A iff every captured value's type satisfies A (by-ref captures recorded as &/&mut so reference rules apply). A closure type with no recorded capture set (e.g. a bare dyn Fn annotation without + Send) does not satisfy. Auto-trait satisfaction is computed over captures, not parameter types.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L246-L252`
-
-### `trait.auto.conservative-false` — Other types conservatively fail auto traits
-
-Any type kind not otherwise handled (e.g. trait objects) is conservatively treated as not satisfying any auto trait.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L254-L256`
-
-### `trait.auto.cycle-guard` — Recursive types terminate as satisfied
-
-Auto-trait checking memoizes on key (type, trait); revisiting an in-progress (type, trait) pair during recursion is treated as satisfied (true), so a recursive type does not loop and is not rejected merely for self-reference.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L32-L35`
-
-### `trait.auto.empty-body` — Auto trait must have empty body
-
-An `auto trait` must declare no members; a body containing any FN, associated type, or associated const is an error. Visibility modifiers, type params, and supertraits do not count as members.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L2445-L2461`
-
-### `trait.auto.enum-all-payloads` — Enum satisfies auto trait iff all variant payloads do
-
-Absent an overriding impl, an enum satisfies auto trait A iff every payload type of every variant satisfies A. An unknown enum is leniently treated as satisfying.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L202-L218`
-
-### `trait.auto.explicit-impl-override` — Explicit impl overrides structural check for struct/enum
-
-For struct/enum (and zoned struct) types, an explicit auto-trait impl is consulted first by candidate key (mangled concrete name, then full type string, then base name): a positive impl accepts and a negative impl rejects, short-circuiting the structural field/variant walk.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L37-L85`, `src/compiler/sema_auto_trait.cpp#L168-L170`, `src/compiler/sema_auto_trait.cpp#L203-L205`
-
-### `trait.auto.explicit-impl-overrides` — An explicit impl of an auto-trait short-circuits the structural check
-
-If a type has an explicit impl of the auto-trait (matched by mangled concrete name, type_str form, or unmangled base name), the type satisfies the trait unconditionally, bypassing the structural field/variant walk.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L199-L201`, `src/compiler/mono_clone.cpp#L242-L248`, `src/compiler/mono_clone.cpp#L275-L277`
-
-### `trait.auto.generic-impl-bound-check` — Generic positive impl honours its type-param auto-trait bounds
-
-When a positive auto-trait impl has impl type parameters and a generic target, each impl type param is substituted with the corresponding query type argument; for every bound on that param that names an auto trait, the substituted argument must itself satisfy that auto trait, else the impl is rejected.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L56-L84`
-
-### `trait.auto.mut-ref-send-sync` — &mut T: Send iff T:Send, Sync iff T:Sync
-
-For a mutable reference &mut T, Send(&mut T) = Send(T) and Sync(&mut T) = Sync(T).
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L125-L130`
-
-### `trait.auto.mutref-delegates-same-trait` — &mut T: Send iff T: Send, Sync iff T: Sync
-
-&mut T auto-satisfies the queried trait iff T satisfies that same trait (Send→T:Send, Sync→T:Sync). Matches Rust.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L226-L230`
-
-### `trait.auto.phantompinned-not-unpin` — PhantomPinned and #[pinned] types are !Unpin
-
-The lang-item logos.lang.marker.PhantomPinned does not satisfy Unpin; likewise a #[pinned] (arena-resident) struct does not satisfy Unpin. These structural opt-outs propagate via the all-fields rule.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L164-L167`, `src/compiler/sema_auto_trait.cpp#L176`
-
-### `trait.auto.pointer-always-unpin` — Pointers/references are always Unpin
-
-Raw pointers, &T, and &mut T are Unpin regardless of the pointee's pin-ness, unless an explicit negative Unpin impl exists for that exact pointer type; references never carry a negative Unpin impl and are unconditionally Unpin.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L101-L112`, `src/compiler/sema_auto_trait.cpp#L121`, `src/compiler/sema_auto_trait.cpp#L126`
-
-### `trait.auto.raw-pointer-not-send-sync` — Raw pointers are !Send/!Sync absent an explicit impl
-
-A raw pointer type (*const T / *mut T) does not satisfy a Send/Sync-shaped auto trait unless an explicit positive impl exists for that exact pointer type; a matching explicit impl is honoured (positive accepts, negative rejects).
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L107-L117`
-
-### `trait.auto.raw-ptr-not-send-sync` — Raw pointers are !Send and !Sync absent an explicit impl
-
-A raw pointer type *const T / *mut T does NOT auto-satisfy Send or Sync; it satisfies them only if an explicit (unsafe) impl is present for that pointer type. Matches Rust.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L216-L220`
-
-### `trait.auto.recursive-structural-satisfaction` — Auto-trait satisfaction is recursive/structural
-
-A type satisfies an auto trait (Send/Sync) iff all of its constituent fields recursively satisfy it; the first non-satisfying field is reported as the offender.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3617-L3629`
-
-### `trait.auto.ref-send-iff-pointee-sync` — &T: Send/Sync iff T: Sync
-
-&T auto-satisfies Send iff T: Sync, and Sync iff T: Sync — i.e. the auto-trait obligation on &T is delegated to T: Sync for both Send and Sync. Matches Rust.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L222-L224`
-
-### `trait.auto.scalars-and-fnptr` — Scalars and function pointers satisfy all auto traits
-
-Every scalar type (bool, unit/void, iN/uN incl. i24/u24/i56/u56/i128/u128, f32/f64, integer/float literal types), function items, and function pointers satisfy every auto trait unconditionally.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L89-L99`
-
-### `trait.auto.scalars-fn-always-satisfy` — Scalars and function types unconditionally auto-satisfy Send/Sync
-
-Primitive scalar types (bool, all integer widths, f32/f64, char), integer/float literals, and function-item / function-pointer types unconditionally satisfy auto-traits (Send/Sync).
-
-**Evidence:** `src/compiler/mono_clone.cpp#L204-L214`
-
-### `trait.auto.shared-ref-via-sync` — &T auto-trait reduces to T: Sync
-
-For a shared reference &T, both Send and Sync are satisfied iff T: Sync. (Send(&T) = Sync(T), Sync(&T) = Sync(T).)
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L120-L122`
-
-### `trait.auto.slice-send-iff-elem-sync` — Slice auto-trait delegates to element Sync; array preserves the trait
-
-[T] (slice) auto-satisfies the queried trait iff T: Sync (slice behaves like &-borrowed element storage). [T; N] (array) auto-satisfies the queried trait iff T satisfies that same trait.
-
-**Uncertainty:** Slice→Sync delegation for BOTH Send and Sync queries is inferred from the literal "Sync" argument regardless of trait_name; Rust treats [T] like &-storage.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L232-L235`
-
-### `trait.auto.slice-via-sync` — Slice auto-trait reduces to element Sync
-
-A slice type [T] (a shared-reference-shaped view) satisfies Send and Sync iff its element type T satisfies Sync (not the queried trait); an empty-element slice vacuously satisfies.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L224-L227`
-
-### `trait.auto.struct-all-fields` — Struct satisfies auto trait iff all fields do
-
-Absent an overriding impl, a struct/zoned-struct satisfies auto trait A iff every field type satisfies A, with generic field TypeVars substituted by the struct's concrete type arguments. An unknown struct (no struct/datatype info) is leniently treated as satisfying.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L171-L198`
-
-### `trait.auto.structural-satisfaction` — Auto traits are satisfied structurally
-
-> **CONFLICT**: id `trait.auto.structural-satisfaction` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/sema/sema_auto_trait/logos.json`
-
-An auto trait (e.g. Send, Sync, Unpin) is satisfied by a concrete type via structural recursion over its composition rather than by an explicit impl, except where an explicit (possibly negative) impl overrides. The error type and the unit/never-shaped Error kind vacuously satisfy every auto trait.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L24-L30`, `src/compiler/sema_auto_trait.cpp#L87-L257`
-
-### `trait.auto.structural-satisfaction` — Auto-trait satisfaction synthesized structurally
-
-> **CONFLICT**: id `trait.auto.structural-satisfaction` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/sema/sema_collect/simplify_all_types.json`
-
-For an auto trait (e.g. Send/Sync), bound satisfaction is synthesized recursively from the type's field types; failure reports the offending field (name + type) when known, else that the type is not inherently the trait.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L912-L933`
-
-### `trait.auto.tuple-all-elements` — Tuple satisfies auto trait iff all elements do
-
-A tuple type satisfies auto trait A iff every element type satisfies A.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L230-L233`
-
-### `trait.auto.typevar-via-bounds` — Type parameter satisfies an auto trait iff bounded by it
-
-A type variable T satisfies auto trait A iff A appears in T's declared bound list in the current generic context; otherwise it does not.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L133-L140`
-
-### `trait.auto.unpin-default-true` — Unpin is satisfied by default
-
-Unpin holds for all types except those that (transitively) contain PhantomPinned, are #[pinned], or carry an explicit negative Unpin impl.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L101-L112`, `src/compiler/sema_auto_trait.cpp#L164-L176`
-
-### `trait.auto.unsafecell-not-sync` — UnsafeCell<T> is !Sync; Send follows T
-
-The lang-item logos.lang.cell.UnsafeCell<T> never satisfies Sync; it satisfies Send iff its wrapped T satisfies Send (no arg => not Send). Recognition is by qualified name to avoid clashing with same-named user types.
-
-**Evidence:** `src/compiler/sema_auto_trait.cpp#L145-L160`
-
-## Builtin / Marker Traits
-
-### `trait.builtin.copy-handle-kinds` — Copy is built-in for bitwise-copyable handle kinds
-
-A `Copy` bound is satisfied without an explicit `impl Copy` for the bitwise-copyable handle kinds: shared reference `&T` (incl. `&dyn Trait`), raw pointer `*const/*mut T`, slice `&[T]`, fn pointer, and trait-object fat pointer. `&mut T` is an exclusive move-only borrow and is NOT Copy (falls through to impl lookup).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L884-L898`
-
-### `trait.builtin.sized-noop` — Sized bound is a no-op
-
-> **CONFLICT**: id `trait.builtin.sized-noop` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/sema/sema_collect/simplify_all_types.json`
-
-`Sized` is a compiler-builtin marker satisfied by every concrete type; a `T: Sized` bound is admitted as a no-op (matching Rust's implicit Sized).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L879-L883`
-
-### `trait.builtin.sized-noop` — `Sized` is a builtin no-op bound
-
-> **CONFLICT**: id `trait.builtin.sized-noop` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/sema/sema_impl_hpp/logos.part3.json`
-
-`Sized` is a compiler-builtin marker auto-implemented for every size-known type; `T: Sized` is a no-op bound that is accepted without trait lookup (matching Rust's implicit `Sized`). This path handles only the positive bound; the `?Sized` opt-out is handled elsewhere and IS supported (see `generic.bound.relaxed-only-sized`).
-
-**Related:** `generic.bound.relaxed-only-sized`
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1623-L1628`
-
-## Object Safety
-
-### `trait.object-safety.method-generic-not-dispatchable` — method-level generic methods are not dispatchable through dyn
-
-A trait method whose every implementation carries method-level type parameters (e.g. `fn fold<Acc>(...)`) is not callable through `&dyn Trait`: it occupies a non-dispatchable (empty) vtable slot rather than a method pointer (Rust object-safety rule).
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L909-L931`
-
-### `trait.object-safety.sized-self-method-excluded` — where Self: Sized method excluded from vtable
-
-A trait method with `where Self: Sized` is excluded from the trait's vtable and ignored for object-safety determination.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L2598-L2599`
-
-## Trait Objects
-
-### `trait.object.object-safety-required` — Trait objects require object-safe traits
-
-A trait used as a trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe (dyn-compatible, Rust E0038); a non-object-safe trait used this way is an error reported once per offending trait.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3186-L3191`
-
-## Coherence
-
-### `trait.coherence.no-overlapping-impl` — Coherence: no two impls of same trait+args for same target
-
-Two non-generic, non-negative impls of the same trait (canonical name) with the same trait type-arguments for the same target type conflict and are an error. The coherence key includes the trait's spelled-out type-args (so `From<i8>` and `From<i16>` for one target do not collide) and uses the canonical scope-resolved trait name (so distinct same-name traits do not collide). Generic impls (with impl type/lifetime params) and negative impls are exempt.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3729-L3773`
-
-## Copy Semantics
-
-### `trait.copy.auto-derive-conditions` — Auto-Copy for all-Copy fieldless-Drop structs
-
-A struct is automatically Copy (never move-only) iff every field type is Copy and it has no `impl Drop`. Manual `impl Copy` entries take precedence (computed after supertrait-impl checking).
-
-**Evidence:** `src/compiler/sema_impl.hpp#L2051-L2054`, `src/compiler/sema_impl.hpp#L1930-L1930`
-
-### `trait.copy.conditional` — Conditional Copy via Copy-bounded impl params
-
-A generic `impl<P: Copy> Copy for Type<P>` registers conditional Copy: the instance is Copy iff each target type-arg position bound to a Copy-bounded impl parameter is itself Copy. A bound-less param or non-generic target registers Copy unconditionally.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3678-L3705`
-
-### `trait.copy.conditional-copy-impl` — Conditional Copy depends on Copy of bounded type-args
-
-For a conditional `impl<P: Copy> Copy for Wrapper<P>`, an instance `Wrapper<A>` is Copy iff every type-arg position bound to a Copy-bounded impl parameter is itself Copy (evaluated recursively); otherwise the instance is move-only and a move is not a bitwise copy.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1934-L1941`
-
-### `trait.copy.register` — impl Copy registers target as a Copy type
-
-`impl Copy for T` registers T as a Copy type (affecting move semantics); `unsafe impl Copy` is an error because Copy is a safe built-in trait.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3673-L3677`, `src/compiler/sema_collect.cpp#L3702-L3703`
-
-## Generic Parameters
-
-### `generic.param.bounds-and-const` — type-parameter and const-parameter forms
-
-A type parameter is `NAME [: bound + bound + ...]`; a const generic parameter is `const NAME : TYPE`. Either may be marked variadic with `...`. Bounds are joined with `+`.
-
-**Divergence:** Variadic type/const parameters (`...`) are a Logos extension.
-
-**Evidence:** `src/compiler/sema_render.cpp#L1052-L1099`
-
-### `generic.param.const-generic` — Const generic parameters
-
-A type parameter list may contain const parameters `const N: T`; each carries a const value-type T and may be marked variadic.
-
-**Examples**
-
-```logos
-fn f<const N: usize>() -> [i32; N] {}
-```
-
-**Evidence:** `src/compiler/sema.cpp#L4070-L4080`, `src/compiler/sema.cpp#L4147-L4158`
-
-### `generic.param.default-type-arg` — Default type arguments
-
-A type parameter may declare a default `<T = Default>` (or `<T: Bound = Default>`); the default type is recorded and substituted at use sites when the argument is omitted.
-
-**Evidence:** `src/compiler/sema.cpp#L4105-L4112`, `src/compiler/sema.cpp#L4180-L4187`
-
-### `generic.param.implicit-sized` — Type parameters are implicitly Sized
-
-Every type parameter carries an implicit `Sized` bound by default; it is cleared only by an explicit `?Sized` relaxed bound.
-
-**Evidence:** `src/compiler/sema.cpp#L3938-L3946`
-
-### `generic.param.lexical-shadowing` — Type/const params shadow outer same-named params
-
-Pushing a scope of type parameters shadows any outer binding of the same name (type, bounds, and `?Sized` relaxation), and popping restores the prior binding exactly; this permits e.g. a method `<T>` to shadow an enclosing trait/impl `<T>`.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3268-L3331`
-
-### `generic.param.sibling-in-scope` — Sibling type-params visible to bound argument resolution
-
-When resolving a type-parameter's bound arguments, all sibling type-param names in the same list are in scope as type variables (so `where F: FnOnce(T, T) -> bool` resolves T).
-
-**Evidence:** `src/compiler/sema.cpp#L4055-L4066`, `src/compiler/sema.cpp#L4131-L4142`
-
-### `generic.param.unused-warn` — unused function type-parameter warns
-
-A function type-parameter that appears nowhere in the function's signature is a warning.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L552-L554`
-
-### `generic.param.variadic-last` — Variadic type parameter must be last
-
-A variadic type parameter `T...` must be the final entry in the type-parameter list; a non-final variadic param is an error "variadic type parameter must be last".
-
-**Divergence:** Variadic type/const parameters are a Logos addition not present in Rust.
-
-**Evidence:** `src/compiler/sema.cpp#L4188-L4190`
-
-## Trait Bounds
-
-### `generic.bound.assoc-eq` — Associated-type equality constraints in bounds
-
-A trait bound may bind associated types by equality, `Trait<Assoc = Ty>`; each `Assoc = Ty` is recorded as an associated-type equality on the bound.
-
-**Examples**
-
-```logos
-fn f<I: Iterator<Item = i32>>(i: I) {}
-```
-
-**Evidence:** `src/compiler/sema.cpp#L4025-L4033`
-
-### `generic.bound.fn-family-paren-form` — Fn-family parenthesized bound syntax
-
-The traits Fn, FnMut, FnOnce admit a parenthesized bound form `Fn(P1, ..., Pn) -> R`; the parenthesized list supplies the argument types and `-> R` the return type (both optional), distinct from the `<...>` type-argument list.
-
-**Examples**
-
-```logos
-fn call<F: FnOnce(i32, i32) -> bool>(f: F) {}
-```
-
-**Evidence:** `src/compiler/sema.cpp#L3969-L3992`
-
-### `generic.bound.hrtb-binder` — Higher-ranked trait bound binders
-
-A trait bound may carry a `for<'a, 'b, ...>` higher-ranked lifetime binder; the bound lifetime names are recorded on the bound.
-
-**Examples**
-
-```logos
-fn f<F: for<'a> Fn(&'a i32)>(f: F) {}
-```
-
-**Evidence:** `src/compiler/sema.cpp#L3994-L4017`
-
-### `generic.bound.lifetime-arg-not-structural` — Lifetime args in trait bounds are recorded but not dispatched on
-
-A lifetime argument at a trait bound's type-argument position (e.g. `Foo<'a>`) is captured for record only; regions are not tracked structurally for bound dispatch.
-
-**Divergence:** Logos does not track regions structurally for bound dispatch; lifetime bound-args carry no dispatch significance.
-
-**Evidence:** `src/compiler/sema.cpp#L4034-L4041`
-
-### `generic.bound.lifetime-outlives-clause` — Lifetime outlives bounds in generic param list
-
-A lifetime parameter may carry outlives bounds `'long: 'a + 'b + 'c`, which desugar to the set of pairwise constraints {('long,'a), ('long,'b), ('long,'c)} meaning 'long outlives each listed shorter lifetime.
-
-**Uncertainty:** Encoding read here; enforcement of the outlives relation is elsewhere.
-
-**Evidence:** `src/compiler/sema.cpp#L3324-L3351`
-
-### `generic.bound.relaxed-not-propagated` — Relaxed markers are consumed, never positive bounds
-
-A relaxed `?Trait` marker is removed from a type parameter's bound set during finalization; it is never carried forward as a positive bound to monomorphization or bound-checking.
-
-**Evidence:** `src/compiler/sema.cpp#L3937-L3954`
-
-### `generic.bound.relaxed-only-sized` — Only ?Sized is a permitted relaxed bound
-
-A relaxed bound `?Trait` on a type parameter is permitted only when Trait = Sized. `?Sized` clears the parameter's implicit Sized bound; any other `?Trait` is a hard error "relaxed bound '?T' is not permitted (only `?Sized` is supported)".
-
-**Examples**
-
-```logos
-fn f<T: ?Sized>(x: &T) {}
-fn g<T: ?Clone>() {}  // error
-```
-
-**Evidence:** `src/compiler/sema.cpp#L3944-L3954`, `src/compiler/sema.cpp#L3957-L3968`
-
-### `generic.bound.type-outlives` — Type-outlives bounds
-
-A type parameter may carry type-outlives bounds `T: 'a (+ 'b)*`; the outlived lifetime names are recorded on the parameter.
-
-**Examples**
-
-```logos
-fn f<T: 'static>(x: T) {}
-```
-
-**Evidence:** `src/compiler/sema.cpp#L4098-L4102`
-
-### `generic.bound.well-formed` — trait bounds are validated at the declaration site
-
-Trait bounds written on generic declarations are validated where written: each bound must name a known trait and supply the correct number of trait arguments.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L548-L550`
-
-### `trait.bound.arity` — Trait-bound type-argument arity
-
-A trait bound `T: Tr<A...>` must supply type arguments matching Tr's type-parameter arity: if Tr's last param is variadic, |A| >= |params|-1; else |A| == |params|. A trait with no type params accepts no args. Mismatch is an error at the definition site.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1637-L1651`
-
-### `trait.bound.auto-trait-structural` — Auto-trait bounds checked structurally, not via impls
-
-When a method type-param bound names an auto trait, satisfaction is decided by structural auto-trait analysis of the concrete type (is_auto_satisfied) rather than by impl lookup.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L5179-L5187`
-
-### `trait.bound.fn-family-intrinsic` — Fn-family bound satisfied by callable shapes intrinsically
-
-A parenthesized Fn/FnMut/FnOnce bound is satisfied intrinsically (no registered impl needed) by any fn-value kind, Closure, TypeVar (deferred to outer mono pass), or Struct/ZonedStruct (struct-with-Fn-impl bridge); any other kind fails the bound.
-
-**Divergence:** A10
-
-**Evidence:** `src/compiler/mono_clone.cpp#L5072-L5081`, `src/compiler/mono_clone.cpp#L5154-L5178`
-
-### `trait.bound.generic-arg-recursion` — Generic instantiation bound satisfaction recurses into type-args
-
-For a generic struct/enum instantiation, satisfying `Concrete<A..>: Trait` requires not only that a matching impl exists by bare name, but also that for each impl type-param, after unifying the impl target pattern against Concrete, every bound on that param holds for the unified argument (recursively). Non-generic / argument-free concrete types are accepted on the bare-name impl check alone.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L4986-L5089`, `src/compiler/mono_clone.cpp#L5036-L5088`
-
-### `trait.bound.unknown-trait` — Trait bound naming an unknown trait is rejected
-
-Every recorded type-parameter trait bound `T: Tr` must name a known trait; an unknown `Tr` is an error at the definition site. Exceptions: the Fn-family bounds (`Fn`/`FnMut`/`FnOnce`) and `Sized` are compiler-builtin and require no user-space trait declaration.
-
-**Examples**
-
-```logos
-fn f<T: Nonexistent>() {} // error: unknown trait
-```
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1612-L1636`
-
-### `trait.bound.where-clause-gate` — Method where-bounds gate method instantiation
-
-A method with a where-bound `Subject: Trait` is only instantiated for a concrete substitution if the substituted Subject satisfies Trait; if the substituted Subject still contains a TypeVar the check is deferred to an outer mono pass (not a failure). Unsatisfied where-bounds suppress synthesis of that method.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L5091-L5110`
-
-## Bound Checking
-
-### `generic.bounds.defer-typevar-bearing` — TypeVar-bearing subjects defer bound checking to mono
-
-A concrete-arg type-expression that mentions a TypeVar anywhere (`&T`, `[T;0]`, `&[T]`, `EnumPair<T>`, `(T,U)`, closure param/ret) has undecidable trait satisfaction here and is deferred to monomorphization, where the substituted form is re-checked. AssocType and CfgSlotType kinds are likewise deferred.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L838-L866`
-
-### `generic.bounds.no-empty-params` — Bound checking is a no-op for non-generic targets
-
-When a target has no type parameters, bound checking is skipped entirely.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L808-L811`
-
-### `generic.bounds.relaxed-only-sized` — Only ?Sized is a permitted relaxed bound
-
-A relaxed bound (`?Trait`) is permitted only for `Sized`; any other relaxed bound is an error. Seeing `?Sized` clears the parameter's implicit `Sized` requirement, and the relaxed entry is removed so downstream code sees only positive bounds.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3248-L3256`, `src/compiler/sema_impl.hpp#L3310-L3316`
-
-### `generic.bounds.relaxed-sized-substitution-check` — ?Sized param substituted where Sized required errors
-
-When a type parameter carrying `?Sized` is passed as a type-argument to a callee whose corresponding parameter requires `Sized`, the same unsized-substitution diagnostic is emitted as for an explicit unsized substitution.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L2996-L3001`
-
-### `generic.bounds.substitute-call-args` — Call's type-args substituted into parametrized bounds
-
-Before checking a parametrized bound `I: Iterator<T>`, the call's mapping of type-params to concrete args is substituted into the bound's type-args, so the bound is checked against the concrete value of T (e.g. turbofish T=i32) rather than the bare TypeVar.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L815-L825`, `src/compiler/sema_collect.cpp#L947-L955`
-
-### `generic.bounds.variadic-tail-param` — Variadic tail parameter absorbs extra type args
-
-If the last type parameter is variadic, type args beyond the non-variadic count are all checked against that final (variadic) parameter; otherwise excess args are ignored once parameters are exhausted.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/sema_collect.cpp#L812-L833`
-
-### `trait.bounds.dyn-object-self-and-super` — Trait object satisfies its own trait and supertraits
-
-A `dyn Trait` (TraitObject / UnsizedDyn) value satisfies a `T: Bound` bound iff the trait object's trait equals Bound or transitively reaches it through supertraits.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1273-L1296`
-
-### `trait.bounds.fn-family-by-callable` — Fn-family bounds satisfied by callable types
-
-An `F: Fn*(args)->R` bound is satisfied by any closure or fn-pointer type; by `&F`/`&mut F` whose pointee is a closure, fn-ptr, or Fn-bounded TypeVar (autoderef-invoke); and by a concrete fn-pointer matching an arity-keyed `$fnptr$N` impl. Arity/arg/ret compatibility is enforced at the call site.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1245-L1272`
-
-### `trait.bounds.generic-struct-base-key` — Generic-struct impl keyed by base struct name
-
-A generic impl `impl<T: X> Trait for GenericStruct<T>` registers under the base name; a bound on a concrete instantiation of that struct is satisfied if a generic impl for its base struct exists (with type-args matching), the impl's own param bounds being validated recursively at monomorphization.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1181-L1191`
-
-### `trait.bounds.parametrized-type-args-match` — Parametrized bound requires a type-arg-matching impl
-
-For a bound `T: Trait<Args>`, a name-keyed impl hit proves only that SOME Trait impl exists; satisfaction additionally requires that some impl for this Self (enumerated via multi-valued impls registry) has matching trait type-args after substituting the impl's params from the concrete Self. An empty bound type-arg list imposes no constraint. Enumeration covers the concrete, unwrapped, and bare struct/enum names; abstract (TypeVar-bearing) sides defer.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L936-L1007`
-
-### `trait.bounds.partialeq-via-eq` — PartialEq/PartialOrd satisfied by Eq/Ord impls
-
-A `T: PartialEq` bound is satisfied by an existing Eq impl, and `T: PartialOrd` by an Ord impl (alias resolution over concrete and unwrapped names).
-
-**Divergence:** Logos Eq/Ord carry the methods Rust puts on PartialEq/PartialOrd; full split pending.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1110-L1131`
-
-### `trait.bounds.ref-subject-impl-key` — where &T: Trait satisfied only by reference-Self impl
-
-A `where &T: Trait` bound (ref-subject) is satisfied only by an `impl Trait for &Concrete` / `&mut Concrete` (keyed `$ref_<C>` / `$mut_ref_<C>`), NOT by `impl Trait for Concrete`; absence is an error naming parameter `&<name>`.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L899-L911`
-
-### `trait.bounds.region-mismatch-error` — Found impl with incompatible regions is an error
-
-When a direct/alias impl is found and its type-args match, satisfaction holds only if the region check passes; on region failure the bound is rejected with a diagnostic citing incompatible trait-arg lifetimes (and HRTB `for<...>` binders if present).
-
-**Related:** `region.bounds.universal-lifetime-position`, `region.bounds.impl-tie-injectivity`, `region.bounds.hrtb-outlives-unsat`
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1102-L1154`
-
-### `trait.bounds.tuple-impl-satisfaction` — Tuple impls keyed by arity, with per-element recursion
-
-A tuple satisfies a bound if a variadic tuple impl (`$tuple$variadic`) exists (any arity), or an arity-specific impl (`$tuple$N`) exists AND every non-TypeVar element itself satisfies the trait (element checked via direct impl, nested tuple-arity, or auto-trait short-circuit). TypeVar elements defer to mono.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1192-L1244`
-
-### `trait.bounds.unsatisfied-error` — Unsatisfiable bound emits a diagnostic
-
-When no satisfaction path applies (direct/alias impl, blanket, generic-struct, tuple, Fn-family, dyn, or reference-Self mangled key), the bound is rejected: `'<target>': type '<C>' does not implement trait '<Trait>' required by parameter '<name>'`.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1297-L1318`
-
-## Where Clauses
-
-### `generic.where.concrete-subject-obligation` — where-clause with concrete subject is an obligation, not a param
-
-A `where <ConcreteType>: Trait` clause (subject names a known type, e.g. `where i32: Show`) is a trivially-checked obligation and does not introduce a new type parameter; only a genuinely-undeclared type-param name in a where clause is added as a parameter.
-
-**Evidence:** `src/compiler/sema.cpp#L4260-L4279`
-
-### `generic.where.merged-with-inline` — where-clause bounds merge into parameter bounds
-
-Bounds from a `where T: Trait, U: Trait2` clause are merged onto the corresponding type parameters; an inline `<T, F: Bound>` and the equivalent `where`-clause form are semantically identical, and sibling type-params are in scope when resolving where-clause bound arguments.
-
-**Evidence:** `src/compiler/sema.cpp#L4195-L4295`
-
-### `generic.where.projection-subject-skipped` — where-clause projection subject is parsed but not enforced
-
-A `where C::Item<T>: Bound` clause whose subject is an associated-type projection is accepted but not yet enforced (parse-and-skip).
-
-**Uncertainty:** Statement reflects current parse-and-skip behavior; full projection-bound checking is noted as a separate unimplemented feature.
-
-**Evidence:** `src/compiler/sema.cpp#L4218-L4227`
-
-### `generic.where.ref-subject` — where-clause with reference subject
-
-A `where &T: Trait` / `where &mut T: Trait` clause records its bounds on the underlying type-param T, flagged as applying only to a matching (shared/mut) reference receiver.
-
-**Evidence:** `src/compiler/sema.cpp#L4210-L4259`
-
-## Higher-Ranked Trait Bounds
-
-### `trait.hrtb.universal-bijective` — HRTB bound satisfaction requires universal-position, bijective lifetime mapping
-
-When a trait bound carries lifetime type-args, the bound's lifetimes must align with the impl's lifetime params: a bound lifetime that is empty/'static must match exactly or map to a universally-quantified impl lifetime; a named bound lifetime requires the impl side be universal and the impl-lt→bound-lt map be 1-1 (injective). An impl outlives constraint `'a: 'b` where both sides map to bound-side binder (skolem) lifetimes is unsatisfiable and rejected.
-
-**Uncertainty:** Region soundness rule; full statement deferred to sema_collect region_ok per comment.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L5189-L5280`
-
-## Bound Satisfaction
-
-### `trait.satisfy.blanket-recursive` — Recursive impl satisfaction with blanket chains
-
-A type satisfies a trait if a direct impl exists (by primary or alternate mangled key), or a blanket impl `impl<T: B> Trait for T` applies whose bound trait B (and all extra bounds) are themselves recursively satisfied by the type. A cycle-guard set prevents infinite recursion; each blanket candidate uses a per-attempt copy of the seen-set so a failed sibling does not poison later candidates. An unbounded blanket (`impl<T> Trait for T`) trivially satisfies any type.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L764-L806`
-
-### `trait.satisfy.ref-self-mangling` — Reference-Self impls keyed by $ref_/$mut_ref_ mangling
-
-An `impl Trait for &T` / `&mut T` registers under a mangled key (`$ref_`/`$mut_ref_` prefix); a query whether `&T` impls Trait matches both the full-string pointee form (`$ref_&i32`) and the bare-name pointee form (`$ref_Foo`).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L776-L788`
-
-## Variance
-
-### `generic.variance.adt-by-table` — ADT variance is per-parameter from the computed variance table
-
-For a struct/zoned-struct/enum `D<A0..,'L0..>`, the variance contribution of each type argument `Ai` (resp. lifetime arg) is the meet over arguments of `compose(ambient, declared_variance(D,#i))` recursed into `Ai`, where `declared_variance(D,#i)` (`@i` for lifetimes) comes from the variance table keyed by `pkg.Name`; a parameter absent from the table defaults to covariant (Co).
-
-**Evidence:** `src/compiler/sema.cpp#L8087-L8132`
-
-### `generic.variance.compose` — Variance composition under nesting
-
-For a parameter P used at variance `inner` inside Wrapper<P>, where the Wrapper field occupies a position of variance `outer` in the enclosing type, P's effective variance there is outer ∘ inner: BiVar absorbs (BiVar ∘ x = x ∘ BiVar = BiVar); Inv dominates the non-BiVar cases (Inv ∘ x = x ∘ Inv = Inv); otherwise the result is Contra iff exactly one of outer/inner is Contra (sign-flip rule: Co∘Co=Co, Co∘Contra=Contra, Contra∘Co=Contra, Contra∘Contra=Co).
-
-**Related:** `generic.variance.four-kinds`, `generic.variance.meet`
-
-**Evidence:** `include/logos/compiler/variance.hpp#L40-L46`
-
-### `generic.variance.dyn-trait` — Trait objects: covariant in lifetime bound, invariant in type args
-
-`dyn Trait<A...> + 'a` is covariant in its lifetime bound `'a` (the erased object's storage must outlive `'a`) and invariant in each type argument `Ai` (ambient composed with Inv); auto-trait bounds (Send/Sync) are set-membership and contribute nothing to variance.
-
-**Evidence:** `src/compiler/sema.cpp#L8144-L8163`
-
-### `generic.variance.fixpoint` — ADT variances computed by monotone fixpoint over fields
-
-Variances of all struct/datatype/enum parameters are computed by a fixpoint iteration: each parameter is seeded BiVar, then on each round its variance is set to the meet over all field types (enum: over all variant payload types) of `variance_in_type(field, param, ambient=Co)`; iteration repeats until no entry changes, bounded at 32 rounds.
-
-**Uncertainty:** The 32-round cap is an implementation safety bound; the language semantics is the least fixpoint.
-
-**Evidence:** `src/compiler/sema.cpp#L8171-L8261`
-
-### `generic.variance.fn-contravariant-params` — Function types are contravariant in parameters, covariant in return
-
-A function item or function pointer `fn(P0..)->R` is contravariant in each parameter type `Pi` (ambient composed with Contra) and covariant in the return type `R`.
-
-**Evidence:** `src/compiler/sema.cpp#L8134-L8143`
-
-### `generic.variance.four-kinds` — Generic-parameter variance kinds
-
-Each type/lifetime parameter of a struct/enum has a variance in {BiVar, Co, Contra, Inv}: Co (covariant) preserves the subtype direction (Foo<Sub> <: Foo<Super>, &'long T <: &'short T when 'long: 'short); Contra (contravariant) reverses it (fn-argument position); Inv (invariant) requires both directions (mutable-reference content); BiVar (bivariant) places no constraint, used when the parameter appears only in phantom/absent positions.
-
-**Related:** `generic.variance.meet`, `generic.variance.compose`
-
-**Evidence:** `include/logos/compiler/variance.hpp#L31`
-
-### `generic.variance.meet` — Variance meet (combine multiple uses of a parameter)
-
-When a parameter is used in several positions, its variance is the meet (most-restrictive demand): BiVar ∧ x = x; x ∧ x = x; Co ∧ Contra = Inv; Inv ∧ x = Inv. The lattice ordering is BiVar < {Co, Contra} < Inv.
-
-**Related:** `generic.variance.four-kinds`
-
-**Evidence:** `include/logos/compiler/variance.hpp#L33-L38`
-
-### `generic.variance.mutref-invariant-pointee` — Mutable reference is covariant in lifetime, invariant in pointee
-
-`&'a mut T` is covariant in its lifetime `'a`, but invariant in its pointee `T` (recurses with ambient composed with Inv).
-
-**Evidence:** `src/compiler/sema.cpp#L8062-L8071`
-
-### `generic.variance.raw-ptr` — Raw pointers: *const covariant, *mut invariant
-
-`*const T` is covariant in pointee `T`; `*mut T` is invariant in pointee `T` (ambient composed with Co or Inv respectively). Matches Rust.
-
-**Evidence:** `src/compiler/sema.cpp#L8072-L8076`
-
-### `generic.variance.ref-covariant` — Shared reference is covariant in lifetime and pointee
-
-`&'a T` is covariant in its lifetime `'a` (contributes ambient) and covariant in its pointee `T` (recurses with unchanged ambient).
-
-**Evidence:** `src/compiler/sema.cpp#L8054-L8061`
-
-### `generic.variance.tuple-array-slice-covariant` — Tuples, arrays, and slices are covariant in element types
-
-A tuple is covariant in each element type (meet over elements, unchanged ambient); `[T; N]` and `[T]` are covariant in element type `T` (recurse with unchanged ambient).
-
-**Evidence:** `src/compiler/sema.cpp#L8077-L8086`
-
-### `generic.variance.type-param-occurrence` — Variance of a parameter is the meet over its occurrences
-
-The variance of a type/lifetime parameter `p` in a type `T` is `variance_in_type(T,p,ambient=Co)`, computed structurally: a leaf occurrence of `p` contributes the ambient variance; a parameter that does not occur is bivariant (BiVar). The overall variance combines occurrences via the meet operator (variance_meet); an unmentioned parameter stays BiVar (unconstrained).
-
-**Uncertainty:** variance_meet/variance_compose lattice (BiVar top, Co/Contra, Inv bottom) defined elsewhere; semantics inferred from usage.
-
-**Evidence:** `src/compiler/sema.cpp#L8047-L8053`, `src/compiler/sema.cpp#L8165-L8166`
-
-### `generic.variance.unknown-type-bivariant` — Type kinds not contributing the parameter are bivariant
-
-A type that does not mention the target parameter (or whose kind is not variance-relevant) contributes BiVar (the identity for meet, i.e. no constraint).
-
-**Evidence:** `src/compiler/sema.cpp#L8047`, `src/compiler/sema.cpp#L8053`, `src/compiler/sema.cpp#L8164-L8166`
-
-### `generic.variance.unsafecell-invariant` — UnsafeCell<T> is invariant in T
-
-`logos.lang.cell::UnsafeCell<T>` (the interior-mutability lang item, recognised by qualified name) is invariant in each type argument (ambient composed with Inv), overriding the table-driven ADT rule.
-
-**Evidence:** `src/compiler/sema.cpp#L8090-L8104`
-
-## Trait Impls
+## Trait Implementations
 
 ### `trait.impl.blanket-and-semantics` — Blanket impl bounds combine conjunctively; empty bounds = impl-for-all
 
@@ -824,25 +317,11 @@ For a blanket impl `impl<T: Bound> Trait for T {}`, each non-overridden trait de
 
 **Evidence:** `src/compiler/sema_collect.cpp#L3569-L3600`
 
-### `trait.impl.blanket-detection` — blanket impl detection
-
-> **CONFLICT**: id `trait.impl.blanket-detection` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/sema/sema_collect/collect_type_alias.part2.json`
-
-A trait impl whose target is one of the impl's own type parameters (`impl<T: Bound> Trait for T`) is a blanket impl; its bound trait and any extra bounds (with their associated-type equality clauses) are recorded so the blanket can be instantiated at call sites on concrete types satisfying the bounds.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3114-L3141`, `src/compiler/sema_collect.cpp#L3213-L3225`
-
 ### `trait.impl.blanket-detection` — An impl whose target is one of its own type parameters is a blanket impl
 
-> **CONFLICT**: id `trait.impl.blanket-detection` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/sema/sema_decl/lower_struct_def.part2.json`
+A trait impl whose target type equals one of the impl's own type parameters (`impl<T: B> Trait for T`) is a blanket impl. The parameter's first bound becomes the impl's bound trait, and its associated-type equalities together with any additional bounds (and their associated-type equality clauses) are recorded, so the blanket can be instantiated at call sites on any concrete type satisfying those bounds.
 
-An impl `impl<T: B> Trait for T` whose target type equals one of the impl's own type parameters is a blanket impl. The parameter's first bound becomes the impl's bound trait, and its associated-type equalities and any additional bounds (with their assoc-type equalities) are recorded for use during resolution.
-
-**Evidence:** `src/compiler/sema_decl.cpp#L1968-L2006`
+**Evidence:** `src/compiler/sema_collect.cpp#L3114-L3141`, `src/compiler/sema_collect.cpp#L3213-L3225`, `src/compiler/sema_decl.cpp#L1968-L2006`
 
 ### `trait.impl.blanket-keyed-by-bound` — distinct blanket impls keyed by bound trait
 
@@ -1052,470 +531,19 @@ Lifetime-outlives bounds (`'a: 'b`) and type-outlives bounds (`T: 'a`) written i
 
 **Evidence:** `src/compiler/sema_collect.cpp#L2748-L2778`
 
-## Blanket Impls
+## Impl Methods
 
-### `trait.blanket.auto-ref-receiver` — Auto-ref of receiver for &self/&mut self blanket method
+### `trait.impl-method.self-binding-by-target-shape` — Self binding for default-method synthesis follows the impl target shape
 
-When a dispatched blanket method's self parameter is `&self`/`&mut self` but the receiver is a value (not already a ref/ptr), the receiver's address is taken (mutably for `&mut self`).
+When synthesising a default method, `Self` is bound to: the impl's structured target pattern when the target has a shaped (non-typevar, non-constvar) type argument; otherwise a generic struct/datatype over the impl's type-parameters as type variables when the impl has type parameters; otherwise the bare struct/datatype type; for a primitive target, the primitive type; and for a blanket impl, a type variable named for the target.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6385-L6401`
+**Evidence:** `src/compiler/sema_decl.cpp#L2379-L2433`
 
-### `trait.blanket.method-dispatch-unique-or-error` — Blanket-impl method dispatch requires a unique applicable blanket
+### `trait.impl-method.visibility-inherits-trait` — Trait-impl methods inherit the trait's visibility
 
-For `impl<T: Bound> Trait for T { fn m .. }`, a method call on a receiver dispatches via the blanket only when exactly one registered blanket applies to the receiver type; two or more viable overlapping blankets is an ambiguity error. Value blankets (`impl<T> Trait for T`) reach primitive receivers as well as struct receivers.
+A method defined in a trait-impl block (`impl Trait for T`) is always callable wherever the trait is reachable; it is treated as public regardless of declaration. The `pub` modifier is not permitted on trait-impl methods. Inherent-impl methods (no trait) keep their explicit `pub`/private distinction.
 
-**Evidence:** `src/compiler/sema_impl.hpp#L3885-L3897`
-
-### `trait.blanket.overlap-ambiguity` — Two applicable distinct blanket impls are ambiguous
-
-If two or more distinct blanket impls of the same method both apply to the receiver, the method call is an ambiguity error naming both impls.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6336-L6351`
-
-### `trait.blanket.recursive-impl-gating` — Blanket method dispatch gated by recursive bound satisfaction
-
-A blanket impl provides a method for a receiver type only if the receiver satisfies the blanket's primary bound trait (checked recursively, including supertraits) and all extra bounds, AND every associated-type-equality clause on the primary and extra bounds is satisfied for the receiver.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6296-L6335`
-
-### `trait.blanket.recursive-satisfaction` — Recursive trait satisfaction through blanket-impl chains
-
-A concrete type satisfies a trait if it implements it directly or transitively through any chain of blanket impls whose bounds are recursively satisfied. Cycle detection prevents infinite recursion through cyclic blanket chains, and each candidate is checked with an independent visited set so a failed candidate does not poison sibling candidates. Associated-type-equality clauses are NOT validated by this satisfaction check.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3579-L3596`
-
-### `trait.blanket.type-param-inference-by-name` — Blanket type-params inferred by name from receiver, args, and return hint
-
-For a dispatched blanket method, the blanket's target type-param (and `Self`) bind to the receiver's concrete type (unwrapped from ref/ptr); remaining type-params appearing only in argument or return position are inferred by unifying parameter types with argument types and, when present, the return type with the call-site return-type hint. Binding is by name, not position.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6362-L6384`
-
-### `trait.blanket.unbound-param-bail` — Blanket dispatch bails when a type-param is uninferable
-
-If any of a dispatched blanket method's type-params cannot be inferred (e.g. the destination of `x.into()` with no expected-type annotation), the blanket impl does not dispatch; the normal 'cannot resolve' / type-annotation-needed diagnostic fires instead.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6402-L6417`
-
-## Blanket Impls (codegen)
-
-### `trait.blanket-impl.synthetic-target-name` — Blanket impl methods lowered under a synthetic target name
-
-Blanket-impl methods and defaults are lowered under the synthetic target `$blanket$Trait$Bound$Target` with `Self` bound to the blanket type variable, producing an LIR template that mono clones per concrete receiver; this avoids collision with `T::method` of any other generic T.
-
-**Evidence:** `src/compiler/sema_decl.cpp#L2308-L2315`, `src/compiler/sema_decl.cpp#L2381-L2382`, `src/compiler/sema_decl.cpp#L2566-L2569`
-
-## Specialization
-
-### `generic.spec.bare-ident-resolution` — Bare-ident spec param: known type is concrete, else fresh TypeVar
-
-A bare-IDENT type-param in a specialization pattern that names a known type resolves to that CONCRETE type (a specialization leg); otherwise it is treated as a fresh unbounded TypeVar scoped over the fn signature and body.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4454-L4464`
-
-### `generic.spec.bounded-param-is-typevar` — Bounded spec type-param stays a TypeVar
-
-A type-param carrying trait bounds in a specialization pattern is always a TypeVar (never coerced to a concrete leg), with its declared trait bounds recorded.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4437-L4453`
-
-### `generic.spec.lifetime-param-skip` — Lifetime params ignored in spec patterns
-
-Lifetime parameters in a specialization fn's type-param list contribute no spec pattern (deferred to the borrow checker).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4431`
-
-### `generic.spec.method-shadows-impl-param-warn` — Method type-param shadowing impl param is a silent specialization
-
-When a method's bare-IDENT type-param has the same name as an enclosing impl-block type-param, the method is silently treated as a specialization on the impl's param; the compiler emits a warning advising a rename.
-
-**Divergence:** Rust treats the method param as a fresh shadowing generic; Logos reinterprets it as a specialization leg (warned).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4551-L4586`
-
-### `generic.spec.most-specific-match` — Partial-spec selection picks the most specific matching pattern
-
-Among struct specializations sharing a base name with arity equal to the supplied type-args, a spec is a candidate iff every pattern position matches the corresponding type-arg (TypeVar binds any type but must bind consistently within one spec; concrete kinds must match structurally; Struct/ZonedStruct match by name). The selected spec is the one whose per-position specificity scores are lexicographically greatest (specificity: 0 for a TypeVar, 100 for a concrete leaf, 1+inner for Ptr/Array). No candidate ⇒ no specialization.
-
-**Uncertainty:** Specificity ordering inferred from specificity_sema constants and lexicographic vector compare.
-
-**Evidence:** `src/compiler/sema.cpp#L6506-L6563`
-
-### `generic.spec.partial-pattern-typevars` — Partial specialization keeps unbound params as type variables
-
-In a struct specialization's pattern list, each slot that does not resolve to a known type stays a free type variable (e.g. `Map<Bitmap, V>` keeps `V`). The concrete spec name derives from `concrete_struct_name(make_generic_struct(name, patterns))`, so both full and partial specs are registered and later matched by best-fit at lookup. Pattern type variables are scoped only during collection and removed afterward.
-
-**Divergence:** A6: partial specialization of user structs is a Logos addition.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3810-L3833`, `src/compiler/sema_collect.cpp#L3858-L3860`
-
-### `generic.spec.pattern-list` — Specialization function pattern parameters
-
-A specialization fn's type-parameter list is interpreted as a list of type PATTERNS (not plain generic params): each entry is resolved into a SPEC_PATTERNS type that can be a structured type (e.g. `*T`, `[T; N]`), a TypeVar (bounded or unbounded type-param), or a concrete known type. The patterns drive dispatch to the matching specialization leg.
-
-**Uncertainty:** Logos has a specialization mechanism with no direct stable-Rust analogue (Rust specialization is unstable).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4414-L4474`
-
-### `generic.spec.struct-pattern-classification` — Struct specialization detection
-
-A `struct Name<...>` decl is a specialization (not a fresh generic base) iff (a) some type-param slot is a structured pattern (`*T`, `[T;N]`), OR (b) some slot is a concrete/known type name (primitive, alias, struct, datatype, or enum). A bare type-param name is treated as a concrete user-type spec only when a base of the same name is already registered in the current package AND the name is in the pre-scanned decl-name set; otherwise the decl is registered as a generic base. Specializations are not added to `structs_`; they are lowered directly.
-
-**Divergence:** A6: Logos supports user struct specialization (`struct Map<Bitmap, V> {...}`), which Rust lacks for structs.
-
-**Uncertainty:** Order-independence relies on pass0_decl_names_; classification of a name colliding across modules is gated on a same-name base existing.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3974-L3976`, `src/compiler/sema_collect.cpp#L4258-L4304`
-
-## Impl Overloading / Selection
-
-### `generic.overload.receiver-autoref-autoderef` — Method receiver autoref/autoderef in overload matching
-
-For the receiver argument of a method overload, a by-value actual matching a `&self`/`&mut self` formal pointee (autoref) ranks as an exact match (score 2); a reference actual matching a by-value `self` formal pointee (autoderef) ranks one below (score 1). The receiver is unified through these autoref/autoderef shapes so unification does not see Ref-vs-Struct and bind nothing.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L3783-L3797`, `src/compiler/sema_expr.cpp#L3821-L3835`
-
-### `generic.overload.score-select` — Generic overload selection by argument fit score
-
-Among ≥2 generic overloads of a name, each arity-compatible candidate is scored by per-argument fit after substituting inferred bindings: exact type match = 2, compatible (incl. autoderef receiver / general type-compatibility) = 1; any incompatible argument disqualifies the candidate. A candidate whose fixed type-params cannot all be bound is rejected (unless its body always diverges, or a return-type hint is present). The highest-scoring candidate wins; ties are broken in favour of a candidate defined in the current package.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L3759-L3845`
-
-### `trait.overload.candidate-visibility-filter` — Call candidates filtered by package visibility; explicit pkg:: overrides imports
-
-Function-name resolution collects all overloads (concrete and generic) then filters to those visible from the call site: own package, wildcard-imported packages, or empty-package (extern/prelude). A `use pkg from <module>` import deliberately excludes other modules' same-pkg fns. An explicit `pkg::fn(...)` qualifier restricts to that package only with no empty-fallback. Otherwise, if filtering leaves nothing and no deliberate `from`-exclusion occurred, all candidates are returned (synthetic-phase robustness).
-
-**Evidence:** `src/compiler/sema.cpp#L1638-L1700`
-
-### `trait.overload.generic-arity-and-package` — Generic function selection: package-qualifier filter, arity match, own-package preference
-
-Generic-function lookup among an overload set keeps only candidates passing the package-qualifier filter; with an arg count, a candidate matches if its arity equals n (or n>=arity when vararg). An arity match in the current package wins immediately; else the first matching-arity candidate; else a wrong-arity fallback.
-
-**Evidence:** `src/compiler/sema.cpp#L1578-L1608`
-
-### `trait.overload.generic-select-by-arg-shape` — Generic overload selection by substituted-param scoring
-
-When a base name carries multiple generic overloads of equal arity (e.g. `Pin<&T>::new` vs `Pin<&mut T>::new` vs `Pin<Box<T>>::new`), the overload is selected by unifying each candidate's params against the actual arguments and scoring the SUBSTITUTED params: exact match scores higher than coercion-compatible, and any incompatible param rejects the candidate. With fewer than two overloads the first-arity-match (first-wins) behavior is retained.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3773-L3789`
-
-## Impl Shadowing
-
-### `generic.shadow.type-param-shadows-type-warn` — Type-param shadowing a type/trait warned
-
-A fn type-parameter whose name shadows an existing struct/datatype/enum/trait is warned because it currently breaks fn-name resolution at use sites.
-
-**Uncertainty:** Stated as a current implementation limitation rather than a designed rule.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4619-L4630`
-
-## Generic Arity
-
-### `generic.arity.exact-or-variadic-tail` — Type-argument arity matching
-
-A generic instantiation with parameter list P and argument list A is well-formed iff: if P's last parameter is a variadic pack (`T...`), |A| >= |P|-1 (the pack absorbs >=0 trailing args); otherwise |A| == |P|. Mismatch is an error stating the expected and actual counts.
-
-**Examples**
-
-```logos
-Vec<i32>      // P={T}, ok
-Tuple<A,B,...> // last param variadic, >=2 args
-```
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1337-L1366`
-
-### `generic.arity.type-args-on-non-generic` — Type-args on a non-generic target rejected
-
-Supplying >=1 type argument to a target whose type-parameter list is empty (non-generic) is an error: `<context> '<name>': not generic — cannot accept N type arg(s)`. (Diagnosed only after full type-parameter info is available, never during forward-declaration prepass.)
-
-**Examples**
-
-```logos
-struct S {} ; let x: S<i32>; // error: not generic
-```
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1341-L1352`
-
-## Associated Items
-
-### `trait.assoc.eq-clause-satisfaction` — Associated-type equality clauses must hold
-
-A bound `Trait<Assoc = Type>` holds for a concrete type only if each expected associated type equals the impl's actual `type Assoc = ...` resolution after substitution.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3258-L3266`
-
-### `trait.assoc.equality-bound-satisfaction` — Associated-type equality bound satisfaction
-
-A bound of form `T: Trait<Assoc = X>` is satisfied iff the impl of `Trait` for the concrete type defines `type Assoc = Y` with Y type-equal to X. The impl's binding is looked up first for the concrete name, then for the base (template) name. If no direct impl provides Assoc, a matching blanket impl whose bound-trait and extra-bounds are all satisfied supplies its `type Assoc = ...`, with the blanket target type-var substituted by the concrete type and recursively resolved before the equality check.
-
-**Examples**
-
-```logos
-K: Primitive => K: HasPrim<P = K::Prim = i32>
-```
-
-**Evidence:** `src/compiler/sema.cpp#L3358-L3420`
-
-### `trait.assoc.type-and-const` — Associated type and const declarations in traits
-
-Trait associated items: `type NAME [<params>] [= T] ;` (optional default and optional bound list `: B + B`) declares an associated type; `const NAME : T [= expr] ;` declares an associated const, optionally with a default value.
-
-**Examples**
-
-```logos
-type Item;
-type Item: Ord = i32;
-const N: usize = 0;
-```
-
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L952-L963`
-
-### `trait.assoc.typearg-suffixed-lookup` — Associated-type lookup prefers trait-arg-suffixed key
-
-When resolving an associated type of `Trait` for a target type, if the current impl context fixes the trait's type-arguments, the lookup first tries a key suffixed with those arguments — so two `Trait<T>` impls for one type at distinct `T` register and resolve their associated types independently — falling back to the unsuffixed `Trait::target::aname` key.
-
-**Evidence:** `src/compiler/sema.cpp#L3015-L3029`
-
-## Associated Types
-
-### `trait.assoc-type.completeness-with-default` — Associated-type completeness with trait default fallback
-
-A non-blanket trait impl must provide every associated type the trait declares; if the impl omits one, the trait's declared default associated type is used, and only the absence of both impl definition and trait default is an error. Blanket impls skip this check (assoc types are per-instantiation).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3617-L3642`
-
-### `trait.assoc-type.copied-into-impl` — Associated type bindings recorded per impl under a trait-arg-suffixed key
-
-Associated-type bindings of a trait impl are recorded under a key prefixed by `trait_name + trait-arg-suffix + "::" + target + "::"`; blanket impls use the synthetic `$blanket$Trait$Bound$Target` name. The trait-argument suffix disambiguates two `Trait<T>` impls of the same target type (distinct concrete T) so neither erases the other.
-
-**Evidence:** `src/compiler/sema_decl.cpp#L2563-L2585`
-
-### `trait.assoc-type.default-and-gat` — Associated type defaults and GATs
-
-An associated type may carry its own type params (GAT, e.g. `type Item<T>`), trait-bound constraints, and a default RHS (`type Item = i32;`); an impl that omits the assoc type falls back to the declared default.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L2491-L2520`
-
-### `trait.assoc-type.dual-impl-ambiguous-projection` — Ambiguous bare associated-type projection across generic-trait impls
-
-When two impls of a generic trait Trait<T> for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.
-
-**Divergence:** G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3235-L3248`, `src/compiler/sema_collect.cpp#L3281-L3295`
-
-### `trait.assoc-type.dual-trait-typearg-key` — Associated-type lookup keyed by trait type-args when ambiguous
-
-Associated-type resolution for two distinct `Trait<T>` impls of one target type is disambiguated by a `$G<n>$<a1>$..` suffix encoding the concrete trait type-args, preferring the suffixed key when args are known from the current impl context and falling back to the plain key for single/non-generic-trait impls.
-
-**Related:** `mono.mangle.type-args-recursive`
-
-**Evidence:** `src/compiler/sema_impl.hpp#L4282-L4300`
-
-### `trait.assoc-type.duplicate` — Duplicate associated type in impl rejected
-
-An impl block must define each associated type at most once for a given (trait, trait-type-args, target, name); a second definition with the same key is an error.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3247-L3252`
-
-### `trait.assoc-type.gat-and-default` — Associated types may be generic (GAT) and have a default
-
-A trait associated type may carry its own type-params (`type Item<T>` — a GAT) with bounds, and may declare a default (`type Item = i32;`) used by impls that omit it.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L2618-L2624`
-
-### `trait.assoc-type.gat-arity-match` — Impl GAT arity must match trait declaration
-
-The number of type parameters on an impl's associated type definition must equal the count the trait declares for that associated type.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3261-L3273`
-
-### `trait.assoc-type.gat-no-shadow-impl-param` — GAT params must not shadow impl type params
-
-A generic associated type's own type parameters (`type Item<T> = ...`) must not share a name with any of the enclosing impl's type parameters.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3253-L3260`
-
-### `trait.assoc-type.stamp-bound-targs-on-return` — Associated-type return projection carries the bound's concrete trait type-args
-
-If a dispatched trait method's substituted return type is an associated-type projection, its trait name is rewritten to the trait-name suffixed with the bound's concrete trait type-args (`Trait<...>` -> mangled args suffix), so projections from two distinct `impl Trait<T>` for one type, and the caller's declared `-> P::Item`, resolve to the same impl.
-
-**Uncertainty:** Disambiguation among multiple Trait<T> impls; tied to G156-1 trait-type-arg mangling (still narrow per memory).
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7671-L7694`
-
-## Associated Constants
-
-### `trait.assoc-const.accessor-for-generic-projection` — Associated const in concrete trait impl emits a zero-arg accessor
-
-An associated const in a concrete (non-generic, non-blanket) trait impl emits a zero-argument accessor function `Target__kassoc_<name>` returning the const value, so a generic projection `T::<name>` (lowered as `T__kassoc_<name>()` and rewritten by mono once T is substituted) has a concrete function to call. Generic/blanket-target associated consts are not given accessors; concrete `Target::<name>` reads use the direct value path.
-
-**Evidence:** `src/compiler/sema_decl.cpp#L2260-L2295`
-
-### `trait.assoc-const.completeness-with-default` — Associated-constant completeness with trait default fallback
-
-A trait impl must provide every associated constant the trait declares; if omitted, the trait's default value is projected into the impl, and only the absence of both impl value and trait default is an error.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3643-L3663`
-
-### `trait.assoc-const.default` — Associated const declaration and default
-
-An associated const declares a type, and may provide a default value (`const X: i32 = 42;`); an impl that omits the const falls back to the recorded default.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L2523-L2542`
-
-### `trait.assoc-const.default-projected-to-impl` — Associated const default projected into omitting impls
-
-A trait associated const may declare a default (`const X: i32 = 42;`); each `impl Trait for T` that omits the const inherits the default so `T::CONST` resolves to it.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L2625-L2633`
-
-### `trait.assoc-const.generic-projection` — Associated const projection on a bound type parameter
-
-For a path `T::C` where `T` is a type parameter with bound `T: Tr` and `C` is an associated const declared by `Tr` (or by any transitive supertrait of `Tr`), the expression resolves to a per-impl accessor that yields the const's value; its type is the declared associated-const type, defaulting to i64 when undeclared.
-
-**Uncertainty:** i64 default for an associated const with no declared type is implementation-driven; Rust requires an explicit type.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L11540-L11567`
-
-### `trait.assoc-const.inherent-allowed` — Inherent associated constants permitted
-
-An inherent impl (no trait) may declare associated constants `const C: T = ...;`, registered under the target type.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3296-L3308`
-
-### `trait.assoc-const.supertrait-closure` — Associated const lookup closes over supertraits
-
-Resolution of an associated const on a bound type parameter searches the transitive supertrait closure of every stated bound, deduplicated, so a const declared on a supertrait of a stated bound is found.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L11544-L11565`
-
-### `trait.assoc-const.type-match` — Impl associated-constant type must match trait declaration
-
-An impl's associated constant must have a type equal to the type the trait declares for that constant.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L3313-L3326`
-
-## Const Generics
-
-### `generic.const.binds-as-const-var` — Const-generic parameters bind as const-vars
-
-A const-generic type parameter `const N: T` binds in scope as a ConstVar carrying its declared const type; a non-const type parameter binds as a type variable.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L3297-L3304`
-
-## Trait Methods
-
-### `expr.method.typeparam-inference-from-args` — Method type params inferred by unifying params with arg types
-
-Absent turbofish, a trait method's type parameters are inferred by unifying each substituted formal parameter type (seeded with Self → receiver type and any supertrait-derived bindings) against the corresponding argument's type.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7498-L7524`
-
-### `expr.method.typevar-trait-method-dispatch` — Method on a bounded type parameter resolves via its trait bounds
-
-If the receiver (after peeling one reference/raw-pointer layer) is a type parameter `T` (or, conditionally, an associated-type projection), the method is resolved against the traits in `T`'s declared bounds; the concrete impl is selected later during monomorphization.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7320-L7340`, `src/compiler/sema_expr.cpp#L7367-L7375`, `src/compiler/sema_expr.cpp#L7439-L7443`
-
-### `generic.method.arg-inference` — Method type args inferred from args
-
-Method-level type arguments not bound by turbofish or receiver are inferred from the actual argument expressions (param offset skips `self`), seeding the substitution context.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8861-L8865`
-
-### `generic.method.bounds-check` — Method type-arg bounds enforced
-
-Inferred/explicit method type arguments must satisfy their type parameters' bounds.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8973`
-
-### `generic.method.inference-complete` — All method type args must be inferred
-
-Every method type parameter must be bound (by turbofish, receiver, or inference); failure to bind all is an error.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8967-L8972`
-
-### `generic.method.recv-formal-unify` — Impl params inferred from receiver formal
-
-Impl/method type parameters appearing only in the receiver formal (e.g. `impl<T> Pin<&T> { fn get_ref(&self) -> &T }`) are inferred by unifying the receiver formal against the actual receiver type, peeling one ref/ptr layer on either side to match shapes.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8838-L8860`
-
-### `generic.method.recv-typeargs-bind` — Receiver type-args seed substitution
-
-The receiver's struct/zoned-struct or enum type arguments are bound positionally to the receiving type's type parameters and used as the substitution context for checking and inferring method-level type arguments.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8750-L8776`
-
-### `generic.method.turbofish-wins` — Method turbofish overrides inference
-
-Explicit method-level type arguments `recv.m::<T...>(args)` bind the method-level type parameters (the tail of the method's type-param list that is not shared with the receiving type) positionally; inference runs only for the remaining unbound positions.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8784-L8837`
-
-### `trait.method.default-body` — Trait method default body
-
-A trait method that provides a body has a default implementation; impls may omit it and inherit the default.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L2632-L2636`
-
-### `trait.method.disambiguating-mangle` — Same-name same-sig trait methods coexist via trait-qualified mangling
-
-When two distinct traits define a method with identical name and signature on the same target type, both coexist: the colliding methods are re-keyed under a trait-qualified base `<target>__<trait>__<method>`; non-colliding methods keep the plain base.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4731-L4835`
-
-### `trait.method.inherent-preferred` — Inherent method preferred over same-name trait method
-
-When an inherent method and a trait method share name and signature on a type, the inherent method keeps the plain base (found by concrete-receiver dispatch) and only the trait method is trait-qualified; a `T: Trait`-bounded dispatch resolves to the qualified trait method.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4776-L4777`, `src/compiler/sema_collect.cpp#L4787-L4801`
-
-### `trait.method.multi-trait-ambiguity` — Method provided by multiple traits is ambiguous
-
-If a method name `m` on type `S` is provided by more than one trait, the plain unqualified call `s.m(...)` is an error; the call must be disambiguated via a trait-bounded generic context or an explicit trait-qualified call.
-
-**Divergence:** A1: collision removes the plain base from the registry; Rust resolves by receiver/inference where unambiguous
-
-**Evidence:** `src/compiler/sema_expr.cpp#L8683-L8700`
-
-### `trait.method.overload-mangling` — Method symbol resolution under overload mangling
-
-A method reference <struct>__<method> resolves to the actual mangled symbol, which may be package-qualified ([pkg.]Base__method) and may carry an overload-mangling suffix __f__<sig> or __g__<sig>; the bare convention name is the fallback when no mangled match exists.
-
-**Evidence:** `src/compiler/mlir_gen_impl.hpp#L228-L274`
-
-### `trait.method.self-receiver` — Trait method self-receiver inference
-
-A trait method's first parameter is the `self` receiver iff it lacks an explicit type (`self`/`&self`/`&mut self`) or is named `self`. For an untyped `&self`/`&mut self`, the receiver type is synthesized as `Self` / `&Self` / `&mut Self` (mut taken from the param's mut marker).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L2563-L2589`
-
-### `trait.method.signatures` — Trait method declarations
-
-A trait item is a method declaration (`[unsafe] fn NAME [<params>] (params) [-> T] [where ...] (block | ';')`) — body-bearing alts give a default impl, `;`-terminated alts are required methods — or an associated type/const. Method names may be `new`/`null` keywords. A `where` clause may follow the signature (before block or `;`); on a default body it gates per-impl default synthesis (skip the default when the bound fails for the impl's concrete type).
-
-**Examples**
-
-```logos
-fn next(self) -> Option<Item>;
-fn max(self) -> Item where Item: Ord { ... }
-fn new() -> Self;
-```
-
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L885-L963`, `tools/peg_gen/grammars/logos.peg#L933-L951`
-
-### `trait.method.trait-typearg-distinct` — Distinct trait type-args mangle distinctly
-
-Two impls of the same trait with different concrete type-arguments (e.g. `impl Trait<u64> for X` vs `impl Trait<u8> for X`) for a same-name+signature method are treated as distinct and mangled with the trait type-arg suffix (`X__Trait$u64__m` vs `X__Trait$u8__m`).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4742-L4749`, `src/compiler/sema_collect.cpp#L4778-L4782`, `src/compiler/sema_collect.cpp#L4808-L4821`
-
-### `trait.method.where-self-sized` — where Self: Sized excludes method from vtable
-
-A trait method with a `where Self: Sized` bound is flagged requires-sized-self: it is excluded from the trait's vtable and thus does not affect object safety. Other where-bounds on trait type-params are recorded for per-impl default-synthesis gating.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L2599-L2631`
+**Evidence:** `src/compiler/sema_decl.cpp#L2202-L2208`, `src/compiler/sema_decl.cpp#L2442`
 
 ## Default Methods
 
@@ -1551,479 +579,181 @@ If the trait-argument bound to the gated parameter still mentions any type varia
 
 **Evidence:** `src/compiler/sema_decl.cpp#L2330-L2354`, `src/compiler/sema_decl.cpp#L2366-L2376`
 
-## Impl Methods
+## Coherence
 
-### `trait.impl-method.method-vs-impl-param-split` — Impl-level type params dropped from method TYPE_PARAMS, kept as IMPL_TYPE_PARAMS
+### `trait.coherence.no-overlapping-impl` — Coherence: no two impls of same trait+args for same target
 
-When an impl-block method is attached to a generic struct template, impl-level type parameters are removed from the method's own type-parameter list (mono re-injects them at struct instantiation) while method-level type parameters are retained; the impl-level parameters with their bounds are preserved separately so monomorphization can gate instantiation on bound satisfaction.
+Two non-generic, non-negative impls of the same trait (canonical name) with the same trait type-arguments for the same target type conflict and are an error. The coherence key includes the trait's spelled-out type-args (so `From<i8>` and `From<i16>` for one target do not collide) and uses the canonical scope-resolved trait name (so distinct same-name traits do not collide). Generic impls (with impl type/lifetime params) and negative impls are exempt.
 
-**Evidence:** `src/compiler/sema_decl.cpp#L2216-L2240`, `src/compiler/sema_decl.cpp#L2478-L2530`
+**Evidence:** `src/compiler/sema_collect.cpp#L3729-L3773`
 
-### `trait.impl-method.self-binding-by-target-shape` — Self binding for default-method synthesis follows the impl target shape
+## The Copy Trait
 
-When synthesising a default method, `Self` is bound to: the impl's structured target pattern when the target has a shaped (non-typevar, non-constvar) type argument; otherwise a generic struct/datatype over the impl's type-parameters as type variables when the impl has type parameters; otherwise the bare struct/datatype type; for a primitive target, the primitive type; and for a blanket impl, a type variable named for the target.
+### `trait.copy.auto-derive-conditions` — Auto-Copy for all-Copy fieldless-Drop structs
 
-**Evidence:** `src/compiler/sema_decl.cpp#L2379-L2433`
+A struct is automatically Copy (never move-only) iff every field type is Copy and it has no `impl Drop`. Manual `impl Copy` entries take precedence (computed after supertrait-impl checking).
 
-### `trait.impl-method.visibility-inherits-trait` — Trait-impl methods inherit the trait's visibility
+**Evidence:** `src/compiler/sema_impl.hpp#L2051-L2054`, `src/compiler/sema_impl.hpp#L1930-L1930`
 
-A method defined in a trait-impl block (`impl Trait for T`) is always callable wherever the trait is reachable; it is treated as public regardless of declaration. The `pub` modifier is not permitted on trait-impl methods. Inherent-impl methods (no trait) keep their explicit `pub`/private distinction.
+### `trait.copy.conditional` — Conditional Copy via Copy-bounded impl params
 
-**Evidence:** `src/compiler/sema_decl.cpp#L2202-L2208`, `src/compiler/sema_decl.cpp#L2442`
+A generic `impl<P: Copy> Copy for Type<P>` registers conditional Copy: the instance is Copy iff each target type-arg position bound to a Copy-bounded impl parameter is itself Copy. A bound-less param or non-generic target registers Copy unconditionally.
 
-## Enum Methods
+**Evidence:** `src/compiler/sema_collect.cpp#L3678-L3705`
 
-### `generic.enum-method.instantiate-on-typeargs` — Generic-enum method dispatch instantiates the method template
+### `trait.copy.conditional-copy-impl` — Conditional Copy depends on Copy of bounded type-args
 
-For a receiver of generic Enum type (`Enum<...>` with type-args) whose method is a generic template, dispatch routes through the generic-call path with type-args = receiver enum type-args (struct-level prefix) followed by inferred or turbofish-supplied method-level type-args; the receiver's enum type-params are pre-seeded into the substitution before inference.
+For a conditional `impl<P: Copy> Copy for Wrapper<P>`, an instance `Wrapper<A>` is Copy iff every type-arg position bound to a Copy-bounded impl parameter is itself Copy (evaluated recursively); otherwise the instance is move-only and a move is not a bitwise copy.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L8004-L8088`
+**Evidence:** `src/compiler/sema_impl.hpp#L1934-L1941`
 
-## Unsafe Methods
+### `trait.copy.register` — impl Copy registers target as a Copy type
 
-### `trait.unsafe-method.requires-unsafe-context` — Calling an unsafe method requires an unsafe context
+`impl Copy for T` registers T as a Copy type (affecting move semantics); `unsafe impl Copy` is an error because Copy is a safe built-in trait.
 
-A call to a method marked unsafe outside an unsafe context is an error: "call to unsafe method '<name>' requires unsafe context".
+**Evidence:** `src/compiler/sema_collect.cpp#L3673-L3677`, `src/compiler/sema_collect.cpp#L3702-L3703`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L8025-L8028`
+## Built-in / Marker Traits
 
-## Fn Traits
+### `trait.builtin.copy-handle-kinds` — Copy is built-in for bitwise-copyable handle kinds
 
-### `generic.fn.cross-pkg-coexist` — Cross-package same-name generics coexist
+A `Copy` bound is satisfied without an explicit `impl Copy` for the bitwise-copyable handle kinds: shared reference `&T` (incl. `&dyn Trait`), raw pointer `*const/*mut T`, slice `&[T]`, fn pointer, and trait-object fat pointer. `&mut T` is an exclusive move-only borrow and is NOT Copy (falls through to impl lookup).
 
-Generic functions are keyed by package-qualified mangled symbol; same base+signature in different packages produce distinct symbols and coexist; a duplicate error fires only on an exact symbol-name match within a package.
+**Evidence:** `src/compiler/sema_collect.cpp#L884-L898`
 
-**Evidence:** `src/compiler/sema_collect.cpp#L4837-L4856`
+### `trait.builtin.sized-noop` — `Sized` is a builtin no-op bound
 
-### `generic.fn.lifetime-param-unique` — Lifetime parameters of a fn must be unique
+`Sized` is a compiler-builtin marker auto-implemented for every size-known concrete type; a `T: Sized` bound is admitted as a no-op and accepted without trait lookup (matching Rust's implicit `Sized`). This positive-bound path is a no-op; the `?Sized` opt-out is handled elsewhere and IS supported (see `generic.bound.relaxed-only-sized`).
 
-A function's lifetime parameter names must be pairwise distinct; a duplicate lifetime parameter is ill-formed.
+**Related:** `generic.bound.relaxed-only-sized`
 
-**Evidence:** `src/compiler/sema_decl.cpp#L463-L467`
+**Evidence:** `src/compiler/sema_impl.hpp#L1623-L1628`, `src/compiler/sema_collect.cpp#L879-L883`
 
-### `generic.fn.type-param-unique` — Type parameters of a fn must be unique
+## Closure Trait Impls
 
-A function's type parameter names must be pairwise distinct; a duplicate type parameter is ill-formed.
+### `trait.closure.fn-family-auto-impl` — Closure types automatically satisfy Fn/FnMut/FnOnce
 
-**Evidence:** `src/compiler/sema_decl.cpp#L521-L524`
+Every closure type (canonical name beginning with `|`, i.e. `|T1,...| -> R`) is treated as implementing Fn, FnMut, and FnOnce without any explicit `impl`; the trait engine answers satisfies(Fn-family, closure) = true.
 
-## Trait Method Calls
+**Divergence:** A10
 
-### `expr.call.generic-inference-deferred-in-generic-context` — Generic-call inference is deferred inside a generic context
+**Evidence:** `src/compiler/mono_clone.cpp#L4943-L4948`
 
-If any argument is a pack expansion or has a TypeVar/AssocType type (partially-substituted context), call inference is deferred to monomorphization: the generic overload is selected and the call shape is preserved (callee type-vars and substituted return type) rather than pinning a concrete instantiation.
+## Trait Bounds (bound)
 
-**Evidence:** `src/compiler/sema_expr.cpp#L3435-L3462`, `src/compiler/sema_expr.cpp#L3586-L3601`
+### `trait.bound.arity` — Trait-bound type-argument arity
 
-### `expr.call.generic-inference-from-args` — Type arguments of a generic call are inferred from argument types
+A trait bound `T: Tr<A...>` must supply type arguments matching Tr's type-parameter arity: if Tr's last param is variadic, |A| >= |params|-1; else |A| == |params|. A trait with no type params accepts no args. Mismatch is an error at the definition site.
 
-When a callee is generic and the call is not in a generic/pack-expansion context, type arguments are inferred from the actual argument types; if not all can be inferred it is an error directing the user to explicit `f::<T>(...)` syntax.
+**Evidence:** `src/compiler/sema_impl.hpp#L1637-L1651`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L3413-L3457`
+### `trait.bound.auto-trait-structural` — Auto-trait bounds checked structurally, not via impls
 
-### `generic.call.antiquot-pack-type-arg` — Type-arg antiquote pack splices a reflected type list
+When a method type-param bound names an auto trait, satisfaction is decided by structural auto-trait analysis of the concrete type (is_auto_satisfied) rather than by impl lookup.
 
-An antiquote pack `$v...` in a generic call's type arguments splices a runtime-produced list of types (e.g. a struct's field types) into the callee's type args; it is carried as a marker TypeVar `__splicepack$v` that flows like a variadic pack and is expanded during monomorphization by chasing the variable to its type-list producer.
+**Evidence:** `src/compiler/mono_clone.cpp#L5179-L5187`
 
-**Divergence:** Logos metaprog reflection extension (no Rust analogue)
+### `trait.bound.fn-family-intrinsic` — Fn-family bound satisfied by callable shapes intrinsically
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5985-L6000`
+A parenthesized Fn/FnMut/FnOnce bound is satisfied intrinsically (no registered impl needed) by any fn-value kind, Closure, TypeVar (deferred to outer mono pass), or Struct/ZonedStruct (struct-with-Fn-impl bridge); any other kind fails the bound.
 
-### `generic.call.callee-resolution-order` — Generic call callee resolution precedence
+**Divergence:** A10
 
-For a call `f::<TARGS>(args)` with n value args, the callee resolves in order: (1) a generic function overload matching name `f` and arity n; (2) if none, a single non-generic candidate named `f`. If exactly one of these is found it is the callee; otherwise fall through to alternative interpretations (struct ctor / enum variant) before erroring.
+**Evidence:** `src/compiler/mono_clone.cpp#L5072-L5081`, `src/compiler/mono_clone.cpp#L5154-L5178`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5854-L5861`
+### `trait.bound.generic-arg-recursion` — Generic instantiation bound satisfaction recurses into type-args
 
-### `generic.call.impl-target-pattern-unify` — Impl-level type-params bound by target-pattern unification
+For a generic struct/enum instantiation, satisfying `Concrete<A..>: Trait` requires not only that a matching impl exists by bare name, but also that for each impl type-param, after unifying the impl target pattern against Concrete, every bound on that param holds for the unified argument (recursively). Non-generic / argument-free concrete types are accepted on the bare-name impl check alone.
 
-For a method on `impl<...> Trait for Foo<Pat..>`, the impl-level type-parameters are bound by structurally unifying the recorded impl-target pattern against the receiver-positional type-arguments (e.g. pattern `Vec<T>` vs concrete `Vec<i32>` ⇒ T=i32), not positionally; method-level type-arguments are then layered positionally on top. Positional binding is used when no target pattern is recorded.
+**Evidence:** `src/compiler/mono_clone.cpp#L4986-L5089`, `src/compiler/mono_clone.cpp#L5036-L5088`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L4085-L4122`, `src/compiler/sema_expr.cpp#L4033-L4052`
+### `trait.bound.unknown-trait` — Trait bound naming an unknown trait is rejected
 
-### `generic.call.pub-access-check` — Callee visibility check
+Every recorded type-parameter trait bound `T: Tr` must name a known trait; an unknown `Tr` is an error at the definition site. Exceptions: the Fn-family bounds (`Fn`/`FnMut`/`FnOnce`) and `Sized` are compiler-builtin and require no user-space trait declaration.
 
-Once a generic-call callee is resolved, its visibility (pub / module-only) is enforced relative to the calling package and module.
+```logos
+fn f<T: Nonexistent>() {} // error: unknown trait
+```
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5962`, `src/compiler/sema_expr.cpp#L6110`
+**Evidence:** `src/compiler/sema_impl.hpp#L1612-L1636`
 
-### `generic.call.sized-enforcement` — Sized bound enforced at type-argument substitution
+### `trait.bound.where-clause-gate` — Method where-bounds gate method instantiation
 
-Every type-parameter carries an implicit `Sized` bound unless declared `?Sized`. Passing an unsized type-argument (UnsizedSlice/UnsizedDyn), or a `?Sized` outer type-parameter, at a Sized-required parameter position is an error ("requires `Sized`"), reported before trait-bound checking.
+A method with a where-bound `Subject: Trait` is only instantiated for a concrete substitution if the substituted Subject satisfies Trait; if the substituted Subject still contains a TypeVar the check is deferred to an outer mono pass (not a failure). Unsatisfied where-bounds suppress synthesis of that method.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L4150-L4184`
+**Evidence:** `src/compiler/mono_clone.cpp#L5091-L5110`
 
-### `generic.call.tuple-struct-arity` — Tuple-struct constructor arity check
+## Trait Bounds (bounds)
 
-A tuple-struct constructor call is an error if the number of arguments differs from the number of struct fields.
+### `trait.bounds.dyn-object-self-and-super` — Trait object satisfies its own trait and supertraits
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5880-L5884`
+A `dyn Trait` (TraitObject / UnsizedDyn) value satisfies a `T: Bound` bound iff the trait object's trait equals Bound or transitively reaches it through supertraits.
 
-### `generic.call.tuple-struct-field-type-check` — Tuple-struct constructor field type checking
+**Evidence:** `src/compiler/sema_collect.cpp#L1273-L1296`
 
-For each tuple-struct constructor argument, the corresponding field type (after substitution) is the expected type: integer literals are widened to it, and a non-TypeVar non-error field type that is incompatible with the argument type is an error.
+### `trait.bounds.fn-family-by-callable` — Fn-family bounds satisfied by callable types
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5893-L5907`
+An `F: Fn*(args)->R` bound is satisfied by any closure or fn-pointer type; by `&F`/`&mut F` whose pointee is a closure, fn-ptr, or Fn-bounded TypeVar (autoderef-invoke); and by a concrete fn-pointer matching an arity-keyed `$fnptr$N` impl. Arity/arg/ret compatibility is enforced at the call site.
 
-### `generic.call.turbofish-arity` — Type-argument count validation
+**Evidence:** `src/compiler/sema_collect.cpp#L1245-L1272`
 
-A generic call supplying more type-arguments than the function has type-parameters is an error. With a variadic type-param, fewer than the non-variadic count is an error. Supplying fewer than the full count (partial turbofish), or interior `_` placeholders, is permitted: the explicit head is pre-bound and the remaining/`_` positions are inferred from argument types and the return-type hint; a still-uninferable position is an error directing the user to turbofish.
+### `trait.bounds.generic-struct-base-key` — Generic-struct impl keyed by base struct name
 
-**Evidence:** `src/compiler/sema_expr.cpp#L4001-L4082`
+A generic impl `impl<T: X> Trait for GenericStruct<T>` registers under the base name; a bound on a concrete instantiation of that struct is satisfied if a generic impl for its base struct exists (with type-args matching), the impl's own param bounds being validated recursively at monomorphization.
 
-### `generic.call.turbofish-tuple-struct-ctor` — Turbofish on a tuple-struct constructor
+**Evidence:** `src/compiler/sema_collect.cpp#L1181-L1191`
 
-If callee resolution finds no function but `f` names a tuple struct, `f::<TARGS>(args)` constructs that struct: the explicit turbofish TARGS pin the leading struct type-params positionally, any remaining type-params are inferred by unifying each field type with its argument type, and the result is a struct literal of `f` with fields '0','1',… . Argument count must equal the struct's field count.
+### `trait.bounds.parametrized-type-args-match` — Parametrized bound requires a type-arg-matching impl
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5862-L5920`
+For a bound `T: Trait<Args>`, a name-keyed impl hit proves only that SOME Trait impl exists; satisfaction additionally requires that some impl for this Self (enumerated via multi-valued impls registry) has matching trait type-args after substituting the impl's params from the concrete Self. An empty bound type-arg list imposes no constraint. Enumeration covers the concrete, unwrapped, and bare struct/enum names; abstract (TypeVar-bearing) sides defer.
 
-### `generic.call.undefined-callee-error` — Undefined-function diagnostic gated by metaprog mode
+**Evidence:** `src/compiler/sema_collect.cpp#L936-L1007`
 
-If a call's callee resolves to nothing (no fn, struct ctor, or variant), it is an error `call to undefined function 'f'`, EXCEPT in metaprog mode where the call silently lowers with `<error>` type so a not-yet-emitted derive-synthesized function can resolve in a later sema pass.
+### `trait.bounds.partialeq-via-eq` — PartialEq/PartialOrd satisfied by Eq/Ord impls
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5954-L5960`
+A `T: PartialEq` bound is satisfied by an existing Eq impl, and `T: PartialOrd` by an Ord impl (alias resolution over concrete and unwrapped names).
 
-### `generic.call.underscore-type-arg-inference` — `_` turbofish argument is an inference hole
+**Divergence:** Logos Eq/Ord carry the methods Rust puts on PartialEq/PartialOrd; full split pending.
 
-An explicit type argument written `_` becomes an inference hole (TypeVar `_`) and is inferred from the value arguments during call finishing rather than pinned.
+**Evidence:** `src/compiler/sema_collect.cpp#L1110-L1131`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5982-L6003`
+### `trait.bounds.ref-subject-impl-key` — where &T: Trait satisfied only by reference-Self impl
 
-### `generic.call.unsized-targ-for-relaxed-param` — ?Sized type-param relaxes unsized turbofish argument
+A `where &T: Trait` bound (ref-subject) is satisfied only by an `impl Trait for &Concrete` / `&mut Concrete` (keyed `$ref_<C>` / `$mut_ref_<C>`), NOT by `impl Trait for Concrete`; absence is an error naming parameter `&<name>`.
 
-When resolving the i-th explicit turbofish type argument, a bare unsized type (`[T]`, `dyn Trait`) is accepted iff the i-th target type-param was declared `?Sized` (implicit_sized=false); otherwise the unsized-by-value diagnostic applies.
+**Evidence:** `src/compiler/sema_collect.cpp#L899-L911`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L5964-L6007`, `src/compiler/sema_expr.cpp#L6112-L6127`
+### `trait.bounds.region-mismatch-error` — Found impl with incompatible regions is an error
 
-## Operator Traits
+When a direct/alias impl is found and its type-args match, satisfaction holds only if the region check passes; on region failure the bound is rejected with a diagnostic citing incompatible trait-arg lifetimes (and HRTB `for<...>` binders if present).
 
-### `trait.binop.enum-eq-impl` — == / != on same-named enums requires structural Eq impl for payload enums
+**Related:** `region.bounds.universal-lifetime-position`, `region.bounds.impl-tie-injectivity`, `region.bounds.hrtb-outlives-unsat`
 
-== / != between two enums of the same name route to the enum's eq/ne impl (a 2-param candidate keyed `EnumName__eq`, concrete or generic) when one exists, auto-borrowing operands; a payload-less (C-like) enum without an impl falls through to discriminant comparison, while a payload-carrying enum with no Eq/PartialEq impl is rejected.
+**Evidence:** `src/compiler/sema_collect.cpp#L1102-L1154`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L2114-L2192`
+### `trait.bounds.tuple-impl-satisfaction` — Tuple impls keyed by arity, with per-element recursion
 
-### `trait.binop.operator-method-autoref` — Operator-method operands auto-borrowed to match by-ref formals
+A tuple satisfies a bound if a variadic tuple impl (`$tuple$variadic`) exists (any arity), or an arity-specific impl (`$tuple$N`) exists AND every non-TypeVar element itself satisfies the trait (element checked via direct impl, nested tuple-arity, or auto-trait short-circuit). TypeVar elements defer to mono.
 
-When the resolved operator-overload method takes an operand by reference (&self / &other), the corresponding value operand is auto-borrowed (addr_of_temp) to match; by-value method formals receive the operand by value unchanged.
+**Evidence:** `src/compiler/sema_collect.cpp#L1192-L1244`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L1956-L1988`
+### `trait.bounds.unsatisfied-error` — Unsatisfiable bound emits a diagnostic
 
-### `trait.binop.partial-ord-derive` — Relational ops derive from partial_cmp when direct method absent
+When no satisfaction path applies (direct/alias impl, blanket, generic-struct, tuple, Fn-family, dyn, or reference-Self mangled key), the bound is rejected: `'<target>': type '<C>' does not implement trait '<Trait>' required by parameter '<name>'`.
 
-For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns Option<Ordering> it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.
+**Evidence:** `src/compiler/sema_collect.cpp#L1297-L1318`
 
-**Divergence:** Mirrors Rust's default PartialOrd lt/le/gt/ge bodies.
+## Higher-Ranked Trait Bounds
 
-**Evidence:** `src/compiler/sema_expr.cpp#L1990-L2055`
+### `trait.hrtb.universal-bijective` — HRTB bound satisfaction requires universal-position, bijective lifetime mapping
 
-### `trait.binop.struct-operator-overload` — Operator overloading on struct LHS desugars to trait method
+When a trait bound carries lifetime type-args, the bound's lifetimes must align with the impl's lifetime params: a bound lifetime that is empty/'static must match exactly or map to a universally-quantified impl lifetime; a named bound lifetime requires the impl side be universal and the impl-lt→bound-lt map be 1-1 (injective). An impl outlives constraint `'a: 'b` where both sides map to bound-side binder (skolem) lifetimes is unsatisfiable and rejected.
 
-When the left operand is a struct, the operator desugars to the corresponding trait method: + Add::add, - Sub::sub, * Mul::mul, / Div::div, % Rem::rem, & BitAnd::bitand, | BitOr::bitor, ^ BitXor::bitxor, << Shl::shl, >> Shr::shr, == Eq::eq, != Eq::ne, < Ord::lt, <= Ord::le, > Ord::gt, >= Ord::ge.
+**Uncertainty:** Region soundness rule; full statement deferred to sema_collect region_ok per comment.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L1930-L1958`
+**Evidence:** `src/compiler/mono_clone.cpp#L5189-L5280`
 
-### `trait.binop.tuple-eq-impl` — Tuple == / != routes to Eq impl only for non-primitive tuples
-
-== / != between two tuples of equal arity routes to the tuple's Eq eq/ne impl (keyed concrete `$tuple$N$...`, then arity `$tuple$N`, then variadic `$tuple$variadic`) ONLY when at least one field is non-primitive; an all-primitive tuple falls through to per-field value comparison and never requires the Eq trait. Operands are auto-borrowed to &Tuple.
-
-**Divergence:** Primitive-tuple fast path avoids requiring f64:Eq (f64 is PartialEq-only, Rust parity).
-
-**Evidence:** `src/compiler/sema_expr.cpp#L1812-L1928`
-
-### `trait.binop.typevar-eq-bound` — == / != on bounded type variable dispatches to Eq method
-
-== / != where the left operand is a type variable whose bounds (transitively, through supertraits) provide an `eq` method desugar to an auto-ref'd eq/ne method call dispatched after monomorphization; if more than one trait in scope provides `eq`, the call is tagged with trait Eq for disambiguation. Absent an eq-providing bound, falls through to the generic operator check.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L2060-L2112`
-
-## Deref
-
-### `trait.deref.multi-impl-target-match` — Deref impl selected by strict self-type match among multiple impls
-
-When a type carries several Deref impls distinguished by self type-args (e.g. Pin<&T>/Pin<&mut T>/Pin<Box<T>>), the impl whose target pattern strictly unifies-substitutes-and-equals the receiver type is selected; a non-matching impl is used only as a loose fallback.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L123-L158`
-
-## Formatting Traits
-
-### `trait.fmt.trait-dispatcher-fn` — Formatting-trait free-fn dispatchers
-
-Format macro lowering dispatches via free-fn wrappers bound at sema-time through a generic trait bound (rather than a `.method()` dot-call): Display=`fmt_display`, Debug=`fmt_debug`, and hex/oct/bin/exp variants named identically to their method names.
-
-**Evidence:** `src/compiler/sema_fmt.cpp#L25-L41`
-
-### `trait.fmt.trait-method-names` — Formatting-trait method names
-
-Each formatting trait maps to a method name used by macro lowering: Display=`fmt`, Debug=`dbg`, LowerHex=`fmt_lower_hex`, UpperHex=`fmt_upper_hex`, Octal=`fmt_octal`, Binary=`fmt_binary`, LowerExp=`fmt_lower_exp`, UpperExp=`fmt_upper_exp`.
-
-**Evidence:** `src/compiler/sema_fmt.cpp#L11-L23`
-
-## Method Dispatch
-
-### `trait.dispatch.ambiguous-method-error` — Method matching multiple bound traits is ambiguous
-
-When a method name `m` is provided by two distinct traits reachable from a type parameter's bounds (e.g. `trait Foo: A + B` where both A and B define `m`), the call is an error: method `m` is ambiguous (matches both traits). All supertrait siblings are searched so the ambiguity is detected rather than silently resolving to one.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7411-L7421`
-
-### `trait.dispatch.assoc-type-nondefault-gate` — Associated-type receiver intercepted only for a non-default method
-
-A method call whose receiver is an associated-type projection `G::R` is dispatched via the assoc-type's declared bounds (`type R: HasId`) only when those bounds supply a NON-default method of that name; if the only provider is a default method (e.g. via a blanket impl), dispatch defers to the ordinary path.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7341-L7366`, `src/compiler/sema_expr.cpp#L7444-L7458`
-
-### `trait.dispatch.blanket-bound-transitive` — Blanket extension trait holds transitively on a bounded type param
-
-If `impl<U: B> Ext for U {}` exists and the receiver type parameter `T` satisfies bound `B` (directly or via a supertrait of one of its bounds) and all the blanket impl's extra bounds, then `T: Ext` holds and `Ext`'s methods (including defaults) are searched for the call.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7460-L7485`
-
-### `trait.dispatch.dstref-unsafe` — Method call through &DstStruct requires unsafe unless self-describing
-
-On a `DstRef` receiver of struct S, a method call dispatches `S__<m>` (concrete signature then generic). It requires an `unsafe` context unless S is `#[self_describing]` (tail length recovered in-band), in which case it is safe. No matching method is an error.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6752-L6794`
-
-### `trait.dispatch.dyn-inherent-first` — Inherent impls on dyn override vtable dispatch
-
-On a `dyn Trait` (or `&dyn Trait` / `&mut dyn Trait`) receiver, an inherent `impl Trait for dyn Foo` method (mangled `$dyn$Foo__<m>`) is tried before vtable dispatch; if found and applicable it is called directly rather than virtually.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6801-L6856`
-
-### `trait.dispatch.dyn-return-subst` — Self and trait args substituted in dyn return type
-
-The return type of a virtual `dyn Trait` method is computed by substituting `Self`→receiver type plus the owning trait's type/const params from the TraitObject's trait args (read from the peeled `dyn` type, not from a `&dyn` reference whose own type_args are empty), so trait params do not leak unsubstituted to the call site.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6979-L7001`
-
-### `trait.dispatch.dyn-vtable-supertrait` — Virtual dispatch over the flattened supertrait vtable
-
-Failing inherent resolution, a `dyn Trait` method call dispatches virtually: the method index is its slot in the supertrait-closure vtable layout (supertrait methods occupy real slots). Arg count must equal method params − 1, an unsafe method requires `unsafe`, and arguments are coerced to formal parameter types (arg-to-dyn, implicit reborrow, int widening) with type/variance/int-fit checks. Unknown method is an error.
-
-**Related:** `coerce.arg.dyn-reborrow-widen`
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6857-L6916`, `src/compiler/sema_expr.cpp#L7003-L7010`
-
-### `trait.dispatch.slice-impl` — Method dispatch on slice/str impls
-
-A method call on a slice receiver resolves user `impl Trait for [T]` / `impl Trait for str` methods via sentinel keys, in order: concrete `$slice$<elem>__<m>`, generic blanket `$slice$T__<m>`, and (for `Slice<u8>`) `str__<m>`. A `&[U]` argument whose formal parameter wants a flat `Slice` is reborrowed by stripping its `&`/`&mut` wrapper. If the receiver is a slice but no key matches, it is an error.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6518-L6613`
-
-### `trait.dispatch.supertrait-dag-search` — Bounded-type method search walks the supertrait DAG
-
-Method lookup on a bounded type parameter searches each bound trait and, transitively, its supertraits (depth-first, with cycle/diamond guarding). Substitutions compose along supertrait references: a supertrait reference's type-args (written in the sub-trait's namespace incl. Self) are resolved through the current substitution and bound to the supertrait's formal params.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7400-L7437`, `src/compiler/sema_expr.cpp#L7386-L7398`
-
-### `trait.dispatch.tagged-ptr` — Tag-based dispatch on &tagged<TS> Trait
-
-On a `TaggedPtr` receiver carrying tag-system TS and trait T, a method call resolves against T's declared methods (T must exist, method must exist), checks arg count = method param count − 1, requires `unsafe` if the method is unsafe, substitutes `Self`→receiver type in the return type, and emits a tag-dispatched method call (runtime type_code read via TS).
-
-**Evidence:** `src/compiler/sema_expr.cpp#L6699-L6743`
-
-### `trait.dispatch.tuple-impl` — Method dispatch on tuple impls with autoref/autoderef
-
-On a (possibly `&`/`&mut`-wrapped) tuple receiver of arity N, a method call resolves user `impl Trait for (T1..TN)` via keys concrete `$tuple$N$<t1>..$<tN>__<m>` then generic blanket `$tuple$N__<m>`, trying receiver shapes {Self, &Self, &mut Self}. The receiver is auto-referenced (mut per formal) when the formal `self` is a reference but the receiver is a value, or auto-dereferenced when the formal is by-value but the receiver is a reference. No match yields nullopt (falls through to standard diagnostics).
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7018-L7113`
-
-## Method Dispatch (selection)
-
-### `trait.method-dispatch.bound-provides-method` — Type-parameter method dispatch via trait bound
-
-A method call `t.m(args)` where `t : T` (T a type parameter) resolves `m` only if some in-scope bound `T: Trait` (or supertrait reference) declares a method named `m`; the chosen trait/method drive the call. If no in-scope bound on T provides `m` and no Deref/DerefMut bound applies, it is an error: "type parameter '<T>' has no trait bound providing method '<m>'".
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7613-L7635`, `src/compiler/sema_expr.cpp#L7822-L7826`
-
-### `trait.method-dispatch.self-subst-from-bound` — Substitute Self and trait type-params from the receiver bound
-
-When dispatching a trait method on receiver of type T, the substitution binds `Self := T` and binds each trait type-parameter to the matching concrete type-argument from the in-scope bound `T: Trait<A0,A1,...>` (positional pairing, type_params[i] := type_args[i] when present). The method return type is computed by applying this substitution.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L7617-L7636`, `src/compiler/sema_expr.cpp#L7670`
-
-## Static Dispatch
-
-### `trait.static-dispatch.trait-qualified-self-inference` — `Trait::static_method(args)` infers Self from hint or unique bounded type-param
-
-A trait-qualified static call `Trait::method(args)` inside a generic fn resolves Self by: (a) the let-annotation/return hint's concrete type if it implements Trait (keyed on bare struct base or concrete-spec name), emitting `<Type>__<method>` directly; else (b) the unique in-scope type-param whose transitive bound-closure includes Trait, emitting `<param>__<method>` for mono to retarget. Ambiguity (>1 candidate) leaves it unresolved.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L13433-L13525`
-
-### `trait.static-dispatch.via-type-param-bound` — Generic static dispatch `T::method()` through type-param trait bounds
-
-`T::method()` where T is a type-param resolves the static method (first param not Self) by searching the transitive supertrait closure of T's bounds. Single-dispatch traits route through the uniform generic-call resolver (turbofish/arg-infer/return-hint); multi-param traits (`Sum<Item>`) emit empty type-args and an abstract `T__method` symbol that monomorphization retargets to the concrete impl.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L13363-L13432`, `src/compiler/sema_expr.cpp#L13016-L13074`
-
-## Tag Dispatch
-
-### `trait.tagdispatch.registration-uniqueness` — At most one impl per (tag_system, trait, type_code)
-
-Each (tag_system, trait, type_code) registration is unique program-wide: registering the same triple from two separately-compiled units is a hard error (detected as a multiply-defined link symbol). Multiple methods of one trait for one type share a single registration (deduplicated per triple, not per method).
-
-**Divergence:** Logos addition (tag-dispatch); analogous to Rust's coherence/orphan-style uniqueness but enforced at link time.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L188-L214`, `src/compiler/mlir_gen_dyn.cpp#L324-L355`
-
-### `trait.tagdispatch.registry-lookup-api` — Per-triple public dispatch-lookup function
-
-For each (tag_system, trait, method) triple with at least one tier, a public lookup function `type_code -> fn_ptr` is exposed, checking tier-1 (with an in-range guard against the 256 bound) and falling back to tier-2, returning null when no table has the entry. This enables reflective / deferred invocation of trait methods by type_code.
-
-**Divergence:** Logos addition: runtime trait-method registry by type_code has no Rust analogue.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L538-L645`
-
-### `trait.tagdispatch.startup-table-init` — Dispatch tables are populated at program startup
-
-Dispatch tables are zero-initialized statically and filled at program startup before user code runs (one initializer per tag system, invoked from main's prologue). Method bodies observe fully-populated tables; the dispatch tables are not const-folded per call site.
-
-**Divergence:** Logos addition (tag-dispatch).
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L184-L186`, `src/compiler/mlir_gen_dyn.cpp#L434-L530`, `src/compiler/mlir_gen_dyn.cpp#L532-L536`
-
-### `trait.tagdispatch.tier-boundary-256` — Tag dispatch is two-tier with a type-code boundary of 256
-
-Tag dispatch tables are split into a dense tier-1 array of 256 slots indexed directly by type_code, and a tier-2 sparse lookup function. When both exist, dispatch selects tier-1 iff type_code < 256 (unsigned), else calls the tier-2 lookup(type_code); a missing tier resolves to a null function pointer. At least one tier must exist for the call to be emitted.
-
-**Divergence:** Logos addition: tiered type-code dispatch table; no Rust analogue.
-
-**Uncertainty:** Comment text says 'type_code < 223' but the emitted boundary constant is kTier1Size=256; the code is authoritative.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1287`, `src/compiler/mlir_gen_dyn.cpp#L1366-L1370`, `src/compiler/mlir_gen_dyn.cpp#L1375-L1442`
-
-### `trait.tagdispatch.tier2-binary-search-sorted` — Tier-2 dispatch requires sorted, gap-free codes
-
-Tier-2 dispatch tables list only registrations whose callee is defined; the (type_code, fn) entries are sorted ascending by type_code with no zero/placeholder gaps, and resolution performs an unsigned binary search over type_code returning the paired fn or null on miss.
-
-**Divergence:** Logos addition (tag-dispatch).
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L82-L128`, `src/compiler/mlir_gen_dyn.cpp#L378-L391`
-
-### `trait.tagdispatch.two-tier-codespace` — type_code space is split into two dispatch tiers
-
-The type_code key space is partitioned at 256: codes in [1,255] dispatch via a dense direct-indexed table of fixed size 256 (tier-1, O(1) index); codes >= 256 dispatch via a sorted (type_code, fn) pair table searched by binary search (tier-2, O(log n)). A lookup that hits neither tier yields null (no matching impl).
-
-**Divergence:** Logos addition (tag-dispatch).
-
-**Uncertainty:** Comment at L307 mentions 1-127 inline / 128-255 zone tier-1 sub-ranges, but the dispatch split here only observes the <256 vs >=256 boundary.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L181-L186`, `src/compiler/mlir_gen_dyn.cpp#L239-L240`, `src/compiler/mlir_gen_dyn.cpp#L316-L320`, `src/compiler/mlir_gen_dyn.cpp#L604-L645`
-
-### `trait.tagdispatch.type-code-keyed` — Tag-based dispatch keys on a runtime type-code read from the receiver
-
-> **CONFLICT**: id `trait.tagdispatch.type-code-keyed` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/codegen/mlir_gen_dyn/gen_tagged_dispatch.json`
-
-A `#[tag_dispatch]`-style trait call resolves the target method at runtime by (1) reading an integer `type_code` from the receiver value via the trait's TagSystem `read_tag(self=null, obj_ptr) -> i64`, then (2) indexing a per-(tag_system, trait, method) dispatch structure by that type_code to obtain the method function pointer, then (3) calling it indirectly with the receiver pointer as `self: *const u8` followed by the user args. The TagSystem is a stateless unit struct (self passed as null).
-
-**Divergence:** Logos addition: runtime type-code/TagSystem dispatch has no direct Rust analogue (Rust uses vtables only).
-
-**Uncertainty:** TagSystem read_tag encoding variants (legacy 2-byte / vlen / TOM inline header) are noted in comments but not enforced in this unit.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1308-L1356`, `src/compiler/mlir_gen_dyn.cpp#L1360-L1364`, `src/compiler/mlir_gen_dyn.cpp#L1444-L1474`
-
-### `trait.tagdispatch.type-code-keyed` — Tagged dynamic dispatch is keyed by per-type type_code
-
-> **CONFLICT**: id `trait.tagdispatch.type-code-keyed` is defined by multiple artifacts with differing statements. All occurrences are surfaced verbatim; reconcile before this id is treated as canonical.
->
-> Source of this occurrence: `tools/spec-extract/rules/codegen/mlir_gen_dyn/logos.json`
-
-Tag-dispatch (an alternative to vtable-based dyn dispatch) selects a method implementation at runtime by a per-concrete-type integer `type_code` (logically u64). For each (tag_system, trait, method) triple a dispatch table maps `type_code -> fn_ptr`; a runtime lookup with `type_code == 0` is treated as 'no impl registered'.
-
-**Divergence:** Logos addition: tag-dispatch dispatch model has no Rust analogue (Rust uses fat-pointer vtables only).
-
-**Uncertainty:** type_code allocation policy (which integers map to which types) is defined elsewhere; only the dispatch-table consumption is observable here.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L181-L186`, `src/compiler/mlir_gen_dyn.cpp#L302-L321`
-
-## Tag Dispatch (codegen)
-
-### `trait.tag-dispatch.entry-emission` — Tag-dispatch entries emitted for concrete impls of tag-dispatched traits
-
-When a trait carries `#[tag_dispatch(TS)]`, the impl is non-generic, and the concrete target datatype has a known nonzero type_code, one dispatch entry (tag-system, trait, method, fn-symbol, type-name, type-code) is emitted for each trait method that is either explicitly overridden or has a default body. The type_code is taken from the struct's annotation-applied code, else an explicit `#[type_code=N]`, else computed from a 56-bit hash of the type's canonical name with values below 128 biased into [128, ...).
-
-**Divergence:** Logos addition: trait tag-dispatch table for zoned/data types has no Rust analogue.
-
-**Evidence:** `src/compiler/sema_decl.cpp#L2590-L2679`
-
-## Dynamic Dispatch (dyn Trait)
-
-### `trait.dyn.blanket-impl-vtable-synthesis` — blanket impl supplies dyn vtable for concrete types
-
-When no explicit (trait, type) vtable is registered but the trait has a blanket impl `impl<T> Trait for T`, the concrete type's vtable methods are the blanket instantiations named `<type>__<method>` (possibly package-qualified / `__g__`/`__f__`-suffixed), enabling `&Concrete as &dyn BlanketTrait`.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1089-L1133`
-
-### `trait.dyn.blanket-vtable-synthesis` — Blanket-impl concrete vtable synthesis
-
-When a concrete type reaches &dyn Trait only via a blanket impl (impl<T> Trait for T), a concrete <Type>__<method> vtable is synthesized on demand from the trait's slot-ordered method names.
-
-**Evidence:** `src/compiler/mlir_gen_impl.hpp#L415-L421`
-
-### `trait.dyn.drop-full-concrete` — drop_in_place runs the full concrete drop
-
-drop_in_place for a dynamically-dispatched value runs the FULL drop of the concrete type (recursive field drops), matching the static drop of that type.
-
-**Related:** `trait.dyn.vtable-drop-slot0`
-
-**Evidence:** `src/compiler/mlir_gen_impl.hpp#L429-L432`
-
-### `trait.dyn.fat-pointer-vtable-dispatch` — &dyn Trait dispatch loads self=data_ptr and method from vtable
-
-A method call on a `&dyn Trait` receiver is dispatched indirectly: the receiver is a fat pointer {data_ptr, vtable_ptr}; the call loads data_ptr as `self`, loads the method function pointer from the vtable, and calls it indirectly with data_ptr followed by the user args.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1481-L1483`, `src/compiler/mlir_gen_dyn.cpp#L1555-L1574`, `src/compiler/mlir_gen_dyn.cpp#L1576-L1607`
-
-### `trait.dyn.object-safety` — Object-safety (dyn-compatibility) constraints (E0038)
-
-A trait may be used as `dyn Trait` only if every method has a vtable slot. A method is rejected if it: is generic (`fn f<T>`); has no `self` receiver (associated fn); returns `Self` by value; returns `impl Trait` (opaque); takes `Self` by value as a parameter; or takes `impl Trait` as a parameter. A method with a `where Self: Sized` bound is excluded from the vtable and so never affects object-safety. A trait owning a generic associated type (GAT) is also not object-safe. The diagnostic is emitted once per trait.
-
-**Evidence:** `src/compiler/sema.cpp#L3031-L3130`
-
-### `trait.dyn.supertrait-vtable-slots` — Supertrait pointer slots and upcast layout
-
-A dyn Trait vtable carries, after its method slots, a pointer slot per transitive supertrait; an upcast &dyn Sub -> &dyn Super selects the corresponding super-vtable pointer. A trait with no supertraits has no extra slots (unchanged vtable layout).
-
-**Evidence:** `src/compiler/mlir_gen_impl.hpp#L422-L427`
-
-### `trait.dyn.upcast-via-stored-super-vtable` — trait upcast recovers super-vtable from a stored slot
-
-An upcast `&dyn Sub` → `&dyn Super` recovers Super's vtable for the concrete type by loading the super-vtable slot stored at index `3 + |methods| + idx(Super)` of Sub's vtable; each transitive supertrait has exactly one such slot.
-
-**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1149-L1161`
-
-### `trait.dyn.vtable-drop-slot0` — vtable slot 0 is drop_in_place glue
-
-Every dyn-Trait vtable's slot 0 is a drop_in_place glue function that runs the concrete type's full Drop; for a non-droppable type it is a no-op.
-
-**Related:** `trait.dyn.drop-full-concrete`
-
-**Evidence:** `src/compiler/mlir_gen_impl.hpp#L429-L436`
-
-### `trait.dyn.vtable-layout-order` — dyn-Trait vtable slot ordering
-
-A dyn-Trait vtable is laid out by post-order DFS over the trait's transitive supertrait graph (deepest deduped ancestors first, root trait's own methods last); each method's position is its vtable slot index. Transitive supertraits (every visited trait except the root, same deepest-first order) each get one stored super-vtable-pointer slot after the methods; the `Copy` marker contributes no vtable.
-
-**Evidence:** `src/compiler/sema_collect.cpp#L4903-L4921`
-
-### `trait.dyn.vtable-static` — dyn-Trait vtables are static, one per (Trait, concrete type)
-
-Each &dyn Trait coercion of a given concrete type uses a single static vtable global ([N x ptr] of method addresses) shared across all coercions; coercion takes the address of that static vtable rather than allocating/filling a fresh vtable per coercion.
-
-**Evidence:** `src/compiler/mlir_gen_impl.hpp#L401-L414`
-
-## Trait Object Packing
-
-### `expr.pack.sizeof-and-expand` — Variadic pack size and expansion
-
-`P...(N)` yields the length of variadic pack `P` (sizeof-pack), and `P...` in expression position expands the pack `P`.
-
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L2737-L2738`, `tools/peg_gen/grammars/logos.peg#L2774`
-
-## Generic / Trait Resolution
+## Trait Resolution
 
 ### `trait.resolve.auto-impl-for-all` — Auto/marker trait holds for all types
 
@@ -2143,7 +873,93 @@ A shape-conditioned auto-impl makes trait T hold for every type whose structural
 
 **Evidence:** `src/compiler/trait_engine.hpp#L57-L69`, `src/compiler/trait_engine.hpp#L84-L85`
 
-## Impl Lookup
+## Trait Satisfaction
+
+### `trait.satisfy.blanket-recursive` — Recursive impl satisfaction with blanket chains
+
+A type satisfies a trait if a direct impl exists (by primary or alternate mangled key), or a blanket impl `impl<T: B> Trait for T` applies whose bound trait B (and all extra bounds) are themselves recursively satisfied by the type. A cycle-guard set prevents infinite recursion; each blanket candidate uses a per-attempt copy of the seen-set so a failed sibling does not poison later candidates. An unbounded blanket (`impl<T> Trait for T`) trivially satisfies any type.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L764-L806`
+
+### `trait.satisfy.ref-self-mangling` — Reference-Self impls keyed by $ref_/$mut_ref_ mangling
+
+An `impl Trait for &T` / `&mut T` registers under a mangled key (`$ref_`/`$mut_ref_` prefix); a query whether `&T` impls Trait matches both the full-string pointee form (`$ref_&i32`) and the bare-name pointee form (`$ref_Foo`).
+
+**Evidence:** `src/compiler/sema_collect.cpp#L776-L788`
+
+## Blanket Impls
+
+### `trait.blanket.auto-ref-receiver` — Auto-ref of receiver for &self/&mut self blanket method
+
+When a dispatched blanket method's self parameter is `&self`/`&mut self` but the receiver is a value (not already a ref/ptr), the receiver's address is taken (mutably for `&mut self`).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6385-L6401`
+
+### `trait.blanket.method-dispatch-unique-or-error` — Blanket-impl method dispatch requires a unique applicable blanket
+
+For `impl<T: Bound> Trait for T { fn m .. }`, a method call on a receiver dispatches via the blanket only when exactly one registered blanket applies to the receiver type; two or more viable overlapping blankets is an ambiguity error. Value blankets (`impl<T> Trait for T`) reach primitive receivers as well as struct receivers.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3885-L3897`
+
+### `trait.blanket.overlap-ambiguity` — Two applicable distinct blanket impls are ambiguous
+
+If two or more distinct blanket impls of the same method both apply to the receiver, the method call is an ambiguity error naming both impls.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6336-L6351`
+
+### `trait.blanket.recursive-impl-gating` — Blanket method dispatch gated by recursive bound satisfaction
+
+A blanket impl provides a method for a receiver type only if the receiver satisfies the blanket's primary bound trait (checked recursively, including supertraits) and all extra bounds, AND every associated-type-equality clause on the primary and extra bounds is satisfied for the receiver.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6296-L6335`
+
+### `trait.blanket.recursive-satisfaction` — Recursive trait satisfaction through blanket-impl chains
+
+A concrete type satisfies a trait if it implements it directly or transitively through any chain of blanket impls whose bounds are recursively satisfied. Cycle detection prevents infinite recursion through cyclic blanket chains, and each candidate is checked with an independent visited set so a failed candidate does not poison sibling candidates. Associated-type-equality clauses are NOT validated by this satisfaction check.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3579-L3596`
+
+### `trait.blanket.type-param-inference-by-name` — Blanket type-params inferred by name from receiver, args, and return hint
+
+For a dispatched blanket method, the blanket's target type-param (and `Self`) bind to the receiver's concrete type (unwrapped from ref/ptr); remaining type-params appearing only in argument or return position are inferred by unifying parameter types with argument types and, when present, the return type with the call-site return-type hint. Binding is by name, not position.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6362-L6384`
+
+### `trait.blanket.unbound-param-bail` — Blanket dispatch bails when a type-param is uninferable
+
+If any of a dispatched blanket method's type-params cannot be inferred (e.g. the destination of `x.into()` with no expected-type annotation), the blanket impl does not dispatch; the normal 'cannot resolve' / type-annotation-needed diagnostic fires instead.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6402-L6417`
+
+## Blanket Impls (synthesis)
+
+### `trait.blanket-impl.synthetic-target-name` — Blanket impl methods lowered under a synthetic target name
+
+Blanket-impl methods and defaults are lowered under the synthetic target `$blanket$Trait$Bound$Target` with `Self` bound to the blanket type variable, producing an LIR template that mono clones per concrete receiver; this avoids collision with `T::method` of any other generic T.
+
+**Evidence:** `src/compiler/sema_decl.cpp#L2308-L2315`, `src/compiler/sema_decl.cpp#L2381-L2382`, `src/compiler/sema_decl.cpp#L2566-L2569`
+
+## Overload Selection
+
+### `trait.overload.candidate-visibility-filter` — Call candidates filtered by package visibility; explicit pkg:: overrides imports
+
+Function-name resolution collects all overloads (concrete and generic) then filters to those visible from the call site: own package, wildcard-imported packages, or empty-package (extern/prelude). A `use pkg from <module>` import deliberately excludes other modules' same-pkg fns. An explicit `pkg::fn(...)` qualifier restricts to that package only with no empty-fallback. Otherwise, if filtering leaves nothing and no deliberate `from`-exclusion occurred, all candidates are returned (synthetic-phase robustness).
+
+**Evidence:** `src/compiler/sema.cpp#L1638-L1700`
+
+### `trait.overload.generic-arity-and-package` — Generic function selection: package-qualifier filter, arity match, own-package preference
+
+Generic-function lookup among an overload set keeps only candidates passing the package-qualifier filter; with an arg count, a candidate matches if its arity equals n (or n>=arity when vararg). An arity match in the current package wins immediately; else the first matching-arity candidate; else a wrong-arity fallback.
+
+**Evidence:** `src/compiler/sema.cpp#L1578-L1608`
+
+### `trait.overload.generic-select-by-arg-shape` — Generic overload selection by substituted-param scoring
+
+When a base name carries multiple generic overloads of equal arity (e.g. `Pin<&T>::new` vs `Pin<&mut T>::new` vs `Pin<Box<T>>::new`), the overload is selected by unifying each candidate's params against the actual arguments and scoring the SUBSTITUTED params: exact match scores higher than coercion-compatible, and any incompatible param rejects the candidate. With fewer than two overloads the first-arity-match (first-wins) behavior is retained.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3773-L3789`
+
+## Method Lookup
 
 ### `trait.lookup.exact-signature-fnitem-coerce` — Exact-signature lookup matches params by equality, with FnItem to FnPtr coercion
 
@@ -2151,7 +967,850 @@ Exact-signature function lookup requires equal vararg-ness and param arity, and 
 
 **Evidence:** `src/compiler/sema.cpp#L1610-L1636`
 
-## Type / Generic Inference
+## Operator-Trait Overloading
+
+### `trait.binop.enum-eq-impl` — == / != on same-named enums requires structural Eq impl for payload enums
+
+== / != between two enums of the same name route to the enum's eq/ne impl (a 2-param candidate keyed `EnumName__eq`, concrete or generic) when one exists, auto-borrowing operands; a payload-less (C-like) enum without an impl falls through to discriminant comparison, while a payload-carrying enum with no Eq/PartialEq impl is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L2114-L2192`
+
+### `trait.binop.operator-method-autoref` — Operator-method operands auto-borrowed to match by-ref formals
+
+When the resolved operator-overload method takes an operand by reference (&self / &other), the corresponding value operand is auto-borrowed (addr_of_temp) to match; by-value method formals receive the operand by value unchanged.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L1956-L1988`
+
+### `trait.binop.partial-ord-derive` — Relational ops derive from partial_cmp when direct method absent
+
+For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns Option<Ordering> it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.
+
+**Divergence:** Mirrors Rust's default PartialOrd lt/le/gt/ge bodies.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L1990-L2055`
+
+### `trait.binop.struct-operator-overload` — Operator overloading on struct LHS desugars to trait method
+
+When the left operand is a struct, the operator desugars to the corresponding trait method: + Add::add, - Sub::sub, * Mul::mul, / Div::div, % Rem::rem, & BitAnd::bitand, | BitOr::bitor, ^ BitXor::bitxor, << Shl::shl, >> Shr::shr, == Eq::eq, != Eq::ne, < Ord::lt, <= Ord::le, > Ord::gt, >= Ord::ge.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L1930-L1958`
+
+### `trait.binop.tuple-eq-impl` — Tuple == / != routes to Eq impl only for non-primitive tuples
+
+== / != between two tuples of equal arity routes to the tuple's Eq eq/ne impl (keyed concrete `$tuple$N$...`, then arity `$tuple$N`, then variadic `$tuple$variadic`) ONLY when at least one field is non-primitive; an all-primitive tuple falls through to per-field value comparison and never requires the Eq trait. Operands are auto-borrowed to &Tuple.
+
+**Divergence:** Primitive-tuple fast path avoids requiring f64:Eq (f64 is PartialEq-only, Rust parity).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L1812-L1928`
+
+### `trait.binop.typevar-eq-bound` — == / != on bounded type variable dispatches to Eq method
+
+== / != where the left operand is a type variable whose bounds (transitively, through supertraits) provide an `eq` method desugar to an auto-ref'd eq/ne method call dispatched after monomorphization; if more than one trait in scope provides `eq`, the call is tagged with trait Eq for disambiguation. Absent an eq-providing bound, falls through to the generic operator check.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L2060-L2112`
+
+## Deref
+
+### `trait.deref.multi-impl-target-match` — Deref impl selected by strict self-type match among multiple impls
+
+When a type carries several Deref impls distinguished by self type-args (e.g. Pin<&T>/Pin<&mut T>/Pin<Box<T>>), the impl whose target pattern strictly unifies-substitutes-and-equals the receiver type is selected; a non-matching impl is used only as a loose fallback.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L123-L158`
+
+## Method Dispatch (bound-provided)
+
+### `trait.method-dispatch.bound-provides-method` — Type-parameter method dispatch via trait bound
+
+A method call `t.m(args)` where `t : T` (T a type parameter) resolves `m` only if some in-scope bound `T: Trait` (or supertrait reference) declares a method named `m`; the chosen trait/method drive the call. If no in-scope bound on T provides `m` and no Deref/DerefMut bound applies, it is an error: "type parameter '<T>' has no trait bound providing method '<m>'".
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7613-L7635`, `src/compiler/sema_expr.cpp#L7822-L7826`
+
+### `trait.method-dispatch.self-subst-from-bound` — Substitute Self and trait type-params from the receiver bound
+
+When dispatching a trait method on receiver of type T, the substitution binds `Self := T` and binds each trait type-parameter to the matching concrete type-argument from the in-scope bound `T: Trait<A0,A1,...>` (positional pairing, type_params[i] := type_args[i] when present). The method return type is computed by applying this substitution.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7617-L7636`, `src/compiler/sema_expr.cpp#L7670`
+
+## Trait Dispatch
+
+### `trait.dispatch.ambiguous-method-error` — Method matching multiple bound traits is ambiguous
+
+When a method name `m` is provided by two distinct traits reachable from a type parameter's bounds (e.g. `trait Foo: A + B` where both A and B define `m`), the call is an error: method `m` is ambiguous (matches both traits). All supertrait siblings are searched so the ambiguity is detected rather than silently resolving to one.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7411-L7421`
+
+### `trait.dispatch.assoc-type-nondefault-gate` — Associated-type receiver intercepted only for a non-default method
+
+A method call whose receiver is an associated-type projection `G::R` is dispatched via the assoc-type's declared bounds (`type R: HasId`) only when those bounds supply a NON-default method of that name; if the only provider is a default method (e.g. via a blanket impl), dispatch defers to the ordinary path.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7341-L7366`, `src/compiler/sema_expr.cpp#L7444-L7458`
+
+### `trait.dispatch.blanket-bound-transitive` — Blanket extension trait holds transitively on a bounded type param
+
+If `impl<U: B> Ext for U {}` exists and the receiver type parameter `T` satisfies bound `B` (directly or via a supertrait of one of its bounds) and all the blanket impl's extra bounds, then `T: Ext` holds and `Ext`'s methods (including defaults) are searched for the call.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7460-L7485`
+
+### `trait.dispatch.dstref-unsafe` — Method call through &DstStruct requires unsafe unless self-describing
+
+On a `DstRef` receiver of struct S, a method call dispatches `S__<m>` (concrete signature then generic). It requires an `unsafe` context unless S is `#[self_describing]` (tail length recovered in-band), in which case it is safe. No matching method is an error.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6752-L6794`
+
+### `trait.dispatch.dyn-inherent-first` — Inherent impls on dyn override vtable dispatch
+
+On a `dyn Trait` (or `&dyn Trait` / `&mut dyn Trait`) receiver, an inherent `impl Trait for dyn Foo` method (mangled `$dyn$Foo__<m>`) is tried before vtable dispatch; if found and applicable it is called directly rather than virtually.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6801-L6856`
+
+### `trait.dispatch.dyn-return-subst` — Self and trait args substituted in dyn return type
+
+The return type of a virtual `dyn Trait` method is computed by substituting `Self`→receiver type plus the owning trait's type/const params from the TraitObject's trait args (read from the peeled `dyn` type, not from a `&dyn` reference whose own type_args are empty), so trait params do not leak unsubstituted to the call site.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6979-L7001`
+
+### `trait.dispatch.dyn-vtable-supertrait` — Virtual dispatch over the flattened supertrait vtable
+
+Failing inherent resolution, a `dyn Trait` method call dispatches virtually: the method index is its slot in the supertrait-closure vtable layout (supertrait methods occupy real slots). Arg count must equal method params − 1, an unsafe method requires `unsafe`, and arguments are coerced to formal parameter types (arg-to-dyn, implicit reborrow, int widening) with type/variance/int-fit checks. Unknown method is an error.
+
+**Related:** `coerce.arg.dyn-reborrow-widen`
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6857-L6916`, `src/compiler/sema_expr.cpp#L7003-L7010`
+
+### `trait.dispatch.slice-impl` — Method dispatch on slice/str impls
+
+A method call on a slice receiver resolves user `impl Trait for [T]` / `impl Trait for str` methods via sentinel keys, in order: concrete `$slice$<elem>__<m>`, generic blanket `$slice$T__<m>`, and (for `Slice<u8>`) `str__<m>`. A `&[U]` argument whose formal parameter wants a flat `Slice` is reborrowed by stripping its `&`/`&mut` wrapper. If the receiver is a slice but no key matches, it is an error.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6518-L6613`
+
+### `trait.dispatch.supertrait-dag-search` — Bounded-type method search walks the supertrait DAG
+
+Method lookup on a bounded type parameter searches each bound trait and, transitively, its supertraits (depth-first, with cycle/diamond guarding). Substitutions compose along supertrait references: a supertrait reference's type-args (written in the sub-trait's namespace incl. Self) are resolved through the current substitution and bound to the supertrait's formal params.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7400-L7437`, `src/compiler/sema_expr.cpp#L7386-L7398`
+
+### `trait.dispatch.tagged-ptr` — Tag-based dispatch on &tagged<TS> Trait
+
+On a `TaggedPtr` receiver carrying tag-system TS and trait T, a method call resolves against T's declared methods (T must exist, method must exist), checks arg count = method param count − 1, requires `unsafe` if the method is unsafe, substitutes `Self`→receiver type in the return type, and emits a tag-dispatched method call (runtime type_code read via TS).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6699-L6743`
+
+### `trait.dispatch.tuple-impl` — Method dispatch on tuple impls with autoref/autoderef
+
+On a (possibly `&`/`&mut`-wrapped) tuple receiver of arity N, a method call resolves user `impl Trait for (T1..TN)` via keys concrete `$tuple$N$<t1>..$<tN>__<m>` then generic blanket `$tuple$N__<m>`, trying receiver shapes {Self, &Self, &mut Self}. The receiver is auto-referenced (mut per formal) when the formal `self` is a reference but the receiver is a value, or auto-dereferenced when the formal is by-value but the receiver is a reference. No match yields nullopt (falls through to standard diagnostics).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7018-L7113`
+
+## Static Dispatch
+
+### `trait.static-dispatch.trait-qualified-self-inference` — `Trait::static_method(args)` infers Self from hint or unique bounded type-param
+
+A trait-qualified static call `Trait::method(args)` inside a generic fn resolves Self by: (a) the let-annotation/return hint's concrete type if it implements Trait (keyed on bare struct base or concrete-spec name), emitting `<Type>__<method>` directly; else (b) the unique in-scope type-param whose transitive bound-closure includes Trait, emitting `<param>__<method>` for mono to retarget. Ambiguity (>1 candidate) leaves it unresolved.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L13433-L13525`
+
+### `trait.static-dispatch.via-type-param-bound` — Generic static dispatch `T::method()` through type-param trait bounds
+
+`T::method()` where T is a type-param resolves the static method (first param not Self) by searching the transitive supertrait closure of T's bounds. Single-dispatch traits route through the uniform generic-call resolver (turbofish/arg-infer/return-hint); multi-param traits (`Sum<Item>`) emit empty type-args and an abstract `T__method` symbol that monomorphization retargets to the concrete impl.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L13363-L13432`, `src/compiler/sema_expr.cpp#L13016-L13074`
+
+## Method Mangling
+
+### `trait.method-mangling.bound-targ-suffix` — Trait tag folds concrete bound type-args into a $G<n>$ suffix
+
+When the receiver bound carries concrete trait type-args (`T: MyTrait<u64>`), the trait tag becomes `Trait` + `$G<n>$<args>` suffix, so mono resolves the args-qualified symbol `<Concrete>__MyTrait$G1$u64__method`, distinct from a sibling `impl MyTrait<u8>`.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7778-L7792`
+
+### `trait.method-mangling.trait-qualified-symbol` — Trait-qualified method symbol when a method name is provided by a trait
+
+When at least one trait declares a method of the given name, the call is tagged with the chosen trait so monomorphization may resolve the trait-qualified symbol `<Concrete>__<Trait>__<method>`; mono falls back to the plain name when no qualified symbol exists. This disambiguates multi-trait collisions and cases where a same-named inherent method occupies the plain symbol.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7753-L7793`
+
+## Method Type-Argument Propagation
+
+### `trait.method-typeargs.propagate-trait-and-method-params` — Propagate trait-level then method-level type-args to the call
+
+The lowered method call carries type-args in order: first each owning-trait type-parameter (bound from the Self-substitution), then each method-level type-parameter inferred by unifying substituted formal param types against actual argument types. Unbound positions are left null.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7713-L7746`
+
+## Mangling (collision)
+
+### `trait.mangle.trait-qualified-on-collision` — Trait-qualified method mangling on name collision
+
+When two distinct traits define a same-named method with the same signature on one type, the colliding methods re-key under `<target>__<trait>__<method>`; a plain base `<target>__<method>` with more than one such entry is ambiguous for concrete-receiver dispatch and requires disambiguation.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L2856-L2862`
+
+## Trait Visibility
+
+### `trait.vis.placeholder-carries-pub` — predeclared trait carries its visibility
+
+A trait name predeclared during name-collection carries its declared `pub` visibility, so a cross-package reference resolving before the trait's body is collected sees the correct public/private status.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L447-L475`
+
+## Trait Objects (object)
+
+### `trait.object.object-safety-required` — Trait objects require object-safe traits
+
+A trait used as a trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe (dyn-compatible, Rust E0038); a non-object-safe trait used this way is an error reported once per offending trait.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3186-L3191`
+
+## Object Safety
+
+### `trait.object-safety.method-generic-not-dispatchable` — method-level generic methods are not dispatchable through dyn
+
+A trait method whose every implementation carries method-level type parameters (e.g. `fn fold<Acc>(...)`) is not callable through `&dyn Trait`: it occupies a non-dispatchable (empty) vtable slot rather than a method pointer (Rust object-safety rule).
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L909-L931`
+
+### `trait.object-safety.sized-self-method-excluded` — where Self: Sized method excluded from vtable
+
+A trait method with `where Self: Sized` is excluded from the trait's vtable and ignored for object-safety determination.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L2598-L2599`
+
+## Dynamic Dispatch (dyn / vtables)
+
+### `trait.dyn.blanket-impl-vtable-synthesis` — blanket impl supplies dyn vtable for concrete types
+
+When no explicit (trait, type) vtable is registered but the trait has a blanket impl `impl<T> Trait for T`, the concrete type's vtable methods are the blanket instantiations named `<type>__<method>` (possibly package-qualified / `__g__`/`__f__`-suffixed), enabling `&Concrete as &dyn BlanketTrait`.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1089-L1133`
+
+### `trait.dyn.blanket-vtable-synthesis` — Blanket-impl concrete vtable synthesis
+
+When a concrete type reaches &dyn Trait only via a blanket impl (impl<T> Trait for T), a concrete <Type>__<method> vtable is synthesized on demand from the trait's slot-ordered method names.
+
+**Evidence:** `src/compiler/mlir_gen_impl.hpp#L415-L421`
+
+### `trait.dyn.drop-full-concrete` — drop_in_place runs the full concrete drop
+
+drop_in_place for a dynamically-dispatched value runs the FULL drop of the concrete type (recursive field drops), matching the static drop of that type.
+
+**Related:** `trait.dyn.vtable-drop-slot0`
+
+**Evidence:** `src/compiler/mlir_gen_impl.hpp#L429-L432`
+
+### `trait.dyn.fat-pointer-vtable-dispatch` — &dyn Trait dispatch loads self=data_ptr and method from vtable
+
+A method call on a `&dyn Trait` receiver is dispatched indirectly: the receiver is a fat pointer {data_ptr, vtable_ptr}; the call loads data_ptr as `self`, loads the method function pointer from the vtable, and calls it indirectly with data_ptr followed by the user args.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1481-L1483`, `src/compiler/mlir_gen_dyn.cpp#L1555-L1574`, `src/compiler/mlir_gen_dyn.cpp#L1576-L1607`
+
+### `trait.dyn.object-safety` — Object-safety (dyn-compatibility) constraints (E0038)
+
+A trait may be used as `dyn Trait` only if every method has a vtable slot. A method is rejected if it: is generic (`fn f<T>`); has no `self` receiver (associated fn); returns `Self` by value; returns `impl Trait` (opaque); takes `Self` by value as a parameter; or takes `impl Trait` as a parameter. A method with a `where Self: Sized` bound is excluded from the vtable and so never affects object-safety. A trait owning a generic associated type (GAT) is also not object-safe. The diagnostic is emitted once per trait.
+
+**Evidence:** `src/compiler/sema.cpp#L3031-L3130`
+
+### `trait.dyn.supertrait-vtable-slots` — Supertrait pointer slots and upcast layout
+
+A dyn Trait vtable carries, after its method slots, a pointer slot per transitive supertrait; an upcast &dyn Sub -> &dyn Super selects the corresponding super-vtable pointer. A trait with no supertraits has no extra slots (unchanged vtable layout).
+
+**Evidence:** `src/compiler/mlir_gen_impl.hpp#L422-L427`
+
+### `trait.dyn.upcast-via-stored-super-vtable` — trait upcast recovers super-vtable from a stored slot
+
+An upcast `&dyn Sub` → `&dyn Super` recovers Super's vtable for the concrete type by loading the super-vtable slot stored at index `3 + |methods| + idx(Super)` of Sub's vtable; each transitive supertrait has exactly one such slot.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1149-L1161`
+
+### `trait.dyn.vtable-drop-slot0` — vtable slot 0 is drop_in_place glue
+
+Every dyn-Trait vtable's slot 0 is a drop_in_place glue function that runs the concrete type's full Drop; for a non-droppable type it is a no-op.
+
+**Related:** `trait.dyn.drop-full-concrete`
+
+**Evidence:** `src/compiler/mlir_gen_impl.hpp#L429-L436`
+
+### `trait.dyn.vtable-layout-order` — dyn-Trait vtable slot ordering
+
+A dyn-Trait vtable is laid out by post-order DFS over the trait's transitive supertrait graph (deepest deduped ancestors first, root trait's own methods last); each method's position is its vtable slot index. Transitive supertraits (every visited trait except the root, same deepest-first order) each get one stored super-vtable-pointer slot after the methods; the `Copy` marker contributes no vtable.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4903-L4921`
+
+### `trait.dyn.vtable-static` — dyn-Trait vtables are static, one per (Trait, concrete type)
+
+Each &dyn Trait coercion of a given concrete type uses a single static vtable global ([N x ptr] of method addresses) shared across all coercions; coercion takes the address of that static vtable rather than allocating/filling a fresh vtable per coercion.
+
+**Evidence:** `src/compiler/mlir_gen_impl.hpp#L401-L414`
+
+## Formatting Traits
+
+### `trait.fmt.trait-dispatcher-fn` — Formatting-trait free-fn dispatchers
+
+Format macro lowering dispatches via free-fn wrappers bound at sema-time through a generic trait bound (rather than a `.method()` dot-call): Display=`fmt_display`, Debug=`fmt_debug`, and hex/oct/bin/exp variants named identically to their method names.
+
+**Evidence:** `src/compiler/sema_fmt.cpp#L25-L41`
+
+### `trait.fmt.trait-method-names` — Formatting-trait method names
+
+Each formatting trait maps to a method name used by macro lowering: Display=`fmt`, Debug=`dbg`, LowerHex=`fmt_lower_hex`, UpperHex=`fmt_upper_hex`, Octal=`fmt_octal`, Binary=`fmt_binary`, LowerExp=`fmt_lower_exp`, UpperExp=`fmt_upper_exp`.
+
+**Evidence:** `src/compiler/sema_fmt.cpp#L11-L23`
+
+## Tag-Dispatch Tables (tagdispatch)
+
+### `trait.tagdispatch.dispatch-table-layout` — Tag-dispatch table maps per-type type_code to fn_ptr per (tag_system, trait, method)
+
+Tag-dispatch (an alternative to vtable-based dyn dispatch) is backed by a per-(tag_system, trait, method) dispatch table mapping a per-concrete-type integer `type_code` (logically u64) to the implementing method `fn_ptr`. A `type_code == 0` entry is the unset sentinel meaning 'no impl registered' and is skipped at table build / treated as no-impl at lookup.
+
+**Divergence:** Logos addition: tag-dispatch dispatch model has no Rust analogue (Rust uses fat-pointer vtables only).
+
+**Uncertainty:** type_code allocation policy (which integers map to which types) is defined elsewhere; only the dispatch-table consumption is observable here.
+
+**Related:** `trait.tagdispatch.type-code-keyed`
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L181-L186`, `src/compiler/mlir_gen_dyn.cpp#L302-L321`
+
+### `trait.tagdispatch.registration-uniqueness` — At most one impl per (tag_system, trait, type_code)
+
+Each (tag_system, trait, type_code) registration is unique program-wide: registering the same triple from two separately-compiled units is a hard error (detected as a multiply-defined link symbol). Multiple methods of one trait for one type share a single registration (deduplicated per triple, not per method).
+
+**Divergence:** Logos addition (tag-dispatch); analogous to Rust's coherence/orphan-style uniqueness but enforced at link time.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L188-L214`, `src/compiler/mlir_gen_dyn.cpp#L324-L355`
+
+### `trait.tagdispatch.registry-lookup-api` — Per-triple public dispatch-lookup function
+
+For each (tag_system, trait, method) triple with at least one tier, a public lookup function `type_code -> fn_ptr` is exposed, checking tier-1 (with an in-range guard against the 256 bound) and falling back to tier-2, returning null when no table has the entry. This enables reflective / deferred invocation of trait methods by type_code.
+
+**Divergence:** Logos addition: runtime trait-method registry by type_code has no Rust analogue.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L538-L645`
+
+### `trait.tagdispatch.startup-table-init` — Dispatch tables are populated at program startup
+
+Dispatch tables are zero-initialized statically and filled at program startup before user code runs (one initializer per tag system, invoked from main's prologue). Method bodies observe fully-populated tables; the dispatch tables are not const-folded per call site.
+
+**Divergence:** Logos addition (tag-dispatch).
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L184-L186`, `src/compiler/mlir_gen_dyn.cpp#L434-L530`, `src/compiler/mlir_gen_dyn.cpp#L532-L536`
+
+### `trait.tagdispatch.tier-boundary-256` — Tag dispatch is two-tier with a type-code boundary of 256
+
+Tag dispatch tables are split into a dense tier-1 array of 256 slots indexed directly by type_code, and a tier-2 sparse lookup function. When both exist, dispatch selects tier-1 iff type_code < 256 (unsigned), else calls the tier-2 lookup(type_code); a missing tier resolves to a null function pointer. At least one tier must exist for the call to be emitted.
+
+**Divergence:** Logos addition: tiered type-code dispatch table; no Rust analogue.
+
+**Uncertainty:** Comment text says 'type_code < 223' but the emitted boundary constant is kTier1Size=256; the code is authoritative.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1287`, `src/compiler/mlir_gen_dyn.cpp#L1366-L1370`, `src/compiler/mlir_gen_dyn.cpp#L1375-L1442`
+
+### `trait.tagdispatch.tier2-binary-search-sorted` — Tier-2 dispatch requires sorted, gap-free codes
+
+Tier-2 dispatch tables list only registrations whose callee is defined; the (type_code, fn) entries are sorted ascending by type_code with no zero/placeholder gaps, and resolution performs an unsigned binary search over type_code returning the paired fn or null on miss.
+
+**Divergence:** Logos addition (tag-dispatch).
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L82-L128`, `src/compiler/mlir_gen_dyn.cpp#L378-L391`
+
+### `trait.tagdispatch.two-tier-codespace` — type_code space is split into two dispatch tiers
+
+The type_code key space is partitioned at 256: codes in [1,255] dispatch via a dense direct-indexed table of fixed size 256 (tier-1, O(1) index); codes >= 256 dispatch via a sorted (type_code, fn) pair table searched by binary search (tier-2, O(log n)). A lookup that hits neither tier yields null (no matching impl).
+
+**Divergence:** Logos addition (tag-dispatch).
+
+**Uncertainty:** Comment at L307 mentions 1-127 inline / 128-255 zone tier-1 sub-ranges, but the dispatch split here only observes the <256 vs >=256 boundary.
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L181-L186`, `src/compiler/mlir_gen_dyn.cpp#L239-L240`, `src/compiler/mlir_gen_dyn.cpp#L316-L320`, `src/compiler/mlir_gen_dyn.cpp#L604-L645`
+
+### `trait.tagdispatch.type-code-keyed` — Tag-based dispatch keys on a runtime type-code read from the receiver
+
+A `#[tag_dispatch]`-style trait call resolves the target method at runtime by (1) reading an integer `type_code` from the receiver value via the trait's TagSystem `read_tag(self=null, obj_ptr) -> i64`, then (2) indexing a per-(tag_system, trait, method) dispatch structure by that type_code to obtain the method function pointer, then (3) calling it indirectly with the receiver pointer as `self: *const u8` followed by the user args. The TagSystem is a stateless unit struct (self passed as null).
+
+**Divergence:** Logos addition: runtime type-code/TagSystem dispatch has no direct Rust analogue (Rust uses vtables only).
+
+**Uncertainty:** TagSystem read_tag encoding variants (legacy 2-byte / vlen / TOM inline header) are noted in comments but not enforced in this unit.
+
+**Related:** `trait.tagdispatch.dispatch-table-layout`
+
+**Evidence:** `src/compiler/mlir_gen_dyn.cpp#L1308-L1356`, `src/compiler/mlir_gen_dyn.cpp#L1360-L1364`, `src/compiler/mlir_gen_dyn.cpp#L1444-L1474`
+
+## Tag-Dispatch Tables (tag-dispatch)
+
+### `trait.tag-dispatch.entry-emission` — Tag-dispatch entries emitted for concrete impls of tag-dispatched traits
+
+When a trait carries `#[tag_dispatch(TS)]`, the impl is non-generic, and the concrete target datatype has a known nonzero type_code, one dispatch entry (tag-system, trait, method, fn-symbol, type-name, type-code) is emitted for each trait method that is either explicitly overridden or has a default body. The type_code is taken from the struct's annotation-applied code, else an explicit `#[type_code=N]`, else computed from a 56-bit hash of the type's canonical name with values below 128 biased into [128, ...).
+
+**Divergence:** Logos addition: trait tag-dispatch table for zoned/data types has no Rust analogue.
+
+**Evidence:** `src/compiler/sema_decl.cpp#L2590-L2679`
+
+## Unsafe Trait Methods
+
+### `trait.unsafe-method.requires-unsafe-context` — Calling an unsafe method requires an unsafe context
+
+A call to a method marked unsafe outside an unsafe context is an error: "call to unsafe method '<name>' requires unsafe context".
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8025-L8028`
+
+## auto
+
+### `trait.auto.aggregate-structural` — Tuples, structs, and enums auto-satisfy a trait iff all components do
+
+A tuple/struct/enum auto-satisfies an auto-trait (Send/Sync) iff every component type satisfies it: tuple elements, (substituted) struct fields, and every enum-variant payload type. Auto-trait membership is structural over the substituted constituent types.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L237-L289`
+
+### `trait.auto.array-element` — Array satisfies auto trait iff element does
+
+An array type [T; N] satisfies auto trait A iff its element type T satisfies A; an array with no element type vacuously satisfies.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L221-L222`
+
+### `trait.auto.closure-over-captures` — Closure auto-trait membership is computed over capture types
+
+A closure type's auto-trait (Send/Sync) membership is determined by its captured values' types, not its parameter types. By-reference captures enter as `&T`/`&mut T` (so the reference auto-trait rules apply: `&T: Send` iff `T: Sync`); owned (move) captures enter as `T`; narrow captures use the captured field's type. Since closure types intern by signature, the recorded capture set is the union across all same-signature literals, so the type is `!Send`/`!Sync` if any such literal captures a `!Send`/`!Sync` value.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L14900-L14925`
+
+### `trait.auto.closure-via-captures` — Closure auto trait follows its captured types
+
+A closure type satisfies auto trait A iff every captured value's type satisfies A (by-ref captures recorded as &/&mut so reference rules apply). A closure type with no recorded capture set (e.g. a bare dyn Fn annotation without + Send) does not satisfy. Auto-trait satisfaction is computed over captures, not parameter types.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L246-L252`
+
+### `trait.auto.conservative-false` — Other types conservatively fail auto traits
+
+Any type kind not otherwise handled (e.g. trait objects) is conservatively treated as not satisfying any auto trait.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L254-L256`
+
+### `trait.auto.cycle-guard` — Recursive types terminate as satisfied
+
+Auto-trait checking memoizes on key (type, trait); revisiting an in-progress (type, trait) pair during recursion is treated as satisfied (true), so a recursive type does not loop and is not rejected merely for self-reference.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L32-L35`
+
+### `trait.auto.empty-body` — Auto trait must have empty body
+
+An `auto trait` must declare no members; a body containing any FN, associated type, or associated const is an error. Visibility modifiers, type params, and supertraits do not count as members.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L2445-L2461`
+
+### `trait.auto.enum-all-payloads` — Enum satisfies auto trait iff all variant payloads do
+
+Absent an overriding impl, an enum satisfies auto trait A iff every payload type of every variant satisfies A. An unknown enum is leniently treated as satisfying.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L202-L218`
+
+### `trait.auto.explicit-impl-override` — Explicit impl overrides structural check for struct/enum
+
+For struct/enum (and zoned struct) types, an explicit auto-trait impl is consulted first by candidate key (mangled concrete name, then full type string, then base name): a positive impl accepts and a negative impl rejects, short-circuiting the structural field/variant walk.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L37-L85`, `src/compiler/sema_auto_trait.cpp#L168-L170`, `src/compiler/sema_auto_trait.cpp#L203-L205`
+
+### `trait.auto.explicit-impl-overrides` — An explicit impl of an auto-trait short-circuits the structural check
+
+If a type has an explicit impl of the auto-trait (matched by mangled concrete name, type_str form, or unmangled base name), the type satisfies the trait unconditionally, bypassing the structural field/variant walk.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L199-L201`, `src/compiler/mono_clone.cpp#L242-L248`, `src/compiler/mono_clone.cpp#L275-L277`
+
+### `trait.auto.generic-impl-bound-check` — Generic positive impl honours its type-param auto-trait bounds
+
+When a positive auto-trait impl has impl type parameters and a generic target, each impl type param is substituted with the corresponding query type argument; for every bound on that param that names an auto trait, the substituted argument must itself satisfy that auto trait, else the impl is rejected.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L56-L84`
+
+### `trait.auto.mut-ref-send-sync` — &mut T: Send iff T:Send, Sync iff T:Sync
+
+For a mutable reference &mut T, Send(&mut T) = Send(T) and Sync(&mut T) = Sync(T).
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L125-L130`
+
+### `trait.auto.mutref-delegates-same-trait` — &mut T: Send iff T: Send, Sync iff T: Sync
+
+&mut T auto-satisfies the queried trait iff T satisfies that same trait (Send→T:Send, Sync→T:Sync). Matches Rust.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L226-L230`
+
+### `trait.auto.phantompinned-not-unpin` — PhantomPinned and #[pinned] types are !Unpin
+
+The lang-item logos.lang.marker.PhantomPinned does not satisfy Unpin; likewise a #[pinned] (arena-resident) struct does not satisfy Unpin. These structural opt-outs propagate via the all-fields rule.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L164-L167`, `src/compiler/sema_auto_trait.cpp#L176`
+
+### `trait.auto.pointer-always-unpin` — Pointers/references are always Unpin
+
+Raw pointers, &T, and &mut T are Unpin regardless of the pointee's pin-ness, unless an explicit negative Unpin impl exists for that exact pointer type; references never carry a negative Unpin impl and are unconditionally Unpin.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L101-L112`, `src/compiler/sema_auto_trait.cpp#L121`, `src/compiler/sema_auto_trait.cpp#L126`
+
+### `trait.auto.raw-pointer-not-send-sync` — Raw pointers are !Send/!Sync absent an explicit impl
+
+A raw pointer type (*const T / *mut T) does not satisfy a Send/Sync-shaped auto trait unless an explicit positive impl exists for that exact pointer type; a matching explicit impl is honoured (positive accepts, negative rejects).
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L107-L117`
+
+### `trait.auto.raw-ptr-not-send-sync` — Raw pointers are !Send and !Sync absent an explicit impl
+
+A raw pointer type *const T / *mut T does NOT auto-satisfy Send or Sync; it satisfies them only if an explicit (unsafe) impl is present for that pointer type. Matches Rust.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L216-L220`
+
+### `trait.auto.recursive-structural-satisfaction` — Auto-trait satisfaction is recursive/structural
+
+A type satisfies an auto trait (Send/Sync) iff all of its constituent fields recursively satisfy it; the first non-satisfying field is reported as the offender.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3617-L3629`
+
+### `trait.auto.ref-send-iff-pointee-sync` — &T: Send/Sync iff T: Sync
+
+&T auto-satisfies Send iff T: Sync, and Sync iff T: Sync — i.e. the auto-trait obligation on &T is delegated to T: Sync for both Send and Sync. Matches Rust.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L222-L224`
+
+### `trait.auto.scalars-and-fnptr` — Scalars and function pointers satisfy all auto traits
+
+Every scalar type (bool, unit/void, iN/uN incl. i24/u24/i56/u56/i128/u128, f32/f64, integer/float literal types), function items, and function pointers satisfy every auto trait unconditionally.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L89-L99`
+
+### `trait.auto.scalars-fn-always-satisfy` — Scalars and function types unconditionally auto-satisfy Send/Sync
+
+Primitive scalar types (bool, all integer widths, f32/f64, char), integer/float literals, and function-item / function-pointer types unconditionally satisfy auto-traits (Send/Sync).
+
+**Evidence:** `src/compiler/mono_clone.cpp#L204-L214`
+
+### `trait.auto.shared-ref-via-sync` — &T auto-trait reduces to T: Sync
+
+For a shared reference &T, both Send and Sync are satisfied iff T: Sync. (Send(&T) = Sync(T), Sync(&T) = Sync(T).)
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L120-L122`
+
+### `trait.auto.slice-send-iff-elem-sync` — Slice auto-trait delegates to element Sync; array preserves the trait
+
+[T] (slice) auto-satisfies the queried trait iff T: Sync (slice behaves like &-borrowed element storage). [T; N] (array) auto-satisfies the queried trait iff T satisfies that same trait.
+
+**Uncertainty:** Slice→Sync delegation for BOTH Send and Sync queries is inferred from the literal "Sync" argument regardless of trait_name; Rust treats [T] like &-storage.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L232-L235`
+
+### `trait.auto.slice-via-sync` — Slice auto-trait reduces to element Sync
+
+A slice type [T] (a shared-reference-shaped view) satisfies Send and Sync iff its element type T satisfies Sync (not the queried trait); an empty-element slice vacuously satisfies.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L224-L227`
+
+### `trait.auto.struct-all-fields` — Struct satisfies auto trait iff all fields do
+
+Absent an overriding impl, a struct/zoned-struct satisfies auto trait A iff every field type satisfies A, with generic field TypeVars substituted by the struct's concrete type arguments. An unknown struct (no struct/datatype info) is leniently treated as satisfying.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L171-L198`
+
+### `trait.auto.structural-satisfaction` — Auto traits are satisfied structurally
+
+An auto trait (e.g. Send, Sync, Unpin) is satisfied by a concrete type via structural recursion over its composition (its field/element types) rather than by an explicit impl, except where an explicit (possibly negative) impl overrides. On failure the offending field (name + type) is reported when known, otherwise that the type is not inherently the trait. The error type and the unit/never-shaped Error kind vacuously satisfy every auto trait.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L24-L30`, `src/compiler/sema_auto_trait.cpp#L87-L257`, `src/compiler/sema_collect.cpp#L912-L933`
+
+### `trait.auto.tuple-all-elements` — Tuple satisfies auto trait iff all elements do
+
+A tuple type satisfies auto trait A iff every element type satisfies A.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L230-L233`
+
+### `trait.auto.typevar-via-bounds` — Type parameter satisfies an auto trait iff bounded by it
+
+A type variable T satisfies auto trait A iff A appears in T's declared bound list in the current generic context; otherwise it does not.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L133-L140`
+
+### `trait.auto.unpin-default-true` — Unpin is satisfied by default
+
+Unpin holds for all types except those that (transitively) contain PhantomPinned, are #[pinned], or carry an explicit negative Unpin impl.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L101-L112`, `src/compiler/sema_auto_trait.cpp#L164-L176`
+
+### `trait.auto.unsafecell-not-sync` — UnsafeCell<T> is !Sync; Send follows T
+
+The lang-item logos.lang.cell.UnsafeCell<T> never satisfies Sync; it satisfies Send iff its wrapped T satisfies Send (no arg => not Send). Recognition is by qualified name to avoid clashing with same-named user types.
+
+**Evidence:** `src/compiler/sema_auto_trait.cpp#L145-L160`
+
+## Generics
+
+## Generic Parameters
+
+### `generic.param.bounds-and-const` — type-parameter and const-parameter forms
+
+A type parameter is `NAME [: bound + bound + ...]`; a const generic parameter is `const NAME : TYPE`. Either may be marked variadic with `...`. Bounds are joined with `+`.
+
+**Divergence:** Variadic type/const parameters (`...`) are a Logos extension.
+
+**Evidence:** `src/compiler/sema_render.cpp#L1052-L1099`
+
+### `generic.param.const-generic` — Const generic parameters
+
+A type parameter list may contain const parameters `const N: T`; each carries a const value-type T and may be marked variadic.
+
+```logos
+fn f<const N: usize>() -> [i32; N] {}
+```
+
+**Evidence:** `src/compiler/sema.cpp#L4070-L4080`, `src/compiler/sema.cpp#L4147-L4158`
+
+### `generic.param.default-type-arg` — Default type arguments
+
+A type parameter may declare a default `<T = Default>` (or `<T: Bound = Default>`); the default type is recorded and substituted at use sites when the argument is omitted.
+
+**Evidence:** `src/compiler/sema.cpp#L4105-L4112`, `src/compiler/sema.cpp#L4180-L4187`
+
+### `generic.param.implicit-sized` — Type parameters are implicitly Sized
+
+Every type parameter carries an implicit `Sized` bound by default; it is cleared only by an explicit `?Sized` relaxed bound.
+
+**Evidence:** `src/compiler/sema.cpp#L3938-L3946`
+
+### `generic.param.lexical-shadowing` — Type/const params shadow outer same-named params
+
+Pushing a scope of type parameters shadows any outer binding of the same name (type, bounds, and `?Sized` relaxation), and popping restores the prior binding exactly; this permits e.g. a method `<T>` to shadow an enclosing trait/impl `<T>`.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3268-L3331`
+
+### `generic.param.sibling-in-scope` — Sibling type-params visible to bound argument resolution
+
+When resolving a type-parameter's bound arguments, all sibling type-param names in the same list are in scope as type variables (so `where F: FnOnce(T, T) -> bool` resolves T).
+
+**Evidence:** `src/compiler/sema.cpp#L4055-L4066`, `src/compiler/sema.cpp#L4131-L4142`
+
+### `generic.param.unused-warn` — unused function type-parameter warns
+
+A function type-parameter that appears nowhere in the function's signature is a warning.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L552-L554`
+
+### `generic.param.variadic-last` — Variadic type parameter must be last
+
+A variadic type parameter `T...` must be the final entry in the type-parameter list; a non-final variadic param is an error "variadic type parameter must be last".
+
+**Divergence:** Variadic type/const parameters are a Logos addition not present in Rust.
+
+**Evidence:** `src/compiler/sema.cpp#L4188-L4190`
+
+## Generic Functions
+
+### `generic.fn.cross-pkg-coexist` — Cross-package same-name generics coexist
+
+Generic functions are keyed by package-qualified mangled symbol; same base+signature in different packages produce distinct symbols and coexist; a duplicate error fires only on an exact symbol-name match within a package.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4837-L4856`
+
+### `generic.fn.lifetime-param-unique` — Lifetime parameters of a fn must be unique
+
+A function's lifetime parameter names must be pairwise distinct; a duplicate lifetime parameter is ill-formed.
+
+**Evidence:** `src/compiler/sema_decl.cpp#L463-L467`
+
+### `generic.fn.type-param-unique` — Type parameters of a fn must be unique
+
+A function's type parameter names must be pairwise distinct; a duplicate type parameter is ill-formed.
+
+**Evidence:** `src/compiler/sema_decl.cpp#L521-L524`
+
+## Generic Bounds (bound)
+
+### `generic.bound.assoc-eq` — Associated-type equality constraints in bounds
+
+A trait bound may bind associated types by equality, `Trait<Assoc = Ty>`; each `Assoc = Ty` is recorded as an associated-type equality on the bound.
+
+```logos
+fn f<I: Iterator<Item = i32>>(i: I) {}
+```
+
+**Evidence:** `src/compiler/sema.cpp#L4025-L4033`
+
+### `generic.bound.fn-family-paren-form` — Fn-family parenthesized bound syntax
+
+The traits Fn, FnMut, FnOnce admit a parenthesized bound form `Fn(P1, ..., Pn) -> R`; the parenthesized list supplies the argument types and `-> R` the return type (both optional), distinct from the `<...>` type-argument list.
+
+```logos
+fn call<F: FnOnce(i32, i32) -> bool>(f: F) {}
+```
+
+**Evidence:** `src/compiler/sema.cpp#L3969-L3992`
+
+### `generic.bound.hrtb-binder` — Higher-ranked trait bound binders
+
+A trait bound may carry a `for<'a, 'b, ...>` higher-ranked lifetime binder; the bound lifetime names are recorded on the bound.
+
+```logos
+fn f<F: for<'a> Fn(&'a i32)>(f: F) {}
+```
+
+**Evidence:** `src/compiler/sema.cpp#L3994-L4017`
+
+### `generic.bound.lifetime-arg-not-structural` — Lifetime args in trait bounds are recorded but not dispatched on
+
+A lifetime argument at a trait bound's type-argument position (e.g. `Foo<'a>`) is captured for record only; regions are not tracked structurally for bound dispatch.
+
+**Divergence:** Logos does not track regions structurally for bound dispatch; lifetime bound-args carry no dispatch significance.
+
+**Evidence:** `src/compiler/sema.cpp#L4034-L4041`
+
+### `generic.bound.lifetime-outlives-clause` — Lifetime outlives bounds in generic param list
+
+A lifetime parameter may carry outlives bounds `'long: 'a + 'b + 'c`, which desugar to the set of pairwise constraints {('long,'a), ('long,'b), ('long,'c)} meaning 'long outlives each listed shorter lifetime.
+
+**Uncertainty:** Encoding read here; enforcement of the outlives relation is elsewhere.
+
+**Evidence:** `src/compiler/sema.cpp#L3324-L3351`
+
+### `generic.bound.relaxed-not-propagated` — Relaxed markers are consumed, never positive bounds
+
+A relaxed `?Trait` marker is removed from a type parameter's bound set during finalization; it is never carried forward as a positive bound to monomorphization or bound-checking.
+
+**Evidence:** `src/compiler/sema.cpp#L3937-L3954`
+
+### `generic.bound.relaxed-only-sized` — Only ?Sized is a permitted relaxed bound
+
+A relaxed bound `?Trait` on a type parameter is permitted only when Trait = Sized. `?Sized` clears the parameter's implicit Sized bound; any other `?Trait` is a hard error "relaxed bound '?T' is not permitted (only `?Sized` is supported)".
+
+```logos
+fn f<T: ?Sized>(x: &T) {}
+fn g<T: ?Clone>() {}  // error
+```
+
+**Evidence:** `src/compiler/sema.cpp#L3944-L3954`, `src/compiler/sema.cpp#L3957-L3968`
+
+### `generic.bound.type-outlives` — Type-outlives bounds
+
+A type parameter may carry type-outlives bounds `T: 'a (+ 'b)*`; the outlived lifetime names are recorded on the parameter.
+
+```logos
+fn f<T: 'static>(x: T) {}
+```
+
+**Evidence:** `src/compiler/sema.cpp#L4098-L4102`
+
+### `generic.bound.well-formed` — trait bounds are validated at the declaration site
+
+Trait bounds written on generic declarations are validated where written: each bound must name a known trait and supply the correct number of trait arguments.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L548-L550`
+
+## Generic Bounds (bounds)
+
+### `generic.bounds.defer-typevar-bearing` — TypeVar-bearing subjects defer bound checking to mono
+
+A concrete-arg type-expression that mentions a TypeVar anywhere (`&T`, `[T;0]`, `&[T]`, `EnumPair<T>`, `(T,U)`, closure param/ret) has undecidable trait satisfaction here and is deferred to monomorphization, where the substituted form is re-checked. AssocType and CfgSlotType kinds are likewise deferred.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L838-L866`
+
+### `generic.bounds.no-empty-params` — Bound checking is a no-op for non-generic targets
+
+When a target has no type parameters, bound checking is skipped entirely.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L808-L811`
+
+### `generic.bounds.relaxed-only-sized` — Only ?Sized is a permitted relaxed bound
+
+A relaxed bound (`?Trait`) is permitted only for `Sized`; any other relaxed bound is an error. Seeing `?Sized` clears the parameter's implicit `Sized` requirement, and the relaxed entry is removed so downstream code sees only positive bounds.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L3248-L3256`, `src/compiler/sema_impl.hpp#L3310-L3316`
+
+### `generic.bounds.relaxed-sized-substitution-check` — ?Sized param substituted where Sized required errors
+
+When a type parameter carrying `?Sized` is passed as a type-argument to a callee whose corresponding parameter requires `Sized`, the same unsized-substitution diagnostic is emitted as for an explicit unsized substitution.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L2996-L3001`
+
+### `generic.bounds.substitute-call-args` — Call's type-args substituted into parametrized bounds
+
+Before checking a parametrized bound `I: Iterator<T>`, the call's mapping of type-params to concrete args is substituted into the bound's type-args, so the bound is checked against the concrete value of T (e.g. turbofish T=i32) rather than the bare TypeVar.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L815-L825`, `src/compiler/sema_collect.cpp#L947-L955`
+
+### `generic.bounds.variadic-tail-param` — Variadic tail parameter absorbs extra type args
+
+If the last type parameter is variadic, type args beyond the non-variadic count are all checked against that final (variadic) parameter; otherwise excess args are ignored once parameters are exhausted.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/sema_collect.cpp#L812-L833`
+
+## Where-Clauses
+
+### `generic.where.concrete-subject-obligation` — where-clause with concrete subject is an obligation, not a param
+
+A `where <ConcreteType>: Trait` clause (subject names a known type, e.g. `where i32: Show`) is a trivially-checked obligation and does not introduce a new type parameter; only a genuinely-undeclared type-param name in a where clause is added as a parameter.
+
+**Evidence:** `src/compiler/sema.cpp#L4260-L4279`
+
+### `generic.where.merged-with-inline` — where-clause bounds merge into parameter bounds
+
+Bounds from a `where T: Trait, U: Trait2` clause are merged onto the corresponding type parameters; an inline `<T, F: Bound>` and the equivalent `where`-clause form are semantically identical, and sibling type-params are in scope when resolving where-clause bound arguments.
+
+**Evidence:** `src/compiler/sema.cpp#L4195-L4295`
+
+### `generic.where.projection-subject-skipped` — where-clause projection subject is parsed but not enforced
+
+A `where C::Item<T>: Bound` clause whose subject is an associated-type projection is accepted but not yet enforced (parse-and-skip).
+
+**Uncertainty:** Statement reflects current parse-and-skip behavior; full projection-bound checking is noted as a separate unimplemented feature.
+
+**Evidence:** `src/compiler/sema.cpp#L4218-L4227`
+
+### `generic.where.ref-subject` — where-clause with reference subject
+
+A `where &T: Trait` / `where &mut T: Trait` clause records its bounds on the underlying type-param T, flagged as applying only to a matching (shared/mut) reference receiver.
+
+**Evidence:** `src/compiler/sema.cpp#L4210-L4259`
+
+## Type-Argument Arity
+
+### `generic.arity.exact-or-variadic-tail` — Type-argument arity matching
+
+A generic instantiation with parameter list P and argument list A is well-formed iff: if P's last parameter is a variadic pack (`T...`), |A| >= |P|-1 (the pack absorbs >=0 trailing args); otherwise |A| == |P|. Mismatch is an error stating the expected and actual counts.
+
+```logos
+Vec<i32>      // P={T}, ok
+Tuple<A,B,...> // last param variadic, >=2 args
+```
+
+**Evidence:** `src/compiler/sema_impl.hpp#L1337-L1366`
+
+### `generic.arity.type-args-on-non-generic` — Type-args on a non-generic target rejected
+
+Supplying >=1 type argument to a target whose type-parameter list is empty (non-generic) is an error: `<context> '<name>': not generic — cannot accept N type arg(s)`. (Diagnosed only after full type-parameter info is available, never during forward-declaration prepass.)
+
+```logos
+struct S {} ; let x: S<i32>; // error: not generic
+```
+
+**Evidence:** `src/compiler/sema_impl.hpp#L1341-L1352`
+
+## Type-Parameter Shadowing
+
+### `generic.shadow.type-param-shadows-type-warn` — Type-param shadowing a type/trait warned
+
+A fn type-parameter whose name shadows an existing struct/datatype/enum/trait is warned because it currently breaks fn-name resolution at use sites.
+
+**Uncertainty:** Stated as a current implementation limitation rather than a designed rule.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4619-L4630`
+
+## Generic Lints
+
+### `generic.lint.unused-type-param` — Unused type parameter warning (functions)
+
+A function's declared type parameter that does not appear in its signature (parameter types, return type, or any trait-bound type-args) is warned as unused. Exemptions: variadic packs; const-generic params; names equal to `_` or beginning with `_`; and any param that itself carries a trait bound (the bound counts as a use). Lifetime parameters get the analogous unused-lifetime warning.
+
+```logos
+fn f<T>(x: i32) {} // warn: type parameter 'T' is unused
+fn f<_T>(x: i32) {} // ok
+```
+
+**Evidence:** `src/compiler/sema_impl.hpp#L1555-L1604`
+
+## Type Inference
 
 ### `generic.infer.array-len-const` — Const-generic array length inferred from concrete length
 
@@ -2239,41 +1898,175 @@ For a function with a trailing variadic type-parameter, each value argument beyo
 
 **Evidence:** `src/compiler/sema_expr.cpp#L3968-L3978`, `src/compiler/sema_expr.cpp#L4123-L4147`
 
-## Name Mangling
+## Generic Calls
 
-### `trait.mangle.trait-qualified-on-collision` — Trait-qualified method mangling on name collision
+### `expr.call.generic-inference-deferred-in-generic-context` — Generic-call inference is deferred inside a generic context
 
-When two distinct traits define a same-named method with the same signature on one type, the colliding methods re-key under `<target>__<trait>__<method>`; a plain base `<target>__<method>` with more than one such entry is ambiguous for concrete-receiver dispatch and requires disambiguation.
+If any argument is a pack expansion or has a TypeVar/AssocType type (partially-substituted context), call inference is deferred to monomorphization: the generic overload is selected and the call shape is preserved (callee type-vars and substituted return type) rather than pinning a concrete instantiation.
 
-**Evidence:** `src/compiler/sema_impl.hpp#L2856-L2862`
+**Evidence:** `src/compiler/sema_expr.cpp#L3435-L3462`, `src/compiler/sema_expr.cpp#L3586-L3601`
 
-## Method Name Mangling
+### `expr.call.generic-inference-from-args` — Type arguments of a generic call are inferred from argument types
 
-### `trait.method-mangling.bound-targ-suffix` — Trait tag folds concrete bound type-args into a $G<n>$ suffix
+When a callee is generic and the call is not in a generic/pack-expansion context, type arguments are inferred from the actual argument types; if not all can be inferred it is an error directing the user to explicit `f::<T>(...)` syntax.
 
-When the receiver bound carries concrete trait type-args (`T: MyTrait<u64>`), the trait tag becomes `Trait` + `$G<n>$<args>` suffix, so mono resolves the args-qualified symbol `<Concrete>__MyTrait$G1$u64__method`, distinct from a sibling `impl MyTrait<u8>`.
+**Evidence:** `src/compiler/sema_expr.cpp#L3413-L3457`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L7778-L7792`
+### `generic.call.antiquot-pack-type-arg` — Type-arg antiquote pack splices a reflected type list
 
-### `trait.method-mangling.trait-qualified-symbol` — Trait-qualified method symbol when a method name is provided by a trait
+An antiquote pack `$v...` in a generic call's type arguments splices a runtime-produced list of types (e.g. a struct's field types) into the callee's type args; it is carried as a marker TypeVar `__splicepack$v` that flows like a variadic pack and is expanded during monomorphization by chasing the variable to its type-list producer.
 
-When at least one trait declares a method of the given name, the call is tagged with the chosen trait so monomorphization may resolve the trait-qualified symbol `<Concrete>__<Trait>__<method>`; mono falls back to the plain name when no qualified symbol exists. This disambiguates multi-trait collisions and cases where a same-named inherent method occupies the plain symbol.
+**Divergence:** Logos metaprog reflection extension (no Rust analogue)
 
-**Evidence:** `src/compiler/sema_expr.cpp#L7753-L7793`
+**Evidence:** `src/compiler/sema_expr.cpp#L5985-L6000`
 
-## Method Type Arguments
+### `generic.call.callee-resolution-order` — Generic call callee resolution precedence
 
-### `generic.method-typeargs.turbofish-binds-method-params` — Turbofish binds method-level type-params in order, skipping already-bound
+For a call `f::<TARGS>(args)` with n value args, the callee resolves in order: (1) a generic function overload matching name `f` and arity n; (2) if none, a single non-generic candidate named `f`. If exactly one of these is found it is the callee; otherwise fall through to alternative interpretations (struct ctor / enum variant) before erroring.
 
-An explicit turbofish on a method call (`it.fold::<i32>(..)`) provides the method-level type-arguments in order; each is bound to the next method type-parameter not already bound by the receiver substitution (struct-inherited params bound from the receiver are skipped).
+**Evidence:** `src/compiler/sema_expr.cpp#L5854-L5861`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L7919-L7936`
+### `generic.call.impl-target-pattern-unify` — Impl-level type-params bound by target-pattern unification
 
-### `trait.method-typeargs.propagate-trait-and-method-params` — Propagate trait-level then method-level type-args to the call
+For a method on `impl<...> Trait for Foo<Pat..>`, the impl-level type-parameters are bound by structurally unifying the recorded impl-target pattern against the receiver-positional type-arguments (e.g. pattern `Vec<T>` vs concrete `Vec<i32>` ⇒ T=i32), not positionally; method-level type-arguments are then layered positionally on top. Positional binding is used when no target pattern is recorded.
 
-The lowered method call carries type-args in order: first each owning-trait type-parameter (bound from the Self-substitution), then each method-level type-parameter inferred by unifying substituted formal param types against actual argument types. Unbound positions are left null.
+**Evidence:** `src/compiler/sema_expr.cpp#L4085-L4122`, `src/compiler/sema_expr.cpp#L4033-L4052`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L7713-L7746`
+### `generic.call.pub-access-check` — Callee visibility check
+
+Once a generic-call callee is resolved, its visibility (pub / module-only) is enforced relative to the calling package and module.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5962`, `src/compiler/sema_expr.cpp#L6110`
+
+### `generic.call.sized-enforcement` — Sized bound enforced at type-argument substitution
+
+Every type-parameter carries an implicit `Sized` bound unless declared `?Sized`. Passing an unsized type-argument (UnsizedSlice/UnsizedDyn), or a `?Sized` outer type-parameter, at a Sized-required parameter position is an error ("requires `Sized`"), reported before trait-bound checking.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L4150-L4184`
+
+### `generic.call.tuple-struct-arity` — Tuple-struct constructor arity check
+
+A tuple-struct constructor call is an error if the number of arguments differs from the number of struct fields.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5880-L5884`
+
+### `generic.call.tuple-struct-field-type-check` — Tuple-struct constructor field type checking
+
+For each tuple-struct constructor argument, the corresponding field type (after substitution) is the expected type: integer literals are widened to it, and a non-TypeVar non-error field type that is incompatible with the argument type is an error.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5893-L5907`
+
+### `generic.call.turbofish-arity` — Type-argument count validation
+
+A generic call supplying more type-arguments than the function has type-parameters is an error. With a variadic type-param, fewer than the non-variadic count is an error. Supplying fewer than the full count (partial turbofish), or interior `_` placeholders, is permitted: the explicit head is pre-bound and the remaining/`_` positions are inferred from argument types and the return-type hint; a still-uninferable position is an error directing the user to turbofish.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L4001-L4082`
+
+### `generic.call.turbofish-tuple-struct-ctor` — Turbofish on a tuple-struct constructor
+
+If callee resolution finds no function but `f` names a tuple struct, `f::<TARGS>(args)` constructs that struct: the explicit turbofish TARGS pin the leading struct type-params positionally, any remaining type-params are inferred by unifying each field type with its argument type, and the result is a struct literal of `f` with fields '0','1',… . Argument count must equal the struct's field count.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5862-L5920`
+
+### `generic.call.undefined-callee-error` — Undefined-function diagnostic gated by metaprog mode
+
+If a call's callee resolves to nothing (no fn, struct ctor, or variant), it is an error `call to undefined function 'f'`, EXCEPT in metaprog mode where the call silently lowers with `<error>` type so a not-yet-emitted derive-synthesized function can resolve in a later sema pass.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5954-L5960`
+
+### `generic.call.underscore-type-arg-inference` — `_` turbofish argument is an inference hole
+
+An explicit type argument written `_` becomes an inference hole (TypeVar `_`) and is inferred from the value arguments during call finishing rather than pinned.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5982-L6003`
+
+### `generic.call.unsized-targ-for-relaxed-param` — ?Sized type-param relaxes unsized turbofish argument
+
+When resolving the i-th explicit turbofish type argument, a bare unsized type (`[T]`, `dyn Trait`) is accepted iff the i-th target type-param was declared `?Sized` (implicit_sized=false); otherwise the unsized-by-value diagnostic applies.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L5964-L6007`, `src/compiler/sema_expr.cpp#L6112-L6127`
+
+## Generic References (value-position / turbofish)
+
+### `generic.ref.bounds-check-when-concrete` — Generic-ref bound check deferred when TARGS contain TypeVars
+
+Type-param bound checking on a generic-ref value runs eagerly only when all type arguments are concrete; if any type argument is a TypeVar the real bound check is deferred to monomorphization.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6141-L6150`
+
+### `generic.ref.no-variadic-packs` — Variadic type packs forbidden in generic-ref value
+
+A generic-ref value of a function whose last type-param is a variadic pack is an error; variadic type packs are not supported in value position.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6129-L6134`
+
+### `generic.ref.sized-enforcement` — Sized enforcement at generic-ref substitution
+
+Substituting a generic-ref type argument of unsized kind (`[T]` slice or `dyn`) into a type-param that requires `Sized` (implicit_sized true) is an error, suggesting `T: ?Sized` to relax the bound.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6152-L6168`
+
+### `generic.ref.turbofish-no-payload-variant` — Turbofish on a no-payload enum variant in value position
+
+In value position, `V::<TARGS>` where `V` is a no-payload variant of `Option`/`Result` (or a use-aliased variant) constructs that variant, pinning the enum's type-args from the turbofish when the turbofish arity matches the enum's type-param count.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6071-L6109`
+
+### `generic.ref.type-arg-arity` — Generic-ref requires exact type-arg arity
+
+A generic-ref value must supply exactly as many type arguments as the function has type-params; a mismatch is an error.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6135-L6139`
+
+### `generic.ref.value-position-fn-pointer` — `IDENT::<TARGS>` as a value yields a fn-pointer literal
+
+`f::<TARGS>` in expression (non-call) position evaluates to a function-pointer value whose type is the callee signature with TARGS substituted (params and return). TARGS containing TypeVars are deferred: the node carries (base, type_args) and is mangled/substituted at monomorphization time.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L6043-L6182`
+
+## Generic Method Calls
+
+### `expr.method.typeparam-inference-from-args` — Method type params inferred by unifying params with arg types
+
+Absent turbofish, a trait method's type parameters are inferred by unifying each substituted formal parameter type (seeded with Self → receiver type and any supertrait-derived bindings) against the corresponding argument's type.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7498-L7524`
+
+### `generic.method.arg-inference` — Method type args inferred from args
+
+Method-level type arguments not bound by turbofish or receiver are inferred from the actual argument expressions (param offset skips `self`), seeding the substitution context.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8861-L8865`
+
+### `generic.method.bounds-check` — Method type-arg bounds enforced
+
+Inferred/explicit method type arguments must satisfy their type parameters' bounds.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8973`
+
+### `generic.method.inference-complete` — All method type args must be inferred
+
+Every method type parameter must be bound (by turbofish, receiver, or inference); failure to bind all is an error.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8967-L8972`
+
+### `generic.method.recv-formal-unify` — Impl params inferred from receiver formal
+
+Impl/method type parameters appearing only in the receiver formal (e.g. `impl<T> Pin<&T> { fn get_ref(&self) -> &T }`) are inferred by unifying the receiver formal against the actual receiver type, peeling one ref/ptr layer on either side to match shapes.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8838-L8860`
+
+### `generic.method.recv-typeargs-bind` — Receiver type-args seed substitution
+
+The receiver's struct/zoned-struct or enum type arguments are bound positionally to the receiving type's type parameters and used as the substitution context for checking and inferring method-level type arguments.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8750-L8776`
+
+### `generic.method.turbofish-wins` — Method turbofish overrides inference
+
+Explicit method-level type arguments `recv.m::<T...>(args)` bind the method-level type parameters (the tail of the method's type-param list that is not shared with the receiving type) positionally; inference runs only for the remaining unbound positions.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L8784-L8837`
 
 ## Method Substitution
 
@@ -2288,6 +2081,28 @@ For a method belonging to a trait, the trait's type-parameters (e.g. `Iterator<I
 When the receiver is a generic Struct/ZonedStruct or Enum carrying type-args, the nominal type's declared type-parameters are bound positionally to those args; this substitution is applied to the method's formal parameter types when computing argument type hints.
 
 **Evidence:** `src/compiler/sema_expr.cpp#L7877-L7894`, `src/compiler/sema_expr.cpp#L7938-L7941`
+
+## Method Type-Arguments
+
+### `generic.method-typeargs.turbofish-binds-method-params` — Turbofish binds method-level type-params in order, skipping already-bound
+
+An explicit turbofish on a method call (`it.fold::<i32>(..)`) provides the method-level type-arguments in order; each is bound to the next method type-parameter not already bound by the receiver substitution (struct-inherited params bound from the receiver are skipped).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L7919-L7936`
+
+## Overload Resolution
+
+### `generic.overload.receiver-autoref-autoderef` — Method receiver autoref/autoderef in overload matching
+
+For the receiver argument of a method overload, a by-value actual matching a `&self`/`&mut self` formal pointee (autoref) ranks as an exact match (score 2); a reference actual matching a by-value `self` formal pointee (autoderef) ranks one below (score 1). The receiver is unified through these autoref/autoderef shapes so unification does not see Ref-vs-Struct and bind nothing.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L3783-L3797`, `src/compiler/sema_expr.cpp#L3821-L3835`
+
+### `generic.overload.score-select` — Generic overload selection by argument fit score
+
+Among ≥2 generic overloads of a name, each arity-compatible candidate is scored by per-argument fit after substituting inferred bindings: exact type match = 2, compatible (incl. autoderef receiver / general type-compatibility) = 1; any incompatible argument disqualifies the candidate. A candidate whose fixed type-params cannot all be bound is rejected (unless its body always diverges, or a return-type hint is present). The highest-scoring candidate wins; ties are broken in favour of a candidate defined in the current package.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L3759-L3845`
 
 ## Generic Enum Literals
 
@@ -2327,53 +2142,91 @@ Explicit turbofish type arguments on an enum literal (`E::<A>::V`) are applied t
 
 **Evidence:** `src/compiler/sema_expr.cpp#L12386-L12406`
 
-## Closures as Trait Impls
+## Generic Enum Methods
 
-### `trait.closure.fn-family-auto-impl` — Closure types automatically satisfy Fn/FnMut/FnOnce
+### `generic.enum-method.instantiate-on-typeargs` — Generic-enum method dispatch instantiates the method template
 
-Every closure type (canonical name beginning with `|`, i.e. `|T1,...| -> R`) is treated as implementing Fn, FnMut, and FnOnce without any explicit `impl`; the trait engine answers satisfies(Fn-family, closure) = true.
+For a receiver of generic Enum type (`Enum<...>` with type-args) whose method is a generic template, dispatch routes through the generic-call path with type-args = receiver enum type-args (struct-level prefix) followed by inferred or turbofish-supplied method-level type-args; the receiver's enum type-params are pre-seeded into the substitution before inference.
 
-**Divergence:** A10
+**Evidence:** `src/compiler/sema_expr.cpp#L8004-L8088`
 
-**Evidence:** `src/compiler/mono_clone.cpp#L4943-L4948`
+## Impl-Method Parameter Split
 
-## Reference / Autoref
+### `trait.impl-method.method-vs-impl-param-split` — Impl-level type params dropped from method TYPE_PARAMS, kept as IMPL_TYPE_PARAMS
 
-### `generic.ref.bounds-check-when-concrete` — Generic-ref bound check deferred when TARGS contain TypeVars
+When an impl-block method is attached to a generic struct template, impl-level type parameters are removed from the method's own type-parameter list (mono re-injects them at struct instantiation) while method-level type parameters are retained; the impl-level parameters with their bounds are preserved separately so monomorphization can gate instantiation on bound satisfaction.
 
-Type-param bound checking on a generic-ref value runs eagerly only when all type arguments are concrete; if any type argument is a TypeVar the real bound check is deferred to monomorphization.
+**Evidence:** `src/compiler/sema_decl.cpp#L2216-L2240`, `src/compiler/sema_decl.cpp#L2478-L2530`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6141-L6150`
+## Const Generics
 
-### `generic.ref.no-variadic-packs` — Variadic type packs forbidden in generic-ref value
+### `generic.const.binds-as-const-var` — Const-generic parameters bind as const-vars
 
-A generic-ref value of a function whose last type-param is a variadic pack is an error; variadic type packs are not supported in value position.
+A const-generic type parameter `const N: T` binds in scope as a ConstVar carrying its declared const type; a non-const type parameter binds as a type variable.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6129-L6134`
+**Evidence:** `src/compiler/sema_impl.hpp#L3297-L3304`
 
-### `generic.ref.sized-enforcement` — Sized enforcement at generic-ref substitution
+## Specialization
 
-Substituting a generic-ref type argument of unsized kind (`[T]` slice or `dyn`) into a type-param that requires `Sized` (implicit_sized true) is an error, suggesting `T: ?Sized` to relax the bound.
+### `generic.spec.bare-ident-resolution` — Bare-ident spec param: known type is concrete, else fresh TypeVar
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6152-L6168`
+A bare-IDENT type-param in a specialization pattern that names a known type resolves to that CONCRETE type (a specialization leg); otherwise it is treated as a fresh unbounded TypeVar scoped over the fn signature and body.
 
-### `generic.ref.turbofish-no-payload-variant` — Turbofish on a no-payload enum variant in value position
+**Evidence:** `src/compiler/sema_collect.cpp#L4454-L4464`
 
-In value position, `V::<TARGS>` where `V` is a no-payload variant of `Option`/`Result` (or a use-aliased variant) constructs that variant, pinning the enum's type-args from the turbofish when the turbofish arity matches the enum's type-param count.
+### `generic.spec.bounded-param-is-typevar` — Bounded spec type-param stays a TypeVar
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6071-L6109`
+A type-param carrying trait bounds in a specialization pattern is always a TypeVar (never coerced to a concrete leg), with its declared trait bounds recorded.
 
-### `generic.ref.type-arg-arity` — Generic-ref requires exact type-arg arity
+**Evidence:** `src/compiler/sema_collect.cpp#L4437-L4453`
 
-A generic-ref value must supply exactly as many type arguments as the function has type-params; a mismatch is an error.
+### `generic.spec.lifetime-param-skip` — Lifetime params ignored in spec patterns
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6135-L6139`
+Lifetime parameters in a specialization fn's type-param list contribute no spec pattern (deferred to the borrow checker).
 
-### `generic.ref.value-position-fn-pointer` — `IDENT::<TARGS>` as a value yields a fn-pointer literal
+**Evidence:** `src/compiler/sema_collect.cpp#L4431`
 
-`f::<TARGS>` in expression (non-call) position evaluates to a function-pointer value whose type is the callee signature with TARGS substituted (params and return). TARGS containing TypeVars are deferred: the node carries (base, type_args) and is mangled/substituted at monomorphization time.
+### `generic.spec.method-shadows-impl-param-warn` — Method type-param shadowing impl param is a silent specialization
 
-**Evidence:** `src/compiler/sema_expr.cpp#L6043-L6182`
+When a method's bare-IDENT type-param has the same name as an enclosing impl-block type-param, the method is silently treated as a specialization on the impl's param; the compiler emits a warning advising a rename.
+
+**Divergence:** Rust treats the method param as a fresh shadowing generic; Logos reinterprets it as a specialization leg (warned).
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4551-L4586`
+
+### `generic.spec.most-specific-match` — Partial-spec selection picks the most specific matching pattern
+
+Among struct specializations sharing a base name with arity equal to the supplied type-args, a spec is a candidate iff every pattern position matches the corresponding type-arg (TypeVar binds any type but must bind consistently within one spec; concrete kinds must match structurally; Struct/ZonedStruct match by name). The selected spec is the one whose per-position specificity scores are lexicographically greatest (specificity: 0 for a TypeVar, 100 for a concrete leaf, 1+inner for Ptr/Array). No candidate ⇒ no specialization.
+
+**Uncertainty:** Specificity ordering inferred from specificity_sema constants and lexicographic vector compare.
+
+**Evidence:** `src/compiler/sema.cpp#L6506-L6563`
+
+### `generic.spec.partial-pattern-typevars` — Partial specialization keeps unbound params as type variables
+
+In a struct specialization's pattern list, each slot that does not resolve to a known type stays a free type variable (e.g. `Map<Bitmap, V>` keeps `V`). The concrete spec name derives from `concrete_struct_name(make_generic_struct(name, patterns))`, so both full and partial specs are registered and later matched by best-fit at lookup. Pattern type variables are scoped only during collection and removed afterward.
+
+**Divergence:** A6: partial specialization of user structs is a Logos addition.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3810-L3833`, `src/compiler/sema_collect.cpp#L3858-L3860`
+
+### `generic.spec.pattern-list` — Specialization function pattern parameters
+
+A specialization fn's type-parameter list is interpreted as a list of type PATTERNS (not plain generic params): each entry is resolved into a SPEC_PATTERNS type that can be a structured type (e.g. `*T`, `[T; N]`), a TypeVar (bounded or unbounded type-param), or a concrete known type. The patterns drive dispatch to the matching specialization leg.
+
+**Uncertainty:** Logos has a specialization mechanism with no direct stable-Rust analogue (Rust specialization is unstable).
+
+**Evidence:** `src/compiler/sema_collect.cpp#L4414-L4474`
+
+### `generic.spec.struct-pattern-classification` — Struct specialization detection
+
+A `struct Name<...>` decl is a specialization (not a fresh generic base) iff (a) some type-param slot is a structured pattern (`*T`, `[T;N]`), OR (b) some slot is a concrete/known type name (primitive, alias, struct, datatype, or enum). A bare type-param name is treated as a concrete user-type spec only when a base of the same name is already registered in the current package AND the name is in the pre-scanned decl-name set; otherwise the decl is registered as a generic base. Specializations are not added to `structs_`; they are lowered directly.
+
+**Divergence:** A6: Logos supports user struct specialization (`struct Map<Bitmap, V> {...}`), which Rust lacks for structs.
+
+**Uncertainty:** Order-independence relies on pass0_decl_names_; classification of a name colliding across modules is gated on a same-name base existing.
+
+**Evidence:** `src/compiler/sema_collect.cpp#L3974-L3976`, `src/compiler/sema_collect.cpp#L4258-L4304`
 
 ## Generic Fields
 
@@ -2403,17 +2256,106 @@ A variadic struct field declared `name: A...` expands to fields `name_0, name_1,
 
 **Evidence:** `src/compiler/sema.cpp#L6578-L6582`, `src/compiler/sema.cpp#L6606-L6631`
 
-## Lints
+## Variance
 
-### `generic.lint.unused-type-param` — Unused type parameter warning (functions)
+### `generic.variance.adt-by-table` — ADT variance is per-parameter from the computed variance table
 
-A function's declared type parameter that does not appear in its signature (parameter types, return type, or any trait-bound type-args) is warned as unused. Exemptions: variadic packs; const-generic params; names equal to `_` or beginning with `_`; and any param that itself carries a trait bound (the bound counts as a use). Lifetime parameters get the analogous unused-lifetime warning.
+For a struct/zoned-struct/enum `D<A0..,'L0..>`, the variance contribution of each type argument `Ai` (resp. lifetime arg) is the meet over arguments of `compose(ambient, declared_variance(D,#i))` recursed into `Ai`, where `declared_variance(D,#i)` (`@i` for lifetimes) comes from the variance table keyed by `pkg.Name`; a parameter absent from the table defaults to covariant (Co).
 
-**Examples**
+**Evidence:** `src/compiler/sema.cpp#L8087-L8132`
 
-```logos
-fn f<T>(x: i32) {} // warn: type parameter 'T' is unused
-fn f<_T>(x: i32) {} // ok
-```
+### `generic.variance.compose` — Variance composition under nesting
 
-**Evidence:** `src/compiler/sema_impl.hpp#L1555-L1604`
+For a parameter P used at variance `inner` inside Wrapper<P>, where the Wrapper field occupies a position of variance `outer` in the enclosing type, P's effective variance there is outer ∘ inner: BiVar absorbs (BiVar ∘ x = x ∘ BiVar = BiVar); Inv dominates the non-BiVar cases (Inv ∘ x = x ∘ Inv = Inv); otherwise the result is Contra iff exactly one of outer/inner is Contra (sign-flip rule: Co∘Co=Co, Co∘Contra=Contra, Contra∘Co=Contra, Contra∘Contra=Co).
+
+**Related:** `generic.variance.four-kinds`, `generic.variance.meet`
+
+**Evidence:** `include/logos/compiler/variance.hpp#L40-L46`
+
+### `generic.variance.dyn-trait` — Trait objects: covariant in lifetime bound, invariant in type args
+
+`dyn Trait<A...> + 'a` is covariant in its lifetime bound `'a` (the erased object's storage must outlive `'a`) and invariant in each type argument `Ai` (ambient composed with Inv); auto-trait bounds (Send/Sync) are set-membership and contribute nothing to variance.
+
+**Evidence:** `src/compiler/sema.cpp#L8144-L8163`
+
+### `generic.variance.fixpoint` — ADT variances computed by monotone fixpoint over fields
+
+Variances of all struct/datatype/enum parameters are computed by a fixpoint iteration: each parameter is seeded BiVar, then on each round its variance is set to the meet over all field types (enum: over all variant payload types) of `variance_in_type(field, param, ambient=Co)`; iteration repeats until no entry changes, bounded at 32 rounds.
+
+**Uncertainty:** The 32-round cap is an implementation safety bound; the language semantics is the least fixpoint.
+
+**Evidence:** `src/compiler/sema.cpp#L8171-L8261`
+
+### `generic.variance.fn-contravariant-params` — Function types are contravariant in parameters, covariant in return
+
+A function item or function pointer `fn(P0..)->R` is contravariant in each parameter type `Pi` (ambient composed with Contra) and covariant in the return type `R`.
+
+**Evidence:** `src/compiler/sema.cpp#L8134-L8143`
+
+### `generic.variance.four-kinds` — Generic-parameter variance kinds
+
+Each type/lifetime parameter of a struct/enum has a variance in {BiVar, Co, Contra, Inv}: Co (covariant) preserves the subtype direction (Foo<Sub> <: Foo<Super>, &'long T <: &'short T when 'long: 'short); Contra (contravariant) reverses it (fn-argument position); Inv (invariant) requires both directions (mutable-reference content); BiVar (bivariant) places no constraint, used when the parameter appears only in phantom/absent positions.
+
+**Related:** `generic.variance.meet`, `generic.variance.compose`
+
+**Evidence:** `include/logos/compiler/variance.hpp#L31`
+
+### `generic.variance.meet` — Variance meet (combine multiple uses of a parameter)
+
+When a parameter is used in several positions, its variance is the meet (most-restrictive demand): BiVar ∧ x = x; x ∧ x = x; Co ∧ Contra = Inv; Inv ∧ x = Inv. The lattice ordering is BiVar < {Co, Contra} < Inv.
+
+**Related:** `generic.variance.four-kinds`
+
+**Evidence:** `include/logos/compiler/variance.hpp#L33-L38`
+
+### `generic.variance.mutref-invariant-pointee` — Mutable reference is covariant in lifetime, invariant in pointee
+
+`&'a mut T` is covariant in its lifetime `'a`, but invariant in its pointee `T` (recurses with ambient composed with Inv).
+
+**Evidence:** `src/compiler/sema.cpp#L8062-L8071`
+
+### `generic.variance.raw-ptr` — Raw pointers: *const covariant, *mut invariant
+
+`*const T` is covariant in pointee `T`; `*mut T` is invariant in pointee `T` (ambient composed with Co or Inv respectively). Matches Rust.
+
+**Evidence:** `src/compiler/sema.cpp#L8072-L8076`
+
+### `generic.variance.ref-covariant` — Shared reference is covariant in lifetime and pointee
+
+`&'a T` is covariant in its lifetime `'a` (contributes ambient) and covariant in its pointee `T` (recurses with unchanged ambient).
+
+**Evidence:** `src/compiler/sema.cpp#L8054-L8061`
+
+### `generic.variance.tuple-array-slice-covariant` — Tuples, arrays, and slices are covariant in element types
+
+A tuple is covariant in each element type (meet over elements, unchanged ambient); `[T; N]` and `[T]` are covariant in element type `T` (recurse with unchanged ambient).
+
+**Evidence:** `src/compiler/sema.cpp#L8077-L8086`
+
+### `generic.variance.type-param-occurrence` — Variance of a parameter is the meet over its occurrences
+
+The variance of a type/lifetime parameter `p` in a type `T` is `variance_in_type(T,p,ambient=Co)`, computed structurally: a leaf occurrence of `p` contributes the ambient variance; a parameter that does not occur is bivariant (BiVar). The overall variance combines occurrences via the meet operator (variance_meet); an unmentioned parameter stays BiVar (unconstrained).
+
+**Uncertainty:** variance_meet/variance_compose lattice (BiVar top, Co/Contra, Inv bottom) defined elsewhere; semantics inferred from usage.
+
+**Evidence:** `src/compiler/sema.cpp#L8047-L8053`, `src/compiler/sema.cpp#L8165-L8166`
+
+### `generic.variance.unknown-type-bivariant` — Type kinds not contributing the parameter are bivariant
+
+A type that does not mention the target parameter (or whose kind is not variance-relevant) contributes BiVar (the identity for meet, i.e. no constraint).
+
+**Evidence:** `src/compiler/sema.cpp#L8047`, `src/compiler/sema.cpp#L8053`, `src/compiler/sema.cpp#L8164-L8166`
+
+### `generic.variance.unsafecell-invariant` — UnsafeCell<T> is invariant in T
+
+`logos.lang.cell::UnsafeCell<T>` (the interior-mutability lang item, recognised by qualified name) is invariant in each type argument (ambient composed with Inv), overriding the table-driven ADT rule.
+
+**Evidence:** `src/compiler/sema.cpp#L8090-L8104`
+
+## Variadic Packs
+
+### `expr.pack.sizeof-and-expand` — Variadic pack size and expansion
+
+`P...(N)` yields the length of variadic pack `P` (sizeof-pack), and `P...` in expression position expands the pack `P`.
+
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L2737-L2738`, `tools/peg_gen/grammars/logos.peg#L2774`

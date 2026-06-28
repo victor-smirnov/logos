@@ -9,49 +9,67 @@
       "domain": "borrow",
       "title": "Move type definition",
       "statement": "A value is a move type iff consuming it invalidates the source, i.e. it owns a non-Copy value. Consuming a non-move (Copy) value leaves the source usable; consuming a move value renders the source inaccessible.",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L22-L23", "include/logos/compiler/move_classify.hpp#L30-L32"]
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L22-L23",
+        "include/logos/compiler/move_classify.hpp#L30-L32"
+      ]
     },
     {
       "id": "borrow.move.aggregate-recursion",
       "domain": "borrow",
       "title": "Tuple/array move-ness is element-wise",
       "statement": "A tuple is a move type iff at least one of its element types is a move type; an array [T; N] is a move type iff its element type T is a move type. Move-ness of aggregates is the structural OR over (existing) element types.",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L34-L40"]
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L34-L40"
+      ]
     },
     {
       "id": "borrow.move.struct-non-copy",
       "domain": "borrow",
       "title": "Struct move-ness",
       "statement": "A struct value is a move type iff it is not Copy (a struct that does not satisfy Copy, and whose drop semantics require ownership transfer, is moved on consumption).",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L17-L18", "include/logos/compiler/move_classify.hpp#L42"]
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L17-L18",
+        "include/logos/compiler/move_classify.hpp#L42"
+      ]
     },
     {
       "id": "borrow.move.enum-drop-or-move-payload",
       "domain": "borrow",
       "title": "Enum move-ness",
       "statement": "An enum value is a move type iff it is not Copy and either it has a user Drop impl or at least one variant payload is itself a move type.",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L18-L19", "include/logos/compiler/move_classify.hpp#L41"]
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L18-L19",
+        "include/logos/compiler/move_classify.hpp#L41"
+      ]
     },
     {
       "id": "borrow.move.box-dyn-owning",
       "domain": "borrow",
       "title": "Owning Box<dyn> is a move type",
       "statement": "An owning Box<dyn Trait> is always a move type (it owns a heap value whose destructor must run on consumption).",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L14-L15"]
-    },
-    {
-      "id": "borrow.move.typevar-move-unless-copy",
-      "domain": "borrow",
-      "title": "Generic type parameter is move unless T: Copy",
-      "statement": "A generic type parameter T is treated as a move type unless it is bound by T: Copy; absent a Copy bound the parameter is conservatively assumed to own a non-Copy value.",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L14-L16"]
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L14-L15"
+      ]
     },
     {
       "id": "borrow.move.scalar-not-move",
       "domain": "borrow",
       "title": "Scalar and reference types are not move types",
       "statement": "Types other than tuple, array, struct, and enum (e.g. scalars, references, raw pointers) are not move types by default and are consumed by copy.",
-      "evidence": ["include/logos/compiler/move_classify.hpp#L43"]
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L43"
+      ]
+    },
+    {
+      "id": "borrow.move.typevar-move-unless-copy",
+      "domain": "borrow",
+      "title": "Generic type parameter is move unless T: Copy",
+      "statement": "A bare generic type-parameter (TypeVar) value is classified as a move type (consumed on use, source invalidated) unless its parameter carries an explicit `Copy` bound; absent a Copy bound the parameter is conservatively assumed to own a non-Copy value, matching Rust generic-body move-by-default semantics.",
+      "evidence": [
+        "include/logos/compiler/move_classify.hpp#L13-L16",
+        "src/compiler/borrow_check.cpp#L724-L726"
+      ]
     }
   ]
 }

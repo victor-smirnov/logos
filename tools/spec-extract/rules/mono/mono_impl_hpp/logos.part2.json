@@ -9,79 +9,96 @@
       "domain": "mono",
       "title": "Instantiation gated on no unresolved type at any depth",
       "statement": "A generic shape is treated as substitution-incomplete (and its instantiation deferred) iff it contains a TypeVar OR an Error type at ANY depth — recursing through generic type-args, pointee, array/slice element, tuple elements, and closure params/return. Unresolved-reference (Error) types are equated with TypeVars for gating, since both mangle to leaked symbols the codegen layer cannot lower.",
-      "evidence": ["src/compiler/mono_impl.hpp#L605-L620"],
-      "examples": ["// Option<(A, B)> with A a TypeVar is NOT cloned until A resolves"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L605-L620"
+      ],
+      "examples": [
+        "// Option<(A, B)> with A a TypeVar is NOT cloned until A resolves"
+      ]
     },
     {
       "id": "mono.gate.assoc-type-defer",
       "domain": "mono",
       "title": "Associated-type projection in pattern defers, never mismatches",
       "statement": "A pattern argument containing an associated-type projection (e.g. D::Resources in impl<D: Device> Tr for Foo<D, D::Resources>) cannot be structurally unified against a concrete argument; such a position must DEFER (bind nothing), not report a mismatch — its resolution requires the trait-impl table. Detection recurses through type-args, pointee, element, and tuple elements.",
-      "evidence": ["src/compiler/mono_impl.hpp#L622-L634"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L622-L634"
+      ]
     },
     {
       "id": "mono.queue.record-generic-only",
       "domain": "mono",
       "title": "Only fully-resolved generic nominals are queued for instantiation",
       "statement": "A struct/zoned-struct or enum is recorded as a needed instantiation only when (a) it is the corresponding nominal kind, (b) it has a non-empty type-arg list, and (c) no type-arg contains an unresolved type (TypeVar/Error) at any depth. A non-generic nominal (empty type-args) is never queued.",
-      "evidence": ["src/compiler/mono_impl.hpp#L637-L645", "src/compiler/mono_impl.hpp#L658-L662"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L637-L645",
+        "src/compiler/mono_impl.hpp#L658-L662"
+      ]
     },
     {
       "id": "mono.queue.instantiation-depth-limit",
       "domain": "mono",
       "title": "Bounded monomorphization recursion depth",
       "statement": "Nominal instantiation tracks a recursion depth; queuing an instance at depth >= max_depth is a hard error (\"<kind> instantiation depth limit (N) exceeded for '<cname>'\"), bounding infinitely-recursive generic expansion such as Wrap<Wrap<Wrap<...>>>. Each enqueued instance carries depth+1.",
-      "evidence": ["src/compiler/mono_impl.hpp#L648-L654", "src/compiler/mono_impl.hpp#L666-L672", "src/compiler/mono_impl.hpp#L1099-L1112"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L648-L654",
+        "src/compiler/mono_impl.hpp#L666-L672",
+        "src/compiler/mono_impl.hpp#L1099-L1112"
+      ]
     },
     {
       "id": "mono.mangle.ptr-ref-prefixes",
       "domain": "mono",
       "title": "Pointer/reference mangle prefixes",
       "statement": "Type mangling encodes indirection by prefix on the recursively-mangled pointee: const raw pointer -> 'pcst_', mut raw pointer -> 'pmut_', shared reference -> 'ref_', mutable reference -> 'refmut_'. Mutability of raw pointers is part of the mangled identity.",
-      "evidence": ["src/compiler/mono_impl.hpp#L692-L695"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L692-L695"
+      ]
     },
     {
       "id": "mono.mangle.array-size-and-elem",
       "domain": "mono",
       "title": "Array mangle carries length and element",
       "statement": "An array type [T; N] mangles as 'arr<N>_' followed by the mangled element type; distinct N yield distinct symbols.",
-      "evidence": ["src/compiler/mono_impl.hpp#L696-L697"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L696-L697"
+      ]
     },
     {
       "id": "mono.mangle.enum-type-args-recursive",
       "domain": "mono",
       "title": "Generic enum mangle includes inner type-args",
       "statement": "A generic enum mangles as '<enum-name><module-suffix>' with each type-arg appended as '__<mangled-arg>', so nested instances (Option<Option<i32>>) get distinct symbols and payload-layout lookup agrees with the instantiation queue. If any type-arg contains a TypeVar at any depth, mangling falls back to the bare name+module-suffix (no '__' args), avoiding leaking 'T' into a spec name.",
-      "evidence": ["src/compiler/mono_impl.hpp#L704-L728"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L704-L728"
+      ]
     },
     {
       "id": "mono.mangle.const-arg-value",
       "domain": "mono",
       "title": "Const-generic argument mangled by value",
       "statement": "A const-generic argument (IntLit or ConstVar with a bound const value v) mangles as 'cN_<v>', with negatives as 'cN_n<|v|>', so distinct values yield distinct symbol names. A const-var without a bound value falls back to its type string.",
-      "evidence": ["src/compiler/mono_impl.hpp#L729-L739"]
-    },
-    {
-      "id": "mono.mangle.owning-vs-borrowed-dyn",
-      "domain": "mono",
-      "title": "Owning Box<dyn T> mangles distinctly from borrowed &dyn T",
-      "statement": "A trait object that is OWNING (Box<dyn T>) mangles as 'owndyn_<trait-name>' plus '__<arg>' per type-arg, while a borrowed &dyn T keeps the plain type-string mangling. This keeps Vec<Box<dyn T>> and Vec<&dyn T> as DISTINCT specs so the owning bit is not dropped (which would skip element drop and leak).",
-      "evidence": ["src/compiler/mono_impl.hpp#L740-L751"],
-      "divergence": "Internal mangling distinction with no Rust analog; reflects owning-dyn vs borrowed-dyn repr split."
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L729-L739"
+      ]
     },
     {
       "id": "mono.mangle.name-plus-type-args",
       "domain": "mono",
       "title": "Generic symbol = base name plus mangled type-args",
       "statement": "A monomorphic symbol name is formed from a base name with each type argument appended as '__<mangled-type>' in declaration order.",
-      "evidence": ["src/compiler/mono_impl.hpp#L757-L765"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L757-L765"
+      ]
     },
     {
       "id": "mono.uid.module-fingerprint-tags",
       "domain": "mono",
       "title": "Runtime type UID includes per-module fingerprint tags",
       "statement": "The canonical type-identity string for runtime UID hashing (type_id::<T>(), Any/downcast/quote_ty) is the type-string PLUS a '|<name>$M<module_id>' tag for EVERY non-stdlib nominal node anywhere in the type tree (recursing through pointee/elem/type-args/tuple-elems/closure params+ret), so two modules' same-named pkg::Type (incl. nested, e.g. Box<pkg::Widget>) hash to DISTINCT UIDs. stdlib (logos.*) and no-module compiles contribute no tags, yielding a string byte-identical to the plain type-string (UIDs unchanged).",
-      "evidence": ["src/compiler/mono_impl.hpp#L772-L808"],
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L772-L808"
+      ],
       "divergence": "A9 — Logos coexistence of same-named types across modules; no Rust crate-disjointness analog."
     },
     {
@@ -89,35 +106,56 @@
       "domain": "mono",
       "title": "Shallow pattern match binds vars and compares nominals by name only",
       "statement": "Shallow pattern matching of concrete c against pattern p: a TypeVar or ConstVar pattern binds by name (already-bound -> require type-equality with the concrete; unbound -> bind it). Otherwise kinds must be equal; Ptr requires equal mutability and matches pointee; Ref/MutRef match pointee; Array requires equal size and matches element; Struct matches by struct-name ONLY (no type-arg descent); all other kinds fall back to full type-equality.",
-      "evidence": ["src/compiler/mono_impl.hpp#L907-L938"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L907-L938"
+      ]
     },
     {
       "id": "mono.unify.deep-impl-target",
       "domain": "mono",
       "title": "Deep unification of impl-target pattern against concrete receiver",
       "statement": "Deep unification binds impl-level type-params from a partial-spec impl target (e.g. Result<Vec<T>, E>) against a concrete receiver (Result<Vec<i32>, i32>): TypeVar/ConstVar bind by name (re-binding requires type-equality); kinds must match; Ptr requires equal mutability; Array requires equal size; Struct/ZonedStruct and Enum require equal name and equal arity then unify type-args positionally; Tuple unifies elements positionally; Slice unifies element. Returns false on structural mismatch or conflicting bindings; succeeds with partial binding when the concrete side itself carries TypeVars.",
-      "evidence": ["src/compiler/mono_impl.hpp#L949-L1007"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L949-L1007"
+      ]
     },
     {
       "id": "mono.unify.collect-pattern-typevars-first-order",
       "domain": "mono",
       "title": "Impl-target free type-vars recovered in first-appearance order",
       "statement": "The free TypeVar/ConstVar names of an impl-target pattern are collected in first-appearance (deduplicated) order, mirroring the unify traversal (pointee, element, type-args, tuple-elems). This recovers impl-level type-param names (e.g. T in impl<T> Pin<&T>) for binding a call's type-args when the method's own type-param list is empty.",
-      "evidence": ["src/compiler/mono_impl.hpp#L1009-L1027"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L1009-L1027"
+      ]
     },
     {
       "id": "mono.select.type-specificity-score",
       "domain": "mono",
       "title": "Specialization specificity ranking",
       "statement": "Among overlapping partial specializations, candidates are ranked by per-position specificity: a TypeVar (or null) scores 0; Ptr/Array score 1 + specificity(pointee/elem); any other concrete type scores 100. Selection uses both the summed score and the per-position specificity vector (lexicographic) so specs equal by sum but differing positionally (Map<Bitmap,V> vs Map<K,AnyVal>) are disambiguated.",
-      "evidence": ["src/compiler/mono_impl.hpp#L1029-L1050"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L1029-L1050"
+      ]
     },
     {
       "id": "mono.subst.instances-are-monomorphic",
       "domain": "mono",
       "title": "Instantiated functions carry no type-params",
       "statement": "An instantiated function instance is monomorphic: it is renamed to its mangled name and carries no generic type-params (clones never emit the template's type_params).",
-      "evidence": ["src/compiler/mono_impl.hpp#L1099-L1112"]
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L1099-L1112"
+      ]
+    },
+    {
+      "id": "mono.mangle.owning-vs-borrowed-dyn",
+      "domain": "mono",
+      "title": "Owning Box<dyn T> mangles distinctly from borrowed &dyn T",
+      "statement": "An OWNING trait object (Box<dyn T>) mangles to 'owndyn_<trait-name>' followed by a per-type-arg suffix (one suffix per type argument), while a borrowed &dyn T keeps the plain type-string mangling. This keeps generic specs such as Vec<Box<dyn T>> and Vec<&dyn T> DISTINCT, so the owning bit is not collapsed onto the borrow form (which would skip element drop and leak).",
+      "evidence": [
+        "src/compiler/mono_impl.hpp#L740-L751",
+        "src/compiler/sema.cpp#L1500-L1512"
+      ],
+      "divergence": "Internal mangling distinction with no Rust analog; reflects owning-dyn vs borrowed-dyn repr split."
     }
   ]
 }

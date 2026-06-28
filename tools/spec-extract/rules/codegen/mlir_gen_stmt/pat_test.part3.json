@@ -9,91 +9,114 @@
       "domain": "pat",
       "title": "Match arms tested top-to-bottom, first matching arm runs",
       "statement": "A `match` evaluates arms in source order; the first arm whose pattern matches (and whose guard, if any, holds) executes and the match completes. Operationally the arms form an if/else chain where each arm's test branches to the arm body on success and to the next arm's test on failure; an irrefutable pattern terminates the chain.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4319-L4320", "src/compiler/mlir_gen_stmt.cpp#L4379-L4381", "src/compiler/mlir_gen_stmt.cpp#L4754"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4319-L4320",
+        "src/compiler/mlir_gen_stmt.cpp#L4379-L4381",
+        "src/compiler/mlir_gen_stmt.cpp#L4754"
+      ]
     },
     {
       "id": "pat.guard.bind-then-evaluate",
       "domain": "pat",
       "title": "Match guard evaluated after the arm's bindings are in scope",
       "statement": "When an arm has a guard `if g`, the arm's pattern bindings are extracted and made visible to `g`; `g` is then evaluated as a boolean; if it holds the arm body runs (reusing the already-established bindings), otherwise control proceeds to the next arm. A failing guard does not fall through to other arms that share the same pattern test — the whole arm is skipped.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4346-L4358", "src/compiler/mlir_gen_stmt.cpp#L4359-L4366"]
-    },
-    {
-      "id": "pat.range.inclusive-bounds",
-      "domain": "pat",
-      "title": "Range pattern matches lo <= scrut <= hi inclusively",
-      "statement": "A range pattern `lo..=hi` matches a scrutinee value v iff `lo <= v && v <= hi` (both bounds inclusive). The comparison constants and the scrutinee are evaluated in the scrutinee's integer type.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4382-L4402"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4346-L4358",
+        "src/compiler/mlir_gen_stmt.cpp#L4359-L4366"
+      ]
     },
     {
       "id": "pat.range.unsigned-predicate",
       "domain": "pat",
       "title": "Range / scalar comparisons use unsigned ordering for unsigned scrutinees",
       "statement": "For a scrutinee of unsigned integer type (u8/u16/u24/u32/u56/u64/u128), range-pattern bound comparisons use unsigned ordering (uge/ule); for signed scrutinees they use signed ordering (sge/sle).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4309-L4317", "src/compiler/mlir_gen_stmt.cpp#L4386-L4389"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4309-L4317",
+        "src/compiler/mlir_gen_stmt.cpp#L4386-L4389"
+      ]
     },
     {
       "id": "pat.or.any-alternative-matches",
       "domain": "pat",
       "title": "Or-pattern matches if any alternative matches",
       "statement": "An or-pattern `a | b | ...` matches iff at least one alternative matches; alternatives are tested in order and the first match selects the arm. An alternative that is a wildcard or a bare binding (`_`, `n`) is irrefutable and matches unconditionally.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4405-L4444", "src/compiler/mlir_gen_stmt.cpp#L4420-L4428"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4405-L4444",
+        "src/compiler/mlir_gen_stmt.cpp#L4420-L4428"
+      ]
     },
     {
       "id": "pat.at.binding-with-refutable-sub",
       "domain": "pat",
       "title": "`name @ subpat` binds the whole value and gates on subpat",
       "statement": "An at-pattern `name @ subpat` binds `name` to the entire scrutinee value and matches iff `subpat` matches. The sub-pattern may be an or-pattern (matches if any alternative — int/bool/range — matches), a range (inclusive bounds, signedness per scrutinee), or a scalar pattern (int/bool/variant-discriminant equality).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4445-L4534"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4445-L4534"
+      ]
     },
     {
       "id": "pat.scalar.discriminant-equality",
       "domain": "pat",
       "title": "Scalar leaf patterns match by discriminant/value equality",
       "statement": "A leaf pattern that reduces to a scalar discriminant — an int literal (its value), a bool (true=1/false=0), or an enum variant (its discriminant) — matches iff the scrutinee equals that discriminant, compared in the scrutinee's integer type.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4297-L4308", "src/compiler/mlir_gen_stmt.cpp#L4727-L4748"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4297-L4308",
+        "src/compiler/mlir_gen_stmt.cpp#L4727-L4748"
+      ]
     },
     {
       "id": "pat.tuple.structural-test",
       "domain": "pat",
       "title": "Refutable tuple pattern matches element-wise structurally",
       "statement": "A non-empty tuple pattern matches iff every sub-pattern matches the corresponding tuple element. The tuple value is its inline by-value storage (a pointer to its fields); element sub-patterns are tested against the fields in place.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4535-L4550"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4535-L4550"
+      ]
     },
     {
       "id": "pat.struct.structural-test",
       "domain": "pat",
       "title": "Refutable struct pattern matches all named field sub-patterns",
       "statement": "A struct pattern `S { f: p, ... }` matches iff every field sub-pattern `p` matches the corresponding field; refutable field sub-patterns are tested structurally against the struct's in-place field storage.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4704-L4726"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4704-L4726"
+      ]
     },
     {
       "id": "pat.slice.fixed-array-element-equality",
       "domain": "pat",
       "title": "Slice pattern on fixed-size array matches by element equality",
       "statement": "A slice pattern over a fixed-size array `[T; N]` (or a `&[T; N]`/`&mut [T; N]`) matches iff each non-wildcard prefix and suffix scalar sub-pattern equals the array element at its index; wildcard sub-patterns impose no constraint; suffix indices are `N - suffix_count + k`. A reference to the array is the array base pointer (single indirection).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4551-L4611"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4551-L4611"
+      ]
     },
     {
       "id": "pat.slice.dynamic-length-check",
       "domain": "pat",
       "title": "Slice pattern on dynamic slice gates on runtime length",
       "statement": "A slice pattern over a dynamic slice `&[T]` (fat pointer {data, len}) matches iff: with no rest `..`, `len == prefix_count + suffix_count`; with a rest, `len >= prefix_count + suffix_count`; plus each non-wildcard scalar prefix-element equals the corresponding runtime element.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4612-L4670"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4612-L4670"
+      ]
     },
     {
       "id": "pat.ref.scalar-deref-test",
       "domain": "pat",
       "title": "Reference pattern with scalar inner derefs then compares",
       "statement": "Matching `&<scalar>` against a `&T`/`&mut T` scrutinee dereferences the reference (loads the pointee) and matches iff the loaded value equals the inner pattern's scalar discriminant.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4671-L4703"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4671-L4703"
+      ]
     },
     {
       "id": "pat.ref.redundant-ref-peel-over-tagged-enum",
       "domain": "pat",
       "title": "Leading `&` on enum pattern over deref'd tagged-enum scrutinee is peeled",
       "statement": "When a `&Enum` scrutinee has been auto-deref'd to its tagged-enum form, an explicit reference pattern `&E::Variant{..}` / `&E::Variant(x)` / `&S{..}` has its redundant leading `&` removed so the inner variant/struct pattern is tested through the normal payload-extracting path (the no-payload C-like `&E::A` case keeps the dedicated reference handler).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4323-L4338"],
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4323-L4338"
+      ],
       "uncertainty": "Auto-deref of &Enum to tagged form is established upstream in the same function; this unit only handles the resulting peel."
     },
     {
@@ -101,7 +124,9 @@
       "domain": "stmt",
       "title": "let-else binds on match, else block must diverge",
       "statement": "`let Pat = expr else { block };` tests `Pat` against `expr`: on match the pattern's bindings enter the enclosing scope and control falls through; on failure the else block runs and must diverge (terminate with return/unreachable). A named-wildcard pattern binds the value directly with no test; a unit variant tests the discriminant only; a data-carrying variant tests the discriminant and extracts payload bindings.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4763-L4784"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L4763-L4784"
+      ]
     }
   ]
 }

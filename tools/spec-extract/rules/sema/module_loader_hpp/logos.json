@@ -9,92 +9,113 @@
       "domain": "module",
       "title": "Modules loaded in dependency order, root last",
       "statement": "Compiling a root file transitively resolves and parses all files reachable through `use <pkg>;` declarations; the resulting module sequence is topologically ordered with every dependency preceding any module that uses it and the root module last.",
-      "evidence": ["src/compiler/module_loader.hpp#L126-L146", "src/compiler/module_loader.hpp#L142"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L126-L146",
+        "src/compiler/module_loader.hpp#L142"
+      ]
     },
     {
       "id": "module.use.resolution-on-search-paths",
       "domain": "module",
       "title": "`use` resolves a dotted package to a source file via search paths",
       "statement": "A `use <pkg>;` declaration is resolved by locating the file for the dotted package name `pkg` within the configured search directories; failure to resolve any `use` is an error (B-mv-03/04) reported per declaration.",
-      "evidence": ["src/compiler/module_loader.hpp#L126-L127", "src/compiler/module_loader.hpp#L144-L145"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L126-L127",
+        "src/compiler/module_loader.hpp#L144-L145"
+      ]
     },
     {
       "id": "module.identity.package-dotted-name",
       "domain": "module",
       "title": "Module package is a dotted name; may be empty",
       "statement": "Each module carries a dotted package name (e.g. `std.io`); a plain user program with no package declaration has an empty package name.",
-      "evidence": ["src/compiler/module_loader.hpp#L19", "src/compiler/module_loader.hpp#L17-L19"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L19",
+        "src/compiler/module_loader.hpp#L17-L19"
+      ]
     },
     {
       "id": "module.identity.empty-disables-qualified-mangling",
       "domain": "module",
       "title": "No owning module ⇒ no module-qualified mangling",
       "statement": "A module's owning-MODULE identity is the unit of distribution it belongs to: `module_id` is the mangle key and `module_name` the canonical handle. A plain user program (no module) has empty identity, which disables module-qualified symbol mangling for its items.",
-      "evidence": ["src/compiler/module_loader.hpp#L23-L30"]
-    },
-    {
-      "id": "module.prelude.implicit-injection",
-      "domain": "module",
-      "title": "Implicit prelude injected into source files",
-      "statement": "A configured implicit-prelude package is injected as an implicit `use` into every source file loaded for the current compilation, except files carrying the inner attribute `#![no_implicit_prelude]`. An empty implicit-prelude setting injects nothing.",
-      "evidence": ["src/compiler/module_loader.hpp#L130-L134"],
-      "divergence": "Logos uses a named injectable prelude package + `#![no_implicit_prelude]` opt-out (Rust-analogous but explicitly package-configured)."
+      "evidence": [
+        "src/compiler/module_loader.hpp#L23-L30"
+      ]
     },
     {
       "id": "module.prelude.binary-modules-not-augmented",
       "domain": "module",
       "title": "Binary-archive modules keep their original prelude",
       "statement": "Files loaded from a binary archive are never re-augmented with the consumer's implicit prelude; the prelude in effect at their original build time is final.",
-      "evidence": ["src/compiler/module_loader.hpp#L131-L134"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L131-L134"
+      ]
     },
     {
       "id": "module.exclude.path-prefix-defers-to-binary",
       "domain": "module",
       "title": "Excluded path prefixes are not picked up as source",
       "statement": "Absolute path prefixes declared as excludes (mirroring the manifest `exclude` directive) remove matching files from the text-package index: a `use` whose resolution begins with an excluded prefix is not loaded from source, deferring that package to a binary archive instead.",
-      "evidence": ["src/compiler/module_loader.hpp#L135-L141"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L135-L141"
+      ]
     },
     {
       "id": "module.binary.archive-membership",
       "domain": "module",
       "title": "Modules may be loaded from binary `.writ0` archives",
       "statement": "A module may be loaded from a precompiled `.writ0` member inside a `.a` archive rather than from source; binary modules take their `module_id`/`module_name` from the archive's `@module` `.pkgi` header.",
-      "evidence": ["src/compiler/module_loader.hpp#L21", "src/compiler/module_loader.hpp#L24-L27"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L21",
+        "src/compiler/module_loader.hpp#L24-L27"
+      ]
     },
     {
       "id": "module.binary.lazy-local-lowering",
       "domain": "module",
       "title": "Lazy archives are lowered as local code",
       "statement": "A lazy-mode binary archive ships only the parsed AST (no object text, no LIR blob); the consumer must lower such a module's items locally (sema/mono/codegen treat them as user code).",
-      "evidence": ["src/compiler/module_loader.hpp#L32-L37"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L32-L37"
+      ]
     },
     {
       "id": "module.exports.template-catalog-non-generic-excluded",
       "domain": "module",
       "title": "Stdlib export catalog lists exactly the generic items",
       "statement": "A binary module's exports catalog records precisely the items whose `type_params` is non-empty (generic struct/enum/fn templates); non-generic items are not catalogued as templates.",
-      "evidence": ["src/compiler/module_loader.hpp#L40-L45", "src/compiler/module_loader.hpp#L73-L78"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L40-L45",
+        "src/compiler/module_loader.hpp#L73-L78"
+      ]
     },
     {
       "id": "module.exports.blanket-impl-catalog",
       "domain": "module",
       "title": "Blanket impls catalogued by trait and bounds",
       "statement": "An exported blanket impl `impl<T: Bound + Extra...> Trait for T` is catalogued as (trait, primary bound, extra bounds), with the target type being the type variable by definition; an unbounded blanket impl has empty primary bound.",
-      "evidence": ["src/compiler/module_loader.hpp#L79-L86"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L79-L86"
+      ]
     },
     {
       "id": "module.exports.concrete-impl-catalog-drops-negative-dst",
       "domain": "module",
       "title": "Concrete-impl catalog excludes negative and DST-target impls",
       "statement": "An exported concrete impl `impl Trait for Target` is catalogued as (trait, target); negative impls and DST target patterns are dropped from the catalog (which is a fast-path lookup index only, not the authoritative impl set).",
-      "evidence": ["src/compiler/module_loader.hpp#L87-L93"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L87-L93"
+      ]
     },
     {
       "id": "module.exports.merge-later-archive-wins",
       "domain": "module",
       "title": "Export merge across archives is order-preserving, later wins on fn duplicate",
       "statement": "When export catalogs from multiple archives are unioned, archive order is preserved and a later archive wins on a duplicate function-template mangled symbol (occurs only when a project redefines a stdlib mangled symbol).",
-      "evidence": ["src/compiler/module_loader.hpp#L106-L112"]
+      "evidence": [
+        "src/compiler/module_loader.hpp#L106-L112"
+      ]
     }
   ]
 }

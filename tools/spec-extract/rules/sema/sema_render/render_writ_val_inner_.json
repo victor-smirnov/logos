@@ -9,63 +9,73 @@
       "domain": "grammar",
       "title": "Writ literal value forms",
       "statement": "A Writ literal value is one of: null, a boolean, an integer, a negative integer, a float, a string, a map, an array, a type literal, or a config slot-type. Each form has a distinct node code (WRIT_NULL, WRIT_BOOL, WRIT_INT, WRIT_NEG_INT, WRIT_FLOAT, WRIT_STR, WRIT_MAP, WRIT_ARRAY, WRIT_TYPE_LIT, CFG_SLOT_TYPE).",
-      "evidence": ["src/compiler/sema_render.cpp#L1479-L1550"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1479-L1550"
+      ]
     },
     {
       "id": "grammar.writ.null-literal",
       "domain": "grammar",
       "title": "Writ null literal",
       "statement": "A missing/null Writ value and the WRIT_NULL form both denote the literal `null`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1477", "src/compiler/sema_render.cpp#L1480"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1477",
+        "src/compiler/sema_render.cpp#L1480"
+      ]
     },
     {
       "id": "grammar.writ.bool-literal",
       "domain": "grammar",
       "title": "Writ boolean literal",
       "statement": "A WRIT_BOOL value renders as `true` iff its VALUE is a non-null scalar whose byte is nonzero, else `false`; an absent or zero VALUE is `false`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1481-L1485"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1481-L1485"
+      ]
     },
     {
       "id": "grammar.writ.int-literal",
       "domain": "grammar",
       "title": "Writ integer and float literals",
       "statement": "WRIT_INT and WRIT_FLOAT carry their VALUE as the verbatim source token text. A WRIT_NEG_INT renders as `-` prefixed to its VALUE token text (sign is a separate node form, not part of the magnitude token).",
-      "evidence": ["src/compiler/sema_render.cpp#L1486-L1491"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1486-L1491"
+      ]
     },
     {
       "id": "grammar.writ.string-literal",
       "domain": "grammar",
       "title": "Writ string literal retains quotes",
       "statement": "A WRIT_STR's VALUE is the STRING token captured WITH its surrounding quotes; the quoted text is the literal verbatim (no separate unquoting/requoting step).",
-      "evidence": ["src/compiler/sema_render.cpp#L1492-L1495"]
-    },
-    {
-      "id": "grammar.writ.map-literal",
-      "domain": "grammar",
-      "title": "Writ map literal",
-      "statement": "A WRIT_MAP renders as `{` <entries> `}` where entries are comma-separated. Each entry (WRIT_ENTRY) is `KEY: VALUE`; an entry with no VALUE renders as just `KEY: ` (key with empty value). An empty map is `{}`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1496-L1513"]
-    },
-    {
-      "id": "grammar.writ.array-literal",
-      "domain": "grammar",
-      "title": "Writ array literal",
-      "statement": "A WRIT_ARRAY renders as `[` <items> `]` where items are comma-separated Writ values; an empty array is `[]`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1514-L1525"]
-    },
-    {
-      "id": "grammar.writ.type-literal",
-      "domain": "grammar",
-      "title": "Writ type literal",
-      "statement": "A WRIT_TYPE_LIT carries a TYPE node and denotes a first-class type value, written `<type: T>` where T is the rendered type.",
-      "evidence": ["src/compiler/sema_render.cpp#L1526-L1531"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1492-L1495"
+      ]
     },
     {
       "id": "grammar.writ.cfg-slot-type",
       "domain": "grammar",
       "title": "Writ config slot-type path",
       "statement": "A CFG_SLOT_TYPE denotes a type referenced by a dotted path: a head NAME followed by zero or more `.`-separated step NAMEs, rendered `<type: name.step1.step2…>`.",
-      "evidence": ["src/compiler/sema_render.cpp#L1532-L1545"]
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1532-L1545"
+      ]
+    },
+    {
+      "id": "grammar.writ.array-render",
+      "domain": "grammar",
+      "title": "Writ array value rendering",
+      "statement": "A WRIT_ARRAY value renders as `[` <items> `]` where items are comma-separated rendered Writ values; an empty array renders as `[]`.",
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1514-L1525"
+      ]
+    },
+    {
+      "id": "grammar.writ.map-render",
+      "domain": "grammar",
+      "title": "Writ map value rendering",
+      "statement": "A WRIT_MAP value renders as `{` <entries> `}` where entries are comma-separated. Each entry (WRIT_ENTRY) renders as `KEY: VALUE`; an entry carrying no VALUE renders as just `KEY: ` (key with empty value). An empty map renders as `{}`.",
+      "evidence": [
+        "src/compiler/sema_render.cpp#L1496-L1513"
+      ]
     }
   ]
 }

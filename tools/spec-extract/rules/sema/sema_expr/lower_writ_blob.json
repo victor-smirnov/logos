@@ -9,108 +9,146 @@
       "domain": "metaprog",
       "title": "WRIT_BLOB carrying an AST-category root lowers as that expression",
       "statement": "A WRIT_BLOB whose serialized root TinyMap has schema category CAT_AST and whose variant code is a supported expression node (BINOP, LIT_INT, LIT_BOOL, LIT_STR, VAR_REF, CALL, PAREN_EXPR, UNARY, FIELD_READ, METHOD_CALL, CAST, INDEX_READ, STRUCT_LIT, ARR_LIT, TUPLE_LIT, BLOCK, BLOCK_STMT, IF) is lowered by recursively type-checking that root node as an ordinary expression, yielding its recovered expression type. The blob's arena is retained for the lifetime of sema.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17019-L17050"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17019-L17050"
+      ],
       "divergence": "A6: Writ/metaprog is a Logos addition (ExprBlob AST fragments spliced from metafunctions).",
-      "related": ["metaprog.writ-blob.opaque-static-fallback"]
+      "related": [
+        "metaprog.writ-blob.opaque-static-fallback"
+      ]
     },
     {
       "id": "metaprog.writ-blob.opaque-static-fallback",
       "domain": "metaprog",
       "title": "Non-AST WRIT_BLOB lowers to an opaque WritStatic literal",
       "statement": "A WRIT_BLOB whose root is null, non-TinyMap, or not of an AST expression category is lowered to an opaque data literal of type WritStatic carrying the raw blob bytes verbatim.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17056-L17060"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17056-L17060"
+      ],
       "divergence": "A6: WritStatic is a Logos addition.",
-      "related": ["metaprog.writ-blob.ast-fragment-recurse"]
+      "related": [
+        "metaprog.writ-blob.ast-fragment-recurse"
+      ]
     },
     {
       "id": "metaprog.metacall.no-nested-metacall",
       "domain": "metaprog",
       "title": "metacall may not be nested inside another metacall's operand",
       "statement": "A `metacall` operand (call args, or the inner subtree for the block/expr forms) must not contain another `metacall` node; metacall is a one-shot lift to compile time whose result is a runtime value and therefore cannot serve as a compile-time argument to an enclosing metacall. Violation is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17090-L17178"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17090-L17178"
+      ],
       "divergence": "A1/A6: metacall replaces Rust const-eval; rule has no Rust analogue.",
-      "related": ["metaprog.metacall.forms"]
-    },
-    {
-      "id": "metaprog.metacall.forms",
-      "domain": "metaprog",
-      "title": "metacall accepts call, parenthesized-expr, and block forms",
-      "statement": "`metacall` accepts exactly three operand shapes: a call expression (`metacall foo(...)`, including generic `foo::<T>(...)` and static `Type::m(...)`), a parenthesized expression (`metacall (e)`), or a block (`metacall { ... }`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L17084-L17088"],
-      "divergence": "A1/A6: metacall is the Logos replacement for const-eval.",
-      "related": ["metaprog.metacall.block-tail-required"]
+      "related": [
+        "metaprog.metacall.forms"
+      ]
     },
     {
       "id": "metaprog.metacall.no-runtime-capture",
       "domain": "metaprog",
       "title": "metacall block/expr form cannot capture enclosing runtime locals",
       "statement": "In the block and parenthesized-expr forms, every VAR_REF must resolve to a name introduced inside the operand (LET/FOR/FOR_EACH binding, or a match-arm pattern binding), a module-level const, or a known function (concrete or generic). A reference to an enclosing-scope runtime local is a compile error, since the metacall is evaluated at compile time with no access to surrounding locals.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17196-L17302"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17196-L17302"
+      ],
       "divergence": "A1/A6: compile-time evaluation model specific to metacall.",
-      "related": ["metaprog.metacall.const-resolver"]
+      "related": [
+        "metaprog.metacall.const-resolver"
+      ]
     },
     {
       "id": "metaprog.metacall.args-ctfe-constant",
       "domain": "metaprog",
       "title": "Every argument of a metacall call form must be a compile-time constant",
       "statement": "For the call form, each argument expression must be CTFE-evaluable to a constant literal; an argument that cannot be folded is a compile error. CALL stores arguments as a flat array, while GENERIC_CALL/STATIC_CALL wrap them as `{ ITEMS: [...] }`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17334-L17359"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17334-L17359"
+      ],
       "divergence": "A1/A6: CTFE of metacall args; replaces Rust const-eval.",
-      "related": ["metaprog.metacall.const-resolver"]
+      "related": [
+        "metaprog.metacall.const-resolver"
+      ]
     },
     {
       "id": "metaprog.metacall.const-resolver",
       "domain": "metaprog",
       "title": "metacall argument CTFE resolves bare module-const idents",
       "statement": "CTFE of metacall arguments and operands resolves a bare identifier naming a module-level const (collected into the module const-value map, including cross-package consts) to that const's value, so expressions like `metacall { THRESHOLD + 1 }` fold.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17311-L17332"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17311-L17332"
+      ],
       "divergence": "A1/A6: metacall const folding.",
-      "related": ["metaprog.metacall.args-ctfe-constant", "metaprog.metacall.no-runtime-capture"]
+      "related": [
+        "metaprog.metacall.args-ctfe-constant",
+        "metaprog.metacall.no-runtime-capture"
+      ]
     },
     {
       "id": "metaprog.metacall.block-tail-required",
       "domain": "metaprog",
       "title": "metacall block must end in a tail expression",
       "statement": "A `metacall { ... }` block must terminate with a tail expression (no trailing semicolon) so the metacall yields a value; a block lacking a tail expression is a compile error. The block's value type is the type of that tail expression.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17366-L17389"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17366-L17389"
+      ],
       "divergence": "A1/A6.",
-      "related": ["metaprog.metacall.return-type"]
+      "related": [
+        "metaprog.metacall.return-type"
+      ]
     },
     {
       "id": "metaprog.metacall.return-type",
       "domain": "metaprog",
       "title": "metacall result type must be primitive scalar, WritStatic, Writ, or ExprBlob",
       "statement": "The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a &str / Slice<u8>, WritStatic, Writ (incl. Rc<Writ>), or ExprBlob. Any other result type is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17408-L17424"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17408-L17424"
+      ],
       "divergence": "A1/A6: WritStatic/Writ/ExprBlob returns are Logos additions.",
-      "related": ["metaprog.metacall.exprblob-deferred-typing", "metaprog.metacall.writ-autofreeze"]
+      "related": [
+        "metaprog.metacall.exprblob-deferred-typing",
+        "metaprog.metacall.writ-autofreeze"
+      ]
     },
     {
       "id": "metaprog.metacall.exprblob-deferred-typing",
       "domain": "metaprog",
       "title": "ExprBlob-returning metacall defers result typing to the post-splice pass",
       "statement": "When a metacall returns an ExprBlob (an AST-expression fragment marker), pass-1 typing is deferred: `let X: T = metacall foo()` accepts any annotated T over an ExprBlob RHS; the actual expression type is recovered after the driver splices the blob and pass-2 sema re-lowers it.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17400-L17407"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17400-L17407"
+      ],
       "divergence": "A3/A6: ExprBlob is the Logos metaprog AST-fragment return.",
-      "related": ["metaprog.writ-blob.ast-fragment-recurse"]
+      "related": [
+        "metaprog.writ-blob.ast-fragment-recurse"
+      ]
     },
     {
       "id": "metaprog.metacall.writ-autofreeze",
       "domain": "metaprog",
       "title": "Writ-returning metacall auto-freezes to WritStatic and is call-form only",
       "statement": "A metacall whose operand returns a (mutable) Writ / Rc<Writ> is auto-frozen: user code observes the spliced value as WritStatic (the lowered expression is retyped to WritStatic). The Writ return type is supported only on the call form (`metacall foo()`); using it with the block or expr form is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17537-L17568", "src/compiler/sema_expr.cpp#L17597-L17603"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17537-L17568",
+        "src/compiler/sema_expr.cpp#L17597-L17603"
+      ],
       "divergence": "A6: Writ/WritStatic is a Logos addition.",
-      "related": ["metaprog.metacall.return-type"]
+      "related": [
+        "metaprog.metacall.return-type"
+      ]
     },
     {
       "id": "metaprog.metacall.runtime-passthrough",
       "domain": "metaprog",
       "title": "metacall lowers as a runtime pass-through until driver-side splice",
       "statement": "During sema iterations a metacall lowers to its operand's lowered value (a pass-through), keeping the in-progress IR valid for borrow/type checks. The driver replaces the metacall AST node with the evaluated literal before the final non-metaprog sema pass, so this pass-through lowering never reaches code generation.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17606-L17610"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17606-L17610"
+      ],
       "divergence": "A1/A6: compile-time splice model.",
-      "related": ["metaprog.metacall.return-type"]
+      "related": [
+        "metaprog.metacall.return-type"
+      ]
     }
   ]
 }

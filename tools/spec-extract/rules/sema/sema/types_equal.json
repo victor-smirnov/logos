@@ -9,21 +9,27 @@
       "domain": "type",
       "title": "Type equality is canonical-UID identity within one pool",
       "statement": "types_equal(a,b) holds iff both are non-null, drawn from the same type pool, and have equal canonical UIDs (uid_of(a)==uid_of(b)); types from different pools are never equal. Pointer-identical refs are trivially equal.",
-      "evidence": ["src/compiler/sema.cpp#L1355-L1362"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1355-L1362"
+      ]
     },
     {
       "id": "coerce.compatible.equal-implies-compatible",
       "domain": "coerce",
       "title": "Equal types are compatible; compatibility is the implicit-coercion relation",
       "statement": "types_compatible(from,to) is the directed implicit-coercion relation. It holds whenever types_equal(from,to); otherwise a fixed set of one-directional coercion rules apply. Either null operand is incompatible.",
-      "evidence": ["src/compiler/sema.cpp#L1797-L1799"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1797-L1799"
+      ]
     },
     {
       "id": "coerce.fn.fnitem-to-fnptr",
       "domain": "coerce",
       "title": "FnItem coerces to a matching FnPtr; not the reverse, not FnItem to FnItem",
       "statement": "A FnItem value coerces to an FnPtr at every value-use site iff arity matches and each param and the return type are pairwise compatible. FnPtr to FnItem is rejected, and two distinct FnItems with identical signatures are not mutually compatible (distinct fn identity).",
-      "evidence": ["src/compiler/sema.cpp#L1816-L1826"],
+      "evidence": [
+        "src/compiler/sema.cpp#L1816-L1826"
+      ],
       "divergence": "logos-core 1.4: FnItem (ZST per-fn identity) auto-coerces to FnPtr; Rust models the analogous fn-item to fn-pointer coercion."
     },
     {
@@ -31,7 +37,9 @@
       "domain": "coerce",
       "title": "Never (!) is a subtype of every type; T to ! rejected",
       "statement": "Never coerces to any type T (Never to T accepted unconditionally). The reverse T to Never is rejected.",
-      "evidence": ["src/compiler/sema.cpp#L1827-L1835"],
+      "evidence": [
+        "src/compiler/sema.cpp#L1827-L1835"
+      ],
       "divergence": "logos-core 1.1: T to ! previously accepted, now rejected to match Rust."
     },
     {
@@ -39,7 +47,9 @@
       "domain": "coerce",
       "title": "Inference placeholder _ unifies in either direction",
       "statement": "If either side is the InferredType placeholder (_), the pair is compatible; actual resolution is deferred to the surrounding annotation/RHS unifier.",
-      "evidence": ["src/compiler/sema.cpp#L1836-L1840"],
+      "evidence": [
+        "src/compiler/sema.cpp#L1836-L1840"
+      ],
       "divergence": "logos-core 1.3"
     },
     {
@@ -47,7 +57,9 @@
       "domain": "coerce",
       "title": "Same-named structs compatible iff type-args pairwise compatible",
       "statement": "Two Struct types with equal struct_name and pkg_name and equal type-arg arity are compatible iff every type-arg pair is compatible (allowing inference holes like Vec<_> vs Vec<i32>).",
-      "evidence": ["src/compiler/sema.cpp#L1846-L1857"],
+      "evidence": [
+        "src/compiler/sema.cpp#L1846-L1857"
+      ],
       "divergence": "logos-core 1.3 (nested)"
     },
     {
@@ -55,91 +67,118 @@
       "domain": "coerce",
       "title": "Same-named enums compatible by type-args, but concrete scalar args must match exactly",
       "statement": "Two Enum types with equal enum_name, pkg_name, and non-empty equal type-arg arity are compatible iff for each arg pair: an unresolved placeholder (TypeVar/_/cfg-slot/Error) on either side unifies; otherwise two concrete scalar args (concrete integer excl. IntLit/Enum, F32/F64/Bool/Char) must be kind-identical (no by-value widening, layout is arg-width-specific); all other pairs use lenient compatibility.",
-      "evidence": ["src/compiler/sema.cpp#L1859-L1901"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1859-L1901"
+      ]
     },
     {
       "id": "coerce.intlit.to-integer-typevar-float",
       "domain": "coerce",
       "title": "Integer/float literal coercion to numeric, type-var, float",
       "statement": "An IntLit coerces to any integer kind, to a TypeVar, and to F32/F64. A FloatLit coerces to F32/F64 and to a TypeVar.",
-      "evidence": ["src/compiler/sema.cpp#L1902-L1908"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1902-L1908"
+      ]
     },
     {
       "id": "coerce.cfgslot.numeric-bidirectional",
       "domain": "coerce",
       "title": "Cfg-slot types coerce bidirectionally with any numeric / literal",
       "statement": "A CfgSlotType (deferred WritStatic-bound primitive) behaves like a TypeVar for coercion: IntLit/FloatLit to CfgSlot accepted, and any integer or float on either side is compatible with a CfgSlot in both directions; mono enforces the resolved-type compatibility.",
-      "evidence": ["src/compiler/sema.cpp#L1909-L1921"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1909-L1921"
+      ]
     },
     {
       "id": "coerce.enum.to-integer-discriminant",
       "domain": "coerce",
       "title": "C-style enum coerces to integer (discriminant) but never to another enum",
       "statement": "An Enum coerces to a non-enum integer kind (its discriminant). Enum to Enum via this rule is forbidden, and implicit int to Enum is forbidden (requires explicit cast/variant).",
-      "evidence": ["src/compiler/sema.cpp#L1922-L1934"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1922-L1934"
+      ]
     },
     {
       "id": "coerce.int.safe-widening",
       "domain": "coerce",
       "title": "Value-preserving integer widening is implicit; signed to unsigned never",
       "statement": "An integer coerces to a wider integer when can_widen_int holds (e.g. u32 to i64, i32 to i64, u8 to u32); signed to unsigned widening is never implicit.",
-      "evidence": ["src/compiler/sema.cpp#L1935-L1937"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1935-L1937"
+      ]
     },
     {
       "id": "coerce.array.to-pointer-decay",
       "domain": "coerce",
       "title": "Array and &array decay to raw pointer / reference without mutability widening",
       "statement": "Array<T> coerces to *const/T-pointee Ptr when elem==pointee. A &[T;N]/&mut[T;N] decays to *const/*mut T or &/&mut T over a compatible element type, but a shared (&) source may not decay to a mutable (*mut/&mut) target.",
-      "evidence": ["src/compiler/sema.cpp#L1938-L1941", "src/compiler/sema.cpp#L1999-L2019"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1938-L1941",
+        "src/compiler/sema.cpp#L1999-L2019"
+      ]
     },
     {
       "id": "coerce.array.elementwise",
       "domain": "coerce",
       "title": "Arrays compatible iff equal size and compatible elements",
       "statement": "Array<T;N> is compatible with Array<U;M> iff N==M and T is compatible with U (recursively).",
-      "evidence": ["src/compiler/sema.cpp#L1942-L1945"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1942-L1945"
+      ]
     },
     {
       "id": "coerce.slice.exact-scalar-no-mut-widen",
       "domain": "coerce",
       "title": "Slice compatibility: no shared to mut widening; concrete scalar elements must match exactly",
       "statement": "Slice<T> is compatible with Slice<U> only if it does not widen a shared (&) slice to a mutable (&mut) slice, and: two concrete scalar element types (concrete integer excl. IntLit/Enum, F32/F64/Bool/Char) must be kind-identical (slices alias raw memory at element stride); inference holes use lenient compatibility.",
-      "evidence": ["src/compiler/sema.cpp#L1946-L1968"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1946-L1968"
+      ]
     },
     {
       "id": "coerce.tuple.elementwise",
       "domain": "coerce",
       "title": "Tuples compatible iff equal arity and pairwise-compatible elements",
       "statement": "Tuple types are compatible iff they have equal arity and each element pair is compatible.",
-      "evidence": ["src/compiler/sema.cpp#L1969-L1975"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1969-L1975"
+      ]
     },
     {
       "id": "coerce.closure.ref-to-closure",
       "domain": "coerce",
       "title": "&Closure / &mut Closure coerce to Closure",
       "statement": "A Ref/MutRef over a Closure coerces to a bare Closure value (since dyn Fn* is already fat-pointer-like and the reference carries no extra meaning).",
-      "evidence": ["src/compiler/sema.cpp#L1976-L1987"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1976-L1987"
+      ]
     },
     {
       "id": "coerce.unsize.struct-to-dyn-trait",
       "domain": "coerce",
       "title": "Struct (or &/&mut/*Struct) unsize-coerces to a trait object",
       "statement": "A Struct, a Ptr, or a &/&mut over a Struct coerces to a TraitObject (&dyn Trait); the impl check is deferred to codegen.",
-      "evidence": ["src/compiler/sema.cpp#L1988-L1998"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1988-L1998"
+      ]
     },
     {
       "id": "coerce.ref.permission-and-pointee",
       "domain": "coerce",
       "title": "Reference/pointer coercions: pointee compatibility, permission-dropping only",
       "statement": "Reference and raw-pointer coercions require compatible pointees: &/&mut to *const/*mut, *T to &/&mut, &mut T to &T (exclusive to shared), &T to &T and &mut T to &mut T, and *mut T to *const T (dropping write permission). Permission is only ever dropped, never gained.",
-      "evidence": ["src/compiler/sema.cpp#L2020-L2061"]
+      "evidence": [
+        "src/compiler/sema.cpp#L2020-L2061"
+      ]
     },
     {
       "id": "coerce.deref.ref-vec-to-slice",
       "domain": "coerce",
       "title": "&Vec<T> / &mut Vec<T> deref-coerces to slice &[T]",
       "statement": "A Ref/MutRef over a stdlib Vec<T> struct coerces to a Slice with element compatible with Vec's first type-arg (Vec's {ptr,len,cap} has the {ptr,len} slice fat-pointer as a prefix).",
-      "evidence": ["src/compiler/sema.cpp#L2034-L2049"],
+      "evidence": [
+        "src/compiler/sema.cpp#L2034-L2049"
+      ],
       "uncertainty": "Hardcoded to the stdlib Vec struct by name; full Deref trait surface not yet covered."
     },
     {
@@ -147,84 +186,100 @@
       "domain": "coerce",
       "title": "Raw pointer coerces to a tagged trait pointer",
       "statement": "Any *T (Ptr) coerces to a TaggedPtr (&tagged<TS> Trait, a thin pointer to a tagged object); the tag is read at dispatch time.",
-      "evidence": ["src/compiler/sema.cpp#L2062-L2066"]
+      "evidence": [
+        "src/compiler/sema.cpp#L2062-L2066"
+      ]
     },
     {
       "id": "mono.mangle.concrete-struct-name",
       "domain": "mono",
       "title": "Concrete struct mangled name = base[+module-suffix][+$G<arity>$args]",
       "statement": "A Struct/ZonedStruct's mangled name is its struct_name, plus the owning-package module suffix, plus (when type_args non-empty) '$G' + arity + '$'-joined recursively mangled args. Type-arg-less structs mangle to base+suffix.",
-      "evidence": ["src/compiler/sema.cpp#L1417-L1444"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1417-L1444"
+      ]
     },
     {
       "id": "mono.mangle.type-args-recursive",
       "domain": "mono",
       "title": "Type-name mangling is structural and recursive per kind",
       "statement": "mangle_type_for_name maps each type kind to a stable identifier: Ptr to pmut_/pcst_+pointee, Ref to ref_, MutRef to refmut_, Array to arr<N>_elem, Tuple to tup$<n>$elems, Slice to slice_, UnsizedSlice to uslice_, UnsizedDyn to udyn_<trait>, DstRef to dstref_/dstmutref_+struct, AssocType to base::name, WStaticLit to hs_<hex64 of const_val>; null to 'null'. Identical-byte WritStatic literals share the hs_ suffix.",
-      "evidence": ["src/compiler/sema.cpp#L1446-L1516"]
-    },
-    {
-      "id": "mono.mangle.owning-vs-borrowed-dyn",
-      "domain": "mono",
-      "title": "Owning Box<dyn T> mangles distinctly from borrowed &dyn T",
-      "statement": "An owning TraitObject mangles to owndyn_<trait>$<args...> while a borrowed &dyn T keeps the type_str form, so e.g. Vec<Box<dyn T>> and Vec<&dyn T> get distinct generic spec names (preserving owning-ness / drop). FnItem and FnPtr mangle identically (FnItem ZST auto-coerces to FnPtr).",
-      "evidence": ["src/compiler/sema.cpp#L1489-L1512"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1446-L1516"
+      ]
     },
     {
       "id": "module.coexist.type-module-qualification",
       "domain": "module",
       "title": "Type symbols are module-qualified ($M<id>) for same-pkg coexistence; stdlib exempt",
       "statement": "Every type-keyed symbol embeds the owning module's id as a '$M<module_id>' suffix on the package, so two separately-compiled modules declaring the same pkg::Type do not collide at link. stdlib packages (prefix 'logos.') and an empty/absent pkg-to-module map yield no suffix (byte-identical output).",
-      "evidence": ["src/compiler/sema.cpp#L1404-L1415", "src/compiler/sema.cpp#L1460-L1463"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1404-L1415",
+        "src/compiler/sema.cpp#L1460-L1463"
+      ]
     },
     {
       "id": "mono.mangle.fn-signature-key",
       "domain": "mono",
       "title": "Function signature key = base + '__'-joined mangled param types",
       "statement": "A function's signature key is base_name followed by '__'+canonical param-type name for each param, '__void' when no params, and '__vararg' when vararg. Within a fn-ptr-impl method ($fnptr$N base), fn-pointer params erase to arity-only '$fnptr$<n>' so the symbol is stable across the impl's type-vars.",
-      "evidence": ["src/compiler/sema.cpp#L1518-L1541"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1518-L1541"
+      ]
     },
     {
       "id": "module.symbol.function-symbol-name",
       "domain": "module",
       "title": "Function link symbol = pkg/module-qualified mangle; extern and methods carved out",
       "statement": "A function's link symbol is built from {module_id, package, base, signature, is_generic, is_method, is_extern} via the canonical sym::mangle encoder. Extern functions keep their bare ABI/C name; struct methods (base containing '__') are disambiguated by their struct's pkg-qualified name rather than re-qualified here. Two packages defining the same base+signature get distinct symbols.",
-      "evidence": ["src/compiler/sema.cpp#L1543-L1568"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1543-L1568"
+      ]
     },
     {
       "id": "trait.overload.candidate-visibility-filter",
       "domain": "trait",
       "title": "Call candidates filtered by package visibility; explicit pkg:: overrides imports",
       "statement": "Function-name resolution collects all overloads (concrete and generic) then filters to those visible from the call site: own package, wildcard-imported packages, or empty-package (extern/prelude). A `use pkg from <module>` import deliberately excludes other modules' same-pkg fns. An explicit `pkg::fn(...)` qualifier restricts to that package only with no empty-fallback. Otherwise, if filtering leaves nothing and no deliberate `from`-exclusion occurred, all candidates are returned (synthetic-phase robustness).",
-      "evidence": ["src/compiler/sema.cpp#L1638-L1700"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1638-L1700"
+      ]
     },
     {
       "id": "trait.overload.generic-arity-and-package",
       "domain": "trait",
       "title": "Generic function selection: package-qualifier filter, arity match, own-package preference",
       "statement": "Generic-function lookup among an overload set keeps only candidates passing the package-qualifier filter; with an arg count, a candidate matches if its arity equals n (or n>=arity when vararg). An arity match in the current package wins immediately; else the first matching-arity candidate; else a wrong-arity fallback.",
-      "evidence": ["src/compiler/sema.cpp#L1578-L1608"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1578-L1608"
+      ]
     },
     {
       "id": "trait.lookup.exact-signature-fnitem-coerce",
       "domain": "trait",
       "title": "Exact-signature lookup matches params by equality, with FnItem to FnPtr coercion",
       "statement": "Exact-signature function lookup requires equal vararg-ness and param arity, and each param either types_equal or (arg-side FnItem vs candidate FnPtr) compatible. This mirrors the FnItem to FnPtr coercion on the otherwise exact-match path.",
-      "evidence": ["src/compiler/sema.cpp#L1610-L1636"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1610-L1636"
+      ]
     },
     {
       "id": "expr.call.overload-best-match-scoring",
       "domain": "expr",
       "title": "Overload resolution scores exact(2) over compatible(1); ties broken by local package",
       "statement": "Among arity-matching non-generic candidates, each is scored by its worst param match: exact (types_equal) = 2, compatible-only = 1; if any param is incompatible the candidate is rejected. The unique highest-scoring candidate wins. A score tie is ambiguous, broken by preferring the candidate whose package equals the current package (local shadows imported); an unbroken tie is an 'ambiguous call' error.",
-      "evidence": ["src/compiler/sema.cpp#L1724-L1793"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1724-L1793"
+      ]
     },
     {
       "id": "expr.call.divergent-never-return",
       "domain": "expr",
       "title": "A call to a `-> !` function (or panic) is divergent",
       "statement": "A call/macro-call node is divergent if its callee is `panic` or if any resolved candidate's return type is Never; marker-macros (unreachable!/todo!/unimplemented!) divert through panic!.",
-      "evidence": ["src/compiler/sema.cpp#L1702-L1722"]
+      "evidence": [
+        "src/compiler/sema.cpp#L1702-L1722"
+      ]
     }
   ]
 }

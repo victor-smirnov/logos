@@ -9,7 +9,9 @@
       "domain": "trait",
       "title": "impl of a foreign private trait is an error",
       "statement": "In `impl Trait for T`, if `Trait` resolves to a trait that is not accessible from the impl site (not pub, or module-only and outside its module), the impl is rejected (privacy error). The check fires at the impl site that introduces the foreign trait name.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2685-L2699"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2685-L2699"
+      ],
       "divergence": "Note: §4 module/package visibility model; trait must be pub-accessible to be implemented across package boundaries."
     },
     {
@@ -17,7 +19,9 @@
       "domain": "trait",
       "title": "impl of an undeclared trait is an error",
       "statement": "`impl Trait for T` requires `Trait` to be a declared trait, except for the built-in marker traits `Copy` and `Drop`, which are always implementable by name without a visible trait declaration; any other unknown trait name is an error.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3064-L3072"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3064-L3072"
+      ],
       "divergence": "Copy and Drop are treated as compiler built-in marker traits resolvable by name alone (not requiring import/dependency-graph visibility)."
     },
     {
@@ -25,35 +29,46 @@
       "domain": "trait",
       "title": "impl-level generic params come from the impl header",
       "statement": "An impl's own generic parameters are taken from `impl<...>`: for a trait impl `impl<T> Trait for U<T>` from the impl-type-params position, and for an inherent impl `impl<T> U<T>` from the standalone type-params position. These params (and their lifetime params and outlives bounds) are in scope for the target type, trait args, and all method signatures.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2710-L2743", "src/compiler/sema_collect.cpp#L2748-L2778"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2710-L2743",
+        "src/compiler/sema_collect.cpp#L2748-L2778"
+      ]
     },
     {
       "id": "trait.impl.where-outlives-bounds",
       "domain": "trait",
       "title": "where-clause outlives bounds augment impl params",
       "statement": "Lifetime-outlives bounds (`'a: 'b`) and type-outlives bounds (`T: 'a`) written in an impl's where-clause are collected in addition to those in the `impl<...>` header and attached to the matching impl type parameter.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2748-L2778"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2748-L2778"
+      ]
     },
     {
       "id": "trait.impl.self-binding",
       "domain": "trait",
       "title": "Self binds to the impl target type",
       "statement": "Within an impl, `Self` denotes the target type: for a concrete specialization (`impl U<i32>`) the fully resolved type with its type args; for a generic impl (`impl<T> U<T>`) the type with TypeVar args (including the type's lifetime params); for a blanket impl (`impl<T:B> Trait for T`) the TypeVar `T`; for a primitive target the primitive type.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2972-L3063"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2972-L3063"
+      ]
     },
     {
       "id": "trait.impl.target-alias-unfold",
       "domain": "trait",
       "title": "impl target unfolds transparent type aliases",
       "statement": "When the impl target names a non-generic, non-lifetime-parameterized type alias, the alias is unfolded so the impl's methods register under the aliased concrete type's name (struct/datatype name, or its mangled concrete name when the alias carries type args; slice type string for a slice alias).",
-      "evidence": ["src/compiler/sema_collect.cpp#L2935-L2955"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2935-L2955"
+      ]
     },
     {
       "id": "trait.impl.target-ref",
       "domain": "trait",
       "title": "impl for reference types",
       "statement": "`impl Trait for &T` / `&mut T` is permitted; `&[T]`/`&mut [T]` canonicalize to the fat-pointer slice form and register under the same `$slice$<elem>` key as `impl Trait for [T]` (binding Self to the unsized-slice type); a generic ref-blanket `impl<T> Trait for &T`/`&mut T` keys under a fixed `$ref_$T`/`$mut_ref_$T` sentinel, restricted by coherence to one such impl per trait/ref-shape.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2818-L2863"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2818-L2863"
+      ],
       "divergence": "Note: receiver-shape mangling is a Logos dispatch-implementation detail; observable rule is which reference forms are valid impl targets and that &[T] ≡ [T] for dispatch."
     },
     {
@@ -61,21 +76,29 @@
       "domain": "trait",
       "title": "impl for bare unsized self-types",
       "statement": "`impl Trait for [T]`, `impl Trait for dyn Foo`, and `impl Trait for str` are permitted: the bare unsized slice / dyn-trait / str self-type is resolved in unsized-OK context, binding Self to UnsizedSlice / UnsizedDyn (and `str` to UnsizedSlice<u8>) so `&Self` canonicalizes to the corresponding fat pointer.",
-      "evidence": ["src/compiler/sema_collect.cpp#L2788-L2817", "src/compiler/sema_collect.cpp#L3037-L3056"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2788-L2817",
+        "src/compiler/sema_collect.cpp#L3037-L3056"
+      ]
     },
     {
       "id": "trait.impl.target-tuple",
       "domain": "trait",
       "title": "impl for tuple types",
       "statement": "`impl Trait for (A, B, ...)` is permitted; the empty tuple `()` is treated as the unit/void target. A variadic form `impl<A...> Trait for (A...)` covers tuples of any arity; otherwise the impl is keyed by arity (with element types when monomorphic).",
-      "evidence": ["src/compiler/sema_collect.cpp#L2887-L2927"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2887-L2927"
+      ]
     },
     {
       "id": "trait.impl.target-fnptr-erased",
       "domain": "trait",
       "title": "impl for fn-pointer covers all fn-ptrs of an arity",
       "statement": "`impl<A,B,C> Trait for fn(A,B)->C` is permitted; because fn-pointers are type-erased to a uniform pointer at the Logos ABI, the impl covers every fn-pointer of the given arity and its methods are collected non-generically (one shared codegen, keyed by arity).",
-      "evidence": ["src/compiler/sema_collect.cpp#L2928-L2934", "src/compiler/sema_collect.cpp#L2963-L2967"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L2928-L2934",
+        "src/compiler/sema_collect.cpp#L2963-L2967"
+      ],
       "divergence": "Logos additive behavior: fn-ptr impls are arity-keyed and non-generic due to fn-ptr type erasure (no per-signature monomorphization)."
     },
     {
@@ -83,37 +106,50 @@
       "domain": "trait",
       "title": "trait type args bind the trait's parameters",
       "statement": "For `impl Trait<X> for U`, the trait's positional type arguments are resolved and bound to the trait's declared type parameters (e.g. `impl Into<i32> for C` binds the `Into` parameter to `i32`), making them available in method signatures. Lifetime arguments at trait position (`impl Trait<'a>`) are collected separately and not treated as type args.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3076-L3110"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3076-L3110"
+      ],
       "divergence": "Note: Logos does not track regions structurally for trait dispatch; trait-position lifetime args are skipped from type-arg resolution."
-    },
-    {
-      "id": "trait.impl.blanket-detection",
-      "domain": "trait",
-      "title": "blanket impl detection",
-      "statement": "A trait impl whose target is one of the impl's own type parameters (`impl<T: Bound> Trait for T`) is a blanket impl; its bound trait and any extra bounds (with their associated-type equality clauses) are recorded so the blanket can be instantiated at call sites on concrete types satisfying the bounds.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3114-L3141", "src/compiler/sema_collect.cpp#L3213-L3225"]
     },
     {
       "id": "trait.impl.blanket-keyed-by-bound",
       "domain": "trait",
       "title": "distinct blanket impls keyed by bound trait",
       "statement": "Blanket impl methods register under a synthetic key incorporating the implemented trait, the bound trait, and the target typevar (`$blanket$Trait$Bound$T`), so two blankets of the same trait over different bounds (e.g. `impl<X: Primitive> Tr for X` vs `impl<X: PodRef> Tr for X`) register separately and do not collide with `T::method` lookups on unrelated generics.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3162-L3173", "src/compiler/sema_collect.cpp#L3226-L3231"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3162-L3173",
+        "src/compiler/sema_collect.cpp#L3226-L3231"
+      ]
     },
     {
       "id": "trait.impl.method-visibility-inherits-trait",
       "domain": "trait",
       "title": "trait-impl methods inherit trait accessibility",
       "statement": "Methods in a trait impl take their accessibility from the trait: if the trait is reachable, its impl methods are public (forced is_pub). `pub fn` is disallowed inside trait/trait-impl blocks. Methods of an inherent impl (no trait) keep their explicit pub/private status.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3175-L3212"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3175-L3212"
+      ]
     },
     {
       "id": "trait.impl.self-param-defaults-to-self-ref",
       "domain": "trait",
       "title": "self receiver parameter type defaults to a reference to Self",
       "statement": "A method receiver parameter with no written type (`self` / `&self` / `&mut self`) has parameter type a reference to Self, mutable iff the receiver is declared mut.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3195-L3204"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3195-L3204"
+      ],
       "uncertainty": "Derived from the visibility-promotion re-walk of params; the primary signature construction is in collect_fn."
+    },
+    {
+      "id": "trait.impl.blanket-detection",
+      "domain": "trait",
+      "title": "An impl whose target is one of its own type parameters is a blanket impl",
+      "statement": "A trait impl whose target type equals one of the impl's own type parameters (`impl<T: B> Trait for T`) is a blanket impl. The parameter's first bound becomes the impl's bound trait, and its associated-type equalities together with any additional bounds (and their associated-type equality clauses) are recorded, so the blanket can be instantiated at call sites on any concrete type satisfying those bounds.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3114-L3141",
+        "src/compiler/sema_collect.cpp#L3213-L3225",
+        "src/compiler/sema_decl.cpp#L1968-L2006"
+      ]
     }
   ]
 }

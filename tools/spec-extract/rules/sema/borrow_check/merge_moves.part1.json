@@ -86,15 +86,6 @@
       ]
     },
     {
-      "id": "borrow.move.typevar-move-unless-copy",
-      "domain": "borrow",
-      "title": "Generic type parameters are move-classified unless Copy-bound",
-      "statement": "A bare type-parameter (TypeVar) value is classified as move (consumed on use) unless its parameter has an explicit Copy bound, matching Rust generic-body semantics where T is move-by-default.",
-      "evidence": [
-        "src/compiler/borrow_check.cpp#L725-L726"
-      ]
-    },
-    {
       "id": "borrow.prov.borrow-returning-call-ties-to-ref-inputs",
       "domain": "borrow",
       "title": "A borrow-returning call's provenance is its reference inputs",

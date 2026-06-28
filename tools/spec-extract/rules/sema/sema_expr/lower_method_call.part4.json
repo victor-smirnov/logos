@@ -5,18 +5,13 @@
   "source_hash": "dc5ee8adcc0723d2",
   "rules": [
     {
-      "id": "coerce.method-recv.auto-ref",
-      "domain": "coerce",
-      "title": "Method-call receiver auto-ref",
-      "statement": "When a resolved method's receiver formal is `&Self`/`&mut Self` (or otherwise ref-like) but the actual receiver value is non-reference and non-raw-pointer, the receiver is implicitly auto-referenced (`&`/`&mut` per the formal's mutability) before the call.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8666-L8674", "src/compiler/sema_expr.cpp#L9026-L9037", "src/compiler/sema_expr.cpp#L9122-L9131"]
-    },
-    {
       "id": "trait.method.multi-trait-ambiguity",
       "domain": "trait",
       "title": "Method provided by multiple traits is ambiguous",
       "statement": "If a method name `m` on type `S` is provided by more than one trait, the plain unqualified call `s.m(...)` is an error; the call must be disambiguated via a trait-bounded generic context or an explicit trait-qualified call.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8683-L8700"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8683-L8700"
+      ],
       "divergence": "A1: collision removes the plain base from the registry; Rust resolves by receiver/inference where unambiguous"
     },
     {
@@ -24,7 +19,9 @@
       "domain": "expr",
       "title": "Call of a callable struct field",
       "statement": "If `s.m(args)` finds no method `m` but struct `s` has a field named `m` whose type is a fn-pointer/fn-value or closure, the expression is lowered as a field read followed by a fn-ptr call (fn-value kind) or closure call (closure kind), returning that callable's return type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8701-L8728"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8701-L8728"
+      ],
       "divergence": "Rust requires explicit `(s.m)(args)` to call a callable field; bare `s.m(args)` is method-only"
     },
     {
@@ -32,133 +29,166 @@
       "domain": "expr",
       "title": "No method on receiver type",
       "statement": "If no method, blanket-impl, multi-trait collision, or callable field matches `s.m`, the call is an error \"'S' has no method 'm'\".",
-      "evidence": ["src/compiler/sema_expr.cpp#L8729-L8730"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8729-L8730"
+      ]
     },
     {
       "id": "expr.method.pub-access-check",
       "domain": "expr",
       "title": "Method visibility enforced at call site",
       "statement": "A resolved method call is subject to the method's pub/module-only visibility; calling a non-visible method from outside its allowed scope is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8734"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8734"
+      ]
     },
     {
       "id": "expr.method.unsafe-required",
       "domain": "expr",
       "title": "Unsafe method requires unsafe context",
       "statement": "Calling a method marked `unsafe` outside an `unsafe` context is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8735-L8736"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8735-L8736"
+      ]
     },
     {
       "id": "expr.method.raw-ptr-recv-unsafe",
       "domain": "expr",
       "title": "Method call through raw pointer requires unsafe",
       "statement": "Calling a method on a receiver of raw-pointer type requires an `unsafe` context; otherwise it is an error. The raw pointer is auto-dereferenced to its pointee for method resolution.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8743-L8746"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8743-L8746"
+      ]
     },
     {
       "id": "type.method.recv-autoderef-resolution",
       "domain": "type",
       "title": "Receiver dereferenced for method resolution",
       "statement": "For method resolution and struct-type-arg extraction, a receiver of reference type (`&`/`&mut`) or raw-pointer type is dereferenced to its pointee.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8742-L8749", "src/compiler/sema_expr.cpp#L8805-L8810", "src/compiler/sema_expr.cpp#L8988-L8989"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8742-L8749",
+        "src/compiler/sema_expr.cpp#L8805-L8810",
+        "src/compiler/sema_expr.cpp#L8988-L8989"
+      ]
     },
     {
       "id": "generic.method.recv-typeargs-bind",
       "domain": "generic",
       "title": "Receiver type-args seed substitution",
       "statement": "The receiver's struct/zoned-struct or enum type arguments are bound positionally to the receiving type's type parameters and used as the substitution context for checking and inferring method-level type arguments.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8750-L8776"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8750-L8776"
+      ]
     },
     {
       "id": "generic.method.turbofish-wins",
       "domain": "generic",
       "title": "Method turbofish overrides inference",
       "statement": "Explicit method-level type arguments `recv.m::<T...>(args)` bind the method-level type parameters (the tail of the method's type-param list that is not shared with the receiving type) positionally; inference runs only for the remaining unbound positions.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8784-L8837"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8784-L8837"
+      ]
     },
     {
       "id": "generic.method.recv-formal-unify",
       "domain": "generic",
       "title": "Impl params inferred from receiver formal",
       "statement": "Impl/method type parameters appearing only in the receiver formal (e.g. `impl<T> Pin<&T> { fn get_ref(&self) -> &T }`) are inferred by unifying the receiver formal against the actual receiver type, peeling one ref/ptr layer on either side to match shapes.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8838-L8860"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8838-L8860"
+      ]
     },
     {
       "id": "generic.method.arg-inference",
       "domain": "generic",
       "title": "Method type args inferred from args",
       "statement": "Method-level type arguments not bound by turbofish or receiver are inferred from the actual argument expressions (param offset skips `self`), seeding the substitution context.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8861-L8865"]
-    },
-    {
-      "id": "expr.method.arity-check",
-      "domain": "expr",
-      "title": "Method argument arity",
-      "statement": "A method call must supply exactly `param_count - 1` explicit arguments (excluding the `self` receiver); a mismatch is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8867-L8871"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8861-L8865"
+      ]
     },
     {
       "id": "coerce.method-arg.pipeline",
       "domain": "coerce",
       "title": "Method argument coercions",
       "statement": "Each method argument is coerced to its (substituted) parameter type via the canonical coercion pipeline supporting closure-to-fn-ptr, `&Concrete`-to-`&dyn Trait` unsize, implicit reborrow, and integer widening, with widening applied last.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8873-L8887"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8873-L8887"
+      ]
     },
     {
       "id": "expr.method.arg-type-compat",
       "domain": "expr",
       "title": "Method argument type compatibility",
       "statement": "After coercion, each method argument type must be compatible with its substituted parameter type; an incompatibility is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8888-L8896"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8888-L8896"
+      ]
     },
     {
       "id": "expr.method.intlit-fits",
       "domain": "expr",
       "title": "Integer-literal argument range check",
       "statement": "An integer-literal argument (including elements of array/tuple literals, recursively) must fit in the target integer parameter type; an out-of-range literal is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8897-L8961"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8897-L8961"
+      ]
     },
     {
       "id": "generic.method.inference-complete",
       "domain": "generic",
       "title": "All method type args must be inferred",
       "statement": "Every method type parameter must be bound (by turbofish, receiver, or inference); failure to bind all is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8967-L8972"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8967-L8972"
+      ]
     },
     {
       "id": "generic.method.bounds-check",
       "domain": "generic",
       "title": "Method type-arg bounds enforced",
       "statement": "Inferred/explicit method type arguments must satisfy their type parameters' bounds.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8973"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8973"
+      ]
     },
     {
       "id": "mono.method.generic-specialization",
       "domain": "mono",
       "title": "Method-level generic call specialized",
       "statement": "A method call is routed to monomorphized specialization only when it has a genuine method-level type parameter (one not bound by the receiving type's type params) and all type arguments resolve to concrete (non-TypeVar, non-Error) types; pure struct-level-generic methods stay on the non-specialized method-call lowering.",
-      "evidence": ["src/compiler/sema_expr.cpp#L8975-L9051"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8975-L9051"
+      ]
     },
     {
       "id": "region.method.lifetime-subst",
       "domain": "region",
       "title": "Return-type lifetime substitution from call site",
       "statement": "A lifetime substitution is built by structurally walking each method formal param against its actual (receiver paired with param0, args with the rest), binding each method lifetime to the corresponding caller lifetime; this substitution is applied (with type-arg substitution) to the method return type so e.g. `fn get<'a>(&'a self)->Item<'a>` called with `&'b` yields `Item<'b>`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9054-L9105"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9054-L9105"
+      ]
     },
     {
       "id": "type.method.return-subst",
       "domain": "type",
       "title": "Method return type substitution",
       "statement": "The type of a method-call expression is the method's declared return type with the receiver/method type-var substitution and lifetime substitution applied.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9102-L9105", "src/compiler/sema_expr.cpp#L9143"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9102-L9105",
+        "src/compiler/sema_expr.cpp#L9143"
+      ]
     },
     {
       "id": "borrow.method.args-moved",
       "domain": "borrow",
       "title": "Method arguments tracked as moved",
       "statement": "Passing arguments to a method call marks those argument values as moved for borrow/move analysis.",
-      "evidence": ["src/compiler/sema_expr.cpp#L9038", "src/compiler/sema_expr.cpp#L9132"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9038",
+        "src/compiler/sema_expr.cpp#L9132"
+      ]
     }
   ]
 }
