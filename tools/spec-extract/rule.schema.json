@@ -63,6 +63,11 @@
             "type": "string",
             "description": "Optional: note where the source is ambiguous and the rule is inferred rather than certain."
           },
+          "testability": {
+            "type": "string",
+            "enum": ["behavioral", "diagnostic", "transitive", "untestable"],
+            "description": "How a conformance test confirms this rule (chunk.py coverage). 'behavioral' = a passing program asserts it; 'diagnostic' = a program must fail to compile with a specific message; 'transitive' = exercised via other tests, not directly testable (internal mono/codegen/layout invariants); 'untestable' = cannot be pinned by a Logos program. Absent ⇒ must be covered."
+          },
           "related": {
             "type": "array",
             "description": "ids of related rules (cross-references).",

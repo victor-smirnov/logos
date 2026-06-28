@@ -126,6 +126,39 @@ python tools/spec-extract/chunk.py mdsafe   # wrap bare Type<...> in docs/spec/*
 It skips fenced/indented code and already-backticked spans, so it is safe to
 re-run. Rule artifacts stay plain text — markdown escaping is a render concern.
 
+## Conformance tests (locking the spec)
+
+Tests turn each rule from a prose claim into an executable, falsifiable check, so
+the spec cannot silently drift. They live in a SEPARATE tree, `tests/spec/`, and
+run via the existing `tests/logos/run_test.sh` harness.
+
+Each rule is addressed by its `id`. A test marks the rules it confirms with
+`// @rule <id>` comments. Rules are **grouped** — not one file per rule:
+
+- **behavioral** rules → one grouped pass program per domain-batch
+  (`tests/spec/pass/<domain>_<n>.logos` + `.expected` = `exit: 0`), whose `main()`
+  runs many `@rule`-tagged assertions; exit 0 ⇒ all those rules hold.
+- **diagnostic** rules ("X is rejected") → one fail program each
+  (`tests/spec/fail/<domain>_diag_<n>__<slug>.logos`); a compile error can't share
+  a file. `.expected` holds a stable substring of the compiler's stderr.
+- **transitive / untestable** rules (internal mono/codegen/layout invariants) are
+  marked via the rule's `testability` field and excluded from the coverage
+  denominator — never faked.
+
+Workflow:
+```bash
+python tools/spec-extract/chunk.py coverage                 # fitness metric: covered/testable per domain
+python tools/spec-extract/chunk.py coverage --gaps --domain expr   # uncovered ids
+python tools/spec-extract/chunk.py test-plan --limit 10 > /tmp/tp.json  # batch uncovered → generation units
+```
+Add runtime params and run the generator+verifier (each agent writes a grouped
+test and self-verifies it compiles+passes, marking anything untestable):
+> Workflow({ scriptPath: "tools/spec-extract/spec-test.workflow.js", args: { ...<tp.json>, lib_dir: "<logosc --print-lib-dir>", logosc: "build/bin/logosc", run_test: "tests/logos/run_test.sh" } })
+
+Then re-check `coverage`. Permanent gating (run in ctest on every build) requires
+registering `tests/spec/{pass,fail}/*.expected` in a CMake target — see CMake
+integration TODO.
+
 ## Determinism guarantees
 
 - Unit boundaries are natural and stable: C++ column-0 definitions; PEG directive

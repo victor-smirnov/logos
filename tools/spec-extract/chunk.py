@@ -30,6 +30,7 @@ Stdlib only. Run from the repo root.
 """
 
 import argparse
+import collections
 import fnmatch
 import glob
 import hashlib
@@ -493,6 +494,124 @@ def cmd_mdsafe(cfg, args):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Conformance-test coverage: which rules have a confirming test (locks the spec)
+# ──────────────────────────────────────────────────────────────────────────
+
+_RULE_MARK = re.compile(r"@rule\s+([a-z0-9][a-z0-9.\-,\s]*?)(?:\s+@|$|\*/|\n)")
+
+
+def covered_ids(cfg):
+    """Set of rule ids claimed by a conformance test (via `@rule <id>[, <id>]`
+    markers in tests_dir/**/*.logos)."""
+    root = os.path.join(REPO, cfg["tests_dir"])
+    ids = set()
+    for path in glob.glob(os.path.join(root, "**", "*.logos"), recursive=True):
+        try:
+            text = open(path).read()
+        except OSError:
+            continue
+        for m in _RULE_MARK.finditer(text):
+            for tok in m.group(1).replace("\n", ",").split(","):
+                tok = tok.strip()
+                if tok:
+                    ids.add(tok)
+    return ids
+
+
+def cmd_coverage(cfg, args):
+    layers = resolve_layers(cfg, args.layer)
+    want_layers = set(layers)
+    # all rules in scope, minus those marked not-directly-testable
+    rules = {}        # id -> (domain, testability)
+    skipped = 0
+    for f, _, r in iter_all_rules(cfg):
+        # restrict to requested layers via the unit-id prefix on the artifact path
+        layer = f.split("rules/")[-1].split("/")[0]
+        if layer not in want_layers:
+            continue
+        t = r.get("testability")
+        if t in ("transitive", "untestable"):
+            skipped += 1
+            continue
+        rules[r["id"]] = r.get("domain", "?")
+    covered = covered_ids(cfg)
+    missing = sorted(rid for rid in rules if rid not in covered)
+    have = len(rules) - len(missing)
+
+    if args.gaps:
+        sel = [m for m in missing if not args.domain or rules[m] == args.domain]
+        for m in sel:
+            print(m)
+        print(f"{len(sel)} uncovered{(' in '+args.domain) if args.domain else ''}", file=sys.stderr)
+        return
+
+    by = {}
+    for rid, dom in rules.items():
+        b = by.setdefault(dom, [0, 0])
+        b[0] += 1
+        if rid in covered:
+            b[1] += 1
+    pct = (100 * have // len(rules)) if rules else 100
+    print(f"spec conformance coverage: {have}/{len(rules)} testable rules  ({pct}%)")
+    print(f"  not-directly-testable (transitive/untestable, excluded): {skipped}")
+    # stray markers: @rule ids that don't match any current rule
+    stray = sorted(covered - set(r["id"] for _, _, r in iter_all_rules(cfg)))
+    if stray:
+        print(f"  STRAY markers (no such rule id): {len(stray)} — e.g. {stray[:3]}")
+    print("per domain (covered / testable):")
+    for dom, (tot, cov) in sorted(by.items()):
+        bar = "" if cov == tot else "  <<" if cov == 0 else ""
+        print(f"  {dom:10s} {cov:4d} / {tot}{bar}")
+
+
+_DIAG = re.compile(r"\b(reject|rejected|forbidden|not allowed|not permitted|"
+                   r"must |cannot |disallow|illegal|is an error|is a (compile )?error)", re.I)
+
+
+def cmd_test_plan(cfg, args):
+    """Batch UNCOVERED, directly-testable rules into generation units for the
+    spec-test workflow: behavioral rules grouped by domain (capped per file →
+    one grouped pass program), diagnostic rules grouped by domain (the workflow
+    writes one fail program per rule). Deterministic; excludes covered +
+    transitive/untestable rules."""
+    want_layers = set(resolve_layers(cfg, args.layer))
+    covered = covered_ids(cfg)
+    behav, diag = collections.OrderedDict(), collections.OrderedDict()
+    for f, _, r in iter_all_rules(cfg):
+        layer = f.split("rules/")[-1].split("/")[0]
+        if layer not in want_layers:
+            continue
+        if r.get("testability") in ("transitive", "untestable"):
+            continue
+        if r["id"] in covered:
+            continue
+        slim = {"id": r["id"], "domain": r.get("domain", "?"),
+                "statement": r.get("statement", "")[:500],
+                "examples": r.get("examples", [])[:3], "evidence": r.get("evidence", [])[:2]}
+        (diag if _DIAG.search(r.get("statement", "")) else behav).setdefault(r["domain"], []).append(slim)
+
+    units = []
+    for dom, rs in behav.items():
+        for i in range(0, len(rs), args.cap):
+            n = i // args.cap + 1
+            units.append({"stem": f"{dom}_{n}", "kind": "pass", "rules": rs[i:i + args.cap]})
+    for dom, rs in diag.items():
+        for i in range(0, len(rs), args.cap):
+            n = i // args.cap + 1
+            units.append({"stem": f"{dom}_diag_{n}", "kind": "fail", "rules": rs[i:i + args.cap]})
+    if args.limit:
+        units = units[:args.limit]
+    out = {"tests_dir": cfg["tests_dir"], "schema_path": "tools/spec-extract/rule.schema.json",
+           "unit_count": len(units), "units": units}
+    json.dump(out, sys.stdout, indent=1)
+    print()
+    nb = sum(len(u["rules"]) for u in units if u["kind"] == "pass")
+    nd = sum(len(u["rules"]) for u in units if u["kind"] == "fail")
+    print(f"test-plan: {len(units)} units ({nb} behavioral, {nd} diagnostic rules) "
+          f"over {len(want_layers)} layer(s)", file=sys.stderr)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Commands
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -603,10 +722,19 @@ def main():
     spa = sub.add_parser("apply-dedup", help="apply model dedup decisions to the corpus")
     spa.add_argument("decisions", help="path to the decisions JSON {decisions:[{id, final_rules:[{file, rule}]}]}")
     sub.add_parser("mdsafe", help="backtick-wrap bare Type<...> in docs/spec/*.md (run after assembly)")
+    spcov = sub.add_parser("coverage", help="conformance-test coverage: rules with a confirming @rule test")
+    spcov.add_argument("--layer", action="append", help="restrict to layer(s)")
+    spcov.add_argument("--gaps", action="store_true", help="list uncovered rule ids (one per line)")
+    spcov.add_argument("--domain", help="with --gaps: restrict to one domain")
+    sptp = sub.add_parser("test-plan", help="batch uncovered rules into spec-test generation units (JSON)")
+    sptp.add_argument("--layer", action="append", help="restrict to layer(s)")
+    sptp.add_argument("--cap", type=int, default=22, help="max rules per generated test file (default 22)")
+    sptp.add_argument("--limit", type=int, help="emit at most N units (partial rollout)")
 
     args = p.parse_args()
     {"manifest": cmd_manifest, "plan": cmd_plan, "ids": cmd_ids, "status": cmd_status,
-     "collisions": cmd_collisions, "apply-dedup": cmd_apply_dedup, "mdsafe": cmd_mdsafe}[args.cmd](cfg, args)
+     "collisions": cmd_collisions, "apply-dedup": cmd_apply_dedup, "mdsafe": cmd_mdsafe,
+     "coverage": cmd_coverage, "test-plan": cmd_test_plan}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

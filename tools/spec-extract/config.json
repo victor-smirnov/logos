@@ -3,6 +3,7 @@
 
   "rules_dir": "tools/spec-extract/rules",
   "spec_dir": "docs/spec",
+  "tests_dir": "tests/spec",
   "manifest": "tools/spec-extract/manifest.json",
 
   "unit_target_lines": 600,
