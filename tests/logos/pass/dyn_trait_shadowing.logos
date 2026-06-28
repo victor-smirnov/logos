@@ -1,0 +1,16 @@
+// ADV1-H: a user trait whose bare name shadows a prelude/operator trait (`Sub`,
+// `Add`) must dispatch to the USER trait through `&dyn`, including an inherited
+// supertrait method. (Was: bound to the prelude trait → "no method" / segfault.)
+package dyn_trait_shadowing;
+trait Add { fn base(&self) -> i64; }            // shadows ops::Add
+trait Sub: Add { fn describe(&self) -> i64; }   // shadows ops::Sub, supertrait = shadowed Add
+struct W { v: i64 }
+impl Add for W { fn base(&self) -> i64 { return 100i64; } }
+impl Sub for W { fn describe(&self) -> i64 { return self.v; } }
+fn main() -> i64 {
+    let w: W = W { v: 42i64 };
+    let d: &dyn Sub = &w;
+    if d.describe() != 42i64 { return 1; }   // own method on the user trait
+    if d.base() != 100i64 { return 2; }      // inherited method on shadowed supertrait
+    return 0;
+}

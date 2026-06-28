@@ -24,11 +24,11 @@ investigated with a minimal repro and root-caused in `src/compiler`. Status:
 | `coerce.cast.float-to-float` | The float↔float width rule is sound at any scale. The real defect was the separate float↔pointer gap (fixed above). |
 | `trait.def.vtable-layout-supertrait-closure` | The supertrait-closure vtable mechanism is **correct** (verified with a non-colliding trait name; test `tests/spec/pass/trait_supertrait_dyn.logos`). The reported failure was a trait-name collision: the repro named its trait `Sub`, which shadows the prelude arithmetic operator trait `Sub`, so `&dyn Sub` bound to the wrong trait. That is the pre-existing `dyn`-local-trait-shadowing gap (adversarial sweep ADV1-H), a separate broad canonicalization fix — not this rule. |
 
-## Deferred to baghunt (pre-existing, broad fix)
+## Also fixed
 
-| Issue | Status |
-|---|---|
-| `dyn`-local-trait-shadowing (ADV1-H) | A user `trait Sub` whose bare name collides with a prelude/imported trait (e.g. the `ops::Sub` operator) is registered only under its package-qualified key (B-mv-02), but `&dyn Sub` builds the TraitObject with the BARE name (`sema.cpp:5953`), so dispatch silently binds to the prelude trait → "trait 'Sub' has no method". Pre-existing known gap; the in-tree comment notes a correct fix needs a **full chokepoint sweep** (dyn-type construction + `lower_trait_def` + the upcast-compat check + mlir-gen vtable registry keys — 12 TraitObject sites) or dispatch segfaults. Too broad to land safely as a session tail-end; filed for a focused effort. The supertrait-closure vtable mechanism itself is correct (see `trait.def.vtable-layout-supertrait-closure` above). |
+| Issue | Bug | Fix |
+|---|---|---|
+| `dyn`-local-trait-shadowing (ADV1-H) | A user `trait Sub` whose bare name collides with a prelude/imported trait (the `ops::Sub` operator) registers only under its package-qualified key (B-mv-02), but the `dyn` path resolved the trait by its BARE name, so dispatch bound to the prelude trait → "trait 'Sub' has no method". Also affected a shadowed *supertrait* (`Sub: Add`, both shadowing operators). | The in-tree comment predicted a 12-site sweep; the actual fix is **3 scope-aware lookups** — the impl/vtable ecosystem is already bare-keyed + target-disambiguated, so only the name-only lookups mis-bound. Swap bare `traits_.find` → `find_trait_iter_scoped` (current-package first) in `lower_trait_def` (`sema_decl.cpp`), `try_method_on_dyn` (`sema_expr.cpp`), and the supertrait-closure walk in `trait_vtable_layout` (`sema_collect.cpp`). No-op for non-colliding names. Regression: `tests/logos/pass/dyn_trait_shadowing.logos`. |
 
 ---
 *Generated during the spec-extract conformance rollout (`tools/spec-extract`,
