@@ -31,7 +31,7 @@ A type is either a primitive, a composite (formed from other types), or a user-d
 | `char` | Unicode scalar value. `'a'` char literals; usable in `match`, including range patterns (`'a'..='z'`). |
 | `()`  | Unit / void return type. Empty tuple. |
 
-There is no separate `byte` type — single bytes are `u8`. Byte-string literals `b"…"` produce `[u8; N]`.
+There is no separate `byte` type — single bytes are `u8`. Byte-string literals `b"…"` produce `[u8; N]`. The built-in `str` resolves to `Slice<u8>` (prints `&[u8]`) — modeled as a `u8` slice rather than a distinct DST (a divergence from Rust).
 
 ### Implicit Widening
 
@@ -124,13 +124,14 @@ enum Wire : u32 { Open = 0, Closed = 1 }  // explicit discriminant type
 
 Enums are tagged sums. The `LogosType::Kind::Enum` variant is used both for C-style enums (passed by-value as the discriminant integer) and for tagged enums (passed by pointer; the runtime carries a discriminant + per-variant payload). The compiler picks the representation based on whether any variant has a payload.
 
-### Datatype (`#[zoned] struct`)
+### Datatype (`eidos`)
 
 ```logos
-#[zoned] pub struct AnyVal { pub raw: u32 }
+eidos AnyVal { raw: u32 }                 // dedicated datatype item (always zoned)
+#[datatype] #[zoned] pub struct Decimal { coef: i128, scale: i8 }   // or: promote a struct
 ```
 
-A *Writ datatype*: a struct laid out for the Writ wire format (zone-relative, no heap pointers). Internally tagged `LogosType::Kind::ZonedStruct`. Datatypes interoperate with the [Writ layer](writ.md) and follow extra layout constraints (see internals docs).
+A *Writ datatype*: a value laid out for the Writ wire format (zone-relative, no heap pointers), internally tagged `LogosType::Kind::ZonedStruct`. The dedicated item form is the **`eidos`** keyword; alternatively `#[datatype]` (or `#[annotation]`) promotes a `struct` into the datatype pipeline. `#[zoned]` alone marks self-relative field layout but does **not** by itself make a datatype. Datatypes interoperate with the [Writ layer](writ.md) and follow extra layout constraints (see internals docs).
 
 ## Generic Application
 

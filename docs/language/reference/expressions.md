@@ -1,6 +1,6 @@
 # Expressions
 
-An *expression* produces a value. The grammar entry point is `expr` ([logos.peg:1260](../../../tools/peg_gen/grammars/logos.peg#L1260)). Expressions are built from a precedence chain: `expr → log_expr → cmp_expr → bitwise_expr → add_expr → mul_expr → cast_expr → unary_expr → atom → primary_expr`. Each level binds tighter than the one above it.
+An *expression* produces a value. The grammar entry point is `expr` ([logos.peg:2392](../../../tools/peg_gen/grammars/logos.peg#L2392)). Expressions are built from a precedence chain: `expr → range_expr → log_expr → cmp_expr → bitor_expr → bitxor_expr → bitand_expr → shift_expr → add_expr → mul_expr → cast_expr → unary_expr → atom → primary_expr`. Each level binds tighter than the one above it (ranges sit at the top, just below the assignment statement level).
 
 Many statements are expressions in disguise: `if`, `match`, `loop`, blocks, and `unsafe { ... }` are all usable as primary expressions and yield values via tail-position evaluation or `break <value>`.
 
@@ -27,7 +27,7 @@ Bitwise operators have four distinct precedence levels (tightest to loosest: `<<
 
 ## Atoms and Postfix Chains
 
-`atom` is `primary_expr` followed by zero or more postfix suffixes ([logos.peg:1314](../../../tools/peg_gen/grammars/logos.peg#L1314)):
+`atom` is `primary_expr` followed by zero or more postfix suffixes ([logos.peg:2662](../../../tools/peg_gen/grammars/logos.peg#L2662)):
 
 ```logos
 xs.len()              // METHOD_CALL
@@ -49,7 +49,7 @@ Method calls dispatch on the receiver's type: inherent methods first, then trait
 !b           // bool not / bitwise not on integers
 ```
 
-`&mut` is a single token sequence, not `&` followed by `mut x`. The grammar recognises `AMP KW_MUT unary_expr` as one production ([logos.peg:1304](../../../tools/peg_gen/grammars/logos.peg#L1304)).
+`&mut` is a single token sequence, not `&` followed by `mut x`. The grammar recognises `AMP KW_MUT unary_expr` as one production ([logos.peg:2650](../../../tools/peg_gen/grammars/logos.peg#L2650)).
 
 ## Casts
 
@@ -62,7 +62,7 @@ let p = (raw as *const u8);
 
 ## Primary Expressions
 
-The `primary_expr` rule lists every leaf form ([logos.peg:1328](../../../tools/peg_gen/grammars/logos.peg#L1328)). Ordering matters: more specific alternatives (e.g. `struct_lit`, `call_expr`) come before bare `IDENT` so the parser commits early.
+The `primary_expr` rule lists every leaf form ([logos.peg:2697](../../../tools/peg_gen/grammars/logos.peg#L2697)). Ordering matters: more specific alternatives (e.g. `struct_lit`, `call_expr`) come before bare `IDENT` so the parser commits early.
 
 ### Literals
 
@@ -199,7 +199,15 @@ fn read() -> Result<u32, IoError> {
 }
 ```
 
-Postfix `?` short-circuits to the enclosing function's `Result` / `Option` type. Monomorphic — propagation must be exact-type. See [feat: try operator](../../README.md).
+Postfix `?` short-circuits to the enclosing function's `Result` / `Option` type. When the inner and outer error types differ, `?` inserts `E_outer::from(inner_err)` (requires `impl From<E_inner> for E_outer`); non-`Result`/`Option` operands dispatch through `Try` / `FromResidual`. See [feat: try operator](../../README.md).
+
+### Ranges
+
+```logos
+a..b    a..=b    a..    ..b    ..=b    ..
+```
+
+The six range forms desugar to stdlib `Range` structs (`RangeI32` / `RangeI64` / `RangeOfIncl<T>`, …) implementing `Iterator`, so `for i in 0..n {}` works; bounds must be integer-typed. Range sits at the top of the value-expression precedence cascade (below it: the logical operators).
 
 ### Metaprogramming forms
 

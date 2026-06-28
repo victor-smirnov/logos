@@ -106,7 +106,7 @@ let p: *const u8 = b.as_ptr();
 let n = unsafe { *p };
 ```
 
-Casting `&T → *const T` and `&mut T → *mut T` is implicit when the destination type demands it; the reverse (`*const T → &T`) requires a `&*p` re-borrow inside `unsafe` and is the programmer's promise that the pointer is valid.
+Casting `&T → *const T` and `&mut T → *mut T` is implicit when the destination type demands it. The reverse (`*const T → &T`, `*mut T → &mut T`) is **also** accepted implicitly at coercion sites — an unsound back-compat allowance, the programmer's promise the pointer is valid. (Note: *dereferencing* or *writing through* a raw pointer still requires `unsafe`, even though the type coercion does not.)
 
 ## View Types and Fat Pointers
 

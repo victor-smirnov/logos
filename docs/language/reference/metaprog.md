@@ -72,7 +72,7 @@ The callee/expression/block:
 
 - Compiles to a regular Logos function in the metaprog JIT module.
 - For the call form: receives compile-time arguments (`Type`, `Template`, scalars, `TypeList`s).
-- Returns either a normal value (spliced as a literal) or a typed AST fragment (`Item`, `Expr`, `Stmt`, `Pat`, `Ty`) that the compiler grafts into the AST. Block form supports primitive scalar / `&str` / `WritStatic` returns; `Writ` (mutable) and `ExprBlob` returns stay call-only.
+- Returns either a normal value (spliced as a literal) or a typed AST fragment (`Item`, `Expr`, `Stmt`, `Pat`, `Ty`) that the compiler grafts into the AST. Block form supports primitive scalar / `&str` / `WritStatic` / `ExprBlob` returns; only a `Writ` (mutable) return stays call-form-only (it auto-freezes).
 
 Block / paren-expr **capture rules**:
 
@@ -84,7 +84,7 @@ Position rules:
 
 - **Expression position** — return must be `Expr`-shaped or a normal value.
 - **Statement position** — return is spliced as one or more statements.
-- **Item position (top-level / inside `impl`)** — return is item(s); at item position `metacall` takes the call form only, terminated by `;` (`metacall make_items();`), and lifts to a `QuoteItemBlob`. Block / paren-expr forms are expression-position only.
+- **Item position (top-level / inside `impl`)** — return is item(s); at item position `metacall` takes the call form only, terminated by `;` (`metacall make_items();`). The callee must return a `QuoteItemBlob` (single item) or an `ItemList` (multiple items). Block / paren-expr forms are expression-position only.
 
 See [memory: feat_metacall_arch](../../README.md) for full position / return-type matrix and the HERMES_BLOB splice protocol.
 
@@ -136,7 +136,7 @@ Implementation by form:
   - Repeat groups `#( ... ),*` and `#( ... )*` work, including over `Vec<Ident>` cursor packs (e.g. `impl<#( #tparams: Clone ),*>` or `fn clone(self: #nm<#( #tparams ),*>)`).
   - Cursor placeholders inside repeats encode their slot into AST `NAME_VAR` with the `0x400000` flag bit (fits in `AnyVal`'s 24-bit inline payload).
 - **`quote_expr!`** — `#x` antiquot; `#(...)*`, `#(...),*`, `#(...)&&*` repeats; `Vec<Ident>` accepted as cursor pack (not just `[Ident; N]`); STRUCT_LIT / FIELD_INIT / FIELD_READ antiquots: `Foo { #(#fnames: e),* }`, `Foo { #fname: e }`, `recv.#fname`.
-- **`quote_ty!`** — `$ident` antiquot, pack-splice `$ts...`, antiquot inside tuple / array type positions; `#(expr)` at type position via the Type→AST bridge (`type_of::<T>().ident()` returns an `Ident` for bare named types).
+- **`quote_ty!`** — `$ident` antiquot, pack-splice `$ts...`, antiquot inside tuple / array type positions. Type-position antiquotation is **`$`-only** — there is no `#(expr)` form inside `quote_ty!`.
 - **`quote_stmt!`, `quote_pat!`, `quote_ident!`** — not implemented.
 
 Hygiene: literal-internal names still resolve at the call site, but stdlib provides `gensym(prefix: str) -> Ident` (in `std.compiler.metaprog.ast`). It returns a fresh `<prefix>__hyg_<N>` `Ident` whose bytes are host-owned and bound on both JITs, resolving the ODR-conflict that would otherwise fire when a metaprog hook is invoked more than once. Full hybrid hygiene (literal-internal vs antiquoted name scopes) remains future work.
@@ -182,7 +182,6 @@ Cursor placeholders inside repeats encode their slot into AST `NAME_VAR` with th
 | Tuple element | `($t1, $t2)` | per element | active |
 | Array element | `[$t; 4]` | element only | active |
 | Generic arg | `Foo<$t>` | `Ident` | active |
-| `#(expr)` at type position | `quote_ty! { #(type_of::<T>().ident()) }` | `Ident` via Type→AST bridge | active |
 
 `quote_ty!` reuses `$` from Writ capture syntax to keep `#(...)` reserved for the typed bridge form. Pure antiquotation in `quote_ty!` is `$`-only.
 

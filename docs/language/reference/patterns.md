@@ -10,6 +10,7 @@ A pattern is either *irrefutable* — guaranteed to match (e.g. `name`, `(a, b)`
 x          // bind to `x`
 _          // ignore (does not bind a name)
 _count     // bind `_count` (leading underscore = "intentionally unused")
+mut x      // bind by value; the binding is mutable
 ref x      // bind by reference: takes `&T` instead of moving
 ref mut x  // bind by mutable reference
 n @ pat    // bind whole value to `n` and also recurse into `pat`
@@ -62,7 +63,7 @@ Point { x, .. }                   // `..` to ignore the rest
 Pair {}                           // matches a *fieldless* struct (a struct with fields needs every field, or `..`)
 ```
 
-Field shorthand (`x` alone) binds the field's value to a same-named local. Use `..` (`PAT_REST`) to ignore unnamed fields.
+Field shorthand (`x` alone) binds the field's value to a same-named local. Use `..` (`PAT_REST`) to ignore the remaining (unlisted) fields.
 
 ## Enum / Variant Patterns
 
@@ -142,7 +143,7 @@ The guard runs after the pattern matches; if it returns false, matching falls th
 `match` is checked for exhaustiveness:
 
 - C-style enums must list every variant or include a wildcard.
-- Tagged enums benefit from variant inference but currently still demand a wildcard for "future-compatibility" cases (see Roadmap).
+- Tagged enums are exhaustive once every variant is covered — no wildcard required (a wildcard over a fully-covered unit enum is flagged unreachable). A variant whose payload type is uninhabited may be omitted.
 - Integer matches require a wildcard arm unless every value is covered (rare).
 - Boolean matches must cover both `true` and `false`.
 

@@ -110,7 +110,24 @@ A struct definition may contain fields and methods in the same block — for bot
 
 The grammar also accepts an alternative spelling with a leading `#` token (`struct #Name { ... }`) used by metaprogramming for AST templates — see [Metaprogramming](metaprog.md).
 
-A struct marked `#[zoned]` has **zone-relative field layout** (self-relative offsets, no heap pointers — a ZType). `#[zoned]` by itself does **not** promote a struct to a Writ datatype; datatype promotion comes from `#[datatype]` / `#[annotation]` on the struct. See [`#[zoned]`](attributes.md#zoned) and [Writ](writ.md).
+A struct marked `#[zoned]` has **zone-relative field layout** (self-relative offsets, no heap pointers — a ZType). `#[zoned]` by itself does **not** promote a struct to a Writ datatype; datatype promotion comes from `#[datatype]` / `#[annotation]` on the struct, **or** from the dedicated `eidos` item form (below). See [`#[zoned]`](attributes.md#zoned) and [Writ](writ.md).
+
+### `union`
+
+```logos
+union FloatBits { f: f32, bits: u32 }
+```
+
+A C-style union: named fields (no tuple form, no methods) overlaid in one storage slot sized to the largest field. At least one field is required; fields must be non-move (`Copy` / reference). A field **write** is safe; a field **read** requires an `unsafe` context (you assert the active variant).
+
+### `eidos` (Writ datatypes)
+
+```logos
+eidos Point { x: i32, y: i32 }      // dedicated datatype item — always zoned
+eidos Array<i32>;                   // body-less explicit instantiation (binds #[type_code])
+```
+
+`eidos NAME<…> { … }` is the dedicated Writ-fabric datatype item (always zone-laid-out), distinct from a `#[datatype]`-promoted struct. The keyword is `eidos`; `datatype` is only an internal AST name, not surface syntax.
 
 ### Methods
 
@@ -231,7 +248,7 @@ Templates are a **syntactic-level** code generator, distinct from generics:
 - Inside a template body, `#X` references a template parameter (placeholder); bare `X` is an ordinary in-scope name (e.g. an output-level generic parameter).
 - Triggers: planned forms are `apply_template<Tpl, args...>() -> Item` (library metafunction) and `#[apply(args...)]` on the template declaration. There is intentionally no implicit type-use trigger — `Foo<i32, u64>` where `Foo` is a template would be ambiguous about whether the args are template-args or output's generic-args.
 
-**Current status (2026-04-30):** essentially nothing of the above is implemented end-to-end. `template <decl>` parses and is silently dropped; `template_of::<X>()` returns a handle with `name()` / `type_param_count()` accessors; the body is not persisted, no placeholders are recognised, no `apply` mechanism exists. See the [Metaprogramming](metaprog.md) page for what does run today, and `metaprog-quote-slice5.md` / `template-body-expansion.md` (planning notes) for the slice-by-slice path forward.
+**Current status:** the `apply`/placeholder expansion above is not implemented end-to-end. `template <decl>` parses and is dropped; `template_of::<X>()` (gated on `use logos.std.compiler.metaprog;`) now lowers to an intrinsic returning a `Template` handle that carries the template's **raw AST node** (beyond just `name()` / `type_param_count()`), but no placeholder/`apply` mechanism consumes it yet. See the [Metaprogramming](metaprog.md) page for what does run today, and `metaprog-quote-slice5.md` / `template-body-expansion.md` (planning notes) for the slice-by-slice path forward.
 
 ## Attributes (`#[...]`)
 

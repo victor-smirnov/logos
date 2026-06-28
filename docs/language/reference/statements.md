@@ -21,9 +21,13 @@ Forms:
 - **`let (a, b, ...) = expr;`** — tuple destructure (`LET_DESTRUCT`).
 - **`let name: T;`** (or `let mut name: T;`) — declare without an initializer; the binding is uninitialized and must be assigned before use. A non-`mut` such binding may be assigned exactly once (deferred init); `mut` allows repeated assignment. `let name;` with neither type nor initializer is an error.
 - **`let ref y = expr;`** — sugar for `let y = &expr;`; `y` has type `&T`.
-- **`let pat = expr else { ... }`** — refutable bind with diverging else (`LET_ELSE`). The else block must diverge (`return`, `break`, `panic`, `loop`).
+- **`let pat = expr else { ... }`** — refutable bind with diverging else (`LET_ELSE`). The else block must diverge (`return`, `break`, `continue`, `panic`, `loop {}`).
 
 A bare `let pat = expr;` with a refutable pattern is rejected — use `if let` or `let ... else`.
+
+## Nested functions
+
+A `fn name(params) -> T { ... }` item written at statement position is lowered as a **let-bound closure** (`let name = |params| -> T { ... }`): it binds an immutable local and does **not** capture enclosing locals (parameters and globals only).
 
 ## Assignment
 
@@ -50,7 +54,7 @@ Semantics: `lhs op= rhs` evaluates the lhs **once** for both the read and the wr
 |---|---|---|
 | `+=` `-=` `*=` `/=` `%=` | arithmetic | Integer-only when LHS is integer; float for floats; mixed coerces per [int_widening](../../../.claude/projects/-home-victor-devel-logos/memory/feat_int_widening.md). |
 | `&=` `|=` `^=` | bitwise | Integers + bool. No short-circuit. |
-| `<<=` `>>=` | shift | Shift count interpreted as unsigned; signed RHS rejected. Right-shift on signed is arithmetic; on unsigned is logical. |
+| `<<=` `>>=` | shift | A *negative literal* shift count, or a *literal* count `>=` the LHS bit-width, is rejected; a non-literal signed count is accepted. Right-shift on signed is arithmetic; on unsigned is logical. |
 
 Overflow on `+=` etc. follows the same wrapping/abort rules as the binary operator (`+`, `-`, `*`); see [Expressions → Arithmetic](expressions.md#arithmetic).
 
@@ -105,6 +109,7 @@ let v = loop { if done { break 42; } };   // value loop via break
 for i in 0..n          { use(i); }    // exclusive range
 for i in 0..=n         { use(i); }    // inclusive range
 for x in xs            { use(x); }    // FOR_EACH — over an iterator
+for (a, b) in pairs    { use(a, b); } // loop variable may be a destructuring pattern
 ```
 
 The range forms produce integer indices. The `for x in iter` form requires `iter` to implement `Iterator`. See [Generics & Traits](generics-traits.md#iterator).
@@ -184,6 +189,6 @@ A `metacall` at statement position splices items / statements from a metafunctio
 
 ## Roadmap
 
-- **`yield`** — keyword reserved; coroutine-yield form planned alongside the stackful-fiber lowering ([memory: feat_coroutines_design](../../README.md)).
+- **`yield`** — planned coroutine-yield form (not yet a reserved keyword) alongside the stackful-fiber lowering ([memory: feat_coroutines_design](../../README.md)).
 - **`async` / `await`** — keywords reserved for the wasm32 stackless path; not on near-term roadmap for native targets.
 - **Tuple destructure with type annotation** — `let (a, b): (i32, i64) = ...` parses but type-checks via field-by-field inference; full destructure-with-types still rough.

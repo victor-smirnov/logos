@@ -70,7 +70,7 @@ Lifetimes are declared the same way as type parameters and used in `&'a T` / `&'
 ```logos
 fn zeros<const N: usize>() -> [u8; N] { [0; N] }
 struct Buf<const CAP: usize> { data: [u8; CAP] }
-fn at<const I: usize, T>(t: &(T, T)) -> &T where const I < 2 { ... }
+fn first<const I: usize, T>(t: &(T, T)) -> &T { &t.0 }   // const params usable in body/types
 ```
 
 Const parameters are compile-time scalars. They participate in:
@@ -86,8 +86,8 @@ See [memory: feat_const_variadic_mvp](../../README.md) for the full feature matr
 ## Variadic (Pack) Parameters
 
 ```logos
-fn print_all<T...>(args: T...)         { #(println("{}", args);)* }
-fn count<T...>() -> u64                { sizeof...(T) }   // sizeof... is u64
+fn forward<T...>(args: T...)           { sink(args...); }   // pack expands at the call site
+fn count<T...>() -> u64                { sizeof...(T) }     // sizeof... is u64
 type Tuple<T...>  = (T...);
 ```
 
@@ -231,4 +231,4 @@ fn merge<K, V>(a: HashMap<K, V>, b: HashMap<K, V>) -> HashMap<K, V>
 
 - **Higher-kinded polymorphism** — `Container<F>` where `F` is itself a generic constructor — out of scope.
 - **GATs (generic associated types)** — partially supported (`type Item<U>;`); some bound forms still rough.
-- **Mixed packs** — combining `<T...>` and `<const N...: U>` in the same signature is rejected (only one trailing variadic parameter is allowed: "variadic parameter must be last").
+- **Mixed packs** — a type pack `<T...>` and a const pack `<const N...: U>` cannot coexist in one signature: a variadic parameter must be the *final* entry, and there can be only one (diagnostic: "variadic type parameter must be last in the type parameter list").
