@@ -67,6 +67,12 @@ Identify every observable LANGUAGE rule in the slice: grammar productions, type/
 
 For each rule assign a STABLE human-readable id "<domain>.<group>.<slug>" (lowercase kebab); the first segment is the domain. Allowed domains: ${DOMAINS.join(', ')}.
 RULE QUALITY (mandatory): statement = normative, implementation-agnostic, notation over prose, precise enough to test; evidence = >=1 "file#Lxxx" anchor INSIDE this unit per rule; divergence = Rust-divergence tag (docs/DIVERGENCES.md §A, e.g. A1/A2) or note, omit when Rust-conformant; uncertainty = flag inferred/ambiguous rules.
+
+SCOPE DISCIPLINE (critical — your slice is PARTIAL; other parts of the compiler implement features you cannot see here):
+- State only what THIS slice's code positively shows. Describe what it DOES.
+- Do NOT make absolute/global NEGATIVE claims ("X is not supported", "not yet expressible", "only the bare form exists", "never allowed", "no X yet") UNLESS this slice itself contains the code that rejects/forbids the alternative. A feature absent from your slice is NOT evidence it is absent from the language — another unit likely implements it. When tempted to write a negative, either scope it ("this path handles only …") or omit it.
+- A grammar token/regex shows the GRAMMAR's shape, not the full lexer; hand-rolled lexing/decoding elsewhere may accept more. Don't conclude the language rejects what the regex doesn't match.
+- For concrete syntax in examples: only write an example whose syntax you can ground in THIS slice (or omit examples). Do not invent surface syntax (e.g. parameter-pack spelling) you haven't seen here.
 Read the artifact schema at ${SCHEMA} and conform EXACTLY. Be terse and technical; do NOT write prose explanations to the user.`
 
 function priorBlock(prior) {
@@ -89,8 +95,11 @@ Return the structured summary.`
 }
 
 function extractPromptByPath(u) {
+  const codegenNote = u.unit.startsWith('codegen/')
+    ? `\nCODEGEN LAYER: extract ONLY target-INDEPENDENT language semantics (literal decode such as raw-string r#"..."# hash counting, integer-coercion/widening lowering, DST/fat-pointer layout rules, drop/dispatch semantics). SKIP register allocation, ABI/calling-convention specifics, MLIR-op/dialect plumbing, and anything platform-dependent — those are not language rules.\n`
+    : ''
   return `${COMMON}
-
+${codegenNote}
 WORK UNIT: ${u.unit}
 
 STEPS:

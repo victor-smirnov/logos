@@ -230,7 +230,14 @@ def build_units(cfg, layers):
             with open(path, encoding="utf-8", errors="surrogatepass") as f:
                 text = f.read()
             lines = text.splitlines(keepends=True)
-            stem = os.path.splitext(os.path.basename(path))[0]
+            base = os.path.basename(path)
+            stem, ext = os.path.splitext(base)
+            # Disambiguate headers from a same-named .cpp (module_loader.cpp vs
+            # module_loader.hpp) so their unit-ids — and thus rules_out paths —
+            # don't collide. Primary extensions (.cpp, .peg) keep the bare stem
+            # so existing unit-ids are unchanged; only headers get a tag.
+            if ext not in (".cpp", ".peg"):
+                stem = f"{stem}_{ext.lstrip('.')}"
             relpath = rel(path)
 
             if chunker == "cpp":
@@ -299,40 +306,31 @@ def stale_units(cfg, units, force=False, only=None, touch=None):
     """
     Decide which units to (re-)extract.
 
-      force=True             -> all in-scope units
-      only=<glob>            -> units whose existing artifact defines a spec id matching the glob
-      touch=<glob>           -> units whose unit-id matches the glob
-      otherwise              -> units with missing artifact or mismatched source_hash
+      only=<glob>   -> EXCLUSIVE targeted set: units whose existing artifact
+                       defines a spec id matching the glob (the точечный path).
+      force=True    -> all in-scope units.
+      otherwise     -> hash-stale units (missing artifact or mismatched hash).
 
-    only/touch are additive filters layered on top of the default hash logic when
-    given; when neither is given, default hash staleness applies to all in scope.
+      touch=<glob>  -> ADDITIVE: union the units whose unit-id matches the glob
+                       on top of whichever base was chosen above. Lets you force
+                       known-wrong units alongside the naturally-stale ones.
     """
-    if only or touch:
-        chosen = []
-        for u in units:
-            hit = False
-            if touch and fnmatch.fnmatch(u["unit"], touch):
-                hit = True
-            if only:
-                art = read_artifact(u["rules_out"])
-                if art:
-                    for r in art.get("rules", []):
-                        if fnmatch.fnmatch(r.get("id", ""), only):
-                            hit = True
-                            break
-            if hit:
-                chosen.append(u)
-        return chosen
+    if only:
+        base = [u for u in units
+                if (a := read_artifact(u["rules_out"])) is not None
+                and any(fnmatch.fnmatch(r.get("id", ""), only) for r in a.get("rules", []))]
+    elif force:
+        base = list(units)
+    else:
+        base = [u for u in units
+                if (a := read_artifact(u["rules_out"])) is None or a.get("source_hash") != u["hash"]]
 
-    out = []
-    for u in units:
-        if force:
-            out.append(u)
-            continue
-        art = read_artifact(u["rules_out"])
-        if art is None or art.get("source_hash") != u["hash"]:
-            out.append(u)
-    return out
+    if touch:
+        globs = touch if isinstance(touch, (list, tuple)) else [touch]
+        have = {u["unit"] for u in base}
+        base += [u for u in units
+                 if u["unit"] not in have and any(fnmatch.fnmatch(u["unit"], g) for g in globs)]
+    return base
 
 
 def attach_prior_ids(units):
@@ -451,7 +449,7 @@ def main():
         if name == "plan":
             sp.add_argument("--force", action="store_true", help="re-extract every in-scope unit")
             sp.add_argument("--only", help="targeted: glob over spec-component ids (reverse-mapped to units)")
-            sp.add_argument("--touch", help="targeted: glob over unit ids")
+            sp.add_argument("--touch", action="append", help="force units by unit-id glob (additive; repeatable)")
 
     args = p.parse_args()
     {"manifest": cmd_manifest, "plan": cmd_plan, "ids": cmd_ids, "status": cmd_status}[args.cmd](cfg, args)

@@ -19,18 +19,30 @@
     },
     "sema": {
       "chunker": "cpp",
+      "_doc": "Includes the *_impl.hpp implementation headers + core type-system/borrow logic headers — much sema logic lives there, not in the .cpp split.",
       "sources": [
         "src/compiler/sema.cpp",
+        "src/compiler/sema_impl.hpp",
         "src/compiler/sema_expr.cpp",
         "src/compiler/sema_stmt.cpp",
         "src/compiler/sema_collect.cpp",
         "src/compiler/sema_decl.cpp",
         "src/compiler/sema_render.cpp",
         "src/compiler/sema_fmt.cpp",
+        "src/compiler/sema_fmt.hpp",
         "src/compiler/sema_auto_trait.cpp",
         "src/compiler/borrow_check.cpp",
         "src/compiler/region_infer.cpp",
-        "src/compiler/trait_engine.cpp"
+        "src/compiler/trait_engine.cpp",
+        "src/compiler/trait_engine.hpp",
+        "src/compiler/metaprog_dispatch.hpp",
+        "src/compiler/module_loader.cpp",
+        "src/compiler/module_loader.hpp",
+        "src/compiler/module_manifest.cpp",
+        "include/logos/compiler/subtype.hpp",
+        "include/logos/compiler/variance.hpp",
+        "include/logos/compiler/move_classify.hpp",
+        "include/logos/compiler/outlives.hpp"
       ]
     },
     "mono": {
@@ -41,15 +53,17 @@
         "src/compiler/mono_scan.cpp",
         "src/compiler/mono_subst.cpp",
         "src/compiler/mono_const_arg.cpp",
-        "src/compiler/ctfe.cpp"
+        "src/compiler/mono_impl.hpp",
+        "src/compiler/ctfe.cpp",
+        "src/compiler/ctfe.hpp"
       ]
     },
     "codegen": {
       "chunker": "cpp",
-      "optional": true,
-      "_doc": "Platform-flavored. Off by default (run with --layer codegen to include). Extract only target-independent lowering rules from here.",
+      "_doc": "Hand-rolled lowering. Carries target-INDEPENDENT language semantics not visible in grammar+sema: literal decode (raw-string r#\"...\"#), integer-coercion lowering, DST/fat-pointer lowering. Extract only target-independent rules; skip register/ABI/MLIR-op plumbing.",
       "sources": [
         "src/compiler/mlir_gen.cpp",
+        "src/compiler/mlir_gen_impl.hpp",
         "src/compiler/mlir_gen_expr.cpp",
         "src/compiler/mlir_gen_stmt.cpp",
         "src/compiler/mlir_gen_types.cpp",
@@ -59,7 +73,7 @@
     }
   },
 
-  "default_layers": ["grammar", "sema", "mono"],
+  "default_layers": ["grammar", "sema", "mono", "codegen"],
 
   "id_domains": [
     "lex", "grammar", "item", "expr", "stmt", "pat", "type",
