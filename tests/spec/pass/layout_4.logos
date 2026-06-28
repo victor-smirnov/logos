@@ -1,0 +1,153 @@
+package layout_4;
+
+use logos.mem.boxed;
+
+// ── helper types for the layout rules ───────────────────────────────────────
+
+trait Tr { fn f(&self) -> i64; }
+
+// {i8,i64}: a@0, b@8 (b rounded up to align 8), size 16, align 8.
+struct Padded { a: i8, b: i64 }
+
+// inline struct field vs thin-pointer field.
+struct InlineHolder { s: Padded }     // Padded embedded by value → 16 bytes
+struct PtrHolder { p: *const Padded } // thin pointer → 8 bytes
+
+// a () (zero-size) field sits between two i32 siblings without shifting them.
+struct ZsSib { a: i32, z: (), b: i32 }
+
+union U { a: i32, b: i64 }            // overlap at 0; size = max-size aligned
+
+enum CLike { A, B, C }               // fieldless: bare 4-byte discriminant
+
+// max-payload variant decides the payload blob (Big = 16 bytes wins over i32).
+enum MaxVar { Small(i32), Big(i64, i64) }
+
+// a multi-field variant payload is laid out like a struct, with padding:
+// {i32,*const}=16 (not 12), so the enum = disc + 16.
+enum Cons { Nil, More(i32, *const i64) }
+
+// a () payload field contributes no bytes: payload size = max(i64=8, ()=0) = 8.
+enum WithUnit { Yes(i64), Nope(()) }
+
+// a slice payload is stored inline as the full 16-byte fat pair.
+enum SliceCarry { N, S(&[u8]) }
+
+fn main() -> i64 {
+    // @rule layout.zero-size.void-never
+    // () has {size=0, align=1}; as a struct field it occupies a zero slot so
+    // sibling offsets are unaffected (a@0, b@4, total 8 — z contributes nothing).
+    if sizeof::<()>() != 0i64 { return 1i64; }
+    if align_of::<()>() != 1i64 { return 2i64; }
+    if offset_of!(ZsSib, a) != 0i64 { return 3i64; }
+    if offset_of!(ZsSib, b) != 4i64 { return 4i64; }
+    if sizeof::<ZsSib>() != 8i64 { return 5i64; }
+
+    // @rule layout.fat-ptr.sixteen-byte
+    // slice (&[T], str), trait object (&dyn) are two-word fat pairs: 16 bytes.
+    if sizeof::<&[i64]>() != 16i64 { return 6i64; }
+    if sizeof::<str>() != 16i64 { return 7i64; }
+    if sizeof::<&dyn Tr>() != 16i64 { return 8i64; }
+
+    // @rule layout.array.element-stride
+    // [T;N] = N * size_of(T), align = align_of(T); struct elements embed inline.
+    if sizeof::<[i64; 4]>() != 32i64 { return 9i64; }      // 4 * 8
+    if sizeof::<[Padded; 3]>() != 48i64 { return 10i64; }  // 3 * 16 (inline, not ptr)
+
+    // @rule layout.aggregate.field-order-padding
+    // fields in declaration order, each at its aligned offset; align = max field
+    // align; size = accumulated offset rounded up to the aggregate align.
+    if offset_of!(Padded, a) != 0i64 { return 11i64; }
+    if offset_of!(Padded, b) != 8i64 { return 12i64; }     // i64 rounds 1→8
+    if sizeof::<Padded>() != 16i64 { return 13i64; }
+    if align_of::<Padded>() != 8i64 { return 14i64; }
+
+    // @rule layout.union.common-storage
+    // union size = round_up(max field size, align); align = max field align;
+    // fields overlap at offset 0.
+    if sizeof::<U>() != 8i64 { return 15i64; }              // max(4,8)=8
+    if align_of::<U>() != 8i64 { return 16i64; }
+
+    // @rule layout.enum.tagged-disc-payload
+    // tagged enum = 4-byte disc + payload, payload at round_up(4,payload_align),
+    // total rounded to enum align; nested generics carry full inline footprint.
+    if sizeof::<Option<i64>>() != 16i64 { return 17i64; }            // disc4 →8 + i64
+    if sizeof::<Option<Option<i64>>>() != 24i64 { return 18i64; }    // disc + inner16
+
+    // @rule layout.enum.clike-disc-sized
+    // fieldless enum = single discriminant, default backing width 4 bytes.
+    if sizeof::<CLike>() != 4i64 { return 19i64; }
+
+    // @rule layout.aggregate.inline-by-value-members
+    // a struct-typed field embeds the aggregate inline; a *const field of the
+    // same type stores an 8-byte thin pointer instead.
+    if sizeof::<InlineHolder>() != 16i64 { return 20i64; } // Padded inline
+    if sizeof::<PtrHolder>() != 8i64 { return 21i64; }     // thin pointer
+
+    // @rule layout.enum.niche-packed-no-disc
+    // a niche-packed enum has no separate disc word: Option<&T> packs into the
+    // pointer (8 bytes), unlike the non-niche tagged Option<*const T> (16 bytes).
+    if sizeof::<Option<&i32>>() != 8i64 { return 22i64; }
+    if sizeof::<Option<*const i64>>() != 16i64 { return 23i64; }
+
+    // @rule layout.ref.thin-pointer-eight-bytes
+    // a thin reference / raw pointer to a Sized pointee is one machine word.
+    if sizeof::<&i64>() != 8i64 { return 24i64; }
+    if sizeof::<*const i64>() != 8i64 { return 25i64; }
+
+    // @rule layout.ref.fat-pointer-sixteen-bytes
+    // fat references — &[T], str, &dyn — are two-word pairs of 16 bytes.
+    if sizeof::<&[u8]>() != 16i64 { return 26i64; }
+    if sizeof::<&dyn Tr>() != 16i64 { return 27i64; }
+
+    // @rule layout.slice.ptr-len-pair
+    // a slice value is {data ptr, len}: 16 bytes, and its len is readable.
+    if sizeof::<&[i64]>() != 16i64 { return 28i64; }
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        let sl: &[i64] = &arr;
+        if sl.len() != 3i64 { return 29i64; }   // the len word of the pair
+    }
+
+    // @rule layout.dyn.data-vtable-pair
+    // a &dyn value is the {data, vtable} pair (16 bytes) and dispatches via vtable.
+    if sizeof::<&dyn Tr>() != 16i64 { return 30i64; }
+
+    // @rule layout.struct.field-fat-ref-inline-storage
+    // a slice fat ref as an enum variant payload is stored inline as 16 bytes,
+    // never collapsed to an 8-byte handle: SliceCarry = disc + 16 = 24.
+    if sizeof::<SliceCarry>() != 24i64 { return 31i64; }
+
+    // @rule layout.enum.payload-by-value
+    // enum payload members are by value: Option<&[u8]> payload is the 16-byte
+    // slice fat pair, so the tagged enum is disc(→8) + 16 = 24.
+    if sizeof::<Option<&[u8]>>() != 24i64 { return 32i64; }
+
+    // @rule layout.enum.variant-payload-struct-layout
+    // a variant's payload is laid out like a struct, with inter-field padding:
+    // More{i32, *const} = 16 (not 12), so Cons = disc + 16 = 24.
+    if sizeof::<Cons>() != 24i64 { return 33i64; }
+
+    // @rule layout.enum.payload-size-is-max-variant
+    // the payload blob is sized to the largest variant: Big{i64,i64}=16 wins, so
+    // MaxVar = disc(→8) + 16 = 24 (not sized to the i32 variant).
+    if sizeof::<MaxVar>() != 24i64 { return 34i64; }
+
+    // @rule layout.enum.unit-variant-field-omitted
+    // a () payload field contributes no bytes: payload = max(i64=8, ()=0) = 8,
+    // so WithUnit = disc + 8 = 16.
+    if sizeof::<WithUnit>() != 16i64 { return 35i64; }
+
+    // @rule layout.enum.niche-nullptr-ref
+    // Option<&T>/Option<&mut T> use the null-pointer niche: pointer-sized (8),
+    // None = null at offset 0 (refs are non-null), no separate disc word.
+    if sizeof::<Option<&i32>>() != 8i64 { return 36i64; }
+    if sizeof::<Option<&mut i64>>() != 8i64 { return 37i64; }
+
+    // @rule layout.enum.niche-nullptr-nonnull-wrapper
+    // the null-pointer niche also applies to a #[non_null] 8-byte pointer wrapper
+    // (Box-shape): Option<Box<i32>> is pointer-sized (8), no disc word.
+    if sizeof::<Option<Box<i32>>>() != 8i64 { return 38i64; }
+
+    return 0i64;
+}

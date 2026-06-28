@@ -1,0 +1,179 @@
+package layout_3;
+
+use logos.mem.boxed;
+use logos.lang.rc;
+
+// --- helper types ---
+
+trait Speak { fn s(&self) -> i64; }
+struct Dog { x: i64 }
+impl Speak for Dog { fn s(&self) -> i64 { return self.x; } }
+
+struct Pt { a: i64, b: i64 }
+struct Holder { p: Pt }
+
+enum E { Tag(i64), None }
+struct EHolder { e: E }
+
+// C-style enums: one with explicit u64 backing, one with default backing.
+enum Color : u64 { Red, Green, Blue }
+enum Plain { A, B, C }
+
+// custom-DST with a literal `[T]` slice tail (no length carried in-band).
+struct SliceFoo { header: i64, tail: [u8] }
+
+// #[self_describing] custom-DST: tail length recovered in-band, ref stays thin.
+#[self_describing]
+struct Block { count: i64, tail: [i64] }
+impl SelfDescribing for Block {
+    fn dst_len(self: *const Block) -> i64 { return unsafe { (*self).count }; }
+}
+
+// struct holding a slice member (indirect fat member).
+struct WithSlice<'a> { s: &'a [i64], n: i64 }
+
+fn make_pt() -> Pt { return Pt { a: 7, b: 9 }; }
+
+fn make_eholder() -> EHolder {
+    let e: E = E::Tag(99);
+    return EHolder { e: e };
+}
+
+unsafe fn main() -> i64 {
+    // @rule layout.int.fixed-widths
+    // Scalar {size,align} are fixed widths; usize/pointers are 8 on 64-bit.
+    if sizeof::<bool>() != 1 { return 1; }
+    if sizeof::<i8>() != 1 { return 2; }
+    if sizeof::<i16>() != 2 { return 3; }
+    if sizeof::<i32>() != 4 { return 4; }
+    if sizeof::<i64>() != 8 { return 5; }
+    if sizeof::<i128>() != 16 { return 6; }
+    if sizeof::<f32>() != 4 { return 7; }
+    if sizeof::<f64>() != 8 { return 8; }
+    if sizeof::<char>() != 4 { return 9; }
+    if sizeof::<usize>() != 8 { return 10; }
+    if align_of::<i16>() != 2 { return 11; }
+    if align_of::<i64>() != 8 { return 12; }
+    if align_of::<i128>() != 16 { return 13; }
+
+    // @rule layout.return.aggregate-by-value
+    // A fn returning a struct returns the literal aggregate by value.
+    let pt: Pt = make_pt();
+    if pt.a != 7 { return 20; }
+    if pt.b != 9 { return 21; }
+
+    // @rule layout.enum.discriminant-backing-type
+    // `enum Color : u64` discriminant is 8 bytes; default-backed enum is i32 (4 bytes).
+    if sizeof::<Color>() != 8 { return 30; }
+    if sizeof::<Plain>() != 4 { return 31; }
+    if (Color::Green as u64) != 1u64 { return 32; }
+    if (Plain::C as i32) != 2i32 { return 33; }
+
+    // @rule layout.slice.fat-pointer-ptr-len
+    // A slice value is a {data ptr, i64 len} fat pointer: sizeof 16, len+index observable.
+    if sizeof::<&[i64]>() != 16 { return 40; }
+    let buf: [i64; 3] = [11, 22, 33];
+    let sl: &[i64] = &buf;
+    if sl.len() != 3 { return 41; }
+    if sl[2] != 33 { return 42; }
+
+    // @rule layout.dyn.fat-pair-16-byte
+    // `dyn Trait` value is a 16-byte fat pair; `&dyn` is that pair, Box<dyn> a 16-byte handle.
+    if sizeof::<&dyn Speak>() != 16 { return 50; }
+    if sizeof::<Box<dyn Speak>>() != 16 { return 51; }
+
+    // @rule layout.dyn.fat-pair-data-vtable
+    // A trait object carries {data, vtable}; dispatch reaches the concrete impl through both.
+    let d: Dog = Dog { x: 55 };
+    let dr: &dyn Speak = &d;
+    if dr.s() != 55 { return 60; }
+
+    // @rule layout.dyn.box-dyn-collapses-to-trait-object
+    // Box<dyn> is a bare owning trait object: identical 16-byte fat-pair as &dyn, dispatch works.
+    if sizeof::<Box<dyn Speak>>() != sizeof::<&dyn Speak>() { return 70; }
+    let b: Box<dyn Speak> = Box::new(Dog { x: 77 }) as Box<dyn Speak>;
+    if b.s() != 77 { return 71; }
+
+    // @rule layout.dst.slice-tail-ref-is-fat
+    // A ref to a custom-DST struct with a literal `[T]` slice tail is a 16-byte {data,len} fat pointer.
+    if sizeof::<&SliceFoo>() != 16 { return 80; }
+    if sizeof::<&mut SliceFoo>() != 16 { return 81; }
+
+    // @rule layout.dst.dyn-tail-ref-is-thin
+    // A ref whose pointee has a `dyn`-tail (Rc<dyn>) is physically thin: single 8-byte pointer.
+    if sizeof::<Rc<dyn Speak>>() != 8 { return 90; }
+
+    // @rule layout.dstref.fat-only-with-slice-tail
+    // Fat {data,len} ONLY for a literal `[T]` slice tail; dyn-tail and self_describing DST refs are thin 8.
+    if sizeof::<&SliceFoo>() != 16 { return 100; }
+    if sizeof::<Rc<dyn Speak>>() != 8 { return 101; }
+
+    // @rule layout.dst.self-describing-ref-is-thin
+    // A ref to a #[self_describing] DST is a thin 8-byte pointer; tail length recovered in-band.
+    if sizeof::<&Block>() != 8 { return 105; }
+    if sizeof::<&mut Block>() != 8 { return 106; }
+
+    // @rule layout.field.inline-struct-store-by-value
+    // An embedded struct field stores by value: mutating the field does not alias the source.
+    let mut h: Holder = Holder { p: pt };
+    h.p.a = 100;
+    if pt.a != 7 { return 110; }
+    if h.p.a != 100 { return 111; }
+
+    // @rule layout.assign.aggregate-rvalue-byte-copy
+    // Assigning a struct r-value into an indexed slot copies sizeof(struct) bytes (not a pointer).
+    let mut parr: [Pt; 2] = [Pt { a: 0, b: 0 }, Pt { a: 0, b: 0 }];
+    parr[1] = Pt { a: 3, b: 4 };
+    if parr[1].a != 3 { return 120; }
+    if parr[1].b != 4 { return 121; }
+    if parr[0].a != 0 { return 122; }
+
+    // @rule layout.enum.field-store-heap-promote
+    // An enum stored into a struct field survives past its producing frame (heap-promoted, no dangle).
+    let eh: EHolder = make_eholder();
+    match eh.e {
+        E::Tag(v) => { if v != 99 { return 130; } }
+        E::None => { return 131; }
+    }
+
+    // @rule layout.array.inline-element-storage
+    // Struct array elements are stored inline by value (stride = sizeof(elem)); round-trip preserves all.
+    let arr: [Pt; 2] = [Pt { a: 1, b: 2 }, Pt { a: 3, b: 4 }];
+    if arr[0].a != 1 { return 140; }
+    if arr[0].b != 2 { return 141; }
+    if arr[1].a != 3 { return 142; }
+    if arr[1].b != 4 { return 143; }
+
+    // @rule layout.field-index.element-stride-inline-footprint
+    // Indexing struct elements strides by the struct's inline footprint, addressing distinct slots.
+    if (arr[1].a - arr[0].a) != 2 { return 150; }
+    if arr[0].a == arr[1].a { return 151; }
+
+    // @rule layout.value.scalar-vs-aggregate-storage
+    // Storage representation is fixed by type kind: scalars inline, structs by pointer, slices {ptr,len}.
+    let sv: i64 = 42;
+    if sv != 42 { return 160; }
+    let av: Pt = Pt { a: 5, b: 6 };
+    if av.a + av.b != 11 { return 161; }
+    let svl: &[i64] = &buf;
+    if svl.len() != 3 { return 162; }
+
+    // @rule layout.assign.fat-pointer-16-byte-copy
+    // Assigning a slice (fat) into an indexed slot copies all 16 bytes; both ptr and len are written.
+    let buf2: [i64; 4] = [7, 8, 9, 10];
+    let mut slots: [&[i64]; 2] = [&buf, &buf2];
+    if slots[0].len() != 3 { return 170; }
+    if slots[1].len() != 4 { return 171; }
+    slots[0] = &buf2;
+    if slots[0].len() != 4 { return 172; }
+    if slots[0][3] != 10 { return 173; }
+
+    // @rule layout.aggregate-member.indirect-fat-types
+    // A slice member inside a struct is stored indirectly (8-byte pointer), reconstituted on access.
+    let w: WithSlice = WithSlice { s: &buf, n: 9 };
+    if w.s.len() != 3 { return 180; }
+    if w.s[1] != 22 { return 181; }
+    if w.n != 9 { return 182; }
+
+    return 0;
+}

@@ -1,0 +1,213 @@
+package expr_2;
+
+use logos.lang.slice;
+use logos.lang.result;
+
+// Module-level const with no local storage (exercises addrof.module-const-temp).
+pub const MC: i64 = 777i64;
+
+// A small Result-returning helper for the `?` operator rules.
+fn checked(n: i64) -> Result<i64, i64> {
+    if n < 0i64 { return Result::Err(n); }
+    return Result::Ok(n + 1i64);
+}
+
+// `?` on Ok unwraps the payload; on Err it reconstructs+returns the Err.
+fn run_try(n: i64) -> Result<i64, i64> {
+    let v: i64 = checked(n)?;     // Ok => v = n+1 ; Err => early-returns Err(n)
+    return Result::Ok(v * 10i64);
+}
+
+// &mut p on a reference parameter must rebind to one slot so writes carry through.
+fn bump_through_ref(p: &mut i64) -> i64 {
+    let q: &mut i64 = &mut *p;    // reborrow: same pointer identity
+    *q = *q + 1i64;
+    return *p;                    // sees the write done via q
+}
+
+struct Pair { a: i64, b: i64 }
+
+enum Tag { One(i64), Two(i64) }
+
+fn main() -> i64 {
+    // @rule expr.slice.len-and-ptr-projection
+    // `.len()` on a fat slice yields the metadata half (element count).
+    {
+        let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+        let s: &[i64] = arr[..];
+        if s.len() != 4i64 { return 1; }
+        let mid: &[i64] = s[1i64..3i64];
+        if mid.len() != 2i64 { return 2; }
+        if mid[0i64] != 20i64 { return 3; }   // data-half projection reaches elem 0
+    }
+
+    // @rule expr.block.value-block-scopes-let
+    // A value block introduces a scope; an inner `let x` shadows only inside.
+    {
+        let x: i64 = 1i64;
+        let y: i64 = { let x: i64 = 100i64; x + 1i64 };   // inner x == 100
+        if x != 1i64 { return 4; }     // outer x restored / never clobbered
+        if y != 101i64 { return 5; }
+    }
+
+    // @rule expr.try.ok-unwrap-err-propagate
+    // `?` yields the Ok payload; on Err it returns Err from the enclosing fn.
+    {
+        match run_try(5i64) {
+            Result::Ok(v) => { if v != 60i64 { return 6; } }   // (5+1)*10
+            Result::Err(_) => { return 7; }
+        }
+        match run_try(-3i64) {
+            Result::Ok(_) => { return 8; }
+            Result::Err(e) => { if e != -3i64 { return 9; } }   // original payload
+        }
+    }
+
+    // @rule expr.index.read-write-same-slot
+    // `s[i] = v` writes the same element the by-value read observes.
+    {
+        let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
+        arr[1i64] = 99i64;
+        if arr[1i64] != 99i64 { return 10; }
+        if arr[0i64] != 1i64 { return 11; }   // neighbors untouched
+    }
+
+    // @rule expr.index.unsigned-index-extension
+    // An unsigned index narrower than 64 bits is zero-extended before GEP.
+    {
+        let arr: [i64; 4] = [5i64, 6i64, 7i64, 8i64];
+        let i: u32 = 3u32;
+        if arr[i] != 8i64 { return 12; }      // high bits well-defined, no garbage
+    }
+
+    // @rule expr.addrof.var-place-identity
+    // `&x` over a local denotes the address of that binding's slot.
+    {
+        let vp_v: i64 = 41i64;
+        let vp_r: &i64 = &vp_v;
+        if *vp_r != 41i64 { return 13; }
+    }
+
+    // @rule expr.addrof.ref-param-rebind
+    // `&mut *p` on a ref param shares one slot; write-through is visible.
+    {
+        let mut n: i64 = 5i64;
+        if bump_through_ref(&mut n) != 6i64 { return 14; }
+        if n != 6i64 { return 15; }          // write reached caller's storage
+    }
+
+    // @rule expr.addrof.module-const-temp
+    // `&MC` materializes a fresh slot holding the const value.
+    {
+        let mc_r: &i64 = &MC;
+        if *mc_r != 777i64 { return 16; }
+    }
+
+    // @rule expr.addrof.mut-place-element-address
+    // `&mut a[i]` yields the real element address; writes reach the aggregate.
+    {
+        let mut arr: [i64; 3] = [7i64, 8i64, 9i64];
+        let e: &mut i64 = &mut arr[2i64];
+        *e = 555i64;
+        if arr[2i64] != 555i64 { return 17; }
+    }
+
+    // @rule expr.addrof.reborrow-pointer-identity
+    // `&*r` is r itself (no extra indirection): writes alias.
+    {
+        let mut rb_v: i64 = 3i64;
+        let rb_r: &mut i64 = &mut rb_v;
+        let rb_r2: &mut i64 = &mut *rb_r;   // same pointer
+        *rb_r2 = 88i64;
+        if rb_v != 88i64 { return 18; }
+    }
+
+    // @rule expr.addrof.temp-aggregate-spill
+    // `&<temp struct>` spills the temporary once and yields that slot.
+    {
+        let ts_r: &Pair = &Pair { a: 4i64, b: 5i64 };
+        if ts_r.a != 4i64 { return 19; }
+        if ts_r.b != 5i64 { return 20; }
+    }
+
+    // @rule expr.addrof.enum-single-level
+    // A tagged enum is pointer-to-inline-storage; `&enum` is one indirection,
+    // so a write through &mut reaches the original enum.
+    {
+        let mut en_t: Tag = Tag::One(11i64);
+        let en_rt: &mut Tag = &mut en_t;
+        *en_rt = Tag::Two(22i64);
+        match en_t {
+            Tag::One(_) => { return 21; }
+            Tag::Two(x) => { if x != 22i64 { return 22; } }
+        }
+    }
+
+    // @rule expr.deref.aggregate-pointer-identity
+    // `*p` of aggregate type yields the same pointer; field access still works.
+    {
+        let ap_p: Pair = Pair { a: 1i64, b: 2i64 };
+        let ap_rp: &Pair = &ap_p;
+        let ap_d: &Pair = &*ap_rp;    // deref then re-borrow: same place
+        if ap_d.a != 1i64 { return 23; }
+        if ap_d.b != 2i64 { return 24; }
+    }
+
+    // @rule expr.deref.scalar-load
+    // `*p` of scalar type loads the pointee value.
+    {
+        let sl_v: i32 = 123i32;
+        let sl_r: &i32 = &sl_v;
+        if *sl_r != 123i32 { return 25; }
+    }
+
+    // @rule expr.deref.tagged-enum-identity
+    // `*p` over `&Enum` to a tagged enum yields the pointer (no load); the
+    // pointed-to variant data is intact when matched through the deref.
+    {
+        let te_t: Tag = Tag::Two(31i64);
+        let te_rt: &Tag = &te_t;
+        match *te_rt {
+            Tag::One(_) => { return 26; }
+            Tag::Two(x) => { if x != 31i64 { return 27; } }
+        }
+    }
+
+    // @rule expr.litint.width-by-type
+    // Integer literals encode at the bit-width of their inferred type.
+    {
+        let a: u8 = 255u8;            // full 8-bit range
+        if (a as i64) != 255i64 { return 28; }
+        let b: i8 = -128i8;           // min i8, 8-bit
+        if (b as i64) != -128i64 { return 29; }
+        let c: u32 = 4000000000u32;   // > i32 max, fits in 32-bit unsigned
+        if (c as i64) != 4000000000i64 { return 30; }
+    }
+
+    // @rule expr.litint.usize-pointer-sized
+    // A usize literal is encoded at pointer width (64 on this target);
+    // a value above 32 bits round-trips with well-defined high bits.
+    {
+        let big: usize = 5000000000usize;   // 0x1_2A05F200, needs > 32 bits
+        if (big as i64) != 5000000000i64 { return 31; }
+    }
+
+    // @rule expr.litint.i128-two-halves
+    // A 128-bit literal whose value exceeds 64 bits keeps both halves.
+    {
+        let big: i128 = 100000000000000000000i128;   // 10^20 > 2^64
+        // 10^20 / 10^10 == 10^10 ; verifies the high half was not discarded.
+        if (big / 10000000000i128) != 10000000000i128 { return 32; }
+    }
+
+    // @rule expr.litfloat.f32-vs-f64
+    // An f32 literal is a 32-bit float; the default float literal is f64.
+    {
+        let f: f32 = 1.5f32;
+        if (f as f64) != 1.5f64 { return 33; }
+        let d: f64 = 0.25;            // untyped float literal defaults to f64
+        if d != 0.25f64 { return 34; }
+    }
+
+    return 0;
+}

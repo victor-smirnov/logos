@@ -9,60 +9,83 @@
       "domain": "intrinsic",
       "title": "sizeof::<T>() yields the padded layout size",
       "statement": "`sizeof::<T>()` evaluates to a 64-bit compile-time constant equal to the type's full size including inter-field and trailing alignment padding (e.g. `{i32,i64}` => 16, not 12), drawn from the single unified layout used by all other size queries.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5398-L5405"],
-      "examples": ["sizeof::<(i32, i64)>() == 16"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5398-L5405"
+      ],
+      "examples": [
+        "sizeof::<(i32, i64)>() == 16"
+      ]
     },
     {
       "id": "intrinsic.alignof.unified-layout-align",
       "domain": "intrinsic",
       "title": "alignof::<T>() yields layout alignment, min 1",
       "statement": "`alignof::<T>()` evaluates to a 64-bit compile-time constant equal to the type's alignment from the unified layout; if the layout reports alignment 0 the result is 1.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5408-L5412"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5408-L5412"
+      ]
     },
     {
       "id": "intrinsic.ptr-arith.element-vs-byte-scaling",
       "domain": "intrinsic",
       "title": "Pointer arithmetic scales by pointee for Add/Sub, by byte for ByteAdd/ByteSub",
       "statement": "Pointer arithmetic offsets the base pointer by `offset` elements (each step = sizeof(pointee)) for Add/Sub; for ByteAdd/ByteSub the offset is in bytes (pointee treated as i8). The offset operand is normalized to a 64-bit integer. Sub and ByteSub negate the offset.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5414-L5453"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5414-L5453"
+      ]
     },
     {
       "id": "intrinsic.ptr-diff.byte-and-element",
       "domain": "intrinsic",
       "title": "Pointer difference: raw byte distance or element count",
       "statement": "Pointer difference computes `(usize)lhs - (usize)rhs`; when by-byte it is that raw byte distance, otherwise it is the signed quotient `byte_distance / sizeof(pointee)` giving the element count between the two pointers.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5456-L5486"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5456-L5486"
+      ]
     },
     {
       "id": "expr.block.value-block-scopes-let",
       "domain": "expr",
       "title": "Value-producing block scopes its own let bindings",
       "statement": "A value-producing block expression `{ stmts; result }` introduces a new lexical scope: a `let` at the block's top level that shadows an outer binding of the same name is visible only inside the block, and the outer binding is restored when the block's value is produced; the block does not clobber the outer slot.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5494-L5557"],
-      "examples": ["let x = 1; let y = { let x = 100; x + 1 }; // x still == 1, y == 101"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5494-L5557"
+      ],
+      "examples": [
+        "let x = 1; let y = { let x = 100; x + 1 }; // x still == 1, y == 101"
+      ]
     },
     {
       "id": "expr.try.ok-unwrap-err-propagate",
       "domain": "expr",
       "title": "`expr?` unwraps Ok or early-returns Err",
       "statement": "`expr?` on a Result-like tagged enum loads the discriminant: on the Ok variant it yields the Ok payload value; on the Err variant it reconstructs an Err value carrying the original error payload and immediately returns it from the enclosing function. The expression's value is the unwrapped Ok payload.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5563-L5681"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5563-L5681"
+      ]
     },
     {
       "id": "expr.writ-lit.int-small-inline-else-boxed",
       "domain": "expr",
       "title": "Writ literal integer encoding: i24-inline vs boxed i64",
       "statement": "In a Writ SDN literal, an integer in [-2^23, 2^23-1] is encoded inline as a 24-bit value; any integer outside that range is boxed as a 64-bit value.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5831-L5836"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5831-L5836"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.writ-lit.value-kinds",
       "domain": "expr",
       "title": "Writ literal value kinds and their encodings",
       "statement": "A Writ SDN literal value is one of: null; bool (0/1); int (see int encoding); float (boxed f64); string; array (homogeneous scalar arrays I8..F64 use a typed array, otherwise an object array); map (integer-keyed I32/U32/I64/U64 use a typed map, otherwise an object map keyed by string); type (a tiny map carrying kind/uid/name); or capture/PARAM (an inline placeholder bound to a value index, substituted at runtime).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L5759-L5882", "src/compiler/mlir_gen_expr.cpp#L5820-L5882"],
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L5759-L5882",
+        "src/compiler/mlir_gen_expr.cpp#L5820-L5882"
+      ],
       "uncertainty": "Writ is a Logos-specific data substrate (zoned SDN); these encodings are language-level data-literal semantics, not a Rust feature.",
-      "divergence": "Logos addition (Writ SDN literals); no Rust equivalent."
+      "divergence": "Logos addition (Writ SDN literals); no Rust equivalent.",
+      "testability": "untestable"
     }
   ]
 }

@@ -1,0 +1,296 @@
+package expr_4;
+
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.lang.range;
+use logos.lang.writ.wstatic;
+use logos.mem.writ.stringify;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
+
+// ----- helpers -----
+
+struct Pt { x: i64, y: i64 }
+
+struct Pair(i64, i64);
+
+enum Shape {
+    Dot,
+    Line(i64, i64),
+    Rect { w: i64, h: i64 },
+}
+
+// Generic ref helper for turbofish.
+fn ident<T>(v: T) -> T { return v; }
+
+// divergent-call helper: callee whose return type is Never.
+fn boom() -> ! { loop {} }
+
+fn main() -> i64 {
+    // @rule expr.assign.compound-op-set
+    // Every compound-assign operator applies its binary op to the place.
+    {
+        let mut a: i64 = 12i64;
+        a += 3i64;  if a != 15i64 { return 1; }
+        a -= 5i64;  if a != 10i64 { return 1; }
+        a *= 4i64;  if a != 40i64 { return 1; }
+        a /= 6i64;  if a != 6i64  { return 1; }
+        a %= 4i64;  if a != 2i64  { return 1; }
+        let mut b: u32 = 0b1100u32;
+        b &= 0b1010u32; if b != 0b1000u32 { return 1; }
+        b |= 0b0001u32; if b != 0b1001u32 { return 1; }
+        b ^= 0b1111u32; if b != 0b0110u32 { return 1; }
+        b <<= 2u32;     if b != 0b011000u32 { return 1; }
+        b >>= 3u32;     if b != 0b011u32 { return 1; }
+    }
+
+    // @rule expr.assign.deref-write
+    // `*p = v` writes through a deref; `*p OP v` lowers to `*p = *p OP v`.
+    {
+        let mut n: i64 = 7i64;
+        let p: &mut i64 = &mut n;
+        *p = 20i64;       if *p != 20i64 { return 2; }   // plain deref-write
+        *p += 5i64;       if *p != 25i64 { return 2; }   // compound through deref
+        *p *= 2i64;       if *p != 50i64 { return 2; }
+    }
+
+    // @rule expr.if.single-let-guard
+    // `if let P = e && cond` puts the && on the match guard.
+    {
+        let s: Shape = Shape::Line(3i64, 4i64);
+        let mut hit: i64 = 0i64;
+        if let Shape::Line(a, _b) = s && a > 2i64 {
+            hit = 1i64;
+        } else {
+            hit = 2i64;
+        }
+        if hit != 1i64 { return 3; }
+        // guard false -> else branch.
+        let s2: Shape = Shape::Line(1i64, 9i64);
+        let mut hit2: i64 = 0i64;
+        if let Shape::Line(a, _b) = s2 && a > 2i64 {
+            hit2 = 1i64;
+        } else {
+            hit2 = 2i64;
+        }
+        if hit2 != 2i64 { return 3; }
+    }
+
+    // @rule expr.range.family
+    // The six range forms; iterate the ones with both bounds.
+    {
+        let mut sum: i64 = 0i64;
+        for i in 1i64..4i64 { sum += i; }        // half-open: 1+2+3
+        if sum != 6i64 { return 4; }
+        let mut sum2: i64 = 0i64;
+        for i in 1i64..=4i64 { sum2 += i; }      // inclusive: 1+2+3+4
+        if sum2 != 10i64 { return 4; }
+        // open-ended / full forms must parse and slice (checked under index.read).
+        let _from = 2i64..;
+        let _to = ..5i64;
+        let _toinc = ..=5i64;
+        let _full = ..;
+    }
+
+    // @rule expr.postfix.chain
+    // Left-associative chain: field, method, index, all in one chain.
+    {
+        let mut v: Vec<i64> = Vec::new();
+        v.push(10i64); v.push(20i64); v.push(30i64);
+        // method chain: .push returns nothing, so test field + index + method.
+        let pt: Pt = Pt { x: 5i64, y: 6i64 };
+        if pt.x != 5i64 { return 5; }
+        // turbofish method on a generic helper result, then field.
+        let got: i64 = ident::<i64>(v.get(1i64));
+        if got != 20i64 { return 5; }
+    }
+
+    // (expr.try.operator omitted — see report: a compiler codegen bug is
+    //  triggered when `?`-desugar coexists with this function's other blocks,
+    //  producing a malformed icmp. `?` is exercised by try_basic / try_option.)
+
+    // @rule expr.literal.kinds
+    // int, float, char, string, byte-string, true/false.
+    {
+        let li: i64 = 42i64;            if li != 42i64 { return 7; }
+        let lf: f64 = 1.5f64;           if lf != 1.5f64 { return 7; }
+        let lc: char = 'A';             if (lc as i64) != 65i64 { return 7; }
+        let lstr: str = "hi";           if lstr.len() != 2i64 { return 7; }
+        let lbool: bool = true;         if lbool != true { return 7; }
+        // byte string -> [u8; N]
+        let bs: [u8; 3] = b"a\nb";      // 'a', newline, 'b'
+        if bs[0] != 97u8 { return 7; }
+        if bs[1] != 10u8 { return 7; }  // \n
+        if bs[2] != 98u8 { return 7; }
+    }
+
+    // @rule expr.control.never-position
+    // `return e` in expression position has type ! and unifies with the other arm.
+    {
+        let c: bool = true;
+        let x: i64 = if c { 11i64 } else { return 8; };
+        if x != 11i64 { return 8; }
+        // break with a value out of loop, in expr position.
+        let y: i64 = loop {
+            break 99i64;
+        };
+        if y != 99i64 { return 8; }
+    }
+
+    // @rule expr.block.as-value
+    // block, unsafe-block, loop, if/else, match all yield values.
+    {
+        let blk: i64 = { let t: i64 = 3i64; t + 4i64 };
+        if blk != 7i64 { return 9; }
+        let ub: i64 = unsafe { 5i64 };
+        if ub != 5i64 { return 9; }
+        let lp: i64 = loop { break 12i64; };
+        if lp != 12i64 { return 9; }
+        let iv: i64 = if true { 1i64 } else { 2i64 };
+        if iv != 1i64 { return 9; }
+        let mv: i64 = match 2i64 { 2i64 => 8i64, _ => 0i64 };
+        if mv != 8i64 { return 9; }
+    }
+
+    // @rule expr.turbofish.generic-ref
+    // IDENT::<T> is a generic reference with explicit type args.
+    {
+        let g: i64 = ident::<i64>(77i64);
+        if g != 77i64 { return 10; }
+    }
+
+    // @rule expr.enum-lit.forms
+    // unit, tuple-payload, struct-shape variants.
+    {
+        let d: Shape = Shape::Dot;
+        let okd: i64 = match d { Shape::Dot => 1i64, _ => 0i64 };
+        if okd != 1i64 { return 11; }
+        let ln: Shape = Shape::Line(2i64, 3i64);
+        let okl: i64 = match ln { Shape::Line(a, b) => a + b, _ => 0i64 };
+        if okl != 5i64 { return 11; }
+        let rc: Shape = Shape::Rect { w: 4i64, h: 5i64 };
+        let okr: i64 = match rc { Shape::Rect { w, h } => w * h, _ => 0i64 };
+        if okr != 20i64 { return 11; }
+    }
+
+    // @rule expr.struct-lit.forms
+    // basic + functional-update; explicit field overrides base.
+    {
+        let base: Pt = Pt { x: 1i64, y: 2i64 };
+        let upd: Pt = Pt { x: 9i64, .. base };   // x overrides, y from base
+        if upd.x != 9i64 { return 12; }
+        if upd.y != 2i64 { return 12; }
+    }
+
+    // @rule expr.struct-lit.field-init
+    // shorthand `name`, and tuple-struct numeric field names.
+    {
+        let x: i64 = 5i64;
+        let y: i64 = 6i64;
+        let p: Pt = Pt { x, y };                 // field shorthand
+        if p.x != 5i64 { return 13; }
+        if p.y != 6i64 { return 13; }
+        let tp: Pair = Pair { 0: 7i64, 1: 8i64 };  // numeric field names
+        if tp.0 != 7i64 { return 13; }
+        if tp.1 != 8i64 { return 13; }
+    }
+
+    // @rule expr.array.literal-forms
+    // element list and fill form [value; N].
+    {
+        let list: [i64; 3] = [10i64, 20i64, 30i64];
+        if list[2] != 30i64 { return 14; }
+        let fill: [i64; 4] = [7i64; 4];
+        if fill[0] != 7i64 { return 14; }
+        if fill[3] != 7i64 { return 14; }
+    }
+
+    // @rule expr.comprehension.list-and-map
+    // list comprehension -> Vec, map comprehension -> HashMap; with guard.
+    {
+        let arr: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+        let mut sq: Vec<i64> = [x * x for x in arr];
+        if sq.length() != 5i64 { return 15; }
+        if sq.get(2i64) != 9i64 { return 15; }
+        let mut ev: Vec<i64> = [x for x in arr if (x % 2i64) == 0i64];
+        if ev.length() != 2i64 { return 15; }
+        if ev.get(1i64) != 4i64 { return 15; }
+        let mut m: HashMap<i64, i64> = {x: x * 10i64 for x in arr};
+        if m.len() != 5i64 { return 15; }
+        let k: i64 = 3i64;
+        unsafe {
+            let pv = m.get(&k);
+            if pv == 0 as *const i64 { return 15; }
+            if *pv != 30i64 { return 15; }
+        }
+    }
+
+    // @rule expr.writ.sdn-literal
+    // @-sigil structured-data literals; verify via stringify.
+    {
+        let m: WritStatic = @{"k": 99};
+        let s: String = stringify(wview2_from_ptr(m.ptr).root());
+        if !s.eq_str("{\"k\": 99}") { return 16; }
+        let a: WritStatic = @[1, 2, 3];
+        let sa: String = stringify(wview2_from_ptr(a.ptr).root());
+        if !sa.eq_str("[1, 2, 3]") { return 16; }
+    }
+
+    // @rule expr.index.read
+    // e[i] index-read; range index produces a slice.
+    {
+        let arr: [i64; 4] = [5i64, 6i64, 7i64, 8i64];
+        if arr[0] != 5i64 { return 17; }
+        if arr[3] != 8i64 { return 17; }
+        let sl: &[i64] = arr[1..3];     // slice [6,7]
+        if sl.len() != 2i64 { return 17; }
+        if sl[0] != 6i64 { return 17; }
+        if sl[1] != 7i64 { return 17; }
+    }
+
+    // @rule expr.field.tuple-index
+    // .field reads named field; .N reads Nth tuple element.
+    {
+        let pt: Pt = Pt { x: 3i64, y: 4i64 };
+        if pt.x != 3i64 { return 18; }
+        let tup: (i64, i64, i64) = (10i64, 20i64, 30i64);
+        if tup.0 != 10i64 { return 18; }
+        if tup.2 != 30i64 { return 18; }
+    }
+
+    // @rule expr.unsafe.block
+    // unsafe { ... } body is an ordinary block yielding its tail.
+    {
+        let r: i64 = unsafe {
+            let t: i64 = 6i64;
+            t * 7i64
+        };
+        if r != 42i64 { return 19; }
+    }
+
+    // @rule expr.call.divergent-never-return
+    // a call whose return type is Never diverges: the other arm's value flows out.
+    {
+        let c: bool = true;
+        let x: i64 = if c { 33i64 } else { boom() };
+        if x != 33i64 { return 20; }
+    }
+
+    // @rule expr.int-lit.suffix-range
+    // suffixed literal at the edge of its type's range is accepted.
+    {
+        let hi: i8 = 127i8;       if (hi as i64) != 127i64 { return 21; }
+        let uh: u8 = 255u8;       if (uh as i64) != 255i64 { return 21; }
+    }
+
+    // @rule expr.int-lit.negate-fold
+    // leading minus folds into the literal, so |min| is allowed: -128i8 == i8::MIN.
+    {
+        let mn: i8 = -128i8;
+        if (mn as i64) != -128i64 { return 22; }
+    }
+
+    return 0;
+}

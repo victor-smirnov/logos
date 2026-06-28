@@ -51,7 +51,8 @@
         "src/compiler/mlir_gen_types.cpp#L622",
         "src/compiler/mlir_gen_types.cpp#L637"
       ],
-      "divergence": "Logos self-relative pointers (zoned/Writ); no Rust equivalent."
+      "divergence": "Logos self-relative pointers (zoned/Writ); no Rust equivalent.",
+      "testability": "untestable"
     },
     {
       "id": "layout.struct.field-fat-ref-inline-storage",
@@ -139,7 +140,8 @@
       "evidence": [
         "src/compiler/mlir_gen_types.cpp#L811-L851"
       ],
-      "divergence": "Logos zoned (Writ) niche; no Rust equivalent."
+      "divergence": "Logos zoned (Writ) niche; no Rust equivalent.",
+      "testability": "untestable"
     },
     {
       "id": "layout.enum.niche-lowbit-int-widths",

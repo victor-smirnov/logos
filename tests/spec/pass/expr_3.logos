@@ -1,0 +1,290 @@
+package expr_3;
+
+use logos.mem.boxed;
+use logos.lang.mem;
+use logos.mem.string;
+
+// Drop probe: increments a shared counter through a raw pointer, so the number
+// and order of destructor runs is observable from main.
+trait Drop { fn drop(self: &mut Self); }
+
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// Order-recording probe: each drop appends its id to a buffer.
+struct Ord { id: i64, buf: *mut i64, pos: *mut i64 }
+impl Drop for Ord {
+    fn drop(self: &mut Self) {
+        unsafe { let n: i64 = *self.pos; self.buf[n] = self.id; *self.pos = n + 1i64; }
+    }
+}
+fn mko(id: i64, buf: *mut i64, pos: *mut i64) -> Ord { return Ord { id: id, buf: buf, pos: pos }; }
+
+// Enum with a droppable payload variant and a payload-less variant.
+enum E { Some(R), None }
+
+// Non-droppable enum (i64 payload) for the if-let-chain control-flow rule.
+enum Num { Some(i64), None }
+
+// Struct with a user Drop (consumes self by-value semantics via &mut here).
+struct UserDrop { i: *mut i64, tag: i64 }
+impl Drop for UserDrop { fn drop(self: &mut Self) { unsafe { *self.i += 100i64; } } }
+
+// Closure-call helpers for invoke / fn-ptr rules.
+fn add1(x: i64) -> i64 { return x + 1i64; }
+
+// Chained-field-write helpers (pointer-to-struct intermediate segment).
+struct Leaf { v: i64 }
+struct Mid { leaf: *mut Leaf }
+struct Top { mid: Mid }
+
+// trait object for owning Box<dyn> drop.
+trait Sp { fn val(&self) -> i64; }
+struct Owned { i: *mut i64, x: i64 }
+impl Sp for Owned { fn val(&self) -> i64 { return self.x; } }
+impl Drop for Owned { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+
+// Implicit tail-return: no trailing `;` synthesizes `return expr`.
+fn tail_ret(a: i64) -> i64 { a + 7i64 }
+
+// break / continue / return in expression (Never) position.
+fn never_in_expr(c: bool) -> i64 {
+    // `return` in expression position carries the value of the surrounding let.
+    let v: i64 = if c { 5i64 } else { return 99i64 };
+    return v;
+}
+
+fn main() -> i64 {
+    // @rule expr.litbool.zero-one
+    // A boolean literal is a 1-bit integer: true=1, false=0.
+    if (true as i64) != 1i64 { return 1; }
+    if (false as i64) != 0i64 { return 2; }
+
+    // @rule expr.lit.char-is-unicode-scalar
+    // A char literal denotes a single Unicode scalar, decoded to a u32 scalar.
+    if ('A' as u32) != 65u32 { return 3; }
+    if ('A' as u32) != 65u32 { return 4; }
+
+    // @rule expr.return.implicit-tail
+    // A trailing expression with no `;` synthesizes an implicit `return expr`.
+    if tail_ret(3i64) != 10i64 { return 5; }
+
+    // @rule expr.invoke.expression-callee
+    // `(expr)(args)` invokes the value produced by `expr` as a callee.
+    {
+        let f: fn(i64) -> i64 = add1;
+        if (f)(41i64) != 42i64 { return 6; }
+    }
+
+    // @rule expr.control.break-continue-return-in-value-position
+    // break/continue/return are Never-typed and accepted in expression position.
+    {
+        let mut acc: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < 10i64 {
+            // `continue`/`break` used in value position via if-else arms.
+            let step: i64 = if i == 5i64 { break } else { 1i64 };
+            acc += step;
+            i += 1i64;
+        }
+        if acc != 5i64 { return 7; }              // looped 0..5, then broke
+        if never_in_expr(true) != 5i64 { return 8; }
+        if never_in_expr(false) != 99i64 { return 9; }   // `return` in let-RHS
+    }
+
+    // @rule expr.if-let-chain.fall-to-else-on-failure
+    // if-let chain: any failed bind or false condition takes ELSE.
+    {
+        let a: Num = Num::Some(7i64);
+        let mut hit: i64 = 0i64;
+        if let Num::Some(v) = a && 1i64 < 2i64 { hit = v; } else { hit = 2i64; }
+        if hit != 7i64 { return 10; }              // both bind + cond hold -> THEN
+        let b: Num = Num::None;
+        let mut hit2: i64 = 0i64;
+        if let Num::Some(_v) = b { hit2 = 1i64; } else { hit2 = 2i64; }  // bind fails -> else
+        if hit2 != 2i64 { return 11; }
+        // false trailing condition also falls to else.
+        let cc: Num = Num::None;
+        let mut hit3: i64 = 0i64;
+        if let Num::None = cc && false { hit3 = 1i64; } else { hit3 = 2i64; }
+        if hit3 != 2i64 { return 12; }
+    }
+
+    // @rule expr.index.unsigned-zero-extend
+    // An unsigned index is zero-extended (u8 200 indexes element 200, not negative).
+    {
+        let arr: [i64; 256] = [0i64; 256];
+        let idx: u8 = 200u8;
+        if arr[idx] != 0i64 { return 13; }   // would be OOB/negative if sign-extended
+        // also confirm we actually read element 200 by writing it.
+        let mut warr: [i64; 256] = [0i64; 256];
+        warr[idx] = 7i64;
+        if warr[200u32 as usize] != 7i64 { return 14; }
+    }
+
+    // @rule expr.field-write.chain-auto-deref
+    // a.b.c... = v derefs pointer-to-struct intermediates before descending.
+    {
+        unsafe {
+            let mut leaf: Leaf = Leaf { v: 0i64 };
+            let mut t: Top = Top { mid: Mid { leaf: &mut leaf as *mut Leaf } };
+            t.mid.leaf.v = 55i64;       // .leaf is *mut Leaf -> auto-deref before final store
+            if leaf.v != 55i64 { return 15; }
+        }
+    }
+
+    // @rule expr.deref-write.drop-before-replace
+    // Writing through a place to a live owned droppable runs the OLD drop before store.
+    {
+        let mut o: One = One { s: String::from("AAAAAAAA") };
+        // overwriting o.s drops the old String before storing the new one;
+        // observable: no leak / new value usable. We assert the new length.
+        o.s = String::from("CCCCCCCCCCCCCCCC");
+        if o.s.len() != 16i64 { return 16; }
+    }
+
+    // @rule expr.deref-write.aggregate-by-value-copy
+    // `*p = v` copies the full aggregate footprint, not 8 bytes.
+    {
+        unsafe {
+            let mut dst: Pair = Pair { a: 0i64, b: 0i64 };
+            let p: *mut Pair = &mut dst as *mut Pair;
+            *p = Pair { a: 11i64, b: 22i64 };   // copies both fields
+            if dst.a != 11i64 { return 17; }
+            if dst.b != 22i64 { return 18; }
+        }
+    }
+
+    // --- drop-rule assertions use a single heap-allocated counter `p` so that
+    // observing a destructor never leaves a live stack borrow across blocks.
+    unsafe {
+        let p: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+
+        // @rule expr.drop.ref-ptr-noop
+        // Dropping &T/&mut T/*T is a no-op: it owns nothing, runs no destructor.
+        p[0] = 0i64;
+        {
+            let owner: R = R { i: p };
+            {
+                let _refs: (&R, *mut i64) = (&owner, p);  // a ref and a raw ptr
+            }   // _refs scope-exit: ref/ptr drops are no-ops
+            if p[0] != 0i64 { return 19; }   // owner not dropped yet, nothing fired
+        }   // owner finally drops once here
+        if p[0] != 1i64 { return 38; }       // exactly the owner drop, refs added nothing
+
+        // @rule expr.drop.flag-uninit-conditional
+        // A var that may be uninit drops only if it currently holds a value.
+        p[0] = 0i64;
+        cond_only(p, false);   // never assigned -> nothing dropped
+        if p[0] != 0i64 { return 20; }
+        cond_only(p, true);    // assigned -> dropped once
+        if p[0] != 1i64 { return 21; }
+
+        // @rule expr.drop.dynamic-flag
+        // `let mut x: T;` with conditional init gets a runtime drop flag: each
+        // assignment drops the old only if set, scope-exit drops only if set.
+        p[0] = 0i64;
+        promote_then_cond(p, true);   // straight assign + conditional reassign:
+                                      // 1 drop on reassign + 1 at scope = 2
+        if p[0] != 2i64 { return 22; }
+        p[0] = 0i64;
+        promote_then_cond(p, false);  // straight assign, no reassign: drop at scope = 1
+        if p[0] != 1i64 { return 23; }
+
+        // @rule expr.drop.struct-user-drop-then-fields
+        // Dropping a struct first runs its user Drop; a top-level struct with a
+        // user Drop runs only that drop (fields consumed by self), no double-drop.
+        p[0] = 0i64;
+        { let _u: UserDrop = UserDrop { i: p, tag: 1i64 }; }
+        if p[0] != 100i64 { return 24; }   // user drop fired exactly once
+
+        // @rule expr.drop.enum-user-drop-then-variant
+        // Dropping an enum with no user Drop switches on disc and drops the active
+        // variant's droppable payload; a payload-less variant drops nothing.
+        p[0] = 0i64;
+        { let _e: E = E::Some(mk(p)); }   // active payload R dropped once
+        if p[0] != 1i64 { return 25; }
+        p[0] = 0i64;
+        { let _e2: E = E::None; }          // no payload -> nothing
+        if p[0] != 0i64 { return 26; }
+
+        // @rule expr.drop.tuple-array-reverse
+        // Tuple drops elements in reverse index order; arrays drop each element.
+        let mut buf: [i64; 4] = [-1i64; 4];
+        let mut pos: i64 = 0i64;
+        let pb: *mut i64 = &mut buf as *mut i64;
+        let pp: *mut i64 = &mut pos;
+        {
+            // tuple of two Ord: dropped in reverse index order => id 2 then id 1.
+            let _t: (Ord, Ord) = (mko(1i64, pb, pp), mko(2i64, pb, pp));
+        }
+        if buf[0] != 2i64 { return 27; }   // higher index drops first
+        if buf[1] != 1i64 { return 28; }
+        // fixed array: every element dropped.
+        p[0] = 0i64;
+        { let _a: [R; 3] = [mk(p), mk(p), mk(p)]; }
+        if p[0] != 3i64 { return 29; }
+
+        // @rule expr.drop.closure-env-glue
+        // An owning (move-capture) closure runs its env glue exactly once on drop.
+        p[0] = 0i64;
+        {
+            let owner: R = R { i: p };
+            // move-capture an owning value: closure owns it, drops it once.
+            let f = move || -> i64 { unsafe { return *owner.i; } };
+            if f() != 0i64 { return 30; }
+        }   // closure drops -> owned R dropped exactly once
+        if p[0] != 1i64 { return 31; }
+
+        // @rule expr.drop.owning-box-dyn
+        // An owning Box<dyn> drops by running vtable[0] (concrete Drop) then freeing.
+        p[0] = 0i64;
+        {
+            let b: Box<dyn Sp> = box_new(Owned { i: p, x: 9i64 }) as Box<dyn Sp>;
+            if b.val() != 9i64 { return 32; }
+        }   // b drops -> Owned::drop via vtable + free
+        if p[0] != 1i64 { return 33; }
+
+        // @rule expr.drop.owning-box-slice
+        // Dropping Box<[T]> over non-null data drops each element then frees.
+        p[0] = 0i64;
+        {
+            let b: Box<[R]> = box_new::<[R; 3]>([mk(p), mk(p), mk(p)]) as Box<[R]>;
+            if b[0].i != p { return 34; }
+        }   // b drops -> 3 element drops + free
+        if p[0] != 3i64 { return 35; }
+
+        // @rule expr.drop.skip-moved-paths
+        // Scope-end drop suppresses a sub-value moved out (exact field path skips
+        // the whole field); siblings still drop.
+        p[0] = 0i64;
+        {
+            let pair: TwoR = TwoR { a: mk(p), b: mk(p) };
+            let _moved: R = pair.a;        // pair.a moved out
+            // scope exit: pair.a suppressed (moved), pair.b drops -> +1;
+            // plus _moved drops -> +1 => total 2 (NOT 3 — no double-free of a).
+        }
+        if p[0] != 2i64 { return 36; }
+
+        // @rule expr.drop.scope-order-user-then-children
+        // At scope end a var's own user drop runs first, then owned sub-values.
+        // (TwoR has no user Drop -> children recurse; both R fields drop.)
+        p[0] = 0i64;
+        { let _pair: TwoR = TwoR { a: mk(p), b: mk(p) }; }
+        if p[0] != 2i64 { return 37; }
+
+        dealloc(p as *mut u8);
+    }
+
+    return 0;
+}
+
+// --- helpers referenced above (kept after main for readability) ---
+
+struct One { s: String }
+struct Pair { a: i64, b: i64 }
+struct TwoR { a: R, b: R }
+
+fn cond_only(p: *mut i64, b: bool) { let mut x: R; if b { x = mk(p); } }
+fn promote_then_cond(p: *mut i64, b: bool) { let mut x: R; x = mk(p); if b { x = mk(p); } }

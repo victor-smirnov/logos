@@ -9,7 +9,11 @@
       "domain": "type",
       "title": "Structural type identity is layout-stable, name-independent",
       "statement": "A type's structural identity (used for wire/persistent identity) is computed by a tag-prefixed structural walk that bears no struct/field NAME: two types with identical physical layout (same primitive leaves, same field types in order, same array sizes) have equal identity regardless of struct/field renames. Each primitive kind has a distinct code; aggregate shapes carry distinct shape tags (struct/tuple/array/ptr/&/&mut/slice/enum/fnptr/void/wstatic).",
-      "evidence": ["src/compiler/mono_clone.cpp#L14-L21", "src/compiler/mono_clone.cpp#L56-L78", "src/compiler/mono_clone.cpp#L80-L185"],
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L14-L21",
+        "src/compiler/mono_clone.cpp#L56-L78",
+        "src/compiler/mono_clone.cpp#L80-L185"
+      ],
       "uncertainty": "Concrete code values are an implementation detail; the normative content is name-independence + per-shape distinctness."
     },
     {
@@ -17,49 +21,64 @@
       "domain": "type",
       "title": "Struct identity recurses through substituted field types",
       "statement": "Structural identity of a struct type S<A...> mixes the struct shape tag, the field count, and the identity of each field type after substituting S's type-params by the concrete type-args A.... Generic struct instances thus get distinct identity per instantiation by their concrete field layouts.",
-      "evidence": ["src/compiler/mono_clone.cpp#L141-L178"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L141-L178"
+      ]
     },
     {
       "id": "type.identity.recursive-cycle-guard",
       "domain": "type",
       "title": "Recursive struct types terminate identity computation with a cycle marker",
       "statement": "When structural identity recursion re-enters a struct type already on the current walk path (recursive/self-referential types), the recursion is cut with a fixed marker rather than diverging; identity computation always terminates.",
-      "evidence": ["src/compiler/mono_clone.cpp#L143-L147", "src/compiler/mono_clone.cpp#L176-L177"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L143-L147",
+        "src/compiler/mono_clone.cpp#L176-L177"
+      ]
     },
     {
       "id": "type.identity.array-size-significant",
       "domain": "type",
       "title": "Array length is part of structural identity; tuple arity too",
       "statement": "[T; N] structural identity mixes the element type identity AND N. (T1,...,Tn) mixes the arity n and each element identity in order. Arrays/tuples differing only in length/arity have distinct identity.",
-      "evidence": ["src/compiler/mono_clone.cpp#L110-L122"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L110-L122"
+      ]
     },
     {
       "id": "trait.auto.raw-ptr-not-send-sync",
       "domain": "trait",
       "title": "Raw pointers are !Send and !Sync absent an explicit impl",
       "statement": "A raw pointer type *const T / *mut T does NOT auto-satisfy Send or Sync; it satisfies them only if an explicit (unsafe) impl is present for that pointer type. Matches Rust.",
-      "evidence": ["src/compiler/mono_clone.cpp#L216-L220"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L216-L220"
+      ]
     },
     {
       "id": "trait.auto.ref-send-iff-pointee-sync",
       "domain": "trait",
       "title": "&T: Send/Sync iff T: Sync",
       "statement": "&T auto-satisfies Send iff T: Sync, and Sync iff T: Sync — i.e. the auto-trait obligation on &T is delegated to T: Sync for both Send and Sync. Matches Rust.",
-      "evidence": ["src/compiler/mono_clone.cpp#L222-L224"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L222-L224"
+      ]
     },
     {
       "id": "trait.auto.mutref-delegates-same-trait",
       "domain": "trait",
       "title": "&mut T: Send iff T: Send, Sync iff T: Sync",
       "statement": "&mut T auto-satisfies the queried trait iff T satisfies that same trait (Send→T:Send, Sync→T:Sync). Matches Rust.",
-      "evidence": ["src/compiler/mono_clone.cpp#L226-L230"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L226-L230"
+      ]
     },
     {
       "id": "trait.auto.slice-send-iff-elem-sync",
       "domain": "trait",
       "title": "Slice auto-trait delegates to element Sync; array preserves the trait",
       "statement": "[T] (slice) auto-satisfies the queried trait iff T: Sync (slice behaves like &-borrowed element storage). [T; N] (array) auto-satisfies the queried trait iff T satisfies that same trait.",
-      "evidence": ["src/compiler/mono_clone.cpp#L232-L235"],
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L232-L235"
+      ],
       "uncertainty": "Slice→Sync delegation for BOTH Send and Sync queries is inferred from the literal \"Sync\" argument regardless of trait_name; Rust treats [T] like &-storage."
     },
     {
@@ -67,50 +86,67 @@
       "domain": "trait",
       "title": "Tuples, structs, and enums auto-satisfy a trait iff all components do",
       "statement": "A tuple/struct/enum auto-satisfies an auto-trait (Send/Sync) iff every component type satisfies it: tuple elements, (substituted) struct fields, and every enum-variant payload type. Auto-trait membership is structural over the substituted constituent types.",
-      "evidence": ["src/compiler/mono_clone.cpp#L237-L289"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L237-L289"
+      ]
     },
     {
       "id": "trait.auto.explicit-impl-overrides",
       "domain": "trait",
       "title": "An explicit impl of an auto-trait short-circuits the structural check",
       "statement": "If a type has an explicit impl of the auto-trait (matched by mangled concrete name, type_str form, or unmangled base name), the type satisfies the trait unconditionally, bypassing the structural field/variant walk.",
-      "evidence": ["src/compiler/mono_clone.cpp#L199-L201", "src/compiler/mono_clone.cpp#L242-L248", "src/compiler/mono_clone.cpp#L275-L277"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L199-L201",
+        "src/compiler/mono_clone.cpp#L242-L248",
+        "src/compiler/mono_clone.cpp#L275-L277"
+      ]
     },
     {
       "id": "trait.auto.scalars-fn-always-satisfy",
       "domain": "trait",
       "title": "Scalars and function types unconditionally auto-satisfy Send/Sync",
       "statement": "Primitive scalar types (bool, all integer widths, f32/f64, char), integer/float literals, and function-item / function-pointer types unconditionally satisfy auto-traits (Send/Sync).",
-      "evidence": ["src/compiler/mono_clone.cpp#L204-L214"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L204-L214"
+      ]
     },
     {
       "id": "layout.abi.scalar-sizes",
       "domain": "layout",
       "title": "Scalar ABI byte sizes",
       "statement": "ABI size: void/never = 0; bool/u8/i8 = 1; i16/u16 = 2; i24/u24 = 3; i32/u32/f32/char = 4; i56/u56 = 7; i64/u64/f64/usize/isize/pointer/&/&mut/fnptr/fn-item/tagged-ptr = 8; i128/u128 = 16. The Writ-fabric widths I24/U24/I56/U56 occupy their narrow byte sizes (3 and 7).",
-      "evidence": ["src/compiler/mono_clone.cpp#L348-L361"],
-      "divergence": "A11 (I24/U24/I56/U56 are Logos-only widths)"
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L348-L361"
+      ],
+      "divergence": "A11 (I24/U24/I56/U56 are Logos-only widths)",
+      "testability": "transitive"
     },
     {
       "id": "layout.abi.fat-pointer-16",
       "domain": "layout",
       "title": "Slices, closures, trait objects, and DST refs are 16-byte fat values",
       "statement": "A slice value, a closure, a trait object, and a DST reference each occupy 16 bytes (a two-word fat representation: data/pointer + metadata such as length, environment, or vtable).",
-      "evidence": ["src/compiler/mono_clone.cpp#L362"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L362"
+      ]
     },
     {
       "id": "layout.abi.array-size",
       "domain": "layout",
       "title": "Array ABI size is element-size times length",
       "statement": "sizeof([T; N]) = N * sizeof(T) (no per-element padding beyond the element's own size).",
-      "evidence": ["src/compiler/mono_clone.cpp#L363-L364"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L363-L364"
+      ]
     },
     {
       "id": "layout.abi.aggregate-field-alignment",
       "domain": "layout",
       "title": "Tuples and structs lay fields out sequentially with natural alignment, capped at 8",
       "statement": "For a tuple/struct, fields are placed in declaration order; before each field the running offset is rounded up to that field's alignment, where alignment = min(field-size, 8) (treating zero-size as alignment 1). The aggregate's size is the final offset rounded up to the maximum field alignment encountered.",
-      "evidence": ["src/compiler/mono_clone.cpp#L365-L390"],
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L365-L390"
+      ],
       "uncertainty": "Alignment is derived as min(size,8) rather than a separate per-type alignment; matches a same-as-size convention for scalars but may diverge for over-aligned types."
     },
     {
@@ -118,14 +154,18 @@
       "domain": "mono",
       "title": "Layout resolution prefers the best-matching partial specialization",
       "statement": "When resolving the field layout of a struct instance S<A...>, the best-matching partial specialization (e.g. WMap<WString,V> over base WMap<K,V>) is selected and its pattern type-vars bound by matching the concrete type-args against the spec patterns; only if no spec matches is the base template used with positional type-param binding.",
-      "evidence": ["src/compiler/mono_clone.cpp#L327-L346"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L327-L346"
+      ]
     },
     {
       "id": "mono.subst.const-generic-value-use",
       "domain": "mono",
       "title": "Const-generic params used in value position substitute their concrete value",
       "statement": "A const-generic parameter `<const N: T>` referenced in expression position is monomorphized by splicing its concrete value: a scalar/IntLit binding lowers to an integer literal of the substituted value; a WritStatic-literal binding splices the registered WritStatic literal at the use site.",
-      "evidence": ["src/compiler/mono_clone.cpp#L509-L538"],
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L509-L538"
+      ],
       "divergence": "A1/A2 related: const-generics are real, distinct from const-eval"
     },
     {
@@ -133,21 +173,29 @@
       "domain": "mono",
       "title": "Cloning a 128-bit literal preserves its high 64 bits",
       "statement": "When monomorphization clones an integer literal whose value needs more than 64 bits (i128/u128), both the low and high 64-bit halves are preserved; cloning never silently truncates to 64 bits.",
-      "evidence": ["src/compiler/mono_clone.cpp#L483-L493"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L483-L493"
+      ]
     },
     {
       "id": "layout.dst.owned-tail-needs-fat-dstref",
       "domain": "layout",
       "title": "An owned dyn-tail drop only fires through a fat DST reference",
       "statement": "A let-bound value initialized from a field read drops as an owned dyn tail only when the (substituted) receiver type is a fat custom-DST reference (DstRef) and the projected field is an unsized dyn (UnsizedDyn, or a borrow-owning TraitObject); a thin pointer/reference receiver (sized inner, genuine Arc<&dyn>) is NOT a DST tail and its drop is a no-op.",
-      "evidence": ["src/compiler/mono_clone.cpp#L395-L414"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L395-L414"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.dst.prefix-field-offset",
       "domain": "layout",
       "title": "Custom-DST prefix field offsets use sequential aligned layout",
       "statement": "For a custom-DST struct (header fields + unsized tail), a named field's byte offset is computed by the same sequential aligned-layout walk as a normal struct (offset rounded up to min(size,8) before each field); the unsized tail field, when reached, yields its aligned offset and substituted type for fat-pair projection reusing the DstRef's carried metadata.",
-      "evidence": ["src/compiler/mono_clone.cpp#L416-L441"]
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L416-L441"
+      ],
+      "testability": "untestable"
     }
   ]
 }

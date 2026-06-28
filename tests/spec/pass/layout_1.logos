@@ -1,0 +1,236 @@
+package layout_1;
+
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.lang.option;
+use logos.lang.marker;
+
+// ── helper trait hierarchy for dyn / vtable rules ──────────────────────────
+trait Animal { fn legs(&self) -> i64; }
+trait Dog: Animal { fn bark(&self) -> i64; }
+
+struct Concrete { x: i64, y: i64 }   // 16-byte concrete; size/align observable
+impl Animal for Concrete { fn legs(&self) -> i64 { return self.x; } }
+impl Dog    for Concrete { fn bark(&self) -> i64 { return self.y; } }
+
+// dispatch through a &dyn supertrait — exercises vtable header + slot order
+fn call_base(d: &dyn Animal) -> i64 { return d.legs(); }
+fn call_sub_base(d: &dyn Dog) -> i64 { return d.legs(); }   // supertrait method via &dyn Dog
+fn call_sub(d: &dyn Dog) -> i64 { return d.bark(); }
+
+// owning Box<dyn> — fat {data,vtable}, drop glue at vtable slot 0
+struct Tracked { name: String, v: i64 }
+trait Speak { fn say(&self) -> i64; }
+impl Speak for Tracked { fn say(&self) -> i64 { return self.v; } }
+fn take_box(b: Box<dyn Speak>) -> i64 { return b.say(); }
+
+// struct with inline fat (slice) field + scalar field
+struct Holder { tag: i64, sl: str }
+
+// struct with inline aggregate (struct) field
+struct Outer { inner: Concrete, k: i64 }
+
+// payload-bearing user enum with align-8 payload (i64)
+enum Tagged { A(i64), B }
+
+// struct carrying a never-typed PhantomData field (zero-size, uninhabited)
+struct WithNever { n: i64, _t: PhantomData<!> }
+
+// bare fn for fnptr rule
+fn add2(a: i64, b: i64) -> i64 { return a + b; }
+
+// fnptr returning an aggregate (tuple) — aggregate-return-by-value
+fn make_pair(a: i64, b: i64) -> (i64, i64) { return (a, b); }
+
+fn main() -> i64 {
+    // @rule layout.enum.tagged-disc-plus-payload
+    // Payload enum = {i32 disc, payload}; align = max(4, payload_align). For an
+    // i64 payload the align is 8 and the payload sits at offset 8 (disc+pad),
+    // so the whole enum is 16 bytes and align 8. Round-trip preserves the value.
+    if sizeof::<Tagged>() != 16i64 { return 1; }
+    if align_of::<Tagged>() != 8i64 { return 2; }
+    {
+        let t: Tagged = Tagged::A(777i64);
+        match t { Tagged::A(n) => { if n != 777i64 { return 3; } } Tagged::B => { return 4; } }
+    }
+
+    // @rule layout.enum.tagged-disc-i32
+    // Non-niche enum: i32 discriminant at offset 0, payload at field 1. Matching
+    // the correct variant (disc read) and recovering the payload (field 1) holds.
+    {
+        let tb: Tagged = Tagged::B;
+        match tb { Tagged::A(_) => { return 5; } Tagged::B => {} }
+    }
+
+    // @rule layout.enum.payload-size-fixpoint
+    // Nested-enum payload footprint is fixpoint-computed: Option<Option<i64>>
+    // must be large enough to hold its widest variant payload (an Option<i64>
+    // pointer). A round-trip through both nesting levels stays intact.
+    {
+        let oo: Option<Option<i64>> = Option::Some(Option::Some(99i64));
+        match oo {
+            Option::Some(inner) => {
+                match inner {
+                    Option::Some(v) => { if v != 99i64 { return 6; } }
+                    Option::None => { return 7; }
+                }
+            }
+            Option::None => { return 8; }
+        }
+    }
+
+    // @rule layout.enum.nested-payload-is-pointer
+    // Option<Option<T>>::Some carries the nested Option<T> as a pointer (not a
+    // collapsed scalar): the distinct shapes Some(Some), Some(None), None are all
+    // recoverable without aliasing.
+    {
+        let sn: Option<Option<i64>> = Option::Some(Option::None);
+        match sn {
+            Option::Some(inner) => {
+                match inner {
+                    Option::Some(_) => { return 9; }
+                    Option::None => {}
+                }
+            }
+            Option::None => { return 10; }
+        }
+        let nn: Option<Option<i64>> = Option::None;
+        match nn { Option::Some(_) => { return 11; } Option::None => {} }
+    }
+
+    // @rule layout.enum.niche-null-pointer
+    // Option<&T> uses the null-pointer niche: None encoded as null at offset 0,
+    // Some(&x) is the non-null pointer itself. Both decode correctly and the Some
+    // payload still derefs to the referent.
+    {
+        let val: i64 = 55i64;
+        let some_r: Option<&i64> = Option::Some(&val);
+        match some_r { Option::Some(r) => { if *r != 55i64 { return 12; } } Option::None => { return 13; } }
+        let none_r: Option<&i64> = Option::None;
+        match none_r { Option::Some(_) => { return 14; } Option::None => {} }
+    }
+
+    // @rule layout.never.zero-size-field-skipped
+    // A PhantomData<!> field is zero-size and uninhabited: it adds no storage, so
+    // a struct carrying it has the same size as its single i64 field (8 bytes),
+    // and the live field is still readable (its init was not displaced).
+    if sizeof::<WithNever>() != 8i64 { return 40; }
+    {
+        let wn: WithNever = WithNever { n: 123i64, _t: PhantomData::<!> {} };
+        if wn.n != 123i64 { return 41; }
+    }
+
+    // @rule layout.dyn.fat-pointer-two-word
+    // A &dyn value is a two-word {data,vtable} fat pointer (16 bytes).
+    if sizeof::<&dyn Animal>() != 16i64 { return 15; }
+
+    // @rule layout.dyn.fat-pointer-data-vtable-pair
+    // &dyn / Box<dyn> share the 16-byte {data_ptr, vtable_ptr} representation;
+    // data_ptr is the concrete value's address so dispatch reaches its fields.
+    if sizeof::<Box<dyn Animal>>() != 16i64 { return 16; }
+    {
+        let c: Concrete = Concrete { x: 31i64, y: 32i64 };
+        if call_base(&c) != 31i64 { return 17; }   // data_ptr → concrete's x
+    }
+
+    // @rule layout.dyn.vtable-slot-order-supertrait-closure
+    // Supertrait methods occupy real dispatchable slots: Animal::legs is callable
+    // through a &dyn Dog.
+    {
+        let c: Concrete = Concrete { x: 41i64, y: 42i64 };
+        if call_sub_base(&c) != 41i64 { return 18; }   // Animal::legs via &dyn Dog
+        if call_sub(&c) != 42i64 { return 19; }        // Dog::bark
+    }
+
+    // @rule layout.dyn.vtable-header-drop-size-align
+    // vtable slot 0 = drop glue, slot 1 = size_of(T), slot 2 = align_of(T). An
+    // owning Box<dyn> run through a by-value param drops via vtable[0] (the
+    // Tracked.String is freed) and the trait method still dispatches.
+    {
+        let r: i64 = take_box(box_new(Tracked { name: String::from("zz"), v: 64i64 }));
+        if r != 64i64 { return 20; }
+    }
+
+    // @rule layout.vtable.drop-size-align-prefix
+    // Trait methods follow the drop/size/align prefix; declared method index i
+    // resolves to physical slot i+3. Correct dispatch of the first declared
+    // method (index 0 → slot 3) confirms the +3 offset.
+    {
+        let c: Concrete = Concrete { x: 71i64, y: 72i64 };
+        let d: &dyn Animal = &c;
+        if d.legs() != 71i64 { return 21; }
+    }
+
+    // @rule layout.field.fat-ref-stored-inline
+    // A slice (str) field is stored inline as a 16-byte fat pair; reading it
+    // yields a usable fat value (len recovered), distinct from a scalar field.
+    {
+        let h: Holder = Holder { tag: 5i64, sl: "abcd" };
+        if h.sl.len() != 4i64 { return 22; }
+    }
+
+    // @rule layout.field.scalar-loaded-by-value
+    // A scalar field is read by loading the value at its address.
+    {
+        let h: Holder = Holder { tag: 88i64, sl: "q" };
+        if h.tag != 88i64 { return 23; }
+    }
+
+    // @rule layout.index.inline-aggregate-element
+    // Array elements of struct type are stored inline (sizeof(elem) per slot);
+    // indexing strides by the inline footprint and yields the element's address.
+    if sizeof::<[Concrete; 3]>() != (3i64 * sizeof::<Concrete>()) { return 24; }
+    {
+        let arr: [Concrete; 2] = [Concrete { x: 1i64, y: 2i64 }, Concrete { x: 3i64, y: 4i64 }];
+        if arr[0].x != 1i64 { return 25; }
+        if arr[1].y != 4i64 { return 26; }   // strided to the 2nd inline slot
+    }
+
+    // @rule layout.tuple.inline-elements
+    // A tuple stores each element inline at its layout slot; an inline-aggregate
+    // (struct) element is copied by value into its slot, not stored as a pointer.
+    {
+        let pair: (Concrete, i64) = (Concrete { x: 9i64, y: 10i64 }, 11i64);
+        if pair.0.x != 9i64 { return 27; }
+        if pair.0.y != 10i64 { return 28; }
+        if pair.1 != 11i64 { return 29; }
+    }
+
+    // @rule layout.fnptr.bare-call-no-env
+    // A bare fn-pointer is a thin pointer; calling it passes only user args (no
+    // implicit environment).
+    {
+        let fp: fn(i64, i64) -> i64 = add2;
+        if fp(4i64, 5i64) != 9i64 { return 30; }
+    }
+
+    // @rule layout.call.aggregate-return-by-value
+    // An indirect fn-pointer call returning a tuple yields the aggregate by
+    // value (materialized into a stack slot), readable by field.
+    {
+        let mp: fn(i64, i64) -> (i64, i64) = make_pair;
+        let r: (i64, i64) = mp(6i64, 7i64);
+        if r.0 != 6i64 { return 31; }
+        if r.1 != 7i64 { return 32; }
+    }
+
+    // @rule layout.ref.repr-kinds
+    // FatDyn = {data,vtable} 16B; FatSlice = {data,len} 16B; ThinPtr = 8B. The
+    // representation widths are observable via sizeof.
+    if sizeof::<&i64>() != 8i64 { return 33; }        // ThinPtr
+    if sizeof::<&str>() != 16i64 { return 34; }       // FatSlice {data,len}
+    if sizeof::<&dyn Animal>() != 16i64 { return 35; }  // FatDyn {data,vtable}
+
+    // @rule layout.ref.fat-lower-memcpy-16
+    // Lowering a fat slice reference copies the full 16-byte {data,len} pair: a
+    // str value (a FatSlice) round-tripped through a binding preserves both the
+    // data pointer (content intact) and the length half.
+    {
+        let s: str = "hello";
+        let rs: str = s;                       // fat 16-byte store
+        if rs.len() != 5i64 { return 36; }     // length half intact
+        if rs != "hello" { return 37; }        // data half intact (content compare)
+    }
+
+    return 0;
+}

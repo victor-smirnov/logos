@@ -1,0 +1,192 @@
+package layout_2;
+
+// Conformance test for the `layout_2` rule group: data-representation /
+// memory-layout invariants. Each rule is locked by an EXECUTING assertion;
+// observable layout facts are read via the `sizeof::<T>()` / `align_of::<T>()`
+// compiler builtins plus value round-trips. Distinct nonzero exit codes flag
+// the first violated rule; all-pass returns 0.
+
+use logos.lang.str;
+use logos.mem.boxed;
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+trait Shape {
+    fn area(&self) -> i64;
+}
+struct Sq {
+    s: i64,
+}
+impl Shape for Sq {
+    fn area(&self) -> i64 {
+        return self.s * self.s;
+    }
+}
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+// Tagged enums with payloads of differing alignment.
+enum EPtr {
+    A(i64),
+    B,
+}
+enum E32 {
+    A(i32),
+    B,
+}
+enum E8 {
+    A(i8),
+    B,
+}
+
+// Enum whose variant payload is an aggregate (struct) — stored inline by memcpy.
+enum Agg {
+    P(Point),
+    Q,
+}
+
+// A custom DST: last field is a literal `[u8]` slice tail.
+struct SliceTail {
+    h: i64,
+    tail: [u8],
+}
+
+// A reference to a `&dyn` — a reference-to-a-reference, which stays thin.
+type DynRef = &dyn Shape;
+
+fn ret_slice(a: &[i64]) -> &[i64] {
+    return a;
+}
+
+fn main() -> i64 {
+    // @rule layout.enum.tagged-repr
+    // A tagged enum is { i32 disc, aligned payload-blob }; an i64 payload is
+    // padded onto an 8-aligned offset, giving sizeof == 16 (4 disc + 4 pad + 8).
+    if sizeof::<EPtr>() != 16i64 { return 1; }
+    if sizeof::<Option<i64>>() != 16i64 { return 2; }
+
+    // @rule layout.enum.align
+    // alignof(tagged enum) = max(4, payload_align): i64 payload -> 8;
+    // i32 payload -> 4; i8 payload -> max(4,1) = 4 (>= disc alignment).
+    if align_of::<EPtr>() != 8i64 { return 3; }
+    if align_of::<E32>() != 4i64 { return 4; }
+    if align_of::<E8>() != 4i64 { return 5; }
+
+    // @rule layout.enum.niche-nullptr
+    // Option<&T> packs into the pointer itself (null == None), so it is
+    // pointer-sized (8B) with no separate discriminant, and round-trips.
+    if sizeof::<Option<&i64>>() != 8i64 { return 6; }
+    {
+        let v: i64 = 42i64;
+        let some: Option<&i64> = Option::Some(&v);
+        let sv: i64 = match some {
+            Option::Some(p) => *p,
+            Option::None => -1i64,
+        };
+        if sv != 42i64 { return 7; }
+        let none: Option<&i64> = Option::None;
+        let nv: i64 = match none {
+            Option::Some(_) => 99i64,
+            Option::None => 7i64,
+        };
+        if nv != 7i64 { return 8; }
+    }
+
+    // @rule layout.enum.aggregate-payload-inline-memcpy
+    // A struct (aggregate) payload field is stored inline by copying its full
+    // byte footprint, so it survives a value-copy of the enum verbatim.
+    {
+        let a: Agg = Agg::P(Point { x: 3i64, y: 4i64 });
+        let b: Agg = a;                       // full payload memcpy
+        let got: i64 = match b {
+            Agg::P(pt) => pt.x * 10i64 + pt.y,
+            Agg::Q => -1i64,
+        };
+        if got != 34i64 { return 9; }
+    }
+
+    // @rule layout.slice.fat-ptr
+    // A slice value is a fat { data-ptr, len } pair (16B); indexed access reads
+    // the data pointer then strides by sizeof(element).
+    if sizeof::<&[i64]>() != 16i64 { return 10; }
+    {
+        let arr: [i64; 3] = [10i64, 20i64, 30i64];
+        let sl: &[i64] = &arr;
+        if sl[2] != 30i64 { return 11; }      // stride by sizeof(i64)
+    }
+
+    // @rule layout.slice.fat-pointer-pair
+    // str = Slice<u8> also has the 16-byte fat-pointer representation, and a
+    // function returning a slice returns the { data, len } pair by value.
+    if sizeof::<str>() != 16i64 { return 12; }
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        let sl: &[i64] = ret_slice(&arr);     // returned by value
+        if sl[1] != 2i64 { return 13; }
+    }
+
+    // @rule layout.dyn.fat-pointer-pair
+    // A bare &dyn trait object is a 16-byte { data, vtable } pair; a reference
+    // to such a reference (Ref<TraitObject>) stays a thin 8-byte pointer.
+    if sizeof::<&dyn Shape>() != 16i64 { return 14; }
+    if sizeof::<&DynRef>() != 8i64 { return 15; }
+
+    // @rule layout.dyn.uniform-fat-pair
+    // Every trait-object value (&dyn, Box<dyn>) is the 16-byte {data,vtable}
+    // pair; dispatch through it reaches the concrete impl.
+    if sizeof::<Box<dyn Shape>>() != 16i64 { return 16; }
+    {
+        let a: Sq = Sq { s: 4i64 };
+        let d: &dyn Shape = &a as &dyn Shape;
+        if d.area() != 16i64 { return 17; }   // vtable dispatch through the pair
+    }
+
+    // @rule layout.closure.fn-env-pair
+    // A closure is a (function-ptr, env-ptr) value; calling it invokes the
+    // function with the captured environment prepended, then the user args.
+    {
+        let base: i64 = 100i64;
+        let step: i64 = 4i64;
+        let f = |x: i64| -> i64 { return base + x * step; };
+        // env carries {base, step}; user arg = x.
+        if f(0i64) != 100i64 { return 18; }
+        if f(2i64) != 108i64 { return 19; }
+    }
+
+    // @rule layout.customdst.fat-pointer-pair
+    // A reference to a custom DST whose tail is a literal [T] slice is a
+    // 16-byte { data, meta } fat pointer.
+    if sizeof::<&SliceTail>() != 16i64 { return 20; }
+
+    // @rule layout.ref.thin-pointer
+    // *T, &T, &mut T and a function pointer to a Sized pointee are thin (8B).
+    if sizeof::<&i64>() != 8i64 { return 21; }
+    if sizeof::<*const i64>() != 8i64 { return 22; }
+    if sizeof::<fn(i64) -> i64>() != 8i64 { return 23; }
+
+    // @rule layout.litstr.len-excludes-null
+    // A string literal is a fat {ptr,len}; the backing storage has a trailing
+    // NUL but len is the content byte length, EXCLUDING the NUL terminator.
+    {
+        let lit: str = "abc";
+        if lit.len() != 3i64 { return 24; }              // len excludes NUL
+        if str_byte_at(lit, 2i64) != 99u8 { return 25; } // last byte is 'c', not 0
+    }
+
+    // @rule layout.place.element-slot-by-repr
+    // An lvalue place slot strides by the type's full storage footprint: a fat
+    // reference element (&dyn) occupies its 16-byte pair, so [&dyn; 2] is 32B
+    // and per-element read/write hit distinct 16-byte slots.
+    if sizeof::<[&dyn Shape; 2]>() != 32i64 { return 26; }
+    {
+        let a: Sq = Sq { s: 3i64 };
+        let b: Sq = Sq { s: 5i64 };
+        let elems: [&dyn Shape; 2] = [&a as &dyn Shape, &b as &dyn Shape];
+        if elems[0].area() != 9i64 { return 27; }
+        if elems[1].area() != 25i64 { return 28; }       // neighbouring 16B slot
+    }
+
+    return 0;
+}

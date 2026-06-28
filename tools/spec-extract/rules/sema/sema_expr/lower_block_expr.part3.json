@@ -9,89 +9,134 @@
       "domain": "expr",
       "title": "Closure captures the free variables referenced in its body",
       "statement": "A closure literal captures exactly the set of variables from the enclosing scope that its body references (transitively through every expression and statement form), excluding the closure's own parameters and variables bound locally inside the body. A bare variable reference `x` captures the whole root `x`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14539-L14546", "src/compiler/sema_expr.cpp#L14691-L14773", "src/compiler/sema_expr.cpp#L14801"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14539-L14546",
+        "src/compiler/sema_expr.cpp#L14691-L14773",
+        "src/compiler/sema_expr.cpp#L14801"
+      ]
     },
     {
       "id": "expr.closure.capture-borrow-of-var",
       "domain": "expr",
       "title": "Taking the address of a variable in a closure body captures it",
       "statement": "`&x` or `&mut x` appearing in a closure body captures the whole root variable `x` from the enclosing scope, just as a plain read would.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14584-L14587"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14584-L14587"
+      ]
     },
     {
       "id": "expr.closure.capture-by-ref-on-mutation",
       "domain": "expr",
       "title": "Mutating a captured variable forces by-reference capture",
       "statement": "A captured variable that the closure body mutates is captured by reference. Mutation includes: assignment to the variable, field writes / multi-level (chained) field writes through it, indexed writes into it, and an auto `&mut` of the variable produced as a method receiver. A by-value capture of a mutated variable would lose the write.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14594-L14602", "src/compiler/sema_expr.cpp#L14699-L14704", "src/compiler/sema_expr.cpp#L14724-L14746"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14594-L14602",
+        "src/compiler/sema_expr.cpp#L14699-L14704",
+        "src/compiler/sema_expr.cpp#L14724-L14746"
+      ]
     },
     {
       "id": "expr.closure.capture-disjoint-fields",
       "domain": "expr",
       "title": "Disjoint closure capture by precise field path (RFC 2229)",
       "statement": "When a closure body accesses fields of a variable through a pure `root.field*` dotted chain, the capture is the precise path rather than the whole root; multiple paths off the same root are widened to their lowest-common-ancestor path. If the access head is not a pure VarRef/FieldRead chain (e.g. `(*box).x`), the whole root is captured instead.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14563-L14569", "src/compiler/sema_expr.cpp#L14805"],
-      "related": ["expr.closure.capture-free-vars"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14563-L14569",
+        "src/compiler/sema_expr.cpp#L14805"
+      ],
+      "related": [
+        "expr.closure.capture-free-vars"
+      ]
     },
     {
       "id": "expr.closure.nested-transitive-capture",
       "domain": "expr",
       "title": "Outer closure transitively captures a nested closure's free vars",
       "statement": "A closure literal nested in another closure's body causes the outer closure to capture the nested closure's free variables. If the nested closure captures a variable by reference (mutates it), the outer closure must also capture that variable by reference; otherwise the nested write would target the outer's by-value copy and be lost.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14640-L14656"],
-      "related": ["expr.closure.capture-by-ref-on-mutation"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14640-L14656"
+      ],
+      "related": [
+        "expr.closure.capture-by-ref-on-mutation"
+      ]
     },
     {
       "id": "expr.closure.writ-capture-exprs",
       "domain": "expr",
       "title": "Writ literal $-captures count as closure captures",
       "statement": "Variables referenced via `$`-capture expressions inside a Writ literal in a closure body are captured by the enclosing closure.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14681-L14687"],
-      "related": ["expr.closure.capture-free-vars"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14681-L14687"
+      ],
+      "related": [
+        "expr.closure.capture-free-vars"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.closure.move-marks-moved",
       "domain": "expr",
       "title": "move closure consumes its move-type captures at the capture site",
       "statement": "In a `move` closure, each captured variable (or, for an escaping narrow capture, the captured field path) whose type is a move type is marked moved at the closure site, making subsequent use of that variable/path a use-after-move error. Copy-type captures are not consumed.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14811-L14848"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14811-L14848"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.closure.escaping-env-owns-captures",
       "domain": "expr",
       "title": "Escaping move closure owns droppable captures in its environment",
       "statement": "An escaping (heap-environment / boxed) `move` closure that captures a droppable struct/array/tuple/enum moves it into the closure environment by value; the environment's drop glue drops it, so the originating scope does not. A non-escaping (stack-environment) `move` closure borrows the source storage, so the source scope still drops the value unless the body itself already moved the capture onward.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14855-L14888"],
-      "related": ["expr.closure.boxing-escapes"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14855-L14888"
+      ],
+      "related": [
+        "expr.closure.boxing-escapes"
+      ]
     },
     {
       "id": "expr.closure.boxing-escapes",
       "domain": "expr",
       "title": "A closure assigned to a Box<...Fn...> escapes",
       "statement": "A closure lowered against an expected type that peels (through a Box / struct wrapper) to a callable Fn type is treated as escaping: its captured environment lives on the heap. A bare or reference-wrapped Fn expectation (e.g. an iterator-adapter argument) does not escape and keeps a stack environment.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14787-L14793"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14787-L14793"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.closure.narrow-move-requires-escape",
       "domain": "expr",
       "title": "Narrow (field) move capture applies only to escaping closures; user Drop on root forces whole-var",
       "statement": "RFC-2229 narrow move capture (moving only a field path, leaving sibling fields usable) applies only when the closure escapes; a non-escaping narrow capture moves nothing and the root keeps ownership. However, a `move` closure capturing a path whose root type has a user `impl Drop` captures the whole variable (so the value drops with the closure); mere drop glue from droppable fields keeps disjoint capture.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14820-L14854"],
-      "related": ["expr.closure.capture-disjoint-fields", "expr.closure.escaping-env-owns-captures"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14820-L14854"
+      ],
+      "related": [
+        "expr.closure.capture-disjoint-fields",
+        "expr.closure.escaping-env-owns-captures"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.closure.capture-drop-order",
       "domain": "expr",
       "title": "Source-scope-dropped captures drop with the closure in capture order",
       "statement": "Captures whose destructor the source scope still runs are dropped at the closure binding's slot in capture order, not at their own variable-order slots, matching Rust's closure capture drop order.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14892-L14897"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14892-L14897"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.auto.closure-over-captures",
       "domain": "trait",
       "title": "Closure auto-trait membership is computed over capture types",
       "statement": "A closure type's auto-trait (Send/Sync) membership is determined by its captured values' types, not its parameter types. By-reference captures enter as `&T`/`&mut T` (so the reference auto-trait rules apply: `&T: Send` iff `T: Sync`); owned (move) captures enter as `T`; narrow captures use the captured field's type. Since closure types intern by signature, the recorded capture set is the union across all same-signature literals, so the type is `!Send`/`!Sync` if any such literal captures a `!Send`/`!Sync` value.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14900-L14925"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14900-L14925"
+      ]
     }
   ]
 }

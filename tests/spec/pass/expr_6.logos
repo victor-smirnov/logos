@@ -1,0 +1,180 @@
+package expr_6;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.ops;
+use logos.lang.ptr;
+
+extern fn malloc(size: i64) -> *mut u8;
+
+// --- helpers for closure-capture rules ---
+struct Pt { x: i64, y: i64 }
+
+// --- helpers for field-autoderef rules ---
+struct Inner { v: i64 }
+struct Outer { inner: Inner }
+// user Deref: Outer derefs to Inner so `o.v` walks Outer -> Inner.
+impl Deref<Inner> for Outer { fn deref(&self) -> &Inner { return &self.inner; } }
+
+// --- drop-count helpers for escaping-env-owns-captures ---
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+
+// --- self_describing thin-tail DST ---
+#[self_describing]
+struct Buf { count: i64, data: [i32] }
+impl SelfDescribing for Buf {
+    fn dst_len(self: *const Buf) -> i64 { return unsafe { (*self).count }; }
+}
+
+// --- fat-pointer custom-DST tail ---
+struct Foo { header: i64, tail: [u8] }
+
+fn main() -> i64 {
+    // @rule expr.closure.capture-free-vars
+    // A closure captures exactly the outer variables its body references; a bare
+    // `x` reference reads the captured root and yields its outer value.
+    {
+        let cfv: i64 = 41i64;
+        let f = || -> i64 { return cfv + 1i64; };
+        if f() != 42i64 { return 1; }
+    }
+
+    // @rule expr.closure.mutated-capture-by-reference
+    // A captured variable that the body assigns to is captured by reference, so
+    // the mutation propagates to the OUTER binding (not a local env copy).
+    {
+        let mut mcr: i64 = 0i64;
+        let mut bump = || { mcr = mcr + 5i64; };
+        bump();
+        bump();
+        if mcr != 10i64 { return 2; }   // outer var observed the writes
+    }
+
+    // @rule expr.closure.capture-by-ref-on-mutation
+    // Mutation via a field write / indexed write also forces by-reference
+    // capture; the outer aggregate observes the change.
+    {
+        let mut cbr_p: Pt = Pt { x: 1i64, y: 2i64 };
+        let mut wfield = || { cbr_p.x = cbr_p.x + 10i64; };
+        wfield();
+        if cbr_p.x != 11i64 { return 3; }
+
+        let mut cbr_a: [i64; 2] = [0i64, 0i64];
+        let mut widx = |v: i64| { cbr_a[0u64] = v; };   // write-only target captured
+        widx(7i64);
+        if cbr_a[0u64] != 7i64 { return 4; }
+    }
+
+    // @rule expr.closure.capture-borrow-of-var
+    // `&x` in the body captures the whole root `x`, just like a plain read.
+    {
+        let cbv: i64 = 100i64;
+        let f = || -> i64 { let r: &i64 = &cbv; return *r; };
+        if f() != 100i64 { return 5; }
+    }
+
+    // @rule expr.closure.disjoint-field-capture
+    // @rule expr.closure.capture-disjoint-fields
+    // A closure that mutates only `p.x` captures that precise field path, leaving
+    // the sibling `p.y` usable in the enclosing scope (RFC-2229 disjoint capture).
+    {
+        let mut dfc_p: Pt = Pt { x: 1i64, y: 2i64 };
+        let mut cx = || { dfc_p.x = dfc_p.x + 1i64; };   // borrows only p.x
+        dfc_p.y = 99i64;                                  // disjoint sibling: OK
+        cx();
+        if dfc_p.x != 2i64 { return 6; }
+        if dfc_p.y != 99i64 { return 7; }
+    }
+
+    // @rule expr.closure.escaping-env-owns-captures
+    // A `move` closure capturing a droppable value moves it into the env by
+    // value; the env's drop glue drops it exactly once (no leak, no double-free).
+    {
+        let mut ec: i64 = 0i64;
+        let ep: *mut i64 = &mut ec;
+        {
+            let o = Owner { i: ep };
+            let ecl = move || -> i64 { return o.i as i64; };
+            let _r = ecl();
+        }
+        if ec != 1i64 { return 8; }   // dropped exactly once
+    }
+
+    // @rule expr.enum-lit.args-shape
+    // @rule expr.enum-lit.unit-payload-kept
+    // An enum-literal payload list denotes an ordered payload; a unit `()` payload
+    // (Result::Ok(())) is retained as a real entry and matches Ok(()).
+    {
+        let r: Result<(), i64> = Result::Ok(());
+        match r {
+            Result::Ok(_)  => { }
+            Result::Err(_) => { return 9; }
+        }
+    }
+
+    // @rule expr.enum-lit.nested-hint-projection
+    // A nested enum literal lowers with its own concrete hint projected from the
+    // outer expected type: Option::Some(Result::Ok(42)) round-trips to 42.
+    {
+        let o: Option<Result<i32, i32>> = Option::Some(Result::Ok(42i32));
+        match o {
+            Option::None    => { return 10; }
+            Option::Some(r) => {
+                match r {
+                    Result::Ok(v)  => { if v != 42i32 { return 11; } }
+                    Result::Err(_) => { return 12; }
+                }
+            }
+        }
+    }
+
+    // @rule expr.field.autoderef-via-deref
+    // Receiver of struct type with no field `v` but `Outer: Deref<Inner>`:
+    // `o.v` is equivalent to `(*o).v`, walking the user Deref impl.
+    {
+        let o: Outer = Outer { inner: Inner { v: 55i64 } };
+        if o.v != 55i64 { return 13; }
+    }
+
+    // @rule expr.field.ref-peel
+    // Receiver of doubly-referenced type `&&S`: `r.f` peels the extra reference
+    // layer so the field of the underlying struct is reached.
+    {
+        let rp_s: Pt = Pt { x: 8i64, y: 9i64 };
+        let rp_rr: &&Pt = &&rp_s;        // r: &&Pt
+        if rp_rr.x != 8i64 { return 14; } // r.x ≡ (*r).x, peels one layer
+    }
+
+    // @rule expr.field.self-describing-thin-tail
+    // @rule expr.field.dst-ref-unsafe
+    // A thin `*mut Self` to a #[self_describing] struct yields a tail slice whose
+    // length is recovered via SelfDescribing::dst_len; access on a self_describing
+    // DST does not require unsafe for the borrow, but the raw ptr build does.
+    unsafe {
+        let mem: *mut u8 = malloc((sizeof::<Buf>() as i64) + 3i64 * (sizeof::<i32>() as i64));
+        let p: *mut Buf = mem as *mut Buf;
+        p.count = 3i64;
+        p.data[0] = 10i32; p.data[1] = 20i32; p.data[2] = 30i32;   // typed tail write
+        if p.data.len() != 3i64 { return 15; }                     // len via dst_len
+        if p.data[2] != 30i32 { return 16; }                       // typed tail read
+    }
+
+    // @rule expr.field.dst-tail-slice
+    // A fat-pointer receiver to a custom-DST struct yields a tail slice
+    // { data_ptr + prefix_byte_size, len } reusing the fat pointer's len half.
+    unsafe {
+        let dbuf: [u8; 12] = [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                              1u8, 2u8, 3u8, 4u8];
+        let raw: *const u8 = &dbuf as *const [u8] as *const u8;
+        let ff: &Foo = dst_from_raw_parts::<Foo>(raw, 4i64);
+        let s: &[u8] = ff.tail;
+        if s.len() != 4i64 { return 17; }
+        let pp: *const u8 = s.as_ptr();
+        if *((pp as i64 + 0i64) as *const u8) != 1u8 { return 18; }
+        if *((pp as i64 + 3i64) as *const u8) != 4u8 { return 19; }
+    }
+
+    return 0;
+}

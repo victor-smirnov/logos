@@ -130,7 +130,8 @@
       "statement": "A `#[rel_ptr]` field is stored as an 8-byte i64 byte-offset from the field's own address and materializes to an absolute thin pointer on load; it is opaque (no field access) but transparent to `*Pointee` at the value level.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L2440-L2444"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.pinned.non-movable-type",

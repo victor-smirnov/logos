@@ -68,7 +68,8 @@
       ],
       "related": [
         "layout.slice.owning-box-same-as-borrow"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "type.dst.effective-after-instantiation",

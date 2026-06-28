@@ -9,112 +9,151 @@
       "domain": "expr",
       "title": "Enum literal references an existing variant",
       "statement": "In an enum literal `E::V(args)`, `V` must be a declared variant of enum `E`; otherwise the program is ill-formed (diagnostic \"enum 'E' has no variant 'V'\").",
-      "evidence": ["src/compiler/sema_expr.cpp#L12287-L12293"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12287-L12293"
+      ]
     },
     {
       "id": "expr.enum-lit.args-shape",
       "domain": "expr",
       "title": "Enum-literal argument list shape",
       "statement": "The payload argument list of an enum literal is accepted either as a direct sequence of argument expressions or as a map containing an ITEMS sequence; both forms denote the same ordered payload list.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12321-L12348"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12321-L12348"
+      ]
     },
     {
       "id": "expr.enum-lit.unit-payload-kept",
       "domain": "expr",
       "title": "Unit payload retained, not elided",
       "statement": "A unit-typed payload argument (e.g. `()` in `Result::Ok(())`) is retained as a real payload entry; void/unit payloads are not filtered out.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12299-L12300", "src/compiler/sema_expr.cpp#L12321-L12348"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12299-L12300",
+        "src/compiler/sema_expr.cpp#L12321-L12348"
+      ]
     },
     {
       "id": "expr.enum-lit.nested-hint-projection",
       "domain": "expr",
       "title": "Per-payload type hint via outer-hint projection",
       "statement": "When the surrounding expected type is `E<A1..An>` for the same enum `E`, each payload slot whose formal type is a TypeVar receives a per-argument expected-type hint computed by substituting `E`'s type parameters with the outer hint's type-args; this lets a nested enum literal (e.g. inner `Result::Ok` inside `Option::Some(Result::Ok(42))`) lower with its own concrete enum hint.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12301-L12320", "src/compiler/sema_expr.cpp#L12327-L12338"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12301-L12320",
+        "src/compiler/sema_expr.cpp#L12327-L12338"
+      ]
     },
     {
       "id": "expr.enum-lit.lifetime-inference",
       "domain": "region",
       "title": "Lifetime-arg inference from payload args",
       "statement": "Lifetime arguments of the constructed enum are inferred by structurally co-walking each variant payload formal type against the corresponding argument's type, binding each formal lifetime to the first argument lifetime seen across reference, tuple, struct, zoned-struct and enum positions.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12353-L12383", "src/compiler/sema_expr.cpp#L12508-L12522"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12353-L12383",
+        "src/compiler/sema_expr.cpp#L12508-L12522"
+      ]
     },
     {
       "id": "generic.enum-lit.turbofish-first",
       "domain": "generic",
       "title": "Explicit turbofish type-args bind before inference",
       "statement": "Explicit turbofish type arguments on an enum literal (`E::<A>::V`) are applied to `E`'s type parameters before any payload-derived inference, so a payload-less variant (`None`/unit variant) still receives the user-given type-args.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12386-L12406"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12386-L12406"
+      ]
     },
     {
       "id": "generic.enum-lit.intlit-payload-pin",
       "domain": "generic",
       "title": "Integer/float-literal payload type-param resolution",
       "statement": "When a variant payload whose formal is a type-param T receives an unresolved integer- or float-literal argument, T is bound to the type the surrounding hint pins for T (widening the literal accordingly) if available; otherwise T defaults to i32 for an integer literal and f64 for a float literal.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12407-L12427"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12407-L12427"
+      ]
     },
     {
       "id": "generic.enum-lit.dyn-hint-preference",
       "domain": "generic",
       "title": "Trait-object type-arg preferred over concrete payload",
       "statement": "When the hint pins a type-param to a (possibly Box/ref-wrapped) trait-object type while the payload argument is a concrete type compatible with it, the enum's type-arg is taken as the trait-object (dyn) type, while the payload expression stays concrete; the concrete payload is unsize-fattened into the dyn slot at codegen.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12428-L12455"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12428-L12455"
+      ]
     },
     {
       "id": "generic.enum-lit.structural-unify",
       "domain": "generic",
       "title": "Structural unification of non-TypeVar payload formals",
       "statement": "A variant payload formal that is not a bare TypeVar but mentions the enum's type parameters (e.g. `Pair<T>`) is unified against the actual argument's type to extract nested type-param bindings.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12456-L12462"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12456-L12462"
+      ]
     },
     {
       "id": "generic.enum-lit.hint-ref-ptr-preference",
       "domain": "generic",
       "title": "Hint reference/pointer kind overrides inferred pointee",
       "statement": "When the context hint for type-param T is `&U`/`&mut U` and inference produced bare `U`, the hint's reference type is used for T; when the hint is `*const U`/`*mut U` over the same pointee as an inferred reference/pointer, the hint's raw-pointer type is used (preserving the annotated repr, e.g. tagged `Option<*const T>` rather than niche `Option<&T>`).",
-      "evidence": ["src/compiler/sema_expr.cpp#L12464-L12501"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12464-L12501"
+      ]
     },
     {
       "id": "generic.enum-lit.bounds-check",
       "domain": "generic",
       "title": "Resolved type-args checked against type-param bounds",
       "statement": "After resolving the enum's type arguments, each is checked against the corresponding type parameter's trait bounds; unresolved type parameters (no binding) yield an error type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12502-L12513"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12502-L12513"
+      ]
     },
     {
       "id": "expr.enum-lit.arity",
       "domain": "expr",
       "title": "Non-variadic variant arity",
       "statement": "For a non-variadic variant, the number of payload arguments must equal the number of declared payload types; otherwise the program is ill-formed (\"expects N args, got M\").",
-      "evidence": ["src/compiler/sema_expr.cpp#L12524-L12527"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12524-L12527"
+      ]
     },
     {
       "id": "expr.enum-lit.arg-type-compat",
       "domain": "expr",
       "title": "Payload argument type compatibility",
       "statement": "Each non-variadic payload argument's type must be compatible with its resolved formal payload type; an incompatibility is ill-formed (\"arg i: expected X, got Y\").",
-      "evidence": ["src/compiler/sema_expr.cpp#L12528-L12535"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12528-L12535"
+      ]
     },
     {
       "id": "expr.enum-lit.intlit-fit",
       "domain": "expr",
       "title": "Integer-literal payload range check",
       "statement": "An integer-literal payload argument whose constant value does not fit in the target integer type's range is ill-formed; this check recurses into array-literal elements and tuple-literal elements (and their nested array/tuple sub-elements) of the payload type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12536-L12542", "src/compiler/sema_expr.cpp#L12543-L12608"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12536-L12542",
+        "src/compiler/sema_expr.cpp#L12543-L12608"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.enum-lit.variadic",
       "domain": "expr",
       "title": "Variadic variant payload checking",
       "statement": "For a variadic variant, every payload argument is checked for compatibility against (and integer-literal fit within) the single pack element type (the first declared payload type), with no arity constraint.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12524-L12527", "src/compiler/sema_expr.cpp#L12610-L12628"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12524-L12527",
+        "src/compiler/sema_expr.cpp#L12610-L12628"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "borrow.enum-lit.payload-move",
       "domain": "borrow",
       "title": "Payload arguments consume move-typed sources",
       "statement": "Each move-typed payload argument consumes (moves out of) its source expression at the enum-literal construction site.",
-      "evidence": ["src/compiler/sema_expr.cpp#L12629-L12636"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L12629-L12636"
+      ]
     }
   ]
 }

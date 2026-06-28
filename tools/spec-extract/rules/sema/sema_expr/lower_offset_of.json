@@ -9,21 +9,27 @@
       "domain": "intrinsic",
       "title": "offset_of! signature",
       "statement": "`offset_of!(Type, field)` requires both a type argument and a field name; either missing is a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17630-L17634"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17630-L17634"
+      ]
     },
     {
       "id": "intrinsic.offset-of.struct-only",
       "domain": "intrinsic",
       "title": "offset_of! requires a struct type",
       "statement": "The type argument of `offset_of!` must resolve to a struct or zoned-struct type; otherwise it is a compile error. The named struct must be known.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17635-L17648"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17635-L17648"
+      ]
     },
     {
       "id": "intrinsic.offset-of.value",
       "domain": "intrinsic",
       "title": "offset_of! yields a compile-time i64 byte offset",
       "statement": "`offset_of!(T, f)` evaluates to an `i64` constant equal to the byte offset of field `f` within `T`'s layout, computed by sequentially laying out fields: each field is placed at the next position aligned up to its alignment, then advanced by its byte size. Result type is `i64`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17657-L17681"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17657-L17681"
+      ],
       "divergence": "Rust's offset_of! yields usize; Logos yields i64."
     },
     {
@@ -31,35 +37,46 @@
       "domain": "intrinsic",
       "title": "offset_of! substitutes the type's generic args",
       "statement": "When the struct is generic, the concrete type arguments of `T` are substituted into the field types before computing sizes/alignments, so `offset_of!` reflects the layout of the concrete instantiation.",
-      "evidence": ["src/compiler/sema_expr.cpp#L17649-L17659"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17649-L17659"
+      ]
     },
     {
       "id": "layout.field-align.unsized-tail",
       "domain": "layout",
       "title": "Alignment of unsized tail fields",
       "statement": "Field alignment is min(byte_size,8) for sized fields (treating size-0 as align 1); an unsized `[T]` slice tail aligns to min(sizeof(T),8); an unsized `dyn` tail aligns to 8 (pointer width).",
-      "evidence": ["src/compiler/sema_expr.cpp#L17666-L17675"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L17666-L17675"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "intrinsic.cfg.macro",
       "domain": "intrinsic",
       "title": "cfg! evaluates to a bool",
       "statement": "`cfg!(predicate)` evaluates the configuration predicate at compile time and yields a `bool` literal.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18118-L18121"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18118-L18121"
+      ]
     },
     {
       "id": "intrinsic.vec.builtin-macro",
       "domain": "intrinsic",
       "title": "vec! is a compiler builtin list-literal macro",
       "statement": "`vec!(a, b, c)` / `vec![a, b, c]` constructs a `Vec` of its elements. A user-defined `vec` fn_macro/token_macro in scope overrides the builtin. With a known renderable element type E (from a `let v: Vec<E>` annotation), it lowers to a push-block `{ let mut __v: Vec<E> = vec_new::<E>(); __v.push(e0); …; __v }` (no Copy bound). Otherwise it lowers to `vec_from_arr([…])` (Copy-bound, inference-driven); `vec!()` empty lowers to `vec_new::<_>()`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18134-L18213"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18134-L18213"
+      ]
     },
     {
       "id": "intrinsic.line.macro",
       "domain": "intrinsic",
       "title": "line! / column! positional macros",
       "statement": "`line!()` yields the current source line as `u32`; `column!()` yields `u32` 0 (columns are not tracked).",
-      "evidence": ["src/compiler/sema_expr.cpp#L18221-L18227"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18221-L18227"
+      ],
       "divergence": "column!() always returns 0 rather than the true column."
     },
     {
@@ -67,14 +84,19 @@
       "domain": "intrinsic",
       "title": "file! / module_path! positional macros",
       "statement": "`file!()` yields the current file path and `module_path!()` yields the current package name, each as a `&str` (`Slice<u8>`) string literal.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18228-L18236"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18228-L18236"
+      ]
     },
     {
       "id": "intrinsic.include.expr-only",
       "domain": "intrinsic",
       "title": "include! splices a file as an expression",
       "statement": "`include!(\"path\")` reads the file at compile time and re-parses its contents as an expression spliced at the call site; only expression-position include! is supported (item-position is a compile error). Paths are resolved relative to the including file.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18238-L18244", "src/compiler/sema_expr.cpp#L17686-L17784"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18238-L18244",
+        "src/compiler/sema_expr.cpp#L17686-L17784"
+      ],
       "divergence": "Rust supports item-position include!; Logos supports only expression position."
     },
     {
@@ -82,7 +104,9 @@
       "domain": "intrinsic",
       "title": "include_str! / include_bytes! embed file contents",
       "statement": "`include_str!(\"path\")` and `include_bytes!(\"path\")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18252-L18282"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18252-L18282"
+      ],
       "divergence": "Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are Slice<u8>."
     },
     {
@@ -90,7 +114,9 @@
       "domain": "intrinsic",
       "title": "env! / option_env! read environment at compile time",
       "statement": "`env!(\"VAR\")` yields the value of environment variable VAR as a `&str` literal and is a compile error if unset; `option_env!(\"VAR\")` yields the value or an empty `&str` if unset.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18289-L18316"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18289-L18316"
+      ],
       "divergence": "option_env! returns an empty &str tombstone rather than Option<&str>."
     },
     {
@@ -98,7 +124,10 @@
       "domain": "intrinsic",
       "title": "concat! string-literal concatenation",
       "statement": "`concat!(a, b, …)` concatenates string, integer (decimal, suffix-stripped), and bool (`true`/`false`) literals at compile time into a single `&str` (`Slice<u8>`) literal. Non-literal args are a compile error. String escapes \\n \\t \\r \\\\ \\\" \\0 are decoded.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18318-L18324", "src/compiler/sema_expr.cpp#L17836-L17920"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18318-L18324",
+        "src/compiler/sema_expr.cpp#L17836-L17920"
+      ],
       "divergence": "Floats and char literals are not supported (Rust supports them)."
     },
     {
@@ -106,42 +135,55 @@
       "domain": "intrinsic",
       "title": "concat_bytes! byte-array concatenation",
       "statement": "`concat_bytes!(…)` concatenates byte-string literals (`b\"…\"`), byte-char literals (`b'X'`), and integer literals in range 0..=255 (decimal/0x/0o/0b, suffix-allowed) at compile time, yielding a `[u8; N]` array literal. Out-of-range integers, dangling/unknown escapes, and unsupported args are compile errors.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18326-L18331", "src/compiler/sema_expr.cpp#L17922-L18084"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18326-L18331",
+        "src/compiler/sema_expr.cpp#L17922-L18084"
+      ]
     },
     {
       "id": "intrinsic.stringify.macro",
       "domain": "intrinsic",
       "title": "stringify! returns raw token text",
       "statement": "`stringify!(…)` yields the raw source text between the parentheses as a `&str` (`Slice<u8>`) literal, without macro expansion of the contents.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18333-L18346"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18333-L18346"
+      ]
     },
     {
       "id": "intrinsic.marker-panics.macro",
       "domain": "intrinsic",
       "title": "unreachable! / todo! / unimplemented! marker macros",
       "statement": "`unreachable!`, `todo!`, and `unimplemented!` are thin wrappers around `panic!` with default prefix messages (\"internal error: entered unreachable code\", \"not yet implemented\", \"not implemented\"); with args they panic with `\"<prefix>: {}\"` filled by `format!(args)`. They type as `!` (Never) and are valid in any expression position.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18348-L18390"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18348-L18390"
+      ]
     },
     {
       "id": "intrinsic.compile-error.macro",
       "domain": "intrinsic",
       "title": "compile_error! emits a compile-time error",
       "statement": "`compile_error!(\"msg\")` takes one string-literal argument and emits that message as a compile-time error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18392-L18409"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18392-L18409"
+      ]
     },
     {
       "id": "intrinsic.matches.macro",
       "domain": "intrinsic",
       "title": "matches! tests a pattern",
       "statement": "`matches!(expr, pattern [if guard])` evaluates to `true` iff `expr` matches the pattern (with optional guard), else `false`; lowered to `match (expr) { pattern => true, _ => false }`. The first top-level comma splits expr from the pattern.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18411-L18434"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18411-L18434"
+      ]
     },
     {
       "id": "intrinsic.dbg.macro",
       "domain": "intrinsic",
       "title": "dbg! prints and returns its argument",
       "statement": "`dbg!(expr)` eprints `[file:line] expr = <Debug>` and evaluates to the value of `expr` (ownership passes through). `dbg!()` prints just `[file:line]` and yields `()`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L18436-L18472"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L18436-L18472"
+      ]
     }
   ]
 }

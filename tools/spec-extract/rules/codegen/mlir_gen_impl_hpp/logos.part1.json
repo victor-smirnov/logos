@@ -9,113 +9,166 @@
       "domain": "layout",
       "title": "Tagged enum layout = { discriminant, payload blob }",
       "statement": "A tagged enum is laid out as a struct { i32 discriminant, payload-blob } where the payload-blob is sized to the widest variant's payload bytes and aligned to payload_align = max over all variants of their payload alignment. The blob is placed after the discriminant with padding so an aligned (i64/ptr/align-8) payload lands on an aligned offset.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L64-L79"],
-      "related": ["layout.enum.align"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L64-L79"
+      ],
+      "related": [
+        "layout.enum.align"
+      ]
     },
     {
       "id": "layout.enum.align",
       "domain": "layout",
       "title": "Tagged enum alignment",
       "statement": "alignof(tagged enum) = max(4, payload_align), i.e. at least the 4-byte discriminant alignment and at least the widest variant payload's alignment.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L65-L67", "src/compiler/mlir_gen_impl.hpp#L72"],
-      "related": ["layout.enum.tagged-repr"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L65-L67",
+        "src/compiler/mlir_gen_impl.hpp#L72"
+      ],
+      "related": [
+        "layout.enum.tagged-repr"
+      ]
     },
     {
       "id": "layout.enum.niche-nullptr",
       "domain": "layout",
       "title": "Null-pointer niche optimization for Option<&T>-shape enums",
       "statement": "A two-variant enum where one variant is fieldless and the other holds a single non-null pointer field is laid out with NO separate discriminant: it is just the 8-byte pointer word. Null (0) encodes the fieldless variant (none_disc); any non-null value encodes the pointer variant (some_disc). Hence sizeof(Option<&T>) == sizeof(&T) == 8.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L88-L98", "src/compiler/mlir_gen_impl.hpp#L103-L107"],
-      "related": ["layout.enum.niche-lowbit"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L88-L98",
+        "src/compiler/mlir_gen_impl.hpp#L103-L107"
+      ],
+      "related": [
+        "layout.enum.niche-lowbit"
+      ]
     },
     {
       "id": "layout.enum.niche-lowbit",
       "domain": "layout",
       "title": "Low-bit niche for two data-arm enums",
       "statement": "A two-data-arm enum may be packed into a single word with NO separate discriminant, disambiguated by the word's LOW BIT: the pointer arm (ptr_disc) holds a pointer to an align>=2 pointee (low bit always 0) stored raw; the value arm (val_disc) holds a value <=63 bits stored as (value<<1)|1 (low bit 1). Read: low bit 0 -> interpret word as pointer; low bit 1 -> value = word>>1, sign/zero-extended per the value arm's bit width and signedness.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L98-L111"],
-      "related": ["layout.enum.niche-nullptr", "layout.enum.niche-lowbit-raw"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L98-L111"
+      ],
+      "related": [
+        "layout.enum.niche-nullptr",
+        "layout.enum.niche-lowbit-raw"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.enum.niche-lowbit-raw",
       "domain": "layout",
       "title": "Low-bit niche raw mode (zoned, 64-bit value arm)",
       "statement": "For a #[zoned2] low-bit niche enum whose value arm is a full 64-bit word (e.g. Pod(u64)), the value-arm word is stored and read VERBATIM with no (v<<1)|1 shift, because the producer already encodes the low-bit-1 tag in the word. The discriminant is still the low bit: low-bit-0 -> reference (pointer) arm, otherwise -> the raw value arm.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L112-L116"],
-      "related": ["layout.enum.niche-lowbit", "layout.enum.zoned-self-relative"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L112-L116"
+      ],
+      "related": [
+        "layout.enum.niche-lowbit",
+        "layout.enum.zoned-self-relative"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.enum.zoned-self-relative",
       "domain": "layout",
       "title": "#[zoned2] enum reference arm stored self-relative at rest",
       "statement": "For a #[zoned2] niche enum, the reference (low-bit-0) arm is stored SELF-RELATIVE at rest and is absolute as a value; conversion between the two representations occurs on materialize (load) and lower (store). Only meaningful together with a low-bit niche.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L81-L86"],
-      "related": ["layout.enum.niche-lowbit-raw"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L81-L86"
+      ],
+      "related": [
+        "layout.enum.niche-lowbit-raw"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "layout.slice.fat-ptr",
       "domain": "layout",
       "title": "Slice reference is a fat { ptr, len } descriptor",
       "statement": "A slice-typed value (&[T] / &mut [T]) is represented as a fat descriptor { data-ptr, len }. Indexed access first reads field 0 (the data pointer) then strides by sizeof(element).",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L346-L350"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L346-L350"
+      ]
     },
     {
       "id": "layout.struct.pointer-field-non-owning",
       "domain": "layout",
       "title": "Pointer/reference fields do not own their pointee",
       "statement": "A struct field of pointer or reference type (*T / &T / &mut T) does not own the pointee; automatic Drop of the containing struct must NOT drop through such fields.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L52-L55"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L52-L55"
+      ]
     },
     {
       "id": "trait.dyn.vtable-static",
       "domain": "trait",
       "title": "dyn-Trait vtables are static, one per (Trait, concrete type)",
       "statement": "Each &dyn Trait coercion of a given concrete type uses a single static vtable global ([N x ptr] of method addresses) shared across all coercions; coercion takes the address of that static vtable rather than allocating/filling a fresh vtable per coercion.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L401-L414"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L401-L414"
+      ]
     },
     {
       "id": "trait.dyn.vtable-drop-slot0",
       "domain": "trait",
       "title": "vtable slot 0 is drop_in_place glue",
       "statement": "Every dyn-Trait vtable's slot 0 is a drop_in_place glue function that runs the concrete type's full Drop; for a non-droppable type it is a no-op.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L429-L436"],
-      "related": ["trait.dyn.drop-full-concrete"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L429-L436"
+      ],
+      "related": [
+        "trait.dyn.drop-full-concrete"
+      ]
     },
     {
       "id": "trait.dyn.drop-full-concrete",
       "domain": "trait",
       "title": "drop_in_place runs the full concrete drop",
       "statement": "drop_in_place for a dynamically-dispatched value runs the FULL drop of the concrete type (recursive field drops), matching the static drop of that type.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L429-L432"],
-      "related": ["trait.dyn.vtable-drop-slot0"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L429-L432"
+      ],
+      "related": [
+        "trait.dyn.vtable-drop-slot0"
+      ]
     },
     {
       "id": "trait.dyn.supertrait-vtable-slots",
       "domain": "trait",
       "title": "Supertrait pointer slots and upcast layout",
       "statement": "A dyn Trait vtable carries, after its method slots, a pointer slot per transitive supertrait; an upcast &dyn Sub -> &dyn Super selects the corresponding super-vtable pointer. A trait with no supertraits has no extra slots (unchanged vtable layout).",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L422-L427"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L422-L427"
+      ]
     },
     {
       "id": "trait.dyn.blanket-vtable-synthesis",
       "domain": "trait",
       "title": "Blanket-impl concrete vtable synthesis",
       "statement": "When a concrete type reaches &dyn Trait only via a blanket impl (impl<T> Trait for T), a concrete <Type>__<method> vtable is synthesized on demand from the trait's slot-ordered method names.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L415-L421"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L415-L421"
+      ]
     },
     {
       "id": "expr.drop.dynamic-flag",
       "domain": "expr",
       "title": "Dynamic drop flag for conditionally-initialized variables",
       "statement": "A `let mut x: T;` declared without an initializer whose initialization is not statically determinable (an assignment nested inside a conditional/loop deeper than its declaration) gets a hidden runtime i8 drop flag (0 = empty, 1 = live). Each assignment drops the old value only if the flag is set then sets it; scope-exit/return drops only if the flag is set. Variables whose every assignment is straight-line (statically dominates) are flag-free with statically-placed drops.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L314-L333"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L314-L333"
+      ]
     },
     {
       "id": "trait.method.overload-mangling",
       "domain": "trait",
       "title": "Method symbol resolution under overload mangling",
       "statement": "A method reference <struct>__<method> resolves to the actual mangled symbol, which may be package-qualified ([pkg.]Base__method) and may carry an overload-mangling suffix __f__<sig> or __g__<sig>; the bare convention name is the fallback when no mangled match exists.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L228-L274"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L228-L274"
+      ]
     }
   ]
 }

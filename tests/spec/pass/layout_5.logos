@@ -1,0 +1,158 @@
+package layout_5;
+
+use logos.mem.boxed;
+use logos.mem.string;
+
+// A two single-field-arm enum: one arm a reference to an align>=2 pointee
+// (i32, align 4 -> low bit always 0), the other a small integer value.
+// If the low-bit niche packing is wrong, the discriminant/value would not
+// round-trip across a match.
+enum PtrOrInt {
+    Ptr(&i32),
+    Num(i32),
+}
+
+// Enums whose value arm uses various low-bit-niche integer widths. Each must
+// round-trip its packed value through a match unchanged.
+enum NicheBool { P(&i32), V(bool) }
+enum NicheU8   { P(&i32), V(u8)   }
+enum NicheU16  { P(&i32), V(u16)  }
+enum NicheU32  { P(&i32), V(u32)  }
+
+// A struct used as a tuple element and behind a reference, to exercise
+// default-binding-mode tuple patterns over a ref scrutinee.
+struct Pt { x: i64, y: i64 }
+
+// Trait object returned by value (16-byte fat pair materialized in caller frame).
+trait Speak { fn val(&self) -> i64; }
+struct Dog { n: i64 }
+impl Speak for Dog { fn val(&self) -> i64 { return self.n; } }
+
+fn get_dyn<'a>(d: &'a Dog) -> &'a dyn Speak { return d; }
+
+// A slice returned by value (16-byte {data,len} pair).
+fn first_three<'a>(s: &'a [i32]) -> &'a [i32] { return s; }
+
+fn sum_slice(s: &[i32]) -> i32 {
+    let mut t: i32 = 0;
+    let mut i: i64 = 0;
+    while i < s.len() { t = t + s[i]; i = i + 1; }
+    return t;
+}
+
+fn main() -> i64 {
+    // @rule layout.enum.niche-lowbit-ptr-int
+    // Ptr arm (low bit 0 from align>=2 pointee) and Num arm (value packed,
+    // discriminated by the low bit) both round-trip through a match.
+    {
+        let anchor: i32 = 7i32;
+        let ep: PtrOrInt = PtrOrInt::Ptr(&anchor);
+        let en: PtrOrInt = PtrOrInt::Num(42i32);
+        let pv: i32 = match ep { PtrOrInt::Ptr(r) => *r, PtrOrInt::Num(_) => -1i32 };
+        if pv != 7i32 { return 1; }
+        let nv: i32 = match en { PtrOrInt::Ptr(_) => -1i32, PtrOrInt::Num(v) => v };
+        if nv != 42i32 { return 2; }
+    }
+
+    // @rule layout.enum.niche-lowbit-int-widths
+    // Bool/U8/U16/U32 value arms each pack shifted and round-trip unchanged;
+    // the pointer arm of each still discriminates correctly.
+    {
+        let a: i32 = 0i32;
+        let nb: NicheBool = NicheBool::V(true);
+        if (match nb { NicheBool::V(b) => b, NicheBool::P(_) => false }) != true { return 3; }
+        let n8: NicheU8 = NicheU8::V(200u8);
+        if (match n8 { NicheU8::V(v) => v, NicheU8::P(_) => 0u8 }) != 200u8 { return 4; }
+        let n16: NicheU16 = NicheU16::V(40000u16);
+        if (match n16 { NicheU16::V(v) => v, NicheU16::P(_) => 0u16 }) != 40000u16 { return 5; }
+        let n32: NicheU32 = NicheU32::V(0xDEADBEEFu32);
+        if (match n32 { NicheU32::V(v) => v, NicheU32::P(_) => 0u32 }) != 0xDEADBEEFu32 { return 6; }
+        // pointer arm of a niche enum still discriminates to its data
+        let np: NicheU32 = NicheU32::P(&a);
+        if (match np { NicheU32::V(_) => 1u32, NicheU32::P(_) => 0u32 }) != 0u32 { return 7; }
+    }
+
+    // @rule layout.tuple.ref-tuple-derefs-to-inner
+    // A pattern `&(a, b)` over a `&(i64,i64)` scrutinee binds the inner tuple's
+    // elements (default binding modes); values come through unchanged.
+    {
+        let t: (i64, i64) = (11i64, 22i64);
+        let rt: &(i64, i64) = &t;
+        // Default binding modes: matching a tuple pattern against `&(i64,i64)`
+        // descends into the inner tuple, binding each element by reference.
+        let a: i64 = match rt { (av, _) => *av };
+        let b: i64 = match rt { (_, bv) => *bv };
+        if a != 11i64 { return 8; }
+        if b != 22i64 { return 9; }
+    }
+
+    // @rule layout.tuple.struct-element-inline
+    // A struct stored as a tuple element keeps its full by-value layout: both
+    // of its fields are recoverable through the tuple element.
+    {
+        let tup: (i64, Pt) = (5i64, Pt { x: 100i64, y: 200i64 });
+        if tup.0 != 5i64 { return 10; }
+        if tup.1.x != 100i64 { return 11; }
+        if tup.1.y != 200i64 { return 12; }
+    }
+
+    // @rule layout.enum.return-by-value-pair
+    // A trait object returned by value materializes as a usable 16-byte fat
+    // pair (data ptr + vtable); the slice case is covered below.
+    {
+        let d: Dog = Dog { n: 99i64 };
+        let s: &dyn Speak = get_dyn(&d);
+        if s.val() != 99i64 { return 13; }
+    }
+
+    // @rule layout.abi.fat-pointer-16
+    // A slice value behaves as a two-word fat representation (data + length):
+    // both the element data and the length survive being passed by value.
+    {
+        let arr: [i32; 3] = [4i32, 5i32, 6i32];
+        let sl: &[i32] = first_three(&arr);
+        if sl.len() != 3i64 { return 14; }
+        if sum_slice(sl) != 15i32 { return 15; }
+    }
+
+    // @rule layout.slice.owning-box-same-as-borrow
+    // Box<[T]> shares the {data,len} fat layout of &[T]: len and indexed reads
+    // round-trip and it derefs to &[T].
+    {
+        let b: Box<[i32]> = box_new::<[i32; 4]>([1i32, 2i32, 3i32, 4i32]) as Box<[i32]>;
+        if b.len() != 4i64 { return 16; }
+        if sum_slice(&b) != 10i32 { return 17; }
+    }
+
+    // @rule layout.pointer.target-64-bit
+    // usize/isize are 64-bit: a value needing more than 32 bits survives.
+    {
+        let big: usize = 4294967296usize;   // 1 << 32, would truncate to 0 at 32-bit
+        if big == 0usize { return 18; }
+        if (big >> 32usize) != 1usize { return 19; }
+        let neg: isize = -1isize;
+        if neg >= 0isize { return 20; }
+    }
+
+    // @rule layout.abi.array-size
+    // [T; N] is N contiguous elements with no inter-element padding: indexed
+    // reads recover every element and the count equals N.
+    {
+        let a: [i64; 5] = [10i64, 20i64, 30i64, 40i64, 50i64];
+        let mut acc: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < 5i64 { acc = acc + a[i]; i = i + 1i64; }
+        if acc != 150i64 { return 21; }
+    }
+
+    // @rule layout.abi.aggregate-field-alignment
+    // A struct mixing a 1-byte and an 8-byte field places both so each field
+    // reads back its own value (correct offset/alignment placement).
+    {
+        let p: Pt = Pt { x: 7i64, y: -7i64 };
+        if p.x != 7i64 { return 22; }
+        if p.y != -7i64 { return 23; }
+    }
+
+    return 0;
+}

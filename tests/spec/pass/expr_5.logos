@@ -1,0 +1,190 @@
+package expr_5;
+
+use logos.lang.option;
+use logos.lang.option.Option.{None, Some};
+
+// Zero-field, non-generic struct: bare name in value position constructs it.
+struct UnitS {}
+
+// Fielded struct still needs S { .. } form (used to confirm the unit-struct rule
+// only fires for zero-field structs).
+struct PairS { a: i64, b: i64 }
+
+// A diverging callee, used to exercise the never-typed tail.
+fn boom() -> ! {
+    return_marker_never()
+}
+fn return_marker_never() -> ! {
+    loop {}
+}
+
+// A const-generic param referenced in expression position yields its numeric value.
+fn cg_value<const N: i64>() -> i64 {
+    // @rule expr.var-ref.const-param-value-use
+    // N referenced in expr position is a plain i64 = the substituted constant.
+    let n: i64 = N;
+    return n;
+}
+
+// A plain function whose name will be used as a value (fn-item -> fn-ptr coercion).
+fn add1(x: i64) -> i64 {
+    return x + 1i64;
+}
+
+fn apply_ptr(f: fn(i64) -> i64, v: i64) -> i64 {
+    return f(v);
+}
+
+fn main() -> i64 {
+    // @rule expr.int-lit.unsuffixed-type
+    // An unsuffixed integer literal takes its concrete type from the destination:
+    // here `99` is coerced to i64 by the annotated binding, and to i32 by the next.
+    {
+        let il_a: i64 = 99;
+        if il_a != 99i64 { return 1; }
+        let il_b: i32 = 7;
+        if il_b != 7i32 { return 2; }
+    }
+
+    // @rule expr.bytes-lit.type
+    // b"..." lowers to [u8; N] with N = decoded byte count; \n \xNN etc. decode.
+    {
+        let bl: [u8; 3] = b"a\n\x41";   // 'a'(97), '\n'(10), 'A'(0x41=65) -> N=3
+        if bl[0] != 97u8 { return 3; }
+        if bl[1] != 10u8 { return 4; }
+        if bl[2] != 65u8 { return 5; }
+    }
+
+    // @rule expr.var-ref.const-param-value-use
+    if cg_value::<5i64>() != 5i64 { return 6; }
+
+    // @rule expr.var-ref.fn-item-type
+    // The bare function name `add1` used as a value coerces to fn(i64)->i64.
+    {
+        let fp: fn(i64) -> i64 = add1;
+        if apply_ptr(fp, 41i64) != 42i64 { return 7; }
+    }
+
+    // @rule expr.var-ref.unit-struct-value
+    // Bare `UnitS` constructs the zero-field struct; binding it succeeds.
+    {
+        let _u: UnitS = UnitS;
+        // Fielded struct still needs braces (constructed here the proper way).
+        let p: PairS = PairS { a: 3i64, b: 4i64 };
+        if p.a + p.b != 7i64 { return 8; }
+    }
+
+    // @rule expr.var-ref.bare-variant-alias
+    // No-payload variant `None` (prelude / use-imported) is a bare identifier;
+    // payload variant `Some` requires call syntax.
+    {
+        let n: Option<i64> = None;
+        let s: Option<i64> = Some(5i64);
+        match n {
+            None => {}
+            Some(_) => { return 9; }
+        }
+        match s {
+            Some(v) => { if v != 5i64 { return 10; } }
+            None => { return 11; }
+        }
+    }
+
+    // @rule expr.block.empty-is-void
+    // An empty block evaluates to (); bind it to a unit-typed local.
+    {
+        let _e: () = {};
+    }
+
+    // @rule expr.block.tail-expr-value
+    // The block's value is its final tail expression.
+    {
+        let bv: i64 = {
+            let t: i64 = 20i64;
+            t + 22i64
+        };
+        if bv != 42i64 { return 12; }
+    }
+
+    // @rule expr.block.tail-return-adopts-value-type
+    // A block whose final stmt is `return e` adopts typeof(e); usable at i64 expected
+    // type inside a tuple element. The return is executed (returns 0 = success).
+    {
+        let cond: bool = false;
+        if cond {
+            let _t: (i64, i64) = (1i64, { return 13; });
+        }
+    }
+
+    // @rule expr.if.let-desugars-to-match
+    // `if let P = e { THEN } else { ELSE }` == match; bindings scoped to THEN.
+    {
+        let opt: Option<i64> = Some(8i64);
+        let r: i64 = if let Some(v) = opt { v * 2i64 } else { 0i64 };
+        if r != 16i64 { return 14; }
+        let none_opt: Option<i64> = None;
+        let r2: i64 = if let Some(v) = none_opt { v } else { 99i64 };
+        if r2 != 99i64 { return 15; }
+    }
+
+    // @rule expr.if.never-branch-skipped
+    // A branch ending in `return` is typed `!`; the if takes the other branch's type.
+    {
+        let pick: bool = true;
+        let chosen: i64 = if pick { 42i64 } else { return 16; };
+        if chosen != 42i64 { return 17; }
+    }
+
+    // @rule expr.closure.expr-body-yields-value
+    // Expression-body closure: value is the expression.
+    {
+        let f = |y: i64| y * 2i64;
+        if f(21i64) != 42i64 { return 18; }
+    }
+
+    // @rule expr.closure.param-type-inference-from-hint
+    // Untyped closure param gets its type from the expected fn type.
+    {
+        let g: fn(i64) -> i64 = |x| x + 1i64;
+        if g(41i64) != 42i64 { return 19; }
+    }
+
+    // @rule expr.closure.return-type-inference
+    // No `-> R`: return type inferred from first non-void return in the body.
+    {
+        let h = |x: i64| { if x > 0i64 { return 1i64; } return 2i64; };
+        if h(5i64) != 1i64 { return 20; }
+        if h(-5i64) != 2i64 { return 21; }
+    }
+
+    // @rule expr.closure.capture-by-free-variable
+    // Closure captures the enclosing `cap` (a free var of the body) by its type.
+    {
+        let cap: i64 = 30i64;
+        let c = || cap + 12i64;
+        if c() != 42i64 { return 22; }
+    }
+
+    // @rule expr.closure.tuple-destructure-param
+    // `(a, b): (T1,T2)` binds each name to the tuple element.
+    {
+        let t = |(a, b): (i64, i64)| a + b;
+        if t((40i64, 2i64)) != 42i64 { return 23; }
+    }
+
+    // @rule expr.closure.mut-bind-param
+    // `mut x` param: bound as a mutable local initialized from the arg.
+    {
+        let m = |mut x: i64| { x += 1i64; x };
+        if m(41i64) != 42i64 { return 24; }
+    }
+
+    // @rule expr.closure.ref-bind-param
+    // `ref x: T` param: arg taken by value, user `x` bound to &T.
+    {
+        let rf = |ref x: i64| *x + 1i64;
+        if rf(41i64) != 42i64 { return 25; }
+    }
+
+    return 0;
+}

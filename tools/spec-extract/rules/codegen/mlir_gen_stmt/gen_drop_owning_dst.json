@@ -9,49 +9,79 @@
       "domain": "expr",
       "title": "References and raw pointers are never dropped",
       "statement": "Dropping a value of kind &T, &mut T, or *T (Ref/MutRef/Ptr) is a no-op: a reference/pointer does not own its referent, so dropping it runs no destructor and frees nothing. This also holds for fields/elements of those kinds during recursive drop.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L845", "src/compiler/mlir_gen_stmt.cpp#L708", "src/compiler/mlir_gen_stmt.cpp#L908", "src/compiler/mlir_gen_stmt.cpp#L929", "src/compiler/mlir_gen_stmt.cpp#L976"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L845",
+        "src/compiler/mlir_gen_stmt.cpp#L708",
+        "src/compiler/mlir_gen_stmt.cpp#L908",
+        "src/compiler/mlir_gen_stmt.cpp#L929",
+        "src/compiler/mlir_gen_stmt.cpp#L976"
+      ]
     },
     {
       "id": "expr.drop.owning-box-dst",
       "domain": "expr",
       "title": "Drop of an owning custom-DST box (Box<Foo> with [T] tail)",
       "statement": "Dropping an owning custom-DST handle (Box<Foo> where Foo = {prefix fields..., [T] tail}) over a non-null data pointer: (1) drop each droppable prefix field (in declaration order, skipping ref/ptr fields and fields that don't need drop), (2) drop the tail's elements over the runtime length len at element stride layout_of(T).size, then (3) free the whole heap block. A null data pointer (a moved-from handle) drops nothing and frees nothing.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L658-L753", "src/compiler/mlir_gen_stmt.cpp#L680-L689", "src/compiler/mlir_gen_stmt.cpp#L704-L743", "src/compiler/mlir_gen_stmt.cpp#L750"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L658-L753",
+        "src/compiler/mlir_gen_stmt.cpp#L680-L689",
+        "src/compiler/mlir_gen_stmt.cpp#L704-L743",
+        "src/compiler/mlir_gen_stmt.cpp#L750"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.drop.owning-box-slice",
       "domain": "expr",
       "title": "Drop of an owning Box<[T]> fat slice",
       "statement": "Dropping an owning Box<[T]> ({data,len} fat slice) over a non-null data pointer: if T is droppable, drop each element i in [0,len) at data + i*stride (stride = layout_of(T).size, min 1), then free the heap buffer; if T is not droppable, only free the buffer. A null data pointer (moved-from) is a no-op.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L755-L817", "src/compiler/mlir_gen_stmt.cpp#L768-L771", "src/compiler/mlir_gen_stmt.cpp#L781-L815"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L755-L817",
+        "src/compiler/mlir_gen_stmt.cpp#L768-L771",
+        "src/compiler/mlir_gen_stmt.cpp#L781-L815"
+      ]
     },
     {
       "id": "expr.drop.owning-box-dyn",
       "domain": "expr",
       "title": "Drop of an owning Box<dyn Trait> fat handle is uniform across storage sites",
       "statement": "An owning trait-object handle (inline {data,vtable} fat pair, e.g. Box<dyn>/Rc<dyn>/Arc<dyn>) drops by running vtable[0] (drop_in_place) on data followed by the kind-specific release (Box: free data; Rc/Arc: decrement strong count, free at last reference). This drop is uniform across every storage site — local, struct field, return temp, Vec/tuple/array element — reached via ordinary aggregate field recursion, not only a top-level local.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L846-L855", "src/compiler/mlir_gen_stmt.cpp#L1049-L1052"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L846-L855",
+        "src/compiler/mlir_gen_stmt.cpp#L1049-L1052"
+      ]
     },
     {
       "id": "expr.drop.struct-user-drop-then-fields",
       "domain": "expr",
       "title": "Struct drop: user Drop runs first, then field recursion governed by ownership",
       "statement": "Dropping a struct/zoned-struct value first calls its user `impl Drop` (if one exists) which owns the value. A nested (non-top-level) struct then STOPS — the by-value self of the user drop already consumed the fields, so recursing them would double-drop. A top-level owner, or a struct with NO user Drop, recurses its droppable fields in REVERSE declaration order (skipping ref/ptr/non-droppable fields and statically moved-out field paths).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L880-L920", "src/compiler/mlir_gen_stmt.cpp#L891-L897", "src/compiler/mlir_gen_stmt.cpp#L905-L918"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L880-L920",
+        "src/compiler/mlir_gen_stmt.cpp#L891-L897",
+        "src/compiler/mlir_gen_stmt.cpp#L905-L918"
+      ]
     },
     {
       "id": "expr.drop.enum-user-drop-then-variant",
       "domain": "expr",
       "title": "Enum drop: user Drop runs first, else variant-switched payload recursion",
       "statement": "Dropping an enum value first calls its user `impl Drop` if a drop symbol actually exists (a by-value self that consumes the payload; nested enums then stop). Absent a real user Drop, drop switches on the loaded discriminant and, for each variant carrying a droppable payload field, recurses into that field. Variants whose payload needs no drop emit no work; a wholly drop-less enum drops nothing.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L939-L983", "src/compiler/mlir_gen_stmt.cpp#L946-L950", "src/compiler/mlir_gen_stmt.cpp#L951-L982"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L939-L983",
+        "src/compiler/mlir_gen_stmt.cpp#L946-L950",
+        "src/compiler/mlir_gen_stmt.cpp#L951-L982"
+      ]
     },
     {
       "id": "expr.drop.tuple-array-reverse",
       "domain": "expr",
       "title": "Tuple and array element drop in reverse order",
       "statement": "Dropping a tuple drops its droppable elements in reverse index order; dropping a fixed array [T;N] drops each of the N elements when T is droppable. Ref/ptr elements and non-droppable elements are skipped, and statically moved-out tuple element positions are suppressed.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L922-L938", "src/compiler/mlir_gen_stmt.cpp#L985-L995"],
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L922-L938",
+        "src/compiler/mlir_gen_stmt.cpp#L985-L995"
+      ],
       "divergence": "Rust drops array elements in forward (index-ascending) order; tuple reverse-order is conformant. Array order here is N forward but element-by-element; flagged as possibly observable only via Drop side effects."
     },
     {
@@ -59,21 +89,30 @@
       "domain": "expr",
       "title": "Closure drop runs the captured environment's drop glue",
       "statement": "Dropping a closure value ({fn, env} 16-byte handle) loads env = handle[1]; if env != null, loads glue = env[0]; if glue != null, calls glue(env). A non-owning closure has a null env (or null glue) so its drop is a guarded no-op. Closures are not auto-recursed via the needs-drop predicate; their drop is driven explicitly.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L868-L869", "src/compiler/mlir_gen_stmt.cpp#L996-L1034"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L868-L869",
+        "src/compiler/mlir_gen_stmt.cpp#L996-L1034"
+      ]
     },
     {
       "id": "expr.drop.skip-moved-paths",
       "domain": "expr",
       "title": "Moved-out fields/elements are suppressed during scope drop",
       "statement": "Scope-end drop of an owning aggregate suppresses sub-values that were moved out, identified by dotted field/element paths. An exact path (\"f\" or \"i\") skips the whole field/element; a deeper path (\"f.g\") recurses but suppresses only the moved leaf, so its siblings still drop. This prevents double-free of a value already moved elsewhere.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L823-L838", "src/compiler/mlir_gen_stmt.cpp#L1107-L1159", "src/compiler/mlir_gen_stmt.cpp#L910-L918"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L823-L838",
+        "src/compiler/mlir_gen_stmt.cpp#L1107-L1159",
+        "src/compiler/mlir_gen_stmt.cpp#L910-L918"
+      ]
     },
     {
       "id": "expr.drop.flag-uninit-conditional",
       "domain": "expr",
       "title": "Conditionally/late-initialized variables drop only when live",
       "statement": "A variable that may be uninitialized at a drop point runs its destructor only if it currently holds a live value. With dynamic tracking a per-variable drop flag (0/1) is consulted at runtime (flag==1 → drop, else no-op). With static tracking the destructor is emitted only when the variable is statically known to be assigned at that point; an early return before first assignment, the !c arm of a conditional init, or a never-assigned variable drops nothing.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1184-L1214"],
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1184-L1214"
+      ],
       "divergence": "Logos drop flags / static drop tracking (B8). Models Rust's conditional drop flags."
     },
     {
@@ -81,28 +120,39 @@
       "domain": "expr",
       "title": "Scope drop runs the variable's own Drop before recursing its children",
       "statement": "At scope end a variable's own user drop function (if any) is invoked first, then its owned sub-values (struct fields, tuple elements, enum payload, array elements, owning slice/DST/closure) are recursively dropped. Children moved out are skipped (see expr.drop.skip-moved-paths). A moved-out unsized `dyn` tail runs only the concrete Drop via vtable[0](data) with NO free (the enclosing block is freed separately).",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1053-L1099", "src/compiler/mlir_gen_stmt.cpp#L1101-L1181"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1053-L1099",
+        "src/compiler/mlir_gen_stmt.cpp#L1101-L1181"
+      ]
     },
     {
       "id": "expr.deref-write.drop-before-replace",
       "domain": "expr",
       "title": "Deref/place write drops the old owned value before overwriting",
       "statement": "Writing through a pointer/place to an owned droppable location runs the OLD value's destructor before the store, after the RHS has been materialized (so a self-referencing `p = f(&*p)` reads the old buffer before it is freed). Drop-before-store applies only to live owned droppable places.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1225-L1234"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1225-L1234"
+      ]
     },
     {
       "id": "expr.deref-write.aggregate-by-value-copy",
       "domain": "expr",
       "title": "Deref-write of an aggregate/fat value copies the full footprint by value",
       "statement": "A deref/place write `*p = v` where v is an aggregate or fat value copies the full value footprint, not an 8-byte pointer: a struct/zoned-struct, tuple, embedded datatype, or fixed-array pointee is memcpy'd by size; a closure or slice value copies its 16-byte fat pair; a bare fat `dyn` (TraitObject) or slice-tailed custom-DST destination copies 16 bytes via the reference repr. An enum pointee copies its inline {disc,payload} footprint (this is how `Option::take`/`*self = None` mutate through inline storage); a C-like (discriminant-only) enum falls to a scalar store.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1281-L1311", "src/compiler/mlir_gen_stmt.cpp#L1312-L1366", "src/compiler/mlir_gen_stmt.cpp#L1367-L1386"]
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1281-L1311",
+        "src/compiler/mlir_gen_stmt.cpp#L1312-L1366",
+        "src/compiler/mlir_gen_stmt.cpp#L1367-L1386"
+      ]
     },
     {
       "id": "layout.dstref.fat-only-with-slice-tail",
       "domain": "layout",
       "title": "Custom-DST reference is a 16-byte fat slot only with a literal slice tail",
       "statement": "A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,len} fat pointer ONLY when the pointee has a literal `[T]` slice tail (len carried inline) and is not #[self_describing]. A `dyn`-tail DST ref or a #[self_describing] DST is physically THIN (8-byte pointer; tail length recovered in-band, e.g. sizeof(Rc<dyn>)==8) and is not copied as a 16-byte fat slot.",
-      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L1330-L1351"],
+      "evidence": [
+        "src/compiler/mlir_gen_stmt.cpp#L1330-L1351"
+      ],
       "divergence": "Logos custom-DST representation split (slice-tail fat vs dyn-tail/self-describing thin)."
     }
   ]

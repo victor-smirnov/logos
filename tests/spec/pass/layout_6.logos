@@ -1,0 +1,48 @@
+// Grouped conformance: layout_6 — #[zone_mut] fat &mut ref + #[non_null] NullPtr niche.
+package layout_6;
+
+use logos.mem.boxed;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+// --- #[zone_mut]: a &mut T to this type is a fat {data, zone=*mut Allocator}. ---
+#[zone_mut] struct Cell { v: i64 }
+impl Cell {
+    fn zone_i(self: &mut Cell) -> i64 { return zone_of(self) as i64; }  // zone cascades
+}
+
+// --- #[non_null]: Option<Box<i32>> niche read/write helper. ---
+fn unwrap_or(o: Option<Box<i32>>, dflt: i32) -> i32 {
+    match o {
+        Option::Some(b) => { return *b; }
+        Option::None => { return dflt; }
+    }
+}
+
+unsafe fn main() -> i64 {
+    // @rule layout.zone-mut.fat-mut-ref
+    // A `&mut Cell` is fat {data, zone}: the data half reaches the field, and the
+    // zone half (bundled by zone_mut_ref / recovered by zone_of) is carried along —
+    // including cascading through a method that takes `self: &mut Cell`.
+    let p: *mut Cell = malloc(8i64) as *mut Cell;
+    (*p).v = 42i64;
+    let r: &mut Cell = zone_mut_ref::<Cell>(p, 12345i64 as *mut u8);
+    if r.v != 42i64 { return 1; }                  // data half
+    r.v = 99i64;
+    if (*p).v != 99i64 { return 2; }               // data half write-through
+    if (zone_of(r) as i64) != 12345i64 { return 3; }  // zone half carried
+    if r.zone_i() != 12345i64 { return 4; }        // zone cascades into method
+
+    // @rule layout.non-null.option-nullptr-niche
+    // Box is #[non_null]: Option<Box<i32>> uses the NullPtr niche, so it is
+    // pointer-sized (8B, no separate discriminant) AND Some/None round-trip
+    // through that niche correctly (None = null pointer, Some = live pointer).
+    if sizeof::<Option<Box<i32>>>() != 8i64 { return 5; }
+    if sizeof::<Box<i32>>() != sizeof::<Option<Box<i32>>>() { return 6; }
+    let some: Option<Box<i32>> = Option::Some(box_new::<i32>(7));
+    let none: Option<Box<i32>> = Option::None;
+    if unwrap_or(some, -1) != 7 { return 7; }
+    if unwrap_or(none, -1) != -1 { return 8; }
+
+    return 0;
+}

@@ -192,7 +192,8 @@
       "evidence": [
         "src/compiler/sema.cpp#L7649-L7657",
         "src/compiler/sema.cpp#L7770-L7781"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "item.instantiate.generic-only",

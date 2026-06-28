@@ -9,7 +9,9 @@
       "domain": "expr",
       "title": "Integer literal bit-width from its inferred type",
       "statement": "An integer literal is encoded at the bit-width of its inferred type: i8/u8=8, i16/u16=16, i24/u24=24, i32/u32=32, i56/u56=56, i64/u64=64, i128/u128=128, bool=1. usize/isize use the target pointer bit-width. An untyped integer literal (IntLit) defaults to 32 bits, widening to 64 bits when its value falls outside [INT32_MIN, INT32_MAX].",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L253-L298"],
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L253-L298"
+      ],
       "divergence": "A: i24/u24/i56/u56 are Logos-only integer widths (no Rust equivalent)."
     },
     {
@@ -17,71 +19,93 @@
       "domain": "expr",
       "title": "usize/isize literals are pointer-sized",
       "statement": "A usize- or isize-typed integer literal is encoded at the target's pointer bit-width (e.g. 64 on a 64-bit target), not the default 32, so high bits are well-defined.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L270-L279"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L270-L279"
+      ]
     },
     {
       "id": "expr.litint.i128-two-halves",
       "domain": "expr",
       "title": "128-bit integer literal assembled from low and high words",
       "statement": "A 128-bit integer literal's value is the 128-bit integer whose low 64 bits are value and high 64 bits are value_hi; neither half is discarded.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L291-L297"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L291-L297"
+      ]
     },
     {
       "id": "expr.litfloat.f32-vs-f64",
       "domain": "expr",
       "title": "Float literal precision from type, default f64",
       "statement": "A float literal typed f32 is encoded as a 32-bit float; otherwise it is encoded as a 64-bit float (f64 is the default).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L301-L311"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L301-L311"
+      ]
     },
     {
       "id": "expr.litbool.zero-one",
       "domain": "expr",
       "title": "Boolean literal encoding",
       "statement": "A boolean literal is a 1-bit integer: true=1, false=0.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L313-L315"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L313-L315"
+      ]
     },
     {
       "id": "lex.litstr.raw-hash-count",
       "domain": "lex",
       "title": "Raw string r#\"...\"# delimiter stripping",
       "statement": "A raw string literal begins with `r` followed by N `#` characters (N>=0) then `\"`; its content is the bytes between the opening `\"` and the matching closing `\"` followed by the same N `#`. Escape sequences are NOT processed inside a raw string.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L317-L336"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L317-L336"
+      ]
     },
     {
       "id": "lex.litstr.escape-sequences",
       "domain": "lex",
       "title": "String literal escape decoding",
       "statement": "In a non-raw string literal, `\\` introduces an escape: \\n=LF, \\t=TAB, \\r=CR, \\\\=backslash, \\0=NUL, \\\"=quote, \\'=apostrophe. `\\xNN` decodes exactly two hex digits to one byte. `\\u{H..}` decodes the hex codepoint and emits its UTF-8 encoding (1-4 bytes). A malformed or unknown escape is left literal (backslash retained).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L338-L402"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L338-L402"
+      ]
     },
     {
       "id": "layout.litstr.len-excludes-null",
       "domain": "layout",
       "title": "String literal fat-pointer length excludes the NUL terminator",
       "statement": "A string literal is represented as a fat pointer {ptr, len}: the backing storage is the decoded content plus a trailing NUL byte, but len equals the content length in bytes, excluding the NUL terminator.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L404-L431"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L404-L431"
+      ]
     },
     {
       "id": "layout.enum.value-repr-inline",
       "domain": "layout",
       "title": "Tagged enum value is inline {disc, payload} storage, not heap",
       "statement": "A tagged-enum value (with or without payload) is stored inline as a {discriminant, payload} aggregate by value (the address is a one-level &Enum); it is not heap-allocated. Recursive-by-value enums are rejected, making inline storage sound. A C-style enum with no payload is just its discriminant, sized by the enum's backing type.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L529-L547", "src/compiler/mlir_gen_expr.cpp#L561-L568"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L529-L547",
+        "src/compiler/mlir_gen_expr.cpp#L561-L568"
+      ]
     },
     {
       "id": "layout.enum.niche-lowbit-encoding",
       "domain": "layout",
       "title": "LowBit niche enum payload encoding",
       "statement": "For an enum with a LowBit niche packed into a single word: the pointer arm stores the pointer's raw integer value (low bit 0, guaranteed by >=2 alignment); the value arm stores (v<<1)|1 after sign/zero extension to the word width. In RAW mode the producer-supplied value (low-bit already set) is stored verbatim without shifting. An empty payload stores 0.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L570-L602"],
-      "divergence": "A: niche-packing layout is Logos-defined; not a Rust-guaranteed representation."
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L570-L602"
+      ],
+      "divergence": "A: niche-packing layout is Logos-defined; not a Rust-guaranteed representation.",
+      "testability": "untestable"
     },
     {
       "id": "layout.enum.aggregate-payload-inline-memcpy",
       "domain": "layout",
       "title": "Aggregate enum payload fields are stored inline",
       "statement": "A variant payload field whose type is an aggregate (struct, zoned struct, tuple, slice, closure, array, nested tagged enum, or trait object) is stored inline into the payload area by copying its full byte footprint; scalar payload fields are stored by value. A trait-object payload field is first coerced to a 16-byte fat (data,vtable) pair and stored inline, so it moves and drops with the enum.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L604-L664"]
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L604-L664"
+      ]
     }
   ]
 }

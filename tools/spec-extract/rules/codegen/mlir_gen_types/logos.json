@@ -45,7 +45,8 @@
       "evidence": [
         "src/compiler/mlir_gen_types.cpp#L468-L469",
         "src/compiler/mlir_gen_types.cpp#L588-L590"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "layout.array.element-stride",

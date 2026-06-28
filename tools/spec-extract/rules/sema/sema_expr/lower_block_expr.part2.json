@@ -9,24 +9,40 @@
       "domain": "expr",
       "title": "Untyped closure params infer types from expected fn signature",
       "statement": "For a closure literal `|x, y| …` whose parameters carry no type annotation, each untyped parameter's type is taken from the corresponding formal of the expected callable type at the call site (the closure-formal hint), by positional index. The hint is consulted only for params that lack both a TYPE and a NAMES (tuple-destructure) node.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14137-L14158"],
-      "examples": ["let f: fn(i32) -> i32 = |x| x + 1;"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14137-L14158"
+      ],
+      "examples": [
+        "let f: fn(i32) -> i32 = |x| x + 1;"
+      ]
     },
     {
       "id": "expr.closure.hint-peels-callable-wrappers",
       "domain": "expr",
       "title": "Closure-formal hint peels through refs/pointers and single-arg wrappers to a callable",
       "statement": "When inferring closure param types from an expected type, the expected type is peeled (up to 8 levels) through `&T`/`&mut T`/`*T` (to pointee) and through a Struct/ZonedStruct with exactly one type argument (to that argument) until a Closure or FnPtr type is reached; the resulting callable's parameter list supplies the param-type hints. This lets `Box<dyn Fn(..)>`/`&dyn Fn(..)`-typed contexts still drive inference.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14082-L14099", "src/compiler/sema_expr.cpp#L14138-L14148"],
-      "examples": ["let b: Box<dyn Fn(i32) -> i32> = box_new(|x| x + 1);"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14082-L14099",
+        "src/compiler/sema_expr.cpp#L14138-L14148"
+      ],
+      "examples": [
+        "let b: Box<dyn Fn(i32) -> i32> = box_new(|x| x + 1);"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.closure.ref-bind-param",
       "domain": "expr",
       "title": "`|ref x: T|` binds x as &T",
       "statement": "A closure parameter written `ref x: T` (IS_REF with an explicit TYPE) takes its argument by value of type T under a synthetic name and binds the user-visible `x` to `&T` aliasing the synthetic param. IS_REF without a TYPE is the `&self`/`&mut self` shorthand, not a ref-bind.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14191-L14206", "src/compiler/sema_expr.cpp#L14257-L14259", "src/compiler/sema_expr.cpp#L14304-L14311"],
-      "examples": ["let f = |ref x: i32| *x + 1;"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14191-L14206",
+        "src/compiler/sema_expr.cpp#L14257-L14259",
+        "src/compiler/sema_expr.cpp#L14304-L14311"
+      ],
+      "examples": [
+        "let f = |ref x: i32| *x + 1;"
+      ],
       "divergence": "Logos closure ref-binding param syntax; no direct Rust equivalent."
     },
     {
@@ -34,60 +50,95 @@
       "domain": "expr",
       "title": "`|mut x|` binds a mutable copy of the parameter",
       "statement": "A closure parameter written `mut x` (IS_MUT, not a ref-bind) takes its argument under a synthetic name and binds the user-visible `x` as a mutable local initialized from the synthetic param (`let mut x = synth;`). The synthetic name is not entered into the sema scope, so move-typed params do not receive double drop glue.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14199-L14212", "src/compiler/sema_expr.cpp#L14248-L14256", "src/compiler/sema_expr.cpp#L14296-L14303"],
-      "examples": ["let f = |mut x: i32| { x += 1; x };"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14199-L14212",
+        "src/compiler/sema_expr.cpp#L14248-L14256",
+        "src/compiler/sema_expr.cpp#L14296-L14303"
+      ],
+      "examples": [
+        "let f = |mut x: i32| { x += 1; x };"
+      ]
     },
     {
       "id": "expr.closure.tuple-destructure-param",
       "domain": "expr",
       "title": "`|(a, b): (T1, T2)|` destructures a tuple parameter",
       "statement": "A closure parameter written `(a, b, …): (T1, T2, …)` takes a single synthetic tuple-typed parameter and binds each user name to the corresponding tuple element (`let a = synth.0; let b = synth.1; …`), with `_` sub-patterns skipped. Element bindings are only emitted when the param type is a Tuple type; bindings are positional up to the lesser of name-count and tuple arity.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14159-L14188", "src/compiler/sema_expr.cpp#L14260-L14268", "src/compiler/sema_expr.cpp#L14312-L14326"],
-      "examples": ["let f = |(a, b): (i32, i32)| a + b;"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14159-L14188",
+        "src/compiler/sema_expr.cpp#L14260-L14268",
+        "src/compiler/sema_expr.cpp#L14312-L14326"
+      ],
+      "examples": [
+        "let f = |(a, b): (i32, i32)| a + b;"
+      ]
     },
     {
       "id": "expr.closure.expr-body-yields-value",
       "domain": "expr",
       "title": "Expression-body closure yields its expression",
       "statement": "A closure with an expression body `|y| expr` (no braces) is lowered as if its body were `return expr;`; the closure result is the value of `expr`.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14284-L14290"],
-      "examples": ["let f = |y| y * 2;"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14284-L14290"
+      ],
+      "examples": [
+        "let f = |y| y * 2;"
+      ]
     },
     {
       "id": "expr.closure.return-type-inference",
       "domain": "expr",
       "title": "Closure return type inferred from first non-void return",
       "statement": "A closure without an explicit `-> R` annotation infers its return type by scanning the lowered body (recursing into if/while/loop/block) for return statements and adopting the type of the first return value whose type is neither Void nor Error; if none is found the return type is `()` (void). During body lowering of an unannotated closure the expected return type is left unset so `return X;` is not strictly type-checked against it.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14229-L14231", "src/compiler/sema_expr.cpp#L14275-L14277", "src/compiler/sema_expr.cpp#L14340-L14386"],
-      "examples": ["let f = |x: i32| { if x > 0 { return 1; } 2 };"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14229-L14231",
+        "src/compiler/sema_expr.cpp#L14275-L14277",
+        "src/compiler/sema_expr.cpp#L14340-L14386"
+      ],
+      "examples": [
+        "let f = |x: i32| { if x > 0 { return 1; } 2 };"
+      ]
     },
     {
       "id": "expr.closure.body-is-drop-boundary",
       "domain": "expr",
       "title": "Closure body scope is a drop boundary",
       "statement": "A closure body is lowered in its own scope that is a drop boundary: a `return` inside the body drops only the closure's own frames, not the enclosing function's locals captured by the closure (those are owned by their original bindings or borrowed by the env).",
-      "evidence": ["src/compiler/sema_expr.cpp#L14243-L14247", "src/compiler/sema_expr.cpp#L14334-L14338"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14243-L14247",
+        "src/compiler/sema_expr.cpp#L14334-L14338"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.closure.body-own-unsafe-scope",
       "domain": "expr",
       "title": "Closure body does not inherit enclosing unsafe context",
       "statement": "A closure body is lowered as its own scope and does not inherit the enclosing `unsafe` context; the inside-unsafe state is reset to false for the body and restored afterward.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14274-L14278", "src/compiler/sema_expr.cpp#L14332-L14333"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14274-L14278",
+        "src/compiler/sema_expr.cpp#L14332-L14333"
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.closure.capture-by-free-variable",
       "domain": "expr",
       "title": "Closures capture free variables resolving in an enclosing scope",
       "statement": "A closure captures exactly those names used in its body that are not its own parameters and that resolve to a binding in an enclosing scope; each captured name's type is the enclosing binding's type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14388-L14432", "src/compiler/sema_expr.cpp#L14421-L14432"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14388-L14432",
+        "src/compiler/sema_expr.cpp#L14421-L14432"
+      ]
     },
     {
       "id": "expr.closure.mutated-capture-by-reference",
       "domain": "expr",
       "title": "Mutated captures are captured by reference",
       "statement": "A captured variable that is the target of a mutation in the body (assignment / field write / index write / deref write) is captured by reference so the mutation propagates to the outer binding rather than to a local env copy. A write-only target (no prior read of its base) is still added to the capture set as a whole-variable capture.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14395-L14420"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14395-L14420"
+      ],
       "divergence": "Capture mode is inferred per-variable from usage (read-only vs mutated), conceptually aligned with Rust closure capture-mode inference."
     },
     {
@@ -95,15 +146,24 @@
       "domain": "expr",
       "title": "Closures capture disjoint fields (RFC-2229)",
       "statement": "When a closure body reads a precise dotted field path `root.x.y` rooted at a captured variable, the capture is recorded at that path; multiple paths off the same root are widened to their lowest common ancestor segment (`lca(\"p.x\",\"p.y\")=\"p\"`, widening to a larger/less precise borrow which is sound). The capture's slot is sized at the leaf field type when the path walks entirely through plain `Struct` fields; otherwise the whole root is captured. Paths are extracted only when the head is a plain variable reference followed by field reads (indexing or deref-through-box falls back to whole-variable capture).",
-      "evidence": ["src/compiler/sema_expr.cpp#L14433-L14528", "src/compiler/sema_expr.cpp#L14455-L14482", "src/compiler/sema_expr.cpp#L14486-L14506"],
-      "examples": ["let g = |p: &Pt| { use(p.x); use(p.y); };"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14433-L14528",
+        "src/compiler/sema_expr.cpp#L14455-L14482",
+        "src/compiler/sema_expr.cpp#L14486-L14506"
+      ],
+      "examples": [
+        "let g = |p: &Pt| { use(p.x); use(p.y); };"
+      ]
     },
     {
       "id": "borrow.closure.skip-source-drop-on-body-move",
       "domain": "borrow",
       "title": "Per-capture skip of source-side drop when body moves the capture",
       "statement": "For each capture, the closure's source-side owned-drop is skipped iff the closure body itself moved that capture into a callee, because the callee's parameter drop is then the canonical drop site; this prevents a double-drop. The body-moved-capture set is computed as the variables newly moved during body lowering relative to a pre-body snapshot.",
-      "evidence": ["src/compiler/sema_expr.cpp#L14233-L14241", "src/compiler/sema_expr.cpp#L14335-L14338"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L14233-L14241",
+        "src/compiler/sema_expr.cpp#L14335-L14338"
+      ]
     }
   ]
 }

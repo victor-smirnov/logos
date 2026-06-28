@@ -9,114 +9,155 @@
       "domain": "coerce",
       "title": "Integer widening sign- vs zero-extends by source signedness",
       "statement": "Widening an integer value to a wider integer type sign-extends when the source type is signed and zero-extends when the source type is unsigned. Unsigned source kinds = {u8,u16,u24,u32,u56,u64,u128} (and bool). bool (i1) is always zero-extended.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L534-L555"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L534-L555"
+      ]
     },
     {
       "id": "coerce.int.truncate-on-narrowing",
       "domain": "coerce",
       "title": "Integer narrowing truncates",
       "statement": "Converting an integer value to a narrower integer type truncates to the destination width (low-order bits retained).",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L556-L557"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L556-L557"
+      ]
     },
     {
       "id": "coerce.float.widen-truncate",
       "domain": "coerce",
       "title": "Float-to-float widening extends, narrowing truncates",
       "statement": "Converting a float to a wider float type extends; to a narrower float type truncates.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L561-L568"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L561-L568"
+      ]
     },
     {
       "id": "coerce.int.to-float-by-signedness",
       "domain": "coerce",
       "title": "Integer-to-float conversion respects source signedness",
       "statement": "An integer-to-float conversion uses unsigned-to-float when the source integer type is unsigned (one of {u8,u16,u32,u56,u64,u128}), otherwise signed-to-float. Float-to-int is not an implicit coercion and requires an explicit cast.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L571-L597"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L571-L597"
+      ]
     },
     {
       "id": "layout.slice.fat-pointer-pair",
       "domain": "layout",
       "title": "Slice/str values are a 16-byte {data,len} fat pair",
       "statement": "A slice type (and str = Slice<u8>) has a fat-pointer representation: a 16-byte {data_ptr, len} pair. Functions returning a slice return this pair by value.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L496-L501", "src/compiler/mlir_gen_impl.hpp#L639-L645", "src/compiler/mlir_gen_impl.hpp#L784-L785"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L496-L501",
+        "src/compiler/mlir_gen_impl.hpp#L639-L645",
+        "src/compiler/mlir_gen_impl.hpp#L784-L785"
+      ]
     },
     {
       "id": "layout.dyn.fat-pointer-pair",
       "domain": "layout",
       "title": "Trait-object references are a 16-byte {data,vtable} fat pair",
       "statement": "A bare dyn / &dyn / &mut dyn trait object has a 16-byte {data_ptr, vtable_ptr} fat-pointer representation and is returned by value as that pair. A reference to such a reference (Ref/MutRef<TraitObject>) or a raw *const/*mut dyn remains a thin 8-byte pointer.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L627-L638", "src/compiler/mlir_gen_impl.hpp#L786"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L627-L638",
+        "src/compiler/mlir_gen_impl.hpp#L786"
+      ]
     },
     {
       "id": "layout.closure.fat-pointer-pair",
       "domain": "layout",
       "title": "Closure values are a 16-byte {fn,env} fat pair",
       "statement": "A closure has a 16-byte {fn_ptr, env_ptr} fat-pointer representation.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L787"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L787"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "layout.customdst.fat-pointer-pair",
       "domain": "layout",
       "title": "Custom-DST references are a 16-byte {data,meta} fat pair",
       "statement": "A reference to a custom DST (DstRef) has a 16-byte {data_ptr, meta} fat-pointer representation, except a #[self_describing] DST whose metadata is recovered in-band from the header pointer, which is carried as a thin pointer.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L788", "src/compiler/mlir_gen_impl.hpp#L799-L810"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L788",
+        "src/compiler/mlir_gen_impl.hpp#L799-L810"
+      ]
     },
     {
       "id": "layout.ref.thin-pointer",
       "domain": "layout",
       "title": "Plain references and fn pointers are thin 8-byte pointers",
       "statement": "A *T, &T, &mut T, or function pointer to a Sized pointee has a thin 8-byte pointer representation.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L784"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L784"
+      ]
     },
     {
       "id": "layout.ref.zone-mut-fat-pair",
       "domain": "layout",
       "title": "&mut T to a zone_mut type carries its allocator as a fat reference",
       "statement": "A &mut T where T is a #[zone_mut] type has a 16-byte {data, zone=*mut Allocator} fat representation, returned by value; the allocator rides the &mut so grow-style methods reach it from &mut self.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L789-L791", "src/compiler/mlir_gen_impl.hpp#L507-L508"],
-      "divergence": "Logos addition: zone/allocator-carrying mutable reference, no Rust analogue."
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L789-L791",
+        "src/compiler/mlir_gen_impl.hpp#L507-L508"
+      ],
+      "divergence": "Logos addition: zone/allocator-carrying mutable reference, no Rust analogue.",
+      "testability": "untestable"
     },
     {
       "id": "layout.ref.self-relative-offset",
       "domain": "layout",
       "title": "Self-relative (writ / rel_ptr) pointers store a byte offset",
       "statement": "A self-relative pointer (the writ / #[rel_ptr] zoned pointer) is stored as an i64 byte offset from the slot's own address; its compute/absolute form is slot_address + load_i64(slot), and lowering stores (target_address - slot_address). A thin-pointer field inside a #[zoned2] struct stores self-relative.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L792-L795", "src/compiler/mlir_gen_impl.hpp#L799-L803"],
-      "divergence": "Logos addition: self-relative zoned pointers, no Rust analogue."
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L792-L795",
+        "src/compiler/mlir_gen_impl.hpp#L799-L803"
+      ],
+      "divergence": "Logos addition: self-relative zoned pointers, no Rust analogue.",
+      "testability": "transitive"
     },
     {
       "id": "layout.aggregate-member.indirect-fat-types",
       "domain": "layout",
       "title": "Fat-typed aggregate members are stored as an 8-byte pointer",
       "statement": "As a struct field, tuple element, or enum payload field: Slice/Closure/Tuple members are stored as an 8-byte pointer (not their by-value fat footprint); struct/enum/array/bare-dyn members are stored inline; an AnyVal member is stored as i32.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L766-L771"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L766-L771"
+      ]
     },
     {
       "id": "layout.enum.discriminant-backing-type",
       "domain": "layout",
       "title": "C-style enum discriminant uses its declared backing type, else i32",
       "statement": "A C-style enum's discriminant is represented with its explicitly declared backing integer type (e.g. `enum Foo : u64 {}`); absent an explicit backing type the discriminant defaults to i32.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L649-L665"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L649-L665"
+      ]
     },
     {
       "id": "layout.return.aggregate-by-value",
       "domain": "layout",
       "title": "Struct/enum return values are returned by value as the full aggregate",
       "statement": "A function returning a Struct/ZonedStruct/Enum returns the literal aggregate value by value (the registered LLVM struct/tagged-enum type), even though such types are passed by pointer at parameter/field/scope positions.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L603-L626"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L603-L626"
+      ]
     },
     {
       "id": "type.struct.package-qualified-identity",
       "domain": "type",
       "title": "Struct types are identified by package-qualified name",
       "statement": "A struct type's identity carries its package prefix (pkg.Name); same-named structs in different packages are distinct types and do not alias. Method-symbol mangling uses the package-agnostic bare struct name.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L667-L691"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L667-L691"
+      ]
     },
     {
       "id": "intrinsic.closure.drop-glue",
       "domain": "intrinsic",
       "title": "Owned closures drop their owned captures then free an escaping env",
       "statement": "Dropping an owned closure value runs per-closure drop glue that drops each owned droppable capture (the narrow captured field when RFC-2229 phase-2 narrowing applies, else the whole captured root) and, if the env is heap-allocated (escaping closure), frees the env.",
-      "evidence": ["src/compiler/mlir_gen_impl.hpp#L438-L454"]
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L438-L454"
+      ]
     }
   ]
 }

@@ -69,7 +69,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1202-L1204"
       ],
-      "divergence": "Logos union via #[repr]/union attribute; layout semantics match C/Rust unions."
+      "divergence": "Logos union via #[repr]/union attribute; layout semantics match C/Rust unions.",
+      "testability": "untestable"
     },
     {
       "id": "type.struct.non-null-niche",

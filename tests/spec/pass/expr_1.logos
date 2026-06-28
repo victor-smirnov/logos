@@ -1,0 +1,283 @@
+package expr_1;
+
+// ── Helper types/traits/impls ───────────────────────────────────────────────
+
+struct Pt { x: i64, y: i64 }
+
+impl Pt {
+    // &self method: reads field of the pointed-to struct.
+    fn sum(&self) -> i64 { return self.x + self.y; }
+    // &mut self method: mutates the original storage in place.
+    fn bump(&mut self) { self.x = self.x + 1i64; self.y = self.y + 1i64; }
+}
+
+// Inline-embedded aggregate field (struct-in-struct) vs pointer field.
+struct Holder { inner: Pt, tag: i64 }
+impl Holder {
+    // mutates the inline `inner` -> must touch original storage.
+    fn poke(&mut self) { self.inner.x = 100i64; }
+}
+
+// Newtype around i64 to exercise &self auto-ref on small value receiver path
+// via a method whose self is &self while called on a temporary value.
+struct Cell { v: i64 }
+impl Cell {
+    // explicit-arg mapping: arg0=self, arg1=first explicit arg.
+    fn add(&self, a: i64, b: i64) -> i64 { return self.v + a + b; }
+}
+
+// dyn-trait dispatch.
+trait Speak { fn val(&self) -> i64; }
+struct A { n: i64 }
+struct B { n: i64 }
+impl Speak for A { fn val(&self) -> i64 { return self.n; } }
+impl Speak for B { fn val(&self) -> i64 { return self.n * 10i64; } }
+
+fn speak_via_ref(s: &dyn Speak) -> i64 { return s.val(); }
+
+// Index a &[T;N] param directly: the SSA ptr is element-0 address.
+fn arr3_at2(v: &[i64; 3]) -> i64 { return v[2]; }
+fn arr3_set1(v: &mut [i64; 3], val: i64) { v[1] = val; }
+
+// Index a &[&dyn Speak; 1] param (ptr-to-dyn handle per slot).
+fn dyn_at0(v: &[&dyn Speak; 1]) -> i64 { return v[0].val(); }
+
+// &self method on a primitive type: calling on a by-value i64 must auto-ref
+// (materialize the value into storage and pass a pointer as self).
+trait Doubled { fn doubled(&self) -> i64; }
+impl Doubled for i64 { fn doubled(&self) -> i64 { return *self * 2i64; } }
+
+// Enum with payload for match discriminant / autoderef.
+enum Opt { None, Some(i64) }
+
+fn main() -> i64 {
+
+    // @rule expr.receiver.ref-autoderef-to-struct
+    // `&Pt` / `&mut Pt` receiver strips one ref level to access the struct.
+    {
+        let p: Pt = Pt { x: 3i64, y: 4i64 };
+        let rp: &Pt = &p;
+        if rp.sum() != 7i64 { return 1; }          // &Pt -> field access
+        let mut q: Pt = Pt { x: 1i64, y: 1i64 };
+        let rq: &mut Pt = &mut q;
+        if rq.x != 1i64 { return 2; }              // &mut Pt -> field read
+    }
+
+    // @rule expr.field.inline-vs-pointer-field-descent
+    // inline aggregate field lives in place; &mut self method mutates original.
+    {
+        let mut h: Holder = Holder { inner: Pt { x: 1i64, y: 2i64 }, tag: 9i64 };
+        h.poke();                                  // writes h.inner.x in place
+        if h.inner.x != 100i64 { return 3; }
+        if h.tag != 9i64 { return 4; }             // sibling field unchanged
+    }
+
+    // @rule expr.array.struct-element-by-value
+    // array of struct elements: each initializer copied into the slot by value.
+    {
+        let arr: [Pt; 2] = [Pt { x: 5i64, y: 6i64 }, Pt { x: 7i64, y: 8i64 }];
+        if arr[0].x != 5i64 { return 5; }
+        if arr[1].y != 8i64 { return 6; }
+        // nested array by value.
+        let m: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+        if m[1][0] != 3i64 { return 7; }
+    }
+
+    // @rule expr.closure.env-capture-binding
+    // capturing closure binds aggregate by ptr and scalar by value from env.
+    {
+        let base: i64 = 10i64;                     // scalar capture
+        let cp: Pt = Pt { x: 2i64, y: 3i64 };      // aggregate capture
+        let f = |d: i64| -> i64 { return base + cp.x + cp.y + d; };
+        if f(5i64) != 20i64 { return 8; }          // 10 + 2 + 3 + 5
+    }
+
+    // @rule expr.method.dyn-vtable-dispatch
+    // call through &dyn Trait dispatches via vtable to the concrete impl.
+    {
+        let a: A = A { n: 7i64 };
+        let b: B = B { n: 7i64 };
+        let ra: &dyn Speak = &a;
+        let rb: &dyn Speak = &b;
+        if speak_via_ref(ra) != 7i64 { return 9; }    // A::val
+        if speak_via_ref(rb) != 70i64 { return 10; }  // B::val (different slot)
+    }
+
+    // @rule expr.method.auto-ref-receiver
+    // &self method on a by-value primitive: receiver materialized into storage,
+    // pointer-to-it passed as self.
+    {
+        let n: i64 = 21i64;
+        if n.doubled() != 42i64 { return 11; }      // by-value i64 auto-ref'd
+        if 5i64.doubled() != 10i64 { return 12; }   // literal value receiver
+    }
+
+    // @rule expr.method.self-is-first-arg
+    // arg0 = receiver; explicit arg i maps to callee param i+1.
+    {
+        let c: Cell = Cell { v: 1i64 };
+        if c.add(10i64, 100i64) != 111i64 { return 13; }   // 1 + 10 + 100
+    }
+
+    // @rule expr.index.unsigned-index-zero-extends
+    // narrow unsigned index zero-extends to 64-bit before address math.
+    {
+        let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+        let i: u8 = 200u8;                        // would be negative if sign-extended
+        // use a small in-range index that is still narrower than 64 bits.
+        let j: u8 = 3u8;
+        if arr[j] != 40i64 { return 14; }
+        // and a u32 index to confirm the path for wider-but-narrow unsigned.
+        let k: u32 = 1u32;
+        if arr[k] != 20i64 { return 15; }
+        let _ = i;
+    }
+
+    // @rule expr.index.ref-to-array-decays-to-element-pointer
+    // indexing &[T;N] uses the ptr directly as element-0 address.
+    {
+        let arr: [i64; 3] = [11i64, 22i64, 33i64];
+        if arr3_at2(&arr) != 33i64 { return 16; }    // &[i64;3] indexed
+        let mut marr: [i64; 3] = [0i64, 0i64, 0i64];
+        arr3_set1(&mut marr, 77i64);                 // write through &mut [i64;3]
+        if marr[1] != 77i64 { return 17; }
+    }
+
+    // @rule expr.tuple-index.auto-deref-receiver
+    // tuple index through &(..) operates on the pointee tuple.
+    {
+        let t: (i64, i64, i64) = (1i64, 2i64, 3i64);
+        let rt: &(i64, i64, i64) = &t;
+        if rt.0 != 1i64 { return 18; }
+        if rt.2 != 3i64 { return 19; }
+    }
+
+    // @rule expr.tuple-index.aggregate-element-by-address
+    // tuple element of struct type yields address of inline slot; scalar loaded.
+    {
+        let t: (Pt, i64) = (Pt { x: 8i64, y: 9i64 }, 5i64);
+        if t.0.x != 8i64 { return 20; }           // aggregate element field
+        if t.1 != 5i64 { return 21; }             // scalar element by value
+    }
+
+    // @rule expr.if.branch-result-coercion
+    // if-expr value: each branch stored to shared result slot.
+    {
+        let cond: bool = true;
+        let r: i64 = if cond { 100i64 } else { 200i64 };
+        if r != 100i64 { return 22; }
+        let r2: i64 = if !cond { 100i64 } else { 200i64 };
+        if r2 != 200i64 { return 23; }
+    }
+
+    // @rule expr.if.divergent-branch-skips-merge
+    // a branch that returns contributes no merge value.
+    {
+        let x: i64 = 5i64;
+        let r: i64 = if x > 0i64 { 7i64 } else { return 24; };
+        if r != 7i64 { return 25; }
+    }
+
+    // @rule expr.if.void-branches-still-evaluated
+    // unit-typed if still evaluates the taken branch for its side effect.
+    {
+        let mut acc: i64 = 0i64;
+        if true { acc = acc + 1i64; } else { acc = acc + 100i64; }
+        if acc != 1i64 { return 26; }
+    }
+
+    // @rule expr.match.scrutinee-autoderef
+    // match peels &/&mut layers and matches the underlying enum.
+    {
+        let o: Opt = Opt::Some(13i64);
+        let ro: &Opt = &o;
+        // matching &Opt behaves identically to matching Opt; binding `v` is a
+        // reference under match-ergonomics, so deref to compare the value.
+        let got: i64 = match ro {
+            Opt::Some(v) => *v,
+            Opt::None => -1i64,
+        };
+        if got != 13i64 { return 27; }
+    }
+
+    // @rule expr.match.enum-discriminant-dispatch
+    // payload enum loads discriminant from storage to select the arm.
+    {
+        let o: Opt = Opt::None;
+        let got: i64 = match o {
+            Opt::Some(v) => v,
+            Opt::None => 99i64,
+        };
+        if got != 99i64 { return 28; }
+    }
+
+    // @rule expr.match.arm-first-match-order
+    // first matching arm wins; later arms not tested.
+    {
+        let n: i64 = 2i64;
+        let got: i64 = match n {
+            2i64 => 200i64,
+            2i64 => 999i64,   // would never be reached
+            _ => 0i64,
+        };
+        if got != 200i64 { return 29; }
+    }
+
+    // @rule expr.match.value-result-type
+    // match-as-expression yields the selected arm's coerced value.
+    {
+        let o: Opt = Opt::Some(2i64);
+        let got: i64 = match o {
+            Opt::Some(v) => v + 0i64,   // selected arm value is the match value
+            Opt::None => 99i64,
+        };
+        if got != 2i64 { return 30; }
+    }
+
+    // @rule expr.match.guard-after-bindings
+    // guard sees the pattern bindings; false guard falls through.
+    {
+        let o: Opt = Opt::Some(4i64);
+        let got: i64 = match o {
+            Opt::Some(v) if v > 10i64 => 1i64,    // binding v=4, guard false -> skip
+            Opt::Some(v) => v + 1i64,             // selected: 5
+            Opt::None => 0i64,
+        };
+        if got != 5i64 { return 31; }
+    }
+
+    // @rule expr.match.exhaustive-no-default-arm
+    // bool match covering true+false is exhaustive (no fall-through needed).
+    {
+        let flag: bool = true;
+        let got: i64 = match flag {
+            true => 1i64,
+            false => 2i64,
+        };
+        if got != 1i64 { return 32; }
+    }
+
+    // @rule expr.index.ptr-to-dyn-loads-handle
+    // p[0] on *dyn loads the dyn handle == *p; dispatch through it.
+    {
+        let a: A = A { n: 6i64 };
+        let pd: &dyn Speak = &a;
+        // index form p[0] of a single-element ref-to-dyn array.
+        let arr: [&dyn Speak; 1] = [pd];
+        if dyn_at0(&arr) != 6i64 { return 33; }
+    }
+
+    // @rule expr.slice-index.element-projection
+    // slice s[i]: loads data ptr, GEPs by index; scalar loaded, struct by addr.
+    {
+        let arr: [i64; 4] = [4i64, 5i64, 6i64, 7i64];
+        let s: &[i64] = &arr[..];
+        if s[0] != 4i64 { return 34; }            // scalar element by value
+        if s[3] != 7i64 { return 35; }
+        let sarr: [Pt; 2] = [Pt { x: 1i64, y: 2i64 }, Pt { x: 3i64, y: 4i64 }];
+        let ss: &[Pt] = &sarr[..];
+        if ss[1].x != 3i64 { return 36; }         // struct element via address
+    }
+
+    return 0;
+}

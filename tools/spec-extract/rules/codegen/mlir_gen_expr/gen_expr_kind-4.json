@@ -44,7 +44,8 @@
       "evidence": [
         "src/compiler/mlir_gen_expr.cpp#L5088-L5096",
         "src/compiler/mlir_gen_expr.cpp#L5107-L5116"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "layout.ref.fat-lower-memcpy-16",
@@ -88,7 +89,8 @@
         "src/compiler/mlir_gen_expr.cpp#L4926-L4931",
         "src/compiler/mlir_gen_expr.cpp#L4963-L4976"
       ],
-      "divergence": "Niche layout is a Logos-defined packing not specified by Rust."
+      "divergence": "Niche layout is a Logos-defined packing not specified by Rust.",
+      "testability": "untestable"
     },
     {
       "id": "layout.enum.zoned-niche-self-relative",
@@ -100,7 +102,8 @@
         "src/compiler/mlir_gen_expr.cpp#L5076-L5081"
       ],
       "divergence": "Logos-only zoned representation; no Rust analogue.",
-      "uncertainty": "Exact bit-encoding of Pod vs Ref inferred from comments and the AND/shift sequence."
+      "uncertainty": "Exact bit-encoding of Pod vs Ref inferred from comments and the AND/shift sequence.",
+      "testability": "untestable"
     },
     {
       "id": "layout.dst.fat-when-slice-tail",
@@ -109,7 +112,8 @@
       "statement": "A DstRef whose pointee struct's last field is a literal slice ([T] or unsized [T]) is genuinely fat (16B {data,len}); a DstRef with a dyn-tail or type-variable tail is physically thin (8B pointer).",
       "evidence": [
         "src/compiler/mlir_gen_expr.cpp#L4995-L5005"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "layout.dst.self-describing-thin",
@@ -120,7 +124,8 @@
         "src/compiler/mlir_gen_expr.cpp#L5007-L5032",
         "src/compiler/mlir_gen_expr.cpp#L5124-L5157"
       ],
-      "divergence": "Logos-only self_describing DST model (Rust's DST metadata is always out-of-band)."
+      "divergence": "Logos-only self_describing DST model (Rust's DST metadata is always out-of-band).",
+      "testability": "transitive"
     },
     {
       "id": "type.self-describing.dst-len-required",
@@ -156,7 +161,8 @@
       "statement": "The format() built-in passes a parallel [i32 tags] and [i64 data] array: each argument is widened to i64 — pointers via ptrtoint, unsigned integers narrower than 64 bits via zero-extension, all other integers via sign-extending coercion. The type tag is computed per argument type (e.g. i32→0, i64→1, ptr/slice→2, bool→3, u8→4, u32/u16→5, u64/u24/u56/u128→6, i8→7; i16→i32, i24/i56/i128→i64).",
       "evidence": [
         "src/compiler/mlir_gen_expr.cpp#L5290-L5373"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "expr.format.requires-text-import",

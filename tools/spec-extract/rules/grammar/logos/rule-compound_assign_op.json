@@ -116,7 +116,8 @@
       "statement": "Postfix `e?` is the try operator; it propagates the error/none case of a Result/Option-like value and yields the success payload.",
       "evidence": [
         "tools/peg_gen/grammars/logos.peg#L2692-L2693"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.literal.kinds",
