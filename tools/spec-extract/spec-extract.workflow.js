@@ -121,8 +121,9 @@ STEPS:
 1. Find every rule artifact:  find ${RULES_DIR} -name '*.json'.
 2. Collect every rule (across ALL domains) whose "divergence" field is non-empty. The divergence text usually starts with a tag (e.g. A1, A10, G156-1) or says "Logos-specific".
 3. Write ${SPEC_DIR}/divergences.md grouped by divergence tag/kind (one "##" per tag family: blessed §A tags like A1/A2…, baghunt ids like G156-1, and a "Logos-specific additions" group). Within each group, list each rule as  "### \`${'${id}'}\` — Title"  with its divergence note, one-line statement, and source evidence (file#line).
-4. Cross-reference docs/DIVERGENCES.md: where a tag matches a §A blessed divergence there, say so; flag any divergence tag that does NOT appear in docs/DIVERGENCES.md as "unregistered — needs triage".
-5. Preamble: one line stating this is the compiler-derived divergence register and how it relates to docs/DIVERGENCES.md.
+4. MARKDOWN SAFETY: wrap all type/generic notation in inline-code backticks (\`Slice<U>\`, \`Box<[T]>\`) — a bare \`<U>\` is eaten as an HTML tag.
+5. Cross-reference docs/DIVERGENCES.md: where a tag matches a §A blessed divergence there, say so; flag any divergence tag that does NOT appear in docs/DIVERGENCES.md as "unregistered — needs triage".
+6. Preamble: one line stating this is the compiler-derived divergence register and how it relates to docs/DIVERGENCES.md.
 Preserve every id exactly. Return the structured summary (section="divergences", rule_count, path).`
   }
   return `You are assembling one section of the Logos language specification from extracted rule artifacts.
@@ -136,6 +137,7 @@ STEPS:
 3. Write/refresh ${SPEC_DIR}/${section}.md as a clean spec section:
    - Group rules by their "group" (middle id segment) under "##" headings, ordered logically.
    - Emit each rule as  "### \`${'${id}'}\` — Title"  so the id is the permanent linkable address. Render statement, examples (fenced \`logos\`), divergence note, and source evidence (file#line).
+   - MARKDOWN SAFETY: always wrap type/generic notation in inline-code backticks in prose AND headings — e.g. write \`Slice<U>\`, \`Box<[T]>\`, \`Vec<T>\`, \`<X as Trait>::Assoc\`. A bare \`<U>\` is swallowed as an HTML tag by the renderer and the text vanishes.
    - Preserve EVERY id exactly; never invent, merge-away, or rename. If two rules conflict, surface both and flag it — do not silently pick one.
    - One-line preamble: scope + source layers.
 Return the structured summary.`

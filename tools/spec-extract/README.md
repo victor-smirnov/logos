@@ -113,6 +113,19 @@ python tools/spec-extract/chunk.py collisions      # expect: 0
 Run `collisions` after any large extraction; resolve before adding spec tests
 (tests address rules by id).
 
+## Markdown safety
+
+Bare `Type<...>` in prose is swallowed as an HTML tag by the renderer (the angle
+brackets and their contents vanish). The assembler is prompted to backtick-wrap
+type/generic notation, but as a deterministic, idempotent safety net run after
+any assembly:
+
+```bash
+python tools/spec-extract/chunk.py mdsafe   # wrap bare Type<...> in docs/spec/*.md
+```
+It skips fenced/indented code and already-backticked spans, so it is safe to
+re-run. Rule artifacts stay plain text — markdown escaping is a render concern.
+
 ## Determinism guarantees
 
 - Unit boundaries are natural and stable: C++ column-0 definitions; PEG directive

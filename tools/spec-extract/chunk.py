@@ -450,6 +450,49 @@ def cmd_apply_dedup(cfg, args):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Markdown safety: bare `Ident<...>` in prose is eaten as an HTML tag by the
+# renderer. Wrap type/generic notation in inline-code backticks. Idempotent
+# (already-backticked spans are skipped), so safe to run after every assembly.
+# ──────────────────────────────────────────────────────────────────────────
+
+_GENERIC = re.compile(
+    r"((?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Za-z0-9_]*)"      # Type or pkg.path.Type
+    r"(<[^<>]*(?:<[^<>]*>[^<>]*)*>)")                          # <...> with one nesting level
+_QUALPROJ = re.compile(r"(<[^<>]*\bas\b[^<>]*>(?:::[A-Za-z_][A-Za-z0-9_]*)*)")  # <X as Tr>::A
+
+
+def _wrap_outside_code(line):
+    """Wrap generic notation in the non-code (even-index) segments of a line."""
+    parts = line.split("`")
+    for i in range(0, len(parts), 2):
+        seg = _QUALPROJ.sub(r"`\1`", parts[i])
+        seg = _GENERIC.sub(r"`\1\2`", seg)
+        parts[i] = seg
+    return "`".join(parts)
+
+
+def cmd_mdsafe(cfg, args):
+    files = sorted(glob.glob(os.path.join(REPO, cfg["spec_dir"], "*.md")))
+    changed = 0
+    for path in files:
+        src = open(path).read()
+        out, fenced = [], False
+        for line in src.splitlines():
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                out.append(line)
+            elif fenced or line.startswith("    "):     # fenced or indented code block
+                out.append(line)
+            else:
+                out.append(_wrap_outside_code(line))
+        text = "\n".join(out) + ("\n" if src.endswith("\n") else "")
+        if text != src:
+            open(path, "w").write(text)
+            changed += 1
+    print(f"mdsafe: markdown-escaped generic notation in {changed}/{len(files)} file(s)", file=sys.stderr)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Commands
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -559,10 +602,11 @@ def main():
     spc.add_argument("--json", action="store_true", help="emit full variant context as JSON (feed the dedup workflow)")
     spa = sub.add_parser("apply-dedup", help="apply model dedup decisions to the corpus")
     spa.add_argument("decisions", help="path to the decisions JSON {decisions:[{id, final_rules:[{file, rule}]}]}")
+    sub.add_parser("mdsafe", help="backtick-wrap bare Type<...> in docs/spec/*.md (run after assembly)")
 
     args = p.parse_args()
     {"manifest": cmd_manifest, "plan": cmd_plan, "ids": cmd_ids, "status": cmd_status,
-     "collisions": cmd_collisions, "apply-dedup": cmd_apply_dedup}[args.cmd](cfg, args)
+     "collisions": cmd_collisions, "apply-dedup": cmd_apply_dedup, "mdsafe": cmd_mdsafe}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
