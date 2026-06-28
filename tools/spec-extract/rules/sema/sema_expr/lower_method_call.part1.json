@@ -12,7 +12,7 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L7124-L7130"
       ],
-      "testability": "untestable"
+      "testability": "behavioral"
     },
     {
       "id": "expr.method.vec-get-move-out-rejected",

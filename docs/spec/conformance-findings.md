@@ -13,6 +13,7 @@ investigated with a minimal repro and root-caused in `src/compiler`. Status:
 | `coerce.unsize.return-concrete-to-trait-object` | Returning `Box<Concrete>` from `-> Box<dyn>` segfaulted: the hand-rolled return path didn't unwrap `Box`, mis-keyed the vtable, and left the source box un-consumed (double-free). | `sema_stmt.cpp` `lower_return`: desugar the implicit return to the proven `as`-unsize cast (consume source + build fat pair + Box drop-glue). Test: `tests/spec/pass/coerce_box_dyn.logos`. |
 | `coerce.deref.box-struct-borrow` | `&Box<dyn Trait>` segfaulted — the `&`-handler had no branch for an owning `TraitObject`, so `&b` produced `&&dyn` (a thin ptr where the callee wanted the fat pair). | `sema_expr.cpp`: add the owning-TraitObject branch (read the fat-pair value, re-type non-owning), mirroring the existing owning-DstRef branch. Test: same file as above. |
 | *(bonus)* float↔pointer cast | `f64 as *const f64` (invalid per Rust E0606) was accepted by sema and silently miscompiled (mlir_gen nullptr fallthrough → exit 0, rest of fn elided). | `sema_expr.cpp`: reject float↔pointer casts in the cast-validation block. |
+| `expr.method.receiver-multiref-autoderef` | A method call / deref through an immutable `&&T` *local* binding (`let r2 = &r1; r2.m()`) read one indirection too deep (wrong field / segfault): an immutable `&Struct` local aliases its pointee address with no own slot, so `let r2 = &r1` stored a one-short `&P` into the `&&P` slot. (The call-arg `f(&r)` + `&&pat` form was already correct — it uses an internally-consistent one-short convention.) | `mlir_gen_stmt.cpp`: a store-side case for `let r2 = &<aliased-immutable-ref-local>` of `&&`-type materialises the missing mid slot (`r2 → mid → P`), restoring the second level. Narrow — doesn't touch the shared EAddrOf, call-arg, or read paths. Test: `tests/spec/pass/expr_multiref_deref.logos`. |
 
 ## Not bugs (investigated, no compiler change)
 
@@ -23,11 +24,11 @@ investigated with a minimal repro and root-caused in `src/compiler`. Status:
 | `coerce.cast.float-to-float` | The float↔float width rule is sound at any scale. The real defect was the separate float↔pointer gap (fixed above). |
 | `trait.def.vtable-layout-supertrait-closure` | The supertrait-closure vtable mechanism is **correct** (verified with a non-colliding trait name; test `tests/spec/pass/trait_supertrait_dyn.logos`). The reported failure was a trait-name collision: the repro named its trait `Sub`, which shadows the prelude arithmetic operator trait `Sub`, so `&dyn Sub` bound to the wrong trait. That is the pre-existing `dyn`-local-trait-shadowing gap (adversarial sweep ADV1-H), a separate broad canonicalization fix — not this rule. |
 
-## Deferred (narrow, fix not safe yet)
+## Deferred to baghunt (pre-existing, broad fix)
 
-| Rule id | Status |
+| Issue | Status |
 |---|---|
-| `expr.method.receiver-multiref-autoderef` | Real but narrow: a method/deref through an immutable `&&T` *local* binding (`let r2 = &r1; r2.m()`) reads one indirection too deep (wrong field / segfault). Root cause: an immutable `&Struct` local aliases its pointee address with no own slot, so `&r` can't add a level. A binding-site slot or an EAddrOf spill both regressed the `&&pat` call-argument path (which is already handled and would double-spill). A correct fix needs context-aware spilling; left as a tracked known bug (marked `untestable`). The call-argument `&&T` form (`f(&r)` with a `&&pat`) works. |
+| `dyn`-local-trait-shadowing (ADV1-H) | A user `trait Sub` whose bare name collides with a prelude/imported trait (e.g. the `ops::Sub` operator) is registered only under its package-qualified key (B-mv-02), but `&dyn Sub` builds the TraitObject with the BARE name (`sema.cpp:5953`), so dispatch silently binds to the prelude trait → "trait 'Sub' has no method". Pre-existing known gap; the in-tree comment notes a correct fix needs a **full chokepoint sweep** (dyn-type construction + `lower_trait_def` + the upcast-compat check + mlir-gen vtable registry keys — 12 TraitObject sites) or dispatch segfaults. Too broad to land safely as a session tail-end; filed for a focused effort. The supertrait-closure vtable mechanism itself is correct (see `trait.def.vtable-layout-supertrait-closure` above). |
 
 ---
 *Generated during the spec-extract conformance rollout (`tools/spec-extract`,

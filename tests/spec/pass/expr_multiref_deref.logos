@@ -1,0 +1,16 @@
+// Conformance: method call / deref through an immutable `&&T` local binding
+// removes the extra reference layers and dispatches on T (fixed: was reading
+// one indirection too deep → wrong field / segfault).
+package expr_multiref_deref;
+struct P { x: i64, y: i64 }
+impl P { fn gy(&self) -> i64 { return self.y; } }
+fn main() -> i64 {
+    let p = P { x: 11i64, y: 22i64 };
+    let r1 = &p;
+    let r2 = &r1;          // r2 : &&P
+    // @rule expr.method.receiver-multiref-autoderef
+    if r2.gy() != 22i64 { return 1; }        // method through &&P
+    if (*(*r2)).y != 22i64 { return 2; }     // explicit double-deref
+    if (*(*r2)).x != 11i64 { return 3; }     // correct field, not one-deep
+    return 0;
+}
