@@ -167,7 +167,7 @@ An associated type may carry its own type params (GAT, e.g. `type Item<T>`), tra
 
 ### `trait.assoc-type.dual-impl-ambiguous-projection` — Ambiguous bare associated-type projection across generic-trait impls
 
-When two impls of a generic trait Trait<T> for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.
+When two impls of a generic trait `Trait<T>` for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.
 
 **Divergence:** G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key.
 
@@ -209,7 +209,7 @@ A generic associated type's own type parameters (`type Item<T> = ...`) must not 
 
 If a dispatched trait method's substituted return type is an associated-type projection, its trait name is rewritten to the trait-name suffixed with the bound's concrete trait type-args (`Trait<...>` -> mangled args suffix), so projections from two distinct `impl Trait<T>` for one type, and the caller's declared `-> P::Item`, resolve to the same impl.
 
-**Uncertainty:** Disambiguation among multiple Trait<T> impls; tied to G156-1 trait-type-arg mangling (still narrow per memory).
+**Uncertainty:** Disambiguation among multiple `Trait<T>` impls; tied to G156-1 trait-type-arg mangling (still narrow per memory).
 
 **Evidence:** `src/compiler/sema_expr.cpp#L7671-L7694`
 
@@ -473,7 +473,7 @@ When the impl target names a non-generic, non-lifetime-parameterized type alias,
 
 ### `trait.impl.target-unsized` — impl for bare unsized self-types
 
-`impl Trait for [T]`, `impl Trait for dyn Foo`, and `impl Trait for str` are permitted: the bare unsized slice / dyn-trait / str self-type is resolved in unsized-OK context, binding Self to UnsizedSlice / UnsizedDyn (and `str` to UnsizedSlice<u8>) so `&Self` canonicalizes to the corresponding fat pointer.
+`impl Trait for [T]`, `impl Trait for dyn Foo`, and `impl Trait for str` are permitted: the bare unsized slice / dyn-trait / str self-type is resolved in unsized-OK context, binding Self to UnsizedSlice / UnsizedDyn (and `str` to `UnsizedSlice<u8>`) so `&Self` canonicalizes to the corresponding fat pointer.
 
 **Evidence:** `src/compiler/sema_collect.cpp#L2788-L2817`, `src/compiler/sema_collect.cpp#L3037-L3056`
 
@@ -983,7 +983,7 @@ When the resolved operator-overload method takes an operand by reference (&self 
 
 ### `trait.binop.partial-ord-derive` — Relational ops derive from partial_cmp when direct method absent
 
-For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns Option<Ordering> it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.
+For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns `Option<Ordering>` it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.
 
 **Divergence:** Mirrors Rust's default PartialOrd lt/le/gt/ge bodies.
 
@@ -1013,7 +1013,7 @@ When the left operand is a struct, the operator desugars to the corresponding tr
 
 ### `trait.deref.multi-impl-target-match` — Deref impl selected by strict self-type match among multiple impls
 
-When a type carries several Deref impls distinguished by self type-args (e.g. Pin<&T>/Pin<&mut T>/Pin<Box<T>>), the impl whose target pattern strictly unifies-substitutes-and-equals the receiver type is selected; a non-matching impl is used only as a loose fallback.
+When a type carries several Deref impls distinguished by self type-args (e.g. `Pin<&T>`/`Pin<&mut T>`/`Pin<Box<T>>`), the impl whose target pattern strictly unifies-substitutes-and-equals the receiver type is selected; a non-matching impl is used only as a loose fallback.
 
 **Evidence:** `src/compiler/sema_expr.cpp#L123-L158`
 
@@ -1117,7 +1117,7 @@ A trait-qualified static call `Trait::method(args)` inside a generic fn resolves
 
 ## Method Mangling
 
-### `trait.method-mangling.bound-targ-suffix` — Trait tag folds concrete bound type-args into a $G<n>$ suffix
+### `trait.method-mangling.bound-targ-suffix` — Trait tag folds concrete bound type-args into a $`G<n>`$ suffix
 
 When the receiver bound carries concrete trait type-args (`T: MyTrait<u64>`), the trait tag becomes `Trait` + `$G<n>$<args>` suffix, so mono resolves the args-qualified symbol `<Concrete>__MyTrait$G1$u64__method`, distinct from a sibling `impl MyTrait<u8>`.
 
@@ -1529,9 +1529,9 @@ Unpin holds for all types except those that (transitively) contain PhantomPinned
 
 **Evidence:** `src/compiler/sema_auto_trait.cpp#L101-L112`, `src/compiler/sema_auto_trait.cpp#L164-L176`
 
-### `trait.auto.unsafecell-not-sync` — UnsafeCell<T> is !Sync; Send follows T
+### `trait.auto.unsafecell-not-sync` — `UnsafeCell<T>` is !Sync; Send follows T
 
-The lang-item logos.lang.cell.UnsafeCell<T> never satisfies Sync; it satisfies Send iff its wrapped T satisfies Send (no arg => not Send). Recognition is by qualified name to avoid clashing with same-named user types.
+The lang-item `logos.lang.cell.UnsafeCell<T>` never satisfies Sync; it satisfies Send iff its wrapped T satisfies Send (no arg => not Send). Recognition is by qualified name to avoid clashing with same-named user types.
 
 **Evidence:** `src/compiler/sema_auto_trait.cpp#L145-L160`
 
@@ -1870,7 +1870,7 @@ A formal Ptr unifies against an actual Ptr, Ref, or MutRef by recursing on point
 
 ### `generic.infer.ref-unsize-pointee` — ?Sized inference through reference to slice/dyn
 
-When a formal `&T`/`&mut T` is unified against an actual slice value (Kind::Slice → `&[U]`/`*const [U]`) or trait object (`&dyn Trait`), the actual is treated as a reference whose pointee is the unsized form UnsizedSlice<U> (resp. UnsizedDyn<Trait>), so a `T: ?Sized` formal pointee binds to that unsized type; substitution later canonicalises Ref/MutRef/Ptr-of-unsized back to the original Slice/TraitObject (same ABI).
+When a formal `&T`/`&mut T` is unified against an actual slice value (Kind::Slice → `&[U]`/`*const [U]`) or trait object (`&dyn Trait`), the actual is treated as a reference whose pointee is the unsized form `UnsizedSlice<U>` (resp. `UnsizedDyn<Trait>`), so a `T: ?Sized` formal pointee binds to that unsized type; substitution later canonicalises Ref/MutRef/Ptr-of-unsized back to the original Slice/TraitObject (same ABI).
 
 **Evidence:** `src/compiler/sema_expr.cpp#L3654-L3681`
 
@@ -2266,7 +2266,7 @@ For a struct/zoned-struct/enum `D<A0..,'L0..>`, the variance contribution of eac
 
 ### `generic.variance.compose` — Variance composition under nesting
 
-For a parameter P used at variance `inner` inside Wrapper<P>, where the Wrapper field occupies a position of variance `outer` in the enclosing type, P's effective variance there is outer ∘ inner: BiVar absorbs (BiVar ∘ x = x ∘ BiVar = BiVar); Inv dominates the non-BiVar cases (Inv ∘ x = x ∘ Inv = Inv); otherwise the result is Contra iff exactly one of outer/inner is Contra (sign-flip rule: Co∘Co=Co, Co∘Contra=Contra, Contra∘Co=Contra, Contra∘Contra=Co).
+For a parameter P used at variance `inner` inside `Wrapper<P>`, where the Wrapper field occupies a position of variance `outer` in the enclosing type, P's effective variance there is outer ∘ inner: BiVar absorbs (BiVar ∘ x = x ∘ BiVar = BiVar); Inv dominates the non-BiVar cases (Inv ∘ x = x ∘ Inv = Inv); otherwise the result is Contra iff exactly one of outer/inner is Contra (sign-flip rule: Co∘Co=Co, Co∘Contra=Contra, Contra∘Co=Contra, Contra∘Contra=Co).
 
 **Related:** `generic.variance.four-kinds`, `generic.variance.meet`
 
@@ -2294,7 +2294,7 @@ A function item or function pointer `fn(P0..)->R` is contravariant in each param
 
 ### `generic.variance.four-kinds` — Generic-parameter variance kinds
 
-Each type/lifetime parameter of a struct/enum has a variance in {BiVar, Co, Contra, Inv}: Co (covariant) preserves the subtype direction (Foo<Sub> <: Foo<Super>, &'long T <: &'short T when 'long: 'short); Contra (contravariant) reverses it (fn-argument position); Inv (invariant) requires both directions (mutable-reference content); BiVar (bivariant) places no constraint, used when the parameter appears only in phantom/absent positions.
+Each type/lifetime parameter of a struct/enum has a variance in {BiVar, Co, Contra, Inv}: Co (covariant) preserves the subtype direction (`Foo<Sub>` <: `Foo<Super>`, &'long T <: &'short T when 'long: 'short); Contra (contravariant) reverses it (fn-argument position); Inv (invariant) requires both directions (mutable-reference content); BiVar (bivariant) places no constraint, used when the parameter appears only in phantom/absent positions.
 
 **Related:** `generic.variance.meet`, `generic.variance.compose`
 
@@ -2346,7 +2346,7 @@ A type that does not mention the target parameter (or whose kind is not variance
 
 **Evidence:** `src/compiler/sema.cpp#L8047`, `src/compiler/sema.cpp#L8053`, `src/compiler/sema.cpp#L8164-L8166`
 
-### `generic.variance.unsafecell-invariant` — UnsafeCell<T> is invariant in T
+### `generic.variance.unsafecell-invariant` — `UnsafeCell<T>` is invariant in T
 
 `logos.lang.cell::UnsafeCell<T>` (the interior-mutability lang item, recognised by qualified name) is invariant in each type argument (ambient composed with Inv), overriding the table-driven ADT rule.
 

@@ -146,7 +146,7 @@ _Source: `src/compiler/sema_expr.cpp#L376-L401`_
 
 Because `&str` is represented as `Slice<u8>` (same fat-pointer ABI as `&[u8]`), `s.as_bytes()` on a `Slice<u8>` receiver returns the receiver verbatim with no conversion.
 
-**Divergence.** Logos models &str as Slice<u8> (writ/string-repr); identity conversion.
+**Divergence.** Logos models &str as `Slice<u8>` (writ/string-repr); identity conversion.
 
 _Source: `src/compiler/sema_expr.cpp#L6472-L6481`_
 
@@ -292,7 +292,7 @@ _Source: `src/compiler/sema_expr.cpp#L1585-L1633`_
 
 ### `expr.range.desugar-range-struct` — lo..hi / lo..=hi desugar to stdlib Range constructors
 
-A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (RangeOfIncl<T>). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.
+A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (`RangeOfIncl<T>`). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.
 
 **Divergence.** Ranges are nominal stdlib structs (RangeI32/RangeI64/RangeOfIncl), not language built-ins
 
@@ -534,7 +534,7 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L688-L728`_
 
 ### `expr.binop.str-eq-by-content` — str equality compares contents via str_eq
 
-== / != between two str operands (both Slice<u8> with u8 element) desugar to a call to stdlib `str_eq` (content comparison); != negates the result. With no `str_eq` in scope, falls back to (incorrect) pointer comparison.
+== / != between two str operands (both `Slice<u8>` with u8 element) desugar to a call to stdlib `str_eq` (content comparison); != negates the result. With no `str_eq` in scope, falls back to (incorrect) pointer comparison.
 
 _Source: `src/compiler/sema_expr.cpp#L2194-L2221`_
 
@@ -548,7 +548,7 @@ _Source: `src/compiler/sema_expr.cpp#L2223-L2250`_
 
 ### `expr.binop.string-vs-str-eq` — String == str views String as str
 
-For == and !=, when one operand is the struct String and the other is str (Slice<u8>), the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.
+For == and !=, when one operand is the struct String and the other is str (`Slice<u8>`), the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.
 
 ```logos
 s == "lit"
@@ -713,7 +713,7 @@ The compound-assignment operators are `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<
 _Source: `tools/peg_gen/grammars/logos.peg#L2324-L2327`_
 
 
-### `expr.assign.dataref-field-unsafe` — DataRef<ZonedStruct> field write desugars via mut_ptr and needs unsafe
+### `expr.assign.dataref-field-unsafe` — `DataRef<ZonedStruct>` field write desugars via mut_ptr and needs unsafe
 
 `p.field = v` where `p: DataRef<Z>` with `Z` a zoned struct desugars to `{ let t = p.mut_ptr(); (*t).field = v; }` (the DerefMut analog); it requires an `unsafe` context, `p` must be a mutable binding, and `v` must be type-compatible with the field type.
 
@@ -882,7 +882,7 @@ For receiver `r` of struct type S that has no field `f` but `S: Deref<Target=U>`
 _Source: `src/compiler/sema_expr.cpp#L9166-L9181`_
 
 
-### `expr.field.dataref-ergonomic-read` — DataRef<T> ergonomic field read
+### `expr.field.dataref-ergonomic-read` — `DataRef<T>` ergonomic field read
 
 For receiver `p: DataRef<T>` where T is a zoned struct having field `f`, `p.f` is equivalent to `p.ptr().f`. The access requires an `unsafe` context.
 
@@ -1499,7 +1499,7 @@ _Source: `src/compiler/sema_expr.cpp#L8701-L8728`_
 
 ### `expr.call.callable-resolution` — Callee resolution to closure or fn-pointer
 
-A call `x(args)` treats `x` as callable when its type is a Closure or fn-value kind; `Box<dyn Fn*>` (Box<Closure>) is unwrapped to its inner Closure, and an Fn-bounded generic type-param `F` is treated as a closure with the bound's `fn_params`/`fn_ret` signature.
+A call `x(args)` treats `x` as callable when its type is a Closure or fn-value kind; `Box<dyn Fn*>` (`Box<Closure>`) is unwrapped to its inner Closure, and an Fn-bounded generic type-param `F` is treated as a closure with the bound's `fn_params`/`fn_ret` signature.
 
 **Divergence.** A10: dyn Fn* collapses to the bare Closure type.
 
@@ -1633,7 +1633,7 @@ _Source: `src/compiler/sema_expr.cpp#L3217-L3218`, `src/compiler/sema_expr.cpp#L
 
 ### `expr.static-call.arg-count-and-type-check` — Static call arity and per-argument type checking
 
-A non-generic static call checks argument count against the parameter list (error on mismatch) and coerces then type-checks each argument against its parameter (error on incompatibility). By-value move-typed args (and owning Box<dyn>) are marked moved so scope-end drops do not fire on transferred locals.
+A non-generic static call checks argument count against the parameter list (error on mismatch) and coerces then type-checks each argument against its parameter (error on incompatibility). By-value move-typed args (and owning `Box<dyn>`) are marked moved so scope-end drops do not fire on transferred locals.
 
 _Source: `src/compiler/sema_expr.cpp#L13621-L13643`_
 
@@ -1902,7 +1902,7 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L2683-L2702`_
 
 When a receiver's type renders as `&[u8]` (the representation of `str`) and no method is found under that name, methods registered under `str__<method>` are tried as a fallback.
 
-**Uncertainty.** str is modeled as Slice<u8>/&[u8]; alias is a representation detail surfaced as a resolution rule.
+**Uncertainty.** str is modeled as `Slice<u8>`/&[u8]; alias is a representation detail surfaced as a resolution rule.
 
 _Source: `src/compiler/sema_expr.cpp#L8186-L8195`_
 
@@ -2780,7 +2780,7 @@ A closure body is lowered as its own scope and does not inherit the enclosing `u
 _Source: `src/compiler/sema_expr.cpp#L14274-L14278`, `src/compiler/sema_expr.cpp#L14332-L14333`_
 
 
-### `expr.closure.boxing-escapes` — A closure assigned to a Box<...Fn...> escapes
+### `expr.closure.boxing-escapes` — A closure assigned to a `Box<...Fn...>` escapes
 
 A closure lowered against an expected type that peels (through a Box / struct wrapper) to a callable Fn type is treated as escaping: its captured environment lives on the heap. A bare or reference-wrapped Fn expectation (e.g. an iterator-adapter argument) does not escape and keeps a stack environment.
 
@@ -3185,23 +3185,23 @@ A variable that may be uninitialized at a drop point runs its destructor only if
 _Source: `src/compiler/mlir_gen_stmt.cpp#L1184-L1214`_
 
 
-### `expr.drop.owning-box-dst` — Drop of an owning custom-DST box (Box<Foo> with [T] tail)
+### `expr.drop.owning-box-dst` — Drop of an owning custom-DST box (`Box<Foo>` with [T] tail)
 
-Dropping an owning custom-DST handle (Box<Foo> where Foo = {prefix fields..., [T] tail}) over a non-null data pointer: (1) drop each droppable prefix field (in declaration order, skipping ref/ptr fields and fields that don't need drop), (2) drop the tail's elements over the runtime length len at element stride layout_of(T).size, then (3) free the whole heap block. A null data pointer (a moved-from handle) drops nothing and frees nothing.
+Dropping an owning custom-DST handle (`Box<Foo>` where Foo = {prefix fields..., [T] tail}) over a non-null data pointer: (1) drop each droppable prefix field (in declaration order, skipping ref/ptr fields and fields that don't need drop), (2) drop the tail's elements over the runtime length len at element stride layout_of(T).size, then (3) free the whole heap block. A null data pointer (a moved-from handle) drops nothing and frees nothing.
 
 _Source: `src/compiler/mlir_gen_stmt.cpp#L658-L753`, `src/compiler/mlir_gen_stmt.cpp#L680-L689`, `src/compiler/mlir_gen_stmt.cpp#L704-L743`, `src/compiler/mlir_gen_stmt.cpp#L750`_
 
 
-### `expr.drop.owning-box-dyn` — Drop of an owning Box<dyn Trait> fat handle is uniform across storage sites
+### `expr.drop.owning-box-dyn` — Drop of an owning `Box<dyn Trait>` fat handle is uniform across storage sites
 
-An owning trait-object handle (inline {data,vtable} fat pair, e.g. Box<dyn>/Rc<dyn>/Arc<dyn>) drops by running vtable[0] (drop_in_place) on data followed by the kind-specific release (Box: free data; Rc/Arc: decrement strong count, free at last reference). This drop is uniform across every storage site — local, struct field, return temp, Vec/tuple/array element — reached via ordinary aggregate field recursion, not only a top-level local.
+An owning trait-object handle (inline {data,vtable} fat pair, e.g. `Box<dyn>`/`Rc<dyn>`/`Arc<dyn>`) drops by running vtable[0] (drop_in_place) on data followed by the kind-specific release (Box: free data; Rc/Arc: decrement strong count, free at last reference). This drop is uniform across every storage site — local, struct field, return temp, Vec/tuple/array element — reached via ordinary aggregate field recursion, not only a top-level local.
 
 _Source: `src/compiler/mlir_gen_stmt.cpp#L846-L855`, `src/compiler/mlir_gen_stmt.cpp#L1049-L1052`_
 
 
-### `expr.drop.owning-box-slice` — Drop of an owning Box<[T]> fat slice
+### `expr.drop.owning-box-slice` — Drop of an owning `Box<[T]>` fat slice
 
-Dropping an owning Box<[T]> ({data,len} fat slice) over a non-null data pointer: if T is droppable, drop each element i in [0,len) at data + i*stride (stride = layout_of(T).size, min 1), then free the heap buffer; if T is not droppable, only free the buffer. A null data pointer (moved-from) is a no-op.
+Dropping an owning `Box<[T]>` ({data,len} fat slice) over a non-null data pointer: if T is droppable, drop each element i in [0,len) at data + i*stride (stride = layout_of(T).size, min 1), then free the heap buffer; if T is not droppable, only free the buffer. A null data pointer (moved-from) is a no-op.
 
 _Source: `src/compiler/mlir_gen_stmt.cpp#L755-L817`, `src/compiler/mlir_gen_stmt.cpp#L768-L771`, `src/compiler/mlir_gen_stmt.cpp#L781-L815`_
 
@@ -3434,7 +3434,7 @@ _Source: `src/compiler/sema_expr.cpp#L15062-L15086`_
 
 ### `expr.writ.type-literal` — Writ type-literal <type:T>
 
-A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like Vec<u8> all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. "Vec<u8>") and serves as the value's identity label.
+A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like `Vec<u8>` all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. "`Vec<u8>`") and serves as the value's identity label.
 
 **Divergence.** Logos addition: Writ first-class type values have no Rust equivalent.
 
@@ -3513,7 +3513,7 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L5831-L5836`_
 
 ### `expr.writ-lit.result-type` — @-literal result type depends on presence of captures
 
-An @-literal with no captures has type `WritStatic`; an @-literal with one or more `$`-captures has the return type of `writ_build_from_template` (an Rc<Writ>), which requires `use logos.lang.writ.tmpl;` to be in scope.
+An @-literal with no captures has type `WritStatic`; an @-literal with one or more `$`-captures has the return type of `writ_build_from_template` (an `Rc<Writ>`), which requires `use logos.lang.writ.tmpl;` to be in scope.
 
 _Source: `src/compiler/sema_expr.cpp#L15422-L15444`_
 
@@ -3581,7 +3581,7 @@ _Source: `src/compiler/sema_expr.cpp#L11158-L11172`, `src/compiler/sema_expr.cpp
 
 ### `expr.writ-list-comp.desugar` — Writ list comprehension desugars to a Writ array builder loop
 
-A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. Rc<Writ>), iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.
+A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. `Rc<Writ>`), iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.
 
 **Divergence.** Logos-specific Writ data-substrate sugar; no Rust equivalent.
 
@@ -3885,7 +3885,7 @@ _Source: `src/compiler/sema_expr.cpp#L5103-L5115`_
 
 ### `intrinsic.type-hash.structural-u64` — type_hash is layout-structural
 
-`type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args (Foo<i32> != Foo<u32>).
+`type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args (`Foo<i32>` != `Foo<u32>`).
 
 **Divergence.** Logos addition.
 
@@ -4380,7 +4380,7 @@ _Source: `src/compiler/sema_expr.cpp#L5786-L5823`_
 
 ## get-annotation
 
-### `intrinsic.get-annotation.option-result` — get_annotation yields the annotation instance as Option<A>
+### `intrinsic.get-annotation.option-result` — get_annotation yields the annotation instance as `Option<A>`
 
 `get_annotation::<T, A>() -> Option<A>` const-folds to `Some(A{...})` if datatype T carries annotation A, else `None`.
 
@@ -4546,7 +4546,7 @@ At the top level (owner semantics), after a value's user `impl Drop` runs, its f
 _Source: `src/compiler/mlir_gen_impl.hpp#L1089-L1096`_
 
 
-### `intrinsic.drop.owning-custom-dst` — Drop of owning Box<Foo> custom-DST drops prefix + tail then frees
+### `intrinsic.drop.owning-custom-dst` — Drop of owning `Box<Foo>` custom-DST drops prefix + tail then frees
 
 Dropping an owning custom-DST `Box<Foo>` drops the droppable prefix fields plus the tail elements (runtime loop over the fat-pointer length carried in the {data, len} pair) and then frees the block.
 
@@ -4555,7 +4555,7 @@ Dropping an owning custom-DST `Box<Foo>` drops the droppable prefix fields plus 
 _Source: `src/compiler/mlir_gen_impl.hpp#L1108-L1111`_
 
 
-### `intrinsic.drop.owning-dyn-handle` — Drop of owning Box<dyn> calls vtable[0], frees data, frees handle
+### `intrinsic.drop.owning-dyn-handle` — Drop of owning `Box<dyn>` calls vtable[0], frees data, frees handle
 
 Dropping an owning `Box<dyn Trait>` whose binding storage is the 8-byte heap handle to a 16-byte {data, vtable} fat pair runs (null-guarded): load data and vtable; call vtable[0](data) (drop_in_place: concrete destructor + owned fields); free(data); free(handle).
 
@@ -4564,7 +4564,7 @@ Dropping an owning `Box<dyn Trait>` whose binding storage is the 8-byte heap han
 _Source: `src/compiler/mlir_gen_impl.hpp#L1099-L1104`_
 
 
-### `intrinsic.drop.owning-slice` — Drop of owning Box<[T]> drops each element then frees the buffer
+### `intrinsic.drop.owning-slice` — Drop of owning `Box<[T]>` drops each element then frees the buffer
 
 Dropping an owning `Box<[T]>` fat slice (value {data, len}) drops each element via a runtime loop over `len` (only when T is droppable) and then frees the heap buffer.
 
@@ -4738,7 +4738,7 @@ _Source: `src/compiler/sema_expr.cpp#L18238-L18244`, `src/compiler/sema_expr.cpp
 
 `include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.
 
-**Divergence.** Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are Slice<u8>.
+**Divergence.** Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are `Slice<u8>`.
 
 _Source: `src/compiler/sema_expr.cpp#L18252-L18282`_
 
@@ -4749,7 +4749,7 @@ _Source: `src/compiler/sema_expr.cpp#L18252-L18282`_
 
 `env!("VAR")` yields the value of environment variable VAR as a `&str` literal and is a compile error if unset; `option_env!("VAR")` yields the value or an empty `&str` if unset.
 
-**Divergence.** option_env! returns an empty &str tombstone rather than Option<&str>.
+**Divergence.** option_env! returns an empty &str tombstone rather than `Option<&str>`.
 
 _Source: `src/compiler/sema_expr.cpp#L18289-L18316`_
 

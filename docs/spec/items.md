@@ -443,7 +443,7 @@ pub struct S<T> where T: Clone { x: T, fn get(&self) -> &T { &self.x } }
 
 ### `item.struct.no-auto-drop` — #[no_auto_drop] suppresses compiler-emitted drop
 
-A struct marked `#[no_auto_drop]` receives NO compiler-emitted automatic Drop (neither user-drop invocation nor field drop glue) — the ManuallyDrop<T> lang-item shape.
+A struct marked `#[no_auto_drop]` receives NO compiler-emitted automatic Drop (neither user-drop invocation nor field drop glue) — the `ManuallyDrop<T>` lang-item shape.
 
 **Evidence:** `src/compiler/sema_impl.hpp#L2427`
 
@@ -567,7 +567,7 @@ union U { a: i32, b: f32 }
 
 ### `item.union.field-copy-restriction` — union field types restricted to non-move types
 
-Each non-generic union field type must not be a move type (Vec/Box/String/owning trait object); allowed are Copy types, references, ManuallyDrop<T>, or aggregates thereof. A field whose type is a bare type-parameter is exempt at collection (checked at monomorphization); a field that is itself a union is allowed.
+Each non-generic union field type must not be a move type (Vec/Box/String/owning trait object); allowed are Copy types, references, `ManuallyDrop<T>`, or aggregates thereof. A field whose type is a bare type-parameter is exempt at collection (checked at monomorphization); a field that is itself a union is allowed.
 
 **Divergence:** B: generic-union Copy check is deferred to mono rather than enforced at use site as in Rust.
 
@@ -1116,7 +1116,7 @@ fn f(mut x: i32) { x += 1; }
 
 **Evidence:** `src/compiler/sema_decl.cpp#L714-L741`, `src/compiler/sema_decl.cpp#L1046-L1060`
 
-### `item.fn-param.owning-box-dyn` — By-value Box<dyn Trait> param owns the box
+### `item.fn-param.owning-box-dyn` — By-value `Box<dyn Trait>` param owns the box
 
 A by-value parameter of owning trait-object type (`Box<dyn Trait>`) makes the callee own the box: it is dropped at the callee epilogue (vtable drop_in_place + dealloc) and call sites coerce the argument to a heap fat handle.
 

@@ -553,9 +553,9 @@ Absolute path prefixes declared as excludes (mirroring the manifest `exclude` di
 
 ## Type coexistence across modules
 
-### `module.coexist.type-module-qualification` — Type symbols are module-qualified ($M<id>) for same-pkg coexistence; stdlib exempt
+### `module.coexist.type-module-qualification` — Type symbols are module-qualified ($`M<id>`) for same-pkg coexistence; stdlib exempt
 
-Every type-keyed symbol embeds the owning module's id as a '$M<module_id>' suffix on the package, so two separately-compiled modules declaring the same pkg::Type do not collide at link. stdlib packages (prefix 'logos.') and an empty/absent pkg-to-module map yield no suffix (byte-identical output).
+Every type-keyed symbol embeds the owning module's id as a '$`M<module_id>`' suffix on the package, so two separately-compiled modules declaring the same pkg::Type do not collide at link. stdlib packages (prefix 'logos.') and an empty/absent pkg-to-module map yield no suffix (byte-identical output).
 
 **Source:** src/compiler/sema.cpp#L1404-L1415, src/compiler/sema.cpp#L1460-L1463
 

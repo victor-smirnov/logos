@@ -92,7 +92,7 @@ An item-position invocation `name!{...}` resolves `name` against the function ov
 
 **Evidence:** `src/compiler/sema_expr.cpp#L19154-L19174`
 
-### `metaprog.fn-macro-item.param-signature` — fn-macro item callee takes Vec<ExprBlob> or no args
+### `metaprog.fn-macro-item.param-signature` — fn-macro item callee takes `Vec<ExprBlob>` or no args
 
 A `#[fn_macro]` callee at item position must have either zero parameters, or a single parameter of type `Vec<ExprBlob>`; any other parameter signature is an error.
 
@@ -292,7 +292,7 @@ In the block and parenthesized-expr forms, every VAR_REF must resolve to a name 
 
 ### `metaprog.metacall.return-type` — metacall result type must be primitive scalar, WritStatic, Writ, or ExprBlob
 
-The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a &str / Slice<u8>, WritStatic, Writ (incl. Rc<Writ>), or ExprBlob. Any other result type is a compile error.
+The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a &str / `Slice<u8>`, WritStatic, Writ (incl. `Rc<Writ>`), or ExprBlob. Any other result type is a compile error.
 
 **Divergence:** A1/A6: WritStatic/Writ/ExprBlob returns are Logos additions.
 
@@ -312,7 +312,7 @@ During sema iterations a metacall lowers to its operand's lowered value (a pass-
 
 ### `metaprog.metacall.writ-autofreeze` — Writ-returning metacall auto-freezes to WritStatic and is call-form only
 
-A metacall whose operand returns a (mutable) Writ / Rc<Writ> is auto-frozen: user code observes the spliced value as WritStatic (the lowered expression is retyped to WritStatic). The Writ return type is supported only on the call form (`metacall foo()`); using it with the block or expr form is a compile error.
+A metacall whose operand returns a (mutable) Writ / `Rc<Writ>` is auto-frozen: user code observes the spliced value as WritStatic (the lowered expression is retyped to WritStatic). The Writ return type is supported only on the call form (`metacall foo()`); using it with the block or expr form is a compile error.
 
 **Divergence:** A6: Writ/WritStatic is a Logos addition.
 
@@ -364,7 +364,7 @@ template struct Pair<A,B> { a: A, b: B }
 
 ### `metaprog.quote.typed-ast-literals` — quote_* produce typed AST/Type literals
 
-`quote_item! { item* }`, `quote_expr! { expr }`, and `quote_ty! { type }` are typed literals yielding item-list, expression, and Type AST values respectively. Antiquotation `$ident` (a Type-valued binding) and `$ident...` (an Array<Type> binding) are legal only inside `quote_ty!`.
+`quote_item! { item* }`, `quote_expr! { expr }`, and `quote_ty! { type }` are typed literals yielding item-list, expression, and Type AST values respectively. Antiquotation `$ident` (a Type-valued binding) and `$ident...` (an `Array<Type>` binding) are legal only inside `quote_ty!`.
 
 **Evidence:** `tools/peg_gen/grammars/logos.peg#L268-L274`
 
@@ -412,9 +412,9 @@ Within a single `#(...)*` group, all fixed-size `[Ident; N]` cursors must share 
 
 **Evidence:** `src/compiler/sema_expr.cpp#L16539-L16548`
 
-### `metaprog.quote-expr.repeat-cursor-type` — Repetition cursor must be [Ident;N], Vec<Ident>, or Vec<ExprBlob>
+### `metaprog.quote-expr.repeat-cursor-type` — Repetition cursor must be [Ident;N], `Vec<Ident>`, or `Vec<ExprBlob>`
 
-A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected ("expected [Ident; N], Vec<Ident>, or Vec<ExprBlob>").
+A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected ("expected [Ident; N], `Vec<Ident>`, or `Vec<ExprBlob>`").
 
 **Divergence:** A3/A6
 
@@ -438,7 +438,7 @@ A `#name` antiquot outside a repetition group, in a general expression position,
 
 ### `metaprog.quote-expr.subst-runtime` — quote_expr! with antiquots substitutes at runtime via logos_quote_expr_subst
 
-`quote_expr!` containing N>0 antiquots lowers to a block that binds the static template blob and one `IdentSpan { ptr, count, kind }` per placeholder, then calls `logos_quote_expr_subst(template_ptr, size, &spans[0], N) -> *const u8` and wraps the result as `ExprBlob { ptr }`. Span kind is 0 for Ident slots, 1 for ExprBlob slots, 2 for Vec<ExprBlob> cursors.
+`quote_expr!` containing N>0 antiquots lowers to a block that binds the static template blob and one `IdentSpan { ptr, count, kind }` per placeholder, then calls `logos_quote_expr_subst(template_ptr, size, &spans[0], N) -> *const u8` and wraps the result as `ExprBlob { ptr }`. Span kind is 0 for Ident slots, 1 for ExprBlob slots, 2 for `Vec<ExprBlob>` cursors.
 
 **Divergence:** A3/A6
 
@@ -456,7 +456,7 @@ A `#name` antiquot outside a repetition group, in a general expression position,
 
 ### `metaprog.quote-item.cursor-repetition-packing` — Cursor (`#(...)*`) antiquots carry a per-site nesting depth
 
-Each repetition-cursor antiquot site contributes a `*const u8` (the address of a Vec cursor variable) plus a parallel per-site depth byte: depth 1 = Vec<Ident>, depth 2 = Vec<Vec<Ident>> (nested `#(...)*`). The element type is the neutral `*const u8`; pack reads each cursor according to its depth. When there are no cursor sites, cursors_blob is null.
+Each repetition-cursor antiquot site contributes a `*const u8` (the address of a Vec cursor variable) plus a parallel per-site depth byte: depth 1 = `Vec<Ident>`, depth 2 = `Vec<Vec<Ident>>` (nested `#(...)*`). The element type is the neutral `*const u8`; pack reads each cursor according to its depth. When there are no cursor sites, cursors_blob is null.
 
 **Divergence:** Logos metaprogramming addition.
 
@@ -518,7 +518,7 @@ Placeholder indices are assigned by a deterministic depth-first walk of the quot
 
 ### `metaprog.quote-item.repeat-cursor-depth` — #(...)* repetition binds cursor placeholders by Vec nesting depth
 
-Inside a `#(...)*` repetition group, a `#name` placeholder becomes a Cursor whose depth equals its Vec nesting (1 for Vec<Ident>, 2 for Vec<Vec<Ident>>); the variable's cursor depth d must be non-zero and ≤ the current repeat depth, else an error. Outside any repetition group, `#name` must be a scalar Ident.
+Inside a `#(...)*` repetition group, a `#name` placeholder becomes a Cursor whose depth equals its Vec nesting (1 for `Vec<Ident>`, 2 for `Vec<Vec<Ident>>`); the variable's cursor depth d must be non-zero and ≤ the current repeat depth, else an error. Outside any repetition group, `#name` must be a scalar Ident.
 
 **Evidence:** `src/compiler/sema_expr.cpp#L15582-L15606`, `src/compiler/sema_expr.cpp#L15523-L15533`
 

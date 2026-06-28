@@ -519,7 +519,7 @@ A deref-compound assignment `*p op= v` desugars to `*p = (*p op v)`, reading the
 
 ### `stmt.compound-assign.deref-mut-dispatch` — compound deref-assign on a DerefMut struct dispatches deref_mut
 
-When the left side of `*w op= v` is a struct (or zoned struct) implementing DerefMut<T>, the operation desugars through `w.deref_mut()` (yielding &mut T): `*(w.deref_mut()) = *(w.deref_mut()) op v`.
+When the left side of `*w op= v` is a struct (or zoned struct) implementing `DerefMut<T>`, the operation desugars through `w.deref_mut()` (yielding &mut T): `*(w.deref_mut()) = *(w.deref_mut()) op v`.
 
 **Source:** `src/compiler/sema_stmt.cpp#L529-L552`
 
@@ -545,7 +545,7 @@ A `*const T` pointer is read-only; writing through it is an error — only `*mut
 
 ### `stmt.deref-write.user-deref-mut` — *x = v on a DerefMut struct dispatches deref_mut
 
-When `*x = v` is applied to a struct `x` implementing DerefMut<T>, it dispatches `x.deref_mut()` (returning &mut T) and writes `v` through the resulting reference; this requires `x` to be a mutable binding for `&mut self` materialization.
+When `*x = v` is applied to a struct `x` implementing `DerefMut<T>`, it dispatches `x.deref_mut()` (returning &mut T) and writes `v` through the resulting reference; this requires `x` to be a mutable binding for `&mut self` materialization.
 
 **Source:** `src/compiler/sema_stmt.cpp#L597-L624`
 

@@ -66,9 +66,9 @@ A call 'IDENT path_dot_ident+ '::' IDENT ('::' '<' type_arg_list '>')? '(' call_
 
 ### `grammar.expr.call-ufcs-qualified` — UFCS qualified-path call
 
-'<Type as Trait>::method(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.
+'`<Type as Trait>::method`(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.
 
-*Divergence:* Trait qualifier in <T as Tr>::m is dropped (Rust uses it for disambiguation).
+*Divergence:* Trait qualifier in `<T as Tr>::m` is dropped (Rust uses it for disambiguation).
 
 *Evidence:* `tools/peg_gen/grammars/logos.peg#L3214-L3219`
 
@@ -108,7 +108,7 @@ type_param_list ::= '<' type_param (',' type_param)* ','? '>' ; also reused for 
 
 ### `grammar.generic.hrtb-binder` — HRTB for<...> binder parsed then dropped
 
-hrtb_binder ::= 'for' '<' LIFETIME (',' LIFETIME)* ','? '>' may prefix any trait_bound. Lifetimes are not tracked structurally, so for<'a> Trait<...> is semantically equivalent to Trait<...> (binder parsed into a disposable head).
+hrtb_binder ::= 'for' '<' LIFETIME (',' LIFETIME)* ','? '>' may prefix any trait_bound. Lifetimes are not tracked structurally, so for<'a> `Trait<...>` is semantically equivalent to `Trait<...>` (binder parsed into a disposable head).
 
 *Divergence:* Lifetimes not structurally tracked: HRTB binder is accepted but discarded (Rust enforces it).
 
@@ -136,7 +136,7 @@ A type parameter may carry a default via 'IDENT (: bounds)? = type_ref'; the def
 
 ### `grammar.generic.type-arg-list` — Type argument list
 
-type_arg_list ::= type_or_lt_arg (',' type_or_lt_arg)* ','? ; generic instantiation argument list (e.g. Vec<i32>).
+type_arg_list ::= type_or_lt_arg (',' type_or_lt_arg)* ','? ; generic instantiation argument list (e.g. `Vec<i32>`).
 
 *Evidence:* `tools/peg_gen/grammars/logos.peg#L3183-L3185`
 
@@ -160,7 +160,7 @@ trait_bound may be '?' IDENT (RELAXED). Grammatically any '?Ident' is accepted; 
 
 ### `grammar.trait.bound-forms` — Trait bound forms
 
-A trait_bound is an IDENT optionally with generic args 'Name<bound_arg_list>' or Fn-family parenthesized form 'Name(closure_type_args?) ('-> type)?', each optionally HRTB-prefixed.
+A trait_bound is an IDENT optionally with generic args '`Name<bound_arg_list>`' or Fn-family parenthesized form 'Name(closure_type_args?) ('-> type)?', each optionally HRTB-prefixed.
 
 *Evidence:* `tools/peg_gen/grammars/logos.peg#L3095-L3124`
 
@@ -259,7 +259,7 @@ writ_map ::= '{' (writ_entry (',' writ_entry)* ','?)? '}' ; a brace-delimited, c
 
 ### `grammar.writ.type-literal` — Writ embedded type literal `<type: T>`
 
-A Writ value may embed a Logos Type as a first-class value via `'<' 'type' ':' simple_type '>'`, producing a WRIT_TYPE_LIT node carrying the rendered type T. Any simple_type is accepted, including generic instantiations (e.g. Vec<u8>, Result<T,E>); it renders back as `<type: T>`.
+A Writ value may embed a Logos Type as a first-class value via `'<' 'type' ':' simple_type '>'`, producing a WRIT_TYPE_LIT node carrying the rendered type T. Any simple_type is accepted, including generic instantiations (e.g. `Vec<u8>`, `Result<T,E>`); it renders back as `<type: T>`.
 
 *Divergence:* No Rust analogue; type-as-value embedding.
 
@@ -285,7 +285,7 @@ A TYPED_VALUE node represents a typename-applied-to-value construction of the fo
 
 ### `grammar.writ.datatype-form` — DATATYPE node
 
-A DATATYPE node represents a type name with optional generic parameters of the form Typename<Param, ...>.
+A DATATYPE node represents a type name with optional generic parameters of the form `Typename<Param, ...>`.
 
 *Evidence:* `tools/peg_gen/grammars/writ.peg#L40`
 

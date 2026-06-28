@@ -64,7 +64,7 @@ When a value is produced from a composite expression (Call arg, StructLit field,
 
 *Evidence:* `src/compiler/sema_impl.hpp#L2272-L2307`
 
-### `borrow.move.owning-dyn-by-value` — Passing an owning Box<dyn Trait> by value moves it
+### `borrow.move.owning-dyn-by-value` — Passing an owning `Box<dyn Trait>` by value moves it
 
 An owning `Box<dyn Trait>` binding (collapsed to a bare trait object) is moved when passed by value — the callee frees the handle — so the caller marks it moved to avoid a double-free.
 
@@ -180,9 +180,9 @@ An enum value is a move type iff it is not Copy and either it has a user Drop im
 
 *Evidence:* `include/logos/compiler/move_classify.hpp#L18-L19`, `include/logos/compiler/move_classify.hpp#L41`
 
-### `borrow.move.box-dyn-owning` — Owning Box<dyn> is a move type
+### `borrow.move.box-dyn-owning` — Owning `Box<dyn>` is a move type
 
-An owning Box<dyn Trait> is always a move type (it owns a heap value whose destructor must run on consumption).
+An owning `Box<dyn Trait>` is always a move type (it owns a heap value whose destructor must run on consumption).
 
 *Evidence:* `include/logos/compiler/move_classify.hpp#L14-L15`
 
@@ -605,7 +605,7 @@ If the RHS of a let is a place (variable reference or struct-field-read chain) o
 
 *Evidence:* `src/compiler/sema_stmt.cpp#L2242-L2247`
 
-### `borrow.let.box-dyn-owning-drop` — Owning Box<dyn Trait> binding drops only when ownership is transferred
+### `borrow.let.box-dyn-owning-drop` — Owning `Box<dyn Trait>` binding drops only when ownership is transferred
 
 An `let x: Box<dyn Trait>` binding (which collapses to a bare owning TraitObject) is marked for drop (drop_in_place + free) only when the RHS genuinely transfers ownership — a `box_new(..) as Box<dyn>` cast or a value-returning constructor call. Reads of a handle copy out of a container (deref / index / method-call) are excluded to avoid double-free.
 
@@ -1015,7 +1015,7 @@ Provenance/dangling tracking records as borrow sources only locally declared var
 
 A non-movable (location-anchored) type — one with a self-relative `#[rel_ptr]`/`#[zoned2]` field, or a `#[pinned]` type — may not be bound to any by-value slot (let local, parameter, match/for/closure/destructure binding); it must live behind a pointer, in place (e.g. an arena or `[u8;N]` buffer), and be built through a `*mut T`.
 
-**Divergence:** A8: `#[pinned]` is non-movability as a property of the TYPE (no value-form), distinct from Rust's pointer-level Pin<P>.
+**Divergence:** A8: `#[pinned]` is non-movability as a property of the TYPE (no value-form), distinct from Rust's pointer-level `Pin<P>`.
 
 *Evidence:* `src/compiler/sema_impl.hpp#L2327-L2346`, `src/compiler/sema_impl.hpp#L2440-L2464`
 
@@ -1398,7 +1398,7 @@ A function returning &T or &mut T must not return a reference whose provenance i
 
 ### `region.dangling.dyn-trait-ref` — &dyn Trait data half is a borrowed reference
 
-A borrowing trait object (&dyn Trait, non-owning Kind::TraitObject) is treated as a reference kind for dangling-return detection: returning &dyn Trait to a local is rejected; an owning Box<dyn Trait> does not qualify.
+A borrowing trait object (&dyn Trait, non-owning Kind::TraitObject) is treated as a reference kind for dangling-return detection: returning &dyn Trait to a local is rejected; an owning `Box<dyn Trait>` does not qualify.
 
 **Divergence:** logos-core 2.1 default trait-object lifetime rule
 
@@ -1580,7 +1580,7 @@ Lifetime arguments of the constructed enum are inferred by structurally co-walki
 
 ### `region.borrow-carrying.escape-tracked` — #[borrow_carrying] values are escape-tracked like references
 
-A value of a `#[borrow_carrying]` struct or enum holds a borrow into an arena and is escape-tracked like a reference; returning it escapes the borrow as if returning the bare reference. Borrow-carrying-ness propagates transitively: a struct with an inline field, or an enum with a variant payload, of a (transitively) borrow-carrying type is itself borrow-carrying, as is a container whose generic type-argument is borrow-carrying (e.g. Vec<WAny>).
+A value of a `#[borrow_carrying]` struct or enum holds a borrow into an arena and is escape-tracked like a reference; returning it escapes the borrow as if returning the bare reference. Borrow-carrying-ness propagates transitively: a struct with an inline field, or an enum with a variant payload, of a (transitively) borrow-carrying type is itself borrow-carrying, as is a container whose generic type-argument is borrow-carrying (e.g. `Vec<WAny>`).
 
 **Divergence:** Logos addition (no Rust equivalent)
 
@@ -1588,7 +1588,7 @@ A value of a `#[borrow_carrying]` struct or enum holds a borrow into an arena an
 
 ### `region.borrow-carrying.residency-holder-exempt` — Residency-holder packages are exempt from borrow-carrying
 
-A struct with an Rc/Arc field (a residency-holder / laundered-escape package such as Held<T>/HeldAny) ref-counts the arena alive independent of any local, so it is NOT borrow-carrying and may safely escape — even via its type-arguments. An explicit `#[borrow_carrying]` annotation overrides this auto-exemption.
+A struct with an Rc/Arc field (a residency-holder / laundered-escape package such as `Held<T>`/HeldAny) ref-counts the arena alive independent of any local, so it is NOT borrow-carrying and may safely escape — even via its type-arguments. An explicit `#[borrow_carrying]` annotation overrides this auto-exemption.
 
 **Divergence:** Logos addition (no Rust equivalent)
 

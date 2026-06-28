@@ -62,7 +62,7 @@ _11 rule(s)._
 ### `metaprog.metacall.return-type` — metacall result type must be primitive scalar, WritStatic, Writ, or ExprBlob
 
 - **Divergence:** A1/A6: WritStatic/Writ/ExprBlob returns are Logos additions.
-- **Statement:** The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a &str / Slice<u8>, WritStatic, Writ (incl. Rc<Writ>), or ExprBlob. Any other result type is a compile error.
+- **Statement:** The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a &str / `Slice<u8>`, WritStatic, Writ (incl. `Rc<Writ>`), or ExprBlob. Any other result type is a compile error.
 - **Domain:** `metaprog`
 - **Source:** `src/compiler/sema_expr.cpp#L17408-L17424`
 
@@ -155,10 +155,10 @@ _13 rule(s)._
 - **Domain:** `metaprog`
 - **Source:** `src/compiler/sema_expr.cpp#L16539-L16548`
 
-### `metaprog.quote-expr.repeat-cursor-type` — Repetition cursor must be [Ident;N], Vec<Ident>, or Vec<ExprBlob>
+### `metaprog.quote-expr.repeat-cursor-type` — Repetition cursor must be [Ident;N], `Vec<Ident>`, or `Vec<ExprBlob>`
 
 - **Divergence:** A3/A6
-- **Statement:** A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected ("expected [Ident; N], Vec<Ident>, or Vec<ExprBlob>").
+- **Statement:** A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected ("expected [Ident; N], `Vec<Ident>`, or `Vec<ExprBlob>`").
 - **Domain:** `metaprog`
 - **Source:** `src/compiler/sema_expr.cpp#L16523-L16538`, `src/compiler/sema_expr.cpp#L16469-L16492`
 
@@ -179,7 +179,7 @@ _13 rule(s)._
 ### `metaprog.quote-expr.subst-runtime` — quote_expr! with antiquots substitutes at runtime via logos_quote_expr_subst
 
 - **Divergence:** A3/A6
-- **Statement:** `quote_expr!` containing N>0 antiquots lowers to a block that binds the static template blob and one `IdentSpan { ptr, count, kind }` per placeholder, then calls `logos_quote_expr_subst(template_ptr, size, &spans[0], N) -> *const u8` and wraps the result as `ExprBlob { ptr }`. Span kind is 0 for Ident slots, 1 for ExprBlob slots, 2 for Vec<ExprBlob> cursors.
+- **Statement:** `quote_expr!` containing N>0 antiquots lowers to a block that binds the static template blob and one `IdentSpan { ptr, count, kind }` per placeholder, then calls `logos_quote_expr_subst(template_ptr, size, &spans[0], N) -> *const u8` and wraps the result as `ExprBlob { ptr }`. Span kind is 0 for Ident slots, 1 for ExprBlob slots, 2 for `Vec<ExprBlob>` cursors.
 - **Domain:** `metaprog`
 - **Source:** `src/compiler/sema_expr.cpp#L16815-L16981`, `src/compiler/sema_expr.cpp#L16866-L16943`
 
@@ -192,7 +192,7 @@ _13 rule(s)._
 
 ### `type.identity.slice-mut-owning` — Slice identity = (mutability, owning kind, element)
 
-- **Divergence:** A3 (custom-DST / Box<[T]> as owning slice kind)
+- **Divergence:** A3 (custom-DST / `Box<[T]>` as owning slice kind)
 - **Statement:** Slice types are distinguished by element T, mutability, and owning kind (const_val): `&[T]`, `&mut [T]`, and owning `Box<[T]>` are mutually distinct types.
 - **Domain:** `type`
 - **Source:** `src/compiler/sema.cpp#L841-L847`, `src/compiler/sema.cpp#L997-L1003`
@@ -409,7 +409,7 @@ _57 rule(s)._
 ### `metaprog.metacall.writ-autofreeze` — Writ-returning metacall auto-freezes to WritStatic and is call-form only
 
 - **Divergence:** A6: Writ/WritStatic is a Logos addition.
-- **Statement:** A metacall whose operand returns a (mutable) Writ / Rc<Writ> is auto-frozen: user code observes the spliced value as WritStatic (the lowered expression is retyped to WritStatic). The Writ return type is supported only on the call form (`metacall foo()`); using it with the block or expr form is a compile error.
+- **Statement:** A metacall whose operand returns a (mutable) Writ / `Rc<Writ>` is auto-frozen: user code observes the spliced value as WritStatic (the lowered expression is retyped to WritStatic). The Writ return type is supported only on the call form (`metacall foo()`); using it with the block or expr form is a compile error.
 - **Domain:** `metaprog`
 - **Source:** `src/compiler/sema_expr.cpp#L17537-L17568`, `src/compiler/sema_expr.cpp#L17597-L17603`
 
@@ -630,7 +630,7 @@ _3 rule(s)._
 
 ### `borrow.pin.non-movable-no-by-value-slot` — Location-anchored types may not occupy a by-value slot
 
-- **Divergence:** A8: `#[pinned]` is non-movability as a property of the TYPE (no value-form), distinct from Rust's pointer-level Pin<P>.
+- **Divergence:** A8: `#[pinned]` is non-movability as a property of the TYPE (no value-form), distinct from Rust's pointer-level `Pin<P>`.
 - **Statement:** A non-movable (location-anchored) type — one with a self-relative `#[rel_ptr]`/`#[zoned2]` field, or a `#[pinned]` type — may not be bound to any by-value slot (let local, parameter, match/for/closure/destructure binding); it must live behind a pointer, in place (e.g. an arena or `[u8;N]` buffer), and be built through a `*mut T`.
 - **Domain:** `borrow`
 - **Source:** `src/compiler/sema_impl.hpp#L2327-L2346`, `src/compiler/sema_impl.hpp#L2440-L2464`
@@ -672,7 +672,7 @@ _3 rule(s)._
 ### `mono.uid.module-fingerprint-tags` — Runtime type UID includes per-module fingerprint tags
 
 - **Divergence:** A9 — Logos coexistence of same-named types across modules; no Rust crate-disjointness analog.
-- **Statement:** The canonical type-identity string for runtime UID hashing (type_id::<T>(), Any/downcast/quote_ty) is the type-string PLUS a '|<name>$M<module_id>' tag for EVERY non-stdlib nominal node anywhere in the type tree (recursing through pointee/elem/type-args/tuple-elems/closure params+ret), so two modules' same-named pkg::Type (incl. nested, e.g. Box<pkg::Widget>) hash to DISTINCT UIDs. stdlib (logos.*) and no-module compiles contribute no tags, yielding a string byte-identical to the plain type-string (UIDs unchanged).
+- **Statement:** The canonical type-identity string for runtime UID hashing (type_id::<T>(), Any/downcast/quote_ty) is the type-string PLUS a '|<name>$`M<module_id>`' tag for EVERY non-stdlib nominal node anywhere in the type tree (recursing through pointee/elem/type-args/tuple-elems/closure params+ret), so two modules' same-named pkg::Type (incl. nested, e.g. `Box<pkg::Widget>`) hash to DISTINCT UIDs. stdlib (logos.*) and no-module compiles contribute no tags, yielding a string byte-identical to the plain type-string (UIDs unchanged).
 - **Domain:** `mono`
 - **Source:** `src/compiler/mono_impl.hpp#L772-L808`
 
@@ -685,7 +685,7 @@ _5 rule(s)._
 ### `expr.call.callable-resolution` — Callee resolution to closure or fn-pointer
 
 - **Divergence:** A10: dyn Fn* collapses to the bare Closure type.
-- **Statement:** A call `x(args)` treats `x` as callable when its type is a Closure or fn-value kind; `Box<dyn Fn*>` (Box<Closure>) is unwrapped to its inner Closure, and an Fn-bounded generic type-param `F` is treated as a closure with the bound's `fn_params`/`fn_ret` signature.
+- **Statement:** A call `x(args)` treats `x` as callable when its type is a Closure or fn-value kind; `Box<dyn Fn*>` (`Box<Closure>`) is unwrapped to its inner Closure, and an Fn-bounded generic type-param `F` is treated as a closure with the bound's `fn_params`/`fn_ret` signature.
 - **Domain:** `expr`
 - **Source:** `src/compiler/sema_expr.cpp#L2845-L2926`
 
@@ -778,7 +778,7 @@ _2 rule(s)._
 
 ### `layout.dyn.fat-pointer-data-vtable-pair` — dyn trait object is a 16-byte {data, vtable} fat pair by value
 
-- **Divergence:** B2/B3: fat-pointer model for owned dyn; Box<dyn> is the owning trait object.
+- **Divergence:** B2/B3: fat-pointer model for owned dyn; `Box<dyn>` is the owning trait object.
 - **Statement:** `&dyn Trait`, `*dyn Trait`, and `Box<dyn Trait>` share a uniform 16-byte fat representation: a `{data_ptr, vtable_ptr}` pair stored inline. `data_ptr` is the concrete value's address (heap concrete for an owning `Box<dyn>`). The pair travels by value; escape consumers copy the 16 bytes into their own inline storage rather than holding a heap handle.
 - **Domain:** `layout`
 - **Source:** `src/compiler/mlir_gen_dyn.cpp#L1204-L1234`, `src/compiler/mlir_gen_dyn.cpp#L1264-L1270`
@@ -852,13 +852,13 @@ _3 rule(s)._
 ### `trait.assoc-type.dual-impl-ambiguous-projection` — Ambiguous bare associated-type projection across generic-trait impls
 
 - **Divergence:** G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key.
-- **Statement:** When two impls of a generic trait Trait<T> for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.
+- **Statement:** When two impls of a generic trait `Trait<T>` for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.
 - **Domain:** `trait`
 - **Source:** `src/compiler/sema_collect.cpp#L3235-L3248`, `src/compiler/sema_collect.cpp#L3281-L3295`
 
 ### `type.assoc-ref.eager-concrete-projection` — Eager projection for concrete base with generic trait
 
-- **Divergence:** G156-1 disambiguation of multiple Trait<T> impls.
+- **Divergence:** G156-1 disambiguation of multiple `Trait<T>` impls.
 - **Statement:** When the base is a concrete type and the resolved trait is generic (has type-args), the projection is resolved immediately by looking up the trait+args-suffixed assoc-type impl and substituting the base's type-args; this disambiguates two `Trait<T>` impls on one type that would otherwise intern to a single trait-arg-less deferred node and collapse.
 - **Domain:** `type`
 - **Source:** `src/compiler/sema.cpp#L5275-L5307`
@@ -1005,7 +1005,7 @@ _376 rule(s)._
 ### `coerce.struct.elementwise-typeargs` — Same-named structs compatible iff type-args pairwise compatible
 
 - **Divergence:** logos-core 1.3 (nested)
-- **Statement:** Two Struct types with equal struct_name and pkg_name and equal type-arg arity are compatible iff every type-arg pair is compatible (allowing inference holes like Vec<_> vs Vec<i32>).
+- **Statement:** Two Struct types with equal struct_name and pkg_name and equal type-arg arity are compatible iff every type-arg pair is compatible (allowing inference holes like `Vec<_>` vs `Vec<i32>`).
 - **Domain:** `coerce`
 - **Source:** `src/compiler/sema.cpp#L1846-L1857`
 
@@ -1117,7 +1117,7 @@ _376 rule(s)._
 ### `expr.binop.string-vs-str-eq` — String == str views String as str
 
 - **Divergence:** Mirrors Rust `impl PartialEq<str> for String`.
-- **Statement:** For == and !=, when one operand is the struct String and the other is str (Slice<u8>), the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.
+- **Statement:** For == and !=, when one operand is the struct String and the other is str (`Slice<u8>`), the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.
 - **Domain:** `expr`
 - **Source:** `src/compiler/sema_expr.cpp#L1782-L1808`
 
@@ -1327,7 +1327,7 @@ _376 rule(s)._
 ### `expr.range.desugar-range-struct` — lo..hi / lo..=hi desugar to stdlib Range constructors
 
 - **Divergence:** Ranges are nominal stdlib structs (RangeI32/RangeI64/RangeOfIncl), not language built-ins
-- **Statement:** A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (RangeOfIncl<T>). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.
+- **Statement:** A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (`RangeOfIncl<T>`). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.
 - **Domain:** `expr`
 - **Source:** `src/compiler/sema_expr.cpp#L1310-L1387`
 
@@ -1347,7 +1347,7 @@ _376 rule(s)._
 
 ### `expr.str.as-bytes-identity` — &str.as_bytes() is the identity
 
-- **Divergence:** Logos models &str as Slice<u8> (writ/string-repr); identity conversion.
+- **Divergence:** Logos models &str as `Slice<u8>` (writ/string-repr); identity conversion.
 - **Statement:** Because `&str` is represented as `Slice<u8>` (same fat-pointer ABI as `&[u8]`), `s.as_bytes()` on a `Slice<u8>` receiver returns the receiver verbatim with no conversion.
 - **Domain:** `expr`
 - **Source:** `src/compiler/sema_expr.cpp#L6472-L6481`
@@ -1383,7 +1383,7 @@ _376 rule(s)._
 ### `expr.writ-list-comp.desugar` — Writ list comprehension desugars to a Writ array builder loop
 
 - **Divergence:** Logos-specific Writ data-substrate sugar; no Rust equivalent.
-- **Statement:** A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. Rc<Writ>), iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.
+- **Statement:** A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. `Rc<Writ>`), iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.
 - **Domain:** `expr`
 - **Source:** `src/compiler/sema_expr.cpp#L11098-L11226`
 
@@ -1537,7 +1537,7 @@ _376 rule(s)._
 ### `expr.writ.type-literal` — Writ type-literal <type:T>
 
 - **Divergence:** Logos addition: Writ first-class type values have no Rust equivalent.
-- **Statement:** A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like Vec<u8> all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. "Vec<u8>") and serves as the value's identity label.
+- **Statement:** A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like `Vec<u8>` all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. "`Vec<u8>`") and serves as the value's identity label.
 - **Domain:** `expr`
 - **Source:** `src/compiler/sema_expr.cpp#L14937-L14979`
 
@@ -1634,8 +1634,8 @@ _376 rule(s)._
 
 ### `grammar.expr.call-ufcs-qualified` — UFCS qualified-path call
 
-- **Divergence:** Trait qualifier in <T as Tr>::m is dropped (Rust uses it for disambiguation).
-- **Statement:** '<Type as Trait>::method(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.
+- **Divergence:** Trait qualifier in `<T as Tr>::m` is dropped (Rust uses it for disambiguation).
+- **Statement:** '`<Type as Trait>::method`(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.
 - **Domain:** `grammar`
 - **Source:** `tools/peg_gen/grammars/logos.peg#L3214-L3219`
 
@@ -1649,7 +1649,7 @@ _376 rule(s)._
 ### `grammar.generic.hrtb-binder` — HRTB for<...> binder parsed then dropped
 
 - **Divergence:** Lifetimes not structurally tracked: HRTB binder is accepted but discarded (Rust enforces it).
-- **Statement:** hrtb_binder ::= 'for' '<' LIFETIME (',' LIFETIME)* ','? '>' may prefix any trait_bound. Lifetimes are not tracked structurally, so for<'a> Trait<...> is semantically equivalent to Trait<...> (binder parsed into a disposable head).
+- **Statement:** hrtb_binder ::= 'for' '<' LIFETIME (',' LIFETIME)* ','? '>' may prefix any trait_bound. Lifetimes are not tracked structurally, so for<'a> `Trait<...>` is semantically equivalent to `Trait<...>` (binder parsed into a disposable head).
 - **Domain:** `grammar`
 - **Source:** `tools/peg_gen/grammars/logos.peg#L3077-L3108`
 
@@ -1712,7 +1712,7 @@ _376 rule(s)._
 ### `grammar.writ.type-literal` — Writ embedded type literal `<type: T>`
 
 - **Divergence:** No Rust analogue; type-as-value embedding.
-- **Statement:** A Writ value may embed a Logos Type as a first-class value via `'<' 'type' ':' simple_type '>'`, producing a WRIT_TYPE_LIT node carrying the rendered type T. Any simple_type is accepted, including generic instantiations (e.g. Vec<u8>, Result<T,E>); it renders back as `<type: T>`.
+- **Statement:** A Writ value may embed a Logos Type as a first-class value via `'<' 'type' ':' simple_type '>'`, producing a WRIT_TYPE_LIT node carrying the rendered type T. Any simple_type is accepted, including generic instantiations (e.g. `Vec<u8>`, `Result<T,E>`); it renders back as `<type: T>`.
 - **Domain:** `grammar`
 - **Source:** `tools/peg_gen/grammars/logos.peg#L2941-L2948`, `src/compiler/sema_render.cpp#L1526-L1531`
 
@@ -1774,7 +1774,7 @@ _376 rule(s)._
 
 ### `intrinsic.env.macro` — env! / option_env! read environment at compile time
 
-- **Divergence:** option_env! returns an empty &str tombstone rather than Option<&str>.
+- **Divergence:** option_env! returns an empty &str tombstone rather than `Option<&str>`.
 - **Statement:** `env!("VAR")` yields the value of environment variable VAR as a `&str` literal and is a compile error if unset; `option_env!("VAR")` yields the value or an empty `&str` if unset.
 - **Domain:** `intrinsic`
 - **Source:** `src/compiler/sema_expr.cpp#L18289-L18316`
@@ -1807,7 +1807,7 @@ _376 rule(s)._
 - **Domain:** `intrinsic`
 - **Source:** `src/compiler/sema_expr.cpp#L5615-L5619`
 
-### `intrinsic.get-annotation.option-result` — get_annotation yields the annotation instance as Option<A>
+### `intrinsic.get-annotation.option-result` — get_annotation yields the annotation instance as `Option<A>`
 
 - **Divergence:** Logos addition.
 - **Statement:** `get_annotation::<T, A>() -> Option<A>` const-folds to `Some(A{...})` if datatype T carries annotation A, else `None`.
@@ -1851,7 +1851,7 @@ _376 rule(s)._
 
 ### `intrinsic.include-str.macro` — include_str! / include_bytes! embed file contents
 
-- **Divergence:** Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are Slice<u8>.
+- **Divergence:** Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are `Slice<u8>`.
 - **Statement:** `include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.
 - **Domain:** `intrinsic`
 - **Source:** `src/compiler/sema_expr.cpp#L18252-L18282`
@@ -2020,7 +2020,7 @@ _376 rule(s)._
 ### `intrinsic.type-hash.structural-u64` — type_hash is layout-structural
 
 - **Divergence:** Logos addition.
-- **Statement:** `type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args (Foo<i32> != Foo<u32>).
+- **Statement:** `type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args (`Foo<i32>` != `Foo<u32>`).
 - **Domain:** `intrinsic`
 - **Source:** `src/compiler/sema_expr.cpp#L5073-L5087`
 
@@ -2209,7 +2209,7 @@ _376 rule(s)._
 ### `item.union.field-copy-restriction` — union field types restricted to non-move types
 
 - **Divergence:** B: generic-union Copy check is deferred to mono rather than enforced at use site as in Rust.
-- **Statement:** Each non-generic union field type must not be a move type (Vec/Box/String/owning trait object); allowed are Copy types, references, ManuallyDrop<T>, or aggregates thereof. A field whose type is a bare type-parameter is exempt at collection (checked at monomorphization); a field that is itself a union is allowed.
+- **Statement:** Each non-generic union field type must not be a move type (Vec/Box/String/owning trait object); allowed are Copy types, references, `ManuallyDrop<T>`, or aggregates thereof. A field whose type is a bare type-parameter is exempt at collection (checked at monomorphization); a field that is itself a union is allowed.
 - **Domain:** `item`
 - **Source:** `src/compiler/sema_collect.cpp#L1502-L1530`
 
@@ -2251,14 +2251,14 @@ _376 rule(s)._
 ### `layout.dstref.fat-only-with-slice-tail` — Custom-DST reference is a 16-byte fat slot only with a literal slice tail
 
 - **Divergence:** Logos custom-DST representation split (slice-tail fat vs dyn-tail/self-describing thin).
-- **Statement:** A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,len} fat pointer ONLY when the pointee has a literal `[T]` slice tail (len carried inline) and is not #[self_describing]. A `dyn`-tail DST ref or a #[self_describing] DST is physically THIN (8-byte pointer; tail length recovered in-band, e.g. sizeof(Rc<dyn>)==8) and is not copied as a 16-byte fat slot.
+- **Statement:** A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,len} fat pointer ONLY when the pointee has a literal `[T]` slice tail (len carried inline) and is not #[self_describing]. A `dyn`-tail DST ref or a #[self_describing] DST is physically THIN (8-byte pointer; tail length recovered in-band, e.g. sizeof(`Rc<dyn>`)==8) and is not copied as a 16-byte fat slot.
 - **Domain:** `layout`
 - **Source:** `src/compiler/mlir_gen_stmt.cpp#L1330-L1351`
 
 ### `layout.enum.niche-low-bit` — Low-bit niche enum packs tag into the payload word's low bit
 
 - **Divergence:** Niche layout is a Logos-defined packing not specified by Rust.
-- **Statement:** A LowBit-niche enum packs a 64-bit word where the low bit distinguishes arms: low bit 0 → pointer arm (the aligned word IS the pointer, ptr_disc), low bit 1 → value arm. The value-arm payload is encoded as (v<<1)|1 and decoded as word>>1 (arithmetic shift if signed, logical otherwise), yielding val_disc. In raw mode (WAny Pod(u64)) both arms read the word verbatim with no decode.
+- **Statement:** A LowBit-niche enum packs a 64-bit word where the low bit distinguishes arms: low bit 0 → pointer arm (the aligned word IS the pointer, ptr_disc), low bit 1 → value arm. The value-arm payload is encoded as (v<`<1)|1 and decoded as word>`>1 (arithmetic shift if signed, logical otherwise), yielding val_disc. In raw mode (WAny Pod(u64)) both arms read the word verbatim with no decode.
 - **Domain:** `layout`
 - **Source:** `src/compiler/mlir_gen_expr.cpp#L4897-L4919`, `src/compiler/mlir_gen_expr.cpp#L4926-L4931`, `src/compiler/mlir_gen_expr.cpp#L4963-L4976`
 
@@ -2278,8 +2278,8 @@ _376 rule(s)._
 
 ### `layout.enum.niche-null-pointer` — Null-pointer niche enum has no discriminant word
 
-- **Divergence:** Niche layout is an unspecified Rust optimization; here it is observable/normative for Option<&T>-shaped enums.
-- **Statement:** A null-pointer-niche enum (Option<&T> shape) has no separate discriminant word: the payload (a non-null pointer) occupies offset 0; the `none` variant is encoded as a null pointer at offset 0, and the `some` variant's non-null payload pointer is itself the discriminant. Decoding: null → none_disc, non-null → some_disc.
+- **Divergence:** Niche layout is an unspecified Rust optimization; here it is observable/normative for `Option<&T>`-shaped enums.
+- **Statement:** A null-pointer-niche enum (`Option<&T>` shape) has no separate discriminant word: the payload (a non-null pointer) occupies offset 0; the `none` variant is encoded as a null pointer at offset 0, and the `some` variant's non-null payload pointer is itself the discriminant. Decoding: null → none_disc, non-null → some_disc.
 - **Domain:** `layout`
 - **Source:** `src/compiler/mlir_gen_expr.cpp#L4920-L4921`, `src/compiler/mlir_gen_expr.cpp#L4932-L4941`, `src/compiler/mlir_gen_expr.cpp#L4977-L4988`
 
@@ -2482,7 +2482,7 @@ _376 rule(s)._
 ### `metaprog.quote-item.cursor-repetition-packing` — Cursor (`#(...)*`) antiquots carry a per-site nesting depth
 
 - **Divergence:** Logos metaprogramming addition.
-- **Statement:** Each repetition-cursor antiquot site contributes a `*const u8` (the address of a Vec cursor variable) plus a parallel per-site depth byte: depth 1 = Vec<Ident>, depth 2 = Vec<Vec<Ident>> (nested `#(...)*`). The element type is the neutral `*const u8`; pack reads each cursor according to its depth. When there are no cursor sites, cursors_blob is null.
+- **Statement:** Each repetition-cursor antiquot site contributes a `*const u8` (the address of a Vec cursor variable) plus a parallel per-site depth byte: depth 1 = `Vec<Ident>`, depth 2 = `Vec<Vec<Ident>>` (nested `#(...)*`). The element type is the neutral `*const u8`; pack reads each cursor according to its depth. When there are no cursor sites, cursors_blob is null.
 - **Domain:** `metaprog`
 - **Source:** `src/compiler/sema_expr.cpp#L16056-L16127`, `src/compiler/sema_expr.cpp#L15939-L15944`
 
@@ -2752,10 +2752,10 @@ _376 rule(s)._
 - **Domain:** `mono`
 - **Source:** `src/compiler/mono_clone.cpp#L1428-L1437`
 
-### `mono.mangle.owning-vs-borrowed-dyn` — Owning Box<dyn T> mangles distinctly from borrowed &dyn T
+### `mono.mangle.owning-vs-borrowed-dyn` — Owning `Box<dyn T>` mangles distinctly from borrowed &dyn T
 
 - **Divergence:** Internal mangling distinction with no Rust analog; reflects owning-dyn vs borrowed-dyn repr split.
-- **Statement:** An OWNING trait object (Box<dyn T>) mangles to 'owndyn_<trait-name>' followed by a per-type-arg suffix (one suffix per type argument), while a borrowed &dyn T keeps the plain type-string mangling. This keeps generic specs such as Vec<Box<dyn T>> and Vec<&dyn T> DISTINCT, so the owning bit is not collapsed onto the borrow form (which would skip element drop and leak).
+- **Statement:** An OWNING trait object (`Box<dyn T>`) mangles to 'owndyn_<trait-name>' followed by a per-type-arg suffix (one suffix per type argument), while a borrowed &dyn T keeps the plain type-string mangling. This keeps generic specs such as `Vec<Box<dyn T>>` and `Vec<&dyn T>` DISTINCT, so the owning bit is not collapsed onto the borrow form (which would skip element drop and leak).
 - **Domain:** `mono`
 - **Source:** `src/compiler/mono_impl.hpp#L740-L751`, `src/compiler/sema.cpp#L1500-L1512`
 
@@ -2986,21 +2986,21 @@ _376 rule(s)._
 ### `region.borrow-carrying.escape-tracked` — #[borrow_carrying] values are escape-tracked like references
 
 - **Divergence:** Logos addition (no Rust equivalent)
-- **Statement:** A value of a `#[borrow_carrying]` struct or enum holds a borrow into an arena and is escape-tracked like a reference; returning it escapes the borrow as if returning the bare reference. Borrow-carrying-ness propagates transitively: a struct with an inline field, or an enum with a variant payload, of a (transitively) borrow-carrying type is itself borrow-carrying, as is a container whose generic type-argument is borrow-carrying (e.g. Vec<WAny>).
+- **Statement:** A value of a `#[borrow_carrying]` struct or enum holds a borrow into an arena and is escape-tracked like a reference; returning it escapes the borrow as if returning the bare reference. Borrow-carrying-ness propagates transitively: a struct with an inline field, or an enum with a variant payload, of a (transitively) borrow-carrying type is itself borrow-carrying, as is a container whose generic type-argument is borrow-carrying (e.g. `Vec<WAny>`).
 - **Domain:** `region`
 - **Source:** `src/compiler/borrow_check.cpp#L52-L54`, `src/compiler/borrow_check.cpp#L137-L164`, `src/compiler/borrow_check.cpp#L204-L227`
 
 ### `region.borrow-carrying.residency-holder-exempt` — Residency-holder packages are exempt from borrow-carrying
 
 - **Divergence:** Logos addition (no Rust equivalent)
-- **Statement:** A struct with an Rc/Arc field (a residency-holder / laundered-escape package such as Held<T>/HeldAny) ref-counts the arena alive independent of any local, so it is NOT borrow-carrying and may safely escape — even via its type-arguments. An explicit `#[borrow_carrying]` annotation overrides this auto-exemption.
+- **Statement:** A struct with an Rc/Arc field (a residency-holder / laundered-escape package such as `Held<T>`/HeldAny) ref-counts the arena alive independent of any local, so it is NOT borrow-carrying and may safely escape — even via its type-arguments. An explicit `#[borrow_carrying]` annotation overrides this auto-exemption.
 - **Domain:** `region`
 - **Source:** `src/compiler/borrow_check.cpp#L55-L60`, `src/compiler/borrow_check.cpp#L165-L203`, `src/compiler/borrow_check.cpp#L207-L209`
 
 ### `region.dangling.dyn-trait-ref` — &dyn Trait data half is a borrowed reference
 
 - **Divergence:** logos-core 2.1 default trait-object lifetime rule
-- **Statement:** A borrowing trait object (&dyn Trait, non-owning Kind::TraitObject) is treated as a reference kind for dangling-return detection: returning &dyn Trait to a local is rejected; an owning Box<dyn Trait> does not qualify.
+- **Statement:** A borrowing trait object (&dyn Trait, non-owning Kind::TraitObject) is treated as a reference kind for dangling-return detection: returning &dyn Trait to a local is rejected; an owning `Box<dyn Trait>` does not qualify.
 - **Domain:** `region`
 - **Source:** `src/compiler/borrow_check.cpp#L488-L501`
 
@@ -3105,7 +3105,7 @@ _376 rule(s)._
 ### `trait.binop.partial-ord-derive` — Relational ops derive from partial_cmp when direct method absent
 
 - **Divergence:** Mirrors Rust's default PartialOrd lt/le/gt/ge bodies.
-- **Statement:** For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns Option<Ordering> it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.
+- **Statement:** For a struct LHS with relational op {<,<=,>,>=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns `Option<Ordering>` it routes through cmp_opt_is_<op> (None => false), and when it returns Ordering directly it calls Ordering::is_<op>.
 - **Domain:** `trait`
 - **Source:** `src/compiler/sema_expr.cpp#L1990-L2055`
 
@@ -3417,10 +3417,10 @@ _376 rule(s)._
 - **Domain:** `type`
 - **Source:** `tools/peg_gen/grammars/logos.peg#L1801-L1804`
 
-### `type.str.slice-alias` — str is an alias for Slice<u8>; impls aliased to &[u8]
+### `type.str.slice-alias` — str is an alias for `Slice<u8>`; impls aliased to &[u8]
 
-- **Divergence:** Logos models `str` as Slice<u8>; Rust `str` is a distinct DST.
-- **Statement:** `str` is a built-in that resolves to Slice<u8> (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.
+- **Divergence:** Logos models `str` as `Slice<u8>`; Rust `str` is a distinct DST.
+- **Statement:** `str` is a built-in that resolves to `Slice<u8>` (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.
 - **Domain:** `type`
 - **Source:** `src/compiler/sema_collect.cpp#L3777-L3787`
 

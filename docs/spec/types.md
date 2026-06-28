@@ -134,7 +134,7 @@ An unresolved projection yields a deferred AssocType node {base, trait, name, ga
 
 When the base is a concrete type and the resolved trait is generic (has type-args), the projection is resolved immediately by looking up the trait+args-suffixed assoc-type impl and substituting the base's type-args; this disambiguates two `Trait<T>` impls on one type that would otherwise intern to a single trait-arg-less deferred node and collapse.
 
-**Divergence:** G156-1 disambiguation of multiple Trait<T> impls.
+**Divergence:** G156-1 disambiguation of multiple `Trait<T>` impls.
 
 **Source:** `src/compiler/sema.cpp#L5275-L5307`
 
@@ -634,7 +634,7 @@ After default-filling, the type-argument count must match the struct/enum/dataty
 
 **Source:** `src/compiler/sema.cpp#L5636-L5654`
 
-### `type.generic-inst.box-slice-dst-collapse` — Box<[T]> and Box<DST-struct> collapse to owning fat references
+### `type.generic-inst.box-slice-dst-collapse` — `Box<[T]>` and `Box<DST-struct>` collapse to owning fat references
 
 `Box<[T]>` collapses to an owning fat slice {data, len} (same layout as `&[T]`, move-only, droppable). `Box<Foo>` where Foo is a custom-DST tail-slice struct collapses to an owning DstRef {data, len}.
 
@@ -668,7 +668,7 @@ When a name resolves to multiple kinds (struct/datatype/enum) across packages, a
 
 **Source:** `src/compiler/sema.cpp#L5505-L5526`
 
-### `type.generic-inst.smart-pointer-dyn-collapse` — Box<dyn Trait> collapses to an owning trait object
+### `type.generic-inst.smart-pointer-dyn-collapse` — `Box<dyn Trait>` collapses to an owning trait object
 
 `Box<dyn Trait>` (FQN-gated to the stdlib Box) collapses to an owning fat-pair trait object {data, vtable} tagged Box. Rc/Arc no longer collapse and instead resolve as ordinary generic structs whose inner pointer is a fat DST reference.
 
@@ -798,13 +798,13 @@ After interning, every type has a unique representative, so type equality reduce
 
 Slice types are distinguished by element T, mutability, and owning kind (const_val): `&[T]`, `&mut [T]`, and owning `Box<[T]>` are mutually distinct types.
 
-**Divergence:** A3 (custom-DST / Box<[T]> as owning slice kind)
+**Divergence:** A3 (custom-DST / `Box<[T]>` as owning slice kind)
 
 **Source:** `src/compiler/sema.cpp#L841-L847`; `src/compiler/sema.cpp#L997-L1003`
 
 ### `type.identity.struct-field-recursion` — Struct identity recurses through substituted field types
 
-Structural identity of a struct type S<A...> mixes the struct shape tag, the field count, and the identity of each field type after substituting S's type-params by the concrete type-args A.... Generic struct instances thus get distinct identity per instantiation by their concrete field layouts.
+Structural identity of a struct type `S<A...>` mixes the struct shape tag, the field count, and the identity of each field type after substituting S's type-params by the concrete type-args A.... Generic struct instances thus get distinct identity per instantiation by their concrete field layouts.
 
 **Source:** `src/compiler/mono_clone.cpp#L141-L178`
 
@@ -1440,17 +1440,17 @@ The bare unsized slice type `[T]` (Kind::UnsizedSlice) may not appear by value; 
 
 ### `type.str.default-fat-slice` — str defaults to &[u8] fat-slice shape
 
-The `str` keyword resolves to the fat-pointer slice form `Slice<u8>` (the &[u8] shape) by default; in a context that explicitly permits an unsized result (e.g. a `T: ?Sized` turbofish position) it resolves to the unsized `[u8]` form so `&T` routes to the same Slice<u8> ABI without double-wrapping.
+The `str` keyword resolves to the fat-pointer slice form `Slice<u8>` (the &[u8] shape) by default; in a context that explicitly permits an unsized result (e.g. a `T: ?Sized` turbofish position) it resolves to the unsized `[u8]` form so `&T` routes to the same `Slice<u8>` ABI without double-wrapping.
 
 **Uncertainty:** str modeled as u8 slice rather than a distinct str primitive; unsized vs fat-slice choice is context-driven via unsized_ok_.
 
 **Source:** `src/compiler/sema.cpp#L2552-L2561`
 
-### `type.str.slice-alias` — str is an alias for Slice<u8>; impls aliased to &[u8]
+### `type.str.slice-alias` — str is an alias for `Slice<u8>`; impls aliased to &[u8]
 
-`str` is a built-in that resolves to Slice<u8> (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.
+`str` is a built-in that resolves to `Slice<u8>` (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.
 
-**Divergence:** Logos models `str` as Slice<u8>; Rust `str` is a distinct DST.
+**Divergence:** Logos models `str` as `Slice<u8>`; Rust `str` is a distinct DST.
 
 **Source:** `src/compiler/sema_collect.cpp#L3777-L3787`
 
@@ -1550,7 +1550,7 @@ FnPtr and Closure subtype identically: sub <: sup iff each param position is con
 
 ### `type.subtype.inferred-wildcard` — Inferred-type placeholder `_` is variance-compatible with any type
 
-An InferredType (`_`) on either side of a structural-equality-with-lifetimes comparison is treated as a wildcard matching any type at any nesting depth (e.g. Vec<_> compares equal to Vec<i32>), letting region/type inference resolve it later.
+An InferredType (`_`) on either side of a structural-equality-with-lifetimes comparison is treated as a wildcard matching any type at any nesting depth (e.g. `Vec<_>` compares equal to `Vec<i32>`), letting region/type inference resolve it later.
 
 **Source:** `include/logos/compiler/subtype.hpp#L62-L63`; `include/logos/compiler/subtype.hpp#L57-L61`
 
@@ -1896,11 +1896,11 @@ A DstRef whose pointee struct's last field is a literal slice ([T] or unsized [T
 
 ### `layout.dst.owned-tail-needs-fat-dstref` — An owned dyn-tail drop only fires through a fat DST reference
 
-A let-bound value initialized from a field read drops as an owned dyn tail only when the (substituted) receiver type is a fat custom-DST reference (DstRef) and the projected field is an unsized dyn (UnsizedDyn, or a borrow-owning TraitObject); a thin pointer/reference receiver (sized inner, genuine Arc<&dyn>) is NOT a DST tail and its drop is a no-op.
+A let-bound value initialized from a field read drops as an owned dyn tail only when the (substituted) receiver type is a fat custom-DST reference (DstRef) and the projected field is an unsized dyn (UnsizedDyn, or a borrow-owning TraitObject); a thin pointer/reference receiver (sized inner, genuine `Arc<&dyn>`) is NOT a DST tail and its drop is a no-op.
 
 **Source:** `src/compiler/mono_clone.cpp#L395-L414`
 
-### `layout.dst.owning-box-same-as-borrow` — &CustomDST / Box<CustomDST> is a fat {data,len} pointer
+### `layout.dst.owning-box-same-as-borrow` — &CustomDST / `Box<CustomDST>` is a fat {data,len} pointer
 
 A reference or raw pointer to a custom-DST struct is a fat pointer stored as {data_ptr, tail_len} with the same ABI as a slice; `&` vs `&mut`/`*mut` is distinguished for borrow-checking. An owning `Box<Foo>` custom-DST shares this fat layout but is move-only and droppable (drops tail elements and prefix fields, then frees the heap block).
 
@@ -1944,7 +1944,7 @@ A reference to a custom-DST struct whose last field is a literal slice tail `[T]
 
 ### `layout.dstref.fat-only-with-slice-tail` — Custom-DST reference is a 16-byte fat slot only with a literal slice tail
 
-A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,len} fat pointer ONLY when the pointee has a literal `[T]` slice tail (len carried inline) and is not #[self_describing]. A `dyn`-tail DST ref or a #[self_describing] DST is physically THIN (8-byte pointer; tail length recovered in-band, e.g. sizeof(Rc<dyn>)==8) and is not copied as a 16-byte fat slot.
+A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,len} fat pointer ONLY when the pointee has a literal `[T]` slice tail (len carried inline) and is not #[self_describing]. A `dyn`-tail DST ref or a #[self_describing] DST is physically THIN (8-byte pointer; tail length recovered in-band, e.g. sizeof(`Rc<dyn>`)==8) and is not copied as a 16-byte fat slot.
 
 **Divergence:** Logos custom-DST representation split (slice-tail fat vs dyn-tail/self-describing thin).
 
@@ -1952,9 +1952,9 @@ A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,l
 
 ## layout / dyn
 
-### `layout.dyn.box-dyn-collapses-to-trait-object` — Box<dyn Trait> has the same repr as &dyn, differing only by ownership
+### `layout.dyn.box-dyn-collapses-to-trait-object` — `Box<dyn Trait>` has the same repr as &dyn, differing only by ownership
 
-`Box<dyn Trait>` is not a Box<TraitObject> struct; it is an owning bare trait object with the identical 16-byte {data, vtable} fat-pair representation as `&dyn Trait`. The two differ only in ownership: dropping an owning trait object calls vtable[0] (drop_in_place) then deallocates `data`.
+`Box<dyn Trait>` is not a `Box<TraitObject>` struct; it is an owning bare trait object with the identical 16-byte {data, vtable} fat-pair representation as `&dyn Trait`. The two differ only in ownership: dropping an owning trait object calls vtable[0] (drop_in_place) then deallocates `data`.
 
 **Related:** `layout.dyn.fat-pair-16-byte`, `intrinsic.drop.owning-dyn-handle`
 
@@ -1968,7 +1968,7 @@ A trait object value (`dyn Tr`) is the pair {data_ptr, vtable_ptr}; a `&dyn` val
 
 ### `layout.dyn.fat-pair-16-byte` — Trait object is a 16-byte {data, vtable} fat pair
 
-A trait object (`dyn Trait`) has value representation as a 16-byte fat pair {data_ptr, vtable_ptr}. `&dyn`/`&mut dyn` are this value-fat-pair on the stack; an owning trait object (Box<dyn>, *const/*mut dyn) is held via an 8-byte heap handle to such a 16-byte pair.
+A trait object (`dyn Trait`) has value representation as a 16-byte fat pair {data_ptr, vtable_ptr}. `&dyn`/`&mut dyn` are this value-fat-pair on the stack; an owning trait object (`Box<dyn>`, *const/*mut dyn) is held via an 8-byte heap handle to such a 16-byte pair.
 
 **Related:** `layout.dyn.box-dyn-collapses-to-trait-object`
 
@@ -1984,13 +1984,13 @@ A trait-object value is a two-pointer fat pair: field 0 is the data pointer, fie
 
 `&dyn Trait`, `*dyn Trait`, and `Box<dyn Trait>` share a uniform 16-byte fat representation: a `{data_ptr, vtable_ptr}` pair stored inline. `data_ptr` is the concrete value's address (heap concrete for an owning `Box<dyn>`). The pair travels by value; escape consumers copy the 16 bytes into their own inline storage rather than holding a heap handle.
 
-**Divergence:** B2/B3: fat-pointer model for owned dyn; Box<dyn> is the owning trait object.
+**Divergence:** B2/B3: fat-pointer model for owned dyn; `Box<dyn>` is the owning trait object.
 
 **Source:** `src/compiler/mlir_gen_dyn.cpp#L1204-L1234`; `src/compiler/mlir_gen_dyn.cpp#L1264-L1270`
 
 ### `layout.dyn.fat-pointer-pair` — Trait-object references are a 16-byte {data,vtable} fat pair
 
-A bare dyn / &dyn / &mut dyn trait object has a 16-byte {data_ptr, vtable_ptr} fat-pointer representation and is returned by value as that pair. A reference to such a reference (Ref/MutRef<TraitObject>) or a raw *const/*mut dyn remains a thin 8-byte pointer.
+A bare dyn / &dyn / &mut dyn trait object has a 16-byte {data_ptr, vtable_ptr} fat-pointer representation and is returned by value as that pair. A reference to such a reference (Ref/`MutRef<TraitObject>`) or a raw *const/*mut dyn remains a thin 8-byte pointer.
 
 **Source:** `src/compiler/mlir_gen_impl.hpp#L627-L638`; `src/compiler/mlir_gen_impl.hpp#L786`
 
@@ -2056,7 +2056,7 @@ An enum-typed field is represented by a single heap pointer slot (two-level conv
 
 ### `layout.enum.nested-payload-is-pointer` — A nested payload-bearing enum is stored by pointer
 
-When an enum variant's payload is itself a payload-bearing enum (e.g. Option<Option<T>>::Some carrying Option<T>), the nested enum lowers to a pointer in the outer payload rather than being inlined as a discriminant scalar.
+When an enum variant's payload is itself a payload-bearing enum (e.g. `Option<Option<T>>`::Some carrying `Option<T>`), the nested enum lowers to a pointer in the outer payload rather than being inlined as a discriminant scalar.
 
 **Uncertainty:** Inferred from the stub-registration comment; the precise inline-vs-pointer threshold lives in register_tagged_enum (another unit).
 
@@ -2064,7 +2064,7 @@ When an enum variant's payload is itself a payload-bearing enum (e.g. Option<Opt
 
 ### `layout.enum.niche-low-bit` — Low-bit niche enum packs tag into the payload word's low bit
 
-A LowBit-niche enum packs a 64-bit word where the low bit distinguishes arms: low bit 0 → pointer arm (the aligned word IS the pointer, ptr_disc), low bit 1 → value arm. The value-arm payload is encoded as (v<<1)|1 and decoded as word>>1 (arithmetic shift if signed, logical otherwise), yielding val_disc. In raw mode (WAny Pod(u64)) both arms read the word verbatim with no decode.
+A LowBit-niche enum packs a 64-bit word where the low bit distinguishes arms: low bit 0 → pointer arm (the aligned word IS the pointer, ptr_disc), low bit 1 → value arm. The value-arm payload is encoded as (v<`<1)|1 and decoded as word>`>1 (arithmetic shift if signed, logical otherwise), yielding val_disc. In raw mode (WAny Pod(u64)) both arms read the word verbatim with no decode.
 
 **Divergence:** Niche layout is a Logos-defined packing not specified by Rust.
 
@@ -2110,15 +2110,15 @@ For a #[zoned2] low-bit niche enum whose value arm is a full 64-bit word (e.g. P
 
 ### `layout.enum.niche-null-pointer` — Null-pointer niche enum has no discriminant word
 
-A null-pointer-niche enum (Option<&T> shape) has no separate discriminant word: the payload (a non-null pointer) occupies offset 0; the `none` variant is encoded as a null pointer at offset 0, and the `some` variant's non-null payload pointer is itself the discriminant. Decoding: null → none_disc, non-null → some_disc.
+A null-pointer-niche enum (`Option<&T>` shape) has no separate discriminant word: the payload (a non-null pointer) occupies offset 0; the `none` variant is encoded as a null pointer at offset 0, and the `some` variant's non-null payload pointer is itself the discriminant. Decoding: null → none_disc, non-null → some_disc.
 
-**Divergence:** Niche layout is an unspecified Rust optimization; here it is observable/normative for Option<&T>-shaped enums.
+**Divergence:** Niche layout is an unspecified Rust optimization; here it is observable/normative for `Option<&T>`-shaped enums.
 
 **Source:** `src/compiler/mlir_gen_expr.cpp#L4920-L4921`; `src/compiler/mlir_gen_expr.cpp#L4932-L4941`; `src/compiler/mlir_gen_expr.cpp#L4977-L4988`
 
-### `layout.enum.niche-nullptr` — Null-pointer niche optimization for Option<&T>-shape enums
+### `layout.enum.niche-nullptr` — Null-pointer niche optimization for `Option<&T>`-shape enums
 
-A two-variant enum where one variant is fieldless and the other holds a single non-null pointer field is laid out with NO separate discriminant: it is just the 8-byte pointer word. Null (0) encodes the fieldless variant (none_disc); any non-null value encodes the pointer variant (some_disc). Hence sizeof(Option<&T>) == sizeof(&T) == 8.
+A two-variant enum where one variant is fieldless and the other holds a single non-null pointer field is laid out with NO separate discriminant: it is just the 8-byte pointer word. Null (0) encodes the fieldless variant (none_disc); any non-null value encodes the pointer variant (some_disc). Hence sizeof(`Option<&T>`) == sizeof(&T) == 8.
 
 **Related:** `layout.enum.niche-lowbit`
 
@@ -2132,7 +2132,7 @@ The null-pointer niche also applies when the single-field variant's field is a `
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L769-L795`
 
-### `layout.enum.niche-nullptr-ref` — Null-pointer niche for Option<&T>-shape
+### `layout.enum.niche-nullptr-ref` — Null-pointer niche for `Option<&T>`-shape
 
 A two-variant enum with one fieldless variant and one single-field variant whose field is `&T`/`&mut T` is pointer-sized (8 bytes, no separate discriminant word): the discriminant is encoded as null vs non-null at offset 0, since references are guaranteed non-null.
 
@@ -2196,7 +2196,7 @@ A non-niche enum is laid out as {i32 discriminant at offset 0, payload at field 
 
 ### `layout.enum.tagged-disc-payload` — Tagged enum layout = {i32 disc, aligned payload}
 
-A tagged (data-carrying) enum has layout = aggregate of a 4-byte/4-align discriminant followed by the payload blob {payload_bytes, payload_align}: the payload starts at round_up(4, payload_align) and total size rounds up to the enum align. The payload is sized from the concrete instantiation so nested generics (e.g. Option<Option<i64>>) carry their full inline footprint.
+A tagged (data-carrying) enum has layout = aggregate of a 4-byte/4-align discriminant followed by the payload blob {payload_bytes, payload_align}: the payload starts at round_up(4, payload_align) and total size rounds up to the enum align. The payload is sized from the concrete instantiation so nested generics (e.g. `Option<Option<i64>>`) carry their full inline footprint.
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L406-L409`; `src/compiler/mlir_gen_types.cpp#L516-L529`
 
@@ -2484,7 +2484,7 @@ A function returning a Struct/ZonedStruct/Enum returns the literal aggregate val
 
 ### `layout.slice.fat-pointer-pair` — Slice/str values are a 16-byte {data,len} fat pair
 
-A slice type (and str = Slice<u8>) has a fat-pointer representation: a 16-byte {data_ptr, len} pair. Functions returning a slice return this pair by value.
+A slice type (and str = `Slice<u8>`) has a fat-pointer representation: a 16-byte {data_ptr, len} pair. Functions returning a slice return this pair by value.
 
 **Source:** `src/compiler/mlir_gen_impl.hpp#L496-L501`; `src/compiler/mlir_gen_impl.hpp#L639-L645`; `src/compiler/mlir_gen_impl.hpp#L784-L785`
 
@@ -2500,7 +2500,7 @@ A slice-typed value (&[T] / &mut [T]) is represented as a fat descriptor { data-
 
 **Source:** `src/compiler/mlir_gen_impl.hpp#L346-L350`
 
-### `layout.slice.owning-box-same-as-borrow` — Box<[T]> shares the borrowed-slice fat layout
+### `layout.slice.owning-box-same-as-borrow` — `Box<[T]>` shares the borrowed-slice fat layout
 
 An owning slice `Box<[T]>` has the same 16-byte {data,len} layout as a borrowed `&[T]` slice, but is move-only and droppable (drops elements and frees the buffer); the owning kind (Borrow/Box/Rc/Arc) is carried distinctly so the four forms intern as distinct types.
 
@@ -2668,7 +2668,7 @@ Each method argument is coerced toward its substituted parameter type in canonic
 
 ### `coerce.array.elementwise` — Arrays compatible iff equal size and compatible elements
 
-Array<T;N> is compatible with Array<U;M> iff N==M and T is compatible with U (recursively).
+`Array<T;N>` is compatible with `Array<U;M>` iff N==M and T is compatible with U (recursively).
 
 **Source:** `src/compiler/sema.cpp#L1942-L1945`
 
@@ -2686,7 +2686,7 @@ A reference or raw pointer to an array, `&[T;N]` / `&mut [T;N]` / `*const [T;N]`
 
 ### `coerce.array.to-pointer-decay` — Array and &array decay to raw pointer / reference without mutability widening
 
-Array<T> coerces to *const/T-pointee Ptr when elem==pointee. A &[T;N]/&mut[T;N] decays to *const/*mut T or &/&mut T over a compatible element type, but a shared (&) source may not decay to a mutable (*mut/&mut) target.
+`Array<T>` coerces to *const/T-pointee Ptr when elem==pointee. A &[T;N]/&mut[T;N] decays to *const/*mut T or &/&mut T over a compatible element type, but a shared (&) source may not decay to a mutable (*mut/&mut) target.
 
 **Source:** `src/compiler/sema.cpp#L1938-L1941`; `src/compiler/sema.cpp#L1999-L2019`
 
@@ -2742,7 +2742,7 @@ let b: bool = (i as bool);  // error
 
 ### `coerce.cast.fat-to-thin-pointer` — Fat pointer to thin/void pointer extracts data half
 
-A fat value cast to a thin pointer extracts field 0 (the data half): (a) `*mut/*const dyn` (Ptr<TraitObject>) → `*mut/*const ()` (void only); (b) any bare dyn/closure VALUE or `&dyn`/`&mut dyn` → void or any non-fat thin pointer; (c) `*const/*mut [T]` (Slice) → any non-fat thin pointer; (d) a non-self-describing DstRef → thin pointer; (e) a fat zone-mut `&mut T` → `*mut/*const T`. Runs before the identity check since both sides are MLIR pointer type.
+A fat value cast to a thin pointer extracts field 0 (the data half): (a) `*mut/*const dyn` (`Ptr<TraitObject>`) → `*mut/*const ()` (void only); (b) any bare dyn/closure VALUE or `&dyn`/`&mut dyn` → void or any non-fat thin pointer; (c) `*const/*mut [T]` (Slice) → any non-fat thin pointer; (d) a non-self-describing DstRef → thin pointer; (e) a fat zone-mut `&mut T` → `*mut/*const T`. Runs before the identity check since both sides are MLIR pointer type.
 
 **Source:** `src/compiler/mlir_gen_expr.cpp#L3493-L3591`
 
@@ -2816,7 +2816,7 @@ let n: &f64 = &1.0; let x = n as i64;
 
 ### `coerce.cast.str-to-mut-ptr-forbidden` — str as *mut u8 is forbidden
 
-Casting a `str` (Slice<u8>) to `*mut u8` is rejected because str data is read-only (rodata); `*const u8` must be used instead.
+Casting a `str` (`Slice<u8>`) to `*mut u8` is rejected because str data is read-only (rodata); `*const u8` must be used instead.
 
 **Source:** `src/compiler/sema_expr.cpp#L957-L967`
 
@@ -2830,7 +2830,7 @@ Casting a `str` (Slice<u8>) to `*mut u8` is rejected because str data is read-on
 
 ### `coerce.cast.u8-slice-to-u8-ptr` — &[u8]/str to *const u8 extracts data field
 
-`E as *const u8`/`*mut u8` where E has type Slice<u8> (str is Slice<u8>) extracts field 0 (the data pointer) of the {ptr,len} fat pair. Evaluated before the identity short-circuit because both the fat-struct alloca and `*const u8` are the same MLIR pointer type.
+`E as *const u8`/`*mut u8` where E has type `Slice<u8>` (str is `Slice<u8>`) extracts field 0 (the data pointer) of the {ptr,len} fat pair. Evaluated before the identity short-circuit because both the fat-struct alloca and `*const u8` are the same MLIR pointer type.
 
 **Source:** `src/compiler/mlir_gen_expr.cpp#L3339-L3351`
 
@@ -2884,21 +2884,21 @@ types_compatible(from,to) is the directed implicit-coercion relation. It holds w
 
 ## coerce / deref
 
-### `coerce.deref.box-slice-borrow` — &Box<[T]> deref-coerces to &[T]
+### `coerce.deref.box-slice-borrow` — &`Box<[T]>` deref-coerces to &[T]
 
 `&b` where `b` is an owning slice (`Box<[T]>`) yields a borrowed `&[T]` view over the same {data,len} storage with no copy or move; mutability is inherited from the owning slice.
 
 **Source:** `src/compiler/sema_expr.cpp#L2516-L2521`
 
-### `coerce.deref.box-struct-borrow` — &Box<Foo> deref-coerces to &Foo
+### `coerce.deref.box-struct-borrow` — &`Box<Foo>` deref-coerces to &Foo
 
 `&b` where `b` is an owning DST reference (`Box<Foo>`) yields a borrowed `&Foo` with the same reference value re-typed non-owning; mutability is inherited.
 
 **Source:** `src/compiler/sema_expr.cpp#L2522-L2532`
 
-### `coerce.deref.ref-vec-to-slice` — &Vec<T> / &mut Vec<T> deref-coerces to slice &[T]
+### `coerce.deref.ref-vec-to-slice` — &`Vec<T>` / &mut `Vec<T>` deref-coerces to slice &[T]
 
-A Ref/MutRef over a stdlib Vec<T> struct coerces to a Slice with element compatible with Vec's first type-arg (Vec's {ptr,len,cap} has the {ptr,len} slice fat-pointer as a prefix).
+A Ref/MutRef over a stdlib `Vec<T>` struct coerces to a Slice with element compatible with Vec's first type-arg (Vec's {ptr,len,cap} has the {ptr,len} slice fat-pointer as a prefix).
 
 **Uncertainty:** Hardcoded to the stdlib Vec struct by name; full Deref trait surface not yet covered.
 
@@ -3214,13 +3214,13 @@ Reference and raw-pointer coercions require compatible pointees: &/&mut to *cons
 
 **Source:** `src/compiler/sema.cpp#L2020-L2061`
 
-### `coerce.ref.unsized-dyn-canonicalizes-to-traitobject` — &UnsizedDyn<Trait> canonicalizes to TraitObject<Trait>
+### `coerce.ref.unsized-dyn-canonicalizes-to-traitobject` — &`UnsizedDyn<Trait>` canonicalizes to `TraitObject<Trait>`
 
 Forming a reference to an unsized-dyn pointee, `&UnsizedDyn<Trait<args...>>`, canonicalizes to the trait-object fat-pointer type `TraitObject<Trait<args...>>`, preserving the trait's type-args. Ensures `&self` and `other: &Self` for an impl-on-dyn mangle identically.
 
 **Source:** `src/compiler/sema_impl.hpp#L243-L246`
 
-### `coerce.ref.unsized-slice-canonicalizes-to-slice` — &UnsizedSlice<T> canonicalizes to Slice<T>
+### `coerce.ref.unsized-slice-canonicalizes-to-slice` — &`UnsizedSlice<T>` canonicalizes to `Slice<T>`
 
 Forming a reference to an unsized-slice pointee, `&UnsizedSlice<T>`, canonicalizes to the fat-pointer slice type `Slice<T>` (= `&[T]`). The reference layer is collapsed into the slice's own fat pointer.
 
@@ -3320,7 +3320,7 @@ A return value whose type can be unsized to the return type (e.g. `Rc<T>` → `R
 
 ### `coerce.slice.exact-scalar-no-mut-widen` — Slice compatibility: no shared to mut widening; concrete scalar elements must match exactly
 
-Slice<T> is compatible with Slice<U> only if it does not widen a shared (&) slice to a mutable (&mut) slice, and: two concrete scalar element types (concrete integer excl. IntLit/Enum, F32/F64/Bool/Char) must be kind-identical (slices alias raw memory at element stride); inference holes use lenient compatibility.
+`Slice<T>` is compatible with `Slice<U>` only if it does not widen a shared (&) slice to a mutable (&mut) slice, and: two concrete scalar element types (concrete integer excl. IntLit/Enum, F32/F64/Bool/Char) must be kind-identical (slices alias raw memory at element stride); inference holes use lenient compatibility.
 
 **Source:** `src/compiler/sema.cpp#L1946-L1968`
 
@@ -3334,7 +3334,7 @@ A shared slice `&[T]` that was formed from `&array_var` may coerce back to a ref
 
 ### `coerce.struct.elementwise-typeargs` — Same-named structs compatible iff type-args pairwise compatible
 
-Two Struct types with equal struct_name and pkg_name and equal type-arg arity are compatible iff every type-arg pair is compatible (allowing inference holes like Vec<_> vs Vec<i32>).
+Two Struct types with equal struct_name and pkg_name and equal type-arg arity are compatible iff every type-arg pair is compatible (allowing inference holes like `Vec<_>` vs `Vec<i32>`).
 
 **Divergence:** logos-core 1.3 (nested)
 
@@ -3368,13 +3368,13 @@ Tuple types are compatible iff they have equal arity and each element pair is co
 
 ### `coerce.unsize.already-fat-passthrough` — Fat-pointer source needs no rebuild
 
-When coercing to `dyn Trait`, if the RHS value is already a fat pointer (its type is `dyn Trait`, or `&/&mut/*` to `dyn Trait`, with Box<dyn> collapsing to the trait object), the existing {data, vtable} handle is used directly rather than rebuilt from the concrete type.
+When coercing to `dyn Trait`, if the RHS value is already a fat pointer (its type is `dyn Trait`, or `&/&mut/*` to `dyn Trait`, with `Box<dyn>` collapsing to the trait object), the existing {data, vtable} handle is used directly rather than rebuilt from the concrete type.
 
 **Related:** `coerce.unsize.box-concrete-to-box-dyn`
 
 **Source:** `src/compiler/mlir_gen_stmt.cpp#L1688-L1709`
 
-### `coerce.unsize.arg-struct-to-dyn-trait` — Implicit unsize coercion of call arguments to &dyn / Box<dyn>
+### `coerce.unsize.arg-struct-to-dyn-trait` — Implicit unsize coercion of call arguments to &dyn / `Box<dyn>`
 
 At a call site, when the callee parameter type is `&dyn Trait`, `&mut dyn Trait`, or `Box<dyn Trait>` and the argument has a concrete (non-trait-object) type, the argument is implicitly unsize-coerced into a fat {data, vtable} trait object. The vtable is selected on the concrete pointee type T: `&T`/`&mut T` peel to T, `Box<T>` peels to T, and a bare struct value is spilled to storage to obtain a data pointer.
 
@@ -3388,7 +3388,7 @@ At a call site, when the callee parameter type is `&dyn Trait`, `&mut dyn Trait`
 
 **Source:** `src/compiler/sema_expr.cpp#L2510-L2514`; `src/compiler/sema_expr.cpp#L2570-L2585`
 
-### `coerce.unsize.box-array-to-box-slice` — Box<[T;N]> unsizes to owning Box<[T]>
+### `coerce.unsize.box-array-to-box-slice` — `Box<[T;N]>` unsizes to owning `Box<[T]>`
 
 `Box<[T;N]>` cast to an owning `Box<[T]>` (Slice with owning_slice) builds a {data,len} fat pair: data = the box's heap pointer (field 0 of the Box struct), len = N (the array's compile-time size). This is CoerceUnsized for `Box::new([..]) as Box<[T]>`.
 
@@ -3396,7 +3396,7 @@ At a call site, when the callee parameter type is `&dyn Trait`, `&mut dyn Trait`
 
 **Source:** `src/compiler/mlir_gen_expr.cpp#L3305-L3337`
 
-### `coerce.unsize.box-concrete-to-box-dyn` — Box<Concrete> unsizes to Box<dyn Trait>
+### `coerce.unsize.box-concrete-to-box-dyn` — `Box<Concrete>` unsizes to `Box<dyn Trait>`
 
 Binding a `Box<Concrete>` value to a `Box<dyn Trait>` (or `&Concrete`/`&dyn`/`*dyn`) target coerces the thin pointer to a fat {data, vtable} pair whose vtable is selected for the concrete type's impl of Trait. An owning `Box<dyn Trait>` is droppable: its drop runs drop_in_place on the data and frees it; a `&dyn`/`&mut dyn` borrow yields a non-owning fat pair; only raw `*const/*mut dyn` retains a separately-allocated 8-byte heap handle.
 
@@ -3418,9 +3418,9 @@ When a value's expected slot type is a trait object but the value's type is not,
 
 **Source:** `src/compiler/mlir_gen_dyn.cpp#L1236-L1271`
 
-### `coerce.unsize.box-dyn-vtable-drops-concrete` — Owning Box<dyn> coercion threads the concrete destructor
+### `coerce.unsize.box-dyn-vtable-drops-concrete` — Owning `Box<dyn>` coercion threads the concrete destructor
 
-When a concrete `Box<T>` argument is unsize-coerced to a `Box<dyn Trait>` parameter, the resulting fat trait-object value carries the vtable of the concrete T, including T's drop-in-place glue, so dropping the Box<dyn> runs T's destructor (not an empty no-op).
+When a concrete `Box<T>` argument is unsize-coerced to a `Box<dyn Trait>` parameter, the resulting fat trait-object value carries the vtable of the concrete T, including T's drop-in-place glue, so dropping the `Box<dyn>` runs T's destructor (not an empty no-op).
 
 **Related:** `coerce.unsize.arg-struct-to-dyn-trait`
 
@@ -3482,7 +3482,7 @@ When the function return type is a trait object `dyn Trait` and the returned val
 
 **Source:** `src/compiler/mlir_gen_stmt.cpp#L2037-L2070`
 
-### `coerce.unsize.smart-ptr-to-box-dyn` — Box/Rc/Arc<T> unsizes to owning dyn fat pair
+### `coerce.unsize.smart-ptr-to-box-dyn` — Box/Rc/`Arc<T>` unsizes to owning dyn fat pair
 
 `Box<T>`/`Rc<T>`/`Arc<T>` (T concrete) cast to a dyn smart pointer builds a value fat pair {data,vtable}: for Box, data = field 0 (the heap pointer); for Rc/Arc, data = field0 + round_up(8, align(T)) (skipping the 2×i32 RcInner strong/weak header). vtable[0..2] = drop/size/align; drop is kind-specific (Box→free; Rc/Arc→dec strong + free RcInner). A dyn-payload smart pointer is already a handle and is not re-wrapped.
 
@@ -3490,7 +3490,7 @@ When the function return type is a trait object `dyn Trait` and the returned val
 
 ### `coerce.unsize.struct-coerce-unsized` — CoerceUnsized for single-field smart-pointer structs
 
-A value of struct type S<..A> coerces to S<..B> (same struct, equal type-arg arity) when S has exactly one field whose substituted type changes from sized/thin to fat-unsized: target field kind is DstRef, or (TraitObject while source isn't), or (Slice while source isn't). The coercion reads the single field, casts it to the target field type, and repacks into the target struct.
+A value of struct type `S<..A>` coerces to `S<..B>` (same struct, equal type-arg arity) when S has exactly one field whose substituted type changes from sized/thin to fat-unsized: target field kind is DstRef, or (TraitObject while source isn't), or (Slice while source isn't). The coercion reads the single field, casts it to the target field type, and repacks into the target struct.
 
 **Examples**
 
@@ -3522,7 +3522,7 @@ A smart-pointer/wrapper struct with a single unsizable field coerces `Wrapper<A>
 
 ### `coerce.unsize.thin-array-ptr-to-slice` — Thin array pointer to slice pointer synthesizes len=N
 
-`*const [T;N]`/`*mut [T;N]` (Ptr<Array>) cast to `*const [T]`/`*mut [T]` (Slice) synthesizes a {ptr, len=N} fat pair on the stack, where N is the array's compile-time size; without this the cast would be a no-op leaving array contents misread as the data field.
+`*const [T;N]`/`*mut [T;N]` (`Ptr<Array>`) cast to `*const [T]`/`*mut [T]` (Slice) synthesizes a {ptr, len=N} fat pair on the stack, where N is the array's compile-time size; without this the cast would be a no-op leaving array contents misread as the data field.
 
 **Related:** `coerce.unsize.box-array-to-box-slice`
 
@@ -3548,13 +3548,13 @@ When `from` is type-compatible with `to`, the coercion is additionally subjected
 
 ### `coerce.writ.mapslice-to-typed-map` — MapSlice as <K,AnyVal>{} builds a typed Writ map
 
-`src as <K,V>{}` (target struct WritMap) is permitted only for V = AnyVal and K in {I32,U32,I64,U64}, with source the matching MapSlice<K> struct; it lowers to a stdlib writ_build_map_<k>_anyval call returning Rc<Writ>. Any other key/value combination, a mismatched source, or a missing builder is an error.
+`src as <K,V>{}` (target struct WritMap) is permitted only for V = AnyVal and K in {I32,U32,I64,U64}, with source the matching `MapSlice<K>` struct; it lowers to a stdlib writ_build_map_<k>_anyval call returning `Rc<Writ>`. Any other key/value combination, a mismatched source, or a missing builder is an error.
 
 **Source:** `src/compiler/sema_expr.cpp#L775-L838`
 
 ### `coerce.writ.slice-to-typed-array` — &[T] as <T>[] builds a typed Writ array
 
-`src as <T>[]` (target struct WritArr) requires `src: &[T]` (a Slice) whose element kind equals the target element kind; element T must be one of i8/u8/i16/u16/i32/u32/i64/u64/f32/f64. It lowers to a stdlib writ_build_array_<T> call returning the builder's Rc<Writ> type; missing builder (no `use logos.lang.writ.typed_arr`) or non-slice source or element mismatch or unsupported element is an error.
+`src as <T>[]` (target struct WritArr) requires `src: &[T]` (a Slice) whose element kind equals the target element kind; element T must be one of i8/u8/i16/u16/i32/u32/i64/u64/f32/f64. It lowers to a stdlib writ_build_array_<T> call returning the builder's `Rc<Writ>` type; missing builder (no `use logos.lang.writ.typed_arr`) or non-slice source or element mismatch or unsupported element is an error.
 
 **Source:** `src/compiler/sema_expr.cpp#L716-L772`
 

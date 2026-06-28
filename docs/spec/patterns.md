@@ -849,7 +849,7 @@ A const pattern whose value is neither int/bool/char nor the supported str/[u8;N
 
 ### `pat.ident.const-str-guard` — str-typed const pattern lowers to a str_eq guard
 
-A const pattern of `str` (Slice<u8>) type against a str scrutinee binds a synthetic name and gates the arm with `str_eq(synth, CONST)`; requires the stdlib `str_eq` to be in scope, else error.
+A const pattern of `str` (`Slice<u8>`) type against a str scrutinee binds a synthetic name and gates the arm with `str_eq(synth, CONST)`; requires the stdlib `str_eq` to be in scope, else error.
 
 **Evidence:** `src/compiler/sema_stmt.cpp#L5159-L5168`, `src/compiler/sema_stmt.cpp#L5214-L5241`
 

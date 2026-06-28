@@ -127,7 +127,7 @@ Source: `src/compiler/mono.cpp#L1014-L1023`
 
 ### `mono.queue.instantiation-depth-limit` — Bounded monomorphization recursion depth
 
-Nominal instantiation tracks a recursion depth; queuing an instance at depth >= max_depth is a hard error ("<kind> instantiation depth limit (N) exceeded for '<cname>'"), bounding infinitely-recursive generic expansion such as Wrap<Wrap<Wrap<...>>>. Each enqueued instance carries depth+1.
+Nominal instantiation tracks a recursion depth; queuing an instance at depth >= max_depth is a hard error ("<kind> instantiation depth limit (N) exceeded for '<cname>'"), bounding infinitely-recursive generic expansion such as Wrap<`Wrap<Wrap<...>>`>. Each enqueued instance carries depth+1.
 
 Source: `src/compiler/mono_impl.hpp#L648-L654`, `src/compiler/mono_impl.hpp#L666-L672`, `src/compiler/mono_impl.hpp#L1099-L1112`
 
@@ -141,7 +141,7 @@ Source: `src/compiler/mono_impl.hpp#L637-L645`, `src/compiler/mono_impl.hpp#L658
 
 ### `mono.gate.assoc-type-defer` — Associated-type projection in pattern defers, never mismatches
 
-A pattern argument containing an associated-type projection (e.g. D::Resources in impl<D: Device> Tr for Foo<D, D::Resources>) cannot be structurally unified against a concrete argument; such a position must DEFER (bind nothing), not report a mismatch — its resolution requires the trait-impl table. Detection recurses through type-args, pointee, element, and tuple elements.
+A pattern argument containing an associated-type projection (e.g. D::Resources in impl<D: Device> Tr for `Foo<D, D::Resources>`) cannot be structurally unified against a concrete argument; such a position must DEFER (bind nothing), not report a mismatch — its resolution requires the trait-impl table. Detection recurses through type-args, pointee, element, and tuple elements.
 
 Source: `src/compiler/mono_impl.hpp#L622-L634`
 
@@ -319,7 +319,7 @@ Source: `src/compiler/mono_clone.cpp#L1068-L1099`
 
 ### `mono.subst.generic-struct-instantiation` — Generic struct/enum type-arg substitution records instantiation
 
-Substituting a Struct/ZonedStruct/Enum recurses into its type-args; the resulting concrete instantiation is recorded as a needed monomorphization. For enums the need is recorded even when no type-arg changed (e.g. a non-generic use of Option<i32>).
+Substituting a Struct/ZonedStruct/Enum recurses into its type-args; the resulting concrete instantiation is recorded as a needed monomorphization. For enums the need is recorded even when no type-arg changed (e.g. a non-generic use of `Option<i32>`).
 
 Source: `src/compiler/mono_subst.cpp#L189-L229`
 
@@ -349,7 +349,7 @@ Source: `src/compiler/mono_clone.cpp#L3299-L3350`, `src/compiler/mono_clone.cpp#
 
 ### `mono.subst.impl-target-unification` — Partial-spec impl target is unified to bind impl params
 
-When an impl block's target is a structured pattern (e.g. impl<T,E> for Foo<Vec<T>,E>), the call's positional type-arguments are unified against the impl-target pattern to bind the impl-level type-parameters by name, rather than bound positionally; method-level type-arguments are then layered positionally after the impl-level prefix.
+When an impl block's target is a structured pattern (e.g. impl<T,E> for `Foo<Vec<T>,E>`), the call's positional type-arguments are unified against the impl-target pattern to bind the impl-level type-parameters by name, rather than bound positionally; method-level type-arguments are then layered positionally after the impl-level prefix.
 
 Source: `src/compiler/mono_scan.cpp#L573-L587`, `src/compiler/mono_scan.cpp#L650-L681`
 
@@ -487,7 +487,7 @@ Source: `src/compiler/mono_subst.cpp#L84-L90`
 
 ### `mono.subst.unsized-slice-to-slice` — ?Sized binding to slice canonicalizes pointer to fat Slice
 
-When a `?Sized` type parameter under a pointer/reference wrapper (&T, &mut T, *const T, *mut T) is bound to an UnsizedSlice<U>, the result is canonicalized to a fat-pointer Slice<U> (the slice fat-pointer ABI).
+When a `?Sized` type parameter under a pointer/reference wrapper (&T, &mut T, *const T, *mut T) is bound to an `UnsizedSlice<U>`, the result is canonicalized to a fat-pointer `Slice<U>` (the slice fat-pointer ABI).
 
 Source: `src/compiler/mono_subst.cpp#L70-L83`
 
@@ -645,7 +645,7 @@ The concrete receiver class name for symbol keying is: the concrete struct name 
 
 Source: `src/compiler/mono_clone.cpp#L3571-L3610`, `src/compiler/mono_clone.cpp#L3579-L3589`
 
-### `mono.mangle.concrete-struct-name` — Concrete struct mangled name = base[+module-suffix][+$G<arity>$args]
+### `mono.mangle.concrete-struct-name` — Concrete struct mangled name = base[+module-suffix][+$`G<arity>`$args]
 
 A Struct/ZonedStruct's mangled name is its struct_name, plus the owning-package module suffix, plus (when type_args non-empty) '$G' + arity + '$'-joined recursively mangled args. Type-arg-less structs mangle to base+suffix.
 
@@ -653,13 +653,13 @@ Source: `src/compiler/sema.cpp#L1417-L1444`
 
 ### `mono.mangle.const-arg-value` — Const-generic argument mangled by value
 
-A const-generic argument (IntLit or ConstVar with a bound const value v) mangles as 'cN_<v>', with negatives as 'cN_n<|v|>', so distinct values yield distinct symbol names. A const-var without a bound value falls back to its type string.
+A const-generic argument (IntLit or ConstVar with a bound const value v) mangles as 'c`N_<v>`', with negatives as 'c`N_n<|v|>`', so distinct values yield distinct symbol names. A const-var without a bound value falls back to its type string.
 
 Source: `src/compiler/mono_impl.hpp#L729-L739`
 
 ### `mono.mangle.enum-type-args-recursive` — Generic enum mangle includes inner type-args
 
-A generic enum mangles as '<enum-name><module-suffix>' with each type-arg appended as '__<mangled-arg>', so nested instances (Option<Option<i32>>) get distinct symbols and payload-layout lookup agrees with the instantiation queue. If any type-arg contains a TypeVar at any depth, mangling falls back to the bare name+module-suffix (no '__' args), avoiding leaking 'T' into a spec name.
+A generic enum mangles as '<enum-name><module-suffix>' with each type-arg appended as '__<mangled-arg>', so nested instances (`Option<Option<i32>>`) get distinct symbols and payload-layout lookup agrees with the instantiation queue. If any type-arg contains a TypeVar at any depth, mangling falls back to the bare name+module-suffix (no '__' args), avoiding leaking 'T' into a spec name.
 
 Source: `src/compiler/mono_impl.hpp#L704-L728`
 
@@ -687,9 +687,9 @@ A monomorphic symbol name is formed from a base name with each type argument app
 
 Source: `src/compiler/mono_impl.hpp#L757-L765`
 
-### `mono.mangle.owning-vs-borrowed-dyn` — Owning Box<dyn T> mangles distinctly from borrowed &dyn T
+### `mono.mangle.owning-vs-borrowed-dyn` — Owning `Box<dyn T>` mangles distinctly from borrowed &dyn T
 
-An OWNING trait object (Box<dyn T>) mangles to 'owndyn_<trait-name>' followed by a per-type-arg suffix (one suffix per type argument), while a borrowed &dyn T keeps the plain type-string mangling. This keeps generic specs such as Vec<Box<dyn T>> and Vec<&dyn T> DISTINCT, so the owning bit is not collapsed onto the borrow form (which would skip element drop and leak).
+An OWNING trait object (`Box<dyn T>`) mangles to 'owndyn_<trait-name>' followed by a per-type-arg suffix (one suffix per type argument), while a borrowed &dyn T keeps the plain type-string mangling. This keeps generic specs such as `Vec<Box<dyn T>>` and `Vec<&dyn T>` DISTINCT, so the owning bit is not collapsed onto the borrow form (which would skip element drop and leak).
 
 **Divergence.** Internal mangling distinction with no Rust analog; reflects owning-dyn vs borrowed-dyn repr split.
 
@@ -731,7 +731,7 @@ Source: `src/compiler/mono_impl.hpp#L106-L116`
 
 ### `mono.uid.module-fingerprint-tags` — Runtime type UID includes per-module fingerprint tags
 
-The canonical type-identity string for runtime UID hashing (type_id::<T>(), Any/downcast/quote_ty) is the type-string PLUS a '|<name>$M<module_id>' tag for EVERY non-stdlib nominal node anywhere in the type tree (recursing through pointee/elem/type-args/tuple-elems/closure params+ret), so two modules' same-named pkg::Type (incl. nested, e.g. Box<pkg::Widget>) hash to DISTINCT UIDs. stdlib (logos.*) and no-module compiles contribute no tags, yielding a string byte-identical to the plain type-string (UIDs unchanged).
+The canonical type-identity string for runtime UID hashing (type_id::<T>(), Any/downcast/quote_ty) is the type-string PLUS a '|<name>$`M<module_id>`' tag for EVERY non-stdlib nominal node anywhere in the type tree (recursing through pointee/elem/type-args/tuple-elems/closure params+ret), so two modules' same-named pkg::Type (incl. nested, e.g. `Box<pkg::Widget>`) hash to DISTINCT UIDs. stdlib (logos.*) and no-module compiles contribute no tags, yielding a string byte-identical to the plain type-string (UIDs unchanged).
 
 **Divergence.** A9 — Logos coexistence of same-named types across modules; no Rust crate-disjointness analog.
 
@@ -765,7 +765,7 @@ Source: `src/compiler/mono_impl.hpp#L243-L268`, `src/compiler/mono_impl.hpp#L249
 
 ### `mono.select.type-specificity-score` — Specialization specificity ranking
 
-Among overlapping partial specializations, candidates are ranked by per-position specificity: a TypeVar (or null) scores 0; Ptr/Array score 1 + specificity(pointee/elem); any other concrete type scores 100. Selection uses both the summed score and the per-position specificity vector (lexicographic) so specs equal by sum but differing positionally (Map<Bitmap,V> vs Map<K,AnyVal>) are disambiguated.
+Among overlapping partial specializations, candidates are ranked by per-position specificity: a TypeVar (or null) scores 0; Ptr/Array score 1 + specificity(pointee/elem); any other concrete type scores 100. Selection uses both the summed score and the per-position specificity vector (lexicographic) so specs equal by sum but differing positionally (`Map<Bitmap,V>` vs `Map<K,AnyVal>`) are disambiguated.
 
 Source: `src/compiler/mono_impl.hpp#L1029-L1050`
 
@@ -781,13 +781,13 @@ Source: `src/compiler/mono_impl.hpp#L907-L938`
 
 ### `mono.unify.collect-pattern-typevars-first-order` — Impl-target free type-vars recovered in first-appearance order
 
-The free TypeVar/ConstVar names of an impl-target pattern are collected in first-appearance (deduplicated) order, mirroring the unify traversal (pointee, element, type-args, tuple-elems). This recovers impl-level type-param names (e.g. T in impl<T> Pin<&T>) for binding a call's type-args when the method's own type-param list is empty.
+The free TypeVar/ConstVar names of an impl-target pattern are collected in first-appearance (deduplicated) order, mirroring the unify traversal (pointee, element, type-args, tuple-elems). This recovers impl-level type-param names (e.g. T in impl<T> `Pin<&T>`) for binding a call's type-args when the method's own type-param list is empty.
 
 Source: `src/compiler/mono_impl.hpp#L1009-L1027`
 
 ### `mono.unify.deep-impl-target` — Deep unification of impl-target pattern against concrete receiver
 
-Deep unification binds impl-level type-params from a partial-spec impl target (e.g. Result<Vec<T>, E>) against a concrete receiver (Result<Vec<i32>, i32>): TypeVar/ConstVar bind by name (re-binding requires type-equality); kinds must match; Ptr requires equal mutability; Array requires equal size; Struct/ZonedStruct and Enum require equal name and equal arity then unify type-args positionally; Tuple unifies elements positionally; Slice unifies element. Returns false on structural mismatch or conflicting bindings; succeeds with partial binding when the concrete side itself carries TypeVars.
+Deep unification binds impl-level type-params from a partial-spec impl target (e.g. `Result<Vec<T>, E>`) against a concrete receiver (`Result<Vec<i32>, i32>`): TypeVar/ConstVar bind by name (re-binding requires type-equality); kinds must match; Ptr requires equal mutability; Array requires equal size; Struct/ZonedStruct and Enum require equal name and equal arity then unify type-args positionally; Tuple unifies elements positionally; Slice unifies element. Returns false on structural mismatch or conflicting bindings; succeeds with partial binding when the concrete side itself carries TypeVars.
 
 Source: `src/compiler/mono_impl.hpp#L949-L1007`
 
@@ -847,7 +847,7 @@ Related: `mono.subst.variadic-pack-absorb`
 
 ### `mono.layout.partial-spec-preferred` — Layout resolution prefers the best-matching partial specialization
 
-When resolving the field layout of a struct instance S<A...>, the best-matching partial specialization (e.g. WMap<WString,V> over base WMap<K,V>) is selected and its pattern type-vars bound by matching the concrete type-args against the spec patterns; only if no spec matches is the base template used with positional type-param binding.
+When resolving the field layout of a struct instance `S<A...>`, the best-matching partial specialization (e.g. `WMap<WString,V>` over base `WMap<K,V>`) is selected and its pattern type-vars bound by matching the concrete type-args against the spec patterns; only if no spec matches is the base template used with positional type-param binding.
 
 Source: `src/compiler/mono_clone.cpp#L327-L346`
 
@@ -1225,13 +1225,13 @@ Source: `src/compiler/mono_impl.hpp#L312-L326`
 
 ### `mono.dyn.coerce-instantiates-blanket-impl` — Concrete-to-dyn coercion instantiates the blanket impl for the source type
 
-An unsize coercion of a concrete value to a trait object (&X as &dyn Trait, box X as Box<dyn Trait>) makes the trait's blanket implementation for the concrete source type reachable; the instance is keyed by the trait name and the concrete Self type so the instance name matches the vtable key.
+An unsize coercion of a concrete value to a trait object (&X as &dyn Trait, box X as `Box<dyn Trait>`) makes the trait's blanket implementation for the concrete source type reachable; the instance is keyed by the trait name and the concrete Self type so the instance name matches the vtable key.
 
 Source: `src/compiler/mono_scan.cpp#L242-L280`
 
 ### `mono.dyn.self-derivation-ref-vs-box` — Self type for dyn coercion: pointee for ref/ptr, one Box-unwrap for box value
 
-For a coercion to a trait object the Self type is derived as: for a reference/pointer source, the pointee (no Box unwrapping, so &Box<T> as &dyn keys on Box<T>); for a Box-value source (box X), the boxed type by unwrapping exactly one Box.
+For a coercion to a trait object the Self type is derived as: for a reference/pointer source, the pointee (no Box unwrapping, so &`Box<T>` as &dyn keys on `Box<T>`); for a Box-value source (box X), the boxed type by unwrapping exactly one Box.
 
 Source: `src/compiler/mono_scan.cpp#L249-L264`
 
@@ -1552,7 +1552,7 @@ Source: `src/compiler/ctfe.cpp#L68-L81`
 
 ### `const.lit.str-as-slice` — String literal CTFE representation
 
-A string literal evaluates with kind Slice (a stand-in for str / Slice<u8>); the literal's actual &str/Slice<u8> typeref is validated separately by the caller.
+A string literal evaluates with kind Slice (a stand-in for str / `Slice<u8>`); the literal's actual &str/`Slice<u8>` typeref is validated separately by the caller.
 
 **Uncertainty.** Slice kind is a CTFE-internal stand-in; the actual surface type check happens outside this unit.
 
@@ -1720,7 +1720,7 @@ Source: `src/compiler/ctfe.hpp#L9-L14`, `src/compiler/ctfe.hpp#L64-L69`
 
 ### `const.ctfe.value-kinds` — CTFE value kinds
 
-A compile-time value carries a primitive type tag and is restricted to scalar numeric, Bool, unsuffixed IntLit/FloatLit, or Slice<u8> (string literal) kinds; the static type tag is derived from the literal's suffix (unsuffixed ⇒ IntLit/FloatLit) and from operator type rules, independent of the type-inference pool.
+A compile-time value carries a primitive type tag and is restricted to scalar numeric, Bool, unsuffixed IntLit/FloatLit, or `Slice<u8>` (string literal) kinds; the static type tag is derived from the literal's suffix (unsuffixed ⇒ IntLit/FloatLit) and from operator type rules, independent of the type-inference pool.
 
 Source: `src/compiler/ctfe.hpp#L5-L7`, `src/compiler/ctfe.hpp#L34-L45`
 
