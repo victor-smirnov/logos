@@ -19,53 +19,30 @@ Forms:
 - **`let name: T = expr;`** — explicit type, rhs widens / coerces to T.
 - **`let mut name ...`** — binding is rebindable / interior-mutable through `&mut`.
 - **`let (a, b, ...) = expr;`** — tuple destructure (`LET_DESTRUCT`).
+- **`let name: T;`** (or `let mut name: T;`) — declare without an initializer; the binding is uninitialized and must be assigned before use. A non-`mut` such binding may be assigned exactly once (deferred init); `mut` allows repeated assignment. `let name;` with neither type nor initializer is an error.
+- **`let ref y = expr;`** — sugar for `let y = &expr;`; `y` has type `&T`.
 - **`let pat = expr else { ... }`** — refutable bind with diverging else (`LET_ELSE`). The else block must diverge (`return`, `break`, `panic`, `loop`).
 
 A bare `let pat = expr;` with a refutable pattern is rejected — use `if let` or `let ... else`.
 
 ## Assignment
 
-Logos has 12 distinct LHS shapes, each with a plain (`=`) and a compound (`+= -= *= /= %= &= |= ^= <<= >>=`) form. The grammar distinguishes them as separate productions because each requires its own borrow-check + emit path.
+Logos parses assignment via **five** productions in [logos.peg](../../../tools/peg_gen/grammars/logos.peg), tried in this order:
 
-### LHS shapes (grammar productions)
+- **`deref_write_stmt`** — `*p = expr;` and `*p op= expr;` (a bare deref is handled here, since `*p` is not an `atom`).
+- **`destructure_assign_stmt`** — `(a, b) = expr;` destructuring assignment into existing places.
+- **`assign_stmt`** — bare `name = expr;`.
+- **`compound_assign_stmt`** — `<place> op= expr;` for any place; a bare variable takes the simple-var path, any other place desugars to `place = place op rhs`.
+- **`place_assign_stmt`** — `<place> = expr;` for any postfix-chain lvalue: `s.field`, `a.b.c`, `x.0`, `arr[i]`, `s.field[i]`, `(*p).field`, `(*p).0`, and deeper mixes. Sema computes the address and emits the write.
 
-| # | Production | Plain `=` example | Compound `+=` example |
-|---|---|---|---|
-| 1 | `assign_stmt` | `x = expr;` | (handled by `compound_assign_stmt`) |
-| 2 | `compound_assign_stmt` | — | `x += expr;` (bare ident only) |
-| 3 | `field_write_stmt` | `s.field = expr;` | — |
-| 4 | `field_compound_assign_stmt` | — | `s.field += expr;` |
-| 5 | `chain_field_write_stmt` | `a.b.c = expr;` | — |
-| 6 | `chain_field_compound_assign_stmt` | — | `a.b.c += expr;` |
-| 7 | `tuple_field_write_stmt` | `x.0 = expr;` | — |
-| 8 | `tuple_field_compound_assign_stmt` | — | `x.0 += expr;` |
-| 9 | `index_write_stmt` | `arr[i] = expr;` | — |
-| 10 | `index_compound_assign_stmt` | — | `arr[i] += expr;` |
-| 11 | `field_index_write_stmt` | `s.field[i] = expr;` | — |
-| 12 | `field_index_compound_assign_stmt` | — | `s.field[i] += expr;` |
-| 13 | `deref_write_stmt` | `*p = expr;` | — |
-| 14 | `deref_field_write_stmt` | `(*p).field = expr;` | — |
-| 15 | `deref_field_compound_assign_stmt` | — | `(*p).field += expr;` |
-
-The grammar productions live in [logos.peg](../../../tools/peg_gen/grammars/logos.peg) under `assign_stmt`, `compound_assign_op`, `compound_assign_stmt`, etc. The `compound_assign_op` production is shared:
+A single general *place* grammar (`atom`) covers field, tuple-field, index, deref-field, and arbitrarily deep chains — there are no per-shape productions. The compound operators are shared:
 
 ```peg
-compound_assign_op <- PLUSEQ / MINUSEQ / STAREQ / SLASHEQ / PERCENTEQ
-                    / AMPEQ / PIPEEQ / CARETEQ / SHLEQ / SHREQ
+compound_assign_op <- PLUS_EQ / MINUS_EQ / STAR_EQ / SLASH_EQ / PERCENT_EQ
+                    / AMP_EQ / PIPE_EQ / CARET_EQ / SHL_EQ / SHR_EQ
 ```
 
-Semantics: `lhs op= rhs` desugars to `lhs = lhs op rhs` with the lhs evaluated **once** for the read AND the write. Sema produces a single LIR statement (e.g. `SCompoundAssign`) rather than separate read/write for compounds.
-
-### Coverage gaps and known asymmetries
-
-Some LHS shapes have plain-write but no compound-write (or vice-versa) wired up. The compound permutations are an active source of bugs (the catalog in `docs/baghunt/statements.md` will enumerate). Concretely:
-
-- **Chain depth limit**: `chain_field_path` parses arbitrary depth, but lowering / borrow-check stop after 2 hops in older paths. Deep chains (`a.b.c.d.e = ...`) may parse but mis-lower in some receivers.
-- **Deref chain**: `(*p).field` is supported; `(**p).field` (double-deref before field) is not parsed as a write LHS.
-- **Index of method-call result**: `obj.method()[i] = expr;` does not parse; you must bind the result first.
-- **Compound on tuple-field of deref**: `(*p).0 += 1;` is not parsed. The grammar's tuple-compound-assign requires a bare ident receiver.
-
-Compound forms are wired up symmetrically with their plain counterparts where they exist, but the symmetry should be verified group-by-group during bug-hunt.
+Semantics: `lhs op= rhs` evaluates the lhs **once** for both the read and the write; sema produces a single LIR statement for compounds rather than separate read/write.
 
 ### Operator semantics
 

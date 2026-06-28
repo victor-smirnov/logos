@@ -15,12 +15,15 @@ Highest to lowest binding:
 | Cast | `x as T` | left | chains: `x as i64 as i24` |
 | Multiplicative | `*` `/` `%` | left | |
 | Additive | `+` `-` | left | |
-| Bitwise / shift | `<<` `>>` `&` `^` `\|` | left | one level — parenthesise when mixing |
+| Shift | `<<` `>>` | left | |
+| Bitwise AND | `&` | left | |
+| Bitwise XOR | `^` | left | |
+| Bitwise OR | `\|` | left | |
 | Comparison | `==` `!=` `<` `<=` `>` `>=` | non-chainable | at most one per level |
 | Logical | `&&` `\|\|` | left | one level — parenthesise when mixing |
 | Assignment | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | — | statement-level only |
 
-Bitwise and logical operators sit on a single non-associative level each: `a & b | c` parses left-to-right but readers should parenthesise. Comparisons cannot chain — `a < b < c` is rejected at parse time.
+Bitwise operators have four distinct precedence levels (tightest to loosest: `<<`/`>>`, then `&`, then `^`, then `|`), matching Rust — so `a & b | c` parses as `(a & b) | c`. The logical operators `&&` and `||`, by contrast, share **one** level (a divergence from Rust, where `&&` binds tighter than `||`) — so parenthesise when mixing them. Comparisons cannot chain: `a < b < c` parses but is rejected during semantic analysis (use `a < b && b < c`).
 
 ## Atoms and Postfix Chains
 
@@ -121,7 +124,7 @@ A single-element tuple needs the trailing comma; otherwise `(x)` is a parenthesi
 [v; sizeof...(P)]     // pack-sized fill (variadic length, see Generics)
 ```
 
-The fill form `[v; N]` requires `N` to be an integer literal or a `sizeof...(P)` form. Const generic parameters as the size are accepted via the same paths.
+The fill form `[v; N]` accepts `N` as an integer literal, a named const, a const-generic parameter, a `sizeof...(P)` form, or a `metacall { … }` block whose tail integer is evaluated at compile time (`[v; metacall { compute() }]` — Logos's replacement for Rust const-expression lengths).
 
 ### Enum literals
 
@@ -140,7 +143,7 @@ Maybe::<i32>::None            // (turbofish via call_expr) — see Generics
 { x: x for x in xs if x > 0 }
 ```
 
-List and map comprehensions desugar to `for`-loop accumulators. The binder is a single `IDENT` and the iterand must be an array or slice (not `Vec` — iterate `&v[..]`). They are eager; lazy iterators come from explicit `Iterator` chains.
+List and map comprehensions desugar to `for`-loop accumulators. The binder is a single `IDENT` and the iterand must be an array or slice (not `Vec` — iterate `&v[..]`). They are eager; lazy iterators come from explicit `Iterator` chains. A list comprehension requires `Vec` + `vec_new` in scope (`use logos.mem.collections.vec;`) and a map comprehension requires `HashMap` + `hashmap_new` (`use logos.mem.collections.hashmap;`); without the import the comprehension is ill-formed.
 
 ### Writ literals
 
@@ -166,7 +169,7 @@ List and map comprehensions desugar to `for`-loop accumulators. The binder is a 
 move |x| x + offset                // move-capture
 ```
 
-Without `move`, captures are by reference (subject to borrow-check). `move` forces by-value capture. See [Types → Function and Closure Types](types.md#function-and-closure-types).
+Capture mode is inferred per variable: a variable the closure only *reads* is captured by value (copied into the environment); a variable the body *mutates* (assign / field-write / index-write / deref-write) is captured by reference so the write propagates. `move` forces all captures by value. See [Types → Function and Closure Types](types.md#function-and-closure-types).
 
 ### Control-flow as expression
 
@@ -241,6 +244,5 @@ See [Statements → Assignment](statements.md#assignment).
 
 ## Roadmap
 
-- **Range expressions** — `a..b`, `a..=b` parse but are only wired through limited contexts (slicing planned).
 - **Method-call generic args** — `xs.iter::<T>()` is reserved syntax; deduction usually suffices today.
 - **Block-expression value capture** — `let x = { ... };` works for tail-expression but bare statement blocks have edge cases around early-return.

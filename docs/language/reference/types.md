@@ -35,7 +35,7 @@ There is no separate `byte` type — single bytes are `u8`. Byte-string literals
 
 ### Implicit Widening
 
-Smaller integer types implicitly widen to larger ones at expression positions when the conversion is information-preserving (`u8 → u32`, `i32 → i64`, etc.). Cross-sign conversions and narrowing always require an explicit `as` cast. Unsuffixed integer literals (`IntLit`) take their type from context with no `as` needed: `let x: i64 = 42;`.
+Smaller integer types implicitly widen to larger ones at expression positions when the conversion is value-preserving — same-sign widening (`u8 → u32`, `i32 → i64`), and also **unsigned → signed of a strictly wider type** (`u8 → i32`, `u32 → i64`). Signed → unsigned conversions and any narrowing always require an explicit `as` cast; `usize`/`isize` never implicitly convert to or from fixed-width integers. Unsuffixed integer literals (`IntLit`) take their type from context with no `as` needed: `let x: i64 = 42;`.
 
 ## References
 
@@ -75,8 +75,9 @@ Use raw pointers at FFI boundaries, in `unsafe` blocks, and inside types impleme
 - An integer literal: `[u8; 16]`.
 - An `IDENT` previously bound by `<const N: ...>`: `[T; N]`.
 - The pack-size form `sizeof...(P)` — the compiler keeps the size symbolic at sema time and substitutes the pack's length during monomorphisation.
+- A `metacall { … }` block whose tail integer is evaluated at compile time: `[u8; metacall { N * 2 }]` (Logos's explicit-metacall replacement for Rust const-expression lengths).
 
-Arrays are value types — they live where they're declared (stack, struct field, etc.) and are copied by value when small. Element access is `arr[i]` (bounds checked at runtime in safe code). Slice from an array via `&arr` (whole) or `&arr[..]` (planned, see [Roadmap](#roadmap)).
+Arrays are value types — they live where they're declared (stack, struct field, etc.) and are copied by value when small. Element access is `arr[i]` (bounds checked at runtime in safe code). Slice from an array via `&arr` (whole) or by range-indexing — `arr[..]`, `arr[a..b]`, `&arr[..]` all yield a `&[T]` (via `slice_get_range`).
 
 ## Tuples
 
@@ -170,6 +171,5 @@ Inside a generic context, several forms appear that are *not* concrete types but
 
 ## Roadmap
 
-- **Mixed packs** — combining `<T...>` and `<const N...: U>` in one signature. Currently rejected by `mono_scan`. See [Generics & Traits → Roadmap](generics-traits.md#roadmap).
-- **Slice-from-array `&arr[..]`** — currently a grammar gap; whole-array borrow `&arr` works.
+- **Mixed packs** — combining `<T...>` and `<const N...: U>` in one signature. See [Generics & Traits → Roadmap](generics-traits.md#roadmap).
 - **Higher-kinded polymorphism** — generic over `GenericType` without explicit arity. Out of scope.

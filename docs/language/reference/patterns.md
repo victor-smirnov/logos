@@ -26,7 +26,9 @@ true   false
 "hello"
 'a'              // char literal
 'a'..='z'        // char range
-0..=9            // inclusive range (exclusive `..` not yet a pattern form)
+0..=9            // inclusive range
+0..9             // exclusive range
+..0    10..      // half-open ranges (also `..=b`)
 -5..=-1          // negative range bounds
 ```
 
@@ -49,7 +51,7 @@ The `&` here is part of the pattern syntax, not the borrow operator. Reference p
 (x, y,)             // trailing comma OK
 ```
 
-Tuples patterns must include at least two elements (single-element form `(x,)` is parsed as a tuple expression at the literal level, but here `(x,)` is rejected by `pat_single` — use `x` directly).
+Tuple patterns of two or more elements are `(a, b)`. A single-element tuple pattern is written `(x,)` — the trailing comma distinguishes it from a grouped pattern `(x)`.
 
 ## Struct Patterns
 
@@ -57,7 +59,7 @@ Tuples patterns must include at least two elements (single-element form `(x,)` i
 Point { x, y }                    // field shorthand
 Point { x: a, y: b }              // rename
 Point { x, .. }                   // `..` to ignore the rest
-Pair {}                           // empty struct or "match anything"
+Pair {}                           // matches a *fieldless* struct (a struct with fields needs every field, or `..`)
 ```
 
 Field shorthand (`x` alone) binds the field's value to a same-named local. Use `..` (`PAT_REST`) to ignore unnamed fields.
@@ -71,7 +73,7 @@ Pair::Both(a, b)                   // multiple payloads
 Maybe::Some(_)                     // ignore payload
 ```
 
-Variant patterns must use the qualified `Type::Variant` form. Bare `Some(x)` (without the enum name) is not accepted.
+Variant patterns are normally written `Type::Variant`. The bare form (no enum name) is accepted for the prelude variants `Some` / `None` / `Ok` / `Err`, and for variants brought into scope via `use Type.{V, ..}`; otherwise the qualified form is required.
 
 ## Slice / Array Patterns
 
@@ -81,9 +83,10 @@ Variant patterns must use the qualified `Type::Variant` form. Bare `Some(x)` (wi
 [head, ..]               // length ≥ 1
 [first, .., last]        // first and last, anything between
 [.., last]
+[head, rest @ ..]        // bind the trailing sub-slice (typed `&[T]`)
 ```
 
-Slice patterns work on arrays and `&[T]` slices. The `..` rest binding is positional only — there is no `name @ ..` to capture the middle.
+Slice patterns work on arrays and `&[T]` slices. The rest `..` may be named: `name @ ..` binds the skipped sub-slice (typed `&[T]`); a bare `..` is anonymous.
 
 ## Or-Patterns
 
@@ -109,7 +112,7 @@ All branches of an `|` must bind the same set of names with the same types. Or-p
 @<I32, AnyVal>{..}          // typed map — any-content match
 ```
 
-Writ patterns destructure `@{...}` / `@[...]` SDN values. Inner values inside a `@`-pattern don't repeat the `@`. See [Writ](writ.md) for the wire types these match against.
+Writ patterns destructure `@{...}` / `@[...]` SDN values. Inner values inside a `@`-pattern don't repeat the `@`. They require `use logos.lang.writ.pat;` and a Writ-view scrutinee (a `Writ` / `WritView` / `WritStatic`, or a borrow of one), and are valid **only in `match` arms** — not in `if let` / `while let` / `let`. See [Writ](writ.md) for the wire types these match against.
 
 ## `@` Bindings
 
@@ -145,7 +148,5 @@ The guard runs after the pattern matches; if it returns false, matching falls th
 
 ## Roadmap
 
-- **Exclusive range patterns** — `0..n` not yet a pattern form (only `..=`).
 - **Box / Rc / smart-pointer patterns** — currently require manual `match (*p) { ... }`.
-- **`name @ ..`** in slice rest — not yet supported.
 - **Pattern types in function parameters** — `fn f((a, b): (i32, i32))` parses but tuple-destructure-in-params is fragile under generics.

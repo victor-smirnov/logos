@@ -6,7 +6,7 @@ Logos generics are *monomorphic*: every concrete instantiation is emitted as its
 - **Lifetime parameters**: `<'a>`, `<'a, T>`.
 - **Const parameters**: `<const N: usize>`, `<const N...: T>` (variadic scalar pack).
 
-The grammar entry is `type_param_list` ([logos.peg:1547](../../../tools/peg_gen/grammars/logos.peg#L1547)).
+The grammar entry is `type_param_list` ([logos.peg:3074](../../../tools/peg_gen/grammars/logos.peg#L3074)).
 
 ## Capability baseline — roughly C++20
 
@@ -112,7 +112,7 @@ let p = Pair::<i32, &[u8]> { fst: 1, snd: b"" };
 parse::<u32>("42")
 ```
 
-The turbofish `::<T, U>` is required at *call sites* and *enum-variant construction* — Logos does not yet do type-argument deduction across function arguments.
+Type arguments are inferred from the actual argument types (and from a return-type / `let`-annotation hint) at call sites and enum-variant construction. The turbofish `::<T, U>` is only needed when inference cannot determine all parameters; partial turbofish with `_` placeholders is allowed, the remaining positions inferred.
 
 In *type positions*, `<T, U>` follows the type name without the `::`:
 
@@ -132,7 +132,7 @@ trait Iterator {
     fn next(&mut self) -> Option<Self::Item>;
 }
 
-trait Add<Rhs = Self> {                 // (default type-param syntax planned, see Roadmap)
+trait Add<Rhs = Self> {                 // default type parameter — substituted when omitted
     type Output;
     fn add(self, rhs: Rhs) -> Self::Output;
 }
@@ -201,7 +201,7 @@ The compiler picks the most specific impl that applies. Conflicts (two equally-s
 impl<T: Display> Show for T { ... }   // blanket impl for any Display
 ```
 
-The orphan rule allows a blanket impl only when either the trait or the type's defining package is the same as the impl's package — this prevents two packages from independently implementing the same `(trait, type)` pair.
+Coherence forbids two non-generic impls of the same trait (with identical trait type-arguments) for the same target type. Generic and blanket impls are exempt from that check; when two distinct blanket impls both apply to a receiver, the conflict surfaces as an ambiguity error at the *call site*, not at definition. Logos does not currently enforce a package-based orphan rule.
 
 ## Trait Objects
 
@@ -229,8 +229,6 @@ fn merge<K, V>(a: HashMap<K, V>, b: HashMap<K, V>) -> HashMap<K, V>
 
 ## Roadmap
 
-- **Type-argument deduction at call sites** — turbofish currently mandatory; deduction across function arguments planned.
 - **Higher-kinded polymorphism** — `Container<F>` where `F` is itself a generic constructor — out of scope.
-- **Default type parameters** — `trait Add<Rhs = Self>` parses as a special case in stdlib but is not a general feature yet.
 - **GATs (generic associated types)** — partially supported (`type Item<U>;`); some bound forms still rough.
-- **Mixed packs** — combining `<T...>` and `<const N...: U>` in the same signature is rejected by `mono_scan` ([memory: feat_const_variadic_mvp](../../README.md)).
+- **Mixed packs** — combining `<T...>` and `<const N...: U>` in the same signature is rejected (only one trailing variadic parameter is allowed: "variadic parameter must be last").

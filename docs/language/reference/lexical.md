@@ -54,9 +54,9 @@ Reserved identifiers. Keywords with currently no grammar role are still reserved
 | `true` | `false` | `null` | `as` |
 | `where` | `dyn` | `unsafe` | `move` |
 | `ref` | `new` | `tagged` | `auto` |
-| `typeof` | `meta` | `metacall` | `template` |
+| `typeof` | `union` | `metacall` | `template` |
 | `quote_item` | `quote_expr` | `quote_ty` | `eidos` |
-| `genos` | | | |
+| `genos` | `instantiate` | `offset_of` | |
 
 | Reserved (no grammar role yet) |
 |---|

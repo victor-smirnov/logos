@@ -1,6 +1,6 @@
 # Ownership, Borrowing, and Lifetimes
 
-Logos uses a Rust-style ownership model: every value has a single *owner*, ownership transfers on assignment / argument-passing of non-`Copy` types, and references (`&T`, `&mut T`) are checked at compile time for exclusivity and lifetime validity. The borrow checker is implemented in `src/compiler/borrow_*.cpp` and runs after sema, before LIR lowering. See [memory: project_borrow_checker](../../README.md) for status.
+Logos uses a Rust-style ownership model: every value has a single *owner*, ownership transfers on assignment / argument-passing of non-`Copy` types, and references (`&T`, `&mut T`) are checked at compile time for exclusivity and lifetime validity. The borrow checker is implemented in `src/compiler/borrow_check.cpp` and `src/compiler/region_infer.cpp` (region/NLL inference), running after sema, before LIR lowering. See [memory: project_borrow_checker](../../README.md) for status.
 
 ## Move vs Copy
 
@@ -11,7 +11,7 @@ let n: i32 = 42;
 let m = n;            // i32 is Copy — `n` still usable
 ```
 
-A type is `Copy` if it consists only of `Copy` primitives (integer/float/bool/raw pointer) and `Copy` aggregates. References (`&T` / `&mut T`) are `Copy` (a borrow can be re-borrowed). User types are not `Copy` by default — opt in via `#[derive_copy]` (Logos uses one `#[derive_<trait>]` annotation per derived trait, not `#[derive(...)]`).
+A type is `Copy` if it consists only of `Copy` primitives (integer/float/bool/raw pointer) and `Copy` aggregates. A shared reference `&T` is `Copy`; a `&mut T` is **not** `Copy` — it *moves* on use (reborrowed at call/coercion sites, never duplicated). User types are not `Copy` by default — opt in via `#[derive_copy]` (Logos uses one `#[derive_<trait>]` annotation per derived trait, not `#[derive(...)]`).
 
 Once moved, the source binding cannot be read or borrowed; trying to use it produces a "use after move" diagnostic.
 
@@ -55,7 +55,7 @@ struct Slice<'a, T> { data: &'a [T] }
 impl<'a, T: Display> Display for Slice<'a, T> { ... }
 ```
 
-Lifetime tokens are `'name` ([logos.peg:35](../../../tools/peg_gen/grammars/logos.peg#L35)) — leading apostrophe + lowercase identifier. `'static` is the all-program lifetime; `&'static T` typically points to rodata.
+Lifetime tokens are `'name` ([logos.peg:466](../../../tools/peg_gen/grammars/logos.peg#L466)) — leading apostrophe + an identifier starting with a lowercase letter or `_`. `'static` is the all-program lifetime; `&'static T` typically points to rodata.
 
 ### Elision
 

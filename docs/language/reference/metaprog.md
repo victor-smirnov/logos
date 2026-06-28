@@ -84,7 +84,7 @@ Position rules:
 
 - **Expression position** — return must be `Expr`-shaped or a normal value.
 - **Statement position** — return is spliced as one or more statements.
-- **Item position (top-level / inside `impl`)** — return is item(s); the call sites of `metacall` at item position are written without `;`. Block / paren-expr forms are expression-position only — at item position, only the call form lifts to a `QuoteItemBlob`.
+- **Item position (top-level / inside `impl`)** — return is item(s); at item position `metacall` takes the call form only, terminated by `;` (`metacall make_items();`), and lifts to a `QuoteItemBlob`. Block / paren-expr forms are expression-position only.
 
 See [memory: feat_metacall_arch](../../README.md) for full position / return-type matrix and the HERMES_BLOB splice protocol.
 
@@ -263,7 +263,8 @@ either direction.**
 
 - **Synthesis is via quotes.** A metaprogram never builds AST nodes by hand.
   It produces code through typed quote forms (`quote_item!`, `quote_expr!`,
-  `quote_ty!`, `quote_struct_lit_*`) with `#(expr)` antiquotation and Writ
+  `quote_ty!`) with `#(expr)` antiquotation (struct-literal antiquotation is a
+  position *inside* `quote_expr!`, e.g. `Foo { #fname: e }`) and Writ
   blob splices. There is no public `make_expr_call(...)` / `make_field(...)`
   builder surface.
 
@@ -296,7 +297,7 @@ unless explicitly marked roadmap).
 | Host language | `macro_rules!` mini-DSL; proc-macros = separate crate (`proc_macro = true`) compiled before user code | metaprogram is a regular Logos function; `#[metaprog_handler]` / `metacall`, JIT-executed by the compiler |
 | Analysis / synthesis surface | both go through `TokenStream`: parse it with `syn`, emit with `quote!` | asymmetric — analysis via `meta_*` queries (semantic answers, not nodes); synthesis via `quote_*!` (no public AST-builder API) |
 | Input representation | `TokenStream` (lexical), parsed via `syn` | no raw AST exposed; metaprograms see typed query results and produce typed quote outputs |
-| Quote primitive | `quote!` macro produces tokens | `quote_item!` / `quote_expr!` / `quote_ty!` / `quote_struct_lit_*` produce typed nodes |
+| Quote primitive | `quote!` macro produces tokens | `quote_item!` / `quote_expr!` / `quote_ty!` produce typed nodes |
 | Antiquotation | `#var` / `#(... )*` over arbitrary token shapes | `#(expr)` single primitive, statically typed; struct-lit field, cursor, and method-receiver antiquots |
 | Repeat groups | `$( ... )*` driven by macro-pattern parse | `#(#xs),*` accepts `Vec<Ident>` — arity is a runtime value of the metaprogram (cursor + `cursors_blob`) |
 | Type reflection | none — proc-macro cannot ask "does `T: Clone`?", "what are its fields?" | first-class: `meta_field_iter`, `meta_has_trait`, `meta_typelist`, `meta_template_handle`, `meta_variant_intrinsics`, `meta_type_align`, `Type::ident()` |

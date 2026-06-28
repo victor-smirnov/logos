@@ -17,7 +17,7 @@ use logos.mem.collections.vec;
 
 `pub` makes the item visible across packages. The `pub` keyword precedes the item kind (`pub fn`, `pub struct`, `pub use`, etc.). Items without `pub` are package-private. Field-level visibility on struct fields uses `pub`; absent → package-private.
 
-There is no finer-grained visibility (no `pub(crate)`, `pub(super)` etc.).
+One finer-grained form exists: `pub(module)` gives **module-linkage** visibility — the item is visible to other packages of the *same module* but is not exported to consumers of that module. There is no `pub(crate)` / `pub(super)` / path-restricted visibility.
 
 ## `use`
 
@@ -29,15 +29,22 @@ pub use foo.Bar;       // re-export
 
 A `use` brings names from another package into scope. The path is dotted (`a.b.c`), not slash-separated. `pub use` re-exports the imported name from the current package.
 
-## `const` / module-level `let`
+## `const`, `static`, and module-level `let`
 
 ```logos
-let MAX: i32 = 1024;
+const MAX: i32 = 1024;
+let LIMIT: i32 = 512;
+static COUNTER: i32 = 0;
 ```
 
-Module-level constants are introduced with `let NAME: type = expr;` — the right-hand side is compile-time evaluated. There is no `const` keyword for value bindings; `const` is reserved for `<const N: T>` generic parameters and for `*const T` pointers.
+Module-level value bindings come in three forms, each requiring an explicit type and an initializer:
 
-> `pub` on a module-level `let` is not yet wired through the import system — cross-package reads of a `pub let` constant are not supported end-to-end; expose a `pub fn` accessor for that case.
+- **`const NAME: T = expr;`** and **`let NAME: T = expr;`** — the RHS is compile-time-evaluated and *inlined* at each use (no stable address). `const NAME<...>: T = expr;` additionally admits a type-parameter list, making the RHS a compile-time factory re-evaluated per use site (`let` stays non-generic).
+- **`static [mut] NAME: T = expr;`** — a true global with stable storage and address (`&STATIC` identity holds), unlike the inlined `const`/`let`. Reads/writes of a `static mut`, and access to extern statics, require an `unsafe` context.
+
+`const` is also used for `<const N: T>` generic parameters and `*const T` pointers.
+
+> Cross-package reads of a `pub const` / `pub let` constant may not be fully wired through the import system; if one fails to resolve, expose a `pub fn` accessor.
 
 ## `type` aliases
 
@@ -61,7 +68,7 @@ Components, in order:
 
 1. Optional `pub`, `unsafe`.
 2. `fn` keyword.
-3. Name (`IDENT` or `new`).
+3. Name (`IDENT`, or the contextual keywords `new` / `null`).
 4. Optional generic parameter list `<...>`.
 5. Parameter list `(...)`.
 6. Optional return type `-> T`. Absent → returns `()`.
@@ -77,7 +84,7 @@ extern fn write(fd: i32, buf: *const u8, len: usize) -> isize;
 extern fn printf(fmt: *const u8, ...) -> i32;     // C-style varargs
 ```
 
-Declarations only — no body. Bound at link time. The `, ...` form marks a C-style variadic function (e.g. `printf`); regular Logos variadic generics use `<T...>` plus a `T...` parameter pack.
+Declarations only — no body. Bound at link time. An `extern fn` is implicitly `pub` and `unsafe`, so calls require an `unsafe` context. The `, ...` form marks a C-style variadic function (e.g. `printf`); regular Logos variadic generics use `<T...>` plus a `T...` parameter pack.
 
 ## `struct`
 
@@ -103,7 +110,7 @@ A struct definition may contain fields and methods in the same block — for bot
 
 The grammar also accepts an alternative spelling with a leading `#` token (`struct #Name { ... }`) used by metaprogramming for AST templates — see [Metaprogramming](metaprog.md).
 
-A struct marked `#[zoned]` is a **Writ datatype** (C POD layout, zone-relative offsets, no heap pointers). `#[zoned] struct` is the sole canonical form for datatypes — see [`#[zoned]`](attributes.md#zoned) and [Writ](writ.md).
+A struct marked `#[zoned]` has **zone-relative field layout** (self-relative offsets, no heap pointers — a ZType). `#[zoned]` by itself does **not** promote a struct to a Writ datatype; datatype promotion comes from `#[datatype]` / `#[annotation]` on the struct. See [`#[zoned]`](attributes.md#zoned) and [Writ](writ.md).
 
 ### Methods
 
@@ -203,7 +210,7 @@ genos pmap_descend_to_n<K: ContainerOrd, V: Container, CFG>
 
 A `genos` is a **semi-formal, parametric form specification** — Logos syntax with relaxed type rules, expressing the *shape and invariants* of an algorithm or data structure as the one-per-family canonical statement of intent. It is executable through a minimal interpreter and acts as the conformance oracle for the metaprog-generated instantiations beneath it.
 
-`genos` is **not** a synonym for `trait` and **not** a datatype declaration form (datatypes use `#[zoned] struct`). See [overview: the genos layer](../overview.md) and [internals: metaprogramming](../../internals/metaprog.md#genos--algorithmic-and-structural-templates). The feature is design-stage: `genos` is a reserved keyword but is not yet parsed in any item position (and no interpreter exists yet).
+`genos` is **not** a synonym for `trait` and **not** a datatype declaration form (datatypes are promoted via `#[datatype]` / `#[annotation]` on a struct). See [overview: the genos layer](../overview.md) and [internals: metaprogramming](../../internals/metaprog.md#genos--algorithmic-and-structural-templates). The feature is design-stage: `genos` is a reserved keyword but is not yet parsed in any item position (and no interpreter exists yet).
 
 ## `template <decl>`
 
