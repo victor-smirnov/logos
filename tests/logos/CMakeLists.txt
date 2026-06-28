@@ -643,6 +643,48 @@ else()
     message(STATUS "logos tests: FileCheck not found — skipping IR snapshot suite")
 endif()
 
+# ── Spec conformance tests ────────────────────────────────────────────────────
+# tools/spec-extract generates tests/spec/{pass,fail}/*.logos (+ .expected), each
+# EXECUTING the language-spec rules it confirms (// @rule <id> markers). Run via
+# the same run_test.sh harness — these lock the extracted spec against drift: if
+# the compiler's behaviour changes away from a confirmed rule, the suite goes red.
+# Pure-language + stdlib-`use` tests resolve via logosc's baked search path (no
+# per-test -I); LOGOS_LIB_DIR supplies the link archives, same as the native suite.
+file(GLOB SPEC_PASS_EXPECTED CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/spec/pass/*.expected)
+file(GLOB SPEC_FAIL_EXPECTED CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/spec/fail/*.expected)
+list(SORT SPEC_PASS_EXPECTED)
+list(SORT SPEC_FAIL_EXPECTED)
+
+foreach(EXP_FILE IN LISTS SPEC_PASS_EXPECTED)
+    get_filename_component(BASE ${EXP_FILE} NAME_WE)
+    string(REGEX REPLACE "\\.expected$" ".logos" LOGOS_FILE ${EXP_FILE})
+    if (NOT EXISTS ${LOGOS_FILE})
+        message(WARNING "spec test: no .logos for ${EXP_FILE}, skipping")
+        continue()
+    endif()
+    set(_test_name "logos_25_spec_pass_${BASE}")
+    add_test(NAME ${_test_name}
+        COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
+    set_tests_properties(${_test_name} PROPERTIES
+        TIMEOUT 30 LABELS "logos;pass;suite_spec"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
+endforeach()
+
+foreach(EXP_FILE IN LISTS SPEC_FAIL_EXPECTED)
+    get_filename_component(BASE ${EXP_FILE} NAME_WE)
+    string(REGEX REPLACE "\\.expected$" ".logos" LOGOS_FILE ${EXP_FILE})
+    if (NOT EXISTS ${LOGOS_FILE})
+        message(WARNING "spec test: no .logos for ${EXP_FILE}, skipping")
+        continue()
+    endif()
+    set(_test_name "logos_25_spec_fail_${BASE}")
+    add_test(NAME ${_test_name}
+        COMMAND ${TEST_RUNNER} fail $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
+    set_tests_properties(${_test_name} PROPERTIES
+        TIMEOUT 15 LABELS "logos;fail;suite_spec"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
+endforeach()
+
 # Lint: inline `LogosTypeBuilder` Struct/Enum/ZonedStruct sites outside
 # sema_impl.hpp.  Closes the ad-hoc-typebuilder cluster (Meta-Sprint M0.4).
 add_test(
