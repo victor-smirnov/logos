@@ -66,7 +66,8 @@ const COMMON = `You are extracting the LANGUAGE SPECIFICATION from the Logos com
 Identify every observable LANGUAGE rule in the slice: grammar productions, type/inference rules, coercions, trait resolution, borrow/move rules, monomorphization/substitution rules, diagnostics-as-constraints, intrinsic semantics, etc. A plumbing-only unit legitimately yields zero rules.
 
 For each rule assign a STABLE human-readable id "<domain>.<group>.<slug>" (lowercase kebab); the first segment is the domain. Allowed domains: ${DOMAINS.join(', ')}.
-RULE QUALITY (mandatory): statement = normative, implementation-agnostic, notation over prose, precise enough to test; evidence = >=1 "file#Lxxx" anchor INSIDE this unit per rule; divergence = Rust-divergence tag (docs/DIVERGENCES.md §A, e.g. A1/A2) or note, omit when Rust-conformant; uncertainty = flag inferred/ambiguous rules.
+RULE QUALITY (mandatory): statement = normative, implementation-agnostic, notation over prose, precise enough to test; evidence = >=1 "file#Lxxx" anchor INSIDE this unit per rule; uncertainty = flag inferred/ambiguous rules.
+DIVERGENCE FIELD (strict): set it ONLY when the rule genuinely differs from Rust's observable behavior, and prefer a docs/DIVERGENCES.md tag (§A blessed A1..A12, or §B catch-up). If the rule is Rust-conformant, OMIT divergence entirely — do NOT put an internal tracking code (baghunt B…/G…, phase id T2-…/P4-…, a Rust error code like E0503, or "implementation note") in the divergence field; those are not divergences. A code in the source comment is traceability, not a divergence classification.
 
 SCOPE DISCIPLINE (critical — your slice is PARTIAL; other parts of the compiler implement features you cannot see here):
 - State only what THIS slice's code positively shows. Describe what it DOES.
