@@ -94,7 +94,7 @@
       "title": "Unary minus on an unsigned type is rejected",
       "statement": "`-x` where `x` has any unsigned integer type (u8/u16/u24/u32/u56/u64/u128) is a compile error; an explicit cast to a signed type is required (e.g. `-(x as i64)`).",
       "evidence": ["src/compiler/sema_expr.cpp#L2628-L2639"],
-      "divergence": "Rust also rejects unary `-` on unsigned types (no `Neg` impl); Logos diagnostic is bespoke (B-ex-04). Extra widths u24/u56 are Logos-only (A11)."
+      "divergence": "Extra unsigned widths u24/u56 are Logos-only (A11); the unary-minus-on-unsigned rejection itself matches Rust (no `Neg` impl for unsigned)."
     },
     {
       "id": "expr.unary.not-bool-or-integer",

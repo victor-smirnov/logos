@@ -9,28 +9,37 @@
       "domain": "trait",
       "title": "Duplicate associated type in impl rejected",
       "statement": "An impl block must define each associated type at most once for a given (trait, trait-type-args, target, name); a second definition with the same key is an error.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3247-L3252"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3247-L3252"
+      ]
     },
     {
       "id": "trait.assoc-type.gat-no-shadow-impl-param",
       "domain": "trait",
       "title": "GAT params must not shadow impl type params",
       "statement": "A generic associated type's own type parameters (`type Item<T> = ...`) must not share a name with any of the enclosing impl's type parameters.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3253-L3260"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3253-L3260"
+      ]
     },
     {
       "id": "trait.assoc-type.gat-arity-match",
       "domain": "trait",
       "title": "Impl GAT arity must match trait declaration",
       "statement": "The number of type parameters on an impl's associated type definition must equal the count the trait declares for that associated type.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3261-L3273"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3261-L3273"
+      ]
     },
     {
       "id": "trait.assoc-type.dual-impl-ambiguous-projection",
       "domain": "trait",
       "title": "Ambiguous bare associated-type projection across generic-trait impls",
       "statement": "When two impls of a generic trait Trait<T> for one target at distinct T each declare the same associated type, the bare projection `X::Assoc` becomes ambiguous and must be written `<X as Trait<T>>::Assoc`; the unsuffixed projection key is first-impl-wins and is erased once a second distinct-args impl appears so a bare lookup fails.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3235-L3248", "src/compiler/sema_collect.cpp#L3281-L3295"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3235-L3248",
+        "src/compiler/sema_collect.cpp#L3281-L3295"
+      ],
       "divergence": "G156-1: Rust requires fully-qualified `<X as Trait<T>>::Assoc` for ambiguous projections; Logos matches by erasing the ambiguous bare key."
     },
     {
@@ -38,43 +47,56 @@
       "domain": "trait",
       "title": "Inherent associated constants permitted",
       "statement": "An inherent impl (no trait) may declare associated constants `const C: T = ...;`, registered under the target type.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3296-L3308"],
-      "divergence": "B97 (Logos extension over baseline; Rust-conformant feature)"
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3296-L3308"
+      ]
     },
     {
       "id": "trait.assoc-const.type-match",
       "domain": "trait",
       "title": "Impl associated-constant type must match trait declaration",
       "statement": "An impl's associated constant must have a type equal to the type the trait declares for that constant.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3313-L3326"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3313-L3326"
+      ]
     },
     {
       "id": "trait.impl.method-completeness",
       "domain": "trait",
       "title": "Trait impl must provide every required method",
       "statement": "A trait impl must supply an implementation for every trait method lacking a default; a missing non-default method is an error. Methods with a default that are not overridden are auto-registered from the default body.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3363-L3373", "src/compiler/sema_collect.cpp#L3502-L3503", "src/compiler/sema_collect.cpp#L3610-L3613"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3363-L3373",
+        "src/compiler/sema_collect.cpp#L3502-L3503",
+        "src/compiler/sema_collect.cpp#L3610-L3613"
+      ]
     },
     {
       "id": "trait.impl.method-unsafe-parity",
       "domain": "trait",
       "title": "Impl method unsafe-ness must match trait method",
       "statement": "An impl method's `unsafe` qualifier must match the trait method's: a safe trait method cannot be implemented unsafe and vice versa.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3495-L3501"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3495-L3501"
+      ]
     },
     {
       "id": "trait.impl.method-signature-match",
       "domain": "trait",
       "title": "Impl method signature matched against trait by arity and non-receiver param types",
       "statement": "An impl method satisfies a trait method when arities agree and each non-receiver parameter type is equal, where a trait parameter that is a type variable or associated-type projection (possibly under &/&mut/*) is treated as polymorphic and matches any concrete impl type; the receiver (param 0) is always skipped.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3389-L3458"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3389-L3458"
+      ]
     },
     {
       "id": "trait.impl.variadic-pack-param",
       "domain": "trait",
       "title": "Variadic trait type-param pack absorbs trailing impl params",
       "statement": "If a trait declares a variadic type parameter `A...` used at a method parameter position, an impl may expose any number of concrete parameters from that position onward; each post-pack impl parameter type must equal the corresponding trait-instantiation type-arg (trait_type_args[k - pack_pos]), and the count of post-pack impl params must equal the number of pack instantiation args.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3408-L3492"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3408-L3492"
+      ],
       "divergence": "Fn-family variadic type packs are a Logos extension (no stable Rust equivalent)."
     },
     {
@@ -82,78 +104,100 @@
       "domain": "trait",
       "title": "Self bound to scalar primitive for default-method bodies",
       "statement": "For `impl Trait for <scalar primitive>` (i8..i128/u8..u128/usize/isize/f32/f64/bool/char), Self resolves to the primitive so inherited default method bodies using `&Self` typecheck; this binding is restricted to scalar kinds and excludes `str` and enum targets, whose defaults keep Self as a type variable.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3545-L3567"],
-      "divergence": "G160-3 (Logos implementation note; Rust-conformant)"
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3545-L3567"
+      ]
     },
     {
       "id": "trait.impl.blanket-default-method",
       "domain": "trait",
       "title": "Blanket impl inherits trait default methods",
       "statement": "For a blanket impl `impl<T: Bound> Trait for T {}`, each non-overridden trait default method is synthesized as a generic fn with Self = the blanket type variable and a blanket-impl entry is recorded so dispatch surfaces it on any concrete receiver satisfying Bound.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3569-L3600"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3569-L3600"
+      ]
     },
     {
       "id": "trait.impl.default-method-visibility",
       "domain": "trait",
       "title": "Default trait methods inherit trait visibility",
       "statement": "A default trait method registered into an impl is marked public (inheriting trait accessibility); all newly-registered overloads of that method are marked pub, not only the first.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3601-L3608"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3601-L3608"
+      ]
     },
     {
       "id": "trait.assoc-type.completeness-with-default",
       "domain": "trait",
       "title": "Associated-type completeness with trait default fallback",
       "statement": "A non-blanket trait impl must provide every associated type the trait declares; if the impl omits one, the trait's declared default associated type is used, and only the absence of both impl definition and trait default is an error. Blanket impls skip this check (assoc types are per-instantiation).",
-      "evidence": ["src/compiler/sema_collect.cpp#L3617-L3642"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3617-L3642"
+      ]
     },
     {
       "id": "trait.assoc-const.completeness-with-default",
       "domain": "trait",
       "title": "Associated-constant completeness with trait default fallback",
       "statement": "A trait impl must provide every associated constant the trait declares; if omitted, the trait's default value is projected into the impl, and only the absence of both impl value and trait default is an error.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3643-L3663"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3643-L3663"
+      ]
     },
     {
       "id": "trait.impl.unsafe-trait-parity",
       "domain": "trait",
       "title": "unsafe trait requires unsafe impl and vice versa",
       "statement": "Implementing an unsafe trait requires `unsafe impl`; using `unsafe impl` for a safe non-auto trait is an error.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3664-L3670"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3664-L3670"
+      ]
     },
     {
       "id": "trait.copy.register",
       "domain": "trait",
       "title": "impl Copy registers target as a Copy type",
       "statement": "`impl Copy for T` registers T as a Copy type (affecting move semantics); `unsafe impl Copy` is an error because Copy is a safe built-in trait.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3673-L3677", "src/compiler/sema_collect.cpp#L3702-L3703"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3673-L3677",
+        "src/compiler/sema_collect.cpp#L3702-L3703"
+      ]
     },
     {
       "id": "trait.copy.conditional",
       "domain": "trait",
       "title": "Conditional Copy via Copy-bounded impl params",
       "statement": "A generic `impl<P: Copy> Copy for Type<P>` registers conditional Copy: the instance is Copy iff each target type-arg position bound to a Copy-bounded impl parameter is itself Copy. A bound-less param or non-generic target registers Copy unconditionally.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3678-L3705"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3678-L3705"
+      ]
     },
     {
       "id": "trait.impl.no-standalone-unsafe",
       "domain": "trait",
       "title": "Standalone (inherent) impl cannot be unsafe",
       "statement": "`unsafe impl` with no trait (a standalone inherent impl) is an error.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3707-L3709"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3707-L3709"
+      ]
     },
     {
       "id": "trait.coherence.no-overlapping-impl",
       "domain": "trait",
       "title": "Coherence: no two impls of same trait+args for same target",
       "statement": "Two non-generic, non-negative impls of the same trait (canonical name) with the same trait type-arguments for the same target type conflict and are an error. The coherence key includes the trait's spelled-out type-args (so `From<i8>` and `From<i16>` for one target do not collide) and uses the canonical scope-resolved trait name (so distinct same-name traits do not collide). Generic impls (with impl type/lifetime params) and negative impls are exempt.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3729-L3773"]
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3729-L3773"
+      ]
     },
     {
       "id": "type.str.slice-alias",
       "domain": "type",
       "title": "str is an alias for Slice<u8>; impls aliased to &[u8]",
       "statement": "`str` is a built-in that resolves to Slice<u8> (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.",
-      "evidence": ["src/compiler/sema_collect.cpp#L3777-L3787"],
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L3777-L3787"
+      ],
       "divergence": "Logos models `str` as Slice<u8>; Rust `str` is a distinct DST."
     }
   ]

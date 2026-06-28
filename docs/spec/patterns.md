@@ -1,6 +1,6 @@
 # Patterns
 
-Scope: pattern syntax, binding modes, refutability/exhaustiveness, and match semantics (`pat` domain). Rules are extracted from the compiler source layers — grammar, sema (`sema_stmt`, `sema_expr`, `sema_impl`, `borrow_check`), monomorphization, and codegen (`mlir_gen_stmt`, `mlir_gen_expr`) — each carrying file#line evidence. Every rule id (`pat.<group>.<name>`) is a stable, linkable address; preserve it verbatim when citing.
+Scope: pattern syntax, binding modes, refutability/exhaustiveness, and match semantics (`pat` domain). Rules are extracted from the compiler source layers — grammar (PEG), sema (`sema_stmt`, `sema_expr`, `sema_impl`, `borrow_check`), monomorphization, and codegen (`mlir_gen_stmt`, `mlir_gen_expr`) — each carrying file#line evidence. Rules are grouped by the middle segment of their id; every id (`pat.<group>.<name>`) is a stable, linkable address — preserve it verbatim when citing.
 
 ## Match expressions
 
@@ -212,7 +212,15 @@ A match using Writ scalar/structural patterns (null/bool/int/str/map/arr/typed-a
 
 *Source:* `src/compiler/sema_stmt.cpp#L8286-L8358`
 
-## Refutability & exhaustiveness
+## Guards
+
+### `pat.guard.bind-then-evaluate` — Match guard evaluated after the arm's bindings are in scope
+
+When an arm has a guard `if g`, the arm's pattern bindings are extracted and made visible to `g`; `g` is then evaluated as a boolean; if it holds the arm body runs (reusing the already-established bindings), otherwise control proceeds to the next arm. A failing guard does not fall through to other arms that share the same pattern test — the whole arm is skipped.
+
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L4346-L4358`, `src/compiler/mlir_gen_stmt.cpp#L4359-L4366`
+
+## Refutability (codegen lowering)
 
 ### `pat.refute.array-pattern-no-length-gate` — Fixed-array slice pattern: no length gate, positional prefix/suffix tests
 
@@ -292,6 +300,8 @@ A wildcard pattern `_`/binder and a `ref`-binding pattern impose no match constr
 
 *Source:* `src/compiler/mlir_gen_stmt.cpp#L3283-L3285`
 
+## Refutability (refutable sub-patterns)
+
 ### `pat.refutable.literal-inner-guard` — Literal inner pattern lowers to `==` guard (str via str_eq)
 
 An int/neg-int/bool/char literal inner pattern binds the payload to `synth` and gates the arm with `synth == <literal>`; a string literal inner gates with `str_eq(synth, "..")` rather than pointer-comparing slices.
@@ -318,11 +328,15 @@ Binding-carrying nested-variant patterns over a raw-pointer (`*const`/`*mut`) sc
 
 *Source:* `src/compiler/sema_stmt.cpp#L3334-L3336`
 
+## `let` patterns
+
 ### `pat.let.refutability-checked` — let with complex pattern checked for refutability
 
 `let <pattern> = expr;` for a pattern beyond a simple ident/tuple is an irrefutable destructure: sema checks the pattern is irrefutable and lowers it via `match`.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L285`
+
+## `let ... else` patterns
 
 ### `pat.let-else.or-pattern-uniform-bindings` — or-pattern alternatives in let-else bind identical names/types
 
@@ -340,7 +354,15 @@ let Some(1) = opt else { return; };
 
 *Source:* `src/compiler/sema_stmt.cpp#L1593-L1602`, `src/compiler/sema_stmt.cpp#L1669`
 
-## Bindings & binding modes
+## `let` tuple binding
+
+### `pat.tuple-bind.let` — Let-binding tuple pattern
+
+A let-binding tuple pattern admits `()` (unit), `..` rest (expanded to the right number of `_` skips), nested tuples `(a, (b, c))`, and identifier bindings. Rest fills remaining positions so names land on the correct tuple slots.
+
+*Source:* `tools/peg_gen/grammars/logos.peg#L1943-L1960`
+
+## Bindings
 
 ### `pat.bind.at-binding` — @ pattern binds whole value and recurses
 
@@ -514,6 +536,8 @@ A binding whose name is `_` introduces no variable into scope (across variant-da
 
 *Source:* `src/compiler/sema_stmt.cpp#L5691-L5694`, `src/compiler/sema_stmt.cpp#L5702-L5705`, `src/compiler/sema_stmt.cpp#L5726-L5734`
 
+## Binding forms
+
 ### `pat.binding.bare-name-vs-variant-or-const` — Bare name resolving to a no-payload variant or module const is not a binding
 
 A bare identifier pattern that names a payload-less enum variant or a module-level const is a constant/variant pattern, not a new binding; otherwise it introduces a binding. `_` is never a binding.
@@ -557,6 +581,34 @@ Names bound by an arm's pattern (and guard) are visible only within that arm's g
 A wildcard `_` (and an empty binding name) matches any value and introduces no binding; a named wildcard introduces a binding to a copy of the matched value.
 
 *Source:* `src/compiler/mlir_gen_expr.cpp#L3893-L3903`, `src/compiler/mlir_gen_expr.cpp#L4950`
+
+## Pattern ergonomics (default binding modes)
+
+### `pat.ergonomics.deref-scrutinee` — Match ergonomics peel all &/&mut/* layers
+
+Pattern matching peels all `&`, `&mut`, and `*` layers of the scrutinee type to obtain the concrete payload shape, so a pattern over `&&Enum<T>` (arbitrary depth) unifies against the inner `Enum<T>`.
+
+*Divergence from Rust:* Rust-conformant (RFC 2005 default binding modes)
+
+*Source:* `src/compiler/sema_stmt.cpp#L3220-L3243`, `src/compiler/sema_stmt.cpp#L3828-L3851`
+
+## Wildcard patterns
+
+### `pat.wild.ident` — Identifier / wildcard pattern
+
+A bare identifier is an irrefutable binding pattern (the matched value is bound to the name; `_` is the anonymous wildcard).
+
+*Source:* `tools/peg_gen/grammars/logos.peg#L2237-L2238`
+
+## Wildcard patterns (`_`)
+
+### `pat.wildcard.underscore-non-binding` — `_` and empty name are non-binding wildcards
+
+A wildcard pattern named `_` (or unnamed) introduces no binding and reserves no slot; any other name in a wildcard position is a binding that reserves a fresh dense slot.
+
+*Source:* `src/compiler/sema_stmt.cpp#L3004-L3010`
+
+## Identifier patterns
 
 ### `pat.ident.bare-no-payload-variant` — Bare identifier resolving to a no-payload enum variant is a variant pattern
 
@@ -602,17 +654,7 @@ A bare identifier pattern that matches a `use Type.{V, ..}` variant alias and na
 
 *Source:* `src/compiler/sema_stmt.cpp#L5106-L5132`
 
-### `pat.wild.ident` — Identifier / wildcard pattern
-
-A bare identifier is an irrefutable binding pattern (the matched value is bound to the name; `_` is the anonymous wildcard).
-
-*Source:* `tools/peg_gen/grammars/logos.peg#L2237-L2238`
-
-### `pat.wildcard.underscore-non-binding` — `_` and empty name are non-binding wildcards
-
-A wildcard pattern named `_` (or unnamed) introduces no binding and reserves no slot; any other name in a wildcard position is a binding that reserves a fresh dense slot.
-
-*Source:* `src/compiler/sema_stmt.cpp#L3004-L3010`
+## `@` bindings
 
 ### `pat.at.binding` — At-binding pattern
 
@@ -637,6 +679,8 @@ An `@`-pattern `name @ sub` binds name to the entire matched value and additiona
 An `name @ subpat` pattern binds `name` to the whole scrutinee value at the scrutinee type (falling back to the error type if unknown) while also matching `subpat` against the same scrutinee type.
 
 *Source:* `src/compiler/sema_stmt.cpp#L4724-L4740`
+
+## `@` bindings (payload)
 
 ### `pat.at-binding.payload-bind-and-guard` — `n @ sub` binds payload and applies sub-pattern guard
 
@@ -684,11 +728,7 @@ A reference pattern `&pat`/`&mut pat` requires a reference scrutinee. `&mut pat`
 
 *Source:* `src/compiler/sema_stmt.cpp#L4742-L4771`
 
-### `pat.refbind.binds-place-reference` — `ref`/`ref mut` binds a reference to the matched place
-
-A `ref r` / `ref mut r` binding binds r to a reference (address) of the matched scrutinee or sub-place, without copying; dereferencing r reads through to the original value. A `ref`-binding pattern is irrefutable.
-
-*Source:* `src/compiler/mlir_gen_expr.cpp#L4161-L4186`, `src/compiler/mlir_gen_expr.cpp#L4378-L4379`
+## Reference bindings (`ref`)
 
 ### `pat.ref-binding.added-indirection-depth` — `ref`/`ref mut` binding adds N levels of indirection over the payload
 
@@ -703,6 +743,16 @@ A `ref`/`ref mut` pattern binding over a payload of type P binds a reference who
 A `ref x` / `ref mut x` binding binds `x` to a `&T` / `&mut T` reference of the scrutinee type `T` (the place's address) rather than moving the value.
 
 *Source:* `src/compiler/sema_stmt.cpp#L4774-L4792`
+
+## Reference bindings
+
+### `pat.refbind.binds-place-reference` — `ref`/`ref mut` binds a reference to the matched place
+
+A `ref r` / `ref mut r` binding binds r to a reference (address) of the matched scrutinee or sub-place, without copying; dereferencing r reads through to the original value. A `ref`-binding pattern is irrefutable.
+
+*Source:* `src/compiler/mlir_gen_expr.cpp#L4161-L4186`, `src/compiler/mlir_gen_expr.cpp#L4378-L4379`
+
+## Reference patterns (peeling)
 
 ### `pat.refpat.peels-reference` — `&pat` pattern matches through a reference
 
@@ -752,6 +802,8 @@ A string-literal pattern `"foo"` matches by string equality (lowered to a refuta
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2087-L2091`
 
+## Literal patterns (matching)
+
 ### `pat.literal.int-bool-neg` — Literal patterns
 
 Patterns may be integer literals (optionally negated with leading `-`), boolean literals (`true`/`false`), or unit `()`.
@@ -764,11 +816,7 @@ Matching a value against a string-literal pattern compares string contents (via 
 
 *Source:* `src/compiler/sema_impl.hpp#L489-L492`
 
-### `pat.bool.scrutinee-bool` — Bool pattern scrutinee constraint
-
-A boolean-literal pattern requires a `bool` scrutinee; any other (non-error) scrutinee type is an error.
-
-*Source:* `src/compiler/sema_stmt.cpp#L4445-L4455`
+## Integer-literal patterns
 
 ### `pat.int.scrutinee-must-be-integer` — Integer pattern requires an integer scrutinee
 
@@ -781,6 +829,38 @@ An integer-literal pattern (incl. negated form) requires the scrutinee type to b
 The value of an integer-literal pattern must be representable in the scrutinee's integer type; an out-of-range value is an error.
 
 *Source:* `src/compiler/sema_stmt.cpp#L4322-L4325`
+
+## Boolean patterns
+
+### `pat.bool.scrutinee-bool` — Bool pattern scrutinee constraint
+
+A boolean-literal pattern requires a `bool` scrutinee; any other (non-error) scrutinee type is an error.
+
+*Source:* `src/compiler/sema_stmt.cpp#L4445-L4455`
+
+## Character patterns
+
+### `pat.char.scalar-as-integer` — Char patterns lower to integer (Unicode scalar) patterns
+
+A char-literal (and char-range) pattern is decoded to its Unicode scalar value and matched as an integer/range pattern, since `char` is a 4-byte Unicode scalar. Recognized escapes: `\n`,`\t`,`\r`,`\0`,`\\`,`\'`,`\"`,`\xHH` (exactly 2 hex digits), and `\u{HEX}`; a `\u` scalar must be <= U+10FFFF and outside the surrogate range U+D800..U+DFFF.
+
+*Source:* `src/compiler/sema_stmt.cpp#L4330-L4396`
+
+### `pat.char.scrutinee-char-or-int` — Char pattern scrutinee constraint
+
+A char-literal pattern requires the scrutinee type to be `char` or an integer type; otherwise it is an error. The pattern matches the decoded code point as an integer constant.
+
+*Source:* `src/compiler/sema_stmt.cpp#L4414-L4426`
+
+## Character-range patterns
+
+### `pat.char-range.scrutinee-and-order` — Char range pattern constraints
+
+A char-range pattern `lo..=hi` requires a `char` or integer scrutinee, and requires lo <= hi (decoded code points); lo > hi is an error. It matches the inclusive integer range [lo, hi].
+
+*Source:* `src/compiler/sema_stmt.cpp#L4427-L4443`
+
+## Float-literal patterns
 
 ### `pat.float.literal-rejected` — Float-literal patterns are rejected
 
@@ -798,17 +878,23 @@ A float-literal pattern parses but is rejected at sema (not a valid match patter
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L283`
 
-### `pat.char.scalar-as-integer` — Char patterns lower to integer (Unicode scalar) patterns
+## String patterns
 
-A char-literal (and char-range) pattern is decoded to its Unicode scalar value and matched as an integer/range pattern, since `char` is a 4-byte Unicode scalar. Recognized escapes: `\n`,`\t`,`\r`,`\0`,`\\`,`\'`,`\"`,`\xHH` (exactly 2 hex digits), and `\u{HEX}`; a `\u` scalar must be <= U+10FFFF and outside the surrogate range U+D800..U+DFFF.
+### `pat.str.lowers-to-eq-guard` — String-literal pattern lowers to equality guard
 
-*Source:* `src/compiler/sema_stmt.cpp#L4330-L4396`
+A string-literal pattern `match s { "foo" => ... }` is matched by lowering to a `str_eq` guard.
 
-### `pat.char.scrutinee-char-or-int` — Char pattern scrutinee constraint
+*Source:* `tools/peg_gen/grammars/logos.peg#L312`
 
-A char-literal pattern requires the scrutinee type to be `char` or an integer type; otherwise it is an error. The pattern matches the decoded code point as an integer constant.
+### `pat.str.position-restricted` — String-literal patterns allowed only in specific positions
 
-*Source:* `src/compiler/sema_stmt.cpp#L4414-L4426`
+String-literal patterns are supported only as a whole match arm (`match s { "foo" => .. }`), inside an enum-variant payload (`Some("foo")`), or as a tuple element (`("foo", _)`). In any other position (e.g. inside an array/slice pattern) a string-literal pattern is an error.
+
+*Divergence from Rust:* Rust permits string patterns in all pattern positions; Logos restricts them.
+
+*Source:* `src/compiler/sema_stmt.cpp#L4296-L4312`
+
+## Scalar patterns
 
 ### `pat.scalar.discriminant-equality` — Scalar leaf patterns match by discriminant/value equality
 
@@ -842,14 +928,21 @@ In an integer range pattern, an omitted bound is clamped to the scrutinee intege
 
 *Source:* `src/compiler/sema_stmt.cpp#L4654-L4676`
 
-### `pat.range.inclusive-bounds` — Range pattern matches lo <= scrut <= hi inclusively
+### `pat.range.inclusive-bounds` — Range pattern matches lo <= scrut <= hi (variant 1: from `codegen/mlir_gen_expr/gen_expr_kind-3.json`)
 
-> **Note (multiple source layers):** this rule is described by more than one extraction; all statements are preserved below.
+> **Duplicate id flagged.** This id appears more than once in the rule corpus. The variants are reproduced verbatim; they describe the same rule from different source-evidence vantage points (no semantic conflict detected). Both are preserved so the id resolves to all its evidence.
 
-1. A range pattern `lo..=hi` matches a scrutinee value v iff `lo <= v && v <= hi` (both bounds inclusive). The comparison constants and the scrutinee are evaluated in the scrutinee's integer type.
-2. A range pattern `lo..=hi` matches the scrutinee s iff `lo <= s && s <= hi`. Comparisons are unsigned when the scrutinee type is an unsigned integer or `char` (u8/u16/u24/u32/u56/u64/u128/usize/char), signed otherwise.
+A range pattern `lo..=hi` matches the scrutinee s iff `lo <= s && s <= hi`. Comparisons are unsigned when the scrutinee type is an unsigned integer or `char` (u8/u16/u24/u32/u56/u64/u128/usize/char), signed otherwise.
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L4382-L4402`, `src/compiler/mlir_gen_expr.cpp#L4394-L4404`, `src/compiler/mlir_gen_expr.cpp#L4458-L4482`, `src/compiler/mlir_gen_expr.cpp#L4679-L4699`
+*Source:* `src/compiler/mlir_gen_expr.cpp#L4394-L4404`, `src/compiler/mlir_gen_expr.cpp#L4458-L4482`, `src/compiler/mlir_gen_expr.cpp#L4679-L4699`
+
+### `pat.range.inclusive-bounds` — Range pattern matches lo <= scrut <= hi inclusively (variant 2: from `codegen/mlir_gen_stmt/pat_test.part3.json`)
+
+> **Duplicate id flagged.** This id appears more than once in the rule corpus. The variants are reproduced verbatim; they describe the same rule from different source-evidence vantage points (no semantic conflict detected). Both are preserved so the id resolves to all its evidence.
+
+A range pattern `lo..=hi` matches a scrutinee value v iff `lo <= v && v <= hi` (both bounds inclusive). The comparison constants and the scrutinee are evaluated in the scrutinee's integer type.
+
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L4382-L4402`
 
 ### `pat.range.inclusive-only` — Range pattern is inclusive
 
@@ -879,22 +972,23 @@ For a scrutinee of unsigned integer type (u8/u16/u24/u32/u56/u64/u128), range-pa
 
 *Source:* `src/compiler/mlir_gen_stmt.cpp#L4309-L4317`, `src/compiler/mlir_gen_stmt.cpp#L4386-L4389`
 
-### `pat.char-range.scrutinee-and-order` — Char range pattern constraints
-
-A char-range pattern `lo..=hi` requires a `char` or integer scrutinee, and requires lo <= hi (decoded code points); lo > hi is an error. It matches the inclusive integer range [lo, hi].
-
-*Source:* `src/compiler/sema_stmt.cpp#L4427-L4443`
-
 ## Or-patterns
 
-### `pat.or.alt-binding-consistency` — Or-pattern alternatives must bind identical variable sets (E0408)
+### `pat.or.alt-binding-consistency` — Or-pattern alternatives must bind identical variable sets (E0408) (variant 1: from `sema/sema_impl_hpp/logos.part2.json`)
 
-> **Note (multiple source layers):** this rule is described by more than one extraction; all statements are preserved below.
+> **Duplicate id flagged.** This id appears more than once in the rule corpus. The variants are reproduced verbatim; they describe the same rule from different source-evidence vantage points (no semantic conflict detected). Both are preserved so the id resolves to all its evidence.
 
-1. Every alternative of a top-level or-pattern (e.g. a match-arm alternation `A | B`) must bind the same set of variable names; mismatched bindings are rejected (E0408 analog).
-2. Top-level arm or-alternations `A | B =>` must bind the same set of names in every alternative (E0408).
+Every alternative of a top-level or-pattern (e.g. a match-arm alternation `A | B`) must bind the same set of variable names; mismatched bindings are rejected (E0408 analog).
 
-*Source:* `src/compiler/sema_impl.hpp#L759-L765`, `src/compiler/sema_stmt.cpp#L8517-L8520`
+*Source:* `src/compiler/sema_impl.hpp#L759-L765`
+
+### `pat.or.alt-binding-consistency` — or-pattern alternatives must bind identical names (variant 2: from `sema/sema_stmt/emit_for_pattern_destructure.json`)
+
+> **Duplicate id flagged.** This id appears more than once in the rule corpus. The variants are reproduced verbatim; they describe the same rule from different source-evidence vantage points (no semantic conflict detected). Both are preserved so the id resolves to all its evidence.
+
+Top-level arm or-alternations `A | B =>` must bind the same set of names in every alternative (E0408).
+
+*Source:* `src/compiler/sema_stmt.cpp#L8517-L8520`
 
 ### `pat.or.alternative-binding-uniformity` — Or-pattern alternatives must bind the same names
 
@@ -968,14 +1062,51 @@ Within a single top-level pattern, a binding name introduced in multiple Or-patt
 
 *Source:* `src/compiler/sema_impl.hpp#L2309-L2323`
 
-### `pat.or.single-alt-transparent` — single-alternative or-pattern is transparent
+### `pat.or.single-alt-transparent` — Single-alternative or-pattern is the inner pattern (variant 1: from `sema/sema_stmt/build_pattern_bytes.part1.json`)
 
-> **Note (multiple source layers):** this rule is described by more than one extraction; all statements are preserved below.
+> **Duplicate id flagged.** This id appears more than once in the rule corpus. The variants are reproduced verbatim; they describe the same rule from different source-evidence vantage points (no semantic conflict detected). Both are preserved so the id resolves to all its evidence.
 
-1. A PAT_OR wrapper with exactly one alternative is semantically equivalent to that alternative (the grammar wraps every arm/element pattern in a single-alt or-wrapper which is unwrapped before matching).
-2. An or-pattern node with exactly one alternative (no `|`) is equivalent to that single inner pattern.
+An or-pattern node with exactly one alternative (no `|`) is equivalent to that single inner pattern.
 
-*Source:* `src/compiler/sema_stmt.cpp#L8130-L8134`, `src/compiler/sema_stmt.cpp#L8162-L8165`, `src/compiler/sema_stmt.cpp#L8486-L8489`, `src/compiler/sema_stmt.cpp#L8602-L8610`, `src/compiler/sema_stmt.cpp#L4068-L4070`
+*Source:* `src/compiler/sema_stmt.cpp#L4068-L4070`
+
+### `pat.or.single-alt-transparent` — single-alternative or-pattern is transparent (variant 2: from `sema/sema_stmt/emit_for_pattern_destructure.json`)
+
+> **Duplicate id flagged.** This id appears more than once in the rule corpus. The variants are reproduced verbatim; they describe the same rule from different source-evidence vantage points (no semantic conflict detected). Both are preserved so the id resolves to all its evidence.
+
+A PAT_OR wrapper with exactly one alternative is semantically equivalent to that alternative (the grammar wraps every arm/element pattern in a single-alt or-wrapper which is unwrapped before matching).
+
+*Source:* `src/compiler/sema_stmt.cpp#L8130-L8134`, `src/compiler/sema_stmt.cpp#L8162-L8165`, `src/compiler/sema_stmt.cpp#L8486-L8489`, `src/compiler/sema_stmt.cpp#L8602-L8610`
+
+## Grouping patterns
+
+### `pat.group.paren` — Parenthesised / grouped pattern
+
+`(P)` is exactly P and `(P | Q | ...)` is a grouped or-pattern (inlined into a single or-pattern at that position). `(..)` matches any tuple binding nothing (irrefutable wildcard).
+
+*Source:* `tools/peg_gen/grammars/logos.peg#L2212-L2227`
+
+## Unit patterns
+
+### `pat.unit.no-binding` — `()` unit sub-pattern binds nothing
+
+A `()` (unit) sub-pattern in a variant payload position introduces no binding.
+
+*Source:* `src/compiler/sema_stmt.cpp#L3717`
+
+## Rest patterns (`..`)
+
+### `pat.rest.dotdot` — Rest pattern
+
+A rest/ignore-remaining pattern is written `..` and may appear among struct or tuple subpatterns.
+
+*Source:* `src/compiler/sema_render.cpp#L660-L660`, `src/compiler/sema_render.cpp#L675-L677`
+
+### `pat.rest.single-only` — At most one `..` rest per tuple/tuple-struct pattern
+
+A tuple-struct or tuple-variant pattern may contain at most one `..` rest; sub-patterns before the rest bind low positions and those after bind tail positions, with skipped positions binding nothing.
+
+*Source:* `src/compiler/sema_stmt.cpp#L3140-L3167`, `src/compiler/sema_stmt.cpp#L3718-L3733`
 
 ## Tuple patterns
 
@@ -1059,11 +1190,19 @@ A non-empty tuple pattern matches iff every sub-pattern matches the correspondin
 
 *Source:* `src/compiler/mlir_gen_stmt.cpp#L4535-L4550`
 
-### `pat.tuple-bind.let` — Let-binding tuple pattern
+## Tuple-struct patterns
 
-A let-binding tuple pattern admits `()` (unit), `..` rest (expanded to the right number of `_` skips), nested tuples `(a, (b, c))`, and identifier bindings. Rest fills remaining positions so names land on the correct tuple slots.
+### `pat.tuple-struct.arity-check` — Tuple-struct pattern arity must match (absent `..`)
 
-*Source:* `tools/peg_gen/grammars/logos.peg#L1943-L1960`
+Without a `..` rest, a tuple-struct pattern must supply exactly as many sub-patterns as the struct's field count; with `..`, the supplied count must not exceed the arity.
+
+*Source:* `src/compiler/sema_stmt.cpp#L3168-L3175`
+
+### `pat.tuple-struct.bare-call-form` — Bare `Foo(a,b)` tuple-struct pattern destructures positional fields
+
+An unqualified call-form pattern `Foo(p0, p1, ...)` whose name resolves to a tuple-struct destructures it as a struct pattern with synthetic positional field names "0","1",...; sub-pattern j binds field j.
+
+*Source:* `src/compiler/sema_stmt.cpp#L3122-L3184`
 
 ## Struct patterns
 
@@ -1159,7 +1298,7 @@ A struct pattern `N { .. }` requires `N` to resolve to a known struct or datatyp
 
 *Source:* `src/compiler/sema_stmt.cpp#L4821-L4847`
 
-## Enum-variant & tuple-struct patterns
+## Enum-variant patterns
 
 ### `pat.variant.binding-arity-check` — Variant payload binding count must match payload arity
 
@@ -1259,25 +1398,39 @@ A bare (unqualified) variant name in a pattern resolves to its enum when that na
 
 *Source:* `src/compiler/sema_stmt.cpp#L3048-L3053`, `src/compiler/sema_stmt.cpp#L3115-L3120`
 
-### `pat.tuple-struct.arity-check` — Tuple-struct pattern arity must match (absent `..`)
+## Enum-payload binding
 
-Without a `..` rest, a tuple-struct pattern must supply exactly as many sub-patterns as the struct's field count; with `..`, the supplied count must not exceed the arity.
+### `pat.payload.inline-aggregate-binds-address` — Inline-aggregate payload binding uses the slot address as the value
 
-*Source:* `src/compiler/sema_stmt.cpp#L3168-L3175`
+A by-value pattern binding over an inline-aggregate payload (struct, zoned-struct, tuple, slice, closure, nested tagged enum, bare trait object) binds the payload slot's ADDRESS (no load) and carries the corresponding aggregate shape, so subsequent field/index/tuple projections work directly.
 
-### `pat.tuple-struct.bare-call-form` — Bare `Foo(a,b)` tuple-struct pattern destructures positional fields
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L184-L271`
 
-An unqualified call-form pattern `Foo(p0, p1, ...)` whose name resolves to a tuple-struct destructures it as a struct pattern with synthetic positional field names "0","1",...; sub-pattern j binds field j.
+### `pat.payload.move-type-binds-by-copy` — By-value binding of a drop-bearing inline payload copies to a fresh slot
 
-*Source:* `src/compiler/sema_stmt.cpp#L3122-L3184`
+When an inline struct/tuple payload bound by value has a type that needs drop, the bytes are copied to a fresh local before binding; the scrutinee place's drop is suppressed (binding moves out), so later mutation of the scrutinee within the arm cannot clobber the binding.
 
-### `pat.union.one-field-unsafe` — Union pattern names exactly one field inside unsafe
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L187-L238`
 
-A pattern on a `union` must specify exactly one field (no `..`), and the match must occur inside an `unsafe` block (it reads the named field's memory). Violations are errors.
+### `pat.payload.ref-to-struct-binds-place` — `ref l` of a struct-typed payload binds a place reference, not a wrapped pointer
 
-*Source:* `src/compiler/sema_stmt.cpp#L4981-L5005`
+When `ref`/`ref mut` binds a payload field whose type is a (zoned) struct, the binding `l` denotes a reference whose value is the field's address and carries struct shape, so `l.field` projects through it directly (no extra pointer-of-pointer indirection).
 
-## Slice, rest & byte patterns
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L116-L142`
+
+### `pat.payload.scalar-binds-loaded-value` — Scalar payload binding loads the field value into a fresh slot
+
+A by-value pattern binding over a scalar (non-aggregate, non-trait, non-thin-ref-struct) payload field loads the field value from the payload slot and binds a fresh local holding that value.
+
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L269-L293`
+
+### `pat.payload.thin-ref-struct-loads-pointer` — Thin `&Struct`/`&mut Struct` payload binds the loaded pointer with struct shape
+
+A by-value pattern binding over a payload of type `&Struct`/`&mut Struct` (thin pointer to a (zoned) struct) binds the pointer loaded from the payload slot, carrying struct shape, so member access `q.x` projects through the referent — identical to `let r: &Struct`.
+
+*Source:* `src/compiler/mlir_gen_stmt.cpp#L162-L183`
+
+## Slice & array patterns
 
 ### `pat.slice.array-length-check` — Fixed-array slice pattern length constraints
 
@@ -1339,17 +1492,7 @@ A slice pattern `[..]` requires the scrutinee to be of array or slice type; the 
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2143-L2147`
 
-### `pat.rest.dotdot` — Rest pattern
-
-A rest/ignore-remaining pattern is written `..` and may appear among struct or tuple subpatterns.
-
-*Source:* `src/compiler/sema_render.cpp#L660-L660`, `src/compiler/sema_render.cpp#L675-L677`
-
-### `pat.rest.single-only` — At most one `..` rest per tuple/tuple-struct pattern
-
-A tuple-struct or tuple-variant pattern may contain at most one `..` rest; sub-patterns before the rest bind low positions and those after bind tail positions, with skipped positions binding nothing.
-
-*Source:* `src/compiler/sema_stmt.cpp#L3140-L3167`, `src/compiler/sema_stmt.cpp#L3718-L3733`
+## Byte-array patterns
 
 ### `pat.bytes.escape-set` — Byte-string pattern escape sequences
 
@@ -1383,77 +1526,15 @@ A byte-string literal pattern `b"..."` matching N bytes is equivalent to a slice
 
 *Source:* `src/compiler/sema_stmt.cpp#L3964-L3971`, `src/compiler/sema_stmt.cpp#L4051-L4062`
 
-## Enum-payload binding
+## Union patterns
 
-### `pat.payload.inline-aggregate-binds-address` — Inline-aggregate payload binding uses the slot address as the value
+### `pat.union.one-field-unsafe` — Union pattern names exactly one field inside unsafe
 
-A by-value pattern binding over an inline-aggregate payload (struct, zoned-struct, tuple, slice, closure, nested tagged enum, bare trait object) binds the payload slot's ADDRESS (no load) and carries the corresponding aggregate shape, so subsequent field/index/tuple projections work directly.
+A pattern on a `union` must specify exactly one field (no `..`), and the match must occur inside an `unsafe` block (it reads the named field's memory). Violations are errors.
 
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L184-L271`
+*Source:* `src/compiler/sema_stmt.cpp#L4981-L5005`
 
-### `pat.payload.move-type-binds-by-copy` — By-value binding of a drop-bearing inline payload copies to a fresh slot
-
-When an inline struct/tuple payload bound by value has a type that needs drop, the bytes are copied to a fresh local before binding; the scrutinee place's drop is suppressed (binding moves out), so later mutation of the scrutinee within the arm cannot clobber the binding.
-
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L187-L238`
-
-### `pat.payload.ref-to-struct-binds-place` — `ref l` of a struct-typed payload binds a place reference, not a wrapped pointer
-
-When `ref`/`ref mut` binds a payload field whose type is a (zoned) struct, the binding `l` denotes a reference whose value is the field's address and carries struct shape, so `l.field` projects through it directly (no extra pointer-of-pointer indirection).
-
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L116-L142`
-
-### `pat.payload.scalar-binds-loaded-value` — Scalar payload binding loads the field value into a fresh slot
-
-A by-value pattern binding over a scalar (non-aggregate, non-trait, non-thin-ref-struct) payload field loads the field value from the payload slot and binds a fresh local holding that value.
-
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L269-L293`
-
-### `pat.payload.thin-ref-struct-loads-pointer` — Thin `&Struct`/`&mut Struct` payload binds the loaded pointer with struct shape
-
-A by-value pattern binding over a payload of type `&Struct`/`&mut Struct` (thin pointer to a (zoned) struct) binds the pointer loaded from the payload slot, carrying struct shape, so member access `q.x` projects through the referent — identical to `let r: &Struct`.
-
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L162-L183`
-
-## Guards
-
-### `pat.guard.bind-then-evaluate` — Match guard evaluated after the arm's bindings are in scope
-
-When an arm has a guard `if g`, the arm's pattern bindings are extracted and made visible to `g`; `g` is then evaluated as a boolean; if it holds the arm body runs (reusing the already-established bindings), otherwise control proceeds to the next arm. A failing guard does not fall through to other arms that share the same pattern test — the whole arm is skipped.
-
-*Source:* `src/compiler/mlir_gen_stmt.cpp#L4346-L4358`, `src/compiler/mlir_gen_stmt.cpp#L4359-L4366`
-
-## Grouping & unit patterns
-
-### `pat.group.paren` — Parenthesised / grouped pattern
-
-`(P)` is exactly P and `(P | Q | ...)` is a grouped or-pattern (inlined into a single or-pattern at that position). `(..)` matches any tuple binding nothing (irrefutable wildcard).
-
-*Source:* `tools/peg_gen/grammars/logos.peg#L2212-L2227`
-
-### `pat.unit.no-binding` — `()` unit sub-pattern binds nothing
-
-A `()` (unit) sub-pattern in a variant payload position introduces no binding.
-
-*Source:* `src/compiler/sema_stmt.cpp#L3717`
-
-## String patterns
-
-### `pat.str.lowers-to-eq-guard` — String-literal pattern lowers to equality guard
-
-A string-literal pattern `match s { "foo" => ... }` is matched by lowering to a `str_eq` guard.
-
-*Source:* `tools/peg_gen/grammars/logos.peg#L312`
-
-### `pat.str.position-restricted` — String-literal patterns allowed only in specific positions
-
-String-literal patterns are supported only as a whole match arm (`match s { "foo" => .. }`), inside an enum-variant payload (`Some("foo")`), or as a tuple element (`("foo", _)`). In any other position (e.g. inside an array/slice pattern) a string-literal pattern is an error.
-
-*Divergence from Rust:* Rust permits string patterns in all pattern positions; Logos restricts them.
-
-*Source:* `src/compiler/sema_stmt.cpp#L4296-L4312`
-
-## for-loop patterns
+## `for`-loop patterns
 
 ### `pat.for-loop.discard-underscore` — underscore element binds nothing
 
@@ -1480,16 +1561,6 @@ A `for <pat> in <iter>` loop pattern that is destructured in place must be a tup
 *Uncertainty:* Restriction is implementation-current, not a designed language limit.
 
 *Source:* `src/compiler/sema_stmt.cpp#L8150-L8155`, `src/compiler/sema_stmt.cpp#L8184-L8188`
-
-## Pattern ergonomics
-
-### `pat.ergonomics.deref-scrutinee` — Match ergonomics peel all &/&mut/* layers
-
-Pattern matching peels all `&`, `&mut`, and `*` layers of the scrutinee type to obtain the concrete payload shape, so a pattern over `&&Enum<T>` (arbitrary depth) unifies against the inner `Enum<T>`.
-
-*Divergence from Rust:* Rust-conformant (RFC 2005 default binding modes)
-
-*Source:* `src/compiler/sema_stmt.cpp#L3220-L3243`, `src/compiler/sema_stmt.cpp#L3828-L3851`
 
 ## Writ-substrate patterns
 

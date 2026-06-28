@@ -9,15 +9,21 @@
       "domain": "borrow",
       "title": "Move state at control-flow join is the union of branches",
       "statement": "At a control-flow merge of two branch states, a place is considered moved in the joined state iff it is moved in EITHER branch (move-state is unioned, not intersected); a non-diverging branch's moves propagate into the join.",
-      "evidence": ["src/compiler/borrow_check.cpp#L648-L652"],
-      "related": ["borrow.flow.diverged-arm-skipped"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L648-L652"
+      ],
+      "related": [
+        "borrow.flow.diverged-arm-skipped"
+      ]
     },
     {
       "id": "borrow.flow.diverged-arm-skipped",
       "domain": "borrow",
       "title": "Diverging branch arms do not contribute moves to the join",
       "statement": "A branch arm that diverges (ends in return/break/continue) is excluded from the move-state merge: its moves do not pollute the join, since control reaching the join cannot have come through that arm.",
-      "evidence": ["src/compiler/borrow_check.cpp#L784-L788"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L784-L788"
+      ],
       "uncertainty": "Merge-skip logic enforcing this lives in If/Match merge sites outside this slice; here only the cur_diverged_ flag is declared."
     },
     {
@@ -25,14 +31,19 @@
       "domain": "borrow",
       "title": "Borrows are released at the end of their lexical scope",
       "statement": "Each borrow (shared, mutable, or outstanding mut-reservation) is held by the scope frame in which it was taken; on exit from that scope the borrow is released (shared count decremented, mut flag cleared, or one reservation removed), restoring the target's borrow availability.",
-      "evidence": ["src/compiler/borrow_check.cpp#L826-L855"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L826-L855"
+      ]
     },
     {
       "id": "borrow.dropck.drop-binding-must-outlive-borrowed-local",
       "domain": "borrow",
       "title": "A Drop-having binding may not borrow a local that dies first",
       "statement": "If a binding's type has a Drop impl and its declared type carries a lifetime parameter (dropck-relevant), then every local it borrows at construction must outlive the binding; a local going out of scope while such a binding still lives is rejected (the binding's Drop would run after the local dies).",
-      "evidence": ["src/compiler/borrow_check.cpp#L856-L877", "src/compiler/borrow_check.cpp#L918-L933"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L856-L877",
+        "src/compiler/borrow_check.cpp#L918-L933"
+      ],
       "divergence": "B87"
     },
     {
@@ -40,7 +51,10 @@
       "domain": "borrow",
       "title": "NLL E0597: a borrow outliving its referent errors at first later use",
       "statement": "A reference/borrow-carrying binding that outlives a local it borrows becomes dangling when that local goes out of scope; this is not an error in itself — only the FIRST subsequent USE of the dangling binding is rejected (NLL: a stored borrow never used after its referent dies is accepted). A binding dying in the same scope as its source is always fine.",
-      "evidence": ["src/compiler/borrow_check.cpp#L765-L775", "src/compiler/borrow_check.cpp#L878-L893"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L765-L775",
+        "src/compiler/borrow_check.cpp#L878-L893"
+      ],
       "divergence": "B6"
     },
     {
@@ -48,57 +62,74 @@
       "domain": "borrow",
       "title": "Borrowing one union field borrows the whole union",
       "statement": "Because union fields share storage, a borrow of any one field of a union implicitly borrows ALL fields; field-path borrows of a union root are coerced to whole-root borrows so any other field-path of the same union overlaps and conflicts.",
-      "evidence": ["src/compiler/borrow_check.cpp#L934-L949"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L934-L949"
+      ]
     },
     {
       "id": "borrow.path.prefix-conflict",
       "domain": "borrow",
       "title": "Field-path borrow conflict by prefix overlap",
       "statement": "Path P is a prefix of path Q iff P==Q or Q begins with P+\".\". Two field-path borrows of the same root conflict iff their paths overlap (one is a prefix of the other) AND at least one is mutable. The empty path denotes the whole value and overlaps every path.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1112-L1125", "src/compiler/borrow_check.cpp#L1140-L1141"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1112-L1125",
+        "src/compiler/borrow_check.cpp#L1140-L1141"
+      ]
     },
     {
       "id": "borrow.path.access-vs-field-borrow",
       "domain": "borrow",
       "title": "Accessing a place conflicts with overlapping field borrows",
       "statement": "Accessing target.path is rejected if it overlaps a tracked mutable field-borrow of the same root; an exclusive access (whole move or partial move) additionally conflicts with any overlapping shared field-borrow, whereas a plain read conflicts only with a mutable field-borrow.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1131-L1165"],
-      "divergence": "E0503/E0505"
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1131-L1165"
+      ]
     },
     {
       "id": "borrow.move.typevar-move-unless-copy",
       "domain": "borrow",
       "title": "Generic type parameters are move-classified unless Copy-bound",
       "statement": "A bare type-parameter (TypeVar) value is classified as move (consumed on use) unless its parameter has an explicit Copy bound, matching Rust generic-body semantics where T is move-by-default.",
-      "evidence": ["src/compiler/borrow_check.cpp#L725-L726"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L725-L726"
+      ]
     },
     {
       "id": "borrow.prov.borrow-returning-call-ties-to-ref-inputs",
       "domain": "borrow",
       "title": "A borrow-returning call's provenance is its reference inputs",
       "statement": "When a method or free function returns a reference (or borrow-carrying type), the result's borrow provenance is the set of reference-typed inputs (receiver and reference arguments) it was derived from — lifetime-elision provenance — so the result cannot escape the scope of any borrowed local it transitively names.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1062-L1096"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1062-L1096"
+      ]
     },
     {
       "id": "borrow.prov.ref-copy-propagates-sources",
       "domain": "borrow",
       "title": "Copying a reference binding propagates its borrow sources",
       "statement": "Assigning one reference binding from another (o = r) makes o borrow whatever r borrows: the source set is propagated, so an aliased borrow cannot escape its referent's scope via a copy.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1097-L1106"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1097-L1106"
+      ]
     },
     {
       "id": "borrow.prov.binding-never-borrows-itself",
       "domain": "borrow",
       "title": "A binding is never recorded as borrowing itself",
       "statement": "When recording the local sources a binding borrows from, the binding's own name is removed from its source set; a reborrow such as let r2 = &*r records r (not r2) as the source.",
-      "evidence": ["src/compiler/borrow_check.cpp#L983-L1003"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L983-L1003"
+      ]
     },
     {
       "id": "borrow.prov.locals-only-not-params",
       "domain": "borrow",
       "title": "Borrow-source tracking covers only local variables, not parameters",
       "statement": "Provenance/dangling tracking records as borrow sources only locally declared variables; function parameters are filtered out, since a borrow of a parameter does not dangle within the function body.",
-      "evidence": ["src/compiler/borrow_check.cpp#L958-L962", "src/compiler/borrow_check.cpp#L1032-L1044"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L958-L962",
+        "src/compiler/borrow_check.cpp#L1032-L1044"
+      ]
     }
   ]
 }

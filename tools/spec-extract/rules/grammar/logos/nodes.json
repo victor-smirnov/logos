@@ -9,7 +9,9 @@
       "domain": "divergence",
       "title": "No C++-style class/new/delete",
       "statement": "The language has no `class` declaration, `new` expression, or `delete` statement. Heap allocation is expressed via `Box` (and other library owning types), not a built-in `new`/`delete` pair.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L165-L166"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L165-L166"
+      ],
       "divergence": "Logos addition/removal vs C++; Rust-conformant (Rust also has no class/new/delete)."
     },
     {
@@ -17,109 +19,136 @@
       "domain": "expr",
       "title": "Chained comparisons rejected",
       "statement": "A comparison chain with 2+ comparators in a row (`a < b < c`) is rejected at sema with the diagnostic \"chained comparisons not supported; use `a < b && b < c`\". It parses (CHAINED_CMP) but is not a valid program.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L289"],
-      "divergence": "B-ex-08"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L289"
+      ]
     },
     {
       "id": "type.paren.unwrap-to-inner",
       "domain": "type",
       "title": "Parenthesized type is structurally its inner type",
       "statement": "A parenthesized type `(T)` is unwrapped to its inner type `T`; `(T)` and `T` are structurally identical.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L290"],
-      "divergence": "B-ty-09"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L290"
+      ]
     },
     {
       "id": "type.ref.double-ref-nesting",
       "domain": "type",
       "title": "Double reference types desugar to nested references",
       "statement": "`&&T` resolves to a nested reference `&(&T)`; `&&mut T` resolves to `&(&mut T)`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L286-L287"],
-      "divergence": "B-ty-07"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L286-L287"
+      ]
     },
     {
       "id": "type.slice.unsized-only-behind-pointer",
       "domain": "type",
       "title": "Unsized slice [T] cannot appear by value",
       "statement": "The bare unsized slice type `[T]` (Kind::UnsizedSlice) may not appear by value; it is only legal behind `&`/`*const`/`*mut` (canonicalised to a sized Slice) or as a `T: ?Sized` substitution.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L304"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L304"
+      ]
     },
     {
       "id": "expr.return.implicit-tail",
       "domain": "expr",
       "title": "Tail expression is implicit return",
       "statement": "A trailing expression with no terminating `;` at statement position synthesizes an implicit `return expr` for a non-void function.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L291"],
-      "divergence": "B-fn-06"
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L291"
+      ]
     },
     {
       "id": "expr.cast.byte-string-to-array",
       "domain": "expr",
       "title": "Byte-string literal is [u8; N]",
       "statement": "A byte-string literal `b\"...\"` at expression position lowers to an array literal of type `[u8; N]` (escapes decoded).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L302"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L302"
+      ]
     },
     {
       "id": "expr.lit.char-is-unicode-scalar",
       "domain": "expr",
       "title": "Char literal is a Unicode scalar",
       "statement": "A char literal `'X'` denotes a single Unicode scalar value, decoded to a `u32` scalar.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L292", "tools/peg_gen/grammars/logos.peg#L296"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L292",
+        "tools/peg_gen/grammars/logos.peg#L296"
+      ]
     },
     {
       "id": "expr.invoke.expression-callee",
       "domain": "expr",
       "title": "Expression-as-callee invocation",
       "statement": "`(expr)(args)` invokes the value produced by `expr` as a callee, routed through closure-call or fn-ptr-call.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L298"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L298"
+      ]
     },
     {
       "id": "expr.control.break-continue-return-in-value-position",
       "domain": "expr",
       "title": "break/continue/return usable in expression position",
       "statement": "`break`, `continue`, and `return` may appear in expression position (Never-typed); the bare `return` form carries no value. They type-check as `!`/Never so surrounding expressions accept them.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L299-L301"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L299-L301"
+      ]
     },
     {
       "id": "stmt.fn.nested-lifts-to-toplevel",
       "domain": "stmt",
       "title": "Nested function lifted to a free function",
       "statement": "A `fn name(params) [-> T] { body }` at statement position is lifted to a top-level free function (gensym name); the local name is bound as a fn-ptr `let`. A nested fn does not capture enclosing locals.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L303"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L303"
+      ]
     },
     {
       "id": "item.union.layout-and-unsafe-access",
       "domain": "item",
       "title": "Union layout and unsafe field access",
       "statement": "A `union NAME { f: T, ... }` is a struct-shaped type whose size is max-of-fields aligned to max field alignment; reading or writing a union field requires an `unsafe` block.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L321"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L321"
+      ]
     },
     {
       "id": "item.static.global-storage-and-mut-safety",
       "domain": "item",
       "title": "static items have global storage; mut access is unsafe",
       "statement": "`static [mut] NAME: T = expr;` is a true global with a stable address and `&STATIC` identity. Reads and writes of a `static mut` require `unsafe`. A static with no initializer is an extern (external-linkage) declaration.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L322"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L322"
+      ]
     },
     {
       "id": "intrinsic.offset-of.compile-time-byte-offset",
       "domain": "intrinsic",
       "title": "offset_of! yields compile-time field offset",
       "statement": "`offset_of!(Type, field)` evaluates at compile time to the byte offset of `field` within `Type`'s ABI layout, as an i64 constant.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L323"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L323"
+      ]
     },
     {
       "id": "intrinsic.sizeof-pack.length-of-type-pack",
       "domain": "intrinsic",
       "title": "sizeof...(T) yields pack length",
       "statement": "`sizeof...(T)` is a value-position expression yielding the length of the type pack `T` as a `u64`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L271"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L271"
+      ]
     },
     {
       "id": "pat.float.rejected-at-sema",
       "domain": "pat",
       "title": "Float-literal patterns rejected",
       "statement": "A float-literal pattern parses but is rejected at sema (not a valid match pattern).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L283"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L283"
+      ],
       "divergence": "Rust also forbids float patterns (deprecated/removed)."
     },
     {
@@ -127,21 +156,27 @@
       "domain": "pat",
       "title": "String-literal pattern lowers to equality guard",
       "statement": "A string-literal pattern `match s { \"foo\" => ... }` is matched by lowering to a `str_eq` guard.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L312"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L312"
+      ]
     },
     {
       "id": "pat.let.refutability-checked",
       "domain": "pat",
       "title": "let with complex pattern checked for refutability",
       "statement": "`let <pattern> = expr;` for a pattern beyond a simple ident/tuple is an irrefutable destructure: sema checks the pattern is irrefutable and lowers it via `match`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L285"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L285"
+      ]
     },
     {
       "id": "stmt.assign.destructuring-into-places",
       "domain": "stmt",
       "title": "Destructuring assignment into existing places",
       "statement": "Destructuring assignment `(a,b)=e` / `[a,b]=e` / `S{a,b}=e` writes into EXISTING places (not new bindings), desugared to `let tmp = rhs;` followed by per-place assignments.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L311"],
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L311"
+      ],
       "divergence": "RFC 2909 (Rust-conformant)."
     },
     {
@@ -149,56 +184,73 @@
       "domain": "expr",
       "title": "if-let chain falls to else on any segment failure",
       "statement": "`if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }` evaluates a flat sequence of refutable binds and boolean conditions left-to-right; any failed bind or false condition takes the ELSE branch.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L318-L320"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L318-L320"
+      ]
     },
     {
       "id": "item.extern-block.abi-default-to-children",
       "domain": "item",
       "title": "extern block applies its ABI as a default",
       "statement": "`extern \"ABI\" { extern_fn* }` splices its function items into the module item stream; the block ABI applies as a default to children that do not specify their own ABI. An omitted block ABI is the default Logos-internal ABI.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L317"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L317"
+      ]
     },
     {
       "id": "module.use.variant-shorthand-vs-subpackage",
       "domain": "module",
       "title": "use {..} disambiguated by first-character case",
       "statement": "In `use pkg.Path.X.{V1, V2, ...};` the last dotted segment `X` disambiguates by its first character's case: uppercase ⇒ enum-variant bare-name shorthand import; lowercase ⇒ grouped sub-package import.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L309"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L309"
+      ]
     },
     {
       "id": "module.attr.inner-vs-item-attribute",
       "domain": "module",
       "title": "Inner attribute applies at file/module level",
       "statement": "`#![name]` / `#![name(args)]` / `#![name=val]` is a file/module-level inner attribute, distinct from per-item `#[...]` attributes.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L310"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L310"
+      ]
     },
     {
       "id": "metaprog.metacall.explicit-comptime-call",
       "domain": "metaprog",
       "title": "metacall executes a call at compile time",
       "statement": "`metacall <call_expr>` executes the wrapped call at compile time; at module-item position the JIT'd callee returns an item blob whose emitted items are spliced into the module.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L266", "tools/peg_gen/grammars/logos.peg#L277"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L266",
+        "tools/peg_gen/grammars/logos.peg#L277"
+      ]
     },
     {
       "id": "metaprog.quote.typed-ast-literals",
       "domain": "metaprog",
       "title": "quote_* produce typed AST/Type literals",
       "statement": "`quote_item! { item* }`, `quote_expr! { expr }`, and `quote_ty! { type }` are typed literals yielding item-list, expression, and Type AST values respectively. Antiquotation `$ident` (a Type-valued binding) and `$ident...` (an Array<Type> binding) are legal only inside `quote_ty!`.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L268-L274"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L268-L274"
+      ]
     },
     {
       "id": "metaprog.fn-macro.expr-and-item-forms",
       "domain": "metaprog",
       "title": "Function-style macros resolve to #[fn_macro] fns",
       "statement": "`name!(args)` / `name![args]` resolves CALLEE against `#[fn_macro]` functions with argument ASTs passed as expression blobs; `name!{...}` at item position routes through item-splice (callee returns an item list).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L293-L294"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L293-L294"
+      ]
     },
     {
       "id": "item.doc.comment-attached-to-next-item",
       "domain": "item",
       "title": "Doc comments attach as documentation",
       "statement": "Outer doc comments (`///`, `/** */`) accumulate and attach to the next item; inner doc comments (`//!`, `/*! */`) accumulate into the module-level inner documentation. The comment markers are stripped.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L305-L308"]
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L305-L308"
+      ]
     }
   ]
 }

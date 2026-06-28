@@ -9,65 +9,84 @@
       "domain": "borrow",
       "title": "Whole-value borrow blocks any field borrow",
       "statement": "A field-path borrow of `x.p` is rejected if `x` is already mutably borrowed; a `&mut x.p` is also rejected if `x` has any active shared borrow.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1175-L1186"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1175-L1186"
+      ]
     },
     {
       "id": "borrow.field.mutability-through-reference-root",
       "domain": "borrow",
       "title": "Field mutation legality from reference-typed root",
       "statement": "When the root `x` of a field place `x.p` has reference type, mutation legality is determined by the reference TYPE not the binding's `mut`: a `&mut`-typed root permits `&mut x.p`; a `&`-typed (shared) root rejects `&mut x.p` (E0596); the mut-binding declaration check is skipped for reference-typed roots.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1192-L1209"],
-      "divergence": "Rust E0596 conformant"
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1192-L1209"
+      ]
     },
     {
       "id": "borrow.field.mut-binding-required",
       "domain": "borrow",
       "title": "&mut of a field requires a mut binding (non-reference root)",
       "statement": "`&mut x.p` where `x` has a non-reference value type is rejected unless `x` is declared `mut` or is a function parameter.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1202-L1209"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1202-L1209"
+      ]
     },
     {
       "id": "borrow.field.overlapping-path-conflict",
       "domain": "borrow",
       "title": "Field borrows conflict on overlapping paths",
       "statement": "`&mut x.p` is rejected if any overlapping path `x.q` is already shared-borrowed; any new borrow of `x.p` is rejected if an overlapping path is already mutably borrowed. Two paths overlap when equal or one is a dot-prefix of the other; disjoint sibling fields do not conflict.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1210-L1227"],
-      "related": ["borrow.move.path-overlap"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1210-L1227"
+      ],
+      "related": [
+        "borrow.move.path-overlap"
+      ]
     },
     {
       "id": "borrow.take.moved-cannot-borrow",
       "domain": "borrow",
       "title": "Cannot borrow a moved value",
       "statement": "Taking any borrow (shared or mut) of a value that has been moved is rejected.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1245-L1249"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1245-L1249"
+      ]
     },
     {
       "id": "borrow.take.mut-requires-mut-binding",
       "domain": "borrow",
       "title": "&mut requires a mut binding",
       "statement": "Taking `&mut x` is rejected unless `x` is declared `mut` or is a function parameter.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1259-L1264"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1259-L1264"
+      ]
     },
     {
       "id": "borrow.take.field-borrow-blocks-whole-mut",
       "domain": "borrow",
       "title": "Any field borrow blocks a whole-value &mut",
       "statement": "Taking `&mut x` is rejected if any field-path borrow (shared or mut) of `x` is active.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1265-L1272"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1265-L1272"
+      ]
     },
     {
       "id": "borrow.take.mut-exclusive",
       "domain": "borrow",
       "title": "&mut is exclusive with existing mut and shared borrows",
       "statement": "Taking `&mut x` is rejected if `x` is already mutably borrowed, if another mut reservation is in flight, or (outside call-arg evaluation) if any shared borrow of `x` is active.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1273-L1328"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1273-L1328"
+      ]
     },
     {
       "id": "borrow.take.call-arg-mut-reservation",
       "domain": "borrow",
       "title": "Two-phase borrow reservation during call-argument evaluation",
       "statement": "Inside function-call argument evaluation, a `&mut x` is taken as a reservation that is compatible with shared borrows of `x` created during the same argument evaluation, but is rejected if any shared borrow of `x` pre-exists from an outer scope. Two `&mut x` in the same call (overlapping reservations) still conflict.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1278-L1321"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1278-L1321"
+      ],
       "divergence": "Rust two-phase borrow conformant"
     },
     {
@@ -75,43 +94,54 @@
       "domain": "borrow",
       "title": "Shared borrow excludes an active mut borrow",
       "statement": "Taking `&x` is rejected if `x` is already mutably borrowed or if any field of `x` is mutably borrowed; otherwise multiple shared borrows coexist.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1329-L1343"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1329-L1343"
+      ]
     },
     {
       "id": "borrow.move.path-overlap",
       "domain": "borrow",
       "title": "Move-path overlap semantics",
       "statement": "Two dotted paths conflict iff equal or one is a dot-prefix of the other; reading a moved leaf, a path inside a moved subtree, or a parent containing a moved leaf are all uses of (partially) moved data, while disjoint siblings do not conflict.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1350-L1360"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1350-L1360"
+      ]
     },
     {
       "id": "borrow.move.reinit-clears-deeper",
       "domain": "borrow",
       "title": "Re-initialization clears equal and deeper move records",
       "statement": "Assigning a path `p` re-initializes `p` and all deeper paths `p.*` (clearing their moved state), but a shallower moved entry is NOT resurrected: assigning `o.i.s` does not un-move a moved `o.i`.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1369-L1381"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1369-L1381"
+      ]
     },
     {
       "id": "borrow.move.partial-move-blocks-use",
       "domain": "borrow",
       "title": "Use of a partially moved value is rejected",
       "statement": "Consuming a value with at least one moved field is rejected as use of a partially moved value; consuming an already wholly-moved value is rejected as use of a moved value.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1383-L1401"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1383-L1401"
+      ]
     },
     {
       "id": "borrow.move.borrowed-cannot-move",
       "domain": "borrow",
       "title": "Cannot move a borrowed value",
       "statement": "Moving `x` is rejected while `x` is mutably borrowed, shared-borrowed, has a mut reservation in flight, or while any field of `x` is borrowed (E0505); a successful move resets `x`'s state and records it as moved.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1402-L1415"],
-      "divergence": "Rust E0505 conformant"
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1402-L1415"
+      ]
     },
     {
       "id": "borrow.region.dangling-after-scope-exit",
       "domain": "region",
       "title": "Use of reference after referent leaves scope (E0597)",
       "statement": "A reference/borrow-carrying binding whose referent local has gone out of scope is flagged dangling; the first subsequent use reports E0597 ('does not live long enough'), once per binding. A stored borrow never used after its referent dies is sound (NLL).",
-      "evidence": ["src/compiler/borrow_check.cpp#L1433-L1456"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1433-L1456"
+      ],
       "divergence": "Rust NLL E0597 conformant; line-granular release (DIVERGENCES B6 closed)"
     },
     {
@@ -119,21 +149,27 @@
       "domain": "borrow",
       "title": "Use of moved or mutably-borrowed value",
       "statement": "A value-use of `x` is rejected if `x` is moved (use of moved value) or while `x` is mutably borrowed.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1444-L1455"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1444-L1455"
+      ]
     },
     {
       "id": "pat.bind.variant-and-wild-introduce-bindings",
       "domain": "pat",
       "title": "Pattern bindings introduced into scope",
       "statement": "A variant-data pattern injects each of its binding names into scope; a wildcard pattern binds its name into scope only when the name is non-empty and not `_`.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1477-L1501"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1477-L1501"
+      ]
     },
     {
       "id": "region.pat.by-ref-binding-inherits-borrows",
       "domain": "region",
       "title": "By-reference match binding inherits scrutinee borrows",
       "statement": "When a `match`-arm variant-data binding has reference type or borrow-carrying type, it inherits the scrutinee's borrow sources, so the borrow cannot be smuggled past the referent's scope via the binding. By-value bindings copy out and carry no borrow.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1506-L1528"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1506-L1528"
+      ],
       "divergence": "Rust NLL conformant (DIVERGENCES B6)"
     },
     {
@@ -141,7 +177,9 @@
       "domain": "region",
       "title": "Elided &self -> &T (or borrow-carrying) ties result to receiver",
       "statement": "A method with a reference first parameter, a reference or borrow-carrying return type, and no explicit lifetime parameters has its result lifetime tied to the receiver (self-borrowing). A method with explicit lifetime parameters does NOT count as self-borrowing.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1531-L1567"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1531-L1567"
+      ],
       "divergence": "Rust lifetime-elision conformant"
     },
     {
@@ -149,14 +187,18 @@
       "domain": "region",
       "title": "Operator-desugared call self-borrowing by name agreement",
       "statement": "For an operator-desugared/trait method call carrying an empty resolved symbol (e.g. `v[i]`, `*p`), the result borrows the receiver iff EVERY method with that unmangled name is self-borrowing; any disagreement or no match yields not-self-borrowing.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1550-L1567"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1550-L1567"
+      ]
     },
     {
       "id": "region.escape.borrow-carrying-type",
       "domain": "region",
       "title": "Borrow-carrying types and transitive containers are escape-tracked",
       "statement": "A `#[borrow_carrying]` type (e.g. WAny) is escape-tracked like a reference, as is any generic container whose type-argument is transitively borrow-carrying (`Vec<WAny>`, `Option<WAny>`, `Box<WAny>`). A residency-exempt laundered-escape type (`Held<T>`/`HeldAny`) is never borrow-carrying, including via its type-arguments. A raw pointer (no type-args) is not borrow-carrying.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1626-L1651"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1626-L1651"
+      ],
       "divergence": "Logos addition (#[borrow_carrying] arena escape model)"
     },
     {
@@ -164,7 +206,9 @@
       "domain": "region",
       "title": "Value-local root of a borrow place",
       "statement": "The dangling-root of a borrow/receiver place is found by walking one optional leading address-of-temp, then a field/tuple-index/index/deref projection chain to a terminal variable, where a raw-pointer deref stops the walk (pointee not tied to pointer's stack lifetime). The terminal must be a value local (not a parameter, not a tracked reference binding) for the reference to be considered dangling-on-escape.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1653-L1689"],
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1653-L1689"
+      ],
       "divergence": "Rust parity (raw-pointer deref breaks provenance, cf. box_leak)"
     },
     {
@@ -172,7 +216,9 @@
       "domain": "borrow",
       "title": "Bare-place method receiver self-borrow conflict",
       "statement": "A method call on a whole-variable (non-field) bare-place receiver borrowing `self` conflicts with a live borrow of that variable: it is rejected if the variable is already mutably borrowed, or (for `&mut self`) if it has active shared borrows or any active field borrow. A raw-pointer-typed root is unchecked; reference-typed roots are checked.",
-      "evidence": ["src/compiler/borrow_check.cpp#L1601-L1624"]
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L1601-L1624"
+      ]
     }
   ]
 }

@@ -9,43 +9,56 @@
       "domain": "expr",
       "title": "Method receiver peels surplus reference layers",
       "statement": "For a method call `r.m(...)`, if the receiver type is a (non-raw) reference-like type whose pointee is itself reference-like (`&&T`, `&&mut T`, etc.), the extra reference layers are removed by explicit derefs until a single reference layer remains: `r.m()` for `r:&&T` ≡ `(*r).m()`. Raw pointers (`*const`/`*mut`) are not peeled here.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7124-L7130"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7124-L7130"
+      ]
     },
     {
       "id": "expr.method.vec-get-move-out-rejected",
       "domain": "expr",
       "title": "Vec::get of a non-Copy element is rejected",
       "statement": "`v.get(i)` on a receiver resolving (through one reference layer) to `Vec<E>` where `E` is a non-Copy (move) type is an error: it would move an element out of borrowed Vec storage, aliasing and double-freeing on drop. The fix is `.borrow(i)` for `&E`, or `.remove(..)`/`.pop()` to take ownership. Copy elements are permitted.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7139-L7160"],
-      "divergence": "Mirrors Rust's E0507 'cannot move out of index'; scoped here to Vec::get."
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7139-L7160"
+      ]
     },
     {
       "id": "expr.method.deref-autoderef-resolution",
       "domain": "expr",
       "title": "Method resolution autoderefs through Deref/DerefMut",
       "statement": "If the receiver is a struct with no direct method named `m` (no candidate keyed by concrete or base struct name), and the struct implements `Deref<Target>`, the receiver is dereferenced to `Target` and resolution retries; iterated up to a fixed bound (16). A method defined on the outer type always wins over a Deref-target method.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7203-L7238"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7203-L7238"
+      ]
     },
     {
       "id": "expr.method.deref-step-prefers-mut",
       "domain": "expr",
       "title": "Per-step DerefMut chosen when target method needs &mut self",
       "statement": "At each autoderef step, if the Deref target has a candidate method `m` whose first parameter is `&mut Self` and the receiver type implements DerefMut, the mutable DerefMut step is taken so the resulting receiver is a mutable place (`&mut Target`) rather than the shared `&Target` an immutable Deref would yield. Falls back to Deref when no DerefMut impl exists.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7170-L7202", "src/compiler/sema_expr.cpp#L7234-L7237"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7170-L7202",
+        "src/compiler/sema_expr.cpp#L7234-L7237"
+      ]
     },
     {
       "id": "expr.method.turbofish-bypasses-inference",
       "domain": "expr",
       "title": "Method-level turbofish supplies explicit type args",
       "statement": "A method call may carry an explicit turbofish `recv.m::<T1,T2>(args)`; the supplied type arguments become the method's type parameters and downstream per-arg type-param inference from argument types is bypassed.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7241-L7265", "src/compiler/sema_expr.cpp#L7504-L7510"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7241-L7265",
+        "src/compiler/sema_expr.cpp#L7504-L7510"
+      ]
     },
     {
       "id": "expr.method.array-len-builtin",
       "domain": "expr",
       "title": "len() on a fixed array is a compile-time constant",
       "statement": "`a.len()` where `a` has fixed-array type `[T; N]` evaluates to the compile-time size `N` as an `i64` literal; no runtime call is emitted.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7280-L7284"],
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7280-L7284"
+      ],
       "divergence": "Result type is i64 (Logos stdlib uses i64 for lengths), not usize as in Rust."
     },
     {
@@ -53,77 +66,104 @@
       "domain": "expr",
       "title": "Method call through a raw pointer requires unsafe",
       "statement": "Dispatching a method when the receiver type is a raw pointer (`*const`/`*mut`), including `*mut dyn Trait`/`*const dyn Trait`, requires an `unsafe` context; outside `unsafe` it is an error. The raw pointer is peeled to its pointee for dispatch.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7301-L7312", "src/compiler/sema_expr.cpp#L7324-L7327"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7301-L7312",
+        "src/compiler/sema_expr.cpp#L7324-L7327"
+      ]
     },
     {
       "id": "expr.method.typevar-trait-method-dispatch",
       "domain": "trait",
       "title": "Method on a bounded type parameter resolves via its trait bounds",
       "statement": "If the receiver (after peeling one reference/raw-pointer layer) is a type parameter `T` (or, conditionally, an associated-type projection), the method is resolved against the traits in `T`'s declared bounds; the concrete impl is selected later during monomorphization.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7320-L7340", "src/compiler/sema_expr.cpp#L7367-L7375", "src/compiler/sema_expr.cpp#L7439-L7443"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7320-L7340",
+        "src/compiler/sema_expr.cpp#L7367-L7375",
+        "src/compiler/sema_expr.cpp#L7439-L7443"
+      ]
     },
     {
       "id": "trait.dispatch.supertrait-dag-search",
       "domain": "trait",
       "title": "Bounded-type method search walks the supertrait DAG",
       "statement": "Method lookup on a bounded type parameter searches each bound trait and, transitively, its supertraits (depth-first, with cycle/diamond guarding). Substitutions compose along supertrait references: a supertrait reference's type-args (written in the sub-trait's namespace incl. Self) are resolved through the current substitution and bound to the supertrait's formal params.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7400-L7437", "src/compiler/sema_expr.cpp#L7386-L7398"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7400-L7437",
+        "src/compiler/sema_expr.cpp#L7386-L7398"
+      ]
     },
     {
       "id": "trait.dispatch.ambiguous-method-error",
       "domain": "trait",
       "title": "Method matching multiple bound traits is ambiguous",
       "statement": "When a method name `m` is provided by two distinct traits reachable from a type parameter's bounds (e.g. `trait Foo: A + B` where both A and B define `m`), the call is an error: method `m` is ambiguous (matches both traits). All supertrait siblings are searched so the ambiguity is detected rather than silently resolving to one.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7411-L7421"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7411-L7421"
+      ]
     },
     {
       "id": "trait.dispatch.assoc-type-nondefault-gate",
       "domain": "trait",
       "title": "Associated-type receiver intercepted only for a non-default method",
       "statement": "A method call whose receiver is an associated-type projection `G::R` is dispatched via the assoc-type's declared bounds (`type R: HasId`) only when those bounds supply a NON-default method of that name; if the only provider is a default method (e.g. via a blanket impl), dispatch defers to the ordinary path.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7341-L7366", "src/compiler/sema_expr.cpp#L7444-L7458"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7341-L7366",
+        "src/compiler/sema_expr.cpp#L7444-L7458"
+      ]
     },
     {
       "id": "trait.dispatch.blanket-bound-transitive",
       "domain": "trait",
       "title": "Blanket extension trait holds transitively on a bounded type param",
       "statement": "If `impl<U: B> Ext for U {}` exists and the receiver type parameter `T` satisfies bound `B` (directly or via a supertrait of one of its bounds) and all the blanket impl's extra bounds, then `T: Ext` holds and `Ext`'s methods (including defaults) are searched for the call.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7460-L7485"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7460-L7485"
+      ]
     },
     {
       "id": "expr.method.unsafe-method-requires-unsafe",
       "domain": "expr",
       "title": "Calling an unsafe trait method requires unsafe",
       "statement": "Calling a trait method declared `unsafe` outside an `unsafe` context is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7487-L7490"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7487-L7490"
+      ]
     },
     {
       "id": "expr.method.arity-check",
       "domain": "expr",
       "title": "Method call argument count must match",
       "statement": "A method call must supply exactly (param count − 1) explicit arguments (excluding the `self` receiver); a mismatch is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7492-L7497"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7492-L7497"
+      ]
     },
     {
       "id": "expr.method.typeparam-inference-from-args",
       "domain": "generic",
       "title": "Method type params inferred by unifying params with arg types",
       "statement": "Absent turbofish, a trait method's type parameters are inferred by unifying each substituted formal parameter type (seeded with Self → receiver type and any supertrait-derived bindings) against the corresponding argument's type.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7498-L7524"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7498-L7524"
+      ]
     },
     {
       "id": "coerce.arg.method-canonical-coercions",
       "domain": "coerce",
       "title": "Method arguments coerced in canonical order",
       "statement": "Each method argument is coerced toward its substituted parameter type in canonical order applying: unsize-to-dyn, implicit reborrow, and integer widening. After coercion, a non-Error/non-TypeVar/non-AssocType param type that is incompatible with the argument type is a type-mismatch error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7525-L7540"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7525-L7540"
+      ]
     },
     {
       "id": "const.intlit.method-arg-range-check",
       "domain": "const",
       "title": "Integer-literal method args range-checked against param type",
       "statement": "An integer-literal argument (including elements of array/tuple literals, recursively through nested arrays and tuples) passed to a method parameter of a concrete integer type must fit that type; an out-of-range value is an error.",
-      "evidence": ["src/compiler/sema_expr.cpp#L7541-L7609"]
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7541-L7609"
+      ]
     }
   ]
 }

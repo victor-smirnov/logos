@@ -9,22 +9,27 @@
       "domain": "borrow",
       "title": "Borrow conflict requires same target, a mutable participant, and overlapping live regions",
       "statement": "Two borrows b1, b2 of the same borrow target conflict iff (b1.target == b2.target) AND (b1.is_mut OR b2.is_mut) AND the inferred live point-sets of their regions intersect (∃ point P ∈ region(b1) ∩ region(b2)). Two shared (&) borrows of the same target never conflict; a borrow of a distinct target never conflicts.",
-      "evidence": ["src/compiler/region_infer.cpp#L841-L868"]
+      "evidence": [
+        "src/compiler/region_infer.cpp#L841-L868"
+      ]
     },
     {
       "id": "borrow.conflict.tpb-reservation-shared-read",
       "domain": "borrow",
       "title": "A mut reservation passed as a call argument tolerates concurrent shared reads of the same target",
       "statement": "A two-phase-borrow (TPB) mut-reservation does not conflict with a concurrent shared (&) borrow of the same target: when one of a conflicting pair is a TPB reservation and the other is non-mut, no conflict is reported. A reservation still conflicts with any other mut borrow or reservation of the same target.",
-      "evidence": ["src/compiler/region_infer.cpp#L849-L854"],
-      "divergence": "B82 (two-phase-borrow reservation compatible with shared reads)"
+      "evidence": [
+        "src/compiler/region_infer.cpp#L849-L854"
+      ]
     },
     {
       "id": "borrow.liveness.backward-dataflow",
       "domain": "borrow",
       "title": "Variable liveness computed by backward dataflow to fixed point",
       "statement": "Liveness over program points (block, stmt-index) is solved by the standard backward dataflow equations: live_out(P) = ∪ live_in(succ(P)); live_in(P) = use(P) ∪ (live_out(P) \\ def(P)). Within a block the successor of a statement is the next statement; the successor of the last statement is the union of live_in at the first statement of each CFG successor block; an empty block forwards its successors' live-in. The solution is the least fixed point.",
-      "evidence": ["src/compiler/region_infer.cpp#L772-L835"]
+      "evidence": [
+        "src/compiler/region_infer.cpp#L772-L835"
+      ]
     }
   ]
 }

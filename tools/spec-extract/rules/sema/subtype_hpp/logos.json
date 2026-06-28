@@ -9,46 +9,66 @@
       "domain": "type",
       "title": "Subtyping refines kind-equality with lifetime variance",
       "statement": "sub <: sup holds when a value of type sub may be used where sup is expected. Subtyping augments lifetime-erased kind/structural compatibility with lifetime-aware variance constraints; it returns true for any cross-kind pair (leaving legitimate cross-kind coercions, e.g. IntLit→i32, &mut→&, Vec→slice, to the separate compatibility check) and only fails when sub and sup share a kind that has a variance rule and their lifetime-aware structure disagrees.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L37-L41", "include/logos/compiler/subtype.hpp#L197-L211"],
-      "related": ["coerce.compatible.equal-implies-compatible"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L37-L41",
+        "include/logos/compiler/subtype.hpp#L197-L211"
+      ],
+      "related": [
+        "coerce.compatible.equal-implies-compatible"
+      ]
     },
     {
       "id": "region.subtype.ref-covariant",
       "domain": "region",
       "title": "&'a T is covariant in lifetime and pointee",
       "statement": "For shared references: &'a T <: &'b U iff 'a: 'b (covariant lifetime) and T <: U (covariant pointee).",
-      "evidence": ["include/logos/compiler/subtype.hpp#L214-L219"],
-      "related": ["region.subtype.mutref-invariant-pointee"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L214-L219"
+      ],
+      "related": [
+        "region.subtype.mutref-invariant-pointee"
+      ]
     },
     {
       "id": "region.subtype.mutref-invariant-pointee",
       "domain": "region",
       "title": "&mut 'a T is covariant in lifetime, invariant in pointee",
       "statement": "For mutable references: &'a mut T <: &'b mut U iff 'a: 'b (covariant lifetime) and T == U with lifetimes (invariant pointee). Hence &mut &'static T is NOT a subtype of &mut &'a T.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L220-L225", "include/logos/compiler/subtype.hpp#L9"],
-      "related": ["region.subtype.ref-covariant"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L220-L225",
+        "include/logos/compiler/subtype.hpp#L9"
+      ],
+      "related": [
+        "region.subtype.ref-covariant"
+      ]
     },
     {
       "id": "type.subtype.rawptr-variance",
       "domain": "type",
       "title": "*const covariant, *mut invariant; mut/const mismatch is shape diff",
       "statement": "Raw pointers carry no lifetime. *const T is covariant in pointee (*const T <: *const U iff T <: U); *mut T is invariant in pointee (*mut T <: *mut U iff T == U with lifetimes). A const-vs-mut pointer-kind mismatch is a shape difference, deferred to the compatibility check (subtype returns true).",
-      "evidence": ["include/logos/compiler/subtype.hpp#L226-L235"],
-      "divergence": "B84 (compiler tag); Rust-conformant for *const/*mut variance"
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L226-L235"
+      ]
     },
     {
       "id": "type.subtype.tuple-array-slice-covariant",
       "domain": "type",
       "title": "Tuples covariant per element; arrays and slices covariant in element",
       "statement": "(S0,..,Sn) <: (P0,..,Pn) iff each Si <: Pi (same arity). [T; N] and [T] are covariant in element type: sub <: sup iff elem(sub) <: elem(sup). Arity/shape mismatch is deferred to the compatibility check.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L236-L246"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L236-L246"
+      ]
     },
     {
       "id": "type.subtype.struct-variance-table",
       "domain": "type",
       "title": "Struct variance from per-def table keyed by package+name, default covariant",
       "statement": "For same struct (matching pkg_name+struct_name), each type-arg position i and lifetime-arg position i is checked at its variance looked up from the per-definition variance table (key 'pkg.Name', subkeys '#i' for type args, '@i' for lifetime args). Absent table or absent entry defaults to covariant (Co). Differing struct name, package, or arg-list arity is a shape difference (subtype returns true).",
-      "evidence": ["include/logos/compiler/subtype.hpp#L247-L278", "include/logos/compiler/subtype.hpp#L11-L13"],
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L247-L278",
+        "include/logos/compiler/subtype.hpp#L11-L13"
+      ],
       "uncertainty": "Variance table is user/compiler-supplied; this unit only consumes it."
     },
     {
@@ -56,7 +76,9 @@
       "domain": "type",
       "title": "Enums covariant in all type-arg and lifetime-arg positions",
       "statement": "For same enum (matching pkg_name+enum_name), every type-arg and lifetime-arg position is treated as covariant (Co); there is no per-enum variance table. Matches the covariant shape of Option/Result/Box. Differing name, package, or arity is a shape difference.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L279-L298"],
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L279-L298"
+      ],
       "uncertainty": "Per-enum variance table not yet wired; Co is a conservative fallback (B81 compiler tag)."
     },
     {
@@ -64,42 +86,58 @@
       "domain": "type",
       "title": "Function pointers and closures: contravariant params, covariant return",
       "statement": "FnPtr and Closure subtype identically: sub <: sup iff each param position is contravariant (sup_param <: sub_param) and the return type is covariant (sub_ret <: sup_ret), with matching param arity. Arity mismatch is deferred to the compatibility check.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L299-L309", "include/logos/compiler/subtype.hpp#L10"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L299-L309",
+        "include/logos/compiler/subtype.hpp#L10"
+      ]
     },
     {
       "id": "type.subtype.assoc-gat-lifetime-invariant",
       "domain": "type",
       "title": "Associated/GAT types: covariant args, invariant GAT lifetime args",
       "statement": "For an associated type projection (same trait_name and assoc_type_name): the base is covariant, each GAT type-arg is covariant, and each GAT lifetime-arg is invariant (must be equal; GAT lifetime variance is not user-controllable). Differing trait/name or arity is a shape difference.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L310-L329", "include/logos/compiler/subtype.hpp#L93-L113"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L310-L329",
+        "include/logos/compiler/subtype.hpp#L93-L113"
+      ]
     },
     {
       "id": "type.subtype.inferred-wildcard",
       "domain": "type",
       "title": "Inferred-type placeholder `_` is variance-compatible with any type",
       "statement": "An InferredType (`_`) on either side of a structural-equality-with-lifetimes comparison is treated as a wildcard matching any type at any nesting depth (e.g. Vec<_> compares equal to Vec<i32>), letting region/type inference resolve it later.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L62-L63", "include/logos/compiler/subtype.hpp#L57-L61"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L62-L63",
+        "include/logos/compiler/subtype.hpp#L57-L61"
+      ]
     },
     {
       "id": "region.subtype.empty-lifetime-wildcard",
       "domain": "region",
       "title": "Empty lifetime acts as a wildcard in structural equality",
       "statement": "In lifetime-aware structural equality, an empty (elided) lifetime on either side matches any lifetime (region inference resolves it). Otherwise lifetimes are equal iff syntactically identical, or mutually outliving ('a: 'b and 'b: 'a) which is treated as equality.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L65-L72", "include/logos/compiler/subtype.hpp#L49-L53"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L65-L72",
+        "include/logos/compiler/subtype.hpp#L49-L53"
+      ]
     },
     {
       "id": "type.equal.lifetime-aware-structural",
       "domain": "type",
       "title": "Lifetime-aware structural equality is stronger than lifetime-erased TypeUID",
       "statement": "Structural type equality used at invariant positions includes lifetime fragments and recurses through Ref/MutRef/Ptr (pointee + lifetime), Tuple/Array/Slice (elements), FnPtr/Closure (params + return), Struct/ZonedStruct/Enum (name, package, type-args, lifetime-args), and AssocType (trait, name, base, GAT type-args + lifetime-args). Two types differing only by an inner lifetime are unequal here even though TypeUID erases the lifetime. Primitives, TypeVars, and other kinds use TypeUID identity.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L54-L151"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L54-L151"
+      ]
     },
     {
       "id": "type.subtype.depth-cap-accept",
       "domain": "type",
       "title": "Recursion depth cap conservatively accepts the subtype relation",
       "statement": "If subtype recursion exceeds depth 64, or either operand is null, the relation is accepted (returns true), deferring soundness to the caller's separate compatibility check.",
-      "evidence": ["include/logos/compiler/subtype.hpp#L203-L204"],
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L203-L204"
+      ],
       "uncertainty": "Conservative termination guard, not a language-design choice."
     },
     {
@@ -107,7 +145,9 @@
       "domain": "region",
       "title": "Per-position variance dictates the lifetime/type relation direction",
       "statement": "At a position with variance v: Bivariant always holds; Covariant requires sub <: sup (lifetimes: 'sub: 'sup); Contravariant requires sup <: sub (lifetimes: 'sup: 'sub); Invariant requires equality (lifetime-aware structural equality for types; normalized-lifetime identity for lifetimes).",
-      "evidence": ["include/logos/compiler/subtype.hpp#L154-L183"]
+      "evidence": [
+        "include/logos/compiler/subtype.hpp#L154-L183"
+      ]
     }
   ]
 }

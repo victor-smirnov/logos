@@ -9,42 +9,56 @@
       "domain": "item",
       "title": "Struct type parameters must be uniquely named",
       "statement": "Within a struct declaration, two type parameters may not share a name; a duplicate is a compile error.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1265-L1269"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1265-L1269"
+      ]
     },
     {
       "id": "item.struct.lifetime-param-unique",
       "domain": "item",
       "title": "Struct lifetime parameters must be uniquely named",
       "statement": "Within a struct declaration, two lifetime parameters may not share a name; a duplicate is a compile error.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1271-L1273"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1271-L1273"
+      ]
     },
     {
       "id": "item.struct.field-name-unique",
       "domain": "item",
       "title": "Struct field names must be unique",
       "statement": "Within a struct declaration, two fields may not share a name; a duplicate is a compile error.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1291-L1294"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1291-L1294"
+      ]
     },
     {
       "id": "region.outlives.lifetime-must-be-declared",
       "domain": "region",
       "title": "Outlives clauses reference only declared lifetimes",
       "statement": "Every lifetime name appearing in a struct or enum outlives bound (header `<'a: 'b>`, where-clause, or type-param `T: 'a`) must be a declared lifetime parameter of that item, the implicit `'static`, or empty; an undeclared lifetime is a compile error. `'static`/`static` are always known.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1241-L1264", "src/compiler/sema_decl.cpp#L1448-L1471"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1241-L1264",
+        "src/compiler/sema_decl.cpp#L1448-L1471"
+      ]
     },
     {
       "id": "region.outlives.where-clause-type-param",
       "domain": "region",
       "title": "Where-clause type-outlives bounds augment a type parameter",
       "statement": "A where-clause entry `T: 'a` (a TYPE_PARAM whose inner items include LIFETIME_PARAMs) attaches each lifetime as an outlives bound on the matching declared type parameter T; entries naming an unknown type parameter are ignored.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1211-L1240", "src/compiler/sema_decl.cpp#L1418-L1447"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1211-L1240",
+        "src/compiler/sema_decl.cpp#L1418-L1447"
+      ]
     },
     {
       "id": "item.struct.transparent-collapses-layout",
       "domain": "item",
       "title": "repr(transparent) collapses to the single field's layout",
       "statement": "A struct annotated `#[repr(transparent)]` has the layout (size/alignment/ABI) of its single field.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1205-L1207"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1205-L1207"
+      ],
       "uncertainty": "Single-field constraint is enforced elsewhere; this unit only propagates the flag."
     },
     {
@@ -52,7 +66,9 @@
       "domain": "layout",
       "title": "Union layout is max-size at max-alignment",
       "statement": "A struct marked as a union (`#[repr(...)]` union) is laid out as the maximum field size aligned to the maximum field alignment; all fields overlap at offset 0.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1202-L1204"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1202-L1204"
+      ],
       "divergence": "Logos union via #[repr]/union attribute; layout semantics match C/Rust unions."
     },
     {
@@ -60,7 +76,9 @@
       "domain": "type",
       "title": "non_null single-pointer wrapper yields Option niche",
       "statement": "A struct annotated `#[non_null]` wrapping a single non-null pointer makes `Option<T>` use the null-pointer value as the None niche (no discriminant overhead).",
-      "evidence": ["src/compiler/sema_decl.cpp#L1200-L1201"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1200-L1201"
+      ],
       "divergence": "A: #[non_null] attribute is a Logos addition mirroring Rust NonNull niche."
     },
     {
@@ -68,7 +86,9 @@
       "domain": "type",
       "title": "self_describing keeps *Self thin",
       "statement": "A struct annotated `#[self_describing]` keeps `*Self` a thin pointer (no DstRef fattening) under Ptr→DstRef canonicalization.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1186-L1189"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1186-L1189"
+      ],
       "divergence": "A: Writ/RefRepr Logos addition, no Rust analog."
     },
     {
@@ -76,7 +96,9 @@
       "domain": "type",
       "title": "zone_mut makes &mut T fat carrying its allocator",
       "statement": "For a struct annotated `#[zone_mut]`, a `&mut T` reference is a fat `{data, zone}` pair carrying the value's allocator/zone.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1190-L1192"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1190-L1192"
+      ],
       "divergence": "A: Writ zone model Logos addition; Rust &mut is thin."
     },
     {
@@ -84,7 +106,9 @@
       "domain": "type",
       "title": "zoned2 struct fields use relative pointers",
       "statement": "A struct annotated `#[zoned2]` stores its pointer fields as self-relative offsets (RelOffset) rather than absolute addresses.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1193"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1193"
+      ],
       "divergence": "A: Writ zoned2 Logos addition, no Rust analog."
     },
     {
@@ -92,7 +116,9 @@
       "domain": "type",
       "title": "rel_ptr struct is a self-relative pointer",
       "statement": "A struct annotated `#[rel_ptr]` is classified as a self-relative pointer using 8-byte offset storage.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1194-L1196"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1194-L1196"
+      ],
       "divergence": "A: RefRepr RelOffset Logos addition, no Rust analog."
     },
     {
@@ -100,7 +126,10 @@
       "domain": "borrow",
       "title": "borrow_carrying struct values are escape-tracked like references",
       "statement": "Values of a struct annotated `#[borrow_carrying]` are tracked by the borrow checker for escape/lifetime like ordinary references.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1197-L1199", "src/compiler/sema_decl.cpp#L1412"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1197-L1199",
+        "src/compiler/sema_decl.cpp#L1412"
+      ],
       "divergence": "A: #[borrow_carrying] Logos addition for opaque borrow-holding types (WAny)."
     },
     {
@@ -108,51 +137,67 @@
       "domain": "item",
       "title": "Inline methods of a generic struct bind Self to the generic self-type",
       "statement": "For a generic struct `Struct<T...>`, methods declared in the struct body are lowered as if inside `impl<T...> Struct<T...>`: `Self` is bound to `Struct<T...>`, the struct's type params are recorded as the method's impl type-params, and the impl target pattern is `Struct<T...>` — so `-> Self` (and other Self uses) substitute correctly at monomorphization. Non-generic structs lower body methods with their own type params directly.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1307-L1372"],
-      "examples": ["struct Pair<A,B>{a:A,b:B; fn make(a:A,b:B)->Self{Self{a,b}}}  // Pair::<i32,i32>::make(..) yields Pair<i32,i32>"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1307-L1372"
+      ],
+      "examples": [
+        "struct Pair<A,B>{a:A,b:B; fn make(a:A,b:B)->Self{Self{a,b}}}  // Pair::<i32,i32>::make(..) yields Pair<i32,i32>"
+      ]
     },
     {
       "id": "item.struct.generic-method-drops-struct-params",
       "domain": "item",
       "title": "Generic struct body methods keep only method-level type params",
       "statement": "When lowering a body method of a generic struct, type parameters that coincide with the struct's own type parameters are removed from the method's TYPE_PARAMS (mono re-injects them via IMPL_TYPE_PARAMS); only method-introduced type parameters remain method-level.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1342-L1364"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1342-L1364"
+      ]
     },
     {
       "id": "item.enum.type-param-unique",
       "domain": "item",
       "title": "Enum type parameters must be uniquely named",
       "statement": "Within an enum declaration, two type parameters may not share a name; a duplicate is a compile error.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1472-L1475"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1472-L1475"
+      ]
     },
     {
       "id": "item.enum.variant-name-unique",
       "domain": "item",
       "title": "Enum variant names must be unique",
       "statement": "Within an enum declaration, two variants may not share a name; a duplicate is a compile error.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1476-L1479"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1476-L1479"
+      ]
     },
     {
       "id": "item.enum.explicit-discriminant",
       "domain": "item",
       "title": "Enum variants carry an explicit/assigned discriminant and optional backing type",
       "statement": "Each enum variant has an integer discriminant value; an enum may declare an explicit backing integer type for its discriminant.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1410", "src/compiler/sema_decl.cpp#L1486-L1492"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1410",
+        "src/compiler/sema_decl.cpp#L1486-L1492"
+      ]
     },
     {
       "id": "const.def.type-checked-initializer",
       "domain": "const",
       "title": "Const initializer must be compatible with the declared const type",
       "statement": "For `const NAME: T = expr`, the type of `expr` must be compatible with the declared type `T`; an incompatible initializer is a compile error reported at sema. Error types on either side suppress the check.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1541-L1560"],
-      "divergence": "B-ca-02: diagnostic surfaced at sema rather than at MLIR-verifier time."
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1541-L1560"
+      ]
     },
     {
       "id": "const.def.writ-static-literal-compat",
       "domain": "const",
       "title": "WStaticLit initializer is compatible with a WritStatic const",
       "statement": "A const whose declared type is a WritStatic struct accepts an initializer whose type is a Writ-static literal (WStaticLit); this combination is treated as type-compatible.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1549-L1554"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1549-L1554"
+      ],
       "divergence": "A: Writ-static literal coercion is a Logos addition."
     },
     {
@@ -160,21 +205,28 @@
       "domain": "const",
       "title": "Generic const value sees its type params as type variables",
       "statement": "When lowering a generic const's value expression, the const's type parameters are in scope as type variables so `<type:T>` uses resolve to the parameter rather than an unbound name; concrete instantiation happens per use-site.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1527-L1540", "src/compiler/sema_decl.cpp#L1564"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1527-L1540",
+        "src/compiler/sema_decl.cpp#L1564"
+      ]
     },
     {
       "id": "type.alias.generic-alias-inlined",
       "domain": "type",
       "title": "Generic type aliases are inlined at use sites",
       "statement": "A type alias with type parameters has no concrete standalone type; it is inlined at each use site. Only non-generic aliases resolve to a concrete type.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1570-L1577"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1570-L1577"
+      ]
     },
     {
       "id": "trait.def.copy-not-a-supertrait",
       "domain": "trait",
       "title": "Copy is excluded from a trait's supertrait list",
       "statement": "When recording a trait's declared supertraits, `Copy` is omitted from the supertrait set (it is an auto/marker bound, not a vtable-bearing supertrait).",
-      "evidence": ["src/compiler/sema_decl.cpp#L1621-L1625"],
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1621-L1625"
+      ],
       "divergence": "A: Copy treated specially, excluded from supertrait closure."
     },
     {
@@ -182,7 +234,9 @@
       "domain": "trait",
       "title": "Trait vtable layout spans the supertrait closure with ordered upcast targets",
       "statement": "A trait object's vtable layout is the method order over the trait's supertrait closure, together with an ordered list of upcast target supertraits; this single layout is the canonical slot order used for dispatch and upcasting.",
-      "evidence": ["src/compiler/sema_decl.cpp#L1626-L1639"]
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1626-L1639"
+      ]
     }
   ]
 }
