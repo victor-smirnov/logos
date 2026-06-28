@@ -45,3 +45,4 @@ __pycache__
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #cmake-build-*
 .claude/scheduled_tasks.lock
+scratchpad/
