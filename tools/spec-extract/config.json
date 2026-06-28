@@ -1,0 +1,84 @@
+{
+  "_doc": "Configuration for the language-spec extraction harness. The deterministic chunker (chunk.py) reads this to enumerate sources, slice them into bounded work-units at natural boundaries, content-hash each unit, and emit a manifest. See README.md.",
+
+  "rules_dir": "tools/spec-extract/rules",
+  "spec_dir": "docs/spec",
+  "manifest": "tools/spec-extract/manifest.json",
+
+  "unit_target_lines": 600,
+  "unit_max_lines": 1100,
+
+  "layers": {
+    "grammar": {
+      "chunker": "peg",
+      "sources": [
+        "tools/peg_gen/grammars/logos.peg",
+        "tools/peg_gen/grammars/writ.peg",
+        "tools/peg_gen/grammars/hrpc.peg"
+      ]
+    },
+    "sema": {
+      "chunker": "cpp",
+      "sources": [
+        "src/compiler/sema.cpp",
+        "src/compiler/sema_expr.cpp",
+        "src/compiler/sema_stmt.cpp",
+        "src/compiler/sema_collect.cpp",
+        "src/compiler/sema_decl.cpp",
+        "src/compiler/sema_render.cpp",
+        "src/compiler/sema_fmt.cpp",
+        "src/compiler/sema_auto_trait.cpp",
+        "src/compiler/borrow_check.cpp",
+        "src/compiler/region_infer.cpp",
+        "src/compiler/trait_engine.cpp"
+      ]
+    },
+    "mono": {
+      "chunker": "cpp",
+      "sources": [
+        "src/compiler/mono.cpp",
+        "src/compiler/mono_clone.cpp",
+        "src/compiler/mono_scan.cpp",
+        "src/compiler/mono_subst.cpp",
+        "src/compiler/mono_const_arg.cpp",
+        "src/compiler/ctfe.cpp"
+      ]
+    },
+    "codegen": {
+      "chunker": "cpp",
+      "optional": true,
+      "_doc": "Platform-flavored. Off by default (run with --layer codegen to include). Extract only target-independent lowering rules from here.",
+      "sources": [
+        "src/compiler/mlir_gen.cpp",
+        "src/compiler/mlir_gen_expr.cpp",
+        "src/compiler/mlir_gen_stmt.cpp",
+        "src/compiler/mlir_gen_types.cpp",
+        "src/compiler/mlir_gen_fn.cpp",
+        "src/compiler/mlir_gen_dyn.cpp"
+      ]
+    }
+  },
+
+  "default_layers": ["grammar", "sema", "mono"],
+
+  "id_domains": [
+    "lex", "grammar", "item", "expr", "stmt", "pat", "type",
+    "trait", "generic", "mono", "borrow", "region", "coerce",
+    "const", "metaprog", "module", "layout", "intrinsic", "divergence"
+  ],
+
+  "sections": {
+    "lexical":          ["lex"],
+    "grammar":          ["grammar"],
+    "items":            ["item", "module"],
+    "expressions":      ["expr", "intrinsic"],
+    "statements":       ["stmt"],
+    "patterns":         ["pat"],
+    "types":            ["type", "layout", "coerce"],
+    "traits-generics":  ["trait", "generic"],
+    "monomorphization": ["mono", "const"],
+    "ownership":        ["borrow", "region"],
+    "metaprogramming":  ["metaprog"],
+    "divergences":      ["divergence"]
+  }
+}

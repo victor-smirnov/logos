@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Spec rule artifact",
+  "description": "One artifact per source work-unit. Holds the language-specification rules that this unit of the compiler implements. The deterministic chunker assigns `unit` and `source_hash`; the extraction model fills `rules`. Each rule carries a STABLE human-readable `id` (the addressing handle for the assembled spec).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["unit", "layer", "source", "source_hash", "rules"],
+  "properties": {
+    "unit": {
+      "type": "string",
+      "description": "Deterministic work-unit id, e.g. 'sema/sema_expr/lower_binop'. Set by chunk.py; the model must echo it unchanged."
+    },
+    "layer": { "type": "string", "enum": ["grammar", "sema", "mono", "codegen"] },
+    "source": {
+      "type": "string",
+      "description": "'path#Lstart-Lend' the unit was sliced from. Echoed unchanged."
+    },
+    "source_hash": {
+      "type": "string",
+      "description": "Content hash of the unit's source bytes, supplied by chunk.py. The model writes it verbatim; chunk.py --plan compares it to the live source to decide staleness."
+    },
+    "rules": {
+      "type": "array",
+      "description": "The spec rules observable in this unit. Empty array is valid (plumbing-only units).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "domain", "statement", "evidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "STABLE human-readable identifier: <domain>.<group>.<slug>, lowercase kebab segments. e.g. 'expr.cast.numeric-truncation', 'grammar.item.struct-decl', 'mono.subst.const-arg'. This is the permanent addressing handle — once assigned, NEVER change it (rename = breaking). Reuse the prior id given in the prompt for the same rule.",
+            "pattern": "^[a-z][a-z0-9]*\\.[a-z0-9][a-z0-9-]*\\.[a-z0-9][a-z0-9-]*$"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Top-level spec domain; must equal the first segment of `id`."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short human title for the rule (one line)."
+          },
+          "statement": {
+            "type": "string",
+            "description": "The normative rule, stated precisely and implementation-agnostic (what the LANGUAGE does, not how this file does it). Prefer notation over paraphrase."
+          },
+          "evidence": {
+            "type": "array",
+            "description": "Source anchors that justify this rule: 'path#Lstart[-Lend]' references within this unit.",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "examples": {
+            "type": "array",
+            "description": "Minimal Logos code snippets illustrating the rule (optional).",
+            "items": { "type": "string" }
+          },
+          "divergence": {
+            "type": "string",
+            "description": "If this rule diverges from Rust, the DIVERGENCES.md tag (e.g. 'A1') or a one-line note. Omit if Rust-conformant."
+          },
+          "uncertainty": {
+            "type": "string",
+            "description": "Optional: note where the source is ambiguous and the rule is inferred rather than certain."
+          },
+          "related": {
+            "type": "array",
+            "description": "ids of related rules (cross-references).",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
