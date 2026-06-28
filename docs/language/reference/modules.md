@@ -32,13 +32,15 @@ fn helper() -> i32 { … }
 The grammar:
 
 ```peg
-module        <- KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
-any_use_decl  <- pub_use_decl / use_decl
-pub_use_decl  <- KW_PUB KW_USE IDENT path_dot_ident* SEMI
-use_decl      <- KW_USE IDENT path_dot_ident* SEMI
+module        <- (inner_doc / inner_attr)* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
+any_use_decl  <- pub_use_decl / use_variants_decl / use_decl
+pub_use_decl  <- KW_PUB KW_USE IDENT path_dot_ident* (IDENT use_module)? SEMI    // optional `from <module>`
+use_decl      <- KW_USE     IDENT path_dot_ident* (IDENT use_module)? SEMI
+use_variants_decl <- KW_USE IDENT path_dot_ident* DOT IDENT DOT LBRACE variant_name (COMMA variant_name)* COMMA? RBRACE SEMI
+use_module    <- IDENT / STRING                                                  // bare id or "hyphenated-id"
 ```
 
-A package path is one or more dotted identifiers. Both `package` and `use` accept the same form. There is no leading-dot or relative-path syntax; all paths are absolute.
+A package path is one or more dotted identifiers. Both `package` and `use` accept the same form; there is no leading-dot or relative-path syntax (all paths are absolute). Two extra `use` forms: `use pkg from <module>;` pins which loaded module the package resolves against (disambiguating same-name types across coexisting modules), and `use pkg.Enum.{V1, V2};` imports enum variants by bare name (the last segment's first-letter case disambiguates it from a sub-package group `use foo.{a, b};`).
 
 ## Visibility
 
@@ -48,23 +50,31 @@ Three default visibilities cover all items:
 |---|---|
 | (no marker) | Private to the package. Not visible from importers. |
 | `pub` | Public. Importers of the package see this item. |
-| `pub(crate)` / `pub(super)` | **Not implemented**. Logos has no sub-package privacy modifier today. |
+| `pub(module)` | **Module-linkage.** Visible to other packages of the *same module* (same module-id), but not exported to consumers in a different module. The `IDENT` is a contextual keyword checked `== "module"` in sema. |
+| `pub(crate)` / `pub(super)` / `pub(in path)` | **Not implemented.** The only finer-grained form is `pub(module)`. |
 
-`pub` applies to: `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub use`, `pub const`, `pub type`, `pub instantiate`, `pub static fn`. Struct fields use a separate `pub` marker per field; trait methods are public-by-default within a public trait.
+`pub` (and `pub(module)`) applies to: `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub use`, `pub const`, `pub type`, `pub instantiate`, `pub static fn`. Struct fields use a separate `pub` marker per field; trait methods are public-by-default within a public trait.
 
 The visibility check fires inside `find_*_by_name`:
 
 ```cpp
-// sema_collect.cpp:343
+// sema_collect.cpp:746
 void check_pub_access(bool is_pub, const std::string& def_package,
-                      std::string_view item_name) {
-    if (is_pub || def_package.empty() || cur_package_.empty()) return;
-    if (def_package != cur_package_)
-        error(std::format("'{}' is private to package '{}'", item_name, def_package));
+                      std::string_view item_name,
+                      bool is_module_only, const std::string& def_module_id) {
+    if (def_package.empty() || cur_package_.empty()) return;  // no scope context
+    if (def_package == cur_package_) return;                  // own package: always OK
+    if (is_module_only) {                                     // pub(module): module-linkage
+        if (def_module_id != cur_module_id_)
+            error("'{}' is module-private (declared `pub(module)`)", item_name);
+        return;
+    }
+    if (!is_pub)
+        error("'{}' is private to package '{}'", item_name, def_package);
 }
 ```
 
-A non-`pub` item is silently usable inside its own package and rejected with a clear error from any other package. Items with empty `def_package` (host-injected types, primitives) bypass the check.
+A non-`pub` item is usable inside its own package and rejected from any other package; a `pub(module)` item is additionally usable from other packages of the same module. Items with empty `def_package` (host-injected types, primitives) bypass the check.
 
 ## Multi-file packages: `logos.module` manifests
 
@@ -108,7 +118,7 @@ A bare identifier `Foo` (struct/datatype/enum/trait) is resolved by the four-ste
 `effective_import_pkgs()` walks `cur_imports_.wildcard_packages` (the directly `use`d packages) and follows the `pkg_reexports_` graph transitively, deduping with a visited-set.
 
 ```cpp
-// sema_impl.hpp:824
+// sema_impl.hpp:3075
 std::vector<std::string> effective_import_pkgs() const {
     std::vector<std::string> result; StrSet visited;
     for (auto& pkg : cur_imports_.wildcard_packages) {
@@ -143,8 +153,8 @@ The same algorithm applies to functions (`find_fn_by_name`), enums, traits, and 
 
 - **Path-qualified type-refs**: `pkg_b.Foo` at type position does not parse. The grammar's `simple_type` accepts `IDENT (DOT IDENT)*` only for module-as-namespace function paths (e.g. `std.lang.cmp.compare(x, y)`), not for type names.
 - **Alias imports**: `use foo.Bar as B;` — not parsed.
-- **Sub-package privacy**: no `pub(crate)`, `pub(super)`, `pub(in path)`. Items are either fully private to their package or fully public.
-- **Wildcard exclusion**: `use foo.{a, b};` and `use foo::*;` — not parsed (always wildcard implicitly).
+- **Sub-package privacy**: no `pub(crate)`, `pub(super)`, `pub(in path)`. The one finer-grained visibility is `pub(module)` (module-linkage, above); otherwise items are fully private to their package or fully public.
+- **Explicit wildcard**: `use foo::*;` — not parsed (a plain `use foo;` is already an implicit wildcard). Brace groups *do* parse: `use foo.{a, b};` (lowercase head) desugars to sub-package wildcard imports `foo.a.*`, `foo.b.*`, and `use foo.Enum.{V1, V2};` (uppercase) imports enum variants by bare name.
 - **Nested module declarations**: `mod sub { ... }` — Logos has no in-file sub-modules. Each package is exactly one file, or one directory under one manifest.
 
 ## Common pitfalls

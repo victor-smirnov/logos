@@ -31,17 +31,20 @@ Binds an explicit integer tag to a datatype or a generic instantiation. `N` part
 pub struct Array<i32>;            // body-less explicit instantiation
 ```
 
-`#[type_code]` is **rejected** on an unspecialised generic template (`struct Foo<T> { ... }`); only fully-specialised forms (`struct Foo<i32>;`) or non-generic datatypes may carry it. Codes 1–127 are reserved for system use; user codes start at 128 ([memory: feat_tag_dispatch](../../README.md)).
+`#[type_code]` is **rejected** on an unspecialised generic template (`struct Foo<T> { ... }`); only fully-specialised forms (`struct Foo<i32>;`) or non-generic datatypes may carry it. Codes 1–128 are reserved for the stdlib runtime tag system; user codes start at 129 ([memory: feat_tag_dispatch](../../README.md)).
 
-## `#[zoned]`
+## `#[zoned]` and `#[datatype]`
 
-Marks a `struct` as a Writ datatype (zone-relative layout, no heap pointers). `#[zoned] struct` is the sole canonical declaration form for datatypes.
+`#[zoned]` marks a struct's fields as self-relative (zone-relative layout, no absolute heap pointers — a ZType) and sets the `zoned2` structural flag. It does **not** by itself promote a struct to a Writ datatype.
+
+**`#[datatype]`** (or `#[annotation]`) is what promotes a struct into the datatype pipeline (`collect_datatype`) — the canonical "make a datatype" form; it is often combined with `#[zoned]`. A plain `#[zoned] struct` goes through the ordinary struct pipeline.
 
 ```logos
-#[zoned] pub struct AnyVal { pub raw: u32 }
+#[type_code = 42]
+#[datatype] #[zoned] pub struct Decimal { coef: i128, scale: i8 }
 ```
 
-Internally the type's `LogosType::Kind` becomes `ZonedStruct`. See [Writ](writ.md) and [Types → Datatype](types.md#datatype-zoned-struct).
+Other structural-layout flags parsed by `parse_struct_attr_flags`: `#[non_null]`, `#[pinned]`, `#[self_describing]`, `#[rel_ptr]`, `#[zone_mut]`, `#[borrow_carrying]`, `#[no_auto_drop]`. See [Writ](writ.md) and [Types → Datatype](types.md#datatype-zoned-struct).
 
 ## `#[derive_<trait>]`
 
@@ -123,9 +126,8 @@ Concrete user triggers in the codebase as of writing (non-exhaustive — derived
 | `#[derive_dbg_md]`, `#[derive_size_md]` | tests | Demo derive hooks |
 | `#[antiquot_inject]`, `#[exprblob_splice_inject]`, `#[inject_pair]`, `#[nested_antiquot_inject]`, `#[quote_inject]`, `#[struct_lit_cursor_inject]` | tests | Quote/antiquot edge-case hooks |
 | `#[template_of_probe]`, `#[template_of_typed_probe]` | tests | Template intrinsic verification |
-| `#[slice]` | sema-recognised marker | (declares slice-friendly type — see Roadmap) |
 
-Unknown `#[name]` produces **no diagnostic** today (sema silently ignores). This is a known gap; see Roadmap.
+An unknown attribute *name* produces **no diagnostic** today (sema silently ignores it). Mis-targeting a *known* builtin (wrong item kind) and the Rust-shape `#[derive(...)]` already do error. See Roadmap.
 
 ## Meta blocks (`meta @{...}`)
 
@@ -162,13 +164,16 @@ The full attribute roster Logos plans to ship — many of these are *not yet* ho
 | `#[tag_dispatch(TS)]` | active | Bind trait to a tag system |
 | `#[metaprog_handler("name")]` | active | Register hook for `#[name]` trigger |
 | `meta @{...}` | active | Typed metadata payload on items |
+| `#[datatype]`, `#[annotation]` | active | Promote a struct into the datatype pipeline |
+| `#[cfg(...)]`, `#[cfg_attr(...)]` | active | Conditional compilation (drops item when predicate false; `all`/`any`/`not`) |
+| `#[repr(transparent)]` (struct), `#[repr(uN)]` (enum) | active | Transparent wrapper / enum discriminant width; `#[repr(C)]`/`#[repr(packed)]` parse but are rejected |
+| `#[test]`, `#[should_panic]`, `#[ignore]` | active | Test attributes (gate `cfg(test)`) |
+| `#[no_mangle]` | active | Suppress pkg+sig mangling on a free fn (FFI/runtime ABI) |
+| `#[fn_macro]`, `#[token_macro]` | active | Mark a free fn as a function-style / token-stream macro |
+| `#[no_auto_drop]` | active | Skip auto drop glue (structural flag) |
 | `#[inline]`, `#[inline(always)]`, `#[inline(never)]` | planned | Codegen hints |
 | `#[cold]`, `#[hot]` | planned | Branch hints |
-| `#[test]` | planned | Testing framework |
-| `#[export = "name"]`, `#[link_name = "name"]` | planned | FFI linkage |
-| `#[repr(C)]`, `#[repr(packed)]`, `#[repr(transparent)]` | planned | Layout control |
 | `#[deprecated(...)]` | planned | Diagnostic marker |
 | `#[yields_view_of(...)]` | planned | Escape-analysis annotation for view types ([memory: feat_view_ownership](../../README.md)) |
-| `#[unsafe_no_drop]` | planned | Skip drop glue |
 
 Unknown attributes today produce no diagnostic; they will become a warning, then a hard error once the supported list is frozen.

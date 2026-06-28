@@ -117,31 +117,32 @@ return quote_item! { struct #id { x: i32 } };
 
 ## The `format!` family
 
-Five built-in macros ship in `std.fmt`:
+Seven format-family macros ship in `std.fmt`:
 
 | Macro | Returns | Side effect |
 |---|---|---|
 | `format!` | `String` | none |
+| `format_args_str!` | `String` | none (alias of `format!`'s buffer-yield) |
 | `print!` | `()` | writes to stdout, no newline |
 | `println!` | `()` | writes to stdout + `\n` |
 | `eprint!` | `()` | writes to stderr, no newline |
 | `eprintln!` | `()` | writes to stderr + `\n` |
+| `panic!` | `!` | drains the buffer to the panic handler, diverges |
 
-All five are `#[fn_macro]` callees in `std.fmt` that the sema layer
-recognises by name. Instead of dispatching through a JIT thunk, sema
-parses the format string at compile time into a structured segment
-list and synthesises a block expression with one explicit trait call
-per placeholder:
+Plus a **write family** — `write!(sink, fmt, …)` / `writeln!(sink, fmt, …)` — taking a `Write` sink as the *first* arg (format string second), building a `Formatter` directly over the sink via `(sink).as_formatter()`, and yielding `Result<(), Error>` (`writeln!` appends `\n`).
+
+These are `#[fn_macro]` callees in `std.fmt` that the sema layer recognises by name. Instead of dispatching through a JIT thunk, sema parses the format string at compile time into a structured segment list and synthesises a block expression that drives a `Formatter` with one free-fn dispatcher call (each receiving `&mut Formatter`) per placeholder:
 
 ```logos
 format!("a={}, b={:?}", x, y)
 // lowers to
 {
     let mut __buf: String = String::new();
+    let mut __f: Formatter = Formatter::new(&mut __buf);
     __buf.push_str("a=");
-    fmt_display(x, &mut __buf);
+    __f.reset_spec(); let _ = fmt_display(&(x), &mut __f);
     __buf.push_str(", b=");
-    fmt_debug(y, &mut __buf);
+    __f.reset_spec(); let _ = fmt_debug(&(y), &mut __f);
     __buf
 }
 ```
@@ -182,7 +183,7 @@ generated `let mut __buf = …;` cannot collide with a user-side
 call-site (e.g. `x` in `format!("{}", x)`) resolve in the user's
 scope — call-site hygiene, like Rust's `macro_rules!` non-hygienic
 references. Macros that need a guaranteed-unique local name use
-`gensym("prefix")` from `std.compiler.metaprog.ast`.
+`gensym("prefix")` from `logos.std.compiler.metaprog`.
 
 ## Diagnostic surface
 
