@@ -2056,6 +2056,9 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             // function's MLIR return type is the 16-byte struct (llvm_fn_ret_type).
             // The caller copies the value into its own storage, so no heap
             // surviving-slot is needed.
+            // (Box<Concrete> sources are desugared to an `as` unsize cast in
+            // sema's lower_return, so they arrive here already a TraitObject and
+            // take the load-fat-pair branch below, not this one.)
             auto fat_ptr = coerce_to_dyn(val,
                 std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()),
                 type_str(src_lt));

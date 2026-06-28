@@ -965,6 +965,23 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
                               TypeRef(target).pointee().kind() == LogosType::Kind::U8;
         if (src_is_str && tgt_is_mut_ptr)
             error("cannot cast 'str' to '*mut u8': str data is read-only; use '*const u8'");
+        // Float <-> pointer casts are invalid in Rust (E0606) — there is no
+        // meaningful numeric/address conversion (only int<->ptr is permitted).
+        // Accepting them silently reached the mlir_gen `unsupported cast`
+        // nullptr fallthrough, which (warn-and-continue) miscompiled: the null
+        // result elided the rest of the function with exit 0.
+        {
+            auto sk = TypeRef(expr_type(inner)).kind();
+            auto tk = TypeRef(target).kind();
+            bool src_float = sk == LogosType::Kind::F32 || sk == LogosType::Kind::F64;
+            bool tgt_float = tk == LogosType::Kind::F32 || tk == LogosType::Kind::F64;
+            if ((src_float && tk == LogosType::Kind::Ptr) ||
+                (tgt_float && sk == LogosType::Kind::Ptr))
+                error(std::format(
+                    "cannot cast `{}` to `{}` — float<->pointer casts are not "
+                    "permitted (cast through an integer, e.g. `x as usize as *const T`)",
+                    type_str(expr_type(inner)), type_str(target)));
+        }
     }
     // Unsize coercion `box_val as Box<dyn Trait>` CONSUMES the source Box —
     // ownership of the heap data transfers to the owning trait object. Mark the
@@ -2529,6 +2546,22 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                     make_dst_ref(TypeRef(vt).struct_name(), TypeRef(vt).pkg_name(),
                                  TypeRef(vt).mut_ptr(),
                                  std::vector<TypeRef>(a.begin(), a.end())));
+            }
+            // &Box<dyn Trait> → borrowed &dyn Trait (Deref coercion). An owning
+            // trait object IS the {data,vtable} fat pair; borrowing it = the same
+            // value re-typed non-owning (Borrow). Read the var's VALUE (var_ref
+            // loads the pair) — NOT its slot address, which would be the wrong
+            // indirection (&&dyn): passing a thin ptr where the callee expects
+            // the 16-byte fat pair by value → garbage vtable → segfault.
+            if (TypeRef(vt).kind() == LogosType::Kind::TraitObject &&
+                TypeRef(vt).owning_trait_object()) {
+                auto a = TypeRef(vt).type_args();
+                return builder().var_ref(std::string(var_name),
+                    make_trait_object(TypeRef(vt).trait_name(),
+                                      std::vector<TypeRef>(a.begin(), a.end()),
+                                      TraitOwningKind::Borrow,
+                                      TypeRef(vt).trait_requires_send(),
+                                      TypeRef(vt).trait_requires_sync()));
             }
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
         }

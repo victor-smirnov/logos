@@ -768,6 +768,15 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
 
     std::vector<lir_view::StmtRef> blk;
 
+    // Spilling the RHS into __destruct_0 MOVES it — mark the original source
+    // place (e.g. a named `tup` in `let (a,b) = tup;`) moved so its scope-exit
+    // drop is suppressed, else it double-frees the elements now owned by the
+    // bindings. bind_list below marks only the spilled temp, never the original
+    // source, so it must be marked here (mirrors lower_let_pat's array path).
+    // mark_moved_expr self-gates to VarRef/FieldRead/TupleIndex, so a tuple
+    // LITERAL rhs is a no-op (already correct).
+    if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
+
     // let __destruct_N = rhs
     std::string tmp = std::format("__destruct_{}", destruct_counter_++);
     define(tmp, rhs_type);
@@ -2827,6 +2836,21 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             // rebuilds the smart-pointer struct, unsizing the inner field (no
             // explicit `as`). Mirrors the let/arg paths; closes GAP-C.
             if (ret_type_) try_struct_unsize_coerce(val, ret_type_);
+            // Implicit Box<Concrete> -> Box<dyn Trait> / dyn at return. Box<dyn>
+            // collapses to an OWNING TraitObject (not a struct), so the struct
+            // unsize above can't fire and a bare Box<Concrete> would reach the
+            // codegen return path with a mis-keyed vtable AND its source Box left
+            // un-consumed (double-free). Desugar to the proven `as`-unsize cast
+            // exactly as lower_cast does for the explicit form: consume the
+            // source Box (transfer heap ownership to the owning trait object) and
+            // build the cast (which lowers to the {data,vtable} fat pair + Box
+            // drop-glue). Only fires for a Box<Concrete> value, not an already-
+            // unsized TraitObject (explicit `as` form) or a non-Box return.
+            if (ret_type_ && val && TypeRef(ret_type_).owning_trait_object() &&
+                expr_type(val) && is_stdlib_box(expr_type(val))) {
+                mark_moved_expr(expr_ref_of(val));
+                val = builder().cast(std::move(val), ret_type_);
+            }
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
                 if (!impl_ret_type_inferred_ &&
