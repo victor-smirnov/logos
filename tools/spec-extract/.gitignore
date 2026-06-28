@@ -7,3 +7,4 @@ manifest.json
 .dedup-decisions.json
 .test-plan.json
 .testability.json
+.mono-plan.json
