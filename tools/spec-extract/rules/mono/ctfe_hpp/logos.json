@@ -1,0 +1,38 @@
+{
+  "unit": "mono/ctfe_hpp/logos",
+  "layer": "mono",
+  "source": "src/compiler/ctfe.hpp#L28-L71",
+  "source_hash": "7cdf0f09ddff3b21",
+  "rules": [
+    {
+      "id": "const.ctfe.supported-expr-forms",
+      "domain": "const",
+      "title": "CTFE-evaluable expression forms",
+      "statement": "Compile-time constant evaluation (used for metacall arguments and const-evaluable contexts) accepts only: integer/float/bool/string literals, parenthesized expressions, unary `-`/`!`, binary `+ - * / % << >> & | ^ && || == != < <= > >=`, and bare identifier references to consts. Any other expression form is not a compile-time constant.",
+      "evidence": ["src/compiler/ctfe.hpp#L9-L14", "src/compiler/ctfe.hpp#L64-L69"],
+      "uncertainty": "Exact operator semantics/overflow behavior live in ctfe.cpp; this header only enumerates the accepted node set."
+    },
+    {
+      "id": "const.ctfe.value-kinds",
+      "domain": "const",
+      "title": "CTFE value kinds",
+      "statement": "A compile-time value carries a primitive type tag and is restricted to scalar numeric, Bool, unsuffixed IntLit/FloatLit, or Slice<u8> (string literal) kinds; the static type tag is derived from the literal's suffix (unsuffixed ⇒ IntLit/FloatLit) and from operator type rules, independent of the type-inference pool.",
+      "evidence": ["src/compiler/ctfe.hpp#L5-L7", "src/compiler/ctfe.hpp#L34-L45"]
+    },
+    {
+      "id": "const.ctfe.path-to-const-resolution",
+      "domain": "const",
+      "title": "Bare identifier resolves to a const's RHS",
+      "statement": "A bare identifier in a const-evaluable position resolves by looking up a const item and recursively evaluating its right-hand-side expression. The const may live in another package (resolution returns the owning holder). An identifier that does not resolve to a const-evaluable item is treated as not a compile-time constant.",
+      "evidence": ["src/compiler/ctfe.hpp#L47-L62", "src/compiler/ctfe.hpp#L64-L69"],
+      "related": ["const.ctfe.supported-expr-forms"]
+    },
+    {
+      "id": "const.ctfe.non-const-is-error",
+      "domain": "const",
+      "title": "Non-constant metacall argument is rejected",
+      "statement": "An expression in a metacall argument (or other const-evaluable context) that is not reducible to a CTFE value via the supported forms is rejected with a diagnostic stating the argument is not a compile-time constant.",
+      "evidence": ["src/compiler/ctfe.hpp#L12-L14", "src/compiler/ctfe.hpp#L52-L53"]
+    }
+  ]
+}

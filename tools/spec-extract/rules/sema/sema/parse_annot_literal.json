@@ -8,203 +8,210 @@
       "id": "metaprog.annot.literal-kinds",
       "domain": "metaprog",
       "title": "Annotation argument literal kinds",
-      "statement": "An annotation argument literal is one of: integer literal, float literal, bool literal, string literal, an enum literal `Name::Variant`, or an array literal `[lit, ...]` of nested literals. Array elements are parsed recursively.",
-      "evidence": ["src/compiler/sema.cpp#L7151-L7217"]
+      "statement": "An annotation argument literal is one of: integer, float, bool, string, enum-variant (Name::Variant), or array of literals. Arrays are parsed recursively element-by-element.",
+      "evidence": ["src/compiler/sema.cpp#L7151-L7217"],
+      "examples": ["#[A(42)]", "#[A(\"s\")]", "#[A(Color::Red)]", "#[A([1, 2, 3])]"]
     },
     {
       "id": "metaprog.annot.float-suffix-strip",
       "domain": "metaprog",
-      "title": "Float annotation literal suffix and underscores",
-      "statement": "A float annotation literal has its digit-group `_` separators removed and an optional trailing `f32`/`f64` suffix stripped before being parsed as a double.",
-      "evidence": ["src/compiler/sema.cpp#L7159-L7166"]
+      "title": "Float annotation literal: strip underscores and f32/f64 suffix",
+      "statement": "A float annotation literal has all '_' separators removed and an optional trailing 'f32'/'f64' suffix stripped before parsing to a double.",
+      "evidence": ["src/compiler/sema.cpp#L7159-L7166"],
+      "examples": ["#[A(3.14f64)]", "#[A(1_000.5)]"]
     },
     {
       "id": "metaprog.annot.string-escapes",
       "domain": "metaprog",
-      "title": "String annotation literal escapes",
-      "statement": "A quoted string annotation literal has its surrounding `\"` removed and the escapes `\\n \\t \\r \\\\ \\\" \\0` decoded; any other `\\X` sequence is preserved verbatim as `\\X`. A raw string `r\"...\"` strips the `r\"` prefix and trailing `\"` with no escape processing.",
-      "evidence": ["src/compiler/sema.cpp#L7172-L7203"]
+      "title": "String annotation literal escape decoding",
+      "statement": "A quoted string annotation literal has surrounding quotes stripped and escapes \\n \\t \\r \\\\ \\\" \\0 decoded; an unrecognised escape is preserved verbatim (backslash + char). A raw string r\"...\" strips the r\" prefix and trailing quote with no escape processing.",
+      "evidence": ["src/compiler/sema.cpp#L7172-L7203"],
+      "examples": ["#[A(\"line\\n\")]", "#[A(r\"raw\\n\")]"]
     },
     {
       "id": "metaprog.annot.no-args-bare",
       "domain": "metaprog",
-      "title": "Bare annotation has no arguments",
-      "statement": "`#[A]` with neither an args list nor a `= value` produces an annotation instance with no field bindings.",
-      "evidence": ["src/compiler/sema.cpp#L7235-L7236"]
+      "title": "Bare annotation #[A] takes no arguments",
+      "statement": "An annotation written #[A] (no ARGS, no VALUE) produces an instance with an empty argument list.",
+      "evidence": ["src/compiler/sema.cpp#L7235-L7236"],
+      "examples": ["#[A]"]
     },
     {
       "id": "metaprog.annot.eq-value-first-field",
       "domain": "metaprog",
-      "title": "Equals-value annotation binds first field",
-      "statement": "`#[A = lit]` binds `lit` to the annotation datatype's first declared field. If the datatype has no fields it is an error (`annotation '{A}' takes no arguments`).",
-      "evidence": ["src/compiler/sema.cpp#L7238-L7247"]
+      "title": "#[A = lit] binds first field",
+      "statement": "An annotation #[A = lit] maps the single value to the annotation datatype's first declared field; if the datatype has no fields it is an error ('annotation takes no arguments').",
+      "evidence": ["src/compiler/sema.cpp#L7238-L7247"],
+      "examples": ["#[A = 5]"]
     },
     {
       "id": "metaprog.annot.positional-by-order",
       "domain": "metaprog",
-      "title": "Positional annotation args match fields in declaration order",
-      "statement": "In `#[A(args...)]`, positional arguments bind to the annotation datatype's fields in declaration order. Supplying more positional args than fields is an error (`takes at most {n} positional args`).",
-      "evidence": ["src/compiler/sema.cpp#L7268-L7278"]
+      "title": "Positional annotation args bind by declaration order",
+      "statement": "Positional arguments in #[A(arg, ...)] bind to the annotation datatype's fields in declaration order; supplying more positional args than fields is an error ('takes at most N positional args').",
+      "evidence": ["src/compiler/sema.cpp#L7253-L7278"],
+      "examples": ["#[A(1, 2)]"]
     },
     {
       "id": "metaprog.annot.named-by-field-name",
       "domain": "metaprog",
-      "title": "Named annotation args match by field name",
-      "statement": "In `#[A(key = lit, ...)]`, a named argument binds `lit` to the field named `key`; an unknown field name is an error (`annotation '{A}' has no field '{key}'`) and that argument is skipped.",
-      "evidence": ["src/compiler/sema.cpp#L7257-L7267"]
+      "title": "Named annotation args bind by field name",
+      "statement": "A named argument key=value in #[A(...)] binds to the field whose name equals the key; an unknown field name is an error ('has no field') but does not abort parsing of remaining args.",
+      "evidence": ["src/compiler/sema.cpp#L7257-L7267"],
+      "examples": ["#[A(name = 3)]"]
     },
     {
       "id": "metaprog.annot.user-annotation-requires-marker",
       "domain": "metaprog",
-      "title": "User annotations resolve to #[annotation]-marked datatypes",
-      "statement": "An item-level annotation whose name resolves to a datatype is materialized as an annotation instance only if that datatype is itself marked `#[annotation]`; the `#[annotation]` marker sets the datatype's annotation-type flag. Names not resolving to such a datatype are silently ignored.",
-      "evidence": ["src/compiler/sema.cpp#L7310-L7322"]
+      "title": "User annotation NAME must be an #[annotation]-marked datatype",
+      "statement": "An annotation whose name is not a compiler-internal key is treated as a user annotation only if NAME resolves to a registered datatype carrying the IS_ANNOTATION_TYPE marker; otherwise it is silently ignored.",
+      "evidence": ["src/compiler/sema.cpp#L7310-L7321"],
+      "related": ["metaprog.annot.struct-flags-set-only"]
     },
     {
       "id": "metaprog.annot.accumulate-until-item",
       "domain": "metaprog",
-      "title": "Annotations attach to the next item",
-      "statement": "Annotations accumulate and apply to the next non-annotation, non-doc item; after that item is lowered the pending annotation buffer is cleared.",
-      "evidence": ["src/compiler/sema.cpp#L7290-L7291", "src/compiler/sema.cpp#L7395-L7398", "src/compiler/sema.cpp#L8019-L8020"]
+      "title": "Annotations and doc-comments accumulate until next item",
+      "statement": "Annotation nodes accumulate in a pending buffer and are consumed by the next non-annotation item; doc-comment lines/blocks (///, /**, //!, /*!) similarly accumulate. Both buffers are cleared after each item.",
+      "evidence": ["src/compiler/sema.cpp#L7290-L7291", "src/compiler/sema.cpp#L7395-L7429", "src/compiler/sema.cpp#L8019-L8020"]
     },
     {
       "id": "metaprog.annot.type-code-on-struct",
       "domain": "metaprog",
-      "title": "#[type_code=N] assigns an explicit struct/datatype type code",
-      "statement": "`#[type_code=N]` on a struct or datatype sets its type code to N and registers it under the fully-qualified name `pkg::Name` for cross-package `type_code_of::<T>()` resolution.",
-      "evidence": ["src/compiler/sema.cpp#L7300-L7309"]
+      "title": "#[type_code=N] on struct/datatype sets type code",
+      "statement": "#[type_code=N] on a struct or datatype sets the type's TYPE_CODE to N and registers N under the fully-qualified name (pkg::Name) in the explicit-type-code table so type_code_of::<T>() resolves cross-package.",
+      "evidence": ["src/compiler/sema.cpp#L7300-L7309"],
+      "examples": ["#[type_code=42] datatype Foo { }"]
     },
     {
       "id": "metaprog.annot.tag-dispatch-on-trait",
       "domain": "metaprog",
-      "title": "#[tag_dispatch(system)] on a trait",
-      "statement": "`#[tag_dispatch(system_name)]` on a trait records the named tag-dispatch system for that trait.",
-      "evidence": ["src/compiler/sema.cpp#L7350-L7362"]
+      "title": "#[tag_dispatch(system)] on trait sets dispatch system name",
+      "statement": "#[tag_dispatch(system_name)] on a trait records system_name as the trait's TAG_DISPATCH_SYSTEM, identifying the tagged-dispatch system the trait participates in.",
+      "evidence": ["src/compiler/sema.cpp#L7353-L7361"]
     },
     {
       "id": "metaprog.annot.type-code-on-trait-genos",
       "domain": "metaprog",
-      "title": "#[type_code=N] on a trait makes it a genos",
-      "statement": "`#[type_code=N]` on a trait stores the code on the trait; the code identifies a logical datatype family that each `impl Trait for T` propagates to its target struct during lowering.",
-      "evidence": ["src/compiler/sema.cpp#L7363-L7369"]
+      "title": "#[type_code=N] on trait marks it a genos",
+      "statement": "#[type_code=N] on a trait sets the trait's TYPE_CODE: the code names the logical datatype family, and each `impl Trait for Eidos` propagates it to the target struct during lowering.",
+      "evidence": ["src/compiler/sema.cpp#L7363-L7369", "src/compiler/sema.cpp#L7887-L7888"]
     },
     {
       "id": "metaprog.annot.type-code-on-template-genos-forbidden",
       "domain": "metaprog",
-      "title": "#[type_code] forbidden on a parametric genos template",
-      "statement": "`#[type_code=N]` on a trait that has type parameters (a template/parametric genos) is an error; it must be attached to a concrete specialization `#[type_code=N] genos T<Args>;`.",
+      "title": "#[type_code] forbidden on parametric (template) genos",
+      "statement": "#[type_code=N] on a parametric genos (trait with non-empty type params) is an error; the code must be attached to a concrete specialization, else every specialization would collide in the same tag-system slot.",
       "evidence": ["src/compiler/sema.cpp#L8000-L8011"]
     },
     {
       "id": "metaprog.annot.struct-flags-set-only",
       "domain": "metaprog",
-      "title": "Structural struct attribute flags are monotone set",
-      "statement": "The structural attribute flags `#[zone_mut] #[zoned2] #[rel_ptr] #[self_describing] #[borrow_carrying]` may only set (never clear) the corresponding struct flag, and apply to every specialization of a struct as well as to base structs.",
-      "evidence": ["src/compiler/sema.cpp#L7337-L7346", "src/compiler/sema.cpp#L7630-L7641"]
+      "title": "Structural struct flags are set-only (monotonic)",
+      "statement": "Structural attributes #[zone_mut], #[zoned2], #[rel_ptr], #[self_describing], #[borrow_carrying] each set the corresponding boolean struct flag when present; a present flag can only set, never clear, the base value.",
+      "evidence": ["src/compiler/sema.cpp#L7337-L7346"]
     },
     {
       "id": "item.struct.zoned-promotes-to-datatype",
       "domain": "item",
-      "title": "#[zoned] promotes a struct to a zoned datatype",
-      "statement": "A `struct` carrying a `#[zoned]` attribute is lowered as a zoned datatype (IS_ZONED set) with annotation fields applied, equivalent to a `datatype`/`eidos` declaration.",
-      "evidence": ["src/compiler/sema.cpp#L7625-L7660"],
-      "divergence": "Logos addition: zoned/datatype types are not present in Rust."
+      "title": "#[zoned] struct lowered as a datatype (zoned struct)",
+      "statement": "A struct carrying #[zoned] (promotes_to_datatype) is lowered with IS_ZONED set, treated as a zoned struct/datatype rather than a plain struct.",
+      "evidence": ["src/compiler/sema.cpp#L7625-L7660"]
     },
     {
       "id": "item.datatype.is-zoned",
       "domain": "item",
-      "title": "datatype declarations are zoned",
-      "statement": "A `datatype`/`eidos` declaration is always lowered with the IS_ZONED flag set.",
-      "evidence": ["src/compiler/sema.cpp#L7757-L7763"],
-      "divergence": "Logos addition: datatype/eidos kind has no Rust analog."
+      "title": "datatype/eidos is always zoned",
+      "statement": "A `datatype` (eidos) definition is always lowered with IS_ZONED set, including its specializations.",
+      "evidence": ["src/compiler/sema.cpp#L7757-L7761", "src/compiler/sema.cpp#L7713-L7717"]
     },
     {
       "id": "layout.type-code.auto-hash-assign",
       "domain": "layout",
-      "title": "Concrete datatype auto type code from name hash",
-      "statement": "A concrete (non-generic) zoned datatype/struct with no explicit type code is auto-assigned a 56-bit code derived from the hash of its canonical name `pkg::Name`; codes below 128 are shifted into the >=128 range to avoid the reserved inline-AnyVal range 1..127. Generic templates receive their code at instantiation time.",
-      "evidence": ["src/compiler/sema.cpp#L7649-L7658", "src/compiler/sema.cpp#L7770-L7781"],
-      "divergence": "Logos addition: type codes have no Rust analog."
+      "title": "Auto type-code from name hash for concrete zoned types",
+      "statement": "A concrete (non-generic) zoned struct/datatype with TYPE_CODE==0 receives an auto-assigned code from the 56-bit hash of its canonical name pkg::Name; codes < 128 are bumped by +128 to stay outside the reserved inline-AnyVal range 1..127. Generic templates are hashed at instantiation time.",
+      "evidence": ["src/compiler/sema.cpp#L7649-L7657", "src/compiler/sema.cpp#L7770-L7781"]
     },
     {
       "id": "item.instantiate.generic-only",
       "domain": "item",
-      "title": "instantiate declaration requires a generic target with concrete args",
-      "statement": "`instantiate T;` / `pub instantiate T;` pins a monomorphization root. The target must resolve to a struct, datatype, or enum; `instantiate T;` on a non-generic type (no type arguments) is an error. `pub` marks the pin for library re-export.",
-      "evidence": ["src/compiler/sema.cpp#L7440-L7496"],
-      "divergence": "Logos addition: explicit `instantiate` (C++ `template class Foo<int>;` analog)."
+      "title": "instantiate decl requires a generic target with type args",
+      "statement": "`instantiate T;` requires T to be a struct/datatype/enum with non-empty type args; `instantiate Foo;` on a non-generic type is an error ('only applies to generic templates'), and a non-struct/datatype/enum target is an error.",
+      "evidence": ["src/compiler/sema.cpp#L7440-L7470"],
+      "examples": ["instantiate Foo<i32>;"]
     },
     {
       "id": "item.struct.explicit-instantiation-needs-concrete-args",
       "domain": "item",
-      "title": "Bodyless struct/datatype instantiation requires concrete type arguments",
-      "statement": "A bodyless `struct Foo<...>;` / `datatype Foo<...>;` (no NAME, only a generic-inst type) is an explicit instantiation: every type argument must be concrete. A `Foo<T>` with an unbound type variable is an error directing the user to write a generic definition with a body. A bare `struct Foo;` referring to an undefined name is an error.",
-      "evidence": ["src/compiler/sema.cpp#L7541-L7620", "src/compiler/sema.cpp#L7668-L7711"]
+      "title": "Explicit struct/datatype instantiation requires concrete type args",
+      "statement": "A bodyless `struct Foo<args>;` / `datatype Foo<args>;` (NAME absent, TYPE present) is an explicit instantiation: type args must be concrete (no unbound type vars), else it is an error directing to write the body; a bare `struct Foo;` referencing an undefined name is also an error.",
+      "evidence": ["src/compiler/sema.cpp#L7538-L7620", "src/compiler/sema.cpp#L7668-L7712"]
     },
     {
       "id": "item.genos.specialization-decl",
       "domain": "item",
-      "title": "Bodyless genos specialization declaration",
-      "statement": "A bodyless trait-position decl `#[type_code=N] genos T<Args>;` (no NAME, TYPE is a generic-inst over a trait name) declares a genos specialization: it must carry type arguments, all of which must resolve, and the type_code is registered against the like-named eidos/struct's mangled and canonical names (including under the template's home package when it differs).",
-      "evidence": ["src/compiler/sema.cpp#L7887-L7994"],
-      "divergence": "Logos addition: genos/eidos has no Rust analog."
+      "title": "genos specialization decl propagates type_code to like-named eidos",
+      "statement": "A bodyless `genos Name<args>;` (trait-name TYPE, no NAME) records an instantiation annotation; its #[type_code=N] is registered under the canonical and mangled (concrete-struct) names of the like-named eidos/struct, mirrored under both the current and the template's package.",
+      "evidence": ["src/compiler/sema.cpp#L7887-L7994"]
     },
     {
       "id": "item.union.lowered-as-struct",
       "domain": "item",
-      "title": "union lowered as struct",
-      "statement": "A `union` definition is lowered through the same path as a struct (identical field shape); layout/unsafe-gating is deferred.",
-      "evidence": ["src/compiler/sema.cpp#L7524-L7537"],
-      "uncertainty": "Slice-1 behavior; union soundness gating is a noted follow-up, so semantics may change."
+      "title": "union lowered through struct path",
+      "statement": "A `union` definition is lowered through the same path as a struct (same field shape); layout/unsafe-gating is a separate concern.",
+      "evidence": ["src/compiler/sema.cpp#L7528-L7537"]
     },
     {
       "id": "item.module.extern-block-flatten",
       "domain": "item",
-      "title": "extern block children flattened into the item stream",
-      "statement": "An `extern { ... }` block is not itself an item; its child extern-fn declarations are spliced inline, in order, into the module's item worklist for lowering.",
+      "title": "extern block children flattened into item stream",
+      "statement": "An extern block's child items (extern fn declarations) are spliced in order into the flat module-item worklist; the block itself produces no item.",
       "evidence": ["src/compiler/sema.cpp#L7378-L7391"]
     },
     {
       "id": "item.doc.outer-line-block",
       "domain": "item",
-      "title": "Outer doc comments attach to next item",
-      "statement": "Outer doc comments `///` (line) and `/** */` (block) accumulate, stripping the marker prefix and joining lines with `\\n`, and attach to the next lowered item.",
+      "title": "Outer doc-comments (/// and /**) attach to next item",
+      "statement": "`///` line doc-comments (with leading '/// ' stripped, joined by newline) and `/** ... */` outer block doc-comments accumulate into the pending doc buffer and become the DOC of the next item.",
       "evidence": ["src/compiler/sema.cpp#L7399-L7411"]
     },
     {
       "id": "item.doc.inner-module",
       "domain": "item",
-      "title": "Inner doc comments attach to the module",
-      "statement": "Inner doc comments `//!` (line) and `/*! */` (block) accumulate into a module-level inner-doc buffer (stripping marker and one leading space, joining with `\\n`) and are committed as the module's documentation after all items.",
+      "title": "Inner doc-comments (//! and /*!) form module-level doc",
+      "statement": "`//!` lines (leading '//! ' stripped) and `/*! ... */` inner block comments accumulate into a module-level inner-doc buffer, committed as the module's inner documentation after all items.",
       "evidence": ["src/compiler/sema.cpp#L7412-L7428", "src/compiler/sema.cpp#L8022-L8030"]
     },
     {
       "id": "item.cfg.conditional-compilation",
       "domain": "item",
-      "title": "cfg attributes drop items",
-      "statement": "An item whose `#[cfg(...)]` predicate evaluates false is dropped (not lowered), discarding its pending annotations and doc; this enables same-name platform switches such as `#[cfg(unix)]`/`#[cfg(windows)]`.",
-      "evidence": ["src/compiler/sema.cpp#L7430-L7439"]
+      "title": "cfg attributes gate item lowering",
+      "statement": "An item whose pending cfg attributes evaluate false (cfg_attrs_drop_item) is dropped before lowering; its pending annotations and doc are consumed and discarded.",
+      "evidence": ["src/compiler/sema.cpp#L7435-L7439"],
+      "examples": ["#[cfg(unix)] fn f() {}"]
     },
     {
       "id": "item.fn.test-attributes",
       "domain": "item",
-      "title": "Test attributes on functions",
-      "statement": "`#[test]`, `#[ignore]`, and `#[should_panic]` on a function tag it accordingly; `#[should_panic(expected = \"...\")]` records the expected panic substring (a quoted string literal).",
+      "title": "#[test] / #[ignore] / #[should_panic] flag functions",
+      "statement": "On a function, #[test] marks it a test, #[ignore] marks it ignored, and #[should_panic] marks expect-panic; #[should_panic(expected=\"msg\")] records the expected panic substring (string literal, quotes stripped). These flags are reset per-function before reading.",
       "evidence": ["src/compiler/sema.cpp#L7791-L7836"]
     },
     {
       "id": "item.static.global-storage",
       "domain": "item",
-      "title": "static defines global storage",
-      "statement": "`static` defines real global storage emitted as one global symbol per item (versus `const`, which is inlined at each use). `static mut` is mutable; a `static` without an initializer value is external. The symbol is module-qualified (falling back to `pkg$name`).",
-      "evidence": ["src/compiler/sema.cpp#L7854-L7876"]
+      "title": "static gets global storage with symbol, mut/extern flags",
+      "statement": "A `static` item is lowered with IS_STATIC set, real global storage keyed by a module-qualified symbol (fallback pkg$name); `static mut` sets IS_MUT; a static lacking VALUE is extern (IS_EXTERN, no initializer emitted).",
+      "evidence": ["src/compiler/sema.cpp#L7854-L7876"],
+      "examples": ["static X: i32 = 5;", "static mut Y: i32 = 0;"]
     },
     {
       "id": "item.const.inlined-value",
       "domain": "item",
-      "title": "const carries an inlined value",
-      "statement": "`const` definitions carry a name, type, and value expression; the value is inlined at each use site.",
-      "evidence": ["src/compiler/sema.cpp#L7845-L7853"]
+      "title": "const carries an inlined value expression",
+      "statement": "A `const` item stores its initializer as a VALUE expression that downstream codegen inlines at each use site (contrasted with statics, which have one global per item).",
+      "evidence": ["src/compiler/sema.cpp#L7845-L7853"],
+      "examples": ["const K: i32 = 10;"]
     }
   ]
 }

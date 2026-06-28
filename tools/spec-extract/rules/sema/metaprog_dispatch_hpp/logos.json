@@ -1,0 +1,45 @@
+{
+  "unit": "sema/metaprog_dispatch_hpp/logos",
+  "layer": "sema",
+  "source": "src/compiler/metaprog_dispatch.hpp#L15-L114",
+  "source_hash": "e848ec6e85a1f0ca",
+  "rules": [
+    {
+      "id": "metaprog.dispatch.fixpoint-iteration",
+      "domain": "metaprog",
+      "title": "Metaprog discovery iterates to fixpoint, capped at 16",
+      "statement": "Metaprogram item-generation runs as a discovery loop: each iteration re-lowers and fires triggers/metacalls that may emit new items; the loop repeats until an iteration emits nothing new (fixpoint), bounded by a hard cap of 16 iterations.",
+      "evidence": ["src/compiler/metaprog_dispatch.hpp#L94-L100"],
+      "uncertainty": "Header doc comment; the loop body lives in the .cpp. Behavior of exceeding the cap (error vs silent stop) is not specified here."
+    },
+    {
+      "id": "metaprog.derive.trigger-may-emit-items",
+      "domain": "metaprog",
+      "title": "Derive/handler hooks emit sibling items into the program",
+      "statement": "An annotated item bearing a `#[derive_*]` / metaprog-handler attribute invokes the corresponding handler during discovery; the handler may synthesize and splice additional top-level items into the program (alongside the annotated item).",
+      "evidence": ["src/compiler/metaprog_dispatch.hpp#L94-L98", "src/compiler/metaprog_dispatch.hpp#L1-L2"]
+    },
+    {
+      "id": "metaprog.metacall.item-position-splice",
+      "domain": "metaprog",
+      "title": "Item-position metacall splices synthesized items",
+      "statement": "A `metacall foo();` in item position is evaluated during discovery and its result is spliced as synthesized top-level item(s) into the program.",
+      "evidence": ["src/compiler/metaprog_dispatch.hpp#L1-L3", "src/compiler/metaprog_dispatch.hpp#L97-L98"]
+    },
+    {
+      "id": "metaprog.discovery.entry-body-skipped",
+      "domain": "metaprog",
+      "title": "Entry-file function bodies are skipped during discovery",
+      "statement": "During the metaprog discovery pass, function bodies of the entry file are not lowered (metaprog_mode); only signatures/items needed for trigger discovery are processed. Name mangling during discovery must stay consistent with the final pass.",
+      "evidence": ["src/compiler/metaprog_dispatch.hpp#L94-L95", "src/compiler/metaprog_dispatch.hpp#L82-L87"],
+      "uncertainty": "Exact set of skipped work is described only via comment."
+    },
+    {
+      "id": "module.prelude.implicit-injection",
+      "domain": "module",
+      "title": "Implicit prelude injected unless opted out",
+      "statement": "An implicit prelude package is injected into every non-binary user file that does not carry `#![no_implicit_prelude]`, making prelude names resolvable unqualified; binary (precompiled) inputs and files with the opt-out attribute receive no implicit prelude.",
+      "evidence": ["src/compiler/metaprog_dispatch.hpp#L76-L80"]
+    }
+  ]
+}

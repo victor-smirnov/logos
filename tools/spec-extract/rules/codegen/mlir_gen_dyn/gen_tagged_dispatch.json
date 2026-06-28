@@ -1,0 +1,134 @@
+{
+  "unit": "codegen/mlir_gen_dyn/gen_tagged_dispatch",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_dyn.cpp#L1285-L2231",
+  "source_hash": "bd2dcf3540117090",
+  "rules": [
+    {
+      "id": "trait.tagdispatch.type-code-keyed",
+      "domain": "trait",
+      "title": "Tag-based dispatch keys on a runtime type-code read from the receiver",
+      "statement": "A `#[tag_dispatch]`-style trait call resolves the target method at runtime by (1) reading an integer `type_code` from the receiver value via the trait's TagSystem `read_tag(self=null, obj_ptr) -> i64`, then (2) indexing a per-(tag_system, trait, method) dispatch structure by that type_code to obtain the method function pointer, then (3) calling it indirectly with the receiver pointer as `self: *const u8` followed by the user args. The TagSystem is a stateless unit struct (self passed as null).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1308-L1356",
+        "src/compiler/mlir_gen_dyn.cpp#L1360-L1364",
+        "src/compiler/mlir_gen_dyn.cpp#L1444-L1474"
+      ],
+      "divergence": "Logos addition: runtime type-code/TagSystem dispatch has no direct Rust analogue (Rust uses vtables only).",
+      "uncertainty": "TagSystem read_tag encoding variants (legacy 2-byte / vlen / TOM inline header) are noted in comments but not enforced in this unit."
+    },
+    {
+      "id": "trait.tagdispatch.tier-boundary-256",
+      "domain": "trait",
+      "title": "Tag dispatch is two-tier with a type-code boundary of 256",
+      "statement": "Tag dispatch tables are split into a dense tier-1 array of 256 slots indexed directly by type_code, and a tier-2 sparse lookup function. When both exist, dispatch selects tier-1 iff type_code < 256 (unsigned), else calls the tier-2 lookup(type_code); a missing tier resolves to a null function pointer. At least one tier must exist for the call to be emitted.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1287",
+        "src/compiler/mlir_gen_dyn.cpp#L1366-L1370",
+        "src/compiler/mlir_gen_dyn.cpp#L1375-L1442"
+      ],
+      "divergence": "Logos addition: tiered type-code dispatch table; no Rust analogue.",
+      "uncertainty": "Comment text says 'type_code < 223' but the emitted boundary constant is kTier1Size=256; the code is authoritative."
+    },
+    {
+      "id": "trait.dyn.fat-pointer-vtable-dispatch",
+      "domain": "trait",
+      "title": "&dyn Trait dispatch loads self=data_ptr and method from vtable",
+      "statement": "A method call on a `&dyn Trait` receiver is dispatched indirectly: the receiver is a fat pointer {data_ptr, vtable_ptr}; the call loads data_ptr as `self`, loads the method function pointer from the vtable, and calls it indirectly with data_ptr followed by the user args.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1481-L1483",
+        "src/compiler/mlir_gen_dyn.cpp#L1555-L1574",
+        "src/compiler/mlir_gen_dyn.cpp#L1576-L1607"
+      ]
+    },
+    {
+      "id": "layout.dyn.fat-pointer-two-word",
+      "domain": "layout",
+      "title": "Trait-object value is a two-word {data,vtable} fat pointer",
+      "statement": "A trait-object (`dyn Trait`) value is a two-word structure {field 0 = data_ptr, field 1 = vtable_ptr}; a `&dyn`/`dyn` value is itself a pointer to this 16-byte storage (mirroring a slice value), while a struct-VALUE fat pair is spilled to storage before its fields are read.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1523",
+        "src/compiler/mlir_gen_dyn.cpp#L1543-L1565"
+      ]
+    },
+    {
+      "id": "layout.vtable.drop-size-align-prefix",
+      "domain": "layout",
+      "title": "Vtable layout: [drop_in_place, size, align, method0, method1, ...]",
+      "statement": "A trait-object vtable lays out the drop glue at slot 0, size_of(T) at slot 1, align_of(T) at slot 2, followed by the trait methods in declaration order; a trait method's declared vtable index i therefore resolves to physical vtable slot i+3.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1567-L1574"
+      ]
+    },
+    {
+      "id": "coerce.closure.fn-ptr-requires-non-capturing",
+      "domain": "coerce",
+      "title": "Closure-to-fn-pointer coercion requires an empty capture set",
+      "statement": "A closure coerced to a plain function pointer is emitted as a top-level function with signature (params...) -> ret and NO env parameter; the coercion is valid only for non-capturing closures, and the resulting value is the function's address.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1701-L1772"
+      ]
+    },
+    {
+      "id": "expr.closure.env-capture-binding",
+      "domain": "expr",
+      "title": "A capturing closure binds captures from an environment record",
+      "statement": "A capturing closure is a {fn_ptr, env_ptr} value; the body receives env_ptr as a hidden leading parameter and each capture is bound from env field i+1 (env field 0 reserved for drop glue). Aggregate (struct/array/tuple/enum/dyn) captures are stored/bound by pointer; scalar captures are stored by value and re-allocated locally in the body.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1843-L1849",
+        "src/compiler/mlir_gen_dyn.cpp#L1957-L2048",
+        "src/compiler/mlir_gen_dyn.cpp#L2216-L2228"
+      ]
+    },
+    {
+      "id": "borrow.closure.move-owns-non-move-borrows",
+      "domain": "borrow",
+      "title": "move closure owns by-value captures; non-move closure borrows",
+      "statement": "A non-`move` closure captures by reference (env stores a pointer/borrow of the outer variable; mutations escape to the outer variable). A `move` closure transfers ownership of each by-value capture into the env: an owned droppable capture is dropped by the closure's env drop glue and NOT by the original scope (exactly one owner). `&dyn` handle captures remain borrows even under `move` (a dyn value-fat-pair is a borrowed handle, not owned storage).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1791-L1832",
+        "src/compiler/mlir_gen_dyn.cpp#L2117-L2147"
+      ]
+    },
+    {
+      "id": "borrow.closure.mut-scalar-fnmut-state",
+      "domain": "borrow",
+      "title": "Mutated scalar capture: move owns a persistent copy, non-move escapes",
+      "statement": "For a mutated scalar (let-bound) capture: a `move` closure stores a value copy in the env and reads/writes through the env field (the mutation persists across calls as FnMut state and never touches the outer variable, which is Copy so needs no drop); a non-`move` closure stores the outer variable's address so mutations escape to the outer variable.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1780-L1800",
+        "src/compiler/mlir_gen_dyn.cpp#L2026-L2040"
+      ]
+    },
+    {
+      "id": "borrow.closure.disjoint-field-capture",
+      "domain": "borrow",
+      "title": "RFC-2229 disjoint closure capture of a struct field path",
+      "statement": "A closure captures the narrowest field path it uses rather than the whole variable (RFC-2229). For an escaping `move` closure a narrow capture owns only the leaf FIELD value inline (the field's Drop runs via env glue; the original root still drops the rest); a non-escaping narrow capture borrows the whole root by pointer. The captured path is the LCA-widening of all uses, so the body only reads the captured leaf.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1833-L1841",
+        "src/compiler/mlir_gen_dyn.cpp#L1978-L2007",
+        "src/compiler/mlir_gen_dyn.cpp#L2140-L2146"
+      ]
+    },
+    {
+      "id": "region.closure.escaping-env-heap-allocated",
+      "domain": "region",
+      "title": "Escaping (boxed) closure heap-allocates its environment",
+      "statement": "A closure that escapes its defining frame (e.g. boxed as `Box<dyn Fn>`) and has captures must heap-allocate its env so the {fn, env_ptr} value outlives the frame; a non-escaping closure with captures uses a stack env; a capture-less closure uses a null env pointer (its drop is a no-op).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L2081-L2115"
+      ]
+    },
+    {
+      "id": "expr.closure.uniform-drop-glue-slot",
+      "domain": "expr",
+      "title": "Closure env carries a uniform drop-glue slot",
+      "statement": "Every closure env reserves field 0 for a `drop_glue: ptr` slot for a uniform drop protocol; the slot holds the address of generated drop glue when the closure owns droppable captures or has a heap env (which must be freed), otherwise null (drop is a no-op).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L1843-L1849",
+        "src/compiler/mlir_gen_dyn.cpp#L2117-L2165"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "unit": "codegen/mlir_gen_stmt/gen_field_write",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_stmt.cpp#L2664-L3272",
+  "source_hash": "61a47d8d94e60afd",
+  "rules": [
+    {
+      "id": "layout.enum.field-store-heap-promote",
+      "domain": "layout",
+      "title": "Enum value stored into an enum-typed field is heap-promoted",
+      "statement": "An enum-typed field is represented by a single heap pointer slot (two-level convention). Assigning an enum r-value (held by pointer) into such a slot copies the enum's bytes into a freshly heap-allocated region of sizeof(enum) and stores that heap pointer, so the field does not dangle past the producing function's frame.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2725-L2747"],
+      "related": ["layout.enum.two-level-heap-ptr"]
+    },
+    {
+      "id": "layout.field.rel-ptr-self-relative-offset",
+      "domain": "layout",
+      "title": "#[rel_ptr] field stores a self-relative i64 offset",
+      "statement": "A struct field marked #[rel_ptr] (RefRepr RelOffset) does not store an absolute pointer; on assignment the destination pointer value is lowered to a signed i64 offset relative to the field slot's own address (the slot is the anchor) and that offset is stored in the slot.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2748-L2758", "src/compiler/mlir_gen_stmt.cpp#L2828-L2838"],
+      "divergence": "Logos addition: self-relative pointer field representation (no Rust analogue)."
+    },
+    {
+      "id": "layout.field.inline-struct-store-by-value",
+      "domain": "layout",
+      "title": "Inline (embedded) struct field is assigned by value",
+      "statement": "When a struct field's storage is an embedded aggregate (not a pointer slot) and the assigned r-value is materialized as a pointer to the source bytes, the assignment loads the aggregate value from the source pointer and stores it by value into the field; scalar fields instead receive the value with integer coercion to the field type.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2760-L2771", "src/compiler/mlir_gen_stmt.cpp#L2840-L2853"]
+    },
+    {
+      "id": "expr.field-write.chain-auto-deref",
+      "domain": "expr",
+      "title": "Chained field assignment auto-dereferences pointer segments",
+      "statement": "In a chained field assignment a.b.c...x = v, each intermediate path segment whose field type is a pointer-to-struct is dereferenced (one load) before descending, while embedded (non-pointer) struct segments are addressed in place; the final segment is the assignment target.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2897-L2950"]
+    },
+    {
+      "id": "layout.assign.aggregate-rvalue-byte-copy",
+      "domain": "layout",
+      "title": "Struct/tuple r-value assignment into an element slot is a full-footprint byte copy",
+      "statement": "Assigning a struct-, zoned-struct-, or tuple-typed r-value (materialized by pointer) into an indexed element slot copies sizeof(type) bytes from the source to the destination, rather than storing a pointer.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3056-L3076", "src/compiler/mlir_gen_stmt.cpp#L3185-L3205"]
+    },
+    {
+      "id": "layout.assign.fat-pointer-16-byte-copy",
+      "domain": "layout",
+      "title": "Fat-pointer r-value assignment copies the full 16-byte pair",
+      "statement": "A closure, slice, or trait-object (dyn) r-value occupies a 16-byte two-word storage layout ({ptr,ptr} or {ptr,len}). Assigning such a value into an indexed element slot copies all 16 bytes, never an 8-byte single-word store, so both halves of the fat pointer are written.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3077-L3091", "src/compiler/mlir_gen_stmt.cpp#L3206-L3217"],
+      "related": ["layout.dst.fat-pointer-two-word"]
+    },
+    {
+      "id": "expr.index.unsigned-zero-extend",
+      "domain": "expr",
+      "title": "Unsigned index operand is zero-extended to the index width",
+      "statement": "An index expression of an unsigned integer type (u8/u16/u24/u32/u56/u64/u128) is zero-extended to the address-index width before address computation, so e.g. u8(200) indexes element 200 rather than being sign-extended to a negative offset.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3041-L3051", "src/compiler/mlir_gen_stmt.cpp#L3140-L3159"]
+    },
+    {
+      "id": "layout.field-index.element-stride-inline-footprint",
+      "domain": "layout",
+      "title": "Indexing a pointer-typed field strides by the element's inline footprint",
+      "statement": "When indexing through a pointer-valued struct field (the stored pointer is loaded first), address computation strides by the element's inline slot footprint: the concrete struct's aggregate size for struct elements and 16 bytes for fat-pointer (dyn/closure/slice) elements, not the collapsed 8-byte pointer size.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3169-L3183"]
+    },
+    {
+      "id": "pat.or.bindings-from-first-alternative",
+      "domain": "pat",
+      "title": "Or-pattern bindings are taken from its first alternative",
+      "statement": "The set of variable bindings introduced by an or-pattern (p1 | p2 | ...) is determined by its first alternative; all alternatives are required to bind the same names.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3263-L3267"]
+    },
+    {
+      "id": "pat.bind.wildcard-and-underscore-no-binding",
+      "domain": "pat",
+      "title": "Wildcard '_' introduces no binding",
+      "statement": "A wildcard pattern binds a name only when that name is non-empty and not '_'; the literal '_' (and unnamed wildcards) bind nothing. Variant-data sub-bindings named '_' are likewise skipped.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3235-L3238", "src/compiler/mlir_gen_stmt.cpp#L3257-L3259"]
+    },
+    {
+      "id": "pat.tuple.elementwise-binding",
+      "domain": "pat",
+      "title": "Tuple pattern binds element-wise against tuple element types",
+      "statement": "A tuple pattern recurses into each sub-pattern paired positionally with the corresponding element type of the scrutinee tuple type; sub-patterns beyond the tuple's arity receive no type.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3240-L3248"]
+    }
+  ]
+}

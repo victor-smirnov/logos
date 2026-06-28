@@ -1,0 +1,102 @@
+{
+  "unit": "sema/module_loader/extract_writ0_exports",
+  "layer": "sema",
+  "source": "src/compiler/module_loader.cpp#L714-L1685",
+  "source_hash": "a8ad117bad83777a",
+  "rules": [
+    {
+      "id": "module.resolve.text-over-binary",
+      "domain": "module",
+      "title": "Source package resolution precedes binary archive resolution",
+      "statement": "A `use pkg;` import resolves `pkg` by first consulting the source (text) package index built from `.logos` files; only if no source package declares `pkg` is the binary archive index consulted. If neither supplies `pkg`, compilation fails with a 'cannot find package' error.",
+      "evidence": ["src/compiler/module_loader.cpp#L1613-L1641"]
+    },
+    {
+      "id": "module.import.from-pins-module",
+      "domain": "module",
+      "title": "`use pkg from <M>` pins resolution to module M's archive",
+      "statement": "An import `use pkg from <M>;` resolves `pkg` from the archive whose embedded module canonical-name is `M`, independent of which other archive(s) also provide a package named `pkg`. This lets two distinct modules supplying a same-named package coexist; a bare `use pkg;` and `use pkg from M;` are keyed independently and both load.",
+      "evidence": ["src/compiler/module_loader.cpp#L1594-L1611", "src/compiler/module_loader.cpp#L1280-L1282"],
+      "divergence": "Logos addition (`from <module>` import selector); no Rust equivalent.",
+      "related": ["module.coexist.type-module-qualification"]
+    },
+    {
+      "id": "module.import.from-unknown-falls-through",
+      "domain": "module",
+      "title": "`from <M>` with unknown module name falls through to default resolution",
+      "statement": "If `use pkg from <M>;` names a module `M` for which no loaded archive is registered, resolution falls through to the default text-then-binary path; the precise 'no loaded module' diagnostic is emitted by later semantic analysis rather than the loader.",
+      "evidence": ["src/compiler/module_loader.cpp#L1603-L1611"],
+      "uncertainty": "Loader behavior only; the actual error is emitted in a separate sema unit."
+    },
+    {
+      "id": "module.load.package-atomic-dedup",
+      "domain": "module",
+      "title": "Each package loaded at most once; files deduplicated by canonical path",
+      "statement": "A package is loaded at most once per build (keyed by package name, or by (module,package) under a `from` import); within a load each file is added at most once, identified by its canonical filesystem path.",
+      "evidence": ["src/compiler/module_loader.cpp#L1598-L1599", "src/compiler/module_loader.cpp#L1619-L1620", "src/compiler/module_loader.cpp#L1583-L1584"]
+    },
+    {
+      "id": "module.load.post-order-dependency",
+      "domain": "module",
+      "title": "Imported packages are loaded before their importer (post-order)",
+      "statement": "Package dependencies declared via `use` are loaded depth-first in post-order, so a package's transitive imports are emitted before the package itself; the final module sequence is additionally topologically sorted to make dependency-first ordering uniform across source and binary loads.",
+      "evidence": ["src/compiler/module_loader.cpp#L1626-L1627", "src/compiler/module_loader.cpp#L1664-L1665", "src/compiler/module_loader.cpp#L1673-L1679"]
+    },
+    {
+      "id": "module.decl.package-required-for-import",
+      "domain": "module",
+      "title": "A `.logos` file is importable only if it declares a package",
+      "statement": "Only `.logos` files carrying a `package` declaration are indexed and thus reachable via `use`; a file with no package declaration is silently skipped and cannot be imported by name.",
+      "evidence": ["src/compiler/module_loader.cpp#L1254-L1256", "src/compiler/module_loader.cpp#L1217-L1219"]
+    },
+    {
+      "id": "module.prelude.cross-cutting-auto-load",
+      "domain": "module",
+      "title": "Cross-cutting foundation packages auto-load without explicit `use`",
+      "statement": "Foundation packages under prefixes `std.lang`, `std.writ`, or `logos.lang` (excluding the `logos.lang.writ` substrate) are implicitly available to every compilation: when an archive is loaded for a requested package, sibling packages with these prefixes are also loaded so cross-cutting traits and types (Default, Ord, Send, Clone, etc.) resolve without an explicit import edge.",
+      "evidence": ["src/compiler/module_loader.cpp#L1397-L1432", "src/compiler/module_loader.cpp#L1566-L1571"],
+      "divergence": "Logos addition: implicit prelude is prefix-scoped to the lang tier (transitional; manifest-tier system intended).",
+      "uncertainty": "Exact prefix set is a transitional heuristic per source comments."
+    },
+    {
+      "id": "module.prelude.no-double-load",
+      "domain": "module",
+      "title": "A prelude sibling already supplied by source is not re-loaded from binary",
+      "statement": "An auto-loaded prelude sibling package is skipped when the source (text) index already provides that package, preventing the same package's items/impls from being registered twice (which would otherwise produce duplicate-definition / conflicting-impl errors). The explicitly requested package is always loaded.",
+      "evidence": ["src/compiler/module_loader.cpp#L1566-L1571", "src/compiler/module_loader.cpp#L1555-L1565"]
+    },
+    {
+      "id": "module.abi.one-directional-minor-compat",
+      "domain": "module",
+      "title": "Binary archive ABI compatibility is one-directional within a major version",
+      "statement": "A compiler may consume a binary library iff (a) the library's language major version equals the compiler's, and (b) for stable releases the library's minor version is <= the compiler's minor. A differing major is incompatible; a library built by a newer minor is rejected. An ABI-incompatible archive is not indexed (its packages become unavailable). Identical version strings are always compatible; legacy archives without a version stamp are not enforced.",
+      "evidence": ["src/compiler/module_loader.cpp#L1100-L1144", "src/compiler/module_loader.cpp#L1182-L1184"],
+      "divergence": "Logos addition: semantic-version ABI gate on binary modules (Rust has no stable cross-version library ABI)."
+    },
+    {
+      "id": "module.abi.prerelease-no-guarantee",
+      "domain": "module",
+      "title": "Pre-release / snapshot builds require exact version match",
+      "statement": "If either the library or the compiler is a pre-release (`-pre`) or snapshot (`+meta`) build, no ABI guarantee holds: only an exact version-string match is silently accepted; any mismatch is permitted but warned. The check is disabled entirely by environment override.",
+      "evidence": ["src/compiler/module_loader.cpp#L1100-L1113", "src/compiler/module_loader.cpp#L1130-L1142", "src/compiler/module_loader.cpp#L1110-L1110"],
+      "divergence": "Logos addition."
+    },
+    {
+      "id": "lex.ident.ascii-only",
+      "domain": "lex",
+      "title": "Identifiers are ASCII-only",
+      "statement": "Identifiers consist of ASCII bytes only; a source line containing a non-ASCII (high-bit, >= 0x80) byte at the point of a syntax error is diagnosed as an identifier encoding error, since non-ASCII bytes cannot form a valid identifier token.",
+      "evidence": ["src/compiler/module_loader.cpp#L1361-L1377"],
+      "divergence": "A: diverges from Rust, which accepts Unicode (XID) identifiers.",
+      "related": []
+    },
+    {
+      "id": "module.id.one-module-per-archive",
+      "domain": "module",
+      "title": "A binary archive carries a single owning module identity",
+      "statement": "Each binary archive declares at most one owning module via its embedded index header, giving a canonical module name and a mangling id; this identity is stamped onto every item decoded from the archive and is used downstream to qualify the items' symbols.",
+      "evidence": ["src/compiler/module_loader.cpp#L1533-L1548", "src/compiler/module_loader.cpp#L1063-L1067"],
+      "related": ["module.coexist.type-module-qualification"]
+    }
+  ]
+}

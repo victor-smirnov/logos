@@ -7,185 +7,188 @@
     {
       "id": "type.canonicalize.global-substitution",
       "domain": "type",
-      "title": "Global type canonicalization after collection",
-      "statement": "After item collection, every declared type position is canonicalized by applying the empty substitution (resolving aliases/concrete forms while leaving TypeVar-bearing types unchanged for later mono): struct field types, enum-variant payload types, every fn/generic-fn param and return type, type-alias bodies, module-const types, associated-const-impl types, and associated-type-impl body types.",
-      "evidence": ["src/compiler/sema_collect.cpp#L703-L728"],
-      "uncertainty": "Concrete behavior of subst_type_sema({}) is inferred from comments (L724-L726): non-generic bodies become concrete; TypeVar-bearing types are left for later substitution."
+      "title": "Global type simplification pass",
+      "statement": "After collection, every declared type position is canonicalized by an identity substitution: struct field types, enum variant payload types, free + generic function parameter/return types, type-alias bodies, module-const types, associated-const impl types, and associated-type impl bodies. Non-generic forms (e.g. `type Inner<T> = i32`) resolve to their concrete type; forms still mentioning a TypeVar are left unchanged for later substitution.",
+      "evidence": ["src/compiler/sema_collect.cpp#L703-L729"]
     },
     {
       "id": "module.path.package-name",
       "domain": "module",
-      "title": "Package name from NAME plus dotted path parts",
-      "statement": "A module's fully-qualified package name is its NAME, followed by each PATH_PARTS entry's NAME joined with '.' in order (e.g. NAME='c' under parts ['a','b'] => 'a.b.c'-style dotted name). A module with no NAME has the empty package name.",
-      "evidence": ["src/compiler/sema_collect.cpp#L731-L744"]
+      "title": "Package name is dot-joined module path",
+      "statement": "A package's fully-qualified name is its module NAME with each PATH_PART name appended joined by `.` (e.g. `my.cool.pkg`).",
+      "evidence": ["src/compiler/sema_collect.cpp#L731-L744"],
+      "divergence": "A9"
     },
     {
       "id": "module.visibility.same-package",
       "domain": "module",
-      "title": "Items are always visible within their own package",
-      "statement": "Access to an item declared in package P from code whose current package is also P is always permitted, regardless of pub/pub(module). Visibility is unchecked when either the defining package or the accessing package context is empty (no scope context).",
+      "title": "Same-package access is always permitted",
+      "statement": "Visibility checks are skipped when scope context is absent (empty defining or current package); access to any item whose defining package equals the current package is always allowed regardless of `pub`.",
       "evidence": ["src/compiler/sema_collect.cpp#L746-L750"]
     },
     {
       "id": "module.visibility.private-cross-package",
       "domain": "module",
-      "title": "Non-pub items are package-private",
-      "statement": "An item without `pub` declared in package P is inaccessible from any package other than P; access is an error 'is private to package'.",
+      "title": "Non-pub items are private across packages",
+      "statement": "An item not marked `pub` (and not `pub(module)`) is inaccessible from a different package; cross-package reference is an error.",
       "evidence": ["src/compiler/sema_collect.cpp#L760-L761"]
     },
     {
       "id": "module.visibility.pub-module-linkage",
       "domain": "module",
-      "title": "pub(module) has module-linkage visibility",
-      "statement": "A `pub(module)` item (which also sets is_pub) is visible to other packages only when the accessing code belongs to the SAME owning module-id as the item's defining module; cross-module access is an error 'is module-private'. This module-linkage check precedes the plain is_pub check.",
+      "title": "pub(module) has module-linkage across packages",
+      "statement": "A `pub(module)` item is visible to other packages only within its OWNING module: cross-package access is allowed iff the defining module id equals the current module id, otherwise it is module-private (error). Checked before the plain `pub` test since `pub(module)` also sets is_pub.",
       "evidence": ["src/compiler/sema_collect.cpp#L751-L759"]
     },
     {
       "id": "trait.satisfy.blanket-recursive",
       "domain": "trait",
-      "title": "Recursive blanket-impl trait satisfaction",
-      "statement": "A type satisfies trait T if (a) a direct impl T::<concrete> or T::<alt> is registered, or (b) some blanket impl `impl<X> T for X` exists that is unbounded, or whose primary bound trait and all extra bounds are themselves recursively satisfied by the same concrete type. Recursion uses a per-attempt visited set so a failed candidate does not poison sibling candidates; cycles return unsatisfied.",
+      "title": "Recursive impl satisfaction with blanket chains",
+      "statement": "A type satisfies a trait if a direct impl exists (by primary or alternate mangled key), or a blanket impl `impl<T: B> Trait for T` applies whose bound trait B (and all extra bounds) are themselves recursively satisfied by the type. A cycle-guard set prevents infinite recursion; each blanket candidate uses a per-attempt copy of the seen-set so a failed sibling does not poison later candidates. An unbounded blanket (`impl<T> Trait for T`) trivially satisfies any type.",
       "evidence": ["src/compiler/sema_collect.cpp#L764-L806"]
     },
     {
       "id": "trait.satisfy.ref-self-mangling",
       "domain": "trait",
-      "title": "Reference-Self impls keyed by mangled $ref_/$mut_ref_ form",
-      "statement": "`impl T for &C` and `impl T for &mut C` register under mangled keys `T::$ref_<...>` / `T::$mut_ref_<...>`, where a struct pointee uses the bare struct name ($ref_C) and a non-struct pointee uses the full type_str ($ref_&i32). Bound satisfaction for a `&C`/`&mut C` subject must consult both mangled forms.",
-      "evidence": ["src/compiler/sema_collect.cpp#L776-L788", "src/compiler/sema_collect.cpp#L1297-L1316"]
+      "title": "Reference-Self impls keyed by $ref_/$mut_ref_ mangling",
+      "statement": "An `impl Trait for &T` / `&mut T` registers under a mangled key (`$ref_`/`$mut_ref_` prefix); a query whether `&T` impls Trait matches both the full-string pointee form (`$ref_&i32`) and the bare-name pointee form (`$ref_Foo`).",
+      "evidence": ["src/compiler/sema_collect.cpp#L776-L788"]
     },
     {
       "id": "generic.bounds.no-empty-params",
       "domain": "generic",
       "title": "Bound checking is a no-op for non-generic targets",
-      "statement": "If a target has no type-params, no bound checking is performed on its type-args.",
+      "statement": "When a target has no type parameters, bound checking is skipped entirely.",
       "evidence": ["src/compiler/sema_collect.cpp#L808-L811"]
     },
     {
       "id": "generic.bounds.variadic-tail-param",
       "domain": "generic",
-      "title": "Variadic trailing type-param applies to all extra args",
-      "statement": "If the last type-param is variadic, all type-args at or beyond the non-variadic count are checked against that trailing variadic param; non-variadic params bind positionally.",
-      "evidence": ["src/compiler/sema_collect.cpp#L812-L833"]
+      "title": "Variadic tail parameter absorbs extra type args",
+      "statement": "If the last type parameter is variadic, type args beyond the non-variadic count are all checked against that final (variadic) parameter; otherwise excess args are ignored once parameters are exhausted.",
+      "evidence": ["src/compiler/sema_collect.cpp#L812-L833"],
+      "divergence": "A6"
     },
     {
       "id": "generic.bounds.substitute-call-args",
       "domain": "generic",
-      "title": "Parametrized bounds checked against substituted type-args",
-      "statement": "When a bound `I: Iterator<T>` names another of the call's type-params (T) in its type-args, T is replaced by its concrete value from this call (e.g. turbofish T=i32) before bound resolution, rather than deferring the bare TypeVar to monomorphization.",
+      "title": "Call's type-args substituted into parametrized bounds",
+      "statement": "Before checking a parametrized bound `I: Iterator<T>`, the call's mapping of type-params to concrete args is substituted into the bound's type-args, so the bound is checked against the concrete value of T (e.g. turbofish T=i32) rather than the bare TypeVar.",
       "evidence": ["src/compiler/sema_collect.cpp#L815-L825", "src/compiler/sema_collect.cpp#L947-L955"]
     },
     {
       "id": "generic.bounds.defer-typevar-bearing",
       "domain": "generic",
-      "title": "Bounds on TypeVar-bearing subjects deferred to mono",
-      "statement": "A concrete type-arg that still mentions any TypeVar anywhere in its structure (pointee, element, type-args, tuple elems, closure params/ret) is undecidable at collection time and its bound check is deferred to monomorphization. The same deferral applies to AssocType and CfgSlotType subjects, and to Error-kind args (skipped).",
-      "evidence": ["src/compiler/sema_collect.cpp#L836-L866"]
+      "title": "TypeVar-bearing subjects defer bound checking to mono",
+      "statement": "A concrete-arg type-expression that mentions a TypeVar anywhere (`&T`, `[T;0]`, `&[T]`, `EnumPair<T>`, `(T,U)`, closure param/ret) has undecidable trait satisfaction here and is deferred to monomorphization, where the substituted form is re-checked. AssocType and CfgSlotType kinds are likewise deferred.",
+      "evidence": ["src/compiler/sema_collect.cpp#L838-L866"]
     },
     {
       "id": "trait.builtin.sized-noop",
       "domain": "trait",
-      "title": "Sized bound is a no-op marker",
-      "statement": "`Sized` is a compiler-builtin marker satisfied by every concrete type; a `T: Sized` bound is admitted unconditionally. `?Sized` opt-out is not yet expressible.",
-      "evidence": ["src/compiler/sema_collect.cpp#L878-L883"],
-      "divergence": "No unsized types yet; ?Sized opt-out not expressible (M7-mt-03)."
+      "title": "Sized bound is a no-op",
+      "statement": "`Sized` is a compiler-builtin marker satisfied by every concrete type; a `T: Sized` bound is admitted as a no-op (matching Rust's implicit Sized).",
+      "evidence": ["src/compiler/sema_collect.cpp#L879-L883"]
     },
     {
       "id": "trait.builtin.copy-handle-kinds",
       "domain": "trait",
       "title": "Copy is built-in for bitwise-copyable handle kinds",
-      "statement": "A `Copy` bound is satisfied without an explicit impl by: a shared reference `&T` (incl. `&dyn Trait`), a raw pointer, a slice `&[T]`, a fn-pointer/fn-value, and a trait-object fat pointer. `&mut T` (exclusive move-only borrow) is NOT Copy and falls through to impl lookup.",
+      "statement": "A `Copy` bound is satisfied without an explicit `impl Copy` for the bitwise-copyable handle kinds: shared reference `&T` (incl. `&dyn Trait`), raw pointer `*const/*mut T`, slice `&[T]`, fn pointer, and trait-object fat pointer. `&mut T` is an exclusive move-only borrow and is NOT Copy (falls through to impl lookup).",
       "evidence": ["src/compiler/sema_collect.cpp#L884-L898"]
     },
     {
       "id": "trait.bounds.ref-subject-impl-key",
       "domain": "trait",
       "title": "where &T: Trait satisfied only by reference-Self impl",
-      "statement": "A `where &T: Trait` (or `&mut T: Trait`) bound on a reference subject is satisfied only by an impl registered for the reference type itself (`T::$ref_<C>` / `T::$mut_ref_<C>`), not by `impl Trait for C`; otherwise it is an error.",
+      "statement": "A `where &T: Trait` bound (ref-subject) is satisfied only by an `impl Trait for &Concrete` / `&mut Concrete` (keyed `$ref_<C>` / `$mut_ref_<C>`), NOT by `impl Trait for Concrete`; absence is an error naming parameter `&<name>`.",
       "evidence": ["src/compiler/sema_collect.cpp#L899-L911"]
     },
     {
       "id": "trait.auto.structural-satisfaction",
       "domain": "trait",
-      "title": "Auto-trait bounds synthesized from field types",
-      "statement": "For a bound on an auto trait (e.g. Send/Sync), satisfaction is synthesized structurally from the concrete type's field types; failure reports the offending field (name and type) when known, else 'not inherently <Trait>'.",
+      "title": "Auto-trait satisfaction synthesized structurally",
+      "statement": "For an auto trait (e.g. Send/Sync), bound satisfaction is synthesized recursively from the type's field types; failure reports the offending field (name + type) when known, else that the type is not inherently the trait.",
       "evidence": ["src/compiler/sema_collect.cpp#L912-L933"]
     },
     {
       "id": "trait.bounds.parametrized-type-args-match",
       "domain": "trait",
       "title": "Parametrized bound requires a type-arg-matching impl",
-      "statement": "For a bound `T: Trait<Args>`, a single-valued Self-name impl hit proves only some Trait impl exists, not one with the right type-args. Satisfaction via name-keyed paths (direct, generic-struct, tuple, alias) requires that SOME registered impl for that Self (enumerated via multi-valued impls_all_, keyed by concrete, unwrapped, and bare struct/enum names) has trait-args equal (after unifying the impl target with the concrete Self) to the bound's substituted type-args. A bound with empty type-args imposes no such constraint. Positions where either side remains abstract are deferred.",
-      "evidence": ["src/compiler/sema_collect.cpp#L934-L1007"]
+      "statement": "For a bound `T: Trait<Args>`, a name-keyed impl hit proves only that SOME Trait impl exists; satisfaction additionally requires that some impl for this Self (enumerated via multi-valued impls registry) has matching trait type-args after substituting the impl's params from the concrete Self. An empty bound type-arg list imposes no constraint. Enumeration covers the concrete, unwrapped, and bare struct/enum names; abstract (TypeVar-bearing) sides defer.",
+      "evidence": ["src/compiler/sema_collect.cpp#L936-L1007"]
     },
     {
       "id": "region.bounds.universal-lifetime-position",
       "domain": "region",
-      "title": "Bound lifetimes must align with free impl-level lifetime params",
-      "statement": "When matching a bound's trait-arg lifetimes against an impl's, each non-empty non-'static bound lifetime must align with an impl lifetime that is a free impl-level parameter (not a region concretely pinned at the impl); a 'static bound lifetime is satisfied by an exact 'static match or by a free impl param. Reference pointees and Struct/Enum type-args are walked recursively.",
-      "evidence": ["src/compiler/sema_collect.cpp#L1008-L1075"],
-      "divergence": "B62/B63 region-matching rules."
+      "title": "Bound lifetime must align with a free impl lifetime param",
+      "statement": "When matching a bound's trait-arg lifetimes against an impl's, each non-empty non-'static bound lifetime must align with an impl lifetime that is a free impl-level parameter (not a region concretely pinned at the impl); a 'static (or empty) bound lifetime matches only an exactly-equal impl lifetime or a free impl param.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1008-L1046"]
     },
     {
       "id": "region.bounds.impl-tie-injectivity",
       "domain": "region",
       "title": "Impl-tied lifetime slots require matching bound binders",
-      "statement": "If an impl uses the same lifetime in two trait-arg positions, the bound must use the same binder in those positions (reverse direction enforced). Bound binders may collapse to one impl lifetime (forward non-injectivity allowed: impl strictly more general). On failure: bound not satisfied (incompatible trait-arg lifetimes).",
-      "evidence": ["src/compiler/sema_collect.cpp#L1008-L1101", "src/compiler/sema_collect.cpp#L1132-L1153"],
-      "divergence": "B62/B63."
+      "statement": "Region matching walks Ref/MutRef pointees and Struct/Enum lifetime+type args recursively. If an impl uses the same lifetime in two trait-arg positions, the bound must use the same binder in those positions (reverse-injective). The forward direction may collapse distinct bound binders onto one impl lifetime (impl strictly more general).",
+      "evidence": ["src/compiler/sema_collect.cpp#L1031-L1082"]
     },
     {
       "id": "region.bounds.hrtb-outlives-unsat",
       "domain": "region",
-      "title": "Impl outlives between two skolemized binders is unsatisfiable",
-      "statement": "If an impl declares a where-clause outlives `'a: 'b` between two impl-side lifetime params that BOTH map to (distinct) bound binders/skolems, the constraint is unsatisfiable under universal quantification and the bound is rejected. Reflexive ('a==' b mapping) is allowed.",
-      "evidence": ["src/compiler/sema_collect.cpp#L1083-L1099"],
-      "divergence": "B85 HRTB skolemization."
+      "title": "HRTB outlives between two bound binders is unsatisfiable",
+      "statement": "If an impl declares a where-clause outlives `'a: 'b` between two impl-side lifetime params that BOTH map to distinct bound binders under universal quantification, the constraint is unsatisfiable and the bound is rejected. Reflexive (same skolem) mappings are accepted.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1083-L1100"]
     },
     {
       "id": "trait.bounds.partialeq-via-eq",
       "domain": "trait",
       "title": "PartialEq/PartialOrd satisfied by Eq/Ord impls",
-      "statement": "A `T: PartialEq` bound is accepted via an existing `Eq` impl, and `T: PartialOrd` via an `Ord` impl (on the concrete or unwrapped name).",
+      "statement": "A `T: PartialEq` bound is satisfied by an existing Eq impl, and `T: PartialOrd` by an Ord impl (alias resolution over concrete and unwrapped names).",
       "evidence": ["src/compiler/sema_collect.cpp#L1110-L1131"],
-      "divergence": "SL-sl-02: Logos's Eq currently carries PartialEq's methods; full PartialEq:Eq split pending."
+      "divergence": "Logos Eq/Ord carry the methods Rust puts on PartialEq/PartialOrd; full split pending."
+    },
+    {
+      "id": "trait.bounds.region-mismatch-error",
+      "domain": "trait",
+      "title": "Found impl with incompatible regions is an error",
+      "statement": "When a direct/alias impl is found and its type-args match, satisfaction holds only if the region check passes; on region failure the bound is rejected with a diagnostic citing incompatible trait-arg lifetimes (and HRTB `for<...>` binders if present).",
+      "evidence": ["src/compiler/sema_collect.cpp#L1102-L1154"],
+      "related": ["region.bounds.universal-lifetime-position", "region.bounds.impl-tie-injectivity", "region.bounds.hrtb-outlives-unsat"]
     },
     {
       "id": "trait.bounds.generic-struct-base-key",
       "domain": "trait",
-      "title": "Generic-struct impl satisfies bound by base struct name",
-      "statement": "`impl<T: X> Trait for GenericStruct<T>` registers under the bare base name `Trait::GenericStruct`; a struct/zoned-struct subject satisfies the bound if such a base-name impl exists (and type-args match); the impl's own type-param bounds are validated later at monomorphization.",
+      "title": "Generic-struct impl keyed by base struct name",
+      "statement": "A generic impl `impl<T: X> Trait for GenericStruct<T>` registers under the base name; a bound on a concrete instantiation of that struct is satisfied if a generic impl for its base struct exists (with type-args matching), the impl's own param bounds being validated recursively at monomorphization.",
       "evidence": ["src/compiler/sema_collect.cpp#L1181-L1191"]
     },
     {
       "id": "trait.bounds.tuple-impl-satisfaction",
       "domain": "trait",
-      "title": "Tuple bound satisfaction by arity with recursive element check",
-      "statement": "A tuple subject satisfies a bound if a variadic tuple impl `Trait::$tuple$variadic` exists (any arity), or an arity-specific impl `Trait::$tuple$N` exists AND every non-TypeVar element itself satisfies the trait (direct impl, nested tuple arity, or auto-trait). TypeVar elements are deferred to mono.",
-      "evidence": ["src/compiler/sema_collect.cpp#L1192-L1244"],
-      "divergence": "SL-sl-08."
+      "title": "Tuple impls keyed by arity, with per-element recursion",
+      "statement": "A tuple satisfies a bound if a variadic tuple impl (`$tuple$variadic`) exists (any arity), or an arity-specific impl (`$tuple$N`) exists AND every non-TypeVar element itself satisfies the trait (element checked via direct impl, nested tuple-arity, or auto-trait short-circuit). TypeVar elements defer to mono.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1192-L1244"]
     },
     {
       "id": "trait.bounds.fn-family-by-callable",
       "domain": "trait",
-      "title": "Fn-family bounds satisfied by closures and fn-pointers",
-      "statement": "An `F: Fn/FnMut/FnOnce(args)->R` bound is satisfied by any closure or fn-value (pointer); arity/arg/ret compatibility is enforced at the call site. A `&F`/`&mut F` whose pointee is a closure, fn-value, or Fn-bounded TypeVar also satisfies the Fn-family bound (autoderef-invoked). A concrete fn-pointer also satisfies a `Trait::$fnptr$N` arity-keyed impl.",
+      "title": "Fn-family bounds satisfied by callable types",
+      "statement": "An `F: Fn*(args)->R` bound is satisfied by any closure or fn-pointer type; by `&F`/`&mut F` whose pointee is a closure, fn-ptr, or Fn-bounded TypeVar (autoderef-invoke); and by a concrete fn-pointer matching an arity-keyed `$fnptr$N` impl. Arity/arg/ret compatibility is enforced at the call site.",
       "evidence": ["src/compiler/sema_collect.cpp#L1245-L1272"]
     },
     {
       "id": "trait.bounds.dyn-object-self-and-super",
       "domain": "trait",
-      "title": "dyn Trait satisfies its own and supertrait bounds",
-      "statement": "A `dyn Trait` / unsized-dyn trait-object subject satisfies a `T: Bound` bound when Bound is the object's own trait or any (transitive) supertrait reachable from it.",
-      "evidence": ["src/compiler/sema_collect.cpp#L1273-L1296"],
-      "divergence": "G158-7 (enables ?Sized + Trait generic passthrough)."
+      "title": "Trait object satisfies its own trait and supertraits",
+      "statement": "A `dyn Trait` (TraitObject / UnsizedDyn) value satisfies a `T: Bound` bound iff the trait object's trait equals Bound or transitively reaches it through supertraits.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1273-L1296"]
     },
     {
       "id": "trait.bounds.unsatisfied-error",
       "domain": "trait",
-      "title": "Unsatisfied trait bound is an error",
-      "statement": "If none of the satisfaction paths (builtin Copy/Sized, auto, direct impl, blanket, generic-struct, tuple, Fn-family, fnptr, dyn, ref-Self mangling) accept, the bound is unsatisfied: error 'type <C> does not implement trait <Trait> required by parameter <p>'.",
-      "evidence": ["src/compiler/sema_collect.cpp#L1317-L1318"]
+      "title": "Unsatisfiable bound emits a diagnostic",
+      "statement": "When no satisfaction path applies (direct/alias impl, blanket, generic-struct, tuple, Fn-family, dyn, or reference-Self mangled key), the bound is rejected: `'<target>': type '<C>' does not implement trait '<Trait>' required by parameter '<name>'`.",
+      "evidence": ["src/compiler/sema_collect.cpp#L1297-L1318"]
     }
   ]
 }

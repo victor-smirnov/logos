@@ -1,0 +1,100 @@
+{
+  "unit": "codegen/mlir_gen_fn/logos",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_fn.cpp#L7-L467",
+  "source_hash": "becd47cd7f3b67b5",
+  "rules": [
+    {
+      "id": "coerce.return.aggregate-by-value",
+      "domain": "coerce",
+      "title": "Aggregate return types are returned by value",
+      "statement": "A function whose return type is a tuple, struct, ZonedStruct, or payload-carrying (tagged) enum returns the aggregate by value (as a value of the aggregate's storage type), never as a pointer to function-local storage; this guarantees the returned value outlives the callee frame.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L116-L137",
+        "src/compiler/mlir_gen_fn.cpp#L68-L82"
+      ]
+    },
+    {
+      "id": "coerce.return.c-enum-as-integer",
+      "domain": "coerce",
+      "title": "Payload-free enum returns as i32",
+      "statement": "A function returning a C-style enum (an enum with no payload variants, so no tagged-enum layout) returns its discriminant as a 32-bit integer rather than an aggregate.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L129-L137",
+        "src/compiler/mlir_gen_fn.cpp#L78-L82"
+      ]
+    },
+    {
+      "id": "coerce.return.ref-by-descriptor",
+      "domain": "coerce",
+      "title": "Reference-kind return ABI determined by RefRepr descriptor",
+      "statement": "When the return type is a reference kind, its by-value return representation is the reference's RefRepr: dyn-trait and slice references return their 16-byte fat (pointer,metadata) pair by value; closure / custom-DST / thin references return their 8-byte value pointer.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L83-L89",
+        "src/compiler/mlir_gen_fn.cpp#L138-L143"
+      ],
+      "divergence": "A3/A4 fat-pointer return representation",
+      "related": ["coerce.return.aggregate-by-value"]
+    },
+    {
+      "id": "type.anyval.repr-i32",
+      "domain": "type",
+      "title": "AnyVal is represented as a 32-bit value",
+      "statement": "A value of type AnyVal is represented as a 32-bit integer in both parameter and return position.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L67",
+        "src/compiler/mlir_gen_fn.cpp#L98-L101",
+        "src/compiler/mlir_gen_fn.cpp#L113-L114"
+      ],
+      "uncertainty": "i32 likely encodes a handle/index into an AnyVal table; exact semantics inferred from representation only."
+    },
+    {
+      "id": "coerce.param.array-by-pointer",
+      "domain": "coerce",
+      "title": "Array parameters are passed by pointer",
+      "statement": "A parameter whose type is an array [T; N] is passed by pointer (to the array storage), not by value.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L102-L104"
+      ]
+    },
+    {
+      "id": "item.fn.vararg-extern-only",
+      "domain": "item",
+      "title": "Variadic functions are extern-only C-ABI declarations",
+      "statement": "A function declared variadic (vararg) is emitted only as an external declaration with C variadic calling convention; non-vararg parameters are typed normally and a missing return type denotes void.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L169-L184"
+      ]
+    },
+    {
+      "id": "item.fn.unique-mangled-name",
+      "domain": "item",
+      "title": "Each mangled function symbol must have at most one body",
+      "statement": "Two distinct functions resolving to the same mangled link symbol is an error; in particular a private function in one package and a pub function of the same base name in an imported package must not collide, requiring rename to disambiguate.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L219-L235"
+      ],
+      "related": ["module.symbol.function-symbol-name"]
+    },
+    {
+      "id": "module.symbol.method-link-prefix",
+      "domain": "module",
+      "title": "Methods are emitted under module-qualified link symbols",
+      "statement": "A function's emitted link symbol is its module-qualified name: methods gain the module prefix; free functions and extern functions keep their bare name. Symbol identity and forward-declaration deduplication key off this link name.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L164-L168",
+        "src/compiler/mlir_gen_fn.cpp#L186-L208"
+      ],
+      "related": ["item.fn.unique-mangled-name"]
+    },
+    {
+      "id": "stmt.return.fallthrough-void-implicit",
+      "domain": "stmt",
+      "title": "Void function body may fall through to an implicit return",
+      "statement": "A function with no return type (void) whose body reaches the end without an explicit terminator returns implicitly; a non-void function reaching the end without returning is a reachability error rejected earlier in semantic analysis.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L448-L461"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "unit": "sema/sema_impl_hpp/logos.part1",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L44-L592",
+  "source_hash": "e5d4953945c1643a",
+  "rules": [
+    {
+      "id": "coerce.ref.unsized-slice-canonicalizes-to-slice",
+      "domain": "coerce",
+      "title": "&UnsizedSlice<T> canonicalizes to Slice<T>",
+      "statement": "Forming a reference to an unsized-slice pointee, `&UnsizedSlice<T>`, canonicalizes to the fat-pointer slice type `Slice<T>` (= `&[T]`). The reference layer is collapsed into the slice's own fat pointer.",
+      "evidence": ["src/compiler/sema_impl.hpp#L233-L242"],
+      "uncertainty": "Inferred from make_ref special-casing; the canonical syntactic form is also enforced at resolve_type."
+    },
+    {
+      "id": "coerce.ref.unsized-dyn-canonicalizes-to-traitobject",
+      "domain": "coerce",
+      "title": "&UnsizedDyn<Trait> canonicalizes to TraitObject<Trait>",
+      "statement": "Forming a reference to an unsized-dyn pointee, `&UnsizedDyn<Trait<args...>>`, canonicalizes to the trait-object fat-pointer type `TraitObject<Trait<args...>>`, preserving the trait's type-args. Ensures `&self` and `other: &Self` for an impl-on-dyn mangle identically.",
+      "evidence": ["src/compiler/sema_impl.hpp#L243-L246"]
+    },
+    {
+      "id": "type.ptr.zoned-pointer-distinct",
+      "domain": "type",
+      "title": "*zoned T is a distinct pointer type",
+      "statement": "A zoned raw pointer `*zoned T` is a type distinct from `*T`; the zoned bit participates in type identity (interning, serialization, equality). Deref/assignment through a `*zoned T` runs the zoned storage↔compute bridge rather than a plain load/store.",
+      "evidence": ["src/compiler/sema_impl.hpp#L222-L231"],
+      "divergence": "Logos addition (F3 ref-repr/zoned types); no Rust equivalent."
+    },
+    {
+      "id": "layout.pointer.target-64-bit",
+      "domain": "layout",
+      "title": "Pointer width is 64-bit; usize/isize follow it",
+      "statement": "The target pointer width is 64 bits. `usize` has underlying integer kind u64 and `isize` has i64 (would be u32/i32 on a 32-bit target).",
+      "evidence": ["src/compiler/sema_impl.hpp#L208-L220"]
+    },
+    {
+      "id": "coerce.array.ref-to-slice-unsize",
+      "domain": "coerce",
+      "title": "&[T;N]/*[T;N] unsizes to &[T] slice",
+      "statement": "A reference or raw pointer to an array, `&[T;N]` / `&mut [T;N]` / `*const [T;N]` / `*mut [T;N]`, coerces to a slice `&[T]` by building a fat pointer {data = the array address, len = N}. The coercion applies only when the array element type is compatible with the target slice's element type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L346-L377"]
+    },
+    {
+      "id": "coerce.array.ref-to-slice-preserves-mut",
+      "domain": "coerce",
+      "title": "Array-ref-to-slice unsizing preserves mutability",
+      "statement": "When `&mut [T;N]` (or `*mut [T;N]`) unsizes to a slice, the result is a mutable slice `&mut [T]`; a shared `&[T;N]` yields a shared `&[T]`. A shared array reference may not satisfy a `&mut [T]` parameter.",
+      "evidence": ["src/compiler/sema_impl.hpp#L365-L375"]
+    },
+    {
+      "id": "coerce.slice.to-array-ref-recovery",
+      "domain": "coerce",
+      "title": "Shared &[T] over an array variable recovers &[T;N]",
+      "statement": "A shared slice `&[T]` that was formed from `&array_var` may coerce back to a ref-to-array `&[T;N]` / `*const [T;N]` when the parameter wants it, provided the underlying variable is an array whose actual size equals N. The mutable case is excluded: a shared slice never satisfies a `&mut [T;N]` parameter.",
+      "evidence": ["src/compiler/sema_impl.hpp#L378-L408"]
+    },
+    {
+      "id": "coerce.unsize.ref-concrete-to-dyn-trait",
+      "domain": "coerce",
+      "title": "&Concrete unsizes to &dyn Trait in argument position",
+      "statement": "An argument `&T` / `&mut T` coerces (unsizes) to a `&dyn Trait` / `&mut dyn Trait` parameter when the pointee implements the trait directly or via a blanket impl, or when the pointee is a type-variable whose in-scope bounds include the trait. The fat pointer is built at the call site.",
+      "evidence": ["src/compiler/sema_impl.hpp#L409-L431"]
+    },
+    {
+      "id": "coerce.unsize.dyn-auto-trait-bound-gate",
+      "domain": "coerce",
+      "title": "dyn coercion enforces + Send / + Sync auto-trait bounds",
+      "statement": "When coercing to a `dyn Trait + Send` / `+ Sync` target, the source pointee must structurally satisfy the named auto-trait bounds; failure is a coercion-site error. The general Struct→TraitObject acceptance does not waive these auto-trait constraints.",
+      "evidence": ["src/compiler/sema_impl.hpp#L417-L422"]
+    },
+    {
+      "id": "coerce.unsize.dyn-supertrait-upcast",
+      "domain": "coerce",
+      "title": "&dyn Sub coerces to &dyn Super",
+      "statement": "A trait-object reference `&dyn Sub` coerces to `&dyn Super` when `Sub` has `Super` as a supertrait (dyn upcast).",
+      "evidence": ["src/compiler/sema_impl.hpp#L432", "src/compiler/sema_impl.hpp#L476"]
+    },
+    {
+      "id": "coerce.unsize.struct-wrapper-coerceunsized",
+      "domain": "coerce",
+      "title": "Single-field wrapper struct CoerceUnsized",
+      "statement": "A smart-pointer/wrapper struct with a single unsizable field coerces `Wrapper<A>` → `Wrapper<dyn Trait>` (or to a slice/DstRef target) by unsizing that field, keeping the same struct. Applies at explicit `as` casts and at implicit coercion sites (argument, let, return).",
+      "evidence": ["src/compiler/sema_impl.hpp#L433-L438"]
+    },
+    {
+      "id": "coerce.reborrow.implicit-mut-reborrow",
+      "domain": "coerce",
+      "title": "Implicit &mut reborrow at coercion sites",
+      "statement": "A `&mut T` value is implicitly reborrowed when passed where a reference is expected, allowing a single `&mut` binding to be used at multiple coercion sites without an explicit reborrow.",
+      "evidence": ["src/compiler/sema_impl.hpp#L439-L440", "src/compiler/sema_impl.hpp#L478"]
+    },
+    {
+      "id": "coerce.reborrow.method-receiver-no-downgrade",
+      "domain": "coerce",
+      "title": "Method receiver binds without &mut→& downgrade",
+      "statement": "Binding a method receiver to its formal `self` slot performs implicit auto-reborrow but never downgrades a `&mut Self` receiver to `&Self`, so receiver mutability selects the correct impl key (e.g. for `impl X for &mut M` ref-impls). By-value `self` triggers move tracking of the receiver.",
+      "evidence": ["src/compiler/sema_impl.hpp#L442-L448"]
+    },
+    {
+      "id": "coerce.arg.canonical-coercion-order",
+      "domain": "coerce",
+      "title": "Canonical argument→parameter coercion pipeline",
+      "statement": "Implicit argument-to-parameter coercions are applied in one fixed canonical order: bare-enum retype, closure-literal→fn-pointer, array-ref↔slice unsize, dyn supertrait upcast, &Concrete→&dyn-Trait unsize, &mut auto-reborrow, then integer widening. The standard set enables all of these; a minimal set enables only auto-reborrow and integer widening.",
+      "evidence": ["src/compiler/sema_impl.hpp#L450-L487"]
+    },
+    {
+      "id": "coerce.closure.literal-to-fn-pointer",
+      "domain": "coerce",
+      "title": "Closure literal coerces to fn pointer",
+      "statement": "A non-capturing closure literal coerces to a function-pointer type at coercion sites.",
+      "evidence": ["src/compiler/sema_impl.hpp#L473", "src/compiler/sema_impl.hpp#L477"]
+    },
+    {
+      "id": "pat.literal.string-content-compare",
+      "domain": "pat",
+      "title": "String-literal pattern matches by content",
+      "statement": "Matching a value against a string-literal pattern compares string contents (via `str_eq`), not the two slice pointers. A raw `==` on string slices would pointer-compare; pattern matching uses content equality.",
+      "evidence": ["src/compiler/sema_impl.hpp#L489-L492"]
+    },
+    {
+      "id": "type.default.array-elementwise-default",
+      "domain": "type",
+      "title": "Default for [E;N] is elementwise",
+      "statement": "The default value of an array type `[E; N]` is `[E::default(); N]`, recursing on the element type. A type has a default only if it (and every element) has a `Default` impl in scope.",
+      "evidence": ["src/compiler/sema_impl.hpp#L494-L498"]
+    },
+    {
+      "id": "coerce.enum.bare-literal-retype-to-param",
+      "domain": "coerce",
+      "title": "Incompletely-typed enum-literal argument retyped to parameter's enum spec",
+      "statement": "An enum literal passed as an argument with missing or unresolved type-args (e.g. bare `Opt::None`, partially-inferred `Opt::Some(3)`) is retyped to the parameter's concrete enum type, pinning the missing type-args. Retype fires only when the literal's already-known (non-error) type-args match the target's, so a genuine mismatch is still rejected.",
+      "evidence": ["src/compiler/sema_impl.hpp#L500-L508", "src/compiler/sema_impl.hpp#L582-L592"]
+    },
+    {
+      "id": "type.enum.unresolved-when-fewer-args-or-nested-typevar",
+      "domain": "type",
+      "title": "Enum/struct type is unresolved if under-applied or nests an unresolved type",
+      "statement": "A type is treated as incompletely resolved when it is `Error` or a type-variable, when an enum/struct carries fewer type-args than its declared params (notably zero, e.g. a bare `Option`), or when any nested type-arg, tuple element, or reference pointee is itself unresolved. The check is recursive, not shallow.",
+      "evidence": ["src/compiler/sema_impl.hpp#L509-L544"]
+    },
+    {
+      "id": "coerce.enum.retype-nested-payload-recursive",
+      "domain": "coerce",
+      "title": "Enum-literal retype projects type-args through variant payloads recursively",
+      "statement": "When pinning an enum-literal expression to a concrete enum type, the concrete type-args are substituted into the matched variant's payload types, and each payload sub-expression that is itself an enum literal is recursively retyped. This prevents a nested literal (e.g. the inner `Option::None` of `Option::Some(Option::None)`) from staying a bare C-style enum while the outer slot is a heap pointer.",
+      "evidence": ["src/compiler/sema_impl.hpp#L545-L581"]
+    }
+  ]
+}

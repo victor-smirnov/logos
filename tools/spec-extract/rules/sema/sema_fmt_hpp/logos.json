@@ -1,0 +1,51 @@
+{
+  "unit": "sema/sema_fmt_hpp/logos",
+  "layer": "sema",
+  "source": "src/compiler/sema_fmt.hpp#L18-L99",
+  "source_hash": "620121be937f8163",
+  "rules": [
+    {
+      "id": "metaprog.fmt.trait-spec-types",
+      "domain": "metaprog",
+      "title": "Format-spec type characters select a formatting trait",
+      "statement": "In a `format!`-family format string, a placeholder's trailing spec type char selects a formatting trait: no type / absent = Display (`{}`), `?` = Debug (`{:?}`), `x` = LowerHex, `X` = UpperHex, `o` = Octal, `b` = Binary, `e` = LowerExp, `E` = UpperExp. Each placeholder lowers to a call of that trait's method on the argument rather than a variadic runtime path.",
+      "evidence": ["src/compiler/sema_fmt.hpp#L20-L29", "src/compiler/sema_fmt.hpp#L52"],
+      "uncertainty": "LowerExp/UpperExp marked '(future)' in source; presence in enum implies recognized but possibly not yet lowered."
+    },
+    {
+      "id": "metaprog.fmt.spec-alignment",
+      "domain": "metaprog",
+      "title": "Format-spec alignment characters",
+      "statement": "A format placeholder spec may carry an alignment: `<` = Left, `>` = Right, `^` = Center; when unspecified the default alignment is chosen per formatting trait.",
+      "evidence": ["src/compiler/sema_fmt.hpp#L31-L36", "src/compiler/sema_fmt.hpp#L46"]
+    },
+    {
+      "id": "metaprog.fmt.spec-fill-and-flags",
+      "domain": "metaprog",
+      "title": "Format-spec fill, sign, alternate, and zero flags",
+      "statement": "A format placeholder spec supports: a fill char (default space) used with alignment; a sign flag (`+` = always show sign, default none); an alternate flag `#` (emit base prefix `0x`/`0o`/`0b`); and a zero flag `0` (pad with zeros, overridden by an explicit fill char).",
+      "evidence": ["src/compiler/sema_fmt.hpp#L38-L42", "src/compiler/sema_fmt.hpp#L45-L49"]
+    },
+    {
+      "id": "metaprog.fmt.spec-width-precision",
+      "domain": "metaprog",
+      "title": "Format-spec width and precision",
+      "statement": "A format placeholder spec may set width and precision; both are unset by default (sentinel -1), and when set precision >= 0 denotes an exact precision.",
+      "evidence": ["src/compiler/sema_fmt.hpp#L50-L51"]
+    },
+    {
+      "id": "metaprog.fmt.placeholder-arg-selection",
+      "domain": "metaprog",
+      "title": "Placeholder argument selection: positional, explicit index, or named",
+      "statement": "A format placeholder binds to an argument in one of three modes: positional auto-counter (`{}` consuming 0,1,2,… in order), explicit index (`{N}`), or named (`{name}`). Arity validation against positional args applies only when no placeholder uses the named or explicit-index form.",
+      "evidence": ["src/compiler/sema_fmt.hpp#L55-L66", "src/compiler/sema_fmt.hpp#L71-L75"]
+    },
+    {
+      "id": "metaprog.fmt.string-segmentation",
+      "domain": "metaprog",
+      "title": "Format string parses into literal text + typed placeholder segments",
+      "statement": "A format string body (without surrounding quotes) parses into an ordered sequence of segments, each either a literal-text run or a placeholder (carrying its argument selector and spec). Parsing is best-effort: a soft issue emits a diagnostic and continues, while a hard parse error halts at the broken placeholder and sets a failure flag.",
+      "evidence": ["src/compiler/sema_fmt.hpp#L68-L89"]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "unit": "mono/mono_impl_hpp/logos.part1",
+  "layer": "mono",
+  "source": "src/compiler/mono_impl.hpp#L23-L588",
+  "source_hash": "eaf7f409e35f4659",
+  "rules": [
+    {
+      "id": "mono.symbol.module-qualify-package",
+      "domain": "mono",
+      "title": "Synthesised symbols are module-qualified by owning package",
+      "statement": "A symbol synthesised from a type/method belonging to package `pkg` is mangled as `<module_id>.<pkg>` when `pkg` belongs to a non-global module, and as `pkg` unchanged otherwise. This definition-side mangle is identical to the one applied at call sites, so a method-call symbol resolves to the emitted definition.",
+      "evidence": ["src/compiler/mono_impl.hpp#L106-L116"]
+    },
+    {
+      "id": "mono.coexist.package-qualified-instance-key",
+      "domain": "mono",
+      "title": "Same-named structs from distinct packages are monomorphized independently",
+      "statement": "A concrete struct instance is keyed by `pkg.bare` when the type carries a package name, else by `bare`. Two structs with the same bare name from different packages (e.g. user `Box<i64>` vs `std.mem.box.Box<i64>`) receive distinct keys and are both instantiated in one compilation.",
+      "evidence": ["src/compiler/mono_impl.hpp#L576-L588"],
+      "related": ["mono.lookup.bare-fallback-package-bounded"]
+    },
+    {
+      "id": "mono.lookup.bare-fallback-package-bounded",
+      "domain": "mono",
+      "title": "Bare-name template fallback must not cross package boundaries",
+      "statement": "When resolving a package-qualified name `pkg.base` to a generic template, a bare-name `base` fallback is accepted only if the matched template's owning package equals `pkg`. A package-qualified non-generic struct never resolves to a same-named generic struct in a different package.",
+      "evidence": ["src/compiler/mono_impl.hpp#L243-L268", "src/compiler/mono_impl.hpp#L249-L264"]
+    },
+    {
+      "id": "mono.dst.nongeneric-rawptr-canonicalizes-to-dstref",
+      "domain": "mono",
+      "title": "Pointer to a custom-DST struct canonicalizes to a fat DstRef",
+      "statement": "A pointer `*mut S`/`*const S` to a struct `S` carrying an unsized (`[u8]`/slice) tail field is canonicalized to a fat DstRef representation, for non-generic as well as generic `S`; it is not left as a thin pointer.",
+      "evidence": ["src/compiler/mono_impl.hpp#L152-L168"],
+      "related": ["mono.subst.unsized-slice-to-slice"]
+    },
+    {
+      "id": "mono.spec.partial-specialization-preferred",
+      "domain": "mono",
+      "title": "Best-matching partial specialization is selected over the generic base",
+      "statement": "Resolving a concrete struct type to its definition prefers the best-matching partial specialization (positionally), falling back to the generic base template (with positional type-var binding) only when no specialization matches. Layout/size computations use the definition that is actually emitted.",
+      "evidence": ["src/compiler/mono_impl.hpp#L215-L221", "src/compiler/mono_impl.hpp#L276-L277"]
+    },
+    {
+      "id": "mono.const.const-arg-specialization",
+      "domain": "mono",
+      "title": "Compile-time-constant call arguments specialize the callee",
+      "statement": "When a call-site argument forwarding (directly or transitively) to a const-evaluating intrinsic position (e.g. an atomic `Ordering`) is a compile-time literal, the callee is specialized with that constant baked in: each use of the parameter is replaced by the literal (an IntLit for integers, or an EnumLit `(enum_name, variant, discriminant)` for enums).",
+      "evidence": ["src/compiler/mono_impl.hpp#L368-L401"],
+      "divergence": "Logos const-generic-like specialization driven by const-eval reachability; see explicit-metacall comptime model."
+    },
+    {
+      "id": "mono.dyn.blanket-instantiated-only-for-coerced-targets",
+      "domain": "mono",
+      "title": "Blanket impls are instantiated only for actually `dyn`-coerced targets",
+      "statement": "A blanket impl is not eagerly instantiated for all candidate types; for primitive and generic-struct-instantiation targets, the blanket is cloned only for types that are actually coerced to `dyn Trait` somewhere in the program (collected from `as dyn` casts).",
+      "evidence": ["src/compiler/mono_impl.hpp#L312-L326"],
+      "uncertainty": "Restriction motivated by verification soundness (integer-bodied blanket fails on f32/f64); rule states the observable instantiation set."
+    },
+    {
+      "id": "mono.method.lazy-instantiation-with-pinned-roots",
+      "domain": "mono",
+      "title": "Generic struct methods are instantiated lazily, modulo pinned roots",
+      "statement": "Struct/enum methods of a generic type are instantiated on demand from call sites rather than eagerly per instantiation; methods that are trait-dispatch entries or explicitly root-pinned are force-instantiated even with no referencing call site.",
+      "evidence": ["src/compiler/mono_impl.hpp#L403-L487"]
+    },
+    {
+      "id": "mono.reachability.entry-point-pruning",
+      "domain": "mono",
+      "title": "Entry points prune non-generic free functions to the reachable closure",
+      "statement": "When a non-empty entry-point set is supplied, only non-generic free functions transitively reachable (callee-discovery) from those entry points are monomorphized; with an empty set, all non-generic free functions are emitted.",
+      "evidence": ["src/compiler/mono_impl.hpp#L42-L44", "src/compiler/mono_impl.hpp#L489-L506"]
+    }
+  ]
+}

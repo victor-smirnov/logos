@@ -1,0 +1,90 @@
+{
+  "unit": "codegen/mlir_gen_dyn/logos",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_dyn.cpp#L11-L662",
+  "source_hash": "e8ea5b3656613453",
+  "rules": [
+    {
+      "id": "trait.tagdispatch.type-code-keyed",
+      "domain": "trait",
+      "title": "Tagged dynamic dispatch is keyed by per-type type_code",
+      "statement": "Tag-dispatch (an alternative to vtable-based dyn dispatch) selects a method implementation at runtime by a per-concrete-type integer `type_code` (logically u64). For each (tag_system, trait, method) triple a dispatch table maps `type_code -> fn_ptr`; a runtime lookup with `type_code == 0` is treated as 'no impl registered'.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L181-L186",
+        "src/compiler/mlir_gen_dyn.cpp#L302-L321"
+      ],
+      "divergence": "Logos addition: tag-dispatch dispatch model has no Rust analogue (Rust uses fat-pointer vtables only).",
+      "uncertainty": "type_code allocation policy (which integers map to which types) is defined elsewhere; only the dispatch-table consumption is observable here."
+    },
+    {
+      "id": "trait.tagdispatch.two-tier-codespace",
+      "domain": "trait",
+      "title": "type_code space is split into two dispatch tiers",
+      "statement": "The type_code key space is partitioned at 256: codes in [1,255] dispatch via a dense direct-indexed table of fixed size 256 (tier-1, O(1) index); codes >= 256 dispatch via a sorted (type_code, fn) pair table searched by binary search (tier-2, O(log n)). A lookup that hits neither tier yields null (no matching impl).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L181-L186",
+        "src/compiler/mlir_gen_dyn.cpp#L239-L240",
+        "src/compiler/mlir_gen_dyn.cpp#L316-L320",
+        "src/compiler/mlir_gen_dyn.cpp#L604-L645"
+      ],
+      "divergence": "Logos addition (tag-dispatch).",
+      "uncertainty": "Comment at L307 mentions 1-127 inline / 128-255 zone tier-1 sub-ranges, but the dispatch split here only observes the <256 vs >=256 boundary."
+    },
+    {
+      "id": "trait.tagdispatch.tier2-binary-search-sorted",
+      "domain": "trait",
+      "title": "Tier-2 dispatch requires sorted, gap-free codes",
+      "statement": "Tier-2 dispatch tables list only registrations whose callee is defined; the (type_code, fn) entries are sorted ascending by type_code with no zero/placeholder gaps, and resolution performs an unsigned binary search over type_code returning the paired fn or null on miss.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L82-L128",
+        "src/compiler/mlir_gen_dyn.cpp#L378-L391"
+      ],
+      "divergence": "Logos addition (tag-dispatch)."
+    },
+    {
+      "id": "trait.tagdispatch.registration-uniqueness",
+      "domain": "trait",
+      "title": "At most one impl per (tag_system, trait, type_code)",
+      "statement": "Each (tag_system, trait, type_code) registration is unique program-wide: registering the same triple from two separately-compiled units is a hard error (detected as a multiply-defined link symbol). Multiple methods of one trait for one type share a single registration (deduplicated per triple, not per method).",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L188-L214",
+        "src/compiler/mlir_gen_dyn.cpp#L324-L355"
+      ],
+      "divergence": "Logos addition (tag-dispatch); analogous to Rust's coherence/orphan-style uniqueness but enforced at link time."
+    },
+    {
+      "id": "trait.tagdispatch.startup-table-init",
+      "domain": "trait",
+      "title": "Dispatch tables are populated at program startup",
+      "statement": "Dispatch tables are zero-initialized statically and filled at program startup before user code runs (one initializer per tag system, invoked from main's prologue). Method bodies observe fully-populated tables; the dispatch tables are not const-folded per call site.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L184-L186",
+        "src/compiler/mlir_gen_dyn.cpp#L434-L530",
+        "src/compiler/mlir_gen_dyn.cpp#L532-L536"
+      ],
+      "divergence": "Logos addition (tag-dispatch)."
+    },
+    {
+      "id": "trait.tagdispatch.registry-lookup-api",
+      "domain": "trait",
+      "title": "Per-triple public dispatch-lookup function",
+      "statement": "For each (tag_system, trait, method) triple with at least one tier, a public lookup function `type_code -> fn_ptr` is exposed, checking tier-1 (with an in-range guard against the 256 bound) and falling back to tier-2, returning null when no table has the entry. This enables reflective / deferred invocation of trait methods by type_code.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L538-L645"
+      ],
+      "divergence": "Logos addition: runtime trait-method registry by type_code has no Rust analogue."
+    },
+    {
+      "id": "module.tagdispatch.binary-archive-provides-tables",
+      "domain": "module",
+      "title": "Fully-binary tag systems are provided by the archive",
+      "statement": "A tag system whose every registered callee is already present in a linked binary archive is not re-defined; the consuming unit emits only external references to that system's tables, lookup function, and initializer. Tables also present in an archive use weak (deduplicating) linkage rather than triggering a duplicate-definition error.",
+      "evidence": [
+        "src/compiler/mlir_gen_dyn.cpp#L219-L292",
+        "src/compiler/mlir_gen_dyn.cpp#L358-L368",
+        "src/compiler/mlir_gen_dyn.cpp#L394-L396"
+      ],
+      "divergence": "Module/separate-compilation model; no direct Rust analogue."
+    }
+  ]
+}

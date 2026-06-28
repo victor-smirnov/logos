@@ -1,0 +1,110 @@
+{
+  "unit": "codegen/mlir_gen_expr/gen_expr_kind-1",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_expr.cpp#L2512-L3166",
+  "source_hash": "da34458fb59912f8",
+  "rules": [
+    {
+      "id": "expr.method.dyn-vtable-dispatch",
+      "domain": "expr",
+      "title": "Method call on a trait-object receiver dispatches via vtable",
+      "statement": "A method call `recv.m(..)` where `recv: dyn Trait` (or `&dyn Trait`/`&mut dyn Trait`, i.e. a reference whose pointee is a trait object) and the method has a vtable slot is dispatched dynamically through the receiver's vtable at that slot; references to a trait object load the dyn handle once before dispatch.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2554-L2559"]
+    },
+    {
+      "id": "expr.method.auto-ref-receiver",
+      "domain": "expr",
+      "title": "Primitive/value receiver is auto-referenced for &self",
+      "statement": "When the method's `self` is `&self`/`&mut self` but the receiver is a by-value primitive (i8/i16/i32/i64, u8/u16/u32/u64, f32/f64, bool, char), the receiver value is materialized into storage and a pointer to it is passed as the self argument.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2565-L2599", "src/compiler/mlir_gen_expr.cpp#L2581-L2588"]
+    },
+    {
+      "id": "expr.method.self-is-first-arg",
+      "domain": "expr",
+      "title": "Receiver passed as method's first argument",
+      "statement": "A method call lowers to a call whose argument 0 is the receiver (self) and arguments 1..n are the call's explicit arguments; explicit argument i maps to callee parameter i+1.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2683-L2702"]
+    },
+    {
+      "id": "coerce.method.arg-concrete-to-dyn-unsize",
+      "domain": "coerce",
+      "title": "Method argument concrete→trait-object unsize coercion",
+      "statement": "When a method parameter has type `dyn Trait` (a trait object, possibly after peeling one `Box<_>` layer) and the supplied argument is a non-trait-object concrete type, the argument is unsize-coerced into a fat `{data, vtable}` handle for that trait built from the argument's concrete type; this coercion applies symmetrically to free-function and method calls.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2703-L2744", "src/compiler/mlir_gen_expr.cpp#L2715-L2719", "src/compiler/mlir_gen_expr.cpp#L2739-L2742"],
+      "related": ["layout.dyn.fat-handle"]
+    },
+    {
+      "id": "coerce.method.aggregate-arg-by-pointer",
+      "domain": "coerce",
+      "title": "Aggregate / tagged-enum argument passed by pointer",
+      "statement": "An argument whose value is an aggregate (struct) or a tagged (data-carrying) enum, passed where the callee parameter is pointer-represented, is materialized into storage and passed by pointer; scalar arguments are numerically coerced to the parameter type instead.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2746-L2766", "src/compiler/mlir_gen_expr.cpp#L2751-L2762"]
+    },
+    {
+      "id": "layout.field.fat-ref-stored-inline",
+      "domain": "layout",
+      "title": "Fat-reference struct fields are stored inline; read yields the slot address",
+      "statement": "A struct field of slice, closure, custom-DST-reference, fat-zone-mut, or relative-offset representation is stored inline within the struct (a 16-byte fat pair for the always-fat subset), and a field read yields the address of that inline storage (materializing a relative offset to an absolute pointer where applicable), not a by-value load. A tuple-typed field likewise yields its inline slot address. A trait-object field is excluded and read by value.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2815-L2823", "src/compiler/mlir_gen_expr.cpp#L2805-L2814"],
+      "related": ["layout.index.inline-aggregate-element"]
+    },
+    {
+      "id": "layout.field.scalar-loaded-by-value",
+      "domain": "layout",
+      "title": "Scalar struct field read loads the value",
+      "statement": "A struct field whose type is not an inline-fat/aggregate kind is read by loading the value at the field's address.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2824-L2827"]
+    },
+    {
+      "id": "expr.index.unsigned-index-zero-extends",
+      "domain": "expr",
+      "title": "Unsigned index operand zero-extends to 64-bit",
+      "statement": "When indexing with an unsigned integer index (u8/u16/u24/u32/u56/u64/u128) narrower than 64 bits, the index is zero-extended to 64 bits before address computation.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2970-L2979"]
+    },
+    {
+      "id": "layout.index.inline-aggregate-element",
+      "domain": "layout",
+      "title": "Aggregate array/buffer elements stored inline; indexing yields slot address",
+      "statement": "Elements of arrays and contiguous buffers whose element type is a struct, a tagged enum, a closure, a slice, a trait object, or a tuple are stored inline (sizeof(elem) per slot); an index read strides by the inline footprint and yields the address of the element slot (the value of such kinds being represented by a pointer to its storage), not a by-value load of a pointer-width prefix. Scalar elements are loaded by value.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2980-L3037", "src/compiler/mlir_gen_expr.cpp#L2999-L3003", "src/compiler/mlir_gen_expr.cpp#L3035-L3037"],
+      "related": ["layout.tuple.inline-elements"]
+    },
+    {
+      "id": "expr.index.ref-to-array-decays-to-element-pointer",
+      "domain": "expr",
+      "title": "Indexing through a reference/pointer to an array strides by element",
+      "statement": "Indexing a value of type `&[T;N]`, `&mut [T;N]`, or `*[T;N]` uses the SSA pointer directly as the address of element 0 and strides by the element type; the array is not loaded by value.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2842-L2859"]
+    },
+    {
+      "id": "expr.index.ptr-to-dyn-loads-handle",
+      "domain": "expr",
+      "title": "Indexing a *dyn Trait pointer loads an 8-byte dyn handle per slot",
+      "statement": "Indexing a `*const/*mut dyn Trait` (pointer whose pointee is a trait object) strides by pointer width per slot and loads the dyn handle; `p[0]` is the index form of `*p`.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2872-L2881"]
+    },
+    {
+      "id": "layout.tuple.inline-elements",
+      "domain": "layout",
+      "title": "Tuple elements stored inline by value",
+      "statement": "A tuple stores each element inline by value at its layout slot; constructing a tuple writes each element into its slot, copying inline-aggregate (struct/array) elements by value rather than storing a pointer, and a tuple value is represented as a pointer to its storage.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3064-L3105", "src/compiler/mlir_gen_expr.cpp#L3084-L3094"],
+      "related": ["expr.tuple-index.aggregate-element-by-address"]
+    },
+    {
+      "id": "expr.tuple-index.auto-deref-receiver",
+      "domain": "expr",
+      "title": "Tuple-index auto-derefs a reference receiver",
+      "statement": "A tuple index `t.k` where `t: &(..)`/`&mut(..)`/`*(..)` (reference/pointer whose pointee is a tuple) operates on the pointee tuple; the receiver pointer is used directly as the tuple address.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3113-L3120"]
+    },
+    {
+      "id": "expr.tuple-index.aggregate-element-by-address",
+      "domain": "expr",
+      "title": "Tuple-index of inline-aggregate element yields its address",
+      "statement": "A tuple index `t.k` whose element type is a struct, tagged enum, slice, closure, trait object, or nested tuple yields the address of the inline element slot (the value being pointer-represented); scalar elements are loaded by value. A by-value tuple result is first materialized into storage before address computation.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3128-L3160", "src/compiler/mlir_gen_expr.cpp#L3140-L3159"]
+    }
+  ]
+}

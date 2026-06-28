@@ -1,0 +1,86 @@
+{
+  "unit": "sema/trait_engine_hpp/logos",
+  "layer": "sema",
+  "source": "src/compiler/trait_engine.hpp#L20-L159",
+  "source_hash": "bb769bcd75ccb77a",
+  "rules": [
+    {
+      "id": "trait.resolve.direct-impl-fact",
+      "domain": "trait",
+      "title": "Direct impl fact",
+      "statement": "A declaration `impl T for X` makes X satisfy trait T directly (a direct impl fact keyed by (T, X)).",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L31-L37",
+        "src/compiler/trait_engine.hpp#L76"
+      ]
+    },
+    {
+      "id": "trait.resolve.blanket-and-bounds",
+      "domain": "trait",
+      "title": "Blanket impl with conjunctive bounds",
+      "statement": "A blanket impl `impl<S> T for S where S: B1 + ... + Bn` makes T hold for any type S iff S satisfies ALL bounds B1..Bn (AND-conjunction). An empty bound set degenerates to an unconditional impl-for-all.",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L39-L47",
+        "src/compiler/trait_engine.hpp#L78-L82"
+      ]
+    },
+    {
+      "id": "trait.resolve.auto-impl-for-all",
+      "domain": "trait",
+      "title": "Auto/marker trait holds for all types",
+      "statement": "An auto-trait T (e.g. marker traits Copy/Send/Sync) holds unconditionally for every type, subject to negative carve-outs.",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L49-L55",
+        "src/compiler/trait_engine.hpp#L83"
+      ]
+    },
+    {
+      "id": "trait.resolve.shape-conditioned-auto",
+      "domain": "trait",
+      "title": "Shape-conditioned auto-impl",
+      "statement": "A shape-conditioned auto-impl makes trait T hold for every type whose structural shape matches a predicate S (e.g. `Fn`-family for every closure type), subject to negative carve-outs.",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L57-L69",
+        "src/compiler/trait_engine.hpp#L84-L85"
+      ]
+    },
+    {
+      "id": "trait.resolve.negative-overrides",
+      "domain": "trait",
+      "title": "Negative carve-out beats auto/shape facts",
+      "statement": "A negative fact `X does NOT implement T` overrides (beats) any auto-impl or shape-auto-impl fact for (T, X); satisfies(T, X) is then false even if an auto/shape rule would otherwise derive it.",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L87-L90"
+      ]
+    },
+    {
+      "id": "trait.resolve.satisfies-fixpoint",
+      "domain": "trait",
+      "title": "Satisfaction by fixpoint closure",
+      "statement": "satisfies(T, X) is decided by the least fixpoint over {direct, blanket, auto, shape-auto} facts minus negative facts: X satisfies T iff a direct fact (T,X) exists, or some applicable blanket/auto/shape rule derives it (transitively through bound resolution).",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L92-L99",
+        "src/compiler/trait_engine.hpp#L153-L156"
+      ]
+    },
+    {
+      "id": "trait.resolve.recursive-bound-cycle-terminates",
+      "domain": "trait",
+      "title": "Circular bound resolution terminates as unsatisfied",
+      "statement": "Recursive bound resolution is cycle-guarded: a query (T, X) that re-asks itself through a circular blanket bound resolves that inner query as not-satisfied (NO_IMPL) rather than diverging, and the outer rule then decides.",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L145-L148"
+      ]
+    },
+    {
+      "id": "trait.resolve.impl-id-dispatch-selection",
+      "domain": "trait",
+      "title": "Resolution selects a concrete impl for dispatch",
+      "statement": "resolve(T, X) yields the impl identity through which a call on X is dispatched, or NO_IMPL when no direct or derived impl exists; satisfaction and dispatch-selection are the same predicate (resolve = NO_IMPL iff not satisfies).",
+      "evidence": [
+        "src/compiler/trait_engine.hpp#L101-L103",
+        "src/compiler/trait_engine.hpp#L28-L29"
+      ]
+    }
+  ]
+}

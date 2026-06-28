@@ -1,0 +1,120 @@
+{
+  "unit": "sema/sema_impl_hpp/logos.part3",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L1142-L1685",
+  "source_hash": "8cf1a27835e8e8aa",
+  "rules": [
+    {
+      "id": "module.visibility.pub-module-only",
+      "domain": "module",
+      "title": "Restricted visibility only `pub(module)`",
+      "statement": "An item's restricted-visibility marker `pub(W)` is accepted only when W is the contextual word `module` (module-linkage). Plain `pub` and no marker are non-module. Any other word (e.g. `pub(crate)`, `pub(super)`) is rejected: `unsupported visibility `pub(W)` — only `pub(module)` is recognised`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1176-L1191"],
+      "examples": ["pub(module) fn f() {}", "pub(crate) fn g() {} // error"],
+      "divergence": "Logos has only `pub` and `pub(module)`; Rust's `pub(crate)`/`pub(super)`/`pub(in path)` are not recognised."
+    },
+    {
+      "id": "item.names.duplicate-in-container",
+      "domain": "item",
+      "title": "Duplicate named member is an error",
+      "statement": "Within a named-member list of a container, any non-empty name that appears more than once is a duplicate error (`duplicate <kind> '<name>' in <container>`). The anonymous binding name `_` (and empty names) may repeat freely.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1312-L1325"],
+      "examples": ["struct S { x: i32, x: i32 } // error: duplicate field 'x'"]
+    },
+    {
+      "id": "generic.arity.exact-or-variadic-tail",
+      "domain": "generic",
+      "title": "Type-argument arity matching",
+      "statement": "A generic instantiation with parameter list P and argument list A is well-formed iff: if P's last parameter is a variadic pack (`T...`), |A| >= |P|-1 (the pack absorbs >=0 trailing args); otherwise |A| == |P|. Mismatch is an error stating the expected and actual counts.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1337-L1366"],
+      "examples": ["Vec<i32>      // P={T}, ok", "Tuple<A,B,...> // last param variadic, >=2 args"]
+    },
+    {
+      "id": "generic.arity.type-args-on-non-generic",
+      "domain": "generic",
+      "title": "Type-args on a non-generic target rejected",
+      "statement": "Supplying >=1 type argument to a target whose type-parameter list is empty (non-generic) is an error: `<context> '<name>': not generic — cannot accept N type arg(s)`. (Diagnosed only after full type-parameter info is available, never during forward-declaration prepass.)",
+      "evidence": ["src/compiler/sema_impl.hpp#L1341-L1352"],
+      "examples": ["struct S {} ; let x: S<i32>; // error: not generic"]
+    },
+    {
+      "id": "metaprog.annot.value-int-or-enum-variant",
+      "domain": "metaprog",
+      "title": "Attribute `= value` must be an integer or enum variant",
+      "statement": "The right-hand value of an attribute `#[name = V]` read as an integer must be either an integer literal (`#[name = 123]`) or an enum variant path (`#[name = Enum::Variant]`, resolving to that variant's discriminant). Any other value form is an error; an unknown enum or unknown variant is also an error.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1372-L1398"],
+      "examples": ["#[type_code = 42]", "#[type_code = Tag::Foo]"]
+    },
+    {
+      "id": "item.attr.target-kind-validity",
+      "domain": "item",
+      "title": "Built-in attributes restricted to declared item kinds",
+      "statement": "Each compiler-recognised attribute is valid only on a fixed set of item kinds: `type_code`→{struct,datatype,enum,trait}; `zoned`→{struct,enum}; `datatype`→{struct}; `self_describing`/`rel_ptr`/`pinned`/`zone_mut`/`no_auto_drop`/`non_null`→{struct}; `borrow_carrying`→{struct,enum}; `annotation`→{struct,datatype}; `tag_dispatch`→{trait}; `metaprog_handler`/`no_mangle`/`fn_macro`/`token_macro`/`test`/`should_panic`/`ignore`→{fn}; `cfg`/`cfg_attr`→{all item kinds}; `repr`→{struct,enum}. Applying a built-in attribute to a disallowed kind is an error; an unrecognised name is treated as a user `#[annotation]` lookup.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1462-L1507"],
+      "examples": ["#[zoned] enum E {}  // ok", "#[datatype] enum E {} // error (struct only)"]
+    },
+    {
+      "id": "item.attr.struct-enum-flag-set",
+      "domain": "item",
+      "title": "Struct/enum attribute flag vocabulary",
+      "statement": "The recognised struct/enum modifier attributes are exactly: `datatype`, `annotation`, `zoned`, `zone_mut`, `rel_ptr`, `self_describing`, `pinned`, `borrow_carrying`, `no_auto_drop`, `non_null`. A struct bearing `#[datatype]` or `#[annotation]` is promoted to the datatype pipeline.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1430-L1460"],
+      "divergence": "Logos-specific memory/zone attribute set; no Rust analogue."
+    },
+    {
+      "id": "item.repr.recognized-modes",
+      "domain": "item",
+      "title": "`#[repr(...)]` minimal recognised modes",
+      "statement": "`#[repr(...)]` is recognised only on structs (`transparent`) and enums (integer-discriminant width). Other repr modes are parsed and then rejected (no silent acceptance).",
+      "evidence": ["src/compiler/sema_impl.hpp#L1501-L1505"],
+      "divergence": "Only `transparent` (struct) and integer-width (enum) repr supported; Rust's `C`/`packed`/`align`/etc. not yet."
+    },
+    {
+      "id": "item.fn.test-modifiers-require-test",
+      "domain": "item",
+      "title": "`#[should_panic]`/`#[ignore]` are `#[test]` modifiers",
+      "statement": "`#[test]` marks a free function as a test case; `#[should_panic]` and `#[ignore]` are modifiers valid only in combination with `#[test]`. All three apply to functions only.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1488-L1493"],
+      "uncertainty": "The 'only valid in combination with #[test]' constraint is enforced downstream, not in this unit (comment-stated)."
+    },
+    {
+      "id": "generic.lint.unused-type-param",
+      "domain": "generic",
+      "title": "Unused type parameter warning (functions)",
+      "statement": "A function's declared type parameter that does not appear in its signature (parameter types, return type, or any trait-bound type-args) is warned as unused. Exemptions: variadic packs; const-generic params; names equal to `_` or beginning with `_`; and any param that itself carries a trait bound (the bound counts as a use). Lifetime parameters get the analogous unused-lifetime warning.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1555-L1604"],
+      "examples": ["fn f<T>(x: i32) {} // warn: type parameter 'T' is unused", "fn f<_T>(x: i32) {} // ok"]
+    },
+    {
+      "id": "trait.bound.unknown-trait",
+      "domain": "trait",
+      "title": "Trait bound naming an unknown trait is rejected",
+      "statement": "Every recorded type-parameter trait bound `T: Tr` must name a known trait; an unknown `Tr` is an error at the definition site. Exceptions: the Fn-family bounds (`Fn`/`FnMut`/`FnOnce`) and `Sized` are compiler-builtin and require no user-space trait declaration.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1612-L1636"],
+      "examples": ["fn f<T: Nonexistent>() {} // error: unknown trait"]
+    },
+    {
+      "id": "trait.bound.arity",
+      "domain": "trait",
+      "title": "Trait-bound type-argument arity",
+      "statement": "A trait bound `T: Tr<A...>` must supply type arguments matching Tr's type-parameter arity: if Tr's last param is variadic, |A| >= |params|-1; else |A| == |params|. A trait with no type params accepts no args. Mismatch is an error at the definition site.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1637-L1651"]
+    },
+    {
+      "id": "trait.builtin.sized-noop",
+      "domain": "trait",
+      "title": "`Sized` is a builtin no-op bound",
+      "statement": "`Sized` is a compiler-builtin marker auto-implemented for every size-known type; `T: Sized` is a no-op bound that is accepted without trait lookup (matching Rust's implicit `Sized`). This path handles only the positive bound; the `?Sized` opt-out is handled elsewhere and IS supported (see `generic.bound.relaxed-only-sized`).",
+      "evidence": ["src/compiler/sema_impl.hpp#L1623-L1628"],
+      "related": ["generic.bound.relaxed-only-sized"]
+    },
+    {
+      "id": "type.recursive.by-value-cycle",
+      "domain": "type",
+      "title": "Recursive by-value type cycle detection",
+      "statement": "A struct or enum that (transitively) contains itself through only by-value field/payload edges (Struct, ZonedStruct, Enum) is a forbidden recursive-value type. Pointer, `&`, and `&mut` edges break the cycle (they lower to fixed-size pointers) and are permitted.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1511-L1521", "src/compiler/sema_impl.hpp#L1665-L1685"],
+      "examples": ["struct S { next: S }      // error: recursive value type", "struct S { next: Box<S> } // ok (pointer breaks cycle)"]
+    }
+  ]
+}

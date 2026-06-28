@@ -1,0 +1,137 @@
+{
+  "unit": "codegen/mlir_gen_stmt/gen_return",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_stmt.cpp#L2015-L2663",
+  "source_hash": "a2b8b6792fe5f3bc",
+  "rules": [
+    {
+      "id": "stmt.return.never-fn-operandless",
+      "domain": "stmt",
+      "title": "return in a `-> !` function is operand-less",
+      "statement": "If the enclosing function's return type is the never type `!`, a `return e` evaluates `e` for its side effects (it may itself diverge and terminate control flow) but produces a value-less return; the function has a 0-result signature.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2024-L2034"],
+      "examples": ["fn f() -> ! { return diverging() }"]
+    },
+    {
+      "id": "stmt.return.empty-yields-unit",
+      "domain": "stmt",
+      "title": "bare return yields no value",
+      "statement": "A `return` with no operand produces a value-less return.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2150-L2155"]
+    },
+    {
+      "id": "coerce.unsize.return-concrete-to-trait-object",
+      "domain": "coerce",
+      "title": "returning a concrete type where `dyn Trait` is expected unsizes to a fat pointer",
+      "statement": "When the function return type is a trait object `dyn Trait` and the returned value's type is a non-trait-object concrete type T (or a reference/pointer `&T`/`&mut T`/`*const T`/`*mut T` whose pointee is the bare struct), the value is coerced to a {data, vtable} fat pointer keyed on the bare struct name and returned by value (16-byte pair); indirection layers over the concrete struct are stripped before vtable lookup.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2037-L2070"],
+      "related": ["coerce.unsize.struct-to-dyn-trait"]
+    },
+    {
+      "id": "coerce.return.trait-object-by-value",
+      "domain": "coerce",
+      "title": "returning an existing trait object passes the fat pair by value",
+      "statement": "When both the function return type and the returned value's type are trait objects `dyn Trait`, the value is returned by value as the 16-byte {data, vtable} pair; a value that is a pointer to fat-pair storage is dereferenced to the pair first.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2071-L2088"]
+    },
+    {
+      "id": "coerce.return.slice-by-value",
+      "domain": "coerce",
+      "title": "slice/str return is the {ptr,len} fat pair by value",
+      "statement": "When the function return type is a slice (`&[T]`/`str`), the returned value is the 16-byte {data_ptr, len} fat pair returned by value; a value that is a pointer to slice storage is dereferenced to the pair first. No heap copy is allocated for the returned slice.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2092-L2108"]
+    },
+    {
+      "id": "coerce.return.numeric-to-ret-type",
+      "domain": "coerce",
+      "title": "scalar return value is coerced to the declared numeric return type",
+      "statement": "A scalar returned value is coerced (widened/narrowed/sign-adjusted) to the function's declared numeric return type before being returned.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2144-L2145"]
+    },
+    {
+      "id": "coerce.return.enum-discriminant-to-aggregate",
+      "domain": "coerce",
+      "title": "returning an enum discriminant where an aggregate is expected wraps it",
+      "statement": "When the function return type is an aggregate (struct/enum representation) but the returned value is a scalar enum discriminant, the discriminant is materialized into the aggregate's discriminant slot and the whole aggregate is returned by value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2109-L2143"]
+    },
+    {
+      "id": "stmt.if.diverging-cond-truncates",
+      "domain": "stmt",
+      "title": "a diverging if-condition makes the if body unreachable",
+      "statement": "If evaluating an `if` condition diverges (already terminates control flow, e.g. `if (return x) {}`), no part of the `if`/`else`/merge is reachable and the statement produces no further code.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2162-L2168"]
+    },
+    {
+      "id": "stmt.if.both-branches-diverge-no-merge",
+      "domain": "stmt",
+      "title": "if where both branches diverge has no fall-through",
+      "statement": "An `if`/`else` where neither branch falls through (both diverge/terminate) has no merge point; control after the `if` is unreachable.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2180-L2195"]
+    },
+    {
+      "id": "stmt.for.range-loop-type-widening",
+      "domain": "stmt",
+      "title": "numeric range-for uses the wider of bound types for the induction variable",
+      "statement": "A range `for i in lo..hi` / `lo..=hi` uses an induction variable whose width is the wider of the lo and hi integer types (default i32, widened to i64+ when a bound is wider), so wide bounds are not truncated. Bounds are extended to the loop type with unsigned extension when the bound type is unsigned, otherwise signed.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2250-L2272", "src/compiler/mlir_gen_stmt.cpp#L2299-L2303"]
+    },
+    {
+      "id": "stmt.for.range-comparison-signedness",
+      "domain": "stmt",
+      "title": "range-for comparison and inclusivity follow bound signedness",
+      "statement": "A range `for` continues while `i < hi` (exclusive) or `i <= hi` (inclusive `..=`); the comparison is unsigned when the upper-bound type is unsigned, otherwise signed. The induction variable is incremented by 1 after each body execution.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2304-L2336"]
+    },
+    {
+      "id": "stmt.loop.break-value-binding",
+      "domain": "stmt",
+      "title": "loop expression value is supplied by break",
+      "statement": "An infinite `loop { ... break e; ... }` evaluates to the value `e` of the `break` whose target is that loop; the break value is stored into the loop's result slot. `break` without a value or in a loop with no result type produces no loop value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2349-L2371", "src/compiler/mlir_gen_stmt.cpp#L2406-L2412"]
+    },
+    {
+      "id": "stmt.loop.never-breaks-is-divergent",
+      "domain": "stmt",
+      "title": "a loop that never breaks is divergent",
+      "statement": "An infinite `loop` body that contains no reachable `break` targeting it never exits; control after the loop is unreachable (the loop has type `!`).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2382-L2388"]
+    },
+    {
+      "id": "stmt.break.label-targets-named-loop",
+      "domain": "stmt",
+      "title": "labeled break/continue target the matching enclosing loop",
+      "statement": "An unlabeled `break`/`continue` targets the innermost enclosing loop; a labeled `break 'l`/`continue` targets the nearest enclosing loop whose label equals the given label.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2394-L2417"]
+    },
+    {
+      "id": "stmt.continue.for-increments-first",
+      "domain": "stmt",
+      "title": "continue in a counted for runs the increment before the next iteration",
+      "statement": "In a counted/iterating `for`, `continue` branches to the increment step (advance index/induction variable) before re-evaluating the loop condition, rather than skipping straight to the condition.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2319-L2323", "src/compiler/mlir_gen_stmt.cpp#L2531-L2536", "src/compiler/mlir_gen_stmt.cpp#L2632-L2637"]
+    },
+    {
+      "id": "stmt.for-each.slice-yields-element-reference",
+      "domain": "stmt",
+      "title": "for-in over a slice yields &T element references",
+      "statement": "Iterating `for x in &[T]` (a slice) binds `x` to a reference into the original buffer (the element address), not a copied value; the slice is iterated over its runtime `len` field. Mutating through `x` mutates the original buffer.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2474-L2529"],
+      "uncertainty": "binding-as-reference is asserted as Rust parity in comments; exact mutability of the binding is not fully constrained here."
+    },
+    {
+      "id": "layout.slice.fat-pointer-ptr-len",
+      "domain": "layout",
+      "title": "slice fat pointer is {data_ptr, len}",
+      "statement": "A slice value is laid out as a two-field fat pointer: field 0 is the data pointer, field 1 is the i64 length.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2476-L2483"]
+    },
+    {
+      "id": "layout.array.inline-element-storage",
+      "domain": "layout",
+      "title": "arrays and slice buffers store struct/tuple elements inline",
+      "statement": "Struct, zoned-struct, and tuple elements are stored inline by value in array and slice buffers (stride = sizeof(element)); iterating yields a pointer directly into the inline storage. Trait-object/closure/slice elements are stored as 16-byte fat pairs. Scalar elements are stored by their natural representation.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2451-L2468", "src/compiler/mlir_gen_stmt.cpp#L2587-L2625"]
+    }
+  ]
+}

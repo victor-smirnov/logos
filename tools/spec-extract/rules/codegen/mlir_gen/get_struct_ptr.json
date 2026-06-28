@@ -1,0 +1,77 @@
+{
+  "unit": "codegen/mlir_gen/get_struct_ptr",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen.cpp#L637-L1196",
+  "source_hash": "23399ed92b328175",
+  "rules": [
+    {
+      "id": "layout.anyval.scalar-i32",
+      "domain": "layout",
+      "title": "AnyVal is a scalar value type",
+      "statement": "The built-in type `AnyVal` has scalar value representation (a single machine word, narrowed to 32-bit), not an aggregate. It is never spilled to a by-value aggregate slot like a struct receiver.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L743-L746", "src/compiler/mlir_gen.cpp#L888-L903", "src/compiler/mlir_gen.cpp#L865-L867"],
+      "divergence": "Logos built-in type with no Rust analogue",
+      "uncertainty": "32-bit width inferred from coerce_numeric(raw, i32); the language-level width may be target-defined."
+    },
+    {
+      "id": "expr.struct-lit.anyval-raw-constructor",
+      "domain": "expr",
+      "title": "AnyVal struct-literal constructor",
+      "statement": "`AnyVal { raw: e }` is a valid constructor expression that yields the scalar value of `e`. The literal must contain exactly one field named `raw`; any other field set is rejected.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L885-L903"],
+      "divergence": "Logos built-in; struct-literal syntax over a scalar type",
+      "related": ["layout.anyval.scalar-i32"]
+    },
+    {
+      "id": "layout.zone-mut-ref.fat-data-zone",
+      "domain": "layout",
+      "title": "&mut T of a zone_mut type is a fat {data, zone} pair",
+      "statement": "A mutable reference `&mut T` where `T` is a `#[zone_mut]` (FatZoneMut) type is a two-word fat pointer carrying {data, zone}; the address of the referent object is the data half. Field and method access on such a receiver descend through the data pointer, not the fat-pair storage.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L667-L680"],
+      "divergence": "Logos zone model; no Rust analogue"
+    },
+    {
+      "id": "expr.receiver.ref-autoderef-to-struct",
+      "domain": "expr",
+      "title": "Reference/pointer receiver auto-derefs to the struct",
+      "statement": "A method/field receiver of type `&S`, `&mut S`, `*const S`, or `*mut S` (pointee a struct or zoned-struct) resolves to the address of the pointed-to struct: one level of reference/pointer is stripped to obtain the struct object for field/method access.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L716-L772", "src/compiler/mlir_gen.cpp#L844-L859", "src/compiler/mlir_gen.cpp#L869-L879"]
+    },
+    {
+      "id": "expr.field.inline-vs-pointer-field-descent",
+      "domain": "expr",
+      "title": "Field access descends in place for inline fields, loads for pointer fields",
+      "statement": "Accessing field `f` of a struct: if `f` is an inline-embedded aggregate or a scalar-represented named type, the field lives in place and its address is the access target (so a `&mut self` method mutates the original storage). Only a genuine pointer-typed field denotes a separate object and is loaded to descend into it.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L789-L805", "src/compiler/mlir_gen.cpp#L813-L829"]
+    },
+    {
+      "id": "expr.array.struct-element-by-value",
+      "domain": "expr",
+      "title": "Aggregate array elements are stored by value",
+      "statement": "When an array or array-typed struct field has aggregate element type (inline struct or nested array), each element initializer's value (not a pointer to it) is copied into the element slot. This makes returning and storing `[Struct; N]` / `[[T; M]; N]` by value well-defined.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L937-L972", "src/compiler/mlir_gen.cpp#L1126-L1160"]
+    },
+    {
+      "id": "coerce.unsize.dyn-field-and-element",
+      "domain": "coerce",
+      "title": "Unsize coercion for &dyn Trait fields and array elements",
+      "statement": "Storing a concrete `&S`/`&mut S`/`*S` into a `&dyn Trait` struct field or a `[&dyn Trait; N]` array element triggers an unsize coercion that builds the fat {data, vtable} pointer (two words / 16 bytes) for the concrete struct's vtable; the thin source reference is never stored raw.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L987-L1007", "src/compiler/mlir_gen.cpp#L1073-L1124"],
+      "related": ["layout.zone-mut-ref.fat-data-zone"]
+    },
+    {
+      "id": "layout.never.zero-size-field-skipped",
+      "domain": "layout",
+      "title": "Never-typed fields are zero-size and uninitialized",
+      "statement": "A struct field of the never type `!` (e.g. `PhantomData<!>` after monomorphization) is zero-size and uninhabited: it carries no runtime value and its initialization is elided. Such a field has no observable storage.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L978-L984", "src/compiler/mlir_gen.cpp#L1018-L1024"]
+    },
+    {
+      "id": "coerce.struct-lit.field-numeric-coercion",
+      "domain": "coerce",
+      "title": "Struct-literal field initializers coerce to declared field type",
+      "statement": "A scalar initializer in a struct literal is coerced to the declared type of the target field (e.g. an integer literal to the field's integer type, a float literal to the field's float type) before being stored.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1008-L1017"]
+    }
+  ]
+}

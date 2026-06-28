@@ -1,6 +1,8 @@
 # Grammar
 
-Scope: surface-syntax (production) rules for Logos source, plus the Writ data-literal sub-grammar and the HRPC interface-definition language. Source layers: PEG grammars under `tools/peg_gen/grammars/` (`logos.peg`, `writ.peg`, `hrpc.peg`), extracted into `tools/spec-extract/rules/grammar/`. Each ``### `grammar.<group>.<name>``` heading is the permanent linkable address of a rule.
+Scope: surface-syntax rules of Logos and its embedded sub-grammars — the `logos.peg` core (blocks, expressions, calls, generics, trait bounds, quote macros, modules), the `writ.peg` data-literal sub-grammar, and the `hrpc.peg` interface-definition language. Source layers: extracted `grammar`-domain rule artifacts under `tools/spec-extract/rules/grammar/`, each tracing to a `*.peg` production by `file#line`.
+
+> Note: the following ids are emitted by more than one grammar source (the `logos.peg` host embedding and the standalone `writ.peg` sub-grammar describe the same construct under one id). Both occurrences are rendered below and flagged inline; they are complementary descriptions of the same rule, not a conflict: `grammar.writ.array-literal`, `grammar.writ.map-literal`, `grammar.writ.param-placeholder`.
 
 ## Blocks
 
@@ -10,8 +12,7 @@ A block is `{ stmt* }`: a brace-delimited sequence of zero or more statements.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L1821-L1823`
 
-
-## Expressions, literals, and call forms
+## Expressions, literals, and calls
 
 ### `grammar.expr.array-literal` — Array literal
 
@@ -29,7 +30,7 @@ tuple_lit ::= '(' expr ',' expr (',' expr)* ')' | '(' expr ',' ')' ; a tuple lit
 
 closure_param allows the type annotation to be omitted: '|x|' is accepted as well as '|x: T|'. Forms: '&mut IDENT', '&IDENT', 'ref IDENT: T', 'mut IDENT: T', 'mut IDENT', '(pat_binding_list): T', 'IDENT: T', 'IDENT'. The omitted type is inferred from the surrounding fn(T)->R formal at the call site.
 
-*Divergence from Rust:* Conformant with Rust closure type-inference.
+*Divergence:* Conformant with Rust closure type-inference.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2979-L3000`
 
@@ -55,7 +56,7 @@ call_arg_list ::= expr (',' expr)* ','? ; a call site's value-argument list with
 
 A call 'IDENT path_dot_ident+ '::' IDENT ('::' '<' type_arg_list '>')? '(' call_arg_list? ')'' resolves a free fn by its dotted package path (RECEIVER = first segment, QUAL_PARTS = rest); this disambiguates same-named free fns across packages (e.g. logos.lang.mem::replace vs logos.lang.ptr::replace).
 
-*Divergence from Rust:* Logos path model: '.'-separated package path + '::'-item (vs Rust all-'::').
+*Divergence:* Logos path model: '.'-separated package path + '::'-item (vs Rust all-'::').
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3191-L3203`
 
@@ -69,7 +70,7 @@ A call 'IDENT path_dot_ident+ '::' IDENT ('::' '<' type_arg_list '>')? '(' call_
 
 '<Type as Trait>::method(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.
 
-*Divergence from Rust:* Trait qualifier in <T as Tr>::m is dropped (Rust uses it for disambiguation).
+*Divergence:* Trait qualifier in <T as Tr>::m is dropped (Rust uses it for disambiguation).
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3214-L3219`
 
@@ -89,7 +90,7 @@ A call 'IDENT path_dot_ident+ '::' IDENT ('::' '<' type_arg_list '>')? '(' call_
 
 '#IDENT(args)' and '#(expr)(args)' invoke a callee named by a metavariable (NAME_VAR) or by an evaluated expression, used in metaprogramming-expanded call sites.
 
-*Divergence from Rust:* No Rust analogue; metaprogramming callee splice.
+*Divergence:* No Rust analogue; metaprogramming callee splice.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3230-L3237`
 
@@ -99,8 +100,7 @@ A call 'IDENT path_dot_ident+ '::' IDENT ('::' '<' type_arg_list '>')? '(' call_
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3238-L3243`
 
-
-## Generics, type parameters, and arguments
+## Generics and type parameters
 
 ### `grammar.generic.type-param-list` — Type parameter list
 
@@ -112,7 +112,7 @@ type_param_list ::= '<' type_param (',' type_param)* ','? '>' ; also reused for 
 
 hrtb_binder ::= 'for' '<' LIFETIME (',' LIFETIME)* ','? '>' may prefix any trait_bound. Lifetimes are not tracked structurally, so for<'a> Trait<...> is semantically equivalent to Trait<...> (binder parsed into a disposable head).
 
-*Divergence from Rust:* Lifetimes not structurally tracked: HRTB binder is accepted but discarded (Rust enforces it).
+*Divergence:* Lifetimes not structurally tracked: HRTB binder is accepted but discarded (Rust enforces it).
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3077-L3108`
 
@@ -126,7 +126,7 @@ lifetime_param ::= LIFETIME (':' LIFETIME ('+' LIFETIME)*)? ; a lifetime paramet
 
 type_param admits: lifetime_param; 'IDENT: lifetime_param (+ lifetime_param)*' (type-outlives); ptr/arr specialisation patterns; const params 'const IDENT: T', 'const IDENT...: T' (variadic), 'const #IDENT: T'; variadic type param 'IDENT... (: bounds)?'; metavar '#IDENT (: bounds)?'; 'IDENT: bounds (= default)?'; 'IDENT = default'; or bare 'IDENT'. A repeat-group '#(type_param), *' expands variadically.
 
-*Divergence from Rust:* Logos additions: variadic type/const params ('...'), metavar params ('#'), repeat-group expansion (no Rust equivalent).
+*Divergence:* Logos additions: variadic type/const params ('...'), metavar params ('#'), repeat-group expansion (no Rust equivalent).
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3147-L3181`
 
@@ -141,7 +141,6 @@ A type parameter may carry a default via 'IDENT (: bounds)? = type_ref'; the def
 type_arg_list ::= type_or_lt_arg (',' type_or_lt_arg)* ','? ; generic instantiation argument list (e.g. Vec<i32>).
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3183-L3185`
-
 
 ## Trait bounds
 
@@ -175,14 +174,13 @@ bound_arg_list mixes positional type/lifetime args and associated-type equality 
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3126-L3133`
 
-
 ## Metaprogramming quote macros
 
 ### `grammar.metaprog.quote-item` — quote_item! macro
 
 quote_item_expr ::= 'quote_item' '!' '{' item* '}' ; body is zero or more item declarations producing a typed AST (item-blob) literal.
 
-*Divergence from Rust:* No Rust analogue (Rust uses macro_rules!/proc-macro quote).
+*Divergence:* No Rust analogue (Rust uses macro_rules!/proc-macro quote).
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3051-L3052`
 
@@ -190,7 +188,7 @@ quote_item_expr ::= 'quote_item' '!' '{' item* '}' ; body is zero or more item d
 
 quote_expr_expr ::= 'quote_expr' '!' '{' expr '}' ; body is a single expression producing a typed AST (expr-blob) literal.
 
-*Divergence from Rust:* No Rust analogue.
+*Divergence:* No Rust analogue.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3060-L3061`
 
@@ -198,10 +196,9 @@ quote_expr_expr ::= 'quote_expr' '!' '{' expr '}' ; body is a single expression 
 
 quote_ty_expr ::= 'quote_ty' '!' '{' type_ref '}' ; body is a single type expression producing a first-class Type literal (same Type{kind,name,size} shape as type_of::<T>()).
 
-*Divergence from Rust:* No Rust analogue.
+*Divergence:* No Rust analogue.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L3068-L3069`
-
 
 ## Modules and imports
 
@@ -218,46 +215,27 @@ let x = From::from(y);
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L91-L96`
 
-
 ## Writ data-literal grammar
 
 ### `grammar.writ.map-literal` — Writ map literal
 
-> CONFLICT: 2 rule artifacts share the id `grammar.writ.map-literal`, drawn from different grammar source layers. Both are preserved below; neither is dropped. Reconcile in the source artifacts if they are meant to be a single rule.
-
-**Variant 1** (title: Writ map literal; source: `tools/peg_gen/grammars/logos.peg#L2924-L2925`):
-
 writ_map ::= '{' (writ_entry (',' writ_entry)* ','?)? '}' ; a brace-delimited, comma-separated, optionally trailing-comma list of key:value entries.
+> Flag: id reused across grammar sources (2 occurrences). This occurrence is from `tools/peg_gen/grammars/logos.peg#L2924-L3244`.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2924-L2925`
 
-**Variant 2** (title: Map literal; source: `tools/peg_gen/grammars/writ.peg#L94-L95`):
-
-map <- '{' (map_entry (',' map_entry)*)? ','? '}' producing {CODE:MAP, ITEMS:[...]}. The entry list may be empty and a single trailing comma is permitted after the last entry.
-
-*Source:* `tools/peg_gen/grammars/writ.peg#L94-L95`
-
 ### `grammar.writ.array-literal` — Writ array literal
 
-> CONFLICT: 2 rule artifacts share the id `grammar.writ.array-literal`, drawn from different grammar source layers. Both are preserved below; neither is dropped. Reconcile in the source artifacts if they are meant to be a single rule.
-
-**Variant 1** (title: Writ array literal; source: `tools/peg_gen/grammars/logos.peg#L2927-L2928`):
-
 writ_array ::= '[' (writ_val (',' writ_val)* ','?)? ']' ; a bracket-delimited, comma-separated, optionally trailing-comma list of Writ values.
+> Flag: id reused across grammar sources (2 occurrences). This occurrence is from `tools/peg_gen/grammars/logos.peg#L2924-L3244`.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2927-L2928`
-
-**Variant 2** (title: Array literal; source: `tools/peg_gen/grammars/writ.peg#L101-L102`):
-
-array <- '[' (value (',' value)*)? ','? ']' producing {CODE:ARRAY, ITEMS:[...]}. The element list may be empty and a single trailing comma is permitted.
-
-*Source:* `tools/peg_gen/grammars/writ.peg#L101-L102`
 
 ### `grammar.writ.entry-key-kinds` — Writ entry keys
 
 writ_entry ::= (STRING | '-' INTEGER | INTEGER) ':' writ_val ; a map key is a quoted string, a negative integer, or a non-negative integer. A '-' INTEGER key carries LO_NEG.
 
-*Divergence from Rust:* No Rust analogue; Writ data-literal grammar.
+*Divergence:* No Rust analogue; Writ data-literal grammar.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2931-L2936`
 
@@ -265,7 +243,7 @@ writ_entry ::= (STRING | '-' INTEGER | INTEGER) ':' writ_val ; a map key is a qu
 
 writ_val may be '<' 'type' ':' IDENT path_step+ '>' producing a CFG_SLOT_TYPE (slot extraction keeping an IDENT-only head followed by path steps).
 
-*Divergence from Rust:* No Rust analogue; Writ embedded-type slot.
+*Divergence:* No Rust analogue; Writ embedded-type slot.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2945-L2946`
 
@@ -273,7 +251,7 @@ writ_val may be '<' 'type' ':' IDENT path_step+ '>' producing a CFG_SLOT_TYPE (s
 
 writ_val may be '<' 'type' ':' simple_type '>' embedding a Logos Type as a first-class Writ value (WRIT_TYPE_LIT); any simple_type (e.g. generic instantiations Vec<u8>, Result<T,E>) is accepted.
 
-*Divergence from Rust:* No Rust analogue; type-as-value embedding.
+*Divergence:* No Rust analogue; type-as-value embedding.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2941-L2948`
 
@@ -281,7 +259,7 @@ writ_val may be '<' 'type' ':' simple_type '>' embedding a Logos Type as a first
 
 Inside a Writ literal, '${' expr '}' captures an arbitrary expression (WRIT_CAP_EXPR) and '$' IDENT captures a named binding (WRIT_CAP_IDENT) as a runtime value.
 
-*Divergence from Rust:* No Rust analogue; Writ interpolation.
+*Divergence:* No Rust analogue; Writ interpolation.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2949-L2950`
 
@@ -289,7 +267,7 @@ Inside a Writ literal, '${' expr '}' captures an arbitrary expression (WRIT_CAP_
 
 A nested writ_map / writ_array inside a writ_val may optionally be prefixed by '@'; '@'-prefixed and bare forms are equivalent.
 
-*Divergence from Rust:* No Rust analogue; Writ literal nesting.
+*Divergence:* No Rust analogue; Writ literal nesting.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2951-L2955`
 
@@ -297,7 +275,7 @@ A nested writ_map / writ_array inside a writ_val may optionally be prefixed by '
 
 writ_val scalars: RAW_STRING/STRING -> WRIT_STR; FLOAT -> WRIT_FLOAT; '-' INTEGER -> WRIT_NEG_INT; INTEGER -> WRIT_INT; 'true'/'false' -> WRIT_BOOL; 'null' -> WRIT_NULL.
 
-*Divergence from Rust:* No Rust analogue; Writ scalar literals.
+*Divergence:* No Rust analogue; Writ scalar literals.
 
 *Source:* `tools/peg_gen/grammars/logos.peg#L2956-L2963`
 
@@ -329,19 +307,10 @@ A DATATYPE node represents a type name with optional generic parameters of the f
 
 ### `grammar.writ.param-placeholder` — PARAM_VAL positional placeholder
 
-> CONFLICT: 2 rule artifacts share the id `grammar.writ.param-placeholder`, drawn from different grammar source layers. Both are preserved below; neither is dropped. Reconcile in the source artifacts if they are meant to be a single rule.
-
-**Variant 1** (title: PARAM_VAL positional placeholder; source: `tools/peg_gen/grammars/writ.peg#L42`):
-
 A PARAM_VAL node is a positional parameter placeholder written $N; it is assigned the reserved type_hash 127 (tag 0xFF).
+> Flag: id reused across grammar sources (2 occurrences). This occurrence is from `tools/peg_gen/grammars/writ.peg#L31-L43`.
 
 *Source:* `tools/peg_gen/grammars/writ.peg#L42`
-
-**Variant 2** (title: Positional parameter placeholder; source: `tools/peg_gen/grammars/writ.peg#L130-L133`):
-
-param_val <- '$' INTEGER producing {CODE:PARAM_VAL, VALUE:INTEGER}. '$N' is a positional template parameter placeholder where N is a non-negative decimal integer (runtime type_hash=127, tag=0xFF).
-
-*Source:* `tools/peg_gen/grammars/writ.peg#L130-L133`
 
 ### `grammar.writ.value-alternatives` — Writ value grammar
 
@@ -355,11 +324,25 @@ A bare STRING yields {CODE:STRING}, FLOAT yields {CODE:FLOAT}, INTEGER yields {C
 
 *Source:* `tools/peg_gen/grammars/writ.peg#L86-L91`
 
+### `grammar.writ.map-literal` — Map literal
+
+map <- '{' (map_entry (',' map_entry)*)? ','? '}' producing {CODE:MAP, ITEMS:[...]}. The entry list may be empty and a single trailing comma is permitted after the last entry.
+> Flag: id reused across grammar sources (2 occurrences). This occurrence is from `tools/peg_gen/grammars/writ.peg#L79-L134`.
+
+*Source:* `tools/peg_gen/grammars/writ.peg#L94-L95`
+
 ### `grammar.writ.map-entry-key` — Map entry key/value
 
 map_entry <- (STRING / IDENT) ':' value producing {CODE:MAP_ENTRY, KEY, VALUE}. A key may be either a quoted STRING or a bare IDENT; the value is any Writ value.
 
 *Source:* `tools/peg_gen/grammars/writ.peg#L97-L98`
+
+### `grammar.writ.array-literal` — Array literal
+
+array <- '[' (value (',' value)*)? ','? ']' producing {CODE:ARRAY, ITEMS:[...]}. The element list may be empty and a single trailing comma is permitted.
+> Flag: id reused across grammar sources (2 occurrences). This occurrence is from `tools/peg_gen/grammars/writ.peg#L79-L134`.
+
+*Source:* `tools/peg_gen/grammars/writ.peg#L101-L102`
 
 ### `grammar.writ.typed-value-ctor` — Typed value constructor
 
@@ -385,6 +368,12 @@ type_arg <- datatype / INTEGER. A generic argument is either a nested datatype o
 
 *Source:* `tools/peg_gen/grammars/writ.peg#L127-L128`
 
+### `grammar.writ.param-placeholder` — Positional parameter placeholder
+
+param_val <- '$' INTEGER producing {CODE:PARAM_VAL, VALUE:INTEGER}. '$N' is a positional template parameter placeholder where N is a non-negative decimal integer (runtime type_hash=127, tag=0xFF).
+> Flag: id reused across grammar sources (2 occurrences). This occurrence is from `tools/peg_gen/grammars/writ.peg#L79-L134`.
+
+*Source:* `tools/peg_gen/grammars/writ.peg#L130-L133`
 
 ## HRPC interface-definition grammar
 

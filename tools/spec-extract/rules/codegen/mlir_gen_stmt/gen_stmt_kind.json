@@ -1,0 +1,65 @@
+{
+  "unit": "codegen/mlir_gen_stmt/gen_stmt_kind",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_stmt.cpp#L4785-L5031",
+  "source_hash": "e023e812d24f048d",
+  "rules": [
+    {
+      "id": "stmt.let-else.scrutinee-tested-then-bind-or-diverge",
+      "domain": "stmt",
+      "title": "let-else evaluates scrutinee, tests pattern, binds on match else runs diverging block",
+      "statement": "`let PAT = EXPR else { BLOCK }` evaluates EXPR once, tests it against PAT; on match the pattern's bindings enter the enclosing scope and control continues; on mismatch BLOCK runs. BLOCK must diverge: if it does not terminate, control is unreachable.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4812-L4813", "src/compiler/mlir_gen_stmt.cpp#L4955-L4962", "src/compiler/mlir_gen_stmt.cpp#L5027-L5028"]
+    },
+    {
+      "id": "stmt.let-else.wildcard-irrefutable",
+      "domain": "stmt",
+      "title": "Wildcard/binding let-else pattern always matches",
+      "statement": "When PAT is a wildcard or a bare binding (not `_`), the pattern is irrefutable: it always matches and binds the scrutinee value; the else block is unreachable.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4816-L4837"]
+    },
+    {
+      "id": "stmt.let-else.enum-pattern-refutable",
+      "domain": "stmt",
+      "title": "Enum variant pattern in let-else is refutable on discriminant",
+      "statement": "For an enum scrutinee, a `Variant`/`VariantData` pattern matches iff the scrutinee's discriminant equals the pattern variant's discriminant; otherwise the else block runs. A C-like (all-nullary) enum scrutinee is its own discriminant value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4859-L4892", "src/compiler/mlir_gen_stmt.cpp#L4902-L4920", "src/compiler/mlir_gen_stmt.cpp#L4877-L4885"]
+    },
+    {
+      "id": "stmt.let-else.or-pattern-disjunction",
+      "domain": "stmt",
+      "title": "Or-pattern in let-else matches any alternative",
+      "statement": "`let A(x) | B(x) = v else …` matches iff the scrutinee discriminant equals any alternative's discriminant (logical OR of per-alt tests). All alternatives must bind the same names at the same payload layout; bindings are extracted using the first alternative's payload.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4793-L4809", "src/compiler/mlir_gen_stmt.cpp#L4906-L4913"]
+    },
+    {
+      "id": "stmt.let-else.literal-pattern-refutable",
+      "domain": "stmt",
+      "title": "Literal/bool/range pattern in let-else is refutable",
+      "statement": "For a non-enum integer scrutinee, an `Int` or `Bool` pattern matches iff the scrutinee equals the literal; a `Range` pattern (`lo..=hi`) matches iff `lo <= scrut <= hi` (signed). On mismatch the else block runs.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4921-L4950"],
+      "divergence": "G154-5: comment notes non-matching literal `let 4 = x else {…}` was previously silently accepted; now correctly refutable."
+    },
+    {
+      "id": "stmt.let-else.tuple-pattern-irrefutable",
+      "domain": "stmt",
+      "title": "Tuple pattern in let-else is irrefutable",
+      "statement": "A tuple pattern in let-else is always irrefutable: it unconditionally matches and binds each non-`_` element field to the corresponding scrutinee tuple element.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4925-L4926", "src/compiler/mlir_gen_stmt.cpp#L4969-L4991"]
+    },
+    {
+      "id": "stmt.let-else.match-ergonomics-autoderef",
+      "domain": "stmt",
+      "title": "let-else auto-derefs reference scrutinee for enum patterns",
+      "statement": "When the scrutinee has type `&Enum`, `&mut Enum`, or `*Enum`, the enum variant pattern is tested against the referenced enum (match-ergonomics auto-deref), so `let Some(v) = &opt else …` behaves like a by-value match.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L4845-L4858"]
+    },
+    {
+      "id": "stmt.let-else.inner-refutable-guard",
+      "domain": "stmt",
+      "title": "Refutable sub-patterns in let-else add value guards",
+      "statement": "A refutable inner sub-pattern (e.g. `let Some(1) = … else`) lowers to a guard test on the bound payload after the variant discriminant matches; if any guard fails the else block runs. The match succeeds only when the discriminant test and all guards hold.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L5005-L5024"]
+    }
+  ]
+}

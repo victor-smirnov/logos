@@ -1,0 +1,147 @@
+{
+  "unit": "codegen/mlir_gen_expr/gen_expr_kind",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_expr.cpp#L674-L1397",
+  "source_hash": "027662162b464029",
+  "rules": [
+    {
+      "id": "expr.binop.short-circuit-logical",
+      "domain": "expr",
+      "title": "Logical && / || short-circuit",
+      "statement": "For `a && b`: if `a` is false the result is false and `b` is not evaluated; otherwise the result is `b`. For `a || b`: if `a` is true the result is true and `b` is not evaluated; otherwise the result is `b`. Both produce a bool (i1).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L688-L728"]
+    },
+    {
+      "id": "expr.binop.divergent-rhs-no-merge",
+      "domain": "expr",
+      "title": "Diverging RHS of short-circuit yields no result",
+      "statement": "If the RHS of `&&`/`||` diverges (e.g. `c || return false`), the expression has no value and control does not reach the merge point; the result is taken solely from the short-circuit branch.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L714-L724"],
+      "uncertainty": "Inferred from terminator check around the RHS store; the language-visible effect is that divergence propagates."
+    },
+    {
+      "id": "expr.binop.integer-operand-widening",
+      "domain": "expr",
+      "title": "Mixed integer-width binop widens narrower operand",
+      "statement": "When the two operands of a binary operator are integers of unequal width, the narrower is widened to the wider operand's width before the operation: zero-extension if the narrow operand's type is unsigned (u8/u16/u24/u32/u56/u64/u128) or bool, sign-extension otherwise.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L732-L765"]
+    },
+    {
+      "id": "expr.binop.int-to-float-promotion",
+      "domain": "expr",
+      "title": "Mixed int/float binop promotes integer to float",
+      "statement": "When one operand is a float and the other an integer, the integer is converted to the float operand's type: unsigned-to-float if the integer type is unsigned (u8..u128), signed-to-float otherwise.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L766-L797"]
+    },
+    {
+      "id": "expr.binop.float-width-unification",
+      "domain": "expr",
+      "title": "Mixed float-width binop unification",
+      "statement": "When operands are floats of different widths: an untyped float literal operand is coerced to the typed operand's float type; if both are typed, the narrower is widened to the wider.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L798-L820"],
+      "related": ["coerce.intlit.to-integer-typevar-float"]
+    },
+    {
+      "id": "expr.binop.integer-overflow-trap",
+      "domain": "expr",
+      "title": "Checked +/-/* trap on overflow",
+      "statement": "Integer `+`, `-`, `*` are checked: on overflow execution aborts (trap). Signed/unsigned overflow detection selects checked signed vs unsigned arithmetic by the LHS type's signedness. Intentional wrapping must use the `wrapping_add`/`wrapping_sub`/`wrapping_mul` intrinsics, which emit the unchecked operation.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L835-L884"],
+      "divergence": "Always traps on overflow (B-ex-01) regardless of build profile, unlike Rust where overflow wraps in release and panics in debug."
+    },
+    {
+      "id": "expr.binop.div-rem-signedness",
+      "domain": "expr",
+      "title": "Division and remainder select signed/unsigned by type",
+      "statement": "`/` and `%` lower to unsigned division/remainder when the LHS type is unsigned (u8..u128), signed division/remainder otherwise.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L885-L902"]
+    },
+    {
+      "id": "expr.binop.shift-right-signedness",
+      "domain": "expr",
+      "title": "Right shift is arithmetic or logical by signedness",
+      "statement": "`>>` performs a logical (zero-filling) shift when the LHS integer type is unsigned (u8..u128), and an arithmetic (sign-filling) shift otherwise.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L909-L922"]
+    },
+    {
+      "id": "expr.binop.bitwise-and-shift-set",
+      "domain": "expr",
+      "title": "Integer bitwise and shift operators",
+      "statement": "`&`,`|`,`^` are bitwise and/or/xor; `<<` is logical left shift. `&&`/`||` applied to already-i1 values reduce to bitwise and/or.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L903-L908"]
+    },
+    {
+      "id": "expr.binop.tuple-structural-eq",
+      "domain": "expr",
+      "title": "Tuple == / != is structural",
+      "statement": "For two tuples of equal arity with all-primitive element types, `==` is the conjunction of element-wise `==` and `!=` is its negation; comparison is performed per element (float elements compared with float equality). Tuples containing non-primitive elements (str, nested tuple, struct) are not structurally compared by this rule.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L923-L1004"],
+      "uncertainty": "Restriction to all-primitive fields is an implementation limitation noted as a follow-up, not a language design intent."
+    },
+    {
+      "id": "expr.binop.tuple-lexicographic-order",
+      "domain": "expr",
+      "title": "Tuple ordering is lexicographic",
+      "statement": "For two tuples of equal arity with all-primitive element types, `<`/`<=`/`>`/`>=` compare lexicographically (left-to-right element priority), folding right-to-left as `lt_i || (eq_i && rest)`; the all-equal result is false for strict (`<`,`>`) and true for non-strict (`<=`,`>=`). `>`/`>=` are the operand-swapped forms of `<`/`<=`. Per-element comparison uses unsigned ordering for unsigned/bool/char element types and signed otherwise.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1006-L1078"]
+    },
+    {
+      "id": "expr.binop.ref-prim-autoderef-eq",
+      "domain": "expr",
+      "title": "== / != on references to primitives dereferences",
+      "statement": "For `==`/`!=` where both operands are references (`&T`/`&mut T`) to the same primitive scalar type, the operands are dereferenced and the underlying values compared (value equality), rather than comparing the reference addresses. Matches the PartialEq-for-&T blanket impl.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1080-L1121"]
+    },
+    {
+      "id": "expr.binop.pointer-equality",
+      "domain": "expr",
+      "title": "Pointer == / != compares addresses",
+      "statement": "When operands are pointers (and not the deref-eligible reference-to-primitive case), `==`/`!=` compare pointer addresses.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1080-L1133"]
+    },
+    {
+      "id": "expr.binop.comparison-signedness",
+      "domain": "expr",
+      "title": "Ordering comparisons select signed/unsigned by type",
+      "statement": "`<`/`>`/`<=`/`>=` use unsigned comparison when the LHS type is unsigned (u8..u128) or bool, signed comparison otherwise. bool is treated as unsigned so that `false < true` holds (i1 false=0 < true=1).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1134-L1156"],
+      "divergence": "bool ordering forced unsigned to preserve Rust's `false < true` despite i1 signed representation; documented inline as Rust-conformant intent."
+    },
+    {
+      "id": "expr.unary.negation",
+      "domain": "expr",
+      "title": "Unary minus",
+      "statement": "`-x` negates: floating-point negation for floats, `0 - x` for integers.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1166-L1172"]
+    },
+    {
+      "id": "expr.unary.not",
+      "domain": "expr",
+      "title": "Unary not is logical on bool, bitwise on integers",
+      "statement": "`!x` is logical NOT (XOR with 1) when `x` is bool (i1) and bitwise complement (XOR with all-ones) when `x` is a wider integer. Applying `!` to a non-integer type is an error.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1173-L1189"]
+    },
+    {
+      "id": "layout.place.element-slot-by-repr",
+      "domain": "layout",
+      "title": "Place/element slot type preserves full footprint",
+      "statement": "An lvalue place slot (array/Vec element stride) uses the type's full storage footprint: the concrete aggregate type for inline Struct/ZonedStruct/Tuple, the full inline {disc,payload} footprint for a tagged Enum element, and the reference repr's storage type for any reference kind — a thin pointer is 8 bytes while every fat reference (dyn trait object {data,vtable}, closure {fn,env}, slice {ptr,len}, custom-DST ref {ptr,len}) is its 16-byte pair. A self-describing DST is a thin pointer (8 bytes).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1199-L1232"]
+    },
+    {
+      "id": "expr.index.read-write-same-slot",
+      "domain": "expr",
+      "title": "Indexed read and write address identical slot",
+      "statement": "`s[i]` as an lvalue (for `&mut s[i]` or `s[i] = v`) computes the same element address as the by-value read: a slice loads the data pointer from descriptor field 0 then strides by the element slot type; an array strides from its storage; a pointer/ref variable strides from the loaded pointer value (indexing the pointee, or the pointee array's element for `*mut [T;N]`); a pointer field of fat elements loads the buffer base then strides by the 16-byte fat slot. Element stride equals the element type's place-slot type in every case so reads and writes never address different slots.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1288-L1392"],
+      "related": ["layout.place.element-slot-by-repr"]
+    },
+    {
+      "id": "expr.index.unsigned-index-extension",
+      "domain": "expr",
+      "title": "Unsigned index extended to 64-bit",
+      "statement": "When an index expression has an unsigned integer type narrower than 64 bits, it is zero-extended to 64 bits before being used as a GEP index.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1305-L1315", "src/compiler/mlir_gen_expr.cpp#L1383-L1389"]
+    }
+  ]
+}

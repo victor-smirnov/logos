@@ -1,0 +1,48 @@
+{
+  "unit": "codegen/mlir_gen/logos",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen.cpp#L26-L636",
+  "source_hash": "c734666452b815e0",
+  "rules": [
+    {
+      "id": "layout.enum.tagged-disc-plus-payload",
+      "domain": "layout",
+      "title": "Tagged-enum layout: discriminant word + aligned payload blob",
+      "statement": "A payload-bearing enum lays out as { i32 discriminant, payload }, where payload is an aligned blob of size = ceil(max_variant_payload_size / payload_align) elements each of width payload_align bytes. The whole-enum alignment is max(4, payload_align); the payload is placed after the i32 with padding so an align-8 payload begins at offset 8, not 4.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L141-L163"],
+      "related": ["layout.enum.payload-size-fixpoint", "layout.enum.niche-packed-no-disc"]
+    },
+    {
+      "id": "layout.enum.payload-size-fixpoint",
+      "domain": "layout",
+      "title": "Enum payload size = max over variants, to fixpoint over nesting",
+      "statement": "An enum's payload_bytes/payload_align equal the maximum size/alignment over all its variants' payloads. Because a nested-enum payload's footprint depends on the nested enum's own payload size, sizes are computed to a fixpoint (monotonically growing) so layout is order-independent of registration.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L111-L140"],
+      "related": ["layout.enum.tagged-disc-plus-payload"]
+    },
+    {
+      "id": "layout.enum.niche-packed-no-disc",
+      "domain": "layout",
+      "title": "Niche-packed enum carries no discriminant word",
+      "statement": "A niche-packed enum has no separate discriminant word: its representation is just the niche-bearing payload (a pointer), making it pointer-sized, with the variant tag encoded in a niche of the payload.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L157-L162"],
+      "related": ["layout.enum.tagged-disc-plus-payload"]
+    },
+    {
+      "id": "layout.enum.nested-payload-is-pointer",
+      "domain": "layout",
+      "title": "A nested payload-bearing enum is stored by pointer",
+      "statement": "When an enum variant's payload is itself a payload-bearing enum (e.g. Option<Option<T>>::Some carrying Option<T>), the nested enum lowers to a pointer in the outer payload rather than being inlined as a discriminant scalar.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L93-L107"],
+      "uncertainty": "Inferred from the stub-registration comment; the precise inline-vs-pointer threshold lives in register_tagged_enum (another unit)."
+    },
+    {
+      "id": "mono.reach.lazy-module-emit-on-reach",
+      "domain": "mono",
+      "title": "Lazy-module functions emitted only when reachable",
+      "statement": "A function originating from a lazy module is code-generated only if it is reachable from some non-lazy function. Reachability roots are all non-lazy functions and methods; the reach set propagates through direct calls, method-call resolved symbols, closure/fn-pointer call callees, address-of of a function, generic turbofish references, and bare variable references that name a function. Unreached lazy functions are emitted neither as forward declaration nor body.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L215-L268", "src/compiler/mlir_gen.cpp#L447-L478"],
+      "uncertainty": "Function-pointer/closure values stored without an immediate call are conservatively over-pruned per the source comment."
+    }
+  ]
+}

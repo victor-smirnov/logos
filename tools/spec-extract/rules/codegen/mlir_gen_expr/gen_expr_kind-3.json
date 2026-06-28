@@ -1,0 +1,127 @@
+{
+  "unit": "codegen/mlir_gen_expr/gen_expr_kind-3",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_expr.cpp#L3783-L4749",
+  "source_hash": "8aa69326c9f00bb9",
+  "rules": [
+    {
+      "id": "expr.match.scrutinee-autoderef",
+      "domain": "expr",
+      "title": "Match auto-derefs reference/pointer scrutinees",
+      "statement": "When the scrutinee type is a chain of `&` / `&mut` / `*` over an enum (arbitrary depth, e.g. `&&Option<T>`), `match` peels all reference layers and matches against the underlying value: `match &e { ... }` behaves identically to `match e { ... }`.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3823-L3877"]
+    },
+    {
+      "id": "expr.match.enum-discriminant-dispatch",
+      "domain": "expr",
+      "title": "Match on enum dispatches by discriminant",
+      "statement": "For an enum scrutinee, arm selection compares the scrutinee's discriminant against each arm's variant discriminant. A payload-carrying enum (with TaggedEnumInfo) loads its discriminant from its storage; a fieldless/C-like enum's value IS its i32 discriminant.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3841-L3876", "src/compiler/mlir_gen_expr.cpp#L4382-L4390", "src/compiler/mlir_gen_expr.cpp#L4721-L4737"]
+    },
+    {
+      "id": "expr.match.arm-first-match-order",
+      "domain": "expr",
+      "title": "Arms tested top-to-bottom; first match wins",
+      "statement": "Arms are evaluated in source order; the first arm whose pattern matches (and whose guard, if any, holds) is selected, and remaining arms are not tested.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4294-L4738", "src/compiler/mlir_gen_expr.cpp#L4337", "src/compiler/mlir_gen_expr.cpp#L4734-L4736"]
+    },
+    {
+      "id": "expr.match.value-result-type",
+      "domain": "expr",
+      "title": "Match expression yields a single value of the common arm type",
+      "statement": "A `match` used as an expression evaluates to the value of the selected arm; every arm body's value is coerced to the match's result type. Arms whose body diverges (does not fall through) contribute no value.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3789-L3807", "src/compiler/mlir_gen_expr.cpp#L4346-L4351", "src/compiler/mlir_gen_expr.cpp#L4743"]
+    },
+    {
+      "id": "expr.match.guard-after-bindings",
+      "domain": "expr",
+      "title": "Guard evaluated after pattern bindings, fall-through on false",
+      "statement": "An arm guard `if cond` is evaluated only after the arm's pattern matches and its bindings are in scope; the guard may reference those bindings. If the guard is false, control falls through to the next arm rather than selecting this arm.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4318-L4339"]
+    },
+    {
+      "id": "expr.match.exhaustive-no-default-arm",
+      "domain": "expr",
+      "title": "Exhaustive discrete match needs no fallthrough default",
+      "statement": "A match over `bool` covering both `true` and `false` (or a wildcard), or over an enum covering every variant (or a wildcard), is exhaustive; no implicit fall-through arm is required and the non-matching path is unreachable.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4229-L4293"]
+    },
+    {
+      "id": "pat.range.inclusive-bounds",
+      "domain": "pat",
+      "title": "Range pattern matches lo <= scrut <= hi",
+      "statement": "A range pattern `lo..=hi` matches the scrutinee s iff `lo <= s && s <= hi`. Comparisons are unsigned when the scrutinee type is an unsigned integer or `char` (u8/u16/u24/u32/u56/u64/u128/usize/char), signed otherwise.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4394-L4404", "src/compiler/mlir_gen_expr.cpp#L4458-L4482", "src/compiler/mlir_gen_expr.cpp#L4679-L4699"]
+    },
+    {
+      "id": "pat.or.alternative-binding-uniformity",
+      "domain": "pat",
+      "title": "Or-pattern alternatives must bind the same names",
+      "statement": "In an or-pattern `a | b | ...`, every alternative must bind the same set of names with the same payload shape; a match succeeds if any alternative matches. A wildcard or binding alternative is irrefutable and matches unconditionally.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4211-L4224", "src/compiler/mlir_gen_expr.cpp#L4483-L4512"]
+    },
+    {
+      "id": "pat.binding.wildcard-underscore-no-bind",
+      "domain": "pat",
+      "title": "`_` binds nothing",
+      "statement": "A wildcard `_` (and an empty binding name) matches any value and introduces no binding; a named wildcard introduces a binding to a copy of the matched value.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3893-L3903", "src/compiler/mlir_gen_expr.cpp#L4950"]
+    },
+    {
+      "id": "pat.refbind.binds-place-reference",
+      "domain": "pat",
+      "title": "`ref`/`ref mut` binds a reference to the matched place",
+      "statement": "A `ref r` / `ref mut r` binding binds r to a reference (address) of the matched scrutinee or sub-place, without copying; dereferencing r reads through to the original value. A `ref`-binding pattern is irrefutable.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4161-L4186", "src/compiler/mlir_gen_expr.cpp#L4378-L4379"]
+    },
+    {
+      "id": "pat.refpat.peels-reference",
+      "domain": "pat",
+      "title": "`&pat` pattern matches through a reference",
+      "statement": "A reference pattern `&pat` / `&mut pat` over a reference-typed scrutinee dereferences the scrutinee and matches the inner pattern against the pointee. Over an already-derefed tagged-enum scrutinee, a redundant leading `&` on a variant/struct pattern is peeled.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4187-L4190", "src/compiler/mlir_gen_expr.cpp#L4306-L4312", "src/compiler/mlir_gen_expr.cpp#L4646-L4672"]
+    },
+    {
+      "id": "pat.at.binds-whole-and-recurses",
+      "domain": "pat",
+      "title": "`name @ sub` binds the whole value and matches sub",
+      "statement": "An `@`-pattern `name @ sub` binds name to the entire matched value and additionally requires the sub-pattern to match; matching dispatches on the sub-pattern (range, literal, or variant). An `@` over an irrefutable sub (e.g. `n @ _`) always matches.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4191-L4210", "src/compiler/mlir_gen_expr.cpp#L4673-L4720"]
+    },
+    {
+      "id": "pat.struct.field-binding",
+      "domain": "pat",
+      "title": "Struct pattern binds named fields, `..` ignores rest",
+      "statement": "A struct pattern `S { f0: x, .. }` matches by binding each named field's sub-pattern; shorthand `S { x }` binds field x; `S { .. }` binds nothing. A struct pattern is refutable iff any field sub-pattern is refutable, and its match test recurses into the refutable field sub-patterns.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4071-L4160", "src/compiler/mlir_gen_expr.cpp#L4378-L4381", "src/compiler/mlir_gen_expr.cpp#L4434-L4457"]
+    },
+    {
+      "id": "pat.slice.fixed-array-elements",
+      "domain": "pat",
+      "title": "Slice pattern over a fixed array binds and tests positionally",
+      "statement": "A slice pattern `[a, b, ..]` over an array of length N binds prefix elements from index 0 upward and suffix elements (after `..`) from the tail at `N - suffix_count + i`; literal sub-patterns add positional equality constraints to the arm test.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3927-L3978", "src/compiler/mlir_gen_expr.cpp#L4513-L4565"]
+    },
+    {
+      "id": "pat.slice.dynamic-length-gate",
+      "domain": "pat",
+      "title": "Slice pattern over a dynamic slice gates on runtime length",
+      "statement": "A slice pattern over a runtime-length `&[T]` matches iff the runtime length equals the fixed element count (no `..`) or is at least the fixed count (trailing `..`). Prefix elements index from 0; suffix elements from `len - suffix_count + i`. Suffix elements after `..` are rejected by sema for dynamic slices; a named rest `rest @ ..` binds the sub-slice `{data + prefix_count, len - prefix_count - suffix_count}`.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3979-L4068", "src/compiler/mlir_gen_expr.cpp#L4566-L4645"]
+    },
+    {
+      "id": "pat.binding.scope-limited-to-arm",
+      "domain": "pat",
+      "title": "Pattern bindings are scoped to their arm",
+      "statement": "Names bound by an arm's pattern (and guard) are visible only within that arm's guard and body; they are removed from scope when the arm completes and are not visible to other arms.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L4345", "src/compiler/mlir_gen_expr.cpp#L4359"]
+    },
+    {
+      "id": "pat.tuple.element-binding-and-test",
+      "domain": "pat",
+      "title": "Tuple pattern binds and tests elements positionally",
+      "statement": "A tuple pattern destructures the scrutinee positionally, binding each element sub-pattern; a tuple pattern with refutable element sub-patterns contributes a structural match test that AND-chains the element tests.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L3904-L3926", "src/compiler/mlir_gen_expr.cpp#L4407-L4433"]
+    }
+  ]
+}

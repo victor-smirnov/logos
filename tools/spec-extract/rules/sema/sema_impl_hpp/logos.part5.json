@@ -1,0 +1,256 @@
+{
+  "unit": "sema/sema_impl_hpp/logos.part5",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L2251-L2790",
+  "source_hash": "e516d549bbbd5184",
+  "rules": [
+    {
+      "id": "borrow.drop.needs-drop-recursive",
+      "domain": "borrow",
+      "title": "Drop-required iff own Drop or droppable field",
+      "statement": "A type needs drop glue iff it has a user/own drop function OR it transitively contains at least one droppable field (needs_drop(t) = own_drop(t) ∨ has_droppable_fields(t)).",
+      "evidence": ["src/compiler/sema_impl.hpp#L2252-L2256"]
+    },
+    {
+      "id": "borrow.move.recursive-into-producer",
+      "domain": "borrow",
+      "title": "Move propagates into composite producer subexpressions",
+      "statement": "When a value is produced from a composite expression (Call arg, StructLit field, TupleLit elem, EnumLitData payload, BlockExpr result), any move-typed VarRef carried into the produced value is marked moved and removed from the drop set; FieldRead in producer position is a move of the source. This prevents double-drop / use-after-move for values escaping via construction.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2272-L2307"]
+    },
+    {
+      "id": "borrow.drop.break-continue-to-loop-frame",
+      "domain": "borrow",
+      "title": "break/continue runs drops down to enclosing loop body",
+      "statement": "A `break`/`continue` runs the destructors of every scope frame from the innermost enclosing frame down to and including the enclosing loop-body frame, so a break/continue nested inside an `if` still drops the loop body's locals.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2261-L2264"]
+    },
+    {
+      "id": "pat.or.shared-binding-slot",
+      "domain": "pat",
+      "title": "Or-pattern alternatives share one slot per binding name",
+      "statement": "Within a single top-level pattern, a binding name introduced in multiple Or-pattern alternatives (`Some(x) | Other(x)`) resolves to ONE shared storage slot; the slot is reserved at build time and the build-local name→slot map is cleared at each top-level pattern entry.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2309-L2323"]
+    },
+    {
+      "id": "borrow.pin.non-movable-no-by-value-slot",
+      "domain": "borrow",
+      "title": "Location-anchored types may not occupy a by-value slot",
+      "statement": "A non-movable (location-anchored) type — one with a self-relative `#[rel_ptr]`/`#[zoned2]` field, or a `#[pinned]` type — may not be bound to any by-value slot (let local, parameter, match/for/closure/destructure binding); it must live behind a pointer, in place (e.g. an arena or `[u8;N]` buffer), and be built through a `*mut T`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2327-L2346", "src/compiler/sema_impl.hpp#L2440-L2464"],
+      "divergence": "A8: `#[pinned]` is non-movability as a property of the TYPE (no value-form), distinct from Rust's pointer-level Pin<P>."
+    },
+    {
+      "id": "borrow.scope.shadowing-fresh-slot",
+      "domain": "borrow",
+      "title": "Each binding gets a fresh slot; shadowing allocates a new slot",
+      "statement": "Each binding occupies a fresh dense slot allocated at definition; re-declaring a name in the same/inner scope (shadowing) allocates a new slot rather than reusing the prior one (unless a pattern pre-reserved a slot for an Or-alternative).",
+      "evidence": ["src/compiler/sema_impl.hpp#L2347-L2355"]
+    },
+    {
+      "id": "expr.name.innermost-scope-wins",
+      "domain": "expr",
+      "title": "Name resolution: innermost binding wins, then module consts",
+      "statement": "A name resolves to its innermost in-scope local binding (shadowing-correct); if no local binding exists it falls back to a module-level const; otherwise it is unresolved.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2358-L2379"]
+    },
+    {
+      "id": "borrow.move.owning-dyn-by-value",
+      "domain": "borrow",
+      "title": "Passing an owning Box<dyn Trait> by value moves it",
+      "statement": "An owning `Box<dyn Trait>` binding (collapsed to a bare trait object) is moved when passed by value — the callee frees the handle — so the caller marks it moved to avoid a double-free.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2389-L2398"]
+    },
+    {
+      "id": "item.struct.zoned-field-promotes-to-datatype",
+      "domain": "item",
+      "title": "Struct with a zoned-struct field is not plain data",
+      "statement": "A struct is plain-data (is_data_plain) unless any of its fields has zoned-struct kind, in which case it is a (non-plain) zoned datatype.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2424"]
+    },
+    {
+      "id": "item.struct.tuple-struct-positional",
+      "domain": "item",
+      "title": "Tuple struct: positional fields, call-form ctor and pattern",
+      "statement": "`struct Foo(T1, T2);` declares a tuple struct with positional fields; its constructor is the call form `Foo(a, b)` and its pattern is `Foo(x, y)`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2426"]
+    },
+    {
+      "id": "item.struct.no-auto-drop",
+      "domain": "item",
+      "title": "#[no_auto_drop] suppresses compiler-emitted drop",
+      "statement": "A struct marked `#[no_auto_drop]` receives NO compiler-emitted automatic Drop (neither user-drop invocation nor field drop glue) — the ManuallyDrop<T> lang-item shape.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2427"]
+    },
+    {
+      "id": "item.struct.custom-dst-last-field-unsized",
+      "domain": "item",
+      "title": "Trailing unsized field makes the struct a custom DST",
+      "statement": "A struct whose LAST field has unsized type (`[T]`, `dyn Trait`, or nested DST) is itself unsized (is_dst); such a struct may appear only behind `&`/`&mut`/`*const`/`*mut`/`Box`, and is constructed via unsafe raw-parts assembly (never by value).",
+      "evidence": ["src/compiler/sema_impl.hpp#L2428-L2434"]
+    },
+    {
+      "id": "item.struct.self-describing-thin-ptr",
+      "domain": "item",
+      "title": "#[self_describing] custom-DST uses a thin raw pointer",
+      "statement": "A custom-DST struct marked `#[self_describing]` has in-band recoverable tail length/metadata, so raw `*const T`/`*mut T` to it is a THIN pointer (metadata recovered at deref) rather than a fat DstRef.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2435-L2439"]
+    },
+    {
+      "id": "layout.rel-ptr.self-relative-offset",
+      "domain": "layout",
+      "title": "#[rel_ptr] field stored as self-relative i64 offset",
+      "statement": "A `#[rel_ptr]` field is stored as an 8-byte i64 byte-offset from the field's own address and materializes to an absolute thin pointer on load; it is opaque (no field access) but transparent to `*Pointee` at the value level.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2440-L2444"]
+    },
+    {
+      "id": "layout.pinned.non-movable-type",
+      "domain": "layout",
+      "title": "#[pinned] type is location-anchored and non-movable",
+      "statement": "A `#[pinned]` type's bits are anchored to its storage slot: it must not be moved by value, is accessed in place, and is materialized to a movable value form only explicitly. It is non-movable itself (unlike `#[rel_ptr]`, whose value form is the resolved absolute pointer).",
+      "evidence": ["src/compiler/sema_impl.hpp#L2446-L2453"],
+      "divergence": "A8"
+    },
+    {
+      "id": "layout.zone-mut.fat-mut-ref",
+      "domain": "layout",
+      "title": "#[zone_mut] gives &mut T a zone-carrying fat ref",
+      "statement": "For a `#[zone_mut]` type, `&mut T` is a fat reference {data, zone=*mut Allocator} carrying its zone so grow methods can reach the allocator from `&mut self`; a read `&T` stays thin.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2454-L2458"]
+    },
+    {
+      "id": "layout.zoned2.all-thin-fields-self-relative",
+      "domain": "layout",
+      "title": "#[zoned2] stores all thin-pointer fields self-relative",
+      "statement": "A `#[zoned2]` struct stores all of its thin-pointer fields as self-relative RelOffset i64 and materializes them to absolute pointers in compute; such a struct is non-movable (it cannot be stack-allocated because the offsets are anchored to the slot).",
+      "evidence": ["src/compiler/sema_impl.hpp#L2459-L2464", "src/compiler/sema_impl.hpp#L2585"]
+    },
+    {
+      "id": "borrow.escape.borrow-carrying-value",
+      "domain": "borrow",
+      "title": "#[borrow_carrying] values escape-tracked like references",
+      "statement": "A `#[borrow_carrying]` value type may contain an absolute Ref into an arena; the borrow checker tracks its escape like a reference — a method/ctor returning one ties the result to its ref receiver/arg, so returning it past the source's scope is rejected unless laundered through a holder.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2465-L2472", "src/compiler/sema_impl.hpp#L2586"]
+    },
+    {
+      "id": "layout.non-null.option-nullptr-niche",
+      "domain": "layout",
+      "title": "#[non_null] enables Option NullPtr niche",
+      "statement": "A `#[non_null]` struct is a single 8-byte pointer wrapper whose pointer is guaranteed non-null (Box/Rc/Arc shape), letting `Option<ThisStruct>` use the NullPtr niche (None = null pointer, pointer-sized enum). It is an opt-in soundness contract asserted by the author.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2473-L2479"]
+    },
+    {
+      "id": "item.union.max-of-fields-layout-unsafe-read",
+      "domain": "item",
+      "title": "union layout and unsafe field read",
+      "statement": "A type declared `union NAME { … }` has layout = max-of-fields size aligned to max field alignment (vs struct's sum-of-fields); only one field is active at a time (the active one is implementation-defined) and every field READ requires an enclosing `unsafe`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2480-L2487"]
+    },
+    {
+      "id": "layout.repr-transparent.inherit-field-layout",
+      "domain": "layout",
+      "title": "#[repr(transparent)] inherits the single field's layout",
+      "statement": "A single-field wrapper marked `#[repr(transparent)]` inherits its field's layout exactly (size, align, and niche). Other `#[repr(...)]` modes (`C`/`packed`/`align`) are parsed then rejected.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2488-L2497"]
+    },
+    {
+      "id": "item.enum.default-backing-i32",
+      "domain": "item",
+      "title": "Enum default discriminant backing type is i32",
+      "statement": "An enum with no explicit backing type uses i32 as its discriminant backing type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2583"]
+    },
+    {
+      "id": "item.enum.struct-shape-variant",
+      "domain": "item",
+      "title": "Struct-shape enum variant carries named payload fields",
+      "statement": "An enum variant `V { x: T, y: U }` is a struct-shape variant with named payload fields (a names array parallel to payload types); user-written field names are resolved to positional indices. Tuple-shape and unit variants carry no payload field names.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2562-L2574"]
+    },
+    {
+      "id": "trait.object-safety.sized-self-method-excluded",
+      "domain": "trait",
+      "title": "where Self: Sized method excluded from vtable",
+      "statement": "A trait method with `where Self: Sized` is excluded from the trait's vtable and ignored for object-safety determination.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2598-L2599"]
+    },
+    {
+      "id": "trait.default-method.conditional-on-param-bounds",
+      "domain": "trait",
+      "title": "Conditional default methods gated by per-method param bounds",
+      "statement": "A per-method `where` bound whose subject is a trait type-parameter (e.g. `where Item: Ord`) gates default-method synthesis per impl: when an impl substitutes the type-parameter, the bound is rewritten under the substitution and checked; if unsatisfied, the default method is not synthesized for that impl (the method is simply unavailable).",
+      "evidence": ["src/compiler/sema_impl.hpp#L2600-L2613"]
+    },
+    {
+      "id": "trait.assoc-type.gat-and-default",
+      "domain": "trait",
+      "title": "Associated types may be generic (GAT) and have a default",
+      "statement": "A trait associated type may carry its own type-params (`type Item<T>` — a GAT) with bounds, and may declare a default (`type Item = i32;`) used by impls that omit it.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2618-L2624"]
+    },
+    {
+      "id": "trait.assoc-const.default-projected-to-impl",
+      "domain": "trait",
+      "title": "Associated const default projected into omitting impls",
+      "statement": "A trait associated const may declare a default (`const X: i32 = 42;`); each `impl Trait for T` that omits the const inherits the default so `T::CONST` resolves to it.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2625-L2633"]
+    },
+    {
+      "id": "trait.impl.negative-impl",
+      "domain": "trait",
+      "title": "Negative impl asserts a type does not implement a trait",
+      "statement": "`impl !Trait for X {}` is a negative impl declaring that X does not implement Trait.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2663"]
+    },
+    {
+      "id": "trait.supertrait.declared-bounds",
+      "domain": "trait",
+      "title": "Trait may declare supertrait bounds",
+      "statement": "A trait declaration `trait Foo: Display + Into<i32>` records supertrait bounds (trait name + type-args) that every impl of Foo must also satisfy.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2644"]
+    },
+    {
+      "id": "mono.mangle.trait-typearg-disambiguation",
+      "domain": "mono",
+      "title": "Distinct trait type-args coexist via mangled method keys",
+      "statement": "Two impls of the same trait name for one type at distinct trait type-args (`impl Trait<u64> for X` vs `impl Trait<u32> for X`) mangle their methods by the impl's concrete trait type-args so the methods coexist and dispatch independently.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2545-L2549"]
+    },
+    {
+      "id": "mono.mangle.trait-qualified-on-collision",
+      "domain": "mono",
+      "title": "Colliding trait methods re-keyed under trait-qualified name",
+      "statement": "When two traits define the same method on the same target type and signature, the colliding methods are re-keyed under the trait-qualified base `<target>__<trait>__<method>` to disambiguate.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2537-L2544"]
+    },
+    {
+      "id": "type.infer.never-fallback-on-divergent-body",
+      "domain": "type",
+      "title": "! fallback for unbound type-param of always-diverging callee",
+      "statement": "If a callee's body always diverges (panic-tail or `loop {}`-tail) and a type-parameter is otherwise unbound at the call site, the inference variable falls back to `!` (Never). A non-diverging body leaves an unbound type-param as an ambiguity error: `fn f<T>()->T{panic();}` infers T=! while `fn f<T>()->T{return 0;}` is ambiguous.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2550-L2560"],
+      "divergence": "Rust-2024 `!`-fallback semantics (logos-core 1.1)."
+    },
+    {
+      "id": "module.visibility.pub-module-only",
+      "domain": "module",
+      "title": "pub(module) exports within the owning module only",
+      "statement": "An item marked `pub(module)` is exported within its owning module (module-linkage, crossing package boundaries inside the module) but not to external consumers; it implies pub at the package level.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2420", "src/compiler/sema_impl.hpp#L2524-L2527", "src/compiler/sema_impl.hpp#L2638"]
+    },
+    {
+      "id": "item.fn.impl-trait-param-desugar",
+      "domain": "item",
+      "title": "impl Trait parameter desugars to a fresh generic param",
+      "statement": "A top-level `impl <bound>` in argument position desugars to a fresh synthetic generic type-parameter (the function becomes ordinary generic); `impl Trait` in RETURN position keeps the opaque-type handling instead.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2703-L2710"]
+    },
+    {
+      "id": "metaprog.fn-macro.callee-marker-required",
+      "domain": "metaprog",
+      "title": "name!(...) resolves only #[fn_macro]/#[token_macro] callees",
+      "statement": "A function-style macro call `name!(...)` resolves only callees marked `#[fn_macro]`; a `#[token_macro]` callee additionally receives its raw source text directly as a `str` argument.",
+      "evidence": ["src/compiler/sema_impl.hpp#L2529-L2530", "src/compiler/sema_impl.hpp#L2720-L2728"]
+    }
+  ]
+}

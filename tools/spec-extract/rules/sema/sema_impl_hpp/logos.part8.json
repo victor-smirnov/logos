@@ -1,0 +1,104 @@
+{
+  "unit": "sema/sema_impl_hpp/logos.part8",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L3923-L4438",
+  "source_hash": "15e0f186966ea784",
+  "rules": [
+    {
+      "id": "coerce.intlit.dispatch-unsuffixed-fits-narrower",
+      "domain": "coerce",
+      "title": "Unsuffixed integer literal dispatches to any integer param it fits",
+      "statement": "For overload/call dispatch an argument that is an UNSUFFIXED integer literal is compatible with an integer parameter type P iff its value fits P; a SUFFIXED literal (e.g. `9u64`) has a concrete type and must match by type, not by value. The flex path excludes Enum params (P!=Enum) so an integer never reinterprets enum by-pointer storage.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4411-L4432"],
+      "examples": ["push(7) // matches push(u8)", "push(9u64) // matches push(i64)? NO — u64 only"]
+    },
+    {
+      "id": "coerce.int.widen-or-literal-fits",
+      "domain": "coerce",
+      "title": "Integer expression widening to target type",
+      "statement": "An integer-typed expression e is implicitly widened to a target integer type T (via an inserted cast) iff can_widen(kind(e),T) holds, OR e is an integer literal whose value fits T. Otherwise no implicit widening occurs.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4401-L4409"]
+    },
+    {
+      "id": "coerce.ref.widen-int-literal-temp-pointee",
+      "domain": "coerce",
+      "title": "&<int-literal> sizes its temporary to the expected pointee width",
+      "statement": "When `&L` (an address-of an integer literal materialized as a temporary) is passed where `&T`/`&mut T` is expected and T is a wider integer type that L can widen to or fits, the inner literal is cast to T before being addressed, so the temporary's storage slot is sized to T (preventing a narrow temp read as the wider pointee).",
+      "evidence": ["src/compiler/sema_impl.hpp#L4365-L4400"],
+      "divergence": "Logos-specific miscompile fix (G149-2); Rust never has this hazard since &literal infers the pointee type."
+    },
+    {
+      "id": "type.writ.container-kinds",
+      "domain": "type",
+      "title": "Writ view container recognition",
+      "statement": "A type t (optionally behind one &/&mut) denotes a Writ value iff its underlying Struct/ZonedStruct name is one of {Writ, WritView, WritStatic, Rc} (Rc being the `Rc<Writ>` runtime container). One level of reference is peeled before matching.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4133-L4149"],
+      "uncertainty": "Matches by struct name only; does not check Rc's type argument is Writ."
+    },
+    {
+      "id": "stmt.let-chain.nested-if-let-desugar",
+      "domain": "stmt",
+      "title": "let-chain desugars to nested if-let with duplicated else",
+      "statement": "A let-chain (`if a && let P = e && b { .. } else { .. }`) desugars to nested `if let`/`if` over the segment list, with the ELSE branch textually duplicated at every fall-through site (matching Rust's classic desugar); user-visible side effects in ELSE are duplicated.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4078-L4084"],
+      "divergence": "Accepted limitation: ELSE side effects duplicated per fall-through site."
+    },
+    {
+      "id": "pat.or.payload-distributes-per-alternative",
+      "domain": "pat",
+      "title": "Or-pattern inside a variant payload distributes into one arm per alternative",
+      "statement": "A multi-alternative or-pattern appearing as a variant payload arg (`Some(P|Q)`) is fanned out into one effective arm per alternative (`Some(P) | Some(Q)`); each re-evaluates the arm guard with its own bindings, so a failing guard backtracks to the next alternative.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4165-L4170"]
+    },
+    {
+      "id": "pat.match.ast-exhaustiveness-nested-enum-payload",
+      "domain": "pat",
+      "title": "Nested enum-payload exhaustiveness checked on AST patterns",
+      "statement": "Exhaustiveness for nested enum-payload patterns (`Some(Some(v))`/`Some(None)`/`None`) is decided over the original AST patterns, descending into each variant's single payload, because the LIR-level check skips guarded (desugared) arms.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4195-L4200", "src/compiler/sema_impl.hpp#L4301-L4306"]
+    },
+    {
+      "id": "region.temp-scope.receiver-temp-end-of-statement",
+      "domain": "region",
+      "title": "Droppable auto-ref'd method receiver temporary lives to end of statement",
+      "statement": "When a droppable rvalue is auto-referenced as a `&self`/`&mut self` method receiver (`W::mk(..).get()`), the materialized temporary lives until the end of the enclosing statement and is then dropped (Rust temporary-scope semantics), via hoisting into a statement-scoped `let` whose scope-exit runs the destructor; the hoisted `let` is `let mut` when the receiver is `&mut self`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4214-L4240"]
+    },
+    {
+      "id": "region.return.temp-drops-before-terminator",
+      "domain": "region",
+      "title": "Return-value temporaries drop before the return terminator",
+      "statement": "When lowering a `return <value>` whose value materialized statement-temporaries, the value is pre-bound to a local and the temporaries are dropped before the `return` terminator (`let __t..; let __rv = value; drop __t..; return __rv;`) so the drops are not dead code after the terminator.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4229-L4234"]
+    },
+    {
+      "id": "expr.deref.generic-autoderef-via-method-call",
+      "domain": "expr",
+      "title": "Generic Deref/DerefMut autoderef lowers as a method call",
+      "statement": "Autoderef of a receiver whose type implements Deref/DerefMut — including a generic impl (Box/Rc/Arc) whose `deref` is not a concrete symbol at sema time — is emitted as a `deref()`/`deref_mut()` method call (monomorphized later), and the resulting Target place type is obtained by substituting the Deref impl's target pattern against the receiver type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4242-L4251"]
+    },
+    {
+      "id": "expr.assoc-const.generic-typeparam-projection",
+      "domain": "expr",
+      "title": "T::CONST on an abstract type-param lowers to a per-impl accessor call",
+      "statement": "`T::CONST` where T is an abstract type-param bound by a trait declaring `const CONST` lowers to a zero-arg accessor call `T__kassoc_CONST()`; monomorphization rewrites `T__` to the concrete type and the per-impl accessor supplies the value.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3938-L3943"]
+    },
+    {
+      "id": "expr.closure.infer-params-from-fn-bound",
+      "domain": "expr",
+      "title": "Untyped closure literal infers parameter types from an Fn-family bound",
+      "statement": "An untyped closure literal (`|x| ..`) appearing where an Fn-family-bounded type-param is expected infers its parameter types from the bound's signature, after the active substitution is applied; peeling through Ref/MutRef/Ptr and single-type-arg wrappers (`Box<dyn Fn(..)>`) to expose the inner callable type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3944-L3959"]
+    },
+    {
+      "id": "trait.assoc-type.dual-trait-typearg-key",
+      "domain": "trait",
+      "title": "Associated-type lookup keyed by trait type-args when ambiguous",
+      "statement": "Associated-type resolution for two distinct `Trait<T>` impls of one target type is disambiguated by a `$G<n>$<a1>$..` suffix encoding the concrete trait type-args, preferring the suffixed key when args are known from the current impl context and falling back to the plain key for single/non-generic-trait impls.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4282-L4300"],
+      "related": ["mono.mangle.type-args-recursive"]
+    }
+  ]
+}

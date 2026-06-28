@@ -1,0 +1,94 @@
+{
+  "unit": "codegen/mlir_gen_expr/coerce_to_anyval_raw",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_expr.cpp#L5997-L6513",
+  "source_hash": "98fc06349bc32747",
+  "rules": [
+    {
+      "id": "metaprog.anyval.bool-value-form",
+      "domain": "metaprog",
+      "title": "AnyVal bool value-form encoding",
+      "statement": "A `bool` coerced to an inline AnyVal word encodes as `(b << 8) | 5` where b in {0,1} (low byte = (WA_BOOL=2)<<1 | 1 = 5).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6002-L6010"],
+      "uncertainty": "Bit-layout is a data-substrate (Writ/Memoria) encoding, not a Rust-language construct."
+    },
+    {
+      "id": "metaprog.anyval.int-i24-value-form",
+      "domain": "metaprog",
+      "title": "AnyVal small-integer value-form (i24 niche)",
+      "statement": "Any integer type of width <=32 bits (i8/i16/i32/u8/u16/u32/i24/u24) coerced to an inline AnyVal word encodes as `((v & 0xFFFFFF) << 8) | 0x2F` (24-bit payload, type tag 0x2F).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6011-L6022"]
+    },
+    {
+      "id": "metaprog.anyval.int64-truncates-to-i24",
+      "domain": "metaprog",
+      "title": "AnyVal 64-bit integer truncates to 24 bits",
+      "statement": "An i64/u64 coerced to an inline AnyVal word is truncated to its low 24 bits and embedded as the i24 niche `((v & 0xFFFFFF) << 8) | 0x2F`; values outside [-2^23, 2^23) lose their high bits in the inline form.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6023-L6032"],
+      "uncertainty": "Lossy truncation is the inline-AnyVal fallback; full-range values require the zone-alloc (C5) path elsewhere."
+    },
+    {
+      "id": "metaprog.anyval.float-ptr-not-inline-capturable",
+      "domain": "metaprog",
+      "title": "Floats and pointers are not inline-capturable as AnyVal",
+      "statement": "F32/F64 and pointer/reference types (Ptr/Ref/MutRef) have no inline AnyVal value-form; coercing one yields a null (zero) AnyVal word, and such types must instead use zone-allocated capture encoding.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6033-L6040"]
+    },
+    {
+      "id": "metaprog.anyval.identity-passthrough",
+      "domain": "metaprog",
+      "title": "AnyVal value passes through as its first word",
+      "statement": "Coercing a value already of struct type `AnyVal` to an AnyVal word extracts its leading word (field 0) unchanged.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6041-L6048"]
+    },
+    {
+      "id": "metaprog.wany.bool-value-form",
+      "domain": "metaprog",
+      "title": "WAny bool value-form encoding",
+      "statement": "A `bool` coerced to an 8-byte WAny value word encodes as `(b << 8) | 5` (low byte = (WA_BOOL=2)<<1 | 1).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6055-L6073"]
+    },
+    {
+      "id": "metaprog.wany.int-i56-value-form",
+      "domain": "metaprog",
+      "title": "WAny integer value-form (i56 niche)",
+      "statement": "Any integer type up to 64 bits (i8..i64/u8..u64/i24/u24) coerced to an 8-byte WAny word encodes as `(v << 8) | 3` (payload in the high 56 bits, tag = (WA_I56=1)<<1 | 1 = 3).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6074-L6082"]
+    },
+    {
+      "id": "metaprog.wany.identity-passthrough",
+      "domain": "metaprog",
+      "title": "WAny passthrough and AnyVal zero-extension into WAny",
+      "statement": "A value already of enum type `WAny` passes its niche word through unchanged (extracted if struct-typed). A legacy struct `AnyVal` coerced to WAny is its leading 4-byte word zero-extended to 64 bits (the i24/bool Pod encodings coincide in the low 32 bits).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6083-L6104"]
+    },
+    {
+      "id": "metaprog.writ-lit.size-prefixed-rodata",
+      "domain": "metaprog",
+      "title": "Capture-free @-literal lowered to size-prefixed rodata",
+      "statement": "An @-literal (Writ literal) without runtime captures is serialized to a constant blob laid out as `[u64 little-endian size][bytes]`; the materialized handle points to the payload (8 bytes past the size prefix), so `size()` reads `*(ptr - 8)`.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6151-L6196", "src/compiler/mlir_gen_expr.cpp#L6234-L6267"]
+    },
+    {
+      "id": "metaprog.writ-lit.content-keyed-dedup",
+      "domain": "metaprog",
+      "title": "Identical @-literal blobs share one global (one address)",
+      "statement": "Two capture-free @-literals with byte-identical serialized (size-prefixed) content share a single rodata global, and therefore compare equal by address; capture-bearing @-literals are never deduplicated.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6199-L6202", "src/compiler/mlir_gen_expr.cpp#L6247-L6249", "src/compiler/mlir_gen_expr.cpp#L6270-L6271"]
+    },
+    {
+      "id": "metaprog.writ-lit.capture-zone-alloc-kinds",
+      "domain": "metaprog",
+      "title": "Capture kinds requiring zone allocation",
+      "statement": "An @-literal capture requires zone allocation (rather than an inline WAny word) iff its type is F64/F32/FloatLit, a raw pointer (treated as null-terminated C-string), a slice `&[u8]`/str (ptr+len), or struct `StringView`; all other (scalar/AnyVal) captures are stored as inline WAny value words.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6311-L6324", "src/compiler/mlir_gen_expr.cpp#L6404-L6459"]
+    },
+    {
+      "id": "metaprog.writ-lit.float-capture-widens-to-f64",
+      "domain": "metaprog",
+      "title": "Float captures widen to f64",
+      "statement": "A zone-allocated float capture is stored as f64: an f32 value is widened via float-extension, and a FloatLit (untyped float literal) defaults to f64.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L6407-L6422"]
+    }
+  ]
+}

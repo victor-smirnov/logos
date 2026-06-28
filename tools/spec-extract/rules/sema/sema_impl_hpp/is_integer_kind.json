@@ -1,0 +1,127 @@
+{
+  "unit": "sema/sema_impl_hpp/is_integer_kind",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L4439-L4902",
+  "source_hash": "2c6c7a9593d854ae",
+  "rules": [
+    {
+      "id": "type.integer.kind-set",
+      "domain": "type",
+      "title": "Integer-class type kinds",
+      "statement": "The integer type class comprises the fixed-width signed/unsigned kinds {i8,u8,i16,u16,i24,u24,i32,u32,i56,u56,i64,u64,i128,u128}, the pointer-sized {usize,isize}, the unsuffixed-literal type IntLit, and Enum. An enum type is treated as an integer kind for these classifications.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4439-L4449"],
+      "divergence": "Logos adds non-power-of-two integer widths i24/u24/i56/u56 (not in Rust); also classifies Enum as an integer kind.",
+      "uncertainty": "Whether Enum membership here reflects a general language rule or only this classifier's use sites is not determinable from this unit alone."
+    },
+    {
+      "id": "type.integer.bit-width",
+      "domain": "type",
+      "title": "Integer bit-width and signedness",
+      "statement": "Each concrete integer kind has a fixed bit width and signedness: i8/u8=8, i16/u16=16, i24/u24=24, i32/u32=32, i56/u56=56, i64/u64=64, i128/u128=128; signed forms are signed, unsigned forms unsigned. usize/isize have width equal to the target pointer width (isize signed, usize unsigned). IntLit, Enum, and non-integers have no defined rank (width 0).",
+      "evidence": ["src/compiler/sema_impl.hpp#L4453-L4474"],
+      "divergence": "usize/isize width is target-dependent (pointer bits) as in Rust; the exotic 24/56-bit widths are a Logos addition."
+    },
+    {
+      "id": "coerce.int.implicit-widening",
+      "domain": "coerce",
+      "title": "Safe implicit integer widening",
+      "statement": "An implicit integer widening from `from` to `to` is permitted iff every value of `from` is representable in `to`: signed->signed and unsigned->unsigned require to_width >= from_width; unsigned->signed requires to_width > from_width; signed->unsigned is never permitted. usize/isize are distinct types: no implicit conversion between a pointer-sized integer and any fixed-width integer (only psize<->psize among themselves). Either operand having undefined rank (IntLit/Enum/non-integer) blocks widening.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4482-L4495"],
+      "divergence": "Rust performs NO implicit integer widening at all (requires explicit `as`). Logos permits value-preserving implicit widening here.",
+      "related": ["type.integer.bit-width"]
+    },
+    {
+      "id": "coerce.intlit.unify-to-concrete",
+      "domain": "coerce",
+      "title": "Unsuffixed integer literal unifies to the other operand's type",
+      "statement": "When unifying two integer types, if one is the unsuffixed literal type IntLit it unifies to the other operand's type. Otherwise the narrower is widened to the wider when a safe implicit widening exists (per coerce.int.implicit-widening); if neither widens, the first operand's type is kept.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4497-L4506"],
+      "related": ["coerce.int.implicit-widening", "coerce.numericlit.unify-to-concrete"]
+    },
+    {
+      "id": "coerce.numericlit.unify-to-concrete",
+      "domain": "coerce",
+      "title": "Numeric literal (int or float) unifies to the concrete operand",
+      "statement": "When unifying two numeric types where either operand may be a literal, an unsuffixed IntLit or FloatLit operand unifies to the other operand's (concrete) type; FloatLit thereby promotes to a concrete float type F32/F64.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4514-L4517"],
+      "related": ["coerce.intlit.unify-to-concrete"]
+    },
+    {
+      "id": "const.intlit.fold-unary-neg",
+      "domain": "const",
+      "title": "Constant integer-literal value extraction through block/negation",
+      "statement": "A constant integer value is extracted from an expression by: unwrapping a block expression to its result subexpression; folding a unary `-` applied to a constant integer to its negation; and reading the value of an integer literal. Any other expression form has no constant integer value.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4524-L4542"]
+    },
+    {
+      "id": "type.intlit.fits-range",
+      "domain": "type",
+      "title": "Integer-literal range fit per target type",
+      "statement": "A constant integer value v fits a target integer kind iff it lies within that kind's representable range: i8 [-128,127], u8 [0,255], i16 [-32768,32767], u16 [0,65535], i24 [-2^23,2^23-1], u24 [0,2^24-1], i32 [INT32_MIN,INT32_MAX], u32 [0,UINT32_MAX], i56 [-2^55,2^55-1], u56 [0,2^56-1], i64/i128/isize(64-bit) all int64 values, u64/u128/usize require v>=0. On a 32-bit target usize requires v in [0,UINT32_MAX] and isize in [INT32_MIN,INT32_MAX].",
+      "evidence": ["src/compiler/sema_impl.hpp#L4544-L4568"],
+      "related": ["type.integer.bit-width"]
+    },
+    {
+      "id": "lex.literal.int-overflow-i64",
+      "domain": "lex",
+      "title": "Unsuffixed integer literal must fit i64/u64 (64-bit) magnitude",
+      "statement": "An integer literal's magnitude is rejected if it exceeds 64-bit representable range: an unsigned magnitude must fit u64; a negated literal's magnitude must not exceed 2^63 (INT64_MIN is representable, anything past overflows). Literals are parsed in base 10, or 0x/0X hex, 0b/0B binary, 0o/0O octal, with `_` digit separators ignored; parsing stops at the first character that is not a valid digit for the base (the type suffix).",
+      "evidence": ["src/compiler/sema_impl.hpp#L4577-L4602"],
+      "divergence": "Rust default integer literal type is i32; here the raw overflow bound is 64-bit (i64/u64), with per-suffix bounds layered at the call site."
+    },
+    {
+      "id": "lex.literal.int-radix-and-separators",
+      "domain": "lex",
+      "title": "Integer literal radix prefixes and digit separators",
+      "statement": "Integer literals support an optional leading `-`, the radix prefixes 0x/0X (hex), 0b/0B (binary), 0o/0O (octal), default decimal, and `_` digit separators which are ignored in the value. Digits outside the active base terminate the numeric body (beginning the optional suffix).",
+      "evidence": ["src/compiler/sema_impl.hpp#L4604-L4654", "src/compiler/sema_impl.hpp#L4659-L4678"]
+    },
+    {
+      "id": "lex.literal.int128-magnitude",
+      "domain": "lex",
+      "title": "128-bit integer literal magnitude",
+      "statement": "An integer literal targeting i128/u128 is accumulated as a 128-bit unsigned magnitude (sign applied by the caller) and is rejected only if its magnitude exceeds 128 bits; 64-bit-overflowing values round-trip intact.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4659-L4703"],
+      "divergence": "Logos provides i128/u128 literals; magnitude bound is 128 bits rather than 64."
+    },
+    {
+      "id": "lex.literal.digit-separator-placement",
+      "domain": "lex",
+      "title": "Digit-separator `_` placement validity",
+      "statement": "A `_` digit separator is valid only between two digits: it may not be the first or last character of a digit group, and consecutive `__` separators are forbidden. A digit group containing any character not accepted by its radix predicate is invalid.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4705-L4720"],
+      "uncertainty": "Rust permits leading/trailing and repeated underscores in some positions; exact conformance not confirmed from this unit."
+    },
+    {
+      "id": "lex.literal.int-format",
+      "domain": "lex",
+      "title": "Well-formed integer literal grammar",
+      "statement": "A valid integer literal = optional `-`, then either a radix-prefixed body (0x hex / 0b binary / 0o octal) or a decimal body, with valid digit-separator placement, optionally followed by exactly one recognised integer suffix from {usize,isize,i128,i64,i56,i32,i24,i16,i8,u128,u64,u56,u32,u24,u16,u8}.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4722-L4767"],
+      "related": ["lex.literal.int-suffix", "lex.literal.digit-separator-placement"]
+    },
+    {
+      "id": "lex.literal.float-format",
+      "domain": "lex",
+      "title": "Well-formed float literal grammar",
+      "statement": "A valid float literal = optional `-`, then a mantissa with either (a) a decimal point `.` with valid digit groups before and after, or (b) no decimal point but a mandatory exponent (e/E with optional +/- and digits) — a bare integer with no point and no exponent is NOT a float literal — optionally with an e/E exponent in case (a), and optionally followed by exactly one float suffix f32 or f64.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4769-L4808"]
+    },
+    {
+      "id": "lex.literal.int-suffix",
+      "domain": "lex",
+      "title": "Integer literal type suffix",
+      "statement": "An integer literal may carry an explicit type suffix selecting its kind: i8/i16/i24/i32/i56/i64/i128, u8/u16/u24/u32/u56/u64/u128, usize, isize; the suffix follows the (optionally radix-prefixed) digit body. Absence of a recognised suffix yields the unsuffixed literal type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4812-L4841"],
+      "divergence": "Includes Logos-specific suffixes i24/u24/i56/u56 absent in Rust.",
+      "related": ["type.integer.kind-set"]
+    },
+    {
+      "id": "lex.literal.float-suffix",
+      "domain": "lex",
+      "title": "Float literal type suffix",
+      "statement": "A float literal may carry the suffix f32 or f64 selecting F32/F64; absence yields the unsuffixed float-literal type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L4843-L4847"]
+    }
+  ]
+}

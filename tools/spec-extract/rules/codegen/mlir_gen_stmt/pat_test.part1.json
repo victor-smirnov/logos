@@ -1,0 +1,155 @@
+{
+  "unit": "codegen/mlir_gen_stmt/pat_test.part1",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_stmt.cpp#L3273-L3777",
+  "source_hash": "9b44f25c3b4a19a4",
+  "rules": [
+    {
+      "id": "pat.refute.wildcard-and-ref-irrefutable",
+      "domain": "pat",
+      "title": "Wildcard and ref-binding patterns are irrefutable",
+      "statement": "A wildcard pattern `_`/binder and a `ref`-binding pattern impose no match constraint (their refutability test is always true).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3283-L3285"]
+    },
+    {
+      "id": "pat.refute.literal-int-bool-equality",
+      "domain": "pat",
+      "title": "Integer/bool literal patterns test value equality",
+      "statement": "An integer or bool literal pattern matches iff the scrutinee value loaded at the scrutinee's type equals the literal (bool encoded 1/0); the literal constant is coerced to the scrutinee's element type before comparison.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3286-L3294"]
+    },
+    {
+      "id": "pat.refute.range-inclusive-bounds",
+      "domain": "pat",
+      "title": "Range pattern tests inclusive low<=v<=high",
+      "statement": "A range pattern matches iff lo <= v <= hi (both bounds inclusive). The comparison is unsigned when the scrutinee type is one of {u8,u16,u32,u64,usize,char,bool}, signed otherwise.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3278-L3281", "src/compiler/mlir_gen_stmt.cpp#L3295-L3306"]
+    },
+    {
+      "id": "pat.refute.tuple-elementwise-conjunction",
+      "domain": "pat",
+      "title": "Tuple pattern matches by conjunction of element tests",
+      "statement": "A tuple pattern matches iff every sub-pattern matches its corresponding element (positional, by index); the overall test is the conjunction of element tests. Element addresses are taken in place; a tuple value is stored inline (the scrutinee place IS the tuple storage, no extra load).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3307-L3326"]
+    },
+    {
+      "id": "pat.refute.variant-discriminant-test",
+      "domain": "pat",
+      "title": "Enum variant pattern tests discriminant equality only",
+      "statement": "A variant pattern (with or without payload) matches iff the scrutinee enum's discriminant equals the variant's discriminant (an i32 compare). Payload sub-patterns contribute only bindings; refutable inner sub-patterns are checked separately via the match guard channel, not by this test.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3327-L3383"]
+    },
+    {
+      "id": "pat.refute.c-like-enum-is-discriminant",
+      "domain": "pat",
+      "title": "C-like (all-nullary) enum value is its discriminant",
+      "statement": "An enum with no tagged payload (all-nullary) is represented as a bare i32 discriminant with no heap/struct storage; a variant pattern on it loads that i32 and compares to the variant discriminant.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3358-L3369"]
+    },
+    {
+      "id": "pat.refute.ref-enum-peels-all-layers",
+      "domain": "pat",
+      "title": "Variant test through references peels every reference layer",
+      "statement": "When the scrutinee type is `&`/`&mut` (to arbitrary depth) wrapping an enum, the discriminant test dereferences once per reference layer to reach the inline enum storage before reading the discriminant; the tagged-enum spec is resolved off the underlying enum type, not the reference wrapper.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3340-L3357", "src/compiler/mlir_gen_stmt.cpp#L3374-L3377"]
+    },
+    {
+      "id": "pat.refute.or-disjunction",
+      "domain": "pat",
+      "title": "Or-pattern matches if any alternative matches",
+      "statement": "An or-pattern `P1 | P2 | ...` matches iff at least one alternative matches; the test is the disjunction of the alternatives' tests, each evaluated against the same scrutinee place and type.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3384-L3391"]
+    },
+    {
+      "id": "pat.refute.struct-field-conjunction",
+      "domain": "pat",
+      "title": "Struct pattern matches by conjunction of refutable field tests",
+      "statement": "A struct pattern matches iff every refutable named-field sub-pattern matches its field; the test is the conjunction over fields. Irrefutable field subs (bind / shorthand / wildcard / ref-bind) contribute no constraint. The scrutinee place IS the struct storage; each field is GEP'd by name.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3392-L3429"]
+    },
+    {
+      "id": "pat.refute.ref-pattern-derefs-then-recurses",
+      "domain": "pat",
+      "title": "Reference pattern `&P` dereferences then tests inner",
+      "statement": "A reference pattern `&P` / `&mut P` against a reference-typed scrutinee loads the reference (the pointed-to address) and tests P against the pointee type; against a non-reference scrutinee the inner is tested in place.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3430-L3444"]
+    },
+    {
+      "id": "pat.refute.at-binding-tests-sub",
+      "domain": "pat",
+      "title": "At-binding `name @ P` is the refutability of P",
+      "statement": "An at-binding pattern `name @ P` is irrefutable in its binding part; its match constraint is exactly the refutability test of the sub-pattern P.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3445-L3449"]
+    },
+    {
+      "id": "pat.refute.array-pattern-no-length-gate",
+      "domain": "pat",
+      "title": "Fixed-array slice pattern: no length gate, positional prefix/suffix tests",
+      "statement": "A slice pattern against a `[T;N]` array (or reference to one) has fixed length, so it imposes no length check; it tests prefix sub-patterns at indices 0.. and suffix sub-patterns at indices N-suffix_count.. , conjoining all non-wildcard sub-tests.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3450-L3480"]
+    },
+    {
+      "id": "pat.refute.slice-pattern-length-gate",
+      "domain": "pat",
+      "title": "Dynamic slice pattern gates on length then tests elements",
+      "statement": "A slice pattern against a dynamic `&[T]` first compares the runtime length: with a rest binding `..` the slice must have length >= prefix_count+suffix_count, otherwise exactly == prefix_count+suffix_count; on success prefix elements are tested positionally against the data pointer. This length comparison is conjoined with element sub-tests.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3481-L3508"]
+    },
+    {
+      "id": "pat.bind.named-aggregate-binds-place",
+      "domain": "pat",
+      "title": "Aggregate binding binds the place; scalar binding copies",
+      "statement": "Binding a name to a struct/zoned-struct/tuple value binds the storage address (place) without copying; binding a name to a scalar loads the value and stores it into a fresh local. Struct bindings additionally record the bound place's struct shape so field access GEPs through it.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3520-L3570"]
+    },
+    {
+      "id": "pat.bind.fat-pointer-binds-pointer",
+      "domain": "pat",
+      "title": "Slice/closure/trait-object binding binds the fat-pointer place",
+      "statement": "Binding a name to a slice, closure, or trait-object value (a 16-byte inline fat pair) binds the storage pointer (stored into a pointer-typed local), so the value convention is uniform with a pointer-valued scalar.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3541-L3561"]
+    },
+    {
+      "id": "pat.bind.tuple-binds-elements-deref-ref",
+      "domain": "pat",
+      "title": "Tuple binding binds each element, dereferencing a reference scrutinee",
+      "statement": "A tuple pattern binds each sub-pattern to the corresponding element (by index); a `&(T,U)`/`&mut (T,U)` scrutinee is dereferenced to obtain element types before binding.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3572-L3597"]
+    },
+    {
+      "id": "pat.bind.variant-payload-binds-after-deref",
+      "domain": "pat",
+      "title": "Variant payload binding dereferences reference layers then binds payload",
+      "statement": "Binding a variant-data pattern dereferences every `&`/`&mut` layer (e.g. `&&Option<T>` binds payload as `&&T`) to reach the inline enum storage, resolves the tagged-enum spec off the underlying enum type, then binds the variant's payload sub-patterns.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3598-L3633"]
+    },
+    {
+      "id": "pat.bind.or-shared-bindings",
+      "domain": "pat",
+      "title": "Or-pattern bindings share one storage per name across alternatives",
+      "statement": "An or-pattern's alternatives bind the same set of names with the same types; one shared local is allocated per bound name and each alternative binds into the shared local, so the join point observes a single storage per name.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3634-L3669"]
+    },
+    {
+      "id": "pat.bind.struct-shorthand-and-subpatterns",
+      "domain": "pat",
+      "title": "Struct pattern binding: shorthand binds field by its name",
+      "statement": "A struct pattern binds each named field; field shorthand `{x}` binds the field value to `x` (aggregate fields bind the place, scalar fields copy), `{x: a}` rebinds via the sub-pattern, and refutable subs bind their inner names.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3670-L3719"]
+    },
+    {
+      "id": "pat.bind.ref-bind-binds-address",
+      "domain": "pat",
+      "title": "`ref x` binds a borrow (the address), not a copy",
+      "statement": "A `ref x` binding (and default-binding-mode ref) binds `x : &T` to the scrutinee place's address without loading or copying; a ref-to-struct binds the pointer and records struct shape for field access, a scalar ref alloca-wraps the address so `*x` derefs one level.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3720-L3747"]
+    },
+    {
+      "id": "pat.match.diverging-scrutinee-dead-arms",
+      "domain": "pat",
+      "title": "Diverging match scrutinee makes arms dead code",
+      "statement": "If a match's scrutinee diverges (e.g. `match return x { ... }`), evaluation of the scrutinee terminates control flow and the arms are unreachable.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L3767-L3777"]
+    }
+  ]
+}

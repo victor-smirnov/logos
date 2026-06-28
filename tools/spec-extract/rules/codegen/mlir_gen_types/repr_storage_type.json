@@ -1,0 +1,153 @@
+{
+  "unit": "codegen/mlir_gen_types/repr_storage_type",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_types.cpp#L613-L962",
+  "source_hash": "d91550cdeb66973f",
+  "rules": [
+    {
+      "id": "layout.ref.thin-pointer-eight-bytes",
+      "domain": "layout",
+      "title": "Thin reference layout",
+      "statement": "A thin reference (plain `&T`/`&mut T`/`*T`/fn-ptr to a Sized pointee) occupies one machine pointer: {size=8, align=8}.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L616", "src/compiler/mlir_gen_types.cpp#L631"]
+    },
+    {
+      "id": "layout.ref.fat-pointer-sixteen-bytes",
+      "domain": "layout",
+      "title": "Fat reference layout",
+      "statement": "Every fat reference — slice `&[T]`/`str`, trait object `&dyn Tr`, closure value, custom-DST ref, and zone-mut ref — is a two-word pair of {size=16, align=8}.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L617-L621", "src/compiler/mlir_gen_types.cpp#L632-L636"]
+    },
+    {
+      "id": "layout.slice.ptr-len-pair",
+      "domain": "layout",
+      "title": "Slice fat pair = {data,len}",
+      "statement": "A slice value (`&[T]`, `str`) is the pair {data: ptr, len: i64}.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L944-L947"]
+    },
+    {
+      "id": "layout.dyn.data-vtable-pair",
+      "domain": "layout",
+      "title": "Trait object fat pair = {data,vtable}",
+      "statement": "A trait object value (`dyn Tr`) is the pair {data_ptr, vtable_ptr}; a `&dyn` value is a pointer to this 16-byte storage.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L949-L955"]
+    },
+    {
+      "id": "layout.closure.fn-env-pair",
+      "domain": "layout",
+      "title": "Closure value = {fn,env}",
+      "statement": "A closure value is the pair {fn_ptr, env_ptr}, 16 bytes.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L957-L960"]
+    },
+    {
+      "id": "layout.ref.rel-offset-eight-bytes",
+      "domain": "layout",
+      "title": "Relative-offset reference layout",
+      "statement": "A relative-offset (self-relative) reference is stored as a single i64 offset word: {size=8, align=8}.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L622", "src/compiler/mlir_gen_types.cpp#L637"],
+      "divergence": "Logos self-relative pointers (zoned/Writ); no Rust equivalent."
+    },
+    {
+      "id": "layout.struct.field-fat-ref-inline-storage",
+      "domain": "layout",
+      "title": "Fat-ref struct/enum field stored inline",
+      "statement": "When a fat reference (slice, `dyn`/`Box<dyn>`, closure, custom-DST ref) is a payload field of an enum variant, it is stored inline as its full 16-byte fat pair, never collapsed to an 8-byte handle; thin refs keep the by-value 8-byte pointer.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L680-L688"]
+    },
+    {
+      "id": "layout.enum.payload-by-value",
+      "domain": "layout",
+      "title": "Enum payload members stored by value",
+      "statement": "Enum variant payload members are laid out by value: each member contributes its full by-value layout (e.g. `Option<&[u8]>` payload = the 16-byte slice fat pair), unlike struct/tuple fields which may store a slice/closure/tuple as an 8-byte ptr.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L707-L720"]
+    },
+    {
+      "id": "layout.enum.variant-payload-struct-layout",
+      "domain": "layout",
+      "title": "Variant payload laid out as a struct",
+      "statement": "A variant's payload is laid out exactly like a struct/tuple of its fields, including inter-field alignment padding; a multi-field variant's payload size is the aligned aggregate, not the naive sum of field sizes (e.g. `Cons{head:i32, tail:*const List}` = 16, not 12).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L702-L720"]
+    },
+    {
+      "id": "layout.enum.payload-size-is-max-variant",
+      "domain": "layout",
+      "title": "Enum payload size/align = max over variants",
+      "statement": "A tagged enum's payload byte size is the maximum payload size over all variants, and its payload alignment is the maximum payload alignment over all variants.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L737-L754"]
+    },
+    {
+      "id": "layout.enum.unit-variant-field-omitted",
+      "domain": "layout",
+      "title": "Unit `()` payload field omitted",
+      "statement": "A `()` (Void) payload field of an enum variant contributes no field and no bytes to the variant payload.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L716-L717", "src/compiler/mlir_gen_types.cpp#L742"]
+    },
+    {
+      "id": "layout.enum.niche-nullptr-ref",
+      "domain": "layout",
+      "title": "Null-pointer niche for Option<&T>-shape",
+      "statement": "A two-variant enum with one fieldless variant and one single-field variant whose field is `&T`/`&mut T` is pointer-sized (8 bytes, no separate discriminant word): the discriminant is encoded as null vs non-null at offset 0, since references are guaranteed non-null.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L761-L795"],
+      "examples": ["enum Option<&T> { None, Some(&T) }  // sizeof == 8"]
+    },
+    {
+      "id": "layout.enum.niche-nullptr-nonnull-wrapper",
+      "domain": "layout",
+      "title": "Null-pointer niche for #[non_null] 8-byte wrapper",
+      "statement": "The null-pointer niche also applies when the single-field variant's field is a `#[non_null]` struct that is exactly an 8-byte pointer wrapper (Box/Rc/Arc-shape), whose invariant guarantees offset-0 is non-zero.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L769-L795"],
+      "divergence": "Logos `#[non_null]` attribute exposes Rust's NonNull niche to user wrapper types."
+    },
+    {
+      "id": "layout.enum.niche-lowbit-ptr-int",
+      "domain": "layout",
+      "title": "Low-bit niche packs pointer + small-int arms",
+      "statement": "A two single-field-arm enum where one arm is a pointer to an align>=2 pointee (low bit always 0) and the other arm is a <=56-bit integer stored shifted `(v<<1)|1` packs into one word; the discriminant is the low bit (0=ptr arm, 1=int arm).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L796-L853"],
+      "divergence": "Logos low-bit pointer-tagging niche; no direct Rust analog."
+    },
+    {
+      "id": "layout.enum.niche-zoned-raw-word",
+      "domain": "layout",
+      "title": "Zoned (#[zoned2]) raw 64-bit low-bit niche",
+      "statement": "In a `#[zoned2]` enum, the low-bit niche additionally accepts a raw `*T` pointer arm (trusting the zone allocator's >=2 alignment even for `*u8`) and a raw 64-bit `u64`/`i64` value arm stored without a `<<1` shift (the producer bakes the low-bit-1 tag into the word).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L811-L851"],
+      "divergence": "Logos zoned (Writ) niche; no Rust equivalent."
+    },
+    {
+      "id": "layout.enum.niche-lowbit-int-widths",
+      "domain": "layout",
+      "title": "Low-bit niche integer arm widths",
+      "statement": "Eligible low-bit-niche value arms are Bool(1), I8/U8(8), I16/U16(16), I24/U24(24), I32/U32(32), I56(56) packed shifted; I64/U64(64) qualify only as the raw zoned variant.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L799-L817", "src/compiler/mlir_gen_types.cpp#L839"]
+    },
+    {
+      "id": "layout.tuple.struct-element-inline",
+      "domain": "layout",
+      "title": "Tuple element aggregate types stored inline",
+      "statement": "A tuple element whose type is a struct, enum, slice (incl. `str`), closure, trait object (`&dyn`), or nested tuple is stored inline as its full by-value layout (e.g. struct footprint, 16-byte fat pair), never collapsed to an 8-byte pointer.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L899-L941"]
+    },
+    {
+      "id": "layout.tuple.ref-tuple-derefs-to-inner",
+      "domain": "layout",
+      "title": "Ref-to-tuple resolves inner tuple layout",
+      "statement": "A `&(T,U)`/`&mut (T,U)`/`*(T,U)` resolves to the layout of the inner tuple `(T,U)` (default binding modes for tuple patterns over ref scrutinees).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L888-L896"]
+    },
+    {
+      "id": "mono.mangle.generic-enum-concrete-name",
+      "domain": "mono",
+      "title": "Generic enum concrete name mangling",
+      "statement": "A generic enum instantiation's concrete name is `EnumName` followed by `__<mangle(arg)>` for each type argument, where struct/datatype args mangle via concrete-struct-name and others via their type string.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L876-L884"]
+    },
+    {
+      "id": "layout.enum.return-by-value-pair",
+      "domain": "layout",
+      "title": "dyn/slice/zone-mut returned by 16B value",
+      "statement": "When returned by value, a trait object, slice, or zone-mut fat reference is materialized as its full 16-byte storage pair in the caller's frame; closure, custom-DST, thin, and rel-offset references are returned as their 8-byte value (pointer/word).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L643-L659"]
+    }
+  ]
+}

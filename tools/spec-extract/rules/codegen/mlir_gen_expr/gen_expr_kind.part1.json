@@ -1,0 +1,106 @@
+{
+  "unit": "codegen/mlir_gen_expr/gen_expr_kind.part1",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_expr.cpp#L1398-L1957",
+  "source_hash": "87b23494caf86099",
+  "rules": [
+    {
+      "id": "expr.addrof.var-place-identity",
+      "domain": "expr",
+      "title": "&x yields the address of x's own storage",
+      "statement": "`&x` / `&mut x` over a local or parameter denotes the address of that binding's storage slot. A by-value binding (scalar, by-value-fat, or pointer-family) is first spilled to its own stack slot whose address is the reference; a slot-backed binding (aggregate, address-holding) hands back its existing slot address directly.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1398-L1447"]
+    },
+    {
+      "id": "expr.addrof.ref-param-rebind",
+      "domain": "expr",
+      "title": "&p on a reference parameter rebinds to a single shared slot",
+      "statement": "When `&p` (or `&mut p`) is taken on a parameter of reference type, the parameter's value is spilled once to a slot and the binding is rebound to that slot, so subsequent reads and further `&p` operations share one storage location (write-through for `&mut` chains).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1428-L1441"]
+    },
+    {
+      "id": "expr.addrof.module-const-temp",
+      "domain": "expr",
+      "title": "&CONST materializes a temporary slot",
+      "statement": "Taking the address of a module-level const that has no local storage materializes a fresh stack slot, stores the const value, and yields that slot's address as the reference.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1403-L1415"]
+    },
+    {
+      "id": "expr.addrof.mut-place-element-address",
+      "domain": "expr",
+      "title": "&mut over an index/field/tuple place yields the real element address",
+      "statement": "`&[mut] <place>` over a place expression (`a[i]`, `(*p).0`, `s.f`, nested mixes) yields the actual element/field address computed with the correct per-element stride — never the address of a by-value copy — so writes through the resulting reference reach the original aggregate.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1456-L1477", "src/compiler/mlir_gen_expr.cpp#L1512-L1559", "src/compiler/mlir_gen_expr.cpp#L1560-L1653"]
+    },
+    {
+      "id": "expr.addrof.reborrow-pointer-identity",
+      "domain": "expr",
+      "title": "&[mut] *r is identity on r",
+      "statement": "Reborrowing `&[mut] *r` where r holds a reference or raw pointer (`&T`/`&mut T`/`*T`) is equivalent to the pointer value r itself (no extra indirection). A fat `&mut T` reborrowed to a thin reference (`&T`) is peeled to its data half; reborrowed to another fat `&mut T` it keeps the full pair.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1479-L1510"]
+    },
+    {
+      "id": "expr.addrof.temp-aggregate-spill",
+      "domain": "expr",
+      "title": "& over a by-value aggregate temporary extends its lifetime via a slot",
+      "statement": "`&<temp>` where the operand is a by-value aggregate (struct, tuple, array, slice, trait-object, enum produced by a call) spills the temporary once to a stack slot, and that slot is the reference (temporary lifetime extension). Aggregates already held by pointer are returned unchanged.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1704-L1746"]
+    },
+    {
+      "id": "expr.addrof.enum-single-level",
+      "domain": "expr",
+      "title": "& over an enum is one level of indirection",
+      "statement": "A tagged enum is represented as a pointer to its inline {discriminant,payload} storage; `&enum` therefore yields that storage address directly (one indirection level, like `&struct`), not a pointer-to-pointer. A C-like (scalar-discriminant) enum is spilled to a slot whose address is the reference.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1442-L1447", "src/compiler/mlir_gen_expr.cpp#L1724-L1741"]
+    },
+    {
+      "id": "expr.deref.aggregate-pointer-identity",
+      "domain": "expr",
+      "title": "*p on aggregate-typed pointee is a no-op reinterpret",
+      "statement": "`*p` whose result type is a struct, tuple, array, slice, or trait-object yields the same pointer value (no load), since those types are pointer-represented; subsequent field/index access or by-value copy handles the byte-level move.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1762-L1802"]
+    },
+    {
+      "id": "expr.deref.scalar-load",
+      "domain": "expr",
+      "title": "*p on scalar-typed pointee loads the value",
+      "statement": "`*p` whose result type is a scalar (integer, float, bool, char) or a C-like enum loads the value of the pointee type from the pointer.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1811-L1819"]
+    },
+    {
+      "id": "expr.deref.tagged-enum-identity",
+      "domain": "expr",
+      "title": "*p on a tagged enum yields the storage pointer",
+      "statement": "A tagged enum is pointer-to-inline-storage, so `*p` over a `&Enum`/`*Enum` to a tagged enum yields the same pointer (no load); only C-like enums load.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1811-L1816"]
+    },
+    {
+      "id": "intrinsic.wrapping.silent-twos-complement",
+      "domain": "intrinsic",
+      "title": "wrapping_add/sub/mul opt out of overflow trapping",
+      "statement": "`wrapping_add`, `wrapping_sub`, `wrapping_mul` perform two's-complement add/sub/mul that wraps silently and explicitly opts out of the runtime overflow trap applied to `+`/`-`/`*`. Operands of differing integer width are zero-extended to the wider width before the operation.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1839-L1881"]
+    },
+    {
+      "id": "intrinsic.dyn.vtable-of",
+      "domain": "intrinsic",
+      "title": "vtable_of::<Trait, T> yields the static vtable address",
+      "statement": "`vtable_of::<Trait, T>()` returns `*const u8`, the address of the static vtable for `impl Trait for T`, with Trait given as a string argument and T as the first type argument.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1906-L1921"]
+    },
+    {
+      "id": "intrinsic.dyn.from-parts",
+      "domain": "intrinsic",
+      "title": "dyn_from_parts assembles a fat dyn pointer",
+      "statement": "`dyn_from_parts::<Trait>(data, vtable)` assembles a fat trait-object pointer as the 16-byte {data, vtable} pair from the two raw half pointers, yielding `*mut dyn Trait`; the trait argument is irrelevant to layout (uniform).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1922-L1941"]
+    },
+    {
+      "id": "layout.dyn.uniform-fat-pair",
+      "domain": "layout",
+      "title": "Every dyn value is a 16-byte {data,vtable} pair",
+      "statement": "Every trait-object value (`&dyn`, `*dyn`, `Box<dyn>`) is a 16-byte {data, vtable} pair stored inline, and a `*const/*mut dyn` always points at such a 16-byte slot; dereferencing such a raw dyn pointer is therefore a no-op reinterpret (the slot pointer is the dyn value).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1749-L1760", "src/compiler/mlir_gen_expr.cpp#L1922-L1941"]
+    }
+  ]
+}

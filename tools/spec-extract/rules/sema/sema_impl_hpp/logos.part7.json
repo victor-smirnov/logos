@@ -1,0 +1,122 @@
+{
+  "unit": "sema/sema_impl_hpp/logos.part7",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L3339-L3922",
+  "source_hash": "a27ca769b15cb8e0",
+  "rules": [
+    {
+      "id": "region.outlives.callee-bound-checked-at-call",
+      "domain": "region",
+      "title": "Callee `where 'a: 'b` bounds checked at the call site",
+      "statement": "When a fn declares outlives bounds `'a: 'b`, each call site must satisfy them under the callee→caller lifetime substitution induced by matching parameter types to argument types. The substitution is derived by walking paired (param_type, arg_type): for matched &/&mut, struct/zoned-struct/enum lifetime_args, tuple/slice/array/ptr elements, callee lifetimes map to the corresponding caller lifetimes. A bound is enforced only when BOTH its lifetimes appear at argument positions and map to concrete distinct caller lifetimes; otherwise (internal or elided) it is left to caller region inference. Unsatisfied → error.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3352-L3438"],
+      "related": ["region.outlives.static-always-satisfies", "region.outlives.struct-lit-bound-checked"]
+    },
+    {
+      "id": "region.outlives.static-always-satisfies",
+      "domain": "region",
+      "title": "`'static` satisfies any outlives bound",
+      "statement": "The `'static` lifetime is reserved and always satisfies any outlives obligation; an outlives bound whose longer side is `'static` is never checked.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3418-L3419", "src/compiler/sema_impl.hpp#L3513-L3514"]
+    },
+    {
+      "id": "region.outlives.struct-lit-bound-checked",
+      "domain": "region",
+      "title": "Struct declared outlives bounds checked at struct-literal construction",
+      "statement": "At a struct literal `S { .. }` or tuple-struct ctor where `S` declares `where 'a: 'b`, the caller's outlives graph must satisfy each bound under the substitution seeded by (a) explicit lifetime args and (b) walking each field's declared type against its initializer's type. A bound is enforced only when both lifetimes map to concrete distinct caller lifetimes; unsatisfied → error.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3440-L3529"],
+      "related": ["region.outlives.callee-bound-checked-at-call"]
+    },
+    {
+      "id": "coerce.variance.gate-on-compatible",
+      "domain": "coerce",
+      "title": "Variance gate on coercion sites",
+      "statement": "When `from` is type-compatible with `to`, the coercion is additionally subjected to a variance/subtype check: &mut is invariant, &T is covariant, fn params contravariant. A variance failure (lifetime structure incompatible) is rejected with a variance-mismatch error. The check is permissive (caller region inference may fill regions) at call-site argument passing, and strict at body sites (return, let-init) where both lifetimes are fn-scope-fixed.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3344-L3351", "src/compiler/sema_impl.hpp#L3531-L3547"]
+    },
+    {
+      "id": "type.numeric.classification",
+      "domain": "type",
+      "title": "Numeric type classification",
+      "statement": "A type is `numeric` iff it is f64/f32, an unresolved float literal, an integer kind, a type variable, or a cfg-slot type (the latter two deferred to monomorphization, trusted to resolve to a numeric primitive). A type is `integer` iff it is an integer kind.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3740-L3756"]
+    },
+    {
+      "id": "type.unsized.value-position-forbidden",
+      "domain": "type",
+      "title": "Unsized types forbidden in value positions",
+      "statement": "Resolving a type AST yields an unsized type (bare `[T]` or `dyn Trait`) only in contexts that genuinely permit one (turbofish argument for a `T: ?Sized` parameter, impl-self-type at a `?Sized` position). By default unsized results in value positions are an error, so `[T]`/`dyn Trait` cannot silently slip into a sized position.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3640-L3645"]
+    },
+    {
+      "id": "expr.loop.empty-loop-diverges",
+      "domain": "expr",
+      "title": "`loop {}` with no break is divergent (`!`)",
+      "statement": "A `loop { .. }` containing no `break` reaching its frame is a diverging expression of type `!` (Never), not `()`. Only `loop` (not `for`/`while`) reads its break frame to become a value-yielding expression; its value type is the unified type of `break <expr>` values targeting its frame.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3655-L3673"]
+    },
+    {
+      "id": "expr.break.label-must-be-in-scope",
+      "domain": "expr",
+      "title": "`break`/`continue 'label` require the label in scope",
+      "statement": "`break 'label` / `continue 'label` are valid only when `'label` names a currently-active labelled loop; an out-of-scope label is rejected. A labelled `break 'label v` attributes its value type to the frame matching the label; an unlabelled break targets the innermost loop frame.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3634-L3638", "src/compiler/sema_impl.hpp#L3655-L3666"]
+    },
+    {
+      "id": "expr.never.fallback-on-diverging-callee",
+      "domain": "expr",
+      "title": "Never-fallback for unbound type params with diverging callee",
+      "statement": "During type-argument inference, an unbound type parameter falls back to `!` (Never) only when its callee body always diverges (panic-tail / `loop{}`-tail), matching Rust-2024 `!`-fallback narrowed to: variable unbound AND callee body always diverges.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3731-L3736"]
+    },
+    {
+      "id": "expr.call.divergent-never-returning",
+      "domain": "expr",
+      "title": "Calls to `-> !` functions diverge",
+      "statement": "A direct or macro call to a Never-returning function (`fn foo() -> !`, including panic/abort/exit) is a divergent syntactic position; this generalises away special-casing of `panic` once the Never type exists.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3791-L3796"]
+    },
+    {
+      "id": "module.call.package-qualifier-disambiguates",
+      "domain": "module",
+      "title": "Explicit package qualifier filters free-fn candidates by exact package",
+      "statement": "A call written with an explicit dotted package qualifier (`logos.lang.mem::replace(..)`) restricts free-fn candidate resolution to functions whose `.package` equals that qualifier exactly, disambiguating same-named free fns across packages. An empty qualifier means an unqualified call resolved through normal import scope.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3706-L3720"]
+    },
+    {
+      "id": "trait.overload.generic-select-by-arg-shape",
+      "domain": "trait",
+      "title": "Generic overload selection by substituted-param scoring",
+      "statement": "When a base name carries multiple generic overloads of equal arity (e.g. `Pin<&T>::new` vs `Pin<&mut T>::new` vs `Pin<Box<T>>::new`), the overload is selected by unifying each candidate's params against the actual arguments and scoring the SUBSTITUTED params: exact match scores higher than coercion-compatible, and any incompatible param rejects the candidate. With fewer than two overloads the first-arity-match (first-wins) behavior is retained.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3773-L3789"]
+    },
+    {
+      "id": "trait.blanket.recursive-satisfaction",
+      "domain": "trait",
+      "title": "Recursive trait satisfaction through blanket-impl chains",
+      "statement": "A concrete type satisfies a trait if it implements it directly or transitively through any chain of blanket impls whose bounds are recursively satisfied. Cycle detection prevents infinite recursion through cyclic blanket chains, and each candidate is checked with an independent visited set so a failed candidate does not poison sibling candidates. Associated-type-equality clauses are NOT validated by this satisfaction check.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3579-L3596"]
+    },
+    {
+      "id": "trait.blanket.method-dispatch-unique-or-error",
+      "domain": "trait",
+      "title": "Blanket-impl method dispatch requires a unique applicable blanket",
+      "statement": "For `impl<T: Bound> Trait for T { fn m .. }`, a method call on a receiver dispatches via the blanket only when exactly one registered blanket applies to the receiver type; two or more viable overlapping blankets is an ambiguity error. Value blankets (`impl<T> Trait for T`) reach primitive receivers as well as struct receivers.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3885-L3897"]
+    },
+    {
+      "id": "trait.auto.recursive-structural-satisfaction",
+      "domain": "trait",
+      "title": "Auto-trait satisfaction is recursive/structural",
+      "statement": "A type satisfies an auto trait (Send/Sync) iff all of its constituent fields recursively satisfy it; the first non-satisfying field is reported as the offender.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3617-L3629"]
+    },
+    {
+      "id": "expr.tail.implicit-return-in-fn-body",
+      "domain": "expr",
+      "title": "Tail expression is an implicit return only in fn-body context",
+      "statement": "A block's trailing tail-expression acts as an implicit return when lowering a fn body, but not inside block-as-expression contexts (match-arm body, unsafe-block-as-expr, if-as-expr) where the tail is the block's value rather than a function return.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3675-L3678"]
+    }
+  ]
+}

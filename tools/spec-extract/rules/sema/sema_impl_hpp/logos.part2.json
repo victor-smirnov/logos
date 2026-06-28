@@ -1,0 +1,148 @@
+{
+  "unit": "sema/sema_impl_hpp/logos.part2",
+  "layer": "sema",
+  "source": "src/compiler/sema_impl.hpp#L593-L1141",
+  "source_hash": "b78f07f5d4fc2a80",
+  "rules": [
+    {
+      "id": "coerce.enum.incomplete-typeargs-retype",
+      "domain": "coerce",
+      "title": "Incomplete enum-literal type-args inferred from expected enum type",
+      "statement": "An enum literal whose value type has empty or unresolved type-args is retyped to the expected enum type when both are the same enum (`at.enum_name() == pt.enum_name()`), the expected type-args are all resolved, and each already-resolved arg of the literal is compatible with the corresponding expected arg; retyping recurses into nested payload enum-literals.",
+      "evidence": ["src/compiler/sema_impl.hpp#L593-L618"],
+      "uncertainty": "Compatibility predicate `types_compatible` defined elsewhere; here only the gating conditions are observable."
+    },
+    {
+      "id": "coerce.closure.noncapturing-to-fnptr",
+      "domain": "coerce",
+      "title": "Non-capturing closure coerces to fn pointer",
+      "statement": "A closure value coerces to a target `FnPtr` type iff it is a closure literal with zero captures and its parameter list and parameters are pairwise type-compatible with the target; the result type becomes `fn(params) -> ret` derived from the closure signature.",
+      "evidence": ["src/compiler/sema_impl.hpp#L620-L637"]
+    },
+    {
+      "id": "layout.slice.owning-box-same-as-borrow",
+      "domain": "layout",
+      "title": "Box<[T]> shares the borrowed-slice fat layout",
+      "statement": "An owning slice `Box<[T]>` has the same 16-byte {data,len} layout as a borrowed `&[T]` slice, but is move-only and droppable (drops elements and frees the buffer); the owning kind (Borrow/Box/Rc/Arc) is carried distinctly so the four forms intern as distinct types.",
+      "evidence": ["src/compiler/sema_impl.hpp#L638-L649"],
+      "related": ["layout.dst.owning-box-same-as-borrow", "type.traitobject.owning-kind-distinct"]
+    },
+    {
+      "id": "type.slice.unsized-not-a-value-type",
+      "domain": "type",
+      "title": "Bare [T] is unsized and not a value type",
+      "statement": "The bare slice type `[T]` (UnsizedSlice) is distinct from `&[T]`; it cannot appear as a value type and may occur only behind a reference (where it canonicalises to the borrowed slice form) or as a `T: ?Sized` substitution.",
+      "evidence": ["src/compiler/sema_impl.hpp#L650-L657"]
+    },
+    {
+      "id": "type.dyn.unsized-bound-bits-preserved",
+      "domain": "type",
+      "title": "dyn Trait + Send/Sync auto-bounds preserved and folded into identity",
+      "statement": "The bare `dyn Trait` type may carry `+ Send` and/or `+ Sync` auto-trait bounds (bit 8 = Send, bit 9 = Sync); these bits are preserved through type construction and folded into type identity so e.g. `Box<dyn T + Send>` interns distinctly from `Box<dyn T>` and the unsize coercion can enforce the bound.",
+      "evidence": ["src/compiler/sema_impl.hpp#L658-L678", "src/compiler/sema_impl.hpp#L819-L820"],
+      "related": ["type.traitobject.owning-kind-distinct"]
+    },
+    {
+      "id": "layout.dst.owning-box-same-as-borrow",
+      "domain": "layout",
+      "title": "&CustomDST / Box<CustomDST> is a fat {data,len} pointer",
+      "statement": "A reference or raw pointer to a custom-DST struct is a fat pointer stored as {data_ptr, tail_len} with the same ABI as a slice; `&` vs `&mut`/`*mut` is distinguished for borrow-checking. An owning `Box<Foo>` custom-DST shares this fat layout but is move-only and droppable (drops tail elements and prefix fields, then frees the heap block).",
+      "evidence": ["src/compiler/sema_impl.hpp#L679-L700"],
+      "related": ["layout.slice.owning-box-same-as-borrow"]
+    },
+    {
+      "id": "type.dst.effective-after-instantiation",
+      "domain": "type",
+      "title": "A struct is custom-DST directly or after generic instantiation",
+      "statement": "A struct type is effectively custom-DST if the template was declared DST, or if generic instantiation bound the template's `?Sized` last-field type-var to an unsized type; effective-DST status governs `&S` -> fat DstRef canonicalisation at borrow/pointer-resolve time.",
+      "evidence": ["src/compiler/sema_impl.hpp#L794-L800"]
+    },
+    {
+      "id": "coerce.relptr.transparent-to-thin-ptr",
+      "domain": "coerce",
+      "title": "#[rel_ptr] struct is value-transparent to a thin pointer",
+      "statement": "A `#[rel_ptr]` struct `RP<T>` is value-transparent to `*T`/`&T`/`&mut T`: its computed form is an absolute thin pointer (only storage is a self-relative offset), so the coercion is accepted in both directions at value-flow sites.",
+      "evidence": ["src/compiler/sema_impl.hpp#L801-L804"]
+    },
+    {
+      "id": "type.dst.self-describing-borrow-is-fat",
+      "domain": "type",
+      "title": "Borrow of a #[self_describing] DST yields a fat DstRef",
+      "statement": "Borrowing (`&`/`&mut`) a `#[self_describing]` custom-DST struct produces the fat `DstRef` type matching its `&Foo` annotation; the fat length is materialized at codegen via `dst_len`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L805-L809"]
+    },
+    {
+      "id": "type.traitobject.owning-kind-distinct",
+      "domain": "type",
+      "title": "Trait-object owning kinds intern distinctly",
+      "statement": "A trait object has one of four owning kinds (Borrow/Box/Rc/Arc), all sharing the fat {data,vtable} layout and dispatch but differing in release semantics; the owning kind together with `+Send`/`+Sync` bits is folded into type identity so the forms intern distinctly.",
+      "evidence": ["src/compiler/sema_impl.hpp#L810-L835"],
+      "related": ["type.dyn.unsized-bound-bits-preserved"]
+    },
+    {
+      "id": "const.cfg.predicate-evaluation",
+      "domain": "const",
+      "title": "cfg!() and #[cfg(...)] compile-time predicate evaluation",
+      "statement": "`cfg!(...)` and `#[cfg(...)]` are evaluated at compile time over the active target metadata and feature set: combinators `all(...)`/`any(...)`/`not(...)` are recursive; built-in keys (target_pointer_width, target_arch, target_os, target_endian, target_family) resolve against compile-target metadata; `feature = \"name\"` resolves against features supplied via `--cfg`/manifest; a multi-arg attribute list is a conjunction. An item whose cfg predicate is false is dropped.",
+      "evidence": ["src/compiler/sema_impl.hpp#L710-L738"],
+      "uncertainty": "Attribute-form combinators (all/any/not) noted as MVP-limited in some helpers; cfg_attr activation precedes cfg evaluation."
+    },
+    {
+      "id": "type.infer.let-hole-from-rhs",
+      "domain": "type",
+      "title": "`_` holes in a let annotation are filled from the RHS type",
+      "statement": "An inference hole `_` at any depth in a `let` type annotation is filled from the corresponding position of the initializer's inferred type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L739-L742"]
+    },
+    {
+      "id": "type.uninhabited.definition",
+      "domain": "type",
+      "title": "Uninhabited type classification",
+      "statement": "A type is uninhabited (no value can exist) if it is `Never`, an empty enum or one whose every variant has an uninhabited payload, a struct/tuple with an uninhabited field, or `[T; N]` with N>0 and uninhabited T. Match arms over an uninhabited variant are elided from exhaustiveness checking.",
+      "evidence": ["src/compiler/sema_impl.hpp#L752-L757"]
+    },
+    {
+      "id": "pat.or.alt-binding-consistency",
+      "domain": "pat",
+      "title": "Or-pattern alternatives must bind identical variable sets (E0408)",
+      "statement": "Every alternative of a top-level or-pattern (e.g. a match-arm alternation `A | B`) must bind the same set of variable names; mismatched bindings are rejected (E0408 analog).",
+      "evidence": ["src/compiler/sema_impl.hpp#L759-L765"]
+    },
+    {
+      "id": "borrow.move.no-move-out-of-borrowed-place",
+      "domain": "borrow",
+      "title": "Cannot move a move-typed value out of a borrowed place (E0507)",
+      "statement": "Moving a move-typed value by value out of a non-owning place is rejected (E0507): deref of a `&`/`&mut` reference variable (`*r`); index `v[i]`/slice-index `s[i]` of a non-raw container (including user `Index`, lowered to `*v.index(i)`); deref of a user `Deref` (`*x.deref()`) including `Box` (`*b`, since DerefMove is unimplemented); and reading a move-typed field out of a `&`/`&mut` receiver (`r.field`). Exempt: any place whose access chain passes through a raw-pointer (`*const`/`*mut`) hop, and partial moves out of owned receivers.",
+      "evidence": ["src/compiler/sema_impl.hpp#L877-L968"],
+      "divergence": "Box move-out (`let s = *b`) is rejected because Logos does not implement Rust's built-in Box DerefMove; in Rust it is allowed."
+    },
+    {
+      "id": "module.prelude.implicit-unless-opted-out",
+      "domain": "module",
+      "title": "Implicit prelude visible to non-binary ASTs without no_implicit_prelude",
+      "statement": "An implicit-prelude package, when configured, is added to the wildcard import scope of every non-binary compilation unit that does not carry `#![no_implicit_prelude]`; an empty prelude name means no implicit prelude.",
+      "evidence": ["src/compiler/sema_impl.hpp#L786-L792"]
+    },
+    {
+      "id": "module.symbol.mangle-by-module-id",
+      "domain": "module",
+      "title": "Symbol mangling is keyed by owning-module id",
+      "statement": "Each compilation unit carries an owning-module id that is baked into symbol mangling, so identically-named packages from different modules (or versions) produce distinct symbols (C++ module-linkage model). One package maps to one module id within a coherent build.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1083-L1095"]
+    },
+    {
+      "id": "module.use.from-module-disambiguation",
+      "domain": "module",
+      "title": "`use pkg from <module>` restricts visibility to a required module id",
+      "statement": "A `use pkg from <module>;` import makes a candidate for that package visible only if its owning module id matches the named module's id; a plain `use pkg;` accepts any module. Unresolved module names make `from` clauses unresolvable.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1093-L1110"]
+    },
+    {
+      "id": "module.use.variant-alias-into-scope",
+      "domain": "module",
+      "title": "`use Type::{V1, V2}` brings enum variants into bare scope",
+      "statement": "A `use pkg.Path.Type::{V1, V2, ...};` import brings the named enum variants into bare scope, so a bare `V1` resolves as `Type::V1`; on name collision, last write wins.",
+      "evidence": ["src/compiler/sema_impl.hpp#L1112-L1115"]
+    }
+  ]
+}
