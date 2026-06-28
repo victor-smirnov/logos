@@ -89,6 +89,30 @@ Reassemble prose without re-extracting (e.g. after editing the assembly prompt):
 pass `assemble_only: true` alongside the plan in `args`. Extract without touching
 prose: `no_assemble: true`.
 
+## Collisions (one id ↔ one rule)
+
+A rule `id` is the permanent address, so it must identify exactly one rule.
+Independent per-unit agents can converge on the same slug for different rules.
+Detect and resolve:
+
+```bash
+python tools/spec-extract/chunk.py collisions            # report (FRAG vs corrob)
+python tools/spec-extract/chunk.py collisions --json > tools/spec-extract/.collisions.json
+```
+Feed `.collisions.json` (path mode) to the dedup workflow — one agent per
+collision decides **merge** (same rule stated twice → one rule, id kept, evidence
+unioned) or **split** (distinct rules → new specific slugs, at most one keeps the
+original id):
+> Workflow({ scriptPath: "tools/spec-extract/spec-dedup.workflow.js", args: { collisions_path: "tools/spec-extract/.collisions.json", ids: [<the colliding ids>] } })
+
+Apply the returned decisions deterministically, then reassemble:
+```bash
+python tools/spec-extract/chunk.py apply-dedup tools/spec-extract/.dedup-decisions.json
+python tools/spec-extract/chunk.py collisions      # expect: 0
+```
+Run `collisions` after any large extraction; resolve before adding spec tests
+(tests address rules by id).
+
 ## Determinism guarantees
 
 - Unit boundaries are natural and stable: C++ column-0 definitions; PEG directive

@@ -346,6 +346,110 @@ def attach_prior_ids(units):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Collisions (one id must address exactly one rule — required for spec tests)
+# ──────────────────────────────────────────────────────────────────────────
+
+import difflib  # noqa: E402
+
+
+def iter_all_rules(cfg):
+    """Yield (rel_file, rule_index, rule_dict) over every artifact on disk."""
+    root = os.path.join(REPO, cfg["rules_dir"])
+    for path in sorted(glob.glob(os.path.join(root, "**", "*.json"), recursive=True)):
+        try:
+            art = json.load(open(path))
+        except (json.JSONDecodeError, OSError):
+            continue
+        for i, r in enumerate(art.get("rules", [])):
+            yield rel(path), i, r
+
+
+def find_collisions(cfg):
+    """Group rules by id; a collision = one id carried by >1 rule. Each variant
+    keeps its file + full rule + a similarity score vs the first (low score =
+    genuinely different rules = fragmentation; high = benign corroboration)."""
+    by = {}
+    for f, _, r in iter_all_rules(cfg):
+        by.setdefault(r.get("id", ""), []).append({"file": f, "rule": r})
+    out = []
+    for rid, variants in sorted(by.items()):
+        if len(variants) < 2:
+            continue
+        s0 = variants[0]["rule"].get("statement", "")
+        sim = max((difflib.SequenceMatcher(None, s0, v["rule"].get("statement", "")).ratio()
+                   for v in variants[1:]), default=1.0)
+        out.append({"id": rid, "count": len(variants), "similarity": round(sim, 2),
+                    "variants": variants})
+    return out
+
+
+def cmd_collisions(cfg, args):
+    cols = find_collisions(cfg)
+    if args.json:
+        json.dump({"collisions": cols}, sys.stdout, indent=2)
+        print()
+    else:
+        frag = [c for c in cols if c["similarity"] <= 0.85]
+        for c in cols:
+            kind = "FRAG" if c["similarity"] <= 0.85 else "corrob"
+            print(f"{kind:6s} {c['id']:50s} x{c['count']} sim={c['similarity']}")
+            for v in c["variants"]:
+                print(f"         - [{v['file'].split('rules/')[-1]}] {v['rule'].get('statement','')[:70]}")
+    print(f"{len(cols)} colliding ids ({sum(1 for c in cols if c['similarity'] <= 0.85)} fragmentation)",
+          file=sys.stderr)
+
+
+def cmd_apply_dedup(cfg, args):
+    """Apply model dedup decisions: {decisions:[{id, final_rules:[{file, rule}]}]}.
+    For each decision: drop every rule carrying the collision id from every file
+    that held it, then insert each final rule into its target file. Deterministic."""
+    decisions = json.load(open(args.decisions))["decisions"]
+    id_pat = re.compile(r"^[a-z][a-z0-9]*\.[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$")
+    # Original-state map: which files hold each colliding id (precomputed once).
+    holders_map = {}
+    for f, _, r in iter_all_rules(cfg):
+        holders_map.setdefault(r.get("id", ""), set()).add(f)
+    colliding = {d["id"] for d in decisions}
+    # An id is "existing elsewhere" if it is NOT one of the collisions being resolved.
+    existing_ids = {rid for rid in holders_map if rid not in colliding}
+
+    changed = {}  # rel_file -> artifact dict (loaded once, mutated)
+
+    def load(relf):
+        if relf not in changed:
+            changed[relf] = json.load(open(os.path.join(REPO, relf)))
+        return changed[relf]
+
+    applied = merged = split = 0
+    new_ids = set()
+    for d in decisions:
+        cid = d["id"]
+        for relf in sorted(holders_map.get(cid, [])):
+            art = load(relf)
+            art["rules"] = [r for r in art["rules"] if r.get("id") != cid]
+        for fr in d["final_rules"]:
+            relf, rule = fr["file"], fr["rule"]
+            rid = rule.get("id", "")
+            if not id_pat.match(rid):
+                raise SystemExit(f"apply-dedup: bad id {rid!r} for collision {cid}")
+            if rid in existing_ids or rid in new_ids:
+                raise SystemExit(f"apply-dedup: target id {rid!r} collides with an existing/other id")
+            new_ids.add(rid)
+            load(relf)["rules"].append(rule)
+        merged += len(d["final_rules"]) == 1
+        split += len(d["final_rules"]) > 1
+        applied += 1
+
+    for relf, art in changed.items():
+        with open(os.path.join(REPO, relf), "w") as f:
+            json.dump(art, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+    remaining = len(find_collisions(cfg))
+    print(f"applied {applied} decisions ({merged} merged, {split} split) across "
+          f"{len(changed)} files; collisions remaining: {remaining}", file=sys.stderr)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Commands
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -451,8 +555,14 @@ def main():
             sp.add_argument("--only", help="targeted: glob over spec-component ids (reverse-mapped to units)")
             sp.add_argument("--touch", action="append", help="force units by unit-id glob (additive; repeatable)")
 
+    spc = sub.add_parser("collisions", help="report ids carried by >1 rule (must be 0 for spec tests)")
+    spc.add_argument("--json", action="store_true", help="emit full variant context as JSON (feed the dedup workflow)")
+    spa = sub.add_parser("apply-dedup", help="apply model dedup decisions to the corpus")
+    spa.add_argument("decisions", help="path to the decisions JSON {decisions:[{id, final_rules:[{file, rule}]}]}")
+
     args = p.parse_args()
-    {"manifest": cmd_manifest, "plan": cmd_plan, "ids": cmd_ids, "status": cmd_status}[args.cmd](cfg, args)
+    {"manifest": cmd_manifest, "plan": cmd_plan, "ids": cmd_ids, "status": cmd_status,
+     "collisions": cmd_collisions, "apply-dedup": cmd_apply_dedup}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

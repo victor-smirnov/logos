@@ -3,3 +3,5 @@
 # manifest.json and the run plan are pure derived state and add only churn.
 .run-plan.json
 manifest.json
+.collisions.json
+.dedup-decisions.json

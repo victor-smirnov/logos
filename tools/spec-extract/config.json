@@ -84,7 +84,8 @@
   "sections": {
     "lexical":          ["lex"],
     "grammar":          ["grammar"],
-    "items":            ["item", "module"],
+    "items":            ["item"],
+    "modules":          ["module"],
     "expressions":      ["expr", "intrinsic"],
     "statements":       ["stmt"],
     "patterns":         ["pat"],
