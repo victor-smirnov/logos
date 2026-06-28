@@ -90,7 +90,7 @@
         "src/compiler/sema_stmt.cpp#L812-L822",
         "src/compiler/sema_stmt.cpp#L848-L853"
       ],
-      "testability": "untestable"
+      "testability": "behavioral"
     },
     {
       "id": "stmt.destructure-assign.tuple-array-struct",

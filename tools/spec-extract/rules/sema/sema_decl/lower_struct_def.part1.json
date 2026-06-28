@@ -244,7 +244,7 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L1626-L1639"
       ],
-      "testability": "untestable"
+      "testability": "behavioral"
     }
   ]
 }

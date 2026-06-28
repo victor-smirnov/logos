@@ -1,0 +1,16 @@
+// Conformance: vtable layout over the supertrait closure — &dyn Sub dispatches
+// both its own method and the inherited supertrait method.
+package trait_supertrait_dyn;
+trait Animal { fn legs(&self) -> i64; }
+trait Dog: Animal { fn bark(&self) -> i64; }
+struct Rex { n: i64 }
+impl Animal for Rex { fn legs(&self) -> i64 { return 4i64; } }
+impl Dog for Rex { fn bark(&self) -> i64 { return self.n; } }
+fn main() -> i64 {
+    let r: Rex = Rex { n: 7i64 };
+    let d: &dyn Dog = &r;
+    // @rule trait.def.vtable-layout-supertrait-closure
+    if d.bark() != 7i64 { return 1; }   // own method
+    if d.legs() != 4i64 { return 2; }   // inherited supertrait method
+    return 0;
+}

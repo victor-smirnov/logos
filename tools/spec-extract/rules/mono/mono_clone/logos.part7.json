@@ -50,7 +50,8 @@
       "evidence": [
         "src/compiler/mono_clone.cpp#L3375-L3458",
         "src/compiler/mono_clone.cpp#L3396-L3399"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.mangle.generic-call-callee",
@@ -59,7 +60,8 @@
       "statement": "After a generic call is instantiated with non-empty type arguments and not rewritten as a struct-method, its callee symbol is the base name mangled together with its type arguments.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L3374-L3463"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "mono.dispatch.dyn-receiver-vtable-retarget",

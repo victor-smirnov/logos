@@ -50,7 +50,7 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L2522-L2532"
       ],
-      "testability": "untestable"
+      "testability": "behavioral"
     },
     {
       "id": "borrow.reborrow.ref-deref",

@@ -36,7 +36,7 @@
       "related": [
         "coerce.unsize.struct-to-dyn-trait"
       ],
-      "testability": "transitive"
+      "testability": "behavioral"
     },
     {
       "id": "coerce.return.trait-object-by-value",

@@ -1,0 +1,165 @@
+package mono_observable;
+
+// mono_observable — execution-locked conformance for the monomorphization rules
+// of the `mono_observable` unit (plus the module package-decl and generic-const
+// rules it groups). Each rule below is exercised by a generic / multi-impl /
+// pack / impl-target construct whose only correct value or dispatch depends on
+// mono performing the described selection or substitution; the internal slot
+// (candidate-by-signature, method-tparam inference, pack expansion, impl-target
+// unify, self-type pattern args, receiver-vs-method split, generic-const scope)
+// is observed via the value it produces. main returns i64; every rule has a
+// marker comment immediately above its assertion, a distinct nonzero exit code
+// on violation; all-pass => 0.
+
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;   // WView2 / wview2_from_ptr
+use logos.lang.writ.anyval;        // WAny
+use logos.std.compiler.metaprog;   // Type / type_from_anyval
+use logos.lang.pin;
+
+// ── multi-impl arg-disambiguation ────────────────────────────────────────────
+// `Combine<R>` has TWO impls for the SAME Self (Acc), differing only in the
+// trait type-arg R — and the method's argument type is R. A call is resolved to
+// the impl whose parameter signature matches the call's concrete argument type:
+// add(i64) -> the i64 impl, add(bool) -> the bool impl. Single-Self/two-arg-type
+// candidates: only the per-argument-type signature match distinguishes them.
+struct Acc { n: i64 }
+trait Combine<R> { fn combine(&self, r: R) -> i64; }
+impl Combine<i64>  for Acc { fn combine(&self, r: i64)  -> i64 { return self.n + r; } }
+impl Combine<bool> for Acc { fn combine(&self, r: bool) -> i64 { if r { return self.n + 100i64; } return self.n; } }
+
+// ── method-level type-param inference on a trait-static call ──────────────────
+// `make<U>` carries a method-level type-param with no relation to the receiver;
+// a call supplies it only by inference from the argument. Without re-forming the
+// rewritten call into a template callee + inferred type-args, the specialization
+// for each concrete U would never be emitted.
+struct Mk { base: i64 }
+impl Mk { fn make<U: Copy>(&self, u: U, k: i64) -> i64 { return self.base + k; } }
+
+// ── const-pack expansion args (one literal-int arg per element) ──────────────
+fn add3(a: i64, b: i64, c: i64) -> i64 { return a + b + c; }
+fn cpack_sum<const N...: i64>() -> i64 { return add3(N...); }
+
+// ── type-pack expansion args (one arg per bound pack element) ────────────────
+fn sum_all() -> i64 { return 0i64; }
+fn sum_all<H, T...>(first: H, rest: T...) -> i64 { return (first as i64) + sum_all(rest...); }
+
+// ── impl-target pattern unify: impl<T,E> Pair<Vec<T>,E> structured target ─────
+struct Pair<A, B> { a: A, b: B }
+impl<T, E> Pair<Vec<T>, E> { fn kind(&self) -> i64 { return 7i64; } }
+impl Pair<i64, i64>        { fn kind(&self) -> i64 { return 9i64; } }
+
+// ── method-vs-receiver tparam split: W<T>::pick<U> ───────────────────────────
+struct W<T> { v: T }
+impl<T: Copy> W<T> {
+    fn pick<U: Copy>(&self, other: U) -> U { return other; }   // receiver T, method U
+    fn first(&self) -> T { return self.v; }
+}
+
+// ── struct-self-type pattern args: impl<T> Pin<&T> (Pin<&i64> concrete) ───────
+// (Pin imported above.)
+
+// ── generic const: type params in scope as type-vars in the value expr ───────
+// `<type:T>` inside the const value resolves to the const's own type-param T,
+// re-resolving to the concrete type-arg per use-site (i32 vs i64 distinct).
+const TY<T>: WritStatic = @{ "t": <type:T> };
+unsafe fn slot_uid<const W: WritStatic>() -> u64 {
+    let v: WView2 = wview2_from_ptr(W.ptr);
+    let inner: WAny = v.map_get(v.root(), "t");
+    let t: Type = type_from_anyval(inner);
+    return t.uid;
+}
+
+fn main() -> i64 {
+
+    // @rule mono.dispatch.multi-impl-arg-disambig
+    // Two impls `Combine<i64> for Acc` and `Combine<bool> for Acc` share Self=Acc
+    // and differ only in the trait arg R; among the matching candidates the one
+    // whose parameter signature equals the call's concrete argument type is
+    // selected: combine(i64) -> i64 body (+r), combine(bool) -> bool body (+100).
+    {
+        let acc: Acc = Acc { n: 10i64 };
+        if acc.combine(5i64) != 15i64 { return 1; }     // i64-arg candidate
+        if acc.combine(true) != 110i64 { return 2; }    // bool-arg candidate
+        if acc.combine(false) != 10i64 { return 3; }    // bool body, false branch
+    }
+
+    // @rule mono.dispatch.method-tparam-inference
+    // `make<U>` has a method-level type-param supplied only by inference from the
+    // argument; the rewritten call is re-formed into a template callee with the
+    // inferred U so each specialization (U=i64, U=bool) is actually emitted.
+    {
+        let m: Mk = Mk { base: 2i64 };
+        if m.make(0i64, 40i64) != 42i64 { return 4; }   // U inferred = i64
+        if m.make(true, 8i64) != 10i64 { return 5; }    // U inferred = bool, distinct spec
+    }
+
+    // @rule mono.pack.const-pack-expansion-args
+    // The pack-expansion call arg `add3(N...)` over a const-pack expands at mono
+    // to one literal-int argument per bound element (4,5,6), each carrying i64.
+    if cpack_sum::<4, 5, 6>() != 15i64 { return 6; }
+
+    // @rule mono.pack.type-pack-expansion-args
+    // The pack-expansion call arg `sum_all(rest...)` over a type-pack expands to
+    // one per-element argument; when the callee is the generic template the pack
+    // element types are also appended to the call's type-args. A truncated pack
+    // would drop a trailing element and mis-sum.
+    if sum_all::<i64, i64, i64, i64, i64>(5i64, 7i64, 9i64, 11i64, 10i64) != 42i64 { return 7; }
+
+    // @rule mono.subst.impl-target-pattern-unify
+    // `impl<T,E> Pair<Vec<T>,E>` is a structured target; its impl-level params
+    // bind by UNIFYING the recorded pattern against the concrete receiver type
+    // Pair<Vec<i64>,i64> (->7), not by positional copy; the concrete impl
+    // Pair<i64,i64> is a distinct, more-specific target (->9).
+    {
+        let v: Vec<i64> = Vec::<i64>::new();
+        let pv: Pair<Vec<i64>, i64> = Pair::<Vec<i64>, i64> { a: v, b: 0i64 };
+        if pv.kind() != 7i64 { return 8; }
+        let pc: Pair<i64, i64> = Pair::<i64, i64> { a: 1i64, b: 2i64 };
+        if pc.kind() != 9i64 { return 9; }
+    }
+
+    // @rule mono.subst.method-vs-receiver-tparam-split
+    // For W<i64>::pick<i32> the template's type-param list partitions into
+    // receiver-level (T, matching W's param name) and method-level (U); the
+    // method-level U is inferred by matching the call's arg type and the call is
+    // retargeted only because U is thereby bound. Final vector is [T=i64, U=i32].
+    {
+        let w: W<i64> = W::<i64> { v: 5i64 };
+        if w.pick::<i32>(7i32) != 7i32 { return 10; }   // method-level U=i32 returned
+        if w.first() != 5i64 { return 11; }             // receiver-level T=i64 field
+    }
+
+    // @rule mono.subst.struct-self-type-pattern-args
+    // The impl `impl<T: Unpin> Pin<&T>` has a structured self-type; for the
+    // fully-concrete call the concrete struct's type-args are the impl-target
+    // pattern args after substituting T:=i64 (i.e. Pin<&i64>), not the raw
+    // impl-level params. Pin::new / into_inner round-trip the concrete &i64.
+    {
+        let x: i64 = 88i64;
+        let p: Pin<&i64> = Pin::new(&x);
+        let r: &i64 = p.into_inner();
+        if *r != 88i64 { return 12; }
+    }
+
+    // @rule const.def.generic-const-params-in-scope
+    // When lowering the generic const TY<T>'s value, T is in scope as a type-var
+    // so `<type:T>` resolves to the parameter; concrete instantiation happens per
+    // use-site, so TY<i32> and TY<i64> reify distinct concrete-type identities.
+    unsafe {
+        let ui: u64 = slot_uid::<TY<i32>>();
+        let uj: u64 = slot_uid::<TY<i64>>();
+        if ui == (0 as u64) { return 13; }   // T-slot resolved to a concrete type (i32)
+        if uj == (0 as u64) { return 14; }   // T-slot resolved to a concrete type (i64)
+        if ui == uj { return 15; }           // per-instantiation: i32 != i64
+    }
+
+    // @rule module.package.decl-syntax
+    // This file begins with `package mono_observable;` (a leading dotted-ident
+    // package decl preceded only by trivia); reaching/executing main at all means
+    // the declaration was accepted and the file was loaded under that package.
+    if true != true { return 16; }
+
+    return 0;
+}

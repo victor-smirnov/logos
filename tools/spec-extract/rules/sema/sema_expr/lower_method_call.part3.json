@@ -55,7 +55,8 @@
       "divergence": "Mirrors Rust autoderef order: try T/&T/&mut T at a deref level before stepping deeper.",
       "related": [
         "expr.method.autoref-ladder"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "expr.method.mut-ref-to-shared-demotion",

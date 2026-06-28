@@ -1,0 +1,19 @@
+// Conformance: owning-trait-object coercions (fixed: return-unsize + &Box<dyn> borrow).
+package coerce_box_dyn;
+use logos.mem.boxed;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn use_ref(r: &dyn Sp) -> i64 { return r.v(); }
+// @rule coerce.unsize.return-concrete-to-trait-object
+// implicit Box<A> -> Box<dyn Sp> at the return (no `as`): builds the fat pair,
+// consumes the source box (no double-free), dispatches correctly.
+fn make() -> Box<dyn Sp> { let c: Box<A> = box_new(A { x: 42 }); return c; }
+fn main() -> i64 {
+    let b: Box<dyn Sp> = make();
+    if b.v() != 42 { return 1; }
+    // @rule coerce.deref.box-struct-borrow
+    // &Box<dyn Sp> -> borrowed &dyn Sp (Deref): same fat pair re-typed non-owning.
+    if use_ref(&b) != 42 { return 2; }
+    return 0;
+}
