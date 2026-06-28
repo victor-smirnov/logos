@@ -1,0 +1,227 @@
+package expr_arith;
+
+use logos.lang.str;
+use logos.mem.string;
+
+// Helper: returns false early to exercise a diverging RHS in `||`.
+fn diverge_helper(c: bool) -> bool {
+    // `c || return false`: when c is false, the RHS diverges (returns from fn),
+    // so control never reaches the merge point. When c is true, the let binds true.
+    let ok: bool = c || return false;
+    return ok;
+}
+
+fn main() -> i64 {
+    // @rule expr.binop.bitwise-and-shift-set
+    // `&`,`|`,`^` are bitwise; `<<` is logical left shift.
+    if (0b1100u32 & 0b1010u32) != 0b1000u32 { return 1; }
+    if (0b1100u32 | 0b1010u32) != 0b1110u32 { return 2; }
+    if (0b1100u32 ^ 0b1010u32) != 0b0110u32 { return 3; }
+    if (1u32 << 4u32) != 16u32 { return 4; }
+
+    // @rule expr.binop.comparison-signedness
+    // bool treated as unsigned so `false < true`; unsigned u8 compares unsigned.
+    if !(false < true) { return 5; }
+    {
+        let cs_big: u8 = 200u8;   // 0xC8; as signed i8 this would be negative
+        let cs_small: u8 = 5u8;
+        if !(cs_big > cs_small) { return 6; }   // unsigned: 200 > 5
+    }
+
+    // @rule expr.binop.div-rem-signedness
+    // unsigned division/remainder for unsigned LHS; signed otherwise.
+    {
+        let dr_u: u32 = 17u32;
+        if dr_u / 5u32 != 3u32 { return 7; }
+        if dr_u % 5u32 != 2u32 { return 8; }
+        let dr_s: i32 = -17i32;
+        if dr_s / 5i32 != -3i32 { return 9; }     // signed truncation toward zero
+        if dr_s % 5i32 != -2i32 { return 10; }
+    }
+
+    // @rule expr.binop.divergent-rhs-no-merge
+    // `c || return false` diverges on the RHS path; helper still computes correctly.
+    if diverge_helper(true) != true { return 11; }
+    if diverge_helper(false) != false { return 12; }
+
+    // @rule expr.binop.float-width-unification
+    // typed f64 + untyped float literal: literal coerced to f64; both-typed widen.
+    {
+        let fw_d: f64 = 1.5f64;
+        let fw_r: f64 = fw_d + 0.25;     // 0.25 is an untyped float literal -> f64
+        if fw_r != 1.75f64 { return 13; }
+        let fw_f: f32 = 2.0f32;
+        let fw_w: f64 = fw_d + (fw_f as f64);
+        if fw_w != 3.5f64 { return 14; }
+    }
+
+    // @rule expr.binop.int-to-float-promotion
+    // float + integer: integer converted to the float operand's type.
+    {
+        let if_f: f64 = 2.5f64;
+        let if_i: i64 = 3i64;
+        if if_f + (if_i as f64) != 5.5f64 { return 15; }
+    }
+
+    // @rule expr.binop.integer-operand-widening
+    // unequal-width int operands: narrower widened (zext if unsigned, sext if signed).
+    {
+        let iw_a: u8 = 250u8;
+        let iw_b: u32 = 1000u32;
+        if (iw_a as u32) + iw_b != 1250u32 { return 16; }   // 250 zero-extends to 250
+        let iw_s: i8 = -3i8;
+        let iw_w: i32 = 10i32;
+        if (iw_s as i32) + iw_w != 7i32 { return 17; }      // -3 sign-extends to -3
+    }
+
+    // @rule expr.binop.parenthesized
+    // a binary operation is `lhs OP rhs` with infix operator.
+    if (2i64 + 3i64) != 5i64 { return 18; }
+
+    // @rule expr.binop.pointer-equality
+    // references to a non-deref-eligible aggregate compare by address.
+    {
+        let pe_t: (i64, i64) = (1i64, 2i64);
+        let pe_p: &(i64, i64) = &pe_t;
+        let pe_q: &(i64, i64) = &pe_t;
+        if !(pe_p == pe_q) { return 19; }   // same address
+    }
+
+    // @rule expr.binop.precedence-cascade
+    // multiplicative binds tighter than additive; bitand tighter than bitor.
+    if 2i64 + 3i64 * 4i64 != 14i64 { return 20; }
+    if 1u32 | 0u32 & 0u32 != 1u32 { return 21; }   // & before |
+
+    // @rule expr.binop.ref-prim-autoderef-eq
+    // both operands &T to same primitive: dereference and compare values.
+    {
+        let rp_x: i32 = 7i32;
+        let rp_y: i32 = 7i32;
+        let rp_rx: &i32 = &rp_x;
+        let rp_ry: &i32 = &rp_y;
+        if !(rp_rx == rp_ry) { return 22; }   // value equality despite distinct slots
+    }
+
+    // @rule expr.binop.shift-right-signedness
+    // `>>` logical for unsigned, arithmetic for signed.
+    {
+        let sr_u: u8 = 0x80u8;            // 1000_0000
+        if sr_u >> 1u8 != 0x40u8 { return 23; }   // zero-filled -> 0100_0000
+        let sr_s: i8 = -8i8;
+        if sr_s >> 1i8 != -4i8 { return 24; }     // sign-filled
+    }
+
+    // @rule expr.binop.short-circuit-logical
+    // && and || short-circuit and produce bool.
+    {
+        let sc_a: bool = false;
+        let sc_b: bool = true;
+        if (sc_a && sc_b) != false { return 25; }
+        if (sc_b || sc_a) != true { return 26; }
+    }
+
+    // @rule expr.binop.str-eq-by-content
+    // == / != between two str operands desugar to str_eq (content comparison).
+    {
+        let se_a: str = "abc";
+        let se_b: str = "abc";
+        let se_c: str = "abd";
+        if !(se_a == se_b) { return 27; }
+        if !(se_a != se_c) { return 28; }
+    }
+
+    // @rule expr.binop.str-relational-cmp
+    // relational on str desugar to str_cmp(lhs,rhs) OP 0 (lexicographic).
+    {
+        let scmp_a: str = "abc";
+        let scmp_b: str = "abd";
+        if !(scmp_a < scmp_b) { return 29; }
+        if !(scmp_b > scmp_a) { return 30; }
+        if !(scmp_a <= scmp_a) { return 31; }
+    }
+
+    // @rule expr.binop.string-vs-str-eq
+    // String == str views String as str via as_str() through the str eq path.
+    {
+        let svs_s: String = String::from("lit");
+        if !(svs_s == "lit") { return 32; }
+    }
+
+    // @rule expr.binop.tuple-lexicographic-order
+    // tuples of all-primitive elements compare lexicographically.
+    {
+        let tlo_p: (i64, i64) = (1i64, 2i64);
+        let tlo_q: (i64, i64) = (1i64, 3i64);
+        if !(tlo_p < tlo_q) { return 33; }          // second element decides
+        if !(tlo_q > tlo_p) { return 34; }
+        if (tlo_p < tlo_p) { return 35; }           // all-equal => strict false
+        if !(tlo_p <= tlo_p) { return 36; }         // all-equal => non-strict true
+    }
+
+    // @rule expr.binop.tuple-structural-eq
+    // tuple == is conjunction of element-wise ==; != is its negation.
+    {
+        let tse_p: (i64, i64) = (1i64, 2i64);
+        let tse_q: (i64, i64) = (1i64, 2i64);
+        let tse_r: (i64, i64) = (1i64, 9i64);
+        if !(tse_p == tse_q) { return 37; }
+        if !(tse_p != tse_r) { return 38; }
+    }
+
+    // @rule expr.cast.as-chain
+    // `as`-casts chain left-associatively: x as T1 as T2 == (x as T1) as T2.
+    {
+        let ac_x: i64 = 300i64;
+        // 300 as u8 = 44 (300 & 0xFF), then 44 as i64 = 44
+        if (ac_x as u8 as i64) != 44i64 { return 39; }
+    }
+
+    // @rule expr.cast.as-keyword
+    // a cast is written `expr as Type`.
+    if (3.9f64 as i64) != 3i64 { return 40; }
+
+    // @rule expr.cast.byte-string-to-array
+    // b"..." lowers to an array literal of type [u8; N].
+    {
+        let bs_arr: [u8; 3] = b"abc";
+        if bs_arr[0] != 97u8 { return 41; }   // 'a'
+        if bs_arr[1] != 98u8 { return 42; }   // 'b'
+        if bs_arr[2] != 99u8 { return 43; }   // 'c'
+    }
+
+    // @rule expr.unary.neg-literal-fold
+    // -L for integer literal L parses as a single negative literal; -128i8 valid.
+    {
+        let nl_m: i8 = -128i8;        // accepted as the minimum i8
+        if (nl_m as i64) != -128i64 { return 44; }
+    }
+
+    // @rule expr.unary.negation
+    // -x negates: float negation for floats, 0 - x for integers.
+    {
+        let ng_i: i64 = 5i64;
+        if -ng_i != -5i64 { return 45; }
+        let ng_f: f64 = 2.5f64;
+        if -ng_f != -2.5f64 { return 46; }
+    }
+
+    // @rule expr.unary.operator-set
+    // prefix unary: * deref, & borrow, - negate, ! not.
+    {
+        let os_v: i64 = 41i64;
+        let os_r: &i64 = &os_v;          // & borrow
+        if *os_r != 41i64 { return 47; }   // * deref
+        let os_flag: bool = false;
+        if !(!os_flag) { return 48; }        // ! not
+    }
+
+    // @rule expr.unary.prefix-no-space
+    // unary operators are prefix and bind directly to their operand.
+    {
+        let pn_n: i64 = 3i64;
+        if -pn_n != -3i64 { return 49; }
+        if !true != false { return 50; }
+    }
+
+    return 0;
+}

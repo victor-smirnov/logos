@@ -1,0 +1,11 @@
+// @rule expr.cmp.no-chained-comparisons
+package expr_diag_no_chained_comparisons;
+
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    let c: i64 = 3i64;
+    let d: i64 = 4i64;
+    let _t: bool = a < b < c < d;
+    return 0i32;
+}

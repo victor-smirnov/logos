@@ -1,0 +1,8 @@
+// @rule expr.unary.neg-unsigned-rejected
+package expr_diag_neg_unsigned_rejected;
+
+fn main() -> i32 {
+    let x: u32 = 5u32;
+    let _y: u32 = -x;
+    return 0i32;
+}

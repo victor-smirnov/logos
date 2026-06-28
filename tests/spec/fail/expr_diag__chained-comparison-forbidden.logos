@@ -1,0 +1,10 @@
+// @rule expr.cmp.chained-comparison-forbidden
+package expr_diag_chained_comparison_forbidden;
+
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    let c: i64 = 3i64;
+    let _t: bool = a < b < c;
+    return 0i32;
+}
