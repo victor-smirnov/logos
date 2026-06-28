@@ -1799,6 +1799,52 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         return;
     }
 
+    // ── Multi-ref `let r2 = &r1` over an ALIASED immutable ref-local ──────────
+    // rule expr.method.receiver-multiref-autoderef. An immutable `&Struct` local
+    // (`let r1 = &p`) ALIASES the pointee address: scope_[r1] holds p's address
+    // (a `&P` value) with NO own storage slot (the fast path at the struct-ref
+    // `let` above; var_struct_ set, var_local_ptrs_ NOT). Taking `&r1` via
+    // EAddrOf therefore returns p's address — ONE indirection short — so storing
+    // it directly into a `&&P`-typed slot makes every later deref read too deep
+    // (wrong field / SEGV).
+    //
+    // The fix is local to THIS store: materialise the missing storage for r1's
+    // value in a fresh slot and bind r2 to the address of THAT slot, restoring
+    // the second level (r2_slot → mid_slot → P). r1 is immutable so a private
+    // copy of its `&P` value is sound and never goes stale. The READ side
+    // (type-driven double-deref) is already correct and is left untouched; the
+    // call-arg path (which consumes the one-short value by a matching one-short
+    // callee convention) and the immutable-ref read path are NOT touched.
+    if (TypeRef st(s.type);
+        st && (st.kind() == LogosType::Kind::Ref ||
+               st.kind() == LogosType::Kind::MutRef) &&
+        st.pointee() && (st.pointee().kind() == LogosType::Kind::Ref ||
+                         st.pointee().kind() == LogosType::Kind::MutRef) &&
+        s.value && s.value.kind() == lir_schema::expr::Code::AddrOf) {
+        std::string inner_var(lir_view::EAddrOfView{s.value}.var_name());
+        auto sc = scope_.find(inner_var);
+        bool aliased_immut_ref =
+            sc != scope_.end() && sc->second &&
+            sc->second.getType() == ptr_type() &&
+            var_struct_.count(inner_var) &&
+            !var_local_ptrs_.count(inner_var) &&
+            let_vars_.count(inner_var);
+        if (aliased_immut_ref) {
+            auto val = gen_expr(s.value);   // p's address — the one-short `&P`
+            if (!val) return;
+            // Materialise r1's missing storage: a slot holding the `&P` value.
+            auto mid = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, mid);
+            // r2's own slot holds the address of that slot → `&&P`.
+            auto slot = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, mid, slot);
+            scope_[s.name] = slot;
+            let_vars_.insert(s.name);
+            var_elem_types_[s.name] = ptr_type();
+            return;
+        }
+    }
+
     // ── Scalar ───────────────────────────────────────────────
     // Pre-allocate the slot BEFORE generating the RHS expression.
     // This ensures the AllocaOp is in the current block (entry-reachable)
