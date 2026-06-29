@@ -237,6 +237,14 @@ pub struct Codegen {
     pub items: Vec<Item>,
 
     pub lc: i64,   // fresh-label counter (reset per rule)
+
+    // Pseudo-token usage (computed after reading). GT_TYPE/LT_TYPE split SHR/SHL
+    // for nested generics; RAW_GROUP_* capture a balanced delimiter pair as raw
+    // source text. Their lexer helpers are emitted only when actually used (else
+    // they'd reference TK_SHR/TK_LPAREN consts a grammar like writ.peg lacks).
+    pub uses_gt_type:   bool,
+    pub uses_lt_type:   bool,
+    pub uses_raw_group: bool,
 }
 
 pub fn codegen_new() -> Codegen {
@@ -246,7 +254,33 @@ pub fn codegen_new() -> Codegen {
         nodes: vec_new::<NameDecl>(), tokens: vec_new::<TokenDecl>(),
         rules: vec_new::<Rule>(), alts: vec_new::<Alt>(), items: vec_new::<Item>(),
         lc: 0i64,
+        uses_gt_type: false, uses_lt_type: false, uses_raw_group: false,
     };
+}
+
+// True if `name` is a raw-group pseudo-token; the matching Lexer helper name is
+// `try_raw_group_paren|bracket|brace`.
+fn is_raw_group_name(name: str) -> bool {
+    return str_eq(name, "RAW_GROUP_PAREN")
+        || str_eq(name, "RAW_GROUP_BRACKET")
+        || str_eq(name, "RAW_GROUP_BRACE");
+}
+
+// Scan the item pool for pseudo-token TOKEN_REFs and set the cg.uses_* flags,
+// so emit_runtime emits only the helpers the grammar actually needs.
+fn detect_pseudo_tokens(cg: &mut Codegen) {
+    let n: i64 = cg.items.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let it: &Item = cg.items.borrow(i);
+        if it.kind == TOKEN_REF {
+            let nm: str = it.name.as_str();
+            if str_eq(nm, "GT_TYPE") { cg.uses_gt_type = true; }
+            else if str_eq(nm, "LT_TYPE") { cg.uses_lt_type = true; }
+            else if is_raw_group_name(nm) { cg.uses_raw_group = true; }
+        }
+        i = i + 1i64;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -256,6 +290,7 @@ pub fn codegen_new() -> Codegen {
 pub fn codegen_logos(grammar: &Writ) -> String {
     let mut cg: Codegen = codegen_new();
     read_grammar(&mut cg, grammar);
+    detect_pseudo_tokens(&mut cg);
     return emit_all(&mut cg);
 }
 
@@ -649,6 +684,7 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("            if sc == 105u8 || sc == 117u8 || sc == 115u8 || sc == 102u8 || sc == 100u8 || sc == 108u8 || lx_is_digit(sc) { self.pos = self.pos + 1i64; } else { break; }");
     w.line("        }");
     w.line("    }");
+    emit_pseudo_helpers(cg, w);
     emit_lex_one(cg, w);
     w.line("}");
     w.blank();
@@ -674,6 +710,80 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    return node;");
     w.line("}");
     w.blank();
+}
+
+// Pseudo-token Lexer helpers (emitted inside `impl Lexer`, gated by usage):
+//   try_token_gt / try_token_lt — accept GT/LT, or split SHR/SHL (`>>`/`<<`)
+//     into the bracket + a pushed-back GT/LT, enabling nested generics Foo<Bar<T>>.
+//   try_raw_group_{paren,bracket,brace} — consume a balanced delimiter pair and
+//     return a Token spanning the RAW inner source (start<0 = no match / unbalanced).
+fn emit_pseudo_helpers(cg: &mut Codegen, w: &mut CodeWriter) {
+    if cg.uses_gt_type {
+        w.line("    pub fn try_token_gt(self: &mut Lexer) -> bool {");
+        w.line("        let t: Token = self.peek();");
+        w.line("        if t.kind == TK_GT { self.next(); return true; }");
+        w.line("        if t.kind == TK_SHR {");
+        w.line("            self.next();");
+        w.line("            self.la = Token { kind: TK_GT, start: t.start + 1i64, len: 1i64, line: t.line };");
+        w.line("            self.have_la = true;");
+        w.line("            return true;");
+        w.line("        }");
+        w.line("        return false;");
+        w.line("    }");
+    }
+    if cg.uses_lt_type {
+        w.line("    pub fn try_token_lt(self: &mut Lexer) -> bool {");
+        w.line("        let t: Token = self.peek();");
+        w.line("        if t.kind == TK_LT { self.next(); return true; }");
+        w.line("        if t.kind == TK_SHL {");
+        w.line("            self.next();");
+        w.line("            self.la = Token { kind: TK_LT, start: t.start + 1i64, len: 1i64, line: t.line };");
+        w.line("            self.have_la = true;");
+        w.line("            return true;");
+        w.line("        }");
+        w.line("        return false;");
+        w.line("    }");
+    }
+    if cg.uses_raw_group {
+        emit_one_raw_group(w, "paren",   "TK_LPAREN");
+        emit_one_raw_group(w, "bracket", "TK_LBRACKET");
+        emit_one_raw_group(w, "brace",   "TK_LBRACE");
+    }
+}
+
+// One try_raw_group_<kind> method: consume `open_tok`, then walk tokens tracking
+// nesting depth across all three delimiter kinds until the matching outer close.
+// Returns a Token spanning the inner source (kind unused; start<0 = fail/EOF).
+fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
+    let mut sig: String = String::new();
+    sig.push_str("    pub fn try_raw_group_"); sig.push_str(kind);
+    sig.push_str("(self: &mut Lexer) -> Token {");
+    w.line(sig.as_str());
+    w.line("        let sp: i64 = self.save_pos();");
+    w.line("        let sln: i64 = self.save_line();");
+    let mut oc: String = String::new();
+    oc.push_str("        if self.peek().kind != "); oc.push_str(open_tok);
+    oc.push_str(" { return Token { kind: TK_INVALID, start: 0i64 - 1i64, len: 0i64, line: 0i64 }; }");
+    w.line(oc.as_str());
+    w.line("        self.next();");
+    w.line("        let start: i64 = self.save_pos();");
+    w.line("        let mut depth: i64 = 1i64;");
+    w.line("        while depth > 0i64 {");
+    w.line("            let t: Token = self.peek();");
+    w.line("            if t.kind == TK_EOF { self.reset(sp, sln); return Token { kind: TK_INVALID, start: 0i64 - 1i64, len: 0i64, line: 0i64 }; }");
+    w.line("            if t.kind == TK_LPAREN || t.kind == TK_LBRACKET || t.kind == TK_LBRACE { depth = depth + 1i64; }");
+    w.line("            else if t.kind == TK_RPAREN || t.kind == TK_RBRACKET || t.kind == TK_RBRACE {");
+    w.line("                depth = depth - 1i64;");
+    w.line("                if depth == 0i64 {");
+    w.line("                    let endp: i64 = t.start;");
+    w.line("                    self.next();");
+    w.line("                    return Token { kind: TK_EOF, start: start, len: endp - start, line: sln };");
+    w.line("                }");
+    w.line("            }");
+    w.line("            self.next();");
+    w.line("        }");
+    w.line("        return Token { kind: TK_INVALID, start: 0i64 - 1i64, len: 0i64, line: 0i64 };");
+    w.line("    }");
 }
 
 // The lex_one body — skip whitespace/comments, then match literals + regex tokens.
@@ -1083,6 +1193,46 @@ fn alt_uses_arraycapture(cg: &Codegen, alt_idx: i64) -> bool {
 
 // Emit code to match one item, binding `cap<capn>: *const u8` to its result.
 // On failure resets the lexer and returns NULLP from the enclosing alt fn.
+// Emit a pseudo-token TOKEN_REF match (GT_TYPE/LT_TYPE/RAW_GROUP_*). Declares
+// `cap` (= NULLP for GT/LT, = interned raw text for raw groups) and runs
+// `fail_body` (e.g. "lex.reset(sp, sln); return NULLP;") on no-match. Returns
+// false if `iname` is not a pseudo-token (caller emits the normal token match).
+fn emit_pseudo_match(w: &mut CodeWriter, iname: str, cap: str, fail_body: str) -> bool {
+    if str_eq(iname, "GT_TYPE") || str_eq(iname, "LT_TYPE") {
+        let mut c: String = String::new();
+        c.push_str("if !lex.try_token_");
+        if str_eq(iname, "GT_TYPE") { c.push_str("gt"); } else { c.push_str("lt"); }
+        c.push_str("() { "); c.push_str(fail_body); c.push_str(" }");
+        w.line(c.as_str());
+        let mut d: String = String::new();
+        d.push_str("let "); d.push_str(cap); d.push_str(": *const u8 = NULLP;");
+        w.line(d.as_str());
+        return true;
+    }
+    if is_raw_group_name(iname) {
+        let mut rgfn: String = String::new();
+        rgfn.push_str("try_raw_group_");
+        if str_eq(iname, "RAW_GROUP_PAREN") { rgfn.push_str("paren"); }
+        else if str_eq(iname, "RAW_GROUP_BRACKET") { rgfn.push_str("bracket"); }
+        else { rgfn.push_str("brace"); }
+        let mut t: String = String::new();
+        t.push_str("let "); t.push_str(cap); t.push_str("_rg: Token = lex.");
+        t.push_str(rgfn.as_str()); t.push_str("();");
+        w.line(t.as_str());
+        let mut chk: String = String::new();
+        chk.push_str("if "); chk.push_str(cap); chk.push_str("_rg.start < 0i64 { ");
+        chk.push_str(fail_body); chk.push_str(" }");
+        w.line(chk.as_str());
+        let mut d: String = String::new();
+        d.push_str("let "); d.push_str(cap);
+        d.push_str(": *const u8 = wstr_p(doc, "); d.push_str(cap);
+        d.push_str("_rg.text(lex.src));");
+        w.line(d.as_str());
+        return true;
+    }
+    return false;
+}
+
 fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, uses_arrcap: bool) {
     let kind: i64 = cg.items.borrow(item_idx).kind;
     let iname: String = String::from(cg.items.borrow(item_idx).name.as_str());
@@ -1093,17 +1243,19 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
     cap.push_str("cap"); cap.push_i64(capn);
 
     if kind == TOKEN_REF {
-        let mut cond: String = String::new();
-        cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
-        cond.push_str(" { lex.reset(sp, sln); return NULLP; }");
-        w.line(cond.as_str());
-        let mut tl: String = String::new();
-        tl.push_str("let tk"); tl.push_i64(capn); tl.push_str(": Token = lex.next();");
-        w.line(tl.as_str());
-        let mut cl: String = String::new();
-        cl.push_str("let "); cl.push_str(cap.as_str());
-        cl.push_str(": *const u8 = wstr_p(doc, tk"); cl.push_i64(capn); cl.push_str(".text(lex.src));");
-        w.line(cl.as_str());
+        if !emit_pseudo_match(w, iname.as_str(), cap.as_str(), "lex.reset(sp, sln); return NULLP;") {
+            let mut cond: String = String::new();
+            cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+            cond.push_str(" { lex.reset(sp, sln); return NULLP; }");
+            w.line(cond.as_str());
+            let mut tl: String = String::new();
+            tl.push_str("let tk"); tl.push_i64(capn); tl.push_str(": Token = lex.next();");
+            w.line(tl.as_str());
+            let mut cl: String = String::new();
+            cl.push_str("let "); cl.push_str(cap.as_str());
+            cl.push_str(": *const u8 = wstr_p(doc, tk"); cl.push_i64(capn); cl.push_str(".text(lex.src));");
+            w.line(cl.as_str());
+        }
     } else if kind == RULE_REF {
         let mut cl: String = String::new();
         cl.push_str("let "); cl.push_str(cap.as_str());
@@ -1307,17 +1459,19 @@ fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
     let resetbreak: str = "{ lex.reset(gsp, gsln); break; }";
 
     if kind == TOKEN_REF {
-        let mut cond: String = String::new();
-        cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
-        cond.push_str(" "); cond.push_str(resetbreak);
-        w.line(cond.as_str());
-        let mut tl: String = String::new();
-        tl.push_str("let "); tl.push_str(gcap.as_str()); tl.push_str("_t: Token = lex.next();");
-        w.line(tl.as_str());
-        let mut cl: String = String::new();
-        cl.push_str("let "); cl.push_str(gcap.as_str());
-        cl.push_str(": *const u8 = wstr_p(doc, "); cl.push_str(gcap.as_str()); cl.push_str("_t.text(lex.src));");
-        w.line(cl.as_str());
+        if !emit_pseudo_match(w, iname.as_str(), gcap.as_str(), "lex.reset(gsp, gsln); break;") {
+            let mut cond: String = String::new();
+            cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+            cond.push_str(" "); cond.push_str(resetbreak);
+            w.line(cond.as_str());
+            let mut tl: String = String::new();
+            tl.push_str("let "); tl.push_str(gcap.as_str()); tl.push_str("_t: Token = lex.next();");
+            w.line(tl.as_str());
+            let mut cl: String = String::new();
+            cl.push_str("let "); cl.push_str(gcap.as_str());
+            cl.push_str(": *const u8 = wstr_p(doc, "); cl.push_str(gcap.as_str()); cl.push_str("_t.text(lex.src));");
+            w.line(cl.as_str());
+        }
     } else if kind == RULE_REF {
         let mut cl: String = String::new();
         cl.push_str("let "); cl.push_str(gcap.as_str());
