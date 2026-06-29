@@ -741,6 +741,12 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    }");
     w.line("    // Consume a trailing numeric type suffix (i/u/s/f/d + digits), conservatively.");
     w.line("    fn scan_num_suffix(self: &mut Lexer) {");
+    w.line("        // `usize`/`isize` whole-word first (the loose scan below stops at 'z').");
+    w.line("        let s0: u8 = self.cur(0i64);");
+    w.line("        if (s0 == 117u8 || s0 == 105u8) && self.cur(1i64) == 115u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 122u8 && self.cur(4i64) == 101u8 {");
+    w.line("            self.pos = self.pos + 5i64; return;");
+    w.line("        }");
+    w.line("        // Other suffixes: i/u/s/f/d/l + digits (i8…i128, u8…u128, f32/f64, ull/ul/ll/u, _u8…_s64).");
     w.line("        while self.pos < self.src.len() {");
     w.line("            let sc: u8 = self.cur(0i64);");
     w.line("            if sc == 105u8 || sc == 117u8 || sc == 115u8 || sc == 102u8 || sc == 100u8 || sc == 108u8 || lx_is_digit(sc) { self.pos = self.pos + 1i64; } else { break; }");
@@ -1599,6 +1605,9 @@ fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin:
     pl.push_str(arrn.as_str()); pl.push_str(".push(WAny::ref_to("); pl.push_str(tmpn.as_str());
     pl.push_str(")); }");
     w.line(pl.as_str());
+    // PEG safety: a `*` iteration that consumed no input would loop forever
+    // (a sub-rule matched zero-width). Break on no progress.
+    w.line("if lex.save_pos() == rsp { break; }");
     let mut inc: String = String::new();
     inc.push_str(cntn.as_str()); inc.push_str(" = "); inc.push_str(cntn.as_str()); inc.push_str(" + 1i64;");
     w.line(inc.as_str());
@@ -1651,6 +1660,8 @@ fn emit_item_rep_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, 
     let mut sm: String = String::new();
     sm.push_str(mt.as_str()); sm.push_str(" = true;");
     w.line(sm.as_str());
+    // PEG safety: stop if the fold body matched zero-width (else infinite loop).
+    w.line("if lex.save_pos() == rsp { break; }");
     w.ded();
     w.line("}");
 
@@ -1906,6 +1917,7 @@ fn emit_group_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin
     pl.push_str("if "); pl.push_str(tmpn.as_str()); pl.push_str(" != NULLP { ");
     pl.push_str(arrn.as_str()); pl.push_str(".push(WAny::ref_to("); pl.push_str(tmpn.as_str()); pl.push_str(")); }");
     w.line(pl.as_str());
+    w.line("if lex.save_pos() == rsp { break; }");   // PEG: break on zero-width iteration
     let mut inc: String = String::new();
     inc.push_str(cntn.as_str()); inc.push_str(" = "); inc.push_str(cntn.as_str()); inc.push_str(" + 1i64;");
     w.line(inc.as_str());
