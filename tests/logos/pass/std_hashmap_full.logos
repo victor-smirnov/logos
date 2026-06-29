@@ -88,6 +88,19 @@ fn main() -> i32 {
         let pp: *const i32 = pm.get(&one);
         if *pp != 100 { return 19; }
 
+        // get_or_insert on a PRESENT key: returns the existing value (default
+        // ignored), len unchanged; the returned pointer mutates in place.
+        let goi1: *mut i32 = pm.get_or_insert(1, 777);
+        if *goi1 != 100 { return 20; }
+        if pm.len() != 2 as i64 { return 21; }
+        *goi1 = *goi1 + 1;
+        if *pm.get(&one) != 101 { return 22; }
+
+        // get_or_insert on an ABSENT key: inserts the default, len grows.
+        let goi2: *mut i32 = pm.get_or_insert(9, 900);
+        if *goi2 != 900 { return 23; }
+        if pm.len() != 3 as i64 { return 24; }
+
         return 42;
     }
 }

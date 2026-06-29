@@ -130,6 +130,26 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return &mut e.val as *mut V;
     }
 
+    // entry().or_insert() — single-probe find-or-insert. Returns a pointer to the
+    // value bound to `key`: the existing one if present, else `default` freshly
+    // inserted. ONE probe + ONE hash, vs get-then-insert's two of each — this is
+    // the idiomatic count/accumulate path (`*m.get_or_insert(k, 0) += 1`). When
+    // the key is already present `default` is dropped (matching Rust's or_insert).
+    pub unsafe fn get_or_insert(self: *mut HashMap<K, V>, key: K, default: V) -> *mut V {
+        if (self.len + 1 as i64) * 4 as i64 > self.cap * 3 as i64 {
+            self.resize(self.cap * 2 as i64);
+        }
+        let (idx, found) = self.probe(&key);
+        let e: *mut Entry<K, V> = &mut self.entries[idx];
+        if !found {
+            e.key = key;
+            e.val = default;
+            self.states[idx] = SLOT_OCCUPIED;
+            self.len = self.len + 1 as i64;
+        }
+        return &mut e.val as *mut V;
+    }
+
     pub unsafe fn remove(self: *mut HashMap<K, V>, key: &K) -> bool {
         let (idx, found) = self.probe(key);
         if !found { return false; }

@@ -41,7 +41,7 @@ faster/denser.
 | mandel    | 0.99×  | 0.99×  | 0.99× | ~       | float loop + escape branch — **parity** |
 | btree     | 0.94×  | 1.00×  | 0.99× | ~       | Box alloc + recursion + RAII drop — **parity** |
 | revcomp   | 1.00×  | 1.00×  | ~     | ~       | byte loop + table lookup — **parity** |
-| knuc      | 0.90×  | 1.38×  | 1.30× | ~       | HashMap k-mer count — **stdlib gap, not codegen** |
+| knuc      | 0.52×  | 0.69×  | ~     | ~       | HashMap k-mer count — **faster than hashbrown** (was 1.38×: bench bug) |
 
 **logosc is at parity with rustc on the vectorizable + scalar micro-benches**
 (instruction density 0.99–1.23×; baseline cycles 0.99–1.19× on all but fannkuch).
@@ -67,11 +67,19 @@ LLVM's value-tracking opts (sdiv→lshr, range folding) fire less. structsum's b
 1.18× is a separate unroll-FACTOR gap (rustc reduces 8-wide vs logosc 4-wide; parity
 at native). Future codegen-quality dig: value-range propagation / earlier leaf inlining.
 
-**knuc is a STDLIB gap, not codegen:** logosc emits FEWER instructions (0.90×) yet
-takes 1.38× the cycles — a pure IPC/stall difference. Rust's std HashMap is
-hashbrown (SwissTable: SIMD probing, cache-friendly layout); Logos's is a simpler
-open-addressing map → more cache misses / longer probes. The lever here is the
-HashMap implementation (a SwissTable rewrite), separate from the compiler.
+**knuc was a BENCHMARK bug, not a stdlib or codegen gap.** The original 1.38×
+"gap" came from the Logos kernel doing `get(&code)` then `insert(code, …)` — TWO
+probes and TWO hashes per k-mer — while the Rust twin used `entry().or_insert()`
+(ONE of each). Equalizing the probe count (a new `HashMap::get_or_insert`, the
+`entry().or_insert()` analog) collapses it: Logos now emits HALF the instructions
+(0.52×) and runs at 0.69× the cycles — **faster than rustc's hashbrown** on this
+workload. Logos's simple linear-probe map beats a SwissTable here because the map
+is small and probes are short, so hashbrown's per-probe SIMD-group machinery is
+pure overhead that the simple map doesn't pay. (Three SwissTable rewrites — SWAR,
+h2-tagged, and a real SSE pcmpeqb/pmovmskb group probe — were each measured and
+each REGRESSED vs the simple map on this short-probe workload; the SwissTable's
+advantage needs long probes / large maps, which knuc has neither.) Lesson: before
+attributing a perf gap to the implementation, verify the two sides do equal work.
 
 Caveat: fine native head-to-head cycle ratios (`c-nat` for arith/dot) are noisy
 and omitted (`~`) — AVX-512 down-clocks the core, so sub-runs vary run to run;

@@ -30,11 +30,10 @@ fn kernel(r: i64) -> i64 {
             code = ((code << 2i64) | seq[i]) & mask;
             if i >= k - 1i64 {
                 unsafe {
-                    let p: *const i64 = mp.get(&code);
-                    let cur: i64 = if p != (0i64 as *const i64) { *p } else { 0i64 };
-                    let c1: i64 = cur + 1i64;
-                    mp.insert(code, c1);
-                    if c1 > best { best = c1; }
+                    // entry().or_insert(0) += 1 — single probe, mirrors the Rust twin.
+                    let pm: *mut i64 = mp.get_or_insert(code, 0i64);
+                    *pm = *pm + 1i64;
+                    if *pm > best { best = *pm; }
                 }
             }
             i = i + 1i64;
