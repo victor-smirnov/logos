@@ -10,7 +10,7 @@
 ; externally-referenced tag-dispatch init fns are retained — plain SymbolDCE
 ; over-prunes them.)
 
-; CHECK-LABEL: define i32 @main()
+; CHECK-LABEL: define {{.*}}i32 @main()
 ; B-ex-01: integer + lowers to llvm.sadd.with.overflow + trap on overflow.
 ; CHECK: call {{.*}} @llvm.sadd.with.overflow.i64
 ; CHECK: trunc i64

@@ -4,11 +4,11 @@
 ; with `Struct__method` mangling and direct call (no vtable/indirect).
 
 ; CHECK: %main.Pair = type { i64, i64 }
-; CHECK-LABEL: define i64 @main.Pair__sum__f__Pair(ptr
+; CHECK-LABEL: define {{.*}}i64 @main.Pair__sum__f__Pair(ptr
 ; CHECK: getelementptr %main.Pair
 ; CHECK: ret i64
 
-; CHECK-LABEL: define i32 @main()
+; CHECK-LABEL: define {{.*}}i32 @main()
 ; CHECK: call i64 @main.Pair__sum__f__Pair(ptr
 
 ; CHECK-NOT: load ptr, ptr {{.*}}__vtable

@@ -5,7 +5,7 @@
 ; bare-tag enum match uses i32 discriminant + direct icmp, not a function
 ; table or dispatch indirection.
 
-; CHECK-LABEL: define i32 @main()
+; CHECK-LABEL: define {{.*}}i32 @main()
 ; CHECK: store i32 1, ptr
 ; CHECK-DAG: icmp eq i32 {{.*}}, 0
 ; CHECK-DAG: icmp eq i32 {{.*}}, 1

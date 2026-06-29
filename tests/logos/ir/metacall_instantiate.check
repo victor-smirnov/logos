@@ -6,6 +6,6 @@
 ;   3. main calls into that specialization.
 
 ; CHECK: %"main.Box$G1$i64" = type { i64 }
-; CHECK: define i64 @"main.Box$G1$i64__weight__f__Box$G1$i64"
-; CHECK-LABEL: define i32 @main()
+; CHECK: define {{.*}}i64 @"main.Box$G1$i64__weight__f__Box$G1$i64"
+; CHECK-LABEL: define {{.*}}i32 @main()
 ; CHECK: call i64 @"main.Box$G1$i64__weight__f__Box$G1$i64"

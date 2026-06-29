@@ -210,6 +210,16 @@ void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView
         }
         ++arg;
     }
+    // Return value: noundef on a SCALAR or POINTER result only. Logos has no
+    // undef value form (MaybeUninit is zeroed; codegen emits no poison), so a
+    // scalar/ptr return is always well-defined. Aggregate returns
+    // (struct/tuple/enum-with-payload, lowered to an LLVM struct) are OMITTED:
+    // their padding / inactive-variant bytes are genuinely undef. Mirrors rustc.
+    auto rets = f.getFunctionType().getResults();
+    if (rets.size() == 1 &&
+        mlir::isa<mlir::IntegerType, mlir::FloatType,
+                  mlir::LLVM::LLVMPointerType>(rets[0]))
+        f.setResultAttr(0, "llvm.noundef", unit);
 }
 
 // ---------------------------------------------------------------------------
