@@ -1908,6 +1908,19 @@ fn node_const(name: str) -> String {
 
 // The node-code constant for an alt: a CODE STR_LIT → N_<name>; a CODE INT_LIT →
 // the literal; else 0.
+// True if the alt's action explicitly sets a CODE field. When false the node is a
+// bare tinymap with no CODE (mirrors the C++ parser, which only stamps CODE when
+// the action names it — e.g. path_dot_ident `=> { NAME: $2 }`).
+fn action_has_code(cg: &Codegen, alt_idx: i64) -> bool {
+    let a: &Alt = cg.alts.borrow(alt_idx);
+    let mut i: i64 = 0i64;
+    while i < a.fields.len() {
+        if str_eq(a.fields.borrow(i).name.as_str(), "CODE") { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
 fn action_code_const(cg: &Codegen, alt_idx: i64) -> String {
     let a: &Alt = cg.alts.borrow(alt_idx);
     let mut i: i64 = 0i64;
@@ -1929,10 +1942,15 @@ fn action_code_const(cg: &Codegen, alt_idx: i64) -> String {
 // Rule-level alt action: build a node, set each field (skip the CODE field — mk_node
 // already stamped it), set SRC_LINE, return the node as *const u8.
 fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: str, seq_len: i64, uses_arrcap: bool) {
-    let code_str: String = action_code_const(cg, alt_idx);
-    let mut nl: String = String::new();
-    nl.push_str("let node: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
-    w.line(nl.as_str());
+    if action_has_code(cg, alt_idx) {
+        let code_str: String = action_code_const(cg, alt_idx);
+        let mut nl: String = String::new();
+        nl.push_str("let node: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
+        w.line(nl.as_str());
+    } else {
+        // No CODE field → bare node (no F_CODE / schema), matching the C++ parser.
+        w.line("let node: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
+    }
 
     let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
     let mut fi: i64 = 0i64;
@@ -1993,10 +2011,14 @@ fn emit_action_field(w: &mut CodeWriter, node_var: str, cap_stem: str, fname: st
 // Group sub-alt action: build `gnode`, fields use the group-cap stem
 // `g<cap>_<n>_<id>` for $n; assign cap = the node ptr.
 fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64, seq_len: i64, uses_arrcap: bool) {
-    let code_str: String = action_code_const(cg, galt);
-    let mut nl: String = String::new();
-    nl.push_str("let gnode: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
-    w.line(nl.as_str());
+    if action_has_code(cg, galt) {
+        let code_str: String = action_code_const(cg, galt);
+        let mut nl: String = String::new();
+        nl.push_str("let gnode: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
+        w.line(nl.as_str());
+    } else {
+        w.line("let gnode: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
+    }
 
     let nf: i64 = cg.alts.borrow(galt).fields.len();
     let mut fi: i64 = 0i64;

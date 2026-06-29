@@ -101,13 +101,17 @@ unsafe fn write_val(out: &mut String, v: WAny) {
         let mut first: bool = true;
         let mut k: i64 = 0i64;
         while k < 52i64 {
-            let cv: WAny = t.get(k as u8);
-            if !cv.is_null() {
+            // Render every PRESENT key (bitmap bit set), incl. those holding a null
+            // WAny — matching the C++ writ::stringify tc::TINYMAP `has_key` walk. A
+            // field explicitly stored as null (e.g. an absent optional capture) is
+            // `k: null`, NOT omitted — otherwise the AST dump loses information and
+            // diverges from the C++ parser's.
+            if t.contains(k as u8) {
                 if !first { out.push_str(", "); }
                 first = false;
                 out.push_str(k.to_string().as_str());
                 out.push_u8(58u8); out.push_u8(32u8);          // ": "
-                write_val(out, cv);
+                write_val(out, t.get(k as u8));
             }
             k = k + 1i64;
         }
