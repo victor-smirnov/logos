@@ -1008,7 +1008,7 @@ fn emit_one_literal(w: &mut CodeWriter, name: str, pat: str, plen: i64, is_word:
 fn is_doc_char_token(name: str) -> bool {
     return str_eq(name, "DOC_LINE") || str_eq(name, "DOC_INNER")
         || str_eq(name, "DOC_BLOCK") || str_eq(name, "DOC_BLOCK_INNER")
-        || str_eq(name, "CHAR_LIT");
+        || str_eq(name, "CHAR_LIT") || str_eq(name, "LIFETIME");
 }
 
 // Emit a `let kw: i32 = TK_<name>;` + a scan-to-`*/` block-comment body, returning
@@ -1067,6 +1067,15 @@ fn emit_lex_doc_char(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line("                self.pos = self.pos + 3i64;");
         w.line("                return Token { kind: TK_CHAR_LIT, start: start, len: 3i64, line: sl };");
         w.line("            }");
+        w.line("        }");
+    }
+    if tok_present(cg, "LIFETIME") {
+        // 'ident — AFTER char-lit so `'x'` is a char and `'x` is a lifetime.
+        // /'[a-z_][a-z0-9_]*/: first byte after ' is [a-z_], rest [a-z0-9_].
+        w.line("        if c == 39u8 && ((self.cur(1i64) >= 97u8 && self.cur(1i64) <= 122u8) || self.cur(1i64) == 95u8) {");
+        w.line("            self.pos = self.pos + 1i64;");
+        w.line("            while self.pos < self.src.len() && (lx_is_alnum(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
+        w.line("            return Token { kind: TK_LIFETIME, start: start, len: self.pos - start, line: sl };");
         w.line("        }");
     }
 }
