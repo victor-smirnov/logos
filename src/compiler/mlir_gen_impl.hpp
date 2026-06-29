@@ -133,6 +133,12 @@ public:
 
     // -g: enable DWARF debug-info emission. Set before generate().
     void set_debug_info(bool v) { debug_info_ = v; }
+    // Emit runtime overflow checks (trap) on integer +/-/*. Default ON
+    // (Logos's safety-first stance). When OFF (`-C overflow-checks=off`), `+`/
+    // `-`/`*` lower to plain wrapping arith — vectorizable, branchless, matching
+    // rustc release-mode arithmetic. Explicit wrapping_add/sub/mul are
+    // unaffected (always unchecked). Set before generate().
+    void set_overflow_checks(bool v) { overflow_checks_ = v; }
     // Primary input source path (DWARF CU file + per-fn fallback). Before generate().
     void set_main_source(std::string_view s) { main_source_.assign(s); }
 
@@ -147,6 +153,7 @@ private:
     // (closures, drop glue, ctors) suspend the scope via DebugScopeSuspend so a
     // single DISubprogram never leaks onto two LLVM functions.
     bool                              debug_info_ = false;
+    bool                              overflow_checks_ = true;  // trap on int +/-/* overflow (off = wrapping)
     std::string                       main_source_;      // primary input path (CU file + fallback)
     mlir::LLVM::DICompileUnitAttr     di_cu_;            // one per module (lazy)
     mlir::LLVM::DISubprogramAttr      di_subprogram_;    // current fn (null outside a body)

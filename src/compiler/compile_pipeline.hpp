@@ -28,6 +28,8 @@ struct LowerEmitOpts {
     bool emit_llvm         = false; // print LLVM IR to stdout, return 0 (PRE-opt)
     bool emit_llvm_opt     = false; // print LLVM IR to stdout AFTER the opt
                                     // pipeline (honors opt_level), then return 0
+    bool overflow_checks   = true;  // trap on int +/-/* overflow; false = wrapping
+                                    // (`-C overflow-checks=off`, vectorizable arith)
     // When set, the LLVM module is moved into *jit_module_out instead of
     // being emitted as an object file — caller (main.cpp --jit) takes
     // ownership and drives JIT compilation themselves. Bypasses the whole

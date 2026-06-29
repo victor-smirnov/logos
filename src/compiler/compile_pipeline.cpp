@@ -54,7 +54,8 @@ int lower_and_emit_object(lir::LProgram& prog,
     mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
-    auto mlir_module = mlir_gen(mlir_ctx, prog, opts.debug_info, opts.source_path);
+    auto mlir_module = mlir_gen(mlir_ctx, prog, opts.debug_info, opts.source_path,
+                                opts.overflow_checks);
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");

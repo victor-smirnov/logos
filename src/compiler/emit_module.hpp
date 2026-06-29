@@ -35,6 +35,10 @@ struct EmitModuleOptions {
     // optimizes package/library code (without this the package path is always
     // unoptimized regardless of -O, while the single-file `-c` path optimizes).
     int opt_level = 0;
+
+    // Trap on integer +/-/* overflow (default) vs wrapping (`-C overflow-checks=off`).
+    // Threaded to the lowering tail so package/stdlib arithmetic honors the policy.
+    bool overflow_checks = true;
 };
 
 // Build a binary module (.a archive) from a module manifest.

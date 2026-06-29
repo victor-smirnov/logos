@@ -2933,6 +2933,7 @@ static void print_usage(std::FILE* out) {
 "Output:\n"
 "  -o <file>              output path (default: output.o)\n"
 "  -O0 | -O1 | -O2 | -O3  optimization level (default: -O0)\n"
+"  -C overflow-checks=off integer +/-/* wrap silently instead of trapping (default: on)\n"
 "  -g, --debug            emit DWARF debug info\n"
 "  --emit-mlir            emit MLIR instead of an object\n"
 "  --emit-llvm            emit LLVM IR (PRE-optimization) instead of an object\n"
@@ -3010,6 +3011,7 @@ int main(int argc, char** argv) {
     // module loader as additional binary modules.
     std::vector<std::string> explicit_lib_files;
     int opt_level = 0;
+    bool overflow_checks = true;   // -C overflow-checks=off → wrapping int arith
     bool no_system = false;
     bool print_system_libdir = false;
     bool print_version = false;
@@ -3149,6 +3151,19 @@ int main(int argc, char** argv) {
         else if (arg == "-O1") { opt_level = 1; }
         else if (arg == "-O2") { opt_level = 2; }
         else if (arg == "-O3") { opt_level = 3; }
+        // Overflow-check policy (rustc-style). Default ON (Logos safety-first).
+        // `-C overflow-checks=off` (two-token, like rustc) or the convenience
+        // `--overflow-checks=off` lowers int +/-/* to wrapping arith (no trap),
+        // which vectorizes — at the cost of silent wraparound. `=on` is the default.
+        else if (arg == "-C" && i + 1 < argc &&
+                 std::string_view(argv[i + 1]).substr(0, 16) == "overflow-checks=") {
+            std::string_view v = std::string_view(argv[++i]).substr(16);
+            overflow_checks = !(v == "off" || v == "no" || v == "0" || v == "false");
+        }
+        else if (std::string_view(arg).substr(0, 18) == "--overflow-checks=") {
+            std::string_view v = std::string_view(arg).substr(18);
+            overflow_checks = !(v == "off" || v == "no" || v == "0" || v == "false");
+        }
         // Phase 2-4: cfg feature flags. `--cfg feature=foo` sets feature
         // `foo`; multiple flags accumulate. Also accepts bare flag form
         // `--cfg key_or_bare_name` (currently no-op — cfg-key flags like
@@ -3279,6 +3294,7 @@ int main(int argc, char** argv) {
         mopts.only_file = only_file;
         mopts.extra_lib_files = explicit_lib_files;
         mopts.opt_level = opt_level;
+        mopts.overflow_checks = overflow_checks;
         return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
     }
 
@@ -4674,6 +4690,7 @@ int main(int argc, char** argv) {
         lopts.emit_mlir         = emit_mlir;
         lopts.emit_llvm         = emit_llvm;
         lopts.emit_llvm_opt     = emit_llvm_opt;
+        lopts.overflow_checks   = overflow_checks;
         lopts.debug_info        = debug_g;
         lopts.source_path       = input_path ? input_path : "";
         lopts.dump_metaprog_dir = dump_metaprog_dir;

@@ -24,6 +24,7 @@ namespace logos::compiler {
 mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             const lir::LProgram& prog,
                                             bool debug_info = false,
-                                            std::string_view main_source = {}) noexcept;
+                                            std::string_view main_source = {},
+                                            bool overflow_checks = true) noexcept;
 
 } // namespace logos::compiler

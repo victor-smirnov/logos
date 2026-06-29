@@ -270,7 +270,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                const std::vector<std::string>& per_ast_module_ids = {},
                                const std::unordered_map<std::string, std::string>& module_name_to_id = {},
                                const std::string& abi_layout_path = "",
-                               int opt_level = 0) {
+                               int opt_level = 0,
+                               bool overflow_checks = true) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -799,6 +800,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // Shared lowering tail (mlir_gen → MLIR→LLVM → object).
     LowerEmitOpts lopts;
     lopts.opt_level = opt_level;    // honor -O from the CLI (0 = skip opt pipeline)
+    lopts.overflow_checks = overflow_checks;  // honor -C overflow-checks=off
     lopts.function_sections = true; // per-fn sections for --gc-sections
     return lower_and_emit_object(prog, obj_path, lopts) == 0;
 }
@@ -1075,7 +1077,8 @@ bool emit_module(const ModuleManifest& manifest,
                                /*per_ast_module_ids=*/per_ast_module_ids,
                                /*module_name_to_id=*/module_name_to_id,
                                /*abi_layout_path=*/output_path + ".abi-layout",
-                               /*opt_level=*/opts.opt_level)) {
+                               /*opt_level=*/opts.opt_level,
+                               /*overflow_checks=*/opts.overflow_checks)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }

@@ -848,7 +848,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
              TypeRef(lhs_ty).kind() == LogosType::Kind::U128 ||
              TypeRef(lhs_ty).kind() == LogosType::Kind::Usize);
         auto int_ty = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
-        if (int_ty) {
+        if (int_ty && overflow_checks_) {
             mlir::Type i1 = builder_.getI1Type();
             mlir::Type result_struct = mlir::LLVM::LLVMStructType::getLiteral(
                 builder_.getContext(), {int_ty, i1});
