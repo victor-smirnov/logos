@@ -457,6 +457,21 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             return pkg.empty() ? std::string(name)
                                : std::string(pkg) + "." + std::string(name);
         };
+        // `#[repr(transparent)]` UnsafeCell<X> has the EXACT ABI of X (same size/
+        // align/offsets/calling-convention). Unwrap it for the spec so that the
+        // interior-mutability refactor — wrapping a field in UnsafeCell to mark it
+        // mutable-through-`&` — does NOT read as an ABI break (it isn't). UnsafeCell
+        // is the canonical transparent interior-mut lang-item, recognized by its
+        // qualified name (mirrors sema_auto_trait / type_is_freeze). Nested wraps
+        // unwrap iteratively.
+        auto abi_type = [&](TypeRef t0) -> std::string {
+            TypeRef t{t0};
+            while (t && t.kind() == LogosType::Kind::Struct &&
+                   t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
+                   !t.type_args().empty())
+                t = TypeRef(t.type_args()[0]);
+            return type_str(t);
+        };
         std::ofstream af(abi_layout_path);
         // Structs (generic templates INCLUDED): a template's ordered field types
         // — expressed in its type-var names (Vec<T> → ptr:*mut T,len:u64,…) —
@@ -468,7 +483,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             bool first = true;
             for (auto f : sd.fields()) {
                 if (!first) rec += ",";
-                rec += std::string(f.name()) + ":" + type_str(f.type(pool));
+                rec += std::string(f.name()) + ":" + abi_type(f.type(pool));
                 first = false;
             }
             af << rec << "]\n";
@@ -486,7 +501,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                     bool pf = true;
                     for (auto pt : v.payload_types(pool)) {
                         if (!pf) rec += ",";
-                        rec += type_str(pt);
+                        rec += abi_type(pt);
                         pf = false;
                     }
                     rec += ")";
