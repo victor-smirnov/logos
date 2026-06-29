@@ -266,6 +266,17 @@ fn is_raw_group_name(name: str) -> bool {
         || str_eq(name, "RAW_GROUP_BRACE");
 }
 
+// True if the grammar declares a token named `name`.
+fn tok_present(cg: &Codegen, name: str) -> bool {
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if str_eq(cg.tokens.borrow(i).name.as_str(), name) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
 // Scan the item pool for pseudo-token TOKEN_REFs and set the cg.uses_* flags,
 // so emit_runtime emits only the helpers the grammar actually needs.
 fn detect_pseudo_tokens(cg: &mut Codegen) {
@@ -797,9 +808,22 @@ fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("            if c == 32u8 || c == 9u8 || c == 13u8 || c == 10u8 {");
     w.line("                if c == 10u8 { self.line = self.line + 1i64; }");
     w.line("                self.pos = self.pos + 1i64;");
-    w.line("            } else if c == 47u8 && self.cur(1i64) == 47u8 {");
+    // Line-comment skip — but NOT when it begins a doc comment the grammar tokenizes
+    // (DOC_LINE `///`, DOC_INNER `//!`), so those reach the doc matcher below.
+    let mut linec: String = String::new();
+    linec.push_str("            } else if c == 47u8 && self.cur(1i64) == 47u8");
+    if tok_present(cg, "DOC_LINE")  { linec.push_str(" && self.cur(2i64) != 47u8"); }
+    if tok_present(cg, "DOC_INNER") { linec.push_str(" && self.cur(2i64) != 33u8"); }
+    linec.push_str(" {");
+    w.line(linec.as_str());
     w.line("                while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.pos = self.pos + 1i64; }");
-    w.line("            } else if c == 47u8 && self.cur(1i64) == 42u8 {");
+    // Block-comment skip — but NOT a doc block (DOC_BLOCK `/**`+[^*/], DOC_BLOCK_INNER `/*!`).
+    let mut blockc: String = String::new();
+    blockc.push_str("            } else if c == 47u8 && self.cur(1i64) == 42u8");
+    if tok_present(cg, "DOC_BLOCK") { blockc.push_str(" && !(self.cur(2i64) == 42u8 && self.cur(3i64) != 42u8 && self.cur(3i64) != 47u8)"); }
+    if tok_present(cg, "DOC_BLOCK_INNER") { blockc.push_str(" && self.cur(2i64) != 33u8"); }
+    blockc.push_str(" {");
+    w.line(blockc.as_str());
     w.line("                self.pos = self.pos + 2i64;");
     w.line("                while self.pos < self.src.len() {");
     w.line("                    if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.pos = self.pos + 2i64; break; }");
@@ -814,6 +838,9 @@ fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("        let c: u8 = self.cur(0i64);");
     w.blank();
 
+    // Doc comments + char literals (hand-coded; must precede the `/` and `'`
+    // punctuation literals so e.g. `///` is DOC_LINE, not three SLASH tokens).
+    emit_lex_doc_char(cg, w);
     // Keyword / punctuation literals — longest match first.
     emit_lex_literals(cg, w);
     // Regex tokens (STRING / INTEGER / FLOAT / IDENT — recognised by shape).
@@ -925,6 +952,74 @@ fn emit_one_literal(w: &mut CodeWriter, name: str, pat: str, plen: i64, is_word:
     w.line("        }");
 }
 
+// True if `name` is one of the doc-comment / char-literal tokens handled by the
+// hand-coded matchers in emit_lex_doc_char (so emit_lex_regex skips them).
+fn is_doc_char_token(name: str) -> bool {
+    return str_eq(name, "DOC_LINE") || str_eq(name, "DOC_INNER")
+        || str_eq(name, "DOC_BLOCK") || str_eq(name, "DOC_BLOCK_INNER")
+        || str_eq(name, "CHAR_LIT");
+}
+
+// Emit a `let kw: i32 = TK_<name>;` + a scan-to-`*/` block-comment body, returning
+// the token. `open_len` bytes are consumed before scanning (3 for /** or /*!).
+fn emit_block_doc_body(w: &mut CodeWriter, name: str, open_len: i64) {
+    let mut adv: String = String::new();
+    adv.push_str("            self.pos = self.pos + "); adv.push_i64(open_len); adv.push_str("i64;");
+    w.line(adv.as_str());
+    w.line("            while self.pos < self.src.len() {");
+    w.line("                if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.pos = self.pos + 2i64; break; }");
+    w.line("                if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }");
+    w.line("                self.pos = self.pos + 1i64;");
+    w.line("            }");
+    let mut ret: String = String::new();
+    ret.push_str("            return Token { kind: TK_"); ret.push_str(name);
+    ret.push_str(", start: start, len: self.pos - start, line: sl };");
+    w.line(ret.as_str());
+}
+
+// Hand-coded matchers for doc comments (DOC_LINE `///`, DOC_INNER `//!`,
+// DOC_BLOCK `/**`+[^*/], DOC_BLOCK_INNER `/*!`) and char literals (CHAR_LIT
+// `'(\\.|[^'\\])'`). Emitted only for tokens the grammar declares, and BEFORE the
+// punctuation literals so the multi-byte openers win over `/` and `'`.
+fn emit_lex_doc_char(cg: &mut Codegen, w: &mut CodeWriter) {
+    if tok_present(cg, "DOC_LINE") {
+        w.line("        if c == 47u8 && self.cur(1i64) == 47u8 && self.cur(2i64) == 47u8 {");
+        w.line("            self.pos = self.pos + 3i64;");
+        w.line("            while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.pos = self.pos + 1i64; }");
+        w.line("            return Token { kind: TK_DOC_LINE, start: start, len: self.pos - start, line: sl };");
+        w.line("        }");
+    }
+    if tok_present(cg, "DOC_INNER") {
+        w.line("        if c == 47u8 && self.cur(1i64) == 47u8 && self.cur(2i64) == 33u8 {");
+        w.line("            self.pos = self.pos + 3i64;");
+        w.line("            while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.pos = self.pos + 1i64; }");
+        w.line("            return Token { kind: TK_DOC_INNER, start: start, len: self.pos - start, line: sl };");
+        w.line("        }");
+    }
+    if tok_present(cg, "DOC_BLOCK") {
+        w.line("        if c == 47u8 && self.cur(1i64) == 42u8 && self.cur(2i64) == 42u8 && self.cur(3i64) != 42u8 && self.cur(3i64) != 47u8 {");
+        emit_block_doc_body(w, "DOC_BLOCK", 3i64);
+        w.line("        }");
+    }
+    if tok_present(cg, "DOC_BLOCK_INNER") {
+        w.line("        if c == 47u8 && self.cur(1i64) == 42u8 && self.cur(2i64) == 33u8 {");
+        emit_block_doc_body(w, "DOC_BLOCK_INNER", 3i64);
+        w.line("        }");
+    }
+    if tok_present(cg, "CHAR_LIT") {
+        w.line("        if c == 39u8 {");
+        w.line("            if self.cur(1i64) == 92u8 && self.cur(3i64) == 39u8 {");
+        w.line("                self.pos = self.pos + 4i64;");
+        w.line("                return Token { kind: TK_CHAR_LIT, start: start, len: 4i64, line: sl };");
+        w.line("            }");
+        w.line("            if self.cur(1i64) != 92u8 && self.cur(1i64) != 39u8 && self.cur(2i64) == 39u8 {");
+        w.line("                self.pos = self.pos + 3i64;");
+        w.line("                return Token { kind: TK_CHAR_LIT, start: start, len: 3i64, line: sl };");
+        w.line("            }");
+        w.line("        }");
+    }
+}
+
 // Emit hand-coded matchers for the regex tokens, recognised by pattern shape.
 // Covers writ.peg: STRING ("…"), INTEGER, FLOAT, IDENT. Unrecognised shapes get
 // a TODO comment (so the gap is visible in the generated source).
@@ -957,7 +1052,7 @@ fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
     i = 0i64;
     while i < n {
         let t: &TokenDecl = cg.tokens.borrow(i);
-        if t.kind == TOKEN_REGEX {
+        if t.kind == TOKEN_REGEX && !is_doc_char_token(t.name.as_str()) {
             let pat: str = t.pattern.as_str();
             let shape: i64 = regex_shape(pat);
             if shape == 1i64 { emit_lex_string(w, t.name.as_str()); }
