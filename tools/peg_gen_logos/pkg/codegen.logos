@@ -1281,7 +1281,9 @@ fn emit_lex_number(w: &mut CodeWriter, int_name: str, flt_name: str) {
     w.line("            // Decimal integer part.");
     w.line("            while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
     w.line("            let mut is_float: bool = false;");
-    w.line("            if self.cur(0i64) == 46u8 && lx_is_digit(self.cur(1i64)) {");
+    // A number starting right after a `.` is a tuple-index continuation (`t.1.0` =>
+    // `1` `.` `0`, not the float `1.0`), so don't extend it into a float there.
+    w.line("            if self.cur(0i64) == 46u8 && lx_is_digit(self.cur(1i64)) && (start == 0i64 || unsafe { self.src.as_ptr()[start - 1i64] } != 46u8) {");
     w.line("                is_float = true;");
     w.line("                self.pos = self.pos + 1i64;");
     w.line("                while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
