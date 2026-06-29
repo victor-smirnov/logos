@@ -1,0 +1,27 @@
+package b_fnv;
+extern fn logos_argc() -> i32;
+extern fn logos_argv() -> *const *const u8;
+fn reps() -> i64 {
+    unsafe {
+        if logos_argc() < 2i32 { return 1i64; }
+        let p: *const *const u8 = (logos_argv() as i64 + 8i64) as *const *const u8;
+        let s: *const u8 = p[0];
+        let mut n: i64 = 0; let mut i: i64 = 0;
+        while s[i] != 0u8 { n = n * 10i64 + (s[i] as i64 - 48i64); i = i + 1; }
+        return n;
+    }
+}
+fn fnv(buf: &[u8], seed: u64) -> u64 {
+    let mut h: u64 = 14695981039346656037u64 ^ seed;
+    let mut i: i64 = 0; let n: i64 = buf.len();
+    while i < n { h = (h ^ (buf[i] as u64)) * 1099511628211u64; i = i + 1; }
+    return h;
+}
+fn kernel(r: i64) -> i64 {
+    let mut data: [u8; 1024] = [0u8; 1024];
+    let mut i: i64 = 0; while i < 1024i64 { data[i] = (i & 255i64) as u8; i = i + 1; }
+    let mut acc: u64 = 0; let mut k: i64 = 0;
+    while k < r { acc = acc ^ fnv(&data, k as u64); k = k + 1; }
+    return acc as i64;
+}
+fn main() -> i32 { return (kernel(reps()) & 1i64) as i32; }

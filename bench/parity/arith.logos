@@ -1,0 +1,30 @@
+package b_arith;
+extern fn logos_argc() -> i32;
+extern fn logos_argv() -> *const *const u8;
+fn reps() -> i64 {
+    unsafe {
+        if logos_argc() < 2i32 { return 1i64; }
+        let p: *const *const u8 = (logos_argv() as i64 + 8i64) as *const *const u8;
+        let s: *const u8 = p[0];
+        let mut n: i64 = 0; let mut i: i64 = 0;
+        while s[i] != 0u8 { n = n * 10i64 + (s[i] as i64 - 48i64); i = i + 1; }
+        return n;
+    }
+}
+// mutate-then-reduce over a real array: each rep mutates `data` (so the rep loop
+// cannot be hoisted) and reduces it (vectorizable). acc is consumed at exit.
+fn kernel(r: i64) -> i64 {
+    let mut data: [i64; 4096] = [0i64; 4096];
+    let mut i: i64 = 0;
+    while i < 4096i64 { data[i] = i; i = i + 1; }
+    let mut acc: i64 = 0; let mut k: i64 = 0;
+    while k < r {
+        i = 0;
+        while i < 4096i64 { data[i] = data[i] + 1i64; i = i + 1; }
+        let mut s: i64 = 0; i = 0;
+        while i < 4096i64 { s = s + data[i]; i = i + 1; }
+        acc = acc ^ s; k = k + 1;
+    }
+    return acc;
+}
+fn main() -> i32 { return (kernel(reps()) & 1i64) as i32; }
