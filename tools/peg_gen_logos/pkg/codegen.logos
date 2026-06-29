@@ -1106,7 +1106,7 @@ fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
         if t.kind == TOKEN_REGEX && !is_doc_char_token(t.name.as_str()) {
             let pat: str = t.pattern.as_str();
             let shape: i64 = regex_shape(pat);
-            if shape == 1i64 { emit_lex_string(w, t.name.as_str()); }
+            if shape == 1i64 { emit_lex_string(w, t.name.as_str(), pat); }
             else if shape == 2i64 {
                 if !emitted_num {
                     emit_lex_number(w, int_name.as_str(), flt_name.as_str());
@@ -1152,8 +1152,39 @@ fn unquote_slash(s: str) -> str {
     return s;
 }
 
-fn emit_lex_string(w: &mut CodeWriter, name: str) {
-    w.line("        // STRING: \"…\" with \\ escapes.");
+// String-token matcher, PREFIX-AWARE: a plain `"…"` (STRING), a raw `r"…"`
+// (RAW_STRING, no escapes), or a byte `b"…"` (BYTE_STRING, with escapes). The
+// prefix distinguishes them so the prefixed variants (declared first) don't
+// shadow plain STRING with a bare `"…"` matcher — that bug made `"C"` lex as
+// RAW_STRING and broke every rule wanting exactly TK_STRING (e.g. extern "C").
+fn emit_lex_string(w: &mut CodeWriter, name: str, pat: str) {
+    let inner: str = unquote_slash(pat);
+    let b0: u8 = if inner.len() > 0i64 { str_byte_at(inner, 0i64) } else { 34u8 };
+    let b1: u8 = if inner.len() > 1i64 { str_byte_at(inner, 1i64) } else { 0u8 };
+    if b0 == 114u8 && b1 == 34u8 {
+        // r"…"  raw string: no escapes, body is any byte except the closing quote.
+        w.line("        if c == 114u8 && self.cur(1i64) == 34u8 {");
+        w.line("            self.pos = self.pos + 2i64;");
+        w.line("            while self.pos < self.src.len() && self.cur(0i64) != 34u8 { self.pos = self.pos + 1i64; }");
+        w.line("            if self.pos < self.src.len() { self.pos = self.pos + 1i64; }");
+        w.l3("            return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+        w.line("        }");
+        return;
+    }
+    if b0 == 98u8 && b1 == 34u8 {
+        // b"…"  byte string: like STRING (with \ escapes), but a `b` prefix.
+        w.line("        if c == 98u8 && self.cur(1i64) == 34u8 {");
+        w.line("            self.pos = self.pos + 2i64;");
+        w.line("            while self.pos < self.src.len() && self.cur(0i64) != 34u8 {");
+        w.line("                if self.cur(0i64) == 92u8 { self.pos = self.pos + 1i64; }");
+        w.line("                self.pos = self.pos + 1i64;");
+        w.line("            }");
+        w.line("            if self.pos < self.src.len() { self.pos = self.pos + 1i64; }");
+        w.l3("            return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+        w.line("        }");
+        return;
+    }
+    // plain "…" with \ escapes
     w.line("        if c == 34u8 {");
     w.line("            self.pos = self.pos + 1i64;");
     w.line("            while self.pos < self.src.len() && self.cur(0i64) != 34u8 {");
