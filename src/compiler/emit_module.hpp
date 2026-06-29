@@ -39,6 +39,9 @@ struct EmitModuleOptions {
     // Trap on integer +/-/* overflow (default) vs wrapping (`-C overflow-checks=off`).
     // Threaded to the lowering tail so package/stdlib arithmetic honors the policy.
     bool overflow_checks = true;
+
+    // Backend target CPU (`-C target-cpu=`); "native" = host CPU (AVX…).
+    std::string target_cpu = "generic";
 };
 
 // Build a binary module (.a archive) from a module manifest.

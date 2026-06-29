@@ -271,7 +271,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                const std::unordered_map<std::string, std::string>& module_name_to_id = {},
                                const std::string& abi_layout_path = "",
                                int opt_level = 0,
-                               bool overflow_checks = true) {
+                               bool overflow_checks = true,
+                               const std::string& target_cpu = "generic") {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -801,6 +802,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     LowerEmitOpts lopts;
     lopts.opt_level = opt_level;    // honor -O from the CLI (0 = skip opt pipeline)
     lopts.overflow_checks = overflow_checks;  // honor -C overflow-checks=off
+    lopts.target_cpu = target_cpu;            // honor -C target-cpu=
     lopts.function_sections = true; // per-fn sections for --gc-sections
     return lower_and_emit_object(prog, obj_path, lopts) == 0;
 }
@@ -1078,7 +1080,8 @@ bool emit_module(const ModuleManifest& manifest,
                                /*module_name_to_id=*/module_name_to_id,
                                /*abi_layout_path=*/output_path + ".abi-layout",
                                /*opt_level=*/opts.opt_level,
-                               /*overflow_checks=*/opts.overflow_checks)) {
+                               /*overflow_checks=*/opts.overflow_checks,
+                               /*target_cpu=*/opts.target_cpu)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }

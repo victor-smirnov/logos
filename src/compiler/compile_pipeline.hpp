@@ -30,6 +30,8 @@ struct LowerEmitOpts {
                                     // pipeline (honors opt_level), then return 0
     bool overflow_checks   = true;  // trap on int +/-/* overflow; false = wrapping
                                     // (`-C overflow-checks=off`, vectorizable arith)
+    std::string target_cpu = "generic"; // backend CPU (`-C target-cpu=`); "native"
+                                    // = host CPU (enables AVX/AVX2/AVX-512)
     // When set, the LLVM module is moved into *jit_module_out instead of
     // being emitted as an object file — caller (main.cpp --jit) takes
     // ownership and drives JIT compilation themselves. Bypasses the whole

@@ -35,6 +35,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
+#include <llvm/TargetParser/Host.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 
@@ -235,9 +236,16 @@ int lower_and_emit_object(lir::LProgram& prog,
     llvm::TargetOptions tmopts;
     tmopts.FunctionSections = opts.function_sections;
     tmopts.DataSections     = opts.function_sections;
+    // Target CPU: "generic" (default — portable x86-64 baseline, SSE2) unless the
+    // caller asked for a specific cpu via `-C target-cpu=`. "native" resolves to
+    // the host CPU, letting the backend emit AVX/AVX2/AVX-512 (a large win on
+    // vectorizable loops; non-portable). The CPU name alone enables that CPU's
+    // default feature set in the backend.
+    std::string cpu = opts.target_cpu.empty() ? "generic" : opts.target_cpu;
+    if (cpu == "native") cpu = std::string(llvm::sys::getHostCPUName());
     auto target_machine = std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(
-            llvm_module->getTargetTriple(), "generic", "",
+            llvm_module->getTargetTriple(), cpu, "",
             tmopts, llvm::Reloc::PIC_,
             std::nullopt, llvm_opt));
 

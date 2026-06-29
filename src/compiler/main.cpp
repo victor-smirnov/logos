@@ -2934,6 +2934,7 @@ static void print_usage(std::FILE* out) {
 "  -o <file>              output path (default: output.o)\n"
 "  -O0 | -O1 | -O2 | -O3  optimization level (default: -O0)\n"
 "  -C overflow-checks=off integer +/-/* wrap silently instead of trapping (default: on)\n"
+"  -C target-cpu=native   emit code for the host CPU (AVX/AVX2/AVX-512; default: generic)\n"
 "  -g, --debug            emit DWARF debug info\n"
 "  --emit-mlir            emit MLIR instead of an object\n"
 "  --emit-llvm            emit LLVM IR (PRE-optimization) instead of an object\n"
@@ -3012,6 +3013,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> explicit_lib_files;
     int opt_level = 0;
     bool overflow_checks = true;   // -C overflow-checks=off → wrapping int arith
+    std::string target_cpu = "generic";  // -C target-cpu=native → host CPU (AVX…)
     bool no_system = false;
     bool print_system_libdir = false;
     bool print_version = false;
@@ -3164,6 +3166,16 @@ int main(int argc, char** argv) {
             std::string_view v = std::string_view(arg).substr(18);
             overflow_checks = !(v == "off" || v == "no" || v == "0" || v == "false");
         }
+        // Backend target CPU (rustc-style). `-C target-cpu=native` (two-token) or
+        // `--target-cpu=native` → host CPU (enables AVX/AVX2/AVX-512; non-portable).
+        // Default "generic" = portable x86-64 baseline.
+        else if (arg == "-C" && i + 1 < argc &&
+                 std::string_view(argv[i + 1]).substr(0, 11) == "target-cpu=") {
+            target_cpu = std::string(std::string_view(argv[++i]).substr(11));
+        }
+        else if (std::string_view(arg).substr(0, 13) == "--target-cpu=") {
+            target_cpu = std::string(std::string_view(arg).substr(13));
+        }
         // Phase 2-4: cfg feature flags. `--cfg feature=foo` sets feature
         // `foo`; multiple flags accumulate. Also accepts bare flag form
         // `--cfg key_or_bare_name` (currently no-op — cfg-key flags like
@@ -3295,6 +3307,7 @@ int main(int argc, char** argv) {
         mopts.extra_lib_files = explicit_lib_files;
         mopts.opt_level = opt_level;
         mopts.overflow_checks = overflow_checks;
+        mopts.target_cpu = target_cpu;
         return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
     }
 
@@ -4691,6 +4704,7 @@ int main(int argc, char** argv) {
         lopts.emit_llvm         = emit_llvm;
         lopts.emit_llvm_opt     = emit_llvm_opt;
         lopts.overflow_checks   = overflow_checks;
+        lopts.target_cpu        = target_cpu;
         lopts.debug_info        = debug_g;
         lopts.source_path       = input_path ? input_path : "";
         lopts.dump_metaprog_dir = dump_metaprog_dir;
