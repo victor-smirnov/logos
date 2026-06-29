@@ -90,7 +90,8 @@ impl WAny {
     pub fn is_null(self: &WAny) -> bool { return self.raw() == 0i64; }
     pub fn is_pod(self: &WAny)  -> bool { return (self.raw() & 1i64) == 1i64; }
     pub fn is_ref(self: &WAny)  -> bool {
-        return (self.raw() & 1i64) == 0i64 && self.raw() != 0i64;
+        let w: i64 = self.raw();           // single read (raw() is a non-inlined call)
+        return (w & 1i64) == 0i64 && w != 0i64;
     }
     pub fn pod_code(self: &WAny) -> u8 { return ((self.raw() >> 1) & 0x7Fi64) as u8; }
     pub fn as_i56(self: &WAny)  -> i64 { return self.raw() >> 8; }   // sign-extends

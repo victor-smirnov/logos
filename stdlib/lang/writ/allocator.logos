@@ -112,8 +112,11 @@ unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
 pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut u8 {
     let al: i64 = if align < 2i64 { 2i64 } else { align };
     let seg: *mut Segment = a.current;
-    let base: i64 = seg_data(seg);
-    let addr: i64 = (base + seg.used + al - 1i64) / al * al;   // align the ABSOLUTE address
+    // seg_data inlined (one fewer non-inlined call/alloc); align-down via bitmask
+    // `& -al` (== `& ~(al-1)`, two's-complement) instead of `/al*al` — `al` is a
+    // power of two (floored to 2), so this is identical arithmetic minus an idiv.
+    let base: i64 = (seg as i64) + (sizeof::<Segment>() as i64);
+    let addr: i64 = (base + seg.used + al - 1i64) & (0i64 - al);   // align the ABSOLUTE address
     let off: i64 = addr - base;
     if off + size <= seg.cap {
         seg.used = off + size;
@@ -124,8 +127,8 @@ pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut 
     // for align > 8 the slack absorbs the rounding).
     let ns: *mut Segment = allocator_append(a, size + al);
     if ns.is_null() { return null_mut::<u8>(); }
-    let nbase: i64 = seg_data(ns);
-    let na: i64 = (nbase + al - 1i64) / al * al;
+    let nbase: i64 = (ns as i64) + (sizeof::<Segment>() as i64);
+    let na: i64 = (nbase + al - 1i64) & (0i64 - al);
     ns.used = (na - nbase) + size;
     return na as *mut u8;
 }

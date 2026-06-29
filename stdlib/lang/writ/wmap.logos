@@ -324,8 +324,11 @@ unsafe fn wtv_new(h: *mut Writ, cap: i64) -> *mut WMap<Wu6, WAny> {
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
     hdr.schema = 0u64;                  // no schema by default
     hdr.data   = buf;                   // #[zoned]: lowers to a self-relative offset
-    let mut i: i64 = 0i64;
-    while i < c { *(buf.add(i)) = WAny::ref_to(0i64 as *const u8); i = i + 1i64; }
+    // No zero-init of the value buffer: the array is compacted (only the `size`
+    // present entries, in key order) and bitmap-gated — get() reads data[pos]
+    // only when the key's bit is set (pos < size), and set() only touches
+    // positions < size, all written by prior inserts. Slots in [size, cap) are
+    // never read, so zeroing them was pure overhead (was ~22% of Writ build time).
     return hdr;
 }
 
