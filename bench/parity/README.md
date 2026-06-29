@@ -37,6 +37,7 @@ faster/denser.
 | structsum | 1.06×  | 1.18×  | 0.99× | 0.93×   | array-of-structs; unroll-factor gap   |
 | nbody     | 1.23×  | 1.10×  | 1.11× | 1.00×   | float / struct math (SLP+sqrt-intr)   |
 | fannkuch  | 1.20×  | 1.40×  | 1.44× | —       | int / array-permute; **diffuse IPC gap** |
+| spectral  | 1.40×  | 1.00×  | 1.01× | ~       | float div-bound; instr gap masked by 1/d latency |
 
 **logosc is at parity with rustc on the vectorizable + scalar micro-benches**
 (instruction density 0.99–1.23×; baseline cycles 0.99–1.19× on all but fannkuch).
@@ -44,11 +45,17 @@ faster/denser.
 SSE2 baseline** for arith/dot — because logosc otherwise never emits AVX.
 
 The larger benches surfaced two codegen fixes (libm-call→intrinsic; SLP
-vectorization was never enabled) — see git log. Remaining gaps: **fannkuch 1.40×
-cycles** (integer / array-permutation; not bounds-checks — logosc has FEWER
-branches and MORE SIMD than rustc here — but a worse IPC 1.11 vs 1.31, a diffuse
-loop-scheduling gap, no single bug yet) and structsum's baseline unroll-factor
-(rustc unrolls the reduce 8-wide vs logosc 4-wide; parity at native).
+vectorization was never enabled) — see git log.
+
+**Pattern: instruction density degrades on complex code.** Micro-benches are at
+instruction parity (≈1.0×), but the larger programs show logosc emitting ~20–40%
+MORE instructions than rustc (nbody 1.23×, fannkuch 1.20×, spectral 1.40×). The
+CYCLE impact varies by how the bottleneck masks it: spectral is division-latency-
+bound → 1.00× cycles despite 1.40× instructions; nbody ~1.1×; fannkuch 1.40×
+cycles (the instruction surplus + a worse IPC, 1.11 vs 1.31, both hurt). Likely
+roots (a future codegen-quality dig): weaker CSE / redundant address computation /
+register allocation vs rustc's MIR-optimized IR. structsum's baseline 1.18× is a
+separate unroll-FACTOR gap (rustc reduces 8-wide vs logosc 4-wide; parity at native).
 
 Caveat: fine native head-to-head cycle ratios (`c-nat` for arith/dot) are noisy
 and omitted (`~`) — AVX-512 down-clocks the core, so sub-runs vary run to run;

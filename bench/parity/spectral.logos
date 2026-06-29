@@ -1,0 +1,55 @@
+package b_spectral;
+use logos.lang.math;
+extern fn logos_argc() -> i32;
+extern fn logos_argv() -> *const *const u8;
+fn reps() -> i64 {
+    unsafe {
+        if logos_argc() < 2i32 { return 1i64; }
+        let p: *const *const u8 = (logos_argv() as i64 + 8i64) as *const *const u8;
+        let s: *const u8 = p[0];
+        let mut n: i64 = 0; let mut i: i64 = 0;
+        while s[i] != 0u8 { n = n * 10i64 + (s[i] as i64 - 48i64); i = i + 1; }
+        return n;
+    }
+}
+fn eval_a(i: i64, j: i64) -> f64 {
+    let s: i64 = i + j;
+    let d: i64 = s * (s + 1i64) / 2i64 + i + 1i64;
+    return 1.0 / (d as f64);
+}
+// v = A * u   (n×n)
+fn a_times_u(u: &[f64; 256], v: &mut [f64; 256], n: i64) {
+    let mut i: i64 = 0;
+    while i < n {
+        let mut sum: f64 = 0.0; let mut j: i64 = 0;
+        while j < n { sum = sum + eval_a(i, j) * u[j]; j = j + 1i64; }
+        v[i] = sum; i = i + 1i64;
+    }
+}
+// v = A^T * u
+fn at_times_u(u: &[f64; 256], v: &mut [f64; 256], n: i64) {
+    let mut i: i64 = 0;
+    while i < n {
+        let mut sum: f64 = 0.0; let mut j: i64 = 0;
+        while j < n { sum = sum + eval_a(j, i) * u[j]; j = j + 1i64; }
+        v[i] = sum; i = i + 1i64;
+    }
+}
+fn kernel(r: i64) -> i64 {
+    let n: i64 = 256i64;
+    let mut u: [f64; 256] = [1.0; 256];
+    let mut t: [f64; 256] = [0.0; 256];
+    let mut v: [f64; 256] = [0.0; 256];
+    let mut acc: i64 = 0; let mut k: i64 = 0;
+    while k < r {
+        a_times_u(&u, &mut t, n);
+        at_times_u(&t, &mut v, n);
+        // copy v back to u (power iteration), perturb by k to defeat hoisting
+        let mut i: i64 = 0;
+        while i < n { u[i] = v[i] + ((k & 1i64) as f64) * 0.0; i = i + 1i64; }
+        acc = acc ^ (v[0] * 1000000.0) as i64;
+        k = k + 1i64;
+    }
+    return acc;
+}
+fn main() -> i32 { return (kernel(reps()) & 1i64) as i32; }
