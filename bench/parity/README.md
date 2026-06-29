@@ -26,21 +26,29 @@ Columns: **i-base** = instruction ratio lg-rel/rustc (codegen density, baseline)
 = logos native speedup vs its own baseline. Ratio ≈ 1.0 = parity; < 1 = logos
 faster/denser.
 
-## Baseline (2026-06-29, Zen5 12c/24t)
+## Baseline (2026-06-29, Zen5 12c/24t; logosc with the SLP + math-intrinsic fixes)
 
-| bench     | i-base | c-base | c-nat | nat-spd |
-|-----------|--------|--------|-------|---------|
-| arith     | 1.00×  | 0.99×  | ~     | 2.9×    |
-| dot       | 0.99×  | 1.00×  | ~     | 3.5×    |
-| fib       | 1.00×  | 1.03×  | 1.03× | 0.99×   |
-| fnv       | 0.99×  | 0.99×  | 1.00× | 1.00×   |
-| structsum | 1.06×  | 1.19×  | 0.99× | 0.93×   |
+| bench     | i-base | c-base | c-nat | nat-spd | note                                  |
+|-----------|--------|--------|-------|---------|---------------------------------------|
+| arith     | 1.00×  | 0.99×  | ~     | 2.9×    | vectorizable reduce                   |
+| dot       | 0.99×  | 1.00×  | ~     | 3.5×    | dot product                           |
+| fib       | 1.00×  | 1.03×  | 1.03× | 0.99×   | recursion / calls                     |
+| fnv       | 0.99×  | 0.99×  | 1.00× | 1.00×   | byte-loop hash                        |
+| structsum | 1.06×  | 1.18×  | 0.99× | 0.93×   | array-of-structs; unroll-factor gap   |
+| nbody     | 1.23×  | 1.10×  | 1.11× | 1.00×   | float / struct math (SLP+sqrt-intr)   |
+| fannkuch  | 1.20×  | 1.40×  | 1.44× | —       | int / array-permute; **diffuse IPC gap** |
 
-**logosc is at parity with rustc.** Instruction density is parity across the
-board (0.99–1.06×); baseline cycles are parity (0.99–1.19×, structsum the lone
-mild outlier — closes to 0.99× at native). `-C target-cpu=native` is a large win
-on vectorizable loops — **~2.9–3.5× over the SSE2 baseline** for arith/dot,
-neutral on serial code (fib/fnv) — because logosc otherwise never emits AVX.
+**logosc is at parity with rustc on the vectorizable + scalar micro-benches**
+(instruction density 0.99–1.23×; baseline cycles 0.99–1.19× on all but fannkuch).
+`-C target-cpu=native` is a large win on vectorizable loops — **~2.9–3.5× over the
+SSE2 baseline** for arith/dot — because logosc otherwise never emits AVX.
+
+The larger benches surfaced two codegen fixes (libm-call→intrinsic; SLP
+vectorization was never enabled) — see git log. Remaining gaps: **fannkuch 1.40×
+cycles** (integer / array-permutation; not bounds-checks — logosc has FEWER
+branches and MORE SIMD than rustc here — but a worse IPC 1.11 vs 1.31, a diffuse
+loop-scheduling gap, no single bug yet) and structsum's baseline unroll-factor
+(rustc unrolls the reduce 8-wide vs logosc 4-wide; parity at native).
 
 Caveat: fine native head-to-head cycle ratios (`c-nat` for arith/dot) are noisy
 and omitted (`~`) — AVX-512 down-clocks the core, so sub-runs vary run to run;
