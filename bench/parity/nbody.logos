@@ -1,0 +1,99 @@
+package b_nbody;
+use logos.lang.math;
+extern fn logos_argc() -> i32;
+extern fn printf(fmt: *const u8, ...) -> i32;
+extern fn logos_argv() -> *const *const u8;
+fn reps() -> i64 {
+    unsafe {
+        if logos_argc() < 2i32 { return 1i64; }
+        let p: *const *const u8 = (logos_argv() as i64 + 8i64) as *const *const u8;
+        let s: *const u8 = p[0];
+        let mut n: i64 = 0; let mut i: i64 = 0;
+        while s[i] != 0u8 { n = n * 10i64 + (s[i] as i64 - 48i64); i = i + 1; }
+        return n;
+    }
+}
+
+struct Body { x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64 }
+
+fn init() -> [Body; 5] {
+    let pi: f64 = 3.141592653589793;
+    let sm: f64 = 4.0 * pi * pi;            // SOLAR_MASS
+    let dpy: f64 = 365.24;                  // DAYS_PER_YEAR
+    let mut b: [Body; 5] = [Body{x:0.0,y:0.0,z:0.0,vx:0.0,vy:0.0,vz:0.0,mass:0.0}; 5];
+    b[0] = Body{x:0.0,y:0.0,z:0.0,vx:0.0,vy:0.0,vz:0.0,mass:sm};   // Sun
+    b[1] = Body{x:4.84143144246472090, y:0.0 - 1.16032004402742839, z:0.0 - 0.103622044471123109,
+                vx:0.00166007664274403694*dpy, vy:0.00769901118419740425*dpy, vz:(0.0 - 0.0000690460016972063023)*dpy,
+                mass:0.000954791938424326609*sm}; // Jupiter
+    b[2] = Body{x:8.34336671824457987, y:4.12479856412430479, z:0.0 - 0.403523417114321381,
+                vx:(0.0 - 0.00276742510726862411)*dpy, vy:0.00499852801234917238*dpy, vz:0.0000230417297573763929*dpy,
+                mass:0.000285885980666130812*sm}; // Saturn
+    b[3] = Body{x:12.8943695621391310, y:(0.0 - 15.1111514016986312), z:(0.0 - 0.223307578892655734),
+                vx:0.00296460137564761618*dpy, vy:0.00237847173959480950*dpy, vz:(0.0 - 0.0000296589568540237556)*dpy,
+                mass:0.0000436624404335156298*sm}; // Uranus
+    b[4] = Body{x:15.3796971148509165, y:(0.0 - 25.9193146099879641), z:0.179258772950371181,
+                vx:0.00268067772490389322*dpy, vy:0.00162824170038242295*dpy, vz:(0.0 - 0.0000951592254519715870)*dpy,
+                mass:0.0000515138902046611451*sm}; // Neptune
+    // offset_momentum: make total momentum zero via the Sun.
+    let mut px: f64 = 0.0; let mut py: f64 = 0.0; let mut pz: f64 = 0.0;
+    let mut i: i64 = 0;
+    while i < 5i64 { px = px + b[i].vx*b[i].mass; py = py + b[i].vy*b[i].mass; pz = pz + b[i].vz*b[i].mass; i = i + 1; }
+    b[0].vx = (0.0 - px) / sm; b[0].vy = (0.0 - py) / sm; b[0].vz = (0.0 - pz) / sm;
+    return b;
+}
+
+fn advance(b: &mut [Body; 5], dt: f64) {
+    let mut i: i64 = 0;
+    while i < 5i64 {
+        let mut j: i64 = i + 1i64;
+        while j < 5i64 {
+            let dx: f64 = b[i].x - b[j].x;
+            let dy: f64 = b[i].y - b[j].y;
+            let dz: f64 = b[i].z - b[j].z;
+            let d2: f64 = dx*dx + dy*dy + dz*dz;
+            let dist: f64 = sqrt_f64(d2);
+            let mag: f64 = dt / (d2 * dist);
+            let mi: f64 = b[i].mass * mag;
+            let mj: f64 = b[j].mass * mag;
+            b[i].vx = b[i].vx - dx*mj; b[i].vy = b[i].vy - dy*mj; b[i].vz = b[i].vz - dz*mj;
+            b[j].vx = b[j].vx + dx*mi; b[j].vy = b[j].vy + dy*mi; b[j].vz = b[j].vz + dz*mi;
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    i = 0;
+    while i < 5i64 {
+        b[i].x = b[i].x + dt*b[i].vx; b[i].y = b[i].y + dt*b[i].vy; b[i].z = b[i].z + dt*b[i].vz;
+        i = i + 1i64;
+    }
+}
+
+fn energy(b: &[Body; 5]) -> f64 {
+    let mut e: f64 = 0.0; let mut i: i64 = 0;
+    while i < 5i64 {
+        e = e + 0.5 * b[i].mass * (b[i].vx*b[i].vx + b[i].vy*b[i].vy + b[i].vz*b[i].vz);
+        let mut j: i64 = i + 1i64;
+        while j < 5i64 {
+            let dx: f64 = b[i].x - b[j].x; let dy: f64 = b[i].y - b[j].y; let dz: f64 = b[i].z - b[j].z;
+            let dist: f64 = sqrt_f64(dx*dx + dy*dy + dz*dz);
+            e = e - (b[i].mass * b[j].mass) / dist;
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return e;
+}
+
+fn kernel(r: i64) -> i64 {
+    let mut b: [Body; 5] = init();
+    let mut k: i64 = 0;
+    while k < r { advance(&mut b, 0.01); k = k + 1i64; }
+    let e: f64 = energy(&b);
+    return (e * 1000000000.0) as i64;   // consume
+}
+fn main() -> i32 {
+    let v: i64 = kernel(reps());
+    let f: str = "%ld\n";
+    unsafe { printf(f.as_ptr(), v); }
+    return 0;
+}
