@@ -1086,6 +1086,11 @@ private:
 
     // ── Function type from LFunction ─────────────────────────────
     mlir::FunctionType make_fn_type(lir_view::FunctionView fn);
+    // Stamp type-derived LLVM parameter attributes (noundef/align/dereferenceable
+    // on thin references, noalias on &mut) onto a freshly-created FuncOp. Mirrors
+    // make_fn_type's slot-push order to keep MLIR arg indices aligned. See
+    // docs/internals/param-attrs.md for the soundness gates.
+    void apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView fn);
     // When `is_binary_skip` is true, the FuncOp is created private so the
     // module ends up with a declaration-only entry (no body, matching the
     // archive-resident implementation).

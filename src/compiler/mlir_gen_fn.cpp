@@ -149,6 +149,57 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 }
 
 // ---------------------------------------------------------------------------
+// Type-derived LLVM parameter attributes (rustc-parity, slice 1)
+//
+// Emits the always-sound reference bundle + noalias-on-&mut:
+//   &T / &mut T (THIN ptr only) → noundef, align(N), dereferenceable(size>0)
+//   &mut T (THIN)               → + noalias   (borrow-checker exclusivity)
+//
+// Soundness gates (see project_rustc_parity_type_attrs / the audit roadmap):
+//   • Kind ∈ {Ref, MutRef} AND ref_repr_of == ThinPtr. This self-excludes raw
+//     *T / fn-ptr (wrong Kind) and every FAT repr (FatSlice/FatDyn/FatClosure/
+//     FatZoneMut) whose ptr arg points at a 16B {data,meta} pair, not the
+//     pointee — so dereferenceable/align/noalias would be wrong there.
+//   • extern fns skipped: C-ABI boundary, we don't own the callee's aliasing.
+//   • noalias on &mut is sound because the borrow checker guarantees a safe
+//     &mut param is exclusive for the call (verified across two-&mut, split
+//     borrows, two-phase, closures). raw-ptr-aliased &mut is caller UB, same
+//     as rustc.
+//   • DEFERRED (slice C, blocked on a freeze predicate): noalias+readonly on
+//     shared &T — unsound until we can prove T has no interior mutability
+//     (UnsafeCell AND atomics, which are NOT UnsafeCell-wrapped in our stdlib).
+//   • The arg-index walk MIRRORS make_fn_type's slot-push order exactly: anyval
+//     → one i32 slot; Array → one ptr slot; a param whose logos_to_mlir is null
+//     (Void/Never) pushes NO slot and must not advance the index.
+// ---------------------------------------------------------------------------
+void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView fn) {
+    if (fn.is_extern()) return;            // FFI boundary — don't assert Logos aliasing
+    using K = LogosType::Kind;
+    const auto* pool = pool_impl();
+    auto unit = mlir::UnitAttr::get(builder_.getContext());
+    unsigned arg = 0;
+    for (auto& p : fn.params()) {
+        TypeRef pt = p.type(pool);
+        if (is_anyval(pt))                         { ++arg; continue; }  // i32 slot
+        if (pt && pt.kind() == K::Array)           { ++arg; continue; }  // ptr-to-array slot
+        if (!logos_to_mlir(pt)) continue;          // zero-width param: NO slot pushed
+        if (pt && (pt.kind() == K::Ref || pt.kind() == K::MutRef) &&
+            ref_repr_of(pt) == RefReprKind::ThinPtr) {
+            Layout lo = layout_of(pt.pointee());
+            f.setArgAttr(arg, "llvm.noundef", unit);
+            f.setArgAttr(arg, "llvm.align",
+                         builder_.getI64IntegerAttr((int64_t)lo.align));
+            if (lo.size > 0)
+                f.setArgAttr(arg, "llvm.dereferenceable",
+                             builder_.getI64IntegerAttr((int64_t)lo.size));
+            if (pt.kind() == K::MutRef)
+                f.setArgAttr(arg, "llvm.noalias", unit);
+        }
+        ++arg;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Forward declare
 // ---------------------------------------------------------------------------
 
@@ -187,6 +238,7 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, lir_view::FunctionView fn,
     // Binary-skip and extern fns are declaration-only — set private at
     // creation time to avoid the separate setPrivate-by-name pass.
     if (fn.is_extern() || is_binary_skip) f.setPrivate();
+    apply_param_attrs(f, fn);
     mod.push_back(f);
     mark_funcs_dirty();   // invalidate the canonical-resolution index
     // Record Logos-level param types for dyn coercion at call sites.
