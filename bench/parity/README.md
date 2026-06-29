@@ -39,6 +39,7 @@ faster/denser.
 | fannkuch  | 1.20×  | 1.40×  | 1.44× | —       | int / array-permute; **diffuse IPC gap** |
 | spectral  | 1.40×  | 1.00×  | 1.01× | ~       | float div-bound; instr gap masked by 1/d latency |
 | mandel    | 0.99×  | 0.99×  | 0.99× | ~       | float loop + escape branch — **parity** |
+| btree     | 0.94×  | 1.00×  | 0.99× | ~       | Box alloc + recursion + RAII drop — **parity** |
 
 **logosc is at parity with rustc on the vectorizable + scalar micro-benches**
 (instruction density 0.99–1.23×; baseline cycles 0.99–1.19× on all but fannkuch).
