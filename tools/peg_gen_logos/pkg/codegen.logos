@@ -708,12 +708,20 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // parse linear (each rule is parsed once per position) instead of exponential.
     w.line("pub struct MemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }");
     w.blank();
-    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell> }");
+    // Token-stream cache cell: the lexed token + the (pos,line) just after it,
+    // keyed by the ENTRY pos of lex_one. Backtracking (reset clears have_la) makes
+    // the parser re-peek the same positions; without this the lexer re-scans each
+    // token ~35× (708K lex_one calls for ~20K tokens on a 92KB file). Lexing is a
+    // pure function of (pos, src) — line is a deterministic function of pos — so a
+    // pos-keyed cache is sound. This turns the 76%-of-runtime lexer near-linear.
+    w.line("pub struct TokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }");
+    w.blank();
+    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tmemo: HashMap<i64, TokCell> }");
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
     w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
     w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
-    w.line("        memo: hashmap_new::<i64, MemoCell>() };");
+    w.line("        memo: hashmap_new::<i64, MemoCell>(), tmemo: hashmap_new::<i64, TokCell>() };");
     w.line("}");
     w.blank();
     w.line("fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }");
@@ -776,6 +784,25 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("        }");
     w.line("    }");
     emit_pseudo_helpers(cg, w);
+    // Token-stream cache wrapper around the real scanner (lex_one_raw). On a cache
+    // hit, restore the post-token (pos,line) and rebuild the Token — no re-scan.
+    w.line("    fn lex_one(self: &mut Lexer) -> Token {");
+    w.line("        let k: i64 = self.pos;");
+    w.line("        unsafe {");
+    w.line("            let tp: *mut HashMap<i64, TokCell> = &mut self.tmemo;");
+    w.line("            let hp: *const TokCell = tp.get(&k);");
+    w.line("            if hp != (0i64 as *const TokCell) {");
+    w.line("                self.pos = (*hp).endpos; self.line = (*hp).endline;");
+    w.line("                return Token { kind: (*hp).tk, start: (*hp).tstart, len: (*hp).tlen, line: (*hp).tline };");
+    w.line("            }");
+    w.line("        }");
+    w.line("        let t: Token = self.lex_one_raw();");
+    w.line("        unsafe {");
+    w.line("            let tp: *mut HashMap<i64, TokCell> = &mut self.tmemo;");
+    w.line("            tp.insert(k, TokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line });");
+    w.line("        }");
+    w.line("        return t;");
+    w.line("    }");
     emit_lex_one(cg, w);
     w.line("}");
     w.blank();
@@ -881,7 +908,7 @@ fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
 // Targets the writ.peg token set; unrecognised regex shapes emit a TODO and fall
 // through to TK_INVALID.
 fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
-    w.line("    fn lex_one(self: &mut Lexer) -> Token {");
+    w.line("    fn lex_one_raw(self: &mut Lexer) -> Token {");
     w.line("        // Skip whitespace and // line / /* */ block comments.");
     w.line("        loop {");
     w.line("            let c: u8 = self.cur(0i64);");
