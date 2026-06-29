@@ -290,6 +290,56 @@ fn is_token_alias(cg: &Codegen, name: str) -> bool {
     return false;
 }
 
+// Does the item subtree rooted at `item_idx` contain a RULE_REF to `target`?
+// Walks the child item (OPT/REP/LOOKAHEAD) and any group alternatives.
+fn item_refs_rule(cg: &Codegen, item_idx: i64, target: str) -> bool {
+    if item_idx < 0i64 { return false; }
+    if cg.items.borrow(item_idx).kind == RULE_REF
+        && str_eq(cg.items.borrow(item_idx).name.as_str(), target) { return true; }
+    if item_refs_rule(cg, cg.items.borrow(item_idx).sub, target) { return true; }
+    let na: i64 = cg.items.borrow(item_idx).alts.len();
+    let mut i: i64 = 0i64;
+    while i < na {
+        if alt_refs_rule(cg, cg.items.borrow(item_idx).alts.get(i), target) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn alt_refs_rule(cg: &Codegen, alt_idx: i64, target: str) -> bool {
+    let n: i64 = cg.alts.borrow(alt_idx).seq.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if item_refs_rule(cg, cg.alts.borrow(alt_idx).seq.get(i), target) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// Number of distinct rules whose body references `target` via RULE_REF (fan-in).
+// Generic proxy for "called at the same position from multiple contexts": the
+// mutually-recursive expression/type precedence cascade has fan-in ≥ 2; leaf
+// rules referenced once do not. Drives selective packrat memoization — only
+// high-fan-in rules carry a memo cache, matching the C++ generator's policy of
+// memoizing the ~12 expr/type rules (it hardcodes names; we derive from structure).
+fn rule_fanin(cg: &Codegen, target: str) -> i64 {
+    let mut cnt: i64 = 0i64;
+    let nr: i64 = cg.rules.len();
+    let mut ri: i64 = 0i64;
+    while ri < nr {
+        let nalts: i64 = cg.rules.borrow(ri).alts.len();
+        let mut found: bool = false;
+        let mut ai: i64 = 0i64;
+        while ai < nalts {
+            if alt_refs_rule(cg, cg.rules.borrow(ri).alts.get(ai), target) { found = true; break; }
+            ai = ai + 1i64;
+        }
+        if found { cnt = cnt + 1i64; }
+        ri = ri + 1i64;
+    }
+    return cnt;
+}
+
 // True if the REP child `sub` is a fold-mode group: a GROUP whose any alt action
 // references $0 (FOLD_CAPTURE) — i.e. `(OP rhs => { …LHS: $0… })*`.
 fn rep_is_fold(cg: &Codegen, sub: i64) -> bool {
@@ -1387,7 +1437,7 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
     // Token-alias rules (single-token, no action) are cheap — emit a plain
     // dispatcher. All other rules get packrat memoization: the alt dispatch moves
     // to rule_<name>_impl and rule_<name> is a memo wrapper keyed by position.
-    let memoize: bool = !is_token_alias(cg, rname.as_str());
+    let memoize: bool = !is_token_alias(cg, rname.as_str()) && rule_fanin(cg, rname.as_str()) >= 2i64;
     let mut dispatch_name: String = String::new();
     dispatch_name.push_str("rule_"); dispatch_name.push_str(rname.as_str());
     if memoize { dispatch_name.push_str("_impl"); }
