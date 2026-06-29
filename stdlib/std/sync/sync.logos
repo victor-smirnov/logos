@@ -21,6 +21,7 @@ package logos.std.sync;
 use logos.lang.mem;
 use logos.lang.marker;
 use logos.lang.option;
+use logos.lang.cell;
 
 // ── POSIX externals ──────────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ extern fn pthread_rwlock_destroy(rwlock: *mut u8) -> i32;
 // 'data' holds the protected value inline in the struct.
 
 pub struct Mutex<T> {
-    data: T,
+    data: UnsafeCell<T>,
     raw:  *mut u8,
 }
 
@@ -54,21 +55,21 @@ pub fn mutex_new<T: Send>(data: T) -> Mutex<T> {
         let null_attr: *const u8 = 0 as *const u8;
         pthread_mutex_init(raw, null_attr);
     }
-    return Mutex { data: data, raw: raw };
+    return Mutex { data: UnsafeCell::new(data), raw: raw };
 }
 
 impl<T: Send> Mutex<T> {
     // Acquire the lock; returns a mutable pointer to the protected data.
     pub unsafe fn lock(self: *mut Mutex<T>) -> *mut T {
         pthread_mutex_lock(self.raw);
-        return &mut self.data as *mut T;
+        return self.data.get();
     }
 
     // Try to acquire without blocking.  Returns Some(*mut T) on success, None on contention.
     pub unsafe fn try_lock(self: *mut Mutex<T>) -> Option<*mut T> {
         let rc: i32 = pthread_mutex_trylock(self.raw);
         if rc == 0 {
-            return Option::Some(&mut self.data as *mut T);
+            return Option::Some(self.data.get());
         }
         return Option::None;
     }
@@ -116,7 +117,7 @@ impl<T> Drop for Mutex<T> {
 // Multiple readers may hold the lock simultaneously; writers are exclusive.
 
 pub struct RwLock<T> {
-    data: T,
+    data: UnsafeCell<T>,
     raw:  *mut u8,
 }
 
@@ -126,21 +127,21 @@ pub fn rwlock_new<T: Send + Sync>(data: T) -> RwLock<T> {
         let null_attr: *const u8 = 0 as *const u8;
         pthread_rwlock_init(raw, null_attr);
     }
-    return RwLock { data: data, raw: raw };
+    return RwLock { data: UnsafeCell::new(data), raw: raw };
 }
 
 impl<T: Send + Sync> RwLock<T> {
     // Acquire a shared (reader) lock; returns a const pointer to the data.
     pub unsafe fn read_lock(self: *mut RwLock<T>) -> *const T {
         pthread_rwlock_rdlock(self.raw);
-        return &self.data as *const T;
+        return self.data.get() as *const T;
     }
 
     // Try to acquire a reader lock without blocking.
     pub unsafe fn try_read_lock(self: *mut RwLock<T>) -> Option<*const T> {
         let rc: i32 = pthread_rwlock_tryrdlock(self.raw);
         if rc == 0 {
-            return Option::Some(&self.data as *const T);
+            return Option::Some(self.data.get() as *const T);
         }
         return Option::None;
     }
@@ -148,14 +149,14 @@ impl<T: Send + Sync> RwLock<T> {
     // Acquire an exclusive (writer) lock; returns a mutable pointer to the data.
     pub unsafe fn write_lock(self: *mut RwLock<T>) -> *mut T {
         pthread_rwlock_wrlock(self.raw);
-        return &mut self.data as *mut T;
+        return self.data.get();
     }
 
     // Try to acquire a writer lock without blocking.
     pub unsafe fn try_write_lock(self: *mut RwLock<T>) -> Option<*mut T> {
         let rc: i32 = pthread_rwlock_trywrlock(self.raw);
         if rc == 0 {
-            return Option::Some(&mut self.data as *mut T);
+            return Option::Some(self.data.get());
         }
         return Option::None;
     }

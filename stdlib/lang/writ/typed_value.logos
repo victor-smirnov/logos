@@ -16,6 +16,7 @@ package logos.lang.writ.typed_value;
 use logos.lang.writ.container;   // Writ, alloc_tagged, W_TYPEDVALUE
 use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
+use logos.lang.cell;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
 
@@ -37,7 +38,7 @@ unsafe fn tv_slot_c(p: *const WTypedValue, off: i64) -> *zoned WAny {
 
 unsafe fn tv_new(h: *mut Writ, type_name: WAny, params: WAny, init: WAny) -> *mut WTypedValue {
     let obj: *mut WTypedValue =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WTypedValue>() as i64, W_TYPEDVALUE) as *mut WTypedValue;
+        alloc_tagged(h.allocator.get(), sizeof::<WTypedValue>() as i64, W_TYPEDVALUE) as *mut WTypedValue;
     *(tv_slot(obj, 0i64))  = type_name;   // *zoned write: lowers to a self-relative delta
     *(tv_slot(obj, 8i64))  = params;
     *(tv_slot(obj, 16i64)) = init;
@@ -66,7 +67,7 @@ impl Writ {
     pub fn typed_value(self: &Writ, type_name: str, params: WAny, init: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            let hs: *mut WString = wstring_in_alloc(&mut h.allocator as *mut Allocator, type_name);
+            let hs: *mut WString = wstring_in_alloc(h.allocator.get(), type_name);
             let tn: WAny = WAny::ref_to(hs as *const u8);
             return WAny::ref_to(tv_new(h, tn, params, init) as *const u8);
         }

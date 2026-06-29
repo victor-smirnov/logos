@@ -25,6 +25,7 @@ use logos.lang.writ.wstring;     // WString
 use logos.lang.writ.typed_value; // WTypedValue (@Type annotations)
 use logos.lang.writ.decimal;     // @Decimal validation
 use logos.lang.str;                 // str
+use logos.lang.cell;
 use logos.lang.ptr;                 // byte_add
 use logos.lang.num.parse;           // f64_from_str
 use logos.mem.string;               // String (escape-decoded scratch)
@@ -138,7 +139,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
     if peek(p) == 62u8 { advance(p); }            // '>'
     skip_ws(p);
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
+    let ap: *mut Allocator = hp.allocator.get();
 
     if peek(p) == 123u8 {                         // typed MAP
         let mtc: u64 =

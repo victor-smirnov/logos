@@ -8,6 +8,7 @@ use logos.lang.writ.wmap;
 use logos.lang.writ.wstring;
 use logos.mem.writ.stringify;
 use logos.lang.rc;
+use logos.lang.cell;
 use logos.mem.string;
 use logos.lang.str;
 
@@ -15,7 +16,7 @@ unsafe fn main() -> i32 {
     let c: Rc<Writ> = writ_rc(8192);
     let h: &Writ = c.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
+    let ap: *mut Allocator = hp.allocator.get();
 
     let big_i: i64 = 9000000000i64;             // beyond i24/i32
     let big_u: u64 = 18000000000u64;

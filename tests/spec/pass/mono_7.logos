@@ -72,10 +72,13 @@ fn main() -> i64 {
     // A literal Ordering forwarded into the atomic intrinsic specializes the
     // callee with the constant baked in; the store/load round-trips correctly.
     {
-        let mut a: AtomicI64 = atomic_i64_new(0i64);
+        // (Storage is a plain i64 — AtomicXX.val is now an encapsulated
+        // UnsafeCell, and this rule is about const-Ordering specialization of
+        // the my_store/my_load intrinsics, not the atomic struct itself.)
+        let mut a: i64 = 0i64;
         unsafe {
-            let pm: *mut i64 = &mut a.val as *mut i64;
-            let pc: *const i64 = &a.val as *const i64;
+            let pm: *mut i64 = &mut a as *mut i64;
+            let pc: *const i64 = &a as *const i64;
             my_store(pm, 7i64, Ordering::Release);
             if my_load(pc, Ordering::Acquire) != 7i64 { return 1; }
         }

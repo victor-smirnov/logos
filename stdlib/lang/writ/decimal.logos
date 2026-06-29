@@ -15,6 +15,7 @@ package logos.lang.writ.decimal;
 use logos.lang.writ.container;   // Writ, alloc_tagged, W_DECIMAL
 use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
+use logos.lang.cell;
 
 #[pinned]
 pub struct WDecimal {
@@ -27,7 +28,7 @@ const DEC_SIGN_BIT:   u32 = 0x80000000u32;   // bit[31] — 1 = negative
 
 unsafe fn decimal_new(h: *mut Writ, coeff: u64, scale: u32, neg: bool) -> *mut WDecimal {
     let obj: *mut WDecimal =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WDecimal>() as i64, W_DECIMAL) as *mut WDecimal;
+        alloc_tagged(h.allocator.get(), sizeof::<WDecimal>() as i64, W_DECIMAL) as *mut WDecimal;
     let mut spec: u32 = scale & DEC_SCALE_MASK;
     if neg { spec = spec | DEC_SIGN_BIT; }
     obj.spec  = spec;

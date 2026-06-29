@@ -26,6 +26,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.allocator;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc — for push(str)
 use logos.lang.ptr;
+use logos.lang.cell;
 
 // WArray<T> has two partial specialisations by element kind (mirrors legacy's
 // typed `Array<T>` vs heterogeneous container):
@@ -81,7 +82,7 @@ unsafe fn array_buf_mut(a: *mut WArray<WAny>) -> *zoned mut WAny {
 unsafe fn array_new(h: *mut Writ, cap: i64) -> *mut WArray<WAny> {
     // The header is WAny-Ref'd (nesting / array_of) → tag it for dispatch.
     let hdr: *mut WArray<WAny>    =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WArray<WAny>>() as i64, W_ARRAY) as *mut WArray<WAny>;
+        alloc_tagged(h.allocator.get(), sizeof::<WArray<WAny>>() as i64, W_ARRAY) as *mut WArray<WAny>;
     let buf: *zoned mut WAny  = writ_alloc_n::<WAny>(h, cap) as *zoned mut WAny;
     hdr.len   = 0i64;
     hdr.cap   = cap;
@@ -137,10 +138,9 @@ impl Writ {
     // multiple `array(&self)` calls coexist (each &mut is a distinct object).
     pub fn array<'a>(self: &'a Writ, cap: i64) -> &'a mut WArray<WAny> {
         unsafe {
-            let h: *mut Writ = self as *const Writ as *mut Writ;
             // Fat `&mut` carrying this container's zone (the allocator) — push/grow
             // recover it via zone_of(self); the object stores no allocator.
-            return zone_mut_ref::<WArray<WAny>>(array_new(h, cap), &mut h.allocator as *mut u8);
+            return zone_mut_ref::<WArray<WAny>>(array_new(self as *const Writ as *mut Writ, cap), self.allocator.get() as *mut u8);
         }
     }
     // Resolve a Ref element back to the array it points at, tied to THIS container
@@ -253,7 +253,7 @@ impl WArrTag for f64 { fn arr_code() -> u64 { return 2110u64; } }
 
 unsafe fn warr_new<T: WArrTag>(h: *mut Writ, cap: i64) -> *mut WArray<T> {
     let hdr: *mut WArray<T> =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WArray<T>>() as i64, T::arr_code()) as *mut WArray<T>;
+        alloc_tagged(h.allocator.get(), sizeof::<WArray<T>>() as i64, T::arr_code()) as *mut WArray<T>;
     let buf: *mut T = writ_alloc_n::<T>(h, cap);
     hdr.len  = 0i64;
     hdr.cap  = cap;
@@ -293,8 +293,7 @@ impl Writ {
     // container's zone (interior-mut `&self` allocation, like `array`).
     pub fn tarray<'a, T: WArrTag>(self: &'a Writ, cap: i64) -> &'a mut WArray<T> {
         unsafe {
-            let h: *mut Writ = self as *const Writ as *mut Writ;
-            return zone_mut_ref::<WArray<T>>(warr_new::<T>(h, cap), &mut h.allocator as *mut u8);
+            return zone_mut_ref::<WArray<T>>(warr_new::<T>(self as *const Writ as *mut Writ, cap), self.allocator.get() as *mut u8);
         }
     }
 }

@@ -18,22 +18,32 @@ package logos.lang.writ.container;
 use logos.lang.writ.allocator;
 use logos.lang.writ.anyval;
 use logos.lang.rc;
+use logos.lang.cell;
 
 // The root container: owns the segment arena by value (the container is the
 // stable root — it does not move; only never-move segments hang off it).
 pub struct Writ {
-    pub allocator: Allocator,
+    // Both fields are interior-mutable: the container mutates its own arena and
+    // root word through a shared `&Writ` (placement / `set_root` neither move nor
+    // invalidate anything in the never-move arena). Wrapping them in `UnsafeCell`
+    // (#[repr(transparent)], zero-cost) makes `Writ` structurally non-Freeze so a
+    // `&Writ` is correctly NOT treated as `readonly`/`noalias`.
+    // Kept `pub` so sibling `logos.lang.writ.*` packages (array/wmap/decimal/…)
+    // can reach the arena via `.allocator.get()`; the UnsafeCell wrapper — not
+    // field privacy — is what makes `Writ` non-Freeze and unblocks the
+    // readonly/noalias exclusion.
+    pub allocator: UnsafeCell<Allocator>,
     // The document ROOT — the top-level WAny, stored as its raw 8-byte word (0 =
     // null/unset). The legacy DocumentHeader analogue, folded into the root
     // container rather than a separate zone object.
-    pub root: i64,
+    pub root: UnsafeCell<i64>,
 }
 
 // Create a container whose segments default to `seg_size` data bytes. SAFE: the
 // returned container is a sound owned root (RAII-freed on drop); the segment
 // malloc is the only unsafe step and is fully encapsulated here.
 pub fn writ_new(seg_size: i64) -> Writ {
-    return Writ { allocator: unsafe { allocator_new(seg_size) }, root: 0i64 };
+    return Writ { allocator: UnsafeCell::new(unsafe { allocator_new(seg_size) }), root: UnsafeCell::new(0i64) };
 }
 
 impl Writ {
@@ -43,33 +53,33 @@ impl Writ {
     // references into the container. `root()` reconstructs the WAny from the stored
     // word (branchless: a Pod word reads back Pod, a Ref word reads back Ref).
     pub fn set_root(self: &Writ, v: WAny) {
-        unsafe { let p: *mut Writ = self as *const Writ as *mut Writ; p.root = v.raw(); }
+        unsafe { *(self.root.get()) = v.raw(); }
     }
-    pub fn root(self: &Writ) -> WAny { return WAny::ref_to(self.root as *const u8); }
+    pub fn root(self: &Writ) -> WAny { return WAny::ref_to((unsafe { *self.root.get() }) as *const u8); }
 }
 
 // Free the container and all its segments en masse. Must not be used after.
 pub unsafe fn writ_free(h: *mut Writ) {
-    allocator_free(&mut h.allocator);
+    allocator_free(h.allocator.get());
 }
 
 // Place one uninitialised `T` into a never-move segment; return a pointer to it.
 // The caller initialises the storage. The pointer is stable for the container's
 // lifetime. Returns null on OOM.
 pub unsafe fn writ_alloc<T>(h: *mut Writ) -> *mut T {
-    return allocator_alloc(&mut h.allocator, sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
+    return allocator_alloc(h.allocator.get(), sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
 }
 
 // Place `n` contiguous uninitialised `T` (array backing) in one segment; return
 // a pointer to element 0. Stable for the container's lifetime. Null on OOM.
 pub unsafe fn writ_alloc_n<T>(h: *mut Writ, n: i64) -> *mut T {
-    return allocator_alloc(&mut h.allocator, (sizeof::<T>() as i64) * n, align_of::<T>() as i64) as *mut T;
+    return allocator_alloc(h.allocator.get(), (sizeof::<T>() as i64) * n, align_of::<T>() as i64) as *mut T;
 }
 
 // Place `n` raw bytes (for self-describing blobs — Varchar payloads, etc.).
 // Stable for the container's lifetime. Null on OOM.
 pub unsafe fn writ_alloc_bytes(h: *mut Writ, n: i64) -> *mut u8 {
-    return allocator_alloc(&mut h.allocator, n, 8i64);   // conservative: callers may place 8-aligned data
+    return allocator_alloc(h.allocator.get(), n, 8i64);   // conservative: callers may place 8-aligned data
 }
 
 // Write the in-band type tag immediately before `obj` — the legacy datatag VARINT:
@@ -139,10 +149,10 @@ impl Writ {
     // Build a scalar WAny in THIS arena (boxing wide values). For walkers that
     // hold a `&Writ` (parse / wbs_read / compactify).
     pub fn int(self: &Writ, v: i64) -> WAny {
-        unsafe { return make_int(&mut (self as *const Writ as *mut Writ).allocator as *mut Allocator, v); }
+        unsafe { return make_int(self.allocator.get(), v); }
     }
     pub fn float(self: &Writ, v: f64) -> WAny {
-        unsafe { return box_f64(&mut (self as *const Writ as *mut Writ).allocator as *mut Allocator, v); }
+        unsafe { return box_f64(self.allocator.get(), v); }
     }
 }
 
@@ -165,7 +175,7 @@ impl Writ {
     // placement is an exclusive operation. (Internally unsafe; the API is safe.)
     pub fn put<T>(self: &mut Writ, v: T) -> Slot<T> {
         unsafe {
-            let p: *mut T = allocator_alloc(&mut self.allocator, sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
+            let p: *mut T = allocator_alloc(self.allocator.get(), sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
             *p = v;
             return Slot { p: p };
         }

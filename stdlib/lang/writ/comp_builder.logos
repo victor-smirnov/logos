@@ -26,6 +26,7 @@ use logos.lang.writ.wmap;         // WMap<WString,WAny>, Writ.map, WMap.set
 use logos.lang.writ.wstring;      // WString (key type in the map annotation)
 use logos.lang.rc;                    // Rc — heap-pin the non-movable Writ
 use logos.lang.str;
+use logos.lang.cell;
 
 // КОСТЫЛЬ / TODO(deref): we use explicit `&*rc` because `*rc` / auto-deref of
 // a user `Deref` impl (Rc) does NOT kick in for method calls or the `*` operator yet
@@ -51,11 +52,10 @@ pub fn writ_list_comp_push(c: &Rc<Writ>, v: WAny) {
     let h: &Writ = &**c;
     let root: WAny = h.root();
     unsafe {
-        let hp: *mut Writ = h as *const Writ as *mut Writ;
         // Rebuild a FAT &mut carrying the container's zone (allocator), so push/grow
         // recover it via zone_of(self) — a thin &mut from the raw ptr loses the zone.
         let arr: &mut WArray<WAny> = zone_mut_ref::<WArray<WAny>>(
-            root.resolve() as *mut WArray<WAny>, &mut hp.allocator as *mut u8);
+            root.resolve() as *mut WArray<WAny>, h.allocator.get() as *mut u8);
         arr.push(v);
     }
 }
@@ -79,9 +79,8 @@ pub fn writ_map_comp_put(c: &Rc<Writ>, k: str, v: WAny) {
     let h: &Writ = &**c;
     let root: WAny = h.root();
     unsafe {
-        let hp: *mut Writ = h as *const Writ as *mut Writ;
         let m: &mut WMap<WString, WAny> = zone_mut_ref::<WMap<WString, WAny>>(
-            root.resolve() as *mut WMap<WString, WAny>, &mut hp.allocator as *mut u8);
+            root.resolve() as *mut WMap<WString, WAny>, h.allocator.get() as *mut u8);
         m.set(k, v);
     }
 }

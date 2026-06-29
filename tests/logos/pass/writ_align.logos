@@ -5,10 +5,11 @@ package test;
 use logos.lang.writ.container;
 use logos.lang.writ.allocator;
 use logos.lang.ptr;
+use logos.lang.cell;
 fn main() -> i32 {
     let h: Writ = writ_new(4096i64);
     unsafe {
-        let a: *mut Allocator = &mut (&h as *const Writ as *mut Writ).allocator as *mut Allocator;
+        let a: *mut Allocator = h.allocator.get();
         // request align 1 → floor to 2
         let p1: i64 = allocator_alloc(a, 1i64, 1i64) as i64;
         if p1 % 2i64 != 0i64 { return 1; }

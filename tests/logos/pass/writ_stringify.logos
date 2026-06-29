@@ -8,6 +8,7 @@ use logos.lang.writ.container;
 use logos.lang.writ.allocator;
 use logos.mem.writ.stringify;
 use logos.lang.rc;
+use logos.lang.cell;
 use logos.mem.string;
 use logos.lang.str;
 
@@ -48,7 +49,7 @@ unsafe fn main() -> i32 {
     let c: Rc<Writ> = writ_rc(4096);
     let h: &Writ = c.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let big: WAny = box_i64(&mut hp.allocator as *mut Allocator, 9000000000i64);
+    let big: WAny = box_i64(hp.allocator.get(), 9000000000i64);
     let bs: String = stringify(big);
     if !bs.eq_str("9000000000") { return 12; }
 

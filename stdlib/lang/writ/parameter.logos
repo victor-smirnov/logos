@@ -14,6 +14,7 @@ package logos.lang.writ.parameter;
 use logos.lang.writ.container;   // Writ, alloc_tagged, W_PARAMETER
 use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
+use logos.lang.cell;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
 
@@ -34,7 +35,7 @@ unsafe fn param_slot_c(p: *const WParameter, off: i64) -> *zoned WAny {
 
 unsafe fn param_new(h: *mut Writ, name: WAny, value: WAny) -> *mut WParameter {
     let obj: *mut WParameter =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WParameter>() as i64, W_PARAMETER) as *mut WParameter;
+        alloc_tagged(h.allocator.get(), sizeof::<WParameter>() as i64, W_PARAMETER) as *mut WParameter;
     *(param_slot(obj, 0i64)) = name;    // *zoned write: lowers to a self-relative delta
     *(param_slot(obj, 8i64)) = value;
     return obj;
@@ -60,7 +61,7 @@ impl Writ {
     pub fn parameter(self: &Writ, name: str, value: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
-            let hs: *mut WString = wstring_in_alloc(&mut h.allocator as *mut Allocator, name);
+            let hs: *mut WString = wstring_in_alloc(h.allocator.get(), name);
             let nm: WAny = WAny::ref_to(hs as *const u8);
             return WAny::ref_to(param_new(h, nm, value) as *const u8);
         }

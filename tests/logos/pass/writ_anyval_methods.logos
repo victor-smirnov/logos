@@ -5,6 +5,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.allocator;
 use logos.lang.writ.container;
 use logos.lang.rc;
+use logos.lang.cell;
 
 unsafe fn main() -> i32 {
     // --- is_null ---
@@ -32,15 +33,15 @@ unsafe fn main() -> i32 {
     let rc: Rc<Writ> = writ_rc(4096);
     let h: &Writ = rc.deref();
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let big: WAny = box_i64(&mut hp.allocator as *mut Allocator, 1311768467463790320i64);
+    let big: WAny = box_i64(hp.allocator.get(), 1311768467463790320i64);
     if !big.is_int()   { return 10; }
     if big.is_pod()    { return 11; }                       // boxed → Ref, not Pod
     if big.as_i64() != 1311768467463790320i64 { return 12; }
 
-    let bu: WAny = box_u64(&mut hp.allocator as *mut Allocator, 18446744073709551615u64);
+    let bu: WAny = box_u64(hp.allocator.get(), 18446744073709551615u64);
     if bu.as_u64() != 18446744073709551615u64 { return 13; }
 
-    let bf: WAny = box_f64(&mut hp.allocator as *mut Allocator, 2.5);
+    let bf: WAny = box_f64(hp.allocator.get(), 2.5);
     if !bf.is_float()  { return 14; }
     if bf.as_f64() != 2.5 { return 15; }
 

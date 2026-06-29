@@ -25,6 +25,7 @@ use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.writ.array;       // WArray<WAny> + WAny::from(&Array) — for nested values
 use logos.lang.hash;                // fnv1a_bytes
 use logos.lang.str;                 // str, str_eq
+use logos.lang.cell;
 use logos.lang.ptr;                 // byte_add
 
 #[pinned]
@@ -87,7 +88,7 @@ fn round_pow2(n: i64) -> i64 {
 unsafe fn om_new(h: *mut Writ, cap: i64) -> *mut WMap<WString, WAny> {
     // The header is WAny-Ref'd (WAny::from(&WMap<WString, WAny>)) → tag it for dispatch.
     let hdr: *mut WMap<WString, WAny> =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<WString, WAny>>() as i64, W_MAP) as *mut WMap<WString, WAny>;
+        alloc_tagged(h.allocator.get(), sizeof::<WMap<WString, WAny>>() as i64, W_MAP) as *mut WMap<WString, WAny>;
     let buf: *mut WMapEntry  = writ_alloc_n::<WMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;
@@ -206,10 +207,9 @@ impl Writ {
     // power of two, min 8). `&self` interior-mut allocation into never-move storage.
     pub fn map<'a>(self: &'a Writ, cap: i64) -> &'a mut WMap<WString, WAny> {
         unsafe {
-            let h: *mut Writ = self as *const Writ as *mut Writ;
             // Fat `&mut` carrying this container's zone (the allocator); set/grow/
             // intern recover it via zone_of(self).
-            return zone_mut_ref::<WMap<WString, WAny>>(om_new(h, round_pow2(cap)), &mut h.allocator as *mut u8);
+            return zone_mut_ref::<WMap<WString, WAny>>(om_new(self as *const Writ as *mut Writ, round_pow2(cap)), self.allocator.get() as *mut u8);
         }
     }
 }
@@ -319,7 +319,7 @@ const WTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bit
 unsafe fn wtv_new(h: *mut Writ, cap: i64) -> *mut WMap<Wu6, WAny> {
     let c: i64 = if cap > 52i64 { 52i64 } else { if cap < 0i64 { 0i64 } else { cap } };
     let hdr: *mut WMap<Wu6, WAny> =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<Wu6, WAny>>() as i64, W_TINYMAP) as *mut WMap<Wu6, WAny>;
+        alloc_tagged(h.allocator.get(), sizeof::<WMap<Wu6, WAny>>() as i64, W_TINYMAP) as *mut WMap<Wu6, WAny>;
     let buf: *zoned mut WAny = writ_alloc_n::<WAny>(h, c) as *zoned mut WAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
     hdr.schema = 0u64;                  // no schema by default
@@ -426,7 +426,7 @@ pub type WIntMap<K> = WMap<K, WAny>;
 
 unsafe fn wim_new<K: WIntKeyTag>(h: *mut Writ, cap: i64) -> *mut WMap<K, WAny> {
     let hdr: *mut WMap<K, WAny> =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<WMap<K, WAny>>() as i64, K::map_code()) as *mut WMap<K, WAny>;
+        alloc_tagged(h.allocator.get(), sizeof::<WMap<K, WAny>>() as i64, K::map_code()) as *mut WMap<K, WAny>;
     let kbuf: *mut K          = writ_alloc_n::<K>(h, cap);
     let vbuf: *zoned mut WAny = writ_alloc_n::<WAny>(h, cap) as *zoned mut WAny;
     hdr.size = 0i64;

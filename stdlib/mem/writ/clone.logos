@@ -19,6 +19,7 @@ use logos.lang.writ.wmap;         // WMap<WString, WAny>
 use logos.lang.writ.wstring;      // WString, wstring_in_alloc
 use logos.lang.rc;                    // Rc
 use logos.lang.str;
+use logos.lang.cell;
 
 // Deep-copy `v` into container `h`; returns the value-form handle of the copy.
 pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
@@ -26,7 +27,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
     if v.is_pod()  { return v; }                       // position-independent
 
     let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
+    let ap: *mut Allocator = hp.allocator.get();
     let p: *const u8 = v.resolve();
     let tc: u64 = w_type_code(p);
 

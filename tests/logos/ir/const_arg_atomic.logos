@@ -18,10 +18,14 @@ fn my_store(p: *mut i64, v: i64, ord: Ordering) {
 }
 
 fn main() -> i32 {
-    let mut a: AtomicI64 = atomic_i64_new(0i64);
+    // Backing storage for the atomic ops. (`AtomicI64`'s interior is now an
+    // encapsulated `UnsafeCell<i64>`, so we exercise the const-arg-forwarding
+    // wrappers against a plain i64 cell — the specialization being checked is
+    // on `my_load`/`my_store`, independent of the pointer's provenance.)
+    let mut a: i64 = 0i64;
     unsafe {
-        let pm: *mut i64 = &mut a.val as *mut i64;
-        let pc: *const i64 = &a.val as *const i64;
+        let pm: *mut i64 = &mut a as *mut i64;
+        let pc: *const i64 = &a as *const i64;
         my_store(pm, 5i64, Ordering::Release);
         return my_load(pc, Ordering::Acquire) as i32;
     }

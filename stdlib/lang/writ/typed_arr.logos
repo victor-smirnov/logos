@@ -11,6 +11,7 @@ package logos.lang.writ.typed_arr;
 
 use logos.lang.writ.anyval;       // WAny
 use logos.lang.writ.allocator;    // Allocator
+use logos.lang.cell;
 use logos.lang.writ.container;    // Writ, writ_rc, alloc_tagged, writ_alloc_bytes
 use logos.lang.writ.compactify;  // clone (Ref values re-anchor)
 use logos.lang.rc;                    // Rc
@@ -41,7 +42,7 @@ unsafe fn w_build_typed_array_raw(vals: *const u8, len: i64, width: i64,
     }
 
     // Tagged 24-byte TypedArray header {size_, capacity_, data_relptr}.
-    let hdr: *mut u8 = alloc_tagged(&mut hp.allocator as *mut Allocator, 24, tc);
+    let hdr: *mut u8 = alloc_tagged(hp.allocator.get(), 24, tc);
     *(hdr as *mut u64) = n as u64;
     *(((hdr as i64) + 8) as *mut u64) = n as u64;
     let dfield: i64 = (hdr as i64) + 16;
@@ -127,7 +128,7 @@ unsafe fn w_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
             i = i + 1;
         }
     }
-    let hdr: *mut u8 = alloc_tagged(&mut hp.allocator as *mut Allocator, 32, mtc);
+    let hdr: *mut u8 = alloc_tagged(hp.allocator.get(), 32, mtc);
     *(hdr as *mut i64) = n;
     *(((hdr as i64) + 8) as *mut i64) = n;
     let kf: i64 = (hdr as i64) + 16;
