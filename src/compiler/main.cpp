@@ -2841,8 +2841,29 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
 // 1 = breaking (the minor-bump CI gate), 2 = usage/IO error.
 //   git usage: logosc --abi-diff <(git show v0.1:abi/logos.abi) abi/logos.abi
 static int abi_diff(const std::string& old_path, const std::string& new_path) {
+    // `#[repr(transparent)]` UnsafeCell<X> has the EXACT ABI of X. Normalize it
+    // away in BOTH specs before comparing so that wrapping/unwrapping a field in
+    // UnsafeCell (interior-mutability marking) is never read as an ABI change —
+    // and so a spec emitted by an older logosc (which printed `UnsafeCell<X>`)
+    // compares equal to one emitted by a newer logosc (which unwraps it). Handles
+    // nesting / multiple occurrences via matched-angle-bracket removal.
+    auto strip_transparent = [](std::string s) {
+        const std::string pfx = "UnsafeCell<";
+        size_t p;
+        while ((p = s.find(pfx)) != std::string::npos) {
+            size_t open = p + pfx.size() - 1;          // index of '<'
+            int depth = 0; size_t i = open;
+            for (; i < s.size(); ++i) {
+                if (s[i] == '<') ++depth;
+                else if (s[i] == '>' && --depth == 0) break;
+            }
+            if (i >= s.size()) break;                  // malformed — leave as-is
+            s = s.substr(0, p) + s.substr(open + 1, i - open - 1) + s.substr(i + 1);
+        }
+        return s;
+    };
     // Parse a spec into (category,key) -> detail. Records are "<cat>\t<key>[\t<detail>]".
-    auto load = [](const std::string& p,
+    auto load = [&strip_transparent](const std::string& p,
                    std::map<std::pair<std::string,std::string>, std::string>& out) -> bool {
         FILE* f = std::fopen(p.c_str(), "r");
         if (!f) { std::fprintf(stderr, "logosc: --abi-diff: cannot open '%s'\n", p.c_str()); return false; }
@@ -2858,7 +2879,7 @@ static int abi_diff(const std::string& old_path, const std::string& new_path) {
             auto t2 = rest.find('\t');
             std::string key(t2 == std::string_view::npos ? rest : rest.substr(0, t2));
             std::string det(t2 == std::string_view::npos ? std::string_view{} : rest.substr(t2 + 1));
-            out[{cat, key}] = det;
+            out[{cat, key}] = strip_transparent(det);
         }
         std::fclose(f);
         return true;
