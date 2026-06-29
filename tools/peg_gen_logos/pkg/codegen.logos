@@ -1748,8 +1748,11 @@ fn emit_inline_subitem(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str,
         cl.push_str("let sub_r: *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
         w.line(cl.as_str());
         let mut chk: String = String::new();
-        chk.push_str("if sub_r != NULLP { "); chk.push_str(dst);
-        chk.push_str(" = sub_r; } else { lex.reset("); chk.push_str(sp_var);
+        chk.push_str("if sub_r != NULLP { "); chk.push_str(dst); chk.push_str(" = sub_r;");
+        // $... collects EVERY rule-ref result across the alt — incl. those matched
+        // inside an OPT — mirroring the C++ rcap accumulator.
+        if parent_arrcap { chk.push_str(" rcap.push(WAny::ref_to(sub_r));"); }
+        chk.push_str(" } else { lex.reset("); chk.push_str(sp_var);
         chk.push_str(", "); chk.push_str(sln_var); chk.push_str("); }");
         w.line(chk.as_str());
     } else if kind == GROUP {
@@ -1831,6 +1834,12 @@ fn emit_inline_subitem_break(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst
         chk.push_str("if "); chk.push_str(dst); chk.push_str(" == NULLP ");
         chk.push_str(resetbreak.as_str());
         w.line(chk.as_str());
+        // $... collects each rule-ref result matched inside a REP (e.g. `item*`).
+        if parent_arrcap {
+            let mut pl: String = String::new();
+            pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(dst); pl.push_str("));");
+            w.line(pl.as_str());
+        }
     } else if kind == GROUP {
         // REP over a GROUP, e.g. `(COMMA value)*`. Inline the group as a once-form
         // that sets `dst` on a match; if no sub-alt matched, break the REP.
