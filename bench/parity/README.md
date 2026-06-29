@@ -40,6 +40,8 @@ faster/denser.
 | spectral  | 1.40×  | 1.00×  | 1.01× | ~       | float div-bound; instr gap masked by 1/d latency |
 | mandel    | 0.99×  | 0.99×  | 0.99× | ~       | float loop + escape branch — **parity** |
 | btree     | 0.94×  | 1.00×  | 0.99× | ~       | Box alloc + recursion + RAII drop — **parity** |
+| revcomp   | 1.00×  | 1.00×  | ~     | ~       | byte loop + table lookup — **parity** |
+| knuc      | 0.90×  | 1.38×  | 1.30× | ~       | HashMap k-mer count — **stdlib gap, not codegen** |
 
 **logosc is at parity with rustc on the vectorizable + scalar micro-benches**
 (instruction density 0.99–1.23×; baseline cycles 0.99–1.19× on all but fannkuch).
@@ -64,6 +66,12 @@ while spectral's surplus is a single root — logosc compiles `s*(s+1)/2` as a
 LLVM's value-tracking opts (sdiv→lshr, range folding) fire less. structsum's baseline
 1.18× is a separate unroll-FACTOR gap (rustc reduces 8-wide vs logosc 4-wide; parity
 at native). Future codegen-quality dig: value-range propagation / earlier leaf inlining.
+
+**knuc is a STDLIB gap, not codegen:** logosc emits FEWER instructions (0.90×) yet
+takes 1.38× the cycles — a pure IPC/stall difference. Rust's std HashMap is
+hashbrown (SwissTable: SIMD probing, cache-friendly layout); Logos's is a simpler
+open-addressing map → more cache misses / longer probes. The lever here is the
+HashMap implementation (a SwissTable rewrite), separate from the compiler.
 
 Caveat: fine native head-to-head cycle ratios (`c-nat` for arith/dot) are noisy
 and omitted (`~`) — AVX-512 down-clocks the core, so sub-runs vary run to run;
