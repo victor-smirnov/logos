@@ -2505,6 +2505,38 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         }
         args.push_back(v);
     }
+    // Lower well-known libm math externs to their LLVM intrinsic (sqrt → sqrtsd,
+    // etc.). Two wins: no libcall overhead, and — crucially — an opaque call in
+    // a loop body blocks LLVM's unroller/vectorizer (n-body's pairwise force loop
+    // stays rolled with `call sqrt`, but fully unrolls once it's `llvm.intr.sqrt`,
+    // ~1.9× fewer instructions). Gated on the exact extern name + a (f64)->f64
+    // shape + the callee being declaration-only (an FFI extern, not a user fn of
+    // the same name). Matches rustc (f64::sqrt → llvm.sqrt) and clang's
+    // -fno-math-errno: the intrinsic drops libm's errno-on-domain-error, which
+    // Logos's math wrappers do not rely on.
+    if (args.size() == 1 && callee_fn.isExternal() &&
+        mlir::isa<mlir::Float64Type>(args[0].getType()) &&
+        callee_fn.getFunctionType().getNumResults() == 1 &&
+        mlir::isa<mlir::Float64Type>(callee_fn.getFunctionType().getResult(0))) {
+        mlir::Value a = args[0];
+        mlir::Type t = a.getType();
+        // Recognize either the raw libm extern (`extern fn sqrt`) OR the
+        // logos.lang.math wrapper (`sqrt_f64` etc.) — the wrapper is an opaque
+        // cross-archive `declare` at the call site, so matching the extern alone
+        // would not help user code (the wrapper call still blocks unrolling).
+        bool math_pkg = callee.find("logos.lang.math$") != std::string::npos;
+        auto is = [&](const char* raw, const char* wrap) {
+            return callee == raw ||
+                   (math_pkg && callee.find(std::string("$") + wrap + "__") != std::string::npos);
+        };
+        if (is("sqrt",  "sqrt_f64"))  return builder_.create<mlir::LLVM::SqrtOp>(loc_, t, a);
+        if (is("fabs",  "abs_f64"))   return builder_.create<mlir::LLVM::FAbsOp>(loc_, t, a);
+        if (is("floor", "floor_f64")) return builder_.create<mlir::LLVM::FFloorOp>(loc_, t, a);
+        if (is("ceil",  "ceil_f64"))  return builder_.create<mlir::LLVM::FCeilOp>(loc_, t, a);
+        if (is("trunc", "trunc_f64")) return builder_.create<mlir::LLVM::FTruncOp>(loc_, t, a);
+        if (is("round", "round_f64")) return builder_.create<mlir::LLVM::RoundOp>(loc_, t, a);
+        if (callee == "rint")         return builder_.create<mlir::LLVM::RintOp>(loc_, t, a);
+    }
     auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, args);
     return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
 }
