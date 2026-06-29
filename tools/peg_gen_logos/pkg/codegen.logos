@@ -642,6 +642,7 @@ fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("use logos.lang.writ.array;");
     w.line("use logos.lang.writ.wmap;");
     w.line("use logos.lang.writ.wstring;");
+    w.line("use logos.mem.collections.hashmap;");
     w.blank();
     w.line("// ── AST field keys (%fields) ───────────────────────────────────────────────");
     let mut i: i64 = 0i64;
@@ -702,11 +703,17 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    }");
     w.line("}");
     w.blank();
-    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool }");
+    // Packrat memo cell: a rule's result + the lexer (pos,line) just after it.
+    // Keyed by save_pos()*1024 + rule-id in lex.memo — turns the recursive-descent
+    // parse linear (each rule is parsed once per position) instead of exponential.
+    w.line("pub struct MemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }");
+    w.blank();
+    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell> }");
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
     w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
-    w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false };");
+    w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
+    w.line("        memo: hashmap_new::<i64, MemoCell>() };");
     w.line("}");
     w.blank();
     w.line("fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }");
@@ -1330,7 +1337,15 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
         ai = ai + 1i64;
     }
 
-    w.l3("fn rule_", rname.as_str(), "(lex: &mut Lexer, doc: &Writ) -> *const u8 {");
+    // Token-alias rules (single-token, no action) are cheap — emit a plain
+    // dispatcher. All other rules get packrat memoization: the alt dispatch moves
+    // to rule_<name>_impl and rule_<name> is a memo wrapper keyed by position.
+    let memoize: bool = !is_token_alias(cg, rname.as_str());
+    let mut dispatch_name: String = String::new();
+    dispatch_name.push_str("rule_"); dispatch_name.push_str(rname.as_str());
+    if memoize { dispatch_name.push_str("_impl"); }
+
+    w.l3("fn ", dispatch_name.as_str(), "(lex: &mut Lexer, doc: &Writ) -> *const u8 {");
     ai = 0i64;
     while ai < nalts {
         let mut calll: String = String::new();
@@ -1342,6 +1357,29 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
     }
     w.line("    return NULLP;");
     w.line("}");
+
+    if memoize {
+        // key = save_pos()*1024 + rule-id (ridx < 1024). Hit → restore (pos,line)
+        // and return the cached result (incl. cached failure = NULLP).
+        w.l3("fn rule_", rname.as_str(), "(lex: &mut Lexer, doc: &Writ) -> *const u8 {");
+        let mut mk: String = String::new();
+        mk.push_str("    let mk: i64 = lex.save_pos() * 1024i64 + "); mk.push_i64(ridx); mk.push_str("i64;");
+        w.line(mk.as_str());
+        w.line("    let mut hok: bool = false; let mut hr: *const u8 = NULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;");
+        w.line("    unsafe {");
+        w.line("        let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo;");
+        w.line("        let hp: *const MemoCell = mp.get(&mk);");
+        w.line("        if hp != (0i64 as *const MemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }");
+        w.line("    }");
+        w.line("    if hok { lex.reset(hep, hel); return hr; }");
+        let mut cl: String = String::new();
+        cl.push_str("    let r: *const u8 = rule_"); cl.push_str(rname.as_str()); cl.push_str("_impl(lex, doc);");
+        w.line(cl.as_str());
+        w.line("    let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();");
+        w.line("    unsafe { let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo; mp.insert(mk, MemoCell { res: r, endpos: ep, endline: el }); }");
+        w.line("    return r;");
+        w.line("}");
+    }
     w.blank();
 }
 
