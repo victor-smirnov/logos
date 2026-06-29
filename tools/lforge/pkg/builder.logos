@@ -10,6 +10,7 @@ use logos.lang.result;
 use logos.mem.collections.vec;
 use logos.std.io.fs;
 use logos.std.process;
+use logos.std.env;
 
 use lforge.schema;
 use lforge.util;
@@ -22,7 +23,28 @@ use lforge.spawn_helpers;
 // info). Without this, lforge profiles only changed OUTPUT PATHS — builds were
 // non-debuggable at the Logos level and release was never optimized.
 fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
-    if str_eq_local(profile, "release") { push_arg(argv, "-O2"); }
+    if str_eq_local(profile, "release") {
+        push_arg(argv, "-O2");
+        // Release targets the host CPU by default so the backend can use
+        // AVX/AVX2/AVX-512 — a large win on vectorizable code (logosc otherwise
+        // emits only the SSE2 baseline). Non-portable; override the cpu with the
+        // LFORGE_TARGET_CPU env var (e.g. =generic for a portable binary, or a
+        // specific cpu name like x86-64-v3).
+        push_arg(argv, "-C");
+        match var("LFORGE_TARGET_CPU") {
+            Option::Some(cpu) => {
+                if cpu.len() > 0 as i64 {
+                    let mut a: String = String::new();
+                    a.push_str("target-cpu=");
+                    a.push_str(cpu.as_str());
+                    push_arg(argv, a.as_str());
+                } else {
+                    push_arg(argv, "target-cpu=native");
+                }
+            }
+            Option::None => { push_arg(argv, "target-cpu=native"); }
+        }
+    }
     else                                { push_arg(argv, "-g"); }
 }
 
