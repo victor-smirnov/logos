@@ -20,6 +20,35 @@ use logos.lang.writ.wstring;    // WString
 use logos.lang.str;                // str
 use logos.mem.string;              // String
 
+// Quote + escape a string into `out`, matching the C++ writ::quote()
+// (src/writ/stringify.cpp): wrap in '"', escape " \ \n \t \r, control byte
+// (< 0x20) → \uXXXX (lowercase hex). Keeps output valid + byte-identical to C++.
+unsafe fn quote_into(out: &mut String, s: str) {
+    out.push_u8(34u8);                                     // "
+    let n: i64 = s.len();
+    let p: *const u8 = s.as_ptr();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let b: u8 = p[i];
+        if      b == 34u8 { out.push_u8(92u8); out.push_u8(34u8); }
+        else if b == 92u8 { out.push_u8(92u8); out.push_u8(92u8); }
+        else if b == 10u8 { out.push_u8(92u8); out.push_u8(110u8); }
+        else if b == 9u8  { out.push_u8(92u8); out.push_u8(116u8); }
+        else if b == 13u8 { out.push_u8(92u8); out.push_u8(114u8); }
+        else if b < 32u8 {
+            out.push_u8(92u8); out.push_u8(117u8);                       // \u
+            out.push_u8(48u8); out.push_u8(48u8);                        // 00
+            let hi: u8 = (b >> 4u8) & 0xFu8;
+            let lo: u8 = b & 0xFu8;
+            out.push_u8(if hi < 10u8 { 48u8 + hi } else { 87u8 + hi });
+            out.push_u8(if lo < 10u8 { 48u8 + lo } else { 87u8 + lo });
+        }
+        else { out.push_u8(b); }
+        i = i + 1i64;
+    }
+    out.push_u8(34u8);
+}
+
 // Append the rendering of `v` to `*out`. A raw `*mut String` (not `&mut`) so the
 // recursion + loops thread the sink without &mut-reborrow churn.
 unsafe fn write_val(out: &mut String, v: WAny) {
@@ -29,9 +58,7 @@ unsafe fn write_val(out: &mut String, v: WAny) {
     if v.is_int()   { let s: String = v.as_i64().to_string(); out.push_str(s.as_str()); return; }   // i56 Pod or boxed i64
     if v.is_string() {
         let hs: &WString = &*(v.resolve() as *const WString);
-        out.push_u8(34u8);                 // "
-        out.push_str(hs.as_str());
-        out.push_u8(34u8);
+        quote_into(out, hs.as_str());
         return;
     }
     if v.is_array() {
@@ -57,11 +84,32 @@ unsafe fn write_val(out: &mut String, v: WAny) {
                 if !first { out.push_str(", "); }
                 first = false;
                 let ks: &WString = &*(k.resolve() as *const WString);
-                out.push_u8(34u8); out.push_str(ks.as_str()); out.push_u8(34u8);
+                quote_into(out, ks.as_str());
                 out.push_u8(58u8); out.push_u8(32u8);          // ": "
                 write_val(out, m.val_at(i));
             }
             i = i + 1i64;
+        }
+        out.push_u8(125u8);                // }
+        return;
+    }
+    // Bitmap-indexed tiny map (u8 keys 0..51 — the TinyObjectMap / WMap<Wu6,WAny>).
+    // Matches the C++ stringify tc::TINYMAP case: `{k: v, ...}` ascending keys.
+    if v.is_tinymap() {
+        let t: &WMap<Wu6, WAny> = &*(v.resolve() as *const WMap<Wu6, WAny>);
+        out.push_u8(123u8);                // {
+        let mut first: bool = true;
+        let mut k: i64 = 0i64;
+        while k < 52i64 {
+            let cv: WAny = t.get(k as u8);
+            if !cv.is_null() {
+                if !first { out.push_str(", "); }
+                first = false;
+                out.push_str(k.to_string().as_str());
+                out.push_u8(58u8); out.push_u8(32u8);          // ": "
+                write_val(out, cv);
+            }
+            k = k + 1i64;
         }
         out.push_u8(125u8);                // }
         return;

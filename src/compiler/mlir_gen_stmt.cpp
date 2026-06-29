@@ -2226,14 +2226,21 @@ void MLIRGenImpl::gen_if(lir_view::SIfView v) {
 
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, then_block, else_block);
 
+    // Each branch is its own lexical scope: snapshot the variable-classification
+    // maps and restore them after, so a `let` inside one branch cannot leak its
+    // (name-keyed) classification into the sibling branch or the code after the if.
+    auto if_scope = snapshot_var_scope();
+
     builder_.setInsertionPointToStart(then_block);
     gen_block(v.then_block());
     bool then_falls = !is_terminated(builder_.getBlock());
     if (then_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+    restore_var_scope(if_scope);
 
     builder_.setInsertionPointToStart(else_block);
     if (v.else_block()) gen_block(v.else_block());
     bool else_falls = !is_terminated(builder_.getBlock());
+    restore_var_scope(if_scope);
     if (else_falls) builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
     if (!then_falls && !else_falls) {

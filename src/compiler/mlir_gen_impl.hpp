@@ -356,6 +356,44 @@ private:
     // Local let-bound pointer variables (*mut T / *const T): maps name → pointee MLIR type.
     // Needed because scope_[name] is an alloca(ptr), so indexing requires a load first.
     std::unordered_map<std::string, mlir::Type>   var_local_ptrs_;
+
+    // Full snapshot of the name-keyed variable-classification state, for correct
+    // LEXICAL scoping of if-branches / loop bodies / match arms. These maps are
+    // keyed by bare name; without restoring them at scope exit, a `let` in one
+    // branch leaks its classification and corrupts a SIBLING `let` of the same
+    // name but a different kind (e.g. `let k: WAny` then a sibling `let mut k: i64`),
+    // which then mis-resolves in VarRef (returns the alloca ptr instead of a load).
+    struct VarScopeSnapshot {
+        std::unordered_map<std::string, mlir::Value>  scope;
+        std::unordered_map<std::string, std::string>  dyn_trait;
+        std::unordered_map<std::string, std::string>  var_struct;
+        std::unordered_map<std::string, mlir::Type>   elem_types;
+        std::unordered_map<std::string, mlir::Type>   subscript;
+        std::unordered_map<std::string, mlir::Type>   local_ptrs;
+        std::unordered_set<std::string>               let_vars;
+        std::unordered_set<std::string>               tuple;
+        std::unordered_set<std::string>               tagged_enum;
+        std::unordered_set<std::string>               tagged_enum_ptr;
+    };
+    VarScopeSnapshot snapshot_var_scope() const {
+        return { scope_, var_dyn_trait_, var_struct_, var_elem_types_, var_subscript_,
+                 var_local_ptrs_, let_vars_, var_tuple_, var_tagged_enum_,
+                 var_tagged_enum_ptr_ };
+    }
+    // Restore by full assignment: erases bindings introduced inside the scope AND
+    // re-instates any shadowed outer bindings — exact lexical-scope semantics.
+    void restore_var_scope(const VarScopeSnapshot& s) {
+        scope_               = s.scope;
+        var_dyn_trait_       = s.dyn_trait;
+        var_struct_          = s.var_struct;
+        var_elem_types_      = s.elem_types;
+        var_subscript_       = s.subscript;
+        var_local_ptrs_      = s.local_ptrs;
+        let_vars_            = s.let_vars;
+        var_tuple_           = s.tuple;
+        var_tagged_enum_     = s.tagged_enum;
+        var_tagged_enum_ptr_ = s.tagged_enum_ptr;
+    }
     // Names of fn parameters whose type is Ref/MutRef. `&p` for such a
     // param means "address of param storage" — we must spill the SSA
     // arg into an entry alloca and return the alloca. Without the
