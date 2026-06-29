@@ -25,16 +25,16 @@ include(AddMLIR)
 # ---------------------------------------------------------------------------
 # Generate Logos parser from PEG grammar
 # ---------------------------------------------------------------------------
-set(LOGOS_GRAMMAR ${CMAKE_SOURCE_DIR}/tools/peg_gen/grammars/logos.peg)
+set(LOGOS_GRAMMAR ${CMAKE_SOURCE_DIR}/tools/peg_gen_cpp/grammars/logos.peg)
 set(LOGOS_PARSER_HPP ${CMAKE_CURRENT_BINARY_DIR}/logos_parser.hpp)
 set(LOGOS_PARSER_CPP ${CMAKE_CURRENT_BINARY_DIR}/logos_parser.cpp)
 
 add_custom_command(
     OUTPUT  ${LOGOS_PARSER_HPP} ${LOGOS_PARSER_CPP}
-    COMMAND $<TARGET_FILE:peg_gen>
+    COMMAND $<TARGET_FILE:peg_gen_cpp>
             ${LOGOS_GRAMMAR}
             --out-dir ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS peg_gen ${LOGOS_GRAMMAR}
+    DEPENDS peg_gen_cpp ${LOGOS_GRAMMAR}
     COMMENT "Generating logos_parser from logos.peg"
 )
 

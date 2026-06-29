@@ -5,16 +5,16 @@
 
 # ── Step 1: generate the IDL parser from hrpc.peg ────────────────────────
 
-set(HRPC_IDL_GRAMMAR      ${CMAKE_SOURCE_DIR}/tools/peg_gen/grammars/hrpc.peg)
+set(HRPC_IDL_GRAMMAR      ${CMAKE_SOURCE_DIR}/tools/peg_gen_cpp/grammars/hrpc.peg)
 set(HRPC_IDL_PARSER_HPP   ${CMAKE_CURRENT_BINARY_DIR}/hrpc_idl_parser.hpp)
 set(HRPC_IDL_PARSER_CPP   ${CMAKE_CURRENT_BINARY_DIR}/hrpc_idl_parser.cpp)
 
 add_custom_command(
     OUTPUT  ${HRPC_IDL_PARSER_HPP} ${HRPC_IDL_PARSER_CPP}
-    COMMAND $<TARGET_FILE:peg_gen>
+    COMMAND $<TARGET_FILE:peg_gen_cpp>
             ${HRPC_IDL_GRAMMAR}
             --out-dir ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS peg_gen ${HRPC_IDL_GRAMMAR}
+    DEPENDS peg_gen_cpp ${HRPC_IDL_GRAMMAR}
     COMMENT "Generating hrpc_idl_parser from hrpc.peg"
 )
 
