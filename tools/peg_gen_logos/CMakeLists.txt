@@ -63,3 +63,14 @@ add_custom_command(
 )
 
 add_custom_target(peg_gen_logos ALL DEPENDS ${PGL_BIN})
+
+# AST-equality oracle — opt-in, NOT a ctest test (see oracle/README.md). Rebuilds
+# two parser harnesses and diffs the whole tests/logos corpus; only relevant when
+# working on the parser/codegen. Run with: cmake --build <dir> --target peg_gen_logos_oracle
+add_custom_target(peg_gen_logos_oracle
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/oracle/run.sh
+            ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/tests/logos
+    DEPENDS logosc peg_gen_logos
+    USES_TERMINAL
+    COMMENT "peg_gen_logos AST-equality oracle (C++ vs Logos logos_parser over tests/logos)")

@@ -1,0 +1,68 @@
+// AST-equality oracle — Logos side.
+//
+// Read a .logos file, parse it with the peg_gen_logos-generated logos_parser
+// (package `logos_parser`, assembled next to this file at oracle-run time), and
+// print the canonical writ stringify of the AST — the same text the C++ side
+// (oracle/cpp_stringify.cpp) prints. run.sh diffs the two over a corpus.
+//
+// The file is read with raw open/read syscalls on purpose: pulling in
+// logos.std.io.fs would drag the std metaprog-JIT symbols into the link.
+
+package logos_parser.sdump;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.stringify;
+
+use logos_parser;
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn logos_argc() -> i32;
+extern fn logos_argv() -> *const *const u8;
+extern fn open(path: *const u8, flags: i32) -> i32;
+extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
+extern fn close(fd: i32) -> i32;
+extern fn malloc(n: i64) -> *mut u8;
+
+fn put(s: str) {
+    unsafe {
+        write(1 as i32, s.as_ptr(), s.len());
+        let nl: str = "\n";
+        write(1 as i32, nl.as_ptr(), nl.len());
+    }
+}
+
+unsafe fn read_file(path: str) -> str {
+    let mut pbuf: String = String::new();
+    pbuf.push_str(path);
+    pbuf.push_u8(0u8);                       // NUL-terminate for open()
+    let fd: i32 = open(pbuf.as_ptr(), 0i32); // O_RDONLY
+    if fd < 0i32 { return ""; }
+    let cap: i64 = 8388608i64;               // 8 MiB
+    let buf: *mut u8 = malloc(cap);
+    let mut total: i64 = 0i64;
+    loop {
+        let r: i64 = read(fd, (buf as i64 + total) as *mut u8, cap - total);
+        if r <= 0i64 { break; }
+        total = total + r;
+        if total >= cap { break; }
+    }
+    close(fd);
+    return str_from_raw(buf, total);
+}
+
+pub fn run() -> i32 {
+    unsafe {
+        if logos_argc() < 2i32 { return 2; }
+        let argv: *const *const u8 = logos_argv();
+        let ptr_ptr: *const *const u8 = (argv as i64 + 1i64 * 8i64) as *const *const u8;
+        let path: str = str_from_cstr(ptr_ptr[0]);
+        let src: str = read_file(path);
+        let doc: Writ = parse_module(src);
+        let out: String = stringify(doc.root());
+        put(out.as_str());
+    }
+    return 0;
+}

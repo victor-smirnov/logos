@@ -1,0 +1,8 @@
+// Entry point for the Logos-side oracle harness (see oracle/sdump.logos).
+package logos_oracle_main;
+
+use logos_parser.sdump;
+
+fn main() -> i32 {
+    return run();
+}
