@@ -192,8 +192,21 @@ void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView
             if (lo.size > 0)
                 f.setArgAttr(arg, "llvm.dereferenceable",
                              builder_.getI64IntegerAttr((int64_t)lo.size));
-            if (pt.kind() == K::MutRef)
+            if (pt.kind() == K::MutRef) {
+                // &mut T is exclusive (borrow checker) → noalias.
                 f.setArgAttr(arg, "llvm.noalias", unit);
+            } else {
+                // Shared &T: noalias + readonly ONLY when T is Freeze (no
+                // interior mutability). UnsafeCell-discipline makes this sound —
+                // a non-Freeze pointee (Cell/atomic/Mutex/…) keeps NEITHER, so
+                // mutation through a coexisting interior-mut path is not
+                // mis-assumed away. type_is_freeze is conservative (unknown →
+                // not-Freeze), so a missed case only costs an optimization.
+                if (type_is_freeze(pt.pointee())) {
+                    f.setArgAttr(arg, "llvm.noalias", unit);
+                    f.setArgAttr(arg, "llvm.readonly", unit);
+                }
+            }
         }
         ++arg;
     }

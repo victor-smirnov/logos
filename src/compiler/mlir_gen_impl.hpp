@@ -801,6 +801,15 @@ public:
 private:
     Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
     Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
+    // True iff T is "Freeze" (Rust): NO interior mutability in its own
+    // transitively-inline bytes — no `logos.lang.cell.UnsafeCell` reachable
+    // through fields/payload/elements WITHOUT crossing a pointer/reference.
+    // Pointers STOP the recursion (a `&UnsafeCell`/`*UnsafeCell` field keeps the
+    // container Freeze; that is why Arc/Rc stay Freeze). CONSERVATIVE: unknown /
+    // unresolvable types return FALSE (not-Freeze) so we never wrongly emit
+    // readonly/noalias on `&T`. Sound basis for shared-ref attributes (Slice C).
+    bool type_is_freeze(TypeRef t, std::unordered_set<std::string>& seen);
+    bool type_is_freeze(TypeRef t) { std::unordered_set<std::string> s; return type_is_freeze(t, s); }
     // {size,align} of a type as an AGGREGATE MEMBER (struct field / tuple
     // element / enum payload field). Mirrors register_struct / tuple_llvm_type /
     // variant_payload_struct: Slice/Closure/Tuple members are stored as an

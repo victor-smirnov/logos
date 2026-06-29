@@ -1,0 +1,37 @@
+// Regression guard for the type-driven `readonly`/`noalias` on shared `&T`
+// (rustc-parity Slice C). A type with interior mutability (UnsafeCell, directly
+// or transitively) must NOT be classified Freeze — else the optimizer may treat
+// `&Cell` as readonly and fold the post-mutation read back to the pre-mutation
+// value. Each `observe_*` reads, mutates THROUGH the shared `&`, and reads again
+// across the opaque `set` call; a wrongly-emitted readonly yields the STALE
+// value and the asserts below return non-zero (test fails).
+package canary_interior_mut;
+
+use logos.lang.cell;
+
+// &Cell<i64>: Cell mutates through &self via UnsafeCell.
+fn observe_cell(c: &Cell<i64>) -> i64 {
+    let before: i64 = c.get();
+    c.set(before + 100i64);
+    return c.get();            // MUST be before+100, not before
+}
+
+struct Wrap { inner: Cell<i64>, tag: i64 }
+
+// Transitive: a plain struct that CONTAINS a Cell must also be non-Freeze.
+fn observe_wrap(w: &Wrap) -> i64 {
+    let before: i64 = w.inner.get();
+    w.inner.set(before + 7i64);
+    return w.inner.get();      // MUST be before+7
+}
+
+fn main() -> i32 {
+    let c: Cell<i64> = Cell::new(5i64);
+    if observe_cell(&c) != 105i64 { return 1; }
+    if c.get() != 105i64 { return 2; }
+
+    let w: Wrap = Wrap { inner: Cell::new(10i64), tag: 0i64 };
+    if observe_wrap(&w) != 17i64 { return 3; }
+    if w.inner.get() != 17i64 { return 4; }
+    return 0;
+}

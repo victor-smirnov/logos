@@ -535,6 +535,77 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     }
 }
 
+// ── Freeze predicate (interior-mutability detection, rustc-parity Slice C) ───
+// Returns true iff `t` has NO UnsafeCell reachable through its own inline bytes
+// (struct fields / enum payloads / tuple + array elements), WITHOUT crossing a
+// pointer/reference. Mirrors layout_of's recursion. CONSERVATIVE: any unknown
+// or unresolvable shape returns FALSE so a missing case can only COST an
+// optimization, never cause an unsound readonly/noalias on a shared &T.
+bool MLIRGenImpl::type_is_freeze(TypeRef t,
+                                 std::unordered_set<std::string>& seen) {
+    using K = LogosType::Kind;
+    if (!t) return false;                       // unknown → conservative
+    TypeRef tv{t};
+    if (is_anyval(tv)) return true;             // i32 tag word, no interior
+    switch (tv.kind()) {
+    // Scalars / zero-size — no interior mutability.
+    case K::Void: case K::Never:
+    case K::Bool: case K::Char:
+    case K::I8:  case K::U8:  case K::I16: case K::U16:
+    case K::I24: case K::U24: case K::I32: case K::U32:
+    case K::I56: case K::U56: case K::I64: case K::U64:
+    case K::I128: case K::U128:
+    case K::F32: case K::F64: case K::IntLit: case K::FloatLit:
+    case K::Usize: case K::Isize:
+        return true;
+    // Pointers/references STOP the recursion: interior mutability behind an
+    // indirection does NOT infect the container (Arc/Rc/&Cell stay Freeze).
+    case K::Ptr: case K::Ref: case K::MutRef: case K::FnPtr:
+    case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef:
+    case K::TaggedPtr:
+    case K::UnsizedSlice: case K::UnsizedDyn:
+        return true;
+    case K::Array:
+        return !tv.elem() ? true : type_is_freeze(tv.elem(), seen);
+    case K::Tuple: {
+        for (auto e : tv.tuple_elems())
+            if (!type_is_freeze(e, seen)) return false;
+        return true;
+    }
+    case K::Struct: case K::ZonedStruct: {
+        // The interior-mutability lang-item: recognised by qualified name to
+        // avoid colliding with a user `UnsafeCell` (mirrors sema_auto_trait).
+        if (tv.struct_name() == "UnsafeCell" &&
+            tv.pkg_name() == "logos.lang.cell")
+            return false;
+        auto cname = concrete_struct_name(t);
+        if (!seen.insert(cname).second) return true;   // cycle → don't re-block
+        bool frozen = true;
+        auto it = all_struct_defs_.find(cname);
+        if (it == all_struct_defs_.end()) {
+            frozen = false;                            // unresolved → conservative
+        } else {
+            const TypePoolImpl* lo_pool = pool_impl();
+            for (auto f : it->second.fields()) {
+                if (!type_is_freeze(f.type(lo_pool), seen)) { frozen = false; break; }
+            }
+        }
+        seen.erase(cname);
+        return frozen;
+    }
+    case K::Enum: {
+        if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t)) {
+            for (auto& v : te->variants)
+                for (auto& ft : v.logos_types)
+                    if (!type_is_freeze(ft, seen)) return false;
+            return true;
+        }
+        return true;   // C-like enum (no payload) — just a discriminant scalar
+    }
+    default: return false;                       // unknown kind → conservative
+    }
+}
+
 // ── RefRepr registry (Phase 0 scaffold — dead code, not yet routed) ──────────
 // Each method reproduces the CURRENT per-kind behavior, consolidated in one
 // place. Phase 1+ migrate the scattered codegen sites to dispatch through these.
