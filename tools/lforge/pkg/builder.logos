@@ -19,12 +19,16 @@ use lforge.build_paths;
 use lforge.spawn_helpers;
 
 // Append profile-driven compilation flags to a logosc argv. debug = -g (DWARF
-// debug info; -O0 is logosc's default), release = -O2 (optimized, no debug
+// debug info; -O0 is logosc's default), release = -O3 (optimized, no debug
 // info). Without this, lforge profiles only changed OUTPUT PATHS — builds were
 // non-debuggable at the Logos level and release was never optimized.
 fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
     if str_eq_local(profile, "release") {
-        push_arg(argv, "-O2");
+        // -O3 (matching cargo's release default of opt-level 3, NOT rustc -O's
+        // opt-level 2): the more aggressive loop unroll/interleave thresholds
+        // close much of the residual instruction-density gap vs rustc on hot
+        // loops (e.g. spectral-norm 1.40×→1.22× instr) that -O2 leaves rolled.
+        push_arg(argv, "-O3");
         // Release targets the host CPU by default so the backend can use
         // AVX/AVX2/AVX-512 — a large win on vectorizable code (logosc otherwise
         // emits only the SSE2 baseline). Non-portable; override the cpu with the
