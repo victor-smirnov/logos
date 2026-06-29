@@ -25,7 +25,9 @@ struct LowerEmitOpts {
                                     // locals, types) via MLIR LLVM-dialect DI attrs.
     std::string source_path;        // primary input path → DWARF compile-unit file.
     bool emit_mlir         = false; // print MLIR text to stdout, return 0
-    bool emit_llvm         = false; // print LLVM IR to stdout, return 0
+    bool emit_llvm         = false; // print LLVM IR to stdout, return 0 (PRE-opt)
+    bool emit_llvm_opt     = false; // print LLVM IR to stdout AFTER the opt
+                                    // pipeline (honors opt_level), then return 0
     // When set, the LLVM module is moved into *jit_module_out instead of
     // being emitted as an object file — caller (main.cpp --jit) takes
     // ownership and drives JIT compilation themselves. Bypasses the whole

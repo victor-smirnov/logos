@@ -28,6 +28,13 @@ struct EmitModuleOptions {
     // <pkg>;` statements in this module can resolve symbols from other
     // already-built lforge projects (B3 transitive deps).
     std::vector<std::string> extra_lib_files;
+
+    // LLVM optimization level (-O0..-O3) for the emitted package object(s).
+    // 0 = skip the opt pipeline (fast build, unoptimized code). Threaded down
+    // to the shared lowering tail so `logosc -O2 --emit-module` actually
+    // optimizes package/library code (without this the package path is always
+    // unoptimized regardless of -O, while the single-file `-c` path optimizes).
+    int opt_level = 0;
 };
 
 // Build a binary module (.a archive) from a module manifest.

@@ -258,6 +258,11 @@ int lower_and_emit_object(lir::LProgram& prog,
         mpm.run(*llvm_module, mam);
     }
 
+    // Post-optimization IR dump (counterpart to the PRE-opt --emit-llvm above).
+    // Honors opt_level: with -O0 nothing ran, so this prints the same module as
+    // --emit-llvm; with -O2/-O3 it shows the inlined/optimized result.
+    if (opts.emit_llvm_opt) { llvm_module->print(llvm::outs(), nullptr); return 0; }
+
     std::error_code ec;
     llvm::raw_fd_ostream out(output_path, ec, llvm::sys::fs::OF_None);
     if (ec) {

@@ -2935,7 +2935,8 @@ static void print_usage(std::FILE* out) {
 "  -O0 | -O1 | -O2 | -O3  optimization level (default: -O0)\n"
 "  -g, --debug            emit DWARF debug info\n"
 "  --emit-mlir            emit MLIR instead of an object\n"
-"  --emit-llvm            emit LLVM IR instead of an object\n"
+"  --emit-llvm            emit LLVM IR (PRE-optimization) instead of an object\n"
+"  --emit-llvm-opt        emit LLVM IR AFTER the opt pipeline (honors -O) instead of an object\n"
 "\n"
 "Modules & libraries:\n"
 "  -L, --libs <dir>       add a binary-module search directory\n"
@@ -2979,6 +2980,7 @@ int main(int argc, char** argv) {
     const char* output_path = "output.o";
     bool emit_mlir = false;
     bool emit_llvm = false;
+    bool emit_llvm_opt = false;                  // --emit-llvm-opt: LLVM IR AFTER the opt pipeline (honors -O)
     bool debug_g   = false;                      // -g / --debug: emit DWARF debug info (line tables, subprograms, locals, types) for gdb/lldb
     bool expand_only = false;                    // --expand: run metaprog dispatch over input + render result back to Logos source (no codegen). Avoids stdlib build's circular-dep when derives reference each other (debt #22 alt B).
     bool test_mode   = false;                    // --test: build a test binary (synthesise main() that runs every `#[test]` fn under panic-recovery and prints a Rust-style summary).
@@ -3110,6 +3112,7 @@ int main(int argc, char** argv) {
         else if (arg == "--stats") { stats_flag = true; }
         else if (arg == "--emit-mlir") { emit_mlir = true; }
         else if (arg == "--emit-llvm") { emit_llvm = true; }
+        else if (arg == "--emit-llvm-opt") { emit_llvm_opt = true; }
         else if (arg == "-g" || arg == "--debug") { debug_g = true; }
         else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
@@ -3275,6 +3278,7 @@ int main(int argc, char** argv) {
         mopts.emit_llvm = emit_llvm;
         mopts.only_file = only_file;
         mopts.extra_lib_files = explicit_lib_files;
+        mopts.opt_level = opt_level;
         return logos::compiler::emit_module(*manifest, output_path, mopts) ? 0 : 1;
     }
 
@@ -4669,13 +4673,14 @@ int main(int argc, char** argv) {
         lopts.function_sections = true;
         lopts.emit_mlir         = emit_mlir;
         lopts.emit_llvm         = emit_llvm;
+        lopts.emit_llvm_opt     = emit_llvm_opt;
         lopts.debug_info        = debug_g;
         lopts.source_path       = input_path ? input_path : "";
         lopts.dump_metaprog_dir = dump_metaprog_dir;
         int rc = logos::compiler::lower_and_emit_object(prog, output_path, lopts);
         if (rc != 0) return rc;
         report("codegen+write");
-        if (emit_mlir || emit_llvm) return 0;
+        if (emit_mlir || emit_llvm || emit_llvm_opt) return 0;
     }
 
     std::fprintf(stderr, "logosc: wrote %s\n", output_path);
