@@ -1278,6 +1278,10 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
         emit_item_rep(cg, w, sub, cap.as_str(), imin, uses_arrcap);
     } else if kind == GROUP {
         emit_item_group(cg, w, item_idx, cap.as_str(), uses_arrcap);
+    } else if kind == LOOKAHEAD {
+        emit_lookahead(cg, w, sub, cap.as_str(), false, "lex.reset(sp, sln); return NULLP;");
+    } else if kind == NEG_AHEAD {
+        emit_lookahead(cg, w, sub, cap.as_str(), true, "lex.reset(sp, sln); return NULLP;");
     } else {
         let mut tl: String = String::new();
         tl.push_str("let "); tl.push_str(cap.as_str());
@@ -1307,6 +1311,49 @@ fn emit_item_literal(w: &mut CodeWriter, lit: str, cap: str) {
     let mut cl: String = String::new();
     cl.push_str("let "); cl.push_str(cap);
     cl.push_str(": *const u8 = wstr_p(doc, \""); cl.push_str(lit); cl.push_str("\");");
+    w.line(cl.as_str());
+}
+
+// LOOKAHEAD (&sub) / NEG_AHEAD (!sub): try the sub WITHOUT consuming. Restore the
+// lexer afterwards unconditionally; cap is always NULLP. `negate=false` (&) fails
+// the alt when the sub does NOT match; `negate=true` (!) fails when it DOES.
+// `fail_action` is the enclosing alt's miss action (return NULLP / reset-break).
+fn emit_lookahead(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, negate: bool, fail_action: str) {
+    let id: i64 = fresh(cg);
+    let mut sp: String = String::new();   sp.push_str("lasp"); sp.push_i64(id);
+    let mut sl: String = String::new();   sl.push_str("lasln"); sl.push_i64(id);
+    let mut ok: String = String::new();   ok.push_str("laok"); ok.push_i64(id);
+    let mut tmp: String = String::new();  tmp.push_str("latmp"); tmp.push_i64(id);
+
+    w.line("{");
+    w.ind();
+    let mut sv: String = String::new();
+    sv.push_str("let "); sv.push_str(sp.as_str()); sv.push_str(": i64 = lex.save_pos(); let ");
+    sv.push_str(sl.as_str()); sv.push_str(": i64 = lex.save_line();");
+    w.line(sv.as_str());
+    let mut okd: String = String::new();
+    okd.push_str("let mut "); okd.push_str(ok.as_str()); okd.push_str(": bool = false;");
+    w.line(okd.as_str());
+    w.line("loop {");
+    w.ind();
+    emit_inline_subitem_break(cg, w, sub, tmp.as_str(), sp.as_str(), sl.as_str(), false);
+    let mut setok: String = String::new();
+    setok.push_str(ok.as_str()); setok.push_str(" = true; break;");
+    w.line(setok.as_str());
+    w.ded();
+    w.line("}");
+    let mut rst: String = String::new();
+    rst.push_str("lex.reset("); rst.push_str(sp.as_str()); rst.push_str(", "); rst.push_str(sl.as_str()); rst.push_str(");");
+    w.line(rst.as_str());
+    let mut chk: String = String::new();
+    chk.push_str("if ");
+    if negate { chk.push_str(ok.as_str()); } else { chk.push_str("!"); chk.push_str(ok.as_str()); }
+    chk.push_str(" { "); chk.push_str(fail_action); chk.push_str(" }");
+    w.line(chk.as_str());
+    w.ded();
+    w.line("}");
+    let mut cl: String = String::new();
+    cl.push_str("let "); cl.push_str(cap); cl.push_str(": *const u8 = NULLP;");
     w.line(cl.as_str());
 }
 
@@ -1370,8 +1417,10 @@ fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin:
 }
 
 // GROUP: ordered choice over sub-alts, inlined. First matching sub-alt sets cap +
-// done; if none match, the group fails the enclosing alt.
-fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, uses_arrcap: bool) {
+// done; if none match, the group fails the enclosing alt via `fail_action`
+// (top-level sequence: "lex.reset(sp, sln); return NULLP;"; inside a group alt:
+// "lex.reset(gsp, gsln); break;").
+fn emit_group_choice(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, uses_arrcap: bool, fail_action: str) {
     let id: i64 = fresh(cg);
     let mut donen: String = String::new();
     donen.push_str("gdone"); donen.push_i64(id);
@@ -1398,8 +1447,12 @@ fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
     }
     let mut chk: String = String::new();
     chk.push_str("if !"); chk.push_str(donen.as_str());
-    chk.push_str(" { lex.reset(sp, sln); return NULLP; }");
+    chk.push_str(" { "); chk.push_str(fail_action); chk.push_str(" }");
     w.line(chk.as_str());
+}
+
+fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, uses_arrcap: bool) {
+    emit_group_choice(cg, w, item_idx, cap, uses_arrcap, "lex.reset(sp, sln); return NULLP;");
 }
 
 // Inline one group sub-alt's sequence as a once-loop (`loop { ...; break; }`): a
@@ -1519,6 +1572,14 @@ fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
     } else if kind == REP {
         // REP inside a group alt: same array-accumulation, but reset-break on min.
         emit_group_rep(cg, w, sub, gcap.as_str(), imin, uses_arrcap);
+    } else if kind == GROUP {
+        // Nested ordered-choice inside a group alt: same as emit_item_group but a
+        // total miss resets to (gsp,gsln) and breaks the enclosing once-loop.
+        emit_group_choice(cg, w, item_idx, gcap.as_str(), uses_arrcap, "lex.reset(gsp, gsln); break;");
+    } else if kind == LOOKAHEAD {
+        emit_lookahead(cg, w, sub, gcap.as_str(), false, "lex.reset(gsp, gsln); break;");
+    } else if kind == NEG_AHEAD {
+        emit_lookahead(cg, w, sub, gcap.as_str(), true, "lex.reset(gsp, gsln); break;");
     } else {
         let mut tl: String = String::new();
         tl.push_str("let "); tl.push_str(gcap.as_str());
