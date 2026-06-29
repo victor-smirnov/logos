@@ -905,10 +905,11 @@ fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
     blockc.push_str(" {");
     w.line(blockc.as_str());
     w.line("                self.pos = self.pos + 2i64;");
-    w.line("                while self.pos < self.src.len() {");
-    w.line("                    if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.pos = self.pos + 2i64; break; }");
-    w.line("                    if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }");
-    w.line("                    self.pos = self.pos + 1i64;");
+    w.line("                let mut bdepth: i64 = 1i64;   // block comments nest (Rust-style)");
+    w.line("                while self.pos < self.src.len() && bdepth > 0i64 {");
+    w.line("                    if self.cur(0i64) == 47u8 && self.cur(1i64) == 42u8 { self.pos = self.pos + 2i64; bdepth = bdepth + 1i64; }");
+    w.line("                    else if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.pos = self.pos + 2i64; bdepth = bdepth - 1i64; }");
+    w.line("                    else { if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; }");
     w.line("                }");
     w.line("            } else { break; }");
     w.line("        }");
@@ -1088,13 +1089,28 @@ fn emit_lex_doc_char(cg: &mut Codegen, w: &mut CodeWriter) {
     }
     if tok_present(cg, "CHAR_LIT") {
         w.line("        if c == 39u8 {");
-        w.line("            if self.cur(1i64) == 92u8 && self.cur(3i64) == 39u8 {");
-        w.line("                self.pos = self.pos + 4i64;");
-        w.line("                return Token { kind: TK_CHAR_LIT, start: start, len: 4i64, line: sl };");
-        w.line("            }");
-        w.line("            if self.cur(1i64) != 92u8 && self.cur(1i64) != 39u8 && self.cur(2i64) == 39u8 {");
-        w.line("                self.pos = self.pos + 3i64;");
-        w.line("                return Token { kind: TK_CHAR_LIT, start: start, len: 3i64, line: sl };");
+        w.line("            if self.cur(1i64) == 92u8 {");
+        w.line("                if self.cur(2i64) == 117u8 && self.cur(3i64) == 123u8 {");
+        w.line("                    // '\\u{...}'  — scan to '}' then expect closing quote.");
+        w.line("                    let mut up: i64 = self.pos + 4i64;");
+        w.line("                    while up < self.src.len() && unsafe { self.src.as_ptr()[up] } != 125u8 { up = up + 1i64; }");
+        w.line("                    if up < self.src.len() && (up + 1i64) < self.src.len() && unsafe { self.src.as_ptr()[up + 1i64] } == 39u8 {");
+        w.line("                        self.pos = up + 2i64;");
+        w.line("                        return Token { kind: TK_CHAR_LIT, start: start, len: self.pos - start, line: sl };");
+        w.line("                    }");
+        w.line("                } else if self.cur(3i64) == 39u8 {");
+        w.line("                    // '\\n' style single-escape char.");
+        w.line("                    self.pos = self.pos + 4i64;");
+        w.line("                    return Token { kind: TK_CHAR_LIT, start: start, len: 4i64, line: sl };");
+        w.line("                }");
+        w.line("            } else if self.cur(1i64) != 39u8 {");
+        w.line("                // One UTF-8 char (1–4 bytes by lead byte), then a closing quote.");
+        w.line("                let lead: u8 = self.cur(1i64);");
+        w.line("                let clen: i64 = if lead < 128u8 { 1i64 } else if lead < 224u8 { 2i64 } else if lead < 240u8 { 3i64 } else { 4i64 };");
+        w.line("                if self.cur(1i64 + clen) == 39u8 {");
+        w.line("                    self.pos = self.pos + 2i64 + clen;");
+        w.line("                    return Token { kind: TK_CHAR_LIT, start: start, len: self.pos - start, line: sl };");
+        w.line("                }");
         w.line("            }");
         w.line("        }");
     }
