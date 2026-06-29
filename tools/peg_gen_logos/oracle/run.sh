@@ -31,6 +31,9 @@ done
 
 cxx="$(sed -n 's/^CMAKE_CXX_COMPILER:[^=]*=//p' "$build/CMakeCache.txt" 2>/dev/null)"
 [ -n "$cxx" ] || cxx=clang++
+# Build the Logos harness at the same -O level as the shipped stdlib/parser so
+# the oracle gates the OPTIMIZED codegen path (override with OPT=, e.g. OPT="").
+OPT="${OPT:--O2}"
 flt() { grep -vE 'version-mismatch|no ABI guarantee|may be unstable'; }
 
 work="$build/peg_gen_logos_oracle"
@@ -55,8 +58,8 @@ module logos_parser
 version 0.1
 root $work/pkg/
 EOF
-"$logosc" --emit-module "$work/pkg/oracle.module" -o "$work/pkg.a" 2>&1 | flt | grep -iE 'error' && exit 1
-"$logosc" -l "$work/pkg.a" "$here/oracle_main.logos" -o "$work/main.o" 2>&1 | flt | grep -iE 'error' && exit 1
+"$logosc" $OPT --emit-module "$work/pkg/oracle.module" -o "$work/pkg.a" 2>&1 | flt | grep -iE 'error' && exit 1
+"$logosc" $OPT -l "$work/pkg.a" "$here/oracle_main.logos" -o "$work/main.o" 2>&1 | flt | grep -iE 'error' && exit 1
 "$cxx" -Wl,--gc-sections "$work/main.o" -Wl,--start-group "$work/pkg.a" \
     "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblstdlib_rt.a" "$libd/liblstdlib_fibers.a" \
     -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm -o "$work/los" \

@@ -30,6 +30,7 @@ file(GLOB_RECURSE LOGOS_STD_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/std/*.logos)
 add_custom_command(
     OUTPUT  ${LOGOS_LANG_BIN}
     COMMAND $<TARGET_FILE:logosc>
+            ${LOGOS_LIB_OPT}
             --emit-module ${LOGOS_LANG_MANIFEST}
             -o ${LOGOS_LANG_BIN}
     DEPENDS $<TARGET_FILE:logosc> ${LOGOS_LANG_MANIFEST} ${LOGOS_LANG_SOURCES} logos_rt logos_fibers
@@ -39,6 +40,7 @@ add_custom_command(
 add_custom_command(
     OUTPUT  ${LOGOS_MEM_BIN}
     COMMAND $<TARGET_FILE:logosc>
+            ${LOGOS_LIB_OPT}
             --emit-module ${LOGOS_MEM_MANIFEST}
             -L ${STDLIB_BIN_DIR}
             -o ${LOGOS_MEM_BIN}
@@ -49,6 +51,7 @@ add_custom_command(
 add_custom_command(
     OUTPUT  ${LOGOS_STD_BIN}
     COMMAND $<TARGET_FILE:logosc>
+            ${LOGOS_LIB_OPT}
             --emit-module ${LOGOS_STD_MANIFEST}
             -L ${STDLIB_BIN_DIR}
             -o ${LOGOS_STD_BIN}

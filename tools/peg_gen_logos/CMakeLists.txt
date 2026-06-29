@@ -22,6 +22,7 @@ file(GLOB PGL_PKG_SRCS CONFIGURE_DEPENDS
 add_custom_command(
     OUTPUT ${PGL_PKG_BIN}
     COMMAND $<TARGET_FILE:logosc>
+            ${LOGOS_LIB_OPT}
             --emit-module ${PGL_PKG_MANIFEST}
             -o ${PGL_PKG_BIN}
     DEPENDS logosc ${PGL_PKG_MANIFEST} ${PGL_PKG_SRCS}
@@ -48,6 +49,7 @@ endif()
 add_custom_command(
     OUTPUT ${PGL_OBJ}
     COMMAND $<TARGET_FILE:logosc>
+        ${LOGOS_LIB_OPT}
         -l ${PGL_PKG_BIN}
         ${PGL_SRC} -o ${PGL_OBJ}
     DEPENDS logosc ${PGL_SRC} ${PGL_PKG_BIN}

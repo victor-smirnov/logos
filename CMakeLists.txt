@@ -125,6 +125,15 @@ include(GNUInstallDirs)
 # apt.llvm.org and no Jenny fork. We auto-discover the newest stock series
 # present under /usr/lib/llvm-NN. Override for a custom toolchain with:
 #   -DLOGOS_LLVM_DIR=/path/to/lib/cmake/llvm -DLOGOS_MLIR_DIR=/path/to/lib/cmake/mlir
+# Optimization level for Logos library/package archives built via
+# `logosc --emit-module` (stdlib layers, peg_gen_logos, …). The emit-module
+# path used to hardcode -O0 ("skip opt pipeline" for fast builds); logosc now
+# honors -O on that path. -O2 here makes the shipped stdlib + tools actually
+# optimized (measured ~3.34× on the peg_gen_logos parser). Set to empty for the
+# old fast-but-unoptimized build. Affects build time, not correctness (gated by
+# ctest + the peg_gen_logos oracle).
+set(LOGOS_LIB_OPT "-O2" CACHE STRING "logosc -O level for --emit-module library archives (empty = -O0)")
+
 set(LOGOS_LLVM_DIR  "" CACHE PATH "LLVM cmake dir (empty = auto-discover stock)")
 set(LOGOS_MLIR_DIR  "" CACHE PATH "MLIR cmake dir (empty = auto-discover stock)")
 set(LOGOS_CLANG_DIR "" CACHE PATH "Clang cmake dir (empty = auto-discover stock)")
