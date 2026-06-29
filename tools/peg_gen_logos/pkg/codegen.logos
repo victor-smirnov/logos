@@ -245,6 +245,11 @@ pub struct Codegen {
     pub uses_gt_type:   bool,
     pub uses_lt_type:   bool,
     pub uses_raw_group: bool,
+
+    // While emitting a fold-mode REP body, the name of the accumulator var that
+    // `$0` (FOLD_CAPTURE) resolves to ("" when not in a fold). Left-assoc binary
+    // expr rules use `lhs (OP rhs => { LHS: $0, ... })*`: $0 is the result so far.
+    pub cur_fold: String,
 }
 
 pub fn codegen_new() -> Codegen {
@@ -255,7 +260,27 @@ pub fn codegen_new() -> Codegen {
         rules: vec_new::<Rule>(), alts: vec_new::<Alt>(), items: vec_new::<Item>(),
         lc: 0i64,
         uses_gt_type: false, uses_lt_type: false, uses_raw_group: false,
+        cur_fold: String::new(),
     };
+}
+
+// True if the REP child `sub` is a fold-mode group: a GROUP whose any alt action
+// references $0 (FOLD_CAPTURE) — i.e. `(OP rhs => { …LHS: $0… })*`.
+fn rep_is_fold(cg: &Codegen, sub: i64) -> bool {
+    if cg.items.borrow(sub).kind != GROUP { return false; }
+    let nalts: i64 = cg.items.borrow(sub).alts.len();
+    let mut gi: i64 = 0i64;
+    while gi < nalts {
+        let galt: i64 = cg.items.borrow(sub).alts.get(gi);
+        let a: &Alt = cg.alts.borrow(galt);
+        let mut fi: i64 = 0i64;
+        while fi < a.fields.len() {
+            if a.fields.borrow(fi).ekind == FOLD_CAPTURE { return true; }
+            fi = fi + 1i64;
+        }
+        gi = gi + 1i64;
+    }
+    return false;
 }
 
 // True if `name` is a raw-group pseudo-token; the matching Lexer helper name is
@@ -1368,9 +1393,24 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
     } else if kind == LITERAL {
         emit_item_literal(w, iname.as_str(), cap.as_str());
     } else if kind == OPT {
-        emit_item_opt(cg, w, sub, cap.as_str(), uses_arrcap);
+        if rep_is_fold(cg, sub) {
+            // `lhs ( OP rhs => { LHS: $0, … } )?` — single-step fold; result is the
+            // built node if it matches, else the preceding item (fold_init).
+            let mut prev: String = String::new();
+            prev.push_str("cap"); prev.push_i64(capn - 1i64);
+            emit_item_opt_fold(cg, w, sub, cap.as_str(), prev.as_str());
+        } else {
+            emit_item_opt(cg, w, sub, cap.as_str(), uses_arrcap);
+        }
     } else if kind == REP {
-        emit_item_rep(cg, w, sub, cap.as_str(), imin, uses_arrcap);
+        if rep_is_fold(cg, sub) {
+            // Fold accumulator starts from the preceding sequence item (cap<capn-1>).
+            let mut prev: String = String::new();
+            prev.push_str("cap"); prev.push_i64(capn - 1i64);
+            emit_item_rep_fold(cg, w, sub, cap.as_str(), prev.as_str(), imin);
+        } else {
+            emit_item_rep(cg, w, sub, cap.as_str(), imin, uses_arrcap);
+        }
     } else if kind == GROUP {
         emit_item_group(cg, w, item_idx, cap.as_str(), uses_arrcap);
     } else if kind == LOOKAHEAD {
@@ -1508,6 +1548,95 @@ fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin:
     cl.push_str("let "); cl.push_str(cap);
     cl.push_str(": *const u8 = "); cl.push_str(arrn.as_str());
     cl.push_str(" as *const WArray<WAny> as *const u8;");
+    w.line(cl.as_str());
+}
+
+// Fold-mode REP: `lhs ( OP rhs => { LHS: $0, … } )*`. The accumulator starts at
+// `fold_init` (the preceding item's cap). Each iteration matches the GROUP body —
+// whose action builds a node with $0 bound (via cg.cur_fold) to the accumulator —
+// then the accumulator becomes that node. cap = the final accumulator (== fold_init
+// when zero iterations). Mirrors the C++ fold path (cur_fold_var_ / fold_init_cap_).
+fn emit_item_rep_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, fold_init: str, imin: i64) {
+    let id: i64 = fresh(cg);
+    let mut acc: String = String::new();  acc.push_str("foldacc"); acc.push_i64(id);
+    let mut mt: String = String::new();   mt.push_str("foldm"); mt.push_i64(id);
+    let mut tmp: String = String::new();  tmp.push_str("foldtmp"); tmp.push_i64(id);
+
+    let mut ad: String = String::new();
+    ad.push_str("let mut "); ad.push_str(acc.as_str());
+    ad.push_str(": *const u8 = "); ad.push_str(fold_init); ad.push_str(";");
+    w.line(ad.as_str());
+    let mut md: String = String::new();
+    md.push_str("let mut "); md.push_str(mt.as_str()); md.push_str(": bool = false;");
+    w.line(md.as_str());
+
+    // Bind $0 → acc for the group action emitted inside the loop (save/restore for
+    // safety, though fold bodies reference sub-rules by name, not inline).
+    let saved_fold: String = String::from(cg.cur_fold.as_str());
+    cg.cur_fold = String::from(acc.as_str());
+
+    w.line("loop {");
+    w.ind();
+    w.line("let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();");
+    emit_inline_subitem_break(cg, w, sub, tmp.as_str(), "rsp", "rsln", false);
+    let mut up: String = String::new();
+    up.push_str(acc.as_str()); up.push_str(" = "); up.push_str(tmp.as_str()); up.push_str(";");
+    w.line(up.as_str());
+    let mut sm: String = String::new();
+    sm.push_str(mt.as_str()); sm.push_str(" = true;");
+    w.line(sm.as_str());
+    w.ded();
+    w.line("}");
+
+    cg.cur_fold = saved_fold;
+
+    let mut cl: String = String::new();
+    cl.push_str("let "); cl.push_str(cap);
+    cl.push_str(": *const u8 = "); cl.push_str(acc.as_str()); cl.push_str(";");
+    w.line(cl.as_str());
+    if imin > 0i64 {
+        let mut chk: String = String::new();
+        chk.push_str("if !"); chk.push_str(mt.as_str());
+        chk.push_str(" { lex.reset(sp, sln); return NULLP; }");
+        w.line(chk.as_str());
+    }
+}
+
+// Single-step fold (OPT body, `lhs ( … => { LHS: $0, … } )?`). acc starts at
+// fold_init; one optional GROUP match (its action sees $0 = acc) updates acc.
+// cap = acc — i.e. the built node if matched, else the bare fold_init.
+fn emit_item_opt_fold(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, fold_init: str) {
+    let id: i64 = fresh(cg);
+    let mut acc: String = String::new();  acc.push_str("foldacc"); acc.push_i64(id);
+    let mut tmp: String = String::new();  tmp.push_str("foldtmp"); tmp.push_i64(id);
+
+    let mut ad: String = String::new();
+    ad.push_str("let mut "); ad.push_str(acc.as_str());
+    ad.push_str(": *const u8 = "); ad.push_str(fold_init); ad.push_str(";");
+    w.line(ad.as_str());
+    let mut td: String = String::new();
+    td.push_str("let mut "); td.push_str(tmp.as_str()); td.push_str(": *const u8 = NULLP;");
+    w.line(td.as_str());
+
+    let saved_fold: String = String::from(cg.cur_fold.as_str());
+    cg.cur_fold = String::from(acc.as_str());
+
+    w.line("{");
+    w.ind();
+    w.line("let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();");
+    emit_inline_subitem(cg, w, sub, tmp.as_str(), "osp", "osln", false);
+    w.ded();
+    w.line("}");
+
+    cg.cur_fold = saved_fold;
+
+    let mut up: String = String::new();
+    up.push_str("if "); up.push_str(tmp.as_str()); up.push_str(" != NULLP { ");
+    up.push_str(acc.as_str()); up.push_str(" = "); up.push_str(tmp.as_str()); up.push_str("; }");
+    w.line(up.as_str());
+    let mut cl: String = String::new();
+    cl.push_str("let "); cl.push_str(cap);
+    cl.push_str(": *const u8 = "); cl.push_str(acc.as_str()); cl.push_str(";");
     w.line(cl.as_str());
 }
 
@@ -2020,6 +2149,7 @@ fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, 
         w.line("let gnode: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
     }
 
+    let foldv: String = String::from(cg.cur_fold.as_str());   // $0 target ("" if none)
     let nf: i64 = cg.alts.borrow(galt).fields.len();
     let mut fi: i64 = 0i64;
     while fi < nf {
@@ -2029,7 +2159,7 @@ fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, 
         let sval: String = String::from(cg.alts.borrow(galt).fields.borrow(fi).sval.as_str());
         let ival: i64 = cg.alts.borrow(galt).fields.borrow(fi).ival;
         if !str_eq(fname.as_str(), "CODE") {
-            emit_group_action_field(w, fname.as_str(), ekind, index, sval.as_str(), ival, cap, id);
+            emit_group_action_field(w, fname.as_str(), ekind, index, sval.as_str(), ival, cap, id, foldv.as_str());
         }
         fi = fi + 1i64;
     }
@@ -2040,10 +2170,16 @@ fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, 
     w.line(rl.as_str());
 }
 
-fn emit_group_action_field(w: &mut CodeWriter, fname: str, ekind: i64, index: i64, sval: str, ival: i64, cap: str, id: i64) {
+fn emit_group_action_field(w: &mut CodeWriter, fname: str, ekind: i64, index: i64, sval: str, ival: i64, cap: str, id: i64, fold_var: str) {
     let mut fc: String = String::new();
     fc.push_str("F_"); fc.push_str(fname);
-    if ekind == CAPTURE {
+    if ekind == FOLD_CAPTURE {
+        // $0 — the fold accumulator (result so far), bound by emit_item_rep_fold.
+        let mut l: String = String::new();
+        l.push_str("gnode.set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::ref_to("); l.push_str(fold_var); l.push_str("));");
+        w.line(l.as_str());
+    } else if ekind == CAPTURE {
         let mut l: String = String::new();
         l.push_str("gnode.set("); l.push_str(fc.as_str());
         l.push_str(", WAny::ref_to(g"); l.push_str(cap); l.push_str("_"); l.push_i64(index);
