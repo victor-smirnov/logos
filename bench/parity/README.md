@@ -38,6 +38,7 @@ faster/denser.
 | nbody     | 1.23×  | 1.10×  | 1.11× | 1.00×   | float / struct math (SLP+sqrt-intr)   |
 | fannkuch  | 1.20×  | 1.40×  | 1.44× | —       | int / array-permute; **diffuse IPC gap** |
 | spectral  | 1.40×  | 1.00×  | 1.01× | ~       | float div-bound; instr gap masked by 1/d latency |
+| mandel    | 0.99×  | 0.99×  | 0.99× | ~       | float loop + escape branch — **parity** |
 
 **logosc is at parity with rustc on the vectorizable + scalar micro-benches**
 (instruction density 0.99–1.23×; baseline cycles 0.99–1.19× on all but fannkuch).
@@ -52,10 +53,16 @@ instruction parity (≈1.0×), but the larger programs show logosc emitting ~20�
 MORE instructions than rustc (nbody 1.23×, fannkuch 1.20×, spectral 1.40×). The
 CYCLE impact varies by how the bottleneck masks it: spectral is division-latency-
 bound → 1.00× cycles despite 1.40× instructions; nbody ~1.1×; fannkuch 1.40×
-cycles (the instruction surplus + a worse IPC, 1.11 vs 1.31, both hurt). Likely
-roots (a future codegen-quality dig): weaker CSE / redundant address computation /
-register allocation vs rustc's MIR-optimized IR. structsum's baseline 1.18× is a
-separate unroll-FACTOR gap (rustc reduces 8-wide vs logosc 4-wide; parity at native).
+cycles (the instruction surplus + a worse IPC, 1.11 vs 1.31, both hurt).
+
+The gap is concentrated in **integer-arithmetic / indexing** code, NOT float
+compute: mandel (pure float loop + branch) and the math-fixed nbody are at parity,
+while spectral's surplus is a single root — logosc compiles `s*(s+1)/2` as a
+4-instruction SIGNED `sdiv` where rustc proves the value ≥0 and emits a 1-instruction
+`lshr`. logosc's IR carries less value-range info than rustc's MIR-optimized IR, so
+LLVM's value-tracking opts (sdiv→lshr, range folding) fire less. structsum's baseline
+1.18× is a separate unroll-FACTOR gap (rustc reduces 8-wide vs logosc 4-wide; parity
+at native). Future codegen-quality dig: value-range propagation / earlier leaf inlining.
 
 Caveat: fine native head-to-head cycle ratios (`c-nat` for arith/dot) are noisy
 and omitted (`~`) — AVX-512 down-clocks the core, so sub-runs vary run to run;

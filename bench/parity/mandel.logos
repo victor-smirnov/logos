@@ -1,0 +1,49 @@
+package b_mandel;
+extern fn logos_argc() -> i32;
+extern fn logos_argv() -> *const *const u8;
+fn reps() -> i64 {
+    unsafe {
+        if logos_argc() < 2i32 { return 1i64; }
+        let p: *const *const u8 = (logos_argv() as i64 + 8i64) as *const *const u8;
+        let s: *const u8 = p[0];
+        let mut n: i64 = 0; let mut i: i64 = 0;
+        while s[i] != 0u8 { n = n * 10i64 + (s[i] as i64 - 48i64); i = i + 1; }
+        return n;
+    }
+}
+// escape iteration count for c=(cr,ci), capped at maxit
+fn escape(cr: f64, ci: f64, maxit: i64) -> i64 {
+    let mut zr: f64 = 0.0; let mut zi: f64 = 0.0;
+    let mut it: i64 = 0;
+    while it < maxit {
+        let zr2: f64 = zr * zr; let zi2: f64 = zi * zi;
+        if zr2 + zi2 > 4.0 { return it; }
+        let nzr: f64 = zr2 - zi2 + cr;
+        zi = 2.0 * zr * zi + ci;
+        zr = nzr;
+        it = it + 1i64;
+    }
+    return maxit;
+}
+fn kernel(r: i64) -> i64 {
+    let n: i64 = 96i64; let maxit: i64 = 100i64;
+    let mut acc: i64 = 0; let mut k: i64 = 0;
+    while k < r {
+        let off: f64 = (k & 7i64) as f64 * 0.0001;
+        let mut sum: i64 = 0;
+        let mut py: i64 = 0;
+        while py < n {
+            let ci: f64 = (py as f64) * (2.0 / (n as f64)) - 1.0 + off;
+            let mut px: i64 = 0;
+            while px < n {
+                let cr: f64 = (px as f64) * (2.5 / (n as f64)) - 2.0 + off;
+                sum = sum + escape(cr, ci, maxit);
+                px = px + 1i64;
+            }
+            py = py + 1i64;
+        }
+        acc = acc ^ sum; k = k + 1i64;
+    }
+    return acc;
+}
+fn main() -> i32 { return (kernel(reps()) & 1i64) as i32; }
