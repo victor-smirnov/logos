@@ -751,7 +751,12 @@ private:
         if (!g_.tokens.empty()) {
             w.fmt("using TK = TK_{};", to_upper(g_.name));
             w.line("struct Token { TK kind; std::string_view text; uint32_t line = 0; };");
+            // Pos-indexed token cache cell: the scanned token plus the (pos,line)
+            // it ends at. Lexing is a pure function of (pos, source), so caching
+            // by entry pos lets every backtracking re-visit skip the re-scan.
+            w.line("struct TokCell { Token tok; size_t endpos; uint32_t endline; };");
             w.line("Token lex_one();");
+            w.line("Token lex_one_raw();");
             w.line("Token next_token();");
             w.line("Token peek_token();");
             w.line("bool  try_token(TK kind);");
@@ -776,6 +781,11 @@ private:
             w.line("Token                    la_{};");
             w.line("bool                     have_la_ = false;");
             w.line("Token                    furthest_{}; // furthest successfully consumed token");
+            // Flat pos-indexed token cache (sized source.size()+1 in the ctor).
+            // endpos == kTokNotLexed marks an unscanned slot. Backtrack-stable:
+            // reset() never clears it, so re-visited positions hit the cache.
+            w.line("static constexpr size_t kTokNotLexed = static_cast<size_t>(-1);");
+            w.line("std::vector<TokCell>     tbuf_;");
         }
 
         // Sub-parser fields for imported grammars.
@@ -847,6 +857,8 @@ private:
             w.fmt("memo_{}_.assign(source.size() + 1, {{logos::writ::AnyVal{{}}, kMemoEmpty, 0}});",
                   r.name);
         }
+        // Token cache: one slot per byte offset, all initially unscanned.
+        w.line("tbuf_.assign(source.size() + 1, TokCell{Token{}, kTokNotLexed, 0});");
         w.dedent();
         w.line("}");
         w.line();
@@ -1027,8 +1039,23 @@ private:
         w.line("}");
         w.line();
 
-        // lex_one
+        // lex_one — pos-indexed token cache wrapping the raw scanner. A hit
+        // jumps pos_/line_ to the cached end and returns the token without
+        // re-scanning (the dominant win under packrat backtracking).
         w.fmt("{0}::Token {0}::lex_one() {{", parser_class_);
+        w.indent();
+        w.line("size_t k = pos_;");
+        w.line("const TokCell& c = tbuf_[k];");
+        w.line("if (c.endpos != kTokNotLexed) { pos_ = c.endpos; line_ = c.endline; return c.tok; }");
+        w.line("Token t = lex_one_raw();");
+        w.line("tbuf_[k] = TokCell{t, pos_, line_};");
+        w.line("return t;");
+        w.dedent();
+        w.line("}");
+        w.line();
+
+        // lex_one_raw — the actual scanner.
+        w.fmt("{0}::Token {0}::lex_one_raw() {{", parser_class_);
         w.indent();
 
         // Emit skip patterns first.
