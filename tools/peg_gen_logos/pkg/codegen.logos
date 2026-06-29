@@ -874,8 +874,10 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    return ws as *const WString as *const u8;");
     w.line("}");
     w.line("// Make a fresh AST node tiny-map and stamp CODE (+ schema for dispatch).");
-    w.line("fn mk_node(doc: &Writ, code: i32) -> &mut WMap<Wu6, WAny> {");
-    w.line("    let node: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
+    w.line("// `cap` is the right-sized slot count (fields + CODE + SRC_LINE) — the");
+    w.line("// bitmap map is fixed-capacity, so cap must be >= the keys actually set.");
+    w.line("fn mk_node(doc: &Writ, code: i32, cap: i64) -> &mut WMap<Wu6, WAny> {");
+    w.line("    let node: &mut WMap<Wu6, WAny> = doc.tinymap(cap);");
     w.line("    node.set(F_CODE, WAny::from(code as i56));");
     w.line("    node.set_schema_type_code(code as u64);");
     w.line("    return node;");
@@ -2304,17 +2306,25 @@ fn action_code_const(cg: &Codegen, alt_idx: i64) -> String {
 // Rule-level alt action: build a node, set each field (skip the CODE field — mk_node
 // already stamped it), set SRC_LINE, return the node as *const u8.
 fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: str, seq_len: i64, uses_arrcap: bool) {
+    // Right-size the node: total entries = field count + 1 (SRC_LINE); CODE is
+    // either one of the fields (skipped in the loop, set by mk_node) or absent, so
+    // nf already accounts for it. +2 safety margin (cheap; avoids silent overflow
+    // no-op if a field count is ever miscounted — the oracle would catch it anyway).
+    let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
+    let cap_lit: i64 = nf + 2i64;
     if action_has_code(cg, alt_idx) {
         let code_str: String = action_code_const(cg, alt_idx);
         let mut nl: String = String::new();
-        nl.push_str("let node: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
+        nl.push_str("let node: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str());
+        nl.push_str(", "); nl.push_i64(cap_lit); nl.push_str("i64);");
         w.line(nl.as_str());
     } else {
         // No CODE field → bare node (no F_CODE / schema), matching the C++ parser.
-        w.line("let node: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
+        let mut bn: String = String::new();
+        bn.push_str("let node: &mut WMap<Wu6, WAny> = doc.tinymap("); bn.push_i64(cap_lit); bn.push_str("i64);");
+        w.line(bn.as_str());
     }
 
-    let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
     let mut fi: i64 = 0i64;
     while fi < nf {
         let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
@@ -2373,17 +2383,21 @@ fn emit_action_field(w: &mut CodeWriter, node_var: str, cap_stem: str, fname: st
 // Group sub-alt action: build `gnode`, fields use the group-cap stem
 // `g<cap>_<n>_<id>` for $n; assign cap = the node ptr.
 fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64, seq_len: i64, uses_arrcap: bool) {
+    let nf: i64 = cg.alts.borrow(galt).fields.len();
+    let cap_lit: i64 = nf + 2i64;   // fields + SRC_LINE (+ margin); see emit_action
     if action_has_code(cg, galt) {
         let code_str: String = action_code_const(cg, galt);
         let mut nl: String = String::new();
-        nl.push_str("let gnode: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
+        nl.push_str("let gnode: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str());
+        nl.push_str(", "); nl.push_i64(cap_lit); nl.push_str("i64);");
         w.line(nl.as_str());
     } else {
-        w.line("let gnode: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
+        let mut bn: String = String::new();
+        bn.push_str("let gnode: &mut WMap<Wu6, WAny> = doc.tinymap("); bn.push_i64(cap_lit); bn.push_str("i64);");
+        w.line(bn.as_str());
     }
 
     let foldv: String = String::from(cg.cur_fold.as_str());   // $0 target ("" if none)
-    let nf: i64 = cg.alts.borrow(galt).fields.len();
     let mut fi: i64 = 0i64;
     while fi < nf {
         let fname: String = String::from(cg.alts.borrow(galt).fields.borrow(fi).name.as_str());
