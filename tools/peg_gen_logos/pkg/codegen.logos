@@ -264,6 +264,32 @@ pub fn codegen_new() -> Codegen {
     };
 }
 
+// True if `name` is a token-alias rule: no action, every alt a single TOKEN_REF
+// (e.g. `trait_kw <- KW_TRAIT / KW_GENOS`). The caller treats it like a token, so
+// its result must NOT be pushed into a parent's $... ITEMS list.
+fn is_token_alias(cg: &Codegen, name: str) -> bool {
+    let nr: i64 = cg.rules.len();
+    let mut ri: i64 = 0i64;
+    while ri < nr {
+        if str_eq(cg.rules.borrow(ri).name.as_str(), name) {
+            let na: i64 = cg.rules.borrow(ri).alts.len();
+            if na == 0i64 { return false; }
+            let mut ai: i64 = 0i64;
+            while ai < na {
+                let altx: i64 = cg.rules.borrow(ri).alts.get(ai);
+                if cg.alts.borrow(altx).has_action { return false; }
+                if cg.alts.borrow(altx).seq.len() != 1i64 { return false; }
+                let it: i64 = cg.alts.borrow(altx).seq.get(0i64);
+                if cg.items.borrow(it).kind != TOKEN_REF { return false; }
+                ai = ai + 1i64;
+            }
+            return true;
+        }
+        ri = ri + 1i64;
+    }
+    return false;
+}
+
 // True if the REP child `sub` is a fold-mode group: a GROUP whose any alt action
 // references $0 (FOLD_CAPTURE) — i.e. `(OP rhs => { …LHS: $0… })*`.
 fn rep_is_fold(cg: &Codegen, sub: i64) -> bool {
@@ -1385,7 +1411,7 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
         chk.push_str("if "); chk.push_str(cap.as_str());
         chk.push_str(" == NULLP { lex.reset(sp, sln); return NULLP; }");
         w.line(chk.as_str());
-        if uses_arrcap {
+        if uses_arrcap && !is_token_alias(cg, iname.as_str()) {
             let mut pl: String = String::new();
             pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(cap.as_str()); pl.push_str("));");
             w.line(pl.as_str());
@@ -1758,7 +1784,7 @@ fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
         chk.push_str("if "); chk.push_str(gcap.as_str()); chk.push_str(" == NULLP ");
         chk.push_str(resetbreak);
         w.line(chk.as_str());
-        if uses_arrcap {
+        if uses_arrcap && !is_token_alias(cg, iname.as_str()) {
             let mut pl: String = String::new();
             pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(gcap.as_str()); pl.push_str("));");
             w.line(pl.as_str());
@@ -1880,7 +1906,7 @@ fn emit_inline_subitem(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str,
         chk.push_str("if sub_r != NULLP { "); chk.push_str(dst); chk.push_str(" = sub_r;");
         // $... collects EVERY rule-ref result across the alt — incl. those matched
         // inside an OPT — mirroring the C++ rcap accumulator.
-        if parent_arrcap { chk.push_str(" rcap.push(WAny::ref_to(sub_r));"); }
+        if parent_arrcap && !is_token_alias(cg, iname.as_str()) { chk.push_str(" rcap.push(WAny::ref_to(sub_r));"); }
         chk.push_str(" } else { lex.reset("); chk.push_str(sp_var);
         chk.push_str(", "); chk.push_str(sln_var); chk.push_str("); }");
         w.line(chk.as_str());
@@ -1963,8 +1989,9 @@ fn emit_inline_subitem_break(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst
         chk.push_str("if "); chk.push_str(dst); chk.push_str(" == NULLP ");
         chk.push_str(resetbreak.as_str());
         w.line(chk.as_str());
-        // $... collects each rule-ref result matched inside a REP (e.g. `item*`).
-        if parent_arrcap {
+        // $... collects each rule-ref result matched inside a REP (e.g. `item*`),
+        // EXCEPT token-alias rules (treated as tokens — must not pollute ITEMS).
+        if parent_arrcap && !is_token_alias(cg, iname.as_str()) {
             let mut pl: String = String::new();
             pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(dst); pl.push_str("));");
             w.line(pl.as_str());
