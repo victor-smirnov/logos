@@ -317,6 +317,18 @@ fn is_raw_group_name(name: str) -> bool {
         || str_eq(name, "RAW_GROUP_BRACE");
 }
 
+// True if any number token's regex pattern lists the `usize`/`isize` suffix.
+fn grammar_has_usize_suffix(cg: &Codegen) -> bool {
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_REGEX && str_contains(t.pattern.as_str(), "usize") { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
 // True if the grammar declares a token named `name`.
 fn tok_present(cg: &Codegen, name: str) -> bool {
     let n: i64 = cg.tokens.len();
@@ -741,11 +753,15 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    }");
     w.line("    // Consume a trailing numeric type suffix (i/u/s/f/d + digits), conservatively.");
     w.line("    fn scan_num_suffix(self: &mut Lexer) {");
-    w.line("        // `usize`/`isize` whole-word first (the loose scan below stops at 'z').");
-    w.line("        let s0: u8 = self.cur(0i64);");
-    w.line("        if (s0 == 117u8 || s0 == 105u8) && self.cur(1i64) == 115u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 122u8 && self.cur(4i64) == 101u8 {");
-    w.line("            self.pos = self.pos + 5i64; return;");
-    w.line("        }");
+    if grammar_has_usize_suffix(cg) {
+        // Only grammars whose INTEGER pattern lists `usize`/`isize` get the
+        // whole-word match (the loose scan below stops at 'z'); for grammars
+        // without it (e.g. writ.peg) emitting this would over-consume `100usize`.
+        w.line("        let s0: u8 = self.cur(0i64);");
+        w.line("        if (s0 == 117u8 || s0 == 105u8) && self.cur(1i64) == 115u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 122u8 && self.cur(4i64) == 101u8 {");
+        w.line("            self.pos = self.pos + 5i64; return;");
+        w.line("        }");
+    }
     w.line("        // Other suffixes: i/u/s/f/d/l + digits (i8…i128, u8…u128, f32/f64, ull/ul/ll/u, _u8…_s64).");
     w.line("        while self.pos < self.src.len() {");
     w.line("            let sc: u8 = self.cur(0i64);");
