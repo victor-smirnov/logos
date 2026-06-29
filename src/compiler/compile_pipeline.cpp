@@ -257,7 +257,16 @@ int lower_and_emit_object(lir::LProgram& prog,
         llvm::FunctionAnalysisManager fam;
         llvm::CGSCCAnalysisManager    cgam;
         llvm::ModuleAnalysisManager   mam;
-        llvm::PassBuilder pb(target_machine.get());
+        // PipelineTuningOptions defaults SLPVectorization to FALSE — so the
+        // default-constructed PassBuilder NEVER ran the SLP (straight-line)
+        // vectorizer, and logosc emitted scalar code where rustc/clang pack
+        // adjacent independent ops (e.g. struct x/y/z float triples, unrolled
+        // loop bodies) into SIMD. clang/rustc enable both vectorizers at O2+;
+        // match that. (LoopVectorization defaults true, but set it explicitly.)
+        llvm::PipelineTuningOptions pto;
+        pto.LoopVectorization = opts.opt_level > 1;
+        pto.SLPVectorization  = opts.opt_level > 1;
+        llvm::PassBuilder pb(target_machine.get(), pto);
         pb.registerModuleAnalyses(mam);
         pb.registerCGSCCAnalyses(cgam);
         pb.registerFunctionAnalyses(fam);
