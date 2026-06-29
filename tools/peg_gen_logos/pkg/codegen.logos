@@ -1,0 +1,1756 @@
+// codegen — emit a recursive-descent parser, IN LOGOS, from a grammar Writ doc.
+//
+// Logos analogue of tools/peg_gen_cpp/src/codegen.cpp, but the EMITTED target
+// language is Logos (not C++). Given the grammar Writ document produced by
+// grammar_parser.logos, `codegen_logos(&grammar)` returns a `String` holding the
+// source of a `<output>.logos` parser that, when compiled, builds a Writ AST.
+//
+// SCOPE (this phase): the writ.peg feature set — %meta / %export / %fields /
+// %nodes / %tokens / %rules with alternation, OPT (?), REP (* / +), GROUP ( ),
+// TOKEN_REF, RULE_REF, LITERAL, and => actions ($1/$2…, $..., STR_LIT, INT_LIT,
+// BOOL_LIT). NOT emitted (writ.peg has none): %prec / Pratt, %import / cross-
+// grammar refs, raw-group pseudo-tokens, LOOKAHEAD/NEG_AHEAD, $0 fold. These are
+// flagged inline in the emitted source as `// TODO:` comments rather than silently
+// dropped.
+//
+// EMITTED-CODE DESIGN. Logos has no `goto`, so the C++ goto-fail backtracking is
+// re-expressed structurally: every rule alternative is emitted as a separate
+// `fn` that takes `&mut Lexer` + `&Writ`, returns `WAny` (null = no match), and
+// restores the lexer position on internal failure (save/reset). A rule fn tries
+// each alternative fn in order and returns the first non-null. Sequence items
+// within an alternative early-return null on the first failing item (after
+// resetting the lexer). OPT yields a null WAny on no-match; REP accumulates into
+// a WArray. The emitted parser reuses a small hand-written runtime preamble (a
+// token Lexer specialised to the grammar's %tokens) that is written verbatim.
+
+package peg_gen_logos.codegen;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.mem.collections.vec;
+
+use peg_gen_logos.ast;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Intermediate representation — plain Logos structs extracted from the Writ doc.
+// Keeps the emission code free of Writ navigation (mirrors C++ GrammarInfo).
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct NameDecl { pub name: String, pub code: i64, pub group: String }
+pub struct TokenDecl { pub name: String, pub kind: i64, pub pattern: String }
+
+// One action field:  FIELD: expr.  `ekind` is an ast action-expr code; the other
+// members are populated per kind (index for CAPTURE, sval for STR_LIT, ival for
+// INT_LIT/BOOL_LIT).
+pub struct ActionField {
+    pub name:  String,
+    pub ekind: i64,
+    pub index: i64,
+    pub sval:  String,
+    pub ival:  i64,
+}
+
+// One grammar item (rule/token ref, literal, or a quantified/grouped wrapper).
+// Children are held by INDEX into a flat item pool (`Item` cannot hold a Vec<Item>
+// by value — recursive sized type). `sub` = index of the single child (OPT / REP /
+// LOOKAHEAD / NEG_AHEAD), -1 if none. `alts` = indices into the alt pool (GROUP).
+pub struct Item {
+    pub kind:  i64,
+    pub name:  String,
+    pub min:   i64,
+    pub max:   i64,
+    pub sub:   i64,        // index into Codegen.items, -1 = none
+    pub alts:  Vec<i64>,   // indices into Codegen.alts (for GROUP)
+}
+
+// One alternative: a sequence of item indices + an optional action.
+pub struct Alt {
+    pub seq:        Vec<i64>,          // indices into Codegen.items
+    pub has_action: bool,
+    pub fields:     Vec<ActionField>,
+}
+
+pub struct Rule {
+    pub name:  String,
+    pub group: String,
+    pub alts:  Vec<i64>,   // indices into Codegen.alts
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CodeWriter — indentation-aware String builder (port of codegen.cpp:375).
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct CodeWriter {
+    pub buf:    String,
+    pub indent: i64,
+}
+
+pub fn code_writer_new() -> CodeWriter {
+    return CodeWriter { buf: String::new(), indent: 0i64 };
+}
+
+impl CodeWriter {
+    // Emit one line at the current indent (empty `text` → a blank line, no indent).
+    pub fn line(self: &mut CodeWriter, text: str) {
+        if text.len() > 0i64 {
+            let mut i: i64 = 0i64;
+            while i < self.indent { self.buf.push_str("    "); i = i + 1i64; }
+            self.buf.push_str(text);
+        }
+        self.buf.push_u8(10u8);   // '\n'
+    }
+    pub fn blank(self: &mut CodeWriter) { self.buf.push_u8(10u8); }
+    pub fn ind(self: &mut CodeWriter)  { self.indent = self.indent + 1i64; }
+    pub fn ded(self: &mut CodeWriter)  { if self.indent > 0i64 { self.indent = self.indent - 1i64; } }
+
+    // Emit a line built from up to a few str fragments (a terse `fmt` analogue —
+    // Logos format! is heavier; these cover the call sites here).
+    pub fn l2(self: &mut CodeWriter, a: str, b: str) {
+        let mut s: String = String::new();
+        s.push_str(a); s.push_str(b);
+        self.line(s.as_str());
+    }
+    pub fn l3(self: &mut CodeWriter, a: str, b: str, c: str) {
+        let mut s: String = String::new();
+        s.push_str(a); s.push_str(b); s.push_str(c);
+        self.line(s.as_str());
+    }
+    pub fn l4(self: &mut CodeWriter, a: str, b: str, c: str, d: str) {
+        let mut s: String = String::new();
+        s.push_str(a); s.push_str(b); s.push_str(c); s.push_str(d);
+        self.line(s.as_str());
+    }
+    pub fn l5(self: &mut CodeWriter, a: str, b: str, c: str, d: str, e: str) {
+        let mut s: String = String::new();
+        s.push_str(a); s.push_str(b); s.push_str(c); s.push_str(d); s.push_str(e);
+        self.line(s.as_str());
+    }
+}
+
+// ── small str/String helpers ──────────────────────────────────────────────
+
+// Render an i64 as a decimal string.
+fn itos(v: i64) -> String {
+    let mut s: String = String::new();
+    s.push_i64(v);
+    return s;
+}
+
+// snake_case → PascalCase (for the parser type name).
+fn to_pascal(snake: str) -> String {
+    let mut out: String = String::new();
+    let mut cap: bool = true;
+    let mut i: i64 = 0i64;
+    let n: i64 = snake.len();
+    while i < n {
+        let c: u8 = str_byte_at(snake, i);
+        if c == 95u8 {            // '_'
+            cap = true;
+        } else {
+            let mut ch: u8 = c;
+            if cap && c >= 97u8 && c <= 122u8 { ch = c - 32u8; }   // to upper
+            out.push_u8(ch);
+            cap = false;
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ASCII upper-case copy.
+fn to_upper(s: str) -> String {
+    let mut out: String = String::new();
+    let mut i: i64 = 0i64;
+    let n: i64 = s.len();
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c >= 97u8 && c <= 122u8 { out.push_u8(c - 32u8); } else { out.push_u8(c); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// First byte (or 0 for empty) — used for the UPPERCASE token-ref convention.
+fn first_byte(s: str) -> u8 {
+    if s.len() == 0i64 { return 0u8; }
+    return str_byte_at(s, 0i64);
+}
+
+// Strip surrounding double quotes (a literal token pattern keeps its quotes in
+// the doc; the lexer wants the inner text).
+fn unquote(s: str) -> str {
+    let n: i64 = s.len();
+    if n >= 2i64 && str_byte_at(s, 0i64) == 34u8 && str_byte_at(s, n - 1i64) == 34u8 {
+        return unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    }
+    return s;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Writ-doc readers — resolve a Ref WAny to a tinymap node (no public helper).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// A grammar node is a tinymap (WMap<Wu6, WAny>); WAny has no `as_tinymap`, so
+// resolve+cast here. Caller checks the WAny is a non-null Ref first.
+fn as_tinymap(v: WAny) -> &WMap<Wu6, WAny> {
+    return unsafe { &*(v.resolve() as *const WMap<Wu6, WAny>) };
+}
+
+// Read a u8-keyed field as a String (empty if absent / not a string).
+fn fld_str(node: &WMap<Wu6, WAny>, key: u8) -> String {
+    let v: WAny = node.get(key);
+    if v.is_null() || !v.is_string() { return String::new(); }
+    return String::from(v.as_string().as_str());
+}
+
+// Read a u8-keyed field as an i64 (0 if absent / not an int).
+fn fld_int(node: &WMap<Wu6, WAny>, key: u8) -> i64 {
+    let v: WAny = node.get(key);
+    if v.is_null() || !v.is_int() { return 0i64; }
+    return v.as_i64();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Codegen — owns the IR pools + the parser-name strings.
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub struct Codegen {
+    pub name:    String,    // grammar name (writ)
+    pub output:  String,    // output base (writ_parser)
+    pub pclass:  String,    // parser struct name (WritParser)
+
+    pub exports: Vec<String>,
+    pub fields:  Vec<NameDecl>,
+    pub nodes:   Vec<NameDecl>,
+    pub tokens:  Vec<TokenDecl>,
+
+    // Flat pools — Item/Alt reference each other by index (avoids recursive
+    // sized structs). Rules hold alt indices; alts hold item indices; items hold
+    // child item index + group alt indices.
+    pub rules: Vec<Rule>,
+    pub alts:  Vec<Alt>,
+    pub items: Vec<Item>,
+
+    pub lc: i64,   // fresh-label counter (reset per rule)
+}
+
+pub fn codegen_new() -> Codegen {
+    return Codegen {
+        name: String::new(), output: String::new(), pclass: String::new(),
+        exports: vec_new::<String>(), fields: vec_new::<NameDecl>(),
+        nodes: vec_new::<NameDecl>(), tokens: vec_new::<TokenDecl>(),
+        rules: vec_new::<Rule>(), alts: vec_new::<Alt>(), items: vec_new::<Item>(),
+        lc: 0i64,
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Public entry — placeholder, fleshed out below.
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub fn codegen_logos(grammar: &Writ) -> String {
+    let mut cg: Codegen = codegen_new();
+    read_grammar(&mut cg, grammar);
+    return emit_all(&mut cg);
+}
+
+// Output base name (the grammar's %meta `output`, e.g. "writ_parser"); falls
+// back to "parser" if the grammar omits it. Used by the CLI driver to derive
+// the generated file path <output>.logos (package decl matches this name).
+pub fn codegen_output_name(grammar: &Writ) -> String {
+    let mut cg: Codegen = codegen_new();
+    read_grammar(&mut cg, grammar);
+    return String::from(cg.output.as_str());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reader — grammar Writ doc → Codegen IR pools.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Append one Item built from a node WAny; returns its pool index. Recurses into
+// children (ITEM / ALTS), so an item subtree is fully read before the parent is
+// finalized (children get LOWER indices, which is fine — references are by index).
+fn read_item(cg: &mut Codegen, v: WAny) -> i64 {
+    if v.is_null() || !v.is_tinymap() { return -1i64; }
+    let node: &WMap<Wu6, WAny> = as_tinymap(v);
+    let kind: i64 = fld_int(node, CODE);
+    let name: String = fld_str(node, NAME);
+    let mut mn: i64 = fld_int(node, MIN);
+    let mut mx: i64 = fld_int(node, MAX);
+
+    // Child item (OPT / REP / LOOKAHEAD / NEG_AHEAD): read it first, capture index.
+    let sub_v: WAny = node.get(ITEM);
+    let mut sub_idx: i64 = -1i64;
+    if !sub_v.is_null() && sub_v.is_tinymap() {
+        sub_idx = read_item(cg, sub_v);
+    }
+
+    // Group alternatives.
+    let mut alt_idxs: Vec<i64> = vec_new::<i64>();
+    let alts_v: WAny = node.get(ALTS);
+    if !alts_v.is_null() && alts_v.is_array() {
+        let arr: &WArray<WAny> = alts_v.as_array();
+        let mut i: i64 = 0i64;
+        while i < arr.len() {
+            let a_idx: i64 = read_alt(cg, arr.get(i));
+            alt_idxs.push(a_idx);
+            i = i + 1i64;
+        }
+    }
+
+    let item: Item = Item {
+        kind: kind, name: name, min: mn, max: mx, sub: sub_idx, alts: alt_idxs,
+    };
+    let idx: i64 = cg.items.len();
+    cg.items.push(item);
+    return idx;
+}
+
+// Append one Alt built from an ALT node WAny; returns its pool index.
+fn read_alt(cg: &mut Codegen, v: WAny) -> i64 {
+    let mut seq: Vec<i64> = vec_new::<i64>();
+    let mut fields: Vec<ActionField> = vec_new::<ActionField>();
+    let mut has_action: bool = false;
+
+    if !v.is_null() && v.is_tinymap() {
+        let node: &WMap<Wu6, WAny> = as_tinymap(v);
+
+        // Sequence.
+        let seq_v: WAny = node.get(SEQ);
+        if !seq_v.is_null() && seq_v.is_array() {
+            let arr: &WArray<WAny> = seq_v.as_array();
+            let mut i: i64 = 0i64;
+            while i < arr.len() {
+                let it_idx: i64 = read_item(cg, arr.get(i));
+                if it_idx >= 0i64 { seq.push(it_idx); }
+                i = i + 1i64;
+            }
+        }
+
+        // Action: a string-keyed map { FIELD -> expr-node }.
+        let act_v: WAny = node.get(ACTION);
+        if !act_v.is_null() && act_v.is_map() {
+            has_action = true;
+            let am: &WMap<WString, WAny> = act_v.as_map();
+            let slots: i64 = am.slots();
+            let mut s: i64 = 0i64;
+            while s < slots {
+                let kv: WAny = am.key_at(s);
+                if !kv.is_null() && kv.is_string() {
+                    let fname: String = String::from(kv.as_string().as_str());
+                    let ev: WAny = am.val_at(s);
+                    let f: ActionField = read_action_field(fname, ev);
+                    fields.push(f);
+                }
+                s = s + 1i64;
+            }
+        }
+    }
+
+    let alt: Alt = Alt { seq: seq, has_action: has_action, fields: fields };
+    let idx: i64 = cg.alts.len();
+    cg.alts.push(alt);
+    return idx;
+}
+
+// Build an ActionField from a field name + its expr-node WAny.
+fn read_action_field(fname: String, ev: WAny) -> ActionField {
+    let mut ekind: i64 = -1i64;
+    let mut index: i64 = 0i64;
+    let mut sval: String = String::new();
+    let mut ival: i64 = 0i64;
+    if !ev.is_null() && ev.is_tinymap() {
+        let en: &WMap<Wu6, WAny> = as_tinymap(ev);
+        ekind = fld_int(en, CODE);
+        if ekind == CAPTURE {
+            index = fld_int(en, INDEX);
+        } else if ekind == STR_LIT {
+            sval = fld_str(en, VALUE);
+        } else if ekind == INT_LIT {
+            ival = fld_int(en, VALUE);
+        } else if ekind == BOOL_LIT {
+            // VALUE is a u8 0/1.
+            let bv: WAny = en.get(VALUE);
+            if !bv.is_null() && bv.is_int() { ival = bv.as_i64(); }
+        }
+    }
+    return ActionField { name: fname, ekind: ekind, index: index, sval: sval, ival: ival };
+}
+
+fn read_grammar(cg: &mut Codegen, grammar: &Writ) {
+    let root: WAny = grammar.root();
+    if root.is_null() { return; }
+    let rootm: &WMap<WString, WAny> = root.as_map();
+
+    // %meta
+    let meta: WAny = rootm.get("meta");
+    if !meta.is_null() && meta.is_tinymap() {
+        let m: &WMap<Wu6, WAny> = as_tinymap(meta);
+        cg.name   = fld_str(m, NAME);
+        cg.output = fld_str(m, OUTPUT);
+    }
+    if cg.output.len() == 0i64 { cg.output = String::from("parser"); }
+    cg.pclass = to_pascal(cg.name.as_str());
+    cg.pclass.push_str("Parser");
+
+    // %export — array of strings.
+    let exp: WAny = rootm.get("exports");
+    if !exp.is_null() && exp.is_array() {
+        let arr: &WArray<WAny> = exp.as_array();
+        let mut i: i64 = 0i64;
+        while i < arr.len() {
+            let e: WAny = arr.get(i);
+            if !e.is_null() && e.is_string() { cg.exports.push(String::from(e.as_string().as_str())); }
+            i = i + 1i64;
+        }
+    }
+
+    // %fields / %nodes — arrays of NAME_DECL (GROUP_DECL not present in writ.peg).
+    read_name_decls(cg, rootm, "fields", true);
+    read_name_decls(cg, rootm, "nodes", false);
+
+    // %tokens
+    let tks: WAny = rootm.get("tokens");
+    if !tks.is_null() && tks.is_array() {
+        let arr: &WArray<WAny> = tks.as_array();
+        let mut i: i64 = 0i64;
+        while i < arr.len() {
+            let tv: WAny = arr.get(i);
+            if !tv.is_null() && tv.is_tinymap() {
+                let node: &WMap<Wu6, WAny> = as_tinymap(tv);
+                let td: TokenDecl = TokenDecl {
+                    name: fld_str(node, NAME),
+                    kind: fld_int(node, KIND),
+                    pattern: fld_str(node, PATTERN),
+                };
+                cg.tokens.push(td);
+            }
+            i = i + 1i64;
+        }
+    }
+
+    // %rules
+    let rls: WAny = rootm.get("rules");
+    if !rls.is_null() && rls.is_array() {
+        let arr: &WArray<WAny> = rls.as_array();
+        let mut i: i64 = 0i64;
+        while i < arr.len() {
+            let rv: WAny = arr.get(i);
+            if !rv.is_null() && rv.is_tinymap() {
+                let node: &WMap<Wu6, WAny> = as_tinymap(rv);
+                let rname: String = fld_str(node, NAME);
+                let rgroup: String = fld_str(node, GROUP_NAME);
+                let mut ralts: Vec<i64> = vec_new::<i64>();
+                let alts_v: WAny = node.get(ALTS);
+                if !alts_v.is_null() && alts_v.is_array() {
+                    let aarr: &WArray<WAny> = alts_v.as_array();
+                    let mut j: i64 = 0i64;
+                    while j < aarr.len() {
+                        let aidx: i64 = read_alt(cg, aarr.get(j));
+                        ralts.push(aidx);
+                        j = j + 1i64;
+                    }
+                }
+                cg.rules.push(Rule { name: rname, group: rgroup, alts: ralts });
+            }
+            i = i + 1i64;
+        }
+    }
+}
+
+// Read a NAME_DECL array (writ.peg has no group blocks here) into fields/nodes.
+fn read_name_decls(cg: &mut Codegen, root: &WMap<WString, WAny>, key: str, into_fields: bool) {
+    let v: WAny = root.get(key);
+    if v.is_null() || !v.is_array() { return; }
+    let arr: &WArray<WAny> = v.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let nv: WAny = arr.get(i);
+        if !nv.is_null() && nv.is_tinymap() {
+            let node: &WMap<Wu6, WAny> = as_tinymap(nv);
+            let code: i64 = fld_int(node, CODE);
+            if code == GROUP_DECL {
+                // group X { ... } — flatten FIELDS, tag each with the group name.
+                let gname: String = fld_str(node, NAME);
+                let fv: WAny = node.get(FIELDS);
+                if !fv.is_null() && fv.is_array() {
+                    let farr: &WArray<WAny> = fv.as_array();
+                    let mut j: i64 = 0i64;
+                    while j < farr.len() {
+                        let fe: WAny = farr.get(j);
+                        if !fe.is_null() && fe.is_tinymap() {
+                            let fn2: &WMap<Wu6, WAny> = as_tinymap(fe);
+                            let nd: NameDecl = NameDecl {
+                                name: fld_str(fn2, NAME), code: fld_int(fn2, VALUE),
+                                group: String::from(gname.as_str()),
+                            };
+                            if into_fields { cg.fields.push(nd); } else { cg.nodes.push(nd); }
+                        }
+                        j = j + 1i64;
+                    }
+                }
+            } else {
+                let nd: NameDecl = NameDecl {
+                    name: fld_str(node, NAME), code: fld_int(node, VALUE), group: String::new(),
+                };
+                if into_fields { cg.fields.push(nd); } else { cg.nodes.push(nd); }
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Emitter — Codegen IR → Logos parser source (a String).
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn emit_all(cg: &mut Codegen) -> String {
+    let mut w: CodeWriter = code_writer_new();
+    emit_prologue(cg, &mut w);
+    emit_token_consts(cg, &mut w);
+    emit_runtime(cg, &mut w);
+    emit_lexer(cg, &mut w);
+    emit_rules(cg, &mut w);
+    emit_public_entries(cg, &mut w);
+    return w.buf;
+}
+
+fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("// Generated by peg_gen_logos — DO NOT EDIT.");
+    w.line("//");
+    w.l2("// Recursive-descent parser for grammar: ", cg.name.as_str());
+    w.blank();
+    w.l3("package ", cg.output.as_str(), ";");
+    w.blank();
+    w.line("use logos.lang.str;");
+    w.line("use logos.lang.writ.container;");
+    w.line("use logos.lang.writ.anyval;");
+    w.line("use logos.lang.writ.array;");
+    w.line("use logos.lang.writ.wmap;");
+    w.line("use logos.lang.writ.wstring;");
+    w.blank();
+    w.line("// ── AST field keys (%fields) ───────────────────────────────────────────────");
+    let mut i: i64 = 0i64;
+    while i < cg.fields.len() {
+        let f: &NameDecl = cg.fields.borrow(i);
+        let mut s: String = String::new();
+        s.push_str("pub const F_"); s.push_str(f.name.as_str());
+        s.push_str(": u8 = "); s.push_i64(f.code); s.push_str("u8;");
+        w.line(s.as_str());
+        i = i + 1i64;
+    }
+    w.blank();
+    w.line("// ── AST node codes (%nodes) ────────────────────────────────────────────────");
+    i = 0i64;
+    while i < cg.nodes.len() {
+        let n: &NameDecl = cg.nodes.borrow(i);
+        let mut s: String = String::new();
+        s.push_str("pub const N_"); s.push_str(n.name.as_str());
+        s.push_str(": i32 = "); s.push_i64(n.code); s.push_str("i32;");
+        w.line(s.as_str());
+        i = i + 1i64;
+    }
+    w.blank();
+}
+
+// Token-name → emitted TK constant suffix. The %skip pseudo-token is not a real
+// token; named tokens become TK_<NAME>. (Token enum values: EOF=0, INVALID=1,
+// then named tokens in declaration order from 2.)
+fn emit_token_consts(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("// ── Token kinds ────────────────────────────────────────────────────────────");
+    w.line("pub const TK_EOF:     i32 = 0i32;");
+    w.line("pub const TK_INVALID: i32 = 1i32;");
+    let mut next: i64 = 2i64;
+    let mut i: i64 = 0i64;
+    while i < cg.tokens.len() {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind != TOKEN_SKIP {
+            let mut s: String = String::new();
+            s.push_str("pub const TK_"); s.push_str(t.name.as_str());
+            s.push_str(": i32 = "); s.push_i64(next); s.push_str("i32;");
+            w.line(s.as_str());
+            next = next + 1i64;
+        }
+        i = i + 1i64;
+    }
+    w.blank();
+}
+
+// The hand-written runtime preamble: the Token struct, the Lexer struct + its
+// position-save helpers, and the WAny node-building helpers. Emitted verbatim
+// (grammar-independent except the lexer's token-matching body, emitted separately).
+fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("// ── Runtime preamble ───────────────────────────────────────────────────────");
+    w.line("pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }");
+    w.line("impl Token {");
+    w.line("    pub fn text(self: &Token, src: str) -> str {");
+    w.line("        return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };");
+    w.line("    }");
+    w.line("}");
+    w.blank();
+    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool }");
+    w.blank();
+    w.line("pub fn lexer_new(src: str) -> Lexer {");
+    w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
+    w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false };");
+    w.line("}");
+    w.blank();
+    w.line("fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }");
+    w.line("fn lx_is_alpha(c: u8) -> bool { return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8; }");
+    w.line("fn lx_is_alnum(c: u8) -> bool { return lx_is_alpha(c) || lx_is_digit(c); }");
+    w.line("fn lx_is_hex(c: u8) -> bool { return lx_is_digit(c) || (c >= 65u8 && c <= 70u8) || (c >= 97u8 && c <= 102u8); }");
+    w.blank();
+    w.line("impl Lexer {");
+    w.line("    fn cur(self: &Lexer, off: i64) -> u8 {");
+    w.line("        let p: i64 = self.pos + off;");
+    w.line("        if p < 0i64 || p >= self.src.len() { return 0u8; }");
+    w.line("        return unsafe { self.src.as_ptr()[p] };");
+    w.line("    }");
+    w.line("    // Consume and return the next token.");
+    w.line("    pub fn next(self: &mut Lexer) -> Token {");
+    w.line("        if self.have_la { self.have_la = false; return self.la; }");
+    w.line("        return self.lex_one();");
+    w.line("    }");
+    w.line("    // Look at the next token without consuming.");
+    w.line("    pub fn peek(self: &mut Lexer) -> Token {");
+    w.line("        if !self.have_la { self.la = self.lex_one(); self.have_la = true; }");
+    w.line("        return self.la;");
+    w.line("    }");
+    w.line("    pub fn at_eof(self: &mut Lexer) -> bool { return self.peek().kind == TK_EOF; }");
+    w.line("    // The (pos, line, have_la) triple is the full backtrack state.");
+    w.line("    pub fn save_pos(self: &Lexer) -> i64 {");
+    w.line("        // When a lookahead is buffered, the logical position is the start of");
+    w.line("        // that token; otherwise it is `pos`. Encode have_la in the high bit-");
+    w.line("        // free way: callers pair save_pos with save_line and restore via reset.");
+    w.line("        if self.have_la { return self.la.start; }");
+    w.line("        return self.pos;");
+    w.line("    }");
+    w.line("    pub fn save_line(self: &Lexer) -> i64 {");
+    w.line("        if self.have_la { return self.la.line; }");
+    w.line("        return self.line;");
+    w.line("    }");
+    w.line("    pub fn reset(self: &mut Lexer, p: i64, ln: i64) {");
+    w.line("        self.pos = p; self.line = ln; self.have_la = false;");
+    w.line("    }");
+    w.line("    // Match a specific token kind; on match consume + return true.");
+    w.line("    pub fn try_tok(self: &mut Lexer, kind: i32) -> bool {");
+    w.line("        if self.peek().kind == kind { self.next(); return true; }");
+    w.line("        return false;");
+    w.line("    }");
+    w.line("    // Consume a trailing numeric type suffix (i/u/s/f/d + digits), conservatively.");
+    w.line("    fn scan_num_suffix(self: &mut Lexer) {");
+    w.line("        while self.pos < self.src.len() {");
+    w.line("            let sc: u8 = self.cur(0i64);");
+    w.line("            if sc == 105u8 || sc == 117u8 || sc == 115u8 || sc == 102u8 || sc == 100u8 || sc == 108u8 || lx_is_digit(sc) { self.pos = self.pos + 1i64; } else { break; }");
+    w.line("        }");
+    w.line("    }");
+    emit_lex_one(cg, w);
+    w.line("}");
+    w.blank();
+    // Node-building helpers. CONVENTION: rule/alt fns and item captures traffic in
+    // a RAW `*const u8` (0 = no match / null), NOT a `WAny`. WAny is
+    // `#[borrow_carrying]`: a WAny derived from a `&mut Lexer`-consuming call ties
+    // the lexer's borrow to the WAny's lifetime, so the next `lex` use is rejected
+    // (E0597). A raw pointer carries no borrow — the lexer is released at the call
+    // boundary — and the pointee lives in the never-move arena, so the pointer
+    // stays valid. WAny is reconstructed (WAny::ref_to) only at the moment a value
+    // is stored into a node / pushed to an array.
+    w.line("const NULLP: *const u8 = 0i64 as *const u8;");
+    w.line("// Intern a str into the arena; return the raw WString pointer (0 never).");
+    w.line("fn wstr_p(doc: &Writ, s: str) -> *const u8 {");
+    w.line("    let ws: &WString = doc.wstring(s);");
+    w.line("    return ws as *const WString as *const u8;");
+    w.line("}");
+    w.line("// Make a fresh AST node tiny-map and stamp CODE (+ schema for dispatch).");
+    w.line("fn mk_node(doc: &Writ, code: i32) -> &mut WMap<Wu6, WAny> {");
+    w.line("    let node: &mut WMap<Wu6, WAny> = doc.tinymap(16i64);");
+    w.line("    node.set(F_CODE, WAny::from(code as i56));");
+    w.line("    node.set_schema_type_code(code as u64);");
+    w.line("    return node;");
+    w.line("}");
+    w.blank();
+}
+
+// The lex_one body — skip whitespace/comments, then match literals + regex tokens.
+// Targets the writ.peg token set; unrecognised regex shapes emit a TODO and fall
+// through to TK_INVALID.
+fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("    fn lex_one(self: &mut Lexer) -> Token {");
+    w.line("        // Skip whitespace and // line / /* */ block comments.");
+    w.line("        loop {");
+    w.line("            let c: u8 = self.cur(0i64);");
+    w.line("            if c == 32u8 || c == 9u8 || c == 13u8 || c == 10u8 {");
+    w.line("                if c == 10u8 { self.line = self.line + 1i64; }");
+    w.line("                self.pos = self.pos + 1i64;");
+    w.line("            } else if c == 47u8 && self.cur(1i64) == 47u8 {");
+    w.line("                while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.pos = self.pos + 1i64; }");
+    w.line("            } else if c == 47u8 && self.cur(1i64) == 42u8 {");
+    w.line("                self.pos = self.pos + 2i64;");
+    w.line("                while self.pos < self.src.len() {");
+    w.line("                    if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.pos = self.pos + 2i64; break; }");
+    w.line("                    if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }");
+    w.line("                    self.pos = self.pos + 1i64;");
+    w.line("                }");
+    w.line("            } else { break; }");
+    w.line("        }");
+    w.line("        if self.pos >= self.src.len() { return Token { kind: TK_EOF, start: self.pos, len: 0i64, line: self.line }; }");
+    w.line("        let start: i64 = self.pos;");
+    w.line("        let sl: i64 = self.line;");
+    w.line("        let c: u8 = self.cur(0i64);");
+    w.blank();
+
+    // Keyword / punctuation literals — longest match first.
+    emit_lex_literals(cg, w);
+    // Regex tokens (STRING / INTEGER / FLOAT / IDENT — recognised by shape).
+    emit_lex_regex(cg, w);
+
+    w.line("        // Unknown character — surface it to the parser as INVALID.");
+    w.line("        self.pos = self.pos + 1i64;");
+    w.line("        return Token { kind: TK_INVALID, start: start, len: 1i64, line: sl };");
+    w.line("    }");
+}
+
+// Emit literal-token matchers, longest pattern first (so `<=` beats `<`). Each
+// literal is a fixed byte string; emit a per-byte compare.
+fn emit_lex_literals(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("        // Keyword / punctuation literals (longest match first).");
+    // Selection sort by unquoted pattern length, descending — over a small token set.
+    let n: i64 = cg.tokens.len();
+    let mut order: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_LITERAL { order.push(i); }
+        i = i + 1i64;
+    }
+    // Sort `order` by descending pattern length.
+    let m: i64 = order.len();
+    let mut a: i64 = 0i64;
+    while a < m {
+        let mut best: i64 = a;
+        let mut b: i64 = a + 1i64;
+        while b < m {
+            let oi: i64 = order.get(best);
+            let oj: i64 = order.get(b);
+            let li: i64 = unquote(cg.tokens.borrow(oi).pattern.as_str()).len();
+            let lj: i64 = unquote(cg.tokens.borrow(oj).pattern.as_str()).len();
+            if lj > li { best = b; }
+            b = b + 1i64;
+        }
+        if best != a {
+            let tmp: i64 = order.get(a);
+            order.set(a, order.get(best));
+            order.set(best, tmp);
+        }
+        a = a + 1i64;
+    }
+
+    let mut k: i64 = 0i64;
+    while k < m {
+        let ti: i64 = order.get(k);
+        let t: &TokenDecl = cg.tokens.borrow(ti);
+        let pat: str = unquote(t.pattern.as_str());
+        let plen: i64 = pat.len();
+        // Word-like (all alnum/underscore) keywords need a trailing word-boundary
+        // check so `true` doesn't match a prefix of `trueish`.
+        let is_word: bool = pat_is_word(pat);
+        emit_one_literal(w, t.name.as_str(), pat, plen, is_word);
+        k = k + 1i64;
+    }
+    w.blank();
+}
+
+fn pat_is_word(p: str) -> bool {
+    let n: i64 = p.len();
+    if n == 0i64 { return false; }
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(p, i);
+        let ok: bool = (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) ||
+                       (c >= 48u8 && c <= 57u8) || c == 95u8;
+        if !ok { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Emit a matcher for one fixed literal `pat` (length plen) producing TK_<name>.
+fn emit_one_literal(w: &mut CodeWriter, name: str, pat: str, plen: i64, is_word: bool) {
+    // Build the byte-compare condition: self.cur(0)==b0 && self.cur(1)==b1 && ...
+    let mut cond: String = String::new();
+    let mut i: i64 = 0i64;
+    while i < plen {
+        if i > 0i64 { cond.push_str(" && "); }
+        cond.push_str("self.cur(");
+        cond.push_i64(i);
+        cond.push_str("i64) == ");
+        cond.push_i64(str_byte_at(pat, i) as i64);
+        cond.push_str("u8");
+        i = i + 1i64;
+    }
+    if is_word {
+        // After the keyword, the next byte must not continue a word.
+        cond.push_str(" && !lx_is_alnum(self.cur(");
+        cond.push_i64(plen);
+        cond.push_str("i64))");
+    }
+    w.l3("        if ", cond.as_str(), " {");
+    let mut adv: String = String::new();
+    adv.push_str("            self.pos = self.pos + ");
+    adv.push_i64(plen);
+    adv.push_str("i64;");
+    w.line(adv.as_str());
+    let mut ret: String = String::new();
+    ret.push_str("            return Token { kind: TK_");
+    ret.push_str(name);
+    ret.push_str(", start: start, len: ");
+    ret.push_i64(plen);
+    ret.push_str("i64, line: sl };");
+    w.line(ret.as_str());
+    w.line("        }");
+}
+
+// Emit hand-coded matchers for the regex tokens, recognised by pattern shape.
+// Covers writ.peg: STRING ("…"), INTEGER, FLOAT, IDENT. Unrecognised shapes get
+// a TODO comment (so the gap is visible in the generated source).
+fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("        // Regex tokens (matched by hand-coded recognisers).");
+    let n: i64 = cg.tokens.len();
+    // Identify the INTEGER- and FLOAT-shaped number tokens (by name): a number
+    // matcher must scan the maximal run ONCE and choose FLOAT (a '.' / exponent
+    // present) vs INTEGER, otherwise the integer matcher would greedily eat the
+    // integer part of a float and leave `.14` behind. Emit STRING / IDENT per
+    // their shapes; emit ONE combined number matcher (declared at the position of
+    // the first number-shaped token).
+    let mut int_name: String = String::new();
+    let mut flt_name: String = String::new();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_REGEX && regex_shape(t.pattern.as_str()) == 2i64 {
+            // FLOAT-shaped patterns contain `\.` (a literal dot); INTEGER does not.
+            if str_contains(unquote_slash(t.pattern.as_str()), "\\.") {
+                if flt_name.len() == 0i64 { flt_name = String::from(t.name.as_str()); }
+            } else {
+                if int_name.len() == 0i64 { int_name = String::from(t.name.as_str()); }
+            }
+        }
+        i = i + 1i64;
+    }
+
+    let mut emitted_num: bool = false;
+    i = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_REGEX {
+            let pat: str = t.pattern.as_str();
+            let shape: i64 = regex_shape(pat);
+            if shape == 1i64 { emit_lex_string(w, t.name.as_str()); }
+            else if shape == 2i64 {
+                if !emitted_num {
+                    emit_lex_number(w, int_name.as_str(), flt_name.as_str());
+                    emitted_num = true;
+                }
+            }
+            else if shape == 3i64 { emit_lex_ident(w, t.name.as_str()); }
+            else {
+                w.l4("        // TODO: regex token ", t.name.as_str(), " = ", pat);
+                w.line("        //       (unrecognised pattern shape — add a hand-coded matcher)");
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// Classify a /regex/ pattern by shape:
+//   1 = STRING ("…" — contains a double-quote anchor),
+//   2 = NUMBER (digit class present; FLOAT and INTEGER both handled here),
+//   3 = IDENT  ([a-zA-Z_]… letter class, no digit-only / quote anchor),
+//   0 = other (unrecognised).
+fn regex_shape(p: str) -> i64 {
+    // Strip the outer slashes.
+    let inner: str = unquote_slash(p);
+    if str_contains(inner, "\"") { return 1i64; }
+    // FLOAT/INTEGER: a `[0-9]` or `0-9` digit class.
+    if str_contains(inner, "0-9") {
+        // IDENT also has 0-9 in its rest-class but STARTS with a-zA-Z; tell them
+        // apart: an identifier pattern starts `[a-zA-Z`.
+        if str_starts_with(inner, "[a-zA-Z") { return 3i64; }
+        return 2i64;
+    }
+    if str_starts_with(inner, "[a-z") || str_starts_with(inner, "[A-Z") { return 3i64; }
+    return 0i64;
+}
+
+// Strip a leading and trailing '/'.
+fn unquote_slash(s: str) -> str {
+    let n: i64 = s.len();
+    if n >= 2i64 && str_byte_at(s, 0i64) == 47u8 && str_byte_at(s, n - 1i64) == 47u8 {
+        return unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    }
+    return s;
+}
+
+fn emit_lex_string(w: &mut CodeWriter, name: str) {
+    w.line("        // STRING: \"…\" with \\ escapes.");
+    w.line("        if c == 34u8 {");
+    w.line("            self.pos = self.pos + 1i64;");
+    w.line("            while self.pos < self.src.len() && self.cur(0i64) != 34u8 {");
+    w.line("                if self.cur(0i64) == 92u8 { self.pos = self.pos + 1i64; }");
+    w.line("                self.pos = self.pos + 1i64;");
+    w.line("            }");
+    w.line("            if self.pos < self.src.len() { self.pos = self.pos + 1i64; }");
+    w.l3("            return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+    w.line("        }");
+}
+
+// Number matcher: optional '-', then hex/bin/oct/decimal digit run, optional
+// '.' fractional part + exponent (→ FLOAT shape), optional type suffix. Emits one
+// token kind (the grammar typically has separate FLOAT/INTEGER; this matcher is
+// emitted per number-shaped token and consumes the maximal run, tagging it with
+// THIS token's kind. For writ.peg FLOAT precedes nothing problematic because the
+// INTEGER matcher declines a fractional run — see note in emit_lex_regex).
+fn emit_lex_number(w: &mut CodeWriter, int_name: str, flt_name: str) {
+    // Effective kinds: if one is missing, both branches use the present one.
+    let mut ik: String = String::new();
+    let mut fk: String = String::new();
+    if int_name.len() > 0i64 { ik.push_str("TK_"); ik.push_str(int_name); }
+    else if flt_name.len() > 0i64 { ik.push_str("TK_"); ik.push_str(flt_name); }
+    else { ik.push_str("TK_INVALID"); }
+    if flt_name.len() > 0i64 { fk.push_str("TK_"); fk.push_str(flt_name); }
+    else { fk.push_str(ik.as_str()); }
+
+    w.line("        // NUMBER (chooses FLOAT vs INTEGER by a '.' / exponent in the run).");
+    w.line("        if lx_is_digit(c) || (c == 45u8 && (lx_is_digit(self.cur(1i64)) || self.cur(1i64) == 46u8)) || (c == 46u8 && lx_is_digit(self.cur(1i64))) {");
+    w.line("            if self.cur(0i64) == 45u8 { self.pos = self.pos + 1i64; }");
+    w.line("            // Radix-prefixed integers: 0x.. 0b.. 0o.. (always INTEGER).");
+    w.line("            if self.cur(0i64) == 48u8 && (self.cur(1i64) == 120u8 || self.cur(1i64) == 88u8 || self.cur(1i64) == 98u8 || self.cur(1i64) == 66u8 || self.cur(1i64) == 111u8 || self.cur(1i64) == 79u8) {");
+    w.line("                self.pos = self.pos + 2i64;");
+    w.line("                while self.pos < self.src.len() && (lx_is_hex(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
+    w.line("                self.scan_num_suffix();");
+    w.l3("                return Token { kind: ", ik.as_str(), ", start: start, len: self.pos - start, line: sl };");
+    w.line("            }");
+    w.line("            // Decimal integer part.");
+    w.line("            while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
+    w.line("            let mut is_float: bool = false;");
+    w.line("            if self.cur(0i64) == 46u8 && lx_is_digit(self.cur(1i64)) {");
+    w.line("                is_float = true;");
+    w.line("                self.pos = self.pos + 1i64;");
+    w.line("                while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
+    w.line("            }");
+    w.line("            if self.cur(0i64) == 101u8 || self.cur(0i64) == 69u8 {");
+    w.line("                is_float = true;");
+    w.line("                self.pos = self.pos + 1i64;");
+    w.line("                if self.cur(0i64) == 43u8 || self.cur(0i64) == 45u8 { self.pos = self.pos + 1i64; }");
+    w.line("                while self.pos < self.src.len() && lx_is_digit(self.cur(0i64)) { self.pos = self.pos + 1i64; }");
+    w.line("            }");
+    w.line("            self.scan_num_suffix();");
+    w.l3("            if is_float { return Token { kind: ", fk.as_str(), ", start: start, len: self.pos - start, line: sl }; }");
+    w.l3("            return Token { kind: ", ik.as_str(), ", start: start, len: self.pos - start, line: sl };");
+    w.line("        }");
+}
+
+fn emit_lex_ident(w: &mut CodeWriter, name: str) {
+    w.l3("        // IDENT token ", name, ".");
+    w.line("        if lx_is_alpha(c) {");
+    w.line("            self.pos = self.pos + 1i64;");
+    w.line("            while self.pos < self.src.len() && lx_is_alnum(self.cur(0i64)) { self.pos = self.pos + 1i64; }");
+    w.l3("            return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+    w.line("        }");
+}
+
+// ── lexer regex helpers placeholder for rules emission ──────────────────────
+
+fn emit_lexer(cg: &mut Codegen, w: &mut CodeWriter) {
+    // Lexer body is part of the runtime preamble (emit_runtime). Nothing here.
+    let _ = cg;
+    let _ = w;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rule emission.
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn fresh(cg: &mut Codegen) -> i64 { let v: i64 = cg.lc; cg.lc = cg.lc + 1i64; return v; }
+
+// Is `name` an UPPERCASE-initial token reference?
+fn name_is_token(name: str) -> bool {
+    let c: u8 = first_byte(name);
+    return c >= 65u8 && c <= 90u8;
+}
+
+fn emit_rules(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("// ── Grammar rules ──────────────────────────────────────────────────────────");
+    w.blank();
+    // Emit each rule's alternative fns first, then the dispatcher fn.
+    let nrules: i64 = cg.rules.len();
+    let mut r: i64 = 0i64;
+    while r < nrules {
+        emit_rule(cg, w, r);
+        r = r + 1i64;
+    }
+}
+
+// Emit one rule. CONVENTION (see runtime note): a rule fn returns `*const u8`
+// (0 = no match). Each alternative is its own `alt_<rule>_<i>` fn (same return);
+// the `rule_<name>` dispatcher tries them in order, returning the first hit.
+fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
+    cg.lc = 0i64;
+    let rname: String = String::from(cg.rules.borrow(ridx).name.as_str());
+    let group: String = String::from(cg.rules.borrow(ridx).group.as_str());
+    let nalts: i64 = cg.rules.borrow(ridx).alts.len();
+
+    let mut ai: i64 = 0i64;
+    while ai < nalts {
+        let alt_idx: i64 = cg.rules.borrow(ridx).alts.get(ai);
+        emit_alt_fn(cg, w, rname.as_str(), group.as_str(), ai, alt_idx);
+        ai = ai + 1i64;
+    }
+
+    w.l3("fn rule_", rname.as_str(), "(lex: &mut Lexer, doc: &Writ) -> *const u8 {");
+    ai = 0i64;
+    while ai < nalts {
+        let mut calll: String = String::new();
+        calll.push_str("    { let r: *const u8 = alt_"); calll.push_str(rname.as_str());
+        calll.push_str("_"); calll.push_i64(ai);
+        calll.push_str("(lex, doc); if r != NULLP { return r; } }");
+        w.line(calll.as_str());
+        ai = ai + 1i64;
+    }
+    w.line("    return NULLP;");
+    w.line("}");
+    w.blank();
+}
+
+// Emit one alternative fn returning `*const u8` (0 = no match). Saves the lexer
+// position on entry; on an item failure resets the lexer and returns NULLP.
+fn emit_alt_fn(cg: &mut Codegen, w: &mut CodeWriter, rname: str, group: str, ai: i64, alt_idx: i64) {
+    let mut hdr: String = String::new();
+    hdr.push_str("fn alt_"); hdr.push_str(rname); hdr.push_str("_"); hdr.push_i64(ai);
+    hdr.push_str("(lex: &mut Lexer, doc: &Writ) -> *const u8 {");
+    w.line(hdr.as_str());
+    w.ind();
+    w.line("let sp: i64 = lex.save_pos();");
+    w.line("let sln: i64 = lex.save_line();");
+    w.line("let fline: i64 = lex.peek().line;");
+
+    let seq_len: i64 = cg.alts.borrow(alt_idx).seq.len();
+    let has_action: bool = cg.alts.borrow(alt_idx).has_action;
+    let uses_arrcap: bool = alt_uses_arraycapture(cg, alt_idx);
+
+    if uses_arrcap {
+        w.line("let rcap: &mut WArray<WAny> = doc.array(4i64);");
+    }
+
+    let mut si: i64 = 0i64;
+    while si < seq_len {
+        let item_idx: i64 = cg.alts.borrow(alt_idx).seq.get(si);
+        emit_item(cg, w, item_idx, si + 1i64, uses_arrcap);
+        si = si + 1i64;
+    }
+
+    if has_action {
+        emit_action(cg, w, alt_idx, group, seq_len, uses_arrcap);
+    } else if seq_len == 1i64 {
+        w.line("return cap1;");
+    } else if seq_len == 0i64 {
+        w.line("return NULLP;");
+    } else {
+        let mut rl: String = String::new();
+        rl.push_str("return cap"); rl.push_i64(seq_len); rl.push_str(";");
+        w.line(rl.as_str());
+    }
+    w.ded();
+    w.line("}");
+    w.blank();
+}
+
+// Does this alt's action contain a $... ARRAY_CAPTURE field?
+fn alt_uses_arraycapture(cg: &Codegen, alt_idx: i64) -> bool {
+    let a: &Alt = cg.alts.borrow(alt_idx);
+    let mut i: i64 = 0i64;
+    while i < a.fields.len() {
+        if a.fields.borrow(i).ekind == ARRAY_CAPTURE { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// Emit code to match one item, binding `cap<capn>: *const u8` to its result.
+// On failure resets the lexer and returns NULLP from the enclosing alt fn.
+fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, uses_arrcap: bool) {
+    let kind: i64 = cg.items.borrow(item_idx).kind;
+    let iname: String = String::from(cg.items.borrow(item_idx).name.as_str());
+    let sub: i64 = cg.items.borrow(item_idx).sub;
+    let imin: i64 = cg.items.borrow(item_idx).min;
+
+    let mut cap: String = String::new();
+    cap.push_str("cap"); cap.push_i64(capn);
+
+    if kind == TOKEN_REF {
+        let mut cond: String = String::new();
+        cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+        cond.push_str(" { lex.reset(sp, sln); return NULLP; }");
+        w.line(cond.as_str());
+        let mut tl: String = String::new();
+        tl.push_str("let tk"); tl.push_i64(capn); tl.push_str(": Token = lex.next();");
+        w.line(tl.as_str());
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(cap.as_str());
+        cl.push_str(": *const u8 = wstr_p(doc, tk"); cl.push_i64(capn); cl.push_str(".text(lex.src));");
+        w.line(cl.as_str());
+    } else if kind == RULE_REF {
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(cap.as_str());
+        cl.push_str(": *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
+        w.line(cl.as_str());
+        let mut chk: String = String::new();
+        chk.push_str("if "); chk.push_str(cap.as_str());
+        chk.push_str(" == NULLP { lex.reset(sp, sln); return NULLP; }");
+        w.line(chk.as_str());
+        if uses_arrcap {
+            let mut pl: String = String::new();
+            pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(cap.as_str()); pl.push_str("));");
+            w.line(pl.as_str());
+        }
+    } else if kind == LITERAL {
+        emit_item_literal(w, iname.as_str(), cap.as_str());
+    } else if kind == OPT {
+        emit_item_opt(cg, w, sub, cap.as_str(), uses_arrcap);
+    } else if kind == REP {
+        emit_item_rep(cg, w, sub, cap.as_str(), imin, uses_arrcap);
+    } else if kind == GROUP {
+        emit_item_group(cg, w, item_idx, cap.as_str(), uses_arrcap);
+    } else {
+        let mut tl: String = String::new();
+        tl.push_str("let "); tl.push_str(cap.as_str());
+        tl.push_str(": *const u8 = NULLP; // TODO: unsupported item kind ");
+        tl.push_i64(kind);
+        w.line(tl.as_str());
+    }
+}
+
+// LITERAL: match a fixed byte string at the lexer's current pos (bypass tokens).
+fn emit_item_literal(w: &mut CodeWriter, lit: str, cap: str) {
+    let n: i64 = lit.len();
+    let mut cond: String = String::new();
+    cond.push_str("if !(");
+    let mut i: i64 = 0i64;
+    while i < n {
+        if i > 0i64 { cond.push_str(" && "); }
+        cond.push_str("lex.cur("); cond.push_i64(i); cond.push_str("i64) == ");
+        cond.push_i64(str_byte_at(lit, i) as i64); cond.push_str("u8");
+        i = i + 1i64;
+    }
+    cond.push_str(") { lex.reset(sp, sln); return NULLP; }");
+    w.line(cond.as_str());
+    let mut adv: String = String::new();
+    adv.push_str("lex.pos = lex.pos + "); adv.push_i64(n); adv.push_str("i64; lex.have_la = false;");
+    w.line(adv.as_str());
+    let mut cl: String = String::new();
+    cl.push_str("let "); cl.push_str(cap);
+    cl.push_str(": *const u8 = wstr_p(doc, \""); cl.push_str(lit); cl.push_str("\");");
+    w.line(cl.as_str());
+}
+
+// OPT: try the sub-item; cap = NULLP if it does not match (never fails the alt).
+fn emit_item_opt(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, parent_arrcap: bool) {
+    let mut decl: String = String::new();
+    decl.push_str("let mut "); decl.push_str(cap); decl.push_str(": *const u8 = NULLP;");
+    w.line(decl.as_str());
+    w.line("{");
+    w.ind();
+    w.line("let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();");
+    emit_inline_subitem(cg, w, sub, cap, "osp", "osln", parent_arrcap);
+    w.ded();
+    w.line("}");
+}
+
+// REP: loop the sub-item, accumulate non-null results in a fresh WArray; cap = the
+// array (raw ptr). Enforces min if > 0 (fails the alt on too few iterations).
+fn emit_item_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin: i64, parent_arrcap: bool) {
+    let id: i64 = fresh(cg);
+    let mut arrn: String = String::new();
+    arrn.push_str("arr"); arrn.push_i64(id);
+    let mut cntn: String = String::new();
+    cntn.push_str("cnt"); cntn.push_i64(id);
+
+    let mut decl: String = String::new();
+    decl.push_str("let "); decl.push_str(arrn.as_str());
+    decl.push_str(": &mut WArray<WAny> = doc.array(4i64);");
+    w.line(decl.as_str());
+    let mut cdecl: String = String::new();
+    cdecl.push_str("let mut "); cdecl.push_str(cntn.as_str()); cdecl.push_str(": i64 = 0i64;");
+    w.line(cdecl.as_str());
+    w.line("loop {");
+    w.ind();
+    w.line("let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();");
+    let mut tmpn: String = String::new();
+    tmpn.push_str("rep"); tmpn.push_i64(id);
+    // Inline the sub-item; on failure reset + break; on success bind <tmpn>.
+    emit_inline_subitem_break(cg, w, sub, tmpn.as_str(), "rsp", "rsln", parent_arrcap);
+    let mut pl: String = String::new();
+    pl.push_str("if "); pl.push_str(tmpn.as_str()); pl.push_str(" != NULLP { ");
+    pl.push_str(arrn.as_str()); pl.push_str(".push(WAny::ref_to("); pl.push_str(tmpn.as_str());
+    pl.push_str(")); }");
+    w.line(pl.as_str());
+    let mut inc: String = String::new();
+    inc.push_str(cntn.as_str()); inc.push_str(" = "); inc.push_str(cntn.as_str()); inc.push_str(" + 1i64;");
+    w.line(inc.as_str());
+    w.ded();
+    w.line("}");
+    if imin > 0i64 {
+        let mut chk: String = String::new();
+        chk.push_str("if "); chk.push_str(cntn.as_str()); chk.push_str(" < ");
+        chk.push_i64(imin); chk.push_str("i64 { lex.reset(sp, sln); return NULLP; }");
+        w.line(chk.as_str());
+    }
+    let mut cl: String = String::new();
+    cl.push_str("let "); cl.push_str(cap);
+    cl.push_str(": *const u8 = "); cl.push_str(arrn.as_str());
+    cl.push_str(" as *const WArray<WAny> as *const u8;");
+    w.line(cl.as_str());
+}
+
+// GROUP: ordered choice over sub-alts, inlined. First matching sub-alt sets cap +
+// done; if none match, the group fails the enclosing alt.
+fn emit_item_group(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, uses_arrcap: bool) {
+    let id: i64 = fresh(cg);
+    let mut donen: String = String::new();
+    donen.push_str("gdone"); donen.push_i64(id);
+
+    let mut decl: String = String::new();
+    decl.push_str("let mut "); decl.push_str(cap); decl.push_str(": *const u8 = NULLP;");
+    w.line(decl.as_str());
+    let mut ddecl: String = String::new();
+    ddecl.push_str("let mut "); ddecl.push_str(donen.as_str()); ddecl.push_str(": bool = false;");
+    w.line(ddecl.as_str());
+
+    let nalts: i64 = cg.items.borrow(item_idx).alts.len();
+    let mut gi: i64 = 0i64;
+    while gi < nalts {
+        let galt: i64 = cg.items.borrow(item_idx).alts.get(gi);
+        let mut guard: String = String::new();
+        guard.push_str("if !"); guard.push_str(donen.as_str()); guard.push_str(" {");
+        w.line(guard.as_str());
+        w.ind();
+        emit_group_alt(cg, w, galt, cap, donen.as_str(), uses_arrcap);
+        w.ded();
+        w.line("}");
+        gi = gi + 1i64;
+    }
+    let mut chk: String = String::new();
+    chk.push_str("if !"); chk.push_str(donen.as_str());
+    chk.push_str(" { lex.reset(sp, sln); return NULLP; }");
+    w.line(chk.as_str());
+}
+
+// Inline one group sub-alt's sequence as a once-loop (`loop { ...; break; }`): a
+// failing item resets to (gsp,gsln) and `break`s, leaving done=false; a full match
+// sets cap (single-item passthrough, else built node) and done=true. The once-loop
+// gives a single early-exit target in lieu of goto.
+fn emit_group_alt(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, done: str, parent_arrcap: bool) {
+    let seq_len: i64 = cg.alts.borrow(galt).seq.len();
+    let has_action: bool = cg.alts.borrow(galt).has_action;
+    let uses_arrcap: bool = alt_uses_arraycapture(cg, galt);
+    let id: i64 = fresh(cg);
+
+    w.line("let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();");
+    w.line("loop {");
+    w.ind();
+    if uses_arrcap {
+        w.line("let rcap: &mut WArray<WAny> = doc.array(4i64);");
+    }
+    let mut si: i64 = 0i64;
+    while si < seq_len {
+        let item_idx: i64 = cg.alts.borrow(galt).seq.get(si);
+        emit_group_item(cg, w, item_idx, cap, si + 1i64, id, uses_arrcap || parent_arrcap);
+        si = si + 1i64;
+    }
+    if has_action {
+        emit_group_action(cg, w, galt, cap, id, seq_len, uses_arrcap);
+    } else if seq_len == 1i64 {
+        let mut cl: String = String::new();
+        cl.push_str(cap); cl.push_str(" = g"); cl.push_str(cap); cl.push_str("_1_");
+        cl.push_i64(id); cl.push_str(";");
+        w.line(cl.as_str());
+    } else {
+        let mut cl: String = String::new();
+        cl.push_str(cap); cl.push_str(" = NULLP;");
+        w.line(cl.as_str());
+    }
+    let mut dl: String = String::new();
+    dl.push_str(done); dl.push_str(" = true;");
+    w.line(dl.as_str());
+    w.line("break;");
+    w.ded();
+    w.line("}");
+}
+
+// Match one item inside a group alt; bind `g<cap>_<n>_<id>: *const u8`. On failure
+// reset to (gsp,gsln) and `break`.
+fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str, n: i64, id: i64, uses_arrcap: bool) {
+    let kind: i64 = cg.items.borrow(item_idx).kind;
+    let iname: String = String::from(cg.items.borrow(item_idx).name.as_str());
+    let sub: i64 = cg.items.borrow(item_idx).sub;
+    let imin: i64 = cg.items.borrow(item_idx).min;
+
+    let mut gcap: String = String::new();
+    gcap.push_str("g"); gcap.push_str(cap); gcap.push_str("_"); gcap.push_i64(n);
+    gcap.push_str("_"); gcap.push_i64(id);
+
+    let resetbreak: str = "{ lex.reset(gsp, gsln); break; }";
+
+    if kind == TOKEN_REF {
+        let mut cond: String = String::new();
+        cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+        cond.push_str(" "); cond.push_str(resetbreak);
+        w.line(cond.as_str());
+        let mut tl: String = String::new();
+        tl.push_str("let "); tl.push_str(gcap.as_str()); tl.push_str("_t: Token = lex.next();");
+        w.line(tl.as_str());
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(gcap.as_str());
+        cl.push_str(": *const u8 = wstr_p(doc, "); cl.push_str(gcap.as_str()); cl.push_str("_t.text(lex.src));");
+        w.line(cl.as_str());
+    } else if kind == RULE_REF {
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(gcap.as_str());
+        cl.push_str(": *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
+        w.line(cl.as_str());
+        let mut chk: String = String::new();
+        chk.push_str("if "); chk.push_str(gcap.as_str()); chk.push_str(" == NULLP ");
+        chk.push_str(resetbreak);
+        w.line(chk.as_str());
+        if uses_arrcap {
+            let mut pl: String = String::new();
+            pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(gcap.as_str()); pl.push_str("));");
+            w.line(pl.as_str());
+        }
+    } else if kind == LITERAL {
+        let ln: i64 = iname.len();
+        let mut cond: String = String::new();
+        cond.push_str("if !(");
+        let mut i: i64 = 0i64;
+        while i < ln {
+            if i > 0i64 { cond.push_str(" && "); }
+            cond.push_str("lex.cur("); cond.push_i64(i); cond.push_str("i64) == ");
+            cond.push_i64(str_byte_at(iname.as_str(), i) as i64); cond.push_str("u8");
+            i = i + 1i64;
+        }
+        cond.push_str(") "); cond.push_str(resetbreak);
+        w.line(cond.as_str());
+        let mut adv: String = String::new();
+        adv.push_str("lex.pos = lex.pos + "); adv.push_i64(ln); adv.push_str("i64; lex.have_la = false;");
+        w.line(adv.as_str());
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(gcap.as_str());
+        cl.push_str(": *const u8 = wstr_p(doc, \""); cl.push_str(iname.as_str()); cl.push_str("\");");
+        w.line(cl.as_str());
+    } else if kind == OPT {
+        let mut decl: String = String::new();
+        decl.push_str("let mut "); decl.push_str(gcap.as_str()); decl.push_str(": *const u8 = NULLP;");
+        w.line(decl.as_str());
+        w.line("{");
+        w.ind();
+        w.line("let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();");
+        emit_inline_subitem(cg, w, sub, gcap.as_str(), "osp", "osln", uses_arrcap);
+        w.ded();
+        w.line("}");
+    } else if kind == REP {
+        // REP inside a group alt: same array-accumulation, but reset-break on min.
+        emit_group_rep(cg, w, sub, gcap.as_str(), imin, uses_arrcap);
+    } else {
+        let mut tl: String = String::new();
+        tl.push_str("let "); tl.push_str(gcap.as_str());
+        tl.push_str(": *const u8 = NULLP; // TODO: item kind "); tl.push_i64(kind);
+        tl.push_str(" in group alt");
+        w.line(tl.as_str());
+    }
+}
+
+// REP within a group alt (e.g. `(COMMA map_entry)*` is itself the group body, but
+// `(value (COMMA value)*)` nests a REP inside a group alt). Like emit_item_rep but
+// a min-failure does reset-break instead of returning.
+fn emit_group_rep(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, cap: str, imin: i64, parent_arrcap: bool) {
+    let id: i64 = fresh(cg);
+    let mut arrn: String = String::new();
+    arrn.push_str("garr"); arrn.push_i64(id);
+    let mut cntn: String = String::new();
+    cntn.push_str("gcnt"); cntn.push_i64(id);
+
+    let mut decl: String = String::new();
+    decl.push_str("let "); decl.push_str(arrn.as_str());
+    decl.push_str(": &mut WArray<WAny> = doc.array(4i64);");
+    w.line(decl.as_str());
+    let mut cdecl: String = String::new();
+    cdecl.push_str("let mut "); cdecl.push_str(cntn.as_str()); cdecl.push_str(": i64 = 0i64;");
+    w.line(cdecl.as_str());
+    w.line("loop {");
+    w.ind();
+    w.line("let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();");
+    let mut tmpn: String = String::new();
+    tmpn.push_str("grep"); tmpn.push_i64(id);
+    emit_inline_subitem_break(cg, w, sub, tmpn.as_str(), "rsp", "rsln", parent_arrcap);
+    let mut pl: String = String::new();
+    pl.push_str("if "); pl.push_str(tmpn.as_str()); pl.push_str(" != NULLP { ");
+    pl.push_str(arrn.as_str()); pl.push_str(".push(WAny::ref_to("); pl.push_str(tmpn.as_str()); pl.push_str(")); }");
+    w.line(pl.as_str());
+    let mut inc: String = String::new();
+    inc.push_str(cntn.as_str()); inc.push_str(" = "); inc.push_str(cntn.as_str()); inc.push_str(" + 1i64;");
+    w.line(inc.as_str());
+    w.ded();
+    w.line("}");
+    if imin > 0i64 {
+        let mut chk: String = String::new();
+        chk.push_str("if "); chk.push_str(cntn.as_str()); chk.push_str(" < ");
+        chk.push_i64(imin); chk.push_str("i64 { lex.reset(gsp, gsln); break; }");
+        w.line(chk.as_str());
+    }
+    let mut cl: String = String::new();
+    cl.push_str("let "); cl.push_str(cap);
+    cl.push_str(": *const u8 = "); cl.push_str(arrn.as_str());
+    cl.push_str(" as *const WArray<WAny> as *const u8;");
+    w.line(cl.as_str());
+}
+
+// Inline a sub-item matcher (used by OPT) writing to `dst` (a `mut *const u8`). On
+// match sets dst; on no-match resets to (sp_var,sln_var), leaves dst NULLP (OPT
+// never fails). Supports TOKEN_REF / RULE_REF / GROUP / LITERAL.
+fn emit_inline_subitem(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str, sp_var: str, sln_var: str, parent_arrcap: bool) {
+    let kind: i64 = cg.items.borrow(sub).kind;
+    let iname: String = String::from(cg.items.borrow(sub).name.as_str());
+
+    if kind == TOKEN_REF {
+        let mut cond: String = String::new();
+        cond.push_str("if lex.peek().kind == TK_"); cond.push_str(iname.as_str());
+        cond.push_str(" { let t: Token = lex.next(); "); cond.push_str(dst);
+        cond.push_str(" = wstr_p(doc, t.text(lex.src)); }");
+        w.line(cond.as_str());
+        let _ = sp_var; let _ = sln_var;
+    } else if kind == RULE_REF {
+        let mut cl: String = String::new();
+        cl.push_str("let sub_r: *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
+        w.line(cl.as_str());
+        let mut chk: String = String::new();
+        chk.push_str("if sub_r != NULLP { "); chk.push_str(dst);
+        chk.push_str(" = sub_r; } else { lex.reset("); chk.push_str(sp_var);
+        chk.push_str(", "); chk.push_str(sln_var); chk.push_str("); }");
+        w.line(chk.as_str());
+    } else if kind == GROUP {
+        emit_inline_opt_group(cg, w, sub, dst, parent_arrcap);
+    } else if kind == LITERAL {
+        let n: i64 = iname.len();
+        let mut cond: String = String::new();
+        cond.push_str("if ");
+        let mut i: i64 = 0i64;
+        while i < n {
+            if i > 0i64 { cond.push_str(" && "); }
+            cond.push_str("lex.cur("); cond.push_i64(i); cond.push_str("i64) == ");
+            cond.push_i64(str_byte_at(iname.as_str(), i) as i64); cond.push_str("u8");
+            i = i + 1i64;
+        }
+        cond.push_str(" { lex.pos = lex.pos + "); cond.push_i64(n);
+        cond.push_str("i64; lex.have_la = false; "); cond.push_str(dst);
+        cond.push_str(" = wstr_p(doc, \""); cond.push_str(iname.as_str()); cond.push_str("\"); }");
+        w.line(cond.as_str());
+        let _ = sp_var; let _ = sln_var; let _ = parent_arrcap;
+    } else {
+        w.l2("// TODO: OPT over unsupported item kind for ", dst);
+        let _ = parent_arrcap;
+    }
+}
+
+// Inline an OPT(GROUP): try each group sub-alt; the first full match sets `dst`
+// (passthrough or built node) and stops. No match → dst stays NULLP.
+fn emit_inline_opt_group(cg: &mut Codegen, w: &mut CodeWriter, gitem: i64, dst: str, parent_arrcap: bool) {
+    let nalts: i64 = cg.items.borrow(gitem).alts.len();
+    let id: i64 = fresh(cg);
+    let mut donen: String = String::new();
+    donen.push_str("ogdone"); donen.push_i64(id);
+    let mut ddecl: String = String::new();
+    ddecl.push_str("let mut "); ddecl.push_str(donen.as_str()); ddecl.push_str(": bool = false;");
+    w.line(ddecl.as_str());
+    let mut gi: i64 = 0i64;
+    while gi < nalts {
+        let galt: i64 = cg.items.borrow(gitem).alts.get(gi);
+        let mut guard: String = String::new();
+        guard.push_str("if !"); guard.push_str(donen.as_str()); guard.push_str(" {");
+        w.line(guard.as_str());
+        w.ind();
+        emit_group_alt(cg, w, galt, dst, donen.as_str(), parent_arrcap);
+        w.ded();
+        w.line("}");
+        gi = gi + 1i64;
+    }
+}
+
+// Inline a sub-item matcher for a REP loop body, binding `dst: *const u8`. On
+// failure resets to (sp_var,sln_var) and `break`s the REP loop.
+fn emit_inline_subitem_break(cg: &mut Codegen, w: &mut CodeWriter, sub: i64, dst: str, sp_var: str, sln_var: str, parent_arrcap: bool) {
+    let kind: i64 = cg.items.borrow(sub).kind;
+    let iname: String = String::from(cg.items.borrow(sub).name.as_str());
+
+    let mut resetbreak: String = String::new();
+    resetbreak.push_str("{ lex.reset("); resetbreak.push_str(sp_var); resetbreak.push_str(", ");
+    resetbreak.push_str(sln_var); resetbreak.push_str("); break; }");
+
+    if kind == TOKEN_REF {
+        let mut cond: String = String::new();
+        cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+        cond.push_str(" "); cond.push_str(resetbreak.as_str());
+        w.line(cond.as_str());
+        let mut tl: String = String::new();
+        tl.push_str("let "); tl.push_str(dst); tl.push_str("_t: Token = lex.next();");
+        w.line(tl.as_str());
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(dst);
+        cl.push_str(": *const u8 = wstr_p(doc, "); cl.push_str(dst); cl.push_str("_t.text(lex.src));");
+        w.line(cl.as_str());
+    } else if kind == RULE_REF {
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(dst);
+        cl.push_str(": *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
+        w.line(cl.as_str());
+        let mut chk: String = String::new();
+        chk.push_str("if "); chk.push_str(dst); chk.push_str(" == NULLP ");
+        chk.push_str(resetbreak.as_str());
+        w.line(chk.as_str());
+    } else if kind == GROUP {
+        // REP over a GROUP, e.g. `(COMMA value)*`. Inline the group as a once-form
+        // that sets `dst` on a match; if no sub-alt matched, break the REP.
+        let mut decl: String = String::new();
+        decl.push_str("let mut "); decl.push_str(dst); decl.push_str(": *const u8 = NULLP;");
+        w.line(decl.as_str());
+        let mut okn: String = String::new();
+        okn.push_str(dst); okn.push_str("_ok");
+        let mut okd: String = String::new();
+        okd.push_str("let mut "); okd.push_str(okn.as_str()); okd.push_str(": bool = false;");
+        w.line(okd.as_str());
+        let nalts: i64 = cg.items.borrow(sub).alts.len();
+        let mut gi: i64 = 0i64;
+        while gi < nalts {
+            let galt: i64 = cg.items.borrow(sub).alts.get(gi);
+            let mut guard: String = String::new();
+            guard.push_str("if !"); guard.push_str(okn.as_str()); guard.push_str(" {");
+            w.line(guard.as_str());
+            w.ind();
+            emit_group_alt(cg, w, galt, dst, okn.as_str(), parent_arrcap);
+            w.ded();
+            w.line("}");
+            gi = gi + 1i64;
+        }
+        let mut chk: String = String::new();
+        chk.push_str("if !"); chk.push_str(okn.as_str()); chk.push_str(" ");
+        chk.push_str(resetbreak.as_str());
+        w.line(chk.as_str());
+    } else if kind == LITERAL {
+        let n: i64 = iname.len();
+        let mut cond: String = String::new();
+        cond.push_str("if !(");
+        let mut i: i64 = 0i64;
+        while i < n {
+            if i > 0i64 { cond.push_str(" && "); }
+            cond.push_str("lex.cur("); cond.push_i64(i); cond.push_str("i64) == ");
+            cond.push_i64(str_byte_at(iname.as_str(), i) as i64); cond.push_str("u8");
+            i = i + 1i64;
+        }
+        cond.push_str(") "); cond.push_str(resetbreak.as_str());
+        w.line(cond.as_str());
+        let mut adv: String = String::new();
+        adv.push_str("lex.pos = lex.pos + "); adv.push_i64(n); adv.push_str("i64; lex.have_la = false;");
+        w.line(adv.as_str());
+        let mut cl: String = String::new();
+        cl.push_str("let "); cl.push_str(dst);
+        cl.push_str(": *const u8 = wstr_p(doc, \""); cl.push_str(iname.as_str()); cl.push_str("\");");
+        w.line(cl.as_str());
+    } else {
+        let mut tl: String = String::new();
+        tl.push_str("let "); tl.push_str(dst); tl.push_str(": *const u8 = NULLP; // TODO REP over kind ");
+        tl.push_i64(kind);
+        w.line(tl.as_str());
+        w.line("break;");
+    }
+}
+
+// ── Action emission ─────────────────────────────────────────────────────────
+
+// Resolve a STR_LIT symbolic name (e.g. MAP) to N_<name>.
+fn node_const(name: str) -> String {
+    let mut s: String = String::new();
+    s.push_str("N_"); s.push_str(name);
+    return s;
+}
+
+// The node-code constant for an alt: a CODE STR_LIT → N_<name>; a CODE INT_LIT →
+// the literal; else 0.
+fn action_code_const(cg: &Codegen, alt_idx: i64) -> String {
+    let a: &Alt = cg.alts.borrow(alt_idx);
+    let mut i: i64 = 0i64;
+    while i < a.fields.len() {
+        let f: &ActionField = a.fields.borrow(i);
+        if str_eq(f.name.as_str(), "CODE") {
+            if f.ekind == STR_LIT { return node_const(f.sval.as_str()); }
+            else if f.ekind == INT_LIT {
+                let mut s: String = String::new();
+                s.push_i64(f.ival); s.push_str("i32");
+                return s;
+            }
+        }
+        i = i + 1i64;
+    }
+    return String::from("0i32");
+}
+
+// Rule-level alt action: build a node, set each field (skip the CODE field — mk_node
+// already stamped it), set SRC_LINE, return the node as *const u8.
+fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: str, seq_len: i64, uses_arrcap: bool) {
+    let code_str: String = action_code_const(cg, alt_idx);
+    let mut nl: String = String::new();
+    nl.push_str("let node: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
+    w.line(nl.as_str());
+
+    let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
+    let mut fi: i64 = 0i64;
+    while fi < nf {
+        let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
+        let ekind: i64 = cg.alts.borrow(alt_idx).fields.borrow(fi).ekind;
+        let index: i64 = cg.alts.borrow(alt_idx).fields.borrow(fi).index;
+        let sval: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).sval.as_str());
+        let ival: i64 = cg.alts.borrow(alt_idx).fields.borrow(fi).ival;
+        if !str_eq(fname.as_str(), "CODE") {
+            emit_action_field(w, "node", "cap", fname.as_str(), ekind, index, sval.as_str(), ival);
+        }
+        fi = fi + 1i64;
+    }
+    let _ = seq_len; let _ = group; let _ = uses_arrcap;
+    w.line("node.set(F_SRC_LINE, WAny::from(fline as i56));");
+    w.line("return node as *const WMap<Wu6, WAny> as *const u8;");
+}
+
+// One action field. `cap_stem` is the capture-variable stem ("cap" for rule-level
+// $n → cap<n>); the node variable is `node_var`.
+fn emit_action_field(w: &mut CodeWriter, node_var: str, cap_stem: str, fname: str,
+                     ekind: i64, index: i64, sval: str, ival: i64) {
+    let mut fc: String = String::new();
+    fc.push_str("F_"); fc.push_str(fname);
+    if ekind == CAPTURE {
+        let mut l: String = String::new();
+        l.push_str(node_var); l.push_str(".set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::ref_to("); l.push_str(cap_stem); l.push_i64(index); l.push_str("));");
+        w.line(l.as_str());
+    } else if ekind == ARRAY_CAPTURE {
+        let mut l: String = String::new();
+        l.push_str(node_var); l.push_str(".set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::ref_to(rcap as *const WArray<WAny> as *const u8));");
+        w.line(l.as_str());
+    } else if ekind == STR_LIT {
+        let mut l: String = String::new();
+        l.push_str(node_var); l.push_str(".set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::from("); l.push_str(node_const(sval).as_str()); l.push_str(" as i56));");
+        w.line(l.as_str());
+    } else if ekind == INT_LIT {
+        let mut l: String = String::new();
+        l.push_str(node_var); l.push_str(".set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::from("); l.push_i64(ival); l.push_str("i56));");
+        w.line(l.as_str());
+    } else if ekind == BOOL_LIT {
+        // Match the C++ codegen, which stores the bool as a u8 (1/0), not a
+        // native bool — so the produced AST (and its stringify) is identical.
+        let mut l: String = String::new();
+        l.push_str(node_var); l.push_str(".set("); l.push_str(fc.as_str());
+        if ival != 0i64 { l.push_str(", WAny::from(1u8));"); } else { l.push_str(", WAny::from(0u8));"); }
+        w.line(l.as_str());
+    } else {
+        w.l2("// TODO: unsupported action expr for field ", fname);
+    }
+}
+
+// Group sub-alt action: build `gnode`, fields use the group-cap stem
+// `g<cap>_<n>_<id>` for $n; assign cap = the node ptr.
+fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64, seq_len: i64, uses_arrcap: bool) {
+    let code_str: String = action_code_const(cg, galt);
+    let mut nl: String = String::new();
+    nl.push_str("let gnode: &mut WMap<Wu6, WAny> = mk_node(doc, "); nl.push_str(code_str.as_str()); nl.push_str(");");
+    w.line(nl.as_str());
+
+    let nf: i64 = cg.alts.borrow(galt).fields.len();
+    let mut fi: i64 = 0i64;
+    while fi < nf {
+        let fname: String = String::from(cg.alts.borrow(galt).fields.borrow(fi).name.as_str());
+        let ekind: i64 = cg.alts.borrow(galt).fields.borrow(fi).ekind;
+        let index: i64 = cg.alts.borrow(galt).fields.borrow(fi).index;
+        let sval: String = String::from(cg.alts.borrow(galt).fields.borrow(fi).sval.as_str());
+        let ival: i64 = cg.alts.borrow(galt).fields.borrow(fi).ival;
+        if !str_eq(fname.as_str(), "CODE") {
+            emit_group_action_field(w, fname.as_str(), ekind, index, sval.as_str(), ival, cap, id);
+        }
+        fi = fi + 1i64;
+    }
+    let _ = seq_len; let _ = uses_arrcap;
+    w.line("gnode.set(F_SRC_LINE, WAny::from(fline as i56));");
+    let mut rl: String = String::new();
+    rl.push_str(cap); rl.push_str(" = gnode as *const WMap<Wu6, WAny> as *const u8;");
+    w.line(rl.as_str());
+}
+
+fn emit_group_action_field(w: &mut CodeWriter, fname: str, ekind: i64, index: i64, sval: str, ival: i64, cap: str, id: i64) {
+    let mut fc: String = String::new();
+    fc.push_str("F_"); fc.push_str(fname);
+    if ekind == CAPTURE {
+        let mut l: String = String::new();
+        l.push_str("gnode.set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::ref_to(g"); l.push_str(cap); l.push_str("_"); l.push_i64(index);
+        l.push_str("_"); l.push_i64(id); l.push_str("));");
+        w.line(l.as_str());
+    } else if ekind == ARRAY_CAPTURE {
+        let mut l: String = String::new();
+        l.push_str("gnode.set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::ref_to(rcap as *const WArray<WAny> as *const u8));");
+        w.line(l.as_str());
+    } else if ekind == STR_LIT {
+        let mut l: String = String::new();
+        l.push_str("gnode.set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::from("); l.push_str(node_const(sval).as_str()); l.push_str(" as i56));");
+        w.line(l.as_str());
+    } else if ekind == INT_LIT {
+        let mut l: String = String::new();
+        l.push_str("gnode.set("); l.push_str(fc.as_str());
+        l.push_str(", WAny::from("); l.push_i64(ival); l.push_str("i56));");
+        w.line(l.as_str());
+    } else if ekind == BOOL_LIT {
+        // Match the C++ codegen: store the bool as u8 (1/0), not native bool.
+        let mut l: String = String::new();
+        l.push_str("gnode.set("); l.push_str(fc.as_str());
+        if ival != 0i64 { l.push_str(", WAny::from(1u8));"); } else { l.push_str(", WAny::from(0u8));"); }
+        w.line(l.as_str());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Public entries — one parse_<export> fn per %export rule.
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("// ── Public entry points (one per %export rule) ─────────────────────────────");
+    w.blank();
+    let n: i64 = cg.exports.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let e: String = String::from(cg.exports.borrow(i).as_str());
+        w.l3("pub fn parse_", e.as_str(), "(src: str) -> Writ {");
+        w.line("    let doc: Writ = writ_new(1048576i64);");
+        w.line("    let mut lex: Lexer = lexer_new(src);");
+        w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, &doc);");
+        w.line("    doc.set_root(WAny::ref_to(root));");
+        w.line("    return doc;");
+        w.line("}");
+        w.blank();
+        i = i + 1i64;
+    }
+}

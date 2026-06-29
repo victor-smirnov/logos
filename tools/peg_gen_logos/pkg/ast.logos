@@ -1,0 +1,96 @@
+// grammar_ast: NamedCode schema for the internal grammar IR.
+//
+// Logos mirror of tools/peg_gen_cpp/src/grammar_ast.hpp.
+//
+// A parsed .peg file becomes a Writ document with this structure:
+//
+//   Grammar (root ObjectMap, string-keyed):
+//     "meta"    -> MetaInfo
+//     "imports" -> Array<Import>
+//     "exports" -> Array<String>        (exported rule names)
+//     "fields"  -> Array<NameDecl>      (%fields -> NamedCode<uint8_t>)
+//     "nodes"   -> Array<NameDecl>      (%nodes  -> NamedCode<int32_t>)
+//     "tokens"  -> Array<TokenDecl>
+//     "prec"    -> Array<PrecLevel>
+//     "rules"   -> Array<Rule>
+//
+// Field keys are u8 (NamedCode<uint8_t>); node/kind/assoc codes are i32
+// (NamedCode<int32_t>). Names and numeric values are kept IDENTICAL to the
+// C++ header so later phases can refer to them.
+
+package peg_gen_logos.ast;
+
+// ---------------------------------------------------------------------------
+// TinyObjectMap field keys  (shared across node types where names align)
+// ---------------------------------------------------------------------------
+
+pub const NAME:       u8 = 0u8;
+pub const CODE:       u8 = 1u8;
+pub const VALUE:      u8 = 2u8;
+pub const PATH:       u8 = 3u8;
+pub const ALIAS:      u8 = 4u8;
+pub const PATTERN:    u8 = 5u8;
+pub const KIND:       u8 = 6u8;
+pub const ASSOC:      u8 = 7u8;
+pub const TOKENS:     u8 = 8u8;
+pub const ALTS:       u8 = 9u8;
+pub const SEQ:        u8 = 10u8;
+pub const ACTION:     u8 = 11u8;
+pub const ITEM:       u8 = 12u8;
+pub const GRAMMAR:    u8 = 13u8;  // import alias for cross-grammar refs
+pub const MIN:        u8 = 14u8;
+pub const MAX:        u8 = 15u8;  // -1 = unbounded
+pub const INDEX:      u8 = 16u8;  // capture index $n
+pub const VERSION:    u8 = 17u8;
+pub const NAMESPACE:  u8 = 18u8;
+pub const OUTPUT:     u8 = 19u8;
+pub const FIELDS:     u8 = 20u8;  // GROUP_DECL: array of NameDecls
+pub const GROUP_NAME: u8 = 21u8;  // RULE / NameDecl: group name
+
+// ---------------------------------------------------------------------------
+// Node type discriminants  (stored as value of CODE field)
+// ---------------------------------------------------------------------------
+
+// Grammar sections
+pub const META_INFO:  i32 = 0i32;
+pub const IMPORT:     i32 = 1i32;
+pub const NAME_DECL:  i32 = 2i32;  // %fields / %nodes entry
+pub const GROUP_DECL: i32 = 7i32;  // %fields group block
+pub const TOKEN_DECL: i32 = 3i32;
+pub const PREC_LEVEL: i32 = 4i32;
+pub const RULE:       i32 = 5i32;
+pub const ALT:        i32 = 6i32;
+
+// Item kinds
+pub const RULE_REF:   i32 = 10i32;
+pub const TOKEN_REF:  i32 = 11i32;
+pub const LITERAL:    i32 = 12i32;
+pub const OPT:        i32 = 13i32;  // ?
+pub const REP:        i32 = 14i32;  // * or +
+pub const GROUP:      i32 = 15i32;  // ( ... )
+pub const LOOKAHEAD:  i32 = 16i32;  // &
+pub const NEG_AHEAD:  i32 = 17i32;  // !
+
+// Action expression kinds
+pub const CAPTURE:       i32 = 20i32;  // $n  (n >= 1)
+pub const ARRAY_CAPTURE: i32 = 21i32;  // $...
+pub const BOOL_LIT:      i32 = 22i32;
+pub const INT_LIT:       i32 = 23i32;
+pub const STR_LIT:       i32 = 24i32;
+pub const FOLD_CAPTURE:  i32 = 25i32;  // $0  (fold accumulator)
+
+// ---------------------------------------------------------------------------
+// Token kind values  (stored as value of KIND field in TokenDecl)
+// ---------------------------------------------------------------------------
+
+pub const TOKEN_LITERAL: i32 = 30i32;  // "keyword"
+pub const TOKEN_REGEX:   i32 = 31i32;  // /pattern/
+pub const TOKEN_SKIP:    i32 = 32i32;  // %skip
+
+// ---------------------------------------------------------------------------
+// Associativity values  (stored as value of ASSOC field in PrecLevel)
+// ---------------------------------------------------------------------------
+
+pub const ASSOC_LEFT:  i32 = 40i32;
+pub const ASSOC_RIGHT: i32 = 41i32;
+pub const ASSOC_NONE:  i32 = 42i32;

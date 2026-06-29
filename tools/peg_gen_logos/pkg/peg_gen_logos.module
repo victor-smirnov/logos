@@ -1,0 +1,3 @@
+module peg_gen_logos
+version 0.1
+root tools/peg_gen_logos/pkg/

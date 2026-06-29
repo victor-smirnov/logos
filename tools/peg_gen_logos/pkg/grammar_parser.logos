@@ -1,0 +1,824 @@
+// grammar_parser — hand-written lexer + recursive-descent parser for .peg files.
+//
+// Logos port of tools/peg_gen_cpp/src/grammar_parser.cpp.
+//
+// Input:  the .peg source as a `str`.
+// Output: a `Writ` document conforming to the grammar_ast schema (pkg/ast.logos).
+//
+// The root is a string-keyed WMap<WString, WAny> with named sections
+// (meta/imports/exports/fields/nodes/tokens/prec/rules). Each grammar node is a
+// bitmap-indexed tiny map (WMap<Wu6, WAny>) keyed by the u8 field-key constants
+// from `ast`; action blocks are string-keyed maps (field name -> action expr).
+
+package peg_gen_logos.grammar_parser;
+
+use logos.lang.str;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.lang.panic;
+
+use peg_gen_logos.ast;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Token kinds  (mirror the C++ `enum class TK`, encoded as i32 constants)
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub const TK_EOF:           i32 = 0i32;
+pub const TK_PERCENT_IDENT: i32 = 1i32;   // %meta, %import, ...
+pub const TK_IDENT:         i32 = 2i32;   // [a-zA-Z_][a-zA-Z0-9_]*
+pub const TK_STRING:        i32 = 3i32;   // "..."
+pub const TK_REGEX:         i32 = 4i32;   // /pattern/
+pub const TK_INTEGER:       i32 = 5i32;   // [0-9]+
+pub const TK_LBRACE:        i32 = 6i32;   // {
+pub const TK_RBRACE:        i32 = 7i32;   // }
+pub const TK_LPAREN:        i32 = 8i32;   // (
+pub const TK_RPAREN:        i32 = 9i32;   // )
+pub const TK_ARROW:         i32 = 10i32;  // <-
+pub const TK_SLASH:         i32 = 11i32;  // /  (alternative separator)
+pub const TK_QUESTION:      i32 = 12i32;  // ?
+pub const TK_STAR:          i32 = 13i32;  // *
+pub const TK_PLUS:          i32 = 14i32;  // +
+pub const TK_AMP:           i32 = 15i32;  // &
+pub const TK_BANG:          i32 = 16i32;  // !
+pub const TK_COMMA:         i32 = 17i32;  // ,
+pub const TK_COLON:         i32 = 18i32;  // :
+pub const TK_EQUALS:        i32 = 19i32;  // =
+pub const TK_FAT_ARROW:     i32 = 20i32;  // =>
+pub const TK_COLON_COLON:   i32 = 21i32;  // ::
+pub const TK_DOLLAR_N:      i32 = 22i32;  // $1, $2, ...
+pub const TK_DOLLAR_DOTS:   i32 = 23i32;  // $...
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Token
+// ═══════════════════════════════════════════════════════════════════════════
+
+// A token is a kind plus a (start, len) slice into the source buffer, and the
+// 1-based line/col it started at. `text(src)` recovers the slice.
+pub struct Token {
+    pub kind:  i32,
+    pub start: i64,
+    pub len:   i64,
+    pub line:  i64,
+    pub col:   i64,
+}
+
+impl Token {
+    // The source slice this token spans (a borrow into the lexer's source).
+    pub fn text(self: &Token, src: str) -> str {
+        return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };
+    }
+}
+
+// ── byte classification helpers (ASCII; the .peg surface is ASCII) ────────────
+
+fn is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }                     // 0-9
+fn is_alpha(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;     // A-Z a-z _
+}
+fn is_alnum(c: u8) -> bool { return is_alpha(c) || is_digit(c); }
+fn is_upper(c: u8) -> bool { return c >= 65u8 && c <= 90u8; }
+
+// The null WAny (`null` is a reserved word, so `WAny::null()` cannot be named).
+fn wnull() -> WAny { return WAny::ref_to(0i64 as *const u8); }
+
+// ── value-construction helpers ────────────────────────────────────────────
+// `WAny::from(str)` does not exist (a bare `str` is a `&[u8]` slice, not interned),
+// so a string VALUE is interned into the arena as a WString first. The container
+// reference helpers take `&` (a `&mut` arg coerces) — `WAny::from` selects the
+// matching container overload, which `&mut` does not on its own.
+
+fn wstr(doc: &Writ, s: str) -> WAny {
+    let ws: &WString = doc.wstring(s);
+    return WAny::ref_to(ws as *const WString as *const u8);
+}
+// `WAny` is `#[borrow_carrying]`: a WAny BUILT FROM A REFERENCE carries that
+// reference's borrow (so a node wrapped via `WAny::from(&child)` is tied to the
+// child's lexical scope → E0597 when it outlives an inner block). These helpers
+// take a RAW pointer instead — the `child as *const …` cast at the call site
+// consumes the `&mut` and yields a borrow-free pointer, so the resulting WAny
+// carries no borrow (sound: the object lives in the never-move arena for the
+// whole document, not for the reference's scope). The `wn_*` casters keep call
+// sites terse: `wn_node(node)` = `wnode(node as *const WMap<Wu6, WAny>)`.
+fn wnode(m: *const WMap<Wu6, WAny>) -> WAny { return WAny::ref_to(m as *const u8); }
+fn warr(a: *const WArray<WAny>)        -> WAny { return WAny::ref_to(a as *const u8); }
+fn wsmap(m: *const WMap<WString, WAny>) -> WAny { return WAny::ref_to(m as *const u8); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Lexer
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Owns the source `str` (a borrow whose lifetime exceeds the lexer's use) and a
+// scan cursor. Up to two tokens of lookahead are buffered in `la0`/`la1`.
+
+pub struct Lexer {
+    src:      str,
+    pos:      i64,
+    line:     i64,
+    col:      i64,
+    la0:      Token,
+    la1:      Token,
+    la_count: i64,
+}
+
+// A placeholder token (used to initialise the lookahead slots).
+fn zero_token() -> Token {
+    return Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64, col: 0i64 };
+}
+
+pub fn lexer_new(src: str) -> Lexer {
+    return Lexer {
+        src: src, pos: 0i64, line: 1i64, col: 1i64,
+        la0: zero_token(), la1: zero_token(), la_count: 0i64,
+    };
+}
+
+impl Lexer {
+    // The byte at offset `pos + off`, or 0 past end (mirrors C++ `cur`).
+    fn cur(self: &Lexer, off: i64) -> u8 {
+        let p: i64 = self.pos + off;
+        if p < 0i64 || p >= self.src.len() { return 0u8; }
+        return unsafe { self.src.as_ptr()[p] };
+    }
+
+    // Consume one byte, advancing line/col. Returns the consumed byte.
+    fn eat(self: &mut Lexer) -> u8 {
+        let c: u8 = self.cur(0i64);
+        self.pos = self.pos + 1i64;
+        if c == 10u8 { self.line = self.line + 1i64; self.col = 1i64; }
+        else { self.col = self.col + 1i64; }
+        return c;
+    }
+
+    fn skip_ws_and_comments(self: &mut Lexer) {
+        while self.pos < self.src.len() {
+            let c: u8 = self.cur(0i64);
+            if c == 32u8 || c == 9u8 || c == 13u8 || c == 10u8 {
+                self.eat();
+            } else if c == 47u8 && self.cur(1i64) == 47u8 {     // //
+                while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.eat(); }
+            } else if c == 47u8 && self.cur(1i64) == 42u8 {     // /*
+                self.eat(); self.eat();
+                while self.pos < self.src.len() {
+                    if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.eat(); self.eat(); break; }
+                    self.eat();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn make(self: &Lexer, kind: i32, start: i64, ln: i64, cn: i64) -> Token {
+        return Token { kind: kind, start: start, len: self.pos - start, line: ln, col: cn };
+    }
+
+    // Scan one raw token from the current position.
+    fn lex_one(self: &mut Lexer) -> Token {
+        self.skip_ws_and_comments();
+        if self.pos >= self.src.len() {
+            return Token { kind: TK_EOF, start: self.pos, len: 0i64, line: self.line, col: self.col };
+        }
+
+        let start: i64 = self.pos;
+        let ln: i64 = self.line;
+        let cn: i64 = self.col;
+        let c: u8 = self.cur(0i64);
+
+        // ── % directives ───────────────────────────────────────────────────
+        if c == 37u8 {     // %
+            self.eat();
+            while self.pos < self.src.len() && (is_alnum(self.cur(0i64))) { self.eat(); }
+            return self.make(TK_PERCENT_IDENT, start, ln, cn);
+        }
+
+        // ── Quoted string ───────────────────────────────────────────────────
+        if c == 34u8 {     // "
+            self.eat();
+            while self.pos < self.src.len() && self.cur(0i64) != 34u8 {
+                if self.cur(0i64) == 92u8 { self.eat(); }     // backslash escape
+                self.eat();
+            }
+            if self.pos < self.src.len() { self.eat(); }
+            return self.make(TK_STRING, start, ln, cn);
+        }
+
+        // ── Regex or slash ─────────────────────────────────────────────────
+        if c == 47u8 {     // /
+            let nc: u8 = self.cur(1i64);
+            let looks_like_regex: bool =
+                nc != 32u8 && nc != 9u8 && nc != 10u8 && nc != 42u8 &&
+                nc != 41u8 && nc != 0u8 && nc != 47u8;
+            if looks_like_regex {
+                self.eat();
+                while self.pos < self.src.len() && self.cur(0i64) != 47u8 {
+                    if self.cur(0i64) == 92u8 { self.eat(); }
+                    self.eat();
+                }
+                if self.pos < self.src.len() { self.eat(); }
+                return self.make(TK_REGEX, start, ln, cn);
+            }
+            self.eat();
+            return self.make(TK_SLASH, start, ln, cn);
+        }
+
+        // ── $ captures ──────────────────────────────────────────────────────
+        if c == 36u8 {     // $
+            self.eat();
+            if self.cur(0i64) == 46u8 && self.cur(1i64) == 46u8 && self.cur(2i64) == 46u8 {
+                self.eat(); self.eat(); self.eat();
+                return self.make(TK_DOLLAR_DOTS, start, ln, cn);
+            }
+            while self.pos < self.src.len() && is_digit(self.cur(0i64)) { self.eat(); }
+            return self.make(TK_DOLLAR_N, start, ln, cn);
+        }
+
+        // ── Single-char / two-char punctuation ──────────────────────────────
+        if c == 123u8 { self.eat(); return self.make(TK_LBRACE,   start, ln, cn); }     // {
+        if c == 125u8 { self.eat(); return self.make(TK_RBRACE,   start, ln, cn); }     // }
+        if c == 40u8  { self.eat(); return self.make(TK_LPAREN,   start, ln, cn); }     // (
+        if c == 41u8  { self.eat(); return self.make(TK_RPAREN,   start, ln, cn); }     // )
+        if c == 63u8  { self.eat(); return self.make(TK_QUESTION, start, ln, cn); }     // ?
+        if c == 42u8  { self.eat(); return self.make(TK_STAR,     start, ln, cn); }     // *
+        if c == 43u8  { self.eat(); return self.make(TK_PLUS,     start, ln, cn); }     // +
+        if c == 38u8  { self.eat(); return self.make(TK_AMP,      start, ln, cn); }     // &
+        if c == 33u8  { self.eat(); return self.make(TK_BANG,     start, ln, cn); }     // !
+        if c == 44u8  { self.eat(); return self.make(TK_COMMA,    start, ln, cn); }     // ,
+        if c == 58u8 {                                                                   // :
+            self.eat();
+            if self.cur(0i64) == 58u8 { self.eat(); return self.make(TK_COLON_COLON, start, ln, cn); }
+            return self.make(TK_COLON, start, ln, cn);
+        }
+        if c == 61u8 {                                                                   // =
+            self.eat();
+            if self.cur(0i64) == 62u8 { self.eat(); return self.make(TK_FAT_ARROW, start, ln, cn); }
+            return self.make(TK_EQUALS, start, ln, cn);
+        }
+        if c == 60u8 {                                                                   // <
+            self.eat();
+            if self.cur(0i64) == 45u8 { self.eat(); return self.make(TK_ARROW, start, ln, cn); }
+            return self.make(TK_EOF, start, ln, cn);     // bare < not used in .peg
+        }
+
+        // ── Integer (with optional leading -) ───────────────────────────────
+        if is_digit(c) || (c == 45u8 && is_digit(self.cur(1i64))) {
+            if c == 45u8 { self.eat(); }
+            while self.pos < self.src.len() && is_digit(self.cur(0i64)) { self.eat(); }
+            return self.make(TK_INTEGER, start, ln, cn);
+        }
+
+        // ── Identifier ──────────────────────────────────────────────────────
+        if is_alpha(c) {
+            while self.pos < self.src.len() && is_alnum(self.cur(0i64)) { self.eat(); }
+            return self.make(TK_IDENT, start, ln, cn);
+        }
+
+        self.eat();
+        return self.make(TK_EOF, start, ln, cn);     // unknown character
+    }
+
+    // Consume and return the next token.
+    pub fn next(self: &mut Lexer) -> Token {
+        if self.la_count > 0i64 {
+            let t: Token = self.la0;
+            if self.la_count == 2i64 { self.la0 = self.la1; }
+            self.la_count = self.la_count - 1i64;
+            return t;
+        }
+        return self.lex_one();
+    }
+
+    // Look ahead without consuming. ahead=0 -> next token, ahead=1 -> the token
+    // after that.
+    pub fn peek(self: &mut Lexer, ahead: i64) -> Token {
+        while self.la_count <= ahead {
+            let t: Token = self.lex_one();
+            if self.la_count == 0i64 { self.la0 = t; } else { self.la1 = t; }
+            self.la_count = self.la_count + 1i64;
+        }
+        if ahead == 0i64 { return self.la0; }
+        return self.la1;
+    }
+
+    pub fn at_end(self: &mut Lexer) -> bool { return self.peek(0i64).kind == TK_EOF; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Parse helpers (free functions over &mut Lexer + the source str)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Report a fatal parse error and abort (mirrors the C++ ParseError throw).
+fn perror(msg: str) -> ! {
+    panic(msg);
+}
+
+// Consume a token, requiring it to be `kind`; abort otherwise.
+fn expect(lex: &mut Lexer, kind: i32, what: str) -> Token {
+    let t: Token = lex.next();
+    if t.kind != kind { perror(what); }
+    return t;
+}
+
+// If the next token is `kind`, consume it and return true.
+fn try_eat(lex: &mut Lexer, kind: i32) -> bool {
+    if lex.peek(0i64).kind == kind { lex.next(); return true; }
+    return false;
+}
+
+// Strip surrounding double quotes from a string token's slice, if present.
+fn unquote(s: str) -> str {
+    let n: i64 = s.len();
+    if n >= 2i64 && str_byte_at(s, 0i64) == 34u8 && str_byte_at(s, n - 1i64) == 34u8 {
+        return unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    }
+    return s;
+}
+
+// Parse a (possibly negative) decimal integer from `s`.
+fn parse_int(s: str) -> i64 {
+    let n: i64 = s.len();
+    if n == 0i64 { return 0i64; }
+    let mut i: i64 = 0i64;
+    let mut neg: bool = false;
+    if str_byte_at(s, 0i64) == 45u8 { neg = true; i = 1i64; }     // leading -
+    let mut v: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if !is_digit(c) { break; }
+        v = v * 10i64 + ((c as i64) - 48i64);
+        i = i + 1i64;
+    }
+    if neg { return 0i64 - v; }
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Parser
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The parser builds the Writ document directly. Because Writ allocation is
+// interior-mutable (`&self`), a single `&Writ` borrow lets every section / node
+// be built and wired in. Children are built fully, then attached to their parent
+// via `parent.set(key, WAny::from(child))` / `parent.push(...)`, mirroring the
+// C++ structure exactly.
+
+// Make a node tiny-map (u8-keyed) and stamp its CODE field. Does NOT touch the
+// lexer, so its `&mut` result is tied only to `doc` (safe to keep, set fields on).
+fn node_with_code<'a>(doc: &'a Writ, code: i32) -> &'a mut WMap<Wu6, WAny> {
+    let node: &mut WMap<Wu6, WAny> = doc.tinymap(8i64);
+    node.set(CODE, WAny::from(code as i56));
+    return node;
+}
+
+// ── borrow note ─────────────────────────────────────────────────────────────
+// Every parser BELOW takes `lex: &mut Lexer`. Because `WAny` is
+// `#[borrow_carrying]` AND Logos ties a function's return-borrow to ALL of its
+// reference args, returning a `&mut WMap` / `WAny` from a lexer-consuming parser
+// would keep `lex` borrowed for as long as the returned node lives — making the
+// caller's next `lex` use illegal (E0597 / "already mutably borrowed"). So these
+// parsers return a RAW pointer (`*const WMap<…>`, 0 = none): a raw pointer is NOT
+// borrow-carrying, so the lexer borrow is released at the call boundary. The
+// caller re-wraps the pointer into a `WAny` (via wnode/wsmap) once it is done
+// stepping the lexer. The pointee lives in the never-move arena for the whole
+// document, so this is sound.
+
+// ── Action expression ─────────────────────────────────────────────────────
+
+fn parse_action_expr(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<Wu6, WAny> {
+    let t: Token = lex.next();
+    let txt: str = t.text(src);
+
+    if t.kind == TK_DOLLAR_N {
+        // $0 -> fold accumulator; $1, $2, ... -> positional capture.
+        let body: str = unsafe { str_from_raw((txt.as_ptr() as i64 + 1i64) as *const u8, txt.len() - 1i64) };
+        let idx: i64 = parse_int(body);
+        if idx == 0i64 {
+            return node_with_code(doc, FOLD_CAPTURE) as *const WMap<Wu6, WAny>;
+        }
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, CAPTURE);
+        node.set(INDEX, WAny::from(idx as i56));
+        return node as *const WMap<Wu6, WAny>;
+    }
+    if t.kind == TK_DOLLAR_DOTS {
+        return node_with_code(doc, ARRAY_CAPTURE) as *const WMap<Wu6, WAny>;
+    }
+    if t.kind == TK_IDENT {
+        if str_eq(txt, "true") || str_eq(txt, "false") {
+            let node: &mut WMap<Wu6, WAny> = node_with_code(doc, BOOL_LIT);
+            let b: u8 = if str_eq(txt, "true") { 1u8 } else { 0u8 };
+            node.set(VALUE, WAny::from(b));
+            return node as *const WMap<Wu6, WAny>;
+        }
+        // Symbolic name (e.g. MAP_NODE) — stored as STR_LIT; codegen resolves it.
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, STR_LIT);
+        node.set(VALUE, wstr(doc, txt));
+        return node as *const WMap<Wu6, WAny>;
+    }
+    if t.kind == TK_INTEGER {
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, INT_LIT);
+        node.set(VALUE, WAny::from(parse_int(txt) as i56));
+        return node as *const WMap<Wu6, WAny>;
+    }
+    if t.kind == TK_STRING {
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, STR_LIT);
+        node.set(VALUE, wstr(doc, unquote(txt)));
+        return node as *const WMap<Wu6, WAny>;
+    }
+    perror("unexpected token in action expression");
+}
+
+// Action block: string-keyed map { field_name -> action_expr }.
+fn parse_action(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<WString, WAny> {
+    expect(lex, TK_LBRACE, "expected '{'");
+    let action: &mut WMap<WString, WAny> = doc.map(8i64);
+    while !lex.at_end() && lex.peek(0i64).kind != TK_RBRACE {
+        let field: Token = expect(lex, TK_IDENT, "expected field name");
+        let fname: str = field.text(src);
+        expect(lex, TK_COLON, "expected ':'");
+        let expr: *const WMap<Wu6, WAny> = parse_action_expr(doc, lex, src);
+        action.set(fname, wnode(expr));
+        try_eat(lex, TK_COMMA);
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+    return action as *const WMap<WString, WAny>;
+}
+
+// ── Primary / item ──────────────────────────────────────────────────────────
+
+// Returns the primary node, or a null pointer if no primary can start here.
+fn parse_primary(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<Wu6, WAny> {
+    let t: Token = lex.peek(0i64);
+
+    // ( alt / alt )
+    if t.kind == TK_LPAREN {
+        lex.next();
+        let alts: &mut WArray<WAny> = doc.array(4i64);
+        loop {
+            let a: *const WMap<Wu6, WAny> = parse_alt(doc, lex, src);
+            alts.push(wnode(a));
+            if !try_eat(lex, TK_SLASH) { break; }
+        }
+        expect(lex, TK_RPAREN, "expected ')'");
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, GROUP);
+        node.set(ALTS, warr(alts as *const WArray<WAny>));
+        return node as *const WMap<Wu6, WAny>;
+    }
+
+    // "literal"
+    if t.kind == TK_STRING {
+        lex.next();
+        let vs: str = unquote(t.text(src));
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, LITERAL);
+        node.set(VALUE, wstr(doc, vs));
+        return node as *const WMap<Wu6, WAny>;
+    }
+
+    // IDENT or alias::name. If followed by <-, it's the next rule — stop.
+    if t.kind == TK_IDENT {
+        if lex.peek(1i64).kind == TK_ARROW { return 0i64 as *const WMap<Wu6, WAny>; }
+        lex.next();
+
+        let mut grammar_alias: str = "";
+        let mut has_alias: bool = false;
+        let mut item_name: str = t.text(src);
+
+        if lex.peek(0i64).kind == TK_COLON_COLON {
+            lex.next();     // consume ::
+            grammar_alias = t.text(src);
+            has_alias = true;
+            let rn: Token = expect(lex, TK_IDENT, "expected rule or token name after ::");
+            item_name = rn.text(src);
+        }
+
+        // Convention: UPPERCASE start -> token ref, lowercase -> rule ref.
+        let is_token: bool = item_name.len() > 0i64 && is_upper(str_byte_at(item_name, 0i64));
+        let code: i32 = if is_token { TOKEN_REF } else { RULE_REF };
+
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, code);
+        node.set(NAME, wstr(doc, item_name));
+        if has_alias {
+            node.set(GRAMMAR, wstr(doc, grammar_alias));
+        }
+        return node as *const WMap<Wu6, WAny>;
+    }
+
+    return 0i64 as *const WMap<Wu6, WAny>;
+}
+
+// One grammar item with optional prefix (& / !) and suffix (? / * / +).
+// Returns a null pointer when no item can start here.
+fn parse_item(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<Wu6, WAny> {
+    let is_la: bool = try_eat(lex, TK_AMP);
+    let mut is_neg: bool = false;
+    if !is_la { is_neg = try_eat(lex, TK_BANG); }
+
+    let primary: *const WMap<Wu6, WAny> = parse_primary(doc, lex, src);
+    if (primary as i64) == 0i64 {
+        if is_la || is_neg { perror("expected item after & or !"); }
+        return 0i64 as *const WMap<Wu6, WAny>;
+    }
+
+    // Suffix: ? * +
+    let mut result: WAny = wnode(primary);
+    let pk: i32 = lex.peek(0i64).kind;
+    if pk == TK_QUESTION || pk == TK_STAR || pk == TK_PLUS {
+        lex.next();
+        let wrap_code: i32 = if pk == TK_QUESTION { OPT } else { REP };
+        let wrapper: &mut WMap<Wu6, WAny> = node_with_code(doc, wrap_code);
+        wrapper.set(ITEM, result);
+        if pk == TK_STAR {
+            wrapper.set(MIN, WAny::from(0i56));
+            wrapper.set(MAX, WAny::from((0i64 - 1i64) as i56));
+        } else if pk == TK_PLUS {
+            wrapper.set(MIN, WAny::from(1i56));
+            wrapper.set(MAX, WAny::from((0i64 - 1i64) as i56));
+        }
+        result = wnode(wrapper as *const WMap<Wu6, WAny>);
+    }
+
+    if is_la || is_neg {
+        let la_code: i32 = if is_la { LOOKAHEAD } else { NEG_AHEAD };
+        let wrapper: &mut WMap<Wu6, WAny> = node_with_code(doc, la_code);
+        wrapper.set(ITEM, result);
+        result = wnode(wrapper as *const WMap<Wu6, WAny>);
+    }
+    return result.resolve() as *const WMap<Wu6, WAny>;
+}
+
+// One alternative: a sequence of items + an optional => action block.
+fn parse_alt(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<Wu6, WAny> {
+    let seq: &mut WArray<WAny> = doc.array(8i64);
+
+    while !lex.at_end() {
+        let pk: i32 = lex.peek(0i64).kind;
+        // Stop at alternative separator, action, or end of section.
+        if pk == TK_SLASH || pk == TK_FAT_ARROW || pk == TK_RBRACE { break; }
+        // Stop if this ident begins the next rule (ident then <- or :group tag).
+        if pk == TK_IDENT {
+            let nk: i32 = lex.peek(1i64).kind;
+            if nk == TK_ARROW || nk == TK_COLON { break; }
+        }
+
+        let item: *const WMap<Wu6, WAny> = parse_item(doc, lex, src);
+        if (item as i64) == 0i64 { break; }
+        seq.push(wnode(item));
+    }
+
+    let mut has_action: bool = false;
+    let mut action_p: *const WMap<WString, WAny> = 0i64 as *const WMap<WString, WAny>;
+    if try_eat(lex, TK_FAT_ARROW) {
+        action_p = parse_action(doc, lex, src);
+        has_action = true;
+    }
+
+    let node: &mut WMap<Wu6, WAny> = node_with_code(doc, ALT);
+    node.set(SEQ, warr(seq as *const WArray<WAny>));
+    if has_action { node.set(ACTION, wsmap(action_p)); }
+    return node as *const WMap<Wu6, WAny>;
+}
+
+// One rule:  name [:group X:] <- alt (/ alt)*
+fn parse_rule(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<Wu6, WAny> {
+    let name: Token = expect(lex, TK_IDENT, "expected rule name");
+    let rule_name: str = name.text(src);
+
+    let mut group_name: str = "";
+    let mut has_group: bool = false;
+    if lex.peek(0i64).kind == TK_COLON {
+        lex.next();     // :
+        let gk: Token = expect(lex, TK_IDENT, "expected 'group' keyword");
+        if !str_eq(gk.text(src), "group") { perror("expected 'group' after ':' in rule tag"); }
+        let gn: Token = expect(lex, TK_IDENT, "expected group name");
+        group_name = gn.text(src);
+        has_group = true;
+        expect(lex, TK_COLON, "expected ':'");
+    }
+    expect(lex, TK_ARROW, "expected '<-'");
+
+    let alts: &mut WArray<WAny> = doc.array(4i64);
+    loop {
+        let a: *const WMap<Wu6, WAny> = parse_alt(doc, lex, src);
+        alts.push(wnode(a));
+        if !try_eat(lex, TK_SLASH) { break; }
+    }
+
+    let node: &mut WMap<Wu6, WAny> = node_with_code(doc, RULE);
+    node.set(NAME, wstr(doc, rule_name));
+    node.set(ALTS, warr(alts as *const WArray<WAny>));
+    if has_group { node.set(GROUP_NAME, wstr(doc, group_name)); }
+    return node as *const WMap<Wu6, WAny>;
+}
+
+// ── Sections ──────────────────────────────────────────────────────────────
+
+fn parse_rules(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>) {
+    expect(lex, TK_LBRACE, "expected '{'");
+    while !lex.at_end() && lex.peek(0i64).kind != TK_RBRACE {
+        let r: *const WMap<Wu6, WAny> = parse_rule(doc, lex, src);
+        out.push(wnode(r));
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+}
+
+fn parse_prec(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>) {
+    expect(lex, TK_LBRACE, "expected '{'");
+    while !lex.at_end() && lex.peek(0i64).kind != TK_RBRACE {
+        let assoc_tok: Token = expect(lex, TK_IDENT, "expected left, right, or none");
+        let at: str = assoc_tok.text(src);
+        let mut assoc_code: i32 = ASSOC_NONE;
+        if str_eq(at, "left") { assoc_code = ASSOC_LEFT; }
+        else if str_eq(at, "right") { assoc_code = ASSOC_RIGHT; }
+        else if str_eq(at, "none") { assoc_code = ASSOC_NONE; }
+        else { perror("expected left/right/none"); }
+        expect(lex, TK_COLON, "expected ':'");
+
+        let toks: &mut WArray<WAny> = doc.array(4i64);
+        while lex.peek(0i64).kind == TK_IDENT {
+            let tok: Token = lex.next();
+            toks.push(tok.text(src));
+        }
+
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, PREC_LEVEL);
+        node.set(ASSOC, WAny::from(assoc_code as i56));
+        node.set(TOKENS, warr(toks as *const WArray<WAny>));
+        out.push(wnode(node as *const WMap<Wu6, WAny>));
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+}
+
+fn parse_tokens(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>) {
+    expect(lex, TK_LBRACE, "expected '{'");
+    while !lex.at_end() && lex.peek(0i64).kind != TK_RBRACE {
+        let name: Token = lex.next();
+        let nt: str = name.text(src);
+        let is_skip: bool = name.kind == TK_PERCENT_IDENT && str_eq(nt, "%skip");
+        if !is_skip && name.kind != TK_IDENT { perror("expected token name or %skip"); }
+
+        expect(lex, TK_EQUALS, "expected '='");
+        let pat: Token = lex.next();
+
+        if is_skip && pat.kind != TK_REGEX { perror("%skip requires a regex pattern"); }
+        if !is_skip && pat.kind != TK_STRING && pat.kind != TK_REGEX {
+            perror("expected string or regex token pattern");
+        }
+
+        let mut kind_code: i32 = TOKEN_REGEX;
+        if is_skip { kind_code = TOKEN_SKIP; }
+        else if pat.kind == TK_STRING { kind_code = TOKEN_LITERAL; }
+        else { kind_code = TOKEN_REGEX; }
+
+        let nm: str = if is_skip { "%skip" } else { nt };
+
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, TOKEN_DECL);
+        node.set(NAME, wstr(doc, nm));
+        node.set(KIND, WAny::from(kind_code as i56));
+        node.set(PATTERN, wstr(doc, pat.text(src)));
+        out.push(wnode(node as *const WMap<Wu6, WAny>));
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+}
+
+// %fields / %nodes — name declarations, possibly with `group X { ... }` blocks.
+fn parse_name_decls(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>) {
+    expect(lex, TK_LBRACE, "expected '{'");
+    while lex.peek(0i64).kind == TK_IDENT {
+        let name: Token = lex.next();
+        let nt: str = name.text(src);
+
+        // `group X { NAME = N, ... }` — fields scoped to a named group.
+        if str_eq(nt, "group") {
+            let gname: Token = expect(lex, TK_IDENT, "expected group name");
+            let fields_arr: &mut WArray<WAny> = doc.array(8i64);
+            parse_name_decls(doc, lex, src, fields_arr);     // recursive inner block
+            let node: &mut WMap<Wu6, WAny> = node_with_code(doc, GROUP_DECL);
+            node.set(NAME, wstr(doc, gname.text(src)));
+            node.set(FIELDS, warr(fields_arr as *const WArray<WAny>));
+            out.push(wnode(node as *const WMap<Wu6, WAny>));
+            try_eat(lex, TK_COMMA);
+            continue;
+        }
+
+        expect(lex, TK_EQUALS, "expected '='");
+        let num: Token = expect(lex, TK_INTEGER, "expected integer code");
+
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, NAME_DECL);
+        node.set(NAME, wstr(doc, nt));
+        node.set(VALUE, WAny::from(parse_int(num.text(src)) as i56));
+        out.push(wnode(node as *const WMap<Wu6, WAny>));
+
+        try_eat(lex, TK_COMMA);
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+}
+
+fn parse_export(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>) {
+    expect(lex, TK_LBRACE, "expected '{'");
+    while lex.peek(0i64).kind == TK_IDENT {
+        let t: Token = lex.next();
+        out.push(t.text(src));
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+}
+
+// %import "path" as alias  -> an IMPORT node.
+fn parse_import(doc: &Writ, lex: &mut Lexer, src: str) -> *const WMap<Wu6, WAny> {
+    let path_tok: Token = expect(lex, TK_STRING, "expected import path");
+    let path_s: str = unquote(path_tok.text(src));
+    let as_tok: Token = expect(lex, TK_IDENT, "expected 'as'");
+    if !str_eq(as_tok.text(src), "as") { perror("expected 'as'"); }
+    let alias_tok: Token = expect(lex, TK_IDENT, "expected alias");
+    let alias_s: str = alias_tok.text(src);
+
+    let node: &mut WMap<Wu6, WAny> = node_with_code(doc, IMPORT);
+    node.set(PATH, wstr(doc, path_s));
+    node.set(ALIAS, wstr(doc, alias_s));
+    return node as *const WMap<Wu6, WAny>;
+}
+
+// %meta { name: "..." version: "..." ... } -> a META_INFO node stored at root["meta"].
+fn parse_meta(doc: &Writ, lex: &mut Lexer, src: str, root: &mut WMap<WString, WAny>) {
+    expect(lex, TK_LBRACE, "expected '{'");
+    let meta: &mut WMap<Wu6, WAny> = node_with_code(doc, META_INFO);
+
+    while lex.peek(0i64).kind == TK_IDENT {
+        let key: Token = lex.next();
+        expect(lex, TK_COLON, "expected ':'");
+        let val: Token = expect(lex, TK_STRING, "expected string value");
+        let sv: str = unquote(val.text(src));
+        let k: str = key.text(src);
+
+        if str_eq(k, "name") { meta.set(NAME, wstr(doc, sv)); }
+        else if str_eq(k, "version") { meta.set(VERSION, wstr(doc, sv)); }
+        else if str_eq(k, "namespace") { meta.set(NAMESPACE, wstr(doc, sv)); }
+        else if str_eq(k, "output") { meta.set(OUTPUT, wstr(doc, sv)); }
+        else { perror("unknown meta key"); }
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+    root.set("meta", wnode(meta as *const WMap<Wu6, WAny>));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Public API
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Parse a .peg grammar string into a Writ document (grammar_ast schema). The
+// returned `Writ` owns the never-move arena holding the whole tree; its root is
+// the section map. On a syntax error the parser aborts (panic), mirroring the
+// C++ ParseError throw.
+pub fn parse_grammar_string(src: str) -> Writ {
+    let doc: Writ = writ_new(524288i64);
+
+    // The section arrays are built up front, then attached to the root.
+    let imports: &mut WArray<WAny> = doc.array(4i64);
+    let exports: &mut WArray<WAny> = doc.array(4i64);
+    let fields:  &mut WArray<WAny> = doc.array(16i64);
+    let nodes:   &mut WArray<WAny> = doc.array(16i64);
+    let tokens:  &mut WArray<WAny> = doc.array(32i64);
+    let prec:    &mut WArray<WAny> = doc.array(8i64);
+    let rules:   &mut WArray<WAny> = doc.array(32i64);
+
+    let root: &mut WMap<WString, WAny> = doc.map(16i64);
+
+    let mut lex: Lexer = lexer_new(src);
+
+    while !lex.at_end() {
+        let t: Token = lex.peek(0i64);
+        if t.kind != TK_PERCENT_IDENT { perror("expected % directive"); }
+        lex.next();
+
+        let kw: str = t.text(src);
+        if str_eq(kw, "%meta") {
+            parse_meta(&doc, &mut lex, src, root);
+        } else if str_eq(kw, "%import") {
+            let imp: *const WMap<Wu6, WAny> = parse_import(&doc, &mut lex, src);
+            imports.push(wnode(imp));
+        } else if str_eq(kw, "%export") {
+            parse_export(&doc, &mut lex, src, exports);
+        } else if str_eq(kw, "%fields") {
+            parse_name_decls(&doc, &mut lex, src, fields);
+        } else if str_eq(kw, "%nodes") {
+            parse_name_decls(&doc, &mut lex, src, nodes);
+        } else if str_eq(kw, "%tokens") {
+            parse_tokens(&doc, &mut lex, src, tokens);
+        } else if str_eq(kw, "%prec") {
+            parse_prec(&doc, &mut lex, src, prec);
+        } else if str_eq(kw, "%rules") {
+            parse_rules(&doc, &mut lex, src, rules);
+        } else {
+            perror("unknown directive");
+        }
+    }
+
+    root.set("imports", warr(imports as *const WArray<WAny>));
+    root.set("exports", warr(exports as *const WArray<WAny>));
+    root.set("fields",  warr(fields as *const WArray<WAny>));
+    root.set("nodes",   warr(nodes as *const WArray<WAny>));
+    root.set("tokens",  warr(tokens as *const WArray<WAny>));
+    root.set("prec",    warr(prec as *const WArray<WAny>));
+    root.set("rules",   warr(rules as *const WArray<WAny>));
+
+    doc.set_root(wsmap(root as *const WMap<WString, WAny>));
+    return doc;
+}

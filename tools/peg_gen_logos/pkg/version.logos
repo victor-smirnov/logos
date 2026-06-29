@@ -1,0 +1,7 @@
+// peg_gen_logos — version string. Smoke-test for multi-file build.
+
+package peg_gen_logos.version;
+
+pub fn peg_gen_logos_version() -> str {
+    return "peg_gen_logos 0.1.0";
+}

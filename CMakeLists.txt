@@ -186,6 +186,7 @@ add_subdirectory(tools/peg_gen_cpp)
 add_subdirectory(tools/hrpc_gen)
 add_subdirectory(tools/logos-audit)
 add_subdirectory(tools/lforge)
+add_subdirectory(tools/peg_gen_logos)
 add_subdirectory(examples)
 
 # Logos stdlib native runtime (fiber context switch, etc.)

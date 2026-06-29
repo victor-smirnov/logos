@@ -1,0 +1,116 @@
+// peg_gen_logos — PEG parser generator, written in Logos, emitting Logos.
+//
+// Sibling of the C++ tool tools/peg_gen_cpp (which emits C++ parsers). This
+// tool reads a .peg grammar and emits a Logos-source recursive-descent parser
+// that builds a Writ AST — a step toward self-hosting the compiler frontend.
+//
+// CLI:
+//   peg_gen_logos <grammar.peg> [--out-dir <dir>]
+//   peg_gen_logos --help
+//
+// Status: bootstrap scaffold. Grammar parser + Logos codegen land incrementally
+// (see /home/victor/.claude/plans/joyful-beaming-whale.md, Phase 1).
+
+package peg_gen_logos_main;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.env;
+use logos.std.io.fs;
+use logos.lang.writ.container;
+
+use peg_gen_logos.version;
+use peg_gen_logos.grammar_parser;
+use peg_gen_logos.codegen;
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+// Write a str to fd (1=stdout, 2=stderr) followed by a newline.
+fn eprintln(fd: i32, s: str) {
+    unsafe {
+        write(fd, s.as_ptr(), s.len());
+        let nl: str = "\n";
+        write(fd, nl.as_ptr(), nl.len());
+    }
+}
+
+fn usage() {
+    eprintln(2 as i32, "Usage: peg_gen_logos <grammar.peg> [--out-dir <dir>]");
+    eprintln(2 as i32, "       peg_gen_logos --help");
+}
+
+fn str_eq(a: str, b: str) -> bool {
+    if a.len() != b.len() { return false; }
+    let n: i64 = a.len();
+    let mut i: i64 = 0;
+    unsafe {
+        while i < n {
+            if a.as_ptr()[i] != b.as_ptr()[i] { return false; }
+            i = i + 1;
+        }
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let argc: i32 = args_count();
+
+    let mut grammar_file: str = "";
+    let mut out_dir: str = ".";
+
+    let mut i: i32 = 1 as i32;
+    while i < argc {
+        let a: str = arg(i);
+        if str_eq(a, "--help") {
+            usage();
+            return 0;
+        } else if str_eq(a, "--out-dir") {
+            if (i + 1 as i32) < argc {
+                i = i + 1 as i32;
+                out_dir = arg(i);
+            }
+        } else {
+            grammar_file = a;
+        }
+        i = i + 1 as i32;
+    }
+
+    if grammar_file.len() == 0 as i64 {
+        usage();
+        return 1;
+    }
+
+    // Read the grammar file.
+    let src: String = match read_to_string(grammar_file) {
+        Result::Ok(s)  => { s }
+        Result::Err(e) => {
+            eprintln(2 as i32, "peg_gen_logos: cannot read grammar file");
+            return 1;
+        }
+    };
+
+    // Parse the .peg into a Writ AST, then emit a Logos-source parser.
+    let grammar: Writ = parse_grammar_string(src.as_str());
+    let out_name: String = codegen_output_name(&grammar);
+    let code: String = codegen_logos(&grammar);
+
+    // Build the output path: <out-dir>/<output>.logos
+    let mut out_path: String = String::new();
+    out_path.push_str(out_dir);
+    out_path.push_u8(47 as u8); // '/'
+    out_path.push_str(out_name.as_str());
+    out_path.push_str(".logos");
+
+    match write_string(out_path.as_str(), &code) {
+        Result::Ok(n)  => {
+            eprintln(1 as i32, "peg_gen_logos: wrote");
+            eprintln(1 as i32, out_path.as_str());
+            return 0;
+        }
+        Result::Err(e) => {
+            eprintln(2 as i32, "peg_gen_logos: cannot write output file");
+            eprintln(2 as i32, out_path.as_str());
+            return 1;
+        }
+    }
+}
