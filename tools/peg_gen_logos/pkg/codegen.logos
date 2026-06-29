@@ -693,6 +693,7 @@ fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("use logos.lang.writ.wmap;");
     w.line("use logos.lang.writ.wstring;");
     w.line("use logos.mem.collections.hashmap;");
+    w.line("use logos.mem.collections.vec;");
     w.blank();
     w.line("// ── AST field keys (%fields) ───────────────────────────────────────────────");
     let mut i: i64 = 0i64;
@@ -765,13 +766,21 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // pure function of (pos, src) — line is a deterministic function of pos — so a
     // pos-keyed cache is sound. This turns the 76%-of-runtime lexer near-linear.
     w.line("pub struct TokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }");
+    w.line("impl Copy for TokCell {}");
     w.blank();
-    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tmemo: HashMap<i64, TokCell> }");
+    // The token cache is a flat buffer indexed directly by entry pos (dense over
+    // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
+    // endpos < 0 is the "not yet lexed" sentinel.
+    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell> }");
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
+    w.line("    let mut tb: Vec<TokCell> = vec_new::<TokCell>();");
+    w.line("    let sent: TokCell = TokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64 };");
+    w.line("    let mut i: i64 = 0i64;");
+    w.line("    while i <= src.len() { tb.push(sent); i = i + 1i64; }");
     w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
     w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
-    w.line("        memo: hashmap_new::<i64, MemoCell>(), tmemo: hashmap_new::<i64, TokCell>() };");
+    w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
     w.line("}");
     w.blank();
     w.line("fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }");
@@ -838,19 +847,13 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // hit, restore the post-token (pos,line) and rebuild the Token — no re-scan.
     w.line("    fn lex_one(self: &mut Lexer) -> Token {");
     w.line("        let k: i64 = self.pos;");
-    w.line("        unsafe {");
-    w.line("            let tp: *mut HashMap<i64, TokCell> = &mut self.tmemo;");
-    w.line("            let hp: *const TokCell = tp.get(&k);");
-    w.line("            if hp != (0i64 as *const TokCell) {");
-    w.line("                self.pos = (*hp).endpos; self.line = (*hp).endline;");
-    w.line("                return Token { kind: (*hp).tk, start: (*hp).tstart, len: (*hp).tlen, line: (*hp).tline };");
-    w.line("            }");
+    w.line("        let c: TokCell = self.tbuf.get(k);");
+    w.line("        if c.endpos >= 0i64 {");
+    w.line("            self.pos = c.endpos; self.line = c.endline;");
+    w.line("            return Token { kind: c.tk, start: c.tstart, len: c.tlen, line: c.tline };");
     w.line("        }");
     w.line("        let t: Token = self.lex_one_raw();");
-    w.line("        unsafe {");
-    w.line("            let tp: *mut HashMap<i64, TokCell> = &mut self.tmemo;");
-    w.line("            tp.insert(k, TokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line });");
-    w.line("        }");
+    w.line("        self.tbuf.set(k, TokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line });");
     w.line("        return t;");
     w.line("    }");
     emit_lex_one(cg, w);
