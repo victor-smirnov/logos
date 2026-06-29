@@ -892,7 +892,9 @@ fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
     // (DOC_LINE `///`, DOC_INNER `//!`), so those reach the doc matcher below.
     let mut linec: String = String::new();
     linec.push_str("            } else if c == 47u8 && self.cur(1i64) == 47u8");
-    if tok_present(cg, "DOC_LINE")  { linec.push_str(" && self.cur(2i64) != 47u8"); }
+    // `///`(exactly 3) is a doc line; `////`+ is a plain comment (skip it). So only
+    // EXCLUDE `//` from the skip when it's exactly `///x` (cur2=='/' && cur3!='/').
+    if tok_present(cg, "DOC_LINE")  { linec.push_str(" && !(self.cur(2i64) == 47u8 && self.cur(3i64) != 47u8)"); }
     if tok_present(cg, "DOC_INNER") { linec.push_str(" && self.cur(2i64) != 33u8"); }
     linec.push_str(" {");
     w.line(linec.as_str());
@@ -1064,7 +1066,7 @@ fn emit_block_doc_body(w: &mut CodeWriter, name: str, open_len: i64) {
 // punctuation literals so the multi-byte openers win over `/` and `'`.
 fn emit_lex_doc_char(cg: &mut Codegen, w: &mut CodeWriter) {
     if tok_present(cg, "DOC_LINE") {
-        w.line("        if c == 47u8 && self.cur(1i64) == 47u8 && self.cur(2i64) == 47u8 {");
+        w.line("        if c == 47u8 && self.cur(1i64) == 47u8 && self.cur(2i64) == 47u8 && self.cur(3i64) != 47u8 {");
         w.line("            self.pos = self.pos + 3i64;");
         w.line("            while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.pos = self.pos + 1i64; }");
         w.line("            return Token { kind: TK_DOC_LINE, start: start, len: self.pos - start, line: sl };");
@@ -1288,7 +1290,7 @@ fn emit_lex_number(w: &mut CodeWriter, int_name: str, flt_name: str) {
     w.line("                is_float = true;");
     w.line("                self.pos = self.pos + 1i64;");
     w.line("                if self.cur(0i64) == 43u8 || self.cur(0i64) == 45u8 { self.pos = self.pos + 1i64; }");
-    w.line("                while self.pos < self.src.len() && lx_is_digit(self.cur(0i64)) { self.pos = self.pos + 1i64; }");
+    w.line("                while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }");
     w.line("            }");
     w.line("            self.scan_num_suffix();");
     w.l3("            if is_float { return Token { kind: ", fk.as_str(), ", start: start, len: self.pos - start, line: sl }; }");
