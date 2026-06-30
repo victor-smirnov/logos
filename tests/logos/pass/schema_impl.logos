@@ -1,0 +1,27 @@
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+schema Pt : code(0x0006000000000000) { x: i56 = 0, y: i56 = 1 }
+
+// plain impl on a schema view — methods use the field sugar + raw set
+impl Pt {
+    fn sum(self: &Pt) -> i64 { return self.x + self.y; }
+    fn shift(self: &mut Pt, d: i56) { self.x = self.x + d; self.y = self.y + d; }
+}
+
+// a (non-generic) trait implemented for a schema
+trait Area { fn area(self: &Self) -> i64; }
+impl Area for Pt { fn area(self: &Pt) -> i64 { return self.x * self.y; } }
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let mut p: Pt = h.make::<Pt>();
+    p.x = 3i56; p.y = 4i56;
+    if p.sum() != 7i64 { return 1i32; }
+    if p.area() != 12i64 { return 2i32; }
+    p.shift(10i56);
+    if p.sum() != 27i64 { return 3i32; }
+    return 0i32;
+}

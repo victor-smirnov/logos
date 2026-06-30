@@ -7242,8 +7242,15 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     const std::string& recv_name, const std::string& field_name,
     writ::TinyMapView val_node) {
     TypeRef rt = lookup(recv_name);
-    if (!rt || TypeRef(rt).kind() != LogosType::Kind::Struct) return std::nullopt;
-    auto sname = std::string(TypeRef(rt).struct_name());
+    // Peel &/&mut/* to reach the schema struct (a `&mut self` method's receiver is
+    // a MutRef). `rt` (the var's actual type) is kept for var_ref — field_read on a
+    // &mut Pt auto-derefs to the view; only the schema lookup needs the base type.
+    TypeRef base = rt;
+    while (base && (is_ref_like(TypeRef(base).kind()) ||
+                    TypeRef(base).kind() == LogosType::Kind::Ptr) && TypeRef(base).pointee())
+        base = TypeRef(base).pointee();
+    if (!base || TypeRef(base).kind() != LogosType::Kind::Struct) return std::nullopt;
+    auto sname = std::string(TypeRef(base).struct_name());
     auto [spkg, ssi] = find_struct_by_name(sname);
     if (!ssi || !ssi->is_schema) return std::nullopt;
 
