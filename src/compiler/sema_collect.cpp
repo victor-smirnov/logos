@@ -303,7 +303,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
             auto item = map_of(items.get(i));
             int32_t ic = code_of(item);
             if ((ic == la::STRUCT || ic == la::DATATYPE || ic == la::ENUM ||
-                 ic == la::UNION_DEF)
+                 ic == la::UNION_DEF || ic == la::SCHEMA_DEF ||
+                 ic == la::SCHEMA_ENUM_DEF)
                     && item.has_key(la::NAME.code))
                 pass0_decl_names.insert(std::string(str_of(item.get(la::NAME.code))));
         }
@@ -406,6 +407,26 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                         // ODR-equal duplicate.
                     } else {
                         error(std::format("duplicate struct/union '{}'", uname));
+                    }
+                } else {
+                    structs_[key] = {};
+                    first_struct[key] = {holder_, item_off(item)};
+                }
+            } else if (ic == la::SCHEMA_DEF || ic == la::SCHEMA_ENUM_DEF) {
+                // ADR 0011: a `schema S {…}` / `schema enum E {…}` registers in the
+                // struct namespace (both are Struct-shaped views), mirroring
+                // STRUCT/UNION_DEF pre-registration so forward refs resolve before
+                // the body is collected in phase 1.
+                if (!item.has_key(la::NAME.code)) continue;
+                auto sname = std::string(str_of(item.get(la::NAME.code)));
+                auto key = sema_key(cur_package_, sname);
+                if (structs_.count(key)) {
+                    auto fit = first_struct.find(key);
+                    if (fit != first_struct.end()
+                            && items_equal(fit->second, holder_, item_off(item))) {
+                        // ODR-equal duplicate from another splice; ignore.
+                    } else {
+                        error(std::format("duplicate schema/struct '{}'", sname));
                     }
                 } else {
                     structs_[key] = {};
@@ -1743,6 +1764,24 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                         }
                     }
                 }
+            }
+            else if (c == la::SCHEMA_DEF) {
+                // ADR 0011: collect a `schema S {…}` as a Struct-shaped view.
+                if (item.has_key(la::NAME.code)) {
+                    check_annotations(AttrTarget::Struct,
+                                      str_of(item.get(la::NAME.code)),
+                                      false, pending_annots);
+                }
+                collect_schema(item);
+            }
+            else if (c == la::SCHEMA_ENUM_DEF) {
+                // ADR 0011: collect a `schema enum E {…}` as a Struct-shaped union view.
+                if (item.has_key(la::NAME.code)) {
+                    check_annotations(AttrTarget::Struct,
+                                      str_of(item.get(la::NAME.code)),
+                                      false, pending_annots);
+                }
+                collect_schema_enum(item);
             }
             else if (c == la::FN || c == la::EXTERN_FN)   {
                 if (item.has_key(la::NAME.code)) {
@@ -3969,6 +4008,170 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
     auto dkey = sema_key(cur_package_, dname);
     datatypes_[dkey] = std::move(info);
     pop_type_params(datatypes_[dkey].type_params);
+}
+
+// ADR 0011 — collect a `schema S : code(expr)? { name: type = key, … }` item.
+// A schema registers as a Struct (a typed VIEW) whose ONLY real field is the
+// synthetic `m: *const WMap<Wu6,WAny>`. The user's declared fields are recorded
+// in schema_fields/schema_keys and surfaced later via desugared get/set sugar.
+void SemaChecker::collect_schema(TinyMapView node) {
+    if (!node.has_key(la::NAME.code)) return;
+    auto sname = std::string(str_of(node.get(la::NAME.code)));
+    ctx_ = std::format("schema {}", sname);
+
+    SemaStructInfo info;
+    info.is_schema = true;
+    info.doc       = take_pending_doc();
+    info.package   = cur_package_;
+    info.module_id = cur_module_id_;
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal av = node.get(la::IS_PUB.code);
+        info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
+    info.is_module_only = read_module_vis(node);
+
+    // ADR 0011 generics — bind the schema's type params (`schema Box<T: WritField>`)
+    // so a field type `val: T` resolves to a TypeVar (not "unknown type T"); popped
+    // before registration. Mirrors collect_struct.
+    info.type_params = read_type_params(node);
+    push_type_params(info.type_params);
+
+    // `code(expr)` clause → schema_type_code. The clause keyword is contextual
+    // (a bare IDENT validated == "code" here — `code` stays a usable identifier).
+    if (node.has_key(la::CODE_EXPR.code)) {
+        auto clause = map_of(node.get(la::CODE_EXPR.code));
+        if (clause.has_key(la::NAME.code)) {
+            auto kw = std::string(str_of(clause.get(la::NAME.code)));
+            if (kw != "code")
+                error(std::format("schema '{}': unknown clause '{}(...)' (expected 'code')",
+                                  sname, kw));
+        }
+        if (clause.has_key(la::VALUE.code)) {
+            auto r = ctfe_eval_const(map_of(clause.get(la::VALUE.code)), holder_);
+            if (!r) error(std::format("schema '{}' code(...): {}", sname, r.error().msg));
+            else    info.schema_type_code = static_cast<uint64_t>(r.value().i);
+        }
+    }
+    // Real struct fields (layout matches stdlib WSchemaH): m = TOM pointer view,
+    // z = arena allocator (for boxing wide values on write; null for read-only
+    // views bound from an erased WAny). Together a 16-byte fat view.
+    {
+        TypeRef wu6  = make_struct_type("Wu6");
+        TypeRef wany = make_enum_type("WAny");
+        TypeRef wmap = make_generic_struct("WMap", {wu6, wany});
+        info.fields.push_back({std::string_view{"m"}, make_ptr(/*mut=*/false, wmap),
+                               /*is_pub=*/false, /*is_variadic=*/false, {}});
+        info.fields.push_back({std::string_view{"z"}, make_ptr(/*mut=*/true, prim(LogosType::Kind::U8)),
+                               /*is_pub=*/false, /*is_variadic=*/false, {}});
+    }
+
+    // Declared sugar fields → schema_fields + parallel schema_keys (TOM keys 0..51).
+    if (node.has_key(la::FIELDS)) {
+        auto fields = arr_of(node.get(la::FIELDS.code));
+        int64_t positional = 0;
+        for (uint64_t i = 0; i < fields.size(); ++i) {
+            auto fnode = map_of(fields.get(i));
+            if (code_of(fnode) != la::SCHEMA_FIELD_DEF) continue;
+            std::string_view fname =
+                fnode.has_key(la::NAME) ? str_of(fnode.get(la::NAME.code)) : std::string_view{};
+            TypeRef ftype;
+            {
+                ItemSignatureGuard sig_guard(in_item_signature_);
+                ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+            }
+            int64_t key = positional;
+            if (fnode.has_key(la::VALUE.code)) {
+                auto r = ctfe_eval_const(map_of(fnode.get(la::VALUE.code)), holder_);
+                if (!r) error(std::format("schema '{}' field '{}' key: {}",
+                                          sname, std::string(fname), r.error().msg));
+                else    key = r.value().i;
+            }
+            if (key < 0 || key > 51)
+                error(std::format("schema '{}' field '{}': key {} out of TOM range 0..51",
+                                  sname, std::string(fname), key));
+            uint8_t k8 = static_cast<uint8_t>(key < 0 ? 0 : (key > 51 ? 51 : key));
+            for (uint8_t prev : info.schema_keys)
+                if (prev == k8)
+                    error(std::format("schema '{}' field '{}': duplicate key {}",
+                                      sname, std::string(fname), static_cast<int>(k8)));
+            bool fpub = fnode.has_key(la::IS_PUB) && fnode.get(la::IS_PUB.code).is_value() &&
+                        fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+            info.schema_fields.push_back({fname, ftype, fpub, /*is_variadic=*/false, {}});
+            info.schema_keys.push_back(k8);
+            positional = key + 1;
+        }
+    }
+
+    pop_type_params(info.type_params);
+    structs_[sema_key(cur_package_, sname)] = std::move(info);
+}
+
+// ADR 0011 — collect a `schema enum E : category(expr)? { V(S), … }` item.
+// Registers a Struct-shaped union view (single synthetic `m` field) flagged
+// is_schema_enum, with each variant mapping a name → concrete schema view type.
+void SemaChecker::collect_schema_enum(TinyMapView node) {
+    if (!node.has_key(la::NAME.code)) return;
+    auto sname = std::string(str_of(node.get(la::NAME.code)));
+    ctx_ = std::format("schema enum {}", sname);
+
+    SemaStructInfo info;
+    info.is_schema      = true;
+    info.is_schema_enum = true;
+    info.doc       = take_pending_doc();
+    info.package   = cur_package_;
+    info.module_id = cur_module_id_;
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal av = node.get(la::IS_PUB.code);
+        info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
+    info.is_module_only = read_module_vis(node);
+
+    // ADR 0011 generics — bind type params so variant types `A(Wrap<T>)` resolve T.
+    info.type_params = read_type_params(node);
+    push_type_params(info.type_params);
+
+    // Optional `category(expr)` clause (contextual keyword == "category").
+    if (node.has_key(la::CODE_EXPR.code)) {
+        auto clause = map_of(node.get(la::CODE_EXPR.code));
+        if (clause.has_key(la::NAME.code)) {
+            auto kw = std::string(str_of(clause.get(la::NAME.code)));
+            if (kw != "category")
+                error(std::format("schema enum '{}': unknown clause '{}(...)' (expected 'category')",
+                                  sname, kw));
+        }
+        if (clause.has_key(la::VALUE.code)) {
+            auto r = ctfe_eval_const(map_of(clause.get(la::VALUE.code)), holder_);
+            if (!r) error(std::format("schema enum '{}' category(...): {}", sname, r.error().msg));
+            else    info.schema_type_code = static_cast<uint64_t>(r.value().i);
+        }
+    }
+
+    // Real fields {m, z} — same layout as a schema view (TOM ptr + allocator).
+    info.fields.push_back({std::string_view{"m"},
+        make_ptr(false, make_generic_struct("WMap", {make_struct_type("Wu6"),
+                                                     make_enum_type("WAny")})),
+        false, false, {}});
+    info.fields.push_back({std::string_view{"z"}, make_ptr(true, prim(LogosType::Kind::U8)),
+        false, false, {}});
+
+    // Variants: each VARIANT_DEF { NAME, TYPE=concrete schema }.
+    if (node.has_key(la::FIELDS)) {
+        auto vs = arr_of(node.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < vs.size(); ++i) {
+            auto v = map_of(vs.get(i));
+            if (code_of(v) != la::VARIANT_DEF) continue;
+            std::string vname = v.has_key(la::NAME) ? std::string(str_of(v.get(la::NAME.code))) : std::string{};
+            TypeRef vty;
+            {
+                ItemSignatureGuard sig_guard(in_item_signature_);
+                vty = resolve_type(map_of(v.get(la::TYPE.code)));
+            }
+            info.schema_variants.emplace_back(std::move(vname), vty);
+        }
+    }
+
+    pop_type_params(info.type_params);
+    structs_[sema_key(cur_package_, sname)] = std::move(info);
 }
 
 void SemaChecker::collect_struct(TinyMapView node) {

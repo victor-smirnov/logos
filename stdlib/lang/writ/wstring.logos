@@ -102,4 +102,12 @@ impl WAny {
     pub fn as_string(self: &WAny) -> &WString {
         return unsafe { &*(self.resolve() as *const WString) };
     }
+
+    // ADR 0011 — null-safe str view of a WAny holding an interned WString. A
+    // null/absent WAny (e.g. a schema field whose key isn't present) → empty str.
+    // Used by the schema field-read sugar for `str`-typed fields.
+    pub fn as_wstr(self: &WAny) -> str {
+        if self.is_null() { return str_from_raw(0i64 as *const u8, 0i64); }
+        return unsafe { (&*(self.resolve() as *const WString)).as_str() };
+    }
 }

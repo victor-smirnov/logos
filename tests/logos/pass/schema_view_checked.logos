@@ -1,0 +1,29 @@
+// ADR 0011 — view_checked::<S>() -> Option<S>: checked bind from an erased WAny,
+// verifying the pointee's schema_type_code ONCE.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+schema Lit : code(0x0002000000000000) { v: i56 = 0 }
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let m: &mut WMap<Wu6, WAny> = h.tinymap(2i64);
+    m.set_schema_type_code(0x0002000000000000u64);
+    m.set(0u8, WAny::from(9i56));
+    let any: WAny = WAny::from(m as &WMap<Wu6, WAny>);
+    // correct code → Some, field readable
+    match any.view_checked::<Lit>() {
+        Option::Some(l) => { if l.v != 9i56 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    // wrong-code TOM → None
+    let m2: &mut WMap<Wu6, WAny> = h.tinymap(1i64);
+    m2.set_schema_type_code(0x00FF000000000000u64);
+    let any2: WAny = WAny::from(m2 as &WMap<Wu6, WAny>);
+    match any2.view_checked::<Lit>() {
+        Option::Some(l) => { return 3i32; }
+        Option::None => { return 0i32; }
+    }
+}

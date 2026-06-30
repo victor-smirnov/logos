@@ -1,0 +1,18 @@
+// ADR 0011 Increment 1 — `schema` parses and resolves as a (view) type.
+// Field sugar / construction land in later increments; this only checks that the
+// declaration is accepted, validated, and usable in type position.
+package test;
+use logos.lang.writ.wmap;
+
+schema Path : code(0x0001000000000007) {
+    kind:    i64  = 0,
+    flatten: bool = 6,
+    name:    i64  = 7,
+}
+
+// Positional keys (0,1,2) — no explicit `= N`.
+schema Point { x: i64, y: i64 }
+
+fn takes(p: &Path) -> i64 { return 0i64; }
+fn takes2(p: &Point) -> i64 { return 0i64; }
+fn main() -> i32 { return 0i32; }

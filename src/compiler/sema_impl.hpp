@@ -2502,6 +2502,22 @@ private:
                             std::string base_name;
                             std::vector<TypeRef> spec_patterns;
                             std::string doc;     // outer `///` doc-comment
+                            // ── ADR 0011: Writ schemas ──
+                            // Declared via `schema S {…}` — a typed VIEW over a
+                            // map-like Writ object (backing = WMap<Wu6,WAny> TOM).
+                            // The ONLY real struct field (in `fields`) is the
+                            // synthetic `m: *const WMap<Wu6,WAny>`; the user's
+                            // declared sugar fields live in schema_fields/_keys and
+                            // are accessed via desugared get/set (NOT struct fields).
+                            bool is_schema = false;
+                            uint64_t schema_type_code = 0;             // `code(expr)` value; 0 = none
+                            std::vector<SemaFieldInfo> schema_fields;  // declared fields (name+type)
+                            std::vector<uint8_t> schema_keys;          // parallel TOM key (0..51)
+                            // `schema enum E { V(S), … }` — closed union over schemas.
+                            // The view is the same {m} struct; the concrete schema is
+                            // recovered at `match` from the pointee's schema_type_code.
+                            bool is_schema_enum = false;
+                            std::vector<std::pair<std::string, TypeRef>> schema_variants; // variant name → concrete schema view type
                           };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
@@ -3602,6 +3618,8 @@ private:
     void collect_impl(writ::TinyMapView node);
     void collect_struct_spec(writ::TinyMapView node);
     void collect_struct(writ::TinyMapView node);
+    void collect_schema(writ::TinyMapView node);        // ADR 0011: `schema S {…}`
+    void collect_schema_enum(writ::TinyMapView node);   // ADR 0011: `schema enum E {…}`
     void collect_datatype(writ::TinyMapView node, bool is_annotation_type = false);
     TypeRef try_resolve_as_known_type(std::string_view name);
     bool is_known_type_name(std::string_view name) const;
@@ -3897,6 +3915,26 @@ private:
         const std::string& type_name);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_field_read(writ::TinyMapView node);
+    // ADR 0011 — convert a WAny (from a schema `get`) to the field's declared
+    // type via the matching WAny accessor (as_bool/as_i64/as_u64/as_f64/resolve).
+    lir::LExprPtr schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ftype,
+                                       std::string_view sname, std::string_view field);
+    // ADR 0011 — the stdlib type-name a field type uses in its `WritField` impl
+    // (`bool`/`i64`/`str`/…), for resolving `<name>__from_wany`/`__to_wany`. Empty
+    // if the type isn't a scalar/str WritField (pointers/WAny handled separately).
+    std::string writfield_type_name(TypeRef t);
+    // ADR 0011 — the schema_type_code for a (possibly generic) instantiation.
+    // For a generic instance (`Wrap<i64>`) it folds the concrete type-args into the
+    // variant bits → DISTINCT per-instantiation codes; for a non-generic schema it
+    // returns base_code unchanged. SHARED by make/view_checked AND schema-enum match
+    // so all three sites compute the SAME code (must not drift).
+    uint64_t schema_instance_code(TypeRef inst_type, uint64_t base_code,
+                                  std::string_view pkg);
+    // ADR 0011 — `wr.make::<S>()` (construct), `x.view::<S>()` / `x.child::<S>()`
+    // (trusted bind). Returns nullopt unless method+type-arg name a schema.
+    std::optional<lir::LExprPtr>
+    try_schema_method(lir::LExprPtr& recv, std::string_view method_name,
+                      const std::vector<TypeRef>& type_args);
     lir::LExprPtr lower_struct_lit(writ::TinyMapView node);
     lir::LExprPtr lower_index_read(writ::TinyMapView node);
     // `&f[i]` / `&mut f[i]` over a user Index/IndexMut struct: dispatch to
@@ -4268,10 +4306,18 @@ private:
     std::optional<lir_view::StmtRef> try_dataref_field_write(
         const std::string& recv_name, const std::string& field_name,
         writ::TinyMapView val_node);
+    // ADR 0011 — schema field WRITE: `p.field = v` ⇒ `(&mut* p.m).set(KEY, WAny::from(v))`.
+    std::optional<lir_view::StmtRef> try_schema_field_write(
+        const std::string& recv_name, const std::string& field_name,
+        writ::TinyMapView val_node);
     bool place_recv_is_simple(writ::TinyMapView recv);
     bool place_field_base_ok(writ::TinyMapView recv);
     writ::TinyMapView unwrap_paren_node(writ::TinyMapView n);
     lir_view::StmtRef lower_match(writ::TinyMapView node);
+    // ADR 0011 — desugar a `match` over a `schema enum` into an if-chain on the
+    // pointee's schema_type_code. Assumes scrut_type is a schema-enum view.
+    lir_view::StmtRef lower_schema_enum_match(writ::TinyMapView node,
+                                              lir::LExprPtr scrut, TypeRef scrut_type);
     lir::LExprPtr lower_match_expr(writ::TinyMapView node);
     // G156-2: mark a by-value move-type match scrutinee var as moved when an
     // unguarded arm binds+moves it (whole-binding / struct / tuple / variant

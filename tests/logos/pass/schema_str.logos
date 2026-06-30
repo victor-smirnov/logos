@@ -1,0 +1,29 @@
+// ADR 0011 — string field read + write: write interns via the view allocator,
+// read decodes the interned WString to a str (null-safe).
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.writ.wmap;
+use logos.lang.str;
+
+schema Person : code(0x0004000000000000) {
+    name: str = 0,
+    note: str = 1,
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let p: Person = h.make::<Person>();
+    // absent → empty
+    if p.name.len() != 0i64 { return 10i32; }
+    // write + read back
+    p.name = "Ada";
+    p.note = "pioneer";
+    if !str_eq(p.name, "Ada")     { return 1i32; }
+    if !str_eq(p.note, "pioneer") { return 2i32; }
+    // overwrite
+    p.name = "Grace";
+    if !str_eq(p.name, "Grace")   { return 3i32; }
+    return 0i32;
+}

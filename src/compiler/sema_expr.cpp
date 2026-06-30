@@ -7307,6 +7307,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
+    // ADR 0011 — schema construct/bind: `wr.make::<S>()`, `x.view::<S>()`,
+    // `x.child::<S>()` (S a schema view type). Intercept before generic dispatch.
+    if (auto r = try_schema_method(recv, method_name, user_type_args)) return std::move(*r);
+
     // SL-sl-08: tuple receiver — dispatch user-defined `impl Trait for
     // (A,B,…)` methods. Mirrors the slice path (sentinel-name lookup
     // against `$tuple$N` generic blanket / `$tuple$N$<t1>$<t2>…`
@@ -9186,6 +9190,226 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     return builder().method_call_v(std::move(mc), ret);
 }
 
+std::optional<lir::LExprPtr>
+SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name,
+                               const std::vector<TypeRef>& type_args) {
+    if (type_args.size() != 1) return std::nullopt;
+    TypeRef st = type_args[0];
+    if (!st || TypeRef(st).kind() != LogosType::Kind::Struct) return std::nullopt;
+    auto sname = std::string(TypeRef(st).struct_name());
+    auto [spkg, ssi] = find_struct_by_name(sname);
+    if (!ssi || !ssi->is_schema) return std::nullopt;
+
+    TypeRef wmap     = make_generic_struct("WMap", {make_struct_type("Wu6"),
+                                                    make_enum_type("WAny")});
+    TypeRef wmap_cptr = make_ptr(false, wmap);
+    TypeRef u8ptr     = make_ptr(true, u8_t());
+    // ADR 0011 generics — for `make::<Box<i64>>()` the turbofish type `st` carries
+    // type-args; the view type must too (so `let b: Box<i64>` type-checks). The view
+    // layout is {m,z} (T-independent), so the instantiation only needs the type.
+    auto st_args = TypeRef(st).type_args();
+    bool is_generic_inst = !ssi->type_params.empty() && !st_args.empty();
+    TypeRef view_t = is_generic_inst
+        ? make_generic_struct(sname, std::vector<TypeRef>(st_args.begin(), st_args.end()), {}, spkg)
+        : make_struct_type(sname, spkg);
+    // DISTINCT per-instantiation schema_type_code: Box<i64> ≠ Box<str>. Shared
+    // helper (also used by the schema-enum match) so all sites agree.
+    uint64_t inst_code = is_generic_inst
+        ? schema_instance_code(st, ssi->schema_type_code, spkg)
+        : ssi->schema_type_code;
+    // Wrap a TOM pointer into the view {m, z}; z (allocator) is null for views
+    // bound from an erased WAny (read-only for WIDE writes; small/inline writes
+    // and all reads still work — make_int inlines values that fit).
+    auto wrap = [&](lir::LExprPtr ptr) -> lir::LExprPtr {
+        std::vector<std::pair<std::string, lir::LExprPtr>> flds;
+        flds.emplace_back("m", std::move(ptr));
+        flds.emplace_back("z", builder().cast(builder().lit_int(0, prim(LogosType::Kind::I64)), u8ptr));
+        return builder().struct_lit(sname, std::move(flds), view_t);
+    };
+    // Resolve a WAny value to its raw pointer via a DIRECT free call. A
+    // `method_call` on a `&WAny` (enum) receiver returns null in mlir-gen
+    // (gen_recv_struct rejects enums) — same trap as the read-path accessors.
+    auto resolve_wany = [&](lir::LExprPtr any_val) -> lir::LExprPtr {
+        TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
+        TypeRef rt0 = expr_type(any_val);
+        lir::LExprPtr any_ref = (rt0 && is_ref_like(TypeRef(rt0).kind()))
+            ? std::move(any_val)
+            : builder().addr_of_temp(std::move(any_val), false, wany_ref);
+        std::string sym = "WAny__resolve";
+        for (auto* c : find_func_candidates("WAny__resolve"))
+            if (c && c->param_types.size() == 1) {
+                sym = c->symbol_name.empty() ? sym : c->symbol_name; break;
+            }
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(any_ref));
+        return builder().call(sym, {}, std::move(a), make_ptr(false, u8_t()));
+    };
+
+    if (method_name == "make") {
+        // wr.make::<S>()  ⇒  reinterpret wr.make_schema_h(cap, CODE) (a {m,z}
+        // WSchemaH, layout-identical to the view S) as S — carries the allocator.
+        TypeRef rt = expr_type(recv);
+        lir::LExprPtr wref =
+            (rt && is_ref_like(TypeRef(rt).kind()))
+                ? std::move(recv)
+                : builder().addr_of_temp(std::move(recv), false,
+                                         make_ref(false, make_struct_type("Writ")));
+        int64_t cap = static_cast<int64_t>(ssi->schema_fields.size() < 1
+                                           ? 1 : ssi->schema_fields.size());
+        std::vector<lir::LExprPtr> margs;
+        margs.push_back(builder().lit_int(cap, prim(LogosType::Kind::I64)));
+        margs.push_back(builder().lit_int(static_cast<int64_t>(inst_code),
+                                          prim(LogosType::Kind::U64)));
+        auto h = builder().method_call(std::move(wref), "make_schema_h", "", {},
+                                       std::move(margs), -1, make_struct_type("WSchemaH"));
+        builder().retype_expr(h, view_t);   // WSchemaH {m,z} → S {m,z} (identical layout)
+        return h;
+    }
+    if (method_name == "view_checked") {
+        TypeRef rt = expr_type(recv);
+        auto rk = rt ? TypeRef(rt).kind() : LogosType::Kind::Error;
+        bool is_wany =
+            (rt && rk == LogosType::Kind::Enum && TypeRef(rt).enum_name() == "WAny") ||
+            (rt && is_ref_like(rk) && TypeRef(rt).pointee() &&
+             TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Enum &&
+             TypeRef(TypeRef(rt).pointee()).enum_name() == "WAny");
+        lir::LExprPtr ptr = is_wany
+            ? builder().cast(resolve_wany(std::move(recv)), wmap_cptr)
+            : builder().cast(std::move(recv), wmap_cptr);
+        std::string pv = "__vc_p_" + std::to_string(tmp_var_count_++);
+        define(pv, wmap_cptr);
+        std::vector<lir_view::StmtRef> blk;
+        { lir::SLet l; l.name = pv; l.type = wmap_cptr; l.is_mut = false;
+          l.value = std::move(ptr);
+          blk.push_back(make_stmt_emit(node_line_, std::move(l))); }
+        auto mref = builder().cast(builder().var_ref(pv, wmap_cptr), make_ref(false, wmap));
+        auto codecall = builder().method_call(std::move(mref), "schema_type_code", "", {},
+                                              {}, -1, prim(LogosType::Kind::U64));
+        auto cond = builder().bin_op("==", std::move(codecall),
+                                     builder().lit_int(static_cast<int64_t>(inst_code),
+                                                       prim(LogosType::Kind::U64)),
+                                     bool_t());
+        TypeRef opt_t = make_generic_enum("Option", {view_t});
+        auto s_val = wrap(builder().var_ref(pv, wmap_cptr));
+        int64_t some_disc = 0, none_disc = 0;
+        if (auto [op, oe] = find_enum_by_name("Option"); oe)
+            for (auto& v : oe->variants) {
+                if (v.name == "Some") some_disc = v.value;
+                if (v.name == "None") none_disc = v.value;
+            }
+        std::vector<lir::LExprPtr> some_payload; some_payload.push_back(std::move(s_val));
+        auto some = builder().enum_lit_data("Option", "Some", some_disc,
+                                            std::move(some_payload), opt_t);
+        auto none = builder().enum_lit("Option", "None", none_disc, opt_t);
+        lir::EIfExpr eif; eif.cond = std::move(cond);
+        eif.then_val = std::move(some); eif.else_val = std::move(none);
+        auto ifx = builder().if_expr_v(std::move(eif), opt_t);
+        // Bind the if-value to a local and yield it (the block_expr RESULT must be
+        // a simple place — a value-producing if_expr as the direct result collapses
+        // at codegen; binding it via SLet is the working shape, cf. lc/vec ctors).
+        std::string rv = "__vc_r_" + std::to_string(tmp_var_count_++);
+        define(rv, opt_t);
+        { lir::SLet l; l.name = rv; l.type = opt_t; l.is_mut = false;
+          l.value = std::move(ifx);
+          blk.push_back(make_stmt_emit(node_line_, std::move(l))); }
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                    builder().var_ref(rv, opt_t), opt_t);
+    }
+    if (method_name == "view" || method_name == "child") {
+        // Trusted bind (no code check): produce *const WMap<Wu6,WAny> from the
+        // receiver and wrap. WAny → resolve(); &WMap / *WMap → reinterpret.
+        TypeRef rt = expr_type(recv);
+        auto rk = rt ? TypeRef(rt).kind() : LogosType::Kind::Error;
+        bool is_wany =
+            (rt && rk == LogosType::Kind::Enum && TypeRef(rt).enum_name() == "WAny") ||
+            (rt && is_ref_like(rk) && TypeRef(rt).pointee() &&
+             TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Enum &&
+             TypeRef(TypeRef(rt).pointee()).enum_name() == "WAny");
+        lir::LExprPtr ptr = is_wany
+            ? builder().cast(resolve_wany(std::move(recv)), wmap_cptr)
+            : builder().cast(std::move(recv), wmap_cptr);
+        return wrap(std::move(ptr));
+    }
+    return std::nullopt;
+}
+
+uint64_t SemaChecker::schema_instance_code(TypeRef inst_type, uint64_t base_code,
+                                           std::string_view pkg) {
+    if (TypeRef(inst_type).type_args().empty()) return base_code;
+    std::string canon = std::string(pkg) + "::" + concrete_struct_name(inst_type);
+    uint64_t variant = type_hash_56bit(type_hash_23(canon))
+                       & logos::writ::schema::VARIANT_MASK;
+    return (base_code & logos::writ::schema::CATEGORY_MASK) | variant;
+}
+
+std::string SemaChecker::writfield_type_name(TypeRef t) {
+    using K = LogosType::Kind;
+    switch (TypeRef(t).kind()) {
+        case K::Bool:  return "bool";
+        case K::I8:    return "i8";   case K::U8:    return "u8";
+        case K::I16:   return "i16";  case K::U16:   return "u16";
+        case K::I24:   return "i24";  case K::U24:   return "u24";
+        case K::I32:   return "i32";  case K::U32:   return "u32";
+        case K::I56:   return "i56";  case K::U56:   return "u56";
+        case K::I64:   return "i64";  case K::U64:   return "u64";
+        case K::Isize: return "isize"; case K::Usize: return "usize";
+        case K::F32:   return "f32";  case K::F64:   return "f64";
+        case K::Slice: return "str";  // str field (Slice<u8>)
+        default:       return {};
+    }
+}
+
+lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ftype,
+                                                std::string_view sname,
+                                                std::string_view field) {
+    using K = LogosType::Kind;
+    auto k = TypeRef(ftype).kind();
+    // ADR 0011 generics — field type is still a TypeVar T (read inside a generic
+    // body, e.g. a method of Box<T>). Emit `T__from_wany(v)` as a plain ECall with
+    // the type-param name as callee prefix; mono retargets `T`→concrete at
+    // instantiation (mono_clone case C::Call, splitting the callee at `__`).
+    if (k == K::TypeVar) {
+        std::string base = std::string(TypeRef(ftype).type_var_name()) + "__from_wany";
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));
+        return builder().call(base, {}, std::move(a), ftype);
+    }
+    // A `WAny`-typed field is dynamic: read the stored value verbatim (identity).
+    if (k == K::Enum && TypeRef(ftype).enum_name() == "WAny")
+        return anyval;
+    // Pointer / reference field: the at-rest value is a Ref; resolve to the
+    // absolute address and reinterpret. (Pointers aren't WritField — no by-value
+    // conversion.) WAny::resolve takes `&WAny`, so addr_of_temp the value first.
+    if (k == K::Ptr || k == K::Ref || k == K::MutRef) {
+        TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
+        auto any_ref = builder().addr_of_temp(std::move(anyval), false, wany_ref);
+        std::string rsym = "WAny__resolve";
+        for (auto* c : find_func_candidates("WAny__resolve"))
+            if (c && c->param_types.size() == 1) {
+                rsym = c->symbol_name.empty() ? rsym : c->symbol_name; break;
+            }
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(any_ref));
+        return builder().cast(builder().call(rsym, {}, std::move(a), make_ptr(false, u8_t())),
+                              ftype);
+    }
+    // Everything else (scalars, floats, str) goes through `WritField::from_wany`
+    // — the WAny→T conversion now lives in the stdlib trait (extensible; and the
+    // seam for generic schemas, where T resolves at monomorphization).
+    std::string tn = writfield_type_name(ftype);
+    if (!tn.empty()) {
+        std::string base = tn + "__from_wany";
+        std::string sym = base;
+        for (auto* c : find_func_candidates(base))
+            if (c && c->param_types.size() == 1) {
+                sym = c->symbol_name.empty() ? base : c->symbol_name; break;
+            }
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));  // from_wany(v: WAny) by value
+        return builder().call(sym, {}, std::move(a), ftype);
+    }
+    error(std::format("schema '{}' field '{}': type '{}' is not a WritField "
+                      "(no WAny↔T conversion)", std::string(sname),
+                      std::string(field), type_str(ftype)));
+    return builder().cast(std::move(anyval), ftype);
+}
+
 lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // Substituted antiquot at field-name position lands in NAME (after
     // NAME_VAR(idx)→NAME(string) rewrite); FIELD isn't set in that path.
@@ -9479,6 +9703,51 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         recv = std::move(data_ptr_struct);
         recv_base_t = struct_t;
     }
+
+    // ADR 0011 — schema field READ: `p.field` ⇒ `(&* p.m).get(KEY).as_T()`.
+    // A schema is a Struct view over a WMap<Wu6,WAny> TOM; the declared fields
+    // are not real struct fields (only the synthetic `m` is), so resolve the
+    // name against the schema's key/type table and desugar to a typed get.
+    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct) {
+        // Use the BARE template name (a generic instance type's struct_name_from_type
+        // would mangle to "Box$G1$i64", which isn't in structs_).
+        auto sch_name = std::string(TypeRef(recv_base_t).struct_name());
+        auto [sch_pkg, sch_si] = find_struct_by_name(sch_name);
+        if (sch_si && sch_si->is_schema) {
+            int found = -1;
+            for (size_t i = 0; i < sch_si->schema_fields.size(); ++i)
+                if (sch_si->schema_fields[i].name == field_name) { found = (int)i; break; }
+            // Not a declared schema field → fall through to the normal struct
+            // path (handles the real synthetic `m` field + genuine "no field").
+            if (found >= 0) {
+            uint8_t key   = sch_si->schema_keys[found];
+            TypeRef ftype = sch_si->schema_fields[found].type;
+            // ADR 0011 generics — substitute the template field type with the
+            // receiver's concrete type-args (Box<i64> → field T becomes i64). At a
+            // generic use-site (recv is Box<T>) it stays a TypeVar → handled below.
+            {
+                auto rargs = TypeRef(recv_base_t).type_args();
+                if (!sch_si->type_params.empty() && !rargs.empty()) {
+                    SemaSubst sub;
+                    for (size_t i = 0; i < sch_si->type_params.size() && i < rargs.size(); ++i)
+                        sub[sch_si->type_params[i].name] = rargs[i];
+                    ftype = subst_type_sema(ftype, sub);
+                }
+            }
+            // m: *const WMap<Wu6,WAny>  (the real field) → reinterpret as &WMap to call get(&self).
+            TypeRef wmap  = make_generic_struct("WMap", {make_struct_type("Wu6"),
+                                                         make_enum_type("WAny")});
+            TypeRef wany  = make_enum_type("WAny");
+            auto m_ptr    = builder().field_read(std::move(recv), "m", make_ptr(false, wmap));
+            auto m_ref    = builder().cast(std::move(m_ptr), make_ref(false, wmap));
+            auto key_lit  = builder().lit_int(static_cast<int64_t>(key), prim(LogosType::Kind::U8));
+            std::vector<lir::LExprPtr> gargs; gargs.push_back(std::move(key_lit));
+            auto anyval   = builder().method_call(std::move(m_ref), "get", "", {},
+                                                  std::move(gargs), -1, wany);
+            return schema_wany_to_typed(std::move(anyval), ftype, sch_name, field_name);
+            }  // if (found >= 0)
+        }  // if (is_schema)
+    }  // if (recv_base_t is Struct)
 
     // DataRef<T> ergonomic read: p.field → p.ptr().field
     // Intercept before normal struct field lookup so that DataRef<T>.x works without

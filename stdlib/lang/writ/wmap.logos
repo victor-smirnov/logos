@@ -307,7 +307,7 @@ impl WAny {
 #[zoned]
 pub struct WMap<Wu6, V> {
     pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
-    pub schema: u64,               // node-class discriminator (0 = none); byte-shared with C++ TOM
+    pub schema_code: u64,          // node-class discriminator (0 = none); byte-shared with C++ TOM (was `schema`; renamed — `schema` is now a keyword, ADR 0011)
     pub data:   *zoned mut WAny,   // value array (cap slots; auto-relative) — zoned ptr stays LAST
 }
 
@@ -322,7 +322,7 @@ unsafe fn wtv_new(h: *mut Writ, cap: i64) -> *mut WMap<Wu6, WAny> {
         alloc_tagged(h.allocator.get(), sizeof::<WMap<Wu6, WAny>>() as i64, W_TINYMAP) as *mut WMap<Wu6, WAny>;
     let buf: *zoned mut WAny = writ_alloc_n::<WAny>(h, c) as *zoned mut WAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
-    hdr.schema = 0u64;                  // no schema by default
+    hdr.schema_code = 0u64;             // no schema by default
     hdr.data   = buf;                   // #[zoned]: lowers to a self-relative offset
     // No zero-init of the value buffer: the array is compacted (only the `size`
     // present entries, in key order) and bitmap-gated — get() reads data[pos]
@@ -337,8 +337,8 @@ impl WMap<Wu6, WAny> {
     pub fn cap(self: &WMap<Wu6, WAny>)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
 
     // Node-class discriminator (0 = none); byte-shared with the C++ TinyObjectMap.
-    pub fn schema_type_code(self: &WMap<Wu6, WAny>) -> u64 { return self.schema; }
-    pub fn set_schema_type_code(self: &mut WMap<Wu6, WAny>, code: u64) { self.schema = code; }
+    pub fn schema_type_code(self: &WMap<Wu6, WAny>) -> u64 { return self.schema_code; }
+    pub fn set_schema_type_code(self: &mut WMap<Wu6, WAny>, code: u64) { self.schema_code = code; }
 
     // Is `key` present?
     pub fn contains(self: &WMap<Wu6, WAny>, key: u8) -> bool {
@@ -386,7 +386,83 @@ impl Writ {
             return &mut *wtv_new(h, cap);
         }
     }
+
+    // ADR 0011 — allocate a TOM and stamp a schema type-code, returning the raw
+    // view pointer. The compiler's `schema`/`make::<S>()` desugaring wraps this
+    // in the typed view `S { m }` (S is a compiler-side view type over this TOM).
+    pub fn make_schema(self: &Writ, cap: i64, code: u64) -> *const WMap<Wu6, WAny> {
+        let m: &mut WMap<Wu6, WAny> = self.tinymap(cap);
+        m.set_schema_type_code(code);
+        return m as *const WMap<Wu6, WAny>;
+    }
+
+    // ADR 0011 (Increment 6) — allocate + stamp a TOM AND carry the arena
+    // allocator, so the schema view can box wide values (i64/u64/f64/strings) on
+    // write. Layout {m, z} is IDENTICAL to the compiler-synthesized schema view,
+    // which `make::<S>()` reinterprets (retype) to the typed view `S`.
+    pub fn make_schema_h(self: &Writ, cap: i64, code: u64) -> WSchemaH {
+        let m: &mut WMap<Wu6, WAny> = self.tinymap(cap);
+        m.set_schema_type_code(code);
+        return WSchemaH { m: m as *const WMap<Wu6, WAny>, z: self.allocator.get() as *mut u8 };
+    }
 }
+
+// ADR 0011 — the runtime shape of a schema view: a TOM pointer + the arena
+// allocator (for boxing wide values on write). The compiler's schema view type
+// `S` has this exact layout; `make::<S>()` reinterprets a WSchemaH as S.
+pub struct WSchemaH {
+    pub m: *const WMap<Wu6, WAny>,
+    pub z: *mut u8,
+}
+
+// ADR 0011 — WritField: the WAny↔T conversion behind schema field access. The
+// schema field-read/write sugar desugars to `T::from_wany(get(key))` /
+// `set(key, v.to_wany(z))`. Promoting the (formerly hardcoded) per-type switch to
+// a trait makes field types EXTENSIBLE (a user type becomes schema-storable by
+// implementing WritField) and is the seam that lets GENERIC schemas resolve their
+// field conversion at monomorphization (`schema Box<T: WritField> { val: T }`).
+// `z` is the view-carried arena allocator (for boxing wide values); inline
+// conversions ignore it.
+pub trait WritField {
+    fn from_wany(v: WAny) -> Self;
+    fn to_wany(self: Self, z: *mut Allocator) -> WAny;
+}
+
+impl WritField for bool {
+    fn from_wany(v: WAny) -> bool { return v.as_bool(); }
+    fn to_wany(self: bool, z: *mut Allocator) -> WAny { return WAny::from(self); }
+}
+impl WritField for i64 {
+    fn from_wany(v: WAny) -> i64 { return v.as_i64(); }
+    fn to_wany(self: i64, z: *mut Allocator) -> WAny { return unsafe { make_int(z, self) }; }
+}
+impl WritField for str {
+    fn from_wany(v: WAny) -> str { return v.as_wstr(); }
+    fn to_wany(self: str, z: *mut Allocator) -> WAny {
+        return unsafe { WAny::ref_to(wstring_in_alloc(z, self) as *const u8) };
+    }
+}
+impl WritField for WAny {
+    fn from_wany(v: WAny) -> WAny { return v; }
+    fn to_wany(self: WAny, z: *mut Allocator) -> WAny { return self; }
+}
+// Inline-fitting integers (WAny::from has a Pod ctor; allocator unused).
+impl WritField for i8  { fn from_wany(v: WAny) -> i8  { return v.as_i64() as i8;  } fn to_wany(self: i8,  z: *mut Allocator) -> WAny { return WAny::from(self); } }
+impl WritField for u8  { fn from_wany(v: WAny) -> u8  { return v.as_u64() as u8;  } fn to_wany(self: u8,  z: *mut Allocator) -> WAny { return WAny::from(self); } }
+impl WritField for i16 { fn from_wany(v: WAny) -> i16 { return v.as_i64() as i16; } fn to_wany(self: i16, z: *mut Allocator) -> WAny { return WAny::from(self); } }
+impl WritField for u16 { fn from_wany(v: WAny) -> u16 { return v.as_u64() as u16; } fn to_wany(self: u16, z: *mut Allocator) -> WAny { return WAny::from(self); } }
+impl WritField for i24 { fn from_wany(v: WAny) -> i24 { return v.as_i64() as i24; } fn to_wany(self: i24, z: *mut Allocator) -> WAny { return WAny::from(self); } }
+impl WritField for u24 { fn from_wany(v: WAny) -> u24 { return v.as_u64() as u24; } fn to_wany(self: u24, z: *mut Allocator) -> WAny { return WAny::from(self); } }
+impl WritField for i56 { fn from_wany(v: WAny) -> i56 { return v.as_i64() as i56; } fn to_wany(self: i56, z: *mut Allocator) -> WAny { return WAny::from(self); } }
+// Wide / boxing integers + floats (need the arena allocator z).
+impl WritField for i32   { fn from_wany(v: WAny) -> i32   { return v.as_i64() as i32;   } fn to_wany(self: i32,   z: *mut Allocator) -> WAny { return unsafe { make_int(z, self as i64) }; } }
+impl WritField for isize { fn from_wany(v: WAny) -> isize { return v.as_i64() as isize; } fn to_wany(self: isize, z: *mut Allocator) -> WAny { return unsafe { make_int(z, self as i64) }; } }
+impl WritField for u32   { fn from_wany(v: WAny) -> u32   { return v.as_u64() as u32;   } fn to_wany(self: u32,   z: *mut Allocator) -> WAny { return unsafe { box_u64(z, self as u64) }; } }
+impl WritField for u56   { fn from_wany(v: WAny) -> u56   { return v.as_u64() as u56;   } fn to_wany(self: u56,   z: *mut Allocator) -> WAny { return unsafe { box_u64(z, self as u64) }; } }
+impl WritField for u64   { fn from_wany(v: WAny) -> u64   { return v.as_u64();          } fn to_wany(self: u64,   z: *mut Allocator) -> WAny { return unsafe { box_u64(z, self) }; } }
+impl WritField for usize { fn from_wany(v: WAny) -> usize { return v.as_u64() as usize; } fn to_wany(self: usize, z: *mut Allocator) -> WAny { return unsafe { box_u64(z, self as u64) }; } }
+impl WritField for f32   { fn from_wany(v: WAny) -> f32   { return v.as_f32();          } fn to_wany(self: f32,   z: *mut Allocator) -> WAny { return unsafe { box_f32(z, self) }; } }
+impl WritField for f64   { fn from_wany(v: WAny) -> f64   { return v.as_f64();          } fn to_wany(self: f64,   z: *mut Allocator) -> WAny { return unsafe { box_f64(z, self) }; } }
 
 impl WAny {
     pub fn from(m: &WMap<Wu6, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<Wu6, WAny> as *const u8); }

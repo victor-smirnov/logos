@@ -70,6 +70,7 @@
     LO_NEG         = 49
     HI_NEG         = 50
     KEY            = 51    // map key in WRIT_ENTRY
+    CODE_EXPR      = 6     // ADR 0011: `code(expr)` clause sub-node on SCHEMA_DEF/SCHEMA_ENUM_DEF (NAME="code", VALUE=expr). Reuses RET_TYPE slot — schemas have no return type. (AST TinyObjectMap keys are 0..51; 52 is out of range.)
     IS_NEGATIVE    = 43    // negative impl marker (impl !Trait for X {}); reuses INDEX slot — IMPL_BLOCK never has INDEX
     HRTB_BINDERS   = 41    // `for<'a, 'b>` binder list on a TRAIT_BOUND (reuses IMPL_TYPE_PARAMS slot — trait bounds never carry impl-type-params). Value is a sub-node with ITEMS=[LIFETIME_PARAM...].
     RELAXED        = 39    // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` valid). Reuses IS_CONST slot — trait_bound never carries IS_CONST.
@@ -321,6 +322,9 @@
     UNION_DEF                   = 253   // logos-core §6.1: `union NAME { f1: T1, f2: T2, … }` item. NAME = union type name; FIELDS = field array (same shape as STRUCT). Sema treats unions as Struct-shaped types with `is_union=true`; layout = max-of-fields aligned to max-alignment; field access requires `unsafe` block.
     STATIC_DEF                  = 254   // logos-core §6.2: `static [mut] NAME: T = expr;` — true global storage (one llvm.mlir.global per item; stable address, `&STATIC` identity). NAME/TYPE/VALUE same shape as CONST_DEF; IS_MUT only on the `mut` form (reads/writes require `unsafe`, Rust `items.static.mut.safety`); no VALUE ⇒ extern-block declaration (external linkage). IS_PUB optional. Sema: module_statics_ (all) + module_static_muts_ (mut only).
     OFFSET_OF                   = 255   // `offset_of!(Type, field)` — compile-time byte offset of `field` within `Type` (Rust's `core::mem::offset_of!`). TYPE = type_ref AST, NAME = field ident. Sema resolves the type, walks the ABI layout to the field, emits an i64 const.
+    SCHEMA_DEF                  = 256   // ADR 0011: `schema S : code(expr)? { name: type = key, … }` — typed view over a map-like Writ object (backing = WMap<Wu6,WAny> TOM). NAME = schema name; FIELDS = array of SCHEMA_FIELD_DEF; CODE_EXPR = optional `code(expr)` clause sub-node (NAME="code", VALUE=expr). Sema registers it as a Struct with one synthetic field `m: *const WMap<Wu6,WAny>` + is_schema=true; declared fields live only in the key/type table.
+    SCHEMA_FIELD_DEF            = 257   // ADR 0011: one schema field binding. NAME = field name; TYPE = field type; VALUE = optional key const-expr (absent ⇒ positional index). IS_PUB optional.
+    SCHEMA_ENUM_DEF             = 258   // ADR 0011: `schema enum E : category(expr)? { V(S), … }` — closed union over schemas, discriminated by the pointee's schema_type_code. NAME = enum name; FIELDS = array of VARIANT_DEF (each NAME=variant, TYPE=concrete schema); CODE_EXPR? = optional `category(expr)` clause.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -341,6 +345,7 @@
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
     KW_STRUCT   = "struct"
+    KW_SCHEMA   = "schema"
     KW_UNION    = "union"
     KW_MATCH    = "match"
     KW_WHILE    = "while"
@@ -526,7 +531,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -1170,6 +1175,38 @@
                   => { CODE: UNION_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7 }
     union_def    <- KW_UNION IDENT type_param_list? where_clause? LBRACE field_def_or_doc* RBRACE
                  => { CODE: UNION_DEF, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6 }
+
+    // ── ADR 0011: Writ schemas — typed view over a map-like Writ object ──
+    // `schema S : code(expr)? { name: type = key, … }`. The `code(...)` clause
+    // uses a CONTEXTUAL keyword (bare IDENT validated == "code" in sema — a
+    // global keyword would clash with the very common `code` identifier).
+    // Each field carries an optional key const-expr (VALUE); absent ⇒ positional.
+    code_clause <- COLON IDENT LPAREN expr RPAREN
+                => { NAME: $2, VALUE: $4 }
+
+    schema_field <- KW_PUB IDENT COLON type_ref ASSIGN expr COMMA?
+                 => { CODE: SCHEMA_FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4, VALUE: $6 }
+                  / IDENT COLON type_ref ASSIGN expr COMMA?
+                 => { CODE: SCHEMA_FIELD_DEF, NAME: $1, TYPE: $3, VALUE: $5 }
+                  / KW_PUB IDENT COLON type_ref COMMA?
+                 => { CODE: SCHEMA_FIELD_DEF, IS_PUB: 1, NAME: $2, TYPE: $4 }
+                  / IDENT COLON type_ref COMMA?
+                 => { CODE: SCHEMA_FIELD_DEF, NAME: $1, TYPE: $3 }
+
+    pub_schema_def <- pub_vis KW_SCHEMA IDENT type_param_list? code_clause? LBRACE schema_field* RBRACE
+                   => { CODE: SCHEMA_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, CODE_EXPR: $5, FIELDS: $7 }
+    schema_def     <- KW_SCHEMA IDENT type_param_list? code_clause? LBRACE schema_field* RBRACE
+                   => { CODE: SCHEMA_DEF, NAME: $2, TYPE_PARAMS: $3, CODE_EXPR: $4, FIELDS: $6 }
+
+    // schema enum: a closed union over concrete schemas. `category(expr)` (a
+    // contextual-keyword clause, same shape as `code(...)`) is optional.
+    schema_variant <- IDENT LPAREN type_ref RPAREN COMMA?
+                   => { CODE: VARIANT_DEF, NAME: $1, TYPE: $3 }
+
+    pub_schema_enum_def <- pub_vis KW_SCHEMA KW_ENUM IDENT type_param_list? code_clause? LBRACE schema_variant* RBRACE
+                        => { CODE: SCHEMA_ENUM_DEF, IS_PUB: 1, VIS: $1, NAME: $4, TYPE_PARAMS: $5, CODE_EXPR: $6, FIELDS: $8 }
+    schema_enum_def     <- KW_SCHEMA KW_ENUM IDENT type_param_list? code_clause? LBRACE schema_variant* RBRACE
+                        => { CODE: SCHEMA_ENUM_DEF, NAME: $3, TYPE_PARAMS: $4, CODE_EXPR: $5, FIELDS: $7 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.
     // Sema synthesises field names "0", "1", … so `foo.0` / pattern

@@ -1,0 +1,32 @@
+// ADR 0011 Increment 3/5 — schema construct (make), trusted bind (view), and
+// field READ sugar (p.field ⇒ p.m.get(KEY).as_T()).
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+schema Pt : code(0x0001000000000005) {
+    x:  i64  = 0,
+    y:  i64  = 1,
+    on: bool = 2,
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+
+    // Construct a fresh schema'd TOM and read absent keys → type zero.
+    let fresh: Pt = h.make::<Pt>();
+    if fresh.x != 0i64 { return 10i32; }
+    if fresh.on        { return 11i32; }
+
+    // Build a TOM by hand, stamp values, bind as a view, read through sugar.
+    let m: &mut WMap<Wu6, WAny> = h.tinymap(4i64);
+    m.set_schema_type_code(0x0001000000000005u64);
+    m.set(0u8, WAny::from(42i56));
+    m.set(2u8, WAny::from(true));
+    let p: Pt = (&*m).view::<Pt>();
+    if p.x  != 42i64 { return 1i32; }
+    if p.y  != 0i64  { return 2i32; }   // absent → 0
+    if !p.on         { return 3i32; }
+    return 0i32;
+}

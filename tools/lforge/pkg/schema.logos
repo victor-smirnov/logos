@@ -1,6 +1,6 @@
 // lforge — schema types: Manifest, Target, dep records, lock state.
 
-package lforge.schema;
+package lforge.schema_types;
 
 use logos.mem.string;
 use logos.lang.str;

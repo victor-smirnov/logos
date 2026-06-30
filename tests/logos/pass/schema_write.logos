@@ -1,0 +1,36 @@
+// ADR 0011 Increment 4 — schema field WRITE sugar: `p.field = v` ⇒
+// `(&mut* p.m).set(KEY, WAny::from(v))`. Pod-fitting scalar values.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+schema Cfg : code(0x0001000000000009) {
+    n:     i56  = 0,
+    on:    bool = 1,
+    small: i8   = 2,
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let p: Cfg = h.make::<Cfg>();
+
+    // Absent → defaults.
+    if p.n != 0i56 { return 10i32; }
+    if p.on        { return 11i32; }
+
+    // Write then read back.
+    p.n = 1234i56;
+    p.on = true;
+    p.small = -7i8;
+    if p.n != 1234i56 { return 1i32; }
+    if !p.on          { return 2i32; }
+    if p.small != -7i8 { return 3i32; }
+
+    // Overwrite.
+    p.on = false;
+    p.n = 99i56;
+    if p.on         { return 4i32; }
+    if p.n != 99i56 { return 5i32; }
+    return 0i32;
+}
