@@ -9214,6 +9214,23 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         flds.emplace_back("z", builder().cast(builder().lit_int(0, prim(LogosType::Kind::I64)), u8ptr));
         return builder().struct_lit(sname, std::move(flds), view_t);
     };
+    // Resolve a WAny value to its raw pointer via a DIRECT free call. A
+    // `method_call` on a `&WAny` (enum) receiver returns null in mlir-gen
+    // (gen_recv_struct rejects enums) — same trap as the read-path accessors.
+    auto resolve_wany = [&](lir::LExprPtr any_val) -> lir::LExprPtr {
+        TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
+        TypeRef rt0 = expr_type(any_val);
+        lir::LExprPtr any_ref = (rt0 && is_ref_like(TypeRef(rt0).kind()))
+            ? std::move(any_val)
+            : builder().addr_of_temp(std::move(any_val), false, wany_ref);
+        std::string sym = "WAny__resolve";
+        for (auto* c : find_func_candidates("WAny__resolve"))
+            if (c && c->param_types.size() == 1) {
+                sym = c->symbol_name.empty() ? sym : c->symbol_name; break;
+            }
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(any_ref));
+        return builder().call(sym, {}, std::move(a), make_ptr(false, u8_t()));
+    };
 
     if (method_name == "make") {
         // wr.make::<S>()  ⇒  reinterpret wr.make_schema_h(cap, CODE) (a {m,z}
@@ -9235,6 +9252,56 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         builder().retype_expr(h, view_t);   // WSchemaH {m,z} → S {m,z} (identical layout)
         return h;
     }
+    if (method_name == "view_checked") {
+        TypeRef rt = expr_type(recv);
+        auto rk = rt ? TypeRef(rt).kind() : LogosType::Kind::Error;
+        bool is_wany =
+            (rt && rk == LogosType::Kind::Enum && TypeRef(rt).enum_name() == "WAny") ||
+            (rt && is_ref_like(rk) && TypeRef(rt).pointee() &&
+             TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Enum &&
+             TypeRef(TypeRef(rt).pointee()).enum_name() == "WAny");
+        lir::LExprPtr ptr = is_wany
+            ? builder().cast(resolve_wany(std::move(recv)), wmap_cptr)
+            : builder().cast(std::move(recv), wmap_cptr);
+        std::string pv = "__vc_p_" + std::to_string(tmp_var_count_++);
+        define(pv, wmap_cptr);
+        std::vector<lir_view::StmtRef> blk;
+        { lir::SLet l; l.name = pv; l.type = wmap_cptr; l.is_mut = false;
+          l.value = std::move(ptr);
+          blk.push_back(make_stmt_emit(node_line_, std::move(l))); }
+        auto mref = builder().cast(builder().var_ref(pv, wmap_cptr), make_ref(false, wmap));
+        auto codecall = builder().method_call(std::move(mref), "schema_type_code", "", {},
+                                              {}, -1, prim(LogosType::Kind::U64));
+        auto cond = builder().bin_op("==", std::move(codecall),
+                                     builder().lit_int(static_cast<int64_t>(ssi->schema_type_code),
+                                                       prim(LogosType::Kind::U64)),
+                                     bool_t());
+        TypeRef opt_t = make_generic_enum("Option", {view_t});
+        auto s_val = wrap(builder().var_ref(pv, wmap_cptr));
+        int64_t some_disc = 0, none_disc = 0;
+        if (auto [op, oe] = find_enum_by_name("Option"); oe)
+            for (auto& v : oe->variants) {
+                if (v.name == "Some") some_disc = v.value;
+                if (v.name == "None") none_disc = v.value;
+            }
+        std::vector<lir::LExprPtr> some_payload; some_payload.push_back(std::move(s_val));
+        auto some = builder().enum_lit_data("Option", "Some", some_disc,
+                                            std::move(some_payload), opt_t);
+        auto none = builder().enum_lit("Option", "None", none_disc, opt_t);
+        lir::EIfExpr eif; eif.cond = std::move(cond);
+        eif.then_val = std::move(some); eif.else_val = std::move(none);
+        auto ifx = builder().if_expr_v(std::move(eif), opt_t);
+        // Bind the if-value to a local and yield it (the block_expr RESULT must be
+        // a simple place — a value-producing if_expr as the direct result collapses
+        // at codegen; binding it via SLet is the working shape, cf. lc/vec ctors).
+        std::string rv = "__vc_r_" + std::to_string(tmp_var_count_++);
+        define(rv, opt_t);
+        { lir::SLet l; l.name = rv; l.type = opt_t; l.is_mut = false;
+          l.value = std::move(ifx);
+          blk.push_back(make_stmt_emit(node_line_, std::move(l))); }
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                    builder().var_ref(rv, opt_t), opt_t);
+    }
     if (method_name == "view" || method_name == "child") {
         // Trusted bind (no code check): produce *const WMap<Wu6,WAny> from the
         // receiver and wrap. WAny → resolve(); &WMap / *WMap → reinterpret.
@@ -9245,18 +9312,9 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
             (rt && is_ref_like(rk) && TypeRef(rt).pointee() &&
              TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Enum &&
              TypeRef(TypeRef(rt).pointee()).enum_name() == "WAny");
-        lir::LExprPtr ptr;
-        if (is_wany) {
-            lir::LExprPtr any_ref = is_ref_like(rk)
-                ? std::move(recv)
-                : builder().addr_of_temp(std::move(recv), false,
-                                         make_ref(false, make_enum_type("WAny")));
-            auto raw = builder().method_call(std::move(any_ref), "resolve", "", {}, {},
-                                             -1, make_ptr(false, u8_t()));
-            ptr = builder().cast(std::move(raw), wmap_cptr);
-        } else {
-            ptr = builder().cast(std::move(recv), wmap_cptr);
-        }
+        lir::LExprPtr ptr = is_wany
+            ? builder().cast(resolve_wany(std::move(recv)), wmap_cptr)
+            : builder().cast(std::move(recv), wmap_cptr);
         return wrap(std::move(ptr));
     }
     return std::nullopt;

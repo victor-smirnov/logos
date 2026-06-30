@@ -28,11 +28,31 @@ this is the *how*, as gated increments.
 > deviations from the speculative recipes are captured in §0 (D1–D4) — notably the
 > bind method is `.view::<S>()` not `.as::<S>()` (`as` is reserved), and the WritMap
 > trait (Inc 2) is deferred (direct `WMap<Wu6,WAny>` calls; reserve the seam when a
-> 2nd backing lands). **Remaining:** string/ref field writes (need `wstring_in_alloc` via
-> `z` + `WAny::ref_to` wrapping — boxing path is in place, just not wired for str/ref),
-> and `view_checked::<S>() -> Option`. Tests:
-> `pass/schema_decl,schema_read,schema_write,schema_box_write,schema_enum_match`,
+> 2nd backing lands), and `view_checked::<S>() -> Option<S>` (checked bind: compares the
+> pointee's `schema_type_code` to `S::CODE` once, returns `Some(S)`/`None`). **DONE** —
+> built via block_expr(SLet __p; SLet __r = if_expr(...)) yielding `var_ref(__r)`; the
+> ROOT BUG was `resolve()`/WAny accessors emitted as `method_call` on the `&WAny` enum
+> receiver returning null (the recurring trap) — fixed with a resolved free call.
+> **Remaining:** string/ref field writes (need `wstring_in_alloc` via `z` + `WAny::ref_to`
+> — boxing path is in place, just not wired for str/ref). Tests: `pass/schema_decl,
+> schema_read,schema_write,schema_box_write,schema_enum_match,schema_view_checked`,
 > `fail/schema_dup_key,schema_key_range`.
+
+> **FUTURE / PROPOSED (not scheduled — design TODO):**
+> 1. **Narrow `code`/`category` to `u56`.** Currently `schema_type_code` is `u64`
+>    (16-bit category in bits[48:63] + 48-bit variant). Re-cut to a 56-bit value so it
+>    embeds directly into a `WAny` inline value (the i56 slot) — a code becomes carriable
+>    *as data* with no boxing, saving both space and time. Slight code-space narrowing
+>    (lose 8 bits). Reserve the **freed top 8 bits as a niche for enums** (schema-enum
+>    discriminant / Option-of-view niche, à la the existing zoned niche-enum work). Touch
+>    points: `include/logos/writ/schema_codes.hpp` (`CATEGORY_SHIFT`/`*_MASK`/ctors),
+>    `category_of`/`variant_of`, the AST/LIR/type producers that stamp codes, and the
+>    `view_checked` compare.
+> 2. **Make the category mask a configurable parameter** rather than the hardcoded
+>    `CATEGORY_MASK = 0xFFFF << 48`. Let the category/variant split point be tunable
+>    (per-store or per-schema-family) so different code families can trade category width
+>    for variant width. Folds together with (1) — the u56 re-cut is the natural moment to
+>    parameterize the split.
 
 ---
 
