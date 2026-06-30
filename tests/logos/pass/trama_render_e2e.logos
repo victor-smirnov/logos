@@ -1,0 +1,55 @@
+// Trama Phase 4 — STATIC render lowering end-to-end (ADR 0012 §6/§10.2).
+//
+// A real `trama!{ … }` block is compiled at build time by the `#[token_macro]`
+// handler (logos.std.wql.trama_render): it parses the template into the Trama
+// AST (the schema'd TStmt tree, whose `{{ … }}` / tag expressions are SExpr
+// edges), walks that AST, and EMITS a native Logos `render` function that builds
+// and returns the woven String.
+//
+// The template exercises a text run, a `{% for %}` loop over a context field, a
+// nested literal + `{{ n }}` interpolation, and a `{% if %}` guard. We render it
+// over an explicit data context and assert the exact output string — proving the
+// whole `trama!` → parse → Trama AST → walk → emit → linked-fn path end to end.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Ctx {
+    pub nums: [i64; 3],
+    pub flag: bool,
+}
+
+// The handler emits:
+//   pub fn render(c: &Ctx) -> String {
+//       let mut __out = String::new();
+//       __out.push_str("nums:");
+//       let mut __i0 = 0;
+//       while __i0 < (c.nums).len() {
+//           let n: i64 = (c.nums)[__i0];
+//           __out.push_str("[");
+//           __out.push_i64(n);
+//           __out.push_str("]");
+//           __i0 = __i0 + 1;
+//       }
+//       if (c.flag) { __out.push_str("!"); }
+//       return __out;
+//   }
+trama!{ fn render data c:Ctx "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}" }
+
+fn main() -> i32 {
+    let ctx: Ctx = Ctx { nums: [1i64, 2i64, 3i64], flag: true };
+    let s: String = render(&ctx);
+
+    // Expect "nums:[1][2][3]!".
+    let want: str = "nums:[1][2][3]!";
+    if s.len() != want.len() { return 1i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return 2i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

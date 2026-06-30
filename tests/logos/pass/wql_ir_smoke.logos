@@ -1,0 +1,61 @@
+// WQL IR smoke (ADR 0012 §1, dogfood ADR 0011): construct an `SExpr::Bin`
+// node over the Writ schema IR via make/view, store two `WRef<SExpr>` edges to
+// child `SLit` nodes, then read the fields back — the `op` scalar and each
+// child literal resolved through its `WRef<SExpr>` edge.
+//
+// Nodes are built inline against a single live `Writ` arena `h`: a node's edge
+// handle (`as_ref`) targets the TOM in `h`, so each child view must stay in
+// scope while its ref is taken (the standard IR-construction shape).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;
+
+// op id for "+" in the SBin operator set (CEL canon; arbitrary stable id here).
+fn op_add() -> i32 { return 1i32; }
+
+fn main() -> i32 {
+    let h: Writ = writ_new(512i64);
+
+    // Two child literals: 10 and 20 (kept in scope so their refs stay valid).
+    let l0: SLit = h.make::<SLit>();
+    l0.val = WAny::from(10i56);
+    let l1: SLit = h.make::<SLit>();
+    l1.val = WAny::from(20i56);
+
+    // The SBin node: op = "+", lhs/rhs = WRef edges to the literals.
+    let b: SBin = h.make::<SBin>();
+    b.op  = op_add();
+    b.lhs = WRef::<SExpr>::from_any(l0.as_ref());
+    b.rhs = WRef::<SExpr>::from_any(l1.as_ref());
+
+    // Read the scalar field back.
+    if b.op != op_add() { return 1i32; }
+
+    // Resolve each edge and confirm it views as an `SExpr::Lit` carrying the
+    // right value (the `WRef<SExpr>` field-read → resolve → view::<SExpr>() →
+    // match path).
+    let lhs_e: WRef<SExpr> = b.lhs;
+    let le: SExpr = lhs_e.any().view::<SExpr>();
+    match le {
+        SExpr::Lit(l) => { if l.val.as_i64() != 10i64 { return 2i32; } }
+        _ => { return 3i32; }
+    }
+    let rhs_e: WRef<SExpr> = b.rhs;
+    let re: SExpr = rhs_e.any().view::<SExpr>();
+    match re {
+        SExpr::Lit(l) => { if l.val.as_i64() != 20i64 { return 4i32; } }
+        _ => { return 5i32; }
+    }
+
+    // Bind the whole node through the SExpr enum and confirm it's a Bin.
+    let e: SExpr = b.as_ref().view::<SExpr>();
+    match e {
+        SExpr::Bin(bb) => { if bb.op != op_add() { return 6i32; } }
+        _ => { return 7i32; }
+    }
+
+    return 0i32;
+}

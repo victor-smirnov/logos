@@ -1,0 +1,117 @@
+// WQL EL frontend (ADR 0012, Phase 2): the recursive-descent EL parser
+// (`logos.std.wql.el::parse_el`) consumes EL source TEXT and produces the
+// Phase-1 SExpr/RExpr Writ-schema IR. This test parses a few expressions and
+// asserts the resulting IR node KINDS + STRUCTURE by walking the schema-enum
+// tree via the IR's typed edge resolvers (`*.‹edge›_expr()` + `match`), the
+// same shape wql_ir_smoke walks a hand-built tree.
+//
+// Coverage:
+//   1. "a.b + $x * 2"  — precedence (`*` binds tighter than `+`), field-access
+//      chains (SField), parameter refs ($x → SParam), int literal (SLit).
+//   2. "[u.name for u in users if u.active]" — the ONE comprehension form:
+//      SComp over RFilter(RScan), loop-var refs (SVar), guarded.
+//   3. "f(1)" — function call → SCall.
+//   4. "!a"  — unary → SUn.
+//   5. malformed input → null root.
+//
+// Each numbered failure returns a distinct nonzero exit code so a regression
+// pinpoints the broken production.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(1024i64);
+
+    // ── 1. "a.b + $x * 2" ─────────────────────────────────────────────────
+    // Expect: SBin(+, lhs = a.b, rhs = SBin(*, $x, 2)).
+    let r1: WAny = parse_el(&h, "a.b + $x * 2");
+    if r1.is_null() { return 1i32; }
+    let e1: SExpr = r1.view::<SExpr>();
+    match e1 {
+        SExpr::Bin(top) => {
+            if top.op != OP_ADD() { return 2i32; }
+            // lhs = a.b → SField(key=b, base=SField(key=a, base=null))
+            let lhs: SExpr = top.lhs_expr();
+            match lhs {
+                SExpr::Field(fb) => {
+                    let base: SExpr = fb.base_expr();   // the `a` step (another Field)
+                    match base { SExpr::Field(_) => {} _ => { return 3i32; } }
+                }
+                _ => { return 4i32; }
+            }
+            // rhs = $x * 2 → SBin(*, SParam, SLit(2))
+            let rhs: SExpr = top.rhs_expr();
+            match rhs {
+                SExpr::Bin(mul) => {
+                    if mul.op != OP_MUL() { return 5i32; }
+                    let ml: SExpr = mul.lhs_expr();
+                    match ml { SExpr::Param(p) => { if p.idx != 0i32 { return 6i32; } } _ => { return 7i32; } }
+                    let mr: SExpr = mul.rhs_expr();
+                    match mr { SExpr::Lit(l) => { if l.val.as_i64() != 2i64 { return 8i32; } } _ => { return 9i32; } }
+                }
+                _ => { return 10i32; }
+            }
+        }
+        _ => { return 11i32; }
+    }
+
+    // ── 2. "[u.name for u in users if u.active]" ──────────────────────────
+    // Expect: SComp(plan = RFilter(RScan(users), u.active), head = u.name).
+    let r2: WAny = parse_el(&h, "[u.name for u in users if u.active]");
+    if r2.is_null() { return 12i32; }
+    let e2: SExpr = r2.view::<SExpr>();
+    match e2 {
+        SExpr::Comp(comp) => {
+            // head = u.name → SField(key=name, base = SVar(u))
+            let head: SExpr = comp.head_expr();
+            match head {
+                SExpr::Field(fld) => {
+                    let hb: SExpr = fld.base_expr();
+                    match hb { SExpr::Var(_) => {} _ => { return 13i32; } }
+                }
+                _ => { return 14i32; }
+            }
+            // plan = RFilter(RScan(users), u.active)
+            let plan: RExpr = comp.plan_expr();
+            match plan {
+                RExpr::Filter(filt) => {
+                    let inp: RExpr = filt.input_expr();
+                    match inp { RExpr::Scan(_) => {} _ => { return 15i32; } }
+                    let pred: SExpr = filt.pred_expr();
+                    match pred { SExpr::Field(_) => {} _ => { return 16i32; } }
+                }
+                _ => { return 17i32; }
+            }
+        }
+        _ => { return 18i32; }
+    }
+
+    // ── 3. "f(1)" → SCall ─────────────────────────────────────────────────
+    let r3: WAny = parse_el(&h, "f(1)");
+    if r3.is_null() { return 19i32; }
+    let e3: SExpr = r3.view::<SExpr>();
+    match e3 {
+        SExpr::Call(_) => {}
+        _ => { return 20i32; }
+    }
+
+    // ── 4. "!a" → SUn(!) ──────────────────────────────────────────────────
+    let r4: WAny = parse_el(&h, "!a");
+    if r4.is_null() { return 21i32; }
+    let e4: SExpr = r4.view::<SExpr>();
+    match e4 {
+        SExpr::Un(u) => { if u.op != OP_NOT() { return 22i32; } }
+        _ => { return 23i32; }
+    }
+
+    // ── 5. malformed input parses to a null root ──────────────────────────
+    let r5: WAny = parse_el(&h, "a +");
+    if !r5.is_null() { return 24i32; }
+
+    return 0i32;
+}

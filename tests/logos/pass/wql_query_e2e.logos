@@ -1,0 +1,49 @@
+// WQL Phase 4 — STATIC lowering end-to-end (ADR 0012 §6/§10.2, queue-1).
+//
+// A real `wql!{ … }` resource block is compiled at build time by the
+// `#[token_macro]` handler (logos.std.wql.wql): it parses the query surface,
+// lowers the `where` / `select` clauses to the SExpr Writ-schema IR, walks that
+// IR, and EMITS a native Logos function `adults` that iterates the source
+// slice, filters on the predicate, and collects the projected rows.
+//
+// Here the generated `adults(people)` runs over a literal `&[Person]` slice and
+// we assert the projected result (the ages of people whose age >= 18), proving
+// the whole `wql!` → parse → IR → emit → linked-fn path end to end.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person {
+    pub name: i64,   // MVP: ids as i64 (no string-field projection in queue 1)
+    pub age:  i64,
+}
+
+// The resource block. The handler emits:
+//   pub fn adults(people: &[Person]) -> Vec<i64> {
+//       let mut __out: Vec<i64> = Vec::<i64>::new();
+//       let mut __i = 0;
+//       while __i < (people).len() {
+//           let p: &Person = &(people)[__i];
+//           if (p.age >= 18) { __out.push(p.age); }
+//           __i = __i + 1;
+//       }
+//       return __out;
+//   }
+wql!{ fn adults from people:[Person] p where p.age >= 18 select p.age : i64 }
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: 1i64, age: 15i64 },
+        Person { name: 2i64, age: 18i64 },
+        Person { name: 3i64, age: 40i64 },
+        Person { name: 4i64, age: 9i64  },
+    ];
+    let rows: Vec<i64> = adults(&people[..]);
+
+    // Expect [18, 40] — the two adults' ages, in source order.
+    if rows.len() != 2i64 { return 1i32; }
+    if rows.get(0i64) != 18i64 { return 2i32; }
+    if rows.get(1i64) != 40i64 { return 3i32; }
+    return 0i32;
+}

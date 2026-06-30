@@ -1,0 +1,565 @@
+// logos.std.wql.trama — the Trama frontend (jinja2 port; ADR 0012 §"Template is
+// kept as-is, renamed Trama"). A recursive-descent parser that consumes Trama
+// template TEXT and produces the **Trama AST** — a Writ-schema tree (category
+// 0x0013, dogfooding ADR 0011), a port of the C++ `TplASTCodes` families:
+//
+//   FOR_STMT / IF_STMT / ELSE_STMT / SET_STMT / VAR_STMT  (memoria template.hpp)
+//
+// Every Trama AST node is a `schema`; the family is the `schema enum TStmt`.
+// **The Trama AST is a schema-enum tree exactly like the Phase-1 IR** — its
+// EXPRESSION attribute holds a `WRef<SExpr>` produced by the Phase-2 EL parser
+// (`logos.std.wql.el::parse_el`). That single edge is the ONLY coupling between
+// the template language and the expression language (ADR 0012 §seam).
+//
+// MVP template surface:
+//   • literal text runs                          → TText
+//   • {{ expr }}                                 → TVar   (EXPRESSION = SExpr)
+//   • {% if expr %}..{% else %}..{% endif %}     → TIf    (EXPRESSION + then/else bodies)
+//   • {% for x in expr %}..{% endfor %}          → TFor   (VARIABLE + EXPRESSION + body)
+//   • {% set x = expr %}                         → TSet   (VARIABLE + EXPRESSION)
+//   • whitespace-control trims ({%- / -%}, {{- / -}}) — optional, trims adjacent text run
+//
+// STATEMENT LISTS as a schema-native singly-linked chain: each statement carries
+// a `next: WRef<TStmt>` field (null-terminated). This sidesteps the unfinished
+// typed-Writ-array path (the same `[?]` the EL parser punted on for SExprArr)
+// while keeping the body a pure schema tree — a `for`/`if` body is the head
+// `WRef<TStmt>` of its chain.
+//
+// Like the EL parser, node edge handles are threaded up the descent as bare
+// `i64` words (the node's `as_ref()` raw word); a plain `i64` carries no borrow,
+// so it flows through the `&mut self` parse chain freely. See el.logos's
+// "Handle currency" note for the full rationale.
+package logos.std.wql.trama;
+
+use logos.lang.writ.container;
+use logos.lang.writ.allocator;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.lang.str;
+
+// ── Trama AST schemas — category 0x0013 (port of TplASTCodes) ──────────────
+// Field keys mirror the C++ NamedCode attribute ids where they line up:
+//   VARIABLE = 6, EXPRESSION = 7, STATEMENTS = 8, ELSE = 9  (template.hpp).
+// `next` (the chain link) is a Trama-local slot (key 1); `text` for TText is the
+// literal-run payload (key 0).
+//
+// A statement's `expr` field is `WRef<SExpr>` — the Phase-1 scalar IR edge, set
+// from `parse_el`'s root handle. This is the EXPRESSION seam.
+
+pub schema TText : code(0x0013_0000_0000_0000) {
+    text: WAny          = 0,   // boxed literal text (Ref → WString), verbatim
+    next: WRef<TStmt>   = 1,   // chain link (null = end of body)
+}
+pub schema TVar : code(0x0013_0000_0000_0001) {
+    expr: WRef<SExpr>   = 7,   // EXPRESSION — the `{{ … }}` expression IR
+    next: WRef<TStmt>   = 1,
+}
+pub schema TFor : code(0x0013_0000_0000_0002) {
+    var:  u8            = 6,   // VARIABLE — dense loop-var key (interned)
+    expr: WRef<SExpr>   = 7,   // EXPRESSION — the iterable
+    body: WRef<TStmt>   = 8,   // STATEMENTS — head of the loop-body chain
+    next: WRef<TStmt>   = 1,
+}
+pub schema TIf : code(0x0013_0000_0000_0003) {
+    expr: WRef<SExpr>   = 7,   // EXPRESSION — the condition
+    body: WRef<TStmt>   = 8,   // STATEMENTS — head of the then-body chain
+    alt:  WRef<TStmt>   = 9,   // ELSE — head of the else-body chain (null = no else)
+    next: WRef<TStmt>   = 1,
+}
+pub schema TSet : code(0x0013_0000_0000_0004) {
+    var:  u8            = 6,   // VARIABLE — dense assigned-var key
+    expr: WRef<SExpr>   = 7,   // EXPRESSION — the assigned value
+    next: WRef<TStmt>   = 1,
+}
+
+pub schema enum TStmt : category(0x0013_0000_0000_0000) {
+    Text(TText), Var(TVar), For(TFor), If(TIf), Set(TSet),
+}
+
+// Node → erased edge handle (same provenance-laundering as ir.logos `as_ref`):
+// the WAny ref targets the node's TOM in the arena, which outlives the view.
+impl TText { pub fn as_ref(self: &TText) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl TVar  { pub fn as_ref(self: &TVar)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl TFor  { pub fn as_ref(self: &TFor)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl TIf   { pub fn as_ref(self: &TIf)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl TSet  { pub fn as_ref(self: &TSet)  -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+// ── Typed edge RESOLVERS (the Trama-AST-walking API for consumers) ─────────
+// Read an edge field → resolve the handle → bind the target view. These live in
+// this (std) layer where the `WRef<…>` instances are CONSTRUCTED, so the generic
+// `WritField::from_wany` reads link correctly; consumers call these plain
+// (non-generic) methods and never emit the generic field-read themselves
+// (mirrors ir.logos's edge-resolver convention).
+impl TVar { pub fn expr_expr(self: &TVar) -> SExpr { return self.expr.any().view::<SExpr>(); } }
+impl TSet { pub fn expr_expr(self: &TSet) -> SExpr { return self.expr.any().view::<SExpr>(); } }
+impl TFor {
+    pub fn expr_expr(self: &TFor) -> SExpr { return self.expr.any().view::<SExpr>(); }
+    pub fn body_stmt(self: &TFor) -> TStmt  { return self.body.any().view::<TStmt>(); }
+}
+impl TIf {
+    pub fn expr_expr(self: &TIf) -> SExpr { return self.expr.any().view::<SExpr>(); }
+    pub fn body_stmt(self: &TIf) -> TStmt  { return self.body.any().view::<TStmt>(); }
+    pub fn alt_stmt(self: &TIf)  -> TStmt   { return self.alt.any().view::<TStmt>(); }
+}
+
+// Chain-walk helpers: bind the `next` link of any statement to a `TStmt` view.
+// `next` is at the same key (1) in every family, so the family-typed accessors
+// just forward; the consumer checks `has_next` before binding.
+impl TText { pub fn has_next(self: &TText) -> bool { return !self.next.any().is_null(); }
+             pub fn next_stmt(self: &TText) -> TStmt { return self.next.any().view::<TStmt>(); } }
+impl TVar  { pub fn has_next(self: &TVar)  -> bool { return !self.next.any().is_null(); }
+             pub fn next_stmt(self: &TVar)  -> TStmt { return self.next.any().view::<TStmt>(); } }
+impl TFor  { pub fn has_next(self: &TFor)  -> bool { return !self.next.any().is_null(); }
+             pub fn next_stmt(self: &TFor)  -> TStmt { return self.next.any().view::<TStmt>(); } }
+impl TIf   { pub fn has_next(self: &TIf)   -> bool { return !self.next.any().is_null(); }
+             pub fn next_stmt(self: &TIf)   -> TStmt { return self.next.any().view::<TStmt>(); } }
+impl TSet  { pub fn has_next(self: &TSet)  -> bool { return !self.next.any().is_null(); }
+             pub fn next_stmt(self: &TSet)  -> TStmt { return self.next.any().view::<TStmt>(); } }
+
+// ── Handle currency (see el.logos for the full rationale) ──────────────────
+fn tr_hand_of(w: WAny) -> i64 { return w.raw(); }
+fn tr_hand_any(w: i64) -> WAny { return WAny::ref_to(w as *const u8); }
+fn tr_hand_null() -> i64 { return 0i64; }
+
+// ── Lexer primitives ──────────────────────────────────────────────────────
+fn tr_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
+fn tr_is_alpha(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+}
+fn tr_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
+fn tr_is_alnum(c: u8) -> bool { return tr_is_alpha(c) || tr_is_digit(c); }
+
+fn TR_MAX_NAMES() -> i64 { return 64i64; }
+
+// ── Parser state ──────────────────────────────────────────────────────────
+// Cursor over the template text + a dense interning table for `for`/`set`
+// variable names (→ `u8` var keys: TFor.var / TSet.var). `ok` latches a single
+// parse-error bit (MVP). The `Writ` arena is passed per call (not stored).
+pub struct TrParser {
+    pub src: str,
+    pub pos: i64,
+    pub len: i64,
+    pub ok:  bool,
+
+    pub var_starts: [i64; 64],
+    pub var_lens:   [i64; 64],
+    pub var_n:      i64,
+
+    // ONE shared EL parser over the WHOLE template `src`, reused for every
+    // embedded `{{ … }}` / tag expression. Sharing it across all expressions
+    // accumulates ALL field/param names into a single dense table, so the
+    // static-backend codegen can recover field NAMES from `SField.key` (the
+    // same name-resolution seam WQL uses). Each embedded parse just repoints
+    // `el.pos`/`el.len` at the expression's byte sub-range.
+    pub el: ElParser,
+}
+
+pub fn tr_parser_new(src: str) -> TrParser {
+    return TrParser {
+        src: src, pos: 0i64, len: src.len(), ok: true,
+        var_starts: [0i64; 64], var_lens: [0i64; 64], var_n: 0i64,
+        el: el_parser_new(src),
+    };
+}
+
+impl TrParser {
+    // Recover the interned NAME (str view over `src`) for a `for`/`set` var key
+    // (TFor.var / TSet.var) — the inverse of `intern_var`. The codegen needs the
+    // textual loop-variable name to emit a Logos `for`/`let` binding.
+    pub fn var_name(self: &TrParser, key: u8) -> str {
+        let i: i64 = key as i64;
+        if i < 0i64 || i >= self.var_n { return ""; }
+        return unsafe { tr_str_from_range(self.src, self.var_starts[i], self.var_lens[i]) };
+    }
+    // Borrow the shared EL parser (its name tables) for codegen.
+    pub fn el_parser(self: &TrParser) -> &ElParser { return &self.el; }
+}
+
+// Byte-range equality against a stored (start,len) name.
+fn tr_range_eq(src: str, a_start: i64, a_len: i64, b_start: i64, b_len: i64) -> bool {
+    if a_len != b_len { return false; }
+    let mut i: i64 = 0i64;
+    while i < a_len {
+        if str_byte_at(src, a_start + i) != str_byte_at(src, b_start + i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Compare a (start,len) byte range against an ASCII literal.
+fn tr_range_lit_eq(src: str, start: i64, len: i64, lit: str) -> bool {
+    if len != lit.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < len {
+        if str_byte_at(src, start + i) != str_byte_at(lit, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+unsafe fn tr_str_from_range(src: str, start: i64, len: i64) -> str {
+    return str_from_raw((src.as_ptr() as i64 + start) as *const u8, len);
+}
+
+impl TrParser {
+    fn cur(self: &TrParser) -> u8 {
+        if self.pos >= self.len { return 0u8; }
+        return str_byte_at(self.src, self.pos);
+    }
+    fn at_byte(self: &TrParser, off: i64) -> u8 {
+        let p: i64 = self.pos + off;
+        if p < 0i64 || p >= self.len { return 0u8; }
+        return str_byte_at(self.src, p);
+    }
+    fn bump(self: &mut TrParser) { self.pos = self.pos + 1i64; }
+
+    fn skip_ws(self: &mut TrParser) {
+        while self.pos < self.len && tr_is_space(self.cur()) { self.bump(); }
+    }
+
+    // Intern a variable name → dense u8 key (existing or appended).
+    fn intern_var(self: &mut TrParser, start: i64, len: i64) -> u8 {
+        let mut i: i64 = 0i64;
+        while i < self.var_n {
+            if tr_range_eq(self.src, self.var_starts[i], self.var_lens[i], start, len) {
+                return i as u8;
+            }
+            i = i + 1i64;
+        }
+        if self.var_n >= TR_MAX_NAMES() { self.ok = false; return 0u8; }
+        let id: i64 = self.var_n;
+        self.var_starts[id] = start;
+        self.var_lens[id]   = len;
+        self.var_n = self.var_n + 1i64;
+        return id as u8;
+    }
+
+    // Scan an identifier at the cursor; returns byte length (cursor advances).
+    fn scan_ident(self: &mut TrParser) -> i64 {
+        if !tr_is_alpha(self.cur()) { return 0i64; }
+        let start: i64 = self.pos;
+        while self.pos < self.len && tr_is_alnum(self.cur()) { self.bump(); }
+        return self.pos - start;
+    }
+
+    // Two-byte lookahead helpers for the tag delimiters.
+    fn at2(self: &TrParser, a: u8, b: u8) -> bool {
+        return self.at_byte(0i64) == a && self.at_byte(1i64) == b;
+    }
+}
+
+// ── Node constructors (build into the arena, return the edge handle word) ──
+fn mk_text(h: &Writ, text: WAny) -> i64 {
+    let n: TText = h.make::<TText>();
+    n.text = text;
+    // next defaults null (key absent → WRef from_wany of null handle)
+    return tr_hand_of(n.as_ref());
+}
+fn mk_var(h: &Writ, expr: i64) -> i64 {
+    let n: TVar = h.make::<TVar>();
+    n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
+    return tr_hand_of(n.as_ref());
+}
+fn mk_set(h: &Writ, var: u8, expr: i64) -> i64 {
+    let n: TSet = h.make::<TSet>();
+    n.var  = var;
+    n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
+    return tr_hand_of(n.as_ref());
+}
+fn mk_for(h: &Writ, var: u8, expr: i64, body: i64) -> i64 {
+    let n: TFor = h.make::<TFor>();
+    n.var  = var;
+    n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
+    n.body = WRef::<TStmt>::from_any(tr_hand_any(body));
+    return tr_hand_of(n.as_ref());
+}
+fn mk_if(h: &Writ, expr: i64, body: i64, alt: i64) -> i64 {
+    let n: TIf = h.make::<TIf>();
+    n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
+    n.body = WRef::<TStmt>::from_any(tr_hand_any(body));
+    n.alt  = WRef::<TStmt>::from_any(tr_hand_any(alt));
+    return tr_hand_of(n.as_ref());
+}
+
+// Set a statement node's `next` link. `next` is at key 1 in every family, so we
+// rebind the node as the *enum* and patch the link through the matched variant.
+fn set_next(h: &Writ, stmt: i64, next: i64) {
+    let e: TStmt = tr_hand_any(stmt).view::<TStmt>();
+    let nref: WRef<TStmt> = WRef::<TStmt>::from_any(tr_hand_any(next));
+    match e {
+        TStmt::Text(t) => { t.next = nref; }
+        TStmt::Var(v)  => { v.next = nref; }
+        TStmt::For(f)  => { f.next = nref; }
+        TStmt::If(i)   => { i.next = nref; }
+        TStmt::Set(s)  => { s.next = nref; }
+    }
+}
+
+// ── Embedded EL expression ─────────────────────────────────────────────────
+// Parse the EL expression occupying template bytes [start, end) into the SExpr
+// IR using the SHARED `self.el` parser (so all field/param names accumulate in
+// one table for codegen). Repoints the shared parser's cursor at the sub-range
+// and parses just that. Returns the SExpr root edge handle word, or null on a
+// parse error. The root handle is laundered through `raw()` so the returned
+// word carries no borrow of `self.el`.
+impl TrParser {
+    fn parse_embedded_el(self: &mut TrParser, h: &Writ, start: i64, end: i64) -> i64 {
+        self.el.pos = start;
+        self.el.len = end;
+        self.el.ok  = true;
+        let word: i64 = self.el.parse_root(h).raw();
+        if word == 0i64 { return tr_hand_null(); }
+        return word;
+    }
+}
+
+// ── Trama parser ───────────────────────────────────────────────────────────
+impl TrParser {
+    // Parse a block sequence: statements until EOI or a terminating tag
+    // (`endfor` / `endif` / `else`). Returns the HEAD handle of the chain (null
+    // if empty). `stop_*` flags select which terminators end this block; on a
+    // terminator the cursor is left at its opening `{%` (the caller consumes it).
+    pub fn parse_block(self: &mut TrParser, h: &Writ, stop_end_for: bool,
+                   stop_end_if: bool, stop_else: bool) -> i64 {
+        let mut head: i64 = tr_hand_null();
+        let mut tail: i64 = tr_hand_null();
+        loop {
+            if self.pos >= self.len { break; }
+            // A statement tag `{%` — peek the keyword to decide stmt vs terminator.
+            if self.at2(123u8, 37u8) {  // "{%"
+                if self.peek_terminator(stop_end_for, stop_end_if, stop_else) { break; }
+                let s: i64 = self.parse_stmt_tag(h);
+                if !self.ok { return head; }
+                head = self.link(h, head, &mut tail, s);
+                continue;
+            }
+            // A `{{` expression tag.
+            if self.at2(123u8, 123u8) {  // "{{"
+                let s: i64 = self.parse_var_tag(h);
+                if !self.ok { return head; }
+                head = self.link(h, head, &mut tail, s);
+                continue;
+            }
+            // Otherwise a literal text run up to the next tag.
+            let s: i64 = self.parse_text(h);
+            if s != tr_hand_null() {
+                head = self.link(h, head, &mut tail, s);
+            }
+        }
+        return head;
+    }
+
+    // Append `s` to the chain; returns the (possibly new) head and updates tail.
+    fn link(self: &mut TrParser, h: &Writ, head: i64, tail: &mut i64, s: i64) -> i64 {
+        if *tail == tr_hand_null() {
+            *tail = s;
+            return s;
+        }
+        set_next(h, *tail, s);
+        *tail = s;
+        return head;
+    }
+
+    // Does the upcoming `{%` open a terminator that ends THIS block?
+    fn peek_terminator(self: &mut TrParser, stop_end_for: bool,
+                       stop_end_if: bool, stop_else: bool) -> bool {
+        // cursor is at "{%"; scan the keyword without consuming.
+        let mut p: i64 = self.pos + 2i64;
+        // optional whitespace-control '-'
+        if p < self.len && str_byte_at(self.src, p) == 45u8 { p = p + 1i64; }
+        while p < self.len && tr_is_space(str_byte_at(self.src, p)) { p = p + 1i64; }
+        let kstart: i64 = p;
+        while p < self.len && tr_is_alnum(str_byte_at(self.src, p)) { p = p + 1i64; }
+        let klen: i64 = p - kstart;
+        if stop_end_for && tr_range_lit_eq(self.src, kstart, klen, "endfor") { return true; }
+        if stop_end_if  && tr_range_lit_eq(self.src, kstart, klen, "endif")  { return true; }
+        if stop_else    && tr_range_lit_eq(self.src, kstart, klen, "else")   { return true; }
+        return false;
+    }
+
+    // A literal text run: bytes up to the next `{{`/`{%` (or EOI). Boxed verbatim
+    // into the arena as a Ref→WString WAny. Whitespace-control: a leading/trailing
+    // tag's trim flag (handled by the tag parsers) is applied by trimming this run.
+    fn parse_text(self: &mut TrParser, h: &Writ) -> i64 {
+        let start: i64 = self.pos;
+        while self.pos < self.len {
+            if self.at2(123u8, 123u8) || self.at2(123u8, 37u8) { break; }  // "{{" or "{%"
+            self.bump();
+        }
+        let len: i64 = self.pos - start;
+        if len == 0i64 { return tr_hand_null(); }
+        let s: str = unsafe { tr_str_from_range(self.src, start, len) };
+        let w: WAny = unsafe {
+            WAny::ref_to(wstring_in_alloc(h.allocator.get(), s) as *const u8)
+        };
+        return mk_text(h, w);
+    }
+
+    // `{{ expr }}` → TVar. Whitespace-control `{{-` / `-}}` accepted (trim is a
+    // text-run concern; here we just skip the markers).
+    fn parse_var_tag(self: &mut TrParser, h: &Writ) -> i64 {
+        self.pos = self.pos + 2i64;  // "{{"
+        if self.cur() == 45u8 { self.bump(); }  // "{{-"
+        // expression bytes up to the closing "}}" (optionally "-}}").
+        let estart: i64 = self.pos;
+        let eend: i64 = self.find_close_expr();
+        if eend < 0i64 { self.ok = false; return tr_hand_null(); }
+        // trim a trailing '-' before "}}" out of the expression slice
+        let mut etrim: i64 = eend;
+        if etrim > estart && str_byte_at(self.src, etrim - 1i64) == 45u8 { etrim = etrim - 1i64; }
+        let expr: i64 = self.parse_embedded_el(h, estart, etrim);
+        if expr == tr_hand_null() { self.ok = false; return tr_hand_null(); }
+        return mk_var(h, expr);
+    }
+
+    // Find the closing "}}" for a `{{` tag; returns the index of '}' (start of
+    // "}}"), advancing the cursor PAST "}}". -1 if unterminated.
+    fn find_close_expr(self: &mut TrParser) -> i64 {
+        let mut p: i64 = self.pos;
+        while p + 1i64 < self.len {
+            if str_byte_at(self.src, p) == 125u8 && str_byte_at(self.src, p + 1i64) == 125u8 {
+                self.pos = p + 2i64;
+                return p;
+            }
+            p = p + 1i64;
+        }
+        return -1i32 as i64;
+    }
+
+    // Find the closing "%}" for a `{%` tag; returns index of '%' (start of "%}"),
+    // advancing the cursor PAST "%}". -1 if unterminated.
+    fn find_close_stmt(self: &mut TrParser) -> i64 {
+        let mut p: i64 = self.pos;
+        while p + 1i64 < self.len {
+            if str_byte_at(self.src, p) == 37u8 && str_byte_at(self.src, p + 1i64) == 125u8 {
+                self.pos = p + 2i64;
+                return p;
+            }
+            p = p + 1i64;
+        }
+        return -1i32 as i64;
+    }
+
+    // A `{% … %}` statement tag: dispatch on the keyword (if/for/set). The
+    // terminators (endfor/endif/else) are handled by the block loop / nested
+    // parsers, not here.
+    fn parse_stmt_tag(self: &mut TrParser, h: &Writ) -> i64 {
+        self.pos = self.pos + 2i64;  // "{%"
+        if self.cur() == 45u8 { self.bump(); }  // "{%-"
+        self.skip_ws();
+        let kstart: i64 = self.pos;
+        let klen: i64 = self.scan_ident();
+        if klen == 0i64 { self.ok = false; return tr_hand_null(); }
+        if tr_range_lit_eq(self.src, kstart, klen, "if")  { return self.parse_if(h); }
+        if tr_range_lit_eq(self.src, kstart, klen, "for") { return self.parse_for(h); }
+        if tr_range_lit_eq(self.src, kstart, klen, "set") { return self.parse_set(h); }
+        self.ok = false;
+        return tr_hand_null();
+    }
+
+    // Consume an opening tag's body up to and through "%}", returning the byte
+    // index where the body ENDS (the '%' of "%}", minus a trailing '-' for
+    // trim). The cursor is left past "%}". Used to bound an embedded expression.
+    fn close_open_tag(self: &mut TrParser) -> i64 {
+        let close: i64 = self.find_close_stmt();
+        if close < 0i64 { self.ok = false; return close; }
+        // strip a trailing '-' (whitespace-control) before "%}"
+        if close > 0i64 && str_byte_at(self.src, close - 1i64) == 45u8 { return close - 1i64; }
+        return close;
+    }
+
+    // Consume a bare terminator tag `{% <kw> %}` (endfor/endif/else); cursor is
+    // assumed at "{%". Leaves the cursor past "%}".
+    fn consume_terminator(self: &mut TrParser) {
+        self.pos = self.pos + 2i64;  // "{%"
+        let _c: i64 = self.find_close_stmt();
+        if _c < 0i64 { self.ok = false; }
+    }
+
+    // {% for <ident> in <expr> %} body {% endfor %}
+    // Caller has consumed "{%" + skipped to the keyword "for" (already scanned).
+    fn parse_for(self: &mut TrParser, h: &Writ) -> i64 {
+        self.skip_ws();
+        let vstart: i64 = self.pos;
+        let vlen: i64 = self.scan_ident();
+        if vlen == 0i64 { self.ok = false; return tr_hand_null(); }
+        let var: u8 = self.intern_var(vstart, vlen);
+        self.skip_ws();
+        // "in"
+        if !(self.cur() == 105u8 && self.at_byte(1i64) == 110u8) { self.ok = false; return tr_hand_null(); }
+        self.pos = self.pos + 2i64;
+        // expression up to "%}"
+        self.skip_ws();
+        let estart: i64 = self.pos;
+        let eend: i64 = self.close_open_tag();
+        if eend < 0i64 { return tr_hand_null(); }
+        let expr: i64 = self.parse_embedded_el(h, estart, eend);
+        if expr == tr_hand_null() { self.ok = false; return tr_hand_null(); }
+        // body until "{% endfor %}"
+        let body: i64 = self.parse_block(h, true, false, false);
+        if !self.ok { return tr_hand_null(); }
+        // consume the "{% endfor %}"
+        if !self.at2(123u8, 37u8) { self.ok = false; return tr_hand_null(); }
+        self.consume_terminator();
+        return mk_for(h, var, expr, body);
+    }
+
+    // {% if <expr> %} then [ {% else %} else ] {% endif %}
+    fn parse_if(self: &mut TrParser, h: &Writ) -> i64 {
+        self.skip_ws();
+        let estart: i64 = self.pos;
+        let eend: i64 = self.close_open_tag();
+        if eend < 0i64 { return tr_hand_null(); }
+        let expr: i64 = self.parse_embedded_el(h, estart, eend);
+        if expr == tr_hand_null() { self.ok = false; return tr_hand_null(); }
+        // then-body until "{% else %}" or "{% endif %}"
+        let body: i64 = self.parse_block(h, false, true, true);
+        if !self.ok { return tr_hand_null(); }
+        let mut alt: i64 = tr_hand_null();
+        // optional else
+        if self.at2(123u8, 37u8) && self.peek_terminator(false, false, true) {
+            self.consume_terminator();  // "{% else %}"
+            alt = self.parse_block(h, false, true, false);
+            if !self.ok { return tr_hand_null(); }
+        }
+        // consume "{% endif %}"
+        if !self.at2(123u8, 37u8) { self.ok = false; return tr_hand_null(); }
+        self.consume_terminator();
+        return mk_if(h, expr, body, alt);
+    }
+
+    // {% set <ident> = <expr> %}
+    fn parse_set(self: &mut TrParser, h: &Writ) -> i64 {
+        self.skip_ws();
+        let vstart: i64 = self.pos;
+        let vlen: i64 = self.scan_ident();
+        if vlen == 0i64 { self.ok = false; return tr_hand_null(); }
+        let var: u8 = self.intern_var(vstart, vlen);
+        self.skip_ws();
+        if self.cur() != 61u8 { self.ok = false; return tr_hand_null(); }  // '='
+        self.bump();
+        self.skip_ws();
+        let estart: i64 = self.pos;
+        let eend: i64 = self.close_open_tag();
+        if eend < 0i64 { return tr_hand_null(); }
+        let expr: i64 = self.parse_embedded_el(h, estart, eend);
+        if expr == tr_hand_null() { self.ok = false; return tr_hand_null(); }
+        return mk_set(h, var, expr);
+    }
+}
+
+// ── Public entry point ─────────────────────────────────────────────────────
+// Parse Trama template `text` into the Trama AST built in arena `h`. Returns the
+// HEAD statement's edge handle (a `WAny` ref to view via `.view::<TStmt>()`); the
+// rest of the top-level sequence is reached by following `next`. On a parse error
+// (or an empty template) the returned handle is null (`WAny::is_null`).
+pub fn parse_trama(h: &Writ, text: str) -> WAny {
+    let mut p: TrParser = tr_parser_new(text);
+    let head: i64 = p.parse_block(h, false, false, false);
+    if !p.ok || p.pos < p.len { return WAny::ref_to(0i64 as *const u8); }
+    if head == tr_hand_null() { return WAny::ref_to(0i64 as *const u8); }
+    return tr_hand_any(head);
+}

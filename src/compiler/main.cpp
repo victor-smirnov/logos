@@ -2449,6 +2449,12 @@ int run_metaprog_dispatch(
                                    opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         }
+        // WQL/Trama raw-text item macros: a #[token_macro] `(str) -> ItemList`
+        // item callee's thunk reads its block bytes via logos_macro_arg(site,0).
+        // mono_pass (below) discards macro_arg_blobs, so snapshot the handle now
+        // — it stays valid because the underlying arena lives in `asts`. We
+        // install g_macro_args from this snapshot around the item-thunk loop.
+        auto m6_saved_macro_args = meta_prog.macro_arg_blobs;
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
                 [](const auto& f) { return f.is_metaprog_stub(); }),
@@ -2587,6 +2593,11 @@ int run_metaprog_dispatch(
             if (!bind_sym("logos_holder_release",             reinterpret_cast<void*>(&logos_holder_release))) return 1;
             if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
             if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
+            // WQL/Trama raw-text item macros: bind the per-site macro-arg
+            // accessor so a #[token_macro] `(str) -> ItemList` item thunk can
+            // reconstruct its block bytes (g_macro_args is set around the
+            // item-thunk loop below).
+            if (!bind_sym("logos_macro_arg",                  reinterpret_cast<void*>(&logos_macro_arg))) return 1;
         }
         if (!m6_meta_jit->add_module(std::move(meta_llvm), std::move(meta_llvm_ctx_ptr))) {
             std::fprintf(stderr, "logosc-metaprog: jit add_module: %s\n",
@@ -2677,6 +2688,13 @@ int run_metaprog_dispatch(
             return 1;
         }
 
+        // Publish this iter's per-site arg-blob table so raw-text item macro
+        // thunks (#[token_macro] `(str) -> ItemList`) can resolve their block
+        // bytes via logos_macro_arg(site, 0). Cleared right after the loop.
+        g_macro_args = &m6_saved_macro_args;
+        struct M6MacroArgsGuard {
+            ~M6MacroArgsGuard() { g_macro_args = nullptr; }
+        } m6_macro_args_guard;
         for (const auto& site : meta_item_sites) {
             if (site.thunk_source().empty()) continue;
             if (site.ast_idx() >= asts.size()) continue;

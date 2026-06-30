@@ -1,0 +1,316 @@
+// logos.std.wql.wql — the `wql!{ … }` RESOURCE surface (ADR 0012 §6 / §10.2,
+// queue-1 STATIC lowering). A `#[token_macro]` handler receives the raw block
+// text at compile time, parses the MVP query surface, lowers the `where` /
+// `select` expressions to the SExpr Writ-schema IR (Phase 1/2), then WALKS that
+// schema'd IR to EMIT a native Logos function (via `logos_emit_source`) that
+// iterates the source, filters, and collects the projected rows — the
+// "prepared statement" model (no runtime-string queries; ADR 0012 §queues).
+//
+// MVP surface (explicit-typed, per the ADR static model — schema/types always
+// known at compile time, params/sources flow as generated-fn arguments):
+//
+//   wql! {
+//       fn <name>
+//       from <src>:[<RowTy>] <var>
+//       [ where <predicate-EL> ]
+//       select <projection-EL> : <ResultTy>
+//   }
+//
+//   →  pub fn <name>(<src>: &[<RowTy>], <$param>: <PTy>, …) -> Vec<ResultTy> {
+//          let mut __out: Vec<ResultTy> = Vec::<ResultTy>::new();
+//          let mut __i: i64 = 0;
+//          while __i < (<src>).len() {
+//              let <var>: &<RowTy> = &(<src>)[__i];
+//              if <predicate> { __out.push(<projection>); }
+//              __i = __i + 1;
+//          }
+//          return __out;
+//      }
+//
+// The `where` / `select` expressions are parsed by the EL frontend
+// (`logos.std.wql.el`) into the SExpr IR, and the codegen below walks that IR
+// (the schema-enum tree, via `match`) emitting Logos expression text. Field
+// access `var.f` and `$param` resolve through the parser's name tables
+// (`field_name` / `param_name`). This is the ONE lowering: SExpr schema → Logos
+// source (ADR 0012 §10.2 — generate source, don't hand-build LIR).
+//
+// Runtime params `$x:Ty` flow as generated-fn ARGUMENTS (sqlx model, ADR
+// §10.3); the source `<src>` is the first argument (an explicit `&[RowTy]`
+// slice). The data is supplied by the caller at the `<name>(…)` call site.
+package logos.std.wql.wql;
+
+use logos.std.compiler.metaprog;     // Emitter, ItemList, item_list_new, error
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.std.wql.codegen;   // emit_sexpr / emit_binop / string_as_str
+use logos.mem.string;
+use logos.lang.str;
+
+// ── Surface lexer ──────────────────────────────────────────────────────────
+// A tiny cursor over the raw block text that carves the query into its
+// keyword-delimited clauses. The clause BODIES (`where` / `select` expressions)
+// are handed to the EL parser verbatim; only the structural keywords
+// (`fn`/`from`/`where`/`select`) and the typed annotations are lexed here.
+struct QLexer {
+    src: str,
+    pos: i64,
+    len: i64,
+}
+
+fn ql_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
+fn ql_is_alpha(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+}
+fn ql_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
+fn ql_is_alnum(c: u8) -> bool { return ql_is_alpha(c) || ql_is_digit(c); }
+
+impl QLexer {
+    fn cur(self: &QLexer) -> u8 {
+        if self.pos >= self.len { return 0u8; }
+        return str_byte_at(self.src, self.pos);
+    }
+    fn bump(self: &mut QLexer) { self.pos = self.pos + 1i64; }
+    fn skip_ws(self: &mut QLexer) {
+        while self.pos < self.len && ql_is_space(self.cur()) { self.bump(); }
+    }
+    // Consume keyword `kw` at the cursor (word-boundary). Returns true on match.
+    fn eat_kw(self: &mut QLexer, kw: str) -> bool {
+        self.skip_ws();
+        let n: i64 = kw.len();
+        if self.pos + n > self.len { return false; }
+        let mut i: i64 = 0i64;
+        while i < n {
+            if str_byte_at(self.src, self.pos + i) != str_byte_at(kw, i) { return false; }
+            i = i + 1i64;
+        }
+        let after: u8 = if self.pos + n < self.len { str_byte_at(self.src, self.pos + n) } else { 0u8 };
+        if ql_is_alnum(after) { return false; }
+        self.pos = self.pos + n;
+        return true;
+    }
+    // Scan an identifier at the cursor → (start,len); advances. len 0 on miss.
+    fn scan_ident(self: &mut QLexer) -> i64 {
+        self.skip_ws();
+        if !ql_is_alpha(self.cur()) { return 0i64; }
+        let start: i64 = self.pos;
+        while self.pos < self.len && ql_is_alnum(self.cur()) { self.bump(); }
+        return self.pos - start;
+    }
+    // Consume bytes until (but not including) the next occurrence of keyword
+    // `kw` at a word boundary, or EOI; returns the [start,end) slice (trimmed).
+    fn take_until_kw(self: &mut QLexer, kw: str) -> str {
+        self.skip_ws();
+        let start: i64 = self.pos;
+        let mut end: i64 = self.pos;
+        loop {
+            if self.pos >= self.len { end = self.pos; break; }
+            if self.at_kw(kw) { end = self.pos; break; }
+            self.bump();
+        }
+        // right-trim whitespace
+        while end > start && ql_is_space(str_byte_at(self.src, end - 1i64)) { end = end - 1i64; }
+        return unsafe { wql_str_range(self.src, start, end - start) }
+    }
+    // Peek: is keyword `kw` at the cursor (word boundary)? No consume.
+    fn at_kw(self: &mut QLexer, kw: str) -> bool {
+        let save: i64 = self.pos;
+        self.skip_ws();
+        let n: i64 = kw.len();
+        if self.pos + n > self.len { self.pos = save; return false; }
+        let mut i: i64 = 0i64;
+        while i < n {
+            if str_byte_at(self.src, self.pos + i) != str_byte_at(kw, i) { self.pos = save; return false; }
+            i = i + 1i64;
+        }
+        let after: u8 = if self.pos + n < self.len { str_byte_at(self.src, self.pos + n) } else { 0u8 };
+        let hit: bool = !ql_is_alnum(after);
+        self.pos = save;
+        return hit;
+    }
+}
+
+unsafe fn wql_str_range(src: str, start: i64, len: i64) -> str {
+    let l: i64 = if len < 0i64 { 0i64 } else { len };
+    return str_from_raw((src.as_ptr() as i64 + start) as *const u8, l);
+}
+
+
+// ── The resource handler ───────────────────────────────────────────────────
+// `#[token_macro]`: receives the raw `wql!{ … }` block bytes as a single `str`,
+// emits the generated query function, and returns an (empty) ItemList — the
+// emitted source is spliced by the host's `logos_emit_source` (ADR 0012 §10.2).
+#[token_macro]
+pub fn wql(s: str) -> ItemList {
+    let out: ItemList = item_list_new();
+
+    let mut lx: QLexer = QLexer { src: s, pos: 0i64, len: s.len() };
+
+    // fn <name>
+    if !lx.eat_kw("fn") { error("wql!: expected `fn <name>`"); return out; }
+    let fn_name: str = lx.scan_ident_str();
+
+    // from <src>:[<RowTy>] <var>
+    if !lx.eat_kw("from") { error("wql!: expected `from <src>:[<Ty>] <var>`"); return out; }
+    let src_name: str = lx.scan_ident_str();
+    lx.skip_ws();
+    if lx.cur() != 58u8 { error("wql!: expected `:` after source name"); return out; }  // ':'
+    lx.bump();
+    lx.skip_ws();
+    if lx.cur() != 91u8 { error("wql!: expected `[` row-type"); return out; }  // '['
+    lx.bump();
+    let row_ty: str = lx.scan_ident_str();
+    lx.skip_ws();
+    if lx.cur() != 93u8 { error("wql!: expected `]` after row-type"); return out; }  // ']'
+    lx.bump();
+    let var_name: str = lx.scan_ident_str();
+
+    // [ where <pred> ]
+    let mut where_text: str = "";
+    let mut has_where: bool = false;
+    if lx.eat_kw("where") {
+        where_text = lx.take_until_kw("select");
+        has_where = true;
+    }
+
+    // select <proj> : <ResultTy>
+    if !lx.eat_kw("select") { error("wql!: expected `select <expr> : <Ty>`"); return out; }
+    // projection bytes up to the final `:` that introduces the result type.
+    let proj_text: str = lx.take_until_colon();
+    lx.skip_ws();
+    if lx.cur() != 58u8 { error("wql!: `select` needs a `: <ResultTy>` annotation"); return out; }
+    lx.bump();
+    let result_ty: str = lx.scan_ident_str();
+
+    // ── Parse the EL clauses → SExpr IR; keep the parsers for name tables ──
+    let h: Writ = writ_new(2048i64);
+
+    // Projection (required).
+    let mut pp: ElParser = el_parser_new(proj_text);
+    // Launder the root handle through a raw word: `parse_root` returns a
+    // `#[borrow_carrying]` WAny conservatively tied to `&mut pp`, which would
+    // keep `pp` mutably borrowed across the later `&pp` codegen reads. The
+    // handle is a plain absolute ref into `h`, so round-tripping through `raw()`
+    // drops the spurious parser borrow (same currency trick el.logos uses).
+    let proj_word: i64 = pp.parse_root(&h).raw();
+    if proj_word == 0i64 { error("wql!: malformed `select` expression"); return out; }
+
+    // Predicate (optional).
+    let mut wp: ElParser = el_parser_new(where_text);
+    let mut pred_word: i64 = 0i64;
+    if has_where {
+        pred_word = wp.parse_root(&h).raw();
+        if pred_word == 0i64 { error("wql!: malformed `where` expression"); return out; }
+    }
+
+    // ── Emit the generated function source ────────────────────────────────
+    let mut body: String = String::new();
+    let proj_any: WAny = WAny::ref_to(proj_word as *const u8);
+    let proj_sexpr: SExpr = proj_any.view::<SExpr>();
+    emit_sexpr(&mut body, proj_sexpr, &pp, var_name);
+    let mut pred_body: String = String::new();
+    if has_where {
+        let pred_any: WAny = WAny::ref_to(pred_word as *const u8);
+        let pred_sexpr: SExpr = pred_any.view::<SExpr>();
+        emit_sexpr(&mut pred_body, pred_sexpr, &wp, var_name);
+    }
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_into("test");
+    em.push_text("pub fn ");
+    em.push_text(fn_name);
+    em.push_text("(");
+    em.push_text(src_name);
+    em.push_text(": &[");
+    em.push_text(row_ty);
+    em.push_text("]");
+    // params (from the projection + predicate parser tables), as fn args.
+    emit_params(&mut em, &pp);
+    emit_params(&mut em, &wp);
+    em.push_text(") -> Vec<");
+    em.push_text(result_ty);
+    em.push_text("> {\n");
+    em.push_text("    let mut __out: Vec<");
+    em.push_text(result_ty);
+    em.push_text("> = Vec::<");
+    em.push_text(result_ty);
+    em.push_text(">::new();\n");
+    em.push_text("    let mut __i: i64 = 0i64;\n");
+    em.push_text("    while __i < (");
+    em.push_text(src_name);
+    em.push_text(").len() {\n");
+    em.push_text("        let ");
+    em.push_text(var_name);
+    em.push_text(": &");
+    em.push_text(row_ty);
+    em.push_text(" = &(");
+    em.push_text(src_name);
+    em.push_text(")[__i];\n");
+    if has_where {
+        em.push_text("        if ");
+        em.push_text(string_as_str(&pred_body));
+        em.push_text(" {\n");
+        em.push_text("            __out.push(");
+        em.push_text(string_as_str(&body));
+        em.push_text(");\n");
+        em.push_text("        }\n");
+    } else {
+        em.push_text("        __out.push(");
+        em.push_text(string_as_str(&body));
+        em.push_text(");\n");
+    }
+    em.push_text("        __i = __i + 1i64;\n");
+    em.push_text("    }\n");
+    em.push_text("    return __out;\n");
+    em.push_text("}\n");
+    em.commit();
+
+    return out;
+}
+
+// Emit `, <pname>: i64` for each interned param (MVP: params are typed i64;
+// the explicit-type surface for params is a later increment — the e2e covers
+// the source-slice + projection + where path).
+fn emit_params(em: &mut Emitter, p: &ElParser) {
+    let n: i64 = p.param_count();
+    let mut i: i64 = 0i64;
+    while i < n {
+        em.push_text(", ");
+        em.push_text(p.param_name(i as i32));
+        em.push_text(": i64");
+        i = i + 1i64;
+    }
+}
+
+impl QLexer {
+    // Scan an identifier at the cursor and RETURN its slice directly (do NOT
+    // stash it in a field — a `str` field aliases and every later read sees the
+    // most-recent scan, which silently collapsed all four clause names to the
+    // last one). Returns an empty `str` if the cursor is not at an identifier.
+    fn scan_ident_str(self: &mut QLexer) -> str {
+        self.skip_ws();
+        let start: i64 = self.pos;
+        let _len: i64 = self.scan_ident();
+        return unsafe { wql_str_range(self.src, start, self.pos - start) };
+    }
+    // Take projection bytes up to the LAST top-level `:` (the result-type
+    // annotation). MVP: the projection is a single expression with no `:` of
+    // its own (no ternary in select), so consume to the final `:` on the line.
+    fn take_until_colon(self: &mut QLexer) -> str {
+        self.skip_ws();
+        let start: i64 = self.pos;
+        // find the last ':' from the end of input
+        let mut last_colon: i64 = -1i64;
+        let mut q: i64 = self.pos;
+        while q < self.len {
+            if str_byte_at(self.src, q) == 58u8 { last_colon = q; }
+            q = q + 1i64;
+        }
+        let mut end: i64 = if last_colon >= 0i64 { last_colon } else { self.len };
+        self.pos = end;
+        while end > start && ql_is_space(str_byte_at(self.src, end - 1i64)) { end = end - 1i64; }
+        return unsafe { wql_str_range(self.src, start, end - start) }
+    }
+}

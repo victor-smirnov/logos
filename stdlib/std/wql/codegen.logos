@@ -1,0 +1,103 @@
+// logos.std.wql.codegen — the shared STATIC-backend codegen helper: walk the
+// SExpr Writ-schema IR and emit a Logos expression as source text (ADR 0012
+// §10.2 — "metacall walks the schema'd IR → source"). Used by BOTH resource
+// frontends: `wql!` (where/select clauses) and `trama!` (`{{ … }}` / `{% if %}`
+// / `{% for in %}` embedded expressions). One lowering, two consumers.
+package logos.std.wql.codegen;
+
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.mem.string;
+use logos.lang.str;
+
+// Walk the SExpr schema'd IR (`match` over the family enum), emitting a Logos
+// expression into `out`:
+//   • SLit (int/bool)            → the literal verbatim;
+//   • SParam                     → the generated-fn argument name (param table);
+//   • a bare field-root (SField, base = null) → the field/loop-var NAME (the
+//     row var, a `for` var, or a context field — resolved at the call site);
+//   • a field STEP (SField, base ≠ null)      → `<base>.<name>`;
+//   • SBin / SUn                 → parenthesised operator application.
+// `p` is the EL parser that produced this IR (holds the dense→name tables);
+// `var` is a fallback name for a comprehension SVar (rare in the static surface).
+pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_bool() {
+                if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); }
+            } else {
+                out.push_i64(v.as_i64());
+                out.push_str("i64");
+            }
+        }
+        SExpr::Param(pp) => {
+            out.push_str(p.param_name(pp.idx));
+        }
+        SExpr::Var(vv) => {
+            let _ = vv.idx;
+            out.push_str(var);
+        }
+        SExpr::Field(f) => {
+            let key: u8 = f.key;
+            let base_ref: WRef<SExpr> = f.base;
+            let base: WAny = base_ref.any();
+            let is_root: bool = base.is_null();
+            let name: str = p.field_name(key);
+            if is_root {
+                out.push_str(name);
+            } else {
+                let be: SExpr = f.base_expr();
+                emit_sexpr(out, be, p, var);
+                out.push_str(".");
+                out.push_str(name);
+            }
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            let lhs: SExpr = b.lhs_expr();
+            let rhs: SExpr = b.rhs_expr();
+            out.push_str("(");
+            emit_sexpr(out, lhs, p, var);
+            out.push_str(emit_binop(op));
+            emit_sexpr(out, rhs, p, var);
+            out.push_str(")");
+        }
+        SExpr::Un(u) => {
+            let op: i32 = u.op;
+            let arg: SExpr = u.arg_expr();
+            out.push_str("(");
+            if op == OP_NOT() { out.push_str("!"); } else { out.push_str("-"); }
+            emit_sexpr(out, arg, p, var);
+            out.push_str(")");
+        }
+        _ => {
+            // SCall / SCond / SComp are out of the MVP scalar-codegen scope.
+            out.push_str("0i64");
+        }
+    }
+}
+
+// SBin op id (el.logos CEL canon) → Logos infix operator text (spaces padded).
+pub fn emit_binop(op: i32) -> str {
+    if op == OP_OR()  { return " || "; }
+    if op == OP_AND() { return " && "; }
+    if op == OP_EQ()  { return " == "; }
+    if op == OP_NE()  { return " != "; }
+    if op == OP_LT()  { return " < "; }
+    if op == OP_LE()  { return " <= "; }
+    if op == OP_GT()  { return " > "; }
+    if op == OP_GE()  { return " >= "; }
+    if op == OP_ADD() { return " + "; }
+    if op == OP_SUB() { return " - "; }
+    if op == OP_MUL() { return " * "; }
+    if op == OP_DIV() { return " / "; }
+    return " % ";
+}
+
+// Borrow a `String`'s bytes as a `str` view (valid while the String is alive
+// and unmodified). Shared spelling for the emit handlers.
+pub fn string_as_str(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}

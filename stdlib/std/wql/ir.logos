@@ -1,0 +1,142 @@
+// logos.std.wql.ir — the WQL Intermediate Representation, expressed as Writ
+// schemas (ADR 0012 §1/§2, dogfooding ADR 0011).
+//
+// Every IR node is a `schema` over a Writ TinyObjectMap; each family is a
+// `schema enum` whose discriminant is read from the pointee's
+// `schema_type_code` (no stored tag). Two tiers:
+//
+//   • SExpr  (category 0x0010) — the SCALAR algebra (CEL-class expressions).
+//   • RExpr  (category 0x0011) — the RELATIONAL / GRAPH algebra (scan/edge/
+//                                filter/project/join/anti/aggr/fix).
+//
+// Edges between nodes are `WRef<S>` fields: a `WRef` is a typed, erased Writ
+// reference handle (a `WAny` carrying a self-relative ref), bound back to a
+// concrete view via `WAny::resolve()` + `.view::<S>()` at consumption time
+// (ADR 0012 §10.5). `WRef<S>` impls `WritField`, so a `lhs: WRef<SExpr>` field
+// stores/loads exactly like any other schema field — the conversion is the
+// identity over the underlying `WAny` handle (the typing is compile-time only;
+// `S` is a phantom tag that documents the edge target).
+//
+// `RFix` is DECLARED here but is the sole inert node in the static queue-1
+// backend (Datalog base; "not yet"). See ADR 0012-impl-seam §7.
+package logos.std.wql.ir;
+
+use logos.lang.writ.container;
+use logos.lang.writ.allocator;   // Allocator (WritField::to_wany param)
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+// ── WRef<S> — a typed edge handle ─────────────────────────────────────────
+// A `WRef<S>` is the one graph-edge primitive (the bounded step). It carries a
+// `WAny` ref handle; `S` is a phantom compile-time tag naming the target node
+// family. Stored verbatim as the WAny (identity WritField conversion); resolved
+// to a concrete view by the consumer via `h.resolve()` + `.view::<S>()`.
+pub struct WRef<S> {
+    pub h: WAny,
+}
+
+impl<S> WRef<S> {
+    // Wrap an existing erased ref handle.
+    pub fn from_any(h: WAny) -> WRef<S> { return WRef::<S> { h: h }; }
+    // The erased handle (consumers call `.resolve()` then `.view::<S>()`).
+    pub fn any(self: &WRef<S>) -> WAny { return self.h; }
+}
+
+// `WRef<S>` is a schema field: the at-rest value IS the WAny handle (identity).
+impl<S> WritField for WRef<S> {
+    fn from_wany(v: WAny) -> Self { return WRef::<S> { h: v }; }
+    fn to_wany(self: Self, z: *mut Allocator) -> WAny { return self.h; }
+}
+
+// `SExprArr` — a Writ array of `WRef<SExpr>` (the arg / projection list). MVP:
+// a thin schema marker whose backing is a Writ array handle carried as the
+// edge's `WAny`; element access is a queue-1 backend concern. Declared as a
+// schema so `WRef<SExprArr>` is well-typed (ADR 0012 §1 note).
+pub schema SExprArr : code(0x0010_0000_0000_000A) {
+    arr: WAny = 0,
+}
+
+// ── Scalar tier — SExpr (category 0x0010) ─────────────────────────────────
+pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0 }                                  // literal, value verbatim
+pub schema SParam : code(0x0010_0000_0000_0001) { idx: i32 = 0 }                                   // bound parameter (prepared-stmt arg)
+pub schema SVar   : code(0x0010_0000_0000_0002) { idx: i32 = 0 }                                   // comprehension-bound row variable
+pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, key: u8 = 1 }             // ONE field / edge step
+pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2 }
+pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> = 1 }
+pub schema SCall  : code(0x0010_0000_0000_0006) { fn_id: i32 = 0, args: WRef<SExprArr> = 1 }       // function/filter call
+pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2 }  // ternary
+pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1 }   // comprehension → list value
+
+pub schema enum SExpr : category(0x0010_0000_0000_0000) {
+    Lit(SLit), Param(SParam), Var(SVar), Field(SField),
+    Bin(SBin), Un(SUn), Call(SCall), Cond(SCond), Comp(SComp),
+}
+
+// Node → erased edge handle. A node's `as_ref` yields the `WAny` self-relative
+// ref to its backing TOM — the value stored into a parent's `WRef<SExpr>` field
+// (`b.lhs = WRef::<SExpr>::from_any(child.as_ref())`). The synthetic `m` ptr is
+// package-private, so these accessors are the public seam for edge wiring.
+// The cast through `i64` launders the pointer provenance: the WAny ref targets
+// the TOM in the Writ arena (which outlives the view), so it is NOT a dangling
+// reference to the local view — mirrors static_view.logos's WAny::Ref pattern.
+impl SLit     { pub fn as_ref(self: &SLit)     -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SParam   { pub fn as_ref(self: &SParam)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SVar     { pub fn as_ref(self: &SVar)     -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SField   { pub fn as_ref(self: &SField)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SBin     { pub fn as_ref(self: &SBin)     -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SUn      { pub fn as_ref(self: &SUn)      -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SCall    { pub fn as_ref(self: &SCall)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SCond    { pub fn as_ref(self: &SCond)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SComp    { pub fn as_ref(self: &SComp)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl SExprArr { pub fn as_ref(self: &SExprArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+// ── Relational / graph tier — RExpr (category 0x0011) ─────────────────────
+pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src: i32 = 1 }                 // scan all nodes of a schema in a source
+pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, key: u8 = 1 }              // follow ref field → target node(s): the GRAPH STEP
+pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
+pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, exprs: WRef<SExprArr> = 1 } // π
+pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
+pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
+pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, keys: WRef<SExprArr> = 1, aggs: WRef<SExprArr> = 2 }
+pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
+
+pub schema enum RExpr : category(0x0011_0000_0000_0000) {
+    Scan(RScan), Edge(REdge), Filter(RFilter), Proj(RProj),
+    Join(RJoin), Anti(RAnti), Aggr(RAggr), Fix(RFix),
+}
+
+// Relational-node edge handles (same provenance-laundering rationale as the
+// scalar `as_ref` above): the WAny ref targets the node's TOM in the arena.
+impl RScan   { pub fn as_ref(self: &RScan)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl REdge   { pub fn as_ref(self: &REdge)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RFilter { pub fn as_ref(self: &RFilter) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RProj   { pub fn as_ref(self: &RProj)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+// ── Typed edge RESOLVERS (the IR-walking API for consumers) ───────────────
+// Read a `WRef<S>` field → resolve the handle → bind the target view. These are
+// the canonical way a backend (interpreter / executor / metacall codegen) walks
+// one edge of the schema'd IR. They live in THIS (std) layer — where the
+// `WRef<SExpr>` / `WRef<RExpr>` instances are also CONSTRUCTED (the EL frontend
+// builds them) — so the generic `WritField::from_wany` reads instantiate with
+// correct linkage here; consumers call these plain (non-generic) methods and
+// never emit the generic field-read themselves.
+impl SField { pub fn base_expr(self: &SField) -> SExpr { return self.base.any().view::<SExpr>(); } }
+impl SUn    { pub fn arg_expr(self: &SUn)      -> SExpr { return self.arg.any().view::<SExpr>(); } }
+impl SBin   {
+    pub fn lhs_expr(self: &SBin) -> SExpr { return self.lhs.any().view::<SExpr>(); }
+    pub fn rhs_expr(self: &SBin) -> SExpr { return self.rhs.any().view::<SExpr>(); }
+}
+impl SCond  {
+    pub fn cond_expr(self: &SCond) -> SExpr { return self.c.any().view::<SExpr>(); }
+    pub fn then_expr(self: &SCond) -> SExpr { return self.t.any().view::<SExpr>(); }
+    pub fn else_expr(self: &SCond) -> SExpr { return self.e.any().view::<SExpr>(); }
+}
+impl SComp  {
+    pub fn plan_expr(self: &SComp) -> RExpr { return self.plan.any().view::<RExpr>(); }
+    pub fn head_expr(self: &SComp) -> SExpr { return self.head.any().view::<SExpr>(); }
+}
+impl RFilter {
+    pub fn input_expr(self: &RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn pred_expr(self: &RFilter)  -> SExpr { return self.pred.any().view::<SExpr>(); }
+}
+impl REdge { pub fn input_expr(self: &REdge) -> RExpr { return self.input.any().view::<RExpr>(); } }

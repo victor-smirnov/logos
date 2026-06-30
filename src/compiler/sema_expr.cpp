@@ -9354,6 +9354,20 @@ std::string SemaChecker::writfield_type_name(TypeRef t) {
         case K::Isize: return "isize"; case K::Usize: return "usize";
         case K::F32:   return "f32";  case K::F64:   return "f64";
         case K::Slice: return "str";  // str field (Slice<u8>)
+        case K::Struct:
+        case K::ZonedStruct: {
+            // A user struct field type (e.g. WQL `WRef<S>`) is a WritField iff it
+            // has an `impl WritField`. Route through the BARE template name (the
+            // generic-method dispatch target; struct_name_from_type would mangle
+            // to "WRef$G1$..." which isn't a registered fn prefix). Mono retargets
+            // `WRef__from_wany`/`__to_wany` to the concrete instance at the call.
+            std::string sn(TypeRef(t).struct_name());
+            if (sn.empty()) return {};
+            if (!find_func_candidates(sn + "__from_wany").empty() ||
+                !find_func_candidates(sn + "__to_wany").empty())
+                return sn;
+            return {};
+        }
         default:       return {};
     }
 }
@@ -9401,8 +9415,15 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
             if (c && c->param_types.size() == 1) {
                 sym = c->symbol_name.empty() ? base : c->symbol_name; break;
             }
+        // A generic-struct WritField (e.g. WQL `WRef<SExpr>`) has its type-param
+        // ONLY in the result (`from_wany(WAny) -> WRef<S>`), so mono cannot infer
+        // S from the args — pass the field's concrete type-args explicitly.
+        std::vector<TypeRef> targs;
+        if ((TypeRef(ftype).kind() == K::Struct ||
+             TypeRef(ftype).kind() == K::ZonedStruct))
+            for (auto ta : TypeRef(ftype).type_args()) targs.push_back(ta);
         std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));  // from_wany(v: WAny) by value
-        return builder().call(sym, {}, std::move(a), ftype);
+        return builder().call(sym, std::move(targs), std::move(a), ftype);
     }
     error(std::format("schema '{}' field '{}': type '{}' is not a WritField "
                       "(no WAny↔T conversion)", std::string(sname),
@@ -19474,14 +19495,15 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     for (const auto& sym : ovit->second) {
         auto fit = funcs_.find(sym);
         if (fit == funcs_.end()) continue;
-        if (fit->second.is_fn_macro) {
+        if (fit->second.is_fn_macro || fit->second.is_token_macro) {
             macro_info = &fit->second;
             break;
         }
     }
     if (!macro_info) {
         error(std::format(
-            "fn_macro item: '{}!' is not marked #[fn_macro]", callee_name));
+            "fn_macro item: '{}!' is not marked #[fn_macro] or #[token_macro]",
+            callee_name));
         return;
     }
 
@@ -19496,33 +19518,145 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         return;
     }
 
-    // Item-form callees take Vec<ExprBlob> args (mirrors the expression
-    // path's vec form). Skip single-ExprBlob shape — items are usually
-    // 0-or-many.
-    bool sig_vec = macro_info->param_types.size() == 1
+    // Item-form signatures:
+    //   #[fn_macro]:
+    //     - (Vec<ExprBlob>) -> ItemList|QuoteItemBlob   — RAW_TEXT re-parsed
+    //                                                      as comma-sep exprs
+    //     - () -> ItemList|QuoteItemBlob                 — zero-arg
+    //   #[token_macro] (WQL/Trama raw-text item path):
+    //     - (str) -> ItemList|QuoteItemBlob             — full RAW_TEXT bytes
+    //                                                      handed over verbatim;
+    //                                                      content NOT re-parsed
+    auto is_str_type = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Slice
+            && TypeRef(t).elem()
+            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
+    };
+    bool sig_str = macro_info->is_token_macro
+        && macro_info->param_types.size() == 1
+        && is_str_type(macro_info->param_types[0]);
+    bool sig_vec = !sig_str
+        && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_vec && !sig_zero) {
+    if (!sig_str && !sig_vec && !sig_zero) {
+        // Preserve the canonical fn_macro wording (diagnostic rule
+        // metaprog.fn-macro-item.param-signature); token_macro item callees
+        // get their own message.
+        const char* expected = macro_info->is_token_macro
+            ? "`str`"
+            : "`Vec<ExprBlob>` or no args";
         error(std::format(
-            "fn_macro item: '{}!' must take `Vec<ExprBlob>` or no args",
-            callee_name));
+            "fn_macro item: '{}!' must take {}", callee_name, expected));
         return;
     }
 
     if (!holder_ || !cur_prog_) return;
 
-    // Re-parse RAW_TEXT via the wrap-and-extract path (same as the
-    // expression form). For zero-arg item macros, RAW_TEXT may be empty
-    // — we still wrap as `__c()` so the parser produces an empty ARGS
-    // array.
     if (!node.has_key(la::RAW_TEXT)) {
         error("fn_macro item: missing RAW_TEXT (grammar regression?)");
         return;
     }
     std::string raw_text(str_of(node.get(la::RAW_TEXT.code)));
+
+    // ── token-macro raw-text item path (WQL/Trama) ────────────────────
+    // For #[token_macro] item callees `(str) -> ItemList|QuoteItemBlob`:
+    // skip the re-parse pipeline entirely. The full RAW_TEXT bytes go into
+    // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
+    // `str` via str_from_raw and forwards it to the callee. This is the
+    // opaque-block → handler → quote_item! emission seam for resources.
+    if (sig_str) {
+        uint64_t site_id = metacall_site_id(
+            cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
+        std::vector<std::vector<uint8_t>> blobs;
+        blobs.resize(1);
+        uint64_t sz = static_cast<uint64_t>(raw_text.size());
+        blobs[0].resize(8 + raw_text.size());
+        std::memcpy(blobs[0].data(), &sz, 8);
+        if (!raw_text.empty())
+            std::memcpy(blobs[0].data() + 8, raw_text.data(), raw_text.size());
+        lir_mirror_macro_arg_put(prog, prog.macro_arg_blobs, site_id, blobs);
+
+        std::string pkg = cur_package_.empty() ? "__metacall_thunks"
+                                               : cur_package_;
+        std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
+        // The callee invocation, producing an ItemList or QuoteItemBlob.
+        std::string call_text = std::format(
+            "{{\n"
+            "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
+            "    let __s: str = unsafe {{ str_from_raw(__p, {}i64) }};\n"
+            "    {}(__s)\n"
+            "}}",
+            site_id, static_cast<int64_t>(raw_text.size()),
+            macro_info->base_name);
+        std::string thunk_src;
+        if (rt_is_il) {
+            thunk_src = std::format(
+                "package {};\n"
+                "use logos.std.compiler.metaprog;\n"
+                "use logos.mem.collections.vec;\n"
+                "use logos.mem.writ.view;\n"
+                "use std.lang.text;\n"
+                "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_qib_free_idents(blob: *const u8);\n"
+                "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+                "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+                "unsafe fn {}() -> () {{\n"
+                "    let mut __il: ItemList = {};\n"
+                "    let n: i64 = (&__il.blobs).length();\n"
+                "    let mut i: i64 = 0i64;\n"
+                "    while i < n {{\n"
+                "        let p: *const QuoteItemBlob = unsafe {{\n"
+                "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+                "        }};\n"
+                "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
+                "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
+                "        unsafe {{ logos_qib_free_blobs((*p).blobs_blob); }}\n"
+                "        unsafe {{ logos_qib_free_cursors((*p).cursors_blob); }}\n"
+                "        i = i + 1i64;\n"
+                "    }}\n"
+                "    return;\n"
+                "}}\n",
+                pkg, thunk_name, call_text);
+        } else {
+            thunk_src = std::format(
+                "package {};\n"
+                "use logos.std.compiler.metaprog;\n"
+                "use logos.mem.collections.vec;\n"
+                "use logos.mem.writ.view;\n"
+                "use std.lang.text;\n"
+                "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_qib_free_idents(blob: *const u8);\n"
+                "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+                "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+                "unsafe fn {}() -> () {{\n"
+                "    let __b: QuoteItemBlob = {};\n"
+                "    unsafe {{ logos_emit_item_blob_subst(&__b); }}\n"
+                "    unsafe {{ logos_qib_free_idents(__b.idents_blob); }}\n"
+                "    unsafe {{ logos_qib_free_blobs(__b.blobs_blob); }}\n"
+                "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
+                "    return;\n"
+                "}}\n",
+                pkg, thunk_name, call_text);
+        }
+        MetacallSiteStage site;
+        site.ast_idx = cur_ast_idx_;
+        site.expr_offset = static_cast<uint32_t>(node.offset().value());
+        site.thunk_name = thunk_name;
+        site.thunk_source = std::move(thunk_src);
+        site.ret_tag = lir::MetacallRetTag::ItemBlob;
+        site.callee_name = macro_info->base_name;
+        push_metacall_site(prog, site);
+        return;
+    }
+
+    // Re-parse RAW_TEXT via the wrap-and-extract path (same as the
+    // expression form). For zero-arg item macros, RAW_TEXT may be empty
+    // — we still wrap as `__c()` so the parser produces an empty ARGS
+    // array.
     std::string wrap_src = std::format(
         "package __fn_macro_item_args;\nfn __f() {{ __c({}); }}\n", raw_text);
     logos::compiler::LogosParser wrap_parser(wrap_src);

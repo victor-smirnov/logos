@@ -1,0 +1,36 @@
+// logos.std.wql.source — the WQL data-source abstraction (ADR 0012-impl-seam
+// §10.4): `Source<Row>` / `IntoSource<Row>`, mirroring `Iterator` /
+// `IntoIterator`.
+//
+// WHY a fresh trait instead of reusing `Iterator`: stdlib list-comprehensions
+// desugar EAGERLY to array/slice `SForEach` loops only — they do NOT iterate a
+// general trait. WQL's relational tier must pull from Writ object stores and
+// graph edges, so it needs its own pull-based, monomorphized (zero-cost) source
+// protocol. The static backend emits `IntoSource`-driven `for`-style loops.
+//
+// SKELETON ONLY (Phase 1c): the traits + the `IntoSource`-for-`Source` blanket.
+// Concrete sources (ArraySource / WritObjectSource / RefEdgeSource) and the
+// relational adapters are deferred to the executor phase.
+package logos.std.wql.source;
+
+use logos.lang.option;   // Option<Row> — the next() result
+
+// A pull-based row producer. `next` yields `Some(row)` until exhausted.
+// Monomorphized per concrete source ⇒ zero-cost (no dynamic dispatch).
+pub trait Source<Row> {
+    fn next(self: &mut Self) -> Option<Row>;
+}
+
+// A value convertible into a `Source<Row>` (the binding surface a `from`
+// clause / data context resolves to). Mirrors `IntoIterator`.
+pub trait IntoSource<Row> {
+    type Src: Source<Row>;
+    fn into_source(self: Self) -> Self::Src;
+}
+
+// Every `Source` is trivially an `IntoSource` of itself (identity), exactly as
+// `Iterator: IntoIterator`. This is the only blanket the skeleton commits to.
+impl<Row, S: Source<Row>> IntoSource<Row> for S {
+    type Src = S;
+    fn into_source(self: S) -> S { return self; }
+}

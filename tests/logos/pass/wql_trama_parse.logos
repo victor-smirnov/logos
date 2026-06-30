@@ -1,0 +1,138 @@
+// WQL Trama frontend (ADR 0012, Phase 3): the recursive-descent Trama parser
+// (`logos.std.wql.trama::parse_trama`) consumes Trama template TEXT and produces
+// the **Trama AST** — a Writ-schema tree (category 0x0013, port of TplASTCodes:
+// FOR/IF/ELSE/SET/VAR), dogfooding ADR 0011 exactly like the Phase-1 IR. Each
+// statement's EXPRESSION attribute holds a Phase-1 `SExpr` IR produced by the
+// Phase-2 EL parser (`parse_el`) — the ONLY coupling between the template and
+// expression languages.
+//
+// This test parses templates and asserts the AST SHAPE (statement KINDS via the
+// `schema enum TStmt` + `match`) AND that the EXPRESSION holds EL IR (walked via
+// the SExpr edge resolvers), the same way wql_el_parse walks the SExpr tree.
+//
+// Coverage:
+//   1. "{% for u in users %}{{ u.name }}{% endfor %}" — the canonical case:
+//      top = TFor; its body = TVar whose EXPRESSION = `u.name` (a nested
+//      SExpr::Field chain) — i.e. the EXPRESSION attribute really holds EL IR.
+//   2. "Hi {{ name }}!" — a text run, a {{ }} var, a text run (the `next` chain).
+//   3. "{% if a %}X{% else %}Y{% endif %}" — TIf with then/else bodies + an
+//      SExpr condition.
+//   4. "{% set x = 1 + 2 %}" — TSet, EXPRESSION = an SExpr::Bin.
+//   5. malformed template ("{% for u in users %}…" with no endfor) → null root.
+//
+// Each numbered failure returns a distinct nonzero exit code.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.std.wql.trama;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(2048i64);
+
+    // ── 1. "{% for u in users %}{{ u.name }}{% endfor %}" ─────────────────
+    // Expect: TFor; body = TVar; TVar.EXPRESSION = SField(name) over SVar(u).
+    let r1: WAny = parse_trama(&h, "{% for u in users %}{{ u.name }}{% endfor %}");
+    if r1.is_null() { return 1i32; }
+    let t1: TStmt = r1.view::<TStmt>();
+    match t1 {
+        TStmt::For(f) => {
+            // the loop iterable is an SExpr (users → a bare field root)
+            let it: SExpr = f.expr_expr();
+            match it { SExpr::Field(_) => {} _ => { return 2i32; } }
+            // body head = TVar
+            let body: TStmt = f.body_stmt();
+            match body {
+                TStmt::Var(v) => {
+                    // EXPRESSION holds EL IR: `u.name` = SField(name) over the
+                    // `u` step (another SField — the EL parser, parsing this
+                    // sub-expression in isolation, has no knowledge of the Trama
+                    // `for` loop var, so `u` is a bare field root resolved later
+                    // at the metacall, NOT an SVar; cf. wql_el_parse case 1).
+                    let e: SExpr = v.expr_expr();
+                    match e {
+                        SExpr::Field(fld) => {
+                            let base: SExpr = fld.base_expr();
+                            match base { SExpr::Field(_) => {} _ => { return 3i32; } }
+                        }
+                        _ => { return 4i32; }
+                    }
+                    // the var is the only body statement
+                    if v.has_next() { return 5i32; }
+                }
+                _ => { return 6i32; }
+            }
+        }
+        _ => { return 7i32; }
+    }
+
+    // ── 2. "Hi {{ name }}!" — text / var / text chain ─────────────────────
+    let r2: WAny = parse_trama(&h, "Hi {{ name }}!");
+    if r2.is_null() { return 8i32; }
+    let s2a: TStmt = r2.view::<TStmt>();
+    // first statement: a text run, with a `next`
+    match s2a {
+        TStmt::Text(t) => {
+            if !t.has_next() { return 9i32; }
+            let s2b: TStmt = t.next_stmt();
+            match s2b {
+                TStmt::Var(v) => {
+                    // EXPRESSION = `name` (bare field root) → SExpr::Field
+                    let e: SExpr = v.expr_expr();
+                    match e { SExpr::Field(_) => {} _ => { return 10i32; } }
+                    if !v.has_next() { return 11i32; }
+                    let s2c: TStmt = v.next_stmt();
+                    match s2c {
+                        TStmt::Text(t2) => { if t2.has_next() { return 12i32; } }
+                        _ => { return 13i32; }
+                    }
+                }
+                _ => { return 14i32; }
+            }
+        }
+        _ => { return 15i32; }
+    }
+
+    // ── 3. "{% if a %}X{% else %}Y{% endif %}" — TIf with else ────────────
+    let r3: WAny = parse_trama(&h, "{% if a %}X{% else %}Y{% endif %}");
+    if r3.is_null() { return 16i32; }
+    let t3: TStmt = r3.view::<TStmt>();
+    match t3 {
+        TStmt::If(iff) => {
+            // condition is EL IR
+            let c: SExpr = iff.expr_expr();
+            match c { SExpr::Field(_) => {} _ => { return 17i32; } }
+            // then-body head = a text run "X"
+            let thenb: TStmt = iff.body_stmt();
+            match thenb { TStmt::Text(_) => {} _ => { return 18i32; } }
+            // else-body head = a text run "Y"
+            let elseb: TStmt = iff.alt_stmt();
+            match elseb { TStmt::Text(_) => {} _ => { return 19i32; } }
+        }
+        _ => { return 20i32; }
+    }
+
+    // ── 4. "{% set x = 1 + 2 %}" — TSet, EXPRESSION = SExpr::Bin ───────────
+    let r4: WAny = parse_trama(&h, "{% set x = 1 + 2 %}");
+    if r4.is_null() { return 21i32; }
+    let t4: TStmt = r4.view::<TStmt>();
+    match t4 {
+        TStmt::Set(st) => {
+            let e: SExpr = st.expr_expr();
+            match e {
+                SExpr::Bin(b) => { if b.op != OP_ADD() { return 22i32; } }
+                _ => { return 23i32; }
+            }
+        }
+        _ => { return 24i32; }
+    }
+
+    // ── 5. malformed: a `for` with no `endfor` → null root ────────────────
+    let r5: WAny = parse_trama(&h, "{% for u in users %}{{ u.name }}");
+    if !r5.is_null() { return 25i32; }
+
+    return 0i32;
+}

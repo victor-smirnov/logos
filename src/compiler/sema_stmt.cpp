@@ -7324,7 +7324,13 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
         std::vector<lir::LExprPtr> args;
         args.push_back(std::move(val));   // to_wany(self: T, z)
         args.push_back(std::move(z));
-        wany_val = builder().call(sym, {}, std::move(args), wany);
+        // Generic-struct WritField (WQL `WRef<SExpr>`): pass the field's concrete
+        // type-args so mono binds the impl's type-param (e.g. S→SExpr) rather than
+        // leaving the bare `WRef$G1$S` template unresolved.
+        std::vector<TypeRef> targs;
+        if (TypeRef(ftype).kind() == K::Struct || TypeRef(ftype).kind() == K::ZonedStruct)
+            for (auto ta : TypeRef(ftype).type_args()) targs.push_back(ta);
+        wany_val = builder().call(sym, std::move(targs), std::move(args), wany);
     }
 
     // (&mut * p.m).set(key, wany).  m is *const WMap<Wu6,WAny>; reinterpret to &mut.

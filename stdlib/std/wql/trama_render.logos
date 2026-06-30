@@ -1,0 +1,291 @@
+// logos.std.wql.trama_render — the `trama!{ … }` RESOURCE surface (ADR 0012
+// §6/§10.2, queue-1 STATIC lowering). A `#[token_macro]` handler receives the
+// raw block bytes at compile time, parses the MVP surface + the template into
+// the Trama AST (Phase-3 schema'd `TStmt` tree, whose `{{ … }}` / tag expressions
+// are SExpr edges), WALKS that AST, and EMITS a native Logos `render` function
+// (via `logos_emit_source`) that builds and returns the woven `String`.
+//
+// MVP surface (explicit-typed data context, per the ADR static model):
+//
+//   trama! {
+//       fn <name> data <ctx>:<CtxTy>
+//       " <template> "
+//   }
+//
+//   →  pub fn <name>(<ctx>: &<CtxTy>) -> String {
+//          let mut __out: String = String::new();
+//          … walk the Trama AST …
+//          return __out;
+//      }
+//
+// Template constructs lowered:
+//   • literal text run        → __out.push_str("<bytes>");
+//   • {{ expr }}              → __out.push_i64(<expr>);   (MVP: i64 interpolation)
+//   • {% if expr %}…{% else %}…{% endif %}  → if (<expr>) { … } else { … }
+//   • {% for v in expr %}…{% endfor %}      → indexed while-loop over (<expr>)
+//   • {% set v = expr %}      → let v: i64 = <expr>;
+//
+// The embedded `{{ … }}` / tag expressions are the Trama AST's `WRef<SExpr>`
+// edges (the ONE coupling, ADR 0012 §seam); they are emitted by the SHARED
+// SExpr codegen (`logos.std.wql.codegen::emit_sexpr`), exactly as the `wql!`
+// where/select clauses are. Field/loop-var NAMES are recovered from the Trama
+// parser's shared EL parser (`p.el_parser()`) + `var_name`.
+package logos.std.wql.trama_render;
+
+use logos.std.compiler.metaprog;     // Emitter, ItemList, item_list_new, error
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.std.wql.trama;
+use logos.std.wql.codegen;
+use logos.mem.string;
+use logos.lang.str;
+
+// ── Surface lexer (clause carving) ─────────────────────────────────────────
+struct TLexer {
+    src: str,
+    pos: i64,
+    len: i64,
+}
+
+fn tl_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
+fn tl_is_alpha(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+}
+fn tl_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
+fn tl_is_alnum(c: u8) -> bool { return tl_is_alpha(c) || tl_is_digit(c); }
+
+impl TLexer {
+    fn cur(self: &TLexer) -> u8 {
+        if self.pos >= self.len { return 0u8; }
+        return str_byte_at(self.src, self.pos);
+    }
+    fn bump(self: &mut TLexer) { self.pos = self.pos + 1i64; }
+    fn skip_ws(self: &mut TLexer) {
+        while self.pos < self.len && tl_is_space(self.cur()) { self.bump(); }
+    }
+    fn eat_kw(self: &mut TLexer, kw: str) -> bool {
+        self.skip_ws();
+        let n: i64 = kw.len();
+        if self.pos + n > self.len { return false; }
+        let mut i: i64 = 0i64;
+        while i < n {
+            if str_byte_at(self.src, self.pos + i) != str_byte_at(kw, i) { return false; }
+            i = i + 1i64;
+        }
+        let after: u8 = if self.pos + n < self.len { str_byte_at(self.src, self.pos + n) } else { 0u8 };
+        if tl_is_alnum(after) { return false; }
+        self.pos = self.pos + n;
+        return true;
+    }
+    // Scan an identifier at the cursor → its slice (advances).
+    fn scan_ident_str(self: &mut TLexer) -> str {
+        self.skip_ws();
+        let start: i64 = self.pos;
+        if !tl_is_alpha(self.cur()) { return ""; }
+        while self.pos < self.len && tl_is_alnum(self.cur()) { self.bump(); }
+        return unsafe { tl_str_range(self.src, start, self.pos - start) };
+    }
+    // The double-quoted template body: from the opening `"` to the matching `"`
+    // (no escapes in the MVP). Returns the inner [start,end) slice; advances past
+    // the closing quote. Empty on a missing quote.
+    fn scan_template(self: &mut TLexer) -> str {
+        self.skip_ws();
+        if self.cur() != 34u8 { return ""; }  // '"'
+        self.bump();
+        let start: i64 = self.pos;
+        while self.pos < self.len && self.cur() != 34u8 { self.bump(); }
+        let end: i64 = self.pos;
+        if self.cur() == 34u8 { self.bump(); }
+        return unsafe { tl_str_range(self.src, start, end - start) };
+    }
+}
+
+unsafe fn tl_str_range(src: str, start: i64, len: i64) -> str {
+    let l: i64 = if len < 0i64 { 0i64 } else { len };
+    return str_from_raw((src.as_ptr() as i64 + start) as *const u8, l);
+}
+
+// ── Text-run escaping ──────────────────────────────────────────────────────
+// Emit a literal text run as a Logos string literal body, escaping `"` and `\`
+// and newlines so the generated `__out.push_str("…")` parses.
+fn emit_escaped(em: &mut Emitter, s: str) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 34u8 { em.push_text("\\\""); }
+        else if c == 92u8 { em.push_text("\\\\"); }
+        else if c == 10u8 { em.push_text("\\n"); }
+        else if c == 13u8 { em.push_text("\\r"); }
+        else if c == 9u8  { em.push_text("\\t"); }
+        else {
+            // push the single byte verbatim
+            let one: str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
+            em.push_text(one);
+        }
+        i = i + 1i64;
+    }
+}
+
+// ── Read a TText node's literal bytes as a `str` ───────────────────────────
+// TText.text is a WAny Ref → WString boxed at parse time; recover its bytes.
+fn ttext_str(t: &TText) -> str {
+    let w: WAny = t.text;
+    if !w.is_string() { return ""; }
+    return w.as_wstr();
+}
+
+// ── Trama AST → render-fn body ─────────────────────────────────────────────
+// Walk a TStmt chain (the singly-linked body), emitting render statements into
+// `em`. `p` is the Trama parser (its shared EL parser holds field/param names;
+// its `var_name` resolves `for`/`set` keys). `depth` disambiguates nested loop
+// counters (`__i0`, `__i1`, …). The walk follows `next` to the chain's end.
+fn emit_stmts(em: &mut Emitter, head: i64, p: &TrParser, ctx: str, depth: i64) {
+    let mut cur: i64 = head;
+    while cur != 0i64 {
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        let nxt: i64 = emit_one(em, e, p, ctx, depth);
+        cur = nxt;
+    }
+}
+
+// Emit ONE statement; return the `next`-link word (0 = end of chain).
+fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i64 {
+    match e {
+        TStmt::Text(t) => {
+            let s: str = ttext_str(&t);
+            em.push_text("    __out.push_str(\"");
+            emit_escaped(em, s);
+            em.push_text("\");\n");
+            return next_word(&t.next);
+        }
+        TStmt::Var(v) => {
+            // {{ expr }} → push the i64 value of the expression.
+            let mut body: String = String::new();
+            let se: SExpr = v.expr_expr();
+            emit_sexpr(&mut body, se, p.el_parser(), ctx);
+            em.push_text("    __out.push_i64(");
+            em.push_text(string_as_str(&body));
+            em.push_text(");\n");
+            return next_word(&v.next);
+        }
+        TStmt::Set(s) => {
+            // {% set var = expr %} → a typed let binding (MVP: i64).
+            let vname: str = p.var_name(s.var);
+            let mut body: String = String::new();
+            let se: SExpr = s.expr_expr();
+            emit_sexpr(&mut body, se, p.el_parser(), ctx);
+            em.push_text("    let ");
+            em.push_text(vname);
+            em.push_text(": i64 = ");
+            em.push_text(string_as_str(&body));
+            em.push_text(";\n");
+            return next_word(&s.next);
+        }
+        TStmt::If(i) => {
+            // {% if expr %} then [ {% else %} alt ] {% endif %}
+            let mut cond: String = String::new();
+            let se: SExpr = i.expr_expr();
+            emit_sexpr(&mut cond, se, p.el_parser(), ctx);
+            em.push_text("    if (");
+            em.push_text(string_as_str(&cond));
+            em.push_text(") {\n");
+            emit_stmts(em, body_word(&i.body), p, ctx, depth + 1i64);
+            let altw: i64 = alt_word(&i.alt);
+            if altw != 0i64 {
+                em.push_text("    } else {\n");
+                emit_stmts(em, altw, p, ctx, depth + 1i64);
+            }
+            em.push_text("    }\n");
+            return next_word(&i.next);
+        }
+        TStmt::For(f) => {
+            // {% for v in expr %} body {% endfor %} → indexed while-loop.
+            let vname: str = p.var_name(f.var);
+            let mut iter: String = String::new();
+            let se: SExpr = f.expr_expr();
+            emit_sexpr(&mut iter, se, p.el_parser(), ctx);
+            let iter_s: str = string_as_str(&iter);
+            em.push_text("    let mut __i");
+            em.push_num(depth as u64);
+            em.push_text(": i64 = 0i64;\n");
+            em.push_text("    while __i");
+            em.push_num(depth as u64);
+            em.push_text(" < (");
+            em.push_text(iter_s);
+            em.push_text(").len() {\n");
+            em.push_text("        let ");
+            em.push_text(vname);
+            em.push_text(": i64 = (");
+            em.push_text(iter_s);
+            em.push_text(")[__i");
+            em.push_num(depth as u64);
+            em.push_text("];\n");
+            emit_stmts(em, body_word(&f.body), p, ctx, depth + 1i64);
+            em.push_text("        __i");
+            em.push_num(depth as u64);
+            em.push_text(" = __i");
+            em.push_num(depth as u64);
+            em.push_text(" + 1i64;\n");
+            em.push_text("    }\n");
+            return next_word(&f.next);
+        }
+    }
+}
+
+// Edge-word readers (launder WRef<TStmt> → raw chain word, no borrow carried).
+fn next_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
+fn body_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
+fn alt_word(r: &WRef<TStmt>)  -> i64 { return r.any().raw(); }
+
+// ── The resource handler ───────────────────────────────────────────────────
+#[token_macro]
+pub fn trama(s: str) -> ItemList {
+    let out: ItemList = item_list_new();
+
+    let mut lx: TLexer = TLexer { src: s, pos: 0i64, len: s.len() };
+
+    // fn <name>
+    if !lx.eat_kw("fn") { error("trama!: expected `fn <name>`"); return out; }
+    let fn_name: str = lx.scan_ident_str();
+
+    // data <ctx>:<CtxTy>
+    if !lx.eat_kw("data") { error("trama!: expected `data <ctx>:<CtxTy>`"); return out; }
+    let ctx_name: str = lx.scan_ident_str();
+    lx.skip_ws();
+    if lx.cur() != 58u8 { error("trama!: expected `:` after data name"); return out; }  // ':'
+    lx.bump();
+    let ctx_ty: str = lx.scan_ident_str();
+
+    // " template "
+    let tmpl: str = lx.scan_template();
+    if tmpl.len() == 0i64 { error("trama!: empty or missing \"template\""); return out; }
+
+    // ── Parse the template → Trama AST (keep the parser for name tables) ──
+    let h: Writ = writ_new(4096i64);
+    let mut p: TrParser = tr_parser_new(tmpl);
+    let head_word: i64 = p.parse_block(&h, false, false, false);
+    if !p.ok || head_word == 0i64 { error("trama!: malformed template"); return out; }
+
+    // ── Emit the render function ──────────────────────────────────────────
+    let mut em: Emitter = Emitter::new();
+    em.emit_into("test");
+    em.push_text("pub fn ");
+    em.push_text(fn_name);
+    em.push_text("(");
+    em.push_text(ctx_name);
+    em.push_text(": &");
+    em.push_text(ctx_ty);
+    em.push_text(") -> String {\n");
+    em.push_text("    let mut __out: String = String::new();\n");
+    emit_stmts(&mut em, head_word, &p, ctx_name, 0i64);
+    em.push_text("    return __out;\n");
+    em.push_text("}\n");
+    em.commit();
+
+    return out;
+}

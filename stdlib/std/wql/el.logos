@@ -1,0 +1,704 @@
+// logos.std.wql.el — the EL (Expression Language) frontend: a minimal
+// recursive-descent parser that consumes EL source text and PRODUCES the
+// Phase-1 SExpr / RExpr Writ-schema IR (ADR 0012 §"EL = CEL semantics + Logos
+// comprehension syntax").
+//
+// This is dir2 / queue-1 (static) MVP. The grammar implemented here:
+//
+//   expr     := ternary
+//   ternary  := or ( '?' expr ':' expr )?        // CEL conditional
+//   or       := and ( '||' and )*
+//   and      := equality ( '&&' equality )*
+//   equality := compare ( ('=='|'!=') compare )*
+//   compare  := add ( ('<'|'<='|'>'|'>=') add )*
+//   add      := mul ( ('+'|'-') mul )*
+//   mul      := unary ( ('*'|'/'|'%') unary )*
+//   unary    := ('!'|'-') unary | postfix
+//   postfix  := primary ( '.' ident | '(' args ')' )*   // field access / call
+//   primary  := int | bool | string | '$' ident | ident
+//              | '(' expr ')'
+//              | '[' expr 'for' ident 'in' postfix ( 'if' expr )? ']'   // comprehension
+//
+// CEL operator semantics + STRICT typing assumptions (D4): no implicit
+// optionality — field access is `SField` regardless (resolution against the
+// bound schema, and any "missing key" error, happens later at the metacall).
+//
+// Names are interned to DENSE ids: identifiers used as field keys → `u8` field
+// keys (`SField.key`); `$name` params → `SParam.idx`; comprehension `for v`
+// loop variables → `SVar.idx`. The interning is parse-local; the metacall
+// resolves the symbolic ids against the bound schema (ADR 0012-impl-seam §5).
+//
+// The parser builds nodes into a live `Writ` arena `h`; each parse routine
+// returns the child node's edge handle (`WAny`, via the node's `as_ref()`),
+// which a parent wires into a `WRef<S>` field. A node's WAny ref targets the
+// TOM in the arena (which outlives the local view), so returning the handle
+// after the view goes out of scope is sound (same pattern as ir.logos).
+package logos.std.wql.el;
+
+use logos.lang.writ.container;
+use logos.lang.writ.allocator;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.std.wql.ir;
+use logos.lang.str;
+
+// ── Operator ids (CEL canon; stable across backends) ──────────────────────
+// SBin op ids.
+pub fn OP_OR()  -> i32 { return 1i32; }   // ||
+pub fn OP_AND() -> i32 { return 2i32; }   // &&
+pub fn OP_EQ()  -> i32 { return 3i32; }   // ==
+pub fn OP_NE()  -> i32 { return 4i32; }   // !=
+pub fn OP_LT()  -> i32 { return 5i32; }   // <
+pub fn OP_LE()  -> i32 { return 6i32; }   // <=
+pub fn OP_GT()  -> i32 { return 7i32; }   // >
+pub fn OP_GE()  -> i32 { return 8i32; }   // >=
+pub fn OP_ADD() -> i32 { return 9i32; }   // +
+pub fn OP_SUB() -> i32 { return 10i32; }  // -
+pub fn OP_MUL() -> i32 { return 11i32; }  // *
+pub fn OP_DIV() -> i32 { return 12i32; }  // /
+pub fn OP_MOD() -> i32 { return 13i32; }  // %
+// SUn op ids.
+pub fn OP_NOT() -> i32 { return 1i32; }   // !
+pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
+
+// Interning-table capacity for the MVP (field keys, params, vars share the
+// same dense namespace per kind, each capped here).
+fn EL_MAX_NAMES() -> i64 { return 64i64; }
+
+// ── Parser state ──────────────────────────────────────────────────────────
+// Holds the lexer cursor + the three dense name namespaces (field keys, param
+// ids, comprehension-var ids). The `Writ` arena is passed per call (not stored)
+// to keep lifetimes trivial. `ok` latches a parse error (MVP: a single failure
+// bit; on error the produced IR is unspecified and `parse_el` returns is_null).
+pub struct ElParser {
+    pub src: str,
+    pub pos: i64,
+    pub len: i64,
+    pub ok:  bool,
+
+    // Dense interning: name (start,len) into `src`, keyed per namespace.
+    pub field_starts: [i64; 64],
+    pub field_lens:   [i64; 64],
+    pub field_n:      i64,
+
+    pub param_starts: [i64; 64],
+    pub param_lens:   [i64; 64],
+    pub param_n:      i64,
+
+    pub var_starts:   [i64; 64],
+    pub var_lens:     [i64; 64],
+    pub var_n:        i64,
+}
+
+pub fn el_parser_new(src: str) -> ElParser {
+    return ElParser {
+        src: src, pos: 0i64, len: src.len(), ok: true,
+        field_starts: [0i64; 64], field_lens: [0i64; 64], field_n: 0i64,
+        param_starts: [0i64; 64], param_lens: [0i64; 64], param_n: 0i64,
+        var_starts:   [0i64; 64], var_lens:   [0i64; 64], var_n:   0i64,
+    };
+}
+
+// ── Lexer primitives ──────────────────────────────────────────────────────
+fn is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
+fn is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
+fn is_alpha(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+}
+fn is_alnum(c: u8) -> bool { return is_alpha(c) || is_digit(c); }
+
+impl ElParser {
+    // The byte at the cursor (0 past end).
+    fn cur(self: &ElParser) -> u8 {
+        if self.pos >= self.len { return 0u8; }
+        return str_byte_at(self.src, self.pos);
+    }
+    // The byte one past the cursor (lookahead for two-char ops).
+    fn peek1(self: &ElParser) -> u8 {
+        if self.pos + 1i64 >= self.len { return 0u8; }
+        return str_byte_at(self.src, self.pos + 1i64);
+    }
+    fn bump(self: &mut ElParser) { self.pos = self.pos + 1i64; }
+
+    // Skip whitespace (no comments in the MVP grammar).
+    fn skip_ws(self: &mut ElParser) {
+        while self.pos < self.len && is_space(self.cur()) { self.bump(); }
+    }
+
+    // If the upcoming non-ws bytes equal `lit`, consume them and return true.
+    // `lit` must be ASCII; used for keywords (`for`/`in`/`if`) and multi-char
+    // punctuation. Keyword matches require a non-alnum boundary after.
+    fn eat(self: &mut ElParser, lit: str, word: bool) -> bool {
+        self.skip_ws();
+        let n: i64 = lit.len();
+        if self.pos + n > self.len { return false; }
+        let mut i: i64 = 0i64;
+        while i < n {
+            if str_byte_at(self.src, self.pos + i) != str_byte_at(lit, i) { return false; }
+            i = i + 1i64;
+        }
+        if word {
+            let after: u8 = if self.pos + n < self.len { str_byte_at(self.src, self.pos + n) } else { 0u8 };
+            if is_alnum(after) { return false; }
+        }
+        self.pos = self.pos + n;
+        return true;
+    }
+
+    // Peek: does the upcoming non-ws input start with `lit` (no consume)?
+    fn at(self: &mut ElParser, lit: str) -> bool {
+        self.skip_ws();
+        let n: i64 = lit.len();
+        if self.pos + n > self.len { return false; }
+        let mut i: i64 = 0i64;
+        while i < n {
+            if str_byte_at(self.src, self.pos + i) != str_byte_at(lit, i) { return false; }
+            i = i + 1i64;
+        }
+        return true;
+    }
+}
+
+// ── Name interning (dense ids per namespace) ──────────────────────────────
+// Byte-range equality against a stored (start,len) name.
+fn range_eq(src: str, a_start: i64, a_len: i64, b_start: i64, b_len: i64) -> bool {
+    if a_len != b_len { return false; }
+    let mut i: i64 = 0i64;
+    while i < a_len {
+        if str_byte_at(src, a_start + i) != str_byte_at(src, b_start + i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+impl ElParser {
+    // Intern a field name → dense u8 id (returns existing id or appends).
+    fn intern_field(self: &mut ElParser, start: i64, len: i64) -> u8 {
+        let mut i: i64 = 0i64;
+        while i < self.field_n {
+            if range_eq(self.src, self.field_starts[i], self.field_lens[i], start, len) {
+                return i as u8;
+            }
+            i = i + 1i64;
+        }
+        if self.field_n >= EL_MAX_NAMES() { self.ok = false; return 0u8; }
+        let id: i64 = self.field_n;
+        self.field_starts[id] = start;
+        self.field_lens[id]   = len;
+        self.field_n = self.field_n + 1i64;
+        return id as u8;
+    }
+
+    fn intern_param(self: &mut ElParser, start: i64, len: i64) -> i32 {
+        let mut i: i64 = 0i64;
+        while i < self.param_n {
+            if range_eq(self.src, self.param_starts[i], self.param_lens[i], start, len) {
+                return i as i32;
+            }
+            i = i + 1i64;
+        }
+        if self.param_n >= EL_MAX_NAMES() { self.ok = false; return 0i32; }
+        let id: i64 = self.param_n;
+        self.param_starts[id] = start;
+        self.param_lens[id]   = len;
+        self.param_n = self.param_n + 1i64;
+        return id as i32;
+    }
+
+    // Bind a fresh comprehension variable (always appends; lexical scope is
+    // flat in the MVP single-comprehension grammar) and return its dense idx.
+    fn bind_var(self: &mut ElParser, start: i64, len: i64) -> i32 {
+        if self.var_n >= EL_MAX_NAMES() { self.ok = false; return 0i32; }
+        let id: i64 = self.var_n;
+        self.var_starts[id] = start;
+        self.var_lens[id]   = len;
+        self.var_n = self.var_n + 1i64;
+        return id as i32;
+    }
+
+    // Recover the interned NAME (a `str` view over `src`) for a dense field key
+    // — the inverse of `intern_field`. The static backend (codegen) needs the
+    // textual field name (`age`) to emit a Logos field access (`row.age`); the
+    // IR's `SField.key` is only the dense id, so this is the name-resolution
+    // seam. Returns an empty `str` if `key` was never interned.
+    pub fn field_name(self: &ElParser, key: u8) -> str {
+        let i: i64 = key as i64;
+        if i < 0i64 || i >= self.field_n { return ""; }
+        return unsafe { str_from_range(self.src, self.field_starts[i], self.field_lens[i]) };
+    }
+
+    // Recover the interned NAME for a dense param id (inverse of `intern_param`).
+    pub fn param_name(self: &ElParser, idx: i32) -> str {
+        let i: i64 = idx as i64;
+        if i < 0i64 || i >= self.param_n { return ""; }
+        return unsafe { str_from_range(self.src, self.param_starts[i], self.param_lens[i]) };
+    }
+
+    // How many distinct params were interned (the prepared-stmt arg arity).
+    pub fn param_count(self: &ElParser) -> i64 { return self.param_n; }
+
+    // Resolve an already-bound comprehension variable name → idx, or -1.
+    fn lookup_var(self: &ElParser, start: i64, len: i64) -> i32 {
+        let mut i: i64 = self.var_n - 1i64;
+        while i >= 0i64 {
+            if range_eq(self.src, self.var_starts[i], self.var_lens[i], start, len) {
+                return i as i32;
+            }
+            i = i - 1i64;
+        }
+        return -1i32;
+    }
+}
+
+// ── Handle currency ───────────────────────────────────────────────────────
+// A node EDGE HANDLE is threaded up the recursive descent as a bare `i64` — the
+// raw 8-byte word of the node's `as_ref()` (an absolute, low-bit-0 Ref). A plain
+// `i64` carries NO borrow, so it flows freely through the `&mut self` parse
+// chain; `WAny` itself is `#[borrow_carrying]` (it ties to the receiver whose
+// `&self`/arena it was read from), which would (correctly, by its rules) keep
+// `self` borrowed for the whole sub-parse. Laundering through the raw word is the
+// in-tree pattern (ir.logos `as_ref` casts the view ptr through `i64` for the
+// same provenance reason). The handle round-trips losslessly: every node ref is a
+// Ref (absolute ptr), so `WAny::ref_to(word as *const u8)` reconstructs it.
+fn hand_of(w: WAny) -> i64 { return w.raw(); }
+fn hand_any(w: i64) -> WAny { return WAny::ref_to(w as *const u8); }
+fn hand_null() -> i64 { return 0i64; }
+
+// ── Node constructors (build into the arena, return the edge handle word) ──
+fn mk_lit(h: &Writ, v: WAny) -> i64 {
+    let n: SLit = h.make::<SLit>();
+    n.val = v;
+    return hand_of(n.as_ref());
+}
+fn mk_param(h: &Writ, idx: i32) -> i64 {
+    let n: SParam = h.make::<SParam>();
+    n.idx = idx;
+    return hand_of(n.as_ref());
+}
+fn mk_var(h: &Writ, idx: i32) -> i64 {
+    let n: SVar = h.make::<SVar>();
+    n.idx = idx;
+    return hand_of(n.as_ref());
+}
+fn mk_field(h: &Writ, base: i64, key: u8) -> i64 {
+    let n: SField = h.make::<SField>();
+    n.base = WRef::<SExpr>::from_any(hand_any(base));
+    n.key  = key;
+    return hand_of(n.as_ref());
+}
+fn mk_un(h: &Writ, op: i32, arg: i64) -> i64 {
+    let n: SUn = h.make::<SUn>();
+    n.op  = op;
+    n.arg = WRef::<SExpr>::from_any(hand_any(arg));
+    return hand_of(n.as_ref());
+}
+fn mk_bin(h: &Writ, op: i32, lhs: i64, rhs: i64) -> i64 {
+    let n: SBin = h.make::<SBin>();
+    n.op  = op;
+    n.lhs = WRef::<SExpr>::from_any(hand_any(lhs));
+    n.rhs = WRef::<SExpr>::from_any(hand_any(rhs));
+    return hand_of(n.as_ref());
+}
+fn mk_cond(h: &Writ, c: i64, t: i64, e: i64) -> i64 {
+    let n: SCond = h.make::<SCond>();
+    n.c = WRef::<SExpr>::from_any(hand_any(c));
+    n.t = WRef::<SExpr>::from_any(hand_any(t));
+    n.e = WRef::<SExpr>::from_any(hand_any(e));
+    return hand_of(n.as_ref());
+}
+fn mk_call(h: &Writ, fn_id: i32, args: i64) -> i64 {
+    let n: SCall = h.make::<SCall>();
+    n.fn_id = fn_id;
+    n.args  = WRef::<SExprArr>::from_any(hand_any(args));
+    return hand_of(n.as_ref());
+}
+fn mk_comp(h: &Writ, plan: i64, head: i64) -> i64 {
+    let n: SComp = h.make::<SComp>();
+    n.plan = WRef::<RExpr>::from_any(hand_any(plan));
+    n.head = WRef::<SExpr>::from_any(hand_any(head));
+    return hand_of(n.as_ref());
+}
+// Relational nodes the comprehension lowers to.
+fn mk_scan(h: &Writ, src_idx: i32) -> i64 {
+    let n: RScan = h.make::<RScan>();
+    n.src = src_idx;          // node_code resolved at the metacall against the bound schema
+    return hand_of(n.as_ref());
+}
+fn mk_filter(h: &Writ, input: i64, pred: i64) -> i64 {
+    let n: RFilter = h.make::<RFilter>();
+    n.input = WRef::<RExpr>::from_any(hand_any(input));
+    n.pred  = WRef::<SExpr>::from_any(hand_any(pred));
+    return hand_of(n.as_ref());
+}
+
+// ── Recursive-descent expression grammar ──────────────────────────────────
+impl ElParser {
+    // expr := ternary
+    fn parse_expr(self: &mut ElParser, h: &Writ) -> i64 {
+        return self.parse_ternary(h);
+    }
+
+    // ternary := or ( '?' expr ':' expr )?
+    fn parse_ternary(self: &mut ElParser, h: &Writ) -> i64 {
+        let c: i64 = self.parse_or(h);
+        if self.eat("?", false) {
+            let t: i64 = self.parse_expr(h);
+            if !self.eat(":", false) { self.ok = false; return c; }
+            let e: i64 = self.parse_expr(h);
+            return mk_cond(h, c, t, e);
+        }
+        return c;
+    }
+
+    // or := and ( '||' and )*
+    fn parse_or(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut lhs: i64 = self.parse_and(h);
+        while self.eat("||", false) {
+            let rhs: i64 = self.parse_and(h);
+            lhs = mk_bin(h, OP_OR(), lhs, rhs);
+        }
+        return lhs;
+    }
+
+    // and := equality ( '&&' equality )*
+    fn parse_and(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut lhs: i64 = self.parse_equality(h);
+        while self.eat("&&", false) {
+            let rhs: i64 = self.parse_equality(h);
+            lhs = mk_bin(h, OP_AND(), lhs, rhs);
+        }
+        return lhs;
+    }
+
+    // equality := compare ( ('=='|'!=') compare )*
+    fn parse_equality(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut lhs: i64 = self.parse_compare(h);
+        loop {
+            let op: i32 = if self.eat("==", false) { OP_EQ() }
+                          else if self.eat("!=", false) { OP_NE() }
+                          else { 0i32 };
+            if op == 0i32 { break; }
+            let rhs: i64 = self.parse_compare(h);
+            lhs = mk_bin(h, op, lhs, rhs);
+        }
+        return lhs;
+    }
+
+    // compare := add ( ('<='|'>='|'<'|'>') add )*   (two-char ops first)
+    fn parse_compare(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut lhs: i64 = self.parse_add(h);
+        loop {
+            let op: i32 = if self.eat("<=", false) { OP_LE() }
+                          else if self.eat(">=", false) { OP_GE() }
+                          else if self.eat("<", false)  { OP_LT() }
+                          else if self.eat(">", false)  { OP_GT() }
+                          else { 0i32 };
+            if op == 0i32 { break; }
+            let rhs: i64 = self.parse_add(h);
+            lhs = mk_bin(h, op, lhs, rhs);
+        }
+        return lhs;
+    }
+
+    // add := mul ( ('+'|'-') mul )*
+    fn parse_add(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut lhs: i64 = self.parse_mul(h);
+        loop {
+            let op: i32 = if self.eat("+", false) { OP_ADD() }
+                          else if self.eat("-", false) { OP_SUB() }
+                          else { 0i32 };
+            if op == 0i32 { break; }
+            let rhs: i64 = self.parse_mul(h);
+            lhs = mk_bin(h, op, lhs, rhs);
+        }
+        return lhs;
+    }
+
+    // mul := unary ( ('*'|'/'|'%') unary )*
+    fn parse_mul(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut lhs: i64 = self.parse_unary(h);
+        loop {
+            let op: i32 = if self.eat("*", false) { OP_MUL() }
+                          else if self.eat("/", false) { OP_DIV() }
+                          else if self.eat("%", false) { OP_MOD() }
+                          else { 0i32 };
+            if op == 0i32 { break; }
+            let rhs: i64 = self.parse_unary(h);
+            lhs = mk_bin(h, op, lhs, rhs);
+        }
+        return lhs;
+    }
+
+    // unary := ('!'|'-') unary | postfix
+    fn parse_unary(self: &mut ElParser, h: &Writ) -> i64 {
+        if self.eat("!", false) {
+            let a: i64 = self.parse_unary(h);
+            return mk_un(h, OP_NOT(), a);
+        }
+        if self.eat("-", false) {
+            let a: i64 = self.parse_unary(h);
+            return mk_un(h, OP_NEG(), a);
+        }
+        return self.parse_postfix(h);
+    }
+
+    // postfix := primary ( '.' ident )*
+    //
+    // Field access `a.b.c` lowers to a left-nested SField chain
+    // (`SField(key=c, base=SField(key=b, base=<a>))`), the bounded edge-walk
+    // (ADR 0012-impl-seam §1). Function calls `f(args)` are handled at the
+    // primary level (an identifier immediately followed by `(`), so a bare
+    // `.method()` postfix-call is intentionally NOT in the MVP grammar.
+    fn parse_postfix(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut e: i64 = self.parse_primary(h);
+        while self.eat(".", false) {
+            self.skip_ws();
+            let start: i64 = self.pos;
+            let len: i64 = self.scan_ident();
+            if len == 0i64 { self.ok = false; return e; }
+            let key: u8 = self.intern_field(start, len);
+            e = mk_field(h, e, key);
+        }
+        return e;
+    }
+
+    // Scan an identifier starting at the cursor; returns its byte length (the
+    // cursor advances past it). 0 if the cursor is not at an identifier start.
+    fn scan_ident(self: &mut ElParser) -> i64 {
+        if !is_alpha(self.cur()) { return 0i64; }
+        let start: i64 = self.pos;
+        while self.pos < self.len && is_alnum(self.cur()) { self.bump(); }
+        return self.pos - start;
+    }
+
+    // primary := int | bool | string | '$' ident | ident ( '(' args ')' )?
+    //          | '(' expr ')' | comprehension
+    fn parse_primary(self: &mut ElParser, h: &Writ) -> i64 {
+        self.skip_ws();
+        let c: u8 = self.cur();
+
+        // parenthesised
+        if c == 40u8 {  // '('
+            self.bump();
+            let e: i64 = self.parse_expr(h);
+            if !self.eat(")", false) { self.ok = false; }
+            return e;
+        }
+        // comprehension
+        if c == 91u8 { return self.parse_comp(h); }  // '['
+        // string literal
+        if c == 34u8 { return self.parse_string(h); }  // '"'
+        // parameter
+        if c == 36u8 {  // '$'
+            self.bump();
+            let start: i64 = self.pos;
+            let len: i64 = self.scan_ident();
+            if len == 0i64 { self.ok = false; return hand_null(); }
+            let idx: i32 = self.intern_param(start, len);
+            return mk_param(h, idx);
+        }
+        // integer literal
+        if is_digit(c) { return self.parse_int(h); }
+        // identifier: keyword literal (true/false), a bound comprehension var,
+        // a function call, or a bare field root.
+        if is_alpha(c) {
+            let start: i64 = self.pos;
+            let len: i64 = self.scan_ident();
+            // bool literals
+            if range_lit_eq(self.src, start, len, "true")  { return mk_lit(h, WAny::from(true)); }
+            if range_lit_eq(self.src, start, len, "false") { return mk_lit(h, WAny::from(false)); }
+            // function call: ident '(' args ')'
+            if self.at("(") {
+                let fn_id: i32 = self.intern_field(start, len) as i32;
+                let args: i64 = self.parse_arglist(h);
+                return mk_call(h, fn_id, args);
+            }
+            // bound comprehension variable
+            let v: i32 = self.lookup_var(start, len);
+            if v >= 0i32 { return mk_var(h, v); }
+            // Otherwise a bare field-root identifier. In the static profile a
+            // bare name denotes a field of the implicit data context / source
+            // root resolved at the metacall — modelled as an SField step off a
+            // NULL base handle (`base = WAny::Ref(0)`); the metacall binds that
+            // root to the data context.
+            let key: u8 = self.intern_field(start, len);
+            return mk_field(h, hand_null(), key);
+        }
+        self.ok = false;
+        return hand_null();
+    }
+
+    // int := [0-9]+
+    fn parse_int(self: &mut ElParser, h: &Writ) -> i64 {
+        let mut v: i64 = 0i64;
+        while self.pos < self.len && is_digit(self.cur()) {
+            v = v * 10i64 + ((self.cur() as i64) - 48i64);
+            self.bump();
+        }
+        return mk_lit(h, h.int(v));
+    }
+
+    // string := '"' chars '"'   (no escapes in the MVP)
+    fn parse_string(self: &mut ElParser, h: &Writ) -> i64 {
+        self.bump();  // opening quote
+        let start: i64 = self.pos;
+        while self.pos < self.len && self.cur() != 34u8 { self.bump(); }
+        let len: i64 = self.pos - start;
+        if self.cur() != 34u8 { self.ok = false; } else { self.bump(); }  // closing quote
+        // Box the string bytes into the arena and store a Ref WAny.
+        let s: str = unsafe { str_from_range(self.src, start, len) };
+        let w: WAny = unsafe {
+            WAny::ref_to(wstring_in_alloc(h.allocator.get(), s) as *const u8)
+        };
+        return mk_lit(h, w);
+    }
+
+    // arglist := '(' ( expr ( ',' expr )* )? ')'  →  SExprArr backing
+    // MVP: the argument list is collected into a fresh `SExprArr` node whose
+    // `arr` WAny is a Writ array handle. To keep the MVP lean (no typed Writ
+    // array construction wired yet), we store the FIRST argument's edge as the
+    // arr handle when present, else null. The arity/full list materialization
+    // is a backend concern (ADR 0012-impl-seam §1 note: SExprArr exact array
+    // type is a deferred `[?]`). Calls with 0/1 args round-trip structurally.
+    fn parse_arglist(self: &mut ElParser, h: &Writ) -> i64 {
+        if !self.eat("(", false) { self.ok = false; }
+        // Parse the arguments BEFORE making the SExprArr node, so the parse's
+        // `&mut self` chain doesn't overlap a live arena view.
+        let mut first: i64 = hand_null();
+        let mut has_arg: bool = false;
+        if !self.at(")") {
+            first = self.parse_expr(h);
+            has_arg = true;
+            // consume any remaining comma-separated args (kept structurally; the
+            // first is the representative handle for the MVP).
+            while self.eat(",", false) {
+                let _extra: i64 = self.parse_expr(h);
+            }
+        }
+        if !self.eat(")", false) { self.ok = false; }
+        let arr: SExprArr = h.make::<SExprArr>();
+        arr.arr = if has_arg { hand_any(first) } else { WAny::ref_to(0i64 as *const u8) };
+        return hand_of(arr.as_ref());
+    }
+
+    // comprehension := '[' expr 'for' ident 'in' postfix ( 'if' guard )? ']'
+    //   →  SComp{ plan = RFilter(RScan(src), guard)?  |  RScan(src),
+    //            head = expr }
+    fn parse_comp(self: &mut ElParser, h: &Writ) -> i64 {
+        self.eat("[", false);
+        // The grammar is `[ head for v in src (if guard)? ]`: the head/guard
+        // reference the loop var `v`, but `v`'s NAME appears AFTER the head. So
+        // pre-scan to locate `for <ident>` and bind `v` first; then parse the
+        // head with the binding in scope (restoring the cursor to the head).
+        let save: i64 = self.pos;
+        let var_idx: i32 = self.prescan_bind_var();
+        self.pos = save;
+        if var_idx < 0i32 { self.ok = false; }
+
+        let head: i64 = self.parse_expr(h);
+        if !self.eat("for", true) { self.ok = false; }
+        // skip the variable identifier (already bound in the prescan)
+        self.skip_ws();
+        let _vlen: i64 = self.scan_ident();
+        if !self.eat("in", true) { self.ok = false; }
+        // source: a bare identifier interned as a source/param idx
+        let src_idx: i32 = self.parse_source(h);
+        let scan: i64 = mk_scan(h, src_idx);
+
+        let plan: i64 = if self.eat("if", true) {
+            let guard: i64 = self.parse_expr(h);
+            mk_filter(h, scan, guard)
+        } else {
+            scan
+        };
+        if !self.eat("]", false) { self.ok = false; }
+        return mk_comp(h, plan, head);
+    }
+
+    // Find the `for <ident>` after the current position and bind <ident> as a
+    // comprehension variable; return its idx (-1 on malformed input). Does NOT
+    // move the main cursor (caller restores).
+    fn prescan_bind_var(self: &mut ElParser) -> i32 {
+        let mut p: i64 = self.pos;
+        // naive scan for the keyword `for` at a word boundary
+        loop {
+            if p >= self.len { return -1i32; }
+            // match "for" preceded by ws/'[' and followed by ws
+            if p + 3i64 <= self.len
+               && str_byte_at(self.src, p) == 102u8       // 'f'
+               && str_byte_at(self.src, p + 1i64) == 111u8 // 'o'
+               && str_byte_at(self.src, p + 2i64) == 114u8 // 'r'
+            {
+                let before: u8 = if p > 0i64 { str_byte_at(self.src, p - 1i64) } else { 32u8 };
+                let after: u8 = if p + 3i64 < self.len { str_byte_at(self.src, p + 3i64) } else { 0u8 };
+                if !is_alnum(before) && !is_alnum(after) {
+                    // skip "for" + ws
+                    let mut q: i64 = p + 3i64;
+                    while q < self.len && is_space(str_byte_at(self.src, q)) { q = q + 1i64; }
+                    let vstart: i64 = q;
+                    while q < self.len && is_alnum(str_byte_at(self.src, q)) { q = q + 1i64; }
+                    let vlen: i64 = q - vstart;
+                    if vlen == 0i64 { return -1i32; }
+                    return self.bind_var(vstart, vlen);
+                }
+            }
+            p = p + 1i64;
+        }
+    }
+
+    // Comprehension source: a bare identifier interned as a source/param idx.
+    fn parse_source(self: &mut ElParser, h: &Writ) -> i32 {
+        self.skip_ws();
+        let start: i64 = self.pos;
+        let len: i64 = self.scan_ident();
+        if len == 0i64 { self.ok = false; return 0i32; }
+        return self.intern_param(start, len);
+    }
+}
+
+// Compare a (start,len) byte range in `src` against an ASCII literal.
+fn range_lit_eq(src: str, start: i64, len: i64, lit: str) -> bool {
+    if len != lit.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < len {
+        if str_byte_at(src, start + i) != str_byte_at(lit, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Build a `str` view over a (start,len) byte range of `src`. The returned `str`
+// shares `src`'s buffer (no copy); valid for `src`'s lifetime. UNSAFE: forms a
+// fat str pointer from src.as_ptr()+start with the given length.
+unsafe fn str_from_range(src: str, start: i64, len: i64) -> str {
+    return str_from_raw((src.as_ptr() as i64 + start) as *const u8, len);
+}
+
+// ── Public entry point ────────────────────────────────────────────────────
+// Parse EL source `text` into the SExpr/RExpr IR built in arena `h`. Returns
+// the ROOT node's edge handle (a `WAny` ref to view via `.view::<SExpr>()`).
+// On a parse error the returned handle is null (`WAny::is_null`).
+pub fn parse_el(h: &Writ, text: str) -> WAny {
+    let mut p: ElParser = el_parser_new(text);
+    let root: i64 = p.parse_expr(h);
+    p.skip_ws();
+    let bad: bool = !p.ok || p.pos < p.len;   // error or unconsumed trailing input
+    if bad { return WAny::ref_to(0i64 as *const u8); }
+    return hand_any(root);
+}
+
+impl ElParser {
+    // Parse this parser's `src` (a full EL expression) into the SExpr IR built
+    // in arena `h`, KEEPING the parser so the caller can recover field/param
+    // NAMES (`field_name`/`param_name`) for codegen. Returns the root SExpr
+    // edge handle, or null on a parse error / trailing input. This is the
+    // static-backend entry: the codegen drives the parser, walks the IR it
+    // returns, and resolves dense keys back to names through the same parser.
+    pub fn parse_root(self: &mut ElParser, h: &Writ) -> WAny {
+        let root: i64 = self.parse_expr(h);
+        self.skip_ws();
+        if !self.ok || self.pos < self.len { return WAny::ref_to(0i64 as *const u8); }
+        return hand_any(root);
+    }
+}

@@ -1,0 +1,50 @@
+// WQL/Trama de-risk slice: a `#[token_macro]` callee at MODULE ITEM
+// position receives the raw block text as a single `str` (NOT re-parsed
+// as Logos), inspects it, and emits a callable item via `quote_item!`.
+//
+// This is the "resource" emission seam: opaque block text at compile time
+//   → metaprog handler → quote_item! emission → linked, callable Logos
+//   → callable from main.
+//
+// The handler's emission is DRIVEN by the raw text content: it scans the
+// block for the token `answer` and emits `fn resource_value() -> i32`
+// returning 42 if present, 7 otherwise — proving the raw bytes survived
+// the metacall thunk round-trip and reached the handler.
+package token_macro_item_resource;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use logos.lang.str;
+
+#[token_macro]
+pub fn resource(s: str) -> ItemList {
+    let mut out: ItemList = item_list_new();
+
+    // Inspect the opaque block text. Real WQL/Trama would parse it into
+    // the IR here; the spike just branches on a marker substring.
+    let has_answer: bool = str_contains(s, "answer");
+
+    let b: QuoteItemBlob = if has_answer {
+        quote_item! {
+            pub fn resource_value() -> i32 { return 42i32; }
+        }
+    } else {
+        quote_item! {
+            pub fn resource_value() -> i32 { return 7i32; }
+        }
+    };
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    return out;
+}
+
+// The block body is deliberately NOT valid Logos — it is opaque "query"
+// text. A `#[fn_macro]` item callee would fail to re-parse this; the
+// token-macro path hands it over verbatim.
+resource!{ select answer from rows where x > 1 && active }
+
+fn main() -> i32 {
+    // resource_value() was spliced in by the handler above. It returns 42
+    // because the raw block text contained "answer".
+    return resource_value();
+}
