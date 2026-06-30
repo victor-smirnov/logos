@@ -11,7 +11,7 @@ use logos.std.io.fs;
 use logos.std.env;
 use logos.lang.option;
 
-use lforge.schema;
+use lforge.schema_types;
 use lforge.util;
 use lforge.lockfile;
 use lforge.proc;

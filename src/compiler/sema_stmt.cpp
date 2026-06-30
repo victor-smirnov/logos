@@ -7234,6 +7234,73 @@ std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
         lir::SBlock{lir_mirror_block(*cur_prog_, inner)});
 }
 
+// ADR 0011 — schema field WRITE: `p.field = v` ⇒ `(&mut* p.m).set(KEY, WAny::from(v))`.
+// TOM `set` is fixed-capacity in-place (no realloc), so the thin view suffices for
+// Pod-fitting values. Boxed types (i32/i64/u32/u64/f64/str) need the arena allocator
+// (a fat view) — deferred; they error with a clear pointer here.
+std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
+    const std::string& recv_name, const std::string& field_name,
+    writ::TinyMapView val_node) {
+    TypeRef rt = lookup(recv_name);
+    if (!rt || TypeRef(rt).kind() != LogosType::Kind::Struct) return std::nullopt;
+    auto sname = std::string(TypeRef(rt).struct_name());
+    auto [spkg, ssi] = find_struct_by_name(sname);
+    if (!ssi || !ssi->is_schema) return std::nullopt;
+
+    int found = -1;
+    for (size_t i = 0; i < ssi->schema_fields.size(); ++i)
+        if (ssi->schema_fields[i].name == field_name) { found = (int)i; break; }
+    if (found < 0) {
+        error(std::format("schema '{}' has no field '{}'", sname, field_name));
+        lir::SExprStmt es; es.expr = error_expr();
+        return make_stmt_emit(node_line_, std::move(es));
+    }
+    uint8_t key   = ssi->schema_keys[found];
+    TypeRef ftype = ssi->schema_fields[found].type;
+
+    lir::LExprPtr val = lower_expr(val_node);
+    if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
+        !types_compatible(expr_type(val), ftype)) {
+        auto [es2, gs2] = type_str_pair(ftype, expr_type(val));
+        error(std::format("schema write '{}.{}': expected {}, got {}",
+              recv_name, field_name, es2, gs2));
+    }
+    track_write_move(val);
+
+    // Build a WAny from the typed value via an inline `WAny::from` overload.
+    // Boxed (allocator-needing) types have no inline `from` → defer to a later
+    // increment with a clear diagnostic rather than silently truncating.
+    std::string from_sym;
+    for (auto* cand : find_func_candidates("WAny__from")) {
+        if (!cand || cand->param_types.size() != 1) continue;
+        if (types_compatible(ftype, cand->param_types[0])) { from_sym = cand->symbol_name; break; }
+    }
+    if (from_sym.empty()) {
+        error(std::format("schema write '{}.{}': field type '{}' needs a boxed (arena) "
+                          "value, not yet supported — only inline scalars (bool, i8/u8, "
+                          "i16/u16, i24/u24, i56) are writable through the view today",
+                          recv_name, field_name, type_str(ftype)));
+        lir::SExprStmt es; es.expr = error_expr();
+        return make_stmt_emit(node_line_, std::move(es));
+    }
+    TypeRef wany = make_enum_type("WAny");
+    std::vector<lir::LExprPtr> fargs; fargs.push_back(std::move(val));
+    auto wany_val = builder().call(from_sym, {}, std::move(fargs), wany);
+
+    // (&mut * p.m).set(key, wany).  m is *const WMap<Wu6,WAny>; reinterpret to &mut.
+    TypeRef wmap = make_generic_struct("WMap", {make_struct_type("Wu6"), make_enum_type("WAny")});
+    auto recv_expr = builder().var_ref(recv_name, rt);
+    auto m_ptr = builder().field_read(std::move(recv_expr), "m", make_ptr(false, wmap));
+    auto m_mut = builder().cast(std::move(m_ptr), make_ref(true, wmap));
+    std::vector<lir::LExprPtr> sargs;
+    sargs.push_back(builder().lit_int(static_cast<int64_t>(key), prim(LogosType::Kind::U8)));
+    sargs.push_back(std::move(wany_val));
+    auto setcall = builder().method_call(std::move(m_mut), "set", "", {},
+                                         std::move(sargs), -1, void_t());
+    lir::SExprStmt es; es.expr = std::move(setcall);
+    return make_stmt_emit(node_line_, std::move(es));
+}
+
 lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     auto place_node = map_of(node.get(la::RECEIVER.code));
     int32_t pc = code_of(place_node);
@@ -7329,6 +7396,11 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
         if (code_of(recv) == la::VAR_REF) {
             auto rn = std::string(str_of(recv.get(la::NAME.code)));
             if (auto s = try_dataref_field_write(rn,
+                    std::string(str_of(place_node.get(la::FIELD.code))),
+                    map_of(node.get(la::VALUE.code))))
+                return std::move(*s);
+            // ADR 0011 — schema field write `p.field = v`.
+            if (auto s = try_schema_field_write(rn,
                     std::string(str_of(place_node.get(la::FIELD.code))),
                     map_of(node.get(la::VALUE.code))))
                 return std::move(*s);
@@ -8214,6 +8286,140 @@ bool SemaChecker::emit_for_pattern_destructure(
     return true;
 }
 
+// ADR 0011 — desugar `match e { E::V(b) => …, _ => … }` over a schema enum into:
+//   { let __sm = e.m;  let __code = (&*__sm).schema_type_code();
+//     if __code == V1::CODE { let b = V1{m:__sm}; <body1> } else if … else { <wild> } }
+// The variant is read from the matched node's own schema_type_code — no stored
+// discriminant. Inside each arm the binding is the concrete variant view (trusted).
+lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
+                                                       lir::LExprPtr scrut,
+                                                       TypeRef scrut_type) {
+    auto [epkg, esi] = find_struct_by_name(std::string(TypeRef(scrut_type).struct_name()));
+    TypeRef wmap      = make_generic_struct("WMap", {make_struct_type("Wu6"),
+                                                     make_enum_type("WAny")});
+    TypeRef wmap_cptr = make_ptr(false, wmap);
+    TypeRef u64t      = prim(LogosType::Kind::U64);
+
+    auto lower_body_into = [&](TinyMapView body, bool is_expr,
+                               std::vector<lir_view::StmtRef>& out) {
+        if (is_expr) {
+            lir::SExprStmt es; es.expr = lower_expr(body);
+            out.push_back(make_stmt_emit(node_line_, std::move(es)));
+        } else {
+            lower_block(body).each_stmt([&](lir_view::StmtRef s){ out.push_back(s); });
+        }
+    };
+
+    std::vector<lir_view::StmtRef> outer;
+    // let __sm = <scrut>.m;
+    std::string sm = "__se_m_" + std::to_string(tmp_var_count_++);
+    define(sm, wmap_cptr);
+    { lir::SLet l; l.name = sm; l.type = wmap_cptr; l.is_mut = false;
+      l.value = builder().field_read(std::move(scrut), "m", wmap_cptr);
+      outer.push_back(make_stmt_emit(node_line_, std::move(l))); }
+    // let __code = (&* __sm).schema_type_code();
+    std::string codev = "__se_code_" + std::to_string(tmp_var_count_++);
+    define(codev, u64t);
+    { auto mref = builder().cast(builder().var_ref(sm, wmap_cptr), make_ref(false, wmap));
+      auto call = builder().method_call(std::move(mref), "schema_type_code", "", {}, {}, -1, u64t);
+      lir::SLet l; l.name = codev; l.type = u64t; l.is_mut = false; l.value = std::move(call);
+      outer.push_back(make_stmt_emit(node_line_, std::move(l))); }
+
+    struct Arm { uint64_t vcode; std::string binding; TypeRef vty; TinyMapView body; bool is_expr; };
+    std::vector<Arm> arms;
+    std::optional<TinyMapView> wild_body; bool wild_is_expr = false;
+    if (node.has_key(la::ITEMS)) {
+        auto al = arr_of(node.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < al.size(); ++i) {
+            auto arm = map_of(al.get(i));
+            if (code_of(arm) != la::MATCH_ARM || !arm.has_key(la::LHS)) continue;
+            auto pat = map_of(arm.get(la::LHS.code));
+            // Match arms wrap the pattern in a single-alt PAT_OR — unwrap it.
+            if (code_of(pat) == la::PAT_OR && pat.has_key(la::ITEMS)) {
+                auto alts = arr_of(pat.get(la::ITEMS.code));
+                if (alts.size() == 1) pat = map_of(alts.get(0));
+                else { error("schema enum match: or-patterns not supported yet"); continue; }
+            }
+            bool is_expr = arm.has_key(la::EXPR);
+            TinyMapView body = is_expr ? map_of(arm.get(la::EXPR.code))
+                                       : map_of(arm.get(la::BODY.code));
+            int32_t pc = code_of(pat);
+            if (pc == la::PAT_WILD) { wild_body = body; wild_is_expr = is_expr; continue; }
+            if (pc != la::PAT_VARIANT_DATA && pc != la::PAT_VARIANT) {
+                error("schema enum match: arm pattern must be `E::Variant(b)` or `_`");
+                continue;
+            }
+            std::string vname = pat.has_key(la::FIELD)
+                ? std::string(str_of(pat.get(la::FIELD.code)))
+                : std::string(str_of(pat.get(la::NAME.code)));
+            std::string binding;
+            if (pat.has_key(la::ARGS)) {
+                auto aav = pat.get(la::ARGS.code);
+                if (!aav.is_null() && aav.is_pointer()) {
+                    auto blist = map_of(aav);
+                    if (blist.has_key(la::ITEMS)) {
+                        auto bitems = arr_of(blist.get(la::ITEMS.code));
+                        if (bitems.size() >= 1) {
+                            auto b0 = map_of(bitems.get(0));
+                            if (b0.has_key(la::NAME))
+                                binding = std::string(str_of(b0.get(la::NAME.code)));
+                        }
+                    }
+                }
+            }
+            TypeRef vty = nullptr; uint64_t vcode = 0; bool found = false;
+            for (auto& pr : esi->schema_variants) {
+                if (pr.first == vname) {
+                    vty = pr.second;
+                    auto [vpkg, vsi] = find_struct_by_name(std::string(TypeRef(vty).struct_name()));
+                    if (vsi) vcode = vsi->schema_type_code;
+                    found = true; break;
+                }
+            }
+            if (!found) {
+                error(std::format("schema enum '{}' has no variant '{}'",
+                                  TypeRef(scrut_type).struct_name(), vname));
+                continue;
+            }
+            arms.push_back({vcode, binding, vty, body, is_expr});
+        }
+    }
+
+    std::optional<std::vector<lir_view::StmtRef>> else_blk;
+    if (wild_body) {
+        std::vector<lir_view::StmtRef> wb;
+        lower_body_into(*wild_body, wild_is_expr, wb);
+        else_blk = std::move(wb);
+    }
+    for (size_t i = arms.size(); i-- > 0; ) {
+        Arm& a = arms[i];
+        std::vector<lir_view::StmtRef> tb;
+        push_scope();
+        if (!a.binding.empty() && a.binding != "_") {
+            define(a.binding, a.vty);
+            lir::SLet bl; bl.name = a.binding; bl.type = a.vty; bl.is_mut = false;
+            std::vector<std::pair<std::string, lir::LExprPtr>> flds;
+            flds.emplace_back("m", builder().var_ref(sm, wmap_cptr));
+            bl.value = builder().struct_lit(std::string(TypeRef(a.vty).struct_name()),
+                                            std::move(flds), a.vty);
+            tb.push_back(make_stmt_emit(node_line_, std::move(bl)));
+        }
+        lower_body_into(a.body, a.is_expr, tb);
+        pop_scope();
+        lir::SIf sif;
+        sif.cond  = builder().bin_op("==", builder().var_ref(codev, u64t),
+                                     builder().lit_int(static_cast<int64_t>(a.vcode), u64t),
+                                     bool_t());
+        sif.then_ = lir_mirror_block(*cur_prog_, tb);
+        if (else_blk) sif.else_ = lir_mirror_block(*cur_prog_, *else_blk);
+        std::vector<lir_view::StmtRef> chain;
+        chain.push_back(make_stmt_emit(node_line_, std::move(sif)));
+        else_blk = std::move(chain);
+    }
+    if (else_blk) for (auto s : *else_blk) outer.push_back(s);
+    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer)});
+}
+
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
     lir::LExprPtr scrut = nullptr;
@@ -8222,6 +8428,20 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         scrut = lower_expr(map_of(node.get(la::VALUE.code)));
         scrut_type = expr_type(scrut);
     } else { scrut = error_expr(); }
+
+    // ADR 0011 — a `match` over a `schema enum` desugars to an if-chain on the
+    // pointee's schema_type_code (the variant discriminant is NOT stored; it is
+    // read from the matched node itself). Intercept before the enum machinery.
+    {
+        TypeRef se_base = scrut_type;
+        while (se_base && is_ref_like(TypeRef(se_base).kind()) && TypeRef(se_base).pointee())
+            se_base = TypeRef(se_base).pointee();
+        if (se_base && TypeRef(se_base).kind() == LogosType::Kind::Struct) {
+            auto [se_pkg, se_si] = find_struct_by_name(std::string(TypeRef(se_base).struct_name()));
+            if (se_si && se_si->is_schema_enum)
+                return lower_schema_enum_match(node, std::move(scrut), se_base);
+        }
+    }
 
     // Drop a droppable match scrutinee that is a TEMPORARY (an rvalue — a call
     // result / constructor / `?`, NOT a place like a var / field / index). Rust

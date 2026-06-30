@@ -7535,6 +7535,14 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             // existing handler fires. Treat UNION_DEF as STRUCT.
             c = la::STRUCT.code;
         }
+        if (c == la::SCHEMA_DEF || c == la::SCHEMA_ENUM_DEF) {
+            // ADR 0011: a `schema S {…}` / `schema enum E {…}` lowers as a Struct
+            // whose only field is the synthetic `m: *const WMap<Wu6,WAny>` (already
+            // in structs_ via collect_schema[_enum]). lower_struct_def sources fields
+            // from sinfo->fields, not the AST, so declared fields/variants are NOT
+            // emitted as struct fields.
+            c = la::STRUCT.code;
+        }
         if      (c == la::STRUCT) {
             // Explicit struct instantiation: `#[type_code=N] struct Pair<i32>;`
             // Has TYPE key, no NAME key — delegate to same logic as DATATYPE inst.

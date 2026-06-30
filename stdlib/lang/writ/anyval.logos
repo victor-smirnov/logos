@@ -238,14 +238,16 @@ impl WAny {
     }
     pub fn as_i64(self: &WAny) -> i64 {
         if self.is_pod() { return self.as_i56(); }
+        if self.is_null() { return 0i64; }   // null/absent WAny decodes to zero (ADR 0011 absent-key default)
         return unsafe { *(self.resolve() as *const i64) };
     }
     pub fn as_u64(self: &WAny) -> u64 {
         if self.is_pod() { return self.as_i56() as u64; }
+        if self.is_null() { return 0u64; }
         return unsafe { *(self.resolve() as *const u64) };
     }
-    pub fn as_f32(self: &WAny) -> f32 { return unsafe { *(self.resolve() as *const f32) }; }
-    pub fn as_f64(self: &WAny) -> f64 { return unsafe { *(self.resolve() as *const f64) }; }
+    pub fn as_f32(self: &WAny) -> f32 { if self.is_null() { return 0.0f32; } return unsafe { *(self.resolve() as *const f32) }; }
+    pub fn as_f64(self: &WAny) -> f64 { if self.is_null() { return 0.0f64; } return unsafe { *(self.resolve() as *const f64) }; }
 }
 
 // ── WAnyMut — the MUTABLE dual of WAny (a fat `&mut` onto an element slot) ─────

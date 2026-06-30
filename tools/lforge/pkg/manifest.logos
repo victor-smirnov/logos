@@ -15,7 +15,7 @@ use logos.lang.writ.wstring;
 use logos.mem.writ.parser;
 use logos.lang.rc;
 
-use lforge.schema;
+use lforge.schema_types;
 use lforge.util;
 use lforge.writ_io;
 

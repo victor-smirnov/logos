@@ -6,7 +6,7 @@ package lforge.util;
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.io;
-use lforge.schema;
+use lforge.schema_types;
 
 pub fn str_eq_local(a: str, b: str) -> bool {
     if a.len() != b.len() { return false; }

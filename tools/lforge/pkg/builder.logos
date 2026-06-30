@@ -12,7 +12,7 @@ use logos.std.io.fs;
 use logos.std.process;
 use logos.std.env;
 
-use lforge.schema;
+use lforge.schema_types;
 use lforge.util;
 use lforge.proc;
 use lforge.build_paths;

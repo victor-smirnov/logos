@@ -307,7 +307,7 @@ impl WAny {
 #[zoned]
 pub struct WMap<Wu6, V> {
     pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
-    pub schema: u64,               // node-class discriminator (0 = none); byte-shared with C++ TOM
+    pub schema_code: u64,          // node-class discriminator (0 = none); byte-shared with C++ TOM (was `schema`; renamed — `schema` is now a keyword, ADR 0011)
     pub data:   *zoned mut WAny,   // value array (cap slots; auto-relative) — zoned ptr stays LAST
 }
 
@@ -322,7 +322,7 @@ unsafe fn wtv_new(h: *mut Writ, cap: i64) -> *mut WMap<Wu6, WAny> {
         alloc_tagged(h.allocator.get(), sizeof::<WMap<Wu6, WAny>>() as i64, W_TINYMAP) as *mut WMap<Wu6, WAny>;
     let buf: *zoned mut WAny = writ_alloc_n::<WAny>(h, c) as *zoned mut WAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
-    hdr.schema = 0u64;                  // no schema by default
+    hdr.schema_code = 0u64;             // no schema by default
     hdr.data   = buf;                   // #[zoned]: lowers to a self-relative offset
     // No zero-init of the value buffer: the array is compacted (only the `size`
     // present entries, in key order) and bitmap-gated — get() reads data[pos]
@@ -337,8 +337,8 @@ impl WMap<Wu6, WAny> {
     pub fn cap(self: &WMap<Wu6, WAny>)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
 
     // Node-class discriminator (0 = none); byte-shared with the C++ TinyObjectMap.
-    pub fn schema_type_code(self: &WMap<Wu6, WAny>) -> u64 { return self.schema; }
-    pub fn set_schema_type_code(self: &mut WMap<Wu6, WAny>, code: u64) { self.schema = code; }
+    pub fn schema_type_code(self: &WMap<Wu6, WAny>) -> u64 { return self.schema_code; }
+    pub fn set_schema_type_code(self: &mut WMap<Wu6, WAny>, code: u64) { self.schema_code = code; }
 
     // Is `key` present?
     pub fn contains(self: &WMap<Wu6, WAny>, key: u8) -> bool {
@@ -385,6 +385,15 @@ impl Writ {
             let h: *mut Writ = self as *const Writ as *mut Writ;
             return &mut *wtv_new(h, cap);
         }
+    }
+
+    // ADR 0011 — allocate a TOM and stamp a schema type-code, returning the raw
+    // view pointer. The compiler's `schema`/`make::<S>()` desugaring wraps this
+    // in the typed view `S { m }` (S is a compiler-side view type over this TOM).
+    pub fn make_schema(self: &Writ, cap: i64, code: u64) -> *const WMap<Wu6, WAny> {
+        let m: &mut WMap<Wu6, WAny> = self.tinymap(cap);
+        m.set_schema_type_code(code);
+        return m as *const WMap<Wu6, WAny>;
     }
 }
 
