@@ -395,6 +395,24 @@ impl Writ {
         m.set_schema_type_code(code);
         return m as *const WMap<Wu6, WAny>;
     }
+
+    // ADR 0011 (Increment 6) — allocate + stamp a TOM AND carry the arena
+    // allocator, so the schema view can box wide values (i64/u64/f64/strings) on
+    // write. Layout {m, z} is IDENTICAL to the compiler-synthesized schema view,
+    // which `make::<S>()` reinterprets (retype) to the typed view `S`.
+    pub fn make_schema_h(self: &Writ, cap: i64, code: u64) -> WSchemaH {
+        let m: &mut WMap<Wu6, WAny> = self.tinymap(cap);
+        m.set_schema_type_code(code);
+        return WSchemaH { m: m as *const WMap<Wu6, WAny>, z: self.allocator.get() as *mut u8 };
+    }
+}
+
+// ADR 0011 — the runtime shape of a schema view: a TOM pointer + the arena
+// allocator (for boxing wide values on write). The compiler's schema view type
+// `S` has this exact layout; `make::<S>()` reinterprets a WSchemaH as S.
+pub struct WSchemaH {
+    pub m: *const WMap<Wu6, WAny>,
+    pub z: *mut u8,
 }
 
 impl WAny {

@@ -1,0 +1,28 @@
+// ADR 0011 Increment 6 — boxed-value writes (i64>i56, f64, wide u64) via the
+// allocator carried in the schema view (`z`). make_int inlines small values and
+// boxes wide ones; box_f64/box_u64 always box.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+schema Wide : code(0x0003000000000000) {
+    big: i64 = 0,
+    fl:  f64 = 1,
+    u:   u64 = 2,
+    sm:  i64 = 3,
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let p: Wide = h.make::<Wide>();
+    p.big = 1152921504606846976i64;        // 2^60 — exceeds i56, must box
+    p.fl  = 3.5f64;                          // boxed f64
+    p.u   = 18000000000000000000u64;         // wide u64, must box
+    p.sm  = 42i64;                           // fits i56 → inline
+    if p.big != 1152921504606846976i64 { return 1i32; }
+    if p.fl  != 3.5f64                  { return 2i32; }
+    if p.u   != 18000000000000000000u64 { return 3i32; }
+    if p.sm  != 42i64                   { return 4i32; }
+    return 0i32;
+}

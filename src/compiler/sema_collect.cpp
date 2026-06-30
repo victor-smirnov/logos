@@ -4046,12 +4046,16 @@ void SemaChecker::collect_schema(TinyMapView node) {
             else    info.schema_type_code = static_cast<uint64_t>(r.value().i);
         }
     }
-    // The ONLY real struct field: m: *const WMap<Wu6, WAny> (8-byte pointer view).
+    // Real struct fields (layout matches stdlib WSchemaH): m = TOM pointer view,
+    // z = arena allocator (for boxing wide values on write; null for read-only
+    // views bound from an erased WAny). Together a 16-byte fat view.
     {
         TypeRef wu6  = make_struct_type("Wu6");
         TypeRef wany = make_enum_type("WAny");
         TypeRef wmap = make_generic_struct("WMap", {wu6, wany});
         info.fields.push_back({std::string_view{"m"}, make_ptr(/*mut=*/false, wmap),
+                               /*is_pub=*/false, /*is_variadic=*/false, {}});
+        info.fields.push_back({std::string_view{"z"}, make_ptr(/*mut=*/true, prim(LogosType::Kind::U8)),
                                /*is_pub=*/false, /*is_variadic=*/false, {}});
     }
 
@@ -4131,10 +4135,12 @@ void SemaChecker::collect_schema_enum(TinyMapView node) {
         }
     }
 
-    // The only real struct field: m: *const WMap<Wu6, WAny> (same as a schema view).
+    // Real fields {m, z} — same layout as a schema view (TOM ptr + allocator).
     info.fields.push_back({std::string_view{"m"},
         make_ptr(false, make_generic_struct("WMap", {make_struct_type("Wu6"),
                                                      make_enum_type("WAny")})),
+        false, false, {}});
+    info.fields.push_back({std::string_view{"z"}, make_ptr(true, prim(LogosType::Kind::U8)),
         false, false, {}});
 
     // Variants: each VARIANT_DEF { NAME, TYPE=concrete schema }.

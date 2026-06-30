@@ -9203,15 +9203,21 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
     TypeRef wmap     = make_generic_struct("WMap", {make_struct_type("Wu6"),
                                                     make_enum_type("WAny")});
     TypeRef wmap_cptr = make_ptr(false, wmap);
+    TypeRef u8ptr     = make_ptr(true, u8_t());
     TypeRef view_t    = make_struct_type(sname, spkg);
+    // Wrap a TOM pointer into the view {m, z}; z (allocator) is null for views
+    // bound from an erased WAny (read-only for WIDE writes; small/inline writes
+    // and all reads still work — make_int inlines values that fit).
     auto wrap = [&](lir::LExprPtr ptr) -> lir::LExprPtr {
         std::vector<std::pair<std::string, lir::LExprPtr>> flds;
         flds.emplace_back("m", std::move(ptr));
+        flds.emplace_back("z", builder().cast(builder().lit_int(0, prim(LogosType::Kind::I64)), u8ptr));
         return builder().struct_lit(sname, std::move(flds), view_t);
     };
 
     if (method_name == "make") {
-        // wr.make::<S>()  ⇒  S { m: wr.make_schema(cap, CODE) }
+        // wr.make::<S>()  ⇒  reinterpret wr.make_schema_h(cap, CODE) (a {m,z}
+        // WSchemaH, layout-identical to the view S) as S — carries the allocator.
         TypeRef rt = expr_type(recv);
         lir::LExprPtr wref =
             (rt && is_ref_like(TypeRef(rt).kind()))
@@ -9224,9 +9230,10 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         margs.push_back(builder().lit_int(cap, prim(LogosType::Kind::I64)));
         margs.push_back(builder().lit_int(static_cast<int64_t>(ssi->schema_type_code),
                                           prim(LogosType::Kind::U64)));
-        auto mk = builder().method_call(std::move(wref), "make_schema", "", {},
-                                        std::move(margs), -1, wmap_cptr);
-        return wrap(std::move(mk));
+        auto h = builder().method_call(std::move(wref), "make_schema_h", "", {},
+                                       std::move(margs), -1, make_struct_type("WSchemaH"));
+        builder().retype_expr(h, view_t);   // WSchemaH {m,z} → S {m,z} (identical layout)
+        return h;
     }
     if (method_name == "view" || method_name == "child") {
         // Trusted bind (no code check): produce *const WMap<Wu6,WAny> from the

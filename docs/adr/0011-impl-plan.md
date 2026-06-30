@@ -7,8 +7,14 @@ unless explicitly marked RISK/UNKNOWN.
 Companion to [`0011-writ-schemas.md`](0011-writ-schemas.md). Read that for the *what*;
 this is the *how*, as gated increments.
 
-> **STATUS (2026-06-29, branch `feat/writ-schemas`):** Increments **1, 3, 4, 5, 7 DONE
-> and ctest-gated** (schema enum + match works). Three latent bugs found+fixed (had
+> **STATUS (2026-06-29, branch `feat/writ-schemas`):** Increments **1, 3, 4, 5, 6, 7 DONE
+> and ctest-gated** (schema enum + match works; boxed writes work). Inc 6: the schema
+> view is a 16-byte `{m: TOM-ptr, z: *mut Allocator}` fat view — `z` carries the ARENA
+> ALLOCATOR (not a `*Writ`). `make::<S>()` reinterprets a layout-identical stdlib
+> `WSchemaH` (from `Writ::make_schema_h`) as `S` via `retype_expr`. Writes box wide
+> values via `z` (`make_int`/`box_u64`/`box_f64`/`box_f32`); inline `WAny::from` is used
+> when an overload exists (no allocator needed). Views bound from an erased WAny carry
+> `z=null` → read + small/inline writes OK; wide writes need a make/handle-origin view. Three latent bugs found+fixed (had
 > been masked by false-passing tests): (a) `CODE_EXPR` was key 52, out of the AST
 > TinyObjectMap range 0..51 → `code(...)` was never stored (moved to slot 6); (b)
 > WAny accessors (`as_i64`/`as_bool`/…) emitted as `method_call` on a `&WAny` enum
@@ -22,11 +28,10 @@ this is the *how*, as gated increments.
 > deviations from the speculative recipes are captured in §0 (D1–D4) — notably the
 > bind method is `.view::<S>()` not `.as::<S>()` (`as` is reserved), and the WritMap
 > trait (Inc 2) is deferred (direct `WMap<Wu6,WAny>` calls; reserve the seam when a
-> 2nd backing lands). **Remaining:** Inc 6 (boxed writes of i64/u64/f64/string fields —
-> needs the schema view to carry the arena allocator via the `#[zone_mut]` fat-ref
-> mechanism the user directed: `&mut S` fat {data, *mut Allocator}, box via
-> `zone_of(self)`), and `view_checked::<S>() -> Option`. Tests:
-> `pass/schema_decl,schema_read,schema_write,schema_enum_match`,
+> 2nd backing lands). **Remaining:** string/ref field writes (need `wstring_in_alloc` via
+> `z` + `WAny::ref_to` wrapping — boxing path is in place, just not wired for str/ref),
+> and `view_checked::<S>() -> Option`. Tests:
+> `pass/schema_decl,schema_read,schema_write,schema_box_write,schema_enum_match`,
 > `fail/schema_dup_key,schema_key_range`.
 
 ---

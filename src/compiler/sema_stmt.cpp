@@ -7267,25 +7267,56 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     }
     track_write_move(val);
 
-    // Build a WAny from the typed value via an inline `WAny::from` overload.
-    // Boxed (allocator-needing) types have no inline `from` → defer to a later
-    // increment with a clear diagnostic rather than silently truncating.
+    // Build a WAny from the typed value. Prefer an INLINE `WAny::from` overload
+    // (bool, i8/u8, i16/u16, i24/u24, i56) — no allocator needed. Otherwise BOX
+    // it in the view's arena via the carried allocator `z` (ADR 0011 Inc 6):
+    // make_int (signed, auto-inlines if it fits), box_u64, box_f64/box_f32.
+    using K = LogosType::Kind;
+    TypeRef wany = make_enum_type("WAny");
     std::string from_sym;
     for (auto* cand : find_func_candidates("WAny__from")) {
         if (!cand || cand->param_types.size() != 1) continue;
         if (types_compatible(ftype, cand->param_types[0])) { from_sym = cand->symbol_name; break; }
     }
-    if (from_sym.empty()) {
-        error(std::format("schema write '{}.{}': field type '{}' needs a boxed (arena) "
-                          "value, not yet supported — only inline scalars (bool, i8/u8, "
-                          "i16/u16, i24/u24, i56) are writable through the view today",
-                          recv_name, field_name, type_str(ftype)));
-        lir::SExprStmt es; es.expr = error_expr();
-        return make_stmt_emit(node_line_, std::move(es));
+    lir::LExprPtr wany_val;
+    if (!from_sym.empty()) {
+        std::vector<lir::LExprPtr> fargs; fargs.push_back(std::move(val));
+        wany_val = builder().call(from_sym, {}, std::move(fargs), wany);
+    } else {
+        // Box via the carried allocator: z = (recv.z as *mut Allocator).
+        auto resolve_box = [&](const char* base) -> std::string {
+            for (auto* c : find_func_candidates(base))
+                if (c && c->param_types.size() == 2)
+                    return c->symbol_name.empty() ? std::string(base) : c->symbol_name;
+            return std::string(base);
+        };
+        const char* boxfn = nullptr; TypeRef vty = nullptr;
+        switch (TypeRef(ftype).kind()) {
+            case K::I8: case K::I16: case K::I24: case K::I32: case K::I56:
+            case K::I64: case K::Isize: boxfn = "make_int"; vty = prim(K::I64); break;
+            case K::U8: case K::U16: case K::U24: case K::U32: case K::U56:
+            case K::U64: case K::Usize: boxfn = "box_u64";  vty = prim(K::U64); break;
+            case K::F64:                boxfn = "box_f64";  vty = prim(K::F64); break;
+            case K::F32:                boxfn = "box_f32";  vty = prim(K::F32); break;
+            default: break;
+        }
+        if (!boxfn) {
+            error(std::format("schema write '{}.{}': field type '{}' not yet writable "
+                              "through the view (scalars + floats only; strings/refs TBD)",
+                              recv_name, field_name, type_str(ftype)));
+            lir::SExprStmt es; es.expr = error_expr();
+            return make_stmt_emit(node_line_, std::move(es));
+        }
+        TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
+        auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
+                                          make_ptr(true, u8_t()));
+        auto z = builder().cast(std::move(z_raw), alloc_ptr);
+        auto v2 = builder().cast(std::move(val), vty);
+        std::vector<lir::LExprPtr> bargs;
+        bargs.push_back(std::move(z));
+        bargs.push_back(std::move(v2));
+        wany_val = builder().call(resolve_box(boxfn), {}, std::move(bargs), wany);
     }
-    TypeRef wany = make_enum_type("WAny");
-    std::vector<lir::LExprPtr> fargs; fargs.push_back(std::move(val));
-    auto wany_val = builder().call(from_sym, {}, std::move(fargs), wany);
 
     // (&mut * p.m).set(key, wany).  m is *const WMap<Wu6,WAny>; reinterpret to &mut.
     TypeRef wmap = make_generic_struct("WMap", {make_struct_type("Wu6"), make_enum_type("WAny")});
