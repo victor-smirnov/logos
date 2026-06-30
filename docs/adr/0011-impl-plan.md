@@ -33,10 +33,11 @@ this is the *how*, as gated increments.
 > built via block_expr(SLet __p; SLet __r = if_expr(...)) yielding `var_ref(__r)`; the
 > ROOT BUG was `resolve()`/WAny accessors emitted as `method_call` on the `&WAny` enum
 > receiver returning null (the recurring trap) — fixed with a resolved free call.
-> **Remaining:** string/ref field writes (need `wstring_in_alloc` via `z` + `WAny::ref_to`
-> — boxing path is in place, just not wired for str/ref). Tests: `pass/schema_decl,
-> schema_read,schema_write,schema_box_write,schema_enum_match,schema_view_checked`,
-> `fail/schema_dup_key,schema_key_range`.
+> **String (`str`) fields DONE** — write interns via the view allocator
+> (`wstring_in_alloc(z,s)` → `WAny::ref_to` → `set`); read decodes null-safely via a new
+> stdlib `WAny::as_wstr` (absent key → empty str). **The TOM-scope ADR is now COMPLETE.**
+> Tests: `pass/schema_decl,schema_read,schema_write,schema_box_write,schema_enum_match,
+> schema_view_checked,schema_str`, `fail/schema_dup_key,schema_key_range`.
 
 > **FUTURE / PROPOSED (not scheduled — design TODO):**
 > 1. **Narrow `code`/`category` to `u56`.** Currently `schema_type_code` is `u64`

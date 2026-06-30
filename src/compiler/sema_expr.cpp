@@ -9353,6 +9353,10 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
             // Raw/borrowed pointer field — the at-rest value is a Ref; resolve to
             // the absolute address and reinterpret as the field's pointer type.
             return builder().cast(acc("resolve", make_ptr(false, u8_t())), ftype);
+        case K::Slice:
+            // `str` field (Slice<u8>) — the value is a Ref to an interned WString;
+            // null-safe decode to its str view (empty for an absent key).
+            return acc("as_wstr", ftype);
         default:
             error(std::format("schema '{}' field '{}': type '{}' not yet supported "
                               "in field-access sugar", std::string(sname),

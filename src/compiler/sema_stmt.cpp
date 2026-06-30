@@ -7278,18 +7278,36 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
         if (!cand || cand->param_types.size() != 1) continue;
         if (types_compatible(ftype, cand->param_types[0])) { from_sym = cand->symbol_name; break; }
     }
+    // Helper: z = (recv.z as *mut Allocator) — the view-carried arena allocator.
+    auto carried_alloc = [&]() -> lir::LExprPtr {
+        TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
+        auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
+                                          make_ptr(true, u8_t()));
+        return builder().cast(std::move(z_raw), alloc_ptr);
+    };
+    auto resolve_free = [&](const char* base, size_t nparams) -> std::string {
+        for (auto* c : find_func_candidates(base))
+            if (c && c->param_types.size() == nparams)
+                return c->symbol_name.empty() ? std::string(base) : c->symbol_name;
+        return std::string(base);
+    };
+
     lir::LExprPtr wany_val;
     if (!from_sym.empty()) {
         std::vector<lir::LExprPtr> fargs; fargs.push_back(std::move(val));
         wany_val = builder().call(from_sym, {}, std::move(fargs), wany);
+    } else if (TypeRef(ftype).kind() == K::Slice) {
+        // `str` field — intern into the view's arena and store a Ref:
+        //   WAny::ref_to(wstring_in_alloc(z, s) as *const u8)
+        TypeRef wstr_ptr = make_ptr(true, make_struct_type("WString"));
+        std::vector<lir::LExprPtr> wa;
+        wa.push_back(carried_alloc());
+        wa.push_back(std::move(val));
+        auto ws = builder().call(resolve_free("wstring_in_alloc", 2), {}, std::move(wa), wstr_ptr);
+        auto ws_u8 = builder().cast(std::move(ws), make_ptr(false, u8_t()));
+        std::vector<lir::LExprPtr> ra; ra.push_back(std::move(ws_u8));
+        wany_val = builder().call(resolve_free("WAny__ref_to", 1), {}, std::move(ra), wany);
     } else {
-        // Box via the carried allocator: z = (recv.z as *mut Allocator).
-        auto resolve_box = [&](const char* base) -> std::string {
-            for (auto* c : find_func_candidates(base))
-                if (c && c->param_types.size() == 2)
-                    return c->symbol_name.empty() ? std::string(base) : c->symbol_name;
-            return std::string(base);
-        };
         const char* boxfn = nullptr; TypeRef vty = nullptr;
         switch (TypeRef(ftype).kind()) {
             case K::I8: case K::I16: case K::I24: case K::I32: case K::I56:
@@ -7302,20 +7320,16 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
         }
         if (!boxfn) {
             error(std::format("schema write '{}.{}': field type '{}' not yet writable "
-                              "through the view (scalars + floats only; strings/refs TBD)",
+                              "through the view (scalars, floats, str)",
                               recv_name, field_name, type_str(ftype)));
             lir::SExprStmt es; es.expr = error_expr();
             return make_stmt_emit(node_line_, std::move(es));
         }
-        TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
-        auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
-                                          make_ptr(true, u8_t()));
-        auto z = builder().cast(std::move(z_raw), alloc_ptr);
         auto v2 = builder().cast(std::move(val), vty);
         std::vector<lir::LExprPtr> bargs;
-        bargs.push_back(std::move(z));
+        bargs.push_back(carried_alloc());
         bargs.push_back(std::move(v2));
-        wany_val = builder().call(resolve_box(boxfn), {}, std::move(bargs), wany);
+        wany_val = builder().call(resolve_free(boxfn, 2), {}, std::move(bargs), wany);
     }
 
     // (&mut * p.m).set(key, wany).  m is *const WMap<Wu6,WAny>; reinterpret to &mut.
