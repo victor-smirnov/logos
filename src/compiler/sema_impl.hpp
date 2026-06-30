@@ -3919,6 +3919,10 @@ private:
     // type via the matching WAny accessor (as_bool/as_i64/as_u64/as_f64/resolve).
     lir::LExprPtr schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ftype,
                                        std::string_view sname, std::string_view field);
+    // ADR 0011 — the stdlib type-name a field type uses in its `WritField` impl
+    // (`bool`/`i64`/`str`/…), for resolving `<name>__from_wany`/`__to_wany`. Empty
+    // if the type isn't a scalar/str WritField (pointers/WAny handled separately).
+    std::string writfield_type_name(TypeRef t);
     // ADR 0011 — `wr.make::<S>()` (construct), `x.view::<S>()` / `x.child::<S>()`
     // (trusted bind). Returns nullopt unless method+type-arg name a schema.
     std::optional<lir::LExprPtr>

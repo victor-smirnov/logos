@@ -9320,54 +9320,64 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
     return std::nullopt;
 }
 
+std::string SemaChecker::writfield_type_name(TypeRef t) {
+    using K = LogosType::Kind;
+    switch (TypeRef(t).kind()) {
+        case K::Bool:  return "bool";
+        case K::I8:    return "i8";   case K::U8:    return "u8";
+        case K::I16:   return "i16";  case K::U16:   return "u16";
+        case K::I24:   return "i24";  case K::U24:   return "u24";
+        case K::I32:   return "i32";  case K::U32:   return "u32";
+        case K::I56:   return "i56";  case K::U56:   return "u56";
+        case K::I64:   return "i64";  case K::U64:   return "u64";
+        case K::Isize: return "isize"; case K::Usize: return "usize";
+        case K::F32:   return "f32";  case K::F64:   return "f64";
+        case K::Slice: return "str";  // str field (Slice<u8>)
+        default:       return {};
+    }
+}
+
 lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ftype,
                                                 std::string_view sname,
                                                 std::string_view field) {
     using K = LogosType::Kind;
-    // A `WAny`-typed field is dynamic: read the stored value verbatim (identity,
-    // no conversion). This is the heterogeneous/erased field case.
-    if (ftype && TypeRef(ftype).kind() == K::Enum &&
-        TypeRef(ftype).enum_name() == "WAny")
+    auto k = TypeRef(ftype).kind();
+    // A `WAny`-typed field is dynamic: read the stored value verbatim (identity).
+    if (k == K::Enum && TypeRef(ftype).enum_name() == "WAny")
         return anyval;
-    TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
-    auto any_ref = builder().addr_of_temp(std::move(anyval), false, wany_ref);
-    // Resolve the WAny accessor to a concrete symbol and emit a DIRECT free call.
-    // A `method_call` on a `&WAny` (enum) receiver fails mlir-gen's gen_recv_struct
-    // (it only accepts struct/zoned-struct receivers) and silently yields null —
-    // so route through the resolved symbol like the `WAny::from` write path.
-    auto acc = [&](const char* base, TypeRef ret) -> lir::LExprPtr {
-        std::string want = std::string("WAny__") + base;
-        std::string sym = want;
-        for (auto* c : find_func_candidates(want))
+    // Pointer / reference field: the at-rest value is a Ref; resolve to the
+    // absolute address and reinterpret. (Pointers aren't WritField — no by-value
+    // conversion.) WAny::resolve takes `&WAny`, so addr_of_temp the value first.
+    if (k == K::Ptr || k == K::Ref || k == K::MutRef) {
+        TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
+        auto any_ref = builder().addr_of_temp(std::move(anyval), false, wany_ref);
+        std::string rsym = "WAny__resolve";
+        for (auto* c : find_func_candidates("WAny__resolve"))
             if (c && c->param_types.size() == 1) {
-                sym = c->symbol_name.empty() ? want : c->symbol_name; break;
+                rsym = c->symbol_name.empty() ? rsym : c->symbol_name; break;
             }
         std::vector<lir::LExprPtr> a; a.push_back(std::move(any_ref));
-        return builder().call(sym, {}, std::move(a), ret);
-    };
-    switch (TypeRef(ftype).kind()) {
-        case K::Bool:                 return acc("as_bool", bool_t());
-        case K::F64:                  return acc("as_f64",  prim(K::F64));
-        case K::I64: case K::Isize:   return acc("as_i64",  prim(K::I64));
-        case K::U64: case K::Usize:   return acc("as_u64",  prim(K::U64));
-        case K::I8: case K::I16: case K::I24: case K::I32: case K::I56:
-            return builder().cast(acc("as_i64", prim(K::I64)), ftype);
-        case K::U8: case K::U16: case K::U24: case K::U32: case K::U56:
-            return builder().cast(acc("as_u64", prim(K::U64)), ftype);
-        case K::Ptr: case K::Ref: case K::MutRef:
-            // Raw/borrowed pointer field — the at-rest value is a Ref; resolve to
-            // the absolute address and reinterpret as the field's pointer type.
-            return builder().cast(acc("resolve", make_ptr(false, u8_t())), ftype);
-        case K::Slice:
-            // `str` field (Slice<u8>) — the value is a Ref to an interned WString;
-            // null-safe decode to its str view (empty for an absent key).
-            return acc("as_wstr", ftype);
-        default:
-            error(std::format("schema '{}' field '{}': type '{}' not yet supported "
-                              "in field-access sugar", std::string(sname),
-                              std::string(field), type_str(ftype)));
-            return builder().cast(std::move(any_ref), ftype);
+        return builder().cast(builder().call(rsym, {}, std::move(a), make_ptr(false, u8_t())),
+                              ftype);
     }
+    // Everything else (scalars, floats, str) goes through `WritField::from_wany`
+    // — the WAny→T conversion now lives in the stdlib trait (extensible; and the
+    // seam for generic schemas, where T resolves at monomorphization).
+    std::string tn = writfield_type_name(ftype);
+    if (!tn.empty()) {
+        std::string base = tn + "__from_wany";
+        std::string sym = base;
+        for (auto* c : find_func_candidates(base))
+            if (c && c->param_types.size() == 1) {
+                sym = c->symbol_name.empty() ? base : c->symbol_name; break;
+            }
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));  // from_wany(v: WAny) by value
+        return builder().call(sym, {}, std::move(a), ftype);
+    }
+    error(std::format("schema '{}' field '{}': type '{}' is not a WritField "
+                      "(no WAny↔T conversion)", std::string(sname),
+                      std::string(field), type_str(ftype)));
+    return builder().cast(std::move(anyval), ftype);
 }
 
 lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {

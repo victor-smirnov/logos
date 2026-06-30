@@ -7274,74 +7274,37 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     }
     track_write_move(val);
 
-    // Build a WAny from the typed value. Prefer an INLINE `WAny::from` overload
-    // (bool, i8/u8, i16/u16, i24/u24, i56) — no allocator needed. Otherwise BOX
-    // it in the view's arena via the carried allocator `z` (ADR 0011 Inc 6):
-    // make_int (signed, auto-inlines if it fits), box_u64, box_f64/box_f32.
+    // Build a WAny from the typed value via `WritField::to_wany(self, z)` — the
+    // T→WAny conversion lives in the stdlib trait (extensible; the generic-schema
+    // seam). `z` (the view-carried arena allocator) is passed for boxing; inline
+    // conversions ignore it. A dynamic `WAny` field stores the value verbatim.
     using K = LogosType::Kind;
     TypeRef wany = make_enum_type("WAny");
-    std::string from_sym;
-    for (auto* cand : find_func_candidates("WAny__from")) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (types_compatible(ftype, cand->param_types[0])) { from_sym = cand->symbol_name; break; }
-    }
-    // Helper: z = (recv.z as *mut Allocator) — the view-carried arena allocator.
-    auto carried_alloc = [&]() -> lir::LExprPtr {
-        TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
-        auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
-                                          make_ptr(true, u8_t()));
-        return builder().cast(std::move(z_raw), alloc_ptr);
-    };
-    auto resolve_free = [&](const char* base, size_t nparams) -> std::string {
-        for (auto* c : find_func_candidates(base))
-            if (c && c->param_types.size() == nparams)
-                return c->symbol_name.empty() ? std::string(base) : c->symbol_name;
-        return std::string(base);
-    };
-
     lir::LExprPtr wany_val;
-    bool ftype_is_wany = TypeRef(ftype).kind() == K::Enum &&
-                         TypeRef(ftype).enum_name() == "WAny";
-    if (ftype_is_wany) {
-        // Dynamic `WAny` field — store the value verbatim (no conversion/boxing).
+    if (TypeRef(ftype).kind() == K::Enum && TypeRef(ftype).enum_name() == "WAny") {
         wany_val = std::move(val);
-    } else if (!from_sym.empty()) {
-        std::vector<lir::LExprPtr> fargs; fargs.push_back(std::move(val));
-        wany_val = builder().call(from_sym, {}, std::move(fargs), wany);
-    } else if (TypeRef(ftype).kind() == K::Slice) {
-        // `str` field — intern into the view's arena and store a Ref:
-        //   WAny::ref_to(wstring_in_alloc(z, s) as *const u8)
-        TypeRef wstr_ptr = make_ptr(true, make_struct_type("WString"));
-        std::vector<lir::LExprPtr> wa;
-        wa.push_back(carried_alloc());
-        wa.push_back(std::move(val));
-        auto ws = builder().call(resolve_free("wstring_in_alloc", 2), {}, std::move(wa), wstr_ptr);
-        auto ws_u8 = builder().cast(std::move(ws), make_ptr(false, u8_t()));
-        std::vector<lir::LExprPtr> ra; ra.push_back(std::move(ws_u8));
-        wany_val = builder().call(resolve_free("WAny__ref_to", 1), {}, std::move(ra), wany);
     } else {
-        const char* boxfn = nullptr; TypeRef vty = nullptr;
-        switch (TypeRef(ftype).kind()) {
-            case K::I8: case K::I16: case K::I24: case K::I32: case K::I56:
-            case K::I64: case K::Isize: boxfn = "make_int"; vty = prim(K::I64); break;
-            case K::U8: case K::U16: case K::U24: case K::U32: case K::U56:
-            case K::U64: case K::Usize: boxfn = "box_u64";  vty = prim(K::U64); break;
-            case K::F64:                boxfn = "box_f64";  vty = prim(K::F64); break;
-            case K::F32:                boxfn = "box_f32";  vty = prim(K::F32); break;
-            default: break;
-        }
-        if (!boxfn) {
-            error(std::format("schema write '{}.{}': field type '{}' not yet writable "
-                              "through the view (scalars, floats, str)",
-                              recv_name, field_name, type_str(ftype)));
+        std::string tn = writfield_type_name(ftype);
+        if (tn.empty()) {
+            error(std::format("schema write '{}.{}': field type '{}' is not a WritField "
+                              "(no T→WAny conversion)", recv_name, field_name, type_str(ftype)));
             lir::SExprStmt es; es.expr = error_expr();
             return make_stmt_emit(node_line_, std::move(es));
         }
-        auto v2 = builder().cast(std::move(val), vty);
-        std::vector<lir::LExprPtr> bargs;
-        bargs.push_back(carried_alloc());
-        bargs.push_back(std::move(v2));
-        wany_val = builder().call(resolve_free(boxfn, 2), {}, std::move(bargs), wany);
+        std::string base = tn + "__to_wany";
+        std::string sym = base;
+        for (auto* c : find_func_candidates(base))
+            if (c && c->param_types.size() == 2) {
+                sym = c->symbol_name.empty() ? base : c->symbol_name; break;
+            }
+        TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
+        auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
+                                          make_ptr(true, u8_t()));
+        auto z = builder().cast(std::move(z_raw), alloc_ptr);
+        std::vector<lir::LExprPtr> args;
+        args.push_back(std::move(val));   // to_wany(self: T, z)
+        args.push_back(std::move(z));
+        wany_val = builder().call(sym, {}, std::move(args), wany);
     }
 
     // (&mut * p.m).set(key, wany).  m is *const WMap<Wu6,WAny>; reinterpret to &mut.
