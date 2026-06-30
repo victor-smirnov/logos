@@ -9204,7 +9204,24 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
                                                     make_enum_type("WAny")});
     TypeRef wmap_cptr = make_ptr(false, wmap);
     TypeRef u8ptr     = make_ptr(true, u8_t());
-    TypeRef view_t    = make_struct_type(sname, spkg);
+    // ADR 0011 generics — for `make::<Box<i64>>()` the turbofish type `st` carries
+    // type-args; the view type must too (so `let b: Box<i64>` type-checks). The view
+    // layout is {m,z} (T-independent), so the instantiation only needs the type.
+    auto st_args = TypeRef(st).type_args();
+    bool is_generic_inst = !ssi->type_params.empty() && !st_args.empty();
+    TypeRef view_t = is_generic_inst
+        ? make_generic_struct(sname, std::vector<TypeRef>(st_args.begin(), st_args.end()), {}, spkg)
+        : make_struct_type(sname, spkg);
+    // DISTINCT per-instantiation schema_type_code: Box<i64> ≠ Box<str>. Fold the
+    // concrete instantiation name into the 48-bit variant (category preserved), so
+    // make() stamps and view_checked() compares the SAME per-instance code.
+    uint64_t inst_code = ssi->schema_type_code;
+    if (is_generic_inst) {
+        std::string canon = std::string(spkg) + "::" + concrete_struct_name(st);
+        uint64_t variant = type_hash_56bit(type_hash_23(canon))
+                           & logos::writ::schema::VARIANT_MASK;
+        inst_code = (ssi->schema_type_code & logos::writ::schema::CATEGORY_MASK) | variant;
+    }
     // Wrap a TOM pointer into the view {m, z}; z (allocator) is null for views
     // bound from an erased WAny (read-only for WIDE writes; small/inline writes
     // and all reads still work — make_int inlines values that fit).
@@ -9245,7 +9262,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
                                            ? 1 : ssi->schema_fields.size());
         std::vector<lir::LExprPtr> margs;
         margs.push_back(builder().lit_int(cap, prim(LogosType::Kind::I64)));
-        margs.push_back(builder().lit_int(static_cast<int64_t>(ssi->schema_type_code),
+        margs.push_back(builder().lit_int(static_cast<int64_t>(inst_code),
                                           prim(LogosType::Kind::U64)));
         auto h = builder().method_call(std::move(wref), "make_schema_h", "", {},
                                        std::move(margs), -1, make_struct_type("WSchemaH"));
@@ -9273,7 +9290,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         auto codecall = builder().method_call(std::move(mref), "schema_type_code", "", {},
                                               {}, -1, prim(LogosType::Kind::U64));
         auto cond = builder().bin_op("==", std::move(codecall),
-                                     builder().lit_int(static_cast<int64_t>(ssi->schema_type_code),
+                                     builder().lit_int(static_cast<int64_t>(inst_code),
                                                        prim(LogosType::Kind::U64)),
                                      bool_t());
         TypeRef opt_t = make_generic_enum("Option", {view_t});
@@ -9342,6 +9359,15 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
                                                 std::string_view field) {
     using K = LogosType::Kind;
     auto k = TypeRef(ftype).kind();
+    // ADR 0011 generics — field type is still a TypeVar T (read inside a generic
+    // body, e.g. a method of Box<T>). Emit `T__from_wany(v)` as a plain ECall with
+    // the type-param name as callee prefix; mono retargets `T`→concrete at
+    // instantiation (mono_clone case C::Call, splitting the callee at `__`).
+    if (k == K::TypeVar) {
+        std::string base = std::string(TypeRef(ftype).type_var_name()) + "__from_wany";
+        std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));
+        return builder().call(base, {}, std::move(a), ftype);
+    }
     // A `WAny`-typed field is dynamic: read the stored value verbatim (identity).
     if (k == K::Enum && TypeRef(ftype).enum_name() == "WAny")
         return anyval;
@@ -9679,7 +9705,9 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // are not real struct fields (only the synthetic `m` is), so resolve the
     // name against the schema's key/type table and desugar to a typed get.
     if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct) {
-        auto sch_name = struct_name_from_type(recv_base_t);
+        // Use the BARE template name (a generic instance type's struct_name_from_type
+        // would mangle to "Box$G1$i64", which isn't in structs_).
+        auto sch_name = std::string(TypeRef(recv_base_t).struct_name());
         auto [sch_pkg, sch_si] = find_struct_by_name(sch_name);
         if (sch_si && sch_si->is_schema) {
             int found = -1;
@@ -9690,6 +9718,18 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             if (found >= 0) {
             uint8_t key   = sch_si->schema_keys[found];
             TypeRef ftype = sch_si->schema_fields[found].type;
+            // ADR 0011 generics — substitute the template field type with the
+            // receiver's concrete type-args (Box<i64> → field T becomes i64). At a
+            // generic use-site (recv is Box<T>) it stays a TypeVar → handled below.
+            {
+                auto rargs = TypeRef(recv_base_t).type_args();
+                if (!sch_si->type_params.empty() && !rargs.empty()) {
+                    SemaSubst sub;
+                    for (size_t i = 0; i < sch_si->type_params.size() && i < rargs.size(); ++i)
+                        sub[sch_si->type_params[i].name] = rargs[i];
+                    ftype = subst_type_sema(ftype, sub);
+                }
+            }
             // m: *const WMap<Wu6,WAny>  (the real field) → reinterpret as &WMap to call get(&self).
             TypeRef wmap  = make_generic_struct("WMap", {make_struct_type("Wu6"),
                                                          make_enum_type("WAny")});

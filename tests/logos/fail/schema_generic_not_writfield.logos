@@ -1,0 +1,10 @@
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+schema Wrap<T: WritField> : code(0x0007000000000000) { val: T = 0 }
+struct Plain { a: i64 }
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let w: Wrap<Plain> = h.make::<Wrap<Plain>>();
+    return 0i32;
+}

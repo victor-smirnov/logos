@@ -4030,6 +4030,12 @@ void SemaChecker::collect_schema(TinyMapView node) {
     }
     info.is_module_only = read_module_vis(node);
 
+    // ADR 0011 generics — bind the schema's type params (`schema Box<T: WritField>`)
+    // so a field type `val: T` resolves to a TypeVar (not "unknown type T"); popped
+    // before registration. Mirrors collect_struct.
+    info.type_params = read_type_params(node);
+    push_type_params(info.type_params);
+
     // `code(expr)` clause → schema_type_code. The clause keyword is contextual
     // (a bare IDENT validated == "code" here — `code` stays a usable identifier).
     if (node.has_key(la::CODE_EXPR.code)) {
@@ -4096,6 +4102,7 @@ void SemaChecker::collect_schema(TinyMapView node) {
         }
     }
 
+    pop_type_params(info.type_params);
     structs_[sema_key(cur_package_, sname)] = std::move(info);
 }
 

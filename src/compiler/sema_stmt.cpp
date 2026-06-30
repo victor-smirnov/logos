@@ -7264,6 +7264,18 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     }
     uint8_t key   = ssi->schema_keys[found];
     TypeRef ftype = ssi->schema_fields[found].type;
+    // ADR 0011 generics — substitute the template field type with the receiver's
+    // concrete type-args (Box<i64> → T becomes i64). At a generic use-site (Box<T>)
+    // it stays a TypeVar → the to_wany emission below uses the bare `T__to_wany`.
+    {
+        auto rargs = TypeRef(base).type_args();
+        if (!ssi->type_params.empty() && !rargs.empty()) {
+            SemaSubst sub;
+            for (size_t i = 0; i < ssi->type_params.size() && i < rargs.size(); ++i)
+                sub[ssi->type_params[i].name] = rargs[i];
+            ftype = subst_type_sema(ftype, sub);
+        }
+    }
 
     lir::LExprPtr val = lower_expr(val_node);
     if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
@@ -7284,19 +7296,27 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     if (TypeRef(ftype).kind() == K::Enum && TypeRef(ftype).enum_name() == "WAny") {
         wany_val = std::move(val);
     } else {
-        std::string tn = writfield_type_name(ftype);
-        if (tn.empty()) {
-            error(std::format("schema write '{}.{}': field type '{}' is not a WritField "
-                              "(no T→WAny conversion)", recv_name, field_name, type_str(ftype)));
-            lir::SExprStmt es; es.expr = error_expr();
-            return make_stmt_emit(node_line_, std::move(es));
-        }
-        std::string base = tn + "__to_wany";
-        std::string sym = base;
-        for (auto* c : find_func_candidates(base))
-            if (c && c->param_types.size() == 2) {
-                sym = c->symbol_name.empty() ? base : c->symbol_name; break;
+        // Symbol for `<T>::to_wany`. Generic body (ftype still a TypeVar): emit the
+        // BARE `T__to_wany` — mono retargets T→concrete at instantiation (do NOT
+        // resolve, there is no `T__to_wany`). Concrete: resolve `<typename>__to_wany`.
+        std::string sym;
+        if (TypeRef(ftype).kind() == K::TypeVar) {
+            sym = std::string(TypeRef(ftype).type_var_name()) + "__to_wany";
+        } else {
+            std::string tn = writfield_type_name(ftype);
+            if (tn.empty()) {
+                error(std::format("schema write '{}.{}': field type '{}' is not a WritField "
+                                  "(no T→WAny conversion)", recv_name, field_name, type_str(ftype)));
+                lir::SExprStmt es; es.expr = error_expr();
+                return make_stmt_emit(node_line_, std::move(es));
             }
+            std::string base = tn + "__to_wany";
+            sym = base;
+            for (auto* c : find_func_candidates(base))
+                if (c && c->param_types.size() == 2) {
+                    sym = c->symbol_name.empty() ? base : c->symbol_name; break;
+                }
+        }
         TypeRef alloc_ptr = make_ptr(true, make_struct_type("Allocator"));
         auto z_raw = builder().field_read(builder().var_ref(recv_name, rt), "z",
                                           make_ptr(true, u8_t()));
