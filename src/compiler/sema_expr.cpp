@@ -9324,6 +9324,11 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
                                                 std::string_view sname,
                                                 std::string_view field) {
     using K = LogosType::Kind;
+    // A `WAny`-typed field is dynamic: read the stored value verbatim (identity,
+    // no conversion). This is the heterogeneous/erased field case.
+    if (ftype && TypeRef(ftype).kind() == K::Enum &&
+        TypeRef(ftype).enum_name() == "WAny")
+        return anyval;
     TypeRef wany_ref = make_ref(false, make_enum_type("WAny"));
     auto any_ref = builder().addr_of_temp(std::move(anyval), false, wany_ref);
     // Resolve the WAny accessor to a concrete symbol and emit a DIRECT free call.

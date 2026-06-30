@@ -7293,7 +7293,12 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     };
 
     lir::LExprPtr wany_val;
-    if (!from_sym.empty()) {
+    bool ftype_is_wany = TypeRef(ftype).kind() == K::Enum &&
+                         TypeRef(ftype).enum_name() == "WAny";
+    if (ftype_is_wany) {
+        // Dynamic `WAny` field — store the value verbatim (no conversion/boxing).
+        wany_val = std::move(val);
+    } else if (!from_sym.empty()) {
         std::vector<lir::LExprPtr> fargs; fargs.push_back(std::move(val));
         wany_val = builder().call(from_sym, {}, std::move(fargs), wany);
     } else if (TypeRef(ftype).kind() == K::Slice) {

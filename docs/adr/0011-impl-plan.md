@@ -35,9 +35,11 @@ this is the *how*, as gated increments.
 > receiver returning null (the recurring trap) — fixed with a resolved free call.
 > **String (`str`) fields DONE** — write interns via the view allocator
 > (`wstring_in_alloc(z,s)` → `WAny::ref_to` → `set`); read decodes null-safely via a new
-> stdlib `WAny::as_wstr` (absent key → empty str). **The TOM-scope ADR is now COMPLETE.**
+> stdlib `WAny::as_wstr` (absent key → empty str). **Dynamic `WAny` fields DONE** — a
+> field typed `WAny` stores/reads the value VERBATIM (identity — no conversion, no box;
+> the heterogeneous/erased field). **The TOM-scope ADR is now COMPLETE.**
 > Tests: `pass/schema_decl,schema_read,schema_write,schema_box_write,schema_enum_match,
-> schema_view_checked,schema_str`, `fail/schema_dup_key,schema_key_range`.
+> schema_view_checked,schema_str,schema_wany`, `fail/schema_dup_key,schema_key_range`.
 
 > **FUTURE / PROPOSED (not scheduled — design TODO):**
 > 1. **Narrow `code`/`category` to `u56`.** Currently `schema_type_code` is `u64`
