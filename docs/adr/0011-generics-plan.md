@@ -12,6 +12,16 @@ Companion to [`0011-writ-schemas.md`](0011-writ-schemas.md) (the *what*) and
 Target: `schema Box<T: WritField> { val: T = 0 }`, used as `Box<i64>` / `Box<str>`, with
 DISTINCT per-instantiation `schema_type_code` (`Box<i64>` ≠ `Box<str>`).
 
+> **STATUS (2026-06-30): COMPLETE (G0–G5 + str type-args), ctest-gated.** G5 generic
+> `schema enum E<T>` DONE: collect_schema_enum reads type-params; lower_schema_enum_match
+> substitutes each variant type with the scrutinee's type-args and computes its PER-INSTANCE
+> code via a shared helper `schema_instance_code` (also used by make/view_checked — single
+> source so codes agree). `Wrap<str>` (str as type-arg) DONE via a schema-scoped
+> canonicalization in resolve_type_generic_inst: a generic SCHEMA's unsized type-arg
+> (UnsizedSlice<u8>) → its sized fat form (Slice<u8>), matching `impl WritField for str`;
+> scoped to is_schema so the real `Box<str>` is unaffected (no `?Sized` needed). Tests:
+> pass/schema_generic_enum, pass/schema_generic_str.
+>
 > **STATUS (2026-06-30): DONE for Sized type-args (G0–G4), ctest-gated.** `schema Wrap<T:
 > WritField> { val: T }` works: construct/read/write `Wrap<i64>`/`Wrap<bool>` (incl. boxed
 > wide values), the generic-fn CRUX (`fn get<T:WritField>(w:&Wrap<T>)->T { w.val }` →

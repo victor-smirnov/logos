@@ -9212,16 +9212,11 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
     TypeRef view_t = is_generic_inst
         ? make_generic_struct(sname, std::vector<TypeRef>(st_args.begin(), st_args.end()), {}, spkg)
         : make_struct_type(sname, spkg);
-    // DISTINCT per-instantiation schema_type_code: Box<i64> ≠ Box<str>. Fold the
-    // concrete instantiation name into the 48-bit variant (category preserved), so
-    // make() stamps and view_checked() compares the SAME per-instance code.
-    uint64_t inst_code = ssi->schema_type_code;
-    if (is_generic_inst) {
-        std::string canon = std::string(spkg) + "::" + concrete_struct_name(st);
-        uint64_t variant = type_hash_56bit(type_hash_23(canon))
-                           & logos::writ::schema::VARIANT_MASK;
-        inst_code = (ssi->schema_type_code & logos::writ::schema::CATEGORY_MASK) | variant;
-    }
+    // DISTINCT per-instantiation schema_type_code: Box<i64> ≠ Box<str>. Shared
+    // helper (also used by the schema-enum match) so all sites agree.
+    uint64_t inst_code = is_generic_inst
+        ? schema_instance_code(st, ssi->schema_type_code, spkg)
+        : ssi->schema_type_code;
     // Wrap a TOM pointer into the view {m, z}; z (allocator) is null for views
     // bound from an erased WAny (read-only for WIDE writes; small/inline writes
     // and all reads still work — make_int inlines values that fit).
@@ -9335,6 +9330,15 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         return wrap(std::move(ptr));
     }
     return std::nullopt;
+}
+
+uint64_t SemaChecker::schema_instance_code(TypeRef inst_type, uint64_t base_code,
+                                           std::string_view pkg) {
+    if (TypeRef(inst_type).type_args().empty()) return base_code;
+    std::string canon = std::string(pkg) + "::" + concrete_struct_name(inst_type);
+    uint64_t variant = type_hash_56bit(type_hash_23(canon))
+                       & logos::writ::schema::VARIANT_MASK;
+    return (base_code & logos::writ::schema::CATEGORY_MASK) | variant;
 }
 
 std::string SemaChecker::writfield_type_name(TypeRef t) {

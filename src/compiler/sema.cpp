@@ -5585,6 +5585,20 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             ++type_arg_idx;
         }
     }
+    // ADR 0011 — a generic SCHEMA stores its field values as WAny (sized handles),
+    // never by value, so an unsized type-arg (`Wrap<str>`: str = UnsizedSlice<u8>,
+    // produced when the turbofish/`?Sized` enables unsized_ok_) canonicalizes to its
+    // sized fat form (Slice<u8>) — matching `impl WritField for str` (= Slice<u8>),
+    // the value type-check, and writfield_type_name. Scoped to schemas so the real
+    // `Box<str>` smart pointer is unaffected.
+    {
+        auto [sp_, ssi_] = find_struct_by_name(std::string(name));
+        if (ssi_ && ssi_->is_schema) {
+            for (auto& a : args)
+                if (a && TypeRef(a).kind() == LogosType::Kind::UnsizedSlice && TypeRef(a).elem())
+                    a = make_slice_type(TypeRef(a).elem());
+        }
+    }
     // Default type arguments (Rust parity): when fewer type-args are named than
     // the generic has params, fill trailing params from their declared defaults
     // (`struct S<T, U = i64>` → `S<A>` ≡ `S<A, i64>`). A default may reference an

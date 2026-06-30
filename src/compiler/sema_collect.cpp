@@ -4126,6 +4126,10 @@ void SemaChecker::collect_schema_enum(TinyMapView node) {
     }
     info.is_module_only = read_module_vis(node);
 
+    // ADR 0011 generics — bind type params so variant types `A(Wrap<T>)` resolve T.
+    info.type_params = read_type_params(node);
+    push_type_params(info.type_params);
+
     // Optional `category(expr)` clause (contextual keyword == "category").
     if (node.has_key(la::CODE_EXPR.code)) {
         auto clause = map_of(node.get(la::CODE_EXPR.code));
@@ -4166,6 +4170,7 @@ void SemaChecker::collect_schema_enum(TinyMapView node) {
         }
     }
 
+    pop_type_params(info.type_params);
     structs_[sema_key(cur_package_, sname)] = std::move(info);
 }
 

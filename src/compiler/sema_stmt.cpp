@@ -8408,11 +8408,23 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
                 }
             }
             TypeRef vty = nullptr; uint64_t vcode = 0; bool found = false;
+            auto enum_args = TypeRef(scrut_type).type_args();
             for (auto& pr : esi->schema_variants) {
                 if (pr.first == vname) {
                     vty = pr.second;
+                    // ADR 0011 generics — generic schema enum: substitute the variant
+                    // type with the scrutinee's type-args (E<i64>::A(Wrap<T>) → Wrap<i64>),
+                    // then compute the variant's PER-INSTANCE code (same shared helper as
+                    // make/view_checked, so the pointee's stamped code matches). Bind the
+                    // arm var to the SUBSTITUTED view type.
+                    if (!esi->type_params.empty() && !enum_args.empty()) {
+                        SemaSubst sub;
+                        for (size_t ti = 0; ti < esi->type_params.size() && ti < enum_args.size(); ++ti)
+                            sub[esi->type_params[ti].name] = enum_args[ti];
+                        vty = subst_type_sema(vty, sub);
+                    }
                     auto [vpkg, vsi] = find_struct_by_name(std::string(TypeRef(vty).struct_name()));
-                    if (vsi) vcode = vsi->schema_type_code;
+                    if (vsi) vcode = schema_instance_code(vty, vsi->schema_type_code, vpkg);
                     found = true; break;
                 }
             }

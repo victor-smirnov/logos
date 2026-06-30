@@ -1,0 +1,16 @@
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.str;
+schema Wrap<T: WritField> : code(0x000A000000000000) { val: T = 0 }
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let ws: Wrap<str> = h.make::<Wrap<str>>();
+    ws.val = "hello";
+    if !str_eq(ws.val, "hello") { return 1i32; }
+    let wi: Wrap<i64> = h.make::<Wrap<i64>>();
+    wi.val = 42i64;
+    if wi.val != 42i64 { return 2i32; }
+    return 0i32;
+}

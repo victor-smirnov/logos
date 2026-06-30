@@ -1,0 +1,28 @@
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+schema Lit<T: WritField> : code(0x0009000000000001) { v: T = 0 }
+schema Bin<T: WritField> : code(0x0009000000000002) { lhs: T = 0, rhs: T = 1 }
+schema enum Expr<T: WritField> : category(0x0009000000000000) { L(Lit<T>), B(Bin<T>) }
+
+fn eval(e: &Expr<i64>) -> i64 {
+    match e {
+        Expr::L(l) => { return l.v; }
+        Expr::B(b) => { return b.lhs + b.rhs; }
+    }
+}
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let lit: Lit<i64> = h.make::<Lit<i64>>();
+    lit.v = 7i64;
+    let el: Expr<i64> = WAny::ref_to(lit.m as *const u8).view::<Expr<i64>>();
+    if eval(&el) != 7i64 { return 1i32; }
+
+    let bin: Bin<i64> = h.make::<Bin<i64>>();
+    bin.lhs = 10i64; bin.rhs = 20i64;
+    let eb: Expr<i64> = WAny::ref_to(bin.m as *const u8).view::<Expr<i64>>();
+    if eval(&eb) != 30i64 { return 2i32; }
+    return 0i32;
+}

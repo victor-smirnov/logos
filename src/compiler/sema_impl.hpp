@@ -3923,6 +3923,13 @@ private:
     // (`bool`/`i64`/`str`/…), for resolving `<name>__from_wany`/`__to_wany`. Empty
     // if the type isn't a scalar/str WritField (pointers/WAny handled separately).
     std::string writfield_type_name(TypeRef t);
+    // ADR 0011 — the schema_type_code for a (possibly generic) instantiation.
+    // For a generic instance (`Wrap<i64>`) it folds the concrete type-args into the
+    // variant bits → DISTINCT per-instantiation codes; for a non-generic schema it
+    // returns base_code unchanged. SHARED by make/view_checked AND schema-enum match
+    // so all three sites compute the SAME code (must not drift).
+    uint64_t schema_instance_code(TypeRef inst_type, uint64_t base_code,
+                                  std::string_view pkg);
     // ADR 0011 — `wr.make::<S>()` (construct), `x.view::<S>()` / `x.child::<S>()`
     // (trusted bind). Returns nullopt unless method+type-arg name a schema.
     std::optional<lir::LExprPtr>
