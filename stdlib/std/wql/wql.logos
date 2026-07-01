@@ -44,8 +44,9 @@ use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
 use logos.std.wql.ir;
-use logos.std.wql.el;
-use logos.std.wql.codegen;   // emit_sexpr / emit_binop / string_as_str / infer_ty / el_ty_name
+use logos.std.wql.el;             // ElTypes / el_types_new / el_ty_of_name / EL_TY_* (type dict)
+use logos.std.wql.el_parser;      // parse_expr — the GENERATED EL parser (self-describing IR)
+use logos.std.wql.codegen;   // emit_sexpr / emit_binop / string_as_str / infer_ty / el_ty_name / collect_params
 use logos.std.wql.reflect;   // stamp_types_from_schema — schema field-type reflection
 use logos.mem.string;
 use logos.lang.str;
@@ -293,21 +294,17 @@ pub fn wql(s: str) -> ItemList {
     // ── Parse the EL clauses → SExpr IR; keep the parsers for the param list ──
     let h: Writ = writ_new(2048i64);
 
-    // Projection (required).
-    let mut pp: ElParser = el_parser_new(proj_text);
-    // Launder the root handle through a raw word: `parse_root` returns a
-    // `#[borrow_carrying]` WAny conservatively tied to `&mut pp`, which would
-    // keep `pp` mutably borrowed across the later `&pp` codegen reads. The
-    // handle is a plain absolute ref into `h`, so round-tripping through `raw()`
-    // drops the spurious parser borrow (same currency trick el.logos uses).
-    let proj_word: i64 = pp.parse_root(&h).raw();
+    // Projection (required). The GENERATED EL parser (`el_parser::parse_expr`)
+    // produces the same self-describing SExpr IR (Option B: names on nodes); the
+    // handler recovers the ordered `$param` list by walking the IR (`collect_params`),
+    // no parser side table needed.
+    let proj_word: i64 = parse_expr(proj_text, &h).raw();
     if proj_word == 0i64 { error("wql!: malformed `select` expression"); return out; }
 
     // Predicate (optional).
-    let mut wp: ElParser = el_parser_new(where_text);
     let mut pred_word: i64 = 0i64;
     if has_where {
-        pred_word = wp.parse_root(&h).raw();
+        pred_word = parse_expr(where_text, &h).raw();
         if pred_word == 0i64 { error("wql!: malformed `where` expression"); return out; }
     }
 
@@ -329,15 +326,18 @@ pub fn wql(s: str) -> ItemList {
         ty.set_ty(nm, el_ty_of_name(tn));
         di = di + 1i64;
     }
-    // Merge the ordered param names from both clause parsers (dedup by name).
-    merge_params(&mut ty, &pp);
-    merge_params(&mut ty, &wp);
-
-    // Register comprehension SOURCES (an `RScan.src_name` under an SComp) as
-    // `&[Elem]` slice params — replaces the parser's old `param_is_src` flag
-    // (the source name is on the IR node now, so walk the IR to find them).
+    // View the parsed clauses as SExpr. Collect the ordered param names off the IR
+    // (proj first, then pred), matching the hand parser's parse-order side channel
+    // (dedup by name in `note_param`); then register comprehension SOURCES (an
+    // `RScan.src_name` under an SComp) as `&[Elem]` slice params (the source name
+    // is on the IR node now, so walk the IR to find them).
     let proj_any: WAny = WAny::ref_to(proj_word as *const u8);
     let proj_sexpr: SExpr = proj_any.view::<SExpr>();
+    collect_params(proj_sexpr, &mut ty);
+    if has_where {
+        let pred_any_p: WAny = WAny::ref_to(pred_word as *const u8);
+        collect_params(pred_any_p.view::<SExpr>(), &mut ty);
+    }
     register_comp_sources(proj_sexpr, &mut ty);
     if has_where {
         let pred_any0: WAny = WAny::ref_to(pred_word as *const u8);
@@ -512,16 +512,6 @@ fn apply_with_types(t: &mut ElTypes, d: &WithDecls, s: str) {
     }
 }
 
-// Merge one parser's ordered `$param` names into the type dict's arg list.
-fn merge_params(t: &mut ElTypes, p: &ElParser) {
-    let n: i64 = p.param_count();
-    let mut i: i64 = 0i64;
-    while i < n {
-        t.note_param(p.param_name(i));
-        i = i + 1i64;
-    }
-}
-
 // ── Phase 4: RJoin / RAnti — nested-loop (anti-)join over two sources ──────
 // Surface (continuing past the first `from <a>:[A] x`):
 //
@@ -581,36 +571,33 @@ fn emit_join(lx: &mut QLexer, s: str, fn_name: str,
 
     let h: Writ = writ_new(4096i64);
 
-    // Parse on / where / select into the SExpr IR (keep parsers for name tables).
-    let mut op: ElParser = el_parser_new(on_text);
-    let on_word: i64 = op.parse_root(&h).raw();
+    // Parse on / where / select into the SExpr IR via the generated EL parser.
+    let on_word: i64 = parse_expr(on_text, &h).raw();
     if on_word == 0i64 { error("wql!: malformed join `on` predicate"); return; }
 
-    let mut wp: ElParser = el_parser_new(where_text);
     let mut where_word: i64 = 0i64;
     if has_where {
-        where_word = wp.parse_root(&h).raw();
+        where_word = parse_expr(where_text, &h).raw();
         if where_word == 0i64 { error("wql!: malformed join `where` predicate"); return; }
     }
 
-    let mut pp: ElParser = el_parser_new(proj_text);
-    let proj_word: i64 = pp.parse_root(&h).raw();
+    let proj_word: i64 = parse_expr(proj_text, &h).raw();
     if proj_word == 0i64 { error("wql!: malformed join `select` expression"); return; }
 
-    // Build the type dict: reflect BOTH row schemas (a/b), apply `with`, merge
-    // params. Codegen reads names off the IR + types from this dict.
+    // Build the type dict: reflect BOTH row schemas (a/b), apply `with`, collect
+    // params off the IR. Codegen reads names off the IR + types from this dict.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, a_ty);
     stamp_types_from_schema(&view, &mut ty, b_ty);
     apply_with_types(&mut ty, &d, s);
-    merge_params(&mut ty, &op);
-    merge_params(&mut ty, &wp);
-    merge_params(&mut ty, &pp);
 
     // Lower the three clause bodies to Logos expression text.
     let on_e: SExpr = WAny::ref_to(on_word as *const u8).view::<SExpr>();
     let proj_e: SExpr = WAny::ref_to(proj_word as *const u8).view::<SExpr>();
+    collect_params(on_e, &mut ty);
+    if has_where { collect_params(WAny::ref_to(where_word as *const u8).view::<SExpr>(), &mut ty); }
+    collect_params(proj_e, &mut ty);
     let mut on_body: String = String::new();
     emit_sexpr(&mut on_body, on_e, &ty, x_var);
     let mut proj_body: String = String::new();
@@ -864,29 +851,26 @@ fn emit_aggregate(lx: &mut QLexer, s: str, fn_name: str,
     let h: Writ = writ_new(4096i64);
 
     // Parse the key, where, projection, and each aggregate inner-expr.
-    let mut kp: ElParser = el_parser_new(key_text);
-    let key_word: i64 = kp.parse_root(&h).raw();
+    let key_word: i64 = parse_expr(key_text, &h).raw();
     if key_word == 0i64 { error("wql!: malformed `group by` key"); return; }
 
-    let mut wp: ElParser = el_parser_new(where_text);
     let mut where_word: i64 = 0i64;
     if has_where {
-        where_word = wp.parse_root(&h).raw();
+        where_word = parse_expr(where_text, &h).raw();
         if where_word == 0i64 { error("wql!: malformed aggregate `where` predicate"); return; }
     }
 
-    let mut pp: ElParser = el_parser_new(proj_text);
-    let proj_word: i64 = pp.parse_root(&h).raw();
+    let proj_word: i64 = parse_expr(proj_text, &h).raw();
     if proj_word == 0i64 { error("wql!: malformed aggregate `select` expression"); return; }
 
-    // Build the type dict: reflect the source schema, apply `with`, merge params.
+    // Build the type dict: reflect the source schema, apply `with`, collect params.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, a_ty);
     apply_with_types(&mut ty, &d, s);
-    merge_params(&mut ty, &kp);
-    merge_params(&mut ty, &wp);
-    merge_params(&mut ty, &pp);
+    collect_params(WAny::ref_to(key_word as *const u8).view::<SExpr>(), &mut ty);
+    if has_where { collect_params(WAny::ref_to(where_word as *const u8).view::<SExpr>(), &mut ty); }
+    collect_params(WAny::ref_to(proj_word as *const u8).view::<SExpr>(), &mut ty);
 
     let key_e: SExpr = WAny::ref_to(key_word as *const u8).view::<SExpr>();
     let mut key_body: String = String::new();
@@ -907,11 +891,10 @@ fn emit_aggregate(lx: &mut QLexer, s: str, fn_name: str,
     while ai < acount {
         if a_fn[ai] != AGG_COUNT() {
             let etext: str = unsafe { wql_str_range(s, a_expr_start[ai], a_expr_len[ai]) };
-            let mut ep: ElParser = el_parser_new(etext);
-            let ew: i64 = ep.parse_root(&h).raw();
+            let ew: i64 = parse_expr(etext, &h).raw();
             if ew == 0i64 { error("wql!: malformed aggregate fn argument"); return; }
-            merge_params(&mut ty, &ep);
             let ee_e: SExpr = WAny::ref_to(ew as *const u8).view::<SExpr>();
+            collect_params(ee_e, &mut ty);
             emit_sexpr(&mut agg_body[ai], ee_e, &ty, x_var);
         }
         ai = ai + 1i64;

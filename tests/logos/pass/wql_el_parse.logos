@@ -22,7 +22,8 @@ use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
 use logos.std.wql.ir;
-use logos.std.wql.el;
+use logos.std.wql.el;             // OP_* / EL_TY_* consts (shared)
+use logos.std.wql.el_parser;      // parse_expr — the GENERATED EL parser
 use logos.lang.str;
 
 fn main() -> i32 {
@@ -30,7 +31,7 @@ fn main() -> i32 {
 
     // ── 1. "a.b + $x * 2" ─────────────────────────────────────────────────
     // Expect: SBin(+, lhs = a.b, rhs = SBin(*, $x, 2)).
-    let r1: WAny = parse_el(&h, "a.b + $x * 2");
+    let r1: WAny = parse_expr("a.b + $x * 2", &h);
     if r1.is_null() { return 1i32; }
     let e1: SExpr = r1.view::<SExpr>();
     match e1 {
@@ -63,7 +64,7 @@ fn main() -> i32 {
 
     // ── 2. "[u.name for u in users if u.active]" ──────────────────────────
     // Expect: SComp(plan = RFilter(RScan(users), u.active), head = u.name).
-    let r2: WAny = parse_el(&h, "[u.name for u in users if u.active]");
+    let r2: WAny = parse_expr("[u.name for u in users if u.active]", &h);
     if r2.is_null() { return 12i32; }
     let e2: SExpr = r2.view::<SExpr>();
     match e2 {
@@ -99,7 +100,7 @@ fn main() -> i32 {
     }
 
     // ── 3. "f(1)" → SCall ─────────────────────────────────────────────────
-    let r3: WAny = parse_el(&h, "f(1)");
+    let r3: WAny = parse_expr("f(1)", &h);
     if r3.is_null() { return 19i32; }
     let e3: SExpr = r3.view::<SExpr>();
     match e3 {
@@ -108,7 +109,7 @@ fn main() -> i32 {
     }
 
     // ── 4. "!a" → SUn(!) ──────────────────────────────────────────────────
-    let r4: WAny = parse_el(&h, "!a");
+    let r4: WAny = parse_expr("!a", &h);
     if r4.is_null() { return 21i32; }
     let e4: SExpr = r4.view::<SExpr>();
     match e4 {
@@ -117,7 +118,7 @@ fn main() -> i32 {
     }
 
     // ── 5. malformed input parses to a null root ──────────────────────────
-    let r5: WAny = parse_el(&h, "a +");
+    let r5: WAny = parse_expr("a +", &h);
     if !r5.is_null() { return 24i32; }
 
     return 0i32;

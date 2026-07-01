@@ -3455,6 +3455,43 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             nc.callee = cname + method_part;
                             nc.type_args.clear();
                             rewritten_as_struct_method = true;
+                            // A generic-struct method call rewritten to concrete
+                            // `Struct$G..$A__method` form must ALSO ensure that
+                            // instance's methods get monomorphized — clearing
+                            // type_args above turns this into a plain named call
+                            // that neither scan_expr (no type_args) nor the
+                            // struct-instantiation pass will otherwise pull in
+                            // when the CU never CONSTRUCTS the struct. This is
+                            // the generic-WritField field-read seam: a unit that
+                            // only READS a `WRef<S>` field emits
+                            // `WRef<S>::from_wany` (returning Self) but never
+                            // materializes a `WRef<S>` value, so `WRef$G..$S`'s
+                            // methods (from_wany) would never be cloned → mlir-gen
+                            // "does not reference a valid function". Recording the
+                            // receiver struct as needed schedules
+                            // instantiate_struct_templates() to clone ALL its
+                            // methods — exactly how a locally-constructed instance
+                            // gets them. record_needed_struct no-ops on
+                            // non-generic / TypeVar-bearing / already-done structs,
+                            // so this is idempotent and cheap. The receiver type is
+                            // recovered from the impl-target pattern substituted
+                            // with `args` (works for any Self-shape, e.g. `WRef<S>`
+                            // as well as `impl<T> Pin<&T>`); the method's own
+                            // return type `rt_` is a fallback for the common
+                            // Self-returning constructor/`from_wany` case.
+                            if (mt && mt_itp) {
+                                SubstMap ib;
+                                size_t ai = 0;
+                                for (auto& tp : mt.impl_type_params())
+                                    if (ai < args.size())
+                                        ib[std::string(tp.name())] = args[ai++];
+                                TypeRef recv_t = subst_type(TypeRef(mt_itp), ib);
+                                if (recv_t &&
+                                    (recv_t.kind() == LogosType::Kind::Struct ||
+                                     recv_t.kind() == LogosType::Kind::ZonedStruct))
+                                    record_needed_struct(recv_t);
+                            }
+                            record_needed_struct(rt_);
                         }
                     }
                 }

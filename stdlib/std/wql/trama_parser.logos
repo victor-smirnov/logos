@@ -15,6 +15,8 @@ use logos.mem.collections.vec;
 use logos.lang.writ.allocator;
 use logos.std.wql.trama;
 use logos.std.wql.ir;
+// Cross-grammar embedded parser(s), called by qualified path:
+//   logos.std.wql.el_parser (as el)
 
 // ── AST field keys (%fields) ───────────────────────────────────────────────
 
@@ -53,18 +55,18 @@ impl Token {
 
 pub struct TrMemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }
 
-pub struct TrTokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }
+pub struct TrTokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64, pub intag_after: bool }
 impl Copy for TrTokCell {}
 
-pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell> }
+pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell> }
 
 pub fn lexer_new(src: str) -> Lexer {
     let mut tb: Vec<TrTokCell> = vec_new::<TrTokCell>();
-    let sent: TrTokCell = TrTokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64 };
+    let sent: TrTokCell = TrTokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64, intag_after: false };
     let mut i: i64 = 0i64;
     while i <= src.len() { tb.push(sent); i = i + 1i64; }
     return Lexer { src: src, pos: 0i64, line: 1i64,
-        la: Token { kind: TrTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,
+        la: Token { kind: TrTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,
         memo: hashmap_new::<i64, TrMemoCell>(), tbuf: tb };
 }
 
@@ -122,38 +124,23 @@ impl Lexer {
         let k: i64 = self.pos;
         let c: TrTokCell = self.tbuf.get(k);
         if c.endpos >= 0i64 {
-            self.pos = c.endpos; self.line = c.endline;
+            self.pos = c.endpos; self.line = c.endline; self.in_tag = c.intag_after;
             return Token { kind: c.tk, start: c.tstart, len: c.tlen, line: c.tline };
         }
         let t: Token = self.lex_one_raw();
-        self.tbuf.set(k, TrTokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line });
+        self.tbuf.set(k, TrTokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line, intag_after: self.in_tag });
         return t;
     }
     fn lex_one_raw(self: &mut Lexer) -> Token {
-        // Skip whitespace and // line / /* */ block comments.
-        loop {
-            let c: u8 = self.cur(0i64);
-            if c == 32u8 || c == 9u8 || c == 13u8 || c == 10u8 {
-                if c == 10u8 { self.line = self.line + 1i64; }
-                self.pos = self.pos + 1i64;
-            } else if c == 47u8 && self.cur(1i64) == 47u8 {
-                while self.pos < self.src.len() && self.cur(0i64) != 10u8 { self.pos = self.pos + 1i64; }
-            } else if c == 47u8 && self.cur(1i64) == 42u8 {
-                self.pos = self.pos + 2i64;
-                let mut bdepth: i64 = 1i64;   // block comments nest (Rust-style)
-                while self.pos < self.src.len() && bdepth > 0i64 {
-                    if self.cur(0i64) == 47u8 && self.cur(1i64) == 42u8 { self.pos = self.pos + 2i64; bdepth = bdepth + 1i64; }
-                    else if self.cur(0i64) == 42u8 && self.cur(1i64) == 47u8 { self.pos = self.pos + 2i64; bdepth = bdepth - 1i64; }
-                    else { if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; }
-                }
-            } else { break; }
-        }
-        if self.pos >= self.src.len() { return Token { kind: TrTK_EOF, start: self.pos, len: 0i64, line: self.line }; }
-        let start: i64 = self.pos;
-        let sl: i64 = self.line;
-        let c: u8 = self.cur(0i64);
-
-        // Keyword / punctuation literals (longest match first).
+        if self.in_tag {
+            // TAG mode: skip tag-interior whitespace, then match tokens.
+            while self.pos < self.src.len() {
+                let wc: u8 = self.cur(0i64);
+                if wc == 32u8 || wc == 9u8 || wc == 13u8 || wc == 10u8 { if wc == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; } else { break; }
+            }
+            if self.pos >= self.src.len() { return Token { kind: TrTK_EOF, start: self.pos, len: 0i64, line: self.line }; }
+            let start: i64 = self.pos;
+            let sl: i64 = self.line;
         if self.cur(0i64) == 101u8 && self.cur(1i64) == 110u8 && self.cur(2i64) == 100u8 && self.cur(3i64) == 102u8 && self.cur(4i64) == 111u8 && self.cur(5i64) == 114u8 && !lx_is_alnum(self.cur(6i64)) {
             self.pos = self.pos + 6i64;
             return Token { kind: TrTK_KW_ENDFOR, start: start, len: 6i64, line: sl };
@@ -170,42 +157,36 @@ impl Lexer {
             self.pos = self.pos + 4i64;
             return Token { kind: TrTK_KW_ELSE, start: start, len: 4i64, line: sl };
         }
-        if self.cur(0i64) == 123u8 && self.cur(1i64) == 37u8 && self.cur(2i64) == 45u8 {
-            self.pos = self.pos + 3i64;
-            return Token { kind: TrTK_LSTMT_TRIM, start: start, len: 3i64, line: sl };
-        }
-        if self.cur(0i64) == 45u8 && self.cur(1i64) == 37u8 && self.cur(2i64) == 125u8 {
-            self.pos = self.pos + 3i64;
-            return Token { kind: TrTK_RSTMT_TRIM, start: start, len: 3i64, line: sl };
-        }
-        if self.cur(0i64) == 45u8 && self.cur(1i64) == 125u8 && self.cur(2i64) == 125u8 {
-            self.pos = self.pos + 3i64;
-            return Token { kind: TrTK_RMUST_TRIM, start: start, len: 3i64, line: sl };
-        }
+            if self.cur(0i64) == 45u8 && self.cur(1i64) == 37u8 && self.cur(2i64) == 125u8 {
+                self.pos = self.pos + 3i64;
+                while self.pos < self.src.len() { let tc: u8 = self.cur(0i64); if tc == 32u8 || tc == 9u8 || tc == 13u8 || tc == 10u8 { if tc == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; } else { break; } }
+                self.in_tag = false;
+                return Token { kind: TrTK_RSTMT_TRIM, start: start, len: 3i64, line: sl };
+            }
+            if self.cur(0i64) == 45u8 && self.cur(1i64) == 125u8 && self.cur(2i64) == 125u8 {
+                self.pos = self.pos + 3i64;
+                while self.pos < self.src.len() { let tc: u8 = self.cur(0i64); if tc == 32u8 || tc == 9u8 || tc == 13u8 || tc == 10u8 { if tc == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; } else { break; } }
+                self.in_tag = false;
+                return Token { kind: TrTK_RMUST_TRIM, start: start, len: 3i64, line: sl };
+            }
         if self.cur(0i64) == 102u8 && self.cur(1i64) == 111u8 && self.cur(2i64) == 114u8 && !lx_is_alnum(self.cur(3i64)) {
             self.pos = self.pos + 3i64;
             return Token { kind: TrTK_KW_FOR, start: start, len: 3i64, line: sl };
-        }
-        if self.cur(0i64) == 123u8 && self.cur(1i64) == 123u8 && self.cur(2i64) == 45u8 {
-            self.pos = self.pos + 3i64;
-            return Token { kind: TrTK_LMUST_TRIM, start: start, len: 3i64, line: sl };
         }
         if self.cur(0i64) == 115u8 && self.cur(1i64) == 101u8 && self.cur(2i64) == 116u8 && !lx_is_alnum(self.cur(3i64)) {
             self.pos = self.pos + 3i64;
             return Token { kind: TrTK_KW_SET, start: start, len: 3i64, line: sl };
         }
-        if self.cur(0i64) == 125u8 && self.cur(1i64) == 125u8 {
-            self.pos = self.pos + 2i64;
-            return Token { kind: TrTK_RMUST, start: start, len: 2i64, line: sl };
-        }
-        if self.cur(0i64) == 123u8 && self.cur(1i64) == 37u8 {
-            self.pos = self.pos + 2i64;
-            return Token { kind: TrTK_LSTMT, start: start, len: 2i64, line: sl };
-        }
-        if self.cur(0i64) == 37u8 && self.cur(1i64) == 125u8 {
-            self.pos = self.pos + 2i64;
-            return Token { kind: TrTK_RSTMT, start: start, len: 2i64, line: sl };
-        }
+            if self.cur(0i64) == 125u8 && self.cur(1i64) == 125u8 {
+                self.pos = self.pos + 2i64;
+                self.in_tag = false;
+                return Token { kind: TrTK_RMUST, start: start, len: 2i64, line: sl };
+            }
+            if self.cur(0i64) == 37u8 && self.cur(1i64) == 125u8 {
+                self.pos = self.pos + 2i64;
+                self.in_tag = false;
+                return Token { kind: TrTK_RSTMT, start: start, len: 2i64, line: sl };
+            }
         if self.cur(0i64) == 105u8 && self.cur(1i64) == 110u8 && !lx_is_alnum(self.cur(2i64)) {
             self.pos = self.pos + 2i64;
             return Token { kind: TrTK_KW_IN, start: start, len: 2i64, line: sl };
@@ -214,27 +195,55 @@ impl Lexer {
             self.pos = self.pos + 2i64;
             return Token { kind: TrTK_KW_IF, start: start, len: 2i64, line: sl };
         }
-        if self.cur(0i64) == 123u8 && self.cur(1i64) == 123u8 {
-            self.pos = self.pos + 2i64;
-            return Token { kind: TrTK_LMUST, start: start, len: 2i64, line: sl };
-        }
         if self.cur(0i64) == 61u8 {
             self.pos = self.pos + 1i64;
             return Token { kind: TrTK_EQ, start: start, len: 1i64, line: sl };
         }
-
-        // Regex tokens (matched by hand-coded recognisers).
-        // IDENT token IDENT.
-        if lx_is_alpha(c) {
+            if lx_is_alpha(self.cur(0i64)) {
+                self.pos = self.pos + 1i64;
+                while self.pos < self.src.len() && lx_is_alnum(self.cur(0i64)) { self.pos = self.pos + 1i64; }
+                return Token { kind: TrTK_IDENT, start: start, len: self.pos - start, line: sl };
+            }
             self.pos = self.pos + 1i64;
-            while self.pos < self.src.len() && lx_is_alnum(self.cur(0i64)) { self.pos = self.pos + 1i64; }
-            return Token { kind: TrTK_IDENT, start: start, len: self.pos - start, line: sl };
+            return Token { kind: TrTK_INVALID, start: start, len: 1i64, line: sl };
         }
-        // TODO: regex token TEXT = /[^{]+/
-        //       (unrecognised pattern shape — add a hand-coded matcher)
-        // Unknown character — surface it to the parser as INVALID.
+        // TEXT mode: a tag OPEN delimiter, or a raw-text run to the next tag.
+        if self.pos >= self.src.len() { return Token { kind: TrTK_EOF, start: self.pos, len: 0i64, line: self.line }; }
+        let start: i64 = self.pos;
+        let sl: i64 = self.line;
+        let c: u8 = self.cur(0i64);
+            if self.cur(0i64) == 123u8 && self.cur(1i64) == 37u8 && self.cur(2i64) == 45u8 {
+                self.pos = self.pos + 3i64;
+                self.in_tag = true;
+                return Token { kind: TrTK_LSTMT_TRIM, start: start, len: 3i64, line: sl };
+            }
+            if self.cur(0i64) == 123u8 && self.cur(1i64) == 123u8 && self.cur(2i64) == 45u8 {
+                self.pos = self.pos + 3i64;
+                self.in_tag = true;
+                return Token { kind: TrTK_LMUST_TRIM, start: start, len: 3i64, line: sl };
+            }
+            if self.cur(0i64) == 123u8 && self.cur(1i64) == 37u8 {
+                self.pos = self.pos + 2i64;
+                self.in_tag = true;
+                return Token { kind: TrTK_LSTMT, start: start, len: 2i64, line: sl };
+            }
+            if self.cur(0i64) == 123u8 && self.cur(1i64) == 123u8 {
+                self.pos = self.pos + 2i64;
+                self.in_tag = true;
+                return Token { kind: TrTK_LMUST, start: start, len: 2i64, line: sl };
+            }
+        // RAW-TEXT run TEXT — bytes up to the next tag-open delimiter.
         self.pos = self.pos + 1i64;
-        return Token { kind: TrTK_INVALID, start: start, len: 1i64, line: sl };
+        while self.pos < self.src.len() {
+            if self.cur(0i64) == 123u8 && (self.cur(1i64) == 37u8 || self.cur(1i64) == 123u8) { break; }
+            if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }
+            self.pos = self.pos + 1i64;
+        }
+        let mut tlen: i64 = self.pos - start;
+        if self.pos + 2i64 < self.src.len() && self.cur(2i64) == 45u8 {
+            while tlen > 0i64 { let tw: u8 = str_byte_at(self.src, start + tlen - 1i64); if tw == 32u8 || tw == 9u8 || tw == 13u8 || tw == 10u8 { tlen = tlen - 1i64; } else { break; } }
+        }
+        return Token { kind: TrTK_TEXT, start: start, len: tlen, line: sl };
     }
 }
 
@@ -251,6 +260,47 @@ fn wstr_as_str<'a>(p: *const u8) -> &'a str {
     if (p as i64) == 0i64 { return ""; }
     let ws: &WString = unsafe { &*(p as *const WString) };
     return ws.as_str();
+}
+// Decode a captured INTEGER token (a WString ptr from wstr_p over the
+// matched digits) into its i64 VALUE — the token->i64 hook the schema
+// action uses to fill a numeric literal field (mirrors el.logos parse_int).
+fn wstr_decode_i64(p: *const u8) -> i64 {
+    let s: &str = wstr_as_str(p);
+    let n: i64 = s.len();
+    let mut v: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c < 48u8 || c > 57u8 { break; }
+        v = v * 10i64 + ((c as i64) - 48i64);
+        i = i + 1i64;
+    }
+    return v;
+}
+// Re-intern a captured STRING token WITHOUT its surrounding quotes: the
+// token text is `"..."`; a string literal's VALUE is the inner content
+// (matches el.logos parse_string, which stores str_from_range between the
+// quotes). Returns the raw WString ptr of the unquoted, arena-interned
+// content. (No escape processing — MVP EL, as in the hand parser.)
+fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {
+    let s: &str = wstr_as_str(p);
+    let n: i64 = s.len();
+    if n < 2i64 { return wstr_p(doc, s); }
+    let inner: str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };
+    return wstr_p(doc, inner);
+}
+
+// Embedded-expression scan (cross-grammar EL seam): find the first
+// close-tag delimiter (}} / %}) at/after `pos`; -1 if none. The embedded
+// expression occupies [pos, close) (a trailing `-` trim marker excluded
+// by the caller). Mirrors the hand TrParser's find_close_expr/stmt.
+fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {
+    let mut p: i64 = pos;
+    while p + 1i64 < len {
+        if (str_byte_at(src, p) == 125u8 && str_byte_at(src, p + 1i64) == 125u8) || (str_byte_at(src, p) == 37u8 && str_byte_at(src, p + 1i64) == 125u8) { return p; }
+        p = p + 1i64;
+    }
+    return 0i64 - 1i64;
 }
 
 // ── Grammar rules ──────────────────────────────────────────────────────────
@@ -475,7 +525,6 @@ fn alt_for_stmt_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap6: *const u8 = rule_stmt_close(lex, doc);
     if cap6 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     let cap7: *const u8 = rule_tpl(lex, doc);
-    if cap7 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     let cap8: *const u8 = rule_stmt_open(lex, doc);
     if cap8 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     if lex.peek().kind != TrTK_KW_ENDFOR { lex.reset(sp, sln); return TrNULLP; }
@@ -509,9 +558,7 @@ fn alt_if_stmt_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap4: *const u8 = rule_stmt_close(lex, doc);
     if cap4 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     let cap5: *const u8 = rule_tpl(lex, doc);
-    if cap5 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     let cap6: *const u8 = rule_if_tail(lex, doc);
-    if cap6 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     let cap7: *const u8 = rule_stmt_open(lex, doc);
     if cap7 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
     if lex.peek().kind != TrTK_KW_ENDIF { lex.reset(sp, sln); return TrNULLP; }
@@ -536,23 +583,55 @@ fn alt_if_tail_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
     let mut cap1: *const u8 = TrNULLP;
+    let mut gdone0: bool = false;
+    if !gdone0 {
+        let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+        loop {
+            let gcap1_1_1: *const u8 = rule_stmt_open(lex, doc);
+            if gcap1_1_1 == TrNULLP { lex.reset(gsp, gsln); break; }
+            if lex.peek().kind != TrTK_KW_ELIF { lex.reset(gsp, gsln); break; }
+            let gcap1_2_1_t: Token = lex.next();
+            let gcap1_2_1: *const u8 = wstr_p(doc, gcap1_2_1_t.text(lex.src));
+            let gcap1_3_1: *const u8 = rule_expr(lex, doc);
+            if gcap1_3_1 == TrNULLP { lex.reset(gsp, gsln); break; }
+            let gcap1_4_1: *const u8 = rule_stmt_close(lex, doc);
+            if gcap1_4_1 == TrNULLP { lex.reset(gsp, gsln); break; }
+            let gcap1_5_1: *const u8 = rule_tpl(lex, doc);
+            let gcap1_6_1: *const u8 = rule_if_tail(lex, doc);
+            let gnode: TIf = doc.make::<TIf>();
+            gnode.body = WRef::<TStmt>::from_any(hand_any(gcap1_5_1));
+            gnode.expr = WRef::<SExpr>::from_any(hand_any(gcap1_3_1));
+            gnode.alt = WRef::<TStmt>::from_any(hand_any(gcap1_6_1));
+            cap1 = gnode.as_ref().raw() as *const u8;
+            gdone0 = true;
+            break;
+        }
+    }
+    if !gdone0 { lex.reset(sp, sln); return TrNULLP; }
+    return cap1;
+}
+
+fn alt_if_tail_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let mut cap1: *const u8 = TrNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
-        let mut ogdone0: bool = false;
-        if !ogdone0 {
+        let mut ogdone2: bool = false;
+        if !ogdone2 {
             let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
             loop {
-                let gcap1_1_1: *const u8 = rule_stmt_open(lex, doc);
-                if gcap1_1_1 == TrNULLP { lex.reset(gsp, gsln); break; }
+                let gcap1_1_3: *const u8 = rule_stmt_open(lex, doc);
+                if gcap1_1_3 == TrNULLP { lex.reset(gsp, gsln); break; }
                 if lex.peek().kind != TrTK_KW_ELSE { lex.reset(gsp, gsln); break; }
-                let gcap1_2_1_t: Token = lex.next();
-                let gcap1_2_1: *const u8 = wstr_p(doc, gcap1_2_1_t.text(lex.src));
-                let gcap1_3_1: *const u8 = rule_stmt_close(lex, doc);
-                if gcap1_3_1 == TrNULLP { lex.reset(gsp, gsln); break; }
-                let gcap1_4_1: *const u8 = rule_tpl(lex, doc);
-                if gcap1_4_1 == TrNULLP { lex.reset(gsp, gsln); break; }
-                cap1 = TrNULLP;
-                ogdone0 = true;
+                let gcap1_2_3_t: Token = lex.next();
+                let gcap1_2_3: *const u8 = wstr_p(doc, gcap1_2_3_t.text(lex.src));
+                let gcap1_3_3: *const u8 = rule_stmt_close(lex, doc);
+                if gcap1_3_3 == TrNULLP { lex.reset(gsp, gsln); break; }
+                let gcap1_4_3: *const u8 = rule_tpl(lex, doc);
+                cap1 = gcap1_4_3;
+                ogdone2 = true;
                 break;
             }
         }
@@ -560,9 +639,24 @@ fn alt_if_tail_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return cap1;
 }
 
-fn rule_if_tail(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn rule_if_tail_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_if_tail_0(lex, doc); if r != TrNULLP { return r; } }
+    { let r: *const u8 = alt_if_tail_1(lex, doc); if r != TrNULLP { return r; } }
     return TrNULLP;
+}
+fn rule_if_tail(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let mk: i64 = lex.save_pos() * 1024i64 + 6i64;
+    let mut hok: bool = false; let mut hr: *const u8 = TrNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
+    unsafe {
+        let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo;
+        let hp: *const TrMemoCell = mp.get(&mk);
+        if hp != (0i64 as *const TrMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
+    }
+    if hok { lex.reset(hep, hel); return hr; }
+    let r: *const u8 = rule_if_tail_impl(lex, doc);
+    let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
+    unsafe { let mp: *mut HashMap<i64, TrMemoCell> = &mut lex.memo; mp.insert(mk, TrMemoCell { res: r, endpos: ep, endline: el }); }
+    return r;
 }
 
 fn alt_stmt_open_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
@@ -621,12 +715,18 @@ fn alt_expr_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
-    if lex.peek().kind != TrTK_IDENT { lex.reset(sp, sln); return TrNULLP; }
-    let tk1: Token = lex.next();
-    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
-    let node: TText = doc.make::<TText>();
-    node.text = WAny::from(0i56);
-    return node.as_ref().raw() as *const u8;
+    // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
+    let est_cap1: i64 = lex.save_pos();
+    let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
+    if ecl_cap1 < 0i64 { lex.reset(sp, sln); return TrNULLP; }
+    let mut eend_cap1: i64 = ecl_cap1;
+    if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
+    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr(esub_cap1, doc);
+    lex.reset(eend_cap1, lex.save_line());
+    let cap1: *const u8 = if eroot_cap1.is_null() { TrNULLP } else { eroot_cap1.raw() as *const u8 };
+    if cap1 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
+    return cap1;
 }
 
 fn rule_expr_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
@@ -653,6 +753,7 @@ fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 pub fn parse_tpl(src: str, doc: &Writ) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_tpl(&mut lex, doc);
+    if !lex.at_eof() { return WAny::ref_to(TrNULLP); }
     return WAny::ref_to(root);
 }
 

@@ -116,3 +116,14 @@ add_custom_target(wql_peg_oracle
     DEPENDS logosc
     USES_TERMINAL
     COMMENT "WQL EL-parser behavior oracle (generated vs hand-written IR, structural)")
+
+# trama_peg_oracle — parse a Trama template corpus through BOTH the generated
+# trama_parser and the hand-written parser and assert the statement SEQUENCES are
+# equal (same kinds, same TEXT runs [T1], DEEP-EQUAL embedded EL SExpr [T2]).
+add_custom_target(trama_peg_oracle
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/wql_oracle/trama_run.sh
+            ${CMAKE_BINARY_DIR}
+    DEPENDS logosc
+    USES_TERMINAL
+    COMMENT "Trama parser behavior oracle (generated vs hand-written; text + embedded EL)")

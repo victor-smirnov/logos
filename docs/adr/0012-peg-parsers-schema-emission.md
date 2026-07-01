@@ -2,9 +2,157 @@
 
 **Status:** DESIGN (Phase 1, 2026-06-30) → **Phase 2 GENERATOR CAPABILITY DONE
 (2026-06-30)** → **Phase 4 GENERATE + WIRE DONE (2026-07-01)** → **Phase 5
-OPTION-B SELF-DESCRIBING IR DONE (2026-06-30).** Companion to
+OPTION-B SELF-DESCRIBING IR DONE (2026-06-30)** → **EL SCHEMA-EMISSION GAPS
+CLOSED + FULL BYTE-IDENTITY (2026-07-01)** → **Phase 3 TRAMA PARSER FUNCTIONAL
+(T1 raw-text lexer + T2 cross-grammar EL embed) DONE (2026-07-01)** → **PARSE
+SWAP + HAND-PARSER RETIREMENT DONE (2026-07-01).** Companion to
 [`0012-writ-query-language.md`](0012-writ-query-language.md) and
 [`0012-impl-seam.md`](0012-impl-seam.md).
+
+## THE SWAP — wql!/trama! on the generated parsers; hand parsers RETIRED (2026-07-01)
+
+The `wql!` / `trama!` handlers now parse via the peg_gen_logos-GENERATED parsers,
+and the hand-written recursive-descent bodies are DELETED — the migration's end.
+
+- **EL swap.** `wql.logos` (main + join + aggregate clauses) and `trama_render.logos`
+  now call `logos.std.wql.el_parser::parse_expr(src, &h)` instead of
+  `ElParser::parse_root`. The ordered `$param` arg-list is recovered by WALKING the
+  self-describing IR (`codegen::collect_params`, pre-order; a comprehension SOURCE
+  enters first, matching the hand parser's parse-order side channel) — no parser
+  side table. `merge_params` deleted.
+- **Trama swap.** `trama_render.logos` calls `trama_parser::parse_tpl(src, &h)` →
+  a WArray of TStmt handles; the **T3 post-pass** `chain_array` stitches the
+  `next`-linked chain the renderer walks (recursively over `TFor.body`/`TIf.body`/
+  `TIf.alt`). `TrParser` + its shared-`ElParser` seam are gone; the type dict
+  (`ElTypes`) + loop/set var type names (`TVarTys`) are built from schema
+  reflection + `with`, exactly like the `wql!` handler.
+- **elif → nested TIf, in the GRAMMAR** (not a handler pass): `if_tail` gained a
+  recursive `( {% elif %} expr tpl if_tail => TIf )` alt, so the generated parser
+  produces the nested-TIf shape directly (the schema-group action + nullable-rule
+  handling already supported it). The handler's T3 pass then only next-links.
+- **Three generator fixes the swap forced** (all additive / template-or-embed-only,
+  so `peg_gen_logos_oracle` stays **2095/2095** byte-identical on logos.peg):
+  1. **whitespace-control trims.** A trim-CLOSE (`-%}`/`-}}`) now CONSUMES the
+     following text run's leading whitespace in the emitted template lexer
+     (`emit_template_literal_ex`); a text run stopping at a trim-OPEN (`{%-`/`{{-`)
+     shrinks its recorded `len` past trailing whitespace (`emit_template_raw_text` +
+     `template_has_trim_open`). Faithful to the hand `parse_text`.
+  2. **embed reset keeps the `-` marker.** The cross-grammar EL embed reset moved
+     from `ecl_` (the `}}`/`%}` proper) to `eend_` (AT any `-` trim marker) — else
+     `-}}`/`-%}` re-lexed as plain RMUST/RSTMT and the close's trim was lost.
+  3. **export rejects trailing input.** `parse_<export>(src, doc)` now returns a
+     null root when `!lex.at_eof()` — a PEG rule can partial-match (`expr` matches
+     `a` in `a +`); the hand parsers rejected trailing junk, so a non-EOF remainder
+     is a parse error.
+- **Retired:** the `ElParser` RD (el.logos) + `TrParser` RD (trama.logos) bodies +
+  their `mk_*`/lexer/`parse_el`/`parse_trama`/`parse_block`/`parse_embedded_el`
+  helpers. KEPT: `OP_*`, `EL_TY_*`/`el_ty_of_name`, `ElTypes`, the `TStmt` schema
+  family + accessors, `reflect.logos`, `codegen.logos`.
+- **GATES GREEN:** full `cmake --build`; the wql|trama e2e behavior specs pass
+  UNCHANGED (16/16 wql + 6/6 trama incl. elif/truthiness/ws-trim showcases);
+  scoped ctest (wql|trama|token_macro|schema|metaprog) **87/87**;
+  `peg_gen_logos_oracle` **2095/2095** byte-identical; the migration oracles
+  re-based to generated-parser SELF-CONSISTENCY (deterministic + well-formed IR):
+  `wql_peg_oracle` **40/40**, `trama_peg_oracle` **24/24** (now incl. elif chains).
+  The two former hand-parser UNIT tests (`wql_el_parse`/`wql_trama_parse`) retargeted
+  to the generated parsers + mutation-verified (corrupt a check → the test fails).
+
+## Phase 3 — Trama parser MADE FUNCTIONAL (generator T1 + T2) — DONE 2026-07-01
+
+The generated `trama_parser.logos` was a self-contained STAND-IN (a single-mode
+`/[^{]+/` text token that stopped at any `{`, and a local `expr` shim). It is now
+a FUNCTIONAL Trama parser producing the real Trama AST + embedded EL, via two
+additive, schema-mode-gated generator capabilities in `codegen.logos` (logos.peg
+output byte-identical → `peg_gen_logos_oracle` stays **2095/2095**):
+
+- **T1 — two-mode (TEXT/TAG) template lexer.** A raw-text token shape `/[^X]+/`
+  (`regex_shape==4`, `is_neg_class_plus`) turns on a TEMPLATE lexer
+  (`emit_lex_one_template`, gated by `uses_raw_text`). In TEXT mode only tag-OPEN
+  delimiters (`{`-starting literals) and the raw-text run apply — keyword/ident
+  tokens are NOT lexed in text, so a text run `"if you…"` is verbatim TEXT, not a
+  `KW_IF` (the single-mode failure). Entering a tag flips `in_tag`; TAG mode skips
+  tag-interior whitespace and matches keywords/`=`/IDENT + the tag-CLOSE
+  (`}`-ending literal), which flips back. The mode is carried in the pos-keyed
+  token cache (`TokCell.intag_after`), sound because mode-at-pos is deterministic
+  and every backtrack target is already cached. Faithful to the hand `parse_text`.
+- **T2 — cross-grammar EL embedding.** `%import "…el_parser" as el` + the `expr`
+  rule `el::expr` lower to `emit_embed_call`: scan the raw sub-range from the
+  cursor to the tag-close (`embed_find_close`, driven by the grammar's `}`-ending
+  literals), slice `src`, and call `logos.std.wql.el_parser::parse_expr(sub, doc)`
+  into the SHARED arena; the SExpr root is wired into the enclosing TStmt's `expr`
+  edge, and the lexer is reset AT the close so the next `RMUST`/`RSTMT` token
+  matches. The imported parser is called by FULLY-QUALIFIED path (no `use`, which
+  would collide `Lexer`/`Token`/`lexer_new` between the two same-module parsers).
+  Mirrors the hand `parse_embedded_el`.
+
+Two latent generator bugs the functional Trama parser exposed (both a NULLP
+sentinel collision — "no match" vs "matched, null value" — WORKED AROUND before by
+the stand-in never exercising them; FIXED at the class here, oracle-safe):
+
+- **Nullable-rule fail-check.** A rule whose alt is entirely `?`/`*`(min 0)/
+  lookahead ALWAYS succeeds; its NULLP result is a legitimate null value (an absent
+  `if_tail` → null `alt`), NOT a failure. `rule_is_nullable`/`alt_is_nullable` now
+  suppress the `== NULLP { fail }` check on a ref to such a rule (else `{% if %}`
+  with no `else` failed the whole `if`).
+- **No-action multi-item group VALUE.** A no-action group `( stmt_open KW_ELSE
+  stmt_close tpl )` returned NULLP, DISCARDING the else-body `tpl`. It now passes
+  through the last value-carrying capture (`last_value_capture`), mirroring the
+  rule-level `( expr )` grouping — so `if.alt` carries the real else chain.
+
+Both fixes applied to el.peg's regen too (its `arglist` is nullable; its arg-list
+group), regenerated `el_parser.logos` stays **wql_peg_oracle 40/40** IR-identical.
+
+GATES GREEN: full `cmake --build`; `peg_gen_logos_oracle` **2095/2095**
+byte-identical; new **`trama_peg_oracle` 22/22** (generated `parse_tpl` statement
+sequence == hand `parse_trama` over a 22-template corpus — text runs with bare
+`{`/newlines [T1], embedded EL with the full expr surface [T2: field-chains/calls/
+ternary/comprehensions], if/else, nested if, for, set, ws-control trims);
+`wql_peg_oracle` 40/40; scoped ctest (wql|trama|token_macro|schema|metaprog)
+**87/87** (the e2e behavior specs still use the hand parsers, unchanged). The
+`trama_peg_oracle` genuinely asserts (corrupting the embed slice start → every
+embedded-EL case MISMATCHes). Committed `el_parser.logos`/`trama_parser.logos`
+reproduce byte-for-byte from `wql_peg_regen`.
+
+REMAINING (NOT Phase 3): T3 statement-chain `next`-linking + elif→nested-TIf
+desugaring are HANDLER post-passes (the generated `tpl` yields a WArray of
+per-statement nodes; the handler stitches the `next` chain + rewrites elif). The
+actual PARSE SWAP — point the wql!/trama! handlers at the generated parsers and
+retire the hand `el.logos`/`trama.logos`/`QLexer` — is the next increment.
+
+## EL schema-emission gaps CLOSED — generated EL parser IR == hand parser IR
+
+The three generator capability gaps that forced the generated EL parser to stub
+values are closed in peg_gen_logos's schema-emission mode (all additive /
+schema-mode-only — `peg_gen_logos_oracle` stays **2095/2095** on logos.peg):
+
+1. **INTEGER-token → i64 VALUE** — a captured INTEGER token into a WAny/scalar
+   field is DECODED via a token→i64 hook: `doc.int(wstr_decode_i64($1))`
+   (emit_schema_field, guarded by `capture_is_token_named(..,"INTEGER")`). STRING
+   literals intern the UNQUOTED content (`wstr_unquote`, matching el.logos
+   parse_string); BOOL literals emit `WAny::from(true/false)` (WA_BOOL at-rest
+   encoding, NOT `WAny::from(1u8)` — the two differ at rest).
+2. **SExprArr FAN-OUT** — the `args: "argfan"` schema field spreads an
+   ARRAY_CAPTURE ($...) of arg edges into the fixed slots a0..a7 via
+   set_arg/set_len; multi-arg calls (`contains(a,b)`) carry every arg. The node
+   binding is `let mut` (needs a `&mut self` method) — `alt_needs_mut_node`.
+3. **COMPREHENSION PLAN** — assembled by the grammar (comp_plan): comp_source
+   builds `RScan(src_name)`; an optional `if guard` folds it into `RFilter`
+   (fold-mode $0 = the running scan). `SComp.var` carries the loop-var name.
+
+Also fixed a latent generator bug the deep oracle exposed: a **no-action
+multi-item alt returned the LAST capture** — for `( expr )` grouping that is the
+`)` token (a WString ptr), corrupting the handle currency. Now returns the last
+VALUE-carrying capture (`last_value_capture`, skips trailing token/literal
+delimiters); fold-chain rules (last item = REP) are unchanged, so logos.peg stays
+byte-identical. The C++ generator has the same latent issue but no logos.peg
+no-action alt ends in a bare token, so its oracle never exercised it.
+
+The `wql_peg_oracle` was UPGRADED from structural to DEEP byte-identity: it now
+compares literal VALUES, NAMES, call ARG lists (SExprArr slots), and
+comprehension PLANs (RScan/RFilter) field-for-field over a 40-case corpus
+(ints/strings/bools/params/field-chains/all operators/ternary/grouping/single-
+and multi-arg calls/comprehensions ± guard). **40/40 IR-identical.** Verified it
+genuinely asserts (corrupt the int decode → every int case MISMATCHes).
 
 ## Phase 5 — Option B (self-describing IR) landed; name-interning seam RESOLVED
 
@@ -43,20 +191,13 @@ behavior specs unchanged), `wql_peg_regen` reproduces the committed parsers
 byte-for-byte, `wql_peg_oracle` 24/24. Verified `wql_el_parse` genuinely asserts
 (corrupting a name check → exit 6 FAIL).
 
-**REMAINING for the actual PARSE SWAP (blockers — generator capability gaps, each
-risks the 2093/2093 oracle so deferred out of this increment):** the generated EL
-parser is functional for field/param/binary/unary/ternary/string/bool exprs but
-still stubs three things the full wql/trama surface needs — (1) **INTEGER literal
-value**: `SLit.val` from a captured INTEGER token is a placeholder `0` (the
-generator has no token→i64 decode; a scalar/WAny field from a CAPTURE emits
-`WAny::from(0i56)`, codegen.logos:2692/2724); (2) **SExprArr fill**: `arglist`
-does not fan-out the parsed arg edges into an `SExprArr`'s fixed slots (multi-arg
-calls like `contains(a,b)`); (3) **comprehension plan assembly**: `comprehension`
-does not build the `RScan (+ RFilter guard)` plan. Closing these = a well-scoped,
-schema-mode-only (oracle-safe) extension to peg_gen_logos's schema-emission — the
-next increment. Until then the handlers keep calling the hand-written
-`el::parse_root` / `trama::parse_block`, which now produce the SAME self-describing
-IR the generated parser would, so the swap is mechanical once the gaps close.
+**Those three generator gaps are now CLOSED** (see the top section): INTEGER
+value decode, SExprArr fan-out, and comprehension plan assembly all emit
+correctly, and `wql_peg_oracle` confirms the generated EL parser IR is BYTE-
+IDENTICAL (deep: value/name/args/plan) to the hand parser's over a 40-case
+corpus. The generated EL parser is now a drop-in producer of the exact IR the
+wql!/trama! handlers consume — the actual parse SWAP (retire el.logos's RD, point
+the handlers at `el_parser::parse_expr`) is the remaining mechanical step.
 
 ## Phase 4 — generate + wire (bootstrap severed) — DONE 2026-07-01
 

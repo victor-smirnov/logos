@@ -35,51 +35,33 @@
 //   SBin.op: OR=1 AND=2 EQ=3 NE=4 LT=5 LE=6 GT=7 GE=8 ADD=9 SUB=10 MUL=11 DIV=12 MOD=13
 //   SUn.op : NOT=1 NEG=2
 //
-// ── KNOWN GENERATOR GAPS (resolved in the parser-SWAP phase, NOT here) ──────
-// Phase 3 authors this grammar against the schemas AS THEY ARE (mandate: "Do
-// NOT change the schemas"). Two schema fields need a generator capability the
-// current schema-emission mode does not yet have — a captured TOKEN whose TEXT
-// must become a node scalar/value rather than a child-node edge:
+// ── GENERATOR CAPABILITIES (all former gaps CLOSED, 2026-07-01) ─────────────
+// The three schema-emission gaps that once forced this grammar to emit
+// placeholders are now closed in peg_gen_logos's schema-emission mode; the
+// generated el_parser produces the SAME self-describing IR the hand parser does:
 //
-//   (G1) SField.key : u8   — the field NAME. The hand-written ElParser interns
-//        each `.ident` / bare-ident to a dense u8 key and keeps a side table
-//        (field_name/param_name/var_name) that the WQL codegen reads back. A
-//        generated parser has no such table; the captured IDENT text must land
-//        IN the node. Today `emit_schema_field` maps a captured token → a
-//        scalar field as `0 as u8` (codegen.logos:2609). The clean resolution
-//        (ADR 0012 peg-frontend §5, Option B) is to store the NAME in the node
-//        (a `str` field — which the generator DOES support via captured-IDENT →
-//        `wstr_as_str`) so codegen reads `f.name` directly and the dense-id
-//        side tables are deleted. That is a one-time IR-shape change + codegen
-//        rewrite, out of Phase-3 scope. Until then a generated `SField` here
-//        carries `key = 0` (placeholder) — a real captured value once the swap
-//        lands. Marked below with `// GAP:key`.
+//   (G1/G3) NAME interning → Option B (self-describing IR). Leaf nodes carry the
+//        textual NAME as a `str` field (SField.name / SParam.name / SVar.name /
+//        SCall.fn_name / RScan.src_name / SComp.var), populated from the captured
+//        IDENT via `wstr_as_str`. No dense ids, no ElParser side tables.
 //
-//   (G2) SLit.val : WAny   — an INTEGER literal's numeric VALUE. A captured
-//        INTEGER token yields a WString-ptr (the text), not the int value; the
-//        generator has no token→value decode. The demo grammar sidesteps this
-//        with `val: 0` (INT_LIT). A STRING literal, by contrast, IS faithfully
-//        stored (captured token text → WAny ref to interned WString), and BOOL
-//        literals are exact (INT_LIT/BOOL). So INT literals here carry a
-//        placeholder value; the swap phase adds a token→value decode (or routes
-//        int literals through a dedicated capture). Marked `// GAP:val`.
+//   (G2) SLit.val INTEGER value → a token->i64 decode hook: a captured INTEGER
+//        token into a WAny/scalar field is DECODED (`doc.int(wstr_decode_i64($1))`)
+//        rather than stored as a WString ref (`emit_schema_field`, guarded by
+//        `capture_is_token_named(..,"INTEGER")`). STRING literals stay interned
+//        refs; BOOL literals stay exact.
 //
-//   (G3) SParam.idx / SVar.idx : i32 — same class as (G1): the `$name` param
-//        and the `for v` loop variable are dense ids in side tables today. The
-//        swap stores the NAME on the node (`SParam.name`/`SVar.name` str) — same
-//        Option-B resolution. Placeholder idx=0 here. Marked `// GAP:idx`.
+//   (G-args) SExprArr FAN-OUT → the `args: "argfan"` schema field spreads an
+//        ARRAY_CAPTURE ($...) of arg edges into the fixed slots a0..a7 (set_arg +
+//        set_len). Multi-arg calls like `contains(a,b)` carry every arg.
 //
-//   (G4) The comprehension SOURCE (`in <ident>`) and the loop-var binding are
-//        resolved by the hand parser's prescan (bind `for v` before parsing the
-//        head so `v` references become SVar). A PEG grammar parses positionally;
-//        the head's references to the loop var parse as SField/SCall and are
-//        rebound to SVar at the metacall (a semantic pass), consistent with the
-//        seam's "FE emits symbolic names; metacall resolves" contract (ADR
-//        0012-impl-seam §5/§6). RScan.src is a dense param idx today → GAP:idx.
+//   (G-plan) COMPREHENSION PLAN → assembled by the grammar (comp_plan): the
+//        source ident builds an RScan; an optional `if guard` folds it into an
+//        RFilter (fold-mode $0 = the running scan). No handler-side assembly.
 //
-// None of these gaps block Phase 3 (author + front-end parse). They are the
-// name-interning seam the frontend-plan flagged, to be closed with the IR
-// self-describing refactor when the parse step is actually swapped.
+// The head's references to the loop var still parse as SField/SCall by NAME and
+// are rebound to SVar at the metacall (the seam's "FE emits symbolic names;
+// metacall resolves" contract) — a semantic pass, not a parser concern.
 
 %meta {
     name:      "el"
@@ -123,6 +105,12 @@
     SCall  { fn_name: "str", args: "ref SExprArr" }          // call NAME — captured IDENT
     SCond  { c: "ref SExpr", t: "ref SExpr", e: "ref SExpr" }
     SComp  { plan: "ref RExpr", head: "ref SExpr", var: "str" }
+
+    // The materialized argument list. `args: "argfan"` is a fan-out field type: an
+    // ARRAY_CAPTURE ($...) of the parsed arg edges is spread into the fixed slots
+    // a0..a7 via set_arg + set_len (ADR 0011 SExprArr write API) — multi-arg calls
+    // like contains(a,b) carry EVERY arg (was a 0-slot placeholder).
+    SExprArr { args: "argfan" }
 
     // Relational tier — RExpr (ir.logos). The comprehension lowers to a scan
     // (+ optional filter) plan; the source is a captured IDENT name.
@@ -229,9 +217,8 @@
            / postfix
 
     // postfix := primary ( '.' ident )*       → SField (left-nested edge chain)
-    // Each `.ident` step folds the running base ($0) into an SField whose `key`
-    // is the field name. GAP:key — the IDENT text ($2) must become the node's
-    // field NAME; the current generator stores a placeholder u8 (see header G1).
+    // Each `.ident` step folds the running base ($0) into an SField whose `name`
+    // is the captured field-name IDENT ($2) — self-describing (Option B).
     postfix <- primary
                ( DOT IDENT => { CODE: "SField", base: $0, name: $2 } )*
 
@@ -244,7 +231,7 @@
              / TRUE    => { CODE: "SLit", val: true }
              / FALSE   => { CODE: "SLit", val: false }
              / STRING  => { CODE: "SLit", val: $1 }   // faithful: interned WString ref
-             / INTEGER => { CODE: "SLit", val: 0 }    // GAP:val (int-value decode TBD; see header G2)
+             / INTEGER => { CODE: "SLit", val: $1 }    // token->i64 decode: doc.int(wstr_decode_i64($1))
              / DOLLAR IDENT => { CODE: "SParam", name: $2 }            // $name — captured IDENT
              / IDENT LPAREN arglist RPAREN => { CODE: "SCall", fn_name: $1, args: $3 }  // call NAME — captured IDENT
              / IDENT   => { CODE: "SField", base: NULLBASE, name: $1 } // bare field-root; captured IDENT
@@ -252,23 +239,29 @@
              // field-root and is rebound to SVar at the metacall (header G4).
 
     // arglist := ( expr ( ',' expr )* )?  →  SExprArr backing (multi-arg call)
-    // The SExprArr materialization (fixed-slot fan-out) is built by the WQL
-    // handler / a dedicated action; the MVP grammar collects the arg edges with
-    // an array capture. GAP: the current schema-emission mode has no SExprArr
-    // slot-fill action, so arglist here is a structural placeholder (the handler
-    // supplies the SExprArr node). See header note on SCall.
+    // The array capture `$...` collects EVERY parsed arg edge (the first expr + the
+    // comma-repeated ones); the `args: "argfan"` schema field spreads them into the
+    // SExprArr's fixed slots (set_arg/set_len). Full multi-arg support.
     arglist <- ( expr ( COMMA expr )* )?
+                => { CODE: "SExprArr", args: $... }
 
-    // comprehension := '[' expr 'for' ident 'in' postfix ( 'if' guard )? ']'
-    //   →  SComp{ plan = RFilter(RScan(src), guard)? | RScan(src), head = expr }
-    // The plan (RScan + optional RFilter) is assembled by the handler from the
-    // parsed source + guard; this rule produces the SComp shell with its head +
-    // plan edges. GAP:idx — RScan.src is the source ident's dense param id today
-    // (header G4). The `for`-var binding is a metacall-time semantic rebind.
-    comprehension <- LBRACKET expr KW_FOR IDENT KW_IN postfix comp_guard RBRACKET
-                        => { CODE: "SComp", plan: $7, head: $2 }
+    // comprehension := '[' expr 'for' ident 'in' comp_plan ']'
+    //   →  SComp{ plan = RFilter(RScan(src), guard)? | RScan(src),
+    //            head = expr, var = loop-var NAME }
+    // The plan (RScan + optional RFilter) is assembled BY THE GRAMMAR (comp_plan
+    // below): the source ident builds the RScan; an optional `if guard` folds it
+    // into an RFilter. `var: $4` stores the loop-var name self-describingly on the
+    // SComp node (Option B) — the metacall rebinds `var`-references to SVar.
+    comprehension <- LBRACKET expr KW_FOR IDENT KW_IN comp_plan RBRACKET
+                        => { CODE: "SComp", plan: $6, head: $2, var: $4 }
 
-    // comp_guard := ( 'if' expr )?   → RFilter(scan, expr) or the bare scan.
-    // (Placeholder: the scan/filter assembly is handler-side; see comprehension.)
-    comp_guard <- ( KW_IF expr )?
+    // comp_plan := comp_source ( 'if' expr )?   → RFilter(RScan(src), guard) or RScan(src).
+    // Fold-mode: the RScan (from comp_source) is the accumulator ($0); the optional
+    // guard folds it into an RFilter whose input IS the scan ($0) and pred the guard.
+    comp_plan <- comp_source
+                 ( KW_IF expr => { CODE: "RFilter", input: $0, pred: $2 } )?
+
+    // comp_source := ident   → RScan over that named source (node_code resolved at
+    // the metacall against the bound schema; the parser only carries the NAME).
+    comp_source <- IDENT => { CODE: "RScan", src_name: $1 }
 }

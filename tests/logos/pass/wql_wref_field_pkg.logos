@@ -1,0 +1,21 @@
+// Phase-1 generic-WritField mono fix — PACKAGE (cross-CU) regression.
+//
+// `wref_field_pkg` (built into libpub_lib.a via --emit-module) READS a
+// `WRef<WFNode>` schema field but never CONSTRUCTS a `WRef<WFNode>`. Before the
+// fix, mono never cloned `WRef$G1$WFNode`'s methods for that library CU (the
+// concrete-rewrite site cleared the call's type_args without recording the
+// receiver struct as needed), so `WRef$G1$WFNode__from_wany` was referenced but
+// undefined → the library failed at mlir-gen. This consumer links that archive
+// and calls its self-contained `wref_field_pkg_run`, asserting the value carried
+// through the WRef<WFNode> field read is genuinely computed.
+//
+// Mutation check: corrupt the stored value (e.g. `run(41i56)`) → exit 41, FAIL.
+package test;
+
+use wref_field_pkg;
+
+fn main() -> i32 {
+    let got: i64 = wref_field_pkg_run(42i56);
+    if got == 42i64 { return 0i32; }
+    return got as i32;   // non-zero exit on mismatch (proves the value carried)
+}

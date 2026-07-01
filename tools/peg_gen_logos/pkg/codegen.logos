@@ -74,7 +74,18 @@ pub struct Item {
     pub max:   i64,
     pub sub:   i64,        // index into Codegen.items, -1 = none
     pub alts:  Vec<i64>,   // indices into Codegen.alts (for GROUP)
+    // Cross-grammar RULE_REF: the `%import` alias qualifying the name (`el` in
+    // `el::parse_expr`), empty for a plain in-grammar rule ref. A ref with a
+    // non-empty `gram` is emitted as an EMBEDDED-parser call (T2): scan the raw
+    // sub-range up to the enclosing tag-close delimiter and hand it to the
+    // imported parser's `parse_<name>` entry — the cross-grammar EL seam.
+    pub gram:  String,
 }
+
+// One `%import "path" as alias` — the alias and the qualified package `path` of
+// an imported (separately-generated) parser, used to emit a `use <path>;` and to
+// resolve a cross-grammar RULE_REF (`alias::rule`) to `<path>::parse_<rule>`.
+pub struct ImportDecl { pub alias: String, pub path: String }
 
 // One alternative: a sequence of item indices + an optional action.
 pub struct Alt {
@@ -233,6 +244,7 @@ pub struct Codegen {
     pub pclass:  String,    // parser struct name (WritParser)
 
     pub exports: Vec<String>,
+    pub imports: Vec<ImportDecl>,   // %import "path" as alias — cross-grammar parsers
     pub fields:  Vec<NameDecl>,
     pub nodes:   Vec<NameDecl>,
     pub tokens:  Vec<TokenDecl>,
@@ -253,6 +265,13 @@ pub struct Codegen {
     pub uses_gt_type:   bool,
     pub uses_lt_type:   bool,
     pub uses_raw_group: bool,
+    // A cross-grammar RULE_REF (`alias::rule`) is present — emit the embedded-parser
+    // seam: the raw sub-range scanner (`embed_find_close`) + the delimiter set.
+    pub uses_embed:     bool,
+    // A raw-text token (`/[^X]+/`, T1) is present — the grammar is a TEMPLATE
+    // grammar with a two-mode lexer (TEXT vs TAG): keyword/ident tokens apply only
+    // INSIDE tags; text runs are consumed verbatim. Set from the token table.
+    pub uses_raw_text:  bool,
 
     // While emitting a fold-mode REP body, the name of the accumulator var that
     // `$0` (FOLD_CAPTURE) resolves to ("" when not in a fold). Left-assoc binary
@@ -293,11 +312,13 @@ pub struct Codegen {
 pub fn codegen_new() -> Codegen {
     return Codegen {
         name: String::new(), output: String::new(), pclass: String::new(),
-        exports: vec_new::<String>(), fields: vec_new::<NameDecl>(),
+        exports: vec_new::<String>(), imports: vec_new::<ImportDecl>(),
+        fields: vec_new::<NameDecl>(),
         nodes: vec_new::<NameDecl>(), tokens: vec_new::<TokenDecl>(),
         rules: vec_new::<Rule>(), alts: vec_new::<Alt>(), items: vec_new::<Item>(),
         lc: 0i64,
         uses_gt_type: false, uses_lt_type: false, uses_raw_group: false,
+        uses_embed: false, uses_raw_text: false,
         cur_fold: String::new(),
         schema_mode: false, schemas: vec_new::<SchemaDecl>(),
         schema_use: String::new(), arena_ext: false, ref_wrap: String::new(),
@@ -330,6 +351,21 @@ fn schema_field_type(cg: &Codegen, sidx: i64, fname: str) -> String {
     return String::new();
 }
 
+// True if capture `$capidx` (1-based) of alt `alt_idx` matched the TOKEN_REF
+// token named `tok`. Captures map 1:1 onto sequence position (emit_alt_fn passes
+// `si + 1` as the capture number), so `seq[capidx-1]` is the item that produced
+// `cap<capidx>`. Used by the schema action's token->i64 hook: an INTEGER-token
+// capture into a WAny/scalar field is DECODED to its numeric value, not stored as
+// a WString ref. General over any token name.
+fn capture_is_token_named(cg: &Codegen, alt_idx: i64, capidx: i64, tok: str) -> bool {
+    if capidx < 1i64 { return false; }
+    let n: i64 = cg.alts.borrow(alt_idx).seq.len();
+    if capidx > n { return false; }
+    let it: i64 = cg.alts.borrow(alt_idx).seq.get(capidx - 1i64);
+    if cg.items.borrow(it).kind != TOKEN_REF { return false; }
+    return str_eq(cg.items.borrow(it).name.as_str(), tok);
+}
+
 // True if `name` is a token-alias rule: no action, every alt a single TOKEN_REF
 // (e.g. `trait_kw <- KW_TRAIT / KW_GENOS`). The caller treats it like a token, so
 // its result must NOT be pushed into a parent's $... ITEMS list.
@@ -354,6 +390,53 @@ fn is_token_alias(cg: &Codegen, name: str) -> bool {
         ri = ri + 1i64;
     }
     return false;
+}
+
+// A rule is NULLABLE if it can succeed while consuming no input AND producing a
+// null value — i.e. some alt's every item matches the empty string (an OPT `?`, a
+// REP `*` with min 0, or a LOOKAHEAD/NEG_AHEAD, which never consume). Such a rule
+// ALWAYS succeeds; its `rule_R` returns NULLP as a *legitimate value* (e.g. an
+// absent `if_tail` → a null `alt` edge), NOT as a failure. Callers must therefore
+// NOT treat a NULLP result from a nullable rule as a parse failure — the raw
+// `*const u8` sentinel collides "no match" and "matched, null value", and for an
+// always-succeeding rule the answer is always "matched". (Without this, `X <-
+// nullable_R Y` fails whenever `nullable_R` legitimately matches empty — e.g. an
+// `if` with no `else`.)
+fn rule_is_nullable(cg: &Codegen, name: str) -> bool {
+    let nr: i64 = cg.rules.len();
+    let mut ri: i64 = 0i64;
+    while ri < nr {
+        if str_eq(cg.rules.borrow(ri).name.as_str(), name) {
+            let na: i64 = cg.rules.borrow(ri).alts.len();
+            let mut ai: i64 = 0i64;
+            while ai < na {
+                let altx: i64 = cg.rules.borrow(ri).alts.get(ai);
+                if alt_is_nullable(cg, altx) { return true; }
+                ai = ai + 1i64;
+            }
+            return false;
+        }
+        ri = ri + 1i64;
+    }
+    return false;
+}
+
+// An alt matches empty iff every item is an OPT / REP(min 0) / lookahead (none of
+// which consume input on the empty path).
+fn alt_is_nullable(cg: &Codegen, alt_idx: i64) -> bool {
+    let n: i64 = cg.alts.borrow(alt_idx).seq.len();
+    if n == 0i64 { return true; }
+    let mut i: i64 = 0i64;
+    while i < n {
+        let it: i64 = cg.alts.borrow(alt_idx).seq.get(i);
+        let k: i64 = cg.items.borrow(it).kind;
+        let mn: i64 = cg.items.borrow(it).min;
+        let nullable_item: bool = k == OPT || k == LOOKAHEAD || k == NEG_AHEAD
+            || (k == REP && mn == 0i64);
+        if !nullable_item { return false; }
+        i = i + 1i64;
+    }
+    return true;
 }
 
 // Does the item subtree rooted at `item_idx` contain a RULE_REF to `target`?
@@ -468,8 +551,21 @@ fn detect_pseudo_tokens(cg: &mut Codegen) {
             if str_eq(nm, "GT_TYPE") { cg.uses_gt_type = true; }
             else if str_eq(nm, "LT_TYPE") { cg.uses_lt_type = true; }
             else if is_raw_group_name(nm) { cg.uses_raw_group = true; }
+        } else if it.kind == RULE_REF && it.gram.len() > 0i64 {
+            // A cross-grammar `alias::rule` ref — needs the embedded-parser seam.
+            cg.uses_embed = true;
         }
         i = i + 1i64;
+    }
+    // Template grammar detection: a raw-text token (`/[^X]+/`) → two-mode lexer.
+    let nt: i64 = cg.tokens.len();
+    let mut j: i64 = 0i64;
+    while j < nt {
+        let t: &TokenDecl = cg.tokens.borrow(j);
+        if t.kind == TOKEN_REGEX && regex_shape(t.pattern.as_str()) == 4i64 {
+            cg.uses_raw_text = true;
+        }
+        j = j + 1i64;
     }
 }
 
@@ -598,8 +694,12 @@ fn read_item(cg: &mut Codegen, v: WAny) -> i64 {
         }
     }
 
+    // Cross-grammar alias (GRAMMAR field on an `alias::name` RULE_REF).
+    let gram: String = fld_str(node, GRAMMAR);
+
     let item: Item = Item {
         kind: kind, name: name, min: mn, max: mx, sub: sub_idx, alts: alt_idxs,
+        gram: gram,
     };
     let idx: i64 = cg.items.len();
     cg.items.push(item);
@@ -705,6 +805,26 @@ fn read_grammar(cg: &mut Codegen, grammar: &Writ) {
         while i < arr.len() {
             let e: WAny = arr.get(i);
             if !e.is_null() && e.is_string() { cg.exports.push(String::from(e.as_string().as_str())); }
+            i = i + 1i64;
+        }
+    }
+
+    // %import — array of IMPORT (PATH + ALIAS). Cross-grammar parser dependencies
+    // (e.g. Trama imports the generated EL parser as `el`); each becomes a
+    // `use <path>;` and lets `alias::rule` refs lower to embedded-parser calls.
+    let imps: WAny = rootm.get("imports");
+    if !imps.is_null() && imps.is_array() {
+        let arr: &WArray<WAny> = imps.as_array();
+        let mut i: i64 = 0i64;
+        while i < arr.len() {
+            let iv: WAny = arr.get(i);
+            if !iv.is_null() && iv.is_tinymap() {
+                let node: &WMap<Wu6, WAny> = as_tinymap(iv);
+                cg.imports.push(ImportDecl {
+                    alias: fld_str(node, ALIAS),
+                    path:  fld_str(node, PATH),
+                });
+            }
             i = i + 1i64;
         }
     }
@@ -908,6 +1028,26 @@ fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
             j = j + 1i64;
         }
     }
+    // Cross-grammar imports (%import "path" as alias): the embedded-parser entry
+    // is called by its FULLY-QUALIFIED path (`<path>::parse_<rule>`), NOT via a
+    // bare `use`. A `use <path>;` would drag every public symbol of the imported
+    // parser into scope — and two generated parsers in the same module both define
+    // `Lexer`/`Token`/`lexer_new`, which then collide. The qualified call resolves
+    // the cross-package fn without importing the colliding type names. (Recorded
+    // for documentation; no `use` emitted.)
+    if cg.imports.len() > 0i64 {
+        let mut c: String = String::new();
+        c.push_str("// Cross-grammar embedded parser(s), called by qualified path:");
+        w.line(c.as_str());
+        let mut ii: i64 = 0i64;
+        while ii < cg.imports.len() {
+            let imp: &ImportDecl = cg.imports.borrow(ii);
+            let mut u: String = String::new();
+            u.push_str("//   "); u.push_str(imp.path.as_str()); u.push_str(" (as "); u.push_str(imp.alias.as_str()); u.push_str(")");
+            w.line(u.as_str());
+            ii = ii + 1i64;
+        }
+    }
     w.blank();
     w.line("// ── AST field keys (%fields) ───────────────────────────────────────────────");
     let mut i: i64 = 0i64;
@@ -979,22 +1119,44 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // token ~35× (708K lex_one calls for ~20K tokens on a 92KB file). Lexing is a
     // pure function of (pos, src) — line is a deterministic function of pos — so a
     // pos-keyed cache is sound. This turns the 76%-of-runtime lexer near-linear.
-    w.line("pub struct TokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }");
+    if cg.uses_raw_text {
+        // Template grammars carry the lexer MODE (TEXT vs TAG) after this token in
+        // the cache cell (`intag_after`). Mode-at-pos is deterministic (a `{{`/`{%`
+        // opens, `}}`/`%}` closes), and every backtrack target was already lexed →
+        // cached, so restoring the cached post-mode on a hit is sound.
+        w.line("pub struct TokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64, pub intag_after: bool }");
+    } else {
+        w.line("pub struct TokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }");
+    }
     w.line("impl Copy for TokCell {}");
     w.blank();
     // The token cache is a flat buffer indexed directly by entry pos (dense over
     // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
     // endpos < 0 is the "not yet lexed" sentinel.
-    w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell> }");
+    if cg.uses_raw_text {
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell> }");
+    } else {
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell> }");
+    }
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
     w.line("    let mut tb: Vec<TokCell> = vec_new::<TokCell>();");
-    w.line("    let sent: TokCell = TokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64 };");
+    if cg.uses_raw_text {
+        w.line("    let sent: TokCell = TokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64, intag_after: false };");
+    } else {
+        w.line("    let sent: TokCell = TokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64 };");
+    }
     w.line("    let mut i: i64 = 0i64;");
     w.line("    while i <= src.len() { tb.push(sent); i = i + 1i64; }");
-    w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
-    w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
-    w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+    if cg.uses_raw_text {
+        w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
+        w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+    } else {
+        w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
+        w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+    }
     w.line("}");
     w.blank();
     w.line("fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }");
@@ -1062,13 +1224,23 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    fn lex_one(self: &mut Lexer) -> Token {");
     w.line("        let k: i64 = self.pos;");
     w.line("        let c: TokCell = self.tbuf.get(k);");
-    w.line("        if c.endpos >= 0i64 {");
-    w.line("            self.pos = c.endpos; self.line = c.endline;");
-    w.line("            return Token { kind: c.tk, start: c.tstart, len: c.tlen, line: c.tline };");
-    w.line("        }");
-    w.line("        let t: Token = self.lex_one_raw();");
-    w.line("        self.tbuf.set(k, TokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line });");
-    w.line("        return t;");
+    if cg.uses_raw_text {
+        w.line("        if c.endpos >= 0i64 {");
+        w.line("            self.pos = c.endpos; self.line = c.endline; self.in_tag = c.intag_after;");
+        w.line("            return Token { kind: c.tk, start: c.tstart, len: c.tlen, line: c.tline };");
+        w.line("        }");
+        w.line("        let t: Token = self.lex_one_raw();");
+        w.line("        self.tbuf.set(k, TokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line, intag_after: self.in_tag });");
+        w.line("        return t;");
+    } else {
+        w.line("        if c.endpos >= 0i64 {");
+        w.line("            self.pos = c.endpos; self.line = c.endline;");
+        w.line("            return Token { kind: c.tk, start: c.tstart, len: c.tlen, line: c.tline };");
+        w.line("        }");
+        w.line("        let t: Token = self.lex_one_raw();");
+        w.line("        self.tbuf.set(k, TokCell { tk: t.kind, tstart: t.start, tlen: t.len, tline: t.line, endpos: self.pos, endline: self.line });");
+        w.line("        return t;");
+    }
     w.line("    }");
     emit_lex_one(cg, w);
     w.line("}");
@@ -1102,6 +1274,35 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line("    let ws: &WString = unsafe { &*(p as *const WString) };");
         w.line("    return ws.as_str();");
         w.line("}");
+        w.line("// Decode a captured INTEGER token (a WString ptr from wstr_p over the");
+        w.line("// matched digits) into its i64 VALUE — the token->i64 hook the schema");
+        w.line("// action uses to fill a numeric literal field (mirrors el.logos parse_int).");
+        w.line("fn wstr_decode_i64(p: *const u8) -> i64 {");
+        w.line("    let s: &str = wstr_as_str(p);");
+        w.line("    let n: i64 = s.len();");
+        w.line("    let mut v: i64 = 0i64;");
+        w.line("    let mut i: i64 = 0i64;");
+        w.line("    while i < n {");
+        w.line("        let c: u8 = str_byte_at(s, i);");
+        w.line("        if c < 48u8 || c > 57u8 { break; }");
+        w.line("        v = v * 10i64 + ((c as i64) - 48i64);");
+        w.line("        i = i + 1i64;");
+        w.line("    }");
+        w.line("    return v;");
+        w.line("}");
+        w.line("// Re-intern a captured STRING token WITHOUT its surrounding quotes: the");
+        w.line("// token text is `\"...\"`; a string literal's VALUE is the inner content");
+        w.line("// (matches el.logos parse_string, which stores str_from_range between the");
+        w.line("// quotes). Returns the raw WString ptr of the unquoted, arena-interned");
+        w.line("// content. (No escape processing — MVP EL, as in the hand parser.)");
+        w.line("fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {");
+        w.line("    let s: &str = wstr_as_str(p);");
+        w.line("    let n: i64 = s.len();");
+        w.line("    if n < 2i64 { return wstr_p(doc, s); }");
+        w.line("    let inner: str = unsafe { str_from_raw((s.as_ptr() as i64 + 1i64) as *const u8, n - 2i64) };");
+        w.line("    return wstr_p(doc, inner);");
+        w.line("}");
+        if cg.uses_embed { emit_embed_helper(cg, w); }
         w.blank();
     } else {
         w.line("// Make a fresh AST node tiny-map and stamp CODE (+ schema for dispatch).");
@@ -1115,6 +1316,142 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line("}");
         w.blank();
     }
+}
+
+// ── Cross-grammar EMBED seam (T2) ──────────────────────────────────────────
+// A close-tag delimiter for the embedded-expression scan: a 2-byte LITERAL token
+// whose SECOND byte is `}` — i.e. `}}` (RMUST) / `%}` (RSTMT) in the Trama
+// grammar. These bound the embedded EL expression (mirroring the hand parser's
+// find_close_expr/find_close_stmt). Trim variants (`-}}`/`-%}`) are handled by
+// the emitted scan noticing a preceding `-`.
+fn is_close_delim_pat(p: str) -> bool {
+    return p.len() == 2i64 && str_byte_at(p, 1i64) == 125u8;   // second byte '}'
+}
+
+// Emit the runtime embedded-expression helper: `embed_find_close(src, pos, len)`
+// scans raw bytes from `pos` and returns the byte index of the first close-tag
+// delimiter (`}}` / `%}`), or -1 if none before EOI. Grammar-driven: the close
+// byte-pairs come from the 2-byte `}`-ending literal tokens.
+// Resolve a `%import` alias to its qualified package path (empty if unknown).
+fn import_path_of(cg: &Codegen, alias: str) -> String {
+    let n: i64 = cg.imports.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let imp: &ImportDecl = cg.imports.borrow(i);
+        if str_eq(imp.alias.as_str(), alias) { return String::from(imp.path.as_str()); }
+        i = i + 1i64;
+    }
+    return String::new();
+}
+
+// Emit a cross-grammar EMBEDDED-parser call for a RULE_REF `alias::rule` (T2):
+// scan the raw sub-range from the lexer's current byte pos up to the enclosing
+// tag-close delimiter, slice `src`, hand it to `<path>::parse_<rule>(sub, doc)`,
+// and leave the lexer positioned AT the close delimiter (so the following
+// close-tag token in the sequence matches). `cap` receives the parsed root node's
+// erased handle (`*const u8`); on a scan/parse failure it emits `fail`.
+//
+// This is the generated analog of the hand TrParser's parse_embedded_el: a fresh
+// sub-parse over the expression bytes, its `WRef<SExpr>` root wired into the
+// enclosing template node's `expr` edge. `doc` (the caller's external arena) is
+// shared so the sub-parse builds into the SAME Writ.
+fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, cap: str, fail: str) {
+    let path: String = import_path_of(cg, gram);
+    // Unique per-callsite suffix from the capture var (`cap2` → `2`), so nested
+    // embeds in one alt don't collide on the scratch var names.
+    let sfx: str = cap;
+    w.line("// ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──");
+    let mut es: String = String::new();
+    es.push_str("let est_"); es.push_str(sfx); es.push_str(": i64 = lex.save_pos();");
+    w.line(es.as_str());
+    let mut ec: String = String::new();
+    ec.push_str("let ecl_"); ec.push_str(sfx);
+    ec.push_str(": i64 = embed_find_close(lex.src, est_"); ec.push_str(sfx);
+    ec.push_str(", lex.src.len());");
+    w.line(ec.as_str());
+    // No close delimiter found ⇒ malformed tag: fail this alt.
+    let mut ck: String = String::new();
+    ck.push_str("if ecl_"); ck.push_str(sfx); ck.push_str(" < 0i64 { "); ck.push_str(fail); ck.push_str(" }");
+    w.line(ck.as_str());
+    // Slice end excludes a trailing whitespace-control `-` (part of `-}}`/`-%}`).
+    let mut ee: String = String::new();
+    ee.push_str("let mut eend_"); ee.push_str(sfx); ee.push_str(": i64 = ecl_"); ee.push_str(sfx); ee.push_str(";");
+    w.line(ee.as_str());
+    let mut et: String = String::new();
+    et.push_str("if eend_"); et.push_str(sfx); et.push_str(" > est_"); et.push_str(sfx);
+    et.push_str(" && str_byte_at(lex.src, eend_"); et.push_str(sfx); et.push_str(" - 1i64) == 45u8 { eend_");
+    et.push_str(sfx); et.push_str(" = eend_"); et.push_str(sfx); et.push_str(" - 1i64; }");
+    w.line(et.as_str());
+    // Slice the expression bytes and sub-parse into the shared arena.
+    let mut esl: String = String::new();
+    esl.push_str("let esub_"); esl.push_str(sfx);
+    esl.push_str(": str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_");
+    esl.push_str(sfx); esl.push_str(") as *const u8, eend_"); esl.push_str(sfx);
+    esl.push_str(" - est_"); esl.push_str(sfx); esl.push_str(") };");
+    w.line(esl.as_str());
+    let mut ep: String = String::new();
+    ep.push_str("let eroot_"); ep.push_str(sfx); ep.push_str(": WAny = ");
+    ep.push_str(path.as_str()); ep.push_str("::parse_"); ep.push_str(iname);
+    ep.push_str("(esub_"); ep.push_str(sfx); ep.push_str(", doc);");
+    w.line(ep.as_str());
+    // Advance the lexer PAST the consumed sub-range: reset at `eend_` — the byte
+    // where the trimmed expr ends, i.e. AT any `-` whitespace-control marker (or at
+    // the plain `}}`/`%}` when none). Resetting at `ecl_` (the `}}`/`%}` proper)
+    // would SKIP a leading `-`, so `-}}`/`-%}` would lex as plain RMUST/RSTMT and
+    // the close's trim marker (which drops the FOLLOWING text's leading ws) is
+    // lost. Resetting at `eend_` keeps `-}}`/`-%}` intact for the close-tag lexer.
+    let mut er: String = String::new();
+    er.push_str("lex.reset(eend_"); er.push_str(sfx); er.push_str(", lex.save_line());");
+    w.line(er.as_str());
+    // The captured handle: the sub-parse root's erased word (NULLP on null root).
+    let mut cd: String = String::new();
+    cd.push_str("let "); cd.push_str(cap);
+    cd.push_str(": *const u8 = if eroot_"); cd.push_str(sfx);
+    cd.push_str(".is_null() { NULLP } else { eroot_"); cd.push_str(sfx); cd.push_str(".raw() as *const u8 };");
+    w.line(cd.as_str());
+    let mut cf: String = String::new();
+    cf.push_str("if "); cf.push_str(cap); cf.push_str(" == NULLP { "); cf.push_str(fail); cf.push_str(" }");
+    w.line(cf.as_str());
+}
+
+fn emit_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.blank();
+    w.line("// Embedded-expression scan (cross-grammar EL seam): find the first");
+    w.line("// close-tag delimiter (}} / %}) at/after `pos`; -1 if none. The embedded");
+    w.line("// expression occupies [pos, close) (a trailing `-` trim marker excluded");
+    w.line("// by the caller). Mirrors the hand TrParser's find_close_expr/stmt.");
+    w.line("fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {");
+    w.line("    let mut p: i64 = pos;");
+    w.line("    while p + 1i64 < len {");
+    // Build the disjunction of close pairs from the grammar's 2-byte `}`-literals.
+    let mut cond: String = String::new();
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    let mut any: bool = false;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_LITERAL {
+            let pat: str = unquote(t.pattern.as_str());
+            if is_close_delim_pat(pat) {
+                if any { cond.push_str(" || "); }
+                cond.push_str("(str_byte_at(src, p) == ");
+                cond.push_i64(str_byte_at(pat, 0i64) as i64);
+                cond.push_str("u8 && str_byte_at(src, p + 1i64) == ");
+                cond.push_i64(str_byte_at(pat, 1i64) as i64);
+                cond.push_str("u8)");
+                any = true;
+            }
+        }
+        i = i + 1i64;
+    }
+    if !any { cond.push_str("false"); }
+    let mut cl: String = String::new();
+    cl.push_str("        if "); cl.push_str(cond.as_str()); cl.push_str(" { return p; }");
+    w.line(cl.as_str());
+    w.line("        p = p + 1i64;");
+    w.line("    }");
+    w.line("    return 0i64 - 1i64;");
+    w.line("}");
 }
 
 // Pseudo-token Lexer helpers (emitted inside `impl Lexer`, gated by usage):
@@ -1195,6 +1532,7 @@ fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
 // Targets the writ.peg token set; unrecognised regex shapes emit a TODO and fall
 // through to TK_INVALID.
 fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
+    if cg.uses_raw_text { emit_lex_one_template(cg, w); return; }
     w.line("    fn lex_one_raw(self: &mut Lexer) -> Token {");
     w.line("        // Skip whitespace and // line / /* */ block comments.");
     w.line("        loop {");
@@ -1247,6 +1585,313 @@ fn emit_lex_one(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("        self.pos = self.pos + 1i64;");
     w.line("        return Token { kind: TK_INVALID, start: start, len: 1i64, line: sl };");
     w.line("    }");
+}
+
+// A tag-OPEN literal: its first byte is the raw-text negated char X (`{`) — it
+// opens a `{{`/`{%` tag (incl. the `{{-`/`{%-` trim variants).
+fn lit_is_open(pat: str, x: u8) -> bool {
+    return pat.len() >= 1i64 && str_byte_at(pat, 0i64) == x;
+}
+// A tag-CLOSE literal: its LAST byte is `}` — `}}` / `%}` (and the `-}}`/`-%}`
+// whitespace-control variants). Exiting a close returns the lexer to TEXT mode.
+fn lit_is_close(pat: str) -> bool {
+    return pat.len() >= 1i64 && str_byte_at(pat, pat.len() - 1i64) == 125u8;
+}
+// A whitespace-control trim-CLOSE (`-%}` / `-}}`): a close whose FIRST byte is `-`.
+// Its `-` marker drops the FOLLOWING text run's LEADING whitespace (jinja).
+fn lit_is_trim_close(pat: str) -> bool {
+    return lit_is_close(pat) && pat.len() >= 1i64 && str_byte_at(pat, 0i64) == 45u8;
+}
+// A whitespace-control trim-OPEN (`{%-` / `{{-`): an open whose LAST byte is `-`.
+// Its `-` marker drops the PRECEDING text run's TRAILING whitespace (jinja).
+fn lit_is_trim_open(pat: str, x: u8) -> bool {
+    return lit_is_open(pat, x) && pat.len() >= 1i64 && str_byte_at(pat, pat.len() - 1i64) == 45u8;
+}
+
+// TEMPLATE lexer body (T1): a two-mode scanner. In TEXT mode only tag-OPEN
+// delimiters and the raw-text run apply (keywords/idents are NOT tokens in text);
+// entering a tag flips `in_tag`. In TAG mode, tag-interior whitespace is skipped,
+// then CLOSE/keyword/`=`/IDENT tokens apply; a CLOSE flips `in_tag` back. The
+// embedded EL expression between the delimiters is consumed by the embed seam
+// (emit_embed_call), which leaves the cursor at the close delimiter still in TAG
+// mode. This is the mode-switch the single-mode `/[^X]+/` byte-class lacks.
+fn emit_lex_one_template(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.line("    fn lex_one_raw(self: &mut Lexer) -> Token {");
+    w.line("        if self.in_tag {");
+    // ── TAG mode ──
+    w.line("            // TAG mode: skip tag-interior whitespace, then match tokens.");
+    w.line("            while self.pos < self.src.len() {");
+    w.line("                let wc: u8 = self.cur(0i64);");
+    w.line("                if wc == 32u8 || wc == 9u8 || wc == 13u8 || wc == 10u8 { if wc == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; } else { break; }");
+    w.line("            }");
+    w.line("            if self.pos >= self.src.len() { return Token { kind: TK_EOF, start: self.pos, len: 0i64, line: self.line }; }");
+    w.line("            let start: i64 = self.pos;");
+    w.line("            let sl: i64 = self.line;");
+    // Emit CLOSE + interior literals (longest-first), each flipping mode on close.
+    emit_template_tag_literals(cg, w);
+    // IDENT inside tags.
+    let idn: str = template_ident_name(cg);
+    if idn.len() > 0i64 {
+        w.line("            if lx_is_alpha(self.cur(0i64)) {");
+        w.line("                self.pos = self.pos + 1i64;");
+        w.line("                while self.pos < self.src.len() && lx_is_alnum(self.cur(0i64)) { self.pos = self.pos + 1i64; }");
+        let mut ir: String = String::new();
+        ir.push_str("                return Token { kind: TK_"); ir.push_str(idn);
+        ir.push_str(", start: start, len: self.pos - start, line: sl };");
+        w.line(ir.as_str());
+        w.line("            }");
+    }
+    w.line("            self.pos = self.pos + 1i64;");
+    w.line("            return Token { kind: TK_INVALID, start: start, len: 1i64, line: sl };");
+    w.line("        }");
+    // ── TEXT mode ──
+    w.line("        // TEXT mode: a tag OPEN delimiter, or a raw-text run to the next tag.");
+    w.line("        if self.pos >= self.src.len() { return Token { kind: TK_EOF, start: self.pos, len: 0i64, line: self.line }; }");
+    w.line("        let start: i64 = self.pos;");
+    w.line("        let sl: i64 = self.line;");
+    w.line("        let c: u8 = self.cur(0i64);");
+    emit_template_open_literals(cg, w);
+    // Raw-text run (the shape-4 token) — ALWAYS returns (consumes ≥1 byte to the
+    // next tag open), so it is the text-mode fallthrough (no INVALID after it).
+    emit_template_raw_text(cg, w);
+    w.line("    }");
+}
+
+// The raw-text (shape-4) token name in the grammar (empty if none).
+fn template_raw_text_name(cg: &Codegen) -> str {
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_REGEX && regex_shape(t.pattern.as_str()) == 4i64 { return t.name.as_str(); }
+        i = i + 1i64;
+    }
+    return "";
+}
+// The IDENT-shaped (shape-3) token name in the grammar (empty if none).
+fn template_ident_name(cg: &Codegen) -> str {
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_REGEX && regex_shape(t.pattern.as_str()) == 3i64 { return t.name.as_str(); }
+        i = i + 1i64;
+    }
+    return "";
+}
+
+// Emit the TEXT-mode tag-OPEN literal matchers (X-starting literals), longest
+// first, each flipping `in_tag = true`.
+fn emit_template_open_literals(cg: &mut Codegen, w: &mut CodeWriter) {
+    let x: u8 = template_neg_char(cg);
+    let order: Vec<i64> = literals_by_len_desc(cg);
+    let m: i64 = order.len();
+    let mut k: i64 = 0i64;
+    while k < m {
+        let ti: i64 = order.get(k);
+        let t: &TokenDecl = cg.tokens.borrow(ti);
+        let pat: str = unquote(t.pattern.as_str());
+        if lit_is_open(pat, x) {
+            emit_template_literal(w, t.name.as_str(), pat, true, "true");
+        }
+        k = k + 1i64;
+    }
+}
+
+// Emit the TAG-mode literal matchers: tag CLOSE delimiters (flip to TEXT) + the
+// interior keyword/punct literals (mode unchanged), longest-first.
+fn emit_template_tag_literals(cg: &mut Codegen, w: &mut CodeWriter) {
+    let order: Vec<i64> = literals_by_len_desc(cg);
+    let x: u8 = template_neg_char(cg);
+    let m: i64 = order.len();
+    let mut k: i64 = 0i64;
+    while k < m {
+        let ti: i64 = order.get(k);
+        let t: &TokenDecl = cg.tokens.borrow(ti);
+        let pat: str = unquote(t.pattern.as_str());
+        // Opens never occur inside a tag (an open would have flipped us out); skip.
+        if lit_is_open(pat, x) { k = k + 1i64; continue; }
+        if lit_is_close(pat) {
+            // A trim-close (`-%}`/`-}}`) additionally CONSUMES the following text
+            // run's leading whitespace (jinja `-` marker) — faithful to the hand
+            // parser's `trim_leading`. Encoded as a ws-skip after the pos advance.
+            emit_template_literal_ex(w, t.name.as_str(), pat, true, "false", lit_is_trim_close(pat));
+        } else {
+            // Interior keyword / punctuation — mode unchanged; word-boundary for kw.
+            emit_template_literal(w, t.name.as_str(), pat, false, "");
+        }
+        k = k + 1i64;
+    }
+}
+
+// Emit ONE template literal matcher (indented one extra level, i.e. inside the
+// `if self.in_tag {` / text block). `set_mode` (non-empty) emits
+// `self.in_tag = <set_mode>;` before returning; `word` adds a keyword word-
+// boundary check.
+fn emit_template_literal(w: &mut CodeWriter, name: str, pat: str, tag_ctx: bool, set_mode: str) {
+    emit_template_literal_ex(w, name, pat, tag_ctx, set_mode, false);
+}
+
+// As `emit_template_literal`, plus (when `trim_close`) a whitespace-skip after the
+// pos advance so a `-%}`/`-}}` drops the following text run's LEADING whitespace.
+fn emit_template_literal_ex(w: &mut CodeWriter, name: str, pat: str, tag_ctx: bool, set_mode: str, trim_close: bool) {
+    let plen: i64 = pat.len();
+    let is_word: bool = pat_is_word(pat);
+    let mut cond: String = String::new();
+    let mut i: i64 = 0i64;
+    while i < plen {
+        if i > 0i64 { cond.push_str(" && "); }
+        cond.push_str("self.cur("); cond.push_i64(i); cond.push_str("i64) == ");
+        cond.push_i64(str_byte_at(pat, i) as i64); cond.push_str("u8");
+        i = i + 1i64;
+    }
+    if is_word { cond.push_str(" && !lx_is_alnum(self.cur("); cond.push_i64(plen); cond.push_str("i64))"); }
+    // Indentation: TAG-mode body is one deeper than TEXT-mode.
+    let ind: str = if tag_ctx { "            " } else { "        " };
+    let mut open: String = String::new();
+    open.push_str(ind); open.push_str("if "); open.push_str(cond.as_str()); open.push_str(" {");
+    w.line(open.as_str());
+    let mut adv: String = String::new();
+    adv.push_str(ind); adv.push_str("    self.pos = self.pos + "); adv.push_i64(plen); adv.push_str("i64;");
+    w.line(adv.as_str());
+    if trim_close {
+        // jinja `-%}`/`-}}`: consume the following run's LEADING whitespace. The
+        // ws belongs to this close token's span → deterministic + token-cache-safe.
+        let mut ws: String = String::new();
+        ws.push_str(ind);
+        ws.push_str("    while self.pos < self.src.len() { let tc: u8 = self.cur(0i64); if tc == 32u8 || tc == 9u8 || tc == 13u8 || tc == 10u8 { if tc == 10u8 { self.line = self.line + 1i64; } self.pos = self.pos + 1i64; } else { break; } }");
+        w.line(ws.as_str());
+    }
+    if set_mode.len() > 0i64 {
+        let mut sm: String = String::new();
+        sm.push_str(ind); sm.push_str("    self.in_tag = "); sm.push_str(set_mode); sm.push_str(";");
+        w.line(sm.as_str());
+    }
+    let mut ret: String = String::new();
+    ret.push_str(ind); ret.push_str("    return Token { kind: TK_"); ret.push_str(name);
+    ret.push_str(", start: start, len: "); ret.push_i64(plen); ret.push_str("i64, line: sl };");
+    w.line(ret.as_str());
+    let mut close: String = String::new();
+    close.push_str(ind); close.push_str("}");
+    w.line(close.as_str());
+}
+
+// Emit the TEXT-mode raw-text run (consume to the next tag OPEN). The cursor is
+// known NOT to be at an open (the open matchers ran first) → consumes ≥1 byte.
+fn emit_template_raw_text(cg: &mut Codegen, w: &mut CodeWriter) {
+    let name: str = template_raw_text_name(cg);
+    let x: u8 = template_neg_char(cg);
+    // Stop condition: at a byte X that begins one of the open delimiters — keyed
+    // on the DISTINCT second bytes (`{{`/`{{-` share `{`; `{%`/`{%-` share `%`).
+    let mut stopcond: String = String::new();
+    let order: Vec<i64> = literals_by_len_desc(cg);
+    let m: i64 = order.len();
+    let mut seen: Vec<i64> = vec_new::<i64>();
+    let mut k: i64 = 0i64;
+    let mut any: bool = false;
+    while k < m {
+        let ti: i64 = order.get(k);
+        let t: &TokenDecl = cg.tokens.borrow(ti);
+        let pat: str = unquote(t.pattern.as_str());
+        if lit_is_open(pat, x) && pat.len() >= 2i64 {
+            let b1: i64 = str_byte_at(pat, 1i64) as i64;
+            let mut dup: bool = false;
+            let mut s: i64 = 0i64;
+            while s < seen.len() { if seen.get(s) == b1 { dup = true; } s = s + 1i64; }
+            if !dup {
+                seen.push(b1);
+                if any { stopcond.push_str(" || "); }
+                stopcond.push_str("self.cur(1i64) == "); stopcond.push_i64(b1); stopcond.push_str("u8");
+                any = true;
+            }
+        }
+        k = k + 1i64;
+    }
+    if !any { stopcond.push_str("false"); }
+    w.l3("        // RAW-TEXT run ", name, " — bytes up to the next tag-open delimiter.");
+    w.line("        self.pos = self.pos + 1i64;");
+    w.line("        while self.pos < self.src.len() {");
+    let mut cx: String = String::new();
+    cx.push_str("            if self.cur(0i64) == "); cx.push_i64(x as i64);
+    cx.push_str("u8 && ("); cx.push_str(stopcond.as_str()); cx.push_str(") { break; }");
+    w.line(cx.as_str());
+    w.line("            if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }");
+    w.line("            self.pos = self.pos + 1i64;");
+    w.line("        }");
+    // TRAILING trim: if the run stopped at a whitespace-control trim-OPEN
+    // (`{%-`/`{{-`, whose 3rd byte is `-`), the run's TRAILING whitespace is
+    // dropped (jinja). We shrink only the recorded `len` (pos stays at the open,
+    // token-cache-safe) — mirrors the hand parser's `tag_opens_trim` peek.
+    if template_has_trim_open(cg) {
+        w.line("        let mut tlen: i64 = self.pos - start;");
+        w.line("        if self.pos + 2i64 < self.src.len() && self.cur(2i64) == 45u8 {");
+        w.line("            while tlen > 0i64 { let tw: u8 = str_byte_at(self.src, start + tlen - 1i64); if tw == 32u8 || tw == 9u8 || tw == 13u8 || tw == 10u8 { tlen = tlen - 1i64; } else { break; } }");
+        w.line("        }");
+        w.l3("        return Token { kind: TK_", name, ", start: start, len: tlen, line: sl };");
+    } else {
+        w.l3("        return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+    }
+}
+
+// Does the grammar declare a whitespace-control trim-OPEN (`{%-`/`{{-`)?
+fn template_has_trim_open(cg: &Codegen) -> bool {
+    let x: u8 = template_neg_char(cg);
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_LITERAL && lit_is_trim_open(unquote(t.pattern.as_str()), x) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// The raw-text negated char X (the `{` of `/[^{]+/`), or `{` default.
+fn template_neg_char(cg: &Codegen) -> u8 {
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_REGEX && regex_shape(t.pattern.as_str()) == 4i64 {
+            return neg_class_char(unquote_slash(t.pattern.as_str()));
+        }
+        i = i + 1i64;
+    }
+    return 123u8;
+}
+
+// Literal token indices sorted by unquoted pattern length descending (longest-
+// match-first), shared by the template literal emitters.
+fn literals_by_len_desc(cg: &Codegen) -> Vec<i64> {
+    let n: i64 = cg.tokens.len();
+    let mut order: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_LITERAL { order.push(i); }
+        i = i + 1i64;
+    }
+    let m: i64 = order.len();
+    let mut a: i64 = 0i64;
+    while a < m {
+        let mut best: i64 = a;
+        let mut b: i64 = a + 1i64;
+        while b < m {
+            let oi: i64 = order.get(best);
+            let oj: i64 = order.get(b);
+            let li: i64 = unquote(cg.tokens.borrow(oi).pattern.as_str()).len();
+            let lj: i64 = unquote(cg.tokens.borrow(oj).pattern.as_str()).len();
+            if lj > li { best = b; }
+            b = b + 1i64;
+        }
+        if best != a {
+            let tmp: i64 = order.get(a);
+            order.set(a, order.get(best));
+            order.set(best, tmp);
+        }
+        a = a + 1i64;
+    }
+    return order;
 }
 
 // Emit literal-token matchers, longest pattern first (so `<=` beats `<`). Each
@@ -1484,6 +2129,12 @@ fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
                 }
             }
             else if shape == 3i64 { emit_lex_ident(w, t.name.as_str()); }
+            else if shape == 4i64 {
+                // A raw-text (shape-4) token only occurs in a TEMPLATE grammar,
+                // whose lexer body is emitted by emit_lex_one_template (two-mode)
+                // — this single-mode path is never reached for it. Emit a marker.
+                w.l3("        // RAW-TEXT token ", t.name.as_str(), " handled by the template lexer.");
+            }
             else {
                 w.l4("        // TODO: regex token ", t.name.as_str(), " = ", pat);
                 w.line("        //       (unrecognised pattern shape — add a hand-coded matcher)");
@@ -1501,6 +2152,11 @@ fn emit_lex_regex(cg: &mut Codegen, w: &mut CodeWriter) {
 fn regex_shape(p: str) -> i64 {
     // Strip the outer slashes.
     let inner: str = unquote_slash(p);
+    // RAW-TEXT (T1): a negated single-char class `[^X]+` — a template text run
+    // "any bytes up to the next tag". Shape 4; the matcher (emit_lex_raw_text) is
+    // mode-switching (stops before a delimiter literal starting with X), NOT a
+    // plain byte-class, so it must be recognised BEFORE the string/number checks.
+    if is_neg_class_plus(inner) { return 4i64; }
     if str_contains(inner, "\"") { return 1i64; }
     // FLOAT/INTEGER: a `[0-9]` or `0-9` digit class.
     if str_contains(inner, "0-9") {
@@ -1512,6 +2168,19 @@ fn regex_shape(p: str) -> i64 {
     if str_starts_with(inner, "[a-z") || str_starts_with(inner, "[A-Z") { return 3i64; }
     return 0i64;
 }
+
+// A negated single-char class `[^X]+`: the raw-text-run shape (T1). Exactly
+// `[`, `^`, one char, `]`, `+` — the jinja text run `/[^{]+/`.
+fn is_neg_class_plus(inner: str) -> bool {
+    return inner.len() == 5i64
+        && str_byte_at(inner, 0i64) == 91u8    // '['
+        && str_byte_at(inner, 1i64) == 94u8    // '^'
+        && str_byte_at(inner, 3i64) == 93u8    // ']'
+        && str_byte_at(inner, 4i64) == 43u8;   // '+'
+}
+
+// The negated char X of a `[^X]+` pattern (the byte at index 2 of the inner).
+fn neg_class_char(inner: str) -> u8 { return str_byte_at(inner, 2i64); }
 
 // Strip a leading and trailing '/'.
 fn unquote_slash(s: str) -> str {
@@ -1751,13 +2420,39 @@ fn emit_alt_fn(cg: &mut Codegen, w: &mut CodeWriter, rname: str, group: str, ai:
     } else if seq_len == 0i64 {
         w.line("return NULLP;");
     } else {
+        // No action + multiple items → return the last VALUE-carrying capture. For a
+        // fold-chain (`atom <- primary postfix*`) that is the last item (a REP fold).
+        // For a pass-through wrapper (`( expr )` grouping) the last item is a bare
+        // delimiter TOKEN and the value is the inner rule-ref — returning the last
+        // TOKEN capture (a WString ptr) would corrupt the handle currency, so return
+        // the last capture whose item is NOT a plain token/literal.
+        let ret_idx: i64 = last_value_capture(cg, alt_idx, seq_len);
         let mut rl: String = String::new();
-        rl.push_str("return cap"); rl.push_i64(seq_len); rl.push_str(";");
+        rl.push_str("return cap"); rl.push_i64(ret_idx); rl.push_str(";");
         w.line(rl.as_str());
     }
     w.ded();
     w.line("}");
     w.blank();
+}
+
+// The 1-based capture index of the last VALUE-carrying item in a no-action alt's
+// sequence — the last item that is a RULE_REF / OPT / REP / GROUP (a node/handle),
+// skipping trailing plain TOKEN_REF / LITERAL delimiters (whose captures are only
+// WString ptrs). Falls back to `seq_len` if every item is a token (unchanged
+// behavior for token-only alts). This is what makes `( expr )` grouping return the
+// inner expr, not the `)` token, while leaving fold-chain rules (last item = REP)
+// exactly as before — so logos.peg output is byte-identical (its no-action
+// multi-item alts already end in a value-carrying item).
+fn last_value_capture(cg: &Codegen, alt_idx: i64, seq_len: i64) -> i64 {
+    let mut si: i64 = seq_len - 1i64;
+    while si >= 0i64 {
+        let item_idx: i64 = cg.alts.borrow(alt_idx).seq.get(si);
+        let k: i64 = cg.items.borrow(item_idx).kind;
+        if k != TOKEN_REF && k != LITERAL { return si + 1i64; }
+        si = si - 1i64;
+    }
+    return seq_len;
 }
 
 // Does this alt's action contain a $... ARRAY_CAPTURE field?
@@ -1837,14 +2532,30 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
             w.line(cl.as_str());
         }
     } else if kind == RULE_REF {
+        let gram: String = String::from(cg.items.borrow(item_idx).gram.as_str());
+        if gram.len() > 0i64 {
+            // Cross-grammar `alias::rule` — embedded-parser call (T2).
+            emit_embed_call(cg, w, iname.as_str(), gram.as_str(), cap.as_str(),
+                            "lex.reset(sp, sln); return NULLP;");
+            if uses_arrcap {
+                let mut pl: String = String::new();
+                pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(cap.as_str()); pl.push_str("));");
+                w.line(pl.as_str());
+            }
+            return;
+        }
         let mut cl: String = String::new();
         cl.push_str("let "); cl.push_str(cap.as_str());
         cl.push_str(": *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
         w.line(cl.as_str());
-        let mut chk: String = String::new();
-        chk.push_str("if "); chk.push_str(cap.as_str());
-        chk.push_str(" == NULLP { lex.reset(sp, sln); return NULLP; }");
-        w.line(chk.as_str());
+        // A NULLABLE rule always succeeds; its NULLP result is a legitimate null
+        // value (e.g. an absent optional tail), NOT a failure — so no fail-check.
+        if !rule_is_nullable(cg, iname.as_str()) {
+            let mut chk: String = String::new();
+            chk.push_str("if "); chk.push_str(cap.as_str());
+            chk.push_str(" == NULLP { lex.reset(sp, sln); return NULLP; }");
+            w.line(chk.as_str());
+        }
         if uses_arrcap && !is_token_alias(cg, iname.as_str()) {
             let mut pl: String = String::new();
             pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(cap.as_str()); pl.push_str("));");
@@ -2174,8 +2885,22 @@ fn emit_group_alt(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, don
         cl.push_i64(id); cl.push_str(";");
         w.line(cl.as_str());
     } else {
+        // No-action multi-item group: pass through the LAST value-carrying capture
+        // (a rule-ref / group / opt / rep node), skipping trailing token/literal
+        // delimiters — so `( stmt_open KW_ELSE stmt_close tpl )` yields the `tpl`
+        // handle, not a discarded NULLP. Mirrors last_value_capture at rule level;
+        // logos.peg's no-action group alts already end in a value item → unchanged.
+        let retn: i64 = last_value_capture(cg, galt, seq_len);
+        let ri: i64 = cg.alts.borrow(galt).seq.get(retn - 1i64);
+        let rk: i64 = cg.items.borrow(ri).kind;
         let mut cl: String = String::new();
-        cl.push_str(cap); cl.push_str(" = NULLP;");
+        if rk == TOKEN_REF || rk == LITERAL {
+            // Every item is a token/literal — no node handle to pass through.
+            cl.push_str(cap); cl.push_str(" = NULLP;");
+        } else {
+            cl.push_str(cap); cl.push_str(" = g"); cl.push_str(cap); cl.push_str("_");
+            cl.push_i64(retn); cl.push_str("_"); cl.push_i64(id); cl.push_str(";");
+        }
         w.line(cl.as_str());
     }
     let mut dl: String = String::new();
@@ -2219,10 +2944,13 @@ fn emit_group_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, cap: str
         cl.push_str("let "); cl.push_str(gcap.as_str());
         cl.push_str(": *const u8 = rule_"); cl.push_str(iname.as_str()); cl.push_str("(lex, doc);");
         w.line(cl.as_str());
-        let mut chk: String = String::new();
-        chk.push_str("if "); chk.push_str(gcap.as_str()); chk.push_str(" == NULLP ");
-        chk.push_str(resetbreak);
-        w.line(chk.as_str());
+        // NULLABLE rule → always succeeds; NULLP is a legitimate value, not a fail.
+        if !rule_is_nullable(cg, iname.as_str()) {
+            let mut chk: String = String::new();
+            chk.push_str("if "); chk.push_str(gcap.as_str()); chk.push_str(" == NULLP ");
+            chk.push_str(resetbreak);
+            w.line(chk.as_str());
+        }
         if uses_arrcap && !is_token_alias(cg, iname.as_str()) {
             let mut pl: String = String::new();
             pl.push_str("rcap.push(WAny::ref_to("); pl.push_str(gcap.as_str()); pl.push_str("));");
@@ -2556,6 +3284,23 @@ fn action_code_name(cg: &Codegen, alt_idx: i64) -> String {
 // hand_of(node.as_ref())`. `node_var` names the view local; on return the caller
 // gets the node's erased ref word (`*const u8`). Each field write is typed by the
 // %schema field-type table (WRef edge / scalar cast / str / verbatim WAny).
+// True if any field of alt `alt_idx` under schema `sidx` needs a MUTABLE node
+// binding — i.e. its write calls a `&mut self` method (the "argfan" fan-out uses
+// set_arg/set_len) rather than a plain `node.field = …` assignment.
+fn alt_needs_mut_node(cg: &Codegen, alt_idx: i64, sidx: i64) -> bool {
+    let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
+    let mut fi: i64 = 0i64;
+    while fi < nf {
+        let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
+        if !str_eq(fname.as_str(), "CODE") {
+            let ftype: String = schema_field_type(cg, sidx, fname.as_str());
+            if str_eq(ftype.as_str(), "argfan") { return true; }
+        }
+        fi = fi + 1i64;
+    }
+    return false;
+}
+
 fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_var: str, cap_stem: str, ret_via_cap: str) {
     let sname: String = action_code_name(cg, alt_idx);
     if sname.len() == 0i64 {
@@ -2566,9 +3311,12 @@ fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_v
         return;
     }
     let sidx: i64 = find_schema(cg, sname.as_str());
-    // `let node: S = doc.make::<S>();`
+    // `let [mut] node: S = doc.make::<S>();` — `mut` only when a field write calls
+    // a `&mut self` method (argfan fan-out); plain field-assign needs no mut.
     let mut mk: String = String::new();
-    mk.push_str("let "); mk.push_str(node_var); mk.push_str(": ");
+    mk.push_str("let ");
+    if alt_needs_mut_node(cg, alt_idx, sidx) { mk.push_str("mut "); }
+    mk.push_str(node_var); mk.push_str(": ");
     mk.push_str(sname.as_str()); mk.push_str(" = doc.make::<");
     mk.push_str(sname.as_str()); mk.push_str(">();");
     w.line(mk.as_str());
@@ -2586,8 +3334,12 @@ fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_v
             // The capture variable for this field's $n (rule-level stem is `cap<n>`).
             let mut capvar: String = String::new();
             capvar.push_str(cap_stem); capvar.push_i64(index);
+            let is_int_tok: bool = ekind == CAPTURE
+                && capture_is_token_named(cg, alt_idx, index, "INTEGER");
+            let is_str_tok: bool = ekind == CAPTURE
+                && capture_is_token_named(cg, alt_idx, index, "STRING");
             emit_schema_field(w, node_var, capvar.as_str(), fname.as_str(), ftype.as_str(),
-                              ekind, sval.as_str(), ival, "", cg.ref_wrap.as_str());
+                              ekind, sval.as_str(), ival, "", cg.ref_wrap.as_str(), is_int_tok, is_str_tok);
         }
         fi = fi + 1i64;
     }
@@ -2617,7 +3369,9 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
     }
     let sidx: i64 = find_schema(cg, sname.as_str());
     let mut mk: String = String::new();
-    mk.push_str("let gnode: "); mk.push_str(sname.as_str());
+    mk.push_str("let ");
+    if alt_needs_mut_node(cg, galt, sidx) { mk.push_str("mut "); }
+    mk.push_str("gnode: "); mk.push_str(sname.as_str());
     mk.push_str(" = doc.make::<"); mk.push_str(sname.as_str()); mk.push_str(">();");
     w.line(mk.as_str());
 
@@ -2636,8 +3390,12 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
             let mut capvar: String = String::new();
             capvar.push_str("g"); capvar.push_str(cap); capvar.push_str("_");
             capvar.push_i64(index); capvar.push_str("_"); capvar.push_i64(id);
+            let is_int_tok: bool = ekind == CAPTURE
+                && capture_is_token_named(cg, galt, index, "INTEGER");
+            let is_str_tok: bool = ekind == CAPTURE
+                && capture_is_token_named(cg, galt, index, "STRING");
             emit_schema_field(w, "gnode", capvar.as_str(), fname.as_str(), ftype.as_str(),
-                              ekind, sval.as_str(), ival, foldv.as_str(), cg.ref_wrap.as_str());
+                              ekind, sval.as_str(), ival, foldv.as_str(), cg.ref_wrap.as_str(), is_int_tok, is_str_tok);
         }
         fi = fi + 1i64;
     }
@@ -2655,11 +3413,29 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
 //   "WAny"       → `n.f = hand_any(cap)` / verbatim literal          (dynamic)
 //   scalar i8..i64/u8..u64/i56/isize/usize/bool → `n.f = <val> as T` (inline)
 fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
-                     ftype: str, ekind: i64, sval: str, ival: i64, foldv: str, ref_wrap: str) {
+                     ftype: str, ekind: i64, sval: str, ival: i64, foldv: str, ref_wrap: str,
+                     cap_is_int_tok: bool, cap_is_str_tok: bool) {
     // Assignment LHS: `node.f = `.
     let mut lhs: String = String::new();
     lhs.push_str(node_var); lhs.push_str("."); lhs.push_str(fname); lhs.push_str(" = ");
 
+    if str_eq(ftype, "argfan") {
+        // SExprArr fan-out: spread an ARRAY_CAPTURE ($...) of arg edges into the
+        // fixed slots a0..a7 via set_arg + set_len (ir.logos SExprArr write API).
+        // The collected edges are in `rcap` (a WArray<WAny> of `WAny::ref_to(edge)`
+        // handles) — exactly the WAny `set_arg` expects. Args beyond SEXPRARR_MAX
+        // are dropped (arity cap), matching el.logos parse_arglist.
+        w.line("let mut afi: i64 = 0i64;");
+        w.line("let alen: i64 = rcap.len();");
+        let mut cl: String = String::new();
+        cl.push_str("while afi < alen && afi < SEXPRARR_MAX() { ");
+        cl.push_str(node_var); cl.push_str(".set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }");
+        w.line(cl.as_str());
+        let mut sl: String = String::new();
+        sl.push_str(node_var); sl.push_str(".set_len(afi);");
+        w.line(sl.as_str());
+        return;
+    }
     if ftype_is_ref(ftype) {
         // <ref_wrap><TARGET> edge from a captured child node handle (or fold acc $0).
         let target: String = ftype_ref_target(ftype);
@@ -2677,7 +3453,16 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
     if str_eq(ftype, "WAny") {
         let mut l: String = String::new();
         l.push_str(lhs.as_str());
-        if ekind == CAPTURE {
+        if ekind == CAPTURE && cap_is_int_tok {
+            // INTEGER-token capture into a dynamic WAny field: decode the digits to
+            // an i64 and BOX it in the arena (`doc.int`) — the token->value hook.
+            l.push_str("doc.int(wstr_decode_i64("); l.push_str(capvar); l.push_str("));");
+        } else if ekind == CAPTURE && cap_is_str_tok {
+            // STRING-token capture into a dynamic WAny field: intern the UNQUOTED
+            // content as a WString ref (the literal's value is the inner text, not
+            // the quoted token) — matches el.logos parse_string.
+            l.push_str("WAny::ref_to(wstr_unquote(doc, "); l.push_str(capvar); l.push_str("));");
+        } else if ekind == CAPTURE {
             l.push_str("hand_any("); l.push_str(capvar); l.push_str(");");
         } else if ekind == FOLD_CAPTURE {
             l.push_str("hand_any("); l.push_str(foldv); l.push_str(");");
@@ -2687,7 +3472,10 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
         } else if ekind == INT_LIT {
             l.push_str("WAny::from("); l.push_i64(ival); l.push_str("i56);");
         } else if ekind == BOOL_LIT {
-            if ival != 0i64 { l.push_str("WAny::from(1u8);"); } else { l.push_str("WAny::from(0u8);"); }
+            // A dynamic bool literal → `WAny::from(true/false)` (WA_BOOL at-rest
+            // encoding). NOT `WAny::from(1u8/0u8)` (WT_U8) — the two differ at rest,
+            // and the hand parser's `mk_lit(h, WAny::from(true))` uses the bool code.
+            if ival != 0i64 { l.push_str("WAny::from(true);"); } else { l.push_str("WAny::from(false);"); }
         } else {
             l.push_str("WAny::from(0i56);");
         }
@@ -2717,10 +3505,13 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
         l.push_i64(ival); l.push_str(" as "); l.push_str(ftype); l.push_str(";");
     } else if ekind == BOOL_LIT {
         if ival != 0i64 { l.push_str("true;"); } else { l.push_str("false;"); }
+    } else if ekind == CAPTURE && cap_is_int_tok {
+        // Captured INTEGER token → decode digits to i64, then cast to the field's
+        // scalar type (the token->value hook for numeric scalar fields).
+        l.push_str("wstr_decode_i64("); l.push_str(capvar); l.push_str(") as ");
+        l.push_str(ftype); l.push_str(";");
     } else {
-        // A captured token → its scalar value is not directly available; store 0.
-        // (Grammars needing token→scalar should model it via a token-value hook;
-        // MVP schema fields set scalars from INT_LIT/BOOL_LIT in the action.)
+        // A captured non-numeric token → its scalar value is not available; store 0.
         l.push_str("0 as "); l.push_str(ftype); l.push_str(";");
     }
     w.line(l.as_str());
@@ -2925,6 +3716,11 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             w.l3("pub fn parse_", e.as_str(), "(src: str, doc: &Writ) -> WAny {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
+            // MALFORMED-input rejection: the export must consume the WHOLE input.
+            // A PEG rule can partial-match (e.g. `expr` matches `a` in `a +`,
+            // leaving `+`); the hand parsers rejected trailing junk, so a
+            // non-EOF remainder is a parse error → null root.
+            w.line("    if !lex.at_eof() { return WAny::ref_to(NULLP); }");
             w.line("    return WAny::ref_to(root);");
             w.line("}");
         } else {

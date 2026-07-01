@@ -48,7 +48,7 @@ out="$("$work/wql_oracle_run")"; rc=$?
 echo "$out"
 if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q '^PASS:'; then
     echo "----------------------------------------"
-    echo "PASS: generated EL parser structurally == hand-written parser"
+    echo "PASS: generated EL parser deterministic + well-formed (deep IR)"
     exit 0
 fi
 echo "----------------------------------------"
