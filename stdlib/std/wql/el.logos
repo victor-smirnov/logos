@@ -80,24 +80,48 @@ pub struct ElParser {
     // Dense interning: name (start,len) into `src`, keyed per namespace.
     pub field_starts: [i64; 64],
     pub field_lens:   [i64; 64],
+    pub field_tys:    [i32; 64],   // declared value-type per field key (EL_TY_*; 0=int default)
     pub field_n:      i64,
 
     pub param_starts: [i64; 64],
     pub param_lens:   [i64; 64],
+    pub param_tys:    [i32; 64],   // declared value-type per param idx (EL_TY_*; 0=int default)
+    pub param_is_src: [bool; 64],  // true if this param is a comprehension SOURCE (a `&[Elem]` slice)
     pub param_n:      i64,
 
     pub var_starts:   [i64; 64],
     pub var_lens:     [i64; 64],
+    pub var_tys:      [i32; 64],   // declared value-type per comprehension/loop var idx
     pub var_n:        i64,
 }
 
 pub fn el_parser_new(src: str) -> ElParser {
     return ElParser {
         src: src, pos: 0i64, len: src.len(), ok: true,
-        field_starts: [0i64; 64], field_lens: [0i64; 64], field_n: 0i64,
-        param_starts: [0i64; 64], param_lens: [0i64; 64], param_n: 0i64,
-        var_starts:   [0i64; 64], var_lens:   [0i64; 64], var_n:   0i64,
+        field_starts: [0i64; 64], field_lens: [0i64; 64], field_tys: [0i32; 64], field_n: 0i64,
+        param_starts: [0i64; 64], param_lens: [0i64; 64], param_tys: [0i32; 64],
+        param_is_src: [false; 64], param_n: 0i64,
+        var_starts:   [0i64; 64], var_lens:   [0i64; 64], var_tys:   [0i32; 64], var_n:   0i64,
     };
+}
+
+// ── EL value-type lattice (codegen type detection) ────────────────────────
+// A coarse 3-valued type tag for static codegen: choose `push_str` vs
+// `push_i64`, emit string literals, and route the row/projection element type.
+// Defaults to INT (the queue-1 numeric baseline); STR/BOOL are inferred from
+// literals/operators or DECLARED via the surface (`$x:str`, typed fields).
+pub fn EL_TY_INT()  -> i32 { return 0i32; }
+pub fn EL_TY_STR()  -> i32 { return 1i32; }
+pub fn EL_TY_BOOL() -> i32 { return 2i32; }
+
+// Map a Logos type NAME (as written in the surface) to an EL value-type tag.
+// `str`/`String` → STR, `bool` → BOOL, everything else → INT (the integer
+// family is rendered identically by `push_i64`). Unknown names default to INT.
+pub fn el_ty_of_name(name: str) -> i32 {
+    if str_eq(name, "str")    { return EL_TY_STR(); }
+    if str_eq(name, "String") { return EL_TY_STR(); }
+    if str_eq(name, "bool")   { return EL_TY_BOOL(); }
+    return EL_TY_INT();
 }
 
 // ── Lexer primitives ──────────────────────────────────────────────────────
@@ -161,6 +185,17 @@ impl ElParser {
 }
 
 // ── Name interning (dense ids per namespace) ──────────────────────────────
+// Equality of a stored (start,len) name in `src` against a separate `str`.
+fn name_eq_range(src: str, start: i64, len: i64, name: str) -> bool {
+    if len != name.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < len {
+        if str_byte_at(src, start + i) != str_byte_at(name, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
 // Byte-range equality against a stored (start,len) name.
 fn range_eq(src: str, a_start: i64, a_len: i64, b_start: i64, b_len: i64) -> bool {
     if a_len != b_len { return false; }
@@ -186,6 +221,7 @@ impl ElParser {
         let id: i64 = self.field_n;
         self.field_starts[id] = start;
         self.field_lens[id]   = len;
+        self.field_tys[id]    = EL_TY_INT();
         self.field_n = self.field_n + 1i64;
         return id as u8;
     }
@@ -202,6 +238,7 @@ impl ElParser {
         let id: i64 = self.param_n;
         self.param_starts[id] = start;
         self.param_lens[id]   = len;
+        self.param_tys[id]    = EL_TY_INT();
         self.param_n = self.param_n + 1i64;
         return id as i32;
     }
@@ -213,6 +250,7 @@ impl ElParser {
         let id: i64 = self.var_n;
         self.var_starts[id] = start;
         self.var_lens[id]   = len;
+        self.var_tys[id]    = EL_TY_INT();
         self.var_n = self.var_n + 1i64;
         return id as i32;
     }
@@ -237,6 +275,78 @@ impl ElParser {
 
     // How many distinct params were interned (the prepared-stmt arg arity).
     pub fn param_count(self: &ElParser) -> i64 { return self.param_n; }
+
+    // Recover the interned NAME for a comprehension/loop var idx (inverse of
+    // `bind_var`). The static backend emits this as the loop-binding identifier.
+    pub fn var_name(self: &ElParser, idx: i32) -> str {
+        let i: i64 = idx as i64;
+        if i < 0i64 || i >= self.var_n { return ""; }
+        return unsafe { str_from_range(self.src, self.var_starts[i], self.var_lens[i]) };
+    }
+
+    // ── Declared value-types (codegen type detection) ─────────────────────
+    // Read the declared/inferred value-type of a field key (EL_TY_*). Out-of-
+    // range keys default to INT.
+    pub fn field_ty(self: &ElParser, key: u8) -> i32 {
+        let i: i64 = key as i64;
+        if i < 0i64 || i >= self.field_n { return EL_TY_INT(); }
+        return self.field_tys[i];
+    }
+    // Read the declared value-type of a param idx (EL_TY_*).
+    pub fn param_ty(self: &ElParser, idx: i32) -> i32 {
+        let i: i64 = idx as i64;
+        if i < 0i64 || i >= self.param_n { return EL_TY_INT(); }
+        return self.param_tys[i];
+    }
+    // Is this param a comprehension SOURCE (typed `&[Elem]`, not a scalar)?
+    pub fn param_is_source(self: &ElParser, idx: i32) -> bool {
+        let i: i64 = idx as i64;
+        if i < 0i64 || i >= self.param_n { return false; }
+        return self.param_is_src[i];
+    }
+    // How many comprehension/loop vars were bound.
+    pub fn var_count(self: &ElParser) -> i64 { return self.var_n; }
+
+    // Read the declared value-type of a comprehension/loop var idx.
+    pub fn var_ty(self: &ElParser, idx: i32) -> i32 {
+        let i: i64 = idx as i64;
+        if i < 0i64 || i >= self.var_n { return EL_TY_INT(); }
+        return self.var_tys[i];
+    }
+
+    // Declare a field's value-type BY NAME (the surface seam). Matches an
+    // already-interned field key; if the field was not referenced in any parsed
+    // expression there is nothing to type, so the declaration is a no-op (the
+    // codegen never asks for it). Compares against the stored (start,len) names.
+    pub fn set_field_ty(self: &mut ElParser, name: str, ty: i32) {
+        let mut i: i64 = 0i64;
+        while i < self.field_n {
+            if name_eq_range(self.src, self.field_starts[i], self.field_lens[i], name) {
+                self.field_tys[i] = ty;
+            }
+            i = i + 1i64;
+        }
+    }
+    // Declare a param's value-type BY NAME.
+    pub fn set_param_ty(self: &mut ElParser, name: str, ty: i32) {
+        let mut i: i64 = 0i64;
+        while i < self.param_n {
+            if name_eq_range(self.src, self.param_starts[i], self.param_lens[i], name) {
+                self.param_tys[i] = ty;
+            }
+            i = i + 1i64;
+        }
+    }
+    // Declare a loop/comprehension var's value-type BY NAME (all bindings of it).
+    pub fn set_var_ty(self: &mut ElParser, name: str, ty: i32) {
+        let mut i: i64 = 0i64;
+        while i < self.var_n {
+            if name_eq_range(self.src, self.var_starts[i], self.var_lens[i], name) {
+                self.var_tys[i] = ty;
+            }
+            i = i + 1i64;
+        }
+    }
 
     // Resolve an already-bound comprehension variable name → idx, or -1.
     fn lookup_var(self: &ElParser, start: i64, len: i64) -> i32 {
@@ -555,30 +665,32 @@ impl ElParser {
     }
 
     // arglist := '(' ( expr ( ',' expr )* )? ')'  →  SExprArr backing
-    // MVP: the argument list is collected into a fresh `SExprArr` node whose
-    // `arr` WAny is a Writ array handle. To keep the MVP lean (no typed Writ
-    // array construction wired yet), we store the FIRST argument's edge as the
-    // arr handle when present, else null. The arity/full list materialization
-    // is a backend concern (ADR 0012-impl-seam §1 note: SExprArr exact array
-    // type is a deferred `[?]`). Calls with 0/1 args round-trip structurally.
+    // Phase 3: materialize the FULL argument list. Every arg is parsed into the
+    // arena and its edge handle stashed; then ONE `SExprArr` node is built and
+    // all handles are stored into its fixed slots (`set_arg`) with the count
+    // (`set_len`). Args beyond `SEXPRARR_MAX` overflow the parse-error latch.
+    // Parsing happens BEFORE the SExprArr view is made, so the parse's `&mut
+    // self` chain never overlaps a live arena view.
     fn parse_arglist(self: &mut ElParser, h: &Writ) -> i64 {
         if !self.eat("(", false) { self.ok = false; }
-        // Parse the arguments BEFORE making the SExprArr node, so the parse's
-        // `&mut self` chain doesn't overlap a live arena view.
-        let mut first: i64 = hand_null();
-        let mut has_arg: bool = false;
+        let mut argw: [i64; 8] = [0i64; 8];
+        let mut n: i64 = 0i64;
         if !self.at(")") {
-            first = self.parse_expr(h);
-            has_arg = true;
-            // consume any remaining comma-separated args (kept structurally; the
-            // first is the representative handle for the MVP).
-            while self.eat(",", false) {
-                let _extra: i64 = self.parse_expr(h);
+            loop {
+                let a: i64 = self.parse_expr(h);
+                if n < SEXPRARR_MAX() { argw[n] = a; n = n + 1i64; }
+                else { self.ok = false; }   // arity overflow
+                if !self.eat(",", false) { break; }
             }
         }
         if !self.eat(")", false) { self.ok = false; }
-        let arr: SExprArr = h.make::<SExprArr>();
-        arr.arr = if has_arg { hand_any(first) } else { WAny::ref_to(0i64 as *const u8) };
+        let mut arr: SExprArr = h.make::<SExprArr>();
+        arr.set_len(n);
+        let mut i: i64 = 0i64;
+        while i < n {
+            arr.set_arg(i, hand_any(argw[i]));
+            i = i + 1i64;
+        }
         return hand_of(arr.as_ref());
     }
 
@@ -648,12 +760,16 @@ impl ElParser {
     }
 
     // Comprehension source: a bare identifier interned as a source/param idx.
+    // The param is FLAGGED as a comprehension source (`param_is_src`) so the
+    // static backend types it as a `&[Elem]` slice argument (not a scalar).
     fn parse_source(self: &mut ElParser, h: &Writ) -> i32 {
         self.skip_ws();
         let start: i64 = self.pos;
         let len: i64 = self.scan_ident();
         if len == 0i64 { self.ok = false; return 0i32; }
-        return self.intern_param(start, len);
+        let idx: i32 = self.intern_param(start, len);
+        self.param_is_src[idx as i64] = true;
+        return idx;
     }
 }
 

@@ -1,0 +1,71 @@
+// WQL Phase 4 — RELATIONAL JOIN, static lowering end-to-end (ADR 0012 §2,
+// queue-1). The `wql!{ … }` handler now lowers an inner join over TWO source
+// slices to native nested-loop code: for each (employee, dept) pair whose `on`
+// predicate holds, it projects a joined value.
+//
+// Surface:
+//   wql!{ fn <name> from <a>:[A] x join <b>:[B] y on <pred>
+//         [where <pred>] select <expr> : <Ty> [with …] }
+//
+// Here `emp_salaries` joins employees to departments on `e.dept == d.id` and
+// projects each matched employee's salary, proving the relational join through
+// the whole parse → IR → emit → linked-fn path.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub dept: i64, pub salary: i64 }
+struct Dept { pub id: i64,   pub budget: i64 }
+
+// INNER JOIN: emit each employee's salary where the employee's dept matches a
+// department row AND that department's budget exceeds 100.
+//   pub fn emp_salaries(emps: &[Emp], depts: &[Dept]) -> Vec<i64> {
+//       … nested loop over (emps × depts) filtered by `on` then `where` …
+//   }
+wql!{ fn emp_salaries
+      from emps:[Emp] e
+      join depts:[Dept] d on e.dept == d.id
+      where d.budget > 100
+      select e.salary : i64 }
+
+// ANTI JOIN: emit each employee's salary whose dept has NO matching department
+// row at all — the relational RAnti (semijoin complement) lowered to a native
+// "scan-for-any-match, push iff none" loop.
+//   pub fn orphan_salaries(emps: &[Emp], depts: &[Dept]) -> Vec<i64> { … }
+wql!{ fn orphan_salaries
+      from emps:[Emp] e
+      anti join depts:[Dept] d on e.dept == d.id
+      select e.salary : i64 }
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { dept: 1i64, salary: 50i64 },   // dept 1 budget 200 > 100 → kept (50)
+        Emp { dept: 2i64, salary: 60i64 },   // dept 2 budget  80 ≤ 100 → dropped
+        Emp { dept: 1i64, salary: 70i64 },   // dept 1 budget 200 > 100 → kept (70)
+        Emp { dept: 9i64, salary: 99i64 },   // dept 9 has no match     → dropped
+    ];
+    let depts: [Dept; 3] = [
+        Dept { id: 1i64, budget: 200i64 },
+        Dept { id: 2i64, budget: 80i64  },
+        Dept { id: 3i64, budget: 500i64 },
+    ];
+
+    let rows: Vec<i64> = emp_salaries(&emps[..], &depts[..]);
+
+    // Expect [50, 70] — the two employees in dept 1 (budget 200 > 100), in
+    // source order. Emp dept 2 fails the budget filter; emp dept 9 has no match.
+    if rows.len() != 2i64 { return 1i32; }
+    if rows.get(0i64) != 50i64 { return 2i32; }
+    if rows.get(1i64) != 70i64 { return 3i32; }
+    // Negative guard: the unmatched/filtered salaries must NOT appear.
+    if rows.get(0i64) == 60i64 { return 4i32; }
+    if rows.get(1i64) == 99i64 { return 5i32; }
+
+    // ANTI JOIN: only emp dept 9 has no matching department (depts are 1/2/3),
+    // so just its salary (99) survives the anti-join.
+    let orphans: Vec<i64> = orphan_salaries(&emps[..], &depts[..]);
+    if orphans.len() != 1i64 { return 6i32; }
+    if orphans.get(0i64) != 99i64 { return 7i32; }
+    return 0i32;
+}

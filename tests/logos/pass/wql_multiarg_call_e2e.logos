@@ -1,0 +1,46 @@
+// WQL Phase 3 — SExprArr FULL argument-list materialization (ADR 0012 §1,
+// queue-1). The Phase-2 representation kept only the FIRST arg; Phase 3 stores
+// every argument in the `SExprArr`'s fixed slots, so a 2-arg builtin emits BOTH
+// operands. This test exercises `contains(haystack, needle)` where BOTH args are
+// load-bearing — a first-arg-only regression would mis-filter — AND mixes a
+// FIELD arg with a runtime PARAM arg (`$sub`), proving the param flows as a
+// generated-fn argument alongside the materialized arg list.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person {
+    pub name: str,
+    pub dept: str,
+}
+
+//   pub fn pick(people: &[Person], sub: str) -> Vec<str> {
+//       … if (str_contains((p.name),(sub))) { __out.push(p.dept); } …
+//   }
+wql!{ fn pick from people:[Person] p
+      where contains(p.name, $sub)
+      select p.dept : str
+      with name:str, dept:str, $sub:str }
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: "Ada",  dept: "eng" },   // contains "A" → keep
+        Person { name: "Al",   dept: "ops" },   // contains "A" → keep
+        Person { name: "Bob",  dept: "hr"  },   // no "A"       → drop
+        Person { name: "Amir", dept: "sec" },   // contains "A" → keep
+    ];
+    let r: Vec<str> = pick(&people[..], "A");
+
+    if r.len() != 3i64 { return 1i32; }
+    if !str_eq(r.get(0i64), "eng") { return 2i32; }
+    if !str_eq(r.get(1i64), "ops") { return 3i32; }
+    if !str_eq(r.get(2i64), "sec") { return 4i32; }
+
+    // Negative: a needle present in NO row yields an empty result (proves the
+    // SECOND arg — the needle — actually drives the filter, not just the first).
+    let none: Vec<str> = pick(&people[..], "zzz");
+    if none.len() != 0i64 { return 5i32; }
+    return 0i32;
+}

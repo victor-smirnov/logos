@@ -6,10 +6,135 @@
 package logos.std.wql.codegen;
 
 use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;   // WAny::as_wstr (string-literal payloads)
 use logos.std.wql.ir;
 use logos.std.wql.el;
 use logos.mem.string;
 use logos.lang.str;
+
+// ── Builtin function registry (CEL canon + common Trama filters) ──────────
+// `SCall.fn_id` is a dense field-key id (the EL parser interns the call NAME via
+// the field-key table). At codegen time we recover the textual name through
+// `p.field_name(fn_id as u8)` and map it to one of these builtin ids. The id
+// table is small + stable; unknown names latch an error in the caller.
+//
+// Each builtin lowers to a fully-qualified stdlib call (qualified-path form, so
+// the generated function compiles regardless of the user module's `use`s):
+//   len(s)            → ((s).len())                                  : INT
+//   upper(s)          → logos.std.wql.codegen::wql_upper(s)          : STR
+//   lower(s)          → logos.std.wql.codegen::wql_lower(s)          : STR
+//   contains(s,n)     → logos.lang.str::str_contains((s),(n))        : BOOL
+//   starts_with(s,p)  → logos.lang.str::str_starts_with((s),(p))     : BOOL
+pub fn BFN_UNKNOWN()     -> i32 { return 0i32; }
+pub fn BFN_LEN()         -> i32 { return 1i32; }
+pub fn BFN_UPPER()       -> i32 { return 2i32; }
+pub fn BFN_LOWER()       -> i32 { return 3i32; }
+pub fn BFN_CONTAINS()    -> i32 { return 4i32; }
+pub fn BFN_STARTS_WITH() -> i32 { return 5i32; }
+
+// Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
+pub fn builtin_of_name(name: str) -> i32 {
+    if str_eq(name, "len")         { return BFN_LEN(); }
+    if str_eq(name, "upper")       { return BFN_UPPER(); }
+    if str_eq(name, "lower")       { return BFN_LOWER(); }
+    if str_eq(name, "contains")    { return BFN_CONTAINS(); }
+    if str_eq(name, "starts_with") { return BFN_STARTS_WITH(); }
+    return BFN_UNKNOWN();
+}
+
+// The arity each builtin expects (used to validate the materialized arg list).
+pub fn builtin_arity(bfn: i32) -> i64 {
+    if bfn == BFN_LEN() || bfn == BFN_UPPER() || bfn == BFN_LOWER() { return 1i64; }
+    if bfn == BFN_CONTAINS() || bfn == BFN_STARTS_WITH()           { return 2i64; }
+    return 0i64;
+}
+
+// The EL value-type a builtin RETURNS (drives push_str vs push_i64 + result ty).
+pub fn builtin_ret_ty(bfn: i32) -> i32 {
+    if bfn == BFN_LEN()         { return EL_TY_INT(); }
+    if bfn == BFN_UPPER()       { return EL_TY_STR(); }
+    if bfn == BFN_LOWER()       { return EL_TY_STR(); }
+    if bfn == BFN_CONTAINS()    { return EL_TY_BOOL(); }
+    if bfn == BFN_STARTS_WITH() { return EL_TY_BOOL(); }
+    return EL_TY_INT();
+}
+
+// ASCII upper/lowercase a `str` into a fresh `String` (the `upper`/`lower`
+// builtins). Byte-wise, UTF-8-agnostic (ASCII-only case folding — the CEL
+// string fns are byte oriented in the MVP). Returned by value (owns its buffer).
+pub fn wql_upper(s: str) -> String {
+    let mut out: String = String::new();
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        let u: u8 = if c >= 97u8 && c <= 122u8 { c - 32u8 } else { c };
+        out.push_u8(u);
+        i = i + 1i64;
+    }
+    return out;
+}
+pub fn wql_lower(s: str) -> String {
+    let mut out: String = String::new();
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        let l: u8 = if c >= 65u8 && c <= 90u8 { c + 32u8 } else { c };
+        out.push_u8(l);
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ── Value-type inference (codegen type detection) ─────────────────────────
+// Compute the EL value-type (EL_TY_*) of an SExpr, the signal the static
+// backend uses to choose `push_str` vs `push_i64`, emit a string literal, and
+// route the row/projection element type. Sources of type:
+//   • SLit          — the WAny payload (string / bool / int);
+//   • SParam / field — the DECLARED type table (surface `$x:str`, typed fields);
+//   • SBin           — compare/logical ⇒ BOOL; `+` with a STR operand ⇒ STR
+//                      (string concatenation), else INT;
+//   • SUn            — `!` ⇒ BOOL, `-` ⇒ INT;
+//   • SCond          — the then-branch's type (both arms agree under strict typing).
+// Unknown / out-of-MVP nodes default to INT.
+pub fn infer_ty(e: SExpr, p: &ElParser) -> i32 {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() { return EL_TY_STR(); }
+            if v.is_bool()   { return EL_TY_BOOL(); }
+            return EL_TY_INT();
+        }
+        SExpr::Param(pp) => { return p.param_ty(pp.idx); }
+        SExpr::Var(vv)   => { return p.var_ty(vv.idx); }
+        SExpr::Field(f)  => { return p.field_ty(f.key); }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op == OP_OR() || op == OP_AND()
+               || op == OP_EQ() || op == OP_NE()
+               || op == OP_LT() || op == OP_LE()
+               || op == OP_GT() || op == OP_GE() { return EL_TY_BOOL(); }
+            if op == OP_ADD() {
+                let lt: i32 = infer_ty(b.lhs_expr(), p);
+                let rt: i32 = infer_ty(b.rhs_expr(), p);
+                if lt == EL_TY_STR() || rt == EL_TY_STR() { return EL_TY_STR(); }
+            }
+            return EL_TY_INT();
+        }
+        SExpr::Un(u) => {
+            if u.op == OP_NOT() { return EL_TY_BOOL(); }
+            return EL_TY_INT();
+        }
+        SExpr::Cond(c) => { return infer_ty(c.then_expr(), p); }
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(p.field_name(c.fn_id as u8));
+            return builtin_ret_ty(bfn);
+        }
+        SExpr::Comp(_) => { return EL_TY_INT(); }   // list value (element ty = INT in the scalar lattice)
+        _ => { return EL_TY_INT(); }
+    }
+}
 
 // Walk the SExpr schema'd IR (`match` over the family enum), emitting a Logos
 // expression into `out`:
@@ -25,7 +150,12 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
-            if v.is_bool() {
+            if v.is_string() {
+                // A boxed WString literal → a Logos string literal "…" (escaped).
+                out.push_str("\"");
+                emit_str_escaped(out, v.as_wstr());
+                out.push_str("\"");
+            } else if v.is_bool() {
                 if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); }
             } else {
                 out.push_i64(v.as_i64());
@@ -36,8 +166,11 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
             out.push_str(p.param_name(pp.idx));
         }
         SExpr::Var(vv) => {
-            let _ = vv.idx;
-            out.push_str(var);
+            // A comprehension-bound row variable: emit its own interned name
+            // (the loop binding), falling back to the caller's `var` (used by
+            // the wql!/trama! row/loop binding) when the var is unnamed.
+            let nm: str = p.var_name(vv.idx);
+            if nm.len() > 0i64 { out.push_str(nm); } else { out.push_str(var); }
         }
         SExpr::Field(f) => {
             let key: u8 = f.key;
@@ -72,11 +205,195 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
             emit_sexpr(out, arg, p, var);
             out.push_str(")");
         }
+        SExpr::Call(c) => { emit_call(out, c, p, var); }
+        SExpr::Cond(c) => {
+            // ternary `cond ? then : else` → Logos `if` EXPRESSION.
+            out.push_str("(if (");
+            emit_sexpr(out, c.cond_expr(), p, var);
+            out.push_str(") { ");
+            emit_sexpr(out, c.then_expr(), p, var);
+            out.push_str(" } else { ");
+            emit_sexpr(out, c.else_expr(), p, var);
+            out.push_str(" })");
+        }
+        SExpr::Comp(cp) => { emit_comp(out, cp, p, var); }
         _ => {
-            // SCall / SCond / SComp are out of the MVP scalar-codegen scope.
             out.push_str("0i64");
         }
     }
+}
+
+// Emit a builtin call. `c` is the SCall; the call NAME is recovered from the
+// parser's field-name table (`fn_id` was interned as a field key) and mapped to
+// a builtin id (`builtin_of_name`). Each builtin emits a fully-qualified stdlib
+// call over its materialized args (`SExprArr`). An unknown name or wrong arity
+// emits a `0i64` placeholder (the wql!/trama! handler reports the error at the
+// block site via `call_diagnostic`).
+pub fn emit_call(out: &mut String, c: SCall, p: &ElParser, var: str) {
+    let name: str = p.field_name(c.fn_id as u8);
+    let bfn: i32 = builtin_of_name(name);
+    let args: SExprArr = c.args_arr();
+    let argc: i64 = args.len();
+    if bfn == BFN_UNKNOWN() || argc != builtin_arity(bfn) {
+        out.push_str("0i64");
+        return;
+    }
+    if bfn == BFN_LEN() {
+        out.push_str("((");
+        emit_sexpr(out, args.arg_at(0i64), p, var);
+        out.push_str(").len())");
+        return;
+    }
+    if bfn == BFN_UPPER() || bfn == BFN_LOWER() {
+        if bfn == BFN_UPPER() { out.push_str("logos.std.wql.codegen::wql_upper("); }
+        else                  { out.push_str("logos.std.wql.codegen::wql_lower("); }
+        emit_sexpr(out, args.arg_at(0i64), p, var);
+        out.push_str(")");
+        return;
+    }
+    // contains / starts_with : two str args → bool.
+    if bfn == BFN_CONTAINS() { out.push_str("logos.lang.str::str_contains("); }
+    else                     { out.push_str("logos.lang.str::str_starts_with("); }
+    out.push_str("(");
+    emit_sexpr(out, args.arg_at(0i64), p, var);
+    out.push_str("), (");
+    emit_sexpr(out, args.arg_at(1i64), p, var);
+    out.push_str("))");
+}
+
+// True iff `e` is (or contains at its root) a call to an unknown function or one
+// with the wrong arity — the wql!/trama! handlers use this to surface a compile
+// error at the block site (the codegen itself emits a safe `0i64` placeholder).
+pub fn call_diagnostic(e: SExpr, p: &ElParser) -> bool {
+    match e {
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(p.field_name(c.fn_id as u8));
+            if bfn == BFN_UNKNOWN() { return true; }
+            let args: SExprArr = c.args_arr();
+            if args.len() != builtin_arity(bfn) { return true; }
+            let mut i: i64 = 0i64;
+            while i < args.len() {
+                if call_diagnostic(args.arg_at(i), p) { return true; }
+                i = i + 1i64;
+            }
+            return false;
+        }
+        SExpr::Bin(b)  => { return call_diagnostic(b.lhs_expr(), p) || call_diagnostic(b.rhs_expr(), p); }
+        SExpr::Un(u)   => { return call_diagnostic(u.arg_expr(), p); }
+        SExpr::Cond(c) => {
+            return call_diagnostic(c.cond_expr(), p)
+                || call_diagnostic(c.then_expr(), p)
+                || call_diagnostic(c.else_expr(), p);
+        }
+        SExpr::Comp(cp) => { return call_diagnostic(cp.head_expr(), p); }
+        _ => { return false; }
+    }
+}
+
+// Map an EL value-type tag → the Logos type NAME for an emitted binding /
+// Vec element (str → `str`, bool → `bool`, else the i64 baseline).
+pub fn el_ty_name(ty: i32) -> str {
+    if ty == EL_TY_STR()  { return "str"; }
+    if ty == EL_TY_BOOL() { return "bool"; }
+    return "i64";
+}
+
+// Emit a comprehension `[head for v in src (if guard)?]` as a Logos BLOCK
+// EXPRESSION yielding a `Vec<HeadTy>` (ADR 0012 §10.4 — a Source-driven loop
+// collecting into a Vec, NOT the stdlib list-comprehension desugar). The plan is
+// `RScan(src)` or `RFilter(RScan(src), guard)`; the source resolves to a `&[_]`
+// parameter (interned in the param table). The loop var binds each element by
+// reference; `head`/`guard` reference it via `SVar` (emitted as the var's name).
+//
+//   ({ let mut __cv: Vec<T> = Vec::<T>::new();
+//      let mut __ci: i64 = 0i64;
+//      while __ci < (SRC).len() {
+//          let V = &(SRC)[__ci];
+//          if GUARD { __cv.push(HEAD); }     // guard omitted when absent
+//          __ci = __ci + 1i64;
+//      }
+//      __cv })
+pub fn emit_comp(out: &mut String, cp: SComp, p: &ElParser, var: str) {
+    let head: SExpr = cp.head_expr();
+    let plan: RExpr = cp.plan_expr();
+    // Decompose the plan into (scan, optional guard).
+    let mut src_idx: i32 = 0i32;
+    let mut has_guard: bool = false;
+    match plan {
+        RExpr::Scan(sc) => { src_idx = sc.src; }
+        RExpr::Filter(fl) => {
+            has_guard = true;
+            match fl.input_expr() {
+                RExpr::Scan(sc2) => { src_idx = sc2.src; }
+                _ => { }
+            }
+        }
+        _ => { }
+    }
+    let src_name: str = p.param_name(src_idx);
+    let head_ty: str = el_ty_name(infer_ty(head, p));
+    // The comprehension var name — the LAST bound var (single-comprehension MVP).
+    let vname: str = p.var_name((p.var_count() - 1i64) as i32);
+
+    out.push_str("({ let mut __cv: Vec<");
+    out.push_str(head_ty);
+    out.push_str("> = Vec::<");
+    out.push_str(head_ty);
+    out.push_str(">::new(); let mut __ci: i64 = 0i64; while __ci < (");
+    out.push_str(src_name);
+    out.push_str(").len() { let ");
+    out.push_str(vname);
+    // Bind the element BY VALUE — the comprehension scalar lattice (i64/str/bool)
+    // is Copy, so `head`/`guard` over `SVar` get the element directly (and a
+    // `Vec<T>` push takes `T`, not `&T`).
+    out.push_str(" = (");
+    out.push_str(src_name);
+    out.push_str(")[__ci]; ");
+    if has_guard {
+        match plan {
+            RExpr::Filter(fl2) => {
+                out.push_str("if (");
+                emit_sexpr(out, fl2.pred_expr(), p, var);
+                out.push_str(") { __cv.push(");
+                emit_sexpr(out, head, p, var);
+                out.push_str("); } ");
+            }
+            _ => { }
+        }
+    } else {
+        out.push_str("__cv.push(");
+        emit_sexpr(out, head, p, var);
+        out.push_str("); ");
+    }
+    out.push_str("__ci = __ci + 1i64; } __cv })");
+}
+
+// Emit an expression in BOOLEAN (condition) context, coercing a non-bool value
+// to a `bool` the way a dynamic template language treats "truthiness" (Trama
+// `{% if %}` / `{% elif %}`). A Logos `if` demands a `bool`, but a template
+// author writes `{% if count %}` / `{% if name %}` expecting the jinja rule:
+//   • BOOL expr  → emitted verbatim (already a condition);
+//   • INT  expr  → `((e) != 0i64)`  (non-zero is truthy);
+//   • STR  expr  → `((e).len() != 0i64)` (non-empty is truthy).
+// The value-type is the codegen `infer_ty` (schema-reflected fields included), so
+// `{% if c.flag %}` over a `bool` field stays bare while `{% if c.n %}` over an
+// `i64` field gets the `!= 0` guard — no annotation needed.
+pub fn emit_truthy(out: &mut String, e: SExpr, p: &ElParser, var: str) {
+    let ty: i32 = infer_ty(e, p);
+    if ty == EL_TY_BOOL() {
+        emit_sexpr(out, e, p, var);
+        return;
+    }
+    if ty == EL_TY_STR() {
+        out.push_str("((");
+        emit_sexpr(out, e, p, var);
+        out.push_str(").len() != 0i64)");
+        return;
+    }
+    // INT (the numeric baseline): non-zero is truthy.
+    out.push_str("((");
+    emit_sexpr(out, e, p, var);
+    out.push_str(") != 0i64)");
 }
 
 // SBin op id (el.logos CEL canon) → Logos infix operator text (spaces padded).
@@ -100,4 +417,76 @@ pub fn emit_binop(op: i32) -> str {
 // and unmodified). Shared spelling for the emit handlers.
 pub fn string_as_str(s: &String) -> str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+// Escape a `str` into the body of a Logos string literal (between the quotes):
+// `"` `\` and the control bytes, so the emitted `"…"` parses back. Shared by
+// the SLit string case and the Trama literal-text runs.
+pub fn emit_str_escaped(out: &mut String, s: str) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 34u8 { out.push_str("\\\""); }
+        else if c == 92u8 { out.push_str("\\\\"); }
+        else if c == 10u8 { out.push_str("\\n"); }
+        else if c == 13u8 { out.push_str("\\r"); }
+        else if c == 9u8  { out.push_str("\\t"); }
+        else {
+            let one: str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
+            out.push_str(one);
+        }
+        i = i + 1i64;
+    }
+}
+
+// Emit a sequence of `<target>.push_str(<part>);` statements that APPEND the
+// value of a STRING-typed expression `e` to the render buffer named `target`.
+// String concatenation `a + b` is FLATTENED into successive pushes (sound, no
+// intermediate `String` temporary / borrow): `{{ a + b }}` → push(a); push(b).
+// A non-concat str expression is pushed whole. `indent` prefixes each line.
+pub fn emit_push_str(out: &mut String, indent: str, target: str,
+                     e: SExpr, p: &ElParser, var: str) {
+    match e {
+        SExpr::Bin(b) => {
+            // str `+` str → flatten to two appends (the only str-producing op).
+            if b.op == OP_ADD() && infer_ty(e, p) == EL_TY_STR() {
+                emit_push_str(out, indent, target, b.lhs_expr(), p, var);
+                emit_push_str(out, indent, target, b.rhs_expr(), p, var);
+                return;
+            }
+            emit_push_str_one(out, indent, target, e, p, var);
+        }
+        _ => { emit_push_str_one(out, indent, target, e, p, var); }
+    }
+}
+
+// Emit one `<target>.push_str(<expr>);` for a single (non-flattened) str expr.
+// An `upper`/`lower` call yields an OWNED `String`, so it is borrowed via
+// `.as_str()` to feed `push_str(str)`; all other str exprs push verbatim.
+fn emit_push_str_one(out: &mut String, indent: str, target: str,
+                     e: SExpr, p: &ElParser, var: str) {
+    out.push_str(indent);
+    out.push_str(target);
+    out.push_str(".push_str(");
+    if returns_string(e, p) {
+        out.push_str("(");
+        emit_sexpr(out, e, p, var);
+        out.push_str(").as_str()");
+    } else {
+        emit_sexpr(out, e, p, var);
+    }
+    out.push_str(");\n");
+}
+
+// True iff `e`'s root is a builtin that returns an OWNED `String` (`upper` /
+// `lower`) — such a value must be `.as_str()`-borrowed before `push_str`.
+pub fn returns_string(e: SExpr, p: &ElParser) -> bool {
+    match e {
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(p.field_name(c.fn_id as u8));
+            return bfn == BFN_UPPER() || bfn == BFN_LOWER();
+        }
+        _ => { return false; }
+    }
 }

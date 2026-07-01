@@ -1,0 +1,83 @@
+// WQL PHASE 6 — USABILITY SHOWCASE (ADR 0012, queue-1 static path).
+//
+// Two realistic queries a user can actually write and RUN over typed sources,
+// combining the features the static path supports:
+//
+//   (A) `seniors`   — a SIMPLE query: two `where` conditions joined by `&&`
+//       (`e.age >= 40 && e.dept == 1`) + a `select` whose RESULT TYPE IS
+//       INFERRED from the source schema — no `: ResultTy` annotation. The
+//       `wql!` handler REFLECTS the `Emp` schema at metaprog time, types
+//       `name: str`, and infers the row/result element as `str` ⇒ `Vec<str>`.
+//
+//   (B) `dept_ages` — a RELATIONAL JOIN over two typed sources
+//       (`emps` ⋈ `depts` on `e.dept == d.id`) with a post-join `where`
+//       (`d.budget > 100`) projecting `e.age`. (The join path takes an explicit
+//       `: i64` — result inference over joins is a future item, see the report.)
+//
+// Both are compiled at BUILD TIME by the `#[token_macro]` handler
+// (logos.std.wql.wql): parse → SExpr/RExpr Writ-schema IR → walk → emit native
+// `fn(&[Row], …) -> Vec<Elem>`. We run each generated function over literal
+// slices and assert the EXACT projected rows — proving where/join/select +
+// schema-reflected result inference through parse → IR → emit → linked-fn.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp  { pub name: str, pub dept: i64, pub age: i64 }
+struct Dept { pub id:   i64, pub budget: i64 }
+
+// (A) SIMPLE — two `where` conditions + INFERRED result type (`select e.name`
+// over `name: str` ⇒ `Vec<str>`, ZERO type annotations).
+//   pub fn seniors(emps: &[Emp]) -> Vec<str> {
+//       … while-loop; if (e.age >= 40 && e.dept == 1) { push(e.name) } …
+//   }
+wql!{ fn seniors from emps:[Emp] e where e.age >= 40 && e.dept == 1 select e.name }
+
+// (B) JOIN — inner nested-loop join over two typed sources + post-join filter.
+//   pub fn dept_ages(emps: &[Emp], depts: &[Dept]) -> Vec<i64> {
+//       … for e in emps { for d in depts { if (e.dept==d.id) && (d.budget>100)
+//           { push(e.age) } } } …
+//   }
+wql!{ fn dept_ages
+      from emps:[Emp] e
+      join depts:[Dept] d on e.dept == d.id
+      where d.budget > 100
+      select e.age : i64 }
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { name: "Ada",  dept: 1i64, age: 45i64 },
+        Emp { name: "Bob",  dept: 2i64, age: 50i64 },
+        Emp { name: "Cleo", dept: 1i64, age: 30i64 },
+        Emp { name: "Dane", dept: 1i64, age: 41i64 },
+    ];
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, budget: 200i64 },
+        Dept { id: 2i64, budget: 80i64  },
+    ];
+
+    // (A) seniors → Vec<str>: age>=40 AND dept==1 ⇒ Ada (45,1) and Dane (41,1).
+    // Bob (50,2) fails dept; Cleo (30,1) fails age.
+    let names: Vec<str> = seniors(&emps[..]);
+    if names.len() != 2i64 { return 1i32; }
+    if !str_eq(names.get(0i64), "Ada")  { return 2i32; }
+    if !str_eq(names.get(1i64), "Dane") { return 3i32; }
+    // Negative guard: a filtered-out name must NOT appear (assert the AND ran).
+    if str_eq(names.get(0i64), "Bob") { return 4i32; }
+
+    // (B) dept_ages → Vec<i64>: only dept 1 (budget 200 > 100) matches; its
+    // employees are Ada(45), Cleo(30), Dane(41), in source order. Bob's dept 2
+    // (budget 80) fails the post-join `where`.
+    let ages: Vec<i64> = dept_ages(&emps[..], &depts[..]);
+    if ages.len() != 3i64 { return 5i32; }
+    if ages.get(0i64) != 45i64 { return 6i32; }
+    if ages.get(1i64) != 30i64 { return 7i32; }
+    if ages.get(2i64) != 41i64 { return 8i32; }
+    // Negative guard: Bob's age (50, dept 2) must NOT appear.
+    let mut i: i64 = 0i64;
+    while i < ages.len() { if ages.get(i) == 50i64 { return 9i32; } i = i + 1i64; }
+
+    return 0i32;
+}

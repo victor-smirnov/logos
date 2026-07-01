@@ -41,6 +41,7 @@ use logos.std.wql.ir;
 use logos.std.wql.el;
 use logos.std.wql.trama;
 use logos.std.wql.codegen;
+use logos.std.wql.reflect;   // stamp_fields_from_schema — context field-type reflection
 use logos.mem.string;
 use logos.lang.str;
 
@@ -81,6 +82,19 @@ impl TLexer {
         self.pos = self.pos + n;
         return true;
     }
+    // Scan a bare identifier at the cursor → its byte length (cursor advances).
+    fn scan_ident(self: &mut TLexer) -> i64 {
+        self.skip_ws();
+        if !tl_is_alpha(self.cur()) { return 0i64; }
+        let start: i64 = self.pos;
+        while self.pos < self.len && tl_is_alnum(self.cur()) { self.bump(); }
+        return self.pos - start;
+    }
+    // Scan a TYPE name (an identifier; the `with`-clause types are simple names
+    // — `str`, `bool`, `i64`, or a struct name — in the MVP). Cursor advances.
+    fn scan_type(self: &mut TLexer) -> i64 {
+        return self.scan_ident();
+    }
     // Scan an identifier at the cursor → its slice (advances).
     fn scan_ident_str(self: &mut TLexer) -> str {
         self.skip_ws();
@@ -89,17 +103,22 @@ impl TLexer {
         while self.pos < self.len && tl_is_alnum(self.cur()) { self.bump(); }
         return unsafe { tl_str_range(self.src, start, self.pos - start) };
     }
-    // The double-quoted template body: from the opening `"` to the matching `"`
-    // (no escapes in the MVP). Returns the inner [start,end) slice; advances past
-    // the closing quote. Empty on a missing quote.
+    // The template body, delimited by either `"…"` or backticks `` `…` ``.
+    // Backtick delimiters let the template contain bare `"` string literals
+    // (e.g. `{{ "(" + city + ")" }}` / `{% if x == "NYC" %}`) WITHOUT escaping —
+    // the recommended form when embedded EL string literals are used. The
+    // double-quote form stays for simple templates (no inner quotes). Returns
+    // the inner [start,end) slice; advances past the closing delimiter. Empty on
+    // a missing/mismatched delimiter.
     fn scan_template(self: &mut TLexer) -> str {
         self.skip_ws();
-        if self.cur() != 34u8 { return ""; }  // '"'
+        let delim: u8 = self.cur();
+        if delim != 34u8 && delim != 96u8 { return ""; }  // '"' or '`'
         self.bump();
         let start: i64 = self.pos;
-        while self.pos < self.len && self.cur() != 34u8 { self.bump(); }
+        while self.pos < self.len && self.cur() != delim { self.bump(); }
         let end: i64 = self.pos;
-        if self.cur() == 34u8 { self.bump(); }
+        if self.cur() == delim { self.bump(); }
         return unsafe { tl_str_range(self.src, start, end - start) };
     }
 }
@@ -164,33 +183,62 @@ fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i
             return next_word(&t.next);
         }
         TStmt::Var(v) => {
-            // {{ expr }} → push the i64 value of the expression.
-            let mut body: String = String::new();
+            // {{ expr }} → append the expression's value to the buffer, routed
+            // by its inferred value-type: a STRING expr (field/literal/concat)
+            // is pushed via push_str (concat flattened to successive pushes); a
+            // BOOL renders as the words true/false; otherwise the i64 value.
             let se: SExpr = v.expr_expr();
-            emit_sexpr(&mut body, se, p.el_parser(), ctx);
-            em.push_text("    __out.push_i64(");
-            em.push_text(string_as_str(&body));
-            em.push_text(");\n");
+            let ty: i32 = infer_ty(se, p.el_parser());
+            if ty == EL_TY_STR() {
+                let mut tmp: String = String::new();
+                emit_push_str(&mut tmp, "    ", "__out", se, p.el_parser(), ctx);
+                em.push_text(string_as_str(&tmp));
+            } else if ty == EL_TY_BOOL() {
+                let mut body: String = String::new();
+                emit_sexpr(&mut body, se, p.el_parser(), ctx);
+                em.push_text("    if (");
+                em.push_text(string_as_str(&body));
+                em.push_text(") { __out.push_str(\"true\"); } else { __out.push_str(\"false\"); }\n");
+            } else {
+                let mut body: String = String::new();
+                emit_sexpr(&mut body, se, p.el_parser(), ctx);
+                em.push_text("    __out.push_i64(");
+                em.push_text(string_as_str(&body));
+                em.push_text(");\n");
+            }
             return next_word(&v.next);
         }
         TStmt::Set(s) => {
-            // {% set var = expr %} → a typed let binding (MVP: i64).
+            // {% set var = expr %} → a typed let binding whose type follows the
+            // assigned expression (str / bool / i64). A str `set` binds a `str`
+            // (single value) or, when the RHS is a concat, a built `String`.
             let vname: str = p.var_name(s.var);
-            let mut body: String = String::new();
             let se: SExpr = s.expr_expr();
+            let ty: i32 = infer_ty(se, p.el_parser());
+            let mut body: String = String::new();
             emit_sexpr(&mut body, se, p.el_parser(), ctx);
             em.push_text("    let ");
             em.push_text(vname);
-            em.push_text(": i64 = ");
+            if ty == EL_TY_STR() {
+                em.push_text(": str = ");
+            } else if ty == EL_TY_BOOL() {
+                em.push_text(": bool = ");
+            } else {
+                em.push_text(": i64 = ");
+            }
             em.push_text(string_as_str(&body));
             em.push_text(";\n");
             return next_word(&s.next);
         }
         TStmt::If(i) => {
             // {% if expr %} then [ {% else %} alt ] {% endif %}
+            // The condition is coerced to a `bool` by jinja truthiness rules
+            // (`emit_truthy`): a bool stays bare, an i64 becomes `!= 0`, a str
+            // becomes non-empty. `elif` is desugared at PARSE time into a nested
+            // TIf in the else-body (so the walk here is uniform).
             let mut cond: String = String::new();
             let se: SExpr = i.expr_expr();
-            emit_sexpr(&mut cond, se, p.el_parser(), ctx);
+            emit_truthy(&mut cond, se, p.el_parser(), ctx);
             em.push_text("    if (");
             em.push_text(string_as_str(&cond));
             em.push_text(") {\n");
@@ -218,9 +266,14 @@ fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i
             em.push_text(" < (");
             em.push_text(iter_s);
             em.push_text(").len() {\n");
+            // Element type of the loop var: the declared `with` type if any,
+            // else the i64 default (queue-1 numeric baseline).
+            let vty: str = p.var_ty_name(f.var);
             em.push_text("        let ");
             em.push_text(vname);
-            em.push_text(": i64 = (");
+            em.push_text(": ");
+            if vty.len() > 0i64 { em.push_text(vty); } else { em.push_text("i64"); }
+            em.push_text(" = (");
             em.push_text(iter_s);
             em.push_text(")[__i");
             em.push_num(depth as u64);
@@ -261,6 +314,40 @@ pub fn trama(s: str) -> ItemList {
     lx.bump();
     let ctx_ty: str = lx.scan_ident_str();
 
+    // optional `with <name>:<ty> (, <name>:<ty>)*` — DECLARED value types for
+    // the template's loop/set vars + fields (the static type seam: chooses
+    // str/bool/i64 rendering + the loop-var binding's element type). Collected
+    // as (name,ty) slice pairs over the surface text `s`; applied AFTER the
+    // template parse (so the vars/fields are interned).
+    let mut dn: i64 = 0i64;
+    let mut d_name_start: [i64; 32] = [0i64; 32];
+    let mut d_name_len:   [i64; 32] = [0i64; 32];
+    let mut d_ty_start:   [i64; 32] = [0i64; 32];
+    let mut d_ty_len:     [i64; 32] = [0i64; 32];
+    if lx.eat_kw("with") {
+        loop {
+            lx.skip_ws();
+            let ns: i64 = lx.pos;
+            let nl: i64 = lx.scan_ident();
+            if nl == 0i64 { error("trama!: `with` expects <name>:<type>"); return out; }
+            lx.skip_ws();
+            if lx.cur() != 58u8 { error("trama!: `with` expects `:` after name"); return out; }  // ':'
+            lx.bump();
+            lx.skip_ws();
+            let ts: i64 = lx.pos;
+            let tl: i64 = lx.scan_type();
+            if tl == 0i64 { error("trama!: `with` expects a type name"); return out; }
+            if dn < 32i64 {
+                d_name_start[dn] = ns; d_name_len[dn] = nl;
+                d_ty_start[dn] = ts;   d_ty_len[dn] = tl;
+                dn = dn + 1i64;
+            }
+            lx.skip_ws();
+            if lx.cur() == 44u8 { lx.bump(); continue; }  // ','
+            break;
+        }
+    }
+
     // " template "
     let tmpl: str = lx.scan_template();
     if tmpl.len() == 0i64 { error("trama!: empty or missing \"template\""); return out; }
@@ -270,6 +357,25 @@ pub fn trama(s: str) -> ItemList {
     let mut p: TrParser = tr_parser_new(tmpl);
     let head_word: i64 = p.parse_block(&h, false, false, false);
     if !p.ok || head_word == 0i64 { error("trama!: malformed template"); return out; }
+
+    // Reflect the DATA-CONTEXT schema (`ctx_ty`) and stamp each interned field's
+    // value-type onto the shared EL parser (Phase 5b) — so `{{ c.name }}` /
+    // `{% if c.flag %}` type correctly from the struct WITHOUT a `with` clause.
+    // Runs BEFORE `with`, which still overrides (e.g. to type a loop-var's element
+    // or a field the reflection cannot see). Unknown context type ⇒ silent no-op.
+    let view: OView = oview_module_ast();
+    stamp_fields_from_schema(&view, &mut p.el, ctx_ty);
+
+    // Apply the `with` type declarations now that vars/fields are interned. The
+    // type-name slices live in `s`, so `decl_src` is `s`.
+    p.decl_src = s;
+    let mut di: i64 = 0i64;
+    while di < dn {
+        let nm: str = unsafe { tl_str_range(s, d_name_start[di], d_name_len[di]) };
+        let ty: str = unsafe { tl_str_range(s, d_ty_start[di], d_ty_len[di]) };
+        p.declare_var_ty(nm, ty);
+        di = di + 1i64;
+    }
 
     // ── Emit the render function ──────────────────────────────────────────
     let mut em: Emitter = Emitter::new();

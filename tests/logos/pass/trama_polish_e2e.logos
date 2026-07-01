@@ -1,0 +1,83 @@
+// Trama Phase 5b — POLISH: elif desugaring, truthiness coercion, and
+// whitespace-control trimming (ADR 0012 §6, jinja semantics).
+//
+// Three independent renders prove each polish item END TO END (parse → AST →
+// walk → emit → linked-fn), asserting the exact woven String:
+//
+//  (1) `elif` chain  — {% if %}/{% elif %}/{% else %} desugars to nested ifs;
+//      we pick a middle branch (grade "B") to prove the chain threads correctly.
+//  (2) truthiness    — {% if n %} over an i64 field coerces to `n != 0` (no
+//      `== 0` restated), and a bool field stays bare. A schema-reflected `flag`
+//      types as bool, the i64 `count` coerces.
+//  (3) ws-trim       — {%- … -%} / {{- … -}} drop adjacent whitespace so a
+//      multi-line template with indented tags renders WITHOUT the layout
+//      whitespace, exactly like jinja's trim markers.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Grade { pub score: i64 }
+struct Counts { pub count: i64, pub flag: bool }
+
+// (1) elif — score 75 ⇒ middle branch "B" (90+ = A, 70+ = B, else C).
+trama!{ fn grade data g:Grade
+    "{% if g.score >= 90 %}A{% elif g.score >= 70 %}B{% else %}C{% endif %}" }
+
+// (2) truthiness — `count` is i64 (reflected) ⇒ coerced `!= 0`; `flag` is bool ⇒
+// bare. With count=0 the first branch is false; flag=true ⇒ second prints "Y".
+trama!{ fn truthy data c:Counts
+    "{% if c.count %}nonzero{% endif %}{% if c.flag %}Y{% endif %}" }
+
+// (3) ws-trim — the `-` markers strip the newlines/indentation around the tags.
+// Without trimming the output would carry the template's layout whitespace;
+// with it the loop body packs tightly: "items:a,b,c,".
+trama!{ fn ws data ctx:WsCtx with x:str `items:
+{%- for x in ctx.items -%}
+  {{ x }},
+{%- endfor %}` }
+
+struct WsCtx { pub items: [str; 3] }
+
+fn streq_all(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    // (1) elif → "B"
+    let g: Grade = Grade { score: 75i64 };
+    let gr: String = grade(&g);
+    if !streq_all(&gr, "B") { return 1i32; }
+    // and the other branches, to prove the chain (not a fixed string).
+    let ga: String = grade(&Grade { score: 95i64 });
+    if !streq_all(&ga, "A") { return 2i32; }
+    let gc: String = grade(&Grade { score: 50i64 });
+    if !streq_all(&gc, "C") { return 3i32; }
+
+    // (2) truthiness — count=0 (i64, coerced false), flag=true (bare bool) → "Y"
+    let t1: String = truthy(&Counts { count: 0i64, flag: true });
+    if !streq_all(&t1, "Y") { return 4i32; }
+    // count=5 (coerced true), flag=false → "nonzero"
+    let t2: String = truthy(&Counts { count: 5i64, flag: false });
+    if !streq_all(&t2, "nonzero") { return 5i32; }
+
+    // (3) ws-trim — tight "items:a,b,c,"
+    let w: WsCtx = WsCtx { items: ["a", "b", "c"] };
+    let ws_out: String = ws(&w);
+    if !streq_all(&ws_out, "items:a,b,c,") { return 6i32; }
+    // ws-trim proof: no layout newline survived the `{%-`/`-%}` markers (the raw
+    // template is multi-line + indented, so an untrimmed render WOULD carry \n).
+    let wsv: str = unsafe { str_from_raw(ws_out.as_ptr(), ws_out.len()) };
+    let mut wi: i64 = 0i64;
+    while wi < ws_out.len() { if str_byte_at(wsv, wi) == 10u8 { return 13i32; } wi = wi + 1i64; }
+
+    return 0i32;
+}

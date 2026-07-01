@@ -1,0 +1,41 @@
+// WQL Phase 3 — SComp (comprehension), static lowering end-to-end (ADR 0012
+// §1/§10.4, queue-1). A comprehension `[head for v in src if guard]` lowers to a
+// Source-driven for-loop collecting into a `Vec` (NOT the stdlib list-comp
+// desugar) — a BLOCK EXPRESSION yielding `Vec<HeadTy>`. The loop var `v` binds
+// each element by value; the comprehension SOURCE flows as a `&[Elem]` slice
+// argument to the generated function.
+//
+// The `select` projects, per driver row, the comprehension
+//   [ n * 2 for n in nums if n > $lo ]
+// so the generated fn takes (rows: &[Driver], nums: &[i64], lo: i64) and returns
+// Vec<Vec<i64>>. We drive it with ONE driver row (the comprehension runs once)
+// and assert the inner multi-element Vec.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Driver { pub k: i64 }
+
+//   pub fn doubles(rows: &[Driver], nums: &[i64], lo: i64) -> Vec<Vec<i64>> {
+//       … push ({ let mut __cv: Vec<i64> = …; while … if (n > lo) { __cv.push((n * 2)); } … __cv }) …
+//   }
+wql!{ fn doubles from rows:[Driver] r
+      select [ n * 2 for n in nums if n > $lo ] : i64
+      with $lo:i64 }
+
+fn main() -> i32 {
+    let drivers: [Driver; 1] = [ Driver { k: 0i64 } ];
+    let nums: [i64; 5] = [ 1i64, 3i64, 2i64, 7i64, 0i64 ];
+
+    let rows: Vec<Vec<i64>> = doubles(&drivers[..], &nums[..], 2i64);
+
+    // One driver row → one comprehension result.
+    if rows.len() != 1i64 { return 1i32; }
+    let inner: &Vec<i64> = rows.borrow(0i64);
+    // n > 2 keeps {3, 7}; doubled → {6, 14} in source order.
+    if inner.len() != 2i64 { return 2i32; }
+    if inner.get(0i64) != 6i64  { return 3i32; }
+    if inner.get(1i64) != 14i64 { return 4i32; }
+    return 0i32;
+}

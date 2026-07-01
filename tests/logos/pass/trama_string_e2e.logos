@@ -1,0 +1,63 @@
+// Trama Phase 2 — STRING interpolation + string fields, static render lowering
+// end-to-end (ADR 0012 §6/§10.2). Extends the i64-only MVP (trama_render_e2e)
+// with the dominant template case: rendering STRING-valued data.
+//
+// The `trama!{ … }` handler parses the template into the Trama AST, walks it,
+// and emits a native `render(ctx) -> String`. The `with` clause declares the
+// value-types of the template's loop var + fields so the codegen routes string
+// values through `push_str` (not `push_i64`) and binds the loop var as `str`.
+//
+// The template:
+//   • interpolates a string field      `{{ title }}`        → push_str,
+//   • loops a `[str; N]` field joining  `{% for n in names %}{{ n }}, {% endfor %}`,
+//   • interpolates a string-concat      `{{ "(" + city + ")" }}` → push runs,
+//   • renders a string `{% if %}` guard `{% if city == "NYC" %}!{% endif %}`.
+//
+// We render over an explicit data context and assert the EXACT woven string,
+// proving string fields / literals / concatenation / comparison / loop join
+// through the whole parse → Trama AST → walk → emit → linked-fn path.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Ctx {
+    pub title: str,
+    pub names: [str; 3],
+    pub city:  str,
+}
+
+// Emits (shape):
+//   pub fn render(c: &Ctx) -> String {
+//       let mut __out = String::new();
+//       __out.push_str(c.title);
+//       __out.push_str(": ");
+//       let mut __i0 = 0;
+//       while __i0 < (c.names).len() {
+//           let n: str = (c.names)[__i0];
+//           __out.push_str(n); __out.push_str(", ");
+//           __i0 += 1;
+//       }
+//       __out.push_str("("); __out.push_str(c.city); __out.push_str(")");
+//       if (c.city == "NYC") { __out.push_str("!"); }
+//       return __out;
+//   }
+trama!{ fn render data c:Ctx with title:str, names:str, n:str, city:str
+    `{{ c.title }}: {% for n in c.names %}{{ n }}, {% endfor %}{{ "(" + c.city + ")" }}{% if c.city == "NYC" %}!{% endif %}` }
+
+fn main() -> i32 {
+    let ctx: Ctx = Ctx {
+        title: "Team",
+        names: ["Ada", "Bob", "Cleo"],
+        city:  "NYC",
+    };
+    let s: String = render(&ctx);
+
+    // Expect "Team: Ada, Bob, Cleo, (NYC)!"
+    let want: str = "Team: Ada, Bob, Cleo, (NYC)!";
+    if s.len() != want.len() { return 1i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    if !str_eq(sv, want) { return 2i32; }
+    return 0i32;
+}

@@ -48,12 +48,60 @@ impl<S> WritField for WRef<S> {
     fn to_wany(self: Self, z: *mut Allocator) -> WAny { return self.h; }
 }
 
-// `SExprArr` — a Writ array of `WRef<SExpr>` (the arg / projection list). MVP:
-// a thin schema marker whose backing is a Writ array handle carried as the
-// edge's `WAny`; element access is a queue-1 backend concern. Declared as a
-// schema so `WRef<SExprArr>` is well-typed (ADR 0012 §1 note).
+// `SExprArr` — the materialized arg / projection list (ADR 0012 §1). A schema
+// over a TOM carrying a `count` and up to `SEXPRARR_MAX` argument edges at fixed
+// keys (`a0`..`a7`) — full multi-arg support (Phase 3), dogfooding ADR 0011: the
+// list IS a Writ object, no separate array handle. `make::<SExprArr>()` sizes the
+// backing TOM to the field count (9 = count + 8 slots), so up to 8 args round-trip
+// structurally. `arg_at(i)` / `len()` are the backend's read API; `set_arg`/
+// `set_len` the parser's write API.
 pub schema SExprArr : code(0x0010_0000_0000_000A) {
-    arr: WAny = 0,
+    count: i32 = 0,
+    a0: WRef<SExpr> = 1,
+    a1: WRef<SExpr> = 2,
+    a2: WRef<SExpr> = 3,
+    a3: WRef<SExpr> = 4,
+    a4: WRef<SExpr> = 5,
+    a5: WRef<SExpr> = 6,
+    a6: WRef<SExpr> = 7,
+    a7: WRef<SExpr> = 8,
+}
+
+// Max args a single `SExprArr` materializes (the declared slot count).
+pub fn SEXPRARR_MAX() -> i64 { return 8i64; }
+
+impl SExprArr {
+    // The arg count (the prepared list arity).
+    pub fn len(self: &SExprArr) -> i64 { return self.count as i64; }
+
+    // The i-th argument as an SExpr view (0-based). Out-of-range i is a caller
+    // error; reads the fixed slot key i+1. The slots are a flat fan-out (no
+    // chaining) so this is O(1).
+    pub fn arg_at(self: &SExprArr, i: i64) -> SExpr {
+        if i == 0i64 { return self.a0.any().view::<SExpr>(); }
+        if i == 1i64 { return self.a1.any().view::<SExpr>(); }
+        if i == 2i64 { return self.a2.any().view::<SExpr>(); }
+        if i == 3i64 { return self.a3.any().view::<SExpr>(); }
+        if i == 4i64 { return self.a4.any().view::<SExpr>(); }
+        if i == 5i64 { return self.a5.any().view::<SExpr>(); }
+        if i == 6i64 { return self.a6.any().view::<SExpr>(); }
+        return self.a7.any().view::<SExpr>();
+    }
+
+    // Store the i-th argument edge (0-based). The parser fills slots 0..count-1.
+    pub fn set_arg(self: &mut SExprArr, i: i64, h: WAny) {
+        let r: WRef<SExpr> = WRef::<SExpr>::from_any(h);
+        if i == 0i64 { self.a0 = r; return; }
+        if i == 1i64 { self.a1 = r; return; }
+        if i == 2i64 { self.a2 = r; return; }
+        if i == 3i64 { self.a3 = r; return; }
+        if i == 4i64 { self.a4 = r; return; }
+        if i == 5i64 { self.a5 = r; return; }
+        if i == 6i64 { self.a6 = r; return; }
+        self.a7 = r;
+    }
+
+    pub fn set_len(self: &mut SExprArr, n: i64) { self.count = n as i32; }
 }
 
 // ── Scalar tier — SExpr (category 0x0010) ─────────────────────────────────
@@ -112,14 +160,20 @@ impl REdge   { pub fn as_ref(self: &REdge)   -> WAny { return WAny::ref_to((self
 impl RFilter { pub fn as_ref(self: &RFilter) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl RProj   { pub fn as_ref(self: &RProj)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 
-// ── Typed edge RESOLVERS (the IR-walking API for consumers) ───────────────
+// ── Typed edge RESOLVERS (the IR-walking convenience API) ─────────────────
 // Read a `WRef<S>` field → resolve the handle → bind the target view. These are
-// the canonical way a backend (interpreter / executor / metacall codegen) walks
-// one edge of the schema'd IR. They live in THIS (std) layer — where the
-// `WRef<SExpr>` / `WRef<RExpr>` instances are also CONSTRUCTED (the EL frontend
-// builds them) — so the generic `WritField::from_wany` reads instantiate with
-// correct linkage here; consumers call these plain (non-generic) methods and
-// never emit the generic field-read themselves.
+// a convenient, named way for a backend (interpreter / executor / metacall
+// codegen) to walk one edge of the schema'd IR.
+//
+// They are NOT a linkage workaround: a downstream consumer in any compilation
+// unit may read a `WRef<S>` field directly — `comp.plan.any().view::<RExpr>()` —
+// without these helpers and without ever constructing a `WRef<S>`. The generic
+// `WritField::from_wany` instance is materialized by the field-read codegen
+// itself (mono enqueues `WRef<S>::from_wany` from the field's concrete type-args
+// regardless of local construction; see sema_expr.cpp schema_wany_to_typed and
+// tests/logos/pass/wql_wref_field_read.logos). The resolvers stay because the
+// named `…_expr()` form is clearer at call sites, not because reads must route
+// through this CU.
 impl SField { pub fn base_expr(self: &SField) -> SExpr { return self.base.any().view::<SExpr>(); } }
 impl SUn    { pub fn arg_expr(self: &SUn)      -> SExpr { return self.arg.any().view::<SExpr>(); } }
 impl SBin   {
@@ -130,6 +184,9 @@ impl SCond  {
     pub fn cond_expr(self: &SCond) -> SExpr { return self.c.any().view::<SExpr>(); }
     pub fn then_expr(self: &SCond) -> SExpr { return self.t.any().view::<SExpr>(); }
     pub fn else_expr(self: &SCond) -> SExpr { return self.e.any().view::<SExpr>(); }
+}
+impl SCall  {
+    pub fn args_arr(self: &SCall) -> SExprArr { return self.args.any().view::<SExprArr>(); }
 }
 impl SComp  {
     pub fn plan_expr(self: &SComp) -> RExpr { return self.plan.any().view::<RExpr>(); }

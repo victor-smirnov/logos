@@ -1,0 +1,73 @@
+// WQL Phase 4 — GROUP BY + AGGREGATES, static lowering end-to-end (ADR 0012 §2,
+// queue-1). The `wql!{ … }` handler now lowers a `group by … aggregate …` query
+// to native two-pass grouped code: discover each distinct group key, then fold
+// count / sum / min / max / avg over the rows in that group.
+//
+// Surface:
+//   wql!{ fn <name> from <a>:[A] x [where <pred>] group by <key>
+//         aggregate <name1>=<fn>(<expr>?) , … select <expr> : <Ty> [with …] }
+//
+// The group key is bound in the projection as the local `key`; each aggregate as
+// a local of its declared name. So `select key + total : i64` composes the row.
+//
+// Here `dept_totals` groups sales rows by department and sums each group's
+// amount, projecting `dept*1000 + total` so a single i64 row encodes both the
+// group key and the aggregate — proving group-by + sum + count through the whole
+// parse → IR → emit → linked-fn path.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Sale { pub dept: i64, pub amount: i64 }
+
+// GROUP BY dept, SUM(amount) + COUNT(): project key*1000 + total + cnt so each
+// component is recoverable from the single i64 row.
+//   pub fn dept_totals(sales: &[Sale]) -> Vec<i64> {
+//       … outer pass: distinct dept keys; inner pass: fold sum/count …
+//   }
+wql!{ fn dept_totals
+      from sales:[Sale] s
+      group by s.dept
+      aggregate total = sum(s.amount) , cnt = count()
+      select key * 1000 + total * 10 + cnt : i64 }
+
+// A second resource exercising min / max / avg AND a pre-group `where` filter:
+// keep only sales with amount >= 5, then per dept compute min/max/avg amount.
+//   pub fn dept_stats(sales: &[Sale]) -> Vec<i64> { … two-pass min/max/avg … }
+wql!{ fn dept_stats
+      from sales:[Sale] s
+      where s.amount >= 5
+      group by s.dept
+      aggregate lo = min(s.amount) , hi = max(s.amount) , av = avg(s.amount)
+      select key * 1000000 + lo * 10000 + hi * 100 + av : i64 }
+
+fn main() -> i32 {
+    let sales: [Sale; 5] = [
+        Sale { dept: 1i64, amount: 10i64 },
+        Sale { dept: 2i64, amount: 5i64  },
+        Sale { dept: 1i64, amount: 20i64 },
+        Sale { dept: 2i64, amount: 7i64  },
+        Sale { dept: 1i64, amount: 3i64  },
+    ];
+
+    let rows: Vec<i64> = dept_totals(&sales[..]);
+
+    // Two distinct depts (1, 2), discovered in first-occurrence order.
+    //   dept 1: sum = 10+20+3 = 33, count = 3 → 1*1000 + 33*10 + 3 = 1333
+    //   dept 2: sum = 5+7      = 12, count = 2 → 2*1000 + 12*10 + 2 = 2122
+    if rows.len() != 2i64 { return 1i32; }
+    if rows.get(0i64) != 1333i64 { return 2i32; }
+    if rows.get(1i64) != 2122i64 { return 3i32; }
+
+    // min / max / avg with a pre-group `where s.amount >= 5` filter.
+    //   dept 1 kept amounts: 10, 20    (3 is filtered out)
+    //          min=10 max=20 avg=(10+20)/2=15 → 1*1e6 +10*1e4 +20*100 +15 = 1102015
+    //   dept 2 kept amounts: 5, 7
+    //          min=5  max=7  avg=(5+7)/2=6     → 2*1e6 + 5*1e4 + 7*100 + 6  = 2050706
+    let stats: Vec<i64> = dept_stats(&sales[..]);
+    if stats.len() != 2i64 { return 4i32; }
+    if stats.get(0i64) != 1102015i64 { return 5i32; }
+    if stats.get(1i64) != 2050706i64 { return 6i32; }
+    return 0i32;
+}

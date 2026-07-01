@@ -1,0 +1,74 @@
+// Phase 1 — generic-WritField mono fix: reading a `WRef<S>` schema field in a
+// compilation unit that NEVER constructs `WRef<S>` must resolve + link.
+//
+// A `WRef<S>` field read emits a generic `WRef__from_wany` call with explicit
+// type-args [S]. Mono must materialize (or forward-declare) that instance even
+// though THIS unit never constructs a `WRef<S>` — it only READS the field and
+// binds the target view. Previously this failed at mlir-gen ("'func.call' op
+// '…WRef$G1$<S>__from_wany__g__WAny' does not reference a valid function").
+//
+// CRUCIAL for the test to ACTUALLY assert the fix: the edge target `MyNode` is a
+// USER schema enum, so `WRef$G1$MyNode__from_wany` is NOT pre-baked in any stdlib
+// archive — only mono's generic-WritField materialization can supply it. (The
+// stdlib WQL nodes RExpr/SExpr are pre-baked by el.logos, so they would link even
+// without the fix; a fresh user node forces the field-read codegen to stand on
+// its own.) The unit also never constructs a `WRef<MyNode>`: the edge is wired by
+// writing the target node's raw WAny ref straight into the parent's map slot.
+package test;
+
+use logos.std.wql.ir;            // WRef<S> generic + schema machinery
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+// A user node family (never built by stdlib). One leaf variant carrying a value.
+schema Leaf : code(0x0043_0000_0000_0000) { v: i56 = 0 }
+
+schema enum MyNode : category(0x0043_0000_0000_0000) {
+    L(Leaf),
+}
+
+// A user schema with a `WRef<MyNode>` edge field. `WRef$G1$MyNode__from_wany`
+// exists in NO archive.
+schema Holder : code(0x0044_0000_0000_0000) { edge: WRef<MyNode> = 0 }
+
+// Build a Leaf node carrying v, return its erased edge handle laundered through a
+// raw i64 (the WAny ref targets the node's TOM in the arena, which outlives the
+// local view — same provenance laundering as ir.logos's `hand_of`).
+fn make_leaf(h: &Writ, v: i56) -> i64 {
+    let n: Leaf = h.make::<Leaf>();
+    n.v = v;
+    return n.as_ref().raw();
+}
+
+impl Leaf { pub fn as_ref(self: &Leaf) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+// Build a Holder whose `edge` points at `target_word`. The edge is wired by
+// writing the WAny ref directly into the map slot (key 0) — NO `WRef<MyNode>` is
+// constructed here.
+fn make_holder(h: &Writ, target_word: i64) -> Holder {
+    let m: &mut WMap<Wu6, WAny> = h.tinymap(2i64);
+    m.set_schema_type_code(0x0044_0000_0000_0000u64);   // Holder's code
+    m.set(0u8, WAny::ref_to(target_word as *const u8));  // edge = key 0 (raw WAny)
+    return (&*m).view::<Holder>();
+}
+
+// READ-ONLY consumer: reads the `WRef<MyNode>` field `hd.edge` and binds the
+// target MyNode view. Constructs NO `WRef<MyNode>`. Returns the leaf value, or
+// -1 if the edge is not a Leaf.
+fn edge_val(hd: &Holder) -> i64 {
+    let e: WRef<MyNode> = hd.edge;          // generic-WritField field read; targs=[MyNode]
+    let node: MyNode = e.any().view::<MyNode>();
+    match node {
+        MyNode::L(l) => { return l.v; }
+    }
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(512i64);
+    let leaf_word: i64 = make_leaf(&h, 7i56);
+    let hd: Holder = make_holder(&h, leaf_word);
+    let got: i64 = edge_val(&hd);
+    if got == 7i64 { return 0i32; }
+    return got as i32;     // non-zero exit on mismatch (proves the value carried)
+}

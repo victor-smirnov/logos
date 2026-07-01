@@ -148,6 +148,22 @@ pub struct TrParser {
     pub var_lens:   [i64; 64],
     pub var_n:      i64,
 
+    // Whitespace-control state: set true when a tag closed with `-%}` / `-}}`
+    // (or opened `{%-`/`{{-` while we were mid-scan), telling the NEXT text run to
+    // drop its LEADING whitespace. A tag OPENING with `{%-`/`{{-` trims the
+    // PRECEDING run's TRAILING whitespace (handled in `parse_text` by peeking the
+    // upcoming tag). Mirrors jinja's `{%- … -%}` / `{{- … -}}` trim markers.
+    pub trim_leading: bool,
+
+    // Declared Logos TYPE NAME per loop/set var key (for the emitted binding's
+    // annotation: `let <v>: <ty> = …`). Carried as a (start,len) slice into an
+    // EXTERNAL declarations buffer `decl_src` (the surface `with` clause text),
+    // so it survives independently of the template `src`. Empty len ⇒ undeclared
+    // (the codegen falls back to the inferred-i64 default).
+    pub var_ty_starts: [i64; 64],
+    pub var_ty_lens:   [i64; 64],
+    pub decl_src:      str,
+
     // ONE shared EL parser over the WHOLE template `src`, reused for every
     // embedded `{{ … }}` / tag expression. Sharing it across all expressions
     // accumulates ALL field/param names into a single dense table, so the
@@ -161,6 +177,8 @@ pub fn tr_parser_new(src: str) -> TrParser {
     return TrParser {
         src: src, pos: 0i64, len: src.len(), ok: true,
         var_starts: [0i64; 64], var_lens: [0i64; 64], var_n: 0i64,
+        trim_leading: false,
+        var_ty_starts: [0i64; 64], var_ty_lens: [0i64; 64], decl_src: "",
         el: el_parser_new(src),
     };
 }
@@ -176,6 +194,53 @@ impl TrParser {
     }
     // Borrow the shared EL parser (its name tables) for codegen.
     pub fn el_parser(self: &TrParser) -> &ElParser { return &self.el; }
+
+    // The declared Logos TYPE NAME for a loop/set var key (`let v: <ty>`), or an
+    // empty `str` if undeclared (codegen then defaults to i64). Read from the
+    // external `decl_src` buffer where the `with` clause stored it.
+    pub fn var_ty_name(self: &TrParser, key: u8) -> str {
+        let i: i64 = key as i64;
+        if i < 0i64 || i >= self.var_n { return ""; }
+        if self.var_ty_lens[i] <= 0i64 { return ""; }
+        return unsafe { tr_str_from_range(self.decl_src, self.var_ty_starts[i], self.var_ty_lens[i]) };
+    }
+
+    // Declare a loop/set var's Logos TYPE NAME by name (surface `with` clause).
+    // `name`/`ty` are (start,len) slices into `decl_src` (already installed).
+    // Records the emission type for the binding AND seeds the EL value-type
+    // lattice (str/bool/int) for `{{ … }}` push routing, on BOTH the var key and
+    // — so `v.field` and bare-field uses agree — the matching field key.
+    pub fn declare_var_ty(self: &mut TrParser, name: str, ty: str) {
+        let mut i: i64 = 0i64;
+        while i < self.var_n {
+            if tr_name_eq(self.src, self.var_starts[i], self.var_lens[i], name) {
+                // store the (start,len) of `ty` within decl_src
+                self.var_ty_starts[i] = tr_off_in(self.decl_src, ty);
+                self.var_ty_lens[i]   = ty.len();
+            }
+            i = i + 1i64;
+        }
+        let elty: i32 = el_ty_of_name(ty);
+        self.el.set_var_ty(name, elty);
+        self.el.set_field_ty(name, elty);
+    }
+}
+
+// Equality of a stored (start,len) name in `src` against a separate `str`.
+fn tr_name_eq(src: str, start: i64, len: i64, name: str) -> bool {
+    if len != name.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < len {
+        if str_byte_at(src, start + i) != str_byte_at(name, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Byte offset of slice `sub` within buffer `buf` (both share the same backing;
+// `sub` is a sub-range of `buf`). Computed from the raw pointers.
+fn tr_off_in(buf: str, sub: str) -> i64 {
+    return (sub.as_ptr() as i64) - (buf.as_ptr() as i64);
 }
 
 // Byte-range equality against a stored (start,len) name.
@@ -233,6 +298,8 @@ impl TrParser {
         let id: i64 = self.var_n;
         self.var_starts[id] = start;
         self.var_lens[id]   = len;
+        self.var_ty_starts[id] = 0i64;
+        self.var_ty_lens[id]   = 0i64;   // undeclared ⇒ i64 default
         self.var_n = self.var_n + 1i64;
         return id as u8;
     }
@@ -363,39 +430,73 @@ impl TrParser {
         return head;
     }
 
-    // Does the upcoming `{%` open a terminator that ends THIS block?
+    // Does the upcoming `{%` open a terminator that ends THIS block? `elif` ends a
+    // then-body exactly like `else` (it is desugared to a nested if), so it stops
+    // under the same `stop_else` flag.
     fn peek_terminator(self: &mut TrParser, stop_end_for: bool,
                        stop_end_if: bool, stop_else: bool) -> bool {
-        // cursor is at "{%"; scan the keyword without consuming.
-        let mut p: i64 = self.pos + 2i64;
-        // optional whitespace-control '-'
-        if p < self.len && str_byte_at(self.src, p) == 45u8 { p = p + 1i64; }
+        let kw: i64 = self.peek_tag_kw();
+        if stop_end_for && kw == 1i64 { return true; }   // endfor
+        if stop_end_if  && kw == 2i64 { return true; }   // endif
+        if stop_else    && (kw == 3i64 || kw == 4i64) { return true; }  // else / elif
+        return false;
+    }
+
+    // Classify the keyword of the `{%` tag at the cursor WITHOUT consuming:
+    //   1=endfor 2=endif 3=else 4=elif 0=other (a normal stmt or unknown).
+    // Skips the optional whitespace-control '-' and leading spaces, exactly like
+    // the tag parsers, so the terminator scan agrees with the consume path.
+    fn peek_tag_kw(self: &mut TrParser) -> i64 {
+        let mut p: i64 = self.pos + 2i64;   // past "{%"
+        if p < self.len && str_byte_at(self.src, p) == 45u8 { p = p + 1i64; }  // '{%-'
         while p < self.len && tr_is_space(str_byte_at(self.src, p)) { p = p + 1i64; }
         let kstart: i64 = p;
         while p < self.len && tr_is_alnum(str_byte_at(self.src, p)) { p = p + 1i64; }
         let klen: i64 = p - kstart;
-        if stop_end_for && tr_range_lit_eq(self.src, kstart, klen, "endfor") { return true; }
-        if stop_end_if  && tr_range_lit_eq(self.src, kstart, klen, "endif")  { return true; }
-        if stop_else    && tr_range_lit_eq(self.src, kstart, klen, "else")   { return true; }
-        return false;
+        if tr_range_lit_eq(self.src, kstart, klen, "endfor") { return 1i64; }
+        if tr_range_lit_eq(self.src, kstart, klen, "endif")  { return 2i64; }
+        if tr_range_lit_eq(self.src, kstart, klen, "else")   { return 3i64; }
+        if tr_range_lit_eq(self.src, kstart, klen, "elif")   { return 4i64; }
+        return 0i64;
     }
 
     // A literal text run: bytes up to the next `{{`/`{%` (or EOI). Boxed verbatim
-    // into the arena as a Ref→WString WAny. Whitespace-control: a leading/trailing
-    // tag's trim flag (handled by the tag parsers) is applied by trimming this run.
+    // into the arena as a Ref→WString WAny. Whitespace-control TRIMMING:
+    //   • LEADING — when the prior tag closed `-%}`/`-}}` (`self.trim_leading`),
+    //     drop this run's leading whitespace;
+    //   • TRAILING — when the upcoming tag OPENS `{%-`/`{{-`, drop this run's
+    //     trailing whitespace (peeked here, before the tag is parsed).
+    // A run that trims to empty produces no node (returns null).
     fn parse_text(self: &mut TrParser, h: &Writ) -> i64 {
-        let start: i64 = self.pos;
+        let mut start: i64 = self.pos;
         while self.pos < self.len {
             if self.at2(123u8, 123u8) || self.at2(123u8, 37u8) { break; }  // "{{" or "{%"
             self.bump();
         }
-        let len: i64 = self.pos - start;
-        if len == 0i64 { return tr_hand_null(); }
+        let mut end: i64 = self.pos;
+        // LEADING trim (consume the pending flag).
+        if self.trim_leading {
+            while start < end && tr_is_space(str_byte_at(self.src, start)) { start = start + 1i64; }
+            self.trim_leading = false;
+        }
+        // TRAILING trim when the next tag opens with a '-' marker.
+        if self.tag_opens_trim() {
+            while end > start && tr_is_space(str_byte_at(self.src, end - 1i64)) { end = end - 1i64; }
+        }
+        let len: i64 = end - start;
+        if len <= 0i64 { return tr_hand_null(); }
         let s: str = unsafe { tr_str_from_range(self.src, start, len) };
         let w: WAny = unsafe {
             WAny::ref_to(wstring_in_alloc(h.allocator.get(), s) as *const u8)
         };
         return mk_text(h, w);
+    }
+
+    // Does the tag at the cursor open with a whitespace-control '-' marker
+    // (`{%-` or `{{-`)? Peeked so `parse_text` can trim the preceding run's tail.
+    fn tag_opens_trim(self: &TrParser) -> bool {
+        if !(self.at2(123u8, 123u8) || self.at2(123u8, 37u8)) { return false; }
+        return self.at_byte(2i64) == 45u8;   // third byte is '-'
     }
 
     // `{{ expr }}` → TVar. Whitespace-control `{{-` / `-}}` accepted (trim is a
@@ -407,9 +508,13 @@ impl TrParser {
         let estart: i64 = self.pos;
         let eend: i64 = self.find_close_expr();
         if eend < 0i64 { self.ok = false; return tr_hand_null(); }
-        // trim a trailing '-' before "}}" out of the expression slice
+        // trim a trailing '-' before "}}" out of the expression slice; a `-}}`
+        // close also trims the FOLLOWING text run's leading whitespace.
         let mut etrim: i64 = eend;
-        if etrim > estart && str_byte_at(self.src, etrim - 1i64) == 45u8 { etrim = etrim - 1i64; }
+        if etrim > estart && str_byte_at(self.src, etrim - 1i64) == 45u8 {
+            etrim = etrim - 1i64;
+            self.trim_leading = true;
+        }
         let expr: i64 = self.parse_embedded_el(h, estart, etrim);
         if expr == tr_hand_null() { self.ok = false; return tr_hand_null(); }
         return mk_var(h, expr);
@@ -466,17 +571,23 @@ impl TrParser {
     fn close_open_tag(self: &mut TrParser) -> i64 {
         let close: i64 = self.find_close_stmt();
         if close < 0i64 { self.ok = false; return close; }
-        // strip a trailing '-' (whitespace-control) before "%}"
-        if close > 0i64 && str_byte_at(self.src, close - 1i64) == 45u8 { return close - 1i64; }
+        // strip a trailing '-' (whitespace-control) before "%}"; a `-%}` close
+        // also trims the following text run's leading whitespace.
+        if close > 0i64 && str_byte_at(self.src, close - 1i64) == 45u8 {
+            self.trim_leading = true;
+            return close - 1i64;
+        }
         return close;
     }
 
     // Consume a bare terminator tag `{% <kw> %}` (endfor/endif/else); cursor is
-    // assumed at "{%". Leaves the cursor past "%}".
+    // assumed at "{%". Leaves the cursor past "%}". A `-%}` close trims the
+    // following text run's leading whitespace (whitespace-control).
     fn consume_terminator(self: &mut TrParser) {
         self.pos = self.pos + 2i64;  // "{%"
-        let _c: i64 = self.find_close_stmt();
-        if _c < 0i64 { self.ok = false; }
+        let close: i64 = self.find_close_stmt();
+        if close < 0i64 { self.ok = false; return; }
+        if close > 0i64 && str_byte_at(self.src, close - 1i64) == 45u8 { self.trim_leading = true; }
     }
 
     // {% for <ident> in <expr> %} body {% endfor %}
@@ -507,27 +618,58 @@ impl TrParser {
         return mk_for(h, var, expr, body);
     }
 
-    // {% if <expr> %} then [ {% else %} else ] {% endif %}
+    // {% if <expr> %} then ( {% elif <expr> %} … )* [ {% else %} else ] {% endif %}
+    //
+    // `elif` DESUGARS to a nested `if` in the else-branch (jinja semantics):
+    //   {% if A %}a{% elif B %}b{% else %}c{% endif %}
+    //     →  TIf{A, a, alt = TIf{B, b, alt = c}}
+    // The recursive `parse_if_tail` consumes the chain; only the OUTERMOST call
+    // consumes the single shared `{% endif %}` (the nested tails do not, since
+    // there is one `endif` for the whole chain).
     fn parse_if(self: &mut TrParser, h: &Writ) -> i64 {
+        let node: i64 = self.parse_if_tail(h);
+        if !self.ok { return tr_hand_null(); }
+        // consume the chain's single "{% endif %}"
+        if !self.at2(123u8, 37u8) { self.ok = false; return tr_hand_null(); }
+        self.consume_terminator();
+        return node;
+    }
+
+    // Parse one `if`/`elif` head + its then-body, then dispatch the trailer:
+    //   • `{% elif … %}` → recurse (the nested TIf becomes this node's `alt`);
+    //   • `{% else %}`   → parse the final else-body as the `alt`;
+    //   • `{% endif %}`  → no alt.
+    // Does NOT consume the terminal `{% endif %}` (the outer `parse_if` does).
+    // On entry the cursor is just past the `if`/`elif` keyword (scanned by the
+    // dispatcher for `if`; consumed here for `elif`).
+    fn parse_if_tail(self: &mut TrParser, h: &Writ) -> i64 {
         self.skip_ws();
         let estart: i64 = self.pos;
         let eend: i64 = self.close_open_tag();
         if eend < 0i64 { return tr_hand_null(); }
         let expr: i64 = self.parse_embedded_el(h, estart, eend);
         if expr == tr_hand_null() { self.ok = false; return tr_hand_null(); }
-        // then-body until "{% else %}" or "{% endif %}"
+        // then-body until "{% elif %}" / "{% else %}" / "{% endif %}"
         let body: i64 = self.parse_block(h, false, true, true);
         if !self.ok { return tr_hand_null(); }
         let mut alt: i64 = tr_hand_null();
-        // optional else
-        if self.at2(123u8, 37u8) && self.peek_terminator(false, false, true) {
-            self.consume_terminator();  // "{% else %}"
-            alt = self.parse_block(h, false, true, false);
-            if !self.ok { return tr_hand_null(); }
+        if self.at2(123u8, 37u8) {
+            let kw: i64 = self.peek_tag_kw();
+            if kw == 4i64 {
+                // "{% elif … %}" → consume the tag keyword, recurse (nested if).
+                self.pos = self.pos + 2i64;       // "{%"
+                if self.cur() == 45u8 { self.bump(); }   // "{%-"
+                self.skip_ws();
+                let _k: i64 = self.scan_ident();   // "elif"
+                alt = self.parse_if_tail(h);
+                if !self.ok { return tr_hand_null(); }
+            } else if kw == 3i64 {
+                // "{% else %}" → final else-body.
+                self.consume_terminator();
+                alt = self.parse_block(h, false, true, false);
+                if !self.ok { return tr_hand_null(); }
+            }
         }
-        // consume "{% endif %}"
-        if !self.at2(123u8, 37u8) { self.ok = false; return tr_hand_null(); }
-        self.consume_terminator();
         return mk_if(h, expr, body, alt);
     }
 

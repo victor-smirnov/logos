@@ -1,0 +1,108 @@
+// logos.std.wql.reflect — schema field-type REFLECTION at metaprog time
+// (ADR 0012 §10.3, Phase 5 ergonomics). The static `wql!` / `trama!` backends
+// know the SOURCE / context type by NAME (e.g. `from xs:[Person] x`), but the
+// EL parser interns every field key with the i64 default — so until now the
+// author had to RESTATE each field's type via a `with name:str, …` clause.
+//
+// This module closes that gap by READING the named struct's declaration out of
+// the user-module AST (the compiler hands metaprog hooks an owning view, the
+// same `OView` the derive macros walk) and STAMPING each field's true value-type
+// onto the parser. The source type is explicit in the block, so the lookup is a
+// pure compile-time reflection — no runtime cost, no extra surface.
+//
+//   schema field `name: str`  →  set_field_ty("name", EL_TY_STR)
+//   schema field `age:  i64`  →  set_field_ty("age",  EL_TY_INT)
+//
+// Field/struct names are matched with `str` semantics directly (we do NOT route
+// through `OView::find_template_decl`, whose `&[u8]` signature would force a
+// slice round-trip); the walk mirrors `find_template_decl` over the module's
+// top-level ITEMS array, comparing each item's NAME to the wanted struct name.
+package logos.std.wql.reflect;
+
+use logos.std.compiler.metaprog;   // OView, SView, oview_module_ast
+use logos.lang.writ.anyval;        // WAny
+use logos.std.wql.el;              // ElParser, EL_TY_*, el_ty_of_name
+use logos.lang.str;
+
+// Byte-equality of an `SView` (borrowed AST bytes) against a `str`.
+fn sview_eq_str(sv: SView, name: str) -> bool {
+    if sv.len != (name.len() as u64) { return false; }
+    let n: i64 = name.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let a: u8 = unsafe { *((sv.ptr as i64 + i) as *const u8) };
+        if a != str_byte_at(name, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Materialise an `SView`'s borrowed bytes as a `str` view (shares the AST arena;
+// valid for the OView's lifetime). Empty `str` for a null view.
+fn sview_str(sv: SView) -> str {
+    if sv.ptr == (0 as *const u8) || sv.len == (0 as u64) { return ""; }
+    return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
+}
+
+// Find the top-level MODULE item (struct/schema) whose NAME equals `struct_name`;
+// returns its AST node handle (a `WAny` Ref), or a null WAny if not found. Walks
+// the module ITEMS array directly (the `find_template_decl` shape, but `str`-keyed).
+pub fn find_decl_by_name(view: &OView, struct_name: str) -> WAny {
+    let root: WAny = view.root();
+    let items: WAny = view.tiny_map_get(root, 2 as u8);   // ITEMS = 2
+    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    let n: u64 = view.array_len(items);
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let item: WAny = view.array_get(items, i);
+        let nm: SView = view.ast_node_name(item);
+        if sview_eq_str(nm, struct_name) { return item; }
+        i = i + (1 as u64);
+    }
+    return WAny::Ref(0i64 as *const u8);
+}
+
+// Look up the declared Logos TYPE NAME of field `field_name` within the struct
+// node `decl` (an AST item handle from `find_decl_by_name`). Returns an empty
+// `str` if the field is absent. This is the per-field reflection primitive.
+pub fn field_type_name(view: &OView, decl: WAny, field_name: str) -> str {
+    if decl.is_null() { return ""; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        let fnm: SView = view.ast_field_name(fld);
+        if sview_eq_str(fnm, field_name) {
+            return sview_str(view.ast_field_type_name(fld));
+        }
+        i = i + (1 as u64);
+    }
+    return "";
+}
+
+// Stamp every field key the parser interned with the value-type the named struct
+// declares for it. Fields not present in the struct (e.g. a `for`-var or a call
+// name interned in the same dense table) are left at their existing type — the
+// reflection is purely additive, mirroring the `with`-clause semantics it
+// replaces. A struct that cannot be found (unknown name, or no AST loaded) is a
+// no-op: the parser keeps the i64 baseline and an explicit `with` still works.
+//
+// `view` is a fresh module-AST view; `p` the EL parser whose dense field table is
+// walked via the public `field_n` count + `field_name(key)` inverse.
+pub fn stamp_fields_from_schema(view: &OView, p: &mut ElParser, struct_name: str) {
+    if view.holder == (0 as *mut u8) { return; }
+    let decl: WAny = find_decl_by_name(view, struct_name);
+    if decl.is_null() { return; }
+    let n: i64 = p.field_n;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let fname: str = p.field_name(i as u8);
+        if fname.len() > 0i64 {
+            let tyname: str = field_type_name(view, decl, fname);
+            if tyname.len() > 0i64 {
+                p.set_field_ty(fname, el_ty_of_name(tyname));
+            }
+        }
+        i = i + 1i64;
+    }
+}

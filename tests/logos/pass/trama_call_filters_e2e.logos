@@ -1,0 +1,43 @@
+// Trama Phase 3 — SCall builtin FILTERS (`upper` / `lower`) in `{{ … }}`
+// interpolation, static render lowering end-to-end (ADR 0012 §1, queue-1). The
+// shared SExpr codegen now lowers a builtin call; `upper`/`lower` return an
+// OWNED `String`, which the render path borrows via `.as_str()` to feed
+// `push_str`. This is the jinja-filter case (`{{ x | upper }}` canonicalised to
+// `{{ upper(x) }}`) over a string data context.
+//
+// The template interpolates `upper(c.title)` and `lower(c.city)`; we render over
+// an explicit context and assert the EXACT woven string, proving the call →
+// stdlib-call lowering + the String→str borrow through the whole parse → Trama
+// AST → walk → emit → linked-fn path.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Ctx {
+    pub title: str,
+    pub city:  str,
+}
+
+//   pub fn render(c: &Ctx) -> String {
+//       …
+//       __out.push_str((logos.std.wql.codegen::wql_upper(c.title)).as_str());
+//       __out.push_str("-");
+//       __out.push_str((logos.std.wql.codegen::wql_lower(c.city)).as_str());
+//       return __out;
+//   }
+trama!{ fn render data c:Ctx with title:str, city:str
+    `{{ upper(c.title) }}-{{ lower(c.city) }}` }
+
+fn main() -> i32 {
+    let ctx: Ctx = Ctx { title: "team", city: "NYC" };
+    let s: String = render(&ctx);
+
+    // Expect "TEAM-nyc" — title upper-cased, city lower-cased.
+    let want: str = "TEAM-nyc";
+    if s.len() != want.len() { return 1i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    if !str_eq(sv, want) { return 2i32; }
+    return 0i32;
+}

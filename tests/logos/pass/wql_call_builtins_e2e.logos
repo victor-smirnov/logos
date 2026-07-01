@@ -1,0 +1,44 @@
+// WQL Phase 3 — SCall builtin registry (len / contains / starts_with), static
+// lowering end-to-end (ADR 0012 §1, queue-1). The `where`/`select` EL may now
+// CALL the CEL-canon + Trama-filter builtins; each maps (at parse time) a name →
+// fn_id and lowers to a fully-qualified stdlib call.
+//
+// This query filters a `&[Person]` to the rows whose `name`:
+//   • `starts_with("A")`  AND
+//   • has `len(name) >= 3`
+// and projects the dept — exercising a 1-arg builtin (`len`) and a 2-arg builtin
+// (`starts_with`) in the predicate, both over a string field, with a boolean &&
+// combinator. (`contains` is exercised in wql_multiarg_call_e2e.)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person {
+    pub name: str,
+    pub dept: str,
+}
+
+//   pub fn pick(people: &[Person]) -> Vec<str> {
+//     … if (starts_with((p.name),("A")) && (((p.name).len()) >= 3)) push p.dept …
+//   }
+wql!{ fn pick from people:[Person] p
+      where starts_with(p.name, "A") && len(p.name) >= 3
+      select p.dept : str
+      with name:str, dept:str }
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: "Ada",  dept: "eng" },   // starts A, len 3 → keep
+        Person { name: "Al",   dept: "ops" },   // starts A, len 2 → drop
+        Person { name: "Bob",  dept: "hr"  },   // not A           → drop
+        Person { name: "Amir", dept: "sec" },   // starts A, len 4 → keep
+    ];
+    let r: Vec<str> = pick(&people[..]);
+
+    if r.len() != 2i64 { return 1i32; }
+    if !str_eq(r.get(0i64), "eng") { return 2i32; }
+    if !str_eq(r.get(1i64), "sec") { return 3i32; }
+    return 0i32;
+}

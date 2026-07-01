@@ -1,0 +1,56 @@
+// WQL Phase 2 — STRING projection + STRING filter, static lowering end-to-end
+// (ADR 0012 §6/§10.2, queue-1). Extends the i64-only MVP (wql_query_e2e) with
+// the dominant usability case: querying over a STRING field.
+//
+// The `wql!{ … }` handler parses the query, lowers the `where`/`select` EL to
+// the SExpr Writ-schema IR, and emits a native function that:
+//   • FILTERS on a string comparison  (`p.dept == "eng"`, native str ==), and
+//   • PROJECTS a string-typed column  (`select p.name : str` → `Vec<str>`).
+// The `with name:str, dept:str` clause declares those fields' value-types so the
+// codegen routes them as `str` (string literal emission + str result element).
+//
+// We run the generated `eng_names(people)` over a literal `&[Person]` and assert
+// the exact projected names — proving string fields/literals/comparison/
+// projection through the whole parse → IR → emit → linked-fn path.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person {
+    pub name: str,
+    pub dept: str,
+    pub age:  i64,
+}
+
+// Emits:
+//   pub fn eng_names(people: &[Person]) -> Vec<str> {
+//       let mut __out: Vec<str> = Vec::<str>::new();
+//       let mut __i = 0;
+//       while __i < (people).len() {
+//           let p: &Person = &(people)[__i];
+//           if (p.dept == "eng") { __out.push(p.name); }
+//           __i = __i + 1;
+//       }
+//       return __out;
+//   }
+wql!{ fn eng_names from people:[Person] p where p.dept == "eng" select p.name : str with name:str, dept:str }
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: "Ada",   dept: "eng", age: 36i64 },
+        Person { name: "Bob",   dept: "ops", age: 41i64 },
+        Person { name: "Cleo",  dept: "eng", age: 29i64 },
+        Person { name: "Dane",  dept: "hr",  age: 52i64 },
+    ];
+    let names: Vec<str> = eng_names(&people[..]);
+
+    // Expect ["Ada", "Cleo"] — the two eng dept names, in source order.
+    if names.len() != 2i64 { return 1i32; }
+    if !str_eq(names.get(0i64), "Ada")  { return 2i32; }
+    if !str_eq(names.get(1i64), "Cleo") { return 3i32; }
+    // Negative guard: a non-member name must NOT appear (assert the filter ran).
+    if str_eq(names.get(0i64), "Bob") { return 4i32; }
+    return 0i32;
+}

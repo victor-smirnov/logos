@@ -1,0 +1,67 @@
+// WQL Phase 5a — IMPLICIT result type via SCHEMA REFLECTION (ADR 0012 §10.3).
+//
+// Neither query below carries a `: <ResultTy>` annotation, and neither restates
+// field types with a `with` clause. The `wql!` handler REFLECTS the `Person`
+// schema out of the user-module AST at metaprog time, stamps each field's true
+// value-type onto the parser, and INFERS the result element type from the
+// projection:
+//   • `select p.name`  over `name: str`  ⇒  `Vec<str>`
+//   • `select p.age`   over `age:  i64`  ⇒  `Vec<i64>`
+//   • `select p.age >= $min` (a comparison) ⇒ `Vec<bool>`
+//
+// We run each generated query over a literal `&[Person]` and assert the exact
+// projected rows — proving reflection-driven field typing AND result inference
+// through the whole parse → IR → emit → linked-fn path, with ZERO type annotations.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person {
+    pub name: str,
+    pub dept: str,
+    pub age:  i64,
+}
+
+// STR projection, STR filter — no `: str`, no `with`. Reflection types `name`
+// and `dept` as `str` from the schema; the result element is inferred `str`.
+wql!{ fn eng_names from people:[Person] p where p.dept == "eng" select p.name }
+
+// INT projection — inferred `i64` from the schema's `age: i64`.
+wql!{ fn ages from people:[Person] p where p.age >= 30 select p.age }
+
+// BOOL projection — a comparison projects a `bool` column (inferred). The param
+// `$min` is compared against the schema field `age`, so it types as i64.
+wql!{ fn is_adult from people:[Person] p select p.age >= $min with $min:i64 }
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: "Ada",  dept: "eng", age: 36i64 },
+        Person { name: "Bob",  dept: "ops", age: 41i64 },
+        Person { name: "Cleo", dept: "eng", age: 29i64 },
+        Person { name: "Dane", dept: "hr",  age: 52i64 },
+    ];
+
+    // eng_names → Vec<str> ["Ada", "Cleo"]
+    let names: Vec<str> = eng_names(&people[..]);
+    if names.len() != 2i64 { return 1i32; }
+    if !str_eq(names.get(0i64), "Ada")  { return 2i32; }
+    if !str_eq(names.get(1i64), "Cleo") { return 3i32; }
+
+    // ages → Vec<i64> [36, 41, 52]
+    let a: Vec<i64> = ages(&people[..]);
+    if a.len() != 3i64 { return 4i32; }
+    if a.get(0i64) != 36i64 { return 5i32; }
+    if a.get(1i64) != 41i64 { return 6i32; }
+    if a.get(2i64) != 52i64 { return 7i32; }
+
+    // is_adult → Vec<bool>; with $min=40, only Bob (41) and Dane (52) are true.
+    let flags: Vec<bool> = is_adult(&people[..], 40i64);
+    if flags.len() != 4i64 { return 8i32; }
+    if flags.get(0i64) != false { return 9i32; }   // 36 < 40
+    if flags.get(1i64) != true  { return 10i32; }  // 41 >= 40
+    if flags.get(2i64) != false { return 11i32; }  // 29 < 40
+    if flags.get(3i64) != true  { return 12i32; }  // 52 >= 40
+    return 0i32;
+}

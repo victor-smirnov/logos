@@ -1,0 +1,103 @@
+// Trama PHASE 6 — USABILITY SHOWCASE (ADR 0012, queue-1 static path).
+//
+// ONE realistic, multi-line template a user can actually write and RUN, combining
+// every Trama feature the static path supports into a single render:
+//
+//   • a multi-line template (real layout; `-%}` trim markers pack the loop body),
+//   • a `{% for … %}` loop over a SCHEMA'D collection field (`[Line; 3]`) whose
+//     loop var is a STRUCT — member access `item.name` / `item.qty` in the body,
+//   • `{{ … }}` interpolation of BOTH a STRING field (`item.name`, push_str) AND
+//     a NUMERIC field (`item.qty` / `o.total`, push_i64),
+//   • an if / elif / else chain choosing a shipping tier from a numeric total,
+//   • a FUNCTION / FILTER — `upper(o.store)` — the jinja `| upper` case.
+//
+// Compiled at BUILD TIME by the `#[token_macro]` handler
+// (logos.std.wql.trama_render): parse → Trama AST (schema'd TStmt tree, `{{…}}`
+// expressions are SExpr edges) → walk → emit a native `receipt(&Order)->String`.
+// We render over real data and assert the EXACT woven multi-line string, so the
+// whole parse → AST → walk → emit → linked-fn path is proven end to end.
+//
+// NOTE: the loop-var / list-element struct is named `Line` (not `Item`): a user
+// struct named `Item` collides with the metaprog AST handle type
+// `logos.std.compiler.metaprog.Item` that the token_macro machinery brings into
+// scope, mis-resolving the field type. See the Phase-6 report.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Line  { pub name: str, pub qty: i64 }
+struct Order {
+    pub store: str,
+    pub items: [Line; 3],
+    pub total: i64,
+}
+
+// A real receipt template. `-%}` trim markers strip the layout newline+indent
+// after the loop tags so each item packs onto its own line; the if/elif/else
+// picks a shipping tier from `total`; `upper(o.store)` upper-cases the store.
+trama!{ fn receipt data o:Order with item:Line, name:str, qty:i64, store:str, total:i64
+`=== {{ upper(o.store) }} ===
+{% for item in o.items -%}
+  {{ item.name }} x{{ item.qty }}
+{% endfor -%}
+total: {{ o.total }}
+shipping: {% if o.total >= 100 %}free{% elif o.total >= 50 %}flat{% else %}std{% endif %}` }
+
+fn streq_all(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    // total 120 ⇒ "free" tier; the loop renders all three schema'd items.
+    let order: Order = Order {
+        store: "acme",
+        items: [
+            Line { name: "Bolt",   qty: 4i64 },
+            Line { name: "Washer", qty: 12i64 },
+            Line { name: "Nut",    qty: 8i64 },
+        ],
+        total: 120i64,
+    };
+    let r: String = receipt(&order);
+    let want: str = "=== ACME ===\nBolt x4\nWasher x12\nNut x8\ntotal: 120\nshipping: free";
+    if !streq_all(&r, want) { return 1i32; }
+
+    // Re-render with a mid total to prove the ELIF branch (50<=t<100 ⇒ "flat").
+    let order2: Order = Order {
+        store: "acme",
+        items: [
+            Line { name: "Bolt",   qty: 1i64 },
+            Line { name: "Washer", qty: 1i64 },
+            Line { name: "Nut",    qty: 1i64 },
+        ],
+        total: 60i64,
+    };
+    let r2: String = receipt(&order2);
+    let want2: str = "=== ACME ===\nBolt x1\nWasher x1\nNut x1\ntotal: 60\nshipping: flat";
+    if !streq_all(&r2, want2) { return 2i32; }
+
+    // And the ELSE branch (t<50 ⇒ "std").
+    let order3: Order = Order {
+        store: "acme",
+        items: [
+            Line { name: "Bolt",   qty: 1i64 },
+            Line { name: "Washer", qty: 1i64 },
+            Line { name: "Nut",    qty: 1i64 },
+        ],
+        total: 10i64,
+    };
+    let r3: String = receipt(&order3);
+    let want3: str = "=== ACME ===\nBolt x1\nWasher x1\nNut x1\ntotal: 10\nshipping: std";
+    if !streq_all(&r3, want3) { return 3i32; }
+
+    return 0i32;
+}

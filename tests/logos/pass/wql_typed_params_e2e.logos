@@ -1,0 +1,46 @@
+// WQL Phase 2 — TYPED PARAMS (str AND i64) as generated-fn arguments, static
+// lowering end-to-end (ADR 0012 §10.3, the sqlx prepared-statement model).
+//
+// The `with $q:str, $minage:i64` clause declares the runtime params' types; the
+// `wql!{ … }` handler emits them as ARGUMENTS of the generated function (not
+// captures), bound to the declared Logos type. We then call the prepared query
+// with concrete runtime values and assert the filtered/projected result.
+//
+// Exercises BOTH a string-typed param (`p.name == $q`, native str ==) and an
+// int-typed param (`p.age >= $minage`) in one predicate, projecting a string
+// column — proving typed params of mixed type flow through parse → IR → emit →
+// linked-fn as real function arguments.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person { pub name: str, pub age: i64 }
+
+// Emits:
+//   pub fn lookup(people: &[Person], q: str, minage: i64) -> Vec<str> { … }
+wql!{ fn lookup from people:[Person] p where p.name == $q && p.age >= $minage select p.name : str with name:str, $q:str, $minage:i64 }
+
+fn main() -> i32 {
+    let people: [Person; 3] = [
+        Person { name: "Ada", age: 36i64 },
+        Person { name: "Ada", age: 12i64 },   // same name, below minage → filtered out
+        Person { name: "Bob", age: 40i64 },   // above minage, wrong name → filtered out
+    ];
+    let r: Vec<str> = lookup(&people[..], "Ada", 18i64);
+
+    // Only the first Ada (age 36 ≥ 18) matches both predicates.
+    if r.len() != 1i64 { return 1i32; }
+    if !str_eq(r.get(0i64), "Ada") { return 2i32; }
+
+    // A different runtime arg set must change the result (proves args are live).
+    let r2: Vec<str> = lookup(&people[..], "Bob", 18i64);
+    if r2.len() != 1i64 { return 3i32; }
+    if !str_eq(r2.get(0i64), "Bob") { return 4i32; }
+
+    // A minage that excludes everyone yields an empty result.
+    let r3: Vec<str> = lookup(&people[..], "Ada", 99i64);
+    if r3.len() != 0i64 { return 5i32; }
+    return 0i32;
+}

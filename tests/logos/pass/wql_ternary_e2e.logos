@@ -1,0 +1,38 @@
+// WQL Phase 3 — SCond (ternary `c ? t : e`), static lowering end-to-end (ADR
+// 0012 §1, queue-1). The `select` projection is a CEL conditional, which lowers
+// to a Logos `if` EXPRESSION. The result-type `:` is found by `?`/`:`-balancing
+// so the ternary's own `:` is not mistaken for the type separator.
+//
+//   select  p.age >= 18 ? p.age : 0  : i64
+//     → push  (if ((p.age >= 18)) { p.age } else { 0i64 })
+//
+// We run the generated `clamp(people)` and assert the per-row projection: adults
+// keep their age, minors collapse to 0.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person {
+    pub age: i64,
+}
+
+wql!{ fn clamp from people:[Person] p
+      select p.age >= 18 ? p.age : 0 : i64 }
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { age: 15i64 },   // minor → 0
+        Person { age: 18i64 },   // adult → 18
+        Person { age: 40i64 },   // adult → 40
+        Person { age: 9i64  },   // minor → 0
+    ];
+    let r: Vec<i64> = clamp(&people[..]);
+
+    if r.len() != 4i64 { return 1i32; }
+    if r.get(0i64) != 0i64  { return 2i32; }
+    if r.get(1i64) != 18i64 { return 3i32; }
+    if r.get(2i64) != 40i64 { return 4i32; }
+    if r.get(3i64) != 0i64  { return 5i32; }
+    return 0i32;
+}
