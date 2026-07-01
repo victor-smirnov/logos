@@ -9,6 +9,52 @@ SWAP + HAND-PARSER RETIREMENT DONE (2026-07-01).** Companion to
 [`0012-writ-query-language.md`](0012-writ-query-language.md) and
 [`0012-impl-seam.md`](0012-impl-seam.md).
 
+## Trama Phase 2 — RECURSIVE loop-var reflection (drop `with` for schema data) — DONE 2026-07-01
+
+The `trama!` handler now FOLLOWS loop variables through the data schema, so a
+`data <ctx>:<Schema>` context needs NO `with` clause. Before, `stamp_types_from_schema`
+typed only the TOP-LEVEL context struct's fields; a `{% for v in ctx.field %}` loop
+var defaulted to the i64 baseline unless restated in `with`. Now:
+
+- **`reflect_loops` walks the Trama AST** (`trama_render.logos`) BEFORE emit, following
+  every `TFor`. For `{% for v in EXPR %}` it resolves EXPR's ELEMENT type from the
+  schema and (a) records `v`'s Logos binding type (`TVarTys`, drives `let v: T`),
+  (b) binds `v → T` in a **struct-type env** so `v.member` chains + NESTED loops
+  resolve, (c) reflects `T`'s fields into the `ElTypes` value-type dict so `v.member`
+  types automatically. Recurses into for-bodies (extended env) and if-bodies/else.
+- **Field-chain resolution** (`resolve_struct_type` / `resolve_for_element_type`):
+  a bare field-root (`SField{base=null}`) is a VAR ref → `env[name]`; a field step
+  (`SField{base=B}`) is field `name`'s declared type within `struct(B)`. The `for`
+  collection's element type comes from `reflect::field_element_type_name`.
+- **Element type reflection** (`reflect.logos::field_element_type_name`): reads the
+  field's TYPE(3) AST node; if it is a COLLECTION (`ARR_TYPE`/`SLICE_TYPE`/
+  `UNSIZED_SLICE_TYPE`), the element is that node's own TYPE(3) child, its NAME(1)
+  the element struct name. Two new metaprog AST accessors: `OView::ast_node_code`
+  (the TOM `schema_type_code`) + `ast_type_child` (the TYPE(3) child). **The AST TOM
+  packs la::Code in the LOW 16 bits with a high-bit namespace tag** (`[Item;3]` =
+  `0x1_0000_0000_0040` = tag<<48 | 64=ARR_TYPE); `is_collection_type_code` masks
+  `& 0xFFFF`.
+- **Struct loop elements bound BY REFERENCE** (`let v: &T = &(iter)[__i];`,
+  gated by `!is_primitive_ty`): reading a struct element out of an owned
+  sub-collection index would move (E0507); a `&` avoids the move and field reads
+  auto-deref. Scalar elements (i64/str/bool, Copy) stay by-value.
+- **`with` still WORKS + OVERRIDES** (applied after reflection) — needed ONLY for
+  genuinely un-inferable names (non-schema `$params`, or a loop over a value whose
+  element type is not a schema field).
+
+GATES GREEN: full `cmake --build`; full ctest **6401/6401**; `peg_gen_logos_oracle`
+**2102/2102** byte-identical; the receipt showcase (`trama_showcase_e2e`) renders
+BYTE-IDENTICALLY with NO `with` (mutation-verified: corrupting a want → FAIL); new
+`trama_nested_reflect_e2e` proves nested `for b in s.boxes` / `for l in b.lines`
+type with zero annotations (byte-exact).
+
+**Cases still needing `with`:** (1) a non-schema runtime param used in a `{{ }}`/
+tag expression whose type isn't derivable from the data context (there is no
+`$param` type source in Trama's `data`-only surface); (2) a loop whose collection
+does not resolve to a schema field chain (e.g. iterating a `with`-declared name).
+The showcase and nested cases — the common shape (schema `data` + field-chain
+loops) — need none.
+
 ## THE SWAP — wql!/trama! on the generated parsers; hand parsers RETIRED (2026-07-01)
 
 The `wql!` / `trama!` handlers now parse via the peg_gen_logos-GENERATED parsers,

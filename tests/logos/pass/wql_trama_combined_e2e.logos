@@ -1,0 +1,58 @@
+// PHASE 1 — combined-module seam (ADR 0012): ONE module that imports BOTH
+// `logos.std.wql.wql` (wql!) AND `logos.std.wql.trama_render` (trama!), and uses
+// a wql! query AND a trama! template over user structs, all compiled + run.
+//
+// This locks in the seam that the bare-name struct-registry collision fix
+// (commit 83aeee5c, mlir-gen: pkg-qualify layout/stride/repr lookups instead of
+// bare concrete_struct_name) makes work: the two #[token_macro] handlers each
+// SPLICE emitted source back into THIS module's scope, where `String` / `Vec`
+// and the row struct (`Emp`) must resolve to the right same-named type. Before
+// that fix a module combining both macros mis-resolved a bare type name to the
+// wrong same-named type ("String has no method push_str", "unknown type Emp").
+// No combined-module test existed; this is the regression guard.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.trama_render;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Emp {
+    pub name: i64,
+    pub age:  i64,
+}
+
+resource adults = wql!{ from people:[Emp] p where p.age >= 18 select p.age : i64 };
+
+struct Ctx {
+    pub nums: [i64; 3],
+    pub flag: bool,
+}
+
+resource render = trama!{ data c:Ctx "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}" };
+
+fn main() -> i32 {
+    let people: [Emp; 4] = [
+        Emp { name: 1i64, age: 15i64 },
+        Emp { name: 2i64, age: 18i64 },
+        Emp { name: 3i64, age: 40i64 },
+        Emp { name: 4i64, age: 9i64  },
+    ];
+    let rows: Vec<i64> = adults(&people[..]);
+    if rows.len() != 2i64 { return 1i32; }
+    if rows.get(0i64) != 18i64 { return 2i32; }
+    if rows.get(1i64) != 40i64 { return 3i32; }
+
+    let ctx: Ctx = Ctx { nums: [1i64, 2i64, 3i64], flag: true };
+    let s: String = render(&ctx);
+    let want: str = "nums:[1][2][3]!";
+    if s.len() != want.len() { return 4i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return 5i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

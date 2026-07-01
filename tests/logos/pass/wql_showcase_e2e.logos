@@ -11,8 +11,9 @@
 //
 //   (B) `dept_ages` — a RELATIONAL JOIN over two typed sources
 //       (`emps` ⋈ `depts` on `e.dept == d.id`) with a post-join `where`
-//       (`d.budget > 100`) projecting `e.age`. (The join path takes an explicit
-//       `: i64` — result inference over joins is a future item, see the report.)
+//       (`d.budget > 100`) projecting `e.age`. The result element type is
+//       INFERRED from BOTH reflected source schemas (`e.age` ⇒ i64 ⇒ `Vec<i64>`)
+//       — no `: ResultTy` annotation, same as the simple path.
 //
 // Both are compiled at BUILD TIME by the `#[token_macro]` handler
 // (logos.std.wql.wql): parse → SExpr/RExpr Writ-schema IR → walk → emit native
@@ -43,7 +44,7 @@ resource seniors = wql!{ from emps:[Emp] e where e.age >= 40 && e.dept == 1 sele
 resource dept_ages = wql!{ from emps:[Emp] e
       join depts:[Dept] d on e.dept == d.id
       where d.budget > 100
-      select e.age : i64  };
+      select e.age  };
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

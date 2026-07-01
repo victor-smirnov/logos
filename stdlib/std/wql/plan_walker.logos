@@ -297,7 +297,6 @@ fn walk_join(j: RQJoin) -> bool {
     let b_ty: str    = j.b_ty;
     let y_var: str   = j.y_var;
     let has_where: bool = j.has_where;
-    let result_ty: str  = j.result_ty;
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
@@ -310,6 +309,14 @@ fn walk_join(j: RQJoin) -> bool {
     collect_params(on_e, &mut ty);
     if has_where { collect_params(j.where_expr(), &mut ty); }
     collect_params(proj_e, &mut ty);
+
+    // Result element type: explicit `: RTy` wins, else INFER from the projection.
+    // Both source schemas are reflected into `ty`, so a projection referencing
+    // `x.field` / `y.field` (or a builtin / literal / arithmetic thereof) types.
+    let mut result_ty: str = j.result_ty;
+    if !j.has_result_ty {
+        result_ty = el_ty_name(infer_ty(proj_e, &ty));
+    }
 
     let mut on_body: String = String::new();
     emit_sexpr(&mut on_body, on_e, &ty, x_var);
@@ -432,7 +439,6 @@ fn walk_aggregate(g: RQAggr) -> bool {
     let a_ty: str    = g.a_ty;
     let x_var: str   = g.x_var;
     let has_where: bool = g.has_where;
-    let result_ty: str  = g.result_ty;
 
     let aggs: RQAggArr = g.aggs_arr();
     let acount: i64 = aggs.len();
@@ -442,10 +448,29 @@ fn walk_aggregate(g: RQAggr) -> bool {
     stamp_types_from_schema(&view, &mut ty, a_ty);
     apply_with_ref(&mut ty, g.with_decls);
 
+    // The grouped projection binds `key` + each aggregate column as an i64 local
+    // (count/sum/min/max/avg all yield i64 today), so type those names in the
+    // dict — this is what lets `select` INFER its result type (and matches how
+    // the projection is actually emitted below).
+    ty.set_ty("key", EL_TY_INT());
+    let mut ki: i64 = 0i64;
+    while ki < acount {
+        let ka: RQAgg = aggs.agg_at(ki);
+        ty.set_ty(ka.name, EL_TY_INT());
+        ki = ki + 1i64;
+    }
+
     let key_e: SExpr = g.key_expr();
     collect_params(key_e, &mut ty);
     if has_where { collect_params(g.where_expr(), &mut ty); }
     collect_params(g.select_expr(), &mut ty);
+
+    // Result element type: explicit `: RTy` wins, else INFER from the projection
+    // (over the group-key + aggregate-column i64 locals typed above).
+    let mut result_ty: str = g.result_ty;
+    if !g.has_result_ty {
+        result_ty = el_ty_name(infer_ty(g.select_expr(), &ty));
+    }
 
     let mut key_body: String = String::new();
     emit_sexpr(&mut key_body, key_e, &ty, x_var);

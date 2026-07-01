@@ -41,7 +41,13 @@ struct Order {
 // A real receipt template. `-%}` trim markers strip the layout newline+indent
 // after the loop tags so each item packs onto its own line; the if/elif/else
 // picks a shipping tier from `total`; `upper(o.store)` upper-cases the store.
-resource receipt = trama!{ data o:Order with item:Item, name:str, qty:i64, store:str, total:i64
+//
+// NO `with` CLAUSE (ADR 0012 Phase 2 — recursive reflection): the `data o:Order`
+// context is reflected, and the `{% for item in o.items %}` loop FOLLOWS the
+// schema — `o.items` is `[Item; 3]`, so `item` binds to `Item` and `item.name` /
+// `item.qty` type automatically from the element schema. `o.store` / `o.total`
+// type from `Order`. `with` is now needed ONLY for genuinely un-inferable names.
+resource receipt = trama!{ data o:Order
 `=== {{ upper(o.store) }} ===
 {% for item in o.items -%}
   {{ item.name }} x{{ item.qty }}

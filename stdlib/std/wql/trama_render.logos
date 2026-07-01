@@ -33,8 +33,13 @@
 // edges (the ONE coupling, ADR 0012 §seam); they are emitted by the SHARED
 // SExpr codegen (`logos.std.wql.codegen::emit_sexpr`), exactly as the `wql!`
 // where/select clauses are. Field/loop-var NAMES are read off the self-describing
-// IR (Option B); value-TYPES come from the `ElTypes` dict the handler builds from
-// schema reflection + the `with` clause (loop/set var type names from `TVarTys`).
+// IR (Option B); value-TYPES come from the `ElTypes` dict the handler builds by
+// RECURSIVE schema reflection (ADR 0012 Phase 2): the `data <ctx>:<Schema>`
+// context is reflected AND `{% for v in ctx.field %}` loop vars FOLLOW the schema
+// — `ctx.field`'s element type binds `v` and its fields reflect in turn, through
+// NESTED loops — so a schema `data` context needs NO `with`. The optional `with`
+// clause still OVERRIDES / supplies types for genuinely un-inferable names
+// (loop/set var type names from `TVarTys`).
 //
 // The template is parsed by the peg_gen_logos-GENERATED parser
 // (`logos.std.wql.trama_parser::parse_tpl`), which yields the `tpl` as a WArray of
@@ -192,6 +197,162 @@ impl TVarTys {
         let mut i: i64 = 0i64;
         while i < self.n { if str_eq(self.names[i], name) { return self.tys[i]; } i = i + 1i64; }
         return "";
+    }
+}
+
+// ── Struct-type environment (var name → schema struct type name) ───────────
+// The RECURSIVE-REFLECTION seam (ADR 0012 Phase 2): resolving a `{% for v in
+// EXPR %}` loop var's element type needs to know the STRUCT type each in-scope
+// name denotes, so a field chain (`o.items`) can be walked against the schema.
+// Seeded with the data-context binding (`o → Order`); each loop var is added as
+// its element type is discovered (`item → Item`), so NESTED loops resolve
+// (`for line in item.lines` → element of `Item.lines`). A tiny (name,type-name)
+// association list over borrowed `str` slices (names live in the IR / surface).
+struct StructEnv {
+    names: [str; 64],
+    tys:   [str; 64],
+    n:     i64,
+}
+fn struct_env_new() -> StructEnv {
+    return StructEnv {
+        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        n: 0i64,
+    };
+}
+impl StructEnv {
+    fn bind(self: &mut StructEnv, name: str, ty: str) {
+        // Last write wins (a nested loop var can shadow, though names are unique
+        // in practice); overwrite an existing binding by name.
+        let mut i: i64 = 0i64;
+        while i < self.n { if str_eq(self.names[i], name) { self.tys[i] = ty; return; } i = i + 1i64; }
+        if self.n < 64i64 { self.names[self.n] = name; self.tys[self.n] = ty; self.n = self.n + 1i64; }
+    }
+    fn type_of(self: &StructEnv, name: str) -> str {
+        let mut i: i64 = 0i64;
+        while i < self.n { if str_eq(self.names[i], name) { return self.tys[i]; } i = i + 1i64; }
+        return "";
+    }
+}
+
+// Resolve the STRUCT TYPE NAME an EL field-chain expression denotes, against the
+// struct-type environment. A bare field-root (`SField{name=X, base=null}`) is a
+// VAR reference — its type is `env[X]` (the ctx var or an outer loop var). A field
+// STEP (`SField{name=f, base=B}`) is field `f`'s declared type WITHIN the struct
+// `B` resolves to. Anything else (or an unknown/absent field) is "" (unresolvable
+// — the loop var then falls back to the `with` override / the i64 baseline).
+fn resolve_struct_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
+    match e {
+        SExpr::Field(f) => {
+            let fname: str = f.name;
+            let base_ref: WRef<SExpr> = f.base;
+            let base: WAny = base_ref.any();
+            if base.is_null() {
+                return env.type_of(fname);           // bare root = a var reference
+            }
+            let be: SExpr = f.base_expr();
+            let bt: str = resolve_struct_type(view, be, env);
+            if bt.len() == 0i64 { return ""; }
+            let decl: WAny = find_decl_by_name(view, bt);
+            return field_type_name(view, decl, fname);
+        }
+        SExpr::Var(v) => { let vn: str = v.name; return env.type_of(vn); }
+        _ => { return ""; }
+    }
+}
+
+// Resolve a `{% for v in EXPR %}` collection expression to its ELEMENT struct
+// type name (the type `v` binds to). EXPR is a field chain: its final field's
+// declared type must be a collection (`[T;N]`/`&[T]`/`[T]`) whose element is `T`.
+//   • `SField{name=f, base=B}` → element type of field `f` in struct(B);
+//   • a bare root that is itself a collection VAR → env[X] (already an element ty).
+// "" when unresolvable.
+fn resolve_for_element_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
+    match e {
+        SExpr::Field(f) => {
+            let fname: str = f.name;
+            let base_ref: WRef<SExpr> = f.base;
+            let base: WAny = base_ref.any();
+            if base.is_null() {
+                // `for v in xs` where `xs` is a bare var (a loop source bound as a
+                // collection element type in env — uncommon in the ctx model, but
+                // supported): its element type is env[xs] if present.
+                return env.type_of(fname);
+            }
+            let be: SExpr = f.base_expr();
+            let bt: str = resolve_struct_type(view, be, env);
+            if bt.len() == 0i64 { return ""; }
+            let decl: WAny = find_decl_by_name(view, bt);
+            return field_element_type_name(view, decl, fname);
+        }
+        SExpr::Var(v) => { let vn: str = v.name; return env.type_of(vn); }
+        _ => { return ""; }
+    }
+}
+
+// ── Recursive loop-var reflection (Phase 2) ────────────────────────────────
+// Walk the Trama AST following loop variables: for each `{% for v in EXPR %}`,
+// resolve EXPR's element type T from the data schema (via the struct-type env),
+// then (a) record `v`'s Logos binding type (`vtys`, drives `let v: T`), (b) bind
+// `v → T` in the env so v.member chains + NESTED loops resolve, and (c) reflect
+// T's fields into the value-type dict `ty` so `v.member` typing is automatic —
+// NO `with` clause needed. Recurses into for-bodies (with the extended env) and
+// if-bodies/else (env unchanged). Idempotent-friendly: `with` is applied AFTER
+// this, so an explicit declaration still OVERRIDES an inferred one.
+fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, env: &StructEnv) {
+    let mut cur: i64 = head;
+    while cur != 0i64 {
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::For(f) => {
+                let se: SExpr = f.expr_expr();
+                let elem_ty: str = resolve_for_element_type(view, se, env);
+                // Extend the env for the body: bind the loop var to its element
+                // type (empty binding is harmless — resolves to "" downstream).
+                let mut inner: StructEnv = struct_env_new();
+                copy_env(&mut inner, env);
+                if elem_ty.len() > 0i64 {
+                    inner.bind(f.var, elem_ty);
+                    vtys.declare(f.var, elem_ty);
+                    // Reflect the element struct's fields so `v.member` types.
+                    stamp_types_from_schema(view, ty, elem_ty);
+                }
+                reflect_loops(view, body_word(&f.body), ty, vtys, &inner);
+            }
+            TStmt::If(i) => {
+                // Conditionals don't bind vars; recurse both arms with the same env.
+                reflect_loops(view, body_word(&i.body), ty, vtys, env);
+                let altw: i64 = alt_word(&i.alt);
+                if altw != 0i64 { reflect_loops(view, altw, ty, vtys, env); }
+            }
+            _ => { }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+
+// Copy `src`'s bindings into `dst` (the body env starts as a snapshot of the
+// enclosing scope, then adds the loop var — Logos has no clone/derive here).
+fn copy_env(dst: &mut StructEnv, src: &StructEnv) {
+    let mut i: i64 = 0i64;
+    while i < src.n { dst.bind(src.names[i], src.tys[i]); i = i + 1i64; }
+}
+
+// The `next`-chain successor word of any TStmt node (post-T3 stitch).
+fn next_of_stmt(node_w: i64) -> i64 {
+    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    match e {
+        TStmt::Text(t) => { return next_word(&t.next); }
+        TStmt::Var(v)  => { return next_word(&v.next); }
+        TStmt::For(f)  => { return next_word(&f.next); }
+        TStmt::If(i)   => { return next_word(&i.next); }
+        TStmt::Set(s)  => { return next_word(&s.next); }
     }
 }
 
@@ -404,14 +565,27 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             em.push_text(" < (");
             em.push_text(iter_s);
             em.push_text(").len() {\n");
-            // Element type of the loop var: the declared `with` type if any,
-            // else the i64 default (queue-1 numeric baseline).
+            // Element type of the loop var: the reflected element type (Phase 2)
+            // or the declared `with` type if any, else the i64 numeric baseline.
+            // A STRUCT element (a schema type, not a primitive) is bound BY
+            // REFERENCE — `let v: &Ty = &(iter)[__i];` — so field reads work
+            // WITHOUT moving the element out of an index (E0507); this makes
+            // NESTED loops over owned sub-collections (`for l in b.lines`, where
+            // `b` is itself a by-value/ref loop element) sound. A scalar element
+            // (i64/str/bool, Copy) is bound by value as before.
             let vty: str = vtys.ty_name(f.var);
+            let by_ref: bool = vty.len() > 0i64 && !is_primitive_ty(vty);
             em.push_text("        let ");
             em.push_text(vname);
             em.push_text(": ");
-            if vty.len() > 0i64 { em.push_text(vty); } else { em.push_text("i64"); }
-            em.push_text(" = (");
+            if by_ref {
+                em.push_text("&");
+                em.push_text(vty);
+                em.push_text(" = &(");
+            } else {
+                if vty.len() > 0i64 { em.push_text(vty); } else { em.push_text("i64"); }
+                em.push_text(" = (");
+            }
             em.push_text(iter_s);
             em.push_text(")[__i");
             em.push_num(depth as u64);
@@ -426,6 +600,16 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             return next_word(&f.next);
         }
     }
+}
+
+// Is a Logos type NAME a primitive (Copy scalar rendered by value)? Struct/schema
+// element types are everything else — bound by reference in the loop element.
+fn is_primitive_ty(name: str) -> bool {
+    return str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
+        || str_eq(name, "i8")  || str_eq(name, "u64") || str_eq(name, "u32")
+        || str_eq(name, "u16") || str_eq(name, "u8")  || str_eq(name, "bool")
+        || str_eq(name, "f64") || str_eq(name, "f32") || str_eq(name, "str")
+        || str_eq(name, "usize") || str_eq(name, "isize") || str_eq(name, "char");
 }
 
 // Edge-word readers (launder WRef<TStmt> → raw chain word, no borrow carried).
@@ -515,10 +699,20 @@ pub fn trama(name: str, s: str) -> ItemList {
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ctx_ty);
 
+    // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
+    // FOLLOW loop variables: `{% for v in ctx.field %}` where `ctx.field` is a
+    // schema'd collection binds `v` to the element type T (from the data schema),
+    // reflects T's fields so `v.member` types automatically, and recurses into
+    // NESTED loops — so a schema `data` context needs NO `with`. `with` (applied
+    // below) still OVERRIDES for genuinely un-inferable names (non-schema params).
+    let mut vtys: TVarTys = tvartys_new();
+    let mut env0: StructEnv = struct_env_new();
+    env0.bind(ctx_name, ctx_ty);                 // the data context var → its schema type
+    reflect_loops(&view, head_word, &mut ty, &mut vtys, &env0);
+
     // Apply the `with` type declarations. Each `<name>:<Ty>` seeds the value-type
     // lattice (str/bool/int) in the dict AND records the loop/set var's Logos type
     // name for its binding. Type-name slices live in `s`.
-    let mut vtys: TVarTys = tvartys_new();
     let mut di: i64 = 0i64;
     while di < dn {
         let nm: str = unsafe { tl_str_range(s, d_name_start[di], d_name_len[di]) };

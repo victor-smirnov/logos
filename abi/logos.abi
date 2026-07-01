@@ -288,6 +288,7 @@ sym	logos.std.wql.trama.TText__type_id__g__ref_T
 sym	logos.std.wql.trama.TVar__type_id__g__ref_T
 sym	logos.std.wql.trama_parser.TrMemoCell__type_id__g__ref_T
 sym	logos.std.wql.trama_parser.TrTokCell__type_id__g__ref_T
+sym	logos.std.wql.trama_render.StructEnv__type_id__g__ref_T
 sym	logos.std.wql.trama_render.TLexer__type_id__g__ref_T
 sym	logos.std.wql.trama_render.TVarTys__type_id__g__ref_T
 sym	logos.std.wql.wql_surface_parser.WqMemoCell__type_id__g__ref_T
@@ -7609,6 +7610,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__StrDt
 sym	logos_lang.logos.lang.any$type_id_of__g__void__StrMatchIndex
 sym	logos_lang.logos.lang.any$type_id_of__g__void__String
 sym	logos_lang.logos.lang.any$type_id_of__g__void__StringView
+sym	logos_lang.logos.lang.any$type_id_of__g__void__StructEnv
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SystemTime
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TFor
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TIf
@@ -8750,9 +8752,11 @@ sym	logos_std..logos.std.compiler.metaprog.OView__ast_enum_variant_count__f__ref
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_field_name__f__ref_OView__WAny
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_field_type_name__f__ref_OView__WAny
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_lit_str_view__f__ref_OView__WAny
+sym	logos_std..logos.std.compiler.metaprog.OView__ast_node_code__f__ref_OView__WAny
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_node_name__f__ref_OView__WAny
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_struct_field__f__ref_OView__WAny__u64
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_struct_field_count__f__ref_OView__WAny
+sym	logos_std..logos.std.compiler.metaprog.OView__ast_type_child__f__ref_OView__WAny
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_type_param_count__f__ref_OView__WAny
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_type_param_name__f__ref_OView__WAny__u64
 sym	logos_std..logos.std.compiler.metaprog.OView__ast_variant_arity__f__ref_OView__WAny
@@ -9463,6 +9467,7 @@ sym	logos_std.logos.std.wql.plan$RQWITH_MAX__f__void
 sym	logos_std.logos.std.wql.plan_walker$walk_query__f__RQuery
 sym	logos_std.logos.std.wql.plan_walker$walk_query_any__f__WAny
 sym	logos_std.logos.std.wql.plan_walker$walk_query_any_named__f__WAny__slice_u8__ref_Writ
+sym	logos_std.logos.std.wql.reflect$field_element_type_name__f__ref_OView__WAny__slice_u8
 sym	logos_std.logos.std.wql.reflect$field_type_name__f__ref_OView__WAny__slice_u8
 sym	logos_std.logos.std.wql.reflect$find_decl_by_name__f__ref_OView__slice_u8
 sym	logos_std.logos.std.wql.reflect$stamp_types_from_schema__f__ref_OView__refmut_ElTypes__slice_u8
@@ -9861,6 +9866,7 @@ type	logos.std.wql.trama_parser.Lexer	fields=[src:&[u8],pos:i64,line:i64,la:Toke
 type	logos.std.wql.trama_parser.Token	fields=[kind:i32,start:i64,len:i64,line:i64]
 type	logos.std.wql.trama_parser.TrMemoCell	fields=[res:*const u8,endpos:i64,endline:i64]
 type	logos.std.wql.trama_parser.TrTokCell	fields=[tk:i32,tstart:i64,tlen:i64,tline:i64,endpos:i64,endline:i64,intag_after:bool]
+type	logos.std.wql.trama_render.StructEnv	fields=[names:[&[u8]; 64],tys:[&[u8]; 64],n:i64]
 type	logos.std.wql.trama_render.TLexer	fields=[src:&[u8],pos:i64,len:i64]
 type	logos.std.wql.trama_render.TVarTys	fields=[names:[&[u8]; 64],tys:[&[u8]; 64],n:i64]
 type	logos.std.wql.wql_surface_parser.Lexer	fields=[src:&[u8],pos:i64,line:i64,la:Token,have_la:bool,memo:HashMap<i64, WqMemoCell>,tbuf:Vec<WqTokCell>]

@@ -80,6 +80,55 @@ pub fn field_type_name(view: &OView, decl: WAny, field_name: str) -> str {
     return "";
 }
 
+// AST type-node codes (la::Code, include/logos/compiler/ast.hpp). A field whose
+// TYPE node is one of these is a COLLECTION whose ELEMENT type drives a `for`
+// loop var's binding: `[T; N]` (ARR_TYPE), `&[T]` (SLICE_TYPE), `[T]`
+// (UNSIZED_SLICE_TYPE). The element type is the node's TYPE(3) child.
+fn LA_ARR_TYPE()           -> u64 { return 64 as u64; }
+fn LA_SLICE_TYPE()         -> u64 { return 111 as u64; }
+fn LA_UNSIZED_SLICE_TYPE() -> u64 { return 236 as u64; }
+
+// Is `code` one of the collection type-node codes (array / slice / unsized slice)?
+// The AST TOM's `schema_type_code` packs the la::Code in the low bits with a
+// high-bit namespace tag (e.g. `[Item;3]` = 0x1_0000_0000_0040 = tag<<48 | 64),
+// so mask to the low 16 bits (la codes are all < 256) before comparing.
+fn is_collection_type_code(code: u64) -> bool {
+    let c: u64 = code & (0xFFFF as u64);
+    return c == LA_ARR_TYPE()
+        || c == LA_SLICE_TYPE()
+        || c == LA_UNSIZED_SLICE_TYPE();
+}
+
+// The declared ELEMENT type NAME of field `field_name` within struct node `decl`,
+// IF that field's type is a collection (`[T; N]` / `&[T]` / `[T]`) — else empty.
+// This is the loop-var reflection primitive: `for v in ctx.field` binds `v` to
+// this element type (and its fields are reflected in turn). A scalar/struct field
+// (not a collection) returns "" (nothing to iterate over element-wise).
+pub fn field_element_type_name(view: &OView, decl: WAny, field_name: str) -> str {
+    if decl.is_null() { return ""; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        let fnm: SView = view.ast_field_name(fld);
+        if sview_eq_str(fnm, field_name) {
+            let tynode: WAny = view.ast_type_child(fld);          // TYPE(3) node
+            if tynode.is_null() { return "Dtynull"; }
+            let code: u64 = view.ast_node_code(tynode);
+            if !is_collection_type_code(code) { return ""; }
+            // The element type is the collection node's own TYPE(3) child; its
+            // NAME(1) is the element struct/type name.
+            let elem: WAny = view.ast_type_child(tynode);
+            if elem.is_null() { return "Delemnull"; }
+            let en: str = sview_str(view.ast_node_name(elem));
+            if en.len() == 0i64 { return "Dennull"; }
+            return en;
+        }
+        i = i + (1 as u64);
+    }
+    return "";
+}
+
 // Populate the name→value-type dictionary `t` with the value-type the named
 // struct declares for EACH of its fields (Option B: the IR carries names, so we
 // type every field of the bound schema — the codegen queries only the names it

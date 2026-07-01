@@ -26,10 +26,13 @@ struct Sale { pub dept: i64, pub amount: i64 }
 //   pub fn dept_totals(sales: &[Sale]) -> Vec<i64> {
 //       … outer pass: distinct dept keys; inner pass: fold sum/count …
 //   }
+// Result type INFERRED from the projection: the group `key` + each aggregate
+// column (sum/count) are i64, so `key*1000 + total*10 + cnt` types as i64 ⇒
+// `Vec<i64>` — no `: ResultTy` annotation needed.
 resource dept_totals = wql!{ from sales:[Sale] s
       group by s.dept
       aggregate total = sum(s.amount) , cnt = count()
-      select key * 1000 + total * 10 + cnt : i64  };
+      select key * 1000 + total * 10 + cnt  };
 
 // A second resource exercising min / max / avg AND a pre-group `where` filter:
 // keep only sales with amount >= 5, then per dept compute min/max/avg amount.
@@ -38,7 +41,7 @@ resource dept_stats = wql!{ from sales:[Sale] s
       where s.amount >= 5
       group by s.dept
       aggregate lo = min(s.amount) , hi = max(s.amount) , av = avg(s.amount)
-      select key * 1000000 + lo * 10000 + hi * 100 + av : i64  };
+      select key * 1000000 + lo * 10000 + hi * 100 + av  };
 
 fn main() -> i32 {
     let sales: [Sale; 5] = [

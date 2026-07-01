@@ -250,6 +250,21 @@ impl OView {
         return self.get_str_view(nm);
     }
 
+    // The AST node's CODE (la::Code — e.g. ARR_TYPE=64, SLICE_TYPE=111). Stored
+    // as the TOM's schema_type_code; 0 for a null/non-ref node.
+    pub fn ast_node_code(self: &OView, node: WAny) -> u64 {
+        if !node.is_ref() { return 0 as u64; }
+        let p: *const u8 = node.resolve();
+        if p == (0 as *const u8) { return 0 as u64; }
+        return unsafe { (&*(p as *const WMap<Wu6, WAny>)).schema_type_code() };
+    }
+
+    // The TYPE (key 3) child node of a field-def / type node (the element type of
+    // an array/slice, or the pointee of a ref). Null WAny if absent.
+    pub fn ast_type_child(self: &OView, node: WAny) -> WAny {
+        return self.tiny_map_get(node, 3 as u8);   // TYPE = 3
+    }
+
     pub fn ast_struct_field_count(self: &OView, node: WAny) -> u64 {
         let fields: WAny = self.tiny_map_get(node, 22 as u8);
         if fields.is_null() { return 0 as u64; }

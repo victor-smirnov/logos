@@ -1,0 +1,59 @@
+// Trama PHASE 2 — RECURSIVE REFLECTION over NESTED loops (ADR 0012, queue-1).
+//
+// NO `with` clause: the `data s:Ship` context is reflected, and BOTH loops FOLLOW
+// the data schema recursively —
+//   • `{% for b in s.boxes %}`  binds `b:Box`   (`Ship.boxes` is `[Box; 2]`),
+//   • `{% for l in b.lines %}`  binds `l:Line`  (`Box.lines`  is `[Line; 2]`),
+// so `b.label` / `l.sku` / `l.qty` all type automatically from the element
+// schemas with ZERO annotations. Proves the loop-var reflection recurses through
+// nested collection fields (`reflect_loops` extends the struct-type env per
+// loop). The struct loop element is bound BY REFERENCE so field reads over an
+// owned sub-collection (`b.lines`) don't move out of an index (E0507).
+//
+// We render over real nested data and assert the EXACT woven string.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Line { pub sku: str, pub qty: i64 }
+struct Box  { pub label: str, pub lines: [Line; 2] }
+struct Ship { pub carrier: str, pub boxes: [Box; 2] }
+
+resource manifest = trama!{ data s:Ship
+`carrier: {{ s.carrier }}
+{% for b in s.boxes -%}
+box {{ b.label }}:
+{% for l in b.lines -%}
+  {{ l.sku }} x{{ l.qty }}
+{% endfor -%}
+{% endfor -%}
+done`  };
+
+fn streq_all(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let ship: Ship = Ship {
+        carrier: "UPS",
+        boxes: [
+            Box { label: "A", lines: [ Line { sku: "X1", qty: 3i64 }, Line { sku: "X2", qty: 5i64 } ] },
+            Box { label: "B", lines: [ Line { sku: "Y1", qty: 1i64 }, Line { sku: "Y2", qty: 9i64 } ] },
+        ],
+    };
+    let r: String = manifest(&ship);
+    // `-%}` trims the newline+indent after each loop tag, so the item lines pack
+    // flush-left (the 2-space template indent is part of the trimmed run).
+    let want: str = "carrier: UPS\nbox A:\nX1 x3\nX2 x5\nbox B:\nY1 x1\nY2 x9\ndone";
+    if !streq_all(&r, want) { return 1i32; }
+    return 0i32;
+}

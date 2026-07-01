@@ -15,9 +15,9 @@
 //
 //   RQSimple — from src:[Ty] var [where P] select S [: RTy] [with …]
 //   RQJoin   — from a:[ATy] x [anti] join b:[BTy] y on ON [where P]
-//              select S : RTy [with …]
+//              select S [: RTy] [with …]
 //   RQAggr   — from a:[ATy] x [where P] group by K
-//              aggregate name=fn(arg?),… select S : RTy [with …]
+//              aggregate name=fn(arg?),… select S [: RTy] [with …]
 //
 // ── EMBEDDED-EL CLAUSE BODIES (the ONE cross-grammar coupling) ──────────────
 // Every EXPRESSION clause body (where / select / on / group-key / aggregate-arg)
@@ -85,11 +85,13 @@
     RQJoin   { a_name: "str", a_ty: "str", x_var: "str",
                is_anti: "bool", b_name: "str", b_ty: "str", y_var: "str",
                on: "ref SExpr", has_where: "bool", where_pred: "ref SExpr",
-               select: "ref SExpr", result_ty: "str", with_decls: "ref RQWithArr" }
+               select: "ref SExpr", has_result_ty: "bool", result_ty: "str",
+               with_decls: "ref RQWithArr" }
 
     RQAggr   { a_name: "str", a_ty: "str", x_var: "str",
                has_where: "bool", where_pred: "ref SExpr", key: "ref SExpr",
-               aggs: "ref RQAggArr", select: "ref SExpr", result_ty: "str",
+               aggs: "ref RQAggArr", select: "ref SExpr",
+               has_result_ty: "bool", result_ty: "str",
                with_decls: "ref RQWithArr" }
 
     RQAgg      { name: "str", fn_name: "str", arg: "ref SExpr", has_arg: "bool" }
@@ -165,11 +167,12 @@
                   KW_ANTI? KW_JOIN IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   KW_ON on_body
                   where_clause?
-                  KW_SELECT sel_body COLON IDENT with_opt?
+                  KW_SELECT sel_body result_clause? with_opt?
                   => { CODE: "RQJoin", a_name: $2, a_ty: $5, x_var: $7,
                        is_anti: $8, b_name: $10, b_ty: $13, y_var: $15,
                        on: $17, has_where: $18, where_pred: $18,
-                       select: $20, result_ty: $22, with_decls: $23 }
+                       select: $20, has_result_ty: $21, result_ty: $21,
+                       with_decls: $22 }
 
     // ── RQAggr ────────────────────────────────────────────────────────────
     //   from a:[ATy] x [where P] group by K aggregate a=fn(e),… select S : RTy [with …]
@@ -181,11 +184,12 @@
                   where_clause?
                   KW_GROUP KW_BY key_body
                   KW_AGGREGATE agg_list
-                  KW_SELECT sel_body COLON IDENT with_opt?
+                  KW_SELECT sel_body result_clause? with_opt?
                   => { CODE: "RQAggr", a_name: $2, a_ty: $5, x_var: $7,
                        has_where: $8, where_pred: $8,
-                       key: $11, aggs: $13, select: $15, result_ty: $17,
-                       with_decls: $18 }
+                       key: $11, aggs: $13, select: $15,
+                       has_result_ty: $16, result_ty: $16,
+                       with_decls: $17 }
 
     // ── Shared sub-rules ───────────────────────────────────────────────────
     // `where P` — the value is the predicate SExpr ($2, past the KW_WHERE token).
