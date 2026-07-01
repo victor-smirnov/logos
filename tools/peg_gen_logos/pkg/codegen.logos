@@ -272,6 +272,13 @@ pub struct Codegen {
     // grammar with a two-mode lexer (TEXT vs TAG): keyword/ident tokens apply only
     // INSIDE tags; text runs are consumed verbatim. Set from the token table.
     pub uses_raw_text:  bool,
+    // A cross-grammar embed IS present AND the grammar is NOT a template (no
+    // raw-text token) → a KEYWORD-DELIMITED embed (the wql! surface). The embedded
+    // EL clause body ends at the next structural KEYWORD (a top-level clause
+    // boundary) / a top-level result-type `:` (ternary `?:` balanced) / a top-level
+    // `,`/`)` (an aggregate arg list), NOT at a `}}`-style tag close. The
+    // close-finder is driven by this grammar's keyword tokens + `(`/`[` depth.
+    pub uses_kw_embed:  bool,
 
     // While emitting a fold-mode REP body, the name of the accumulator var that
     // `$0` (FOLD_CAPTURE) resolves to ("" when not in a fold). Left-assoc binary
@@ -318,7 +325,7 @@ pub fn codegen_new() -> Codegen {
         rules: vec_new::<Rule>(), alts: vec_new::<Alt>(), items: vec_new::<Item>(),
         lc: 0i64,
         uses_gt_type: false, uses_lt_type: false, uses_raw_group: false,
-        uses_embed: false, uses_raw_text: false,
+        uses_embed: false, uses_raw_text: false, uses_kw_embed: false,
         cur_fold: String::new(),
         schema_mode: false, schemas: vec_new::<SchemaDecl>(),
         schema_use: String::new(), arena_ext: false, ref_wrap: String::new(),
@@ -567,6 +574,34 @@ fn detect_pseudo_tokens(cg: &mut Codegen) {
         }
         j = j + 1i64;
     }
+    // A cross-grammar embed with NO raw-text token → a KEYWORD-DELIMITED embed
+    // (the wql! surface): the embedded clause body ends at a structural keyword /
+    // top-level punctuation, not at a `}}`-tag close.
+    if cg.uses_embed && !cg.uses_raw_text { cg.uses_kw_embed = true; }
+}
+
+// A keyword literal token (drives the keyword-delimited embed's structural-stop
+// set): a LITERAL whose pattern is a non-empty run of identifier bytes starting
+// with a letter/underscore (`fn`/`where`/`select`/…). Punctuation literals (`:`,
+// `,`, `[`) are NOT keywords (they are handled specially by the close-finder).
+fn is_keyword_literal(cg: &Codegen, i: i64) -> bool {
+    let t: &TokenDecl = cg.tokens.borrow(i);
+    if t.kind != TOKEN_LITERAL { return false; }
+    let pat: str = unquote(t.pattern.as_str());
+    let n: i64 = pat.len();
+    if n == 0i64 { return false; }
+    let c0: u8 = str_byte_at(pat, 0i64);
+    let alpha0: bool = (c0 >= 65u8 && c0 <= 90u8) || (c0 >= 97u8 && c0 <= 122u8) || c0 == 95u8;
+    if !alpha0 { return false; }
+    let mut k: i64 = 1i64;
+    while k < n {
+        let c: u8 = str_byte_at(pat, k);
+        let ok: bool = (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8)
+            || (c >= 48u8 && c <= 57u8) || c == 95u8;
+        if !ok { return false; }
+        k = k + 1i64;
+    }
+    return true;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1414,7 +1449,78 @@ fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, 
     w.line(cf.as_str());
 }
 
+// A word-boundary keyword match at byte `p` in `src`: the keyword bytes match AND
+// neither the byte before nor the byte after is an identifier byte (so `on` in
+// `contains` / `person` is not a stop). Emitted as a runtime helper for the
+// keyword-delimited embed close-finder.
+fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
+    w.blank();
+    w.line("// Is a structural keyword at byte `p` (word boundary on both sides)? The");
+    w.line("// keyword-delimited embed's stop set — every alpha-keyword token.");
+    w.line("fn embed_at_kw(src: str, p: i64, len: i64) -> bool {");
+    w.line("    let before: u8 = if p > 0i64 { str_byte_at(src, p - 1i64) } else { 32u8 };");
+    w.line("    if lx_is_alnum(before) { return false; }");
+    // One `kw_try` block per keyword literal: match the bytes + a trailing word
+    // boundary; return true on a hit.
+    let n: i64 = cg.tokens.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if is_keyword_literal(cg, i) {
+            let pat: str = unquote(cg.tokens.borrow(i).pattern.as_str());
+            let kn: i64 = pat.len();
+            let mut c: String = String::new();
+            c.push_str("    if p + "); c.push_i64(kn); c.push_str("i64 <= len");
+            let mut b: i64 = 0i64;
+            while b < kn {
+                c.push_str(" && str_byte_at(src, p + "); c.push_i64(b); c.push_str("i64) == ");
+                c.push_i64(str_byte_at(pat, b) as i64); c.push_str("u8");
+                b = b + 1i64;
+            }
+            // Trailing boundary: byte after the keyword is not an ident byte (or EOI).
+            c.push_str(" && (p + "); c.push_i64(kn); c.push_str("i64 >= len || !lx_is_alnum(str_byte_at(src, p + ");
+            c.push_i64(kn); c.push_str("i64))) { return true; }");
+            w.line(c.as_str());
+        }
+        i = i + 1i64;
+    }
+    w.line("    return false;");
+    w.line("}");
+    w.blank();
+    w.line("// Keyword-delimited embed scan (the wql! surface): the embedded EL clause");
+    w.line("// body ends at the next STRUCTURAL STOP — a top-level structural keyword, a");
+    w.line("// top-level result-type `:` (ternary `?:` balanced), or a top-level `,`/`)`");
+    w.line("// (an aggregate arg list). `(`/`[` nesting is tracked so punctuation/keywords");
+    w.line("// INSIDE a call / comprehension are NOT stops. EOI is a valid stop (the last");
+    w.line("// clause). Mirrors the hand QLexer's take_until_kw / take_until_colon /");
+    w.line("// take_until_any3 / aggregate-arg depth-balancing, unified into one scan.");
+    w.line("fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {");
+    w.line("    let mut p: i64 = pos;");
+    w.line("    let mut depth: i64 = 0i64;   // () and [] nesting");
+    w.line("    let mut tern: i64 = 0i64;    // '?' opened, closed by ':'");
+    w.line("    while p < len {");
+    w.line("        let c: u8 = str_byte_at(src, p);");
+    w.line("        if c == 40u8 || c == 91u8 { depth = depth + 1i64; }         // ( [");
+    w.line("        else if c == 41u8 || c == 93u8 {                            // ) ]");
+    w.line("            if depth == 0i64 { return p; }   // top-level close → stop");
+    w.line("            depth = depth - 1i64;");
+    w.line("        }");
+    w.line("        else if depth == 0i64 {");
+    w.line("            if c == 63u8 { tern = tern + 1i64; }                    // ?");
+    w.line("            else if c == 58u8 {                                     // :");
+    w.line("                if tern > 0i64 { tern = tern - 1i64; }  // ternary colon");
+    w.line("                else { return p; }                      // result-type colon");
+    w.line("            }");
+    w.line("            else if c == 44u8 { return p; }                         // , (arg sep)");
+    w.line("            else if embed_at_kw(src, p, len) { return p; }          // keyword stop");
+    w.line("        }");
+    w.line("        p = p + 1i64;");
+    w.line("    }");
+    w.line("    return len;   // EOI — the last clause runs to end of input");
+    w.line("}");
+}
+
 fn emit_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
+    if cg.uses_kw_embed { emit_kw_embed_helper(cg, w); return; }
     w.blank();
     w.line("// Embedded-expression scan (cross-grammar EL seam): find the first");
     w.line("// close-tag delimiter (}} / %}) at/after `pos`; -1 if none. The embedded");
@@ -3294,11 +3400,49 @@ fn alt_needs_mut_node(cg: &Codegen, alt_idx: i64, sidx: i64) -> bool {
         let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
         if !str_eq(fname.as_str(), "CODE") {
             let ftype: String = schema_field_type(cg, sidx, fname.as_str());
-            if str_eq(ftype.as_str(), "argfan") { return true; }
+            if ftype_is_fan(ftype.as_str()) { return true; }
         }
         fi = fi + 1i64;
     }
     return false;
+}
+
+// A fan-out field type: `"argfan"` (el.peg's SExprArr, = "fan set_arg SEXPRARR_MAX")
+// or the general `"fan <method> <maxfn>"` (plan.peg's RQWithArr/RQAggArr). Both
+// spread a $... ARRAY_CAPTURE into fixed slots via a `&mut self` setter + set_len,
+// so the node binding needs `let mut`.
+fn ftype_is_fan(ftype: str) -> bool {
+    if str_eq(ftype, "argfan") { return true; }
+    return ftype.len() >= 4i64
+        && str_byte_at(ftype, 0i64) == 102u8   // 'f'
+        && str_byte_at(ftype, 1i64) == 97u8    // 'a'
+        && str_byte_at(ftype, 2i64) == 110u8   // 'n'
+        && str_byte_at(ftype, 3i64) == 32u8;   // ' '
+}
+
+// The setter method name from a fan field type. `"argfan"` → `set_arg`;
+// `"fan set_with RQWITH_MAX"` → `set_with`.
+fn fan_method(ftype: str) -> String {
+    if str_eq(ftype, "argfan") { return String::from("set_arg"); }
+    // Between the first space and the second space.
+    let n: i64 = ftype.len();
+    let mut i: i64 = 4i64;   // past "fan "
+    let mut out: String = String::new();
+    while i < n && str_byte_at(ftype, i) != 32u8 { out.push_u8(str_byte_at(ftype, i)); i = i + 1i64; }
+    return out;
+}
+
+// The arity-cap fn name from a fan field type. `"argfan"` → `SEXPRARR_MAX`;
+// `"fan set_with RQWITH_MAX"` → `RQWITH_MAX`.
+fn fan_maxfn(ftype: str) -> String {
+    if str_eq(ftype, "argfan") { return String::from("SEXPRARR_MAX"); }
+    let n: i64 = ftype.len();
+    let mut i: i64 = 4i64;
+    while i < n && str_byte_at(ftype, i) != 32u8 { i = i + 1i64; }   // skip method
+    if i < n { i = i + 1i64; }                                       // skip the space
+    let mut out: String = String::new();
+    while i < n && str_byte_at(ftype, i) != 32u8 { out.push_u8(str_byte_at(ftype, i)); i = i + 1i64; }
+    return out;
 }
 
 fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_var: str, cap_stem: str, ret_via_cap: str) {
@@ -3419,17 +3563,21 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
     let mut lhs: String = String::new();
     lhs.push_str(node_var); lhs.push_str("."); lhs.push_str(fname); lhs.push_str(" = ");
 
-    if str_eq(ftype, "argfan") {
-        // SExprArr fan-out: spread an ARRAY_CAPTURE ($...) of arg edges into the
-        // fixed slots a0..a7 via set_arg + set_len (ir.logos SExprArr write API).
-        // The collected edges are in `rcap` (a WArray<WAny> of `WAny::ref_to(edge)`
-        // handles) — exactly the WAny `set_arg` expects. Args beyond SEXPRARR_MAX
-        // are dropped (arity cap), matching el.logos parse_arglist.
+    if ftype_is_fan(ftype) {
+        // Fan-out: spread an ARRAY_CAPTURE ($...) of child edges into the fixed
+        // slots via a `&mut self` setter + set_len (the SExprArr / RQWithArr /
+        // RQAggArr write API). The collected edges are in `rcap` (a WArray<WAny> of
+        // `WAny::ref_to(edge)` handles) — exactly what the setter expects. Items
+        // beyond the arity cap are dropped (matching el.logos parse_arglist).
+        let method: String = fan_method(ftype);
+        let maxfn: String = fan_maxfn(ftype);
         w.line("let mut afi: i64 = 0i64;");
         w.line("let alen: i64 = rcap.len();");
         let mut cl: String = String::new();
-        cl.push_str("while afi < alen && afi < SEXPRARR_MAX() { ");
-        cl.push_str(node_var); cl.push_str(".set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }");
+        cl.push_str("while afi < alen && afi < "); cl.push_str(maxfn.as_str());
+        cl.push_str("() { ");
+        cl.push_str(node_var); cl.push_str("."); cl.push_str(method.as_str());
+        cl.push_str("(afi, rcap.get(afi)); afi = afi + 1i64; }");
         w.line(cl.as_str());
         let mut sl: String = String::new();
         sl.push_str(node_var); sl.push_str(".set_len(afi);");
@@ -3495,6 +3643,18 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
         } else {
             l.push_str("\"\";");
         }
+        w.line(l.as_str());
+        return;
+    }
+    // A `bool` field written from a $N CAPTURE = the OPT-PRESENCE test: an OPT
+    // capture is NULLP when it did not match, so `capN != NULLP` is "the optional
+    // clause was present" (populates has_where / has_result_ty / is_anti / has_arg).
+    // A FOLD_CAPTURE ($0) presence is likewise non-null.
+    if str_eq(ftype, "bool") && (ekind == CAPTURE || ekind == FOLD_CAPTURE) {
+        let mut l: String = String::new();
+        l.push_str(lhs.as_str());
+        if ekind == FOLD_CAPTURE { l.push_str(foldv); } else { l.push_str(capvar); }
+        l.push_str(" != NULLP;");
         w.line(l.as_str());
         return;
     }

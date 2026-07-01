@@ -1,0 +1,31 @@
+// logos.std.wql.wql_walk — a `wql_walk!` alias of the peg + WALKER spine:
+// parse the block via the peg-GENERATED surface parser (`wql_surface_parser::
+// parse_query` → an `RQuery` plan), then WALK that schema'd plan to emit the
+// native fn (`plan_walker::walk_query`). This is the exact same peg-all-the-way
+// path the primary `wql!` handler (`wql.logos`) now uses — the hand-written
+// `QLexer` clause carving + procedural emit it replaced are RETIRED (Phase 4).
+// Kept as a distinct `wql_walk!` entry so the walker-spine e2e test
+// (`wql_walk_e2e`) exercises the plan-walker directly.
+//
+// The handler is deliberately tiny: parse → walk. All the clause structure lives
+// in the grammar (wql.peg), all the emit logic in the walker (plan_walker.logos),
+// and the embedded-EL clause bodies are already SExpr edges on the plan (parsed
+// by the generated EL parser at surface-parse time). No cursor, no re-lex.
+package logos.std.wql.wql_walk;
+
+use logos.std.compiler.metaprog;         // ItemList, item_list_new, error
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.plan;
+use logos.std.wql.wql_surface_parser;    // parse_query — the GENERATED surface parser
+use logos.std.wql.plan_walker;           // walk_query_any — the plan walker-emitter
+
+#[token_macro]
+pub fn wql_walk(s: str) -> ItemList {
+    let out: ItemList = item_list_new();
+    let h: Writ = writ_new(4096i64);
+    let root: WAny = parse_query(s, &h);
+    if root.is_null() { error("wql_walk!: malformed query"); return out; }
+    let _ok: bool = walk_query_any(root);
+    return out;
+}

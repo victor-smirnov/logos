@@ -1,0 +1,221 @@
+// WQL SURFACE-parser smoke (ADR 0012 Phase 2): parse a sample `wql!` query
+// through the peg-GENERATED surface parser (`wql_surface_parser::parse_query`)
+// and assert it produced the correct RQuery plan — the schema-enum family the
+// walker-emitter consumes, REPLACING the hand-written QLexer clause carving.
+//
+// Covers all three surface shapes:
+//   • simple:  fn adults from people:[Person] p where p.age >= 18 select p.name with $q:str
+//   • join:    fn m from a:[A] x join b:[B] y on x.k == y.k select x.name : str
+//   • aggregate: fn g from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64
+//
+// Each parse builds the plan into a live Writ arena `h`; the root is viewed as
+// `RQuery` and matched. The embedded EL clause bodies (where/select/on/key/agg)
+// are resolved through the `WRef<SExpr>` edges and spot-checked, proving the
+// cross-grammar embed (el_parser::parse_expr) wired the SExpr IR in correctly.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.str;
+use logos.std.wql.ir;
+use logos.std.wql.plan;
+use logos.std.wql.wql_surface_parser;   // parse_query — the GENERATED surface parser
+
+fn main() -> i32 {
+    // ── SIMPLE ────────────────────────────────────────────────────────────
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "fn adults from people:[Person] p where p.age >= 18 select p.name with $q:str";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 1i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Simple(s) => {
+                if !str_eq(s.fn_name, "adults")  { return 2i32; }
+                if !str_eq(s.src_name, "people") { return 3i32; }
+                if !str_eq(s.row_ty, "Person")   { return 4i32; }
+                if !str_eq(s.var_name, "p")      { return 5i32; }
+                if !s.has_where                  { return 6i32; }
+                if s.has_result_ty               { return 7i32; }   // no `: RTy`
+
+                // where predicate:  p.age >= 18  → SBin(OP_GE, SField(age), SLit(18)).
+                let we: SExpr = s.where_expr();
+                match we {
+                    SExpr::Bin(b) => {
+                        if b.op != 8i32 { return 8i32; }   // OP_GE
+                        let l: SExpr = b.lhs.any().view::<SExpr>();
+                        match l {
+                            SExpr::Field(f) => { if !str_eq(f.name, "age") { return 9i32; } }
+                            _ => { return 10i32; }
+                        }
+                    }
+                    _ => { return 11i32; }
+                }
+
+                // select projection:  p.name  → SField(name).
+                let se: SExpr = s.select_expr();
+                match se {
+                    SExpr::Field(f) => { if !str_eq(f.name, "name") { return 12i32; } }
+                    _ => { return 13i32; }
+                }
+
+                // with $q:str  → one RQWith(is_param, "q", "str").
+                let wa: RQWithArr = s.with_arr();
+                if wa.len() != 1i64 { return 14i32; }
+                let d0: RQWith = wa.with_at(0i64);
+                if !d0.is_param            { return 15i32; }
+                if !str_eq(d0.name, "q")   { return 16i32; }
+                if !str_eq(d0.ty, "str")   { return 17i32; }
+            }
+            _ => { return 18i32; }
+        }
+    }
+
+    // ── JOIN ──────────────────────────────────────────────────────────────
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "fn m from a:[A] x join b:[B] y on x.k == y.k select x.name : str";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 20i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Join(j) => {
+                if !str_eq(j.fn_name, "m")  { return 21i32; }
+                if !str_eq(j.a_name, "a")   { return 22i32; }
+                if !str_eq(j.a_ty, "A")     { return 23i32; }
+                if !str_eq(j.x_var, "x")    { return 24i32; }
+                if j.is_anti                { return 25i32; }
+                if !str_eq(j.b_name, "b")   { return 26i32; }
+                if !str_eq(j.b_ty, "B")     { return 27i32; }
+                if !str_eq(j.y_var, "y")    { return 28i32; }
+                if !str_eq(j.result_ty, "str") { return 29i32; }
+                if j.has_where              { return 30i32; }
+
+                // on:  x.k == y.k  → SBin(OP_EQ, …).
+                let oe: SExpr = j.on_expr();
+                match oe {
+                    SExpr::Bin(b) => { if b.op != 3i32 { return 31i32; } }   // OP_EQ
+                    _ => { return 32i32; }
+                }
+            }
+            _ => { return 33i32; }
+        }
+    }
+
+    // ── AGGREGATE ─────────────────────────────────────────────────────────
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "fn g from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 40i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Aggr(g) => {
+                if !str_eq(g.fn_name, "g")     { return 41i32; }
+                if !str_eq(g.a_ty, "Order")    { return 42i32; }
+                if !str_eq(g.x_var, "r")       { return 43i32; }
+                if g.has_where                 { return 44i32; }
+                if !str_eq(g.result_ty, "i64") { return 45i32; }
+
+                // group key:  r.dept  → SField(dept).
+                let ke: SExpr = g.key_expr();
+                match ke {
+                    SExpr::Field(f) => { if !str_eq(f.name, "dept") { return 46i32; } }
+                    _ => { return 47i32; }
+                }
+
+                // aggregate total = sum(r.amt) → one RQAgg(name="total", fn_name="sum", has_arg).
+                let aa: RQAggArr = g.aggs_arr();
+                if aa.len() != 1i64 { return 48i32; }
+                let a0: RQAgg = aa.agg_at(0i64);
+                if !str_eq(a0.name, "total")  { return 49i32; }
+                if !str_eq(a0.fn_name, "sum") { return 50i32; }
+                if !a0.has_arg                { return 51i32; }
+                let ae: SExpr = a0.arg_expr();
+                match ae {
+                    SExpr::Field(f) => { if !str_eq(f.name, "amt") { return 52i32; } }
+                    _ => { return 53i32; }
+                }
+
+                // select total  → SField(total) (a bare field-root over the grouped local).
+                let se: SExpr = g.select_expr();
+                match se {
+                    SExpr::Field(f) => { if !str_eq(f.name, "total") { return 54i32; } }
+                    _ => { return 55i32; }
+                }
+            }
+            _ => { return 56i32; }
+        }
+    }
+
+    // ── ANTI-JOIN + `where` (ordered-choice + is_anti flag) ───────────────
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "fn m from a:[A] x anti join b:[B] y on x.k == y.k where x.ok select x.name : str";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 60i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Join(j) => {
+                if !j.is_anti  { return 61i32; }
+                if !j.has_where { return 62i32; }
+                // where x.ok → SField(ok).
+                let we: SExpr = j.where_expr();
+                match we {
+                    SExpr::Field(f) => { if !str_eq(f.name, "ok") { return 63i32; } }
+                    _ => { return 64i32; }
+                }
+            }
+            _ => { return 65i32; }
+        }
+    }
+
+    // ── AGGREGATE + `where` + count() (empty-paren alt) + 2 aggs ───────────
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "fn g from o:[Order] r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 70i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Aggr(g) => {
+                if !g.has_where { return 71i32; }
+                let aa: RQAggArr = g.aggs_arr();
+                if aa.len() != 2i64 { return 72i32; }
+                let a0: RQAgg = aa.agg_at(0i64);
+                if !str_eq(a0.name, "n")        { return 73i32; }
+                if !str_eq(a0.fn_name, "count") { return 74i32; }
+                if a0.has_arg                   { return 75i32; }   // count() → no arg
+                let a1: RQAgg = aa.agg_at(1i64);
+                if !str_eq(a1.name, "total")    { return 76i32; }
+                if !a1.has_arg                  { return 77i32; }
+            }
+            _ => { return 78i32; }
+        }
+    }
+
+    // ── COMPREHENSION in select (embed `[…]` depth tracking) ───────────────
+    // `select [ v.n for v in xs ]` — the `[`/`]` and inner `for`/`in` must NOT
+    // terminate the sel_body embed early (they are inside brackets / not stops).
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "fn c from rows:[Row] r select [ v.n for v in items ] : i64";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 80i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Simple(s) => {
+                if !str_eq(s.result_ty, "i64") { return 81i32; }
+                let se: SExpr = s.select_expr();
+                match se {
+                    SExpr::Comp(_) => { }
+                    _ => { return 82i32; }
+                }
+            }
+            _ => { return 83i32; }
+        }
+    }
+
+    return 0i32;
+}

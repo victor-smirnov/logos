@@ -4,6 +4,7 @@
 # Regenerates the CHECKED-IN generated parsers from their grammars:
 #   stdlib/std/wql/grammars/el.peg    -> stdlib/std/wql/el_parser.logos
 #   stdlib/std/wql/grammars/trama.peg -> stdlib/std/wql/trama_parser.logos
+#   stdlib/std/wql/grammars/wql.peg   -> stdlib/std/wql/wql_surface_parser.logos
 #
 # This is an OFFLINE, opt-in step (target `wql_peg_regen`). The generated parsers
 # are committed source artifacts; a normal `cmake --build` compiles the committed
@@ -32,8 +33,12 @@ echo "== regenerating el_parser.logos from el.peg =="
 echo "== regenerating trama_parser.logos from trama.peg =="
 "$peg" "$grammars/trama.peg" --out-dir "$outdir"
 
+echo "== regenerating wql_surface_parser.logos from wql.peg =="
+"$peg" "$grammars/wql.peg" --out-dir "$outdir"
+
 echo "----------------------------------------"
 echo "regenerated:"
 echo "  $outdir/el_parser.logos"
 echo "  $outdir/trama_parser.logos"
+echo "  $outdir/wql_surface_parser.logos"
 echo "Now: cmake --build $build && cmake --build $build --target wql_peg_oracle"

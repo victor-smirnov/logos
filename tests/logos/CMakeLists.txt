@@ -77,9 +77,14 @@ file(GLOB PUB_LIB_SOURCES ${PUB_LIB}/*.logos)
 add_custom_command(
     OUTPUT  ${PUB_LIB_BIN}
     COMMAND $<TARGET_FILE:logosc>
-            --emit-module ${PUB_LIB_MANIFEST}
+            --emit-module ${PUB_LIB_MANIFEST} -L ${STDLIB_BIN_DIR}
             -o ${PUB_LIB_BIN}
+    # -L stdlib + DEPENDS on the stdlib archives: a pub_lib member (wref_field_pkg,
+    # the cross-CU WRef mono-bug regression) `use`s logos.std.wql.ir + logos.lang.writ.*,
+    # so the fixture must build AFTER the stdlib and see it (matches coex2a/2b). Without
+    # this a clean build schedules libpub_lib before liblogos-* -> module-loader misses.
     DEPENDS logosc ${PUB_LIB_MANIFEST} ${PUB_LIB_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libpub_lib.a"
 )

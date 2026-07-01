@@ -1,0 +1,221 @@
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// wql.peg — the wql! SURFACE grammar for peg_gen_logos, in SCHEMA-EMISSION mode
+// (ADR 0012 peg-frontend). It builds the Phase-1 RQuery query-PLAN (the `RQuery`
+// schema-enum family, `logos.std.wql.plan`) as first-class Writ schema views —
+// `doc.make::<S>()` + typed field writes + `WRef<S>` edges — dogfooding ADR 0011.
+// It is the peg-generated REPLACEMENT for the hand-written `QLexer` clause carving
+// in `stdlib/std/wql/wql.logos`.
+//
+// The wql! surface has three shapes; each maps to one RQuery variant:
+//
+//   RQSimple — fn N from src:[Ty] var [where P] select S [: RTy] [with …]
+//   RQJoin   — fn N from a:[ATy] x [anti] join b:[BTy] y on ON [where P]
+//              select S : RTy [with …]
+//   RQAggr   — fn N from a:[ATy] x [where P] group by K
+//              aggregate name=fn(arg?),… select S : RTy [with …]
+//
+// ── EMBEDDED-EL CLAUSE BODIES (the ONE cross-grammar coupling) ──────────────
+// Every EXPRESSION clause body (where / select / on / group-key / aggregate-arg)
+// is EL — parsed by the generated EL parser (el.peg → `parse_expr`), producing an
+// `SExpr` root handle wired into the plan node's `WRef<SExpr>` edge. Imported as
+// `el`; each `<- el::expr` rule lowers to a cross-grammar embed call: scan the raw
+// sub-range up to the next STRUCTURAL STOP and hand it to
+// `logos.std.wql.el_parser::parse_expr(sub, doc)` into the SHARED arena.
+//
+// A WQL clause body does NOT end at a `}}`-style tag close (as Trama's does) — it
+// ends at the next structural KEYWORD (where/select/join/anti/group/by/aggregate/
+// on/with), a top-level result-type `:` (ternary `?:` balanced), or a top-level
+// `,`/`)` (an aggregate arg list). The generator emits a KEYWORD-DELIMITED embed
+// close-finder (`embed_find_close`) driven by this grammar's keyword tokens +
+// `(`/`[` depth tracking — the schema-mode-gated generalization of the template
+// close-finder (logos.peg has no embed, so its output stays byte-identical).
+//
+// ── SELF-DESCRIBING (Option B) ─────────────────────────────────────────────
+// fn / source / var / type NAMES + the result type + aggregate column names all
+// live on the plan node as captured-IDENT `str` fields; the walker reads them
+// directly (no side tables). Optionality is an explicit `has_*` bool flag,
+// derived from "did the OPT capture match" (a `bool` schema field written from a
+// `$N` capture emits the presence test `capN != NULLP`).
+
+%meta {
+    name:      "wql"
+    version:   "1.0"
+    namespace: "logos::wql::surface"
+    output:    "wql_surface_parser"
+    package:   "logos.std.wql.wql_surface_parser"
+    prefix:    "Wq"
+}
+
+// The wql! entry rule: a whole query → an RQuery root edge handle.
+%export { query }
+
+// ── CROSS-GRAMMAR EL EMBEDDING ─────────────────────────────────────────────
+%import "logos.std.wql.el_parser" as el
+
+// ── SCHEMA-EMISSION binding ────────────────────────────────────────────────
+// The RQuery plan schemas live in `plan`; their `WRef<SExpr>` edge fields
+// reference `SExpr` from the `ir` module — so BOTH are imported (one `use` per
+// space-separated `use:` entry). `arena: external` → the export takes the
+// handler's `&Writ`; `ref_wrap: "WRef"` is plan.logos's edge wrapper.
+//
+// Fan-out field types generalize el.peg's SExprArr `"argfan"`:
+//   "fan set_with RQWITH_MAX"  spreads a $... array of RQWith edges into RQWithArr
+//   "fan set_agg  RQAGG_MAX"   spreads a $... array of RQAgg  edges into RQAggArr
+// The write is `while i<len && i<MAXFN() { node.METHOD(i, rcap.get(i)); i++ }` +
+// `node.set_len(i)` — the same shape as `argfan` (= "fan set_arg SEXPRARR_MAX").
+//
+// A `bool` field written from a `$N` capture emits the OPT-PRESENCE test
+// `capN != NULLP` (an OPT capture is NULLP when it did not match) — that is how
+// `has_where` / `has_result_ty` / `is_anti` are populated.
+%schema {
+    use:      "logos.std.wql.plan"
+    use:      "logos.std.wql.ir"
+    arena:    external
+    ref_wrap: "WRef"
+
+    RQSimple { fn_name: "str", src_name: "str", row_ty: "str", var_name: "str",
+               has_where: "bool", where_pred: "ref SExpr", select: "ref SExpr",
+               has_result_ty: "bool", result_ty: "str", with_decls: "ref RQWithArr" }
+
+    RQJoin   { fn_name: "str", a_name: "str", a_ty: "str", x_var: "str",
+               is_anti: "bool", b_name: "str", b_ty: "str", y_var: "str",
+               on: "ref SExpr", has_where: "bool", where_pred: "ref SExpr",
+               select: "ref SExpr", result_ty: "str", with_decls: "ref RQWithArr" }
+
+    RQAggr   { fn_name: "str", a_name: "str", a_ty: "str", x_var: "str",
+               has_where: "bool", where_pred: "ref SExpr", key: "ref SExpr",
+               aggs: "ref RQAggArr", select: "ref SExpr", result_ty: "str",
+               with_decls: "ref RQWithArr" }
+
+    RQAgg      { name: "str", fn_name: "str", arg: "ref SExpr", has_arg: "bool" }
+    RQAggArr   { aggs: "fan set_agg RQAGG_MAX" }
+    RQWith     { is_param: "bool", name: "str", ty: "str" }
+    RQWithArr  { ws:   "fan set_with RQWITH_MAX" }
+}
+
+// ── Tokens ─────────────────────────────────────────────────────────────────
+// Structural keywords (declared as literal tokens; ordered before IDENT so
+// `from`/`where`/… win). Every alpha-keyword literal ALSO drives the embed
+// close-finder's structural-stop set (a top-level clause boundary).
+%tokens {
+    KW_FN        = "fn"
+    KW_FROM      = "from"
+    KW_WHERE     = "where"
+    KW_SELECT    = "select"
+    KW_ANTI      = "anti"
+    KW_JOIN      = "join"
+    KW_ON        = "on"
+    KW_GROUP     = "group"
+    KW_BY        = "by"
+    KW_AGGREGATE = "aggregate"
+    KW_WITH      = "with"
+
+    // Punctuation.
+    COLON    = ":"
+    COMMA    = ","
+    EQ       = "="
+    DOLLAR   = "$"
+    LBRACKET = "["
+    RBRACKET = "]"
+    LPAREN   = "("
+    RPAREN   = ")"
+
+    IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+    // Skip whitespace + line comments.
+    %skip = /[ \t\r\n]+/
+    %skip = /\/\/[^\n]*/
+}
+
+// ── Rules ──────────────────────────────────────────────────────────────────
+%rules {
+    // query := the whole wql! block → one RQuery variant.
+    // Ordered choice (PEG first-match): the relational shapes are distinguished by
+    // a structural keyword after the source; the leading optional `where` can
+    // precede `group`, and `join`/`anti` can precede the select. Try join, then
+    // aggregate, then the simple scan/filter/project fallback. Each alt re-parses
+    // the shared `fn N from src:[Ty] var` prefix (cheap; packrat-memoized).
+    query <- join_query
+           / aggr_query
+           / simple_query
+
+    // ── RQSimple ──────────────────────────────────────────────────────────
+    //   fn N from src:[Ty] var [where P] select S [: RTy] [with …]
+    //   $1=KW_FN $2=IDENT(fn) $3=KW_FROM $4=IDENT(src) $5=: $6=[ $7=IDENT(row)
+    //   $8=] $9=IDENT(var) $10=where_opt? $11=KW_SELECT $12=sel_body
+    //   $13=result_opt? $14=with_opt?
+    simple_query <- KW_FN IDENT
+                    KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+                    where_clause?
+                    KW_SELECT sel_body result_clause? with_opt?
+                    => { CODE: "RQSimple", fn_name: $2, src_name: $4, row_ty: $7,
+                         var_name: $9, has_where: $10, where_pred: $10,
+                         select: $12, has_result_ty: $13, result_ty: $13,
+                         with_decls: $14 }
+
+    // ── RQJoin ────────────────────────────────────────────────────────────
+    //   fn N from a:[ATy] x [anti] join b:[BTy] y on ON [where P] select S : RTy [with …]
+    //   $1..$9 prefix; $10=anti? $11=KW_JOIN $12=IDENT(b) $13=: $14=[ $15=IDENT(bty)
+    //   $16=] $17=IDENT(y) $18=KW_ON $19=on_body $20=where_opt?
+    //   $21=KW_SELECT $22=sel_body $23=: $24=IDENT(RTy) $25=with_opt?
+    join_query <- KW_FN IDENT
+                  KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+                  KW_ANTI? KW_JOIN IDENT COLON LBRACKET IDENT RBRACKET IDENT
+                  KW_ON on_body
+                  where_clause?
+                  KW_SELECT sel_body COLON IDENT with_opt?
+                  => { CODE: "RQJoin", fn_name: $2, a_name: $4, a_ty: $7, x_var: $9,
+                       is_anti: $10, b_name: $12, b_ty: $15, y_var: $17,
+                       on: $19, has_where: $20, where_pred: $20,
+                       select: $22, result_ty: $24, with_decls: $25 }
+
+    // ── RQAggr ────────────────────────────────────────────────────────────
+    //   fn N from a:[ATy] x [where P] group by K aggregate a=fn(e),… select S : RTy [with …]
+    //   $1..$9 prefix; $10=where_opt? $11=KW_GROUP $12=KW_BY $13=key_body
+    //   $14=KW_AGGREGATE $15=agg_list $16=KW_SELECT $17=sel_body $18=: $19=IDENT(RTy)
+    //   $20=with_opt?
+    aggr_query <- KW_FN IDENT
+                  KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+                  where_clause?
+                  KW_GROUP KW_BY key_body
+                  KW_AGGREGATE agg_list
+                  KW_SELECT sel_body COLON IDENT with_opt?
+                  => { CODE: "RQAggr", fn_name: $2, a_name: $4, a_ty: $7, x_var: $9,
+                       has_where: $10, where_pred: $10,
+                       key: $13, aggs: $15, select: $17, result_ty: $19,
+                       with_decls: $20 }
+
+    // ── Shared sub-rules ───────────────────────────────────────────────────
+    // `where P` — the value is the predicate SExpr ($2, past the KW_WHERE token).
+    where_clause <- KW_WHERE where_body
+
+    // `: <ResultTy>` — the value is the type-name IDENT ($2).
+    result_clause <- COLON IDENT
+
+    // The embedded EL clause bodies. Each `<- el::expr` is a cross-grammar embed:
+    // scan the raw sub-range to the next structural stop, sub-parse into `doc`.
+    where_body <- el::expr
+    sel_body   <- el::expr
+    on_body    <- el::expr
+    key_body   <- el::expr
+    agg_body   <- el::expr
+
+    // Optional `with [$]name:ty (, …)*` → RQWithArr fan-out.
+    with_opt   <- KW_WITH with_item ( COMMA with_item )*
+                     => { CODE: "RQWithArr", ws: $... }
+
+    // One with item: `[$]name:ty`. A `$` prefix flags a PARAM (RQWith.is_param).
+    with_item  <- DOLLAR IDENT COLON IDENT => { CODE: "RQWith", is_param: true,  name: $2, ty: $4 }
+                / IDENT COLON IDENT         => { CODE: "RQWith", is_param: false, name: $1, ty: $3 }
+
+    // aggregate list → RQAggArr fan-out.
+    agg_list   <- agg_item ( COMMA agg_item )* => { CODE: "RQAggArr", aggs: $... }
+
+    // One aggregate item: `name = fn(arg?)`. The empty-paren `count()` alt is tried
+    // FIRST (PEG ordered choice) so it matches before the arg-bearing form.
+    agg_item   <- IDENT EQ IDENT LPAREN RPAREN
+                     => { CODE: "RQAgg", name: $1, fn_name: $3, has_arg: false }
+                / IDENT EQ IDENT LPAREN agg_body RPAREN
+                     => { CODE: "RQAgg", name: $1, fn_name: $3, arg: $5, has_arg: true }
+}

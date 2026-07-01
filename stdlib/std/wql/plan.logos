@@ -1,0 +1,244 @@
+// logos.std.wql.plan — the wql! QUERY PLAN, expressed as Writ schemas (ADR 0012
+// §2 relational surface, dogfooding ADR 0011). This is the AST the wql.peg
+// grammar BUILDS and the walker-emitter CONSUMES, REPLACING the hand-written
+// QLexer's procedural clause parsing (`stdlib/std/wql/wql.logos`).
+//
+// The wql! surface has three shapes, modelled here as a `schema enum` family
+// `RQuery` with one variant per shape:
+//
+//   • RQSimple — `fn N from src:[Ty] var [where P] select S [: RTy] [with …]`
+//   • RQJoin   — `… [anti] join b:[BTy] y on ON [where P] select S : RTy [with …]`
+//   • RQAggr   — `… [where P] group by K aggregate a=fn(e),… select S : RTy [with …]`
+//
+// Every plan node is a first-class Writ schema view (no plain Logos structs/enums
+// for plan nodes — SCHEMA MANDATE). The embedded EL clause bodies (where / select
+// / on / group-key / aggregate-args) are the SExpr IR (`logos.std.wql.ir`),
+// referenced through `WRef<SExpr>` edges — the exact edge primitive ir.logos uses,
+// resolved by the walker via `.any().view::<SExpr>()`.
+//
+// SELF-DESCRIBING (Option B, like ir.logos): source names/types + the loop var +
+// the result type + aggregate column names all live on the node as `str` fields;
+// the walker reads them directly (no side tables). Optionality is tracked with
+// explicit `has_*` bool flags (mirroring the QLexer's `has_where` / `infer_result`
+// tracking) rather than sentinel edges — strict + unambiguous.
+//
+// Category allocation: 0x0012 (the "WQL type descriptors" slot the impl-seam ADR
+// dropped — free to reuse for the query-PLAN tier, distinct from SExpr 0x0010 /
+// RExpr 0x0011).
+package logos.std.wql.plan;
+
+use logos.lang.writ.container;
+use logos.lang.writ.allocator;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;      // SExpr, WRef<S>, the embedded-EL edges
+
+// ── Aggregate column — one `name = fn(arg)` item of a `group by` query ────────
+// `fn_name` is the aggregate function NAME (count/sum/min/max/avg — self-describing,
+// Option B; the walker maps it to the AGG_* id via `agg_of_name`); `name` is the
+// bound column name the projection references; `arg` is the WRef<SExpr> inner
+// expression (absent / unused for `count()`, flagged by `has_arg`).
+pub schema RQAgg : code(0x0012_0000_0000_0010) {
+    name:    str          = 0,
+    fn_name: str          = 1,
+    arg:     WRef<SExpr>  = 2,
+    has_arg: bool         = 3,
+}
+
+impl RQAgg {
+    // The inner argument expression as an SExpr view (only valid when has_arg).
+    pub fn arg_expr(self: &RQAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
+    pub fn as_ref(self: &RQAgg) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized aggregate-column list — a fan-out of up to `RQAGG_MAX` RQAgg
+// edges at fixed slots (the SExprArr pattern from ir.logos). `count` = the arity.
+pub schema RQAggArr : code(0x0012_0000_0000_0011) {
+    count: i32         = 0,
+    c0: WRef<RQAgg> = 1,
+    c1: WRef<RQAgg> = 2,
+    c2: WRef<RQAgg> = 3,
+    c3: WRef<RQAgg> = 4,
+    c4: WRef<RQAgg> = 5,
+    c5: WRef<RQAgg> = 6,
+    c6: WRef<RQAgg> = 7,
+    c7: WRef<RQAgg> = 8,
+}
+
+pub fn RQAGG_MAX() -> i64 { return 8i64; }
+
+impl RQAggArr {
+    pub fn len(self: &RQAggArr) -> i64 { return self.count as i64; }
+
+    pub fn agg_at(self: &RQAggArr, i: i64) -> RQAgg {
+        if i == 0i64 { return self.c0.any().view::<RQAgg>(); }
+        if i == 1i64 { return self.c1.any().view::<RQAgg>(); }
+        if i == 2i64 { return self.c2.any().view::<RQAgg>(); }
+        if i == 3i64 { return self.c3.any().view::<RQAgg>(); }
+        if i == 4i64 { return self.c4.any().view::<RQAgg>(); }
+        if i == 5i64 { return self.c5.any().view::<RQAgg>(); }
+        if i == 6i64 { return self.c6.any().view::<RQAgg>(); }
+        return self.c7.any().view::<RQAgg>();
+    }
+
+    pub fn set_agg(self: &mut RQAggArr, i: i64, h: WAny) {
+        let r: WRef<RQAgg> = WRef::<RQAgg>::from_any(h);
+        if i == 0i64 { self.c0 = r; return; }
+        if i == 1i64 { self.c1 = r; return; }
+        if i == 2i64 { self.c2 = r; return; }
+        if i == 3i64 { self.c3 = r; return; }
+        if i == 4i64 { self.c4 = r; return; }
+        if i == 5i64 { self.c5 = r; return; }
+        if i == 6i64 { self.c6 = r; return; }
+        self.c7 = r;
+    }
+
+    pub fn set_len(self: &mut RQAggArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQAggArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// ── `with` type declaration — one `[$]name:ty` item ───────────────────────────
+// `is_param` = a `$`-prefixed PARAM (vs a bare FIELD); `name` / `ty` are the
+// declared name + type-name text. The walker replays these onto the ElTypes dict
+// exactly as `apply_with_types` did off the QLexer's parallel arrays.
+pub schema RQWith : code(0x0012_0000_0000_0012) {
+    is_param: bool = 0,
+    name:     str  = 1,
+    ty:       str  = 2,
+}
+
+impl RQWith {
+    pub fn as_ref(self: &RQWith) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The `with` clause list — a fan-out of up to `RQWITH_MAX` RQWith edges.
+pub schema RQWithArr : code(0x0012_0000_0000_0013) {
+    count: i32          = 0,
+    w0: WRef<RQWith> = 1,
+    w1: WRef<RQWith> = 2,
+    w2: WRef<RQWith> = 3,
+    w3: WRef<RQWith> = 4,
+    w4: WRef<RQWith> = 5,
+    w5: WRef<RQWith> = 6,
+    w6: WRef<RQWith> = 7,
+    w7: WRef<RQWith> = 8,
+}
+
+pub fn RQWITH_MAX() -> i64 { return 8i64; }
+
+impl RQWithArr {
+    pub fn len(self: &RQWithArr) -> i64 { return self.count as i64; }
+
+    pub fn with_at(self: &RQWithArr, i: i64) -> RQWith {
+        if i == 0i64 { return self.w0.any().view::<RQWith>(); }
+        if i == 1i64 { return self.w1.any().view::<RQWith>(); }
+        if i == 2i64 { return self.w2.any().view::<RQWith>(); }
+        if i == 3i64 { return self.w3.any().view::<RQWith>(); }
+        if i == 4i64 { return self.w4.any().view::<RQWith>(); }
+        if i == 5i64 { return self.w5.any().view::<RQWith>(); }
+        if i == 6i64 { return self.w6.any().view::<RQWith>(); }
+        return self.w7.any().view::<RQWith>();
+    }
+
+    pub fn set_with(self: &mut RQWithArr, i: i64, h: WAny) {
+        let r: WRef<RQWith> = WRef::<RQWith>::from_any(h);
+        if i == 0i64 { self.w0 = r; return; }
+        if i == 1i64 { self.w1 = r; return; }
+        if i == 2i64 { self.w2 = r; return; }
+        if i == 3i64 { self.w3 = r; return; }
+        if i == 4i64 { self.w4 = r; return; }
+        if i == 5i64 { self.w5 = r; return; }
+        if i == 6i64 { self.w6 = r; return; }
+        self.w7 = r;
+    }
+
+    pub fn set_len(self: &mut RQWithArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQWithArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// ── RQSimple — scan / filter / project (the simple query shape) ───────────────
+//   fn N from src:[row_ty] var [where P] select S [: result_ty] [with …]
+//
+// `has_where` / `where` — the optional predicate edge (WRef<SExpr>).
+// `select` — the required projection edge.
+// `has_result_ty` — false ⇒ INFER the result element type from `select`.
+// `with_decls` — the `with` list (may be empty, count 0).
+pub schema RQSimple : code(0x0012_0000_0000_0000) {
+    fn_name:       str            = 0,
+    src_name:      str            = 1,
+    row_ty:        str            = 2,
+    var_name:      str            = 3,
+    has_where:     bool           = 4,
+    where_pred:         WRef<SExpr>    = 5,
+    select:        WRef<SExpr>    = 6,
+    has_result_ty: bool           = 7,
+    result_ty:     str            = 8,
+    with_decls:    WRef<RQWithArr> = 9,
+}
+
+// ── RQJoin — inner / anti nested-loop join over two sources ───────────────────
+//   fn N from a:[a_ty] x [anti] join b:[b_ty] y on ON [where P] select S : result_ty [with …]
+pub schema RQJoin : code(0x0012_0000_0000_0001) {
+    fn_name:    str             = 0,
+    a_name:     str             = 1,
+    a_ty:       str             = 2,
+    x_var:      str             = 3,
+    is_anti:    bool            = 4,
+    b_name:     str             = 5,
+    b_ty:       str             = 6,
+    y_var:      str             = 7,
+    on:         WRef<SExpr>     = 8,
+    has_where:  bool            = 9,
+    where_pred:      WRef<SExpr>     = 10,
+    select:     WRef<SExpr>     = 11,
+    result_ty:  str             = 12,
+    with_decls: WRef<RQWithArr> = 13,
+}
+
+// ── RQAggr — group-by + aggregate ─────────────────────────────────────────────
+//   fn N from a:[a_ty] x [where P] group by key aggregate a=fn(e),… select S : result_ty [with …]
+pub schema RQAggr : code(0x0012_0000_0000_0002) {
+    fn_name:    str             = 0,
+    a_name:     str             = 1,
+    a_ty:       str             = 2,
+    x_var:      str             = 3,
+    has_where:  bool            = 4,
+    where_pred:      WRef<SExpr>     = 5,
+    key:        WRef<SExpr>     = 6,
+    aggs:       WRef<RQAggArr>  = 7,
+    select:     WRef<SExpr>     = 8,
+    result_ty:  str             = 9,
+    with_decls: WRef<RQWithArr> = 10,
+}
+
+// ── The RQuery family — one variant per surface shape ─────────────────────────
+pub schema enum RQuery : category(0x0012_0000_0000_0000) {
+    Simple(RQSimple),
+    Join(RQJoin),
+    Aggr(RQAggr),
+}
+
+// ── Edge handles (same provenance-laundering rationale as ir.logos) ───────────
+impl RQSimple { pub fn as_ref(self: &RQSimple) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RQJoin   { pub fn as_ref(self: &RQJoin)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RQAggr   { pub fn as_ref(self: &RQAggr)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+// ── Typed edge RESOLVERS (the walker's convenience API) ───────────────────────
+impl RQSimple {
+    pub fn where_expr(self: &RQSimple)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
+    pub fn select_expr(self: &RQSimple) -> SExpr { return self.select.any().view::<SExpr>(); }
+    pub fn with_arr(self: &RQSimple)    -> RQWithArr { return self.with_decls.any().view::<RQWithArr>(); }
+}
+impl RQJoin {
+    pub fn on_expr(self: &RQJoin)     -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn where_expr(self: &RQJoin)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
+    pub fn select_expr(self: &RQJoin) -> SExpr { return self.select.any().view::<SExpr>(); }
+    pub fn with_arr(self: &RQJoin)    -> RQWithArr { return self.with_decls.any().view::<RQWithArr>(); }
+}
+impl RQAggr {
+    pub fn where_expr(self: &RQAggr)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
+    pub fn key_expr(self: &RQAggr)    -> SExpr { return self.key.any().view::<SExpr>(); }
+    pub fn aggs_arr(self: &RQAggr)    -> RQAggArr { return self.aggs.any().view::<RQAggArr>(); }
+    pub fn select_expr(self: &RQAggr) -> SExpr { return self.select.any().view::<SExpr>(); }
+    pub fn with_arr(self: &RQAggr)    -> RQWithArr { return self.with_decls.any().view::<RQWithArr>(); }
+}

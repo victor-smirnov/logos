@@ -1,0 +1,114 @@
+// WQL query-PLAN smoke (ADR 0012 §2, dogfood ADR 0011): construct an
+// `RQuery::Simple` plan node — source name/type + loop var + a `where`
+// predicate edge + a `select` projection edge + a `with` list — via
+// make/view, then read it back through the `RQuery` schema-enum `match`
+// and resolve each `WRef<SExpr>` embedded-EL edge.
+//
+// This is the Phase-1 anchor: it proves the RQSimple plan schema round-trips
+// (str fields, bool flags, WRef<SExpr> edges to the embedded SExpr IR, and a
+// nested WRef<RQWithArr> fan-out list) the way the wql.peg grammar will build
+// it and the walker-emitter will consume it.
+//
+// Nodes are built inline against one live `Writ` arena `h`: a node's edge handle
+// (`as_ref`) targets the TOM in `h`, so each child view stays in scope while its
+// ref is taken (the standard IR-construction shape from wql_ir_smoke).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.str;
+use logos.std.wql.ir;
+use logos.std.wql.plan;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(1024i64);
+
+    // ── the embedded `where` predicate:  var.age  (an SField over an implicit
+    // root)  ==  30  → SBin(OP_EQ, SField(name="age"), SLit(30)).
+    let root: SField = h.make::<SField>();
+    root.name = "age";
+    let lit30: SLit = h.make::<SLit>();
+    lit30.val = WAny::from(30i56);
+    let pred: SBin = h.make::<SBin>();
+    pred.op  = 3i32;    // OP_EQ
+    pred.lhs = WRef::<SExpr>::from_any(root.as_ref());
+    pred.rhs = WRef::<SExpr>::from_any(lit30.as_ref());
+
+    // ── the `select` projection:  var.name  → SField(name="name").
+    let proj: SField = h.make::<SField>();
+    proj.name = "name";
+
+    // ── the `with` list:  with $q:str  → one RQWith(is_param, "q", "str").
+    let w0: RQWith = h.make::<RQWith>();
+    w0.is_param = true;
+    w0.name = "q";
+    w0.ty = "str";
+    let mut warr: RQWithArr = h.make::<RQWithArr>();
+    warr.set_len(1i64);
+    warr.set_with(0i64, w0.as_ref());
+
+    // ── the RQSimple plan node.
+    let q: RQSimple = h.make::<RQSimple>();
+    q.fn_name       = "adults";
+    q.src_name      = "people";
+    q.row_ty        = "Person";
+    q.var_name      = "p";
+    q.has_where     = true;
+    q.where_pred    = WRef::<SExpr>::from_any(pred.as_ref());
+    q.select        = WRef::<SExpr>::from_any(proj.as_ref());
+    q.has_result_ty = false;
+    q.with_decls    = WRef::<RQWithArr>::from_any(warr.as_ref());
+
+    // ── read it back through the RQuery enum match.
+    let plan: RQuery = q.as_ref().view::<RQuery>();
+    match plan {
+        RQuery::Simple(s) => {
+            if !str_eq(s.fn_name, "adults")  { return 1i32; }
+            if !str_eq(s.src_name, "people") { return 2i32; }
+            if !str_eq(s.row_ty, "Person")   { return 3i32; }
+            if !str_eq(s.var_name, "p")      { return 4i32; }
+            if !s.has_where                  { return 5i32; }
+            if s.has_result_ty               { return 6i32; }
+
+            // Resolve the `where` edge → SBin(OP_EQ, SField, SLit).
+            let we: SExpr = s.where_expr();
+            match we {
+                SExpr::Bin(b) => {
+                    if b.op != 3i32 { return 7i32; }
+                    // lhs is the field `age`.
+                    let l: SExpr = b.lhs.any().view::<SExpr>();
+                    match l {
+                        SExpr::Field(f) => { if !str_eq(f.name, "age") { return 8i32; } }
+                        _ => { return 9i32; }
+                    }
+                    // rhs is the literal 30.
+                    let r: SExpr = b.rhs.any().view::<SExpr>();
+                    match r {
+                        SExpr::Lit(lt) => { if lt.val.as_i64() != 30i64 { return 10i32; } }
+                        _ => { return 11i32; }
+                    }
+                }
+                _ => { return 12i32; }
+            }
+
+            // Resolve the `select` edge → SField(name="name").
+            let se: SExpr = s.select_expr();
+            match se {
+                SExpr::Field(f) => { if !str_eq(f.name, "name") { return 13i32; } }
+                _ => { return 14i32; }
+            }
+
+            // Resolve the `with` list → one RQWith(is_param, "q", "str").
+            let wa: RQWithArr = s.with_arr();
+            if wa.len() != 1i64 { return 15i32; }
+            let d0: RQWith = wa.with_at(0i64);
+            if !d0.is_param              { return 16i32; }
+            if !str_eq(d0.name, "q")     { return 17i32; }
+            if !str_eq(d0.ty, "str")     { return 18i32; }
+        }
+        _ => { return 20i32; }
+    }
+
+    return 0i32;
+}
