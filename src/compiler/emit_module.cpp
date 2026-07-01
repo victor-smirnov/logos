@@ -649,6 +649,12 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             if (fn.is_extern()) return;
             if (!fn.type_params_empty()) return;
             if (!fn.is_pub()) return;
+            // Metaprog macro hooks (#[fn_macro]/#[token_macro]) are compiler-
+            // invoked (discovered by attribute, called by the metaprog driver),
+            // NOT a linkable consumer API. Their signatures churn as wql/trama
+            // iterate, which would falsely trip the abi-gate as ABI-breaking, so
+            // exclude them from the public ABI surface.
+            if (fn.is_macro_hook()) return;
             pf << sym::link_name(fn, prog.pkg_module_ids) << '\n';
         };
         for (auto& fn : prog.functions) emit_pub(fn);

@@ -1134,6 +1134,15 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         if (!pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0)
             fn.flag(dk::IS_PUB, true);
     }
+    // Mark compiler-invoked metaprog macro hooks (#[fn_macro]/#[token_macro]).
+    // These are discovered by attribute and called by the metaprog driver, NOT a
+    // linkable consumer API — the `--emit-abi` pub-allowlist sidecar excludes
+    // them so their churning signatures (wql/trama) don't falsely trip the
+    // abi-gate as ABI-breaking. Source of truth = the collected SemaFuncInfo
+    // (fi_ptr), which carries the attribute flags set in collect_fn. Set only
+    // when true so the flag stays sparse (default-absent).
+    if (fi_ptr && (fi_ptr->is_fn_macro || fi_ptr->is_token_macro))
+        fn.flag(dk::IS_MACRO_HOOK, true);
     fn.type(dk::RET_TYPE, ret_type);
     fn.block(dk::BODY, body);
     // Phase-1: total dense variable slots assigned in this function body.

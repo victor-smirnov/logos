@@ -4805,6 +4805,12 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     // pub-generic symbols (e.g. `Vec<T>::push` instances) or it would silently
     // drop real public symbols. See emit_module's `.abi-pub` emission.
     if (fn.is_pub())      nf.flag(dk::IS_PUB, true);
+    // Carry the metaprog macro-hook marker (#[fn_macro]/#[token_macro]) through
+    // mono so the `--emit-abi` pub-allowlist sidecar (which reads the post-mono
+    // mirror) still sees it and excludes these compiler-invoked hooks from the
+    // public ABI surface. Even non-generic hooks pass through clone_fn, so
+    // without this the flag set in lower_fn would be dropped here.
+    if (fn.is_macro_hook()) nf.flag(dk::IS_MACRO_HOOK, true);
     nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
     if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     // Never propagate from_binary_module to cloned functions: clone_fn is
@@ -4912,6 +4918,7 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     nf.str(dk::PKG,                 fn.package());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
     if (fn.is_pub())      nf.flag(dk::IS_PUB, true);  // ABI pub-allowlist — see clone_fn.
+    if (fn.is_macro_hook()) nf.flag(dk::IS_MACRO_HOOK, true);  // ABI pub-allowlist — see clone_fn.
     nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
     if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);  // Phase 6 — see clone_fn.

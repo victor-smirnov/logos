@@ -731,6 +731,7 @@ struct FunctionView {
     bool is_extern() const noexcept          { return detail::read_bool(self, lir_schema::decl_keys::IS_EXTERN.code); }
     bool is_vararg() const noexcept          { return detail::read_bool(self, lir_schema::decl_keys::IS_VARARG.code); }
     bool is_pub() const noexcept             { return detail::read_bool(self, lir_schema::decl_keys::IS_PUB.code); }
+    bool is_macro_hook() const noexcept      { return detail::read_bool(self, lir_schema::decl_keys::IS_MACRO_HOOK.code); }
     bool is_metaprog_stub() const noexcept   { return detail::read_bool(self, lir_schema::decl_keys::IS_METAPROG_STUB.code); }
     bool is_specialization() const noexcept  { return detail::read_bool(self, lir_schema::decl_keys::IS_SPECIALIZATION.code); }
     bool from_binary_module() const noexcept { return detail::read_bool(self, lir_schema::decl_keys::FROM_BINARY_MODULE.code); }

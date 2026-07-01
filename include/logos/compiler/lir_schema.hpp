@@ -503,6 +503,7 @@ inline constexpr Key SHOULD_PANIC       {"SHOULD_PANIC",       34}; // bool (spa
 inline constexpr Key IGNORED            {"IGNORED",            35}; // bool (sparse)
 inline constexpr Key SHOULD_PANIC_MSG   {"SHOULD_PANIC_MSG",   36}; // Varchar
 inline constexpr Key BODY_EXTERNAL_REF  {"BODY_EXTERNAL_REF",  37}; // ExternalRef Pod niche (sparse: omit when invalid)
+inline constexpr Key IS_MACRO_HOOK      {"IS_MACRO_HOOK",      38}; // bool (sparse) — #[fn_macro]/#[token_macro] compiler-invoked hook; excluded from ABI-pub surface
 } // namespace decl_keys
 
 // Function PARAM sub-map keys (own small key space — distinct map schema).
