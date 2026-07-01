@@ -76,13 +76,15 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         if (elem_tv && (elem_tv.kind() == LogosType::Kind::Struct ||
                         elem_tv.kind() == LogosType::Kind::ZonedStruct) &&
             !is_anyval(elem_tv)) {
+            // PKG-QUALIFIED lookup (find_struct_it) so `[Item; N]` of a user
+            // struct doesn't alias an imported same-named struct's layout.
             auto cname = concrete_struct_name(elem_tv);
-            auto sit   = struct_types_.find(cname);
+            auto sit   = find_struct_it(elem_tv);
             if (sit == struct_types_.end()) {
                 auto def_it = all_struct_defs_.find(cname);
                 if (def_it != all_struct_defs_.end()) {
                     register_struct(def_it->second);
-                    sit = struct_types_.find(cname);
+                    sit = find_struct_it(elem_tv);
                 }
             }
             if (sit != struct_types_.end())
@@ -478,10 +480,14 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         return agg.finish();
     }
     case K::Struct: case K::ZonedStruct: {
-        auto cname = concrete_struct_name(t);
+        // PKG-QUALIFIED key for the cycle guard AND the def lookup: a bare
+        // `concrete_struct_name` would (a) collide two same-named structs in the
+        // cycle-guard set and (b) mis-resolve all_struct_defs_ to the wrong def
+        // → wrong size (find_struct_def_it).
+        auto cname = mlir_struct_key(t);
         if (!seen.insert(cname).second) return {8, 8};  // cycle guard
         Layout r{8, 8};
-        if (auto it = all_struct_defs_.find(cname); it != all_struct_defs_.end()) {
+        if (auto it = find_struct_def_it(t); it != all_struct_defs_.end()) {
             const TypePoolImpl* lo_pool = pool_impl();
             auto sv = it->second;
             auto sv_fields = sv.fields();
@@ -578,10 +584,12 @@ bool MLIRGenImpl::type_is_freeze(TypeRef t,
         if (tv.struct_name() == "UnsafeCell" &&
             tv.pkg_name() == "logos.lang.cell")
             return false;
-        auto cname = concrete_struct_name(t);
+        // PKG-QUALIFIED key/def (find_struct_def_it): a bare name would collide
+        // two same-named structs → wrong freeze answer (noalias soundness).
+        auto cname = mlir_struct_key(t);
         if (!seen.insert(cname).second) return true;   // cycle → don't re-block
         bool frozen = true;
-        auto it = all_struct_defs_.find(cname);
+        auto it = find_struct_def_it(t);
         if (it == all_struct_defs_.end()) {
             frozen = false;                            // unresolved → conservative
         } else {
@@ -626,9 +634,7 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         case K::MutRef: {
             TypeRef p = TypeRef(t).pointee();
             if (p && (p.kind() == K::Struct || p.kind() == K::ZonedStruct)) {
-                auto it = all_struct_defs_.find(concrete_struct_name(p));
-                if (it == all_struct_defs_.end())
-                    it = all_struct_defs_.find(std::string(p.struct_name()));
+                auto it = find_struct_def_it(p);  // pkg-qualified-first
                 if (it != all_struct_defs_.end() && it->second.valid() && it->second.zone_mut())
                     return RefReprKind::FatZoneMut;
             }
@@ -649,9 +655,7 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         // `#[rel_ptr]` struct → self-relative pointer (8B i64 offset storage,
         // absolute thin ptr compute). Classify by the struct def's flag.
         case K::Struct: case K::ZonedStruct: {
-            auto it = all_struct_defs_.find(concrete_struct_name(t));
-            if (it == all_struct_defs_.end())
-                it = all_struct_defs_.find(std::string(TypeRef(t).struct_name()));
+            auto it = find_struct_def_it(t);  // pkg-qualified-first
             if (it != all_struct_defs_.end() && it->second.valid() && it->second.rel_ptr())
                 return RefReprKind::RelOffset;
             return RefReprKind::NotARef;
@@ -849,9 +853,7 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
             auto k = TypeRef(pt).kind();
             bool eligible = (k == K::Ref || k == K::MutRef);
             if (!eligible && (k == K::Struct || k == K::ZonedStruct)) {
-                auto it = all_struct_defs_.find(concrete_struct_name(pt));
-                if (it == all_struct_defs_.end())
-                    it = all_struct_defs_.find(std::string(TypeRef(pt).struct_name()));
+                auto it = find_struct_def_it(pt);  // pkg-qualified-first
                 if (it != all_struct_defs_.end() && it->second.valid() && it->second.non_null()) {
                     std::unordered_set<std::string> seen;
                     if (logos_abi_byte_size(pt, seen) == 8) eligible = true;

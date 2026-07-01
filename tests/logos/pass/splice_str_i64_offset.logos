@@ -1,0 +1,54 @@
+// BUG-HUNT REPRO (metaprog name-collision → wrong struct layout):
+//
+// A user struct named `Item` collides with the metaprog AST handle type
+// `logos.std.compiler.metaprog.Item` (brought into scope by the metaprog use).
+// The two bare-name entries used to alias in the struct-layout registries
+// (struct_types_ / all_struct_defs_, "first-registered wins"), so the metaprog
+// `Item { raw: WAny }` (16 bytes) shadowed the user `Item { name: str, dept: i64 }`
+// (24 bytes) in layout/stride paths → `ws[i]` strided by 16 instead of 24 →
+// mis-read of the i64 field that lives AFTER the 16-byte `str` (SIGSEGV / wrong
+// value). A byte-identical program WITHOUT `use ...metaprog;` (no `Item` in
+// scope) always worked, which is why it looked splice-specific.
+//
+// Fixed by pkg-qualifying the struct-layout lookups (find_struct_it /
+// find_struct_def_it). This test additionally goes through the EMIT-SOURCE splice
+// path: a #[token_macro] emits `pick(&[Item]) -> i64` via logos_emit_source, and
+// that spliced fn reads the str-then-i64 field with the correct stride.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Item { pub name: str, pub dept: i64 }
+
+// #[token_macro] handler: emits, via the raw-source splice path, a function
+//   pub fn pick(ws: &[Item]) -> i64 { sum of .dept over the slice }
+#[token_macro]
+pub fn gen_pick(s: str) -> ItemList {
+    let mut em: Emitter = Emitter::new();
+    em.buf.push_str("package test; ");
+    em.buf.push_str("use logos.lang.str; ");
+    em.buf.push_str("pub fn pick(ws: &[Item]) -> i64 { ");
+    em.buf.push_str("  let mut acc: i64 = 0i64; ");
+    em.buf.push_str("  let mut i: i64 = 0i64; ");
+    em.buf.push_str("  while i < ws.len() { acc = acc + ws[i].dept; i = i + 1i64; } ");
+    em.buf.push_str("  return acc; ");
+    em.buf.push_str("} ");
+    em.commit();
+    return item_list_new();
+}
+
+gen_pick!{ anything }
+
+fn main() -> i32 {
+    let ws: [Item; 3] = [
+        Item { name: "aaa", dept: 10i64 },
+        Item { name: "bb",  dept: 20i64 },
+        Item { name: "c",   dept: 30i64 },
+    ];
+    let total: i64 = pick(&ws[..]);
+    // Expect 10+20+30 = 60. A wrong element stride reads garbage (or SIGSEGV).
+    if total != 60i64 { return 1i32; }
+    return 0i32;
+}

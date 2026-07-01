@@ -4,7 +4,7 @@
 // every Trama feature the static path supports into a single render:
 //
 //   • a multi-line template (real layout; `-%}` trim markers pack the loop body),
-//   • a `{% for … %}` loop over a SCHEMA'D collection field (`[Line; 3]`) whose
+//   • a `{% for … %}` loop over a SCHEMA'D collection field (`[Item; 3]`) whose
 //     loop var is a STRUCT — member access `item.name` / `item.qty` in the body,
 //   • `{{ … }}` interpolation of BOTH a STRING field (`item.name`, push_str) AND
 //     a NUMERIC field (`item.qty` / `o.total`, push_i64),
@@ -17,27 +17,31 @@
 // We render over real data and assert the EXACT woven multi-line string, so the
 // whole parse → AST → walk → emit → linked-fn path is proven end to end.
 //
-// NOTE: the loop-var / list-element struct is named `Line` (not `Item`): a user
-// struct named `Item` collides with the metaprog AST handle type
+// NOTE: the loop-var / list-element struct is deliberately named `Item` — the
+// SAME bare name as the metaprog AST handle type
 // `logos.std.compiler.metaprog.Item` that the token_macro machinery brings into
-// scope, mis-resolving the field type. See the Phase-6 report.
+// scope. This used to collide (bare-name struct registry aliased the two
+// same-named structs onto whichever registered first → wrong element stride /
+// size / dereferenceable → mis-read or SIGSEGV). Fixed by pkg-qualifying the
+// struct-layout lookups (find_struct_it / find_struct_def_it). Keeping the
+// colliding name here proves the fix e2e.
 package test;
 
 use logos.std.wql.trama_render;
 use logos.mem.string;
 use logos.lang.str;
 
-struct Line  { pub name: str, pub qty: i64 }
+struct Item  { pub name: str, pub qty: i64 }
 struct Order {
     pub store: str,
-    pub items: [Line; 3],
+    pub items: [Item; 3],
     pub total: i64,
 }
 
 // A real receipt template. `-%}` trim markers strip the layout newline+indent
 // after the loop tags so each item packs onto its own line; the if/elif/else
 // picks a shipping tier from `total`; `upper(o.store)` upper-cases the store.
-trama!{ fn receipt data o:Order with item:Line, name:str, qty:i64, store:str, total:i64
+trama!{ fn receipt data o:Order with item:Item, name:str, qty:i64, store:str, total:i64
 `=== {{ upper(o.store) }} ===
 {% for item in o.items -%}
   {{ item.name }} x{{ item.qty }}
@@ -61,9 +65,9 @@ fn main() -> i32 {
     let order: Order = Order {
         store: "acme",
         items: [
-            Line { name: "Bolt",   qty: 4i64 },
-            Line { name: "Washer", qty: 12i64 },
-            Line { name: "Nut",    qty: 8i64 },
+            Item { name: "Bolt",   qty: 4i64 },
+            Item { name: "Washer", qty: 12i64 },
+            Item { name: "Nut",    qty: 8i64 },
         ],
         total: 120i64,
     };
@@ -75,9 +79,9 @@ fn main() -> i32 {
     let order2: Order = Order {
         store: "acme",
         items: [
-            Line { name: "Bolt",   qty: 1i64 },
-            Line { name: "Washer", qty: 1i64 },
-            Line { name: "Nut",    qty: 1i64 },
+            Item { name: "Bolt",   qty: 1i64 },
+            Item { name: "Washer", qty: 1i64 },
+            Item { name: "Nut",    qty: 1i64 },
         ],
         total: 60i64,
     };
@@ -89,9 +93,9 @@ fn main() -> i32 {
     let order3: Order = Order {
         store: "acme",
         items: [
-            Line { name: "Bolt",   qty: 1i64 },
-            Line { name: "Washer", qty: 1i64 },
-            Line { name: "Nut",    qty: 1i64 },
+            Item { name: "Bolt",   qty: 1i64 },
+            Item { name: "Washer", qty: 1i64 },
+            Item { name: "Nut",    qty: 1i64 },
         ],
         total: 10i64,
     };

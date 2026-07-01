@@ -3346,7 +3346,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         uint64_t n = TypeRef(TypeRef(op_ty).type_args()[0]).arr_size();
         mlir::Value data_ptr;
         if (val.getType() == ptr_type()) {
-            auto bt = struct_types_.find(concrete_struct_name(op_ty));
+            auto bt = find_struct_it(op_ty);  // pkg-qualified-first (avoid same-name alias)
             mlir::Type sp_ty = bt != struct_types_.end() ? bt->second.llvm_type
                 : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {ptr_type()});
             llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(0)};
@@ -3487,7 +3487,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             // RcInner = {i32/AtomicI32 strong, i32/AtomicI32 weak, T val}).
             mlir::Value field0;
             if (val.getType() == ptr_type()) {
-                auto bt = struct_types_.find(concrete_struct_name(op_ty));
+                auto bt = find_struct_it(op_ty);  // pkg-qualified-first (avoid same-name alias)
                 mlir::Type sp_ty = bt != struct_types_.end() ? bt->second.llvm_type
                     : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {ptr_type()});
                 llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(0)};
@@ -5240,8 +5240,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
     // aggregate values).
     if (TypeRef rt(type); rt && (rt.kind() == LogosType::Kind::Struct ||
                                   rt.kind() == LogosType::Kind::ZonedStruct)) {
-        auto cname = concrete_struct_name(rt);
-        auto sit   = struct_types_.find(cname);
+        // PKG-QUALIFIED lookup: a bare `concrete_struct_name` would alias a
+        // same-named struct from another package (the "first-registered wins"
+        // bare slot) → wrong element stride. See find_struct_it.
+        auto sit = find_struct_it(rt);
         if (sit != struct_types_.end()) {
             auto agg_t = sit->second.llvm_type;
             llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};

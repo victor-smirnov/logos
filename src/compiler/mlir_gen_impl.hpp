@@ -734,6 +734,33 @@ private:
         auto base = concrete_struct_name(t);
         return qualify_pkg(t.pkg_name(), base);
     }
+    // Resolve `struct_types_` for a struct/ZonedStruct TypeRef, PKG-QUALIFIED
+    // first (mlir_struct_key), bare name only as a fallback. The bare-name slot
+    // is a "first-registered wins" back-compat alias (register_struct), so a
+    // bare `concrete_struct_name(t)` lookup silently ALIASES two same-named
+    // structs from different packages onto whichever registered first — wrong
+    // LLVM aggregate ⇒ wrong element stride / field layout (e.g. a user
+    // `struct Item` vs an imported `logos.std.compiler.metaprog.Item`). Any site
+    // that has the TypeRef (carrying pkg) in hand and needs the struct's LLVM
+    // type for LAYOUT/STRIDE must route through this, not bare-name lookup.
+    std::unordered_map<std::string, StructInfo>::iterator
+    find_struct_it(TypeRef t) {
+        if (!t) return struct_types_.end();
+        auto it = struct_types_.find(mlir_struct_key(t));
+        if (it != struct_types_.end()) return it;
+        return struct_types_.find(concrete_struct_name(t));
+    }
+    // Same pkg-qualified-first resolution for `all_struct_defs_` (the def→layout
+    // registry that drives layout_of / size / dereferenceable / loop-var memcpy).
+    // Its bare-name slot is the same "first-registered wins" alias, so a bare
+    // lookup mis-sizes a user struct that shares a name with an imported one.
+    std::unordered_map<std::string, lir_view::StructView>::iterator
+    find_struct_def_it(TypeRef t) {
+        if (!t) return all_struct_defs_.end();
+        auto it = all_struct_defs_.find(mlir_struct_key(t));
+        if (it != all_struct_defs_.end()) return it;
+        return all_struct_defs_.find(concrete_struct_name(t));
+    }
     // Module system (symbol-mangle rewrite, emission boundary): qualified LINK
     // symbol of a def (methods gain `<module>..`; free fns unchanged).
     std::string link_name(lir_view::FunctionView fn) const {
