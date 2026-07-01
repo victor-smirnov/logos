@@ -19543,19 +19543,31 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         && macro_info->param_types.size() == 2
         && is_str_type(macro_info->param_types[0])
         && is_str_type(macro_info->param_types[1]);
-    bool sig_vec = !sig_str && !sig_str2
+    // ADR 0012 §6 Phase 1 PARAMETERIZED-resource ABI:
+    // `#[token_macro] fn h(name: str, params: str, body: str) -> ItemList|QuoteItemBlob`.
+    // For `resource <name> = h!(<params>){ body }`, the binding <name> is arg
+    // slot 0, the raw params source text arg slot 1, the raw block body arg
+    // slot 2. The callee re-emits <params> VERBATIM into the generated
+    // `fn <name>(<params>) -> RetTy` so the params are genuinely parsed +
+    // type-checked when that fn is compiled.
+    bool sig_str3 = macro_info->is_token_macro
+        && macro_info->param_types.size() == 3
+        && is_str_type(macro_info->param_types[0])
+        && is_str_type(macro_info->param_types[1])
+        && is_str_type(macro_info->param_types[2]);
+    bool sig_vec = !sig_str && !sig_str2 && !sig_str3
         && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_str && !sig_str2 && !sig_vec && !sig_zero) {
+    if (!sig_str && !sig_str2 && !sig_str3 && !sig_vec && !sig_zero) {
         // Preserve the canonical fn_macro wording (diagnostic rule
         // metaprog.fn-macro-item.param-signature); token_macro item callees
         // get their own message.
         const char* expected = macro_info->is_token_macro
-            ? "`str` or `(name: str, body: str)`"
+            ? "`str`, `(name: str, body: str)`, or `(name: str, params: str, body: str)`"
             : "`Vec<ExprBlob>` or no args";
         error(std::format(
             "fn_macro item: '{}!' must take {}", callee_name, expected));
@@ -19578,6 +19590,34 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             callee_name, callee_name, callee_name));
         return;
     }
+    if (sig_str3 && !has_name) {
+        error(std::format(
+            "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
+            "`resource <name> = {}!(<params>){{ … }}`",
+            callee_name, callee_name));
+        return;
+    }
+    // The parameterized surface `h!(<params>){ … }` fills the PARAMS slot with
+    // the raw params source text. It is ONLY meaningful for a 3-arg callee; a
+    // 1/2-arg callee has nowhere to route it, so reject the mismatch loudly
+    // rather than silently dropping the user's typed params.
+    bool has_params = node.has_key(la::PARAMS);
+    std::string params_text;
+    if (has_params) params_text = std::string(str_of(node.get(la::PARAMS.code)));
+    if (has_params && !sig_str3) {
+        error(std::format(
+            "'{}!(<params>){{ … }}' supplies a parameter list, but '{}!' is not a "
+            "`(name: str, params: str, body: str)` #[token_macro]",
+            callee_name, callee_name));
+        return;
+    }
+    if (sig_str3 && !has_params) {
+        error(std::format(
+            "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
+            "`resource <name> = {}!(<params>){{ … }}`, not the bare-brace form",
+            callee_name, callee_name));
+        return;
+    }
 
     if (!holder_ || !cur_prog_) return;
 
@@ -19593,13 +19633,14 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
-    if (sig_str || sig_str2) {
+    if (sig_str || sig_str2 || sig_str3) {
         // Slot layout mirrors the ABI decision in the diagnostic above:
         //   1-arg (sig_str):  slot 0 = raw block body
         //   2-arg (sig_str2): slot 0 = LHS binding <name>, slot 1 = raw body
+        //   3-arg (sig_str3): slot 0 = <name>, slot 1 = params text, slot 2 = raw body
         // Passing name in slot 0 keeps the raw-body slot index STABLE across
         // both forms (always "the last slot") and matches the param order
-        // `fn h(name, body)`.
+        // `fn h(name, body)` / `fn h(name, params, body)`.
         auto pack_blob = [](const std::string& s) -> std::vector<uint8_t> {
             std::vector<uint8_t> b(8 + s.size());
             uint64_t sz = static_cast<uint64_t>(s.size());
@@ -19610,7 +19651,11 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         uint64_t site_id = metacall_site_id(
             cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
         std::vector<std::vector<uint8_t>> blobs;
-        if (sig_str2) {
+        if (sig_str3) {
+            blobs.push_back(pack_blob(resource_name));
+            blobs.push_back(pack_blob(params_text));
+            blobs.push_back(pack_blob(raw_text));
+        } else if (sig_str2) {
             blobs.push_back(pack_blob(resource_name));
             blobs.push_back(pack_blob(raw_text));
         } else {
@@ -19623,7 +19668,22 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
-        if (sig_str2) {
+        if (sig_str3) {
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
+                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pb: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
+                "    let __b: str = unsafe {{ str_from_raw(__pb, {3}i64) }};\n"
+                "    {4}(__n, __pr, __b)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                static_cast<int64_t>(params_text.size()),
+                static_cast<int64_t>(raw_text.size()),
+                macro_info->base_name);
+        } else if (sig_str2) {
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"

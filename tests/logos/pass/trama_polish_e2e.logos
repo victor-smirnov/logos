@@ -22,18 +22,18 @@ struct Grade { pub score: i64 }
 struct Counts { pub count: i64, pub flag: bool }
 
 // (1) elif — score 75 ⇒ middle branch "B" (90+ = A, 70+ = B, else C).
-resource grade = trama!{ data g:Grade
+resource grade = trama!(g: &Grade){
     "{% if g.score >= 90 %}A{% elif g.score >= 70 %}B{% else %}C{% endif %}"  };
 
 // (2) truthiness — `count` is i64 (reflected) ⇒ coerced `!= 0`; `flag` is bool ⇒
 // bare. With count=0 the first branch is false; flag=true ⇒ second prints "Y".
-resource truthy = trama!{ data c:Counts
+resource truthy = trama!(c: &Counts){
     "{% if c.count %}nonzero{% endif %}{% if c.flag %}Y{% endif %}"  };
 
 // (3) ws-trim — the `-` markers strip the newlines/indentation around the tags.
 // Without trimming the output would carry the template's layout whitespace;
 // with it the loop body packs tightly: "items:a,b,c,".
-resource ws = trama!{ data ctx:WsCtx with x:str `items:
+resource ws = trama!(ctx: &WsCtx){ `items:
 {%- for x in ctx.items -%}
   {{ x }},
 {%- endfor %}`  };

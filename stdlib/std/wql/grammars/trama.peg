@@ -150,6 +150,14 @@
     // GAP:text — a raw text run. /[^{]+/ approximates "bytes up to the next tag"
     // but stops at any '{'. A faithful port needs a RAW_UNTIL('{{'|'{%') scanner
     // (template-lexer mode). See header T1.
+    //
+    // Phase 3 (BACKSLASH ESCAPE): the generated TEXT lexer additionally absorbs a
+    // backslash escape — `\{`, `\}`, `` \` ``, `\\` — into the run: both bytes are
+    // consumed so a `\{{` does NOT open a tag and a stray `\{`/`\}` stays literal
+    // text. The backslash SURVIVES in the TEXT slice; trama_render::emit_escaped
+    // de-escapes it to the bare char at render time. (The generated
+    // trama_parser.logos lex_one_raw TEXT branch is hand-maintained for this until
+    // the generator grows an escape-token shape; keep them in sync.)
     TEXT  = /[^{]+/
 
     // NO %skip: template whitespace is SIGNIFICANT (it is part of the text runs;

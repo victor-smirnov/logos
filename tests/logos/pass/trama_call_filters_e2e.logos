@@ -27,7 +27,7 @@ struct Ctx {
 //       __out.push_str((logos.std.wql.codegen::wql_lower(c.city)).as_str());
 //       return __out;
 //   }
-resource render = trama!{ data c:Ctx with title:str, city:str
+resource render = trama!(c: &Ctx){
     `{{ upper(c.title) }}-{{ lower(c.city) }}`  };
 
 fn main() -> i32 {

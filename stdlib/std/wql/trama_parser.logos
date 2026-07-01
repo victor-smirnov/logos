@@ -233,10 +233,26 @@ impl Lexer {
                 return Token { kind: TrTK_LMUST, start: start, len: 2i64, line: sl };
             }
         // RAW-TEXT run TEXT — bytes up to the next tag-open delimiter.
-        self.pos = self.pos + 1i64;
+        // A BACKSLASH ESCAPE (`\{`, `\}`, `` \` ``, `\\`) makes the following
+        // char LITERAL text: both bytes are absorbed into the run so a `\{{`
+        // does NOT open a tag and a stray `\{`/`\}` stays plain text. The
+        // backslash survives in the TEXT slice; emit_escaped (trama_render)
+        // de-escapes it to the bare char at render time.
+        if c == 92u8 {
+            let e: u8 = self.cur(1i64);
+            if e == 123u8 || e == 125u8 || e == 96u8 || e == 92u8 { self.pos = self.pos + 2i64; }
+            else { self.pos = self.pos + 1i64; }
+        } else {
+            self.pos = self.pos + 1i64;
+        }
         while self.pos < self.src.len() {
-            if self.cur(0i64) == 123u8 && (self.cur(1i64) == 37u8 || self.cur(1i64) == 123u8) { break; }
-            if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }
+            let d: u8 = self.cur(0i64);
+            if d == 92u8 {
+                let e2: u8 = self.cur(1i64);
+                if e2 == 123u8 || e2 == 125u8 || e2 == 96u8 || e2 == 92u8 { self.pos = self.pos + 2i64; continue; }
+            }
+            if d == 123u8 && (self.cur(1i64) == 37u8 || self.cur(1i64) == 123u8) { break; }
+            if d == 10u8 { self.line = self.line + 1i64; }
             self.pos = self.pos + 1i64;
         }
         let mut tlen: i64 = self.pos - start;

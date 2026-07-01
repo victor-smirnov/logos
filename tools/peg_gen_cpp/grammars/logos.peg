@@ -77,7 +77,7 @@
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
-    RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload)
+    RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload). Balanced-brace capture (RAW_GROUP_*) additionally honours two escapes in the raw body so LITERAL braces don't break balance: (a) a BACKSLASH before `{`/`}`/`` ` ``/`\` passes that char through WITHOUT counting it (the backslash SURVIVES into the captured text — the handler de-escapes); (b) a BACKTICK-delimited region is skipped whole (no brace counting inside). Both additive: well-formed bodies are unaffected + captured byte-identically.
     DOC            = 50    // doc-comment text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
     TYPE_NAME      = 3     // CP-cm-02: enum-type name in USE_VARIANTS (`use pkg.Path.Type.{V1,…}`). Reuses TYPE slot — USE never carries a type AST node.
     VARIANTS       = 22    // CP-cm-02: array of variant-name sub-nodes (each with NAME field) in USE_VARIANTS. Reuses FIELDS slot — USE never carries struct fields.
@@ -584,7 +584,21 @@
     // rides in the (otherwise-unused) NAME slot — sema hands it to the
     // #[token_macro] callee as a second `str` arg so the emitted item is
     // named by the LHS, not by a `fn <name>` header inside the block.
-    resource_item_decl <- KW_RESOURCE IDENT ASSIGN IDENT BANG RAW_GROUP_BRACE SEMI
+    //
+    // PARAMETERIZED form (ADR 0012 §6, Phase 1): `resource <name> =
+    // <callee>!(<params>){ body };`. The PARENS carry a real fn-style
+    // parameter list — captured here as balanced raw source text
+    // (RAW_GROUP_PAREN) into the PARAMS slot (which FN_MACRO_CALL_ITEM
+    // never otherwise uses). The #[token_macro] callee receives it as a
+    // third `str` arg (`fn h(name, params, body)`) which it re-emits
+    // VERBATIM into the generated `fn <name>(<params>) -> RetTy` — so the
+    // params are genuinely PARSED + TYPE-CHECKED when that fn is compiled.
+    // Must precede the brace-only alt (PEG ordered choice); the extra
+    // RAW_GROUP_PAREN makes it strictly more specific, so existing
+    // `resource N = h!{ … }` code is unaffected (additive).
+    resource_item_decl <- KW_RESOURCE IDENT ASSIGN IDENT BANG RAW_GROUP_PAREN RAW_GROUP_BRACE SEMI
+                       => { CODE: FN_MACRO_CALL_ITEM, NAME: $2, CALLEE: $4, PARAMS: $6, RAW_TEXT: $7 }
+                        / KW_RESOURCE IDENT ASSIGN IDENT BANG RAW_GROUP_BRACE SEMI
                        => { CODE: FN_MACRO_CALL_ITEM, NAME: $2, CALLEE: $4, RAW_TEXT: $6 }
 
     // ── Item-position metacall ───────────────────────────────────

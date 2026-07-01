@@ -1,0 +1,43 @@
+// Trama Phase 3 — RAW-BODY BACKSLASH ESCAPE end-to-end.
+//
+// A template may carry a LITERAL brace / backtick / backslash via a backslash
+// escape: `\{`, `\}`, `` \` ``, `\\`. The escape is handled at TWO layers:
+//
+//   (1) the RAW_GROUP capture (generated C++ parser) — the escaped char does NOT
+//       count toward the outer `{ … }` brace balance, so a stray brace in literal
+//       template text no longer truncates the macro body; and
+//   (2) the Trama lexer + `emit_escaped` (trama_render) — the escape survives the
+//       parse (backslash kept in the TEXT slice) and is DE-ESCAPED to the bare
+//       char at render time, so the template renders the literal character.
+//
+// Here the template text contains an escaped OPEN and CLOSE brace and an escaped
+// backslash; each must render as its bare literal. The `{{ n }}` interpolation
+// still works between the escaped literals, proving escapes don't disturb tags.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Ctx {
+    pub n: i64,
+}
+
+// Renders:  "a{" + n + "}b\c"   →  with n = 7  →  "a{7}b\c"
+resource render = trama!(c: &Ctx){ "a\{{{ c.n }}\}b\\c" };
+
+fn main() -> i32 {
+    let ctx: Ctx = Ctx { n: 7i64 };
+    let s: String = render(&ctx);
+
+    // Expect the literal braces + backslash: a{7}b\c
+    let want: str = "a{7}b\\c";
+    if s.len() != want.len() { return 1i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return 2i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

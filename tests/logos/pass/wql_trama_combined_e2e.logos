@@ -30,7 +30,7 @@ struct Ctx {
     pub flag: bool,
 }
 
-resource render = trama!{ data c:Ctx "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}" };
+resource render = trama!(c: &Ctx){ "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}" };
 
 fn main() -> i32 {
     let people: [Emp; 4] = [

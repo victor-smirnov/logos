@@ -1,0 +1,72 @@
+// Trama Phase 2 — MULTI-PARAM render (ADR 0012 §6). The parameterized surface
+//   resource <name> = trama!(<params>){ <template> };
+// takes a REAL fn-style parameter list. This test proves it supports MULTIPLE
+// typed params of DIFFERENT kinds used together in one template:
+//
+//   • `u: &User`   — a SCHEMA struct param; reflected, so `{{ u.name }}` /
+//                    `{{ u.age }}` type automatically from the `User` schema
+//                    (str vs i64), and `{% for t in u.tags %}` follows the
+//                    `[str; 2]` field to bind `t: str` — ALL with zero
+//                    annotations.
+//   • `greeting: str` — a bare SCALAR/str param used DIRECTLY: `{{ greeting }}`
+//                    is the param itself, rendered as a string.
+//   • `count: i64` — a bare scalar param, rendered as an integer AND used in a
+//                    truthiness condition (`{% if count %}`).
+//
+// This is the proof that the retired `with $param` annotation is GONE: the
+// template references three params by name across three kinds (struct field,
+// bare str, bare i64) and every one types correctly from the parsed signature
+// alone. We render over real data and assert the EXACT woven string.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct User {
+    pub name: str,
+    pub age:  i64,
+    pub tags: [str; 2],
+}
+
+// Emits (shape):
+//   pub fn card(u: &User, greeting: str, count: i64) -> String {
+//       let mut __out = String::new();
+//       __out.push_str(greeting); __out.push_str(", ");
+//       __out.push_str(u.name); __out.push_str(" (");
+//       __out.push_i64(u.age); __out.push_str(") tags:");
+//       // for t in u.tags -> t: str
+//       …  __out.push_str(t); __out.push_str(",");
+//       __out.push_str(" x"); __out.push_i64(count);
+//       if (count != 0) { __out.push_str("!"); }
+//       return __out;
+//   }
+resource card = trama!(u: &User, greeting: str, count: i64){
+`{{ greeting }}, {{ u.name }} ({{ u.age }}) tags:{% for t in u.tags %}{{ t }},{% endfor %} x{{ count }}{% if count %}!{% endif %}`  };
+
+fn streq_all(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let u: User = User { name: "Ada", age: 36i64, tags: ["math", "eng"] };
+    let s: String = card(&u, "Hello", 3i64);
+
+    // "Hello, Ada (36) tags:math,eng, x3!"
+    let want: str = "Hello, Ada (36) tags:math,eng, x3!";
+    if !streq_all(&s, want) { return 1i32; }
+
+    // count = 0 ⇒ the `{% if count %}` guard is false (i64 truthiness), no "!".
+    let s0: String = card(&u, "Hi", 0i64);
+    let want0: str = "Hi, Ada (36) tags:math,eng, x0";
+    if !streq_all(&s0, want0) { return 2i32; }
+
+    return 0i32;
+}

@@ -2,7 +2,7 @@
 // end-to-end (ADR 0012 §6/§10.2). Extends the i64-only MVP (trama_render_e2e)
 // with the dominant template case: rendering STRING-valued data.
 //
-// The `trama!{ … }` handler parses the template into the Trama AST, walks it,
+// The `trama!(…){ … }` handler parses the template into the Trama AST, walks it,
 // and emits a native `render(ctx) -> String`. The `with` clause declares the
 // value-types of the template's loop var + fields so the codegen routes string
 // values through `push_str` (not `push_i64`) and binds the loop var as `str`.
@@ -43,7 +43,7 @@ struct Ctx {
 //       if (c.city == "NYC") { __out.push_str("!"); }
 //       return __out;
 //   }
-resource render = trama!{ data c:Ctx with title:str, names:str, n:str, city:str
+resource render = trama!(c: &Ctx){
     `{{ c.title }}: {% for n in c.names %}{{ n }}, {% endfor %}{{ "(" + c.city + ")" }}{% if c.city == "NYC" %}!{% endif %}`  };
 
 fn main() -> i32 {

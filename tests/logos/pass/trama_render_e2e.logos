@@ -1,6 +1,6 @@
 // Trama Phase 4 — STATIC render lowering end-to-end (ADR 0012 §6/§10.2).
 //
-// A real `trama!{ … }` block is compiled at build time by the `#[token_macro]`
+// A real `trama!(…){ … }` block is compiled at build time by the `#[token_macro]`
 // handler (logos.std.wql.trama_render): it parses the template into the Trama
 // AST (the schema'd TStmt tree, whose `{{ … }}` / tag expressions are SExpr
 // edges), walks that AST, and EMITS a native Logos `render` function that builds
@@ -36,7 +36,7 @@ struct Ctx {
 //       if (c.flag) { __out.push_str("!"); }
 //       return __out;
 //   }
-resource render = trama!{ data c:Ctx "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}"  };
+resource render = trama!(c: &Ctx){ "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}"  };
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { nums: [1i64, 2i64, 3i64], flag: true };

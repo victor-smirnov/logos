@@ -21,7 +21,7 @@ struct Line { pub sku: str, pub qty: i64 }
 struct Box  { pub label: str, pub lines: [Line; 2] }
 struct Ship { pub carrier: str, pub boxes: [Box; 2] }
 
-resource manifest = trama!{ data s:Ship
+resource manifest = trama!(s: &Ship){
 `carrier: {{ s.carrier }}
 {% for b in s.boxes -%}
 box {{ b.label }}:

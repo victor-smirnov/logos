@@ -988,6 +988,51 @@ private:
                 w.line("return false;");
                 w.dedent();
                 w.line("}");
+                // ── Byte-level raw-body robustness (Phase 3) ─────────────────
+                // A backslash-escape or a backtick-delimited region lets literal
+                // template text carry a STRAY brace WITHOUT breaking balance.
+                // Both a bare `\` and a bare backtick lex as one-char Invalid
+                // tokens, so we intercept them here and resync the lexer at the
+                // byte level. This is strictly additive: well-formed jinja never
+                // relies on either, so the default balanced-brace walk (and its
+                // byte-identical capture) is unchanged for existing macros.
+                w.line("if (t.kind == TK::Invalid && t.text.size() == 1) {");
+                w.indent();
+                w.line("size_t bpos = static_cast<size_t>(t.text.data() - source_.data());");
+                w.line("char ic = t.text[0];");
+                // (a) Backslash escape: `\{`, `\}`, `` \` ``, `\\`. The backslash
+                // is consumed; the escaped char passes through into the captured
+                // body verbatim and does NOT count toward brace balance. The
+                // handler therefore sees the char WITHOUT the leading backslash.
+                w.line("if (ic == '\\\\' && bpos + 1 < source_.size()) {");
+                w.indent();
+                w.line("char nx = source_[bpos + 1];");
+                w.line("if (nx == '{' || nx == '}' || nx == '`' || nx == '\\\\') {");
+                w.indent();
+                w.line("if (nx == '\\n') ++line_;");
+                w.line("pos_ = bpos + 2; have_la_ = false; continue;");
+                w.dedent();
+                w.line("}");
+                w.dedent();
+                w.line("}");
+                // (b) Backtick-delimited region: raw bytes up to the matching
+                // backtick are passed through with NO brace counting inside.
+                // Resync the lexer just past the closing backtick (counting any
+                // embedded newlines so line_ stays accurate). An unterminated
+                // backtick falls through to the ordinary Invalid-token path.
+                w.line("if (ic == '`') {");
+                w.indent();
+                w.line("size_t j = bpos + 1; uint32_t nl = 0;");
+                w.line("while (j < source_.size() && source_[j] != '`') { if (source_[j] == '\\n') ++nl; ++j; }");
+                w.line("if (j < source_.size()) {");
+                w.indent();
+                w.line("line_ += nl; pos_ = j + 1; have_la_ = false; continue;");
+                w.dedent();
+                w.line("}");
+                w.dedent();
+                w.line("}");
+                w.dedent();
+                w.line("}");
                 w.line("switch (t.kind) {");
                 w.line("case TK::LPAREN:   stack.push_back(TK::RPAREN);   break;");
                 w.line("case TK::LBRACKET: stack.push_back(TK::RBRACKET); break;");

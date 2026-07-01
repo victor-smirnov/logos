@@ -290,6 +290,7 @@ sym	logos.std.wql.trama_parser.TrMemoCell__type_id__g__ref_T
 sym	logos.std.wql.trama_parser.TrTokCell__type_id__g__ref_T
 sym	logos.std.wql.trama_render.StructEnv__type_id__g__ref_T
 sym	logos.std.wql.trama_render.TLexer__type_id__g__ref_T
+sym	logos.std.wql.trama_render.TParams__type_id__g__ref_T
 sym	logos.std.wql.trama_render.TVarTys__type_id__g__ref_T
 sym	logos.std.wql.wql_surface_parser.WqMemoCell__type_id__g__ref_T
 sym	logos.std.wql.wql_surface_parser.WqTokCell__type_id__g__ref_T
@@ -7615,6 +7616,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__SystemTime
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TFor
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TIf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TLexer
+sym	logos_lang.logos.lang.any$type_id_of__g__void__TParams
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TSet
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TStmt
 sym	logos_lang.logos.lang.any$type_id_of__g__void__TText
@@ -9868,6 +9870,7 @@ type	logos.std.wql.trama_parser.TrMemoCell	fields=[res:*const u8,endpos:i64,endl
 type	logos.std.wql.trama_parser.TrTokCell	fields=[tk:i32,tstart:i64,tlen:i64,tline:i64,endpos:i64,endline:i64,intag_after:bool]
 type	logos.std.wql.trama_render.StructEnv	fields=[names:[&[u8]; 64],tys:[&[u8]; 64],n:i64]
 type	logos.std.wql.trama_render.TLexer	fields=[src:&[u8],pos:i64,len:i64]
+type	logos.std.wql.trama_render.TParams	fields=[names:[&[u8]; 64],tys:[&[u8]; 64],n:i64]
 type	logos.std.wql.trama_render.TVarTys	fields=[names:[&[u8]; 64],tys:[&[u8]; 64],n:i64]
 type	logos.std.wql.wql_surface_parser.Lexer	fields=[src:&[u8],pos:i64,line:i64,la:Token,have_la:bool,memo:HashMap<i64, WqMemoCell>,tbuf:Vec<WqTokCell>]
 type	logos.std.wql.wql_surface_parser.Token	fields=[kind:i32,start:i64,len:i64,line:i64]

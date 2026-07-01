@@ -1,26 +1,35 @@
-// logos.std.wql.trama_render — the `trama!{ … }` RESOURCE surface (ADR 0012
+// logos.std.wql.trama_render — the `trama!(…){ … }` RESOURCE surface (ADR 0012
 // §6/§10.2, queue-1 STATIC lowering). A `#[token_macro]` handler receives the
-// raw block bytes at compile time, parses the MVP surface + the template into
-// the Trama AST (Phase-3 schema'd `TStmt` tree, whose `{{ … }}` / tag expressions
-// are SExpr edges), WALKS that AST, and EMITS a native Logos `render` function
-// (via `logos_emit_source`) that builds and returns the woven `String`.
+// raw params source text + the raw block (template) bytes at compile time,
+// parses the template into the Trama AST (Phase-3 schema'd `TStmt` tree, whose
+// `{{ … }}` / tag expressions are SExpr edges), WALKS that AST, and EMITS a
+// native Logos `render` function (via `logos_emit_source`) that builds and
+// returns the woven `String`.
 //
-// MVP surface (explicit-typed data context, per the ADR static model):
+// Surface (Phase-2 PARAMETERIZED form — a REAL fn-style parameter list in the
+// parens; the old `data`/`with` DSL header is GONE):
 //
-//   resource <name> = trama! {
-//       data <ctx>:<CtxTy>
-//       " <template> "
-//   };
+//   resource <name> = trama!(<params>){ <template> };
+//     e.g.  resource r = trama!(o: &Order){ " … {{ o.total }} … " };
+//     e.g.  resource g = trama!(u: &User, greeting: str){ " {{ greeting }}, {{ u.name }} " };
 //
-// The render-fn NAME is the `resource <name> =` binding (ADR 0012 §6), NOT an
-// `fn <name>` line inside the block; the handler receives it as the `name` arg
-// and the block body starts at `data`.
+// The PARENS carry a genuine Logos parameter list — parsed + TYPE-CHECKED by the
+// compiler because the handler re-emits it VERBATIM into the generated
+// signature. The render-fn NAME is the `resource <name> =` binding (ADR 0012
+// §6); the handler receives it as `name`, the raw params text as `params`, and
+// the raw template body as `body`.
 //
-//   →  pub fn <name>(<ctx>: &<CtxTy>) -> String {
+//   →  pub fn <name>(<params>) -> String {
 //          let mut __out: String = String::new();
 //          … walk the Trama AST …
 //          return __out;
 //      }
+//
+// Each param whose type resolves to a schema struct (reflect.logos) is REFLECTED
+// so its field accesses (`{{ o.total }}`) type automatically (NO `with` clause);
+// a scalar/str param (`greeting: str`) is usable directly in the template (a
+// bare param name = that param). The existing loop-var recursive reflection
+// still applies (`{% for x in o.items %}` follows `Order.items`'s element type).
 //
 // Template constructs lowered:
 //   • literal text run        → __out.push_str("<bytes>");
@@ -99,19 +108,6 @@ impl TLexer {
         self.pos = self.pos + n;
         return true;
     }
-    // Scan a bare identifier at the cursor → its byte length (cursor advances).
-    fn scan_ident(self: &mut TLexer) -> i64 {
-        self.skip_ws();
-        if !tl_is_alpha(self.cur()) { return 0i64; }
-        let start: i64 = self.pos;
-        while self.pos < self.len && tl_is_alnum(self.cur()) { self.bump(); }
-        return self.pos - start;
-    }
-    // Scan a TYPE name (an identifier; the `with`-clause types are simple names
-    // — `str`, `bool`, `i64`, or a struct name — in the MVP). Cursor advances.
-    fn scan_type(self: &mut TLexer) -> i64 {
-        return self.scan_ident();
-    }
     // Scan an identifier at the cursor → its slice (advances).
     fn scan_ident_str(self: &mut TLexer) -> str {
         self.skip_ws();
@@ -153,6 +149,22 @@ fn emit_escaped(em: &mut Emitter, s: str) {
     let mut i: i64 = 0i64;
     while i < n {
         let c: u8 = str_byte_at(s, i);
+        // Template BACKSLASH ESCAPE (`\{`, `\}`, `` \` ``, `\\`): the raw-body
+        // capture + Trama lexer preserved the backslash; DE-ESCAPE it here to the
+        // bare char so the template renders the literal `{`/`}`/`` ` ``/`\`. The
+        // bare char is then re-escaped below as needed for the Logos string body.
+        if c == 92u8 && i + 1i64 < n {
+            let e: u8 = str_byte_at(s, i + 1i64);
+            if e == 123u8 || e == 125u8 || e == 96u8 || e == 92u8 {
+                if e == 92u8 { em.push_text("\\\\"); }   // `\\` → literal backslash (escaped for the string body)
+                else {
+                    let one: str = unsafe { str_from_raw((s.as_ptr() as i64 + i + 1i64) as *const u8, 1i64) };
+                    em.push_text(one);                   // `{`, `}`, `` ` `` are plain in a string body
+                }
+                i = i + 2i64;
+                continue;
+            }
+        }
         if c == 34u8 { em.push_text("\\\""); }
         else if c == 92u8 { em.push_text("\\\\"); }
         else if c == 10u8 { em.push_text("\\n"); }
@@ -320,6 +332,14 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                 if elem_ty.len() > 0i64 {
                     inner.bind(f.var, elem_ty);
                     vtys.declare(f.var, elem_ty);
+                    // Value-type the loop VAR itself off its element type, so a
+                    // bare `{{ v }}` over a PRIMITIVE-element collection (`[str;N]`,
+                    // `[bool;N]`) renders with the right push (str/bool vs i64) —
+                    // this is the typing the retired `with v:str` used to supply.
+                    // A struct element maps to INT here (harmless: a struct loop
+                    // var is only ever used via `v.field`, typed by the reflect
+                    // below, never rendered bare).
+                    ty.set_ty(f.var, el_ty_of_name(elem_ty));
                     // Reflect the element struct's fields so `v.member` types.
                     stamp_types_from_schema(view, ty, elem_ty);
                 }
@@ -617,62 +637,104 @@ fn next_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
 fn body_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
 fn alt_word(r: &WRef<TStmt>)  -> i64 { return r.any().raw(); }
 
+// ── Parsed parameter list ──────────────────────────────────────────────────
+// The raw params source text (`o: &Order, greeting: str`) parsed into per-param
+// (name, core-type-name) pairs. The CORE type name is the type with any leading
+// `&` / `&mut` and whitespace stripped (`&Order` → `Order`, `str` → `str`), used
+// to (a) decide schema reflection vs scalar rendering and (b) seed the value-type
+// dict. Slices borrow the surface text. `TVarTys`-sized (64) is plenty.
+struct TParams {
+    names: [str; 64],
+    tys:   [str; 64],   // core type name (deref-stripped)
+    n:     i64,
+}
+fn tparams_new() -> TParams {
+    return TParams {
+        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        n: 0i64,
+    };
+}
+
+// Parse a fn-style parameter list `name: type (, name: type)*` off `p`, filling
+// `out` with each param's name + CORE (deref-stripped) type name. The type text
+// between the `:` and the next top-level `,` (or end) is scanned; a leading `&`
+// or `&mut ` is skipped so a struct param's bare type name is recovered for
+// reflection. Balanced brackets/parens/angles inside a type (`[T; N]`,
+// `Foo<Bar>`) don't split on their internal commas — we track a nesting depth.
+// Empty `p` = zero params (a nullary render fn, allowed). Robust to trailing
+// commas + arbitrary interior whitespace.
+fn parse_params(p: str, out: &mut TParams) {
+    let mut lx: TLexer = TLexer { src: p, pos: 0i64, len: p.len() };
+    loop {
+        lx.skip_ws();
+        if lx.pos >= lx.len { break; }
+        let nm: str = lx.scan_ident_str();
+        if nm.len() == 0i64 { break; }
+        lx.skip_ws();
+        if lx.cur() != 58u8 { break; }   // ':' — malformed param, stop (compiler will re-report)
+        lx.bump();
+        // Skip a leading reference marker: `&mut ` or `&`.
+        lx.skip_ws();
+        if lx.cur() == 38u8 {            // '&'
+            lx.bump();
+            lx.skip_ws();
+            if lx.eat_kw("mut") { lx.skip_ws(); }
+        }
+        // The core type name = the identifier head of the (possibly compound)
+        // type — enough for scalar/schema classification + el_ty_of_name.
+        let ty: str = lx.scan_ident_str();
+        if out.n < 64i64 {
+            out.names[out.n] = nm;
+            out.tys[out.n]   = ty;
+            out.n = out.n + 1i64;
+        }
+        // Advance past the rest of this param's type to the next top-level comma,
+        // honoring bracket/paren/angle nesting so compound types don't mis-split.
+        let mut depth: i64 = 0i64;
+        loop {
+            if lx.pos >= lx.len { break; }
+            let c: u8 = lx.cur();
+            if c == 40u8 || c == 91u8 || c == 60u8 { depth = depth + 1i64; }        // ( [ <
+            else if c == 41u8 || c == 93u8 || c == 62u8 { depth = depth - 1i64; }   // ) ] >
+            else if c == 44u8 && depth <= 0i64 { break; }                            // ','
+            lx.bump();
+        }
+        if lx.cur() == 44u8 { lx.bump(); continue; }  // ','
+        break;
+    }
+}
+
 // ── The resource handler ───────────────────────────────────────────────────
 #[token_macro]
-pub fn trama(name: str, s: str) -> ItemList {
+pub fn trama(name: str, params: str, s: str) -> ItemList {
     let out: ItemList = item_list_new();
 
     if name.len() == 0i64 {
-        error("trama!: needs a binding name — write `resource <name> = trama!{ data … \"template\" }`");
+        error("trama!: needs a binding name — write `resource <name> = trama!(<params>){ \"template\" }`");
         return out;
     }
     // The generated render-fn NAME is the `resource <name> =` binding (ADR 0012
-    // §6), NOT an `fn <name>` line inside the block; the block body starts at `data`.
+    // §6); the params come from the parens, the template body from the braces.
     let fn_name: str = name;
 
-    let mut lx: TLexer = TLexer { src: s, pos: 0i64, len: s.len() };
-
-    // data <ctx>:<CtxTy>
-    if !lx.eat_kw("data") { error("trama!: expected `data <ctx>:<CtxTy>`"); return out; }
-    let ctx_name: str = lx.scan_ident_str();
-    lx.skip_ws();
-    if lx.cur() != 58u8 { error("trama!: expected `:` after data name"); return out; }  // ':'
-    lx.bump();
-    let ctx_ty: str = lx.scan_ident_str();
-
-    // optional `with <name>:<ty> (, <name>:<ty>)*` — DECLARED value types for
-    // the template's loop/set vars + fields (the static type seam: chooses
-    // str/bool/i64 rendering + the loop-var binding's element type). Collected
-    // as (name,ty) slice pairs over the surface text `s`; applied AFTER the
-    // template parse (so the vars/fields are interned).
-    let mut dn: i64 = 0i64;
-    let mut d_name_start: [i64; 32] = [0i64; 32];
-    let mut d_name_len:   [i64; 32] = [0i64; 32];
-    let mut d_ty_start:   [i64; 32] = [0i64; 32];
-    let mut d_ty_len:     [i64; 32] = [0i64; 32];
-    if lx.eat_kw("with") {
-        loop {
-            lx.skip_ws();
-            let ns: i64 = lx.pos;
-            let nl: i64 = lx.scan_ident();
-            if nl == 0i64 { error("trama!: `with` expects <name>:<type>"); return out; }
-            lx.skip_ws();
-            if lx.cur() != 58u8 { error("trama!: `with` expects `:` after name"); return out; }  // ':'
-            lx.bump();
-            lx.skip_ws();
-            let ts: i64 = lx.pos;
-            let tl: i64 = lx.scan_type();
-            if tl == 0i64 { error("trama!: `with` expects a type name"); return out; }
-            if dn < 32i64 {
-                d_name_start[dn] = ns; d_name_len[dn] = nl;
-                d_ty_start[dn] = ts;   d_ty_len[dn] = tl;
-                dn = dn + 1i64;
-            }
-            lx.skip_ws();
-            if lx.cur() == 44u8 { lx.bump(); continue; }  // ','
-            break;
-        }
+    // Parse the REAL parameter list. The params are re-emitted VERBATIM below as
+    // the generated fn signature (so the compiler parses + type-checks them); here
+    // we ALSO parse them locally to drive schema reflection + value-typing.
+    let mut prm: TParams = tparams_new();
+    parse_params(params, &mut prm);
+    if prm.n == 0i64 {
+        error("trama!: needs at least one parameter — write `resource <name> = trama!(o: &Ty){ … }`");
+        return out;
     }
+
+    let mut lx: TLexer = TLexer { src: s, pos: 0i64, len: s.len() };
 
     // " template "
     let tmpl: str = lx.scan_template();
@@ -692,48 +754,55 @@ pub fn trama(name: str, s: str) -> ItemList {
     let head_word: i64 = chain_array(tpl_arr);
     if head_word == 0i64 { error("trama!: empty template"); return out; }
 
-    // Build the name→value-type dict. Reflect the DATA-CONTEXT schema (`ctx_ty`) so
-    // `{{ c.name }}` / `{% if c.flag %}` type correctly from the struct WITHOUT a
-    // `with` clause (unknown context type ⇒ silent no-op); `with` overrides below.
+    // Build the name→value-type dict + the struct-type env by REFLECTING each
+    // PARAM (ADR 0012 Phase 2). A struct param (its core type resolves to a
+    // schema struct) is stamped so `{{ o.field }}` types automatically AND bound
+    // in the env so field chains + `{% for v in o.field %}` loops resolve. A
+    // scalar/str param (`greeting: str`) gets its value-type set directly so a
+    // bare `{{ greeting }}` renders with the right push (str vs i64/bool). No
+    // `with`/`data` clause exists any more — the params ARE the type source.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, ctx_ty);
-
-    // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
-    // FOLLOW loop variables: `{% for v in ctx.field %}` where `ctx.field` is a
-    // schema'd collection binds `v` to the element type T (from the data schema),
-    // reflects T's fields so `v.member` types automatically, and recurses into
-    // NESTED loops — so a schema `data` context needs NO `with`. `with` (applied
-    // below) still OVERRIDES for genuinely un-inferable names (non-schema params).
-    let mut vtys: TVarTys = tvartys_new();
     let mut env0: StructEnv = struct_env_new();
-    env0.bind(ctx_name, ctx_ty);                 // the data context var → its schema type
-    reflect_loops(&view, head_word, &mut ty, &mut vtys, &env0);
-
-    // Apply the `with` type declarations. Each `<name>:<Ty>` seeds the value-type
-    // lattice (str/bool/int) in the dict AND records the loop/set var's Logos type
-    // name for its binding. Type-name slices live in `s`.
-    let mut di: i64 = 0i64;
-    while di < dn {
-        let nm: str = unsafe { tl_str_range(s, d_name_start[di], d_name_len[di]) };
-        let tn: str = unsafe { tl_str_range(s, d_ty_start[di], d_ty_len[di]) };
-        ty.set_ty(nm, el_ty_of_name(tn));
-        vtys.declare(nm, tn);
-        di = di + 1i64;
+    let mut pi: i64 = 0i64;
+    while pi < prm.n {
+        let pnm: str = prm.names[pi];
+        let pty: str = prm.tys[pi];
+        // Scalar/str value-type for the bare-param render path.
+        ty.set_ty(pnm, el_ty_of_name(pty));
+        // If the core type names a schema struct, reflect its fields + bind the
+        // env; a non-struct name (str/i64/…) is a no-op reflect + harmless bind.
+        let decl: WAny = find_decl_by_name(&view, pty);
+        if !decl.is_null() {
+            stamp_types_from_schema(&view, &mut ty, pty);
+            env0.bind(pnm, pty);
+        }
+        pi = pi + 1i64;
     }
 
+    // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
+    // FOLLOW loop variables: `{% for v in o.field %}` where `o.field` is a
+    // schema'd collection binds `v` to the element type T (from the schema),
+    // reflects T's fields so `v.member` types automatically, and recurses into
+    // NESTED loops — so a schema struct param needs NO annotation.
+    let mut vtys: TVarTys = tvartys_new();
+    reflect_loops(&view, head_word, &mut ty, &mut vtys, &env0);
+
+    // The empty-Var-name fallback `ctx` for the codegen: the FIRST param name.
+    let ctx0: str = prm.names[0i64];
+
     // ── Emit the render function ──────────────────────────────────────────
+    // The signature params are re-emitted VERBATIM from the surface parens, so
+    // the compiler parses + type-checks them (`o: &Order, greeting: str` etc.).
     let mut em: Emitter = Emitter::new();
     em.emit_into("test");
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");
-    em.push_text(ctx_name);
-    em.push_text(": &");
-    em.push_text(ctx_ty);
+    em.push_text(params);
     em.push_text(") -> String {\n");
     em.push_text("    let mut __out: String = String::new();\n");
-    emit_stmts(&mut em, head_word, &ty, &vtys, ctx_name, 0i64);
+    emit_stmts(&mut em, head_word, &ty, &vtys, ctx0, 0i64);
     em.push_text("    return __out;\n");
     em.push_text("}\n");
     em.commit();

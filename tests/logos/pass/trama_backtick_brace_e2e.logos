@@ -1,0 +1,38 @@
+// Trama Phase 3 — RAW_GROUP backtick body + stray brace end-to-end.
+//
+// This exercises the RAW-GROUP CAPTURE layer (generated C++ parser). The template
+// is BACKTICK-delimited (not a `"…"` string literal), so its bytes are NOT hidden
+// inside a single STRING token — the raw-group brace-balance walk sees them
+// directly. A BARE unbalanced `}` in a backtick body would previously truncate
+// the `trama!( … ){ … }` macro body at the wrong brace; the raw-group backtick
+// handler now SKIPS the whole backtick region (no brace counting inside), so the
+// stray `}` is captured verbatim and rendered literally. A `\{` backslash escape
+// inside the backtick body likewise carries a literal open brace.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Ctx {
+    pub n: i64,
+}
+
+// Backtick body carries a BARE `}` (stray close) and an escaped `\{` (literal
+// open).  Renders:  "x}" + "{" + n  →  with n = 5  →  "x}{5"
+resource render = trama!(c: &Ctx){ `x}\{{{ c.n }}` };
+
+fn main() -> i32 {
+    let ctx: Ctx = Ctx { n: 5i64 };
+    let s: String = render(&ctx);
+
+    let want: str = "x}{5";
+    if s.len() != want.len() { return 1i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return 2i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

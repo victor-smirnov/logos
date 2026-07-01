@@ -1,0 +1,48 @@
+// ADR 0012 §6 Phase 1 — PARAMETERIZED resource item ABI. New surface:
+//   `resource <name> = h!(<params>){ body };`
+// where <params> is a REAL fn-style parameter list. A 3-arg
+// `#[token_macro] fn h(name: str, params: str, body: str) -> ItemList`
+// receives:
+//   • slot 0 (name)   → the emitted fn's identifier (`foo`)
+//   • slot 1 (params) → the raw params source text (`x: i64`), re-emitted
+//                        VERBATIM into the generated fn signature so it is
+//                        genuinely PARSED + TYPE-CHECKED by the compiler
+//   • slot 2 (body)   → the raw brace-group body, opaque to the compiler
+//
+// The handler emits `fn <name>(<params>) -> i64 { <body-as-expr> }`, proving
+// (a) the params survive verbatim and type-check, and (b) the body reached
+// the handler. main() calls foo(20) and asserts foo returns 20 + 22 = 42.
+package token_macro_item_params_resource;
+
+use logos.std.compiler.metaprog;   // Emitter, item_list_new, ItemList
+
+#[token_macro]
+pub fn build_fn(name: str, params: str, body: str) -> ItemList {
+    let out: ItemList = item_list_new();
+
+    // Emit `pub fn <name>(<params>) -> i64 { <body> }`. The params text is
+    // re-emitted verbatim; the compiler parses + type-checks it when this
+    // generated fn is compiled. The body is spliced in as the fn's tail expr.
+    let mut em: Emitter = Emitter::new();
+    em.emit_into("token_macro_item_params_resource");
+    em.push_text("pub fn ");
+    em.push_text(name);
+    em.push_text("(");
+    em.push_text(params);
+    em.push_text(") -> i64 {\n");
+    em.push_text(body);
+    em.push_text("\n}\n");
+    em.commit();
+
+    return out;
+}
+
+// `x: i64` is a genuine typed parameter; the body references `x` by name.
+resource foo = build_fn!(x: i64){ x + 22i64 };
+
+fn main() -> i32 {
+    // foo(20) == 20 + 22 == 42. Return that value as the process exit code so
+    // the `.expected` (`exit: 42`) directly asserts the typed-param round-trip.
+    let r: i64 = foo(20i64);
+    return r as i32;
+}

@@ -1619,6 +1619,39 @@ fn emit_one_raw_group(w: &mut CodeWriter, kind: str, open_tok: str) {
     w.line("        while depth > 0i64 {");
     w.line("            let t: Token = self.peek();");
     w.line("            if t.kind == TK_EOF { self.reset(sp, sln); return Token { kind: TK_INVALID, start: 0i64 - 1i64, len: 0i64, line: 0i64 }; }");
+    // ── Byte-level raw-body robustness (Phase 3) ─────────────────────────────
+    // A backslash escape (`\{ \} \` \\`) or a whole backtick-delimited region
+    // lets literal template text carry a STRAY brace WITHOUT breaking balance.
+    // Both a bare `\` and a bare backtick lex as one-char TK_INVALID tokens, so
+    // intercept them here and RESYNC the lexer at the byte level (reset drops the
+    // lookahead). Strictly additive: well-formed bodies never rely on either, so
+    // the default balanced walk + its byte-identical capture are unchanged. This
+    // MUST mirror emit_raw_group in the C++ generator (peg_gen_cpp codegen.cpp).
+    w.line("            if t.kind == TK_INVALID && t.len == 1i64 {");
+    w.line("                let ic: u8 = unsafe { self.src.as_ptr()[t.start] };");
+    // (a) Backslash escape: consume `\` + the escaped char; neither counts.
+    w.line("                if ic == 92u8 {");
+    w.line("                    let nx: u8 = if t.start + 1i64 < self.src.len() { unsafe { self.src.as_ptr()[t.start + 1i64] } } else { 0u8 };");
+    w.line("                    if nx == 123u8 || nx == 125u8 || nx == 96u8 || nx == 92u8 {");
+    w.line("                        let mut nl: i64 = if nx == 10u8 { 1i64 } else { 0i64 };");
+    w.line("                        self.reset(t.start + 2i64, t.line + nl);");
+    w.line("                        continue;");
+    w.line("                    }");
+    w.line("                }");
+    // (b) Backtick-delimited region: skip to the matching backtick, no counting.
+    w.line("                if ic == 96u8 {");
+    w.line("                    let mut j: i64 = t.start + 1i64;");
+    w.line("                    let mut nl2: i64 = 0i64;");
+    w.line("                    while j < self.src.len() && unsafe { self.src.as_ptr()[j] } != 96u8 {");
+    w.line("                        if unsafe { self.src.as_ptr()[j] } == 10u8 { nl2 = nl2 + 1i64; }");
+    w.line("                        j = j + 1i64;");
+    w.line("                    }");
+    w.line("                    if j < self.src.len() {");
+    w.line("                        self.reset(j + 1i64, t.line + nl2);");
+    w.line("                        continue;");
+    w.line("                    }");
+    w.line("                }");
+    w.line("            }");
     w.line("            if t.kind == TK_LPAREN || t.kind == TK_LBRACKET || t.kind == TK_LBRACE { depth = depth + 1i64; }");
     w.line("            else if t.kind == TK_RPAREN || t.kind == TK_RBRACKET || t.kind == TK_RBRACE {");
     w.line("                depth = depth - 1i64;");
