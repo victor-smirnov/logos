@@ -4,8 +4,8 @@
 // count / sum / min / max / avg over the rows in that group.
 //
 // Surface:
-//   wql!{ fn <name> from <a>:[A] x [where <pred>] group by <key>
-//         aggregate <name1>=<fn>(<expr>?) , … select <expr> : <Ty> [with …] }
+//   resource <name> = wql!{ from <a>:[A] x [where <pred>] group by <key>
+//         aggregate <name1>=<fn>(<expr>?) , … select <expr> : <Ty> [with …] };
 //
 // The group key is bound in the projection as the local `key`; each aggregate as
 // a local of its declared name. So `select key + total : i64` composes the row.
@@ -26,21 +26,19 @@ struct Sale { pub dept: i64, pub amount: i64 }
 //   pub fn dept_totals(sales: &[Sale]) -> Vec<i64> {
 //       … outer pass: distinct dept keys; inner pass: fold sum/count …
 //   }
-wql!{ fn dept_totals
-      from sales:[Sale] s
+resource dept_totals = wql!{ from sales:[Sale] s
       group by s.dept
       aggregate total = sum(s.amount) , cnt = count()
-      select key * 1000 + total * 10 + cnt : i64 }
+      select key * 1000 + total * 10 + cnt : i64  };
 
 // A second resource exercising min / max / avg AND a pre-group `where` filter:
 // keep only sales with amount >= 5, then per dept compute min/max/avg amount.
 //   pub fn dept_stats(sales: &[Sale]) -> Vec<i64> { … two-pass min/max/avg … }
-wql!{ fn dept_stats
-      from sales:[Sale] s
+resource dept_stats = wql!{ from sales:[Sale] s
       where s.amount >= 5
       group by s.dept
       aggregate lo = min(s.amount) , hi = max(s.amount) , av = avg(s.amount)
-      select key * 1000000 + lo * 10000 + hi * 100 + av : i64 }
+      select key * 1000000 + lo * 10000 + hi * 100 + av : i64  };
 
 fn main() -> i32 {
     let sales: [Sale; 5] = [

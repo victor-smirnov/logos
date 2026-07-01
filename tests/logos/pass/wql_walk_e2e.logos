@@ -19,13 +19,13 @@ struct Dept   { pub id: i64,   pub head: i64 }
 struct Order  { pub dept: i64, pub amt: i64 }
 
 // ── SIMPLE: filter+project (adults' ages). ───────────────────────────────────
-wql_walk!{ fn adults from people:[Person] p where p.age >= 18 select p.age : i64 }
+resource adults = wql_walk!{ from people:[Person] p where p.age >= 18 select p.age : i64  };
 
 // ── JOIN: inner nested-loop join on p.name == d.id → project d.head. ──────────
-wql_walk!{ fn joined from people:[Person] p join depts:[Dept] d on p.name == d.id select d.head : i64 }
+resource joined = wql_walk!{ from people:[Person] p join depts:[Dept] d on p.name == d.id select d.head : i64  };
 
 // ── AGGREGATE: group by dept, sum amt. ───────────────────────────────────────
-wql_walk!{ fn totals from orders:[Order] o group by o.dept aggregate total = sum(o.amt) select total : i64 }
+resource totals = wql_walk!{ from orders:[Order] o group by o.dept aggregate total = sum(o.amt) select total : i64  };
 
 fn main() -> i32 {
     // ── simple ──

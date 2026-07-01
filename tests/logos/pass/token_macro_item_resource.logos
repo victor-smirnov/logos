@@ -17,8 +17,10 @@ use logos.mem.collections.vec;
 use logos.lang.writ.wstatic;
 use logos.lang.str;
 
+// NOTE: `resource` is a reserved keyword (ADR 0012 §6 named-resource form);
+// the handler for the ANONYMOUS 1-arg `(body: str)` path is named `res_query`.
 #[token_macro]
-pub fn resource(s: str) -> ItemList {
+pub fn res_query(s: str) -> ItemList {
     let mut out: ItemList = item_list_new();
 
     // Inspect the opaque block text. Real WQL/Trama would parse it into
@@ -41,7 +43,7 @@ pub fn resource(s: str) -> ItemList {
 // The block body is deliberately NOT valid Logos — it is opaque "query"
 // text. A `#[fn_macro]` item callee would fail to re-parse this; the
 // token-macro path hands it over verbatim.
-resource!{ select answer from rows where x > 1 && active }
+res_query!{ select answer from rows where x > 1 && active }
 
 fn main() -> i32 {
     // resource_value() was spliced in by the handler above. It returns 42

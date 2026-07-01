@@ -25,26 +25,25 @@ use logos.std.wql.ir;
 // ── Token kinds ────────────────────────────────────────────────────────────
 pub const WqTK_EOF:     i32 = 0i32;
 pub const WqTK_INVALID: i32 = 1i32;
-pub const WqTK_KW_FN: i32 = 2i32;
-pub const WqTK_KW_FROM: i32 = 3i32;
-pub const WqTK_KW_WHERE: i32 = 4i32;
-pub const WqTK_KW_SELECT: i32 = 5i32;
-pub const WqTK_KW_ANTI: i32 = 6i32;
-pub const WqTK_KW_JOIN: i32 = 7i32;
-pub const WqTK_KW_ON: i32 = 8i32;
-pub const WqTK_KW_GROUP: i32 = 9i32;
-pub const WqTK_KW_BY: i32 = 10i32;
-pub const WqTK_KW_AGGREGATE: i32 = 11i32;
-pub const WqTK_KW_WITH: i32 = 12i32;
-pub const WqTK_COLON: i32 = 13i32;
-pub const WqTK_COMMA: i32 = 14i32;
-pub const WqTK_EQ: i32 = 15i32;
-pub const WqTK_DOLLAR: i32 = 16i32;
-pub const WqTK_LBRACKET: i32 = 17i32;
-pub const WqTK_RBRACKET: i32 = 18i32;
-pub const WqTK_LPAREN: i32 = 19i32;
-pub const WqTK_RPAREN: i32 = 20i32;
-pub const WqTK_IDENT: i32 = 21i32;
+pub const WqTK_KW_FROM: i32 = 2i32;
+pub const WqTK_KW_WHERE: i32 = 3i32;
+pub const WqTK_KW_SELECT: i32 = 4i32;
+pub const WqTK_KW_ANTI: i32 = 5i32;
+pub const WqTK_KW_JOIN: i32 = 6i32;
+pub const WqTK_KW_ON: i32 = 7i32;
+pub const WqTK_KW_GROUP: i32 = 8i32;
+pub const WqTK_KW_BY: i32 = 9i32;
+pub const WqTK_KW_AGGREGATE: i32 = 10i32;
+pub const WqTK_KW_WITH: i32 = 11i32;
+pub const WqTK_COLON: i32 = 12i32;
+pub const WqTK_COMMA: i32 = 13i32;
+pub const WqTK_EQ: i32 = 14i32;
+pub const WqTK_DOLLAR: i32 = 15i32;
+pub const WqTK_LBRACKET: i32 = 16i32;
+pub const WqTK_RBRACKET: i32 = 17i32;
+pub const WqTK_LPAREN: i32 = 18i32;
+pub const WqTK_RPAREN: i32 = 19i32;
+pub const WqTK_IDENT: i32 = 20i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
@@ -173,13 +172,13 @@ impl Lexer {
             self.pos = self.pos + 5i64;
             return Token { kind: WqTK_KW_GROUP, start: start, len: 5i64, line: sl };
         }
-        if self.cur(0i64) == 97u8 && self.cur(1i64) == 110u8 && self.cur(2i64) == 116u8 && self.cur(3i64) == 105u8 && !lx_is_alnum(self.cur(4i64)) {
-            self.pos = self.pos + 4i64;
-            return Token { kind: WqTK_KW_ANTI, start: start, len: 4i64, line: sl };
-        }
         if self.cur(0i64) == 106u8 && self.cur(1i64) == 111u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 110u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
             return Token { kind: WqTK_KW_JOIN, start: start, len: 4i64, line: sl };
+        }
+        if self.cur(0i64) == 97u8 && self.cur(1i64) == 110u8 && self.cur(2i64) == 116u8 && self.cur(3i64) == 105u8 && !lx_is_alnum(self.cur(4i64)) {
+            self.pos = self.pos + 4i64;
+            return Token { kind: WqTK_KW_ANTI, start: start, len: 4i64, line: sl };
         }
         if self.cur(0i64) == 102u8 && self.cur(1i64) == 114u8 && self.cur(2i64) == 111u8 && self.cur(3i64) == 109u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
@@ -189,17 +188,13 @@ impl Lexer {
             self.pos = self.pos + 4i64;
             return Token { kind: WqTK_KW_WITH, start: start, len: 4i64, line: sl };
         }
-        if self.cur(0i64) == 98u8 && self.cur(1i64) == 121u8 && !lx_is_alnum(self.cur(2i64)) {
-            self.pos = self.pos + 2i64;
-            return Token { kind: WqTK_KW_BY, start: start, len: 2i64, line: sl };
-        }
-        if self.cur(0i64) == 102u8 && self.cur(1i64) == 110u8 && !lx_is_alnum(self.cur(2i64)) {
-            self.pos = self.pos + 2i64;
-            return Token { kind: WqTK_KW_FN, start: start, len: 2i64, line: sl };
-        }
         if self.cur(0i64) == 111u8 && self.cur(1i64) == 110u8 && !lx_is_alnum(self.cur(2i64)) {
             self.pos = self.pos + 2i64;
             return Token { kind: WqTK_KW_ON, start: start, len: 2i64, line: sl };
+        }
+        if self.cur(0i64) == 98u8 && self.cur(1i64) == 121u8 && !lx_is_alnum(self.cur(2i64)) {
+            self.pos = self.pos + 2i64;
+            return Token { kind: WqTK_KW_BY, start: start, len: 2i64, line: sl };
         }
         if self.cur(0i64) == 58u8 {
             self.pos = self.pos + 1i64;
@@ -295,7 +290,6 @@ fn wstr_unquote(doc: &Writ, p: *const u8) -> *const u8 {
 fn embed_at_kw(src: str, p: i64, len: i64) -> bool {
     let before: u8 = if p > 0i64 { str_byte_at(src, p - 1i64) } else { 32u8 };
     if lx_is_alnum(before) { return false; }
-    if p + 2i64 <= len && str_byte_at(src, p + 0i64) == 102u8 && str_byte_at(src, p + 1i64) == 110u8 && (p + 2i64 >= len || !lx_is_alnum(str_byte_at(src, p + 2i64))) { return true; }
     if p + 4i64 <= len && str_byte_at(src, p + 0i64) == 102u8 && str_byte_at(src, p + 1i64) == 114u8 && str_byte_at(src, p + 2i64) == 111u8 && str_byte_at(src, p + 3i64) == 109u8 && (p + 4i64 >= len || !lx_is_alnum(str_byte_at(src, p + 4i64))) { return true; }
     if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 119u8 && str_byte_at(src, p + 1i64) == 104u8 && str_byte_at(src, p + 2i64) == 101u8 && str_byte_at(src, p + 3i64) == 114u8 && str_byte_at(src, p + 4i64) == 101u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
     if p + 6i64 <= len && str_byte_at(src, p + 0i64) == 115u8 && str_byte_at(src, p + 1i64) == 101u8 && str_byte_at(src, p + 2i64) == 108u8 && str_byte_at(src, p + 3i64) == 101u8 && str_byte_at(src, p + 4i64) == 99u8 && str_byte_at(src, p + 5i64) == 116u8 && (p + 6i64 >= len || !lx_is_alnum(str_byte_at(src, p + 6i64))) { return true; }
@@ -381,67 +375,60 @@ fn alt_simple_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
-    if lex.peek().kind != WqTK_KW_FN { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk2: Token = lex.next();
     let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
-    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk3: Token = lex.next();
     let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk4: Token = lex.next();
     let cap4: *const u8 = wstr_p(doc, tk4.text(lex.src));
-    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk5: Token = lex.next();
     let cap5: *const u8 = wstr_p(doc, tk5.text(lex.src));
-    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk6: Token = lex.next();
     let cap6: *const u8 = wstr_p(doc, tk6.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk7: Token = lex.next();
     let cap7: *const u8 = wstr_p(doc, tk7.text(lex.src));
-    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
-    let tk8: Token = lex.next();
-    let cap8: *const u8 = wstr_p(doc, tk8.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
-    let tk9: Token = lex.next();
-    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
-    let mut cap10: *const u8 = WqNULLP;
+    let mut cap8: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_where_clause(lex, doc);
-        if sub_r != WqNULLP { cap10 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap8 = sub_r; } else { lex.reset(osp, osln); }
     }
     if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
-    let tk11: Token = lex.next();
-    let cap11: *const u8 = wstr_p(doc, tk11.text(lex.src));
-    let cap12: *const u8 = rule_sel_body(lex, doc);
-    if cap12 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
-    let mut cap13: *const u8 = WqNULLP;
+    let tk9: Token = lex.next();
+    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
+    let cap10: *const u8 = rule_sel_body(lex, doc);
+    if cap10 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap11: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_result_clause(lex, doc);
-        if sub_r != WqNULLP { cap13 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap11 = sub_r; } else { lex.reset(osp, osln); }
     }
-    let mut cap14: *const u8 = WqNULLP;
+    let mut cap12: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_with_opt(lex, doc);
-        if sub_r != WqNULLP { cap14 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap12 = sub_r; } else { lex.reset(osp, osln); }
     }
     let node: RQSimple = doc.make::<RQSimple>();
-    node.has_result_ty = cap13 != WqNULLP;
-    node.result_ty = wstr_as_str(cap13);
-    node.row_ty = wstr_as_str(cap7);
-    node.where_pred = WRef::<SExpr>::from_any(hand_any(cap10));
-    node.var_name = wstr_as_str(cap9);
-    node.src_name = wstr_as_str(cap4);
-    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap14));
-    node.fn_name = wstr_as_str(cap2);
-    node.select = WRef::<SExpr>::from_any(hand_any(cap12));
-    node.has_where = cap10 != WqNULLP;
+    node.result_ty = wstr_as_str(cap11);
+    node.row_ty = wstr_as_str(cap5);
+    node.where_pred = WRef::<SExpr>::from_any(hand_any(cap8));
+    node.var_name = wstr_as_str(cap7);
+    node.src_name = wstr_as_str(cap2);
+    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap12));
+    node.select = WRef::<SExpr>::from_any(hand_any(cap10));
+    node.has_result_ty = cap11 != WqNULLP;
+    node.has_where = cap8 != WqNULLP;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -454,102 +441,95 @@ fn alt_join_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
-    if lex.peek().kind != WqTK_KW_FN { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk2: Token = lex.next();
     let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
-    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk3: Token = lex.next();
     let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk4: Token = lex.next();
     let cap4: *const u8 = wstr_p(doc, tk4.text(lex.src));
-    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk5: Token = lex.next();
     let cap5: *const u8 = wstr_p(doc, tk5.text(lex.src));
-    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk6: Token = lex.next();
     let cap6: *const u8 = wstr_p(doc, tk6.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk7: Token = lex.next();
     let cap7: *const u8 = wstr_p(doc, tk7.text(lex.src));
-    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
-    let tk8: Token = lex.next();
-    let cap8: *const u8 = wstr_p(doc, tk8.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
-    let tk9: Token = lex.next();
-    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
-    let mut cap10: *const u8 = WqNULLP;
+    let mut cap8: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
-        if lex.peek().kind == WqTK_KW_ANTI { let t: Token = lex.next(); cap10 = wstr_p(doc, t.text(lex.src)); }
+        if lex.peek().kind == WqTK_KW_ANTI { let t: Token = lex.next(); cap8 = wstr_p(doc, t.text(lex.src)); }
     }
     if lex.peek().kind != WqTK_KW_JOIN { lex.reset(sp, sln); return WqNULLP; }
+    let tk9: Token = lex.next();
+    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    let tk10: Token = lex.next();
+    let cap10: *const u8 = wstr_p(doc, tk10.text(lex.src));
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk11: Token = lex.next();
     let cap11: *const u8 = wstr_p(doc, tk11.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk12: Token = lex.next();
     let cap12: *const u8 = wstr_p(doc, tk12.text(lex.src));
-    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk13: Token = lex.next();
     let cap13: *const u8 = wstr_p(doc, tk13.text(lex.src));
-    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk14: Token = lex.next();
     let cap14: *const u8 = wstr_p(doc, tk14.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk15: Token = lex.next();
     let cap15: *const u8 = wstr_p(doc, tk15.text(lex.src));
-    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_KW_ON { lex.reset(sp, sln); return WqNULLP; }
     let tk16: Token = lex.next();
     let cap16: *const u8 = wstr_p(doc, tk16.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
-    let tk17: Token = lex.next();
-    let cap17: *const u8 = wstr_p(doc, tk17.text(lex.src));
-    if lex.peek().kind != WqTK_KW_ON { lex.reset(sp, sln); return WqNULLP; }
-    let tk18: Token = lex.next();
-    let cap18: *const u8 = wstr_p(doc, tk18.text(lex.src));
-    let cap19: *const u8 = rule_on_body(lex, doc);
-    if cap19 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
-    let mut cap20: *const u8 = WqNULLP;
+    let cap17: *const u8 = rule_on_body(lex, doc);
+    if cap17 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap18: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_where_clause(lex, doc);
-        if sub_r != WqNULLP { cap20 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap18 = sub_r; } else { lex.reset(osp, osln); }
     }
     if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
+    let tk19: Token = lex.next();
+    let cap19: *const u8 = wstr_p(doc, tk19.text(lex.src));
+    let cap20: *const u8 = rule_sel_body(lex, doc);
+    if cap20 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk21: Token = lex.next();
     let cap21: *const u8 = wstr_p(doc, tk21.text(lex.src));
-    let cap22: *const u8 = rule_sel_body(lex, doc);
-    if cap22 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
-    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
-    let tk23: Token = lex.next();
-    let cap23: *const u8 = wstr_p(doc, tk23.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
-    let tk24: Token = lex.next();
-    let cap24: *const u8 = wstr_p(doc, tk24.text(lex.src));
-    let mut cap25: *const u8 = WqNULLP;
+    let tk22: Token = lex.next();
+    let cap22: *const u8 = wstr_p(doc, tk22.text(lex.src));
+    let mut cap23: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_with_opt(lex, doc);
-        if sub_r != WqNULLP { cap25 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap23 = sub_r; } else { lex.reset(osp, osln); }
     }
     let node: RQJoin = doc.make::<RQJoin>();
-    node.a_name = wstr_as_str(cap4);
-    node.result_ty = wstr_as_str(cap24);
-    node.where_pred = WRef::<SExpr>::from_any(hand_any(cap20));
-    node.x_var = wstr_as_str(cap9);
-    node.b_name = wstr_as_str(cap12);
-    node.select = WRef::<SExpr>::from_any(hand_any(cap22));
-    node.on = WRef::<SExpr>::from_any(hand_any(cap19));
-    node.b_ty = wstr_as_str(cap15);
-    node.a_ty = wstr_as_str(cap7);
-    node.is_anti = cap10 != WqNULLP;
-    node.y_var = wstr_as_str(cap17);
-    node.fn_name = wstr_as_str(cap2);
-    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap25));
-    node.has_where = cap20 != WqNULLP;
+    node.a_name = wstr_as_str(cap2);
+    node.result_ty = wstr_as_str(cap22);
+    node.where_pred = WRef::<SExpr>::from_any(hand_any(cap18));
+    node.x_var = wstr_as_str(cap7);
+    node.b_name = wstr_as_str(cap10);
+    node.select = WRef::<SExpr>::from_any(hand_any(cap20));
+    node.on = WRef::<SExpr>::from_any(hand_any(cap17));
+    node.b_ty = wstr_as_str(cap13);
+    node.a_ty = wstr_as_str(cap5);
+    node.is_anti = cap8 != WqNULLP;
+    node.y_var = wstr_as_str(cap15);
+    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap23));
+    node.has_where = cap18 != WqNULLP;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -562,81 +542,74 @@ fn alt_aggr_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
-    if lex.peek().kind != WqTK_KW_FN { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk2: Token = lex.next();
     let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
-    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk3: Token = lex.next();
     let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk4: Token = lex.next();
     let cap4: *const u8 = wstr_p(doc, tk4.text(lex.src));
-    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk5: Token = lex.next();
     let cap5: *const u8 = wstr_p(doc, tk5.text(lex.src));
-    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
     let tk6: Token = lex.next();
     let cap6: *const u8 = wstr_p(doc, tk6.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk7: Token = lex.next();
     let cap7: *const u8 = wstr_p(doc, tk7.text(lex.src));
-    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
-    let tk8: Token = lex.next();
-    let cap8: *const u8 = wstr_p(doc, tk8.text(lex.src));
-    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
-    let tk9: Token = lex.next();
-    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
-    let mut cap10: *const u8 = WqNULLP;
+    let mut cap8: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_where_clause(lex, doc);
-        if sub_r != WqNULLP { cap10 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap8 = sub_r; } else { lex.reset(osp, osln); }
     }
     if lex.peek().kind != WqTK_KW_GROUP { lex.reset(sp, sln); return WqNULLP; }
-    let tk11: Token = lex.next();
-    let cap11: *const u8 = wstr_p(doc, tk11.text(lex.src));
+    let tk9: Token = lex.next();
+    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
     if lex.peek().kind != WqTK_KW_BY { lex.reset(sp, sln); return WqNULLP; }
+    let tk10: Token = lex.next();
+    let cap10: *const u8 = wstr_p(doc, tk10.text(lex.src));
+    let cap11: *const u8 = rule_key_body(lex, doc);
+    if cap11 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_KW_AGGREGATE { lex.reset(sp, sln); return WqNULLP; }
     let tk12: Token = lex.next();
     let cap12: *const u8 = wstr_p(doc, tk12.text(lex.src));
-    let cap13: *const u8 = rule_key_body(lex, doc);
+    let cap13: *const u8 = rule_agg_list(lex, doc);
     if cap13 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
-    if lex.peek().kind != WqTK_KW_AGGREGATE { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
     let tk14: Token = lex.next();
     let cap14: *const u8 = wstr_p(doc, tk14.text(lex.src));
-    let cap15: *const u8 = rule_agg_list(lex, doc);
+    let cap15: *const u8 = rule_sel_body(lex, doc);
     if cap15 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
-    if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk16: Token = lex.next();
     let cap16: *const u8 = wstr_p(doc, tk16.text(lex.src));
-    let cap17: *const u8 = rule_sel_body(lex, doc);
-    if cap17 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
-    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
-    let tk18: Token = lex.next();
-    let cap18: *const u8 = wstr_p(doc, tk18.text(lex.src));
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
-    let tk19: Token = lex.next();
-    let cap19: *const u8 = wstr_p(doc, tk19.text(lex.src));
-    let mut cap20: *const u8 = WqNULLP;
+    let tk17: Token = lex.next();
+    let cap17: *const u8 = wstr_p(doc, tk17.text(lex.src));
+    let mut cap18: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_with_opt(lex, doc);
-        if sub_r != WqNULLP { cap20 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap18 = sub_r; } else { lex.reset(osp, osln); }
     }
     let node: RQAggr = doc.make::<RQAggr>();
-    node.a_name = wstr_as_str(cap4);
-    node.aggs = WRef::<RQAggArr>::from_any(hand_any(cap15));
-    node.result_ty = wstr_as_str(cap19);
-    node.where_pred = WRef::<SExpr>::from_any(hand_any(cap10));
-    node.x_var = wstr_as_str(cap9);
-    node.a_ty = wstr_as_str(cap7);
-    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap20));
-    node.key = WRef::<SExpr>::from_any(hand_any(cap13));
-    node.fn_name = wstr_as_str(cap2);
-    node.select = WRef::<SExpr>::from_any(hand_any(cap17));
-    node.has_where = cap10 != WqNULLP;
+    node.a_name = wstr_as_str(cap2);
+    node.aggs = WRef::<RQAggArr>::from_any(hand_any(cap13));
+    node.result_ty = wstr_as_str(cap17);
+    node.where_pred = WRef::<SExpr>::from_any(hand_any(cap8));
+    node.x_var = wstr_as_str(cap7);
+    node.a_ty = wstr_as_str(cap5);
+    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap18));
+    node.key = WRef::<SExpr>::from_any(hand_any(cap11));
+    node.select = WRef::<SExpr>::from_any(hand_any(cap15));
+    node.has_where = cap8 != WqNULLP;
     return node.as_ref().raw() as *const u8;
 }
 

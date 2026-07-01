@@ -26,14 +26,14 @@ struct Person {
 
 // STR projection, STR filter — no `: str`, no `with`. Reflection types `name`
 // and `dept` as `str` from the schema; the result element is inferred `str`.
-wql!{ fn eng_names from people:[Person] p where p.dept == "eng" select p.name }
+resource eng_names = wql!{ from people:[Person] p where p.dept == "eng" select p.name  };
 
 // INT projection — inferred `i64` from the schema's `age: i64`.
-wql!{ fn ages from people:[Person] p where p.age >= 30 select p.age }
+resource ages = wql!{ from people:[Person] p where p.age >= 30 select p.age  };
 
 // BOOL projection — a comparison projects a `bool` column (inferred). The param
 // `$min` is compared against the schema field `age`, so it types as i64.
-wql!{ fn is_adult from people:[Person] p select p.age >= $min with $min:i64 }
+resource is_adult = wql!{ from people:[Person] p select p.age >= $min with $min:i64  };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

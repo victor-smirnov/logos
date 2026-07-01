@@ -17,8 +17,8 @@ struct Person {
     pub age: i64,
 }
 
-wql!{ fn clamp from people:[Person] p
-      select p.age >= 18 ? p.age : 0 : i64 }
+resource clamp = wql!{ from people:[Person] p
+      select p.age >= 18 ? p.age : 0 : i64  };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

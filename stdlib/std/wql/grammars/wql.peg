@@ -7,12 +7,16 @@
 // It is the peg-generated REPLACEMENT for the hand-written `QLexer` clause carving
 // in `stdlib/std/wql/wql.logos`.
 //
-// The wql! surface has three shapes; each maps to one RQuery variant:
+// The wql! surface has three shapes; each maps to one RQuery variant. The query
+// body starts at `from` — the generated fn NAME comes from the enclosing
+// `resource <name> = wql!{ … }` binding (ADR 0012 §6), delivered as the handler's
+// `name` arg and stamped onto the plan node's `fn_name` field after the parse (so
+// the grammar no longer carries an `fn N` prefix):
 //
-//   RQSimple — fn N from src:[Ty] var [where P] select S [: RTy] [with …]
-//   RQJoin   — fn N from a:[ATy] x [anti] join b:[BTy] y on ON [where P]
+//   RQSimple — from src:[Ty] var [where P] select S [: RTy] [with …]
+//   RQJoin   — from a:[ATy] x [anti] join b:[BTy] y on ON [where P]
 //              select S : RTy [with …]
-//   RQAggr   — fn N from a:[ATy] x [where P] group by K
+//   RQAggr   — from a:[ATy] x [where P] group by K
 //              aggregate name=fn(arg?),… select S : RTy [with …]
 //
 // ── EMBEDDED-EL CLAUSE BODIES (the ONE cross-grammar coupling) ──────────────
@@ -74,16 +78,16 @@
     arena:    external
     ref_wrap: "WRef"
 
-    RQSimple { fn_name: "str", src_name: "str", row_ty: "str", var_name: "str",
+    RQSimple { src_name: "str", row_ty: "str", var_name: "str",
                has_where: "bool", where_pred: "ref SExpr", select: "ref SExpr",
                has_result_ty: "bool", result_ty: "str", with_decls: "ref RQWithArr" }
 
-    RQJoin   { fn_name: "str", a_name: "str", a_ty: "str", x_var: "str",
+    RQJoin   { a_name: "str", a_ty: "str", x_var: "str",
                is_anti: "bool", b_name: "str", b_ty: "str", y_var: "str",
                on: "ref SExpr", has_where: "bool", where_pred: "ref SExpr",
                select: "ref SExpr", result_ty: "str", with_decls: "ref RQWithArr" }
 
-    RQAggr   { fn_name: "str", a_name: "str", a_ty: "str", x_var: "str",
+    RQAggr   { a_name: "str", a_ty: "str", x_var: "str",
                has_where: "bool", where_pred: "ref SExpr", key: "ref SExpr",
                aggs: "ref RQAggArr", select: "ref SExpr", result_ty: "str",
                with_decls: "ref RQWithArr" }
@@ -99,7 +103,6 @@
 // `from`/`where`/… win). Every alpha-keyword literal ALSO drives the embed
 // close-finder's structural-stop set (a top-level clause boundary).
 %tokens {
-    KW_FN        = "fn"
     KW_FROM      = "from"
     KW_WHERE     = "where"
     KW_SELECT    = "select"
@@ -135,56 +138,54 @@
     // a structural keyword after the source; the leading optional `where` can
     // precede `group`, and `join`/`anti` can precede the select. Try join, then
     // aggregate, then the simple scan/filter/project fallback. Each alt re-parses
-    // the shared `fn N from src:[Ty] var` prefix (cheap; packrat-memoized).
+    // the shared `from src:[Ty] var` prefix (cheap; packrat-memoized).
     query <- join_query
            / aggr_query
            / simple_query
 
     // ── RQSimple ──────────────────────────────────────────────────────────
-    //   fn N from src:[Ty] var [where P] select S [: RTy] [with …]
-    //   $1=KW_FN $2=IDENT(fn) $3=KW_FROM $4=IDENT(src) $5=: $6=[ $7=IDENT(row)
-    //   $8=] $9=IDENT(var) $10=where_opt? $11=KW_SELECT $12=sel_body
-    //   $13=result_opt? $14=with_opt?
-    simple_query <- KW_FN IDENT
-                    KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+    //   from src:[Ty] var [where P] select S [: RTy] [with …]
+    //   $1=KW_FROM $2=IDENT(src) $3=: $4=[ $5=IDENT(row) $6=] $7=IDENT(var)
+    //   $8=where_opt? $9=KW_SELECT $10=sel_body $11=result_opt? $12=with_opt?
+    simple_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
                     where_clause?
                     KW_SELECT sel_body result_clause? with_opt?
-                    => { CODE: "RQSimple", fn_name: $2, src_name: $4, row_ty: $7,
-                         var_name: $9, has_where: $10, where_pred: $10,
-                         select: $12, has_result_ty: $13, result_ty: $13,
-                         with_decls: $14 }
+                    => { CODE: "RQSimple", src_name: $2, row_ty: $5,
+                         var_name: $7, has_where: $8, where_pred: $8,
+                         select: $10, has_result_ty: $11, result_ty: $11,
+                         with_decls: $12 }
 
     // ── RQJoin ────────────────────────────────────────────────────────────
-    //   fn N from a:[ATy] x [anti] join b:[BTy] y on ON [where P] select S : RTy [with …]
-    //   $1..$9 prefix; $10=anti? $11=KW_JOIN $12=IDENT(b) $13=: $14=[ $15=IDENT(bty)
-    //   $16=] $17=IDENT(y) $18=KW_ON $19=on_body $20=where_opt?
-    //   $21=KW_SELECT $22=sel_body $23=: $24=IDENT(RTy) $25=with_opt?
-    join_query <- KW_FN IDENT
-                  KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+    //   from a:[ATy] x [anti] join b:[BTy] y on ON [where P] select S : RTy [with …]
+    //   $1=KW_FROM $2=IDENT(a) $3=: $4=[ $5=IDENT(aty) $6=] $7=IDENT(x)
+    //   $8=anti? $9=KW_JOIN $10=IDENT(b) $11=: $12=[ $13=IDENT(bty)
+    //   $14=] $15=IDENT(y) $16=KW_ON $17=on_body $18=where_opt?
+    //   $19=KW_SELECT $20=sel_body $21=: $22=IDENT(RTy) $23=with_opt?
+    join_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   KW_ANTI? KW_JOIN IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   KW_ON on_body
                   where_clause?
                   KW_SELECT sel_body COLON IDENT with_opt?
-                  => { CODE: "RQJoin", fn_name: $2, a_name: $4, a_ty: $7, x_var: $9,
-                       is_anti: $10, b_name: $12, b_ty: $15, y_var: $17,
-                       on: $19, has_where: $20, where_pred: $20,
-                       select: $22, result_ty: $24, with_decls: $25 }
+                  => { CODE: "RQJoin", a_name: $2, a_ty: $5, x_var: $7,
+                       is_anti: $8, b_name: $10, b_ty: $13, y_var: $15,
+                       on: $17, has_where: $18, where_pred: $18,
+                       select: $20, result_ty: $22, with_decls: $23 }
 
     // ── RQAggr ────────────────────────────────────────────────────────────
-    //   fn N from a:[ATy] x [where P] group by K aggregate a=fn(e),… select S : RTy [with …]
-    //   $1..$9 prefix; $10=where_opt? $11=KW_GROUP $12=KW_BY $13=key_body
-    //   $14=KW_AGGREGATE $15=agg_list $16=KW_SELECT $17=sel_body $18=: $19=IDENT(RTy)
-    //   $20=with_opt?
-    aggr_query <- KW_FN IDENT
-                  KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+    //   from a:[ATy] x [where P] group by K aggregate a=fn(e),… select S : RTy [with …]
+    //   $1=KW_FROM $2=IDENT(a) $3=: $4=[ $5=IDENT(aty) $6=] $7=IDENT(x)
+    //   $8=where_opt? $9=KW_GROUP $10=KW_BY $11=key_body
+    //   $12=KW_AGGREGATE $13=agg_list $14=KW_SELECT $15=sel_body $16=: $17=IDENT(RTy)
+    //   $18=with_opt?
+    aggr_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   where_clause?
                   KW_GROUP KW_BY key_body
                   KW_AGGREGATE agg_list
                   KW_SELECT sel_body COLON IDENT with_opt?
-                  => { CODE: "RQAggr", fn_name: $2, a_name: $4, a_ty: $7, x_var: $9,
-                       has_where: $10, where_pred: $10,
-                       key: $13, aggs: $15, select: $17, result_ty: $19,
-                       with_decls: $20 }
+                  => { CODE: "RQAggr", a_name: $2, a_ty: $5, x_var: $7,
+                       has_where: $8, where_pred: $8,
+                       key: $11, aggs: $13, select: $15, result_ty: $17,
+                       with_decls: $18 }
 
     // ── Shared sub-rules ───────────────────────────────────────────────────
     // `where P` — the value is the predicate SExpr ($2, past the KW_WHERE token).

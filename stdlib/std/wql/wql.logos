@@ -18,15 +18,17 @@
 // MVP surface (explicit-typed, per the ADR static model — schema/types always
 // known at compile time, params/sources flow as generated-fn arguments):
 //
-//   wql! {
-//       fn <name>
+//   resource <name> = wql! {
 //       from <src>:[<RowTy>] <var>
 //       [ where <predicate-EL> ]
 //       select <projection-EL> [ : <ResultTy> ]
 //       [ with [$]<name>:<ty>, … ]
-//   }
+//   };
 //
 //   →  pub fn <name>(<src>: &[<RowTy>], <$param>: <PTy>, …) -> Vec<ResultTy> { … }
+//
+// The generated fn NAME is the `resource <name> =` binding (ADR 0012 §6), NOT an
+// `fn <name>` line inside the block; the handler receives it as the `name` arg.
 //
 // plus the relational shapes off the same `from` prefix:
 //   • `[anti] join <b>:[<BTy>] <y> on <onPred>` → inner / anti nested-loop join;
@@ -51,11 +53,15 @@ use logos.std.wql.plan_walker;           // walk_query_any — the plan walker-e
 // emitted native fn). The emitted source is spliced by the host's Emitter/
 // `logos_emit_source` (ADR 0012 §10.2); the handler returns an (empty) ItemList.
 #[token_macro]
-pub fn wql(s: str) -> ItemList {
+pub fn wql(name: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();
+    if name.len() == 0i64 {
+        error("wql!: needs a binding name — write `resource <name> = wql!{ from … select … }`");
+        return out;
+    }
     let h: Writ = writ_new(4096i64);
-    let root: WAny = parse_query(s, &h);
-    if root.is_null() { error("wql!: malformed query"); return out; }
-    let _ok: bool = walk_query_any(root);
+    let root: WAny = parse_query(body, &h);
+    if root.is_null() { error("wql!: malformed query (expected `from <src>:[<Ty>] <var> … select …`)"); return out; }
+    let _ok: bool = walk_query_any_named(root, name, &h);
     return out;
 }

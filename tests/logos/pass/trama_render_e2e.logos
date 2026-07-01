@@ -36,7 +36,7 @@ struct Ctx {
 //       if (c.flag) { __out.push_str("!"); }
 //       return __out;
 //   }
-trama!{ fn render data c:Ctx "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}" }
+resource render = trama!{ data c:Ctx "nums:{% for n in c.nums %}[{{ n }}]{% endfor %}{% if c.flag %}!{% endif %}"  };
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { nums: [1i64, 2i64, 3i64], flag: true };

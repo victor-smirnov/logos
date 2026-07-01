@@ -23,10 +23,10 @@ struct Person {
 //   pub fn pick(people: &[Person]) -> Vec<str> {
 //     … if (starts_with((p.name),("A")) && (((p.name).len()) >= 3)) push p.dept …
 //   }
-wql!{ fn pick from people:[Person] p
+resource pick = wql!{ from people:[Person] p
       where starts_with(p.name, "A") && len(p.name) >= 3
       select p.dept : str
-      with name:str, dept:str }
+      with name:str, dept:str  };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

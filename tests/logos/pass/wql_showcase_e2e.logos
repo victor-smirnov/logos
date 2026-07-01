@@ -33,18 +33,17 @@ struct Dept { pub id:   i64, pub budget: i64 }
 //   pub fn seniors(emps: &[Emp]) -> Vec<str> {
 //       … while-loop; if (e.age >= 40 && e.dept == 1) { push(e.name) } …
 //   }
-wql!{ fn seniors from emps:[Emp] e where e.age >= 40 && e.dept == 1 select e.name }
+resource seniors = wql!{ from emps:[Emp] e where e.age >= 40 && e.dept == 1 select e.name  };
 
 // (B) JOIN — inner nested-loop join over two typed sources + post-join filter.
 //   pub fn dept_ages(emps: &[Emp], depts: &[Dept]) -> Vec<i64> {
 //       … for e in emps { for d in depts { if (e.dept==d.id) && (d.budget>100)
 //           { push(e.age) } } } …
 //   }
-wql!{ fn dept_ages
-      from emps:[Emp] e
+resource dept_ages = wql!{ from emps:[Emp] e
       join depts:[Dept] d on e.dept == d.id
       where d.budget > 100
-      select e.age : i64 }
+      select e.age : i64  };
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

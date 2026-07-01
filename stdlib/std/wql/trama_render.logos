@@ -7,10 +7,14 @@
 //
 // MVP surface (explicit-typed data context, per the ADR static model):
 //
-//   trama! {
-//       fn <name> data <ctx>:<CtxTy>
+//   resource <name> = trama! {
+//       data <ctx>:<CtxTy>
 //       " <template> "
-//   }
+//   };
+//
+// The render-fn NAME is the `resource <name> =` binding (ADR 0012 §6), NOT an
+// `fn <name>` line inside the block; the handler receives it as the `name` arg
+// and the block body starts at `data`.
 //
 //   →  pub fn <name>(<ctx>: &<CtxTy>) -> String {
 //          let mut __out: String = String::new();
@@ -431,14 +435,18 @@ fn alt_word(r: &WRef<TStmt>)  -> i64 { return r.any().raw(); }
 
 // ── The resource handler ───────────────────────────────────────────────────
 #[token_macro]
-pub fn trama(s: str) -> ItemList {
+pub fn trama(name: str, s: str) -> ItemList {
     let out: ItemList = item_list_new();
 
-    let mut lx: TLexer = TLexer { src: s, pos: 0i64, len: s.len() };
+    if name.len() == 0i64 {
+        error("trama!: needs a binding name — write `resource <name> = trama!{ data … \"template\" }`");
+        return out;
+    }
+    // The generated render-fn NAME is the `resource <name> =` binding (ADR 0012
+    // §6), NOT an `fn <name>` line inside the block; the block body starts at `data`.
+    let fn_name: str = name;
 
-    // fn <name>
-    if !lx.eat_kw("fn") { error("trama!: expected `fn <name>`"); return out; }
-    let fn_name: str = lx.scan_ident_str();
+    let mut lx: TLexer = TLexer { src: s, pos: 0i64, len: s.len() };
 
     // data <ctx>:<CtxTy>
     if !lx.eat_kw("data") { error("trama!: expected `data <ctx>:<CtxTy>`"); return out; }

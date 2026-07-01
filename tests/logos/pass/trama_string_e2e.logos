@@ -43,8 +43,8 @@ struct Ctx {
 //       if (c.city == "NYC") { __out.push_str("!"); }
 //       return __out;
 //   }
-trama!{ fn render data c:Ctx with title:str, names:str, n:str, city:str
-    `{{ c.title }}: {% for n in c.names %}{{ n }}, {% endfor %}{{ "(" + c.city + ")" }}{% if c.city == "NYC" %}!{% endif %}` }
+resource render = trama!{ data c:Ctx with title:str, names:str, n:str, city:str
+    `{{ c.title }}: {% for n in c.names %}{{ n }}, {% endfor %}{{ "(" + c.city + ")" }}{% if c.city == "NYC" %}!{% endif %}`  };
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx {

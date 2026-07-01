@@ -1,0 +1,48 @@
+// ADR 0012 §6 — NAMED resource item ABI. Phase 1 of the "binding-name into
+// item token_macros" work: `resource <name> = h!{ … }` hands the LHS <name>
+// to a `#[token_macro] fn h(name: str, body: str) -> ItemList` as its FIRST
+// str arg, and the raw block body as the SECOND. The emitted item is named by
+// <name> — no `fn <name>` header inside the block.
+//
+// This proves BOTH macro-arg slots survive the metacall thunk round-trip:
+//   • slot 0 (name) → the emitted fn's identifier (`seniors`)
+//   • slot 1 (body) → branched on: contains "answer" ⇒ 42, else 7
+package token_macro_item_named_resource;
+
+use logos.std.compiler.metaprog;   // Emitter, item_list_new, ItemList
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+#[token_macro]
+pub fn make_query(name: str, body: str) -> ItemList {
+    let out: ItemList = item_list_new();
+
+    // The value the generated fn returns is DRIVEN by the raw block body,
+    // proving slot 1 (body) reached the handler unmangled.
+    let has_answer: bool = str_contains(body, "answer");
+
+    // Emit `pub fn <name>() -> i32 { return <val>; }` into this package.
+    // The identifier is the LHS binding <name> (slot 0), NOT a header token.
+    let mut em: Emitter = Emitter::new();
+    em.emit_into("token_macro_item_named_resource");
+    em.push_text("pub fn ");
+    em.push_text(name);
+    if has_answer {
+        em.push_text("() -> i32 { return 42i32; }");
+    } else {
+        em.push_text("() -> i32 { return 7i32; }");
+    }
+    em.commit();
+
+    return out;
+}
+
+// The block body is opaque "query" text (not valid Logos); the token-macro
+// path hands it over verbatim. The LHS `seniors` names the emitted fn.
+resource seniors = make_query!{ from emps e where e.age >= 40 select answer };
+
+fn main() -> i32 {
+    // seniors() was emitted by the handler, named by the resource LHS. It
+    // returns 42 because the block body contained "answer".
+    return seniors();
+}

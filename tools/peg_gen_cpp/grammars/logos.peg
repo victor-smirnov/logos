@@ -341,6 +341,7 @@
     KW_GENOS    = "genos"
     KW_AUTO     = "auto"
     KW_METACALL = "metacall"
+    KW_RESOURCE = "resource"
     KW_STATIC   = "static"
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
@@ -531,7 +532,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / resource_item_decl / fn_macro_item_decl / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -577,6 +578,14 @@
     // through the metacall-item pipeline (callee returns ItemList).
     fn_macro_item_decl <- IDENT BANG RAW_GROUP_BRACE
                        => { CODE: FN_MACRO_CALL_ITEM, CALLEE: $1, RAW_TEXT: $3 }
+
+    // Named resource item (ADR 0012 §6): `resource <name> = <callee>!{ body };`.
+    // Desugars to the same FN_MACRO_CALL_ITEM node, but the binding <name>
+    // rides in the (otherwise-unused) NAME slot — sema hands it to the
+    // #[token_macro] callee as a second `str` arg so the emitted item is
+    // named by the LHS, not by a `fn <name>` header inside the block.
+    resource_item_decl <- KW_RESOURCE IDENT ASSIGN IDENT BANG RAW_GROUP_BRACE SEMI
+                       => { CODE: FN_MACRO_CALL_ITEM, NAME: $2, CALLEE: $4, RAW_TEXT: $6 }
 
     // ── Item-position metacall ───────────────────────────────────
     // `metacall foo::<...>(...);` at module top level. The callee returns

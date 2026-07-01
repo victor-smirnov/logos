@@ -35,7 +35,7 @@ struct Person {
 //       }
 //       return __out;
 //   }
-wql!{ fn eng_names from people:[Person] p where p.dept == "eng" select p.name : str with name:str, dept:str }
+resource eng_names = wql!{ from people:[Person] p where p.dept == "eng" select p.name : str with name:str, dept:str  };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

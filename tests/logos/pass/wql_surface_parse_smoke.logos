@@ -4,9 +4,10 @@
 // walker-emitter consumes, REPLACING the hand-written QLexer clause carving.
 //
 // Covers all three surface shapes:
-//   • simple:  fn adults from people:[Person] p where p.age >= 18 select p.name with $q:str
-//   • join:    fn m from a:[A] x join b:[B] y on x.k == y.k select x.name : str
-//   • aggregate: fn g from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64
+//   • simple:  from people:[Person] p where p.age >= 18 select p.name with $q:str
+//   • join:    from a:[A] x join b:[B] y on x.k == y.k select x.name : str
+//   • aggregate: from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64
+// (the `fn N` prefix is gone — the fn name is the `resource <name> =` binding.)
 //
 // Each parse builds the plan into a live Writ arena `h`; the root is viewed as
 // `RQuery` and matched. The embedded EL clause bodies (where/select/on/key/agg)
@@ -26,13 +27,16 @@ fn main() -> i32 {
     // ── SIMPLE ────────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "fn adults from people:[Person] p where p.age >= 18 select p.name with $q:str";
+        let src: str = "from people:[Person] p where p.age >= 18 select p.name with $q:str";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 1i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
             RQuery::Simple(s) => {
-                if !str_eq(s.fn_name, "adults")  { return 2i32; }
+                // fn_name is NOT set by the parser (the grammar has no `fn N`
+                // prefix); the handler stamps it from the `resource <name> =`
+                // binding — so it is empty here.
+                if s.fn_name.len() != 0i64       { return 2i32; }
                 if !str_eq(s.src_name, "people") { return 3i32; }
                 if !str_eq(s.row_ty, "Person")   { return 4i32; }
                 if !str_eq(s.var_name, "p")      { return 5i32; }
@@ -75,13 +79,13 @@ fn main() -> i32 {
     // ── JOIN ──────────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "fn m from a:[A] x join b:[B] y on x.k == y.k select x.name : str";
+        let src: str = "from a:[A] x join b:[B] y on x.k == y.k select x.name : str";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 20i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
             RQuery::Join(j) => {
-                if !str_eq(j.fn_name, "m")  { return 21i32; }
+                if j.fn_name.len() != 0i64  { return 21i32; }   // parser leaves fn_name empty
                 if !str_eq(j.a_name, "a")   { return 22i32; }
                 if !str_eq(j.a_ty, "A")     { return 23i32; }
                 if !str_eq(j.x_var, "x")    { return 24i32; }
@@ -106,13 +110,13 @@ fn main() -> i32 {
     // ── AGGREGATE ─────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "fn g from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64";
+        let src: str = "from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 40i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
             RQuery::Aggr(g) => {
-                if !str_eq(g.fn_name, "g")     { return 41i32; }
+                if g.fn_name.len() != 0i64     { return 41i32; }   // parser leaves fn_name empty
                 if !str_eq(g.a_ty, "Order")    { return 42i32; }
                 if !str_eq(g.x_var, "r")       { return 43i32; }
                 if g.has_where                 { return 44i32; }
@@ -152,7 +156,7 @@ fn main() -> i32 {
     // ── ANTI-JOIN + `where` (ordered-choice + is_anti flag) ───────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "fn m from a:[A] x anti join b:[B] y on x.k == y.k where x.ok select x.name : str";
+        let src: str = "from a:[A] x anti join b:[B] y on x.k == y.k where x.ok select x.name : str";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 60i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -174,7 +178,7 @@ fn main() -> i32 {
     // ── AGGREGATE + `where` + count() (empty-paren alt) + 2 aggs ───────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "fn g from o:[Order] r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
+        let src: str = "from o:[Order] r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 70i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -200,7 +204,7 @@ fn main() -> i32 {
     // terminate the sel_body embed early (they are inside brackets / not stops).
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "fn c from rows:[Row] r select [ v.n for v in items ] : i64";
+        let src: str = "from rows:[Row] r select [ v.n for v in items ] : i64";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 80i32; }
         let plan: RQuery = root.view::<RQuery>();

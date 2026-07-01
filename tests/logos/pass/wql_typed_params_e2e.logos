@@ -20,7 +20,7 @@ struct Person { pub name: str, pub age: i64 }
 
 // Emits:
 //   pub fn lookup(people: &[Person], q: str, minage: i64) -> Vec<str> { … }
-wql!{ fn lookup from people:[Person] p where p.name == $q && p.age >= $minage select p.name : str with name:str, $q:str, $minage:i64 }
+resource lookup = wql!{ from people:[Person] p where p.name == $q && p.age >= $minage select p.name : str with name:str, $q:str, $minage:i64  };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

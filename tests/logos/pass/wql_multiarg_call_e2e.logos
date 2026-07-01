@@ -19,10 +19,10 @@ struct Person {
 //   pub fn pick(people: &[Person], sub: str) -> Vec<str> {
 //       … if (str_contains((p.name),(sub))) { __out.push(p.dept); } …
 //   }
-wql!{ fn pick from people:[Person] p
+resource pick = wql!{ from people:[Person] p
       where contains(p.name, $sub)
       select p.dept : str
-      with name:str, dept:str, $sub:str }
+      with name:str, dept:str, $sub:str  };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

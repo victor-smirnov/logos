@@ -19535,22 +19535,47 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     bool sig_str = macro_info->is_token_macro
         && macro_info->param_types.size() == 1
         && is_str_type(macro_info->param_types[0]);
-    bool sig_vec = !sig_str
+    // ADR 0012 §6 named-resource ABI: `#[token_macro] fn h(name: str, body: str)
+    // -> ItemList|QuoteItemBlob`. The binding <name> from `resource <name> = h!{…}`
+    // is delivered as arg slot 0, the raw block body as arg slot 1. Coexists with
+    // the anonymous 1-arg `(body: str)` form.
+    bool sig_str2 = macro_info->is_token_macro
+        && macro_info->param_types.size() == 2
+        && is_str_type(macro_info->param_types[0])
+        && is_str_type(macro_info->param_types[1]);
+    bool sig_vec = !sig_str && !sig_str2
         && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_str && !sig_vec && !sig_zero) {
+    if (!sig_str && !sig_str2 && !sig_vec && !sig_zero) {
         // Preserve the canonical fn_macro wording (diagnostic rule
         // metaprog.fn-macro-item.param-signature); token_macro item callees
         // get their own message.
         const char* expected = macro_info->is_token_macro
-            ? "`str`"
+            ? "`str` or `(name: str, body: str)`"
             : "`Vec<ExprBlob>` or no args";
         error(std::format(
             "fn_macro item: '{}!' must take {}", callee_name, expected));
+        return;
+    }
+
+    // The named-resource form (`resource <name> = h!{…}`) carries the LHS
+    // binding name in the NAME slot. A 2-arg token_macro REQUIRES it; a
+    // resource item bound to a 1-arg callee simply drops the name (the callee
+    // never sees it — legal but wasteful, so we accept it silently to keep the
+    // surface uniform). Conversely a bare `h!{…}` (no NAME) may NOT target a
+    // 2-arg callee: there is no name to pass.
+    bool has_name = node.has_key(la::NAME);
+    std::string resource_name;
+    if (has_name) resource_name = std::string(str_of(node.get(la::NAME.code)));
+    if (sig_str2 && !has_name) {
+        error(std::format(
+            "'{}!' takes `(name: str, body: str)` — invoke it as "
+            "`resource <name> = {}!{{ … }}`, not as a bare `{}!{{ … }}`",
+            callee_name, callee_name, callee_name));
         return;
     }
 
@@ -19568,30 +19593,58 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
-    if (sig_str) {
+    if (sig_str || sig_str2) {
+        // Slot layout mirrors the ABI decision in the diagnostic above:
+        //   1-arg (sig_str):  slot 0 = raw block body
+        //   2-arg (sig_str2): slot 0 = LHS binding <name>, slot 1 = raw body
+        // Passing name in slot 0 keeps the raw-body slot index STABLE across
+        // both forms (always "the last slot") and matches the param order
+        // `fn h(name, body)`.
+        auto pack_blob = [](const std::string& s) -> std::vector<uint8_t> {
+            std::vector<uint8_t> b(8 + s.size());
+            uint64_t sz = static_cast<uint64_t>(s.size());
+            std::memcpy(b.data(), &sz, 8);
+            if (!s.empty()) std::memcpy(b.data() + 8, s.data(), s.size());
+            return b;
+        };
         uint64_t site_id = metacall_site_id(
             cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
         std::vector<std::vector<uint8_t>> blobs;
-        blobs.resize(1);
-        uint64_t sz = static_cast<uint64_t>(raw_text.size());
-        blobs[0].resize(8 + raw_text.size());
-        std::memcpy(blobs[0].data(), &sz, 8);
-        if (!raw_text.empty())
-            std::memcpy(blobs[0].data() + 8, raw_text.data(), raw_text.size());
+        if (sig_str2) {
+            blobs.push_back(pack_blob(resource_name));
+            blobs.push_back(pack_blob(raw_text));
+        } else {
+            blobs.push_back(pack_blob(raw_text));
+        }
         lir_mirror_macro_arg_put(prog, prog.macro_arg_blobs, site_id, blobs);
 
         std::string pkg = cur_package_.empty() ? "__metacall_thunks"
                                                : cur_package_;
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
-        std::string call_text = std::format(
-            "{{\n"
-            "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-            "    let __s: str = unsafe {{ str_from_raw(__p, {}i64) }};\n"
-            "    {}(__s)\n"
-            "}}",
-            site_id, static_cast<int64_t>(raw_text.size()),
-            macro_info->base_name);
+        std::string call_text;
+        if (sig_str2) {
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {}i64) }};\n"
+                "    let __pb: *const u8 = unsafe {{ logos_macro_arg({}u64, 1u64) }};\n"
+                "    let __b: str = unsafe {{ str_from_raw(__pb, {}i64) }};\n"
+                "    {}(__n, __b)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                site_id, static_cast<int64_t>(raw_text.size()),
+                macro_info->base_name);
+        } else {
+            call_text = std::format(
+                "{{\n"
+                "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
+                "    let __s: str = unsafe {{ str_from_raw(__p, {}i64) }};\n"
+                "    {}(__s)\n"
+                "}}",
+                site_id, static_cast<int64_t>(raw_text.size()),
+                macro_info->base_name);
+        }
         std::string thunk_src;
         if (rt_is_il) {
             thunk_src = std::format(

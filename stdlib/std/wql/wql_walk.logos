@@ -21,11 +21,15 @@ use logos.std.wql.wql_surface_parser;    // parse_query — the GENERATED surfac
 use logos.std.wql.plan_walker;           // walk_query_any — the plan walker-emitter
 
 #[token_macro]
-pub fn wql_walk(s: str) -> ItemList {
+pub fn wql_walk(name: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();
+    if name.len() == 0i64 {
+        error("wql_walk!: needs a binding name — write `resource <name> = wql_walk!{ from … select … }`");
+        return out;
+    }
     let h: Writ = writ_new(4096i64);
-    let root: WAny = parse_query(s, &h);
-    if root.is_null() { error("wql_walk!: malformed query"); return out; }
-    let _ok: bool = walk_query_any(root);
+    let root: WAny = parse_query(body, &h);
+    if root.is_null() { error("wql_walk!: malformed query (expected `from <src>:[<Ty>] <var> … select …`)"); return out; }
+    let _ok: bool = walk_query_any_named(root, name, &h);
     return out;
 }

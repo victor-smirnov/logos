@@ -4,8 +4,8 @@
 // predicate holds, it projects a joined value.
 //
 // Surface:
-//   wql!{ fn <name> from <a>:[A] x join <b>:[B] y on <pred>
-//         [where <pred>] select <expr> : <Ty> [with …] }
+//   resource <name> = wql!{ from <a>:[A] x join <b>:[B] y on <pred>
+//         [where <pred>] select <expr> : <Ty> [with …] };
 //
 // Here `emp_salaries` joins employees to departments on `e.dept == d.id` and
 // projects each matched employee's salary, proving the relational join through
@@ -23,20 +23,18 @@ struct Dept { pub id: i64,   pub budget: i64 }
 //   pub fn emp_salaries(emps: &[Emp], depts: &[Dept]) -> Vec<i64> {
 //       … nested loop over (emps × depts) filtered by `on` then `where` …
 //   }
-wql!{ fn emp_salaries
-      from emps:[Emp] e
+resource emp_salaries = wql!{ from emps:[Emp] e
       join depts:[Dept] d on e.dept == d.id
       where d.budget > 100
-      select e.salary : i64 }
+      select e.salary : i64  };
 
 // ANTI JOIN: emit each employee's salary whose dept has NO matching department
 // row at all — the relational RAnti (semijoin complement) lowered to a native
 // "scan-for-any-match, push iff none" loop.
 //   pub fn orphan_salaries(emps: &[Emp], depts: &[Dept]) -> Vec<i64> { … }
-wql!{ fn orphan_salaries
-      from emps:[Emp] e
+resource orphan_salaries = wql!{ from emps:[Emp] e
       anti join depts:[Dept] d on e.dept == d.id
-      select e.salary : i64 }
+      select e.salary : i64  };
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

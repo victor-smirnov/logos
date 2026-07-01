@@ -133,6 +133,41 @@ pub fn walk_query_any(root: WAny) -> bool {
     return walk_query(root.view::<RQuery>());
 }
 
+// Stamp the generated-fn NAME onto the plan root, then walk. The name comes from
+// the enclosing `resource <name> = wql!{ … }` binding (ADR 0012 §6) — the grammar
+// no longer captures an `fn N` prefix, so the handler supplies the name here.
+//
+// Writing a `str` schema field BOXES the bytes into the arena, which needs the
+// view's z (allocator). A plain `root.view::<RQuery>()` binds a READ-ONLY view
+// (z = null) — boxing through it would deref null. So we rebuild an ALLOCATOR-
+// CARRYING view over the SAME node: `WSchemaH { m: <node ptr>, z: <arena> }` is
+// layout-identical to a compiler schema view (ADR 0011 §Increment-6), so we
+// transmute it to the concrete variant view and write `fn_name` through it. The
+// variant is chosen off a cheap read-only match first.
+fn wrap_fat_simple(node: WAny, h: &Writ) -> RQSimple {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQSimple) };
+}
+fn wrap_fat_join(node: WAny, h: &Writ) -> RQJoin {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQJoin) };
+}
+fn wrap_fat_aggr(node: WAny, h: &Writ) -> RQAggr {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQAggr) };
+}
+
+pub fn walk_query_any_named(root: WAny, name: str, h: &Writ) -> bool {
+    if root.is_null() { error("wql!: empty query plan"); return false; }
+    let plan: RQuery = root.view::<RQuery>();
+    match plan {
+        RQuery::Simple(_) => { let s: RQSimple = wrap_fat_simple(root, h); s.fn_name = name; }
+        RQuery::Join(_)   => { let j: RQJoin   = wrap_fat_join(root, h);   j.fn_name = name; }
+        RQuery::Aggr(_)   => { let g: RQAggr   = wrap_fat_aggr(root, h);   g.fn_name = name; }
+    }
+    return walk_query(root.view::<RQuery>());
+}
+
 // ── RQSimple — scan / filter / project ───────────────────────────────────────
 // Mirrors the simple path in wql.logos::wql: reflect the source schema, apply
 // `with`, collect params off the SExpr IR, register comprehension sources, then

@@ -41,13 +41,13 @@ struct Order {
 // A real receipt template. `-%}` trim markers strip the layout newline+indent
 // after the loop tags so each item packs onto its own line; the if/elif/else
 // picks a shipping tier from `total`; `upper(o.store)` upper-cases the store.
-trama!{ fn receipt data o:Order with item:Item, name:str, qty:i64, store:str, total:i64
+resource receipt = trama!{ data o:Order with item:Item, name:str, qty:i64, store:str, total:i64
 `=== {{ upper(o.store) }} ===
 {% for item in o.items -%}
   {{ item.name }} x{{ item.qty }}
 {% endfor -%}
 total: {{ o.total }}
-shipping: {% if o.total >= 100 %}free{% elif o.total >= 50 %}flat{% else %}std{% endif %}` }
+shipping: {% if o.total >= 100 %}free{% elif o.total >= 50 %}flat{% else %}std{% endif %}`  };
 
 fn streq_all(s: &String, want: str) -> bool {
     if s.len() != want.len() { return false; }

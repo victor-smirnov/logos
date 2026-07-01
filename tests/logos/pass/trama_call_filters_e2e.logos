@@ -27,8 +27,8 @@ struct Ctx {
 //       __out.push_str((logos.std.wql.codegen::wql_lower(c.city)).as_str());
 //       return __out;
 //   }
-trama!{ fn render data c:Ctx with title:str, city:str
-    `{{ upper(c.title) }}-{{ lower(c.city) }}` }
+resource render = trama!{ data c:Ctx with title:str, city:str
+    `{{ upper(c.title) }}-{{ lower(c.city) }}`  };
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { title: "team", city: "NYC" };
