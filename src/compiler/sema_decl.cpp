@@ -1122,6 +1122,18 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
 
     // Emit the values held in working locals into the mirror, now final.
     fn.str_always(dk::NAME, fn_name);
+    // Carry the source-level `pub` visibility from the AST onto the LIR decl
+    // mirror so FunctionView::is_pub() is meaningful for BOTH free fns and
+    // methods (previously only trait methods/accessors set it, so a `pub fn`'s
+    // decl always read private). The `--emit-abi` pub-allowlist sidecar relies
+    // on this to scope the ABI spec to the public surface; trait methods still
+    // force pub downstream (idempotent). Set only when true so the flag stays
+    // sparse (default-absent == private).
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal pv = node.get(la::IS_PUB.code);
+        if (!pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0)
+            fn.flag(dk::IS_PUB, true);
+    }
     fn.type(dk::RET_TYPE, ret_type);
     fn.block(dk::BODY, body);
     // Phase-1: total dense variable slots assigned in this function body.

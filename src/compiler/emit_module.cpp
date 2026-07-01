@@ -615,6 +615,47 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
+    // ── ABI PUBLIC-symbol allowlist sidecar (`.abi-pub`) ─────────────────────
+    // `logosc --emit-abi` records EVERY external stdlib symbol as a `sym` line,
+    // but Logos gives module-PRIVATE fns EXTERNAL linkage too — so a private
+    // helper's removal (a legit internal refactor) reads as an ABI break. To
+    // scope the spec to the PUBLIC surface, we emit, next to the archive, the
+    // exact mangled link-symbol of every PUBLIC item (pub free fn, pub method,
+    // and their monomorphised instances — is_pub is now propagated through mono).
+    // --emit-abi intersects the raw nm symbols with the union of these sidecars.
+    //
+    // CRITICAL: the name MUST match `nm` byte-for-byte, so we use the compiler's
+    // OWN canonical mangler — `sym::link_name(fn, prog.pkg_module_ids)` — the
+    // SAME call mlir_gen makes to name the emitted symbol (see mlir_gen's
+    // link_name / is_binary_skip). Done POST-mono so generic pub instances (in
+    // prog.functions) are included; non-generic methods stay under their struct.
+    if (!module_name.empty() && !abi_layout_path.empty()) {
+        std::string pub_path = abi_layout_path;
+        const std::string layout_sfx = ".abi-layout";
+        if (pub_path.size() >= layout_sfx.size() &&
+            pub_path.compare(pub_path.size() - layout_sfx.size(),
+                             layout_sfx.size(), layout_sfx) == 0)
+            pub_path.replace(pub_path.size() - layout_sfx.size(),
+                             layout_sfx.size(), ".abi-pub");
+        else
+            pub_path += ".abi-pub";
+        std::ofstream pf(pub_path);
+        auto emit_pub = [&](lir_view::FunctionView fn) {
+            if (!fn) return;
+            // extern (C-ABI) symbols are the host/runtime boundary, not the
+            // Logos public surface curated here; skip. Generic templates carry
+            // type-params and never emit a symbol of their own (only instances
+            // do) — skip them too (their pub instances are separate entries).
+            if (fn.is_extern()) return;
+            if (!fn.type_params_empty()) return;
+            if (!fn.is_pub()) return;
+            pf << sym::link_name(fn, prog.pkg_module_ids) << '\n';
+        };
+        for (auto& fn : prog.functions) emit_pub(fn);
+        for (auto& sd : prog.structs)
+            for (auto& m : sd.methods()) emit_pub(m);
+    }
+
     // M4 step 1: snapshot prog.type_pool arena bytes for the .writ0 LIR
     // blob section. This is the post-mono LIR Writ mirror — every
     // template/struct/fn/expr/stmt that mono produced lives here with its

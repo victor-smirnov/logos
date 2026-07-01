@@ -4798,6 +4798,13 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     nf.str(dk::METHOD_BASE,         fn.method_base());
     nf.str(dk::PKG,                 fn.package());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
+    // Propagate visibility onto the instance: a `pub` template's instantiation
+    // is itself part of the public ABI surface. Nothing in codegen keys on this
+    // flag (mlir_gen emits every reachable instance regardless); it is consumed
+    // only by the `--emit-abi` pub-allowlist sidecar, which must see monomorphised
+    // pub-generic symbols (e.g. `Vec<T>::push` instances) or it would silently
+    // drop real public symbols. See emit_module's `.abi-pub` emission.
+    if (fn.is_pub())      nf.flag(dk::IS_PUB, true);
     nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
     if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     // Never propagate from_binary_module to cloned functions: clone_fn is
@@ -4904,6 +4911,7 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     nf.str(dk::METHOD_BASE,         fn.method_base());
     nf.str(dk::PKG,                 fn.package());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
+    if (fn.is_pub())      nf.flag(dk::IS_PUB, true);  // ABI pub-allowlist — see clone_fn.
     nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
     if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);  // Phase 6 — see clone_fn.

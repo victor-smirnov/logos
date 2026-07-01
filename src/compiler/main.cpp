@@ -2791,9 +2791,38 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
             ",val@" + std::to_string(offsetof(logos::writ::MapEntry, val)));
     }
 
+    // Public-symbol allowlist: emit_module wrote a `.abi-pub` sidecar next to
+    // each stdlib archive listing the mangled link-symbol of every PUBLIC item
+    // (pub fn / pub method + their monomorphised instances), named by the SAME
+    // canonical mangler (sym::link_name) that codegen uses — so these match `nm`
+    // byte-for-byte. We SCOPE the `sym` records to this set: module-PRIVATE fns
+    // get EXTERNAL linkage in Logos, so without this filter the spec tracks
+    // internal helpers and a private-helper refactor reads as an ABI break.
+    // Layouts/vtables/writ-types/schemas (cat 2/3/4/5) are already curated —
+    // untouched. If no sidecar is found (e.g. an old build tree), the set stays
+    // empty and we fall back to recording ALL external symbols (fail-open: never
+    // silently drop a public symbol because a sidecar is missing).
+    std::set<std::string> pub_syms;
+    {
+        auto read_pub = [&](const std::string& glob) {
+            FILE* pipe = ::popen(("cat " + glob + " 2>/dev/null").c_str(), "r");
+            if (!pipe) return;
+            char line[2048];
+            while (std::fgets(line, sizeof(line), pipe)) {
+                std::string_view sv(line);
+                while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+                if (!sv.empty()) pub_syms.insert(std::string(sv));
+            }
+            ::pclose(pipe);
+        };
+        for (const auto& d : lib_dirs) read_pub(d + "/*.abi-pub");
+        for (const auto& f : lib_files) read_pub(f + ".abi-pub");
+    }
+    const bool have_pub_allowlist = !pub_syms.empty();
+
     // cat 1: stdlib exported symbols. nm -p (no sort — we sort canonically via
     // the set). The mangled name encodes the signature, so a removal/signature
-    // change surfaces as a dropped line.
+    // change surfaces as a dropped line. Scoped to the PUBLIC allowlist above.
     auto add_syms = [&](const std::string& cmd) {
         FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) return;
@@ -2807,9 +2836,14 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
             // Also skip `_binary_*` ld embedding markers (start/end/size for the
             // embedded .writ0): their names encode the /tmp emit PATH, so they
             // are build-location-dependent — not a portable ABI record.
-            if (!sv.empty() && sv.front() != '/' && sv.front() != '.'
-                && sv.rfind("_binary_", 0) != 0)
-                records.insert("sym\t" + std::string(sv));
+            if (sv.empty() || sv.front() == '/' || sv.front() == '.'
+                || sv.rfind("_binary_", 0) == 0)
+                continue;
+            // Public-scope filter: keep only symbols on the pub allowlist. When
+            // no allowlist was found, keep everything (fail-open).
+            if (have_pub_allowlist && !pub_syms.count(std::string(sv)))
+                continue;
+            records.insert("sym\t" + std::string(sv));
         }
         ::pclose(pipe);
     };
