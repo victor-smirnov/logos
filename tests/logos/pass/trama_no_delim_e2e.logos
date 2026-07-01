@@ -1,0 +1,29 @@
+// Trama delimiter-less body: `trama!(params){ … }` with NO inner backtick/quote —
+// the whole (edge-trimmed) brace body IS the template. Proves scan_template's
+// no-delimiter path + real typed params. (Backtick form still covered elsewhere.)
+package test;
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct User { pub name: str, pub role: str }
+
+resource greet = trama!(u: &User, greeting: str){
+{{ greeting }}, {{ upper(u.name) }}! [{% if u.role == "eng" %}eng{% else %}other{% endif %}]
+};
+
+fn streq(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() { if str_byte_at(sv, i) != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let u: User = User { name: "ada", role: "eng" };
+    if !streq(&greet(&u, "Hi"), "Hi, ADA! [eng]") { return 1i32; }
+    let u2: User = User { name: "bob", role: "sales" };
+    if !streq(&greet(&u2, "Yo"), "Yo, BOB! [other]") { return 2i32; }
+    return 0i32;
+}

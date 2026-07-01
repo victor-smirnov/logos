@@ -126,7 +126,19 @@ impl TLexer {
     fn scan_template(self: &mut TLexer) -> str {
         self.skip_ws();
         let delim: u8 = self.cur();
-        if delim != 34u8 && delim != 96u8 { return ""; }  // '"' or '`'
+        // No inner delimiter (`"` or backtick): the WHOLE brace body IS the
+        // template — `trama!(p){ … }` with no quoting. Leading/trailing whitespace
+        // is trimmed (use the backtick/`"` form to preserve exact edge whitespace).
+        // Template escapes (`\{` `\}` `` \` `` `\\`) are decoded downstream by the
+        // escape-aware parser + `emit_escaped`, so a stray brace is `\{`-escaped.
+        if delim != 34u8 && delim != 96u8 {
+            let s0: i64 = self.pos;
+            let mut e0: i64 = self.len;
+            while e0 > s0 && tl_is_space(str_byte_at(self.src, e0 - 1i64)) { e0 = e0 - 1i64; }
+            self.pos = self.len;
+            if e0 <= s0 { return ""; }
+            return unsafe { tl_str_range(self.src, s0, e0 - s0) };
+        }
         self.bump();
         let start: i64 = self.pos;
         while self.pos < self.len && self.cur() != delim { self.bump(); }
