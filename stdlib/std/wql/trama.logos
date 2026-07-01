@@ -58,7 +58,7 @@ pub schema TVar : code(0x0013_0000_0000_0001) {
     next: WRef<TStmt>   = 1,
 }
 pub schema TFor : code(0x0013_0000_0000_0002) {
-    var:  u8            = 6,   // VARIABLE — dense loop-var key (interned)
+    var:  str          = 6,   // VARIABLE — loop-var NAME (self-describing IR, Option B)
     expr: WRef<SExpr>   = 7,   // EXPRESSION — the iterable
     body: WRef<TStmt>   = 8,   // STATEMENTS — head of the loop-body chain
     next: WRef<TStmt>   = 1,
@@ -70,7 +70,7 @@ pub schema TIf : code(0x0013_0000_0000_0003) {
     next: WRef<TStmt>   = 1,
 }
 pub schema TSet : code(0x0013_0000_0000_0004) {
-    var:  u8            = 6,   // VARIABLE — dense assigned-var key
+    var:  str          = 6,   // VARIABLE — assigned-var NAME (self-describing IR, Option B)
     expr: WRef<SExpr>   = 7,   // EXPRESSION — the assigned value
     next: WRef<TStmt>   = 1,
 }
@@ -132,21 +132,19 @@ fn tr_is_alpha(c: u8) -> bool {
 fn tr_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
 fn tr_is_alnum(c: u8) -> bool { return tr_is_alpha(c) || tr_is_digit(c); }
 
-fn TR_MAX_NAMES() -> i64 { return 64i64; }
-
 // ── Parser state ──────────────────────────────────────────────────────────
-// Cursor over the template text + a dense interning table for `for`/`set`
-// variable names (→ `u8` var keys: TFor.var / TSet.var). `ok` latches a single
-// parse-error bit (MVP). The `Writ` arena is passed per call (not stored).
+// Cursor over the template text. Loop/set variable NAMES are stored directly on
+// the Trama AST nodes (`TFor.var`/`TSet.var` are `str` — self-describing IR,
+// Option B); there is NO dense var-interning table any more. A `types` dictionary
+// (`ElTypes`) carries value-types + a per-var declared TYPE NAME (for the loop
+// binding annotation), built from schema reflection + the `with` clause and read
+// by the codegen. `ok` latches a single parse-error bit (MVP). The `Writ` arena
+// is passed per call (not stored).
 pub struct TrParser {
     pub src: str,
     pub pos: i64,
     pub len: i64,
     pub ok:  bool,
-
-    pub var_starts: [i64; 64],
-    pub var_lens:   [i64; 64],
-    pub var_n:      i64,
 
     // Whitespace-control state: set true when a tag closed with `-%}` / `-}}`
     // (or opened `{%-`/`{{-` while we were mid-scan), telling the NEXT text run to
@@ -155,74 +153,63 @@ pub struct TrParser {
     // upcoming tag). Mirrors jinja's `{%- … -%}` / `{{- … -}}` trim markers.
     pub trim_leading: bool,
 
-    // Declared Logos TYPE NAME per loop/set var key (for the emitted binding's
-    // annotation: `let <v>: <ty> = …`). Carried as a (start,len) slice into an
-    // EXTERNAL declarations buffer `decl_src` (the surface `with` clause text),
-    // so it survives independently of the template `src`. Empty len ⇒ undeclared
-    // (the codegen falls back to the inferred-i64 default).
-    pub var_ty_starts: [i64; 64],
-    pub var_ty_lens:   [i64; 64],
-    pub decl_src:      str,
+    // Declared loop/set var TYPE NAMES: name → Logos type-name (`let <v>: <ty>`).
+    // A small association list over `str` slices into `decl_src` (the surface
+    // `with` text). The value-type LATTICE (str/bool/int) lives in `types`.
+    pub var_ty_names: [str; 64],
+    pub var_ty_of:    [str; 64],
+    pub var_ty_n:     i64,
+    pub decl_src:     str,
 
-    // ONE shared EL parser over the WHOLE template `src`, reused for every
-    // embedded `{{ … }}` / tag expression. Sharing it across all expressions
-    // accumulates ALL field/param names into a single dense table, so the
-    // static-backend codegen can recover field NAMES from `SField.key` (the
-    // same name-resolution seam WQL uses). Each embedded parse just repoints
-    // `el.pos`/`el.len` at the expression's byte sub-range.
-    pub el: ElParser,
+    // The name→value-type dictionary the codegen reads (field/param/var types
+    // from reflection + `with`). Accumulated across every embedded expression.
+    pub types: ElTypes,
 }
 
 pub fn tr_parser_new(src: str) -> TrParser {
     return TrParser {
         src: src, pos: 0i64, len: src.len(), ok: true,
-        var_starts: [0i64; 64], var_lens: [0i64; 64], var_n: 0i64,
         trim_leading: false,
-        var_ty_starts: [0i64; 64], var_ty_lens: [0i64; 64], decl_src: "",
-        el: el_parser_new(src),
+        var_ty_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        var_ty_of:    ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                       "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        var_ty_n:     0i64,
+        decl_src:     "",
+        types:        el_types_new(),
     };
 }
 
 impl TrParser {
-    // Recover the interned NAME (str view over `src`) for a `for`/`set` var key
-    // (TFor.var / TSet.var) — the inverse of `intern_var`. The codegen needs the
-    // textual loop-variable name to emit a Logos `for`/`let` binding.
-    pub fn var_name(self: &TrParser, key: u8) -> str {
-        let i: i64 = key as i64;
-        if i < 0i64 || i >= self.var_n { return ""; }
-        return unsafe { tr_str_from_range(self.src, self.var_starts[i], self.var_lens[i]) };
-    }
-    // Borrow the shared EL parser (its name tables) for codegen.
-    pub fn el_parser(self: &TrParser) -> &ElParser { return &self.el; }
+    // Borrow the type dictionary for codegen.
+    pub fn el_types(self: &TrParser) -> &ElTypes { return &self.types; }
 
-    // The declared Logos TYPE NAME for a loop/set var key (`let v: <ty>`), or an
-    // empty `str` if undeclared (codegen then defaults to i64). Read from the
-    // external `decl_src` buffer where the `with` clause stored it.
-    pub fn var_ty_name(self: &TrParser, key: u8) -> str {
-        let i: i64 = key as i64;
-        if i < 0i64 || i >= self.var_n { return ""; }
-        if self.var_ty_lens[i] <= 0i64 { return ""; }
-        return unsafe { tr_str_from_range(self.decl_src, self.var_ty_starts[i], self.var_ty_lens[i]) };
+    // The declared Logos TYPE NAME for a loop/set var NAME (`let v: <ty>`), or an
+    // empty `str` if undeclared (codegen then defaults to i64).
+    pub fn var_ty_name(self: &TrParser, name: str) -> str {
+        let mut i: i64 = 0i64;
+        while i < self.var_ty_n {
+            if str_eq(self.var_ty_names[i], name) { return self.var_ty_of[i]; }
+            i = i + 1i64;
+        }
+        return "";
     }
 
     // Declare a loop/set var's Logos TYPE NAME by name (surface `with` clause).
-    // `name`/`ty` are (start,len) slices into `decl_src` (already installed).
-    // Records the emission type for the binding AND seeds the EL value-type
-    // lattice (str/bool/int) for `{{ … }}` push routing, on BOTH the var key and
-    // — so `v.field` and bare-field uses agree — the matching field key.
+    // Records the emission type for the binding AND seeds the value-type lattice
+    // (str/bool/int) in the dict for `{{ … }}` push routing.
     pub fn declare_var_ty(self: &mut TrParser, name: str, ty: str) {
-        let mut i: i64 = 0i64;
-        while i < self.var_n {
-            if tr_name_eq(self.src, self.var_starts[i], self.var_lens[i], name) {
-                // store the (start,len) of `ty` within decl_src
-                self.var_ty_starts[i] = tr_off_in(self.decl_src, ty);
-                self.var_ty_lens[i]   = ty.len();
-            }
-            i = i + 1i64;
+        if self.var_ty_n < 64i64 {
+            self.var_ty_names[self.var_ty_n] = name;
+            self.var_ty_of[self.var_ty_n]    = ty;
+            self.var_ty_n = self.var_ty_n + 1i64;
         }
         let elty: i32 = el_ty_of_name(ty);
-        self.el.set_var_ty(name, elty);
-        self.el.set_field_ty(name, elty);
+        self.types.set_ty(name, elty);
     }
 }
 
@@ -235,12 +222,6 @@ fn tr_name_eq(src: str, start: i64, len: i64, name: str) -> bool {
         i = i + 1i64;
     }
     return true;
-}
-
-// Byte offset of slice `sub` within buffer `buf` (both share the same backing;
-// `sub` is a sub-range of `buf`). Computed from the raw pointers.
-fn tr_off_in(buf: str, sub: str) -> i64 {
-    return (sub.as_ptr() as i64) - (buf.as_ptr() as i64);
 }
 
 // Byte-range equality against a stored (start,len) name.
@@ -285,25 +266,6 @@ impl TrParser {
         while self.pos < self.len && tr_is_space(self.cur()) { self.bump(); }
     }
 
-    // Intern a variable name → dense u8 key (existing or appended).
-    fn intern_var(self: &mut TrParser, start: i64, len: i64) -> u8 {
-        let mut i: i64 = 0i64;
-        while i < self.var_n {
-            if tr_range_eq(self.src, self.var_starts[i], self.var_lens[i], start, len) {
-                return i as u8;
-            }
-            i = i + 1i64;
-        }
-        if self.var_n >= TR_MAX_NAMES() { self.ok = false; return 0u8; }
-        let id: i64 = self.var_n;
-        self.var_starts[id] = start;
-        self.var_lens[id]   = len;
-        self.var_ty_starts[id] = 0i64;
-        self.var_ty_lens[id]   = 0i64;   // undeclared ⇒ i64 default
-        self.var_n = self.var_n + 1i64;
-        return id as u8;
-    }
-
     // Scan an identifier at the cursor; returns byte length (cursor advances).
     fn scan_ident(self: &mut TrParser) -> i64 {
         if !tr_is_alpha(self.cur()) { return 0i64; }
@@ -330,13 +292,13 @@ fn mk_var(h: &Writ, expr: i64) -> i64 {
     n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
     return tr_hand_of(n.as_ref());
 }
-fn mk_set(h: &Writ, var: u8, expr: i64) -> i64 {
+fn mk_set(h: &Writ, var: str, expr: i64) -> i64 {
     let n: TSet = h.make::<TSet>();
     n.var  = var;
     n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
     return tr_hand_of(n.as_ref());
 }
-fn mk_for(h: &Writ, var: u8, expr: i64, body: i64) -> i64 {
+fn mk_for(h: &Writ, var: str, expr: i64, body: i64) -> i64 {
     let n: TFor = h.make::<TFor>();
     n.var  = var;
     n.expr = WRef::<SExpr>::from_any(tr_hand_any(expr));
@@ -367,18 +329,25 @@ fn set_next(h: &Writ, stmt: i64, next: i64) {
 
 // ── Embedded EL expression ─────────────────────────────────────────────────
 // Parse the EL expression occupying template bytes [start, end) into the SExpr
-// IR using the SHARED `self.el` parser (so all field/param names accumulate in
-// one table for codegen). Repoints the shared parser's cursor at the sub-range
-// and parses just that. Returns the SExpr root edge handle word, or null on a
-// parse error. The root handle is laundered through `raw()` so the returned
-// word carries no borrow of `self.el`.
+// IR. Each embedded expression gets a fresh `ElParser` over the sub-range (a
+// slice of the template `src`); the self-describing IR carries every name, so no
+// shared interning table is needed. Any `$param` names the expression references
+// are merged into `self.types`' ordered arg list (dedup by name) — the one thing
+// the surface still needs across expressions. Returns the SExpr root edge handle
+// word, or null on a parse error (laundered through `raw()`).
 impl TrParser {
     fn parse_embedded_el(self: &mut TrParser, h: &Writ, start: i64, end: i64) -> i64 {
-        self.el.pos = start;
-        self.el.len = end;
-        self.el.ok  = true;
-        let word: i64 = self.el.parse_root(h).raw();
+        let sub: str = unsafe { tr_str_from_range(self.src, start, end - start) };
+        let mut ep: ElParser = el_parser_new(sub);
+        let word: i64 = ep.parse_root(h).raw();
         if word == 0i64 { return tr_hand_null(); }
+        // Merge any `$param` references into the type dict's arg list.
+        let np: i64 = ep.param_count();
+        let mut i: i64 = 0i64;
+        while i < np {
+            self.types.note_param(ep.param_name(i));
+            i = i + 1i64;
+        }
         return word;
     }
 }
@@ -597,7 +566,7 @@ impl TrParser {
         let vstart: i64 = self.pos;
         let vlen: i64 = self.scan_ident();
         if vlen == 0i64 { self.ok = false; return tr_hand_null(); }
-        let var: u8 = self.intern_var(vstart, vlen);
+        let var: str = unsafe { tr_str_from_range(self.src, vstart, vlen) };
         self.skip_ws();
         // "in"
         if !(self.cur() == 105u8 && self.at_byte(1i64) == 110u8) { self.ok = false; return tr_hand_null(); }
@@ -679,7 +648,7 @@ impl TrParser {
         let vstart: i64 = self.pos;
         let vlen: i64 = self.scan_ident();
         if vlen == 0i64 { self.ok = false; return tr_hand_null(); }
-        let var: u8 = self.intern_var(vstart, vlen);
+        let var: str = unsafe { tr_str_from_range(self.src, vstart, vlen) };
         self.skip_ws();
         if self.cur() != 61u8 { self.ok = false; return tr_hand_null(); }  // '='
         self.bump();

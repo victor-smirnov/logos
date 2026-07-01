@@ -23,6 +23,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
 use logos.std.wql.ir;
 use logos.std.wql.el;
+use logos.lang.str;
 
 fn main() -> i32 {
     let h: Writ = writ_new(1024i64);
@@ -50,7 +51,7 @@ fn main() -> i32 {
                 SExpr::Bin(mul) => {
                     if mul.op != OP_MUL() { return 5i32; }
                     let ml: SExpr = mul.lhs_expr();
-                    match ml { SExpr::Param(p) => { if p.idx != 0i32 { return 6i32; } } _ => { return 7i32; } }
+                    match ml { SExpr::Param(p) => { if !str_eq(p.name, "x") { return 6i32; } } _ => { return 7i32; } }
                     let mr: SExpr = mul.rhs_expr();
                     match mr { SExpr::Lit(l) => { if l.val.as_i64() != 2i64 { return 8i32; } } _ => { return 9i32; } }
                 }
@@ -67,12 +68,18 @@ fn main() -> i32 {
     let e2: SExpr = r2.view::<SExpr>();
     match e2 {
         SExpr::Comp(comp) => {
-            // head = u.name → SField(key=name, base = SVar(u))
+            // head = u.name → SField(name="name", base = SField(name="u", base=null)).
+            // (Self-describing IR, Option B: a comprehension loop-var reference
+            // parses as a bare field-root SField, not a distinct SVar — the loop
+            // var name lives on the SComp.var field; the codegen emits it as its
+            // own name. So the head's base is an SField(u) bare root.)
+            if !str_eq(comp.var, "u") { return 13i32; }
             let head: SExpr = comp.head_expr();
             match head {
                 SExpr::Field(fld) => {
+                    if !str_eq(fld.name, "name") { return 25i32; }
                     let hb: SExpr = fld.base_expr();
-                    match hb { SExpr::Var(_) => {} _ => { return 13i32; } }
+                    match hb { SExpr::Field(_) => {} _ => { return 26i32; } }
                 }
                 _ => { return 14i32; }
             }

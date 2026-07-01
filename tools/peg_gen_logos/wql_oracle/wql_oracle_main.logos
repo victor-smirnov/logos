@@ -1,0 +1,199 @@
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// wql_oracle_main.logos — the BEHAVIOR oracle for the peg-generated EL parser
+// (ADR 0012 peg-frontend, Phase 4). It parses a corpus of EL expression
+// snippets through BOTH:
+//
+//   • the peg_gen_logos-GENERATED parser  (logos.std.wql.el_parser::parse_expr)
+//   • the hand-written recursive-descent  (logos.std.wql.el::parse_el)
+//
+// and asserts the resulting SExpr IR trees are STRUCTURALLY IDENTICAL: same
+// schema-node code (SLit/SBin/SField/…) at every position, same child arity,
+// recursively over the `WRef<SExpr>` edges.
+//
+// WHY STRUCTURAL, NOT byte-identical: the generated parser stamps the leaf
+// name/value/dense-id fields (SField.key, SParam.idx, SVar.idx, SLit.val for
+// INTEGER literals) with PLACEHOLDERS — the documented `GAP:key/idx/val` in
+// el.peg — because reproducing the hand parser's dense-id INTERNING (its
+// external field_name/param_name side tables) requires the "names in nodes"
+// (Option B) IR-shape change scheduled for the actual parse-step SWAP. Until
+// then the two IRs share exactly the TREE SHAPE + node codes + operator ids
+// (SBin.op / SUn.op, which ARE emitted as grammar INT_LITs and DO match), and
+// differ only on the placeholder leaf scalars. This oracle asserts the strong
+// invariant that IS true today (structure + codes + op ids) and is the harness
+// the swap upgrades to full byte-identity once names live in the nodes.
+//
+// Built + run offline via the opt-in `wql_peg_regen`/oracle CMake target; NOT a
+// ctest (it links the whole stdlib). Prints PASS/FAIL + a per-snippet report.
+package wql_oracle_main;
+
+use logos.std.wql.el_parser;
+use logos.std.wql.el;
+use logos.std.wql.ir;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.str;
+use logos.std.io;
+
+// Read a `WRef<SExpr>` field's target as an SExpr view. Done INLINE (a direct
+// field read + view) rather than via ir.logos's `*_expr()` resolver methods so
+// the generic `WRef<SExpr>::from_wany` field-read instance is materialized in
+// THIS compilation unit by mono's generic-WritField codegen (the resolver
+// methods live in ir.logos; calling them cross-CU trips the documented
+// mono-enqueue sharp edge — project_writ_query_language "KNOWN compiler bug").
+fn edge_expr(r: WRef<SExpr>) -> SExpr { return r.any().view::<SExpr>(); }
+
+// Recursively compare two SExpr trees for STRUCTURAL equivalence: identical
+// variant at every node + identical child structure over the edges. Returns
+// true iff the shapes match. Scalar leaf fields (key/idx/val) are intentionally
+// NOT compared (the documented placeholder GAPs). Operator ids (SBin.op / SUn.op)
+// ARE compared — they are exact on both sides.
+fn eq_sexpr(a: SExpr, b: SExpr) -> bool {
+    match a {
+        SExpr::Lit(_la) => {
+            match b { SExpr::Lit(_lb) => { return true; } _ => { return false; } }
+        }
+        SExpr::Param(_pa) => {
+            match b { SExpr::Param(_pb) => { return true; } _ => { return false; } }
+        }
+        SExpr::Var(_va) => {
+            match b { SExpr::Var(_vb) => { return true; } _ => { return false; } }
+        }
+        SExpr::Field(fa) => {
+            match b {
+                SExpr::Field(fb) => {
+                    // base edge: both null (root field) or both present + equal.
+                    let an: bool = fa.base.any().is_null();
+                    let bn: bool = fb.base.any().is_null();
+                    if an != bn { return false; }
+                    if an { return true; }
+                    return eq_sexpr(edge_expr(fa.base), edge_expr(fb.base));
+                }
+                _ => { return false; }
+            }
+        }
+        SExpr::Bin(ba) => {
+            match b {
+                SExpr::Bin(bb) => {
+                    if ba.op != bb.op { return false; }
+                    return eq_sexpr(edge_expr(ba.lhs), edge_expr(bb.lhs))
+                        && eq_sexpr(edge_expr(ba.rhs), edge_expr(bb.rhs));
+                }
+                _ => { return false; }
+            }
+        }
+        SExpr::Un(ua) => {
+            match b {
+                SExpr::Un(ub) => {
+                    if ua.op != ub.op { return false; }
+                    return eq_sexpr(edge_expr(ua.arg), edge_expr(ub.arg));
+                }
+                _ => { return false; }
+            }
+        }
+        SExpr::Call(_ca) => {
+            match b { SExpr::Call(_cb) => { return true; } _ => { return false; } }
+        }
+        SExpr::Cond(ca) => {
+            match b {
+                SExpr::Cond(cb) => {
+                    return eq_sexpr(edge_expr(ca.c), edge_expr(cb.c))
+                        && eq_sexpr(edge_expr(ca.t), edge_expr(cb.t))
+                        && eq_sexpr(edge_expr(ca.e), edge_expr(cb.e));
+                }
+                _ => { return false; }
+            }
+        }
+        SExpr::Comp(_ma) => {
+            match b { SExpr::Comp(_mb) => { return true; } _ => { return false; } }
+        }
+    }
+}
+
+// One corpus case: parse `s` with both parsers, structurally compare. Prints a
+// line; returns 1 on match, 0 on mismatch/null.
+fn check(s: str) -> i64 {
+    let hg: Writ = writ_new(4096i64);
+    let g: WAny = logos.std.wql.el_parser::parse_expr(s, &hg);
+    let hh: Writ = writ_new(4096i64);
+    let hnd: WAny = parse_el(&hh, s);
+
+    if g.is_null() || hnd.is_null() {
+        print("  MISMATCH (null): "); print(s);
+        print("   gen_null="); print(if g.is_null() { "1" } else { "0" });
+        print(" hand_null="); println(if hnd.is_null() { "1" } else { "0" });
+        return 0i64;
+    }
+    let eg: SExpr = g.view::<SExpr>();
+    let eh: SExpr = hnd.view::<SExpr>();
+    if eq_sexpr(eg, eh) {
+        print("  MATCH   : "); println(s);
+        return 1i64;
+    }
+    print("  MISMATCH: "); println(s);
+    return 0i64;
+}
+
+pub fn main() -> i32 {
+    // EL corpus — the full CEL-precedence expression surface el.peg encodes:
+    // literals, params, field chains, every binary/unary operator, ternary,
+    // grouping, nesting. (Comprehensions + calls need the handler's plan/arg
+    // assembly, so the shared-shape corpus stays on the pure-expression core.)
+    let n: i64 = 24i64;
+    let corpus: [str; 24] = [
+        "1",
+        "true",
+        "false",
+        "\"hi\"",
+        "$p",
+        "a",
+        "a.b",
+        "a.b.c.d",
+        "-x",
+        "!flag",
+        "!!x",
+        "a + b",
+        "a - b",
+        "a * b",
+        "a / b",
+        "a % b",
+        "a + b * c",
+        "(a + b) * c",
+        "a < b",
+        "a <= b && c >= d",
+        "a == b || c != d",
+        "a ? b : c",
+        "a == b ? c + 1 : d - 2",
+        "!a || b && c == d + e * f",
+    ];
+
+    println("== WQL EL parser behavior oracle (generated vs hand-written) ==");
+    let mut ok: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        ok = ok + check(corpus[i]);
+        i = i + 1i64;
+    }
+    print("----------------------------------------\n");
+    print("MATCH="); print_i64(ok); print("  /  "); print_i64(n); print("\n");
+    if ok == n {
+        println("PASS: generated EL parser is structurally identical to the hand-written parser");
+        return 0i32;
+    }
+    println("FAIL: structural divergence between generated and hand-written EL parser");
+    return 1i32;
+}
+
+fn print_i64(v: i64) {
+    let mut s: String = String::new();
+    if v == 0i64 { s.push_u8(48u8); }
+    else {
+        let mut x: i64 = v;
+        let mut buf: [u8; 24] = [0u8; 24];
+        let mut k: i64 = 0i64;
+        while x > 0i64 { buf[k] = (48i64 + (x % 10i64)) as u8; x = x / 10i64; k = k + 1i64; }
+        let mut j: i64 = k - 1i64;
+        while j >= 0i64 { s.push_u8(buf[j]); j = j - 1i64; }
+    }
+    print(s.as_str());
+}

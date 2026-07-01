@@ -105,15 +105,23 @@ impl SExprArr {
 }
 
 // ── Scalar tier — SExpr (category 0x0010) ─────────────────────────────────
+// SELF-DESCRIBING IR (ADR 0012 peg-frontend §5, Option B): leaf nodes carry the
+// textual NAME they reference directly (a `str` schema field), not a dense id
+// into a parser-side interning table. The IR is therefore self-contained — a
+// backend reads `f.name` off the node, needing no `ElParser` and no side tables
+// — which is (a) what a peg-generated parser produces natively (a captured IDENT
+// → a `str` field), and (b) more faithful to ADR-0011's "the schema IS the typed
+// view" + the seam's "backends trust the IR". A separate name→type dictionary
+// (built by the handler from schema reflection + `with`) supplies value-types.
 pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0 }                                  // literal, value verbatim
-pub schema SParam : code(0x0010_0000_0000_0001) { idx: i32 = 0 }                                   // bound parameter (prepared-stmt arg)
-pub schema SVar   : code(0x0010_0000_0000_0002) { idx: i32 = 0 }                                   // comprehension-bound row variable
-pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, key: u8 = 1 }             // ONE field / edge step
+pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0 }                                  // bound parameter (prepared-stmt arg) — by NAME
+pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0 }                                  // comprehension-bound row variable — by NAME
+pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1 }           // ONE field / edge step — field NAME
 pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2 }
 pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> = 1 }
-pub schema SCall  : code(0x0010_0000_0000_0006) { fn_id: i32 = 0, args: WRef<SExprArr> = 1 }       // function/filter call
+pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<SExprArr> = 1 }     // function/filter call — call NAME
 pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2 }  // ternary
-pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1 }   // comprehension → list value
+pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2 }   // comprehension → list value; `var` = loop-var NAME
 
 pub schema enum SExpr : category(0x0010_0000_0000_0000) {
     Lit(SLit), Param(SParam), Var(SVar), Field(SField),
@@ -139,7 +147,7 @@ impl SComp    { pub fn as_ref(self: &SComp)    -> WAny { return WAny::ref_to((se
 impl SExprArr { pub fn as_ref(self: &SExprArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 
 // ── Relational / graph tier — RExpr (category 0x0011) ─────────────────────
-pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src: i32 = 1 }                 // scan all nodes of a schema in a source
+pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1 }            // scan all nodes of a schema in a source — source NAME
 pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, key: u8 = 1 }              // follow ref field → target node(s): the GRAPH STEP
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
 pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, exprs: WRef<SExprArr> = 1 } // π

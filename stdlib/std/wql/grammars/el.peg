@@ -1,0 +1,274 @@
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// el.peg — the EL (Expression Language) grammar for peg_gen_logos, in
+// SCHEMA-EMISSION mode (ADR 0012 peg-frontend, §6). It specifies construction
+// of the EXISTING WQL scalar/relational IR (SExpr / RExpr, `logos.std.wql.ir`)
+// as first-class Writ schema views — `doc.make::<S>()` + typed schema field
+// writes + `WRef<S>` edges — dogfooding ADR 0011. It is the peg-generated
+// replacement for the hand-written recursive-descent `ElParser` in
+// `stdlib/std/wql/el.logos`.
+//
+// The grammar is a FAITHFUL transcription of the EL grammar documented in
+// el.logos:9-21 (the CEL-precedence expression chain + the one comprehension
+// form):
+//
+//   expr     := ternary
+//   ternary  := or ( '?' expr ':' expr )?            // CEL conditional  → SCond
+//   or       := and ( '||' and )*                    // → SBin(OP_OR)
+//   and      := equality ( '&&' equality )*          // → SBin(OP_AND)
+//   equality := compare ( ('=='|'!=') compare )*     // → SBin(OP_EQ/OP_NE)
+//   compare  := add ( ('<='|'>='|'<'|'>') add )*     // → SBin(OP_LT..OP_GE)
+//   add      := mul ( ('+'|'-') mul )*               // → SBin(OP_ADD/OP_SUB)
+//   mul      := unary ( ('*'|'/'|'%') unary )*       // → SBin(OP_MUL/DIV/MOD)
+//   unary    := ('!'|'-') unary | postfix            // → SUn(OP_NOT/OP_NEG)
+//   postfix  := primary ( '.' ident )*               // field access → SField
+//   primary  := int | bool | string | '$' ident | ident ( '(' args ')' )?
+//             | '(' expr ')'
+//             | '[' expr 'for' ident 'in' postfix ( 'if' expr )? ']'  // SComp
+//
+// LEFT-ASSOCIATIVITY is expressed with fold-mode `$0` (the fold accumulator =
+// the running LHS), matching the demo grammar and logos.peg's `add_expr`. Each
+// operator gets its OWN fold sub-alternative so it can stamp the correct CEL
+// operator id (SBin.op / SUn.op) as an INT_LIT — the op-id table below mirrors
+// el.logos's OP_* constants exactly (CEL canon, stable across backends):
+//
+//   SBin.op: OR=1 AND=2 EQ=3 NE=4 LT=5 LE=6 GT=7 GE=8 ADD=9 SUB=10 MUL=11 DIV=12 MOD=13
+//   SUn.op : NOT=1 NEG=2
+//
+// ── KNOWN GENERATOR GAPS (resolved in the parser-SWAP phase, NOT here) ──────
+// Phase 3 authors this grammar against the schemas AS THEY ARE (mandate: "Do
+// NOT change the schemas"). Two schema fields need a generator capability the
+// current schema-emission mode does not yet have — a captured TOKEN whose TEXT
+// must become a node scalar/value rather than a child-node edge:
+//
+//   (G1) SField.key : u8   — the field NAME. The hand-written ElParser interns
+//        each `.ident` / bare-ident to a dense u8 key and keeps a side table
+//        (field_name/param_name/var_name) that the WQL codegen reads back. A
+//        generated parser has no such table; the captured IDENT text must land
+//        IN the node. Today `emit_schema_field` maps a captured token → a
+//        scalar field as `0 as u8` (codegen.logos:2609). The clean resolution
+//        (ADR 0012 peg-frontend §5, Option B) is to store the NAME in the node
+//        (a `str` field — which the generator DOES support via captured-IDENT →
+//        `wstr_as_str`) so codegen reads `f.name` directly and the dense-id
+//        side tables are deleted. That is a one-time IR-shape change + codegen
+//        rewrite, out of Phase-3 scope. Until then a generated `SField` here
+//        carries `key = 0` (placeholder) — a real captured value once the swap
+//        lands. Marked below with `// GAP:key`.
+//
+//   (G2) SLit.val : WAny   — an INTEGER literal's numeric VALUE. A captured
+//        INTEGER token yields a WString-ptr (the text), not the int value; the
+//        generator has no token→value decode. The demo grammar sidesteps this
+//        with `val: 0` (INT_LIT). A STRING literal, by contrast, IS faithfully
+//        stored (captured token text → WAny ref to interned WString), and BOOL
+//        literals are exact (INT_LIT/BOOL). So INT literals here carry a
+//        placeholder value; the swap phase adds a token→value decode (or routes
+//        int literals through a dedicated capture). Marked `// GAP:val`.
+//
+//   (G3) SParam.idx / SVar.idx : i32 — same class as (G1): the `$name` param
+//        and the `for v` loop variable are dense ids in side tables today. The
+//        swap stores the NAME on the node (`SParam.name`/`SVar.name` str) — same
+//        Option-B resolution. Placeholder idx=0 here. Marked `// GAP:idx`.
+//
+//   (G4) The comprehension SOURCE (`in <ident>`) and the loop-var binding are
+//        resolved by the hand parser's prescan (bind `for v` before parsing the
+//        head so `v` references become SVar). A PEG grammar parses positionally;
+//        the head's references to the loop var parse as SField/SCall and are
+//        rebound to SVar at the metacall (a semantic pass), consistent with the
+//        seam's "FE emits symbolic names; metacall resolves" contract (ADR
+//        0012-impl-seam §5/§6). RScan.src is a dense param idx today → GAP:idx.
+//
+// None of these gaps block Phase 3 (author + front-end parse). They are the
+// name-interning seam the frontend-plan flagged, to be closed with the IR
+// self-describing refactor when the parse step is actually swapped.
+
+%meta {
+    name:      "el"
+    version:   "1.0"
+    namespace: "logos::wql::el"
+    output:    "el_parser"
+    package:   "logos.std.wql.el_parser"
+    prefix:    "El"
+}
+
+// The EL entry rule: a full expression → an SExpr root edge handle.
+%export { expr }
+
+// ── SCHEMA-EMISSION binding ────────────────────────────────────────────────
+// Each `S { field: "type", ... }` names a grammar node (`=> { CODE: "S", ... }`)
+// built as the schema `S` (code = `S::CODE`) with typed field writes. Types MUST
+// match the field types in ir.logos exactly so the emitted write is correct:
+//   "ref T"  → WRef::<T>::from_any(hand_any(<capture>))   (graph edge)
+//   "WAny"   → verbatim dynamic value (literal or captured handle)
+//   "str"    → interned string field (captured IDENT / STR_LIT)
+//   scalar   → <INT_LIT/BOOL> as <type>
+// `arena: external` makes the generated `parse_expr(src, doc: &Writ) -> WAny`
+// take the caller's Writ arena (the wql!/trama! handler passes its own `h`).
+// `ref_wrap: "WRef"` is the ir.logos edge wrapper (also the default).
+%schema {
+    use:      "logos.std.wql.ir"
+    arena:    external
+    ref_wrap: "WRef"
+
+    // Scalar tier — SExpr (ir.logos). SELF-DESCRIBING IR (Option B): leaf nodes
+    // carry NAMES as `str` fields, populated from the captured IDENT token — the
+    // generator DOES support captured-token → `str` field (`wstr_as_str`). This
+    // closes the former GAP:key/GAP:idx: `SField.name`/`SParam.name`/`SCall.fn_name`
+    // hold the real identifier text now.
+    SLit   { val: "WAny" }                                   // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
+    SParam { name: "str" }                                   // $name — captured IDENT
+    SVar   { name: "str" }                                   // loop var — captured IDENT
+    SField { base: "ref SExpr", name: "str" }                // field NAME — captured IDENT
+    SBin   { op: "i32", lhs: "ref SExpr", rhs: "ref SExpr" }
+    SUn    { op: "i32", arg: "ref SExpr" }
+    SCall  { fn_name: "str", args: "ref SExprArr" }          // call NAME — captured IDENT
+    SCond  { c: "ref SExpr", t: "ref SExpr", e: "ref SExpr" }
+    SComp  { plan: "ref RExpr", head: "ref SExpr", var: "str" }
+
+    // Relational tier — RExpr (ir.logos). The comprehension lowers to a scan
+    // (+ optional filter) plan; the source is a captured IDENT name.
+    RScan   { node_code: "i56", src_name: "str" }            // source NAME — captured IDENT
+    RFilter { input: "ref RExpr", pred: "ref SExpr" }
+}
+
+// ── Tokens ─────────────────────────────────────────────────────────────────
+%tokens {
+    // Two-char operators FIRST (PEG first-match; the lexer is longest-literal by
+    // convention, but keep them ahead for clarity).
+    OROR     = "||"
+    ANDAND   = "&&"
+    EQEQ     = "=="
+    NE       = "!="
+    LE       = "<="
+    GE       = ">="
+
+    // One-char operators / punctuation.
+    QUESTION = "?"
+    COLON    = ":"
+    LT       = "<"
+    GT       = ">"
+    PLUS     = "+"
+    MINUS    = "-"
+    STAR     = "*"
+    SLASH    = "/"
+    PERCENT  = "%"
+    BANG     = "!"
+    DOT      = "."
+    COMMA    = ","
+    LPAREN   = "("
+    RPAREN   = ")"
+    LBRACKET = "["
+    RBRACKET = "]"
+    DOLLAR   = "$"
+
+    // Keywords (matched as literals; IDENT must come AFTER so `for`/`in`/`if`/
+    // `true`/`false` win — PEG orders alternatives, and keyword-vs-ident is
+    // resolved at the rule level via ordered choice, so declare them as tokens).
+    KW_FOR   = "for"
+    KW_IN    = "in"
+    KW_IF    = "if"
+    TRUE     = "true"
+    FALSE    = "false"
+
+    // Literals + identifier.
+    INTEGER  = /[0-9]+/
+    STRING   = /"([^"\\]|\\.)*"/
+    IDENT    = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+    // Skip whitespace + comments.
+    %skip    = /[ \t\r\n]+/
+    %skip    = /\/\/[^\n]*/
+}
+
+// ── Rules ──────────────────────────────────────────────────────────────────
+%rules {
+    // expr := ternary
+    expr <- ternary
+
+    // ternary := or ( '?' expr ':' expr )?    → SCond (CEL conditional)
+    // The optional tail folds the condition ($0) into an SCond with then/else.
+    ternary <- or ( QUESTION expr COLON expr
+                        => { CODE: "SCond", c: $0, t: $2, e: $4 } )?
+
+    // or := and ( '||' and )*                 → SBin(OP_OR = 1)
+    or <- and ( OROR and => { CODE: "SBin", op: 1, lhs: $0, rhs: $2 } )*
+
+    // and := equality ( '&&' equality )*      → SBin(OP_AND = 2)
+    and <- equality ( ANDAND equality => { CODE: "SBin", op: 2, lhs: $0, rhs: $2 } )*
+
+    // equality := compare ( ('=='|'!=') compare )*   → SBin(OP_EQ=3 / OP_NE=4)
+    equality <- compare
+                ( EQEQ compare => { CODE: "SBin", op: 3, lhs: $0, rhs: $2 }
+                / NE   compare => { CODE: "SBin", op: 4, lhs: $0, rhs: $2 }
+                )*
+
+    // compare := add ( ('<='|'>='|'<'|'>') add )*    → SBin(OP_LT=5..OP_GE=8)
+    // Two-char ops (<=, >=) are distinct tokens and ordered before <, > anyway.
+    compare <- add
+               ( LE add => { CODE: "SBin", op: 6, lhs: $0, rhs: $2 }
+               / GE add => { CODE: "SBin", op: 8, lhs: $0, rhs: $2 }
+               / LT add => { CODE: "SBin", op: 5, lhs: $0, rhs: $2 }
+               / GT add => { CODE: "SBin", op: 7, lhs: $0, rhs: $2 }
+               )*
+
+    // add := mul ( ('+'|'-') mul )*           → SBin(OP_ADD=9 / OP_SUB=10)
+    add <- mul
+           ( PLUS  mul => { CODE: "SBin", op: 9,  lhs: $0, rhs: $2 }
+           / MINUS mul => { CODE: "SBin", op: 10, lhs: $0, rhs: $2 }
+           )*
+
+    // mul := unary ( ('*'|'/'|'%') unary )*   → SBin(OP_MUL=11 / DIV=12 / MOD=13)
+    mul <- unary
+           ( STAR    unary => { CODE: "SBin", op: 11, lhs: $0, rhs: $2 }
+           / SLASH   unary => { CODE: "SBin", op: 12, lhs: $0, rhs: $2 }
+           / PERCENT unary => { CODE: "SBin", op: 13, lhs: $0, rhs: $2 }
+           )*
+
+    // unary := ('!'|'-') unary | postfix      → SUn(OP_NOT=1 / OP_NEG=2)
+    unary <- BANG  unary => { CODE: "SUn", op: 1, arg: $2 }
+           / MINUS unary => { CODE: "SUn", op: 2, arg: $2 }
+           / postfix
+
+    // postfix := primary ( '.' ident )*       → SField (left-nested edge chain)
+    // Each `.ident` step folds the running base ($0) into an SField whose `key`
+    // is the field name. GAP:key — the IDENT text ($2) must become the node's
+    // field NAME; the current generator stores a placeholder u8 (see header G1).
+    postfix <- primary
+               ( DOT IDENT => { CODE: "SField", base: $0, name: $2 } )*
+
+    // primary := literals | param | call | var/field-root | paren | comprehension
+    //
+    // Ordered choice (PEG first-match): keyword literals + comprehension +
+    // parenthesised before the bare-identifier field-root fallback.
+    primary <- comprehension
+             / LPAREN expr RPAREN                     // grouping (value passes through)
+             / TRUE    => { CODE: "SLit", val: true }
+             / FALSE   => { CODE: "SLit", val: false }
+             / STRING  => { CODE: "SLit", val: $1 }   // faithful: interned WString ref
+             / INTEGER => { CODE: "SLit", val: 0 }    // GAP:val (int-value decode TBD; see header G2)
+             / DOLLAR IDENT => { CODE: "SParam", name: $2 }            // $name — captured IDENT
+             / IDENT LPAREN arglist RPAREN => { CODE: "SCall", fn_name: $1, args: $3 }  // call NAME — captured IDENT
+             / IDENT   => { CODE: "SField", base: NULLBASE, name: $1 } // bare field-root; captured IDENT
+             // Note: a bound comprehension variable also parses as this IDENT
+             // field-root and is rebound to SVar at the metacall (header G4).
+
+    // arglist := ( expr ( ',' expr )* )?  →  SExprArr backing (multi-arg call)
+    // The SExprArr materialization (fixed-slot fan-out) is built by the WQL
+    // handler / a dedicated action; the MVP grammar collects the arg edges with
+    // an array capture. GAP: the current schema-emission mode has no SExprArr
+    // slot-fill action, so arglist here is a structural placeholder (the handler
+    // supplies the SExprArr node). See header note on SCall.
+    arglist <- ( expr ( COMMA expr )* )?
+
+    // comprehension := '[' expr 'for' ident 'in' postfix ( 'if' guard )? ']'
+    //   →  SComp{ plan = RFilter(RScan(src), guard)? | RScan(src), head = expr }
+    // The plan (RScan + optional RFilter) is assembled by the handler from the
+    // parsed source + guard; this rule produces the SComp shell with its head +
+    // plan edges. GAP:idx — RScan.src is the source ident's dense param id today
+    // (header G4). The `for`-var binding is a metacall-time semantic rebind.
+    comprehension <- LBRACKET expr KW_FOR IDENT KW_IN postfix comp_guard RBRACKET
+                        => { CODE: "SComp", plan: $7, head: $2 }
+
+    // comp_guard := ( 'if' expr )?   → RFilter(scan, expr) or the bare scan.
+    // (Placeholder: the scan/filter assembly is handler-side; see comprehension.)
+    comp_guard <- ( KW_IF expr )?
+}

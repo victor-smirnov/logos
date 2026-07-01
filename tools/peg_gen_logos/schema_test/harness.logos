@@ -1,0 +1,40 @@
+// e2e harness: parse "2*3+4" via the schema-emitted parser, walk EExpr, assert.
+package demo_e2e;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use demo_ir;
+use demo_parser;
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+fn say(s: str) { unsafe { write(1 as i32, s.as_ptr(), s.len()); let nl: str = "\n"; write(1 as i32, nl.as_ptr(), nl.len()); } }
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(1048576i64);
+    let root: WAny = parse_expr("2*3+4", &doc);
+    if root.is_null() { say("FAIL: null root"); return 1; }
+
+    let top: EExpr = root.view::<EExpr>();
+    let mut ok: bool = true;
+
+    match top {
+        EExpr::Bin(b) => {
+            if b.op != 9i32 { say("FAIL: top op != +"); ok = false; }
+            let rhs: EExpr = b.rhs_expr();
+            match rhs { EExpr::Lit(l) => { let _ = l; } _ => { say("FAIL: rhs not ELit"); ok = false; } }
+            let lhs: EExpr = b.lhs_expr();
+            match lhs {
+                EExpr::Bin(b2) => {
+                    if b2.op != 11i32 { say("FAIL: lhs op != *"); ok = false; }
+                    match b2.lhs_expr() { EExpr::Lit(x) => { let _ = x; } _ => { say("FAIL: mul lhs not ELit"); ok = false; } }
+                    match b2.rhs_expr() { EExpr::Lit(x) => { let _ = x; } _ => { say("FAIL: mul rhs not ELit"); ok = false; } }
+                }
+                _ => { say("FAIL: lhs not EBin"); ok = false; }
+            }
+        }
+        _ => { say("FAIL: top not EBin"); ok = false; }
+    }
+
+    if ok { say("OK: (2*3)+4 => EBin(+, EBin(*, ELit, ELit), ELit)"); return 0; }
+    return 1;
+}

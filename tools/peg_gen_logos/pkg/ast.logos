@@ -46,6 +46,9 @@ pub const NAMESPACE:  u8 = 18u8;
 pub const OUTPUT:     u8 = 19u8;
 pub const FIELDS:     u8 = 20u8;  // GROUP_DECL: array of NameDecls
 pub const GROUP_NAME: u8 = 21u8;  // RULE / NameDecl: group name
+pub const FTYPE:      u8 = 22u8;  // SCHEMA_FIELD: field-type string ("ref SExpr" | "i32" | "u8" | "str" | "WAny")
+pub const PACKAGE:    u8 = 23u8;  // META_INFO: emitted `package` name (overrides OUTPUT; OUTPUT stays the file basename)
+pub const GPREFIX:    u8 = 24u8;  // META_INFO: prefix for module-GLOBAL emitted names (token consts, NULLP, runtime structs) — lets 2 generated parsers coexist in ONE module
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)
@@ -60,6 +63,14 @@ pub const TOKEN_DECL: i32 = 3i32;
 pub const PREC_LEVEL: i32 = 4i32;
 pub const RULE:       i32 = 5i32;
 pub const ALT:        i32 = 6i32;
+// %schema — SCHEMA-EMISSION mode (ADR 0012 peg-frontend). A SCHEMA_DECL names a
+// grammar node whose action builds a first-class Writ SCHEMA view
+// (`h.make::<S>()` + typed field writes) rather than a raw TOM tinymap. Each
+// carries an array of SCHEMA_FIELD entries (NAME = schema field, FTYPE = its
+// Logos field type). Presence of a `%schema` block turns on schema-emission
+// mode; the schema-node NAME is the schema type, its code is `S::CODE`.
+pub const SCHEMA_DECL:  i32 = 8i32;   // one `S { field: "type", ... }` entry
+pub const SCHEMA_FIELD: i32 = 9i32;   // one `field: "type"` entry inside a SCHEMA_DECL
 
 // Item kinds
 pub const RULE_REF:   i32 = 10i32;

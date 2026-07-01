@@ -1,0 +1,35 @@
+// Self-contained schema IR for the peg_gen_logos schema-emission e2e test.
+// A single schema family (EExpr = ELit | EBin) with a WRef edge — enough to
+// exercise make::<S>() + typed field writes + WRef edges end-to-end, WITHOUT
+// pulling in the ir.logos WRef<RExpr> closure (which trips a pre-existing,
+// documented mono bug on isolated emit-module — see project_writ_query_language).
+package demo_ir;
+
+use logos.lang.writ.container;
+use logos.lang.writ.allocator;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+
+pub struct ERef<S> { pub h: WAny }
+impl<S> ERef<S> {
+    pub fn from_any(h: WAny) -> ERef<S> { return ERef::<S> { h: h }; }
+    pub fn any(self: &ERef<S>) -> WAny { return self.h; }
+}
+impl<S> WritField for ERef<S> {
+    fn from_wany(v: WAny) -> Self { return ERef::<S> { h: v }; }
+    fn to_wany(self: Self, z: *mut Allocator) -> WAny { return self.h; }
+}
+
+pub schema ELit : code(0x0020_0000_0000_0000) { val: WAny = 0 }
+pub schema EBin : code(0x0020_0000_0000_0001) { op: i32 = 0, lhs: ERef<EExpr> = 1, rhs: ERef<EExpr> = 2 }
+
+pub schema enum EExpr : category(0x0020_0000_0000_0000) {
+    Lit(ELit), Bin(EBin),
+}
+
+impl ELit { pub fn as_ref(self: &ELit) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl EBin {
+    pub fn as_ref(self: &EBin) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+    pub fn lhs_expr(self: &EBin) -> EExpr { return self.lhs.any().view::<EExpr>(); }
+    pub fn rhs_expr(self: &EBin) -> EExpr { return self.rhs.any().view::<EExpr>(); }
+}

@@ -76,3 +76,43 @@ add_custom_target(peg_gen_logos_oracle
     DEPENDS logosc peg_gen_logos
     USES_TERMINAL
     COMMENT "peg_gen_logos AST-equality oracle (C++ vs Logos logos_parser over tests/logos)")
+
+# SCHEMA-EMISSION smoke test — opt-in, NOT a ctest (regenerates a parser +
+# compiles + links + runs). Verifies the generator's `%schema` mode builds
+# first-class Writ schema views (make::<S>() + typed writes + ref edges) that
+# parse + walk correctly. Run: cmake --build <dir> --target peg_gen_logos_schema_test
+add_custom_target(peg_gen_logos_schema_test
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/schema_test/run.sh
+            ${CMAKE_BINARY_DIR}
+    DEPENDS logosc peg_gen_logos
+    USES_TERMINAL
+    COMMENT "peg_gen_logos schema-emission smoke test (make::<S>() typed IR construction)")
+
+# ── WQL / Trama frontend regeneration + behavior oracle (ADR 0012, Phase 4) ──
+#
+# The generated EL + Trama parsers (stdlib/std/wql/{el_parser,trama_parser}.logos)
+# are CHECKED-IN source artifacts, compiled into liblogos-std by a normal build.
+# A normal `cmake --build` does NOT run the generator (no build cycle: peg_gen_logos
+# links liblogos-std). These two OPT-IN targets manage the offline lifecycle:
+#
+#   wql_peg_regen  — regenerate the committed parsers from grammars/{el,trama}.peg.
+#                    Run by hand after a grammar change; then rebuild + gate.
+#   wql_peg_oracle — parse an EL corpus through BOTH the generated parser and the
+#                    hand-written one and assert the SExpr IR is structurally
+#                    identical (node codes + operator ids + tree shape).
+add_custom_target(wql_peg_regen
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/wql_oracle/regen.sh
+            ${CMAKE_BINARY_DIR}
+    DEPENDS peg_gen_logos
+    USES_TERMINAL
+    COMMENT "Regenerate committed WQL/Trama parsers (el.peg/trama.peg -> stdlib/std/wql)")
+
+add_custom_target(wql_peg_oracle
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/wql_oracle/run.sh
+            ${CMAKE_BINARY_DIR}
+    DEPENDS logosc
+    USES_TERMINAL
+    COMMENT "WQL EL-parser behavior oracle (generated vs hand-written IR, structural)")

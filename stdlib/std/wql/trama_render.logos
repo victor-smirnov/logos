@@ -29,7 +29,7 @@
 // edges (the ONE coupling, ADR 0012 §seam); they are emitted by the SHARED
 // SExpr codegen (`logos.std.wql.codegen::emit_sexpr`), exactly as the `wql!`
 // where/select clauses are. Field/loop-var NAMES are recovered from the Trama
-// parser's shared EL parser (`p.el_parser()`) + `var_name`.
+// parser's shared EL parser (`p.el_types()`) + `var_name`.
 package logos.std.wql.trama_render;
 
 use logos.std.compiler.metaprog;     // Emitter, ItemList, item_list_new, error
@@ -41,7 +41,7 @@ use logos.std.wql.ir;
 use logos.std.wql.el;
 use logos.std.wql.trama;
 use logos.std.wql.codegen;
-use logos.std.wql.reflect;   // stamp_fields_from_schema — context field-type reflection
+use logos.std.wql.reflect;   // stamp_types_from_schema — context field-type reflection
 use logos.mem.string;
 use logos.lang.str;
 
@@ -188,20 +188,20 @@ fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i
             // is pushed via push_str (concat flattened to successive pushes); a
             // BOOL renders as the words true/false; otherwise the i64 value.
             let se: SExpr = v.expr_expr();
-            let ty: i32 = infer_ty(se, p.el_parser());
+            let ty: i32 = infer_ty(se, p.el_types());
             if ty == EL_TY_STR() {
                 let mut tmp: String = String::new();
-                emit_push_str(&mut tmp, "    ", "__out", se, p.el_parser(), ctx);
+                emit_push_str(&mut tmp, "    ", "__out", se, p.el_types(), ctx);
                 em.push_text(string_as_str(&tmp));
             } else if ty == EL_TY_BOOL() {
                 let mut body: String = String::new();
-                emit_sexpr(&mut body, se, p.el_parser(), ctx);
+                emit_sexpr(&mut body, se, p.el_types(), ctx);
                 em.push_text("    if (");
                 em.push_text(string_as_str(&body));
                 em.push_text(") { __out.push_str(\"true\"); } else { __out.push_str(\"false\"); }\n");
             } else {
                 let mut body: String = String::new();
-                emit_sexpr(&mut body, se, p.el_parser(), ctx);
+                emit_sexpr(&mut body, se, p.el_types(), ctx);
                 em.push_text("    __out.push_i64(");
                 em.push_text(string_as_str(&body));
                 em.push_text(");\n");
@@ -212,11 +212,11 @@ fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i
             // {% set var = expr %} → a typed let binding whose type follows the
             // assigned expression (str / bool / i64). A str `set` binds a `str`
             // (single value) or, when the RHS is a concat, a built `String`.
-            let vname: str = p.var_name(s.var);
+            let vname: str = s.var;
             let se: SExpr = s.expr_expr();
-            let ty: i32 = infer_ty(se, p.el_parser());
+            let ty: i32 = infer_ty(se, p.el_types());
             let mut body: String = String::new();
-            emit_sexpr(&mut body, se, p.el_parser(), ctx);
+            emit_sexpr(&mut body, se, p.el_types(), ctx);
             em.push_text("    let ");
             em.push_text(vname);
             if ty == EL_TY_STR() {
@@ -238,7 +238,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i
             // TIf in the else-body (so the walk here is uniform).
             let mut cond: String = String::new();
             let se: SExpr = i.expr_expr();
-            emit_truthy(&mut cond, se, p.el_parser(), ctx);
+            emit_truthy(&mut cond, se, p.el_types(), ctx);
             em.push_text("    if (");
             em.push_text(string_as_str(&cond));
             em.push_text(") {\n");
@@ -253,10 +253,10 @@ fn emit_one(em: &mut Emitter, e: TStmt, p: &TrParser, ctx: str, depth: i64) -> i
         }
         TStmt::For(f) => {
             // {% for v in expr %} body {% endfor %} → indexed while-loop.
-            let vname: str = p.var_name(f.var);
+            let vname: str = f.var;
             let mut iter: String = String::new();
             let se: SExpr = f.expr_expr();
-            emit_sexpr(&mut iter, se, p.el_parser(), ctx);
+            emit_sexpr(&mut iter, se, p.el_types(), ctx);
             let iter_s: str = string_as_str(&iter);
             em.push_text("    let mut __i");
             em.push_num(depth as u64);
@@ -364,7 +364,7 @@ pub fn trama(s: str) -> ItemList {
     // Runs BEFORE `with`, which still overrides (e.g. to type a loop-var's element
     // or a field the reflection cannot see). Unknown context type ⇒ silent no-op.
     let view: OView = oview_module_ast();
-    stamp_fields_from_schema(&view, &mut p.el, ctx_ty);
+    stamp_types_from_schema(&view, &mut p.types, ctx_ty);
 
     // Apply the `with` type declarations now that vars/fields are interned. The
     // type-name slices live in `s`, so `decl_src` is `s`.

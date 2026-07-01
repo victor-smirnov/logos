@@ -21,7 +21,7 @@ package logos.std.wql.reflect;
 
 use logos.std.compiler.metaprog;   // OView, SView, oview_module_ast
 use logos.lang.writ.anyval;        // WAny
-use logos.std.wql.el;              // ElParser, EL_TY_*, el_ty_of_name
+use logos.std.wql.el;              // ElTypes, EL_TY_*, el_ty_of_name
 use logos.lang.str;
 
 // Byte-equality of an `SView` (borrowed AST bytes) against a `str`.
@@ -80,29 +80,29 @@ pub fn field_type_name(view: &OView, decl: WAny, field_name: str) -> str {
     return "";
 }
 
-// Stamp every field key the parser interned with the value-type the named struct
-// declares for it. Fields not present in the struct (e.g. a `for`-var or a call
-// name interned in the same dense table) are left at their existing type — the
-// reflection is purely additive, mirroring the `with`-clause semantics it
-// replaces. A struct that cannot be found (unknown name, or no AST loaded) is a
-// no-op: the parser keeps the i64 baseline and an explicit `with` still works.
+// Populate the name→value-type dictionary `t` with the value-type the named
+// struct declares for EACH of its fields (Option B: the IR carries names, so we
+// type every field of the bound schema — the codegen queries only the names it
+// actually references, so typing all fields is harmless and matches the old
+// stamp-what-was-interned behavior). A struct that cannot be found (unknown name,
+// or no AST loaded) is a no-op: the dict keeps the i64 baseline and an explicit
+// `with` still works (and OVERRIDES, since `with` is applied after this).
 //
-// `view` is a fresh module-AST view; `p` the EL parser whose dense field table is
-// walked via the public `field_n` count + `field_name(key)` inverse.
-pub fn stamp_fields_from_schema(view: &OView, p: &mut ElParser, struct_name: str) {
+// `view` is a fresh module-AST view; `t` the type dictionary the handler passes
+// to the codegen.
+pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str) {
     if view.holder == (0 as *mut u8) { return; }
     let decl: WAny = find_decl_by_name(view, struct_name);
     if decl.is_null() { return; }
-    let n: i64 = p.field_n;
-    let mut i: i64 = 0i64;
-    while i < n {
-        let fname: str = p.field_name(i as u8);
-        if fname.len() > 0i64 {
-            let tyname: str = field_type_name(view, decl, fname);
-            if tyname.len() > 0i64 {
-                p.set_field_ty(fname, el_ty_of_name(tyname));
-            }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        let fnm: str = sview_str(view.ast_field_name(fld));
+        let tyname: str = sview_str(view.ast_field_type_name(fld));
+        if fnm.len() > 0i64 && tyname.len() > 0i64 {
+            t.set_ty(fnm, el_ty_of_name(tyname));
         }
-        i = i + 1i64;
+        i = i + (1 as u64);
     }
 }

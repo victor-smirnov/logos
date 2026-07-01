@@ -1,0 +1,41 @@
+// Focused test grammar for peg_gen_logos SCHEMA-EMISSION mode (ADR 0012
+// peg-frontend). A tiny arithmetic-expression grammar that builds a Writ-schema
+// IR (demo_ir) via first-class schema views — `h.make::<S>()` + typed schema
+// field writes + `ERef<EExpr>` edges — instead of raw TOM tinymaps. Exercises:
+//   • schema-view node construction (ELit / EBin)
+//   • ref-edge fields (lhs / rhs) written from captured child handles
+//   • a scalar i32 field (op) from an action INT_LIT
+//   • a dynamic WAny field (val) from an action INT_LIT
+//   • fold-mode left-assoc binary parsing ($0 fold accumulator into a ref field)
+//   • external-arena entry (parse_expr(src, doc) -> WAny)
+//   • the `ref_wrap:` directive (edge wrapper = ERef, not the default WRef)
+%meta {
+    name:   "demo"
+    output: "demo_parser"
+}
+
+%export { expr }
+
+%schema {
+    use:      "demo_ir"
+    arena:    external
+    ref_wrap: "ERef"
+    ELit  { val: "WAny" }
+    EBin  { op: "i32", lhs: "ref EExpr", rhs: "ref EExpr" }
+}
+
+%tokens {
+    PLUS   = "+"
+    STAR   = "*"
+    LPAREN = "("
+    RPAREN = ")"
+    INT    = /[0-9]+/
+    %skip  = /[ \t\r\n]+/
+}
+
+%rules {
+    expr <- mul ( PLUS mul => { CODE: "EBin", op: 9, lhs: $0, rhs: $2 } )*
+    mul  <- prim ( STAR prim => { CODE: "EBin", op: 11, lhs: $0, rhs: $2 } )*
+    prim <- INT => { CODE: "ELit", val: 0 }
+          / LPAREN expr RPAREN => { CODE: "ELit", val: 0 }
+}

@@ -1,0 +1,211 @@
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// trama.peg — the Trama template grammar (jinja2 port; ADR 0012 §"Template is
+// kept as-is, renamed Trama") for peg_gen_logos, in SCHEMA-EMISSION mode. It
+// specifies construction of the EXISTING Trama AST (the `TStmt` family, category
+// 0x0013, in `logos.std.wql.trama`) as first-class Writ schema views —
+// `doc.make::<S>()` + typed schema field writes + `WRef<S>` edges — dogfooding
+// ADR 0011. It is the peg-generated replacement for the hand-written
+// recursive-descent `TrParser` in `stdlib/std/wql/trama.logos`.
+//
+// The grammar is a FAITHFUL transcription of the Trama surface documented in
+// trama.logos:14-20 (the jinja subset):
+//
+//   • literal text runs                          → TText
+//   • {{ expr }}                                 → TVar   (EXPRESSION = SExpr)
+//   • {% if expr %}..{% elif %}..{% else %}..{% endif %}  → TIf (EXPRESSION + then/else)
+//   • {% for x in expr %}..{% endfor %}          → TFor   (VARIABLE + EXPRESSION + body)
+//   • {% set x = expr %}                         → TSet   (VARIABLE + EXPRESSION)
+//   • whitespace-control trims ({%- / -%}, {{- / -}}) — trims the adjacent text run
+//
+// The TStmt schemas (trama.logos:52-76):
+//   TText { text: WAny=0, next: WRef<TStmt>=1 }
+//   TVar  { expr: WRef<SExpr>=7, next=1 }
+//   TFor  { var: u8=6, expr: WRef<SExpr>=7, body: WRef<TStmt>=8, next=1 }
+//   TIf   { expr: WRef<SExpr>=7, body: WRef<TStmt>=8, alt: WRef<TStmt>=9, next=1 }
+//   TSet  { var: u8=6, expr: WRef<SExpr>=7, next=1 }
+//
+// The EXPRESSION edge (`expr: WRef<SExpr>`) is the ONLY coupling between the
+// template language and the expression language (ADR 0012 §seam). The `{{ … }}`
+// and `{% if/for/set … %}` expression bodies are EL — parsed by the generated EL
+// parser (el.peg → `parse_expr`), producing an `SExpr` root handle wired into the
+// TStmt node's `expr` field. See the CROSS-GRAMMAR gap (T2) below.
+//
+// ── KNOWN GENERATOR GAPS (resolved in the parser-SWAP phase, NOT here) ──────
+// Phase 3 authors this grammar against the schemas AS THEY ARE (mandate: "Do NOT
+// change the schemas"). Trama exercises three generator capabilities the current
+// schema-emission mode does not yet have; each is the same class of "the frontend
+// is richer than the writ.peg feature set the generator was built for" that the
+// frontend-plan (ADR 0012 peg-frontend §5/§6) flagged for the swap:
+//
+//   (T1) MODE-SWITCHING (raw-text) LEXER. jinja text runs are "any bytes up to
+//        the next `{{`/`{%`", including bare `{` that does not open a tag. The
+//        peg_gen lexer is a SINGLE-MODE token lexer; a regex TEXT token like
+//        /[^{]+/ approximates a text run but stops at any `{`. A faithful port
+//        needs a raw-until-delimiter text scanner (a template-lexer mode, or a
+//        RAW_UNTIL pseudo-token analogous to the RAW_GROUP_* balanced-capture
+//        pseudo-tokens the logos.peg lexer already grew). The hand `TrParser`
+//        does exactly this (parse_text: scan to the next `{{`/`{%`,
+//        trama.logos:470). Marked `// GAP:text`.
+//
+//   (T2) CROSS-GRAMMAR EL EMBEDDING. The `expr: WRef<SExpr>` edge is produced by
+//        the EL grammar (el.peg). peg_gen does not yet emit `%import` /
+//        cross-grammar rule refs (codegen.logos header: "NOT emitted: %import /
+//        cross-grammar refs"). The swap resolves this by having the generated
+//        Trama parser CALL the generated EL entry `parse_expr(src, doc)` on the
+//        expression sub-range (exactly as the hand parser threads a SHARED EL
+//        parser, trama.logos:376 parse_embedded_el). In THIS grammar the `expr`
+//        rule is a LOCAL stand-in (a bare IDENT → an SLit placeholder) so the
+//        grammar is self-contained and parses under the front-end; the real
+//        edge comes from the EL parser at swap time. Marked `// GAP:el`.
+//
+//   (T3) STATEMENT-CHAIN LINKING + elif DESUGARING are SEMANTIC post-passes, not
+//        PEG actions. A block is a `next`-linked TStmt chain (trama.logos:356
+//        set_next); a `for`/`if` body is the head `WRef<TStmt>` of its chain;
+//        `{% elif %}` desugars to a nested TIf in the enclosing `alt`
+//        (trama.logos:625). A PEG rule produces the per-statement nodes + the
+//        block-structure edges (body/alt), but the sibling `next` links and the
+//        elif→nested-TIf rewrite are stitched by the handler after the parse
+//        (same shape as the EL comprehension's plan assembly and SExprArr fill).
+//        Marked `// GAP:chain`.
+//
+//   (T4) VARIABLE names (TFor.var / TSet.var : u8) are dense interned keys today
+//        (trama.logos:139); a captured IDENT → a u8 scalar is the captured-token
+//        →scalar gap (codegen.logos:2609). Same Option-B resolution as EL's
+//        SField.key (store the NAME on the node); placeholder var=0 here. Marked
+//        `// GAP:var`.
+//
+// None of these block Phase 3 (author + front-end parse). They are the concrete
+// generator work items for the parser swap.
+
+%meta {
+    name:      "trama"
+    version:   "1.0"
+    namespace: "logos::wql::trama"
+    output:    "trama_parser"
+    package:   "logos.std.wql.trama_parser"
+    prefix:    "Tr"
+}
+
+// The Trama entry rule: a template → the HEAD TStmt of the statement chain.
+%export { tpl }
+
+// ── SCHEMA-EMISSION binding ────────────────────────────────────────────────
+// Types MUST match trama.logos exactly. `arena: external` →
+// `parse_tpl(src, doc: &Writ) -> WAny` takes the handler's Writ arena.
+// `ref_wrap: "WRef"` is the trama.logos edge wrapper (WRef<TStmt> / WRef<SExpr>).
+%schema {
+    // TStmt schemas live in `trama`; their `expr: WRef<SExpr>` edge fields
+    // reference `SExpr` from the `ir` module — so BOTH modules are imported
+    // (the generator emits one `use` per space-separated `use:` entry).
+    use:      "logos.std.wql.trama"
+    use:      "logos.std.wql.ir"
+    arena:    external
+    ref_wrap: "WRef"
+
+    TText { text: "WAny",       next: "ref TStmt" }
+    TVar  { expr: "ref SExpr",  next: "ref TStmt" }
+    TFor  { var:  "str", expr: "ref SExpr", body: "ref TStmt", next: "ref TStmt" }
+    TIf   { expr: "ref SExpr",  body: "ref TStmt", alt: "ref TStmt", next: "ref TStmt" }
+    TSet  { var:  "str", expr: "ref SExpr", next: "ref TStmt" }
+}
+
+// ── Tokens ─────────────────────────────────────────────────────────────────
+// Tag delimiters (with the whitespace-control `-` variants) come FIRST so the
+// two-/three-char opens beat the raw TEXT run.
+%tokens {
+    // Whitespace-control opens/closes (three-char) BEFORE the plain two-char.
+    LMUST_TRIM = "{{-"
+    RMUST_TRIM = "-}}"
+    LSTMT_TRIM = "{%-"
+    RSTMT_TRIM = "-%}"
+
+    LMUST = "{{"
+    RMUST = "}}"
+    LSTMT = "{%"
+    RSTMT = "%}"
+
+    // Statement keywords (declared as literal tokens; ordered before IDENT).
+    KW_IF     = "if"
+    KW_ELIF   = "elif"
+    KW_ELSE   = "else"
+    KW_ENDIF  = "endif"
+    KW_FOR    = "for"
+    KW_IN     = "in"
+    KW_ENDFOR = "endfor"
+    KW_SET    = "set"
+
+    EQ    = "="
+    IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
+
+    // GAP:text — a raw text run. /[^{]+/ approximates "bytes up to the next tag"
+    // but stops at any '{'. A faithful port needs a RAW_UNTIL('{{'|'{%') scanner
+    // (template-lexer mode). See header T1.
+    TEXT  = /[^{]+/
+
+    // NO %skip: template whitespace is SIGNIFICANT (it is part of the text runs;
+    // ws-control trims it explicitly). The tag-interior whitespace between the
+    // delimiters and the keyword/expr is consumed by the generated EL parser and
+    // the keyword-token match. (A tag-interior %skip mode is the mode-switch T1.)
+}
+
+// ── Rules ──────────────────────────────────────────────────────────────────
+%rules {
+    // tpl := stmt*   → the statement chain (GAP:chain — `next` links stitched
+    // by the handler after the parse; the grammar yields the per-stmt nodes).
+    tpl <- stmt*
+
+    // stmt := text | var-tag | control-tag
+    // Ordered choice: the `{% … %}` control tags before `{{ … }}` before TEXT.
+    stmt <- for_stmt
+          / if_stmt
+          / set_stmt
+          / var_tag
+          / TEXT => { CODE: "TText", text: $1 }
+
+    // {{ expr }}  → TVar        (also the ws-control `{{- … -}}` variants)
+    var_tag <- LMUST      expr RMUST      => { CODE: "TVar", expr: $2 }
+             / LMUST_TRIM expr RMUST_TRIM => { CODE: "TVar", expr: $2 }
+             / LMUST      expr RMUST_TRIM => { CODE: "TVar", expr: $2 }
+             / LMUST_TRIM expr RMUST      => { CODE: "TVar", expr: $2 }
+
+    // {% set x = expr %}  → TSet(var, expr)   (var NAME = IDENT $3, self-describing)
+    set_stmt <- stmt_open KW_SET IDENT EQ expr stmt_close
+                    => { CODE: "TSet", var: $3, expr: $5 }
+
+    // {% for x in expr %} body {% endfor %}  → TFor(var, expr, body)
+    // GAP:chain — `body` ($8) is the head of the loop-body chain (the block's
+    // statements, next-linked by the handler). GAP:var — x is IDENT $3.
+    for_stmt <- stmt_open KW_FOR IDENT KW_IN expr stmt_close
+                    tpl
+                stmt_open KW_ENDFOR stmt_close
+                    => { CODE: "TFor", var: $3, expr: $5, body: $7 }
+
+    // {% if expr %} then {% elif … %}… {% else %} else {% endif %}  → TIf
+    // GAP:chain — `body` = then-chain head ($7); `alt` = else/elif-chain head
+    // ($8). The elif→nested-TIf desugaring is a handler post-pass (header T3).
+    if_stmt <- stmt_open KW_IF expr stmt_close
+                   tpl
+                   if_tail
+               stmt_open KW_ENDIF stmt_close
+                   => { CODE: "TIf", expr: $3, body: $5, alt: $6 }
+
+    // if_tail := ( {% elif expr %} tpl if_tail )?   (nested TIf)
+    //          | ( {% else %} tpl )?                (plain else body)
+    //          | ε                                  (no else)
+    // Structural placeholder: yields the else/elif chain-head handle the handler
+    // rewrites into the enclosing TIf.alt (header T3). Kept as an optional block.
+    if_tail <- ( stmt_open KW_ELSE stmt_close tpl )?
+
+    // Tag delimiters with optional whitespace-control variants (the trim is a
+    // text-run concern handled by the lexer mode; both variants are accepted).
+    stmt_open  <- LSTMT / LSTMT_TRIM
+    stmt_close <- RSTMT / RSTMT_TRIM
+
+    // GAP:el — the embedded EL expression. In the real (swapped) parser this
+    // hands the expression sub-range to the generated EL parser
+    // (`el.peg::parse_expr`) → an `SExpr` root, wired into the `expr` edge. Here
+    // it is a self-contained stand-in (a bare IDENT → an SLit shell) so the
+    // grammar parses under the front-end. See header T2.
+    expr <- IDENT => { CODE: "TText", text: 0 }
+}

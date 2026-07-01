@@ -44,6 +44,14 @@ use peg_gen_logos.ast;
 pub struct NameDecl { pub name: String, pub code: i64, pub group: String }
 pub struct TokenDecl { pub name: String, pub kind: i64, pub pattern: String }
 
+// One %schema field: the schema field name + its Logos field-type STRING
+// ("ref TARGET" | "i32" | "u8" | "i56" | "str" | "WAny"). Drives which typed
+// write the schema-emission mode emits (WRef edge / scalar cast / str / verbatim).
+pub struct SchemaField { pub name: String, pub ftype: String }
+// One %schema node: the grammar-node NAME (which is ALSO the schema type name,
+// so its code is `NAME::CODE`) + its typed fields. Built by `h.make::<NAME>()`.
+pub struct SchemaDecl  { pub name: String, pub fields: Vec<SchemaField> }
+
 // One action field:  FIELD: expr.  `ekind` is an ast action-expr code; the other
 // members are populated per kind (index for CAPTURE, sval for STR_LIT, ival for
 // INT_LIT/BOOL_LIT).
@@ -250,6 +258,36 @@ pub struct Codegen {
     // `$0` (FOLD_CAPTURE) resolves to ("" when not in a fold). Left-assoc binary
     // expr rules use `lhs (OP rhs => { LHS: $0, ... })*`: $0 is the result so far.
     pub cur_fold: String,
+
+    // SCHEMA-EMISSION mode (ADR 0012 peg-frontend). When a `%schema` block is
+    // present, actions build first-class Writ SCHEMA views (`h.make::<S>()` +
+    // typed field writes) instead of raw TOM tinymaps — dogfooding ADR 0011.
+    // `schema_mode` gates the whole path; `schemas` is the per-node type table
+    // (name → typed fields); `schema_use` is the module to import for the schema
+    // types; `arena_ext` makes `parse_<export>` take the caller's `&Writ` arena.
+    pub schema_mode: bool,
+    pub schemas:     Vec<SchemaDecl>,
+    pub schema_use:  String,
+    pub arena_ext:   bool,
+    pub ref_wrap:    String,   // edge-wrapper type for `ref T` fields (default "WRef")
+
+    // The emitted `package` name. Defaults to `output` (the file basename), but
+    // `%meta { package: "logos.std.wql.el_parser" }` overrides it so the generated
+    // parser can be a properly-qualified, importable stdlib member (the file is
+    // still written as `<output>.logos`). Bare package names are NOT importable by
+    // the module loader — a qualified `package` is required to `use` the parser.
+    pub pkg:         String,
+
+    // Prefix for module-GLOBAL emitted identifiers — the token-kind consts
+    // (`TK_*`), the `NULLP` const, and the runtime cache structs (`TokCell` /
+    // `MemoCell`, whose `impl Copy` trait-coherence is module-global). Logos
+    // `const`s + trait impls share ONE module namespace across packages (structs
+    // and fns are package-scoped, so they are NOT prefixed), so two generated
+    // parsers in the SAME module (e.g. `el_parser` + `trama_parser` both inside
+    // `logos-std`) collide on these names. `%meta { prefix: "El" }` disambiguates.
+    // DEFAULT EMPTY → byte-identical output for single-parser grammars (logos.peg
+    // oracle stays green).
+    pub gp:          String,
 }
 
 pub fn codegen_new() -> Codegen {
@@ -261,7 +299,35 @@ pub fn codegen_new() -> Codegen {
         lc: 0i64,
         uses_gt_type: false, uses_lt_type: false, uses_raw_group: false,
         cur_fold: String::new(),
+        schema_mode: false, schemas: vec_new::<SchemaDecl>(),
+        schema_use: String::new(), arena_ext: false, ref_wrap: String::new(),
+        pkg: String::new(), gp: String::new(),
     };
+}
+
+// Look up the SchemaDecl for a %nodes/action node name; returns index or -1.
+fn find_schema(cg: &Codegen, name: str) -> i64 {
+    let n: i64 = cg.schemas.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if str_eq(cg.schemas.borrow(i).name.as_str(), name) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// The field-type string for schema `sidx`'s field `fname` (empty if not found).
+fn schema_field_type(cg: &Codegen, sidx: i64, fname: str) -> String {
+    if sidx < 0i64 { return String::new(); }
+    let nf: i64 = cg.schemas.borrow(sidx).fields.len();
+    let mut i: i64 = 0i64;
+    while i < nf {
+        if str_eq(cg.schemas.borrow(sidx).fields.borrow(i).name.as_str(), fname) {
+            return String::from(cg.schemas.borrow(sidx).fields.borrow(i).ftype.as_str());
+        }
+        i = i + 1i64;
+    }
+    return String::new();
 }
 
 // True if `name` is a token-alias rule: no action, every alt a single TOKEN_REF
@@ -415,7 +481,77 @@ pub fn codegen_logos(grammar: &Writ) -> String {
     let mut cg: Codegen = codegen_new();
     read_grammar(&mut cg, grammar);
     detect_pseudo_tokens(&mut cg);
-    return emit_all(&mut cg);
+    let out: String = emit_all(&mut cg);
+    if cg.gp.len() == 0i64 { return out; }
+    // Prefix the module-GLOBAL emitted identifiers so two generated parsers can
+    // coexist in ONE module (Logos `const`s + trait impls share one module
+    // namespace; structs/fns are package-scoped and untouched). This is a whole-
+    // identifier textual pass over the FINAL output: every occurrence of the four
+    // global names (as complete identifier tokens) is prefixed. Generated code
+    // never mentions these names in comments/strings, so the pass is exact. When
+    // `prefix` is unset this is skipped → byte-identical output (oracle-safe).
+    return apply_gprefix(out.as_str(), cg.gp.as_str());
+}
+
+// True if byte `c` can appear inside a Logos identifier ([A-Za-z0-9_]).
+fn gp_ident_byte(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8)
+        || (c >= 48u8 && c <= 57u8) || c == 95u8;
+}
+
+// True if `src[i..]` begins with the whole identifier token `name`: `name`
+// matches AND the byte just before `i` is NOT an identifier byte (so we only
+// rewrite a token START, never a substring of a longer identifier). `TK_` is
+// itself an identifier START (the token consts are `TK_<NAME>`), so this also
+// correctly prefixes the whole `TK_...` family via the 3-byte `TK_` token.
+fn gp_match_at(src: str, i: i64, prev_is_ident: bool, name: str) -> bool {
+    if prev_is_ident { return false; }
+    let n: i64 = name.len();
+    if i + n > src.len() { return false; }
+    let mut k: i64 = 0i64;
+    while k < n {
+        if str_byte_at(src, i + k) != str_byte_at(name, k) { return false; }
+        k = k + 1i64;
+    }
+    return true;
+}
+
+// Whole-identifier textual prefixing of the four module-global names.
+fn apply_gprefix(src: str, gp: str) -> String {
+    let mut out: String = String::new();
+    let n: i64 = src.len();
+    let mut i: i64 = 0i64;
+    let mut prev_ident: bool = false;
+    while i < n {
+        // `TK_` prefixes the whole token-const family (`TK_EOF`, `TK_IDENT`, …);
+        // `NULLP`/`TokCell`/`MemoCell` are whole identifiers. Order: check `TK_`
+        // first (it is a token START, not a whole word — the tail is the name).
+        let mut hit_len: i64 = 0i64;
+        if gp_match_at(src, i, prev_ident, "TK_") { hit_len = 3i64; }
+        else if gp_match_at(src, i, prev_ident, "NULLP") {
+            // whole word: next byte after must NOT be an identifier byte.
+            if i + 5i64 >= n || !gp_ident_byte(str_byte_at(src, i + 5i64)) { hit_len = 5i64; }
+        }
+        else if gp_match_at(src, i, prev_ident, "TokCell") {
+            if i + 7i64 >= n || !gp_ident_byte(str_byte_at(src, i + 7i64)) { hit_len = 7i64; }
+        }
+        else if gp_match_at(src, i, prev_ident, "MemoCell") {
+            if i + 8i64 >= n || !gp_ident_byte(str_byte_at(src, i + 8i64)) { hit_len = 8i64; }
+        }
+        if hit_len > 0i64 {
+            out.push_str(gp);
+            let mut k: i64 = 0i64;
+            while k < hit_len { out.push_u8(str_byte_at(src, i + k)); k = k + 1i64; }
+            i = i + hit_len;
+            prev_ident = true;
+            continue;
+        }
+        let c: u8 = str_byte_at(src, i);
+        out.push_u8(c);
+        prev_ident = gp_ident_byte(c);
+        i = i + 1i64;
+    }
+    return out;
 }
 
 // Output base name (the grammar's %meta `output`, e.g. "writ_parser"); falls
@@ -552,8 +688,12 @@ fn read_grammar(cg: &mut Codegen, grammar: &Writ) {
         let m: &WMap<Wu6, WAny> = as_tinymap(meta);
         cg.name   = fld_str(m, NAME);
         cg.output = fld_str(m, OUTPUT);
+        cg.pkg    = fld_str(m, PACKAGE);
+        cg.gp     = fld_str(m, GPREFIX);
     }
     if cg.output.len() == 0i64 { cg.output = String::from("parser"); }
+    // `package` defaults to the output basename when not given.
+    if cg.pkg.len() == 0i64 { cg.pkg = String::from(cg.output.as_str()); }
     cg.pclass = to_pascal(cg.name.as_str());
     cg.pclass.push_str("Parser");
 
@@ -620,6 +760,53 @@ fn read_grammar(cg: &mut Codegen, grammar: &Writ) {
             i = i + 1i64;
         }
     }
+
+    // %schema — SCHEMA-EMISSION mode. Absent ⇒ raw-TOM mode (unchanged; keeps
+    // logos/writ/hrpc byte-identical → oracle green).
+    let sch: WAny = rootm.get("schema");
+    if !sch.is_null() && sch.is_array() {
+        let arr: &WArray<WAny> = sch.as_array();
+        let mut i: i64 = 0i64;
+        while i < arr.len() {
+            let sv: WAny = arr.get(i);
+            if !sv.is_null() && sv.is_tinymap() {
+                let node: &WMap<Wu6, WAny> = as_tinymap(sv);
+                let sname: String = fld_str(node, NAME);
+                let mut sfields: Vec<SchemaField> = vec_new::<SchemaField>();
+                let fv: WAny = node.get(FIELDS);
+                if !fv.is_null() && fv.is_array() {
+                    let farr: &WArray<WAny> = fv.as_array();
+                    let mut j: i64 = 0i64;
+                    while j < farr.len() {
+                        let fvn: WAny = farr.get(j);
+                        if !fvn.is_null() && fvn.is_tinymap() {
+                            let fnode: &WMap<Wu6, WAny> = as_tinymap(fvn);
+                            sfields.push(SchemaField {
+                                name:  fld_str(fnode, NAME),
+                                ftype: fld_str(fnode, FTYPE),
+                            });
+                        }
+                        j = j + 1i64;
+                    }
+                }
+                cg.schemas.push(SchemaDecl { name: sname, fields: sfields });
+            }
+            i = i + 1i64;
+        }
+    }
+    if cg.schemas.len() > 0i64 { cg.schema_mode = true; }
+    cg.schema_use = fld_str_smap(rootm, "schema_use");
+    let ae: WAny = rootm.get("schema_arena_ext");
+    if !ae.is_null() && ae.is_int() && ae.as_i64() != 0i64 { cg.arena_ext = true; }
+    cg.ref_wrap = fld_str_smap(rootm, "schema_ref_wrap");
+    if cg.ref_wrap.len() == 0i64 { cg.ref_wrap = String::from("WRef"); }
+}
+
+// Read a string value from the string-keyed root map (empty if absent).
+fn fld_str_smap(root: &WMap<WString, WAny>, key: str) -> String {
+    let v: WAny = root.get(key);
+    if v.is_null() || !v.is_string() { return String::new(); }
+    return String::from(v.as_string().as_str());
 }
 
 // Read a NAME_DECL array (writ.peg has no group blocks here) into fields/nodes.
@@ -684,7 +871,7 @@ fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("//");
     w.l2("// Recursive-descent parser for grammar: ", cg.name.as_str());
     w.blank();
-    w.l3("package ", cg.output.as_str(), ";");
+    w.l3("package ", cg.pkg.as_str(), ";");
     w.blank();
     w.line("use logos.lang.str;");
     w.line("use logos.lang.writ.container;");
@@ -694,6 +881,33 @@ fn emit_prologue(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("use logos.lang.writ.wstring;");
     w.line("use logos.mem.collections.hashmap;");
     w.line("use logos.mem.collections.vec;");
+    // SCHEMA-EMISSION mode: import the IR schema types (from the grammar's
+    // `%schema use:` directive) + the allocator (WRef<T>'s WritField needs it).
+    if cg.schema_mode && cg.schema_use.len() > 0i64 {
+        w.line("use logos.lang.writ.allocator;");
+        // `schema_use` is a space-separated list (one or more `use:` entries) —
+        // emit one `use <module>;` per module so a parser building nodes whose
+        // fields span several modules (e.g. Trama's TStmt with `WRef<SExpr>` edges
+        // into the `ir` module) resolves every referenced type.
+        let su: str = cg.schema_use.as_str();
+        let n: i64 = cg.schema_use.len();
+        let mut start: i64 = 0i64;
+        let mut j: i64 = 0i64;
+        while j <= n {
+            if j == n || str_byte_at(su, j) == 32u8 {
+                if j > start {
+                    let mut u: String = String::new();
+                    u.push_str("use ");
+                    let mut k: i64 = start;
+                    while k < j { u.push_u8(str_byte_at(su, k)); k = k + 1i64; }
+                    u.push_str(";");
+                    w.line(u.as_str());
+                }
+                start = j + 1i64;
+            }
+            j = j + 1i64;
+        }
+    }
     w.blank();
     w.line("// ── AST field keys (%fields) ───────────────────────────────────────────────");
     let mut i: i64 = 0i64;
@@ -873,16 +1087,34 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    let ws: &WString = doc.wstring(s);");
     w.line("    return ws as *const WString as *const u8;");
     w.line("}");
-    w.line("// Make a fresh AST node tiny-map and stamp CODE (+ schema for dispatch).");
-    w.line("// `cap` is the right-sized slot count (fields + CODE + SRC_LINE) — the");
-    w.line("// bitmap map is fixed-capacity, so cap must be >= the keys actually set.");
-    w.line("fn mk_node(doc: &Writ, code: i32, cap: i64) -> &mut WMap<Wu6, WAny> {");
-    w.line("    let node: &mut WMap<Wu6, WAny> = doc.tinymap(cap);");
-    w.line("    node.set(F_CODE, WAny::from(code as i56));");
-    w.line("    node.set_schema_type_code(code as u64);");
-    w.line("    return node;");
-    w.line("}");
-    w.blank();
+    if cg.schema_mode {
+        // Schema-emission mode: a node is a first-class Writ schema view built by
+        // `h.make::<S>()`; the handle currency threaded through the descent is the
+        // node's erased ref word (`as_ref().raw()`) re-cast to `*const u8` (no
+        // borrow — same rationale as the raw-TOM node pointer above). `hand_any`
+        // reconstructs the WAny ref from the word at the moment it is stored into a
+        // WRef<T> field. This mirrors el.logos's hand_of/hand_any handle currency.
+        w.line("// Schema-view handle currency: node.as_ref() word ↔ *const u8 / WAny.");
+        w.line("fn hand_any(w: *const u8) -> WAny { return WAny::ref_to(w); }");
+        w.line("// A captured WString ptr (from wstr_p) → &str for a schema `str` field write.");
+        w.line("fn wstr_as_str<'a>(p: *const u8) -> &'a str {");
+        w.line("    if (p as i64) == 0i64 { return \"\"; }");
+        w.line("    let ws: &WString = unsafe { &*(p as *const WString) };");
+        w.line("    return ws.as_str();");
+        w.line("}");
+        w.blank();
+    } else {
+        w.line("// Make a fresh AST node tiny-map and stamp CODE (+ schema for dispatch).");
+        w.line("// `cap` is the right-sized slot count (fields + CODE + SRC_LINE) — the");
+        w.line("// bitmap map is fixed-capacity, so cap must be >= the keys actually set.");
+        w.line("fn mk_node(doc: &Writ, code: i32, cap: i64) -> &mut WMap<Wu6, WAny> {");
+        w.line("    let node: &mut WMap<Wu6, WAny> = doc.tinymap(cap);");
+        w.line("    node.set(F_CODE, WAny::from(code as i56));");
+        w.line("    node.set_schema_type_code(code as u64);");
+        w.line("    return node;");
+        w.line("}");
+        w.blank();
+    }
 }
 
 // Pseudo-token Lexer helpers (emitted inside `impl Lexer`, gated by usage):
@@ -2303,9 +2535,223 @@ fn action_code_const(cg: &Codegen, alt_idx: i64) -> String {
     return String::from("0i32");
 }
 
+// The schema-type NAME an alt's CODE field names (the STR_LIT text, e.g. "SBin"),
+// or "" if the action has no CODE / a non-string CODE. In schema-emission mode
+// this IS the schema type built by `h.make::<name>()`.
+fn action_code_name(cg: &Codegen, alt_idx: i64) -> String {
+    let a: &Alt = cg.alts.borrow(alt_idx);
+    let mut i: i64 = 0i64;
+    while i < a.fields.len() {
+        let f: &ActionField = a.fields.borrow(i);
+        if str_eq(f.name.as_str(), "CODE") && f.ekind == STR_LIT {
+            return String::from(f.sval.as_str());
+        }
+        i = i + 1i64;
+    }
+    return String::new();
+}
+
+// ── Schema-emission action bodies (ADR 0012 peg-frontend) ─────────────────
+// Emit a schema-view alt action: `let node: S = doc.make::<S>(); n.f = …; return
+// hand_of(node.as_ref())`. `node_var` names the view local; on return the caller
+// gets the node's erased ref word (`*const u8`). Each field write is typed by the
+// %schema field-type table (WRef edge / scalar cast / str / verbatim WAny).
+fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_var: str, cap_stem: str, ret_via_cap: str) {
+    let sname: String = action_code_name(cg, alt_idx);
+    if sname.len() == 0i64 {
+        // No CODE ⇒ no schema type to build. A schema grammar should always name
+        // CODE on a node-producing alt; emit a diagnostic marker so it's caught.
+        w.line("// ERROR: schema-emission alt has no CODE field naming a schema type");
+        w.line("return NULLP;");
+        return;
+    }
+    let sidx: i64 = find_schema(cg, sname.as_str());
+    // `let node: S = doc.make::<S>();`
+    let mut mk: String = String::new();
+    mk.push_str("let "); mk.push_str(node_var); mk.push_str(": ");
+    mk.push_str(sname.as_str()); mk.push_str(" = doc.make::<");
+    mk.push_str(sname.as_str()); mk.push_str(">();");
+    w.line(mk.as_str());
+
+    let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
+    let mut fi: i64 = 0i64;
+    while fi < nf {
+        let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
+        let ekind: i64 = cg.alts.borrow(alt_idx).fields.borrow(fi).ekind;
+        let index: i64 = cg.alts.borrow(alt_idx).fields.borrow(fi).index;
+        let sval: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).sval.as_str());
+        let ival: i64 = cg.alts.borrow(alt_idx).fields.borrow(fi).ival;
+        if !str_eq(fname.as_str(), "CODE") {
+            let ftype: String = schema_field_type(cg, sidx, fname.as_str());
+            // The capture variable for this field's $n (rule-level stem is `cap<n>`).
+            let mut capvar: String = String::new();
+            capvar.push_str(cap_stem); capvar.push_i64(index);
+            emit_schema_field(w, node_var, capvar.as_str(), fname.as_str(), ftype.as_str(),
+                              ekind, sval.as_str(), ival, "", cg.ref_wrap.as_str());
+        }
+        fi = fi + 1i64;
+    }
+    // Return the node's edge handle as a raw word (no borrow) → *const u8.
+    let mut rl: String = String::new();
+    if ret_via_cap.len() > 0i64 {
+        // Group sub-alt: assign the result into the parent's capture var.
+        rl.push_str(ret_via_cap); rl.push_str(" = ");
+        rl.push_str(node_var); rl.push_str(".as_ref().raw() as *const u8;");
+    } else {
+        rl.push_str("return "); rl.push_str(node_var); rl.push_str(".as_ref().raw() as *const u8;");
+    }
+    w.line(rl.as_str());
+}
+
+// Group sub-alt in schema mode: build `gnode: S = doc.make::<S>()`, write typed
+// fields (group cap stem `g<cap>_<n>_<id>`, $0 → the fold accumulator var), then
+// assign the parent capture `cap = gnode.as_ref().raw() as *const u8`.
+fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64) {
+    let sname: String = action_code_name(cg, galt);
+    if sname.len() == 0i64 {
+        w.line("// ERROR: schema-emission group alt has no CODE naming a schema type");
+        let mut rl: String = String::new();
+        rl.push_str(cap); rl.push_str(" = NULLP;");
+        w.line(rl.as_str());
+        return;
+    }
+    let sidx: i64 = find_schema(cg, sname.as_str());
+    let mut mk: String = String::new();
+    mk.push_str("let gnode: "); mk.push_str(sname.as_str());
+    mk.push_str(" = doc.make::<"); mk.push_str(sname.as_str()); mk.push_str(">();");
+    w.line(mk.as_str());
+
+    let foldv: String = String::from(cg.cur_fold.as_str());   // $0 target ("" if none)
+    let nf: i64 = cg.alts.borrow(galt).fields.len();
+    let mut fi: i64 = 0i64;
+    while fi < nf {
+        let fname: String = String::from(cg.alts.borrow(galt).fields.borrow(fi).name.as_str());
+        let ekind: i64 = cg.alts.borrow(galt).fields.borrow(fi).ekind;
+        let index: i64 = cg.alts.borrow(galt).fields.borrow(fi).index;
+        let sval: String = String::from(cg.alts.borrow(galt).fields.borrow(fi).sval.as_str());
+        let ival: i64 = cg.alts.borrow(galt).fields.borrow(fi).ival;
+        if !str_eq(fname.as_str(), "CODE") {
+            let ftype: String = schema_field_type(cg, sidx, fname.as_str());
+            // Group capture var: `g<cap>_<index>_<id>`.
+            let mut capvar: String = String::new();
+            capvar.push_str("g"); capvar.push_str(cap); capvar.push_str("_");
+            capvar.push_i64(index); capvar.push_str("_"); capvar.push_i64(id);
+            emit_schema_field(w, "gnode", capvar.as_str(), fname.as_str(), ftype.as_str(),
+                              ekind, sval.as_str(), ival, foldv.as_str(), cg.ref_wrap.as_str());
+        }
+        fi = fi + 1i64;
+    }
+    let mut rl: String = String::new();
+    rl.push_str(cap); rl.push_str(" = gnode.as_ref().raw() as *const u8;");
+    w.line(rl.as_str());
+}
+
+// One schema-mode field write. `capvar` is the fully-formed capture variable for a
+// $n CAPTURE (e.g. `cap2` at rule level, `gcap_2_5` inside a group); `foldv` is
+// the fold-accumulator var for a $0 FOLD_CAPTURE ("" if none). `ftype` is the
+// %schema field-type string:
+//   "ref TARGET" → `n.f = WRef::<TARGET>::from_any(hand_any(cap))`   (edge)
+//   "str"        → `n.f = <interned str>`                            (string-ref)
+//   "WAny"       → `n.f = hand_any(cap)` / verbatim literal          (dynamic)
+//   scalar i8..i64/u8..u64/i56/isize/usize/bool → `n.f = <val> as T` (inline)
+fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
+                     ftype: str, ekind: i64, sval: str, ival: i64, foldv: str, ref_wrap: str) {
+    // Assignment LHS: `node.f = `.
+    let mut lhs: String = String::new();
+    lhs.push_str(node_var); lhs.push_str("."); lhs.push_str(fname); lhs.push_str(" = ");
+
+    if ftype_is_ref(ftype) {
+        // <ref_wrap><TARGET> edge from a captured child node handle (or fold acc $0).
+        let target: String = ftype_ref_target(ftype);
+        let mut l: String = String::new();
+        l.push_str(lhs.as_str());
+        l.push_str(ref_wrap); l.push_str("::<"); l.push_str(target.as_str());
+        l.push_str(">::from_any(hand_any(");
+        if ekind == FOLD_CAPTURE { l.push_str(foldv); }
+        else if ekind == CAPTURE { l.push_str(capvar); }
+        else { l.push_str("NULLP"); }
+        l.push_str("));");
+        w.line(l.as_str());
+        return;
+    }
+    if str_eq(ftype, "WAny") {
+        let mut l: String = String::new();
+        l.push_str(lhs.as_str());
+        if ekind == CAPTURE {
+            l.push_str("hand_any("); l.push_str(capvar); l.push_str(");");
+        } else if ekind == FOLD_CAPTURE {
+            l.push_str("hand_any("); l.push_str(foldv); l.push_str(");");
+        } else if ekind == STR_LIT {
+            // A string literal stored as a WAny ref to an interned WString.
+            l.push_str("WAny::ref_to(wstr_p(doc, \""); l.push_str(sval); l.push_str("\"));");
+        } else if ekind == INT_LIT {
+            l.push_str("WAny::from("); l.push_i64(ival); l.push_str("i56);");
+        } else if ekind == BOOL_LIT {
+            if ival != 0i64 { l.push_str("WAny::from(1u8);"); } else { l.push_str("WAny::from(0u8);"); }
+        } else {
+            l.push_str("WAny::from(0i56);");
+        }
+        w.line(l.as_str());
+        return;
+    }
+    if str_eq(ftype, "str") {
+        // A `str` schema field: value comes from a captured IDENT (WString ptr) or
+        // a literal. The schema `str` write path interns via the view's allocator.
+        let mut l: String = String::new();
+        l.push_str(lhs.as_str());
+        if ekind == STR_LIT {
+            l.push_str("\""); l.push_str(sval); l.push_str("\";");
+        } else if ekind == CAPTURE {
+            // Captured WString ptr → &str via the runtime helper.
+            l.push_str("wstr_as_str("); l.push_str(capvar); l.push_str(");");
+        } else {
+            l.push_str("\"\";");
+        }
+        w.line(l.as_str());
+        return;
+    }
+    // Scalar field: cast the literal / captured int to the declared field type.
+    let mut l: String = String::new();
+    l.push_str(lhs.as_str());
+    if ekind == INT_LIT {
+        l.push_i64(ival); l.push_str(" as "); l.push_str(ftype); l.push_str(";");
+    } else if ekind == BOOL_LIT {
+        if ival != 0i64 { l.push_str("true;"); } else { l.push_str("false;"); }
+    } else {
+        // A captured token → its scalar value is not directly available; store 0.
+        // (Grammars needing token→scalar should model it via a token-value hook;
+        // MVP schema fields set scalars from INT_LIT/BOOL_LIT in the action.)
+        l.push_str("0 as "); l.push_str(ftype); l.push_str(";");
+    }
+    w.line(l.as_str());
+}
+
+// True if a %schema field type is a WRef edge ("ref TARGET").
+fn ftype_is_ref(ftype: str) -> bool {
+    return ftype.len() >= 4i64
+        && str_byte_at(ftype, 0i64) == 114u8   // 'r'
+        && str_byte_at(ftype, 1i64) == 101u8   // 'e'
+        && str_byte_at(ftype, 2i64) == 102u8   // 'f'
+        && str_byte_at(ftype, 3i64) == 32u8;   // ' '
+}
+
+// The TARGET name from a "ref TARGET" field type (the text after "ref ").
+fn ftype_ref_target(ftype: str) -> String {
+    let mut out: String = String::new();
+    let n: i64 = ftype.len();
+    let mut i: i64 = 4i64;
+    while i < n { out.push_u8(str_byte_at(ftype, i)); i = i + 1i64; }
+    return out;
+}
+
 // Rule-level alt action: build a node, set each field (skip the CODE field — mk_node
 // already stamped it), set SRC_LINE, return the node as *const u8.
 fn emit_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, group: str, seq_len: i64, uses_arrcap: bool) {
+    if cg.schema_mode {
+        let _ = seq_len; let _ = group; let _ = uses_arrcap;
+        emit_schema_action(cg, w, alt_idx, "node", "cap", "");
+        return;
+    }
     // Right-size the node: total entries = field count + 1 (SRC_LINE); CODE is
     // either one of the fields (skipped in the loop, set by mk_node) or absent, so
     // nf already accounts for it. +2 safety margin (cheap; avoids silent overflow
@@ -2383,6 +2829,11 @@ fn emit_action_field(w: &mut CodeWriter, node_var: str, cap_stem: str, fname: st
 // Group sub-alt action: build `gnode`, fields use the group-cap stem
 // `g<cap>_<n>_<id>` for $n; assign cap = the node ptr.
 fn emit_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap: str, id: i64, seq_len: i64, uses_arrcap: bool) {
+    if cg.schema_mode {
+        emit_schema_group_action(cg, w, galt, cap, id);
+        let _ = seq_len; let _ = uses_arrcap;
+        return;
+    }
     let nf: i64 = cg.alts.borrow(galt).fields.len();
     let cap_lit: i64 = nf + 2i64;   // fields + SRC_LINE (+ margin); see emit_action
     if action_has_code(cg, galt) {
@@ -2467,13 +2918,24 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
     let mut i: i64 = 0i64;
     while i < n {
         let e: String = String::from(cg.exports.borrow(i).as_str());
-        w.l3("pub fn parse_", e.as_str(), "(src: str) -> Writ {");
-        w.line("    let doc: Writ = writ_new(1048576i64);");
-        w.line("    let mut lex: Lexer = lexer_new(src);");
-        w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, &doc);");
-        w.line("    doc.set_root(WAny::ref_to(root));");
-        w.line("    return doc;");
-        w.line("}");
+        if cg.schema_mode && cg.arena_ext {
+            // Schema-emission + external arena: the caller (a wql!/trama! handler)
+            // owns the `&Writ`; the parser builds schema views into it and returns
+            // the root node's erased ref handle (WAny) for the caller to view::<S>().
+            w.l3("pub fn parse_", e.as_str(), "(src: str, doc: &Writ) -> WAny {");
+            w.line("    let mut lex: Lexer = lexer_new(src);");
+            w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
+            w.line("    return WAny::ref_to(root);");
+            w.line("}");
+        } else {
+            w.l3("pub fn parse_", e.as_str(), "(src: str) -> Writ {");
+            w.line("    let doc: Writ = writ_new(1048576i64);");
+            w.line("    let mut lex: Lexer = lexer_new(src);");
+            w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, &doc);");
+            w.line("    doc.set_root(WAny::ref_to(root));");
+            w.line("    return doc;");
+            w.line("}");
+        }
         w.blank();
         i = i + 1i64;
     }

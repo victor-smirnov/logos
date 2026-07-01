@@ -46,7 +46,7 @@ use logos.lang.writ.wmap;
 use logos.std.wql.ir;
 use logos.std.wql.el;
 use logos.std.wql.codegen;   // emit_sexpr / emit_binop / string_as_str / infer_ty / el_ty_name
-use logos.std.wql.reflect;   // stamp_fields_from_schema — schema field-type reflection
+use logos.std.wql.reflect;   // stamp_types_from_schema — schema field-type reflection
 use logos.mem.string;
 use logos.lang.str;
 
@@ -290,7 +290,7 @@ pub fn wql(s: str) -> ItemList {
         }
     }
 
-    // ── Parse the EL clauses → SExpr IR; keep the parsers for name tables ──
+    // ── Parse the EL clauses → SExpr IR; keep the parsers for the param list ──
     let h: Writ = writ_new(2048i64);
 
     // Projection (required).
@@ -311,51 +311,55 @@ pub fn wql(s: str) -> ItemList {
         if pred_word == 0i64 { error("wql!: malformed `where` expression"); return out; }
     }
 
-    // Reflect the SOURCE SCHEMA (`row_ty`) and stamp each interned field's true
-    // value-type onto both clause parsers — so `select p.name` over a `name: str`
-    // field types as `str` WITHOUT a `with name:str` restatement (Phase 5a). Runs
-    // BEFORE `with`, which therefore still OVERRIDES (e.g. to coerce a numeric
-    // family member, or to type a `$param`/comprehension source). A struct that
-    // cannot be reflected is a silent no-op (the i64 baseline + `with` still work).
+    // ── Build the name→value-type dictionary (Option B type seam) ─────────
+    // Reflect the SOURCE SCHEMA (`row_ty`) and record each field's value-type;
+    // then apply `with`; then merge each clause's `$param` names into the dict's
+    // ordered arg list. The self-describing IR carries names, so codegen reads
+    // types from this ONE dict — not from parser dense tables.
+    let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_fields_from_schema(&view, &mut pp, row_ty);
-    stamp_fields_from_schema(&view, &mut wp, row_ty);
+    stamp_types_from_schema(&view, &mut ty, row_ty);
 
-    // Apply the `with` type declarations to BOTH clause parsers (a param/field
-    // may be referenced in either). The name/type slices live in `s`.
+    // Apply the `with` type declarations. `$`-prefixed names type a PARAM (and
+    // seed the ordered param list); bare names type a FIELD. Overrides reflection.
     let mut di: i64 = 0i64;
     while di < dn {
         let nm: str = unsafe { wql_str_range(s, d_name_start[di], d_name_len[di]) };
-        let ty: str = unsafe { wql_str_range(s, d_ty_start[di], d_ty_len[di]) };
-        let elty: i32 = el_ty_of_name(ty);
-        if d_is_param[di] {
-            pp.set_param_ty(nm, elty);
-            wp.set_param_ty(nm, elty);
-        } else {
-            pp.set_field_ty(nm, elty);
-            wp.set_field_ty(nm, elty);
-        }
+        let tn: str = unsafe { wql_str_range(s, d_ty_start[di], d_ty_len[di]) };
+        ty.set_ty(nm, el_ty_of_name(tn));
         di = di + 1i64;
+    }
+    // Merge the ordered param names from both clause parsers (dedup by name).
+    merge_params(&mut ty, &pp);
+    merge_params(&mut ty, &wp);
+
+    // Register comprehension SOURCES (an `RScan.src_name` under an SComp) as
+    // `&[Elem]` slice params — replaces the parser's old `param_is_src` flag
+    // (the source name is on the IR node now, so walk the IR to find them).
+    let proj_any: WAny = WAny::ref_to(proj_word as *const u8);
+    let proj_sexpr: SExpr = proj_any.view::<SExpr>();
+    register_comp_sources(proj_sexpr, &mut ty);
+    if has_where {
+        let pred_any0: WAny = WAny::ref_to(pred_word as *const u8);
+        register_comp_sources(pred_any0.view::<SExpr>(), &mut ty);
     }
 
     // ── Emit the generated function source ────────────────────────────────
     let mut body: String = String::new();
-    let proj_any: WAny = WAny::ref_to(proj_word as *const u8);
-    let proj_sexpr: SExpr = proj_any.view::<SExpr>();
     // Surface a call-site error for an unknown / wrong-arity builtin BEFORE
     // emitting (the codegen otherwise emits a safe `0i64` placeholder).
-    if call_diagnostic(proj_sexpr, &pp) {
+    if call_diagnostic(proj_sexpr, &ty) {
         error("wql!: `select` calls an unknown or wrong-arity function");
         return out;
     }
-    emit_sexpr(&mut body, proj_sexpr, &pp, var_name);
+    emit_sexpr(&mut body, proj_sexpr, &ty, var_name);
     // INFER the result element type from the projection's value-type when no
     // explicit `: <ResultTy>` was given (Phase 5a). The projection's fields are
     // now schema-typed (reflection above), so `infer_ty` resolves `select p.name`
     // → STR → `str`, `select p.age` → INT → `i64`, a `> / ==` predicate-style
     // projection → BOOL → `bool`, etc. An explicit annotation still wins.
     if infer_result {
-        result_ty = el_ty_name(infer_ty(proj_sexpr, &pp));
+        result_ty = el_ty_name(infer_ty(proj_sexpr, &ty));
     }
     // A comprehension projection pushes a `Vec<Elem>` per row, so the generated
     // function returns `Vec<Vec<Elem>>`. Detect the SComp root and build the
@@ -365,7 +369,7 @@ pub fn wql(s: str) -> ItemList {
     // head directly for the precise inner element type).
     let is_comp: bool = is_comp_root(proj_sexpr);
     if infer_result && is_comp {
-        result_ty = el_ty_name(comp_head_ty(proj_sexpr, &pp));
+        result_ty = el_ty_name(comp_head_ty(proj_sexpr, &ty));
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -380,11 +384,11 @@ pub fn wql(s: str) -> ItemList {
     if has_where {
         let pred_any: WAny = WAny::ref_to(pred_word as *const u8);
         let pred_sexpr: SExpr = pred_any.view::<SExpr>();
-        if call_diagnostic(pred_sexpr, &wp) {
+        if call_diagnostic(pred_sexpr, &ty) {
             error("wql!: `where` calls an unknown or wrong-arity function");
             return out;
         }
-        emit_sexpr(&mut pred_body, pred_sexpr, &wp, var_name);
+        emit_sexpr(&mut pred_body, pred_sexpr, &ty, var_name);
     }
 
     let mut em: Emitter = Emitter::new();
@@ -396,9 +400,8 @@ pub fn wql(s: str) -> ItemList {
     em.push_text(": &[");
     em.push_text(row_ty);
     em.push_text("]");
-    // params (from the projection + predicate parser tables), as fn args.
-    emit_params(&mut em, &pp);
-    emit_params(&mut em, &wp);
+    // params (merged, deduped, ordered), as fn args.
+    emit_params(&mut em, &ty);
     em.push_text(") -> Vec<");
     em.push_text(result_elem);
     em.push_text("> {\n");
@@ -494,17 +497,27 @@ fn parse_with(lx: &mut QLexer, d: &mut WithDecls) -> bool {
     return true;
 }
 
-// Stamp the collected `with` declarations onto one parser (`s` = the raw block
-// text the name/type slices index into). Param names type a param; bare names
-// type a field. A name not referenced by this parser is a harmless no-op.
-fn apply_with(p: &mut ElParser, d: &WithDecls, s: str) {
+// Apply the collected `with` declarations to the type dictionary `t` (`s` = the
+// raw block text the name/type slices index into). Both param and field names
+// map into the ONE name→type dict (Option B: names are self-describing in the
+// IR, so param vs field distinction is only used for the source/scalar shape,
+// handled separately). Overrides reflection.
+fn apply_with_types(t: &mut ElTypes, d: &WithDecls, s: str) {
     let mut i: i64 = 0i64;
     while i < d.n {
         let nm: str = unsafe { wql_str_range(s, d.name_start[i], d.name_len[i]) };
-        let ty: str = unsafe { wql_str_range(s, d.ty_start[i], d.ty_len[i]) };
-        let elty: i32 = el_ty_of_name(ty);
-        if d.is_param[i] { p.set_param_ty(nm, elty); }
-        else             { p.set_field_ty(nm, elty); }
+        let tn: str = unsafe { wql_str_range(s, d.ty_start[i], d.ty_len[i]) };
+        t.set_ty(nm, el_ty_of_name(tn));
+        i = i + 1i64;
+    }
+}
+
+// Merge one parser's ordered `$param` names into the type dict's arg list.
+fn merge_params(t: &mut ElTypes, p: &ElParser) {
+    let n: i64 = p.param_count();
+    let mut i: i64 = 0i64;
+    while i < n {
+        t.note_param(p.param_name(i));
         i = i + 1i64;
     }
 }
@@ -584,21 +597,28 @@ fn emit_join(lx: &mut QLexer, s: str, fn_name: str,
     let proj_word: i64 = pp.parse_root(&h).raw();
     if proj_word == 0i64 { error("wql!: malformed join `select` expression"); return; }
 
-    apply_with(&mut op, &d, s);
-    apply_with(&mut wp, &d, s);
-    apply_with(&mut pp, &d, s);
+    // Build the type dict: reflect BOTH row schemas (a/b), apply `with`, merge
+    // params. Codegen reads names off the IR + types from this dict.
+    let mut ty: ElTypes = el_types_new();
+    let view: OView = oview_module_ast();
+    stamp_types_from_schema(&view, &mut ty, a_ty);
+    stamp_types_from_schema(&view, &mut ty, b_ty);
+    apply_with_types(&mut ty, &d, s);
+    merge_params(&mut ty, &op);
+    merge_params(&mut ty, &wp);
+    merge_params(&mut ty, &pp);
 
     // Lower the three clause bodies to Logos expression text.
     let on_e: SExpr = WAny::ref_to(on_word as *const u8).view::<SExpr>();
     let proj_e: SExpr = WAny::ref_to(proj_word as *const u8).view::<SExpr>();
     let mut on_body: String = String::new();
-    emit_sexpr(&mut on_body, on_e, &op, x_var);
+    emit_sexpr(&mut on_body, on_e, &ty, x_var);
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_e, &pp, x_var);
+    emit_sexpr(&mut proj_body, proj_e, &ty, x_var);
     let mut where_body: String = String::new();
     if has_where {
         let where_e: SExpr = WAny::ref_to(where_word as *const u8).view::<SExpr>();
-        emit_sexpr(&mut where_body, where_e, &wp, x_var);
+        emit_sexpr(&mut where_body, where_e, &ty, x_var);
     }
 
     let mut em: Emitter = Emitter::new();
@@ -614,9 +634,7 @@ fn emit_join(lx: &mut QLexer, s: str, fn_name: str,
     em.push_text(": &[");
     em.push_text(b_ty);
     em.push_text("]");
-    emit_params(&mut em, &op);
-    emit_params(&mut em, &wp);
-    emit_params(&mut em, &pp);
+    emit_params(&mut em, &ty);
     em.push_text(") -> Vec<");
     em.push_text(result_ty);
     em.push_text("> {\n");
@@ -722,9 +740,9 @@ fn is_comp_root(e: SExpr) -> bool {
 // The EL value-type of a comprehension projection's HEAD expression (the element
 // type of the produced list) — used to infer the inner `result_ty` of a
 // `select [ h for v in xs ]` query when no explicit annotation is given.
-fn comp_head_ty(e: SExpr, p: &ElParser) -> i32 {
+fn comp_head_ty(e: SExpr, t: &ElTypes) -> i32 {
     match e {
-        SExpr::Comp(cp) => { return infer_ty(cp.head_expr(), p); }
+        SExpr::Comp(cp) => { return infer_ty(cp.head_expr(), t); }
         _ => { return EL_TY_INT(); }
     }
 }
@@ -861,21 +879,26 @@ fn emit_aggregate(lx: &mut QLexer, s: str, fn_name: str,
     let proj_word: i64 = pp.parse_root(&h).raw();
     if proj_word == 0i64 { error("wql!: malformed aggregate `select` expression"); return; }
 
-    apply_with(&mut kp, &d, s);
-    apply_with(&mut wp, &d, s);
-    apply_with(&mut pp, &d, s);
+    // Build the type dict: reflect the source schema, apply `with`, merge params.
+    let mut ty: ElTypes = el_types_new();
+    let view: OView = oview_module_ast();
+    stamp_types_from_schema(&view, &mut ty, a_ty);
+    apply_with_types(&mut ty, &d, s);
+    merge_params(&mut ty, &kp);
+    merge_params(&mut ty, &wp);
+    merge_params(&mut ty, &pp);
 
     let key_e: SExpr = WAny::ref_to(key_word as *const u8).view::<SExpr>();
     let mut key_body: String = String::new();
-    emit_sexpr(&mut key_body, key_e, &kp, x_var);
+    emit_sexpr(&mut key_body, key_e, &ty, x_var);
     let mut where_body: String = String::new();
     if has_where {
         let where_e: SExpr = WAny::ref_to(where_word as *const u8).view::<SExpr>();
-        emit_sexpr(&mut where_body, where_e, &wp, x_var);
+        emit_sexpr(&mut where_body, where_e, &ty, x_var);
     }
     let proj_e: SExpr = WAny::ref_to(proj_word as *const u8).view::<SExpr>();
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_e, &pp, x_var);
+    emit_sexpr(&mut proj_body, proj_e, &ty, x_var);
 
     // Lower each aggregate inner-expr to text (count() has none).
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -887,9 +910,9 @@ fn emit_aggregate(lx: &mut QLexer, s: str, fn_name: str,
             let mut ep: ElParser = el_parser_new(etext);
             let ew: i64 = ep.parse_root(&h).raw();
             if ew == 0i64 { error("wql!: malformed aggregate fn argument"); return; }
-            apply_with(&mut ep, &d, s);
+            merge_params(&mut ty, &ep);
             let ee_e: SExpr = WAny::ref_to(ew as *const u8).view::<SExpr>();
-            emit_sexpr(&mut agg_body[ai], ee_e, &ep, x_var);
+            emit_sexpr(&mut agg_body[ai], ee_e, &ty, x_var);
         }
         ai = ai + 1i64;
     }
@@ -904,9 +927,7 @@ fn emit_aggregate(lx: &mut QLexer, s: str, fn_name: str,
     em.push_text(": &[");
     em.push_text(a_ty);
     em.push_text("]");
-    emit_params(&mut em, &kp);
-    emit_params(&mut em, &wp);
-    emit_params(&mut em, &pp);
+    emit_params(&mut em, &ty);
     em.push_text(") -> Vec<");
     em.push_text(result_ty);
     em.push_text("> {\n");
@@ -1052,25 +1073,30 @@ fn emit_aggregate(lx: &mut QLexer, s: str, fn_name: str,
     em.commit();
 }
 
-fn emit_params(em: &mut Emitter, p: &ElParser) {
-    let n: i64 = p.param_count();
+// Emit `, <pname>: <ty>` for each param in the dict's ordered arg list, where
+// `<ty>` follows the param's value-type (from `with`/reflection): str → `str`,
+// bool → `bool`, otherwise the i64 default; a comprehension SOURCE param flows as
+// a `&[Elem]` slice. Params flow as generated-fn arguments (the sqlx model).
+fn emit_params(em: &mut Emitter, t: &ElTypes) {
+    let n: i64 = t.param_count();
     let mut i: i64 = 0i64;
     while i < n {
+        let pname: str = t.param_name(i);
         em.push_text(", ");
-        em.push_text(p.param_name(i as i32));
-        let ty: i32 = p.param_ty(i as i32);
-        if p.param_is_source(i as i32) {
+        em.push_text(pname);
+        let pty: i32 = t.ty_of(pname);
+        if t.is_source(pname) {
             // A comprehension source flows as a `&[Elem]` slice argument; the
             // element type follows the param's declared value-type (`with`).
             em.push_text(": &[");
-            if ty == EL_TY_STR()       { em.push_text("str"); }
-            else if ty == EL_TY_BOOL() { em.push_text("bool"); }
-            else                       { em.push_text("i64"); }
+            if pty == EL_TY_STR()       { em.push_text("str"); }
+            else if pty == EL_TY_BOOL() { em.push_text("bool"); }
+            else                        { em.push_text("i64"); }
             em.push_text("]");
         }
-        else if ty == EL_TY_STR()  { em.push_text(": str"); }
-        else if ty == EL_TY_BOOL() { em.push_text(": bool"); }
-        else                       { em.push_text(": i64"); }
+        else if pty == EL_TY_STR()  { em.push_text(": str"); }
+        else if pty == EL_TY_BOOL() { em.push_text(": bool"); }
+        else                        { em.push_text(": i64"); }
         i = i + 1i64;
     }
 }

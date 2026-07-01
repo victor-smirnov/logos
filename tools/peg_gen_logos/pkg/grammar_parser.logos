@@ -13,6 +13,7 @@
 package peg_gen_logos.grammar_parser;
 
 use logos.lang.str;
+use logos.mem.string;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
@@ -713,6 +714,77 @@ fn parse_name_decls(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny
     expect(lex, TK_RBRACE, "expected '}'");
 }
 
+// %schema { use: "mod.path"  S { field: "type", ... } ... }
+//
+// Turns on SCHEMA-EMISSION mode: each `S { ... }` entry declares that the
+// grammar node named `S` is built as a first-class Writ schema view
+// (`h.make::<S>()` + typed field writes) instead of a raw TOM tinymap. The
+// per-field type string ("ref TARGET" | "i32" | "u8" | "i56" | "str" | "WAny")
+// tells codegen how to emit the write. A leading `use: "path"` key names the
+// module to import for the schema types. `arena: external` (optional) makes the
+// generated `parse_<export>` take an `&Writ` arena from the caller.
+//
+// Returns the `use` module path (empty if omitted); the SCHEMA_DECL nodes are
+// pushed into `out`. `arena_external` is set by-ref.
+fn parse_schema(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>,
+                arena_external: &mut bool, ref_wrap: &mut String) -> String {
+    expect(lex, TK_LBRACE, "expected '{'");
+    let mut use_path: String = String::new();
+    while lex.peek(0i64).kind == TK_IDENT {
+        let name: Token = lex.next();
+        let nt: str = name.text(src);
+
+        // Section attributes: `use: "path"` / `arena: external`.
+        if lex.peek(0i64).kind == TK_COLON {
+            lex.next();
+            if str_eq(nt, "use") {
+                // `use:` may appear MULTIPLE times (a schema whose fields
+                // reference types from several modules — e.g. Trama's TStmt
+                // fields carry `WRef<SExpr>` from the `ir` module). Accumulate
+                // into a space-separated list; codegen emits one `use` per entry.
+                let v: Token = expect(lex, TK_STRING, "expected module path string");
+                if use_path.len() > 0i64 { use_path.push_u8(32u8); }
+                use_path.push_str(unquote(v.text(src)));
+            } else if str_eq(nt, "arena") {
+                let v: Token = expect(lex, TK_IDENT, "expected 'external' or 'internal'");
+                if str_eq(v.text(src), "external") { *arena_external = true; }
+            } else if str_eq(nt, "ref_wrap") {
+                // The edge-wrapper type for `ref T` fields (default "WRef"). The
+                // write becomes `n.f = <ref_wrap>::<T>::from_any(hand_any(cap))`.
+                let v: Token = expect(lex, TK_STRING, "expected ref-wrapper type name");
+                *ref_wrap = String::from(unquote(v.text(src)));
+            } else {
+                perror("unknown %schema attribute");
+            }
+            try_eat(lex, TK_COMMA);
+            continue;
+        }
+
+        // `S { field: "type", ... }` — a schema-node declaration.
+        expect(lex, TK_LBRACE, "expected '{' after schema node name");
+        let fields_arr: &mut WArray<WAny> = doc.array(8i64);
+        while lex.peek(0i64).kind == TK_IDENT {
+            let fname: Token = lex.next();
+            expect(lex, TK_COLON, "expected ':' after schema field name");
+            let ftype: Token = expect(lex, TK_STRING, "expected field-type string");
+            let fnode: &mut WMap<Wu6, WAny> = node_with_code(doc, SCHEMA_FIELD);
+            fnode.set(NAME, wstr(doc, fname.text(src)));
+            fnode.set(FTYPE, wstr(doc, unquote(ftype.text(src))));
+            fields_arr.push(wnode(fnode as *const WMap<Wu6, WAny>));
+            try_eat(lex, TK_COMMA);
+        }
+        expect(lex, TK_RBRACE, "expected '}' to close schema node");
+
+        let node: &mut WMap<Wu6, WAny> = node_with_code(doc, SCHEMA_DECL);
+        node.set(NAME, wstr(doc, nt));
+        node.set(FIELDS, warr(fields_arr as *const WArray<WAny>));
+        out.push(wnode(node as *const WMap<Wu6, WAny>));
+        try_eat(lex, TK_COMMA);
+    }
+    expect(lex, TK_RBRACE, "expected '}'");
+    return use_path;
+}
+
 fn parse_export(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>) {
     expect(lex, TK_LBRACE, "expected '{'");
     while lex.peek(0i64).kind == TK_IDENT {
@@ -753,6 +825,8 @@ fn parse_meta(doc: &Writ, lex: &mut Lexer, src: str, root: &mut WMap<WString, WA
         else if str_eq(k, "version") { meta.set(VERSION, wstr(doc, sv)); }
         else if str_eq(k, "namespace") { meta.set(NAMESPACE, wstr(doc, sv)); }
         else if str_eq(k, "output") { meta.set(OUTPUT, wstr(doc, sv)); }
+        else if str_eq(k, "package") { meta.set(PACKAGE, wstr(doc, sv)); }
+        else if str_eq(k, "prefix") { meta.set(GPREFIX, wstr(doc, sv)); }
         else { perror("unknown meta key"); }
     }
     expect(lex, TK_RBRACE, "expected '}'");
@@ -778,8 +852,13 @@ pub fn parse_grammar_string(src: str) -> Writ {
     let tokens:  &mut WArray<WAny> = doc.array(32i64);
     let prec:    &mut WArray<WAny> = doc.array(8i64);
     let rules:   &mut WArray<WAny> = doc.array(32i64);
+    let schema_arr: &mut WArray<WAny> = doc.array(16i64);   // %schema SCHEMA_DECL nodes
 
     let root: &mut WMap<WString, WAny> = doc.map(16i64);
+
+    let mut schema_use: String = String::new();          // %schema `use:` module path
+    let mut arena_external: bool = false;                 // %schema `arena: external`
+    let mut ref_wrap: String = String::new();             // %schema `ref_wrap:` edge type
 
     let mut lex: Lexer = lexer_new(src);
 
@@ -806,6 +885,8 @@ pub fn parse_grammar_string(src: str) -> Writ {
             parse_prec(&doc, &mut lex, src, prec);
         } else if str_eq(kw, "%rules") {
             parse_rules(&doc, &mut lex, src, rules);
+        } else if str_eq(kw, "%schema") {
+            schema_use = parse_schema(&doc, &mut lex, src, schema_arr, &mut arena_external, &mut ref_wrap);
         } else {
             perror("unknown directive");
         }
@@ -818,6 +899,10 @@ pub fn parse_grammar_string(src: str) -> Writ {
     root.set("tokens",  warr(tokens as *const WArray<WAny>));
     root.set("prec",    warr(prec as *const WArray<WAny>));
     root.set("rules",   warr(rules as *const WArray<WAny>));
+    root.set("schema",  warr(schema_arr as *const WArray<WAny>));
+    if schema_use.len() > 0i64 { root.set("schema_use", wstr(&doc, schema_use.as_str())); }
+    if arena_external { root.set("schema_arena_ext", WAny::from(1u8)); }
+    if ref_wrap.len() > 0i64 { root.set("schema_ref_wrap", wstr(&doc, ref_wrap.as_str())); }
 
     doc.set_root(wsmap(root as *const WMap<WString, WAny>));
     return doc;

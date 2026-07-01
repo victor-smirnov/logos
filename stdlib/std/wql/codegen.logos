@@ -3,20 +3,27 @@
 // §10.2 — "metacall walks the schema'd IR → source"). Used by BOTH resource
 // frontends: `wql!` (where/select clauses) and `trama!` (`{{ … }}` / `{% if %}`
 // / `{% for in %}` embedded expressions). One lowering, two consumers.
+//
+// SELF-DESCRIBING IR (ADR 0012 peg-frontend §5, Option B): the codegen reads
+// field/param/var NAMES directly off the IR nodes (`f.name`, `pp.name`,
+// `c.fn_name`, …) — NOT from an `ElParser` dense side table. Value-TYPES come
+// from a name→type dictionary (`ElTypes`) the handler builds from schema
+// reflection + the `with` clause. So the codegen depends only on the IR + a type
+// dict, never on the parser — which is what makes a peg-generated parser a
+// drop-in producer of the same IR.
 package logos.std.wql.codegen;
 
 use logos.lang.writ.anyval;
 use logos.lang.writ.wstring;   // WAny::as_wstr (string-literal payloads)
 use logos.std.wql.ir;
-use logos.std.wql.el;
+use logos.std.wql.el;          // ElTypes, EL_TY_*, OP_*
 use logos.mem.string;
 use logos.lang.str;
 
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────
-// `SCall.fn_id` is a dense field-key id (the EL parser interns the call NAME via
-// the field-key table). At codegen time we recover the textual name through
-// `p.field_name(fn_id as u8)` and map it to one of these builtin ids. The id
-// table is small + stable; unknown names latch an error in the caller.
+// `SCall.fn_name` carries the call NAME directly (self-describing IR); we map it
+// to one of these builtin ids. The id table is small + stable; unknown names
+// latch an error in the caller.
 //
 // Each builtin lowers to a fully-qualified stdlib call (qualified-path form, so
 // the generated function compiles regardless of the user module's `use`s):
@@ -92,13 +99,13 @@ pub fn wql_lower(s: str) -> String {
 // backend uses to choose `push_str` vs `push_i64`, emit a string literal, and
 // route the row/projection element type. Sources of type:
 //   • SLit          — the WAny payload (string / bool / int);
-//   • SParam / field — the DECLARED type table (surface `$x:str`, typed fields);
+//   • SParam / field — the type DICTIONARY (`ElTypes`, from `with` + reflection);
 //   • SBin           — compare/logical ⇒ BOOL; `+` with a STR operand ⇒ STR
 //                      (string concatenation), else INT;
 //   • SUn            — `!` ⇒ BOOL, `-` ⇒ INT;
 //   • SCond          — the then-branch's type (both arms agree under strict typing).
 // Unknown / out-of-MVP nodes default to INT.
-pub fn infer_ty(e: SExpr, p: &ElParser) -> i32 {
+pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -106,9 +113,9 @@ pub fn infer_ty(e: SExpr, p: &ElParser) -> i32 {
             if v.is_bool()   { return EL_TY_BOOL(); }
             return EL_TY_INT();
         }
-        SExpr::Param(pp) => { return p.param_ty(pp.idx); }
-        SExpr::Var(vv)   => { return p.var_ty(vv.idx); }
-        SExpr::Field(f)  => { return p.field_ty(f.key); }
+        SExpr::Param(pp) => { return t.ty_of(pp.name); }
+        SExpr::Var(vv)   => { return t.ty_of(vv.name); }
+        SExpr::Field(f)  => { return t.ty_of(f.name); }
         SExpr::Bin(b) => {
             let op: i32 = b.op;
             if op == OP_OR() || op == OP_AND()
@@ -116,8 +123,8 @@ pub fn infer_ty(e: SExpr, p: &ElParser) -> i32 {
                || op == OP_LT() || op == OP_LE()
                || op == OP_GT() || op == OP_GE() { return EL_TY_BOOL(); }
             if op == OP_ADD() {
-                let lt: i32 = infer_ty(b.lhs_expr(), p);
-                let rt: i32 = infer_ty(b.rhs_expr(), p);
+                let lt: i32 = infer_ty(b.lhs_expr(), t);
+                let rt: i32 = infer_ty(b.rhs_expr(), t);
                 if lt == EL_TY_STR() || rt == EL_TY_STR() { return EL_TY_STR(); }
             }
             return EL_TY_INT();
@@ -126,9 +133,9 @@ pub fn infer_ty(e: SExpr, p: &ElParser) -> i32 {
             if u.op == OP_NOT() { return EL_TY_BOOL(); }
             return EL_TY_INT();
         }
-        SExpr::Cond(c) => { return infer_ty(c.then_expr(), p); }
+        SExpr::Cond(c) => { return infer_ty(c.then_expr(), t); }
         SExpr::Call(c) => {
-            let bfn: i32 = builtin_of_name(p.field_name(c.fn_id as u8));
+            let bfn: i32 = builtin_of_name(c.fn_name);
             return builtin_ret_ty(bfn);
         }
         SExpr::Comp(_) => { return EL_TY_INT(); }   // list value (element ty = INT in the scalar lattice)
@@ -139,14 +146,13 @@ pub fn infer_ty(e: SExpr, p: &ElParser) -> i32 {
 // Walk the SExpr schema'd IR (`match` over the family enum), emitting a Logos
 // expression into `out`:
 //   • SLit (int/bool)            → the literal verbatim;
-//   • SParam                     → the generated-fn argument name (param table);
+//   • SParam                     → the generated-fn argument name (node's name);
 //   • a bare field-root (SField, base = null) → the field/loop-var NAME (the
 //     row var, a `for` var, or a context field — resolved at the call site);
 //   • a field STEP (SField, base ≠ null)      → `<base>.<name>`;
 //   • SBin / SUn                 → parenthesised operator application.
-// `p` is the EL parser that produced this IR (holds the dense→name tables);
-// `var` is a fallback name for a comprehension SVar (rare in the static surface).
-pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
+// `t` is the type dictionary; `var` is a fallback name for a comprehension SVar.
+pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -163,26 +169,24 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
             }
         }
         SExpr::Param(pp) => {
-            out.push_str(p.param_name(pp.idx));
+            out.push_str(pp.name);
         }
         SExpr::Var(vv) => {
-            // A comprehension-bound row variable: emit its own interned name
-            // (the loop binding), falling back to the caller's `var` (used by
-            // the wql!/trama! row/loop binding) when the var is unnamed.
-            let nm: str = p.var_name(vv.idx);
+            // A comprehension-bound row variable: emit its own name, falling back
+            // to the caller's `var` (the wql!/trama! row/loop binding) if empty.
+            let nm: str = vv.name;
             if nm.len() > 0i64 { out.push_str(nm); } else { out.push_str(var); }
         }
         SExpr::Field(f) => {
-            let key: u8 = f.key;
+            let name: str = f.name;
             let base_ref: WRef<SExpr> = f.base;
             let base: WAny = base_ref.any();
             let is_root: bool = base.is_null();
-            let name: str = p.field_name(key);
             if is_root {
                 out.push_str(name);
             } else {
                 let be: SExpr = f.base_expr();
-                emit_sexpr(out, be, p, var);
+                emit_sexpr(out, be, t, var);
                 out.push_str(".");
                 out.push_str(name);
             }
@@ -192,9 +196,9 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
             let lhs: SExpr = b.lhs_expr();
             let rhs: SExpr = b.rhs_expr();
             out.push_str("(");
-            emit_sexpr(out, lhs, p, var);
+            emit_sexpr(out, lhs, t, var);
             out.push_str(emit_binop(op));
-            emit_sexpr(out, rhs, p, var);
+            emit_sexpr(out, rhs, t, var);
             out.push_str(")");
         }
         SExpr::Un(u) => {
@@ -202,35 +206,34 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, p: &ElParser, var: str) {
             let arg: SExpr = u.arg_expr();
             out.push_str("(");
             if op == OP_NOT() { out.push_str("!"); } else { out.push_str("-"); }
-            emit_sexpr(out, arg, p, var);
+            emit_sexpr(out, arg, t, var);
             out.push_str(")");
         }
-        SExpr::Call(c) => { emit_call(out, c, p, var); }
+        SExpr::Call(c) => { emit_call(out, c, t, var); }
         SExpr::Cond(c) => {
             // ternary `cond ? then : else` → Logos `if` EXPRESSION.
             out.push_str("(if (");
-            emit_sexpr(out, c.cond_expr(), p, var);
+            emit_sexpr(out, c.cond_expr(), t, var);
             out.push_str(") { ");
-            emit_sexpr(out, c.then_expr(), p, var);
+            emit_sexpr(out, c.then_expr(), t, var);
             out.push_str(" } else { ");
-            emit_sexpr(out, c.else_expr(), p, var);
+            emit_sexpr(out, c.else_expr(), t, var);
             out.push_str(" })");
         }
-        SExpr::Comp(cp) => { emit_comp(out, cp, p, var); }
+        SExpr::Comp(cp) => { emit_comp(out, cp, t, var); }
         _ => {
             out.push_str("0i64");
         }
     }
 }
 
-// Emit a builtin call. `c` is the SCall; the call NAME is recovered from the
-// parser's field-name table (`fn_id` was interned as a field key) and mapped to
-// a builtin id (`builtin_of_name`). Each builtin emits a fully-qualified stdlib
-// call over its materialized args (`SExprArr`). An unknown name or wrong arity
-// emits a `0i64` placeholder (the wql!/trama! handler reports the error at the
-// block site via `call_diagnostic`).
-pub fn emit_call(out: &mut String, c: SCall, p: &ElParser, var: str) {
-    let name: str = p.field_name(c.fn_id as u8);
+// Emit a builtin call. `c` is the SCall; the call NAME is read off the node
+// (`c.fn_name`) and mapped to a builtin id (`builtin_of_name`). Each builtin
+// emits a fully-qualified stdlib call over its materialized args (`SExprArr`).
+// An unknown name or wrong arity emits a `0i64` placeholder (the wql!/trama!
+// handler reports the error at the block site via `call_diagnostic`).
+pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
+    let name: str = c.fn_name;
     let bfn: i32 = builtin_of_name(name);
     let args: SExprArr = c.args_arr();
     let argc: i64 = args.len();
@@ -240,14 +243,14 @@ pub fn emit_call(out: &mut String, c: SCall, p: &ElParser, var: str) {
     }
     if bfn == BFN_LEN() {
         out.push_str("((");
-        emit_sexpr(out, args.arg_at(0i64), p, var);
+        emit_sexpr(out, args.arg_at(0i64), t, var);
         out.push_str(").len())");
         return;
     }
     if bfn == BFN_UPPER() || bfn == BFN_LOWER() {
         if bfn == BFN_UPPER() { out.push_str("logos.std.wql.codegen::wql_upper("); }
         else                  { out.push_str("logos.std.wql.codegen::wql_lower("); }
-        emit_sexpr(out, args.arg_at(0i64), p, var);
+        emit_sexpr(out, args.arg_at(0i64), t, var);
         out.push_str(")");
         return;
     }
@@ -255,38 +258,93 @@ pub fn emit_call(out: &mut String, c: SCall, p: &ElParser, var: str) {
     if bfn == BFN_CONTAINS() { out.push_str("logos.lang.str::str_contains("); }
     else                     { out.push_str("logos.lang.str::str_starts_with("); }
     out.push_str("(");
-    emit_sexpr(out, args.arg_at(0i64), p, var);
+    emit_sexpr(out, args.arg_at(0i64), t, var);
     out.push_str("), (");
-    emit_sexpr(out, args.arg_at(1i64), p, var);
+    emit_sexpr(out, args.arg_at(1i64), t, var);
     out.push_str("))");
 }
 
 // True iff `e` is (or contains at its root) a call to an unknown function or one
 // with the wrong arity — the wql!/trama! handlers use this to surface a compile
 // error at the block site (the codegen itself emits a safe `0i64` placeholder).
-pub fn call_diagnostic(e: SExpr, p: &ElParser) -> bool {
+pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
     match e {
         SExpr::Call(c) => {
-            let bfn: i32 = builtin_of_name(p.field_name(c.fn_id as u8));
+            let bfn: i32 = builtin_of_name(c.fn_name);
             if bfn == BFN_UNKNOWN() { return true; }
             let args: SExprArr = c.args_arr();
             if args.len() != builtin_arity(bfn) { return true; }
             let mut i: i64 = 0i64;
             while i < args.len() {
-                if call_diagnostic(args.arg_at(i), p) { return true; }
+                if call_diagnostic(args.arg_at(i), t) { return true; }
                 i = i + 1i64;
             }
             return false;
         }
-        SExpr::Bin(b)  => { return call_diagnostic(b.lhs_expr(), p) || call_diagnostic(b.rhs_expr(), p); }
-        SExpr::Un(u)   => { return call_diagnostic(u.arg_expr(), p); }
+        SExpr::Bin(b)  => { return call_diagnostic(b.lhs_expr(), t) || call_diagnostic(b.rhs_expr(), t); }
+        SExpr::Un(u)   => { return call_diagnostic(u.arg_expr(), t); }
         SExpr::Cond(c) => {
-            return call_diagnostic(c.cond_expr(), p)
-                || call_diagnostic(c.then_expr(), p)
-                || call_diagnostic(c.else_expr(), p);
+            return call_diagnostic(c.cond_expr(), t)
+                || call_diagnostic(c.then_expr(), t)
+                || call_diagnostic(c.else_expr(), t);
         }
-        SExpr::Comp(cp) => { return call_diagnostic(cp.head_expr(), p); }
+        SExpr::Comp(cp) => { return call_diagnostic(cp.head_expr(), t); }
         _ => { return false; }
+    }
+}
+
+// Walk an SExpr tree and register every comprehension SOURCE (an `RScan.src_name`
+// under an SComp plan) into the type dict as a PARAM flagged as a source (a
+// `&[Elem]` slice fn argument). The self-describing IR carries the source name on
+// the RScan node, so this replaces the old parser `param_is_src` side flag: the
+// handler calls this after building the IR to surface comprehension sources as
+// generated-fn arguments. Recurses through all SExpr children.
+pub fn register_comp_sources(e: SExpr, t: &mut ElTypes) {
+    match e {
+        SExpr::Comp(cp) => {
+            let plan: RExpr = cp.plan_expr();
+            register_plan_source(plan, t);
+            let hd: SExpr = cp.head_expr();
+            register_comp_sources(hd, t);
+        }
+        SExpr::Bin(b)  => {
+            let l: SExpr = b.lhs_expr(); register_comp_sources(l, t);
+            let r: SExpr = b.rhs_expr(); register_comp_sources(r, t);
+        }
+        SExpr::Un(u)   => { let a: SExpr = u.arg_expr(); register_comp_sources(a, t); }
+        SExpr::Cond(c) => {
+            let cc: SExpr = c.cond_expr(); register_comp_sources(cc, t);
+            let tt: SExpr = c.then_expr(); register_comp_sources(tt, t);
+            let ee: SExpr = c.else_expr(); register_comp_sources(ee, t);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() { let a: SExpr = args.arg_at(i); register_comp_sources(a, t); i = i + 1i64; }
+        }
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            let base: WAny = bref.any();
+            if !base.is_null() { let be: SExpr = f.base_expr(); register_comp_sources(be, t); }
+        }
+        _ => { }
+    }
+}
+
+// Register the RScan source name under a comprehension plan as a source param.
+fn register_plan_source(plan: RExpr, t: &mut ElTypes) {
+    match plan {
+        RExpr::Scan(sc) => {
+            let nm: str = sc.src_name;
+            if nm.len() > 0i64 { t.note_param(nm); t.set_source(nm); }
+        }
+        RExpr::Filter(fl) => {
+            let inp: RExpr = fl.input_expr();
+            register_plan_source(inp, t);
+            let pr: SExpr = fl.pred_expr();
+            register_comp_sources(pr, t);
+        }
+        _ => { }
     }
 }
 
@@ -302,38 +360,37 @@ pub fn el_ty_name(ty: i32) -> str {
 // EXPRESSION yielding a `Vec<HeadTy>` (ADR 0012 §10.4 — a Source-driven loop
 // collecting into a Vec, NOT the stdlib list-comprehension desugar). The plan is
 // `RScan(src)` or `RFilter(RScan(src), guard)`; the source resolves to a `&[_]`
-// parameter (interned in the param table). The loop var binds each element by
-// reference; `head`/`guard` reference it via `SVar` (emitted as the var's name).
+// parameter (its name off the RScan). The loop var binds each element by value;
+// `head`/`guard` reference it via bare field-roots (emitted by name).
 //
 //   ({ let mut __cv: Vec<T> = Vec::<T>::new();
 //      let mut __ci: i64 = 0i64;
 //      while __ci < (SRC).len() {
-//          let V = &(SRC)[__ci];
+//          let V = (SRC)[__ci];
 //          if GUARD { __cv.push(HEAD); }     // guard omitted when absent
 //          __ci = __ci + 1i64;
 //      }
 //      __cv })
-pub fn emit_comp(out: &mut String, cp: SComp, p: &ElParser, var: str) {
+pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
     let head: SExpr = cp.head_expr();
     let plan: RExpr = cp.plan_expr();
     // Decompose the plan into (scan, optional guard).
-    let mut src_idx: i32 = 0i32;
+    let mut src_name: str = "";
     let mut has_guard: bool = false;
     match plan {
-        RExpr::Scan(sc) => { src_idx = sc.src; }
+        RExpr::Scan(sc) => { src_name = sc.src_name; }
         RExpr::Filter(fl) => {
             has_guard = true;
             match fl.input_expr() {
-                RExpr::Scan(sc2) => { src_idx = sc2.src; }
+                RExpr::Scan(sc2) => { src_name = sc2.src_name; }
                 _ => { }
             }
         }
         _ => { }
     }
-    let src_name: str = p.param_name(src_idx);
-    let head_ty: str = el_ty_name(infer_ty(head, p));
-    // The comprehension var name — the LAST bound var (single-comprehension MVP).
-    let vname: str = p.var_name((p.var_count() - 1i64) as i32);
+    let head_ty: str = el_ty_name(infer_ty(head, t));
+    // The comprehension var name — off the SComp node (self-describing IR).
+    let vname: str = cp.var;
 
     out.push_str("({ let mut __cv: Vec<");
     out.push_str(head_ty);
@@ -344,8 +401,8 @@ pub fn emit_comp(out: &mut String, cp: SComp, p: &ElParser, var: str) {
     out.push_str(").len() { let ");
     out.push_str(vname);
     // Bind the element BY VALUE — the comprehension scalar lattice (i64/str/bool)
-    // is Copy, so `head`/`guard` over `SVar` get the element directly (and a
-    // `Vec<T>` push takes `T`, not `&T`).
+    // is Copy, so `head`/`guard` over the loop var get the element directly (and
+    // a `Vec<T>` push takes `T`, not `&T`).
     out.push_str(" = (");
     out.push_str(src_name);
     out.push_str(")[__ci]; ");
@@ -353,16 +410,16 @@ pub fn emit_comp(out: &mut String, cp: SComp, p: &ElParser, var: str) {
         match plan {
             RExpr::Filter(fl2) => {
                 out.push_str("if (");
-                emit_sexpr(out, fl2.pred_expr(), p, var);
+                emit_sexpr(out, fl2.pred_expr(), t, var);
                 out.push_str(") { __cv.push(");
-                emit_sexpr(out, head, p, var);
+                emit_sexpr(out, head, t, var);
                 out.push_str("); } ");
             }
             _ => { }
         }
     } else {
         out.push_str("__cv.push(");
-        emit_sexpr(out, head, p, var);
+        emit_sexpr(out, head, t, var);
         out.push_str("); ");
     }
     out.push_str("__ci = __ci + 1i64; } __cv })");
@@ -378,21 +435,21 @@ pub fn emit_comp(out: &mut String, cp: SComp, p: &ElParser, var: str) {
 // The value-type is the codegen `infer_ty` (schema-reflected fields included), so
 // `{% if c.flag %}` over a `bool` field stays bare while `{% if c.n %}` over an
 // `i64` field gets the `!= 0` guard — no annotation needed.
-pub fn emit_truthy(out: &mut String, e: SExpr, p: &ElParser, var: str) {
-    let ty: i32 = infer_ty(e, p);
+pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+    let ty: i32 = infer_ty(e, t);
     if ty == EL_TY_BOOL() {
-        emit_sexpr(out, e, p, var);
+        emit_sexpr(out, e, t, var);
         return;
     }
     if ty == EL_TY_STR() {
         out.push_str("((");
-        emit_sexpr(out, e, p, var);
+        emit_sexpr(out, e, t, var);
         out.push_str(").len() != 0i64)");
         return;
     }
     // INT (the numeric baseline): non-zero is truthy.
     out.push_str("((");
-    emit_sexpr(out, e, p, var);
+    emit_sexpr(out, e, t, var);
     out.push_str(") != 0i64)");
 }
 
@@ -446,18 +503,18 @@ pub fn emit_str_escaped(out: &mut String, s: str) {
 // intermediate `String` temporary / borrow): `{{ a + b }}` → push(a); push(b).
 // A non-concat str expression is pushed whole. `indent` prefixes each line.
 pub fn emit_push_str(out: &mut String, indent: str, target: str,
-                     e: SExpr, p: &ElParser, var: str) {
+                     e: SExpr, t: &ElTypes, var: str) {
     match e {
         SExpr::Bin(b) => {
             // str `+` str → flatten to two appends (the only str-producing op).
-            if b.op == OP_ADD() && infer_ty(e, p) == EL_TY_STR() {
-                emit_push_str(out, indent, target, b.lhs_expr(), p, var);
-                emit_push_str(out, indent, target, b.rhs_expr(), p, var);
+            if b.op == OP_ADD() && infer_ty(e, t) == EL_TY_STR() {
+                emit_push_str(out, indent, target, b.lhs_expr(), t, var);
+                emit_push_str(out, indent, target, b.rhs_expr(), t, var);
                 return;
             }
-            emit_push_str_one(out, indent, target, e, p, var);
+            emit_push_str_one(out, indent, target, e, t, var);
         }
-        _ => { emit_push_str_one(out, indent, target, e, p, var); }
+        _ => { emit_push_str_one(out, indent, target, e, t, var); }
     }
 }
 
@@ -465,26 +522,26 @@ pub fn emit_push_str(out: &mut String, indent: str, target: str,
 // An `upper`/`lower` call yields an OWNED `String`, so it is borrowed via
 // `.as_str()` to feed `push_str(str)`; all other str exprs push verbatim.
 fn emit_push_str_one(out: &mut String, indent: str, target: str,
-                     e: SExpr, p: &ElParser, var: str) {
+                     e: SExpr, t: &ElTypes, var: str) {
     out.push_str(indent);
     out.push_str(target);
     out.push_str(".push_str(");
-    if returns_string(e, p) {
+    if returns_string(e, t) {
         out.push_str("(");
-        emit_sexpr(out, e, p, var);
+        emit_sexpr(out, e, t, var);
         out.push_str(").as_str()");
     } else {
-        emit_sexpr(out, e, p, var);
+        emit_sexpr(out, e, t, var);
     }
     out.push_str(");\n");
 }
 
 // True iff `e`'s root is a builtin that returns an OWNED `String` (`upper` /
 // `lower`) — such a value must be `.as_str()`-borrowed before `push_str`.
-pub fn returns_string(e: SExpr, p: &ElParser) -> bool {
+pub fn returns_string(e: SExpr, t: &ElTypes) -> bool {
     match e {
         SExpr::Call(c) => {
-            let bfn: i32 = builtin_of_name(p.field_name(c.fn_id as u8));
+            let bfn: i32 = builtin_of_name(c.fn_name);
             return bfn == BFN_UPPER() || bfn == BFN_LOWER();
         }
         _ => { return false; }
