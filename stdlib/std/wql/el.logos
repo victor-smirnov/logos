@@ -61,6 +61,28 @@ pub fn el_ty_of_name(name: str) -> i32 {
     return EL_TY_INT();
 }
 
+// STRICT return-type classification for user-defined fns callable from the EL
+// (UDF returns / UDA finalizer results). Unlike `el_ty_of_name` (which defaults
+// unknown names to INT — right for FIELD types, whose unknowns are nested
+// structs the EL never reads scalars from), a CALL's return value flows
+// directly into the emitted expression, so an out-of-lattice return (a struct,
+// a reference, unit) must be a clean diagnostic, not a silent i64. Returns the
+// EL_TY_* tag, or -1 for an unsupported return type. The full integer family
+// maps to INT (the i64 lattice baseline; narrower ints get an explicit
+// `as i64` widening cast at the emit site — u64/u128/i128 values beyond the
+// i64 range TRUNCATE, documented MVP semantics).
+pub fn el_ret_class(name: str) -> i32 {
+    if str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
+       || str_eq(name, "i8") || str_eq(name, "u64") || str_eq(name, "u32")
+       || str_eq(name, "u16") || str_eq(name, "u8")
+       || str_eq(name, "usize") || str_eq(name, "isize")
+       || str_eq(name, "i128") || str_eq(name, "u128") { return EL_TY_INT(); }
+    if str_eq(name, "f64") || str_eq(name, "f32")      { return EL_TY_FLT(); }
+    if str_eq(name, "bool")                            { return EL_TY_BOOL(); }
+    if str_eq(name, "str") || str_eq(name, "String")   { return EL_TY_STR(); }
+    return -1i32;
+}
+
 // ── ElTypes — the name→value-type dictionary (the type seam, Option B) ─────
 // The self-describing IR carries NAMES, not declared value-types; the codegen
 // still needs each field/param/var's EL value-type (str/bool/int) to route
@@ -72,10 +94,28 @@ pub fn el_ty_of_name(name: str) -> i32 {
 // (the names live in the surface text / interned WStrings, which outlive the
 // codegen). The generated fn's argument list is NOT tracked here any more: the
 // signature is the paren param list re-emitted VERBATIM (the trama! model).
+// The UDF section (`udf_*`): the metacall-time USER-FUNCTION registry (ADR 0012
+// UDF/UDA). The wql!/trama! handlers reflect every top-level `fn` of the
+// TRIGGER module (`reflect::stamp_udfs_from_module`) into this table; the
+// codegen (emit_call / infer_ty / returns_string / check_calls) consults it
+// AFTER the builtin registry (builtins shadow a same-named UDF). Per entry:
+// the fn NAME, its return's EL lattice tag (`el_ret_class`; -1 = out-of-lattice
+// return, diagnosed on use), the DECLARED return type name verbatim (drives
+// the `as i64`/`as f64` widening casts + the returns-String treatment), and
+// the declared ARITY. Capacity 32 top-level fns; entries beyond that are
+// dropped (such a fn then diagnoses as unknown — reflection-capacity MVP).
+// NOTE (queue-2): this table is metacall-time DATA only — the IR still carries
+// just the call NAME (`SCall.fn_name`); a future interpreter re-resolves the
+// same names against its own registry.
 pub struct ElTypes {
     pub names:  [str; 64],
     pub tys:    [i32; 64],
     pub n:      i64,
+    pub udf_names: [str; 32],
+    pub udf_ret:   [i32; 32],
+    pub udf_rets:  [str; 32],
+    pub udf_arity: [i64; 32],
+    pub udf_n:     i64,
 }
 
 pub fn el_types_new() -> ElTypes {
@@ -86,6 +126,13 @@ pub fn el_types_new() -> ElTypes {
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         tys:    [0i32; 64],
         n:      0i64,
+        udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        udf_ret:   [0i32; 32],
+        udf_rets:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        udf_arity: [0i64; 32],
+        udf_n:     0i64,
     };
 }
 
@@ -112,5 +159,35 @@ impl ElTypes {
         self.names[self.n] = name;
         self.tys[self.n]   = ty;
         self.n = self.n + 1i64;
+    }
+
+    // The UDF-table index of the fn named `name`, or -1 when unregistered.
+    pub fn udf_find(self: &ElTypes, name: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.udf_n {
+            if str_eq(self.udf_names[i], name) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    // Register a reflected user fn (first registration wins — module items are
+    // walked in declaration order and names are unique per module anyway).
+    pub fn udf_add(self: &mut ElTypes, name: str, ret_el: i32, ret_name: str, arity: i64) {
+        if self.udf_find(name) >= 0i64 { return; }
+        if self.udf_n >= 32i64 { return; }
+        self.udf_names[self.udf_n] = name;
+        self.udf_ret[self.udf_n]   = ret_el;
+        self.udf_rets[self.udf_n]  = ret_name;
+        self.udf_arity[self.udf_n] = arity;
+        self.udf_n = self.udf_n + 1i64;
+    }
+
+    // True iff `name` resolves to a UDF returning an OWNED `String` (the
+    // returns-String treatment: `.as_str()` borrow / owned result element).
+    pub fn udf_returns_string(self: &ElTypes, name: str) -> bool {
+        let i: i64 = self.udf_find(name);
+        if i < 0i64 { return false; }
+        return str_eq(self.udf_rets[i], "String");
     }
 }

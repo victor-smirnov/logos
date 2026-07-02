@@ -1,0 +1,77 @@
+// WQL UDF — USER-DEFINED scalar functions in the EL (ADR 0012 UDF/UDA,
+// queue-1). An SCall whose name is not a builtin resolves against the TRIGGER
+// module's top-level `fn` decls via OView reflection: the handler records
+// {return EL class, return type name, arity} at metacall time and the shared
+// codegen emits a PLAIN call `name(args)` (the chunk lives in the trigger
+// package, so the name resolves naturally — NON-pub fns included, exercised
+// here on purpose: default visibility is package-wide for the spliced chunk).
+//
+// Covered:
+//   • i64 UDF in `where`            (weight)      — plain call in a predicate;
+//   • f64 UDF in `select`           (taxed)       — FLT lattice projection;
+//   • i32-returning UDF             (half32)      — INT family narrower than
+//     i64 widens with an emitted `as i64` cast;
+//   • String-returning UDF projected (label)      — the returns-String
+//     treatment: result element promotes to an OWNED String (Vec<String>).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Item {
+    pub name:  str,
+    pub price: f64,
+    pub qty:   i64,
+}
+
+// All NON-pub: the generated chunk (same package, separate AST doc) must
+// still resolve them.
+fn weight(q: i64) -> i64 { return q * 2i64; }
+fn taxed(p: f64) -> f64 { return p * 1.5f64; }
+fn half32(q: i64) -> i32 { return (q / 2i64) as i32; }
+fn label(n: str) -> String {
+    let mut s: String = String::new();
+    s.push_str("#");
+    s.push_str(n);
+    return s;
+}
+
+// i64 UDF in where + f64 UDF in select.
+resource taxed_prices = wql!(xs: &[Item]) { from xs x
+      where weight(x.qty) >= 6
+      select taxed(x.price) : f64 };
+
+// i32-returning UDF: emitted as ((half32(x.qty)) as i64) inside i64 arithmetic.
+resource halves = wql!(xs: &[Item]) { from xs x select half32(x.qty) + 100 };
+
+// String-returning UDF projected → Vec<String> (owned elements).
+resource labels = wql!(xs: &[Item]) { from xs x where x.qty > 3 select label(x.name) };
+
+fn main() -> i32 {
+    let xs: [Item; 3] = [
+        Item { name: "a", price: 10.0f64, qty: 2i64 },
+        Item { name: "b", price: 20.0f64, qty: 3i64 },
+        Item { name: "c", price: 40.0f64, qty: 4i64 },
+    ];
+
+    // weight >= 6 keeps qty 3 and 4 → taxed 30.0, 60.0.
+    let tp: Vec<f64> = taxed_prices(&xs[..]);
+    if tp.len() != 2i64 { return 1i32; }
+    if tp.get(0i64) != 30.0f64 { return 2i32; }
+    if tp.get(1i64) != 60.0f64 { return 3i32; }
+
+    // half32: 2/2=1, 3/2=1, 4/2=2 → +100 → 101, 101, 102.
+    let hv: Vec<i64> = halves(&xs[..]);
+    if hv.len() != 3i64 { return 4i32; }
+    if hv.get(0i64) != 101i64 { return 5i32; }
+    if hv.get(1i64) != 101i64 { return 6i32; }
+    if hv.get(2i64) != 102i64 { return 7i32; }
+
+    // Only qty 4 passes → ["#c"] as owned Strings.
+    let lb: Vec<String> = labels(&xs[..]);
+    if lb.len() != 1i64 { return 8i32; }
+    if !str_eq(lb.borrow(0i64).as_str(), "#c") { return 9i32; }
+    return 0i32;
+}

@@ -1,0 +1,63 @@
+// WQL UDA with a STRUCT accumulator — A (the accumulator type) is whatever
+// `<name>_init` returns and is threaded VERBATIM through the generated fold
+// ({count, sum} here); only R (the `_fin` result) must map into the EL
+// lattice. Exercises BOTH aggregate paths:
+//   • classic single-source (imean over xs)  — scalar `let mut __agg_*: Acc`;
+//   • joined-stream fold (imean over a join) — `Vec<Acc>` accumulator column
+//     (the acc struct is Copy — the fold reads/writes cells by value).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub g: i64, pub v: i64 }
+struct K { pub id: i64 }
+
+// Integer-mean accumulator: {count, sum}; _fin divides.
+struct Acc { pub n: i64, pub s: i64 }
+impl Copy for Acc {}
+
+fn imean_init() -> Acc { return Acc { n: 0i64, s: 0i64 }; }
+fn imean_step(acc: Acc, x: i64) -> Acc {
+    return Acc { n: acc.n + 1i64, s: acc.s + x };
+}
+fn imean_fin(acc: Acc) -> i64 {
+    if acc.n == 0i64 { return 0i64; }
+    return acc.s / acc.n;
+}
+
+// Classic path (single source).
+resource means = wql!(xs: &[P]) { from xs x
+      group by x.g
+      aggregate m = imean(x.v)
+      select key * 1000 + m };
+
+// Join-fold path (struct accumulator inside Vec<Acc> group columns).
+resource joined_means = wql!(xs: &[P], ks: &[K]) { from xs x
+      join ks k on x.g == k.id
+      group by x.g
+      aggregate m = imean(x.v)
+      select key * 1000 + m };
+
+fn main() -> i32 {
+    let xs: [P; 5] = [
+        P { g: 1i64, v: 10i64 },
+        P { g: 1i64, v: 20i64 },    // g1 mean = 15
+        P { g: 2i64, v: 7i64  },
+        P { g: 2i64, v: 9i64  },    // g2 mean = 8
+        P { g: 3i64, v: 42i64 },    // g3 mean = 42 (n = 1)
+    ];
+    let r: Vec<i64> = means(&xs[..]);
+    if r.len() != 3i64 { return 1i32; }
+    if r.get(0i64) != 1015i64 { return 2i32; }
+    if r.get(1i64) != 2008i64 { return 3i32; }
+    if r.get(2i64) != 3042i64 { return 4i32; }
+
+    // Join keeps groups 1 and 2 only (no K row for g=3).
+    let ks: [K; 2] = [ K { id: 1i64 }, K { id: 2i64 } ];
+    let jr: Vec<i64> = joined_means(&xs[..], &ks[..]);
+    if jr.len() != 2i64 { return 5i32; }
+    if jr.get(0i64) != 1015i64 { return 6i32; }
+    if jr.get(1i64) != 2008i64 { return 7i32; }
+    return 0i32;
+}

@@ -494,6 +494,9 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // is pushed via push_str (concat flattened to successive pushes); a
             // BOOL renders as the words true/false; otherwise the i64 value.
             let se: SExpr = simplify_sexpr(v.expr_expr(), h).any().view::<SExpr>();
+            // Unknown-fn / arity diagnostics (error() latches the build failure;
+            // emission continues over the safe placeholder).
+            if !check_calls(se, ty, "trama!") { }
             let vt: i32 = infer_ty(se, ty);
             if vt == EL_TY_STR() {
                 let mut tmp: String = String::new();
@@ -529,6 +532,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // (single value) or, when the RHS is a concat, a built `String`.
             let vname: str = s.var;
             let se: SExpr = simplify_sexpr(s.expr_expr(), h).any().view::<SExpr>();
+            if !check_calls(se, ty, "trama!") { }
             let vt: i32 = infer_ty(se, ty);
             let mut body: String = String::new();
             emit_sexpr(&mut body, se, ty, ctx);
@@ -561,6 +565,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // truthiness stays a runtime `!= 0` guard; only a boolean-typed const
             // collapses. A comparison like `1 > 0` folds to a bool → collapses.)
             let se: SExpr = simplify_sexpr(i.expr_expr(), h).any().view::<SExpr>();
+            if !check_calls(se, ty, "trama!") { }
             let cc: ConstVal = sexpr_const(se);
             if cc.is_bool() {
                 if cc.b {
@@ -592,6 +597,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             let vname: str = f.var;
             let mut iter: String = String::new();
             let se: SExpr = simplify_sexpr(f.expr_expr(), h).any().view::<SExpr>();
+            if !check_calls(se, ty, "trama!") { }
             emit_sexpr(&mut iter, se, ty, ctx);
             let iter_s: str = string_as_str(&iter);
             em.push_text("    let mut __i");
@@ -723,6 +729,10 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
         }
         pi = pi + 1i64;
     }
+    // Register the module's top-level fns as UDFs — `{{ myfn(o.total) }}` /
+    // `{% if myfn(x) %}` route through the SHARED emit_call path (zero
+    // trama-specific lowering; builtins shadow same-named user fns).
+    stamp_udfs_from_module(&view, &mut ty);
 
     // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
     // FOLLOW loop variables: `{% for v in o.field %}` where `o.field` is a

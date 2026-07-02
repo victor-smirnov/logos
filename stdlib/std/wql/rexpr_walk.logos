@@ -568,6 +568,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
     apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
@@ -575,6 +576,8 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        // A String-returning call projects an OWNED element (Vec<String>).
+        if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
@@ -831,13 +834,11 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
     apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
-    if call_diagnostic(proj_sexpr, &ty) {
-        error("wql!: `select` calls an unknown or wrong-arity function");
-        return false;
-    }
+    if !check_calls(proj_sexpr, &ty, "wql!: `select`") { return false; }
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut body: String = String::new();
@@ -846,6 +847,10 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        // A String-returning call (upper/lower or a String UDF) projects an
+        // OWNED element: Vec<String> / Option<String> — a borrowed `str` view
+        // of the call's temporary would dangle.
+        if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
@@ -864,10 +869,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut pred_body: String = String::new();
     if has_where {
         let pred_sexpr: SExpr = pred.any().view::<SExpr>();
-        if call_diagnostic(pred_sexpr, &ty) {
-            error("wql!: `where` calls an unknown or wrong-arity function");
-            return false;
-        }
+        if !check_calls(pred_sexpr, &ty, "wql!: `where`") { return false; }
         let pred_opt: SExpr = simplify_sexpr(pred_sexpr, h).any().view::<SExpr>();
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
@@ -877,10 +879,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut key_ty: str = "i64";
     if mods.has_sort {
         let key_e: SExpr = mods.sort_key.any().view::<SExpr>();
-        if call_diagnostic(key_e, &ty) {
-            error("wql!: `order by` calls an unknown or wrong-arity function");
-            return false;
-        }
+        if !check_calls(key_e, &ty, "wql!: `order by`") { return false; }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
         key_ty = el_ty_name(infer_ty(key_opt, &ty));
         emit_sexpr(&mut key_body, key_opt, &ty, var_name);
@@ -1039,14 +1038,12 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
     apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
 
     let mut pred_body: String = String::new();
     if has_pred {
         let pred_sexpr: SExpr = pred.any().view::<SExpr>();
-        if call_diagnostic(pred_sexpr, &ty) {
-            error("wql!: `find` calls an unknown or wrong-arity function");
-            return false;
-        }
+        if !check_calls(pred_sexpr, &ty, "wql!: `find`") { return false; }
         let pred_opt: SExpr = simplify_sexpr(pred_sexpr, h).any().view::<SExpr>();
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
@@ -1896,12 +1893,32 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
+
+    // Validate every clause's calls (select / where / order / per-step on).
+    if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if has_where {
+        if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
+    }
+    if mods.has_sort {
+        if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
+    }
+    let mut ci0: i64 = 0i64;
+    while ci0 < ch.n {
+        if ch.onw[ci0] != 0i64 {
+            let on_e: SExpr = WAny::ref_to(ch.onw[ci0] as *const u8).view::<SExpr>();
+            if !check_calls(on_e, &ty, "wql!: `on`") { return false; }
+        }
+        ci0 = ci0 + 1i64;
+    }
 
     // 3. Clause bodies (const-folded).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        // Owned-String projection (String-returning call at the select root).
+        if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
     let mut proj_body: String = String::new();
     emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
@@ -2192,15 +2209,28 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, a_ty);
     apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
 
     ty.set_ty("key", EL_TY_INT());
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
-    stamp_agg_out_types(&aggs, acount, &agg_flt, &mut ty);
+    // UDA resolution (naming-convention triple) + finalized column types.
+    let mut uda:     [bool; 8] = [false; 8];
+    let mut uda_fin: [bool; 8] = [false; 8];
+    let mut uda_acc: [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut uda_ret: [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut aret:    [i32; 8]  = [0i32; 8];
+    if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
+                     &mut uda_acc, &mut uda_ret, &mut aret) { return false; }
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &mut ty);
+    let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
+    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
 
     let key_e: SExpr = key_ref.any().view::<SExpr>();
     let proj_e: SExpr = sel.any().view::<SExpr>();
+    if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
+    if !check_calls(proj_e, &ty, "wql!: `select`") { return false; }
 
     let key_opt: SExpr  = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
@@ -2208,13 +2238,17 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        // Owned-String projection (String-returning call at the select root).
+        if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
 
     let mut key_body: String = String::new();
     emit_sexpr(&mut key_body, key_opt, &ty, x_var);
     let mut where_body: String = String::new();
     if has_where {
-        let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
+        let where_sexpr: SExpr = where_ref.any().view::<SExpr>();
+        if !check_calls(where_sexpr, &ty, "wql!: `where`") { return false; }
+        let where_opt: SExpr = simplify_sexpr(where_sexpr, h).any().view::<SExpr>();
         emit_sexpr(&mut where_body, where_opt, &ty, x_var);
     }
     let mut proj_body: String = String::new();
@@ -2224,10 +2258,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut having_body: String = String::new();
     if has_having {
         let hav_e: SExpr = having_ref.any().view::<SExpr>();
-        if call_diagnostic(hav_e, &ty) {
-            error("wql!: `having` calls an unknown or wrong-arity function");
-            return false;
-        }
+        if !check_calls(hav_e, &ty, "wql!: `having`") { return false; }
         let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
         emit_sexpr(&mut having_body, hav_opt, &ty, x_var);
     }
@@ -2235,6 +2266,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut okey_ty: str = "i64";
     if mods.has_sort {
         let okey_e: SExpr = mods.sort_key.any().view::<SExpr>();
+        if !check_calls(okey_e, &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(okey_e, h).any().view::<SExpr>();
         okey_ty = el_ty_name(infer_ty(okey_opt, &ty));
         emit_sexpr(&mut okey_body, okey_opt, &ty, x_var);
@@ -2245,7 +2277,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    if !compute_agg_bodies(&aggs, acount, &ty, x_var, h, &mut agg_body) { return false; }
+    if !compute_agg_bodies(&aggs, acount, &ty, x_var, h, &uda, &mut agg_body) { return false; }
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
@@ -2259,15 +2291,20 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text(result_ty);
     em.push_text(">::new();\n");
     if mods_any {
-        // Materialized group columns: `key` + one Vec per aggregate output.
+        // Materialized group columns: `key` + one Vec per aggregate output
+        // (typed by the finalized column type — UDA outputs carry R's lattice
+        // type, builtins the f64/i64 split).
         em.push_text("    let mut __g_key: Vec<i64> = Vec::<i64>::new();\n");
         let mut gd: i64 = 0i64;
         while gd < acount {
             let a: RAgg = aggs.agg_at(gd);
             em.push_text("    let mut __g_");
             em.push_text(a.out);
-            if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
-            else           { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+            em.push_text(": Vec<");
+            em.push_text(act[gd]);
+            em.push_text("> = Vec::<");
+            em.push_text(act[gd]);
+            em.push_text(">::new();\n");
             gd = gd + 1i64;
         }
     }
@@ -2302,7 +2339,14 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let fnid: i32 = agg_of_name(a.fn_name);
         em.push_text("            let mut __agg_");
         em.push_text(a.out);
-        if agg_flt[c0] {
+        if uda[c0] {
+            // UDA accumulator: the user's A type, seeded by <name>_init().
+            em.push_text(": ");
+            em.push_text(uda_acc[c0]);
+            em.push_text(" = ");
+            em.push_text(a.fn_name);
+            em.push_text("_init();\n");
+        } else if agg_flt[c0] {
             // f64 accumulator: min/max seed with ±f64::MAX (finite extremes).
             if fnid == AGG_MIN() {
                 em.push_text(": f64 = 1.7976931348623157e308f64;\n");
@@ -2346,7 +2390,18 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let a: RAgg = aggs.agg_at(c1);
         let aname2: str = a.out;
         let fnid2: i32 = agg_of_name(a.fn_name);
-        if fnid2 == AGG_COUNT() {
+        if uda[c1] {
+            // UDA fold: acc = <name>_step(acc, <arg>).
+            em.push_text("                    __agg_");
+            em.push_text(aname2);
+            em.push_text(" = ");
+            em.push_text(a.fn_name);
+            em.push_text("_step(__agg_");
+            em.push_text(aname2);
+            em.push_text(", (");
+            em.push_text(string_as_str(&agg_body[c1]));
+            em.push_text("));\n");
+        } else if fnid2 == AGG_COUNT() {
             em.push_text("                    __agg_");
             em.push_text(aname2);
             em.push_text(" = __agg_");
@@ -2395,8 +2450,18 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let fnid3: i32 = agg_of_name(a.fn_name);
         em.push_text("            let ");
         em.push_text(aname3);
-        if agg_flt[c2] { em.push_text(": f64 = "); } else { em.push_text(": i64 = "); }
-        if fnid3 == AGG_AVG() {
+        em.push_text(": ");
+        em.push_text(act[c2]);
+        em.push_text(" = ");
+        if uda[c2] {
+            // UDA finalize: <name>_fin(acc) (or the bare acc without _fin).
+            let mut acc_txt: String = String::new();
+            acc_txt.push_str("__agg_");
+            acc_txt.push_str(aname3);
+            emit_uda_finalize(&mut em, a.fn_name, string_as_str(&acc_txt),
+                              uda_fin[c2], uda_fin_cast(act[c2], uda_ret[c2]));
+            em.push_text(";\n");
+        } else if fnid3 == AGG_AVG() {
             // avg is ALWAYS f64: an f64 accumulator divided by the (cast) count
             // — the exact mean, no integer truncation.
             em.push_text("(if __cnt > 0i64 { __agg_");
@@ -2452,7 +2517,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text("    let mut __r: i64 = 0i64;\n");
         em.push_text("    while __r < __g_key.len() {\n");
         if mods.has_sort {
-            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &agg_flt, "__g_");
+            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__g_");
             em.push_text("        __ix0.push(__r);\n");
             em.push_text("        __ks.push(");
             em.push_text(string_as_str(&okey_body));
@@ -2469,7 +2534,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text("    while __o < __ix0.len()");
         em.push_text(string_as_str(&lim_cond));
         em.push_text(" {\n");
-        emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &agg_flt, "__g_");
+        emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__g_");
         emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
         em.push_text("        __o = __o + 1i64;\n");
         em.push_text("    }\n");
@@ -2486,7 +2551,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // "__g_" for the classic two-pass shape, "__gf_" for the joined-stream fold's
 // finalized columns.
 fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
-                    aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8], pfx: str) {
+                    aggs: &RAggArr, acount: i64, act: &[str; 8], pfx: str) {
     em.push_text(indent);
     em.push_text("let key: i64 = ");
     em.push_text(pfx);
@@ -2499,7 +2564,9 @@ fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
         em.push_text(indent);
         em.push_text("let ");
         em.push_text(a.out);
-        if agg_flt[gi] { em.push_text(": f64 = "); } else { em.push_text(": i64 = "); }
+        em.push_text(": ");
+        em.push_text(act[gi]);
+        em.push_text(" = ");
         em.push_text(pfx);
         em.push_text(a.out);
         em.push_text(".get(");
@@ -2542,33 +2609,236 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
 }
 
 // Stamp each aggregate OUTPUT name's EL value-type into `ty` (the having /
-// order / select clauses reference the outputs by name).
-fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8], ty: &mut ElTypes) {
+// order / select clauses reference the outputs by name). A UDA output carries
+// its reflected finalizer-result class (`aret`); a builtin stays on the
+// agg_flt-driven FLT/INT split.
+fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
+                       uda: &[bool; 8], aret: &[i32; 8], ty: &mut ElTypes) {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
-        if agg_flt[i] { ty.set_ty(a.out, EL_TY_FLT()); } else { ty.set_ty(a.out, EL_TY_INT()); }
+        if uda[i] {
+            ty.set_ty(a.out, aret[i]);
+        } else if agg_flt[i] {
+            ty.set_ty(a.out, EL_TY_FLT());
+        } else {
+            ty.set_ty(a.out, EL_TY_INT());
+        }
         i = i + 1i64;
     }
 }
 
-// Validate each aggregate spec (known fn, arg presence) and emit its ARG
-// expression text. False (error surfaced) on a bad spec.
+// Validate each aggregate spec (known fn / resolved UDA, arg presence, arg-
+// expression calls) and emit its ARG expression text. False (error surfaced)
+// on a bad spec. `uda` marks the specs `resolve_aggs` accepted as user
+// aggregates (a UDA REQUIRES an argument — the zero-arg `m = myagg()` form is
+// out of scope and diagnosed via the shared arg-presence error).
 fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
-                      agg_body: &mut [String; 8]) -> bool {
+                      uda: &[bool; 8], agg_body: &mut [String; 8]) -> bool {
     let mut ai: i64 = 0i64;
     while ai < acount {
         let a: RAgg = aggs.agg_at(ai);
         let fnid: i32 = agg_of_name(a.fn_name);
-        if fnid == 0i32 { error("wql!: aggregate fn must be count/sum/min/max/avg"); return false; }
+        if fnid == 0i32 && !uda[ai] { error("wql!: aggregate fn must be count/sum/min/max/avg or a user aggregate (X_init/X_step[/X_fin])"); return false; }
         if fnid != AGG_COUNT() {
-            if !a.has_arg { error("wql!: aggregate fn expects an argument"); return false; }
+            if !a.has_arg { error("wql!: aggregate fn expects an argument (zero-argument user aggregates are not supported)"); return false; }
+            if !check_calls(a.arg_expr(), t, "wql!: `aggregate`") { return false; }
             let ae_opt: SExpr = simplify_sexpr(a.arg_expr(), h).any().view::<SExpr>();
             emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
         }
         ai = ai + 1i64;
     }
     return true;
+}
+
+// ── UDA resolution (user-defined aggregates — the naming-convention triple) ──
+// `aggregate m = myagg(e.x)` with a NON-builtin fn name resolves against the
+// trigger module's top-level fns by NAMING CONVENTION:
+//   myagg_init() -> A                — accumulator creation (arity 0);
+//   myagg_step(acc: A, x: T) -> A    — per-row fold (arity 2);
+//   myagg_fin(acc: A) -> R           — OPTIONAL finalize (arity 1); absent ⇒ R = A.
+// A (the accumulator type) is threaded VERBATIM through the generated code
+// (any user type — struct accumulators included); only R must map into the EL
+// lattice (`el_ret_class`; narrower ints widen `as i64`, f32 `as f64`). An
+// R of `String` is REJECTED for now: aggregate outputs are materialized into
+// group COLUMNS + rebound as locals, and a borrowed `str` view of an owned
+// String column has no sound owner in that shape (deferred).
+// All of this is METACALL-TIME data only — the IR keeps just `RAgg.fn_name`
+// (queue-2: an interpreter re-resolves the same names against its registry).
+// Outputs (parallel to the spec list): `uda` (is-UDA), `uda_fin` (has _fin),
+// `uda_acc` (A, verbatim), `uda_ret` (R, verbatim), `aret` (R's EL class).
+// False (error surfaced) on a convention violation.
+fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
+                uda: &mut [bool; 8], uda_fin: &mut [bool; 8],
+                uda_acc: &mut [str; 8], uda_ret: &mut [str; 8],
+                aret: &mut [i32; 8]) -> bool {
+    let mut i: i64 = 0i64;
+    while i < acount {
+        let a: RAgg = aggs.agg_at(i);
+        let name: str = a.fn_name;
+        if agg_of_name(name) != 0i32 {
+            // Builtin aggregates SHADOW a same-named UDA triple.
+            i = i + 1i64;
+        } else {
+            let mut nm_init: String = String::new();
+            nm_init.push_str(name);
+            nm_init.push_str("_init");
+            let d_init: WAny = find_fn_decl(view, string_as_str(&nm_init));
+            let mut nm_step: String = String::new();
+            nm_step.push_str(name);
+            nm_step.push_str("_step");
+            let d_step: WAny = find_fn_decl(view, string_as_str(&nm_step));
+            if d_init.is_null() || d_step.is_null() {
+                let mut m: String = String::new();
+                m.push_str("wql!: unknown aggregate '");
+                m.push_str(name);
+                m.push_str("' — builtin aggregates are count/sum/min/max/avg; a user aggregate requires top-level fns `");
+                m.push_str(name);
+                m.push_str("_init() -> A` and `");
+                m.push_str(name);
+                m.push_str("_step(acc: A, x: T) -> A` (plus optional `");
+                m.push_str(name);
+                m.push_str("_fin(acc: A) -> R`) declared in the module containing the query");
+                if d_init.is_null() && !d_step.is_null() {
+                    m.push_str(" (missing: `");
+                    m.push_str(name);
+                    m.push_str("_init`)");
+                }
+                if d_step.is_null() && !d_init.is_null() {
+                    m.push_str(" (missing: `");
+                    m.push_str(name);
+                    m.push_str("_step`)");
+                }
+                error(string_as_str(&m));
+                return false;
+            }
+            if fn_param_count(view, d_init) != 0i64 {
+                let mut m1: String = String::new();
+                m1.push_str("wql!: user aggregate '");
+                m1.push_str(name);
+                m1.push_str("': `");
+                m1.push_str(name);
+                m1.push_str("_init` must take no parameters (`");
+                m1.push_str(name);
+                m1.push_str("_init() -> A`)");
+                error(string_as_str(&m1));
+                return false;
+            }
+            let acc_ty: str = fn_ret_type_name(view, d_init);
+            if acc_ty.len() == 0i64 {
+                let mut m2: String = String::new();
+                m2.push_str("wql!: user aggregate '");
+                m2.push_str(name);
+                m2.push_str("': `");
+                m2.push_str(name);
+                m2.push_str("_init` must declare a named accumulator return type (`-> A`)");
+                error(string_as_str(&m2));
+                return false;
+            }
+            if fn_param_count(view, d_step) != 2i64 {
+                let mut m3: String = String::new();
+                m3.push_str("wql!: user aggregate '");
+                m3.push_str(name);
+                m3.push_str("': `");
+                m3.push_str(name);
+                m3.push_str("_step` must take exactly (acc: A, x: T)");
+                error(string_as_str(&m3));
+                return false;
+            }
+            // Optional finalize: absent ⇒ R = A, no finalize call emitted.
+            let mut nm_fin: String = String::new();
+            nm_fin.push_str(name);
+            nm_fin.push_str("_fin");
+            let d_fin: WAny = find_fn_decl(view, string_as_str(&nm_fin));
+            let mut has_fin: bool = false;
+            let mut ret_ty: str = acc_ty;
+            if !d_fin.is_null() {
+                if fn_param_count(view, d_fin) != 1i64 {
+                    let mut m4: String = String::new();
+                    m4.push_str("wql!: user aggregate '");
+                    m4.push_str(name);
+                    m4.push_str("': `");
+                    m4.push_str(name);
+                    m4.push_str("_fin` must take exactly (acc: A)");
+                    error(string_as_str(&m4));
+                    return false;
+                }
+                has_fin = true;
+                ret_ty = fn_ret_type_name(view, d_fin);
+            }
+            let cls: i32 = el_ret_class(ret_ty);
+            if cls < 0i32 || str_eq(ret_ty, "String") {
+                let mut m5: String = String::new();
+                m5.push_str("wql!: user aggregate '");
+                m5.push_str(name);
+                m5.push_str("' result type `");
+                m5.push_str(ret_ty);
+                m5.push_str("` is outside the EL lattice — ");
+                m5.push_str(name);
+                if has_fin { m5.push_str("_fin"); } else { m5.push_str("_init (no _fin declared)"); }
+                m5.push_str(" must return an integer, f64/f32, bool, or str value");
+                error(string_as_str(&m5));
+                return false;
+            }
+            if i < 8i64 {
+                uda[i]     = true;
+                uda_fin[i] = has_fin;
+                uda_acc[i] = acc_ty;
+                uda_ret[i] = ret_ty;
+                aret[i]    = cls;
+            }
+            i = i + 1i64;
+        }
+    }
+    return true;
+}
+
+// Per-aggregate finalized COLUMN type name (`act`): the Logos type of the
+// aggregate's OUTPUT value — drives the materialized group-column Vecs, the
+// finalize `let` bindings, and the group-row rebinds. Builtins keep the
+// agg_flt-driven f64/i64 split; a UDA takes its reflected R class's lattice
+// name (i64 / f64 / bool / str).
+fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
+                       aret: &[i32; 8], act: &mut [str; 8]) {
+    let mut i: i64 = 0i64;
+    while i < acount {
+        if i < 8i64 {
+            if uda[i] { act[i] = el_ty_name(aret[i]); }
+            else if agg_flt[i] { act[i] = "f64"; }
+            else { act[i] = "i64"; }
+        }
+        i = i + 1i64;
+    }
+}
+
+// The finalize-expression CAST suffix for a UDA output: R narrower than the
+// i64 lattice baseline widens `as i64`; an f32 R widens `as f64`; everything
+// else emits bare. Empty string = no cast.
+fn uda_fin_cast(col_ty: str, ret_ty: str) -> str {
+    if str_eq(col_ty, "i64") && !str_eq(ret_ty, "i64") { return " as i64)"; }
+    if str_eq(col_ty, "f64") && str_eq(ret_ty, "f32")  { return " as f64)"; }
+    return "";
+}
+
+// Emit the finalize EXPRESSION for UDA spec `i` reading accumulator text
+// `acc_txt` (a local name or a Vec-cell read): `<name>_fin(<acc>)` when the
+// triple declares a finalizer, the bare accumulator otherwise — wrapped in the
+// widening cast when R is narrower than its lattice column type.
+fn emit_uda_finalize(em: &mut Emitter, name: str, acc_txt: str,
+                     has_fin: bool, cast: str) {
+    if cast.len() > 0i64 { em.push_text("(("); }
+    if has_fin {
+        em.push_text(name);
+        em.push_text("_fin(");
+        em.push_text(acc_txt);
+        em.push_text(")");
+    } else {
+        em.push_text(acc_txt);
+    }
+    if cast.len() > 0i64 {
+        em.push_text(")");
+        em.push_text(cast);
+    }
 }
 
 // ── emit_aggregate_join — group-by + aggregate over a JOINED stream ──────────
@@ -2598,11 +2868,36 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
     ty.set_ty("key", EL_TY_INT());
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
-    stamp_agg_out_types(&aggs, acount, &agg_flt, &mut ty);
+    // UDA resolution (naming-convention triple) + finalized column types.
+    let mut uda:     [bool; 8] = [false; 8];
+    let mut uda_fin: [bool; 8] = [false; 8];
+    let mut uda_acc: [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut uda_ret: [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut aret:    [i32; 8]  = [0i32; 8];
+    if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
+                     &mut uda_acc, &mut uda_ret, &mut aret) { return false; }
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &mut ty);
+    let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
+    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
+
+    // Validate clause calls (group key / select / where / on preds).
+    if !check_calls(key_ref.any().view::<SExpr>(), &ty, "wql!: `group by`") { return false; }
+    if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if has_where {
+        if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
+    }
+    let mut ci0: i64 = 0i64;
+    while ci0 < ch.n {
+        if ch.onw[ci0] != 0i64 {
+            if !check_calls(sexpr_of_word(ch.onw[ci0]), &ty, "wql!: `on`") { return false; }
+        }
+        ci0 = ci0 + 1i64;
+    }
 
     // Clause bodies.
     let key_opt: SExpr  = simplify_sexpr(key_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
@@ -2610,6 +2905,8 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        // Owned-String projection (String-returning call at the select root).
+        if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
     let mut key_body: String = String::new();
     emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
@@ -2623,16 +2920,14 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut having_body: String = String::new();
     if has_having {
         let hav_e: SExpr = having_ref.any().view::<SExpr>();
-        if call_diagnostic(hav_e, &ty) {
-            error("wql!: `having` calls an unknown or wrong-arity function");
-            return false;
-        }
+        if !check_calls(hav_e, &ty, "wql!: `having`") { return false; }
         let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
         emit_sexpr(&mut having_body, hav_opt, &ty, ch.base_var);
     }
     let mut okey_body: String = String::new();
     let mut okey_ty: str = "i64";
     if mods.has_sort {
+        if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         okey_ty = el_ty_name(infer_ty(okey_opt, &ty));
         emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
@@ -2641,7 +2936,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &mut agg_body) { return false; }
+    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda, &mut agg_body) { return false; }
 
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
     let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -2692,8 +2987,17 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         let a: RAgg = aggs.agg_at(gd);
         em.push_text("    let mut __ga_");
         em.push_text(a.out);
-        if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
-        else           { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+        if uda[gd] {
+            // UDA accumulator column: the user's A type, threaded verbatim
+            // (a struct accumulator must be Copy — Vec.get/set fold cells).
+            em.push_text(": Vec<");
+            em.push_text(uda_acc[gd]);
+            em.push_text("> = Vec::<");
+            em.push_text(uda_acc[gd]);
+            em.push_text(">::new();\n");
+        }
+        else if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
+        else                { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
         gd = gd + 1i64;
     }
 
@@ -2758,7 +3062,12 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         push_ind(&mut em, lvl + 1i64);
         em.push_text("__ga_");
         em.push_text(a.out);
-        if agg_flt[sd] {
+        if uda[sd] {
+            // UDA group creation: seed with <name>_init().
+            em.push_text(".push(");
+            em.push_text(a.fn_name);
+            em.push_text("_init());\n");
+        } else if agg_flt[sd] {
             if fnid == AGG_MIN()      { em.push_text(".push(1.7976931348623157e308f64);\n"); }
             else if fnid == AGG_MAX() { em.push_text(".push(-1.7976931348623157e308f64);\n"); }
             else                      { em.push_text(".push(0.0f64);\n"); }
@@ -2782,7 +3091,19 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         let a: RAgg = aggs.agg_at(fd);
         let aname: str = a.out;
         let fnid: i32 = agg_of_name(a.fn_name);
-        if fnid == AGG_COUNT() {
+        if uda[fd] {
+            // UDA fold: cell = <name>_step(cell, <arg>).
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, ");
+            em.push_text(a.fn_name);
+            em.push_text("_step(__ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi), (");
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text(")));\n");
+        } else if fnid == AGG_COUNT() {
             push_ind(&mut em, lvl);
             em.push_text("__ga_");
             em.push_text(aname);
@@ -2841,15 +3162,20 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     push_ind(&mut em, lvl);
     em.push_text("}\n");
 
-    // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns.
+    // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns
+    // (typed by the finalized column type — a UDA column narrows from the
+    // accumulator's A to R's lattice type here, via <name>_fin when declared).
     em.push_text("    let mut __gf_key: Vec<i64> = Vec::<i64>::new();\n");
     let mut fg: i64 = 0i64;
     while fg < acount {
         let a: RAgg = aggs.agg_at(fg);
         em.push_text("    let mut __gf_");
         em.push_text(a.out);
-        if agg_flt[fg] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
-        else           { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+        em.push_text(": Vec<");
+        em.push_text(act[fg]);
+        em.push_text("> = Vec::<");
+        em.push_text(act[fg]);
+        em.push_text(">::new();\n");
         fg = fg + 1i64;
     }
     em.push_text("    let mut __r0: i64 = 0i64;\n");
@@ -2861,8 +3187,18 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         let fnid: i32 = agg_of_name(a.fn_name);
         em.push_text("        let ");
         em.push_text(a.out);
-        if agg_flt[fz] { em.push_text(": f64 = "); } else { em.push_text(": i64 = "); }
-        if fnid == AGG_AVG() {
+        em.push_text(": ");
+        em.push_text(act[fz]);
+        em.push_text(" = ");
+        if uda[fz] {
+            let mut acc_txt: String = String::new();
+            acc_txt.push_str("__ga_");
+            acc_txt.push_str(a.out);
+            acc_txt.push_str(".get(__r0)");
+            emit_uda_finalize(&mut em, a.fn_name, string_as_str(&acc_txt),
+                              uda_fin[fz], uda_fin_cast(act[fz], uda_ret[fz]));
+            em.push_text(";\n");
+        } else if fnid == AGG_AVG() {
             em.push_text("(if __g_cnt.get(__r0) > 0i64 { __ga_");
             em.push_text(a.out);
             em.push_text(".get(__r0) / (__g_cnt.get(__r0) as f64) } else { 0.0f64 });\n");
@@ -2909,7 +3245,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("    let mut __r: i64 = 0i64;\n");
     em.push_text("    while __r < __gf_key.len() {\n");
     if mods.has_sort {
-        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &agg_flt, "__gf_");
+        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__gf_");
         em.push_text("        __ix0.push(__r);\n");
         em.push_text("        __ks.push(");
         em.push_text(string_as_str(&okey_body));
@@ -2926,7 +3262,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("    while __o < __ix0.len()");
     em.push_text(string_as_str(&lim_cond));
     em.push_text(" {\n");
-    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &agg_flt, "__gf_");
+    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__gf_");
     emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
     em.push_text("        __o = __o + 1i64;\n");
     em.push_text("    }\n");

@@ -1,0 +1,46 @@
+// Trama UDF — user-defined fns in `{{ … }}` interpolation and `{% if %}`
+// conditions with ZERO trama-specific lowering: the SHARED emit_call path
+// (codegen.logos) resolves the non-builtin name against the reflected
+// user-fn table exactly as wql! does. Covered:
+//   • a String-returning UDF interpolated ({{ shout(u.name) }}) — the
+//     returns-String treatment borrows the owned temporary via .as_str();
+//   • a bool UDF inside {% if %} (is_vip) — emitted bare (already a bool);
+//   • an i64 UDF interpolated ({{ dbl(u.score) }}) — push_i64 route.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct User {
+    pub name:  str,
+    pub score: i64,
+}
+
+// Non-pub on purpose (chunk-visibility parity with wql_udf_e2e).
+fn shout(n: str) -> String {
+    let mut s: String = String::new();
+    s.push_str(n);
+    s.push_str("!");
+    return s;
+}
+fn is_vip(sc: i64) -> bool { return sc >= 100i64; }
+fn dbl(sc: i64) -> i64 { return sc * 2i64; }
+
+resource render = trama!(u: &User){
+    `{{ shout(u.name) }} s={{ dbl(u.score) }} [{% if is_vip(u.score) %}vip{% else %}std{% endif %}]` };
+
+fn main() -> i32 {
+    let a: User = User { name: "ada", score: 120i64 };
+    let s1: String = render(&a);
+    let want1: str = "ada! s=240 [vip]";
+    let v1: str = unsafe { str_from_raw(s1.as_ptr(), s1.len()) };
+    if !str_eq(v1, want1) { return 1i32; }
+
+    let b: User = User { name: "bob", score: 40i64 };
+    let s2: String = render(&b);
+    let want2: str = "bob! s=80 [std]";
+    let v2: str = unsafe { str_from_raw(s2.as_ptr(), s2.len()) };
+    if !str_eq(v2, want2) { return 2i32; }
+    return 0i32;
+}

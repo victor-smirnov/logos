@@ -1,0 +1,45 @@
+// Regression: slice/str `let` bindings must have VALUE (Copy) semantics — an
+// independent 16-byte {ptr,len} slot — not alias the source place. The bug:
+// gen_let's Slice branch bound the SOURCE's place pointer directly, so
+//   • writing through a `let mut` binding clobbered the source local/field;
+//   • writing to a mut source leaked into a previously-taken binding.
+// (Found via WQL UDA reflection: `let mut ret_ty: str = acc_ty; ret_ty = …`
+// rewrote acc_ty in place. Struct/enum lets already memcpy'd — the slice
+// branch missed the class.)
+package test;
+
+use logos.lang.str;
+
+struct Holder { pub s: str }
+
+fn split(a: &mut [str; 2]) {
+    let acc: str = "Acc";
+    let mut ret: str = acc;   // must COPY, not alias
+    ret = "i64";
+    a[0] = acc;               // still "Acc"
+    a[1] = ret;               // "i64"
+}
+
+fn main() -> i32 {
+    // Local → local (the minimal repro).
+    let mut out: [str; 2] = ["", ""];
+    split(&mut out);
+    if !str_eq(out[0], "Acc") { return 1i32; }
+    if !str_eq(out[1], "i64") { return 2i32; }
+
+    // Mut source: a binding taken BEFORE the source is reassigned keeps the
+    // old value (independent slot, not a view of the source).
+    let mut m: str = "one";
+    let snap: str = m;
+    m = "two";
+    if !str_eq(snap, "one") { return 3i32; }
+    if !str_eq(m, "two") { return 4i32; }
+
+    // Field source: `let mut y = h.s; y = …` must not rewrite the field.
+    let h: Holder = Holder { s: "field" };
+    let mut y: str = h.s;
+    y = "changed";
+    if !str_eq(h.s, "field") { return 5i32; }
+    if !str_eq(y, "changed") { return 6i32; }
+    return 0i32;
+}

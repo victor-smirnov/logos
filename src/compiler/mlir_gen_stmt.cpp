@@ -87,6 +87,7 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         var_tagged_enum_.erase(n);
         var_tagged_enum_ptr_.erase(n);
         var_dyn_trait_.erase(n);
+        var_raw_dyn_.erase(n);
         var_local_ptrs_.erase(n);
         var_elem_types_.erase(n);
     };
@@ -455,6 +456,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     auto saved_tagged_enum      = var_tagged_enum_;
     auto saved_tagged_enum_ptr  = var_tagged_enum_ptr_;
     auto saved_dyn_trait        = var_dyn_trait_;
+    auto saved_raw_dyn          = var_raw_dyn_;
     auto saved_struct           = var_struct_;
     gen_block(v.body());
     for (auto& [k, val] : saved_scope)            scope_[k]            = val;
@@ -463,6 +465,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     for (auto& k : saved_tagged_enum)             var_tagged_enum_.insert(k);
     for (auto& k : saved_tagged_enum_ptr)         var_tagged_enum_ptr_.insert(k);
     for (auto& [k, val] : saved_dyn_trait)        var_dyn_trait_[k]    = val;
+    for (auto& k : saved_raw_dyn)                 var_raw_dyn_.insert(k);
     for (auto& [k, val] : saved_struct)           var_struct_[k]       = val;
 }
 
@@ -1548,8 +1551,25 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         // result that wasn't routed through the dispatcher spill) must be spilled
         // to a stack slot so the binding holds a pointer-to-{ptr,len} like every
         // other slice place.
-        if (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+        if (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType())) {
             val = spill_to_alloca(val);
+        } else if (val.getType() == ptr_type()) {
+            // val is an existing slice PLACE pointer (`let s2 = s1;`,
+            // `let s = obj.f;`). Binding the alias directly is wrong: slices/
+            // strs are Copy VALUES, so a later write through a `let mut`
+            // binding must not clobber the source place (and a later write to
+            // a mut source must not leak into this binding). Mirror the
+            // struct/enum `let` convention: fresh 16-byte slot + memcpy →
+            // independent storage. (Was: `let mut r: str = a; r = "x";`
+            // rewrote `a`'s {ptr,len} in place.)
+            auto fat_t = mlir::LLVM::LLVMStructType::getLiteral(
+                builder_.getContext(), {ptr_type(), builder_.getI64Type()});
+            auto fresh = create_entry_alloca(fat_t);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val,
+                                                  size_const(s.type),
+                                                  /*isVolatile=*/false);
+            val = fresh;
+        }
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);
@@ -1704,51 +1724,37 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             src_vt = src_vt.pointee();
         }
         if (src_vt && src_vt.kind() == LogosType::Kind::TraitObject) {
-            // RHS is already a fat pointer (e.g., returned from a Box<dyn T> function).
-            // Use it directly — no need to rebuild the fat struct.
-            alloca = data_ptr;
+            // RHS is already a fat pointer (e.g., returned from a Box<dyn T>
+            // function) — no need to rebuild the fat struct. But when it is a
+            // POINTER to an existing fat PLACE (`let mut y: &dyn T = x;`,
+            // `v.borrow(i)`), binding the alias directly is the same bug class
+            // the struct/enum/slice branches fix: a &dyn/&mut dyn/Box<dyn>
+            // binding's VALUE is the 16-byte {data,vtable} pair itself, so
+            // copy it into a fresh slot (fat-reference copy semantics; the
+            // borrow checker guards the move-only Box<dyn> source). Raw
+            // `*const/*mut dyn` keeps HANDLE semantics — aliasing is the
+            // point of a raw pointer — so it still binds directly.
+            if (!is_raw_ptr_dyn && data_ptr.getType() == ptr_type()) {
+                auto fat_sz = builder_.create<mlir::LLVM::ConstantOp>(
+                    loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+                auto fresh = create_entry_alloca(dyn_llvm_type());
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, data_ptr,
+                                                      fat_sz,
+                                                      /*isVolatile=*/false);
+                alloca = fresh;
+            } else {
+                alloca = data_ptr;
+            }
         } else {
-            // Concrete type → build fat pointer from scratch.
-            // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
-            // Box<T> is { *mut T } so the value *is* the data ptr; unwrap to T for vtable.
-            TypeRef src_logos_type = s_val_ty;
-            if (src_logos_type &&
-                (TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr ||
-                 TypeRef(src_logos_type).kind() == LogosType::Kind::Ref ||
-                 TypeRef(src_logos_type).kind() == LogosType::Kind::MutRef) &&
-                TypeRef(src_logos_type).pointee())
-                src_logos_type = TypeRef(src_logos_type).pointee();
-            // An OWNING `Box<Concrete>` source (implicit `let g: Box<dyn> =
-            // box_new(...)` coercion) yields an OWNING `Box<dyn>` — its handle
-            // must be heap-allocated so the scope-end drop_in_place + free
-            // sequence frees a real heap block (a stack fat pair would invalid-
-            // free). A `&Concrete` borrow source stays a stack fat pair.
-            bool src_is_owning_box =
-                is_stdlib_box(src_logos_type) &&
-                TypeRef(src_logos_type).type_args().size() == 1;
-            if (src_is_owning_box)
-                src_logos_type = TypeRef(src_logos_type).type_args()[0];
-            // Use the mono-mangled concrete name (`Foo$G1$i64`) — the vtable
-            // registry keys generic-impl entries on this form. `type_str`
-            // yields the angle-bracket form (`Foo<i64>`) which never matches
-            // (→ null vtable → SIGSEGV on dispatch; G158-10).
-            std::string src_type =
-                (src_logos_type &&
-                 (TypeRef(src_logos_type).kind() == LogosType::Kind::Struct ||
-                  TypeRef(src_logos_type).kind() == LogosType::Kind::ZonedStruct))
-                    ? concrete_struct_name(src_logos_type)
-                    : type_str(src_logos_type);
-            // `&dyn`/`&mut dyn` local → stack fat pair (no leak). Owning
-            // `Box<dyn>` local → ALSO an inline value fat pair (droppable; its
-            // drop frees the boxed data). Only raw `*const/*mut dyn` keeps an
-            // 8-byte heap handle (escapes via the raw pointer; persistent/
-            // smart-ptr convention).
-            alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type,
-                                   src_logos_type);
+            // Concrete type → build fat pointer from scratch (shared coercion
+            // helper — the same path serves dyn REBINDS in gen_assign).
+            alloca = coerce_concrete_source_to_dyn(data_ptr, s_val_ty,
+                                                   st.trait_name());
         }
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
         var_dyn_trait_[s.name] = std::string(st.trait_name());
+        if (is_raw_ptr_dyn) var_raw_dyn_.insert(s.name);
         // Provenance bookkeeping for raw `*const/*mut dyn` (Ptr<TraitObject>):
         // a `*const dyn` returned by a CONTAINER ACCESSOR (`HashMap::get →
         // *const Box<dyn>`) is a pointer-INTO-storage, so a later `*p` must LOAD
@@ -1924,6 +1930,50 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     }
 }
 
+// Build a {data,vtable} fat pair from a CONCRETE source (peel Ref/MutRef/Ptr;
+// unwrap owning Box<T>; vtable keyed on the mono-mangled concrete name). The
+// ONE concrete→dyn coercion for local store sites — used by gen_let AND
+// gen_assign so a dyn rebind can never diverge from the initial binding.
+mlir::Value MLIRGenImpl::coerce_concrete_source_to_dyn(
+        mlir::Value data_ptr, TypeRef s_val_ty, std::string_view trait_name) {
+    // For &dyn T from `new Foo {}`, value type is *mut Foo — strip the pointer.
+    // Box<T> is { *mut T } so the value *is* the data ptr; unwrap to T for vtable.
+    TypeRef src_logos_type = s_val_ty;
+    if (src_logos_type &&
+        (TypeRef(src_logos_type).kind() == LogosType::Kind::Ptr ||
+         TypeRef(src_logos_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(src_logos_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(src_logos_type).pointee())
+        src_logos_type = TypeRef(src_logos_type).pointee();
+    // An OWNING `Box<Concrete>` source (implicit `let g: Box<dyn> =
+    // box_new(...)` coercion) yields an OWNING `Box<dyn>` — its handle
+    // must be heap-allocated so the scope-end drop_in_place + free
+    // sequence frees a real heap block (a stack fat pair would invalid-
+    // free). A `&Concrete` borrow source stays a stack fat pair.
+    bool src_is_owning_box =
+        is_stdlib_box(src_logos_type) &&
+        TypeRef(src_logos_type).type_args().size() == 1;
+    if (src_is_owning_box)
+        src_logos_type = TypeRef(src_logos_type).type_args()[0];
+    // Use the mono-mangled concrete name (`Foo$G1$i64`) — the vtable
+    // registry keys generic-impl entries on this form. `type_str`
+    // yields the angle-bracket form (`Foo<i64>`) which never matches
+    // (→ null vtable → SIGSEGV on dispatch; G158-10).
+    std::string src_type =
+        (src_logos_type &&
+         (TypeRef(src_logos_type).kind() == LogosType::Kind::Struct ||
+          TypeRef(src_logos_type).kind() == LogosType::Kind::ZonedStruct))
+            ? concrete_struct_name(src_logos_type)
+            : type_str(src_logos_type);
+    // `&dyn`/`&mut dyn` local → stack fat pair (no leak). Owning
+    // `Box<dyn>` local → ALSO an inline value fat pair (droppable; its
+    // drop frees the boxed data). Only raw `*const/*mut dyn` keeps an
+    // 8-byte heap handle (escapes via the raw pointer; persistent/
+    // smart-ptr convention).
+    return coerce_to_dyn(data_ptr, std::string(trait_name), src_type,
+                         src_logos_type);
+}
+
 // ---------------------------------------------------------------------------
 // gen_assign
 // ---------------------------------------------------------------------------
@@ -2015,6 +2065,37 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(val_t), /*isVolatile=*/false);
+            return;
+        }
+    }
+    // Dyn-typed target rebind (`y = &b;` / `y = x;` where y: &dyn T): the
+    // let/return sites coerce a CONCRETE source into a fat pair, but
+    // assignment had NO coercion — the plain StoreOp below wrote the thin
+    // data ptr over the pair's first 8 bytes and kept the OLD vtable, so
+    // dispatch ran the previous type's method over the new data. Coerce
+    // via the SAME helper gen_let uses, then 16-byte-copy the pair into
+    // the target slot. Raw `*const/*mut dyn` vars keep plain handle-store
+    // semantics (var_raw_dyn_) — aliasing is the point of a raw pointer.
+    if (auto dt = var_dyn_trait_.find(name);
+        dt != var_dyn_trait_.end() && !var_raw_dyn_.count(name) && val_t &&
+        val) {
+        TypeRef src_peeled = val_t;
+        if ((src_peeled.kind() == LogosType::Kind::Ptr ||
+             src_peeled.kind() == LogosType::Kind::Ref ||
+             src_peeled.kind() == LogosType::Kind::MutRef) &&
+            src_peeled.pointee())
+            src_peeled = src_peeled.pointee();
+        mlir::Value fat;
+        if (TypeRef(src_peeled).kind() == LogosType::Kind::TraitObject) {
+            fat = val;  // already a pointer to a fat pair — copy it below
+        } else {
+            fat = coerce_concrete_source_to_dyn(val, val_t, dt->second);
+        }
+        if (fat && fat.getType() == ptr_type()) {
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, fat, sz,
+                                                  /*isVolatile=*/false);
             return;
         }
     }

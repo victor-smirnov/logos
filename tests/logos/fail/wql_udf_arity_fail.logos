@@ -1,0 +1,14 @@
+// wql! diagnostic: a UDF call with the wrong argument count reports the fn
+// name plus the expected/got arity (reflected off the module's fn decl).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub v: i64 }
+
+fn dbl(x: i64) -> i64 { return x * 2i64; }
+
+resource bad = wql!(xs: &[P]) { from xs x select dbl(x.v, 7) };
+
+fn main() -> i32 { return 0i32; }

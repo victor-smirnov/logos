@@ -1,0 +1,19 @@
+// wql! diagnostic: a user aggregate needs the FULL naming-convention pair
+// `X_init() -> A` + `X_step(acc: A, x: T) -> A` (optional `X_fin`); declaring
+// only `_init` is a compile-time error spelling out what is missing.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub g: i64, pub v: i64 }
+
+fn myagg_init() -> i64 { return 0i64; }
+// (no myagg_step)
+
+resource bad = wql!(xs: &[P]) { from xs x
+      group by x.g
+      aggregate m = myagg(x.v)
+      select m };
+
+fn main() -> i32 { return 0i32; }

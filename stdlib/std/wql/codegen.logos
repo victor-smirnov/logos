@@ -171,7 +171,14 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
         SExpr::Cond(c) => { return infer_ty(c.then_expr(), t); }
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
-            return builtin_ret_ty(bfn);
+            if bfn != BFN_UNKNOWN() { return builtin_ret_ty(bfn); }
+            // Non-builtin → the reflected UDF table (builtins shadow UDFs).
+            let ui: i64 = t.udf_find(c.fn_name);
+            if ui >= 0i64 {
+                let r: i32 = t.udf_ret[ui];
+                if r >= 0i32 { return r; }
+            }
+            return EL_TY_INT();
         }
         SExpr::Comp(_) => { return EL_TY_INT(); }   // list value (element ty = INT in the scalar lattice)
         _ => { return EL_TY_INT(); }
@@ -288,7 +295,12 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
     let bfn: i32 = builtin_of_name(name);
     let args: SExprArr = c.args_arr();
     let argc: i64 = args.len();
-    if bfn == BFN_UNKNOWN() || argc != builtin_arity(bfn) {
+    if bfn == BFN_UNKNOWN() {
+        // Not a builtin → a UDF candidate (the reflected user-fn table).
+        emit_udf_call(out, name, args, argc, t, var);
+        return;
+    }
+    if argc != builtin_arity(bfn) {
         out.push_str("0i64");
         return;
     }
@@ -315,16 +327,73 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
     out.push_str("))");
 }
 
+// Emit a USER-FUNCTION call as a PLAIN call `name(<args>)` — the generated
+// chunk lives in the trigger module's package, so the name resolves naturally
+// against the module's own top-level fns; NON-pub fns work too (verified: the
+// spliced chunk shares the trigger package's visibility scope), so no `pub`
+// gate is imposed on the reflection lookup. UDF ground rules:
+//   • BUILTINS take precedence over a same-named user fn (lookup order);
+//   • only ARITY + return type are checked at metacall time — PARAM types are
+//     NOT deep-checked here: the emitted chunk is compiled by the real
+//     compiler, so an argument-type mismatch still fails the build (with the
+//     compiler's own arg-type diagnostic against the generated call);
+//   • only the TRIGGER module's top-level fns are visible (oview_module_ast
+//     scope) — imported fns diagnose as unknown (documented MVP limit).
+// Two return-normalization casts keep the emitted expression in the EL
+// lattice baseline (the surrounding expression / result Vec is typed
+// i64 / f64):
+//   • an INT-family return NARROWER than i64 (i32/u32/…): `((f(x)) as i64)`
+//     (u64/u128/i128 values beyond i64 TRUNCATE — documented MVP semantics);
+//   • an `f32` return:                                    `((f(x)) as f64)`.
+// str / bool / String / f64 / i64 returns emit bare. Unknown names, arity
+// mismatches, and out-of-lattice returns emit the safe `0i64` placeholder —
+// the handler surfaces the REAL diagnostic via `check_calls` beforehand.
+fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
+                 t: &ElTypes, var: str) {
+    let ui: i64 = t.udf_find(name);
+    if ui < 0i64 || argc != t.udf_arity[ui] || t.udf_ret[ui] < 0i32 {
+        out.push_str("0i64");
+        return;
+    }
+    let rn: str = t.udf_rets[ui];
+    let mut cast: str = "";
+    if t.udf_ret[ui] == EL_TY_INT() && !str_eq(rn, "i64") { cast = " as i64)"; }
+    if t.udf_ret[ui] == EL_TY_FLT() && str_eq(rn, "f32")  { cast = " as f64)"; }
+    if cast.len() > 0i64 { out.push_str("(("); }
+    out.push_str(name);
+    out.push_str("(");
+    let mut i: i64 = 0i64;
+    while i < argc {
+        if i > 0i64 { out.push_str(", "); }
+        emit_sexpr(out, args.arg_at(i), t, var);
+        i = i + 1i64;
+    }
+    out.push_str(")");
+    if cast.len() > 0i64 {
+        out.push_str(")");
+        out.push_str(cast);
+    }
+}
+
 // True iff `e` is (or contains at its root) a call to an unknown function or one
 // with the wrong arity — the wql!/trama! handlers use this to surface a compile
 // error at the block site (the codegen itself emits a safe `0i64` placeholder).
+// UDF-aware: a non-builtin name resolving in the reflected user-fn table with
+// matching arity and an in-lattice return is NOT diagnostic. Prefer
+// `check_calls` at handler level — it names the offending fn in the error.
 pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
     match e {
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
-            if bfn == BFN_UNKNOWN() { return true; }
             let args: SExprArr = c.args_arr();
-            if args.len() != builtin_arity(bfn) { return true; }
+            if bfn == BFN_UNKNOWN() {
+                let ui: i64 = t.udf_find(c.fn_name);
+                if ui < 0i64 { return true; }
+                if args.len() != t.udf_arity[ui] { return true; }
+                if t.udf_ret[ui] < 0i32 { return true; }
+            } else {
+                if args.len() != builtin_arity(bfn) { return true; }
+            }
             let mut i: i64 = 0i64;
             while i < args.len() {
                 if call_diagnostic(args.arg_at(i), t) { return true; }
@@ -341,6 +410,87 @@ pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
         }
         SExpr::Comp(cp) => { return call_diagnostic(cp.head_expr(), t); }
         _ => { return false; }
+    }
+}
+
+// Validate every call in `e` and surface a NAMED diagnostic on the first
+// offense (unknown fn / wrong arity / out-of-lattice UDF return). `ctx`
+// prefixes the message with the macro + clause site (e.g. "wql!: `where`").
+// Returns false when an error was reported (the handler aborts emission).
+// The message spells the UDF ground rules: builtin list, the declared-in-the-
+// trigger-module requirement (imported fns are outside `oview_module_ast`'s
+// reach), and — on arity — the expected/got counts.
+pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
+    match e {
+        SExpr::Call(c) => {
+            let name: str = c.fn_name;
+            let bfn: i32 = builtin_of_name(name);
+            let args: SExprArr = c.args_arr();
+            let argc: i64 = args.len();
+            if bfn == BFN_UNKNOWN() {
+                let ui: i64 = t.udf_find(name);
+                if ui < 0i64 {
+                    let mut m: String = String::new();
+                    m.push_str(ctx);
+                    m.push_str(": unknown function '");
+                    m.push_str(name);
+                    m.push_str("' — EL builtins are len/upper/lower/contains/starts_with; a user function must be a top-level fn declared in the module containing the query (imported fns are not visible to reflection)");
+                    error(string_as_str(&m));
+                    return false;
+                }
+                if argc != t.udf_arity[ui] {
+                    let mut m2: String = String::new();
+                    m2.push_str(ctx);
+                    m2.push_str(": function '");
+                    m2.push_str(name);
+                    m2.push_str("' expects ");
+                    m2.push_i64(t.udf_arity[ui]);
+                    m2.push_str(" argument(s), got ");
+                    m2.push_i64(argc);
+                    error(string_as_str(&m2));
+                    return false;
+                }
+                if t.udf_ret[ui] < 0i32 {
+                    let mut m3: String = String::new();
+                    m3.push_str(ctx);
+                    m3.push_str(": user function '");
+                    m3.push_str(name);
+                    m3.push_str("' returns `");
+                    m3.push_str(t.udf_rets[ui]);
+                    m3.push_str("` — an EL-callable fn must return an integer, f64/f32, bool, str, or String value");
+                    error(string_as_str(&m3));
+                    return false;
+                }
+            } else {
+                if argc != builtin_arity(bfn) {
+                    let mut m4: String = String::new();
+                    m4.push_str(ctx);
+                    m4.push_str(": builtin '");
+                    m4.push_str(name);
+                    m4.push_str("' expects ");
+                    m4.push_i64(builtin_arity(bfn));
+                    m4.push_str(" argument(s), got ");
+                    m4.push_i64(argc);
+                    error(string_as_str(&m4));
+                    return false;
+                }
+            }
+            let mut i: i64 = 0i64;
+            while i < argc {
+                if !check_calls(args.arg_at(i), t, ctx) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        SExpr::Bin(b)  => { return check_calls(b.lhs_expr(), t, ctx) && check_calls(b.rhs_expr(), t, ctx); }
+        SExpr::Un(u)   => { return check_calls(u.arg_expr(), t, ctx); }
+        SExpr::Cond(c) => {
+            return check_calls(c.cond_expr(), t, ctx)
+                && check_calls(c.then_expr(), t, ctx)
+                && check_calls(c.else_expr(), t, ctx);
+        }
+        SExpr::Comp(cp) => { return check_calls(cp.head_expr(), t, ctx); }
+        _ => { return true; }
     }
 }
 
@@ -570,13 +720,17 @@ fn emit_push_str_one(out: &mut String, indent: str, target: str,
     out.push_str(");\n");
 }
 
-// True iff `e`'s root is a builtin that returns an OWNED `String` (`upper` /
-// `lower`) — such a value must be `.as_str()`-borrowed before `push_str`.
+// True iff `e`'s root is a call that returns an OWNED `String` — a builtin
+// (`upper`/`lower`) or a String-returning UDF (the reflected table). Such a
+// value is `.as_str()`-borrowed before `push_str` (trama render), or promotes
+// the query result element to an OWNED `String` (wql projection — a borrowed
+// `str` view of the call's temporary would dangle).
 pub fn returns_string(e: SExpr, t: &ElTypes) -> bool {
     match e {
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
-            return bfn == BFN_UPPER() || bfn == BFN_LOWER();
+            if bfn != BFN_UNKNOWN() { return bfn == BFN_UPPER() || bfn == BFN_LOWER(); }
+            return t.udf_returns_string(c.fn_name);
         }
         _ => { return false; }
     }

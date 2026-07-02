@@ -1,0 +1,43 @@
+// WQL UDA — USER-DEFINED aggregates via the naming-convention triple
+// (ADR 0012 UDF/UDA): `aggregate s = sumsq(e.x)` with a non-builtin name
+// reflects `sumsq_init() -> A`, `sumsq_step(acc: A, x: T) -> A` and the
+// OPTIONAL `sumsq_fin(acc: A) -> R` from the trigger module. The classic
+// (single-source) aggregate emitter seeds each group with _init, folds with
+// _step per matching row, and finalizes with _fin (absent ⇒ result = acc).
+//
+// Also proves a UDA OUTPUT column behaves exactly like a builtin aggregate
+// column: `having` filters on it, `order by` sorts on it, and it mixes with
+// a builtin aggregate (count) in the same query.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct M { pub g: i64, pub v: f64 }
+
+// sum of squares, finalized ×10 (exercises _fin).
+fn sumsq_init() -> f64 { return 0.0f64; }
+fn sumsq_step(acc: f64, x: f64) -> f64 { return acc + x * x; }
+fn sumsq_fin(acc: f64) -> f64 { return acc * 10.0f64; }
+
+resource groups = wql!(xs: &[M]) { from xs x
+      group by x.g
+      aggregate s = sumsq(x.v), c = count()
+      having s > 100.0
+      select key * 10000 + c order by s desc };
+
+fn main() -> i32 {
+    let xs: [M; 5] = [
+        M { g: 1i64, v: 1.0f64 },
+        M { g: 1i64, v: 2.0f64 },   // g1: 1+4 = 5  → fin 50   (having drops)
+        M { g: 2i64, v: 3.0f64 },
+        M { g: 2i64, v: 4.0f64 },   // g2: 9+16 = 25 → fin 250 (cnt 2)
+        M { g: 3i64, v: 6.0f64 },   // g3: 36       → fin 360 (cnt 1)
+    ];
+    // Kept groups ordered by s desc: g3 (360), g2 (250).
+    let r: Vec<i64> = groups(&xs[..]);
+    if r.len() != 2i64 { return 1i32; }
+    if r.get(0i64) != 30001i64 { return 2i32; }
+    if r.get(1i64) != 20002i64 { return 3i32; }
+    return 0i32;
+}

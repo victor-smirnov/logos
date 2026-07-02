@@ -1,0 +1,52 @@
+// WQL UDA over a JOINED stream — the join-fold aggregate path
+// (emit_aggregate_join): the per-group accumulator column is a Vec of the
+// UDA's accumulator type, seeded with `<name>_init()` at group creation,
+// folded cell-wise with `<name>_step(acc, arg)` per joined row, and narrowed
+// to the result column by `<name>_fin` in the finalize pass — alongside a
+// builtin aggregate (sum) in the same query, plus having over the UDA output.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Order { pub dept: i64, pub amt: i64 }
+struct Dept  { pub id: i64,   pub region: i64 }
+
+// Max-amount-×10 as a UDA (i64 accumulator; _fin scales).
+fn big_init() -> i64 { return 0i64; }
+fn big_step(acc: i64, x: i64) -> i64 {
+    if x > acc { return x; }
+    return acc;
+}
+fn big_fin(acc: i64) -> i64 { return acc * 10i64; }
+
+resource region_stats = wql!(orders: &[Order], depts: &[Dept]) {
+    from orders o
+    join depts d on o.dept == d.id
+    group by d.region
+    aggregate m = big(o.amt), total = sum(o.amt)
+    having m > 500
+    select key * 100000 + m + total };
+
+fn main() -> i32 {
+    let orders: [Order; 5] = [
+        Order { dept: 1i64, amt: 100i64 },   // region 10
+        Order { dept: 2i64, amt: 40i64  },   // region 10
+        Order { dept: 3i64, amt: 90i64  },   // region 20
+        Order { dept: 1i64, amt: 60i64  },   // region 10
+        Order { dept: 9i64, amt: 777i64 },   // no dept row → excluded
+    ];
+    let depts: [Dept; 3] = [
+        Dept { id: 1i64, region: 10i64 },
+        Dept { id: 2i64, region: 10i64 },
+        Dept { id: 3i64, region: 20i64 },
+    ];
+    // region 10: m = 100*10 = 1000, total = 200 → 10*100000 + 1000 + 200 = 1001200
+    // region 20: m = 90*10  = 900 (having m > 500 keeps), total = 90
+    //            → 20*100000 + 900 + 90 = 2000990
+    let r: Vec<i64> = region_stats(&orders[..], &depts[..]);
+    if r.len() != 2i64 { return 1i32; }
+    if r.get(0i64) != 1001200i64 { return 2i32; }
+    if r.get(1i64) != 2000990i64 { return 3i32; }
+    return 0i32;
+}

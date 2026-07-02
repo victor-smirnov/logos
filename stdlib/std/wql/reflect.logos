@@ -129,6 +129,80 @@ pub fn field_element_type_name(view: &OView, decl: WAny, field_name: str) -> str
     return "";
 }
 
+// ── FN-declaration reflection (UDF / UDA — ADR 0012 user functions) ─────────
+// The wql!/trama! EL resolves non-builtin call names against the TRIGGER
+// module's top-level `fn` items. These readers mirror the struct walk above:
+// find the FN item by name, read its arity (PARAMS(4).ITEMS(2) length) and its
+// declared RETURN type NAME (RET_TYPE(6).NAME(1)). Only top-level `fn` items
+// participate (code FN=10 — extern fns, methods, and nested fns excluded;
+// IMPORTED fns are invisible here: `oview_module_ast` sees the trigger
+// module's AST only, which is the documented UDF visibility rule).
+fn LA_FN() -> u64 { return 10 as u64; }
+
+// Find the top-level `fn` item named `fn_name` (code-checked: a same-named
+// struct does NOT match). Null WAny when absent.
+pub fn find_fn_decl(view: &OView, fn_name: str) -> WAny {
+    let root: WAny = view.root();
+    let items: WAny = view.tiny_map_get(root, 2 as u8);   // ITEMS = 2
+    if items.is_null() { return WAny::Ref(0i64 as *const u8); }
+    let n: u64 = view.array_len(items);
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let item: WAny = view.array_get(items, i);
+        if (view.ast_node_code(item) & (0xFFFF as u64)) == LA_FN() {
+            let nm: SView = view.ast_node_name(item);
+            if sview_eq_str(nm, fn_name) { return item; }
+        }
+        i = i + (1 as u64);
+    }
+    return WAny::Ref(0i64 as *const u8);
+}
+
+// Declared parameter COUNT of fn item `decl` (0 for a null/param-less decl).
+pub fn fn_param_count(view: &OView, decl: WAny) -> i64 {
+    if decl.is_null() { return 0i64; }
+    let params: WAny = view.tiny_map_get(decl, 4 as u8);   // PARAMS = 4
+    if params.is_null() { return 0i64; }
+    let inner: WAny = view.tiny_map_get(params, 2 as u8);  // ITEMS = 2
+    if inner.is_null() { return 0i64; }
+    return view.array_len(inner) as i64;
+}
+
+// Declared RETURN type NAME of fn item `decl` ("" when the fn returns unit or
+// the return type is not a named type — both out of the EL lattice anyway).
+pub fn fn_ret_type_name(view: &OView, decl: WAny) -> str {
+    if decl.is_null() { return ""; }
+    let rt: WAny = view.tiny_map_get(decl, 6 as u8);       // RET_TYPE = 6
+    if rt.is_null() { return ""; }
+    return sview_str(view.ast_node_name(rt));
+}
+
+// Register EVERY top-level `fn` of the trigger module as a UDF-table entry
+// (name → {return EL class, return type name, arity}) so the shared codegen
+// (emit_call / infer_ty / returns_string / check_calls) can resolve
+// non-builtin call names. Eager module-wide registration keeps the emit paths
+// signature-stable (they already thread &ElTypes); builtins shadow same-named
+// entries at LOOKUP time (emit_call checks the builtin registry first).
+pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
+    if view.holder == (0 as *mut u8) { return; }
+    let root: WAny = view.root();
+    let items: WAny = view.tiny_map_get(root, 2 as u8);    // ITEMS = 2
+    if items.is_null() { return; }
+    let n: u64 = view.array_len(items);
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        let item: WAny = view.array_get(items, i);
+        if (view.ast_node_code(item) & (0xFFFF as u64)) == LA_FN() {
+            let nm: str = sview_str(view.ast_node_name(item));
+            if nm.len() > 0i64 {
+                let rn: str = fn_ret_type_name(view, item);
+                t.udf_add(nm, el_ret_class(rn), rn, fn_param_count(view, item));
+            }
+        }
+        i = i + (1 as u64);
+    }
+}
+
 // Populate the name→value-type dictionary `t` with the value-type the named
 // struct declares for EACH of its fields (Option B: the IR carries names, so we
 // type every field of the bound schema — the codegen queries only the names it

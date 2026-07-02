@@ -308,6 +308,17 @@ private:
 
     // Per-function: variables holding &dyn Trait values (name → trait name).
     std::unordered_map<std::string, std::string>  var_dyn_trait_;
+    // Subset of var_dyn_trait_ declared as RAW `*const/*mut dyn` — those keep
+    // 8-byte HANDLE store semantics on assignment (aliasing is the point of a
+    // raw pointer); reference/Box dyn vars get the fat-pair coercion+memcpy.
+    std::unordered_set<std::string>               var_raw_dyn_;
+    // Build a {data,vtable} fat pair from a CONCRETE source value (peeling
+    // Ref/MutRef/Ptr, unwrapping an owning Box<T>), vtable keyed on
+    // trait_name. ONE coercion shared by every dyn store site (let/assign) —
+    // gen_return keeps its heap-handle variant.
+    mlir::Value coerce_concrete_source_to_dyn(mlir::Value data_ptr,
+                                              TypeRef s_val_ty,
+                                              std::string_view trait_name);
     // Function name → Logos-level parameter types (for dyn coercion at call sites).
     std::unordered_map<std::string, std::vector<TypeRef>> fn_param_types_;
     // Function name → per-param owning-Box<dyn> flag: the param collapsed to a

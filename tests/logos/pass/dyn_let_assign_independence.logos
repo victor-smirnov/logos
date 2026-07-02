@@ -1,0 +1,30 @@
+// &dyn fat-binding independence — sibling of copy_str_let_independence (the
+// same let/assign aliasing class, dyn flavor). Two halves:
+//   let mut y: &dyn T = x;  — the binding must COPY the {data,vtable} pair,
+//                             not alias x's slot;
+//   y = &b;                 — assignment to a dyn var must COERCE the concrete
+//                             source to a fat pair (was: thin StoreOp kept the
+//                             OLD vtable → dispatched A::id over B's data).
+package test;
+
+trait Speak { fn id(&self) -> i64; }
+struct A { pub v: i64 }
+struct B { pub v: i64 }
+impl Speak for A { fn id(&self) -> i64 { return 1i64; } }
+impl Speak for B { fn id(&self) -> i64 { return 2i64; } }
+
+fn main() -> i32 {
+    let a: A = A { v: 1i64 };
+    let b: B = B { v: 2i64 };
+    let x: &dyn Speak = &a;
+    let mut y: &dyn Speak = x;   // fat binding sourced from another dyn let
+    y = &b;                      // rebind must not clobber x AND must retarget y
+    if x.id() != 1i64 { return 1i32; }
+    if y.id() != 2i64 { return 2i32; }
+    // Rebind from a dyn VAR (not a concrete borrow) — the already-fat path.
+    let mut z: &dyn Speak = &b;
+    z = x;
+    if z.id() != 1i64 { return 3i32; }
+    if x.id() != 1i64 { return 4i32; }
+    return 0i32;
+}
