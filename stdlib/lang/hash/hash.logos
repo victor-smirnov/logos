@@ -89,14 +89,28 @@ impl Hash for bool {
 impl Hash for usize {
     fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
 }
+// `str` hashes by CONTENT (Rust parity: `Hash for str` hashes the bytes + a
+// length terminator). The Hasher trait has no byte-stream writer yet, so the
+// bytes are pre-mixed with FNV-1a and fed as one u64, followed by the length
+// (the terminator role: distinguishes ("ab","c") from ("a","bc") in compound
+// keys). Equal strings hash equal regardless of provenance — the HashMap<str,V>
+// key contract (Eq for str is byte equality).
+impl Hash for str {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let s: str = *self;
+        state.write_u64(unsafe { fnv1a_bytes(s.as_ptr(), s.len() as u64) });
+        state.write_u64(s.len() as u64);
+    }
+}
 
 // ── SipHasher (SipHash-2-4) ──────────────────────────────────────────────
 //
 // Cryptographically-stronger-than-FxHash hash. Standard SipHash-2-4
 // with 128-bit key. The Hasher trait writes one integer per `write_*`
 // call; we feed each as a single 64-bit block (eight bytes accounted
-// against `length`). Streaming-byte input via `write_u8`-loop is the
-// natural way to wire a `Hash for str` impl when one lands.
+// against `length`). (`Hash for str` above pre-mixes the bytes with
+// FNV-1a into one u64 — a streaming `write_u8` loop can replace that
+// once the Hasher trait grows a byte writer.)
 
 pub struct SipHasher {
     pub v0: u64, pub v1: u64, pub v2: u64, pub v3: u64,

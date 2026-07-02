@@ -106,7 +106,7 @@ fn main() -> i32 {
         }
     }
 
-    // ── JOIN ──────────────────────────────────────────────────────────────
+    // ── JOIN (one step → RQJoinStepArr of 1) ──────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from a x join b y on x.k == y.k select x.name : str";
@@ -119,21 +119,71 @@ fn main() -> i32 {
                 if !str_eq(j.a_name, "a")   { return 22i32; }
                 if j.a_ty.len() != 0i64     { return 23i32; }   // handler-stamped, empty here
                 if !str_eq(j.x_var, "x")    { return 24i32; }
-                if j.is_anti                { return 25i32; }
-                if !str_eq(j.b_name, "b")   { return 26i32; }
-                if j.b_ty.len() != 0i64     { return 27i32; }   // handler-stamped, empty here
-                if !str_eq(j.y_var, "y")    { return 28i32; }
+                let steps: RQJoinStepArr = j.steps_arr();
+                if steps.len() != 1i64      { return 25i32; }
+                let s0: RQJoinStep = steps.step_at(0i64);
+                if s0.is_anti                 { return 26i32; }
+                if !str_eq(s0.src_name, "b")  { return 27i32; }   // handler stamps row_ty later
+                if !str_eq(s0.var_name, "y")  { return 28i32; }
                 if !str_eq(j.result_ty, "str") { return 29i32; }
                 if j.has_where              { return 30i32; }
 
                 // on:  x.k == y.k  → SBin(OP_EQ, …).
-                let oe: SExpr = j.on_expr();
+                let oe: SExpr = s0.on_expr();
                 match oe {
                     SExpr::Bin(b) => { if b.op != 3i32 { return 31i32; } }   // OP_EQ
                     _ => { return 32i32; }
                 }
             }
             _ => { return 33i32; }
+        }
+    }
+
+    // ── JOIN CHAIN (N-way: two steps, second anti) ────────────────────────
+    {
+        let h: Writ = writ_new(8192i64);
+        let src: str = "from a x join b y on x.k == y.k anti join c z on y.j == z.j select x.name : str";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 100i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Join(j) => {
+                if !str_eq(j.a_name, "a") { return 101i32; }
+                let steps: RQJoinStepArr = j.steps_arr();
+                if steps.len() != 2i64    { return 102i32; }
+                let s0: RQJoinStep = steps.step_at(0i64);
+                if s0.is_anti                { return 103i32; }
+                if !str_eq(s0.src_name, "b") { return 104i32; }
+                if !str_eq(s0.var_name, "y") { return 105i32; }
+                let s1: RQJoinStep = steps.step_at(1i64);
+                if !s1.is_anti               { return 106i32; }
+                if !str_eq(s1.src_name, "c") { return 107i32; }
+                if !str_eq(s1.var_name, "z") { return 108i32; }
+                // Each step's on-pred is an OP_EQ SBin.
+                match s1.on_expr() {
+                    SExpr::Bin(b) => { if b.op != 3i32 { return 109i32; } }
+                    _ => { return 110i32; }
+                }
+            }
+            _ => { return 111i32; }
+        }
+    }
+
+    // ── AGGREGATE over a JOINED stream (join_steps? on the aggr shape) ────
+    {
+        let h: Writ = writ_new(8192i64);
+        let src: str = "from o r join d q on r.dept == q.id group by q.region aggregate total = sum(r.amt) select total : i64";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 120i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Aggr(g) => {
+                if !g.has_steps()  { return 121i32; }
+                let steps: RQJoinStepArr = g.steps_arr();
+                if steps.len() != 1i64 { return 122i32; }
+                if !str_eq(steps.step_at(0i64).src_name, "d") { return 123i32; }
+            }
+            _ => { return 124i32; }
         }
     }
 
@@ -183,7 +233,7 @@ fn main() -> i32 {
         }
     }
 
-    // ── ANTI-JOIN + `where` (ordered-choice + is_anti flag) ───────────────
+    // ── ANTI-JOIN + `where` (ordered-choice + per-step is_anti flag) ──────
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from a x anti join b y on x.k == y.k where x.ok select x.name : str";
@@ -192,7 +242,7 @@ fn main() -> i32 {
         let plan: RQuery = root.view::<RQuery>();
         match plan {
             RQuery::Join(j) => {
-                if !j.is_anti  { return 61i32; }
+                if !j.steps_arr().step_at(0i64).is_anti { return 61i32; }
                 if !j.has_where { return 62i32; }
                 // where x.ok → SField(ok).
                 let we: SExpr = j.where_expr();

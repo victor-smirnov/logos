@@ -115,6 +115,10 @@ fn wrap_fat_find(node: WAny, h: &Writ) -> RQFind {
     let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
     return unsafe { *(&hh as *const WSchemaH as *const RQFind) };
 }
+fn wrap_fat_step(node: WAny, h: &Writ) -> RQJoinStep {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQJoinStep) };
+}
 
 // Resolve a `from`/`join` SOURCE ident against the wql!(…) param list: it MUST
 // name a SLICE param (`<src>: &[RowTy]`); the row type is the slice ELEMENT
@@ -140,6 +144,43 @@ fn source_row_ty(prm: &MacroParams, src: str) -> str {
     return "";
 }
 
+// Stamp the row TYPES onto a join-step fan-out (each step's src must name a
+// slice param) and check ROW-VAR UNIQUENESS across the whole chain: the base
+// var + every step var must be pairwise distinct (each becomes a `let` binding
+// in one loop nest; anti vars included — they bind inside their own `on` scope
+// but share the generated-name space). Returns false with the error surfaced.
+fn stamp_join_steps(steps: RQJoinStepArr, base_var: str,
+                    prm: &MacroParams, h: &Writ) -> bool {
+    let n: i64 = steps.len();
+    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    vars[0] = base_var;
+    let mut nv: i64 = 1i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let st: RQJoinStep = wrap_fat_step(steps.step_any(i), h);
+        let rt: str = source_row_ty(prm, st.src_name);
+        if rt.len() == 0i64 { return false; }
+        st.row_ty = rt;
+        // Uniqueness against every var bound so far.
+        let v: str = st.var_name;
+        let mut k: i64 = 0i64;
+        while k < nv {
+            if str_eq(vars[k], v) {
+                let mut m: String = String::new();
+                m.push_str("wql!: duplicate row variable `");
+                m.push_str(v);
+                m.push_str("` in the join chain — every `from`/`join` row var must be unique");
+                error(string_as_str(&m));
+                return false;
+            }
+            k = k + 1i64;
+        }
+        if nv < 9i64 { vars[nv] = v; nv = nv + 1i64; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
 // Stamp the generated-fn NAME + the source ROW TYPES onto the plan root, then
 // walk. The name comes from the enclosing `resource <name> = wql!(…){ … }`
 // binding; the row types come from the SLICE params (the grammar no longer
@@ -163,9 +204,9 @@ pub fn walk_query_params(root: WAny, name: str, params_text: str,
             let at: str = source_row_ty(prm, j.a_name);
             if at.len() == 0i64 { return false; }
             j.a_ty = at;
-            let bt: str = source_row_ty(prm, j.b_name);
-            if bt.len() == 0i64 { return false; }
-            j.b_ty = bt;
+            // Stamp every step's row_ty + validate the var set (unique names,
+            // every step src a slice param).
+            if !stamp_join_steps(j.steps_arr(), j.x_var, prm, h) { return false; }
         }
         RQuery::Aggr(_) => {
             let g: RQAggr = wrap_fat_aggr(root, h);
@@ -173,6 +214,10 @@ pub fn walk_query_params(root: WAny, name: str, params_text: str,
             let at2: str = source_row_ty(prm, g.a_name);
             if at2.len() == 0i64 { return false; }
             g.a_ty = at2;
+            // Optional join steps — the aggregate over a JOINED stream.
+            if g.has_steps() {
+                if !stamp_join_steps(g.steps_arr(), g.x_var, prm, h) { return false; }
+            }
         }
         RQuery::Find(_) => {
             let f: RQFind = wrap_fat_find(root, h);

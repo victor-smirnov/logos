@@ -20,6 +20,16 @@ use logos.std.wql.ir;
 use logos.std.wql.el;          // ElTypes, EL_TY_*, OP_*
 use logos.mem.string;
 use logos.lang.str;
+// The join-strategy containers the emitted chunks `use` (hashmap / set /
+// btree). A CHUNK can only import modules already in the compile's transitive
+// load closure — the module loader follows `use`-deps from the ENTRY file, and
+// late-appended metaprog chunks cannot pull new archives. Importing them HERE
+// (begin_chunk's owner) guarantees every wql!-consuming compile has them
+// loaded. hashmap is also a real dependency of the generated parsers; set and
+// btree exist in emitted text only.
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
 
 // ── Chunk prologue (shared by all wql!/trama! emitters) ───────────────────
 // A generated-code chunk is a SEPARATE AST doc: it does NOT inherit the
@@ -32,8 +42,11 @@ use logos.lang.str;
 pub fn begin_chunk(em: &mut Emitter, view: &OView) {
     em.emit_target_pkg(view);
     // logos.lang.option covers the single-row query modes (`select first` /
-    // `find` return Option<E> / Option<&Row>).
+    // `find` return Option<E> / Option<&Row>). hashmap/set/btree cover the
+    // join-strategy tiers (hash join buckets / anti-join key sets / tree join)
+    // — a chunk is a SEPARATE AST and needs its own use-decls.
     em.push_text("use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option; ");
+    em.push_text("use logos.mem.collections.hashmap; use logos.mem.collections.set; use logos.mem.collections.btree; ");
 }
 
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────

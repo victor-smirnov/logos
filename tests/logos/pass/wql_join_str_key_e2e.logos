@@ -1,0 +1,47 @@
+// WQL — str JOIN KEY e2e: str has Hash (content FNV-1a — stdlib
+// logos.lang.hash) + Eq (byte equality), so a `e.city == d.city` equi-term
+// selects the HASH tier with a HashMap<str, Vec<i64>> — borrowed `str` keys
+// (row-field views into the caller's slices, which outlive the per-call map).
+// Covers the anti tier over str keys too (HashSet<str> absence test).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub city: str, pub salary: i64 }
+struct Hub  { pub city: str, pub code: i64 }
+
+resource hub_sal = wql!(emps: &[Emp], hubs: &[Hub]) {
+    from emps e
+    join hubs h on e.city == h.city
+    select e.salary + h.code };
+
+resource remote_sal = wql!(emps: &[Emp], hubs: &[Hub]) {
+    from emps e
+    anti join hubs h on e.city == h.city
+    select e.salary };
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { city: "kyiv",   salary: 50i64 },
+        Emp { city: "lviv",   salary: 60i64 },
+        Emp { city: "kyiv",   salary: 70i64 },
+        Emp { city: "odesa",  salary: 99i64 },
+    ];
+    let hubs: [Hub; 2] = [
+        Hub { city: "kyiv", code: 1i64 },
+        Hub { city: "lviv", code: 2i64 },
+    ];
+
+    let s: Vec<i64> = hub_sal(&emps[..], &hubs[..]);
+    if s.len() != 3i64      { return 1i32; }
+    if s.get(0i64) != 51i64 { return 2i32; }
+    if s.get(1i64) != 62i64 { return 3i32; }
+    if s.get(2i64) != 71i64 { return 4i32; }
+
+    // Anti over the str key: only the hub-less city remains.
+    let r: Vec<i64> = remote_sal(&emps[..], &hubs[..]);
+    if r.len() != 1i64      { return 5i32; }
+    if r.get(0i64) != 99i64 { return 6i32; }
+    return 0i32;
+}

@@ -1,0 +1,68 @@
+// WQL — SELECT-TAIL MODIFIERS over a 3-WAY JOIN CHAIN: order by (+desc),
+// limit, and `select first` all compose over the joined stream — the sort
+// phase materializes ONE row-index Vec per BOUND source (__ix0/__ix1/__ix2)
+// plus the key column, insertion-sorts the tuple permutation, and re-binds
+// every row var in the output loop; `first` returns Option<E> (head of the
+// sorted order); `limit` caps the projected output.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct Emp  { pub dept: i64, pub salary: i64 }
+struct Dept { pub id: i64,   pub region: i64 }
+struct Reg  { pub rid: i64,  pub bonus: i64 }
+
+// order by the joined total, descending, capped at 2.
+resource top2 = wql!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+    from emps e
+    join depts d on e.dept == d.id
+    join regs r on d.region == r.rid
+    select e.salary + r.bonus order by e.salary + r.bonus desc limit 2 };
+
+// `select first` over the same chain with an ascending order → the MINIMUM.
+resource least = wql!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+    from emps e
+    join depts d on e.dept == d.id
+    join regs r on d.region == r.rid
+    select first e.salary + r.bonus order by e.salary + r.bonus };
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { dept: 1i64, salary: 50i64 },   // → 55
+        Emp { dept: 2i64, salary: 60i64 },   // → 69
+        Emp { dept: 1i64, salary: 70i64 },   // → 75
+        Emp { dept: 9i64, salary: 99i64 },   // dropped (no dept)
+    ];
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, region: 10i64 },
+        Dept { id: 2i64, region: 30i64 },
+    ];
+    let regs: [Reg; 2] = [
+        Reg { rid: 10i64, bonus: 5i64 },
+        Reg { rid: 30i64, bonus: 9i64 },
+    ];
+
+    // Joined totals {55, 69, 75} → desc order [75, 69, 55] → limit 2.
+    let t: Vec<i64> = top2(&emps[..], &depts[..], &regs[..]);
+    if t.len() != 2i64      { return 1i32; }
+    if t.get(0i64) != 75i64 { return 2i32; }
+    if t.get(1i64) != 69i64 { return 3i32; }
+
+    // first + asc order → 55.
+    let m: Option<i64> = least(&emps[..], &depts[..], &regs[..]);
+    match m {
+        Option::Some(v) => { if v != 55i64 { return 4i32; } }
+        Option::None    => { return 5i32; }
+    }
+
+    // Empty base → first yields None.
+    let none: [Emp; 0] = [];
+    let m0: Option<i64> = least(&none[..], &depts[..], &regs[..]);
+    match m0 {
+        Option::Some(_) => { return 6i32; }
+        Option::None    => { }
+    }
+    return 0i32;
+}

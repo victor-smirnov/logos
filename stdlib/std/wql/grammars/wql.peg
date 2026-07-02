@@ -22,11 +22,15 @@
 //
 //   RQSimple — from src var [where P]
 //              select [first|distinct] S [order by O [desc]] [limit N|p] [: RTy]
-//   RQJoin   — from a x [anti] join b y on ON [where P]
+//   RQJoin   — from a x ( [anti] join b y on ON )+ [where P]
 //              select [first|distinct] S [order by O [desc]] [limit N|p] [: RTy]
-//   RQAggr   — from a x [where P] group by K
+//              (N-WAY CHAIN: each `[anti] join <src> <var> on <pred>` step is
+//              one RQJoinStep in the RQJoinStepArr fan-out; a step's on-pred
+//              may reference every var bound so far + scalar params)
+//   RQAggr   — from a x ( [anti] join b y on ON )* [where P] group by K
 //              aggregate name=fn(arg?),… [having H]
 //              select [first|distinct] S [order by O [desc]] [limit N|p] [: RTy]
+//              (join steps OPTIONAL — aggregate over the joined stream)
 //   RQFind   — from src var find P              (NO other clause — single-row
 //              borrow: the generated fn returns Option<&Ty>, the first matching row)
 //
@@ -118,8 +122,8 @@
                has_result_ty: "bool", result_ty: "str" }
 
     RQJoin   { a_name: "str", x_var: "str",
-               is_anti: "bool", b_name: "str", y_var: "str",
-               on: "ref SExpr", has_where: "bool", where_pred: "ref SExpr",
+               steps: "ref RQJoinStepArr",
+               has_where: "bool", where_pred: "ref SExpr",
                sel_first: "bool", distinct: "bool", select: "ref SExpr",
                has_order: "bool", order_key: "ref SExpr", order_desc: "bool",
                has_limit: "bool", limit_n: "i64",
@@ -127,6 +131,7 @@
                has_result_ty: "bool", result_ty: "str" }
 
     RQAggr   { a_name: "str", x_var: "str",
+               steps: "ref RQJoinStepArr",
                has_where: "bool", where_pred: "ref SExpr", key: "ref SExpr",
                aggs: "ref RQAggArr",
                has_having: "bool", having_pred: "ref SExpr",
@@ -141,6 +146,9 @@
 
     RQAgg      { name: "str", fn_name: "str", arg: "ref SExpr", has_arg: "bool" }
     RQAggArr   { aggs: "fan set_agg RQAGG_MAX" }
+
+    RQJoinStep    { is_anti: "bool", src_name: "str", var_name: "str", on: "ref SExpr" }
+    RQJoinStepArr { steps: "fan set_step RQJSTEP_MAX" }
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────
@@ -226,43 +234,44 @@
                   => { CODE: "RQFind", src_name: $2,
                        var_name: $3, pred: $5 }
 
-    // ── RQJoin ────────────────────────────────────────────────────────────
-    //   from a x [anti] join b y on ON [where P]
+    // ── RQJoin — N-way join CHAIN ─────────────────────────────────────────
+    //   from a x ( [anti] join b y on ON )+ [where P]
     //   select [first] [distinct] S [order by O [desc]] [limit N|p] [: RTy]
     //   $1=KW_FROM $2=IDENT(a) $3=IDENT(x)
-    //   $4=anti? $5=KW_JOIN $6=IDENT(b) $7=IDENT(y) $8=KW_ON $9=on_body
-    //   $10=where_opt? $11=KW_SELECT $12=KW_FIRST? $13=KW_DISTINCT? $14=sel_body
-    //   $15=order_clause? $16=KW_DESC? $17=KW_LIMIT? $18=IDENT(limit-param)? $19=INTEGER?
-    //   $20=result_opt?
+    //   $4=join_steps (RQJoinStepArr fan-out, ≥1 step)
+    //   $5=where_opt? $6=KW_SELECT $7=KW_FIRST? $8=KW_DISTINCT? $9=sel_body
+    //   $10=order_clause? $11=KW_DESC? $12=KW_LIMIT? $13=IDENT(limit-param)? $14=INTEGER?
+    //   $15=result_opt?
     join_query <- KW_FROM IDENT IDENT
-                  KW_ANTI? KW_JOIN IDENT IDENT
-                  KW_ON on_body
+                  join_steps
                   where_clause?
                   KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
                   order_clause? KW_DESC?
                   KW_LIMIT? IDENT? INTEGER?
                   result_clause?
                   => { CODE: "RQJoin", a_name: $2, x_var: $3,
-                       is_anti: $4, b_name: $6, y_var: $7,
-                       on: $9, has_where: $10, where_pred: $10,
-                       sel_first: $12, distinct: $13, select: $14,
-                       has_order: $15, order_key: $15, order_desc: $16,
-                       has_limit: $17, limit_is_param: $18, limit_param: $18,
-                       limit_n: $19,
-                       has_result_ty: $20, result_ty: $20 }
+                       steps: $4, has_where: $5, where_pred: $5,
+                       sel_first: $7, distinct: $8, select: $9,
+                       has_order: $10, order_key: $10, order_desc: $11,
+                       has_limit: $12, limit_is_param: $13, limit_param: $13,
+                       limit_n: $14,
+                       has_result_ty: $15, result_ty: $15 }
 
     // ── RQAggr ────────────────────────────────────────────────────────────
-    //   from a x [where P] group by K aggregate a=fn(e),… [having H]
+    //   from a x ( [anti] join b y on ON )* [where P] group by K
+    //   aggregate a=fn(e),… [having H]
     //   select [first] [distinct] S [order by O [desc]] [limit N|p] [: RTy]
     //   (`first` PARSES here for a clear diagnostic, but the walker REJECTS it —
-    //   group-by emission is multi-row by construction.)
-    //   $1=KW_FROM $2=IDENT(a) $3=IDENT(x)
-    //   $4=where_opt? $5=KW_GROUP $6=KW_BY $7=key_body
-    //   $8=KW_AGGREGATE $9=agg_list $10=having_clause?
-    //   $11=KW_SELECT $12=KW_FIRST? $13=KW_DISTINCT? $14=sel_body
-    //   $15=order_clause? $16=KW_DESC? $17=KW_LIMIT? $18=IDENT(limit-param)? $19=INTEGER?
-    //   $20=result_opt?
+    //   group-by emission is multi-row by construction. `join_steps?` OPT: the
+    //   steps edge is NULL when the aggregate ranges over a single source.)
+    //   $1=KW_FROM $2=IDENT(a) $3=IDENT(x) $4=join_steps?
+    //   $5=where_opt? $6=KW_GROUP $7=KW_BY $8=key_body
+    //   $9=KW_AGGREGATE $10=agg_list $11=having_clause?
+    //   $12=KW_SELECT $13=KW_FIRST? $14=KW_DISTINCT? $15=sel_body
+    //   $16=order_clause? $17=KW_DESC? $18=KW_LIMIT? $19=IDENT(limit-param)? $20=INTEGER?
+    //   $21=result_opt?
     aggr_query <- KW_FROM IDENT IDENT
+                  join_steps?
                   where_clause?
                   KW_GROUP KW_BY key_body
                   KW_AGGREGATE agg_list
@@ -272,14 +281,28 @@
                   KW_LIMIT? IDENT? INTEGER?
                   result_clause?
                   => { CODE: "RQAggr", a_name: $2, x_var: $3,
-                       has_where: $4, where_pred: $4,
-                       key: $7, aggs: $9,
-                       has_having: $10, having_pred: $10,
-                       sel_first: $12, distinct: $13, select: $14,
-                       has_order: $15, order_key: $15, order_desc: $16,
-                       has_limit: $17, limit_is_param: $18, limit_param: $18,
-                       limit_n: $19,
-                       has_result_ty: $20, result_ty: $20 }
+                       steps: $4,
+                       has_where: $5, where_pred: $5,
+                       key: $8, aggs: $10,
+                       has_having: $11, having_pred: $11,
+                       sel_first: $13, distinct: $14, select: $15,
+                       has_order: $16, order_key: $16, order_desc: $17,
+                       has_limit: $18, limit_is_param: $19, limit_param: $19,
+                       limit_n: $20,
+                       has_result_ty: $21, result_ty: $21 }
+
+    // ── Join steps (shared by join_query / aggr_query) ────────────────────
+    // ONE `[anti] join <src> <var> on <pred>` step → an RQJoinStep node.
+    //   $1=KW_ANTI? $2=KW_JOIN $3=IDENT(src) $4=IDENT(var) $5=KW_ON $6=on_body
+    // `row_ty` is handler-stamped (slice-param element type), like RQSimple.
+    join_step  <- KW_ANTI? KW_JOIN IDENT IDENT
+                  KW_ON on_body
+                  => { CODE: "RQJoinStep", is_anti: $1, src_name: $3,
+                       var_name: $4, on: $6 }
+
+    // The step list (≥ 1) → RQJoinStepArr fan-out (the agg_list pattern; every
+    // capture is a join_step node, so `$...` collects exactly the steps).
+    join_steps <- join_step join_step* => { CODE: "RQJoinStepArr", steps: $... }
 
     // ── Shared sub-rules ───────────────────────────────────────────────────
     // `where P` — the value is the predicate SExpr ($2, past the KW_WHERE token).

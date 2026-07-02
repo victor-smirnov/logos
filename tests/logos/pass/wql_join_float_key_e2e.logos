@@ -1,0 +1,66 @@
+// WQL — f64 JOIN KEY e2e: the capability cascade demotes an f64 equi-key to
+// the NESTED-LOOP tier (f64 is PartialEq-only: NaN breaks the Hash key
+// contract AND total Ord), emitting `==` on the key inside a plain loop —
+// trace line `// join strategy: step 1 = nested loop (f64 key: …)`.
+// The float-keyed query must produce the SAME results as the equivalent
+// int-keyed hash-tier query over mirrored data.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct FEmp  { pub dept: f64, pub salary: i64 }
+struct FDept { pub id: f64,   pub budget: i64 }
+struct IEmp  { pub dept: i64, pub salary: i64 }
+struct IDept { pub id: i64,   pub budget: i64 }
+
+// f64 key → nested-loop tier.
+resource f_sal = wql!(emps: &[FEmp], depts: &[FDept]) {
+    from emps e
+    join depts d on e.dept == d.id
+    where d.budget > 100
+    select e.salary };
+
+// The SAME query over i64 keys → hash tier (the results oracle).
+resource i_sal = wql!(emps: &[IEmp], depts: &[IDept]) {
+    from emps e
+    join depts d on e.dept == d.id
+    where d.budget > 100
+    select e.salary };
+
+fn main() -> i32 {
+    let femps: [FEmp; 4] = [
+        FEmp { dept: 1.5f64, salary: 50i64 },
+        FEmp { dept: 2.5f64, salary: 60i64 },
+        FEmp { dept: 1.5f64, salary: 70i64 },
+        FEmp { dept: 9.5f64, salary: 99i64 },
+    ];
+    let fdepts: [FDept; 2] = [
+        FDept { id: 1.5f64, budget: 200i64 },
+        FDept { id: 2.5f64, budget: 80i64  },
+    ];
+    let iemps: [IEmp; 4] = [
+        IEmp { dept: 1i64, salary: 50i64 },
+        IEmp { dept: 2i64, salary: 60i64 },
+        IEmp { dept: 1i64, salary: 70i64 },
+        IEmp { dept: 9i64, salary: 99i64 },
+    ];
+    let idepts: [IDept; 2] = [
+        IDept { id: 1i64, budget: 200i64 },
+        IDept { id: 2i64, budget: 80i64  },
+    ];
+
+    let f: Vec<i64> = f_sal(&femps[..], &fdepts[..]);
+    let i: Vec<i64> = i_sal(&iemps[..], &idepts[..]);
+    // Same cardinality, same values, same order — tier-independent semantics.
+    if f.len() != i.len() { return 1i32; }
+    let mut k: i64 = 0i64;
+    while k < f.len() {
+        if f.get(k) != i.get(k) { return 2i32; }
+        k = k + 1i64;
+    }
+    if f.len() != 2i64      { return 3i32; }
+    if f.get(0i64) != 50i64 { return 4i32; }
+    if f.get(1i64) != 70i64 { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,59 @@
+// WQL — GROUP BY / AGGREGATE over a JOINED stream (the aggregate shape with
+// join steps): `from o r join d q on … group by q.region aggregate …` folds
+// each joined row into its group in a SINGLE PASS (count/sum/min/max/avg all
+// incremental; avg = f64 sum + count divided at finalization), then the
+// group-row output phase applies having / order / limit / project exactly as
+// the single-source shape does. The join steps use the same strategy cascade
+// (hash tier here).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Order { pub dept: i64, pub amt: i64 }
+struct Dept  { pub id: i64,   pub region: i64 }
+
+// Region totals over the joined (order, dept) stream.
+resource region_totals = wql!(orders: &[Order], depts: &[Dept]) {
+    from orders o
+    join depts d on o.dept == d.id
+    group by d.region
+    aggregate total = sum(o.amt), n = count()
+    select key * 1000000i64 + total * 100i64 + n };
+
+// With having + order by over the group rows.
+resource big_regions = wql!(orders: &[Order], depts: &[Dept]) {
+    from orders o
+    join depts d on o.dept == d.id
+    group by d.region
+    aggregate total = sum(o.amt)
+    having total > 100
+    select key order by total desc };
+
+fn main() -> i32 {
+    let orders: [Order; 5] = [
+        Order { dept: 1i64, amt: 100i64 },   // dept 1 → region 10
+        Order { dept: 2i64, amt: 40i64  },   // dept 2 → region 10
+        Order { dept: 3i64, amt: 90i64  },   // dept 3 → region 20
+        Order { dept: 1i64, amt: 60i64  },   // dept 1 → region 10
+        Order { dept: 9i64, amt: 777i64 },   // no dept row → excluded
+    ];
+    let depts: [Dept; 3] = [
+        Dept { id: 1i64, region: 10i64 },
+        Dept { id: 2i64, region: 10i64 },
+        Dept { id: 3i64, region: 20i64 },
+    ];
+
+    // region 10: total 200, n 3 → 10*1e6 + 200*100 + 3 = 10020003
+    // region 20: total  90, n 1 → 20*1e6 +  90*100 + 1 = 20009001
+    let t: Vec<i64> = region_totals(&orders[..], &depts[..]);
+    if t.len() != 2i64            { return 1i32; }
+    if t.get(0i64) != 10020003i64 { return 2i32; }   // first-seen group order
+    if t.get(1i64) != 20009001i64 { return 3i32; }
+
+    // having total > 100 keeps only region 10 (200); order by total desc.
+    let b: Vec<i64> = big_regions(&orders[..], &depts[..]);
+    if b.len() != 1i64       { return 4i32; }
+    if b.get(0i64) != 10i64  { return 5i32; }
+    return 0i32;
+}

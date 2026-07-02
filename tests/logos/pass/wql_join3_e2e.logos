@@ -1,0 +1,47 @@
+// WQL — N-WAY JOIN CHAIN e2e (3 sources, int keys → HASH-JOIN strategy).
+// `from a x join b y on … join c z on …` folds left-deep into the binary
+// algebra (RJoin(RJoin(scan,scan),scan)); each step's equi-term `k == k`
+// selects the hash tier (i64 has Hash+Eq): the emitter builds a
+// HashMap<i64, Vec<i64>> row-index bucket over each joined source ONCE and
+// probes per bound row — visible as `// join strategy: step N = hash join`
+// under LOGOS_TRACE_EMIT=1. Results (values AND order) must equal the
+// nested-loop baseline: buckets hold row indices in scan order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub dept: i64, pub salary: i64 }
+struct Dept { pub id: i64,   pub region: i64 }
+struct Reg  { pub rid: i64,  pub bonus: i64 }
+
+// 3-way chain: emp → dept (e.dept == d.id) → region (d.region == r.rid);
+// project salary + region bonus.
+resource emp_bonus = wql!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+    from emps e
+    join depts d on e.dept == d.id
+    join regs r on d.region == r.rid
+    select e.salary + r.bonus };
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { dept: 1i64, salary: 50i64 },   // dept 1 → region 10 (bonus 5)  → 55
+        Emp { dept: 2i64, salary: 60i64 },   // dept 2 → region 20 (no reg)   → dropped
+        Emp { dept: 1i64, salary: 70i64 },   // dept 1 → region 10 (bonus 5)  → 75
+        Emp { dept: 9i64, salary: 99i64 },   // no dept                        → dropped
+    ];
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, region: 10i64 },
+        Dept { id: 2i64, region: 20i64 },
+    ];
+    let regs: [Reg; 2] = [
+        Reg { rid: 10i64, bonus: 5i64 },
+        Reg { rid: 30i64, bonus: 9i64 },
+    ];
+
+    let rows: Vec<i64> = emp_bonus(&emps[..], &depts[..], &regs[..]);
+    if rows.len() != 2i64      { return 1i32; }
+    if rows.get(0i64) != 55i64 { return 2i32; }   // source order preserved
+    if rows.get(1i64) != 75i64 { return 3i32; }
+    return 0i32;
+}

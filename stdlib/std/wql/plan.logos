@@ -8,8 +8,10 @@
 // source typing any more):
 //
 //   • RQSimple — `from src var [where P] select S [order/limit/…] [: RTy]`
-//   • RQJoin   — `… [anti] join b y on ON [where P] select S [: RTy]`
-//   • RQAggr   — `… [where P] group by K aggregate a=fn(e),… select S [: RTy]`
+//   • RQJoin   — `… ( [anti] join b y on ON )+ [where P] select S [: RTy]`
+//                (N-way chain: base + a fan-out of RQJoinStep nodes)
+//   • RQAggr   — `… ( [anti] join … )* [where P] group by K aggregate a=fn(e),…
+//                select S [: RTy]` (steps optional — aggregate over a joined stream)
 //   • RQFind   — `from src var find P` (single-row borrow — Option<&Ty>)
 //
 // Every plan node is a first-class Writ schema view (no plain Logos structs/enums
@@ -138,35 +140,107 @@ pub schema RQSimple : code(0x0012_0000_0000_0000) {
     sel_first:      bool          = 17,
 }
 
-// ── RQJoin — inner / anti nested-loop join over two sources ───────────────────
-//   from a x [anti] join b y on ON [where P] select S [: result_ty]
-// `has_result_ty` — false ⇒ INFER the result element type from `select` (both
-// source schemas are reflected, so a projection like `x.field`/`y.field` types).
-// `a_ty` / `b_ty` — stamped by the HANDLER from the slice params in wql!(…).
+// ── RQJoinStep — ONE `[anti] join <src> <var> on <pred>` step of a join chain ──
+// `src_name`/`var_name` — captured IDENTs (the source names a SLICE param; the
+// var is the step's row binding). `row_ty` — handler-stamped from the slice
+// param's element type (like RQSimple.row_ty). `is_anti` — per-step anti flag
+// (an anti step's var binds ONLY inside its own `on`; downstream clauses see
+// only the non-anti vars). `on` — the step predicate; it may reference ALL vars
+// bound so far (base + earlier non-anti steps) plus scalar params.
+pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
+    src_name: str          = 0,
+    var_name: str          = 1,
+    row_ty:   str          = 2,
+    is_anti:  bool         = 3,
+    on:       WRef<SExpr>  = 4,
+}
+
+impl RQJoinStep {
+    pub fn on_expr(self: &RQJoinStep) -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn as_ref(self: &RQJoinStep) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep
+// edges at fixed slots (the RQAggArr pattern). `count` = the chain length.
+pub schema RQJoinStepArr : code(0x0012_0000_0000_0013) {
+    count: i32              = 0,
+    s0: WRef<RQJoinStep> = 1,
+    s1: WRef<RQJoinStep> = 2,
+    s2: WRef<RQJoinStep> = 3,
+    s3: WRef<RQJoinStep> = 4,
+    s4: WRef<RQJoinStep> = 5,
+    s5: WRef<RQJoinStep> = 6,
+    s6: WRef<RQJoinStep> = 7,
+    s7: WRef<RQJoinStep> = 8,
+}
+
+pub fn RQJSTEP_MAX() -> i64 { return 8i64; }
+
+impl RQJoinStepArr {
+    pub fn len(self: &RQJoinStepArr) -> i64 { return self.count as i64; }
+
+    // The i-th step's raw edge handle (feeds the walker's allocator-carrying
+    // fat-view rewrap for the handler's row_ty stamp). The raw()/ref_to round
+    // trip launders the field-temp provenance (the WAny targets the step's TOM
+    // in the arena, which outlives the view — the as_ref idiom).
+    pub fn step_any(self: &RQJoinStepArr, i: i64) -> WAny {
+        if i == 0i64 { return WAny::ref_to(self.s0.any().raw() as *const u8); }
+        if i == 1i64 { return WAny::ref_to(self.s1.any().raw() as *const u8); }
+        if i == 2i64 { return WAny::ref_to(self.s2.any().raw() as *const u8); }
+        if i == 3i64 { return WAny::ref_to(self.s3.any().raw() as *const u8); }
+        if i == 4i64 { return WAny::ref_to(self.s4.any().raw() as *const u8); }
+        if i == 5i64 { return WAny::ref_to(self.s5.any().raw() as *const u8); }
+        if i == 6i64 { return WAny::ref_to(self.s6.any().raw() as *const u8); }
+        return WAny::ref_to(self.s7.any().raw() as *const u8);
+    }
+
+    pub fn step_at(self: &RQJoinStepArr, i: i64) -> RQJoinStep {
+        return self.step_any(i).view::<RQJoinStep>();
+    }
+
+    pub fn set_step(self: &mut RQJoinStepArr, i: i64, h: WAny) {
+        let r: WRef<RQJoinStep> = WRef::<RQJoinStep>::from_any(h);
+        if i == 0i64 { self.s0 = r; return; }
+        if i == 1i64 { self.s1 = r; return; }
+        if i == 2i64 { self.s2 = r; return; }
+        if i == 3i64 { self.s3 = r; return; }
+        if i == 4i64 { self.s4 = r; return; }
+        if i == 5i64 { self.s5 = r; return; }
+        if i == 6i64 { self.s6 = r; return; }
+        self.s7 = r;
+    }
+
+    pub fn set_len(self: &mut RQJoinStepArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQJoinStepArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// ── RQJoin — an N-way join CHAIN over a base source ───────────────────────────
+//   from a x ( [anti] join b y on ON )+ [where P] select S [: result_ty]
+// Base + steps: `a_name`/`a_ty`/`x_var` bind the base scan (a_ty handler-
+// stamped); `steps` is the RQJoinStep fan-out (≥ 1, grammar-enforced), each
+// step folded LEFT-DEEP onto the base by the lowering. `has_result_ty` — false
+// ⇒ INFER the result element type from `select` (every bound source schema is
+// reflected, so projections over any row var type).
 pub schema RQJoin : code(0x0012_0000_0000_0001) {
     fn_name:    str             = 0,
     a_name:     str             = 1,
     a_ty:       str             = 2,
     x_var:      str             = 3,
-    is_anti:    bool            = 4,
-    b_name:     str             = 5,
-    b_ty:       str             = 6,
-    y_var:      str             = 7,
-    on:         WRef<SExpr>     = 8,
-    has_where:  bool            = 9,
-    where_pred:      WRef<SExpr>     = 10,
-    select:     WRef<SExpr>     = 11,
-    has_result_ty: bool         = 12,
-    result_ty:  str             = 13,
-    distinct:       bool        = 14,
-    has_order:      bool        = 15,
-    order_key:      WRef<SExpr> = 16,
-    order_desc:     bool        = 17,
-    has_limit:      bool        = 18,
-    limit_n:        i64         = 19,
-    limit_is_param: bool        = 20,
-    limit_param:    str         = 21,
-    sel_first:      bool        = 22,
+    steps:      WRef<RQJoinStepArr> = 4,
+    has_where:  bool            = 5,
+    where_pred:      WRef<SExpr>     = 6,
+    select:     WRef<SExpr>     = 7,
+    has_result_ty: bool         = 8,
+    result_ty:  str             = 9,
+    distinct:       bool        = 10,
+    has_order:      bool        = 11,
+    order_key:      WRef<SExpr> = 12,
+    order_desc:     bool        = 13,
+    has_limit:      bool        = 14,
+    limit_n:        i64         = 15,
+    limit_is_param: bool        = 16,
+    limit_param:    str         = 17,
+    sel_first:      bool        = 18,
 }
 
 // ── RQAggr — group-by + aggregate ─────────────────────────────────────────────
@@ -176,6 +250,9 @@ pub schema RQJoin : code(0x0012_0000_0000_0001) {
 // `has_having`/`having_pred` — the aggregate-only `having H` clause: a filter
 // over the group rows (key + aggregate outputs), applied AFTER aggregation and
 // BEFORE order/project/distinct/limit. `a_ty` — handler-stamped (see RQSimple).
+// `steps` — an OPTIONAL RQJoinStep fan-out (null edge when absent): the
+// aggregate then ranges over the JOINED row stream (group key / where /
+// aggregate args may reference every bound row var).
 pub schema RQAggr : code(0x0012_0000_0000_0002) {
     fn_name:    str             = 0,
     a_name:     str             = 1,
@@ -199,6 +276,7 @@ pub schema RQAggr : code(0x0012_0000_0000_0002) {
     has_having:     bool        = 19,
     having_pred:    WRef<SExpr> = 20,
     sel_first:      bool        = 21,
+    steps:          WRef<RQJoinStepArr> = 22,
 }
 
 // ── RQFind — single-row borrow: `from src var find P` ─────────────────────────
@@ -236,7 +314,7 @@ impl RQSimple {
     pub fn order_expr(self: &RQSimple)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
 }
 impl RQJoin {
-    pub fn on_expr(self: &RQJoin)     -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn steps_arr(self: &RQJoin)   -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
     pub fn where_expr(self: &RQJoin)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
     pub fn select_expr(self: &RQJoin) -> SExpr { return self.select.any().view::<SExpr>(); }
     pub fn order_expr(self: &RQJoin)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
@@ -251,4 +329,7 @@ impl RQAggr {
     pub fn select_expr(self: &RQAggr) -> SExpr { return self.select.any().view::<SExpr>(); }
     pub fn order_expr(self: &RQAggr)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
     pub fn having_expr(self: &RQAggr) -> SExpr { return self.having_pred.any().view::<SExpr>(); }
+    // True iff the aggregate ranges over a JOINED stream (`steps` edge non-null).
+    pub fn has_steps(self: &RQAggr)   -> bool { return !self.steps.any().is_null(); }
+    pub fn steps_arr(self: &RQAggr)   -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
 }

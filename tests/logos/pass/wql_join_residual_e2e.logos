@@ -1,0 +1,50 @@
+// WQL — join-strategy RESIDUAL e2e: `on x.k == y.k && x.w > y.w` splits at
+// metacall time into the EQUI-TERM `x.k == y.k` (drives the i64 hash probe)
+// and the RESIDUAL `x.w > y.w` (a non-== term — checked per bucket hit).
+// Trace line: `// join strategy: step 1 = hash join (i64 key) + residual`.
+// Also covers the ANTI + residual tier (bucket scan, absent-or-all-fail).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub dept: i64, pub level: i64, pub salary: i64 }
+struct Dept { pub id: i64,   pub min_level: i64 }
+
+// Equi + inequality residual: match the dept AND out-rank its min level.
+resource senior = wql!(emps: &[Emp], depts: &[Dept]) {
+    from emps e
+    join depts d on e.dept == d.id && e.level > d.min_level
+    select e.salary };
+
+// ANTI with residual: keep employees with NO dept row they out-rank —
+// absent bucket (unknown dept) or all bucket rows failing the residual.
+resource unranked = wql!(emps: &[Emp], depts: &[Dept]) {
+    from emps e
+    anti join depts d on e.dept == d.id && e.level > d.min_level
+    select e.salary };
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { dept: 1i64, level: 5i64, salary: 50i64 },   // dept 1, 5 > 3 → senior
+        Emp { dept: 1i64, level: 2i64, salary: 60i64 },   // dept 1, 2 ≤ 3 → not
+        Emp { dept: 2i64, level: 9i64, salary: 70i64 },   // dept 2, 9 > 7 → senior
+        Emp { dept: 9i64, level: 9i64, salary: 99i64 },   // unknown dept  → not
+    ];
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, min_level: 3i64 },
+        Dept { id: 2i64, min_level: 7i64 },
+    ];
+
+    let s: Vec<i64> = senior(&emps[..], &depts[..]);
+    if s.len() != 2i64      { return 1i32; }
+    if s.get(0i64) != 50i64 { return 2i32; }
+    if s.get(1i64) != 70i64 { return 3i32; }
+
+    // Complement via the anti tier: exactly the non-senior salaries.
+    let u: Vec<i64> = unranked(&emps[..], &depts[..]);
+    if u.len() != 2i64      { return 4i32; }
+    if u.get(0i64) != 60i64 { return 5i32; }
+    if u.get(1i64) != 99i64 { return 6i32; }
+    return 0i32;
+}

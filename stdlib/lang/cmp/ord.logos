@@ -112,6 +112,17 @@ impl Ord for bool {
         return Ordering::Equal;
     }
 }
+// `str` orders byte-lexicographically (Rust parity: `Ord for str`). The native
+// `<`/`>` relationals already lower to the byte-lexicographic `str_cmp`, so
+// this trait impl just wraps them — it is what BTreeMap<str, V> (and any other
+// Ord-bounded container) needs.
+impl Ord for str {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if *self < *other { return Ordering::Less; }
+        if *self > *other { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
 
 // SL-sl-13: `.max(other)` / `.min(other)` / `.clamp(lo, hi)` on integer
 // primitives via inherent impl. Trait-default form (default body on Ord)

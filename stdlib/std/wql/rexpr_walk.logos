@@ -173,20 +173,35 @@ fn lower_simple(s: RQSimple, h: &Writ) -> WRef<RExpr> {
     return root;
 }
 
-// Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( RJoin|RAnti ) ), select ) ) ).
-fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
-    let left:  WRef<RExpr> = make_scan(h, j.a_name, j.a_ty, j.x_var);
-    let right: WRef<RExpr> = make_scan(h, j.b_name, j.b_ty, j.y_var);
-    let mut jn: WRef<RExpr> = null_rref();
-    if j.is_anti {
-        let n: RAnti = h.make::<RAnti>();
-        n.left = left; n.right = right; n.on = j.on;
-        jn = WRef::<RExpr>::from_any(n.as_ref());
-    } else {
-        let n: RJoin = h.make::<RJoin>();
-        n.left = left; n.right = right; n.on = j.on;
-        jn = WRef::<RExpr>::from_any(n.as_ref());
+// Fold a join-step fan-out LEFT-DEEP onto a base input: step k wraps the
+// accumulated tree in RJoin(acc, RScan_k, on_k) — or RAnti at an anti step —
+// so an N-way chain is ordinary composition of the EXISTING binary algebra:
+// RJoin(RJoin(RScan a, RScan b, on1), RScan c, on2). No new RExpr nodes.
+fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> WRef<RExpr> {
+    let mut cur: WRef<RExpr> = input0;
+    let ns: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < ns {
+        let st: RQJoinStep = steps.step_at(i);
+        let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
+        if st.is_anti {
+            let n: RAnti = h.make::<RAnti>();
+            n.left = cur; n.right = right; n.on = st.on;
+            cur = WRef::<RExpr>::from_any(n.as_ref());
+        } else {
+            let n: RJoin = h.make::<RJoin>();
+            n.left = cur; n.right = right; n.on = st.on;
+            cur = WRef::<RExpr>::from_any(n.as_ref());
+        }
+        i = i + 1i64;
     }
+    return cur;
+}
+
+// Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( join-chain ) ), select ) ) ).
+fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
+    let base: WRef<RExpr> = make_scan(h, j.a_name, j.a_ty, j.x_var);
+    let jn: WRef<RExpr> = fold_join_steps(base, j.steps_arr(), h);
     let mut input: WRef<RExpr> = jn;
     if j.has_where {
         input = make_filter(h, input, j.where_pred);
@@ -212,6 +227,11 @@ fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
 fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
     let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
     let mut input: WRef<RExpr> = scan;
+    // Optional join steps: the aggregate ranges over the JOINED stream (the
+    // same left-deep fold as the join shape; where filters ABOVE the chain).
+    if g.has_steps() {
+        input = fold_join_steps(input, g.steps_arr(), h);
+    }
     if g.has_where {
         input = make_filter(h, input, g.where_pred);
     }
@@ -470,18 +490,32 @@ fn emit_push_guarded(em: &mut Emitter, indent: str, val_ty: str, body: str, dist
 }
 
 // Emit the stable in-place insertion sort over the parallel (key, index) vecs
-// `__ks` + `__ix` (+ `__jx` for join pairs) — O(n²) MVP codegen (strict compare
-// keeps equal keys in source order = stable); `desc` flips the comparison.
-// str keys compare with the native `<`/`>` (sema lowers str relationals to
-// byte-lexicographic `str_cmp`).
-fn emit_sort_perm(em: &mut Emitter, key_ty: str, desc: bool, two_idx: bool) {
+// `__ks` + `__ix0`..`__ix{nidx-1}` (one index vec per BOUND source — 1 for a
+// simple/aggregate sort, 1 + non-anti steps for a join chain) — O(n²) MVP
+// codegen (strict compare keeps equal keys in source order = stable); `desc`
+// flips the comparison. str keys compare with the native `<`/`>` (sema lowers
+// str relationals to byte-lexicographic `str_cmp`).
+fn push_ixn(em: &mut Emitter, k: i64) {
+    let mut s: String = String::new();
+    s.push_str("__ix");
+    s.push_i64(k);
+    em.push_text(string_as_str(&s));
+}
+fn emit_sort_perm(em: &mut Emitter, key_ty: str, desc: bool, nidx: i64) {
     em.push_text("    let mut __a: i64 = 1i64;\n");
     em.push_text("    while __a < __ks.len() {\n");
     em.push_text("        let __kv: ");
     em.push_text(key_ty);
     em.push_text(" = __ks.get(__a);\n");
-    em.push_text("        let __iv: i64 = __ix.get(__a);\n");
-    if two_idx { em.push_text("        let __jv: i64 = __jx.get(__a);\n"); }
+    let mut k0: i64 = 0i64;
+    while k0 < nidx {
+        em.push_text("        let __iv");
+        { let mut s: String = String::new(); s.push_i64(k0); em.push_text(string_as_str(&s)); }
+        em.push_text(": i64 = ");
+        push_ixn(em, k0);
+        em.push_text(".get(__a);\n");
+        k0 = k0 + 1i64;
+    }
     em.push_text("        let mut __b: i64 = __a;\n");
     if desc {
         em.push_text("        while __b > 0i64 && __ks.get(__b - 1i64) < __kv {\n");
@@ -489,13 +523,27 @@ fn emit_sort_perm(em: &mut Emitter, key_ty: str, desc: bool, two_idx: bool) {
         em.push_text("        while __b > 0i64 && __ks.get(__b - 1i64) > __kv {\n");
     }
     em.push_text("            __ks.set(__b, __ks.get(__b - 1i64));\n");
-    em.push_text("            __ix.set(__b, __ix.get(__b - 1i64));\n");
-    if two_idx { em.push_text("            __jx.set(__b, __jx.get(__b - 1i64));\n"); }
+    let mut k1: i64 = 0i64;
+    while k1 < nidx {
+        em.push_text("            ");
+        push_ixn(em, k1);
+        em.push_text(".set(__b, ");
+        push_ixn(em, k1);
+        em.push_text(".get(__b - 1i64));\n");
+        k1 = k1 + 1i64;
+    }
     em.push_text("            __b = __b - 1i64;\n");
     em.push_text("        }\n");
     em.push_text("        __ks.set(__b, __kv);\n");
-    em.push_text("        __ix.set(__b, __iv);\n");
-    if two_idx { em.push_text("        __jx.set(__b, __jv);\n"); }
+    let mut k2: i64 = 0i64;
+    while k2 < nidx {
+        em.push_text("        ");
+        push_ixn(em, k2);
+        em.push_text(".set(__b, __iv");
+        { let mut s: String = String::new(); s.push_i64(k2); em.push_text(string_as_str(&s)); }
+        em.push_text(");\n");
+        k2 = k2 + 1i64;
+    }
     em.push_text("        __a = __a + 1i64;\n");
     em.push_text("    }\n");
 }
@@ -693,10 +741,10 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
             }
             let first: bool = sel_mode == SELM_FIRST();
             match body {
-                RExpr::Join(jn) => { return emit_join(jn.left_expr(), jn.right_expr(), jn.on, false,
+                RExpr::Join(jn) => { return emit_join_chain(jn.as_ref().view::<RExpr>(),
                                                       null_sref(), false, sel, mods,
                                                       fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
-                RExpr::Anti(an) => { return emit_join(an.left_expr(), an.right_expr(), an.on, true,
+                RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
                                                       null_sref(), false, sel, mods,
                                                       fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
                 RExpr::Aggr(ag) => {
@@ -711,10 +759,10 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                     // an aggregate (the HAVING filter over the group rows), or over a
                     // scan (simple with `where`).
                     match f.input_expr() {
-                        RExpr::Join(jn) => { return emit_join(jn.left_expr(), jn.right_expr(), jn.on, false,
+                        RExpr::Join(jn) => { return emit_join_chain(jn.as_ref().view::<RExpr>(),
                                                               f.pred, true, sel, mods,
                                                               fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
-                        RExpr::Anti(an) => { return emit_join(an.left_expr(), an.right_expr(), an.on, true,
+                        RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
                                                               f.pred, true, sel, mods,
                                                               fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
                         RExpr::Aggr(ag) => {
@@ -858,7 +906,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     }
     if mods.has_sort {
         // Phase 1: collect matching row indices + sort keys.
-        em.push_text("    let mut __ix: Vec<i64> = Vec::<i64>::new();\n");
+        em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
         em.push_text("    let mut __ks: Vec<");
         em.push_text(key_ty);
         em.push_text("> = Vec::<");
@@ -879,13 +927,13 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             em.push_text("        if ");
             em.push_text(string_as_str(&pred_body));
             em.push_text(" {\n");
-            em.push_text("            __ix.push(__i);\n");
+            em.push_text("            __ix0.push(__i);\n");
             em.push_text("            __ks.push(");
             em.push_text(string_as_str(&key_body));
             em.push_text(");\n");
             em.push_text("        }\n");
         } else {
-            em.push_text("        __ix.push(__i);\n");
+            em.push_text("        __ix0.push(__i);\n");
             em.push_text("        __ks.push(");
             em.push_text(string_as_str(&key_body));
             em.push_text(");\n");
@@ -893,17 +941,17 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         em.push_text("        __i = __i + 1i64;\n");
         em.push_text("    }\n");
         // Phase 2: stable insertion sort of the (key, index) permutation.
-        emit_sort_perm(&mut em, key_ty, mods.sort_desc, false);
+        emit_sort_perm(&mut em, key_ty, mods.sort_desc, 1i64);
         if first {
             // Phase 3 (single-row): project only the HEAD of the sorted order.
-            em.push_text("    if __ix.len() > 0i64 {\n");
+            em.push_text("    if __ix0.len() > 0i64 {\n");
             em.push_text("        let ");
             em.push_text(var_name);
             em.push_text(": &");
             em.push_text(row_ty);
             em.push_text(" = &(");
             em.push_text(src_name);
-            em.push_text(")[__ix.get(0i64)];\n");
+            em.push_text(")[__ix0.get(0i64)];\n");
             em.push_text("        return Option::Some(");
             em.push_text(string_as_str(&body));
             em.push_text(");\n");
@@ -911,7 +959,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         } else {
             // Phase 3: project in sorted order (distinct dedups; limit caps).
             em.push_text("    let mut __o: i64 = 0i64;\n");
-            em.push_text("    while __o < __ix.len()");
+            em.push_text("    while __o < __ix0.len()");
             em.push_text(string_as_str(&lim_cond));
             em.push_text(" {\n");
             em.push_text("        let ");
@@ -920,7 +968,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             em.push_text(row_ty);
             em.push_text(" = &(");
             em.push_text(src_name);
-            em.push_text(")[__ix.get(__o)];\n");
+            em.push_text(")[__ix0.get(__o)];\n");
             emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
             em.push_text("        __o = __o + 1i64;\n");
             em.push_text("    }\n");
@@ -1039,66 +1087,888 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     return true;
 }
 
-// ── emit_join — inner / anti nested-loop join (mirror walk_join) ──────────────
-// With an `order by` the matched row-index PAIRS (x-index + y-index; anti keeps
-// only the x-index) + their keys are materialized and insertion-sorted (stable,
-// O(n²) MVP codegen) before the projection loop; `distinct` dedups the projected
-// values; `limit` caps the output via the loop conditions.
-// `first` (SELM_FIRST) — single-row mode: `-> Option<E>`; without `order by` the
-// match site EARLY-RETURNS `Option::Some(proj)` (no Vec); with `order by` the
-// pair permutation is sorted first and only the HEAD pair is projected.
-fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
-             where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
-             mods: QMods,
-             fn_name: str, params_text: str, prm: &MacroParams,
-             result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
-    let ls: RScan = scan_of(left_e);
-    let rs: RScan = scan_of(right_e);
-    let a_name: str = ls.src_name;
-    let a_ty: str   = ls.row_ty;
-    let x_var: str  = ls.var_name;
-    let b_name: str = rs.src_name;
-    let b_ty: str   = rs.row_ty;
-    let y_var: str  = rs.var_name;
+// ══════════════════════════════════════════════════════════════════════════
+// JOIN CHAINS + the per-step JOIN-STRATEGY CASCADE (hash / tree / loop).
+// ══════════════════════════════════════════════════════════════════════════
+//
+// The lowered join body is a LEFT-DEEP tree of binary RJoin/RAnti nodes over
+// RScan leaves — `RJoin(RJoin(RScan a, RScan b, on1), RScan c, on2)`.
+// `collect_chain` linearizes it back to base + steps; the emitter walks the
+// steps LEFT-TO-RIGHT emitting one nested per-source probe/loop level each,
+// with ONE shared inner body (where-filter → sort collection / early-return
+// `first` / guarded distinct/limit push) at the innermost level — so every
+// select-tail modifier composes over joined rows exactly as it does over a
+// single source.
+//
+// Per step the on-predicate is analyzed at METACALL time (`analyze_step`):
+//   1. the top-level `&&` conjunction splits into terms;
+//   2. an EQUI-TERM is `<bound-side> == <new-side>` (either order) where one
+//      side references ONLY already-bound vars / scalar params (or consts)
+//      and the other ONLY the step's NEW row var. Everything else — non-`==`
+//      terms, same-side terms, mixed-type `==` (int vs float) — is RESIDUAL,
+//      checked after the probe. The FIRST usable equi-term supplies the key;
+//      any remaining equi-terms simply join the residual (COMPOSITE KEYS
+//      DEFERRED — one key column per step today);
+//   3. the key's EL value-type selects the strategy BY CAPABILITY
+//      (`join_key_caps` — the single seam a future structural-key version
+//      swaps for metaprog has_trait queries):
+//        Hash+Eq (i64/str/bool) → HASH — HashMap<K, Vec<i64>> (key → row
+//                                 indices) built ONCE over the new source,
+//                                 probed per bound-row; residual checked per
+//                                 bucket hit. anti + no residual → HashSet<K>
+//                                 absence test; anti + residual → bucket scan,
+//                                 absent-or-all-fail.
+//        Ord only               → TREE — the same shape over BTreeMap<K,
+//                                 Vec<i64>>. UNREACHABLE with today's scalar
+//                                 lattice (every Hash-able scalar is Ord and
+//                                 vice versa, except f64 which is neither);
+//                                 kept LIVE for future Ord-only key types.
+//        PartialEq only (f64)   → NESTED LOOP over the FULL predicate (NaN
+//                                 kills Hash and total Ord; `==` on the key
+//                                 is still meaningful).
+//        none                   → error() (unreachable today; the branch
+//                                 exists for future structural keys).
+//   No equi-term at all → nested loop on the full step predicate.
+//
+// Bucket payloads are row INDICES in scan order, so probe hits replay in
+// source order and the joined-row ordering matches the nested-loop baseline
+// exactly (order-sensitive e2e expectations are preserved).
 
+fn JS_HASH() -> i32 { return 1i32; }
+fn JS_TREE() -> i32 { return 2i32; }
+fn JS_LOOP() -> i32 { return 3i32; }
+
+// ── The key-capability table — THE selector seam ─────────────────────────────
+// ONE function maps an EL value-type to its {hash, ord, eq} capability row;
+// the strategy selector reads ONLY this. The future structural-key version
+// swaps the body for metaprog has_trait queries (Hash / Ord / PartialEq over
+// the key's schema type) without touching the selector logic.
+pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
+
+pub fn join_key_caps(el_ty: i32) -> KeyCaps {
+    // i64 / str / bool: Hash+Eq (also Ord — hash wins first in the cascade).
+    if el_ty == EL_TY_INT() || el_ty == EL_TY_STR() || el_ty == EL_TY_BOOL() {
+        return KeyCaps { hash: true, ord: true, eq: true };
+    }
+    // f64: PartialEq ONLY — NaN breaks the Hash key contract (NaN != NaN) and
+    // the total order Ord demands; == on the key is still meaningful.
+    if el_ty == EL_TY_FLT() {
+        return KeyCaps { hash: false, ord: false, eq: true };
+    }
+    return KeyCaps { hash: false, ord: false, eq: false };
+}
+
+// DEV toggle: force the TREE tier for Hash-capable keys — compiles + runs the
+// (today unreachable) Ord-only tier end-to-end during development. MUST stay
+// false in committed code.
+fn join_force_tree() -> bool { return false; }
+
+// ── Small emission helpers ───────────────────────────────────────────────────
+// Push `prefix` + decimal `k` — the generated-name spelling (`__pk3`, `__hm2`).
+fn push_nk(em: &mut Emitter, prefix: str, k: i64) {
+    let mut s: String = String::new();
+    s.push_str(prefix);
+    s.push_i64(k);
+    em.push_text(string_as_str(&s));
+}
+// Push `lvl` four-space indent units.
+fn push_ind(em: &mut Emitter, lvl: i64) {
+    let mut i: i64 = 0i64;
+    while i < lvl { em.push_text("    "); i = i + 1i64; }
+}
+// An indent STRING of `lvl` units (for helpers that take an indent str).
+fn ind_string(lvl: i64) -> String {
+    let mut s: String = String::new();
+    let mut i: i64 = 0i64;
+    while i < lvl { s.push_str("    "); i = i + 1i64; }
+    return s;
+}
+
+// ── JChain — the linearized join chain (base + steps) ────────────────────────
+struct JChain {
+    base_src: str,
+    base_ty:  str,
+    base_var: str,
+    n:    i64,
+    src:  [str; 8],
+    ty:   [str; 8],
+    var:  [str; 8],
+    anti: [bool; 8],
+    onw:  [i64; 8],     // raw arena words of the per-step on-pred edges
+}
+
+fn jchain_new() -> JChain {
+    return JChain { base_src: "", base_ty: "", base_var: "", n: 0i64,
+                    src:  ["", "", "", "", "", "", "", ""],
+                    ty:   ["", "", "", "", "", "", "", ""],
+                    var:  ["", "", "", "", "", "", "", ""],
+                    anti: [false; 8],
+                    onw:  [0i64; 8] };
+}
+
+// Walk the left spine of the binary join tree: the recursion bottoms out at
+// the base scan, then each unwind appends one step (source order preserved).
+fn collect_chain(e: RExpr, ch: &mut JChain) {
+    match e {
+        RExpr::Join(jn) => {
+            collect_chain(jn.left_expr(), ch);
+            let rs: RScan = scan_of(jn.right_expr());
+            if ch.n < 8i64 {
+                ch.src[ch.n] = rs.src_name;
+                ch.ty[ch.n]  = rs.row_ty;
+                ch.var[ch.n] = rs.var_name;
+                ch.anti[ch.n] = false;
+                ch.onw[ch.n]  = jn.on.any().raw();
+                ch.n = ch.n + 1i64;
+            }
+            return;
+        }
+        RExpr::Anti(an) => {
+            collect_chain(an.left_expr(), ch);
+            let rs: RScan = scan_of(an.right_expr());
+            if ch.n < 8i64 {
+                ch.src[ch.n] = rs.src_name;
+                ch.ty[ch.n]  = rs.row_ty;
+                ch.var[ch.n] = rs.var_name;
+                ch.anti[ch.n] = true;
+                ch.onw[ch.n]  = an.on.any().raw();
+                ch.n = ch.n + 1i64;
+            }
+            return;
+        }
+        _ => {
+            let sc: RScan = scan_of(e);
+            ch.base_src = sc.src_name;
+            ch.base_ty  = sc.row_ty;
+            ch.base_var = sc.var_name;
+        }
+    }
+}
+
+// ── Predicate decomposition (Part-2 analysis) ────────────────────────────────
+// Top-level `&&` conjunction terms, stored as raw arena words (WAny edges are
+// reconstructed on read — the provenance-laundering idiom).
+struct TermList { w: [i64; 16], n: i64 }
+
+fn term_list_new() -> TermList { return TermList { w: [0i64; 16], n: 0i64 }; }
+
+fn sexpr_of_word(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
+
+fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
+    let e: SExpr = e_ref.any().view::<SExpr>();
+    match e {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() {
+                split_and_terms(b.lhs, tl);
+                split_and_terms(b.rhs, tl);
+                return;
+            }
+        }
+        _ => { }
+    }
+    if tl.n < 16i64 {
+        tl.w[tl.n] = e_ref.any().raw();
+        tl.n = tl.n + 1i64;
+    }
+}
+
+// Name-usage mask of an expression: bit 1 — references the NEW step's row var;
+// bit 2 — references any OTHER name (an already-bound row var, a scalar param,
+// or an unknown ident — all "bound side" for classification). Literals add
+// nothing. Field STEPS (`x.k`) classify by their ROOT name.
+fn refs_mask(e: SExpr, new_var: str) -> i32 {
+    match e {
+        SExpr::Lit(_)   => { return 0i32; }
+        SExpr::Param(p) => { if str_eq(p.name, new_var) { return 1i32; } return 2i32; }
+        SExpr::Var(v)   => { if str_eq(v.name, new_var) { return 1i32; } return 2i32; }
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() {
+                if str_eq(f.name, new_var) { return 1i32; }
+                return 2i32;
+            }
+            return refs_mask(f.base_expr(), new_var);
+        }
+        SExpr::Bin(b)  => { return refs_mask(b.lhs_expr(), new_var) | refs_mask(b.rhs_expr(), new_var); }
+        SExpr::Un(u)   => { return refs_mask(u.arg_expr(), new_var); }
+        SExpr::Cond(c) => {
+            return refs_mask(c.cond_expr(), new_var)
+                 | refs_mask(c.then_expr(), new_var)
+                 | refs_mask(c.else_expr(), new_var);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut m: i32 = 0i32;
+            let mut i: i64 = 0i64;
+            while i < args.len() { m = m | refs_mask(args.arg_at(i), new_var); i = i + 1i64; }
+            return m;
+        }
+        SExpr::Comp(_) => { return 2i32; }   // ranges over a slice param — bound side
+    }
+}
+
+// The per-step strategy decision (POD; the emitted TEXT lands in the caller's
+// build/probe/resid/pred Strings).
+pub struct StepSel { pub strat: i32, pub key_ty: i32, pub has_equi: bool, pub has_resid: bool }
+
+// Analyze ONE step's on-predicate: simplify, split the conjunction, pick the
+// FIRST usable equi-term (same EL type on both sides), compose the residual,
+// and run the capability cascade. `pred` always receives the FULL simplified
+// predicate (the nested-loop tier's condition).
+fn analyze_step(on_ref: WRef<SExpr>, new_var: str, t: &ElTypes, var0: str, h: &Writ,
+                build: &mut String, probe: &mut String,
+                resid: &mut String, pred: &mut String) -> StepSel {
+    let on_opt: WRef<SExpr> = simplify_sexpr(on_ref.any().view::<SExpr>(), h);
+    emit_sexpr(pred, on_opt.any().view::<SExpr>(), t, var0);
+
+    let mut tl: TermList = term_list_new();
+    split_and_terms(on_opt, &mut tl);
+
+    let mut sel_i: i64 = -1i64;
+    let mut bw: i64 = 0i64;
+    let mut pw: i64 = 0i64;
+    let mut kt: i32 = EL_TY_INT();
+    let mut i: i64 = 0i64;
+    while i < tl.n {
+        if sel_i < 0i64 {
+            let te: SExpr = sexpr_of_word(tl.w[i]);
+            match te {
+                SExpr::Bin(b) => {
+                    if b.op == OP_EQ() {
+                        let lm: i32 = refs_mask(b.lhs_expr(), new_var);
+                        let rm: i32 = refs_mask(b.rhs_expr(), new_var);
+                        let mut cw: i64 = 0i64;
+                        let mut cp: i64 = 0i64;
+                        if lm == 1i32 && (rm & 1i32) == 0i32 { cw = b.lhs.any().raw(); cp = b.rhs.any().raw(); }
+                        if rm == 1i32 && (lm & 1i32) == 0i32 { cw = b.rhs.any().raw(); cp = b.lhs.any().raw(); }
+                        if cw != 0i64 {
+                            // Usable key ⇔ both sides infer to the SAME EL type
+                            // (no cross-type hashing through int→f64 promotion —
+                            // a mixed-type == stays residual).
+                            let kb: i32 = infer_ty(sexpr_of_word(cw), t);
+                            let kp: i32 = infer_ty(sexpr_of_word(cp), t);
+                            if kb == kp {
+                                sel_i = i;
+                                bw = cw;
+                                pw = cp;
+                                kt = kb;
+                            }
+                        }
+                    }
+                }
+                _ => { }
+            }
+        }
+        i = i + 1i64;
+    }
+
+    let mut ss: StepSel = StepSel { strat: JS_LOOP(), key_ty: kt, has_equi: false, has_resid: false };
+    if sel_i >= 0i64 {
+        ss.has_equi = true;
+        emit_sexpr(build, sexpr_of_word(bw), t, var0);
+        emit_sexpr(probe, sexpr_of_word(pw), t, var0);
+        // Residual = AND of every non-selected term (checked after the probe).
+        let mut k: i64 = 0i64;
+        let mut none_yet: bool = true;
+        while k < tl.n {
+            if k != sel_i {
+                if !none_yet { resid.push_str(" && "); }
+                resid.push_str("(");
+                emit_sexpr(resid, sexpr_of_word(tl.w[k]), t, var0);
+                resid.push_str(")");
+                none_yet = false;
+            }
+            k = k + 1i64;
+        }
+        ss.has_resid = !none_yet;
+        // THE CASCADE — by key capability.
+        let caps: KeyCaps = join_key_caps(kt);
+        if caps.hash && !join_force_tree() { ss.strat = JS_HASH(); }
+        else if caps.ord                   { ss.strat = JS_TREE(); }
+        else if caps.eq                    { ss.strat = JS_LOOP(); }
+        else {
+            error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
+        }
+    }
+    return ss;
+}
+
+// Analyze EVERY step of a chain into the caller's parallel arrays.
+fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
+                 st_build: &mut [String; 8], st_probe: &mut [String; 8],
+                 st_resid: &mut [String; 8], st_pred: &mut [String; 8],
+                 st_strat: &mut [i32; 8], st_ktn: &mut [str; 8],
+                 st_hasres: &mut [bool; 8], st_equi: &mut [bool; 8]) {
+    let mut i: i64 = 0i64;
+    while i < ch.n {
+        let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[i] as *const u8));
+        let ss: StepSel = analyze_step(onr, ch.var[i], t, var0, h,
+                                       &mut st_build[i], &mut st_probe[i],
+                                       &mut st_resid[i], &mut st_pred[i]);
+        st_strat[i]  = ss.strat;
+        st_ktn[i]    = el_ty_name(ss.key_ty);
+        st_hasres[i] = ss.has_resid;
+        st_equi[i]   = ss.has_equi;
+        i = i + 1i64;
+    }
+}
+
+// The `// join strategy: …` trace line (visible via LOGOS_TRACE_EMIT).
+fn emit_strategy_comment(em: &mut Emitter, s: i64, strat: i32, anti: bool,
+                         has_equi: bool, has_resid: bool, ktn: str) {
+    em.push_text("    // join strategy: step ");
+    { let mut t: String = String::new(); t.push_i64(s); em.push_text(string_as_str(&t)); }
+    em.push_text(" = ");
+    if strat == JS_HASH() {
+        em.push_text("hash join (");
+        em.push_text(ktn);
+        em.push_text(" key)");
+    } else if strat == JS_TREE() {
+        em.push_text("tree join (");
+        em.push_text(ktn);
+        em.push_text(" key, Ord-only tier)");
+    } else if has_equi {
+        em.push_text("nested loop (");
+        em.push_text(ktn);
+        em.push_text(" key: PartialEq only — NaN kills Hash and total Ord)");
+    } else {
+        em.push_text("nested loop (no equi-term)");
+    }
+    if has_resid { em.push_text(" + residual"); }
+    if anti { em.push_text(", anti"); }
+    em.push_text("\n");
+}
+
+// ── Build phase (once per hash/tree step, before the loop nest) ──────────────
+// Index the step's source by the NEW-side key: HashMap<K, Vec<i64>> (key → row
+// indices) — or HashSet<K> for anti-without-residual (pure absence test) — or
+// BTreeMap<K, Vec<i64>> on the (today unreachable) Ord-only tier. NOTE:
+// BTreeMap has no auto-Drop yet (btreemap_free is manual), so the tree index
+// leaks at fn exit — acceptable for the unreachable tier; revisit when a
+// real Ord-only key type lands.
+fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid: bool,
+                    ktn: str, src: str, ty: str, var: str, build_key: str) {
+    if strat == JS_LOOP() { return; }
+    let set_form: bool = strat == JS_HASH() && anti && !has_resid;
+    // Container + ONE raw pointer to it, taken at the declaration (the
+    // std_hashmap_full idiom): all build/probe access goes through the pointer,
+    // so the `&mut` borrow is taken exactly once — bc-clean across the fn.
+    if set_form {
+        em.push_text("    let mut ");
+        push_nk(em, "__hs", s);
+        em.push_text(": HashSet<");
+        em.push_text(ktn);
+        em.push_text("> = hashset_new::<");
+        em.push_text(ktn);
+        em.push_text(">();\n");
+        em.push_text("    let ");
+        push_nk(em, "__sp", s);
+        em.push_text(": *mut HashSet<");
+        em.push_text(ktn);
+        em.push_text("> = &mut ");
+        push_nk(em, "__hs", s);
+        em.push_text(";\n");
+    } else if strat == JS_HASH() {
+        em.push_text("    let mut ");
+        push_nk(em, "__hm", s);
+        em.push_text(": HashMap<");
+        em.push_text(ktn);
+        em.push_text(", Vec<i64>> = hashmap_new::<");
+        em.push_text(ktn);
+        em.push_text(", Vec<i64>>();\n");
+        em.push_text("    let ");
+        push_nk(em, "__mp", s);
+        em.push_text(": *mut HashMap<");
+        em.push_text(ktn);
+        em.push_text(", Vec<i64>> = &mut ");
+        push_nk(em, "__hm", s);
+        em.push_text(";\n");
+    } else {
+        em.push_text("    let mut ");
+        push_nk(em, "__bt", s);
+        em.push_text(": BTreeMap<");
+        em.push_text(ktn);
+        em.push_text(", Vec<i64>> = btreemap_new::<");
+        em.push_text(ktn);
+        em.push_text(", Vec<i64>>();\n");
+        em.push_text("    let ");
+        push_nk(em, "__tp", s);
+        em.push_text(": *mut BTreeMap<");
+        em.push_text(ktn);
+        em.push_text(", Vec<i64>> = &mut ");
+        push_nk(em, "__bt", s);
+        em.push_text(";\n");
+    }
+    em.push_text("    {\n        let mut ");
+    push_nk(em, "__b", s);
+    em.push_text(": i64 = 0i64;\n        while ");
+    push_nk(em, "__b", s);
+    em.push_text(" < (");
+    em.push_text(src);
+    em.push_text(").len() {\n            let ");
+    em.push_text(var);
+    em.push_text(": &");
+    em.push_text(ty);
+    em.push_text(" = &(");
+    em.push_text(src);
+    em.push_text(")[");
+    push_nk(em, "__b", s);
+    em.push_text("];\n            let ");
+    push_nk(em, "__k", s);
+    em.push_text(": ");
+    em.push_text(ktn);
+    em.push_text(" = (");
+    em.push_text(build_key);
+    em.push_text(");\n");
+    if set_form {
+        em.push_text("            unsafe { let _nb: bool = ");
+        push_nk(em, "__sp", s);
+        em.push_text(".insert(");
+        push_nk(em, "__k", s);
+        em.push_text("); }\n");
+    } else if strat == JS_HASH() {
+        em.push_text("            unsafe {\n                let ");
+        push_nk(em, "__vp", s);
+        em.push_text(": *mut Vec<i64> = ");
+        push_nk(em, "__mp", s);
+        em.push_text(".get_or_insert(");
+        push_nk(em, "__k", s);
+        em.push_text(", Vec::<i64>::new());\n                (&mut *");
+        push_nk(em, "__vp", s);
+        em.push_text(").push(");
+        push_nk(em, "__b", s);
+        em.push_text(");\n            }\n");
+    } else {
+        em.push_text("            unsafe {\n                let ");
+        push_nk(em, "__vp", s);
+        em.push_text(": *mut Vec<i64> = ");
+        push_nk(em, "__tp", s);
+        em.push_text(".get_mut(&");
+        push_nk(em, "__k", s);
+        em.push_text(");\n                if ");
+        push_nk(em, "__vp", s);
+        em.push_text(" == (0i64 as *mut Vec<i64>) {\n                    let mut ");
+        push_nk(em, "__nv", s);
+        em.push_text(": Vec<i64> = Vec::<i64>::new();\n                    ");
+        push_nk(em, "__nv", s);
+        em.push_text(".push(");
+        push_nk(em, "__b", s);
+        em.push_text(");\n                    ");
+        push_nk(em, "__tp", s);
+        em.push_text(".insert(");
+        push_nk(em, "__k", s);
+        em.push_text(", ");
+        push_nk(em, "__nv", s);
+        em.push_text(");\n                } else {\n                    (&mut *");
+        push_nk(em, "__vp", s);
+        em.push_text(").push(");
+        push_nk(em, "__b", s);
+        em.push_text(");\n                }\n            }\n");
+    }
+    em.push_text("            ");
+    push_nk(em, "__b", s);
+    em.push_text(" = ");
+    push_nk(em, "__b", s);
+    em.push_text(" + 1i64;\n        }\n    }\n");
+}
+
+// Emit the probe-side bucket LOOKUP through the once-taken container pointer.
+// TREE probes via `get_mut` (the *mut-receiver accessor) cast to *const — one
+// pointer serves build + probe, keeping the borrow single.
+fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str) {
+    push_ind(em, lvl);
+    if strat == JS_HASH() {
+        em.push_text("unsafe { ");
+        push_nk(em, "__bp", s);
+        em.push_text(" = ");
+        push_nk(em, "__mp", s);
+        em.push_text(".get(&");
+        push_nk(em, "__pk", s);
+        em.push_text("); }\n");
+    } else {
+        em.push_text("unsafe { ");
+        push_nk(em, "__bp", s);
+        em.push_text(" = ");
+        push_nk(em, "__tp", s);
+        em.push_text(".get_mut(&");
+        push_nk(em, "__pk", s);
+        em.push_text(") as *const Vec<i64>; }\n");
+    }
+}
+
+// ── One step of the nest: OPEN (emit loops/guards; return levels opened) ─────
+fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
+                  has_resid: bool, ktn: str, src: str, ty: str, var: str,
+                  probe_key: str, residual: str, pred: str, lim: str) -> i64 {
+    // The probe key (hash/tree tiers) — over the ALREADY-BOUND vars/params.
+    if strat != JS_LOOP() {
+        push_ind(em, lvl);
+        em.push_text("let ");
+        push_nk(em, "__pk", s);
+        em.push_text(": ");
+        em.push_text(ktn);
+        em.push_text(" = (");
+        em.push_text(probe_key);
+        em.push_text(");\n");
+    }
+    if anti {
+        // ANTI: compute the matched flag flat at `lvl`, then guard the nest
+        // with `if (!__m{s})` — ONE level opened; the step's var binds only
+        // inside its own probe/scan.
+        push_ind(em, lvl);
+        em.push_text("let mut ");
+        push_nk(em, "__m", s);
+        em.push_text(": bool = false;\n");
+        if strat == JS_LOOP() {
+            push_ind(em, lvl);
+            em.push_text("{\n");
+            push_ind(em, lvl + 1i64);
+            em.push_text("let mut ");
+            push_nk(em, "__j", s);
+            em.push_text(": i64 = 0i64;\n");
+            push_ind(em, lvl + 1i64);
+            em.push_text("while ");
+            push_nk(em, "__j", s);
+            em.push_text(" < (");
+            em.push_text(src);
+            em.push_text(").len() {\n");
+            push_ind(em, lvl + 2i64);
+            em.push_text("let ");
+            em.push_text(var);
+            em.push_text(": &");
+            em.push_text(ty);
+            em.push_text(" = &(");
+            em.push_text(src);
+            em.push_text(")[");
+            push_nk(em, "__j", s);
+            em.push_text("];\n");
+            push_ind(em, lvl + 2i64);
+            em.push_text("if (");
+            em.push_text(pred);
+            em.push_text(") { ");
+            push_nk(em, "__m", s);
+            em.push_text(" = true; }\n");
+            push_ind(em, lvl + 2i64);
+            push_nk(em, "__j", s);
+            em.push_text(" = ");
+            push_nk(em, "__j", s);
+            em.push_text(" + 1i64;\n");
+            push_ind(em, lvl + 1i64);
+            em.push_text("}\n");
+            push_ind(em, lvl);
+            em.push_text("}\n");
+        } else if !has_resid {
+            // Pure absence test: HashSet contains / BTreeMap keyed lookup
+            // (through the once-taken container pointer).
+            push_ind(em, lvl);
+            if strat == JS_HASH() {
+                em.push_text("unsafe { ");
+                push_nk(em, "__m", s);
+                em.push_text(" = ");
+                push_nk(em, "__sp", s);
+                em.push_text(".contains(&");
+                push_nk(em, "__pk", s);
+                em.push_text("); }\n");
+            } else {
+                em.push_text("unsafe { ");
+                push_nk(em, "__m", s);
+                em.push_text(" = ");
+                push_nk(em, "__tp", s);
+                em.push_text(".get_mut(&");
+                push_nk(em, "__pk", s);
+                em.push_text(") != (0i64 as *mut Vec<i64>); }\n");
+            }
+        } else {
+            // Bucket scan: matched ⇔ SOME bucket row passes the residual
+            // (absent bucket or all-fail ⇒ the anti row survives).
+            push_ind(em, lvl);
+            em.push_text("{\n");
+            push_ind(em, lvl + 1i64);
+            em.push_text("let mut ");
+            push_nk(em, "__bp", s);
+            em.push_text(": *const Vec<i64> = 0i64 as *const Vec<i64>;\n");
+            emit_bucket_lookup(em, lvl + 1i64, s, strat, ktn);
+            push_ind(em, lvl + 1i64);
+            em.push_text("if ");
+            push_nk(em, "__bp", s);
+            em.push_text(" != (0i64 as *const Vec<i64>) {\n");
+            push_ind(em, lvl + 2i64);
+            em.push_text("let ");
+            push_nk(em, "__bv", s);
+            em.push_text(": &Vec<i64> = unsafe { &*");
+            push_nk(em, "__bp", s);
+            em.push_text(" };\n");
+            push_ind(em, lvl + 2i64);
+            em.push_text("let mut ");
+            push_nk(em, "__p", s);
+            em.push_text(": i64 = 0i64;\n");
+            push_ind(em, lvl + 2i64);
+            em.push_text("while ");
+            push_nk(em, "__p", s);
+            em.push_text(" < ");
+            push_nk(em, "__bv", s);
+            em.push_text(".len() {\n");
+            push_ind(em, lvl + 3i64);
+            em.push_text("let ");
+            em.push_text(var);
+            em.push_text(": &");
+            em.push_text(ty);
+            em.push_text(" = &(");
+            em.push_text(src);
+            em.push_text(")[");
+            push_nk(em, "__bv", s);
+            em.push_text(".get(");
+            push_nk(em, "__p", s);
+            em.push_text(")];\n");
+            push_ind(em, lvl + 3i64);
+            em.push_text("if (");
+            em.push_text(residual);
+            em.push_text(") { ");
+            push_nk(em, "__m", s);
+            em.push_text(" = true; }\n");
+            push_ind(em, lvl + 3i64);
+            push_nk(em, "__p", s);
+            em.push_text(" = ");
+            push_nk(em, "__p", s);
+            em.push_text(" + 1i64;\n");
+            push_ind(em, lvl + 2i64);
+            em.push_text("}\n");
+            push_ind(em, lvl + 1i64);
+            em.push_text("}\n");
+            push_ind(em, lvl);
+            em.push_text("}\n");
+        }
+        push_ind(em, lvl);
+        em.push_text("if (!");
+        push_nk(em, "__m", s);
+        em.push_text(") {\n");
+        return 1i64;
+    }
+    // NON-ANTI.
+    if strat == JS_LOOP() {
+        push_ind(em, lvl);
+        em.push_text("let mut ");
+        push_nk(em, "__j", s);
+        em.push_text(": i64 = 0i64;\n");
+        push_ind(em, lvl);
+        em.push_text("while ");
+        push_nk(em, "__j", s);
+        em.push_text(" < (");
+        em.push_text(src);
+        em.push_text(").len()");
+        em.push_text(lim);
+        em.push_text(" {\n");
+        push_ind(em, lvl + 1i64);
+        em.push_text("let ");
+        em.push_text(var);
+        em.push_text(": &");
+        em.push_text(ty);
+        em.push_text(" = &(");
+        em.push_text(src);
+        em.push_text(")[");
+        push_nk(em, "__j", s);
+        em.push_text("];\n");
+        push_ind(em, lvl + 1i64);
+        em.push_text("if (");
+        em.push_text(pred);
+        em.push_text(") {\n");
+        return 2i64;
+    }
+    // HASH / TREE probe: bucket lookup → row loop → (residual guard).
+    push_ind(em, lvl);
+    em.push_text("let mut ");
+    push_nk(em, "__bp", s);
+    em.push_text(": *const Vec<i64> = 0i64 as *const Vec<i64>;\n");
+    emit_bucket_lookup(em, lvl, s, strat, ktn);
+    push_ind(em, lvl);
+    em.push_text("if ");
+    push_nk(em, "__bp", s);
+    em.push_text(" != (0i64 as *const Vec<i64>) {\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("let ");
+    push_nk(em, "__bv", s);
+    em.push_text(": &Vec<i64> = unsafe { &*");
+    push_nk(em, "__bp", s);
+    em.push_text(" };\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("let mut ");
+    push_nk(em, "__p", s);
+    em.push_text(": i64 = 0i64;\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("while ");
+    push_nk(em, "__p", s);
+    em.push_text(" < ");
+    push_nk(em, "__bv", s);
+    em.push_text(".len()");
+    em.push_text(lim);
+    em.push_text(" {\n");
+    push_ind(em, lvl + 2i64);
+    em.push_text("let ");
+    push_nk(em, "__ri", s);
+    em.push_text(": i64 = ");
+    push_nk(em, "__bv", s);
+    em.push_text(".get(");
+    push_nk(em, "__p", s);
+    em.push_text(");\n");
+    push_ind(em, lvl + 2i64);
+    em.push_text("let ");
+    em.push_text(var);
+    em.push_text(": &");
+    em.push_text(ty);
+    em.push_text(" = &(");
+    em.push_text(src);
+    em.push_text(")[");
+    push_nk(em, "__ri", s);
+    em.push_text("];\n");
+    if has_resid {
+        push_ind(em, lvl + 2i64);
+        em.push_text("if (");
+        em.push_text(residual);
+        em.push_text(") {\n");
+        return 3i64;
+    }
+    return 2i64;
+}
+
+// ── One step of the nest: CLOSE (mirror the open; bump loop indices) ─────────
+// `lvl` = the innermost CONTENT level the open left us at; returns the levels
+// closed (== the matching open's return).
+fn emit_step_close(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
+                   has_resid: bool) -> i64 {
+    if anti {
+        push_ind(em, lvl - 1i64);
+        em.push_text("}\n");
+        return 1i64;
+    }
+    if strat == JS_LOOP() {
+        push_ind(em, lvl - 1i64);
+        em.push_text("}\n");
+        push_ind(em, lvl - 1i64);
+        push_nk(em, "__j", s);
+        em.push_text(" = ");
+        push_nk(em, "__j", s);
+        em.push_text(" + 1i64;\n");
+        push_ind(em, lvl - 2i64);
+        em.push_text("}\n");
+        return 2i64;
+    }
+    let mut l: i64 = lvl;
+    if has_resid {
+        l = l - 1i64;
+        push_ind(em, l);
+        em.push_text("}\n");
+    }
+    push_ind(em, l);
+    push_nk(em, "__p", s);
+    em.push_text(" = ");
+    push_nk(em, "__p", s);
+    em.push_text(" + 1i64;\n");
+    push_ind(em, l - 1i64);
+    em.push_text("}\n");
+    push_ind(em, l - 2i64);
+    em.push_text("}\n");
+    return lvl - (l - 2i64);
+}
+
+// ── emit_join_chain — the RECURSIVE-over-the-join-tree emitter ───────────────
+// `body` is the RJoin/RAnti root of a left-deep chain. Emits nested per-source
+// loops binding the row vars LEFT-TO-RIGHT (per-step strategy from the Part-2
+// cascade) with ONE shared inner body: where-filter → sort-index collection /
+// `first` early-return / guarded distinct-limit push. With `order by` the
+// matched BOUND-row index tuples (one Vec per bound source) + keys are
+// materialized and insertion-sorted before the projection loop — all existing
+// modifiers compose over joined rows unchanged.
+fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+                   mods: QMods,
+                   fn_name: str, params_text: str, prm: &MacroParams,
+                   result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
+    // 1. Linearize the left-deep tree into base + steps.
+    let mut ch: JChain = jchain_new();
+    collect_chain(body, &mut ch);
+
+    // 2. Type dict: EVERY bound source's row schema + the scalar params.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, a_ty);
-    stamp_types_from_schema(&view, &mut ty, b_ty);
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    let mut si: i64 = 0i64;
+    while si < ch.n {
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        si = si + 1i64;
+    }
     apply_scalar_params(&mut ty, prm);
 
-    let on_e: SExpr   = on_ref.any().view::<SExpr>();
-    let proj_e: SExpr = sel.any().view::<SExpr>();
-
-    let on_opt: SExpr   = simplify_sexpr(on_e, h).any().view::<SExpr>();
-    let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
-
+    // 3. Clause bodies (const-folded).
+    let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_ty_name(infer_ty(proj_opt, &ty));
     }
-
-    let mut on_body: String = String::new();
-    emit_sexpr(&mut on_body, on_opt, &ty, x_var);
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, x_var);
+    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
     let mut where_body: String = String::new();
     if has_where {
         let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
-        emit_sexpr(&mut where_body, where_opt, &ty, x_var);
+        emit_sexpr(&mut where_body, where_opt, &ty, ch.base_var);
     }
-    // The optional `order by` key (ranges over the row vars, like `where`).
     let mut key_body: String = String::new();
     let mut key_ty: str = "i64";
     if mods.has_sort {
-        let key_e: SExpr = mods.sort_key.any().view::<SExpr>();
-        let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+        let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         key_ty = el_ty_name(infer_ty(key_opt, &ty));
-        emit_sexpr(&mut key_body, key_opt, &ty, x_var);
+        emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
     }
     let lim_cond: String = limit_cond_text(&mods);
     let has_sort: bool = mods.has_sort;
+    // Sort mode: the match loops run in FULL (the cap applies to the OUTPUT
+    // loop); otherwise the limit rides every output-driving loop condition.
+    let mut lim_use: str = "";
+    if !has_sort { lim_use = string_as_str(&lim_cond); }
 
+    // 4. Per-step strategy analysis (Part 2).
+    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_strat:  [i32; 8]  = [0i32; 8];
+    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut st_hasres: [bool; 8] = [false; 8];
+    let mut st_equi:   [bool; 8] = [false; 8];
+    analyze_chain(&ch, &ty, ch.base_var, h,
+                  &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                  &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
+
+    // 5. Bound sources (base + non-anti steps): rebind targets for the sort /
+    // output phases; idx = the generated row-index expression per source.
+    let mut bnd_src: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut bnd_ty:  [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut bnd_var: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut bnd_idx: [String; 9] = [String::new(), String::new(), String::new(), String::new(),
+                                    String::new(), String::new(), String::new(), String::new(),
+                                    String::new()];
+    bnd_src[0] = ch.base_src;
+    bnd_ty[0]  = ch.base_ty;
+    bnd_var[0] = ch.base_var;
+    bnd_idx[0].push_str("__i0");
+    let mut nb: i64 = 1i64;
+    let mut bi: i64 = 0i64;
+    while bi < ch.n {
+        if !ch.anti[bi] {
+            bnd_src[nb] = ch.src[bi];
+            bnd_ty[nb]  = ch.ty[bi];
+            bnd_var[nb] = ch.var[bi];
+            if st_strat[bi] == JS_LOOP() { bnd_idx[nb].push_str("__j"); }
+            else                         { bnd_idx[nb].push_str("__ri"); }
+            bnd_idx[nb].push_i64(bi + 1i64);
+            nb = nb + 1i64;
+        }
+        bi = bi + 1i64;
+    }
+
+    // 6. Head + strategy trace + build phases.
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
@@ -1116,134 +1986,135 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
         em.push_text(result_ty);
         em.push_text(">::new();\n");
     }
+    let mut ci: i64 = 0i64;
+    while ci < ch.n {
+        emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
+                              st_equi[ci], st_hasres[ci], st_ktn[ci]);
+        ci = ci + 1i64;
+    }
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                         string_as_str(&st_build[bpi]));
+        bpi = bpi + 1i64;
+    }
     if has_sort {
-        // Phase 1 collects matched index pairs + keys; the match loops must run
-        // in full (no limit cap here — the cap applies to the OUTPUT loop).
-        em.push_text("    let mut __ix: Vec<i64> = Vec::<i64>::new();\n");
-        if !is_anti { em.push_text("    let mut __jx: Vec<i64> = Vec::<i64>::new();\n"); }
+        // Phase 1 collects matched bound-row index tuples + sort keys.
+        let mut dk: i64 = 0i64;
+        while dk < nb {
+            em.push_text("    let mut ");
+            push_nk(&mut em, "__ix", dk);
+            em.push_text(": Vec<i64> = Vec::<i64>::new();\n");
+            dk = dk + 1i64;
+        }
         em.push_text("    let mut __ks: Vec<");
         em.push_text(key_ty);
         em.push_text("> = Vec::<");
         em.push_text(key_ty);
         em.push_text(">::new();\n");
     }
-    em.push_text("    let mut __i: i64 = 0i64;\n");
-    em.push_text("    while __i < (");
-    em.push_text(a_name);
+
+    // 7. The loop nest: base scan + one level per step.
+    let mut lvl: i64 = 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __i0: i64 = 0i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("while __i0 < (");
+    em.push_text(ch.base_src);
     em.push_text(").len()");
-    if !has_sort { em.push_text(string_as_str(&lim_cond)); }
+    em.push_text(lim_use);
     em.push_text(" {\n");
-    em.push_text("        let ");
-    em.push_text(x_var);
+    lvl = lvl + 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("let ");
+    em.push_text(ch.base_var);
     em.push_text(": &");
-    em.push_text(a_ty);
+    em.push_text(ch.base_ty);
     em.push_text(" = &(");
-    em.push_text(a_name);
-    em.push_text(")[__i];\n");
-    if is_anti {
-        em.push_text("        let mut __matched: bool = false;\n");
-        em.push_text("        let mut __j: i64 = 0i64;\n");
-        em.push_text("        while __j < (");
-        em.push_text(b_name);
-        em.push_text(").len() {\n");
-        em.push_text("            let ");
-        em.push_text(y_var);
-        em.push_text(": &");
-        em.push_text(b_ty);
-        em.push_text(" = &(");
-        em.push_text(b_name);
-        em.push_text(")[__j];\n");
-        em.push_text("            if (");
-        em.push_text(string_as_str(&on_body));
-        em.push_text(") { __matched = true; }\n");
-        em.push_text("            __j = __j + 1i64;\n");
-        em.push_text("        }\n");
-        em.push_text("        if (!__matched) {\n");
-        if has_where {
-            em.push_text("            if (");
-            em.push_text(string_as_str(&where_body));
-            em.push_text(") {\n");
-        }
-        if has_sort {
-            em.push_text("            __ix.push(__i);\n");
-            em.push_text("            __ks.push(");
-            em.push_text(string_as_str(&key_body));
-            em.push_text(");\n");
-        } else {
-            if first {
-                em.push_text("            return Option::Some(");
-                em.push_text(string_as_str(&proj_body));
-                em.push_text(");\n");
-            } else {
-                emit_push_guarded(&mut em, "            ", result_ty, string_as_str(&proj_body), mods.distinct);
-            }
-        }
-        if has_where { em.push_text("            }\n"); }
-        em.push_text("        }\n");
-    } else {
-        em.push_text("        let mut __j: i64 = 0i64;\n");
-        em.push_text("        while __j < (");
-        em.push_text(b_name);
-        em.push_text(").len()");
-        if !has_sort { em.push_text(string_as_str(&lim_cond)); }
-        em.push_text(" {\n");
-        em.push_text("            let ");
-        em.push_text(y_var);
-        em.push_text(": &");
-        em.push_text(b_ty);
-        em.push_text(" = &(");
-        em.push_text(b_name);
-        em.push_text(")[__j];\n");
-        em.push_text("            if (");
-        em.push_text(string_as_str(&on_body));
-        em.push_text(") {\n");
-        if has_where {
-            em.push_text("                if (");
-            em.push_text(string_as_str(&where_body));
-            em.push_text(") {\n");
-        }
-        if has_sort {
-            em.push_text("                __ix.push(__i);\n");
-            em.push_text("                __jx.push(__j);\n");
-            em.push_text("                __ks.push(");
-            em.push_text(string_as_str(&key_body));
-            em.push_text(");\n");
-        } else {
-            if first {
-                em.push_text("                return Option::Some(");
-                em.push_text(string_as_str(&proj_body));
-                em.push_text(");\n");
-            } else {
-                emit_push_guarded(&mut em, "                ", result_ty, string_as_str(&proj_body), mods.distinct);
-            }
-        }
-        if has_where { em.push_text("                }\n"); }
-        em.push_text("            }\n");
-        em.push_text("            __j = __j + 1i64;\n");
-        em.push_text("        }\n");
+    em.push_text(ch.base_src);
+    em.push_text(")[__i0];\n");
+    let mut opens: [i64; 8] = [0i64; 8];
+    let mut oi: i64 = 0i64;
+    while oi < ch.n {
+        opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
+                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
+                                   ch.var[oi], string_as_str(&st_probe[oi]),
+                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
+                                   lim_use);
+        lvl = lvl + opens[oi];
+        oi = oi + 1i64;
     }
-    em.push_text("        __i = __i + 1i64;\n");
-    em.push_text("    }\n");
+
+    // 8. The SHARED inner body.
+    if has_where {
+        push_ind(&mut em, lvl);
+        em.push_text("if (");
+        em.push_text(string_as_str(&where_body));
+        em.push_text(") {\n");
+        lvl = lvl + 1i64;
+    }
     if has_sort {
-        emit_sort_perm(&mut em, key_ty, mods.sort_desc, !is_anti);
+        let mut pk: i64 = 0i64;
+        while pk < nb {
+            push_ind(&mut em, lvl);
+            push_nk(&mut em, "__ix", pk);
+            em.push_text(".push(");
+            em.push_text(string_as_str(&bnd_idx[pk]));
+            em.push_text(");\n");
+            pk = pk + 1i64;
+        }
+        push_ind(&mut em, lvl);
+        em.push_text("__ks.push(");
+        em.push_text(string_as_str(&key_body));
+        em.push_text(");\n");
+    } else if first {
+        push_ind(&mut em, lvl);
+        em.push_text("return Option::Some(");
+        em.push_text(string_as_str(&proj_body));
+        em.push_text(");\n");
+    } else {
+        let inds: String = ind_string(lvl);
+        emit_push_guarded(&mut em, string_as_str(&inds), result_ty,
+                          string_as_str(&proj_body), mods.distinct);
+    }
+    if has_where {
+        lvl = lvl - 1i64;
+        push_ind(&mut em, lvl);
+        em.push_text("}\n");
+    }
+
+    // 9. Close the nest (reverse order), bump the base index, close the base.
+    let mut ki: i64 = ch.n - 1i64;
+    while ki >= 0i64 {
+        let closed: i64 = emit_step_close(&mut em, lvl, ki + 1i64, st_strat[ki],
+                                          ch.anti[ki], st_hasres[ki]);
+        lvl = lvl - closed;
+        ki = ki - 1i64;
+    }
+    push_ind(&mut em, lvl);
+    em.push_text("__i0 = __i0 + 1i64;\n");
+    lvl = lvl - 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("}\n");
+
+    // 10. Sort output phase: order the index tuples, re-bind, project.
+    if has_sort {
+        emit_sort_perm(&mut em, key_ty, mods.sort_desc, nb);
         if first {
-            // Single-row: project only the HEAD of the sorted pair order.
-            em.push_text("    if __ix.len() > 0i64 {\n");
-            em.push_text("        let ");
-            em.push_text(x_var);
-            em.push_text(": &");
-            em.push_text(a_ty);
-            em.push_text(" = &(");
-            em.push_text(a_name);
-            em.push_text(")[__ix.get(0i64)];\n");
-            if !is_anti {
+            em.push_text("    if __ix0.len() > 0i64 {\n");
+            let mut rk: i64 = 0i64;
+            while rk < nb {
                 em.push_text("        let ");
-                em.push_text(y_var);
+                em.push_text(bnd_var[rk]);
                 em.push_text(": &");
-                em.push_text(b_ty);
+                em.push_text(bnd_ty[rk]);
                 em.push_text(" = &(");
-                em.push_text(b_name);
-                em.push_text(")[__jx.get(0i64)];\n");
+                em.push_text(bnd_src[rk]);
+                em.push_text(")[");
+                push_nk(&mut em, "__ix", rk);
+                em.push_text(".get(0i64)];\n");
+                rk = rk + 1i64;
             }
             em.push_text("        return Option::Some(");
             em.push_text(string_as_str(&proj_body));
@@ -1251,26 +2122,24 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
             em.push_text("    }\n");
         } else {
             em.push_text("    let mut __o: i64 = 0i64;\n");
-            em.push_text("    while __o < __ix.len()");
+            em.push_text("    while __o < __ix0.len()");
             em.push_text(string_as_str(&lim_cond));
             em.push_text(" {\n");
-            em.push_text("        let ");
-            em.push_text(x_var);
-            em.push_text(": &");
-            em.push_text(a_ty);
-            em.push_text(" = &(");
-            em.push_text(a_name);
-            em.push_text(")[__ix.get(__o)];\n");
-            if !is_anti {
+            let mut rk2: i64 = 0i64;
+            while rk2 < nb {
                 em.push_text("        let ");
-                em.push_text(y_var);
+                em.push_text(bnd_var[rk2]);
                 em.push_text(": &");
-                em.push_text(b_ty);
+                em.push_text(bnd_ty[rk2]);
                 em.push_text(" = &(");
-                em.push_text(b_name);
-                em.push_text(")[__jx.get(__o)];\n");
+                em.push_text(bnd_src[rk2]);
+                em.push_text(")[");
+                push_nk(&mut em, "__ix", rk2);
+                em.push_text(".get(__o)];\n");
+                rk2 = rk2 + 1i64;
             }
-            emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
+            emit_push_guarded(&mut em, "        ", result_ty,
+                              string_as_str(&proj_body), mods.distinct);
             em.push_text("        __o = __o + 1i64;\n");
             em.push_text("    }\n");
         }
@@ -1294,16 +2163,28 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
 // permutation — stable insertion sort, O(n²) MVP; distinct dedups projected
 // values; limit caps via the output-loop condition). Without modifiers the
 // original single-pass push shape is emitted unchanged.
+//
+// A JOIN-CHAIN input (the aggregate-over-joined-stream shape) routes to
+// `emit_aggregate_join` — a single-pass fold over the joined rows with the
+// same group-column output phase.
 fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                   where_ref: WRef<SExpr>, has_where: bool,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
                   fn_name: str, params_text: str, prm: &MacroParams,
                   result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
-    let sc: RScan = scan_of(scan_e);
-    let a_name: str = sc.src_name;
-    let a_ty: str   = sc.row_ty;
-    let x_var: str  = sc.var_name;
+    // Decompose the input: a bare scan keeps the classic two-pass shape below;
+    // a join chain (≥ 1 step) takes the joined-stream fold.
+    let mut ch: JChain = jchain_new();
+    collect_chain(scan_e, &mut ch);
+    if ch.n > 0i64 {
+        return emit_aggregate_join(&ch, key_ref, aggs, where_ref, has_where,
+                                   having_ref, has_having, sel, mods,
+                                   fn_name, params_text, prm, result_ty0, has_result_ty, h);
+    }
+    let a_name: str = ch.base_src;
+    let a_ty: str   = ch.base_ty;
+    let x_var: str  = ch.base_var;
 
     let acount: i64 = aggs.len();
 
@@ -1313,36 +2194,10 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     apply_scalar_params(&mut ty, prm);
 
     ty.set_ty("key", EL_TY_INT());
-    // Per-aggregate OUTPUT value-type + accumulator width:
-    //   • count → INT (always an i64 row count);
-    //   • avg   → FLT ALWAYS (exact mean, f64 accumulator + f64 division — no
-    //             integer truncation), for BOTH int and float arguments;
-    //   • sum/min/max → the ARGUMENT's type: an f64-typed arg gets an f64
-    //             accumulator + f64 result column, an int arg stays i64.
-    // `agg_flt[i]`  — this aggregate's accumulator/result is f64;
-    // `agg_cast[i]` — the fold step must cast the (INT-typed) arg to f64
-    //                 (only avg over an int argument). Row-field types are
-    //                 already stamped (schema + scalar params), so the arg infer here
-    //                 is well-typed.
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
-    let mut ki: i64 = 0i64;
-    while ki < acount {
-        let ka: RAgg = aggs.agg_at(ki);
-        let kfn: i32 = agg_of_name(ka.fn_name);
-        let mut arg_is_flt: bool = false;
-        if ka.has_arg {
-            if infer_ty(ka.arg_expr(), &ty) == EL_TY_FLT() { arg_is_flt = true; }
-        }
-        let is_f: bool = kfn == AGG_AVG()
-            || ((kfn == AGG_SUM() || kfn == AGG_MIN() || kfn == AGG_MAX()) && arg_is_flt);
-        if ki < 8i64 {
-            agg_flt[ki]  = is_f;
-            agg_cast[ki] = is_f && !arg_is_flt && kfn != AGG_COUNT();
-        }
-        if is_f { ty.set_ty(ka.out, EL_TY_FLT()); } else { ty.set_ty(ka.out, EL_TY_INT()); }
-        ki = ki + 1i64;
-    }
+    compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &mut ty);
 
     let key_e: SExpr = key_ref.any().view::<SExpr>();
     let proj_e: SExpr = sel.any().view::<SExpr>();
@@ -1390,19 +2245,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    let mut ai: i64 = 0i64;
-    while ai < acount {
-        let a: RAgg = aggs.agg_at(ai);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        if fnid == 0i32 { error("wql!: aggregate fn must be count/sum/min/max/avg"); return false; }
-        if fnid != AGG_COUNT() {
-            if !a.has_arg { error("wql!: aggregate fn expects an argument"); return false; }
-            let ae: SExpr = a.arg_expr();
-            let ae_opt: SExpr = simplify_sexpr(ae, h).any().view::<SExpr>();
-            emit_sexpr(&mut agg_body[ai], ae_opt, &ty, x_var);
-        }
-        ai = ai + 1i64;
-    }
+    if !compute_agg_bodies(&aggs, acount, &ty, x_var, h, &mut agg_body) { return false; }
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
@@ -1598,7 +2441,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     if mods_any {
         // Output phase: order the group-row permutation (or keep discovery
         // order), then re-bind the group columns per row and project.
-        em.push_text("    let mut __ix: Vec<i64> = Vec::<i64>::new();\n");
+        em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
         if mods.has_sort {
             em.push_text("    let mut __ks: Vec<");
             em.push_text(okey_ty);
@@ -1609,24 +2452,24 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text("    let mut __r: i64 = 0i64;\n");
         em.push_text("    while __r < __g_key.len() {\n");
         if mods.has_sort {
-            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &agg_flt);
-            em.push_text("        __ix.push(__r);\n");
+            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &agg_flt, "__g_");
+            em.push_text("        __ix0.push(__r);\n");
             em.push_text("        __ks.push(");
             em.push_text(string_as_str(&okey_body));
             em.push_text(");\n");
         } else {
-            em.push_text("        __ix.push(__r);\n");
+            em.push_text("        __ix0.push(__r);\n");
         }
         em.push_text("        __r = __r + 1i64;\n");
         em.push_text("    }\n");
         if mods.has_sort {
-            emit_sort_perm(&mut em, okey_ty, mods.sort_desc, false);
+            emit_sort_perm(&mut em, okey_ty, mods.sort_desc, 1i64);
         }
         em.push_text("    let mut __o: i64 = 0i64;\n");
-        em.push_text("    while __o < __ix.len()");
+        em.push_text("    while __o < __ix0.len()");
         em.push_text(string_as_str(&lim_cond));
         em.push_text(" {\n");
-        emit_group_binds(&mut em, "        ", "__ix.get(__o)", &aggs, acount, &agg_flt);
+        emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &agg_flt, "__g_");
         emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
         em.push_text("        __o = __o + 1i64;\n");
         em.push_text("    }\n");
@@ -1639,11 +2482,15 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
 // Emit the group-column re-binds for one materialized group row (`key` + each
 // aggregate output as a local of its declared name, read from the parallel
-// Vecs at index expression `idx`).
+// Vecs at index expression `idx`). `pfx` is the column-Vec name prefix —
+// "__g_" for the classic two-pass shape, "__gf_" for the joined-stream fold's
+// finalized columns.
 fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
-                    aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8]) {
+                    aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8], pfx: str) {
     em.push_text(indent);
-    em.push_text("let key: i64 = __g_key.get(");
+    em.push_text("let key: i64 = ");
+    em.push_text(pfx);
+    em.push_text("key.get(");
     em.push_text(idx);
     em.push_text(");\n");
     let mut gi: i64 = 0i64;
@@ -1652,11 +2499,439 @@ fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
         em.push_text(indent);
         em.push_text("let ");
         em.push_text(a.out);
-        if agg_flt[gi] { em.push_text(": f64 = __g_"); } else { em.push_text(": i64 = __g_"); }
+        if agg_flt[gi] { em.push_text(": f64 = "); } else { em.push_text(": i64 = "); }
+        em.push_text(pfx);
         em.push_text(a.out);
         em.push_text(".get(");
         em.push_text(idx);
         em.push_text(");\n");
         gi = gi + 1i64;
     }
+}
+
+// ── Shared aggregate-spec computation (classic + joined-stream paths) ────────
+// Per-aggregate OUTPUT value-type + accumulator width:
+//   • count → INT (always an i64 row count);
+//   • avg   → FLT ALWAYS (exact mean, f64 accumulator + f64 division — no
+//             integer truncation), for BOTH int and float arguments;
+//   • sum/min/max → the ARGUMENT's type: an f64-typed arg gets an f64
+//             accumulator + f64 result column, an int arg stays i64.
+// `agg_flt[i]`  — this aggregate's accumulator/result is f64;
+// `agg_cast[i]` — the fold step must cast the (INT-typed) arg to f64 (only
+//                 avg over an int argument). Row-field types are already
+//                 stamped (schema + scalar params), so the arg infer here is
+//                 well-typed.
+fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
+                     agg_flt: &mut [bool; 8], agg_cast: &mut [bool; 8]) {
+    let mut ki: i64 = 0i64;
+    while ki < acount {
+        let ka: RAgg = aggs.agg_at(ki);
+        let kfn: i32 = agg_of_name(ka.fn_name);
+        let mut arg_is_flt: bool = false;
+        if ka.has_arg {
+            if infer_ty(ka.arg_expr(), t) == EL_TY_FLT() { arg_is_flt = true; }
+        }
+        let is_f: bool = kfn == AGG_AVG()
+            || ((kfn == AGG_SUM() || kfn == AGG_MIN() || kfn == AGG_MAX()) && arg_is_flt);
+        if ki < 8i64 {
+            agg_flt[ki]  = is_f;
+            agg_cast[ki] = is_f && !arg_is_flt && kfn != AGG_COUNT();
+        }
+        ki = ki + 1i64;
+    }
+}
+
+// Stamp each aggregate OUTPUT name's EL value-type into `ty` (the having /
+// order / select clauses reference the outputs by name).
+fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8], ty: &mut ElTypes) {
+    let mut i: i64 = 0i64;
+    while i < acount {
+        let a: RAgg = aggs.agg_at(i);
+        if agg_flt[i] { ty.set_ty(a.out, EL_TY_FLT()); } else { ty.set_ty(a.out, EL_TY_INT()); }
+        i = i + 1i64;
+    }
+}
+
+// Validate each aggregate spec (known fn, arg presence) and emit its ARG
+// expression text. False (error surfaced) on a bad spec.
+fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
+                      agg_body: &mut [String; 8]) -> bool {
+    let mut ai: i64 = 0i64;
+    while ai < acount {
+        let a: RAgg = aggs.agg_at(ai);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        if fnid == 0i32 { error("wql!: aggregate fn must be count/sum/min/max/avg"); return false; }
+        if fnid != AGG_COUNT() {
+            if !a.has_arg { error("wql!: aggregate fn expects an argument"); return false; }
+            let ae_opt: SExpr = simplify_sexpr(a.arg_expr(), h).any().view::<SExpr>();
+            emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
+        }
+        ai = ai + 1i64;
+    }
+    return true;
+}
+
+// ── emit_aggregate_join — group-by + aggregate over a JOINED stream ──────────
+// The join steps reuse the chain machinery (strategy cascade + build phases +
+// nest open/close); the inner body is a SINGLE-PASS group fold: find/insert
+// the row's group (linear __g_key scan — the MVP dedup), bump the fold count,
+// fold each aggregate accumulator incrementally (count/sum/min/max direct;
+// avg = f64 sum + count, divided at finalization). A finalize pass computes
+// the output columns (+ HAVING filter), then the group-row OUTPUT phase —
+// order / distinct / limit / project — runs exactly like the classic shape's
+// materialized-columns phase.
+fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
+                       where_ref: WRef<SExpr>, has_where: bool,
+                       having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
+                       mods: QMods,
+                       fn_name: str, params_text: str, prm: &MacroParams,
+                       result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
+    let acount: i64 = aggs.len();
+
+    // Types: every bound source's row schema + scalar params + key/outputs.
+    let mut ty: ElTypes = el_types_new();
+    let view: OView = oview_module_ast();
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    let mut si: i64 = 0i64;
+    while si < ch.n {
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        si = si + 1i64;
+    }
+    apply_scalar_params(&mut ty, prm);
+    ty.set_ty("key", EL_TY_INT());
+    let mut agg_flt:  [bool; 8] = [false; 8];
+    let mut agg_cast: [bool; 8] = [false; 8];
+    compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &mut ty);
+
+    // Clause bodies.
+    let key_opt: SExpr  = simplify_sexpr(key_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
+    let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
+    let mut result_ty: str = result_ty0;
+    if !has_result_ty {
+        result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+    }
+    let mut key_body: String = String::new();
+    emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
+    let mut where_body: String = String::new();
+    if has_where {
+        let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
+        emit_sexpr(&mut where_body, where_opt, &ty, ch.base_var);
+    }
+    let mut proj_body: String = String::new();
+    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+    let mut having_body: String = String::new();
+    if has_having {
+        let hav_e: SExpr = having_ref.any().view::<SExpr>();
+        if call_diagnostic(hav_e, &ty) {
+            error("wql!: `having` calls an unknown or wrong-arity function");
+            return false;
+        }
+        let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
+        emit_sexpr(&mut having_body, hav_opt, &ty, ch.base_var);
+    }
+    let mut okey_body: String = String::new();
+    let mut okey_ty: str = "i64";
+    if mods.has_sort {
+        let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
+        okey_ty = el_ty_name(infer_ty(okey_opt, &ty));
+        emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
+    }
+    let lim_cond: String = limit_cond_text(&mods);
+
+    let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &mut agg_body) { return false; }
+
+    // Per-step strategy analysis (the same Part-2 cascade as the join shape).
+    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_strat:  [i32; 8]  = [0i32; 8];
+    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut st_hasres: [bool; 8] = [false; 8];
+    let mut st_equi:   [bool; 8] = [false; 8];
+    analyze_chain(ch, &ty, ch.base_var, h,
+                  &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                  &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
+
+    // Head + strategy trace + build phases + accumulator columns.
+    let mut em: Emitter = Emitter::new();
+    begin_chunk(&mut em, &view);
+    emit_fn_head(&mut em, fn_name, params_text);
+    em.push_text(") -> Vec<");
+    em.push_text(result_ty);
+    em.push_text("> {\n");
+    em.push_text("    let mut __out: Vec<");
+    em.push_text(result_ty);
+    em.push_text("> = Vec::<");
+    em.push_text(result_ty);
+    em.push_text(">::new();\n");
+    let mut ci: i64 = 0i64;
+    while ci < ch.n {
+        emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
+                              st_equi[ci], st_hasres[ci], st_ktn[ci]);
+        ci = ci + 1i64;
+    }
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                         string_as_str(&st_build[bpi]));
+        bpi = bpi + 1i64;
+    }
+    em.push_text("    let mut __g_key: Vec<i64> = Vec::<i64>::new();\n");
+    em.push_text("    let mut __g_cnt: Vec<i64> = Vec::<i64>::new();\n");
+    let mut gd: i64 = 0i64;
+    while gd < acount {
+        let a: RAgg = aggs.agg_at(gd);
+        em.push_text("    let mut __ga_");
+        em.push_text(a.out);
+        if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
+        else           { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+        gd = gd + 1i64;
+    }
+
+    // The joined-stream nest (NO limit on the match loops — grouping needs
+    // every row; `limit` caps the group-row OUTPUT phase below).
+    let mut lvl: i64 = 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __i0: i64 = 0i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("while __i0 < (");
+    em.push_text(ch.base_src);
+    em.push_text(").len() {\n");
+    lvl = lvl + 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("let ");
+    em.push_text(ch.base_var);
+    em.push_text(": &");
+    em.push_text(ch.base_ty);
+    em.push_text(" = &(");
+    em.push_text(ch.base_src);
+    em.push_text(")[__i0];\n");
+    let mut opens: [i64; 8] = [0i64; 8];
+    let mut oi: i64 = 0i64;
+    while oi < ch.n {
+        opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
+                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
+                                   ch.var[oi], string_as_str(&st_probe[oi]),
+                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
+                                   "");
+        lvl = lvl + opens[oi];
+        oi = oi + 1i64;
+    }
+
+    // Inner body: the single-pass group fold.
+    if has_where {
+        push_ind(&mut em, lvl);
+        em.push_text("if (");
+        em.push_text(string_as_str(&where_body));
+        em.push_text(") {\n");
+        lvl = lvl + 1i64;
+    }
+    push_ind(&mut em, lvl);
+    em.push_text("let __k: i64 = (");
+    em.push_text(string_as_str(&key_body));
+    em.push_text(");\n");
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __gi: i64 = -1i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __s: i64 = 0i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("while __s < __g_key.len() { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }\n");
+    push_ind(&mut em, lvl);
+    em.push_text("if __gi < 0i64 {\n");
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__g_key.push(__k);\n");
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__g_cnt.push(0i64);\n");
+    let mut sd: i64 = 0i64;
+    while sd < acount {
+        let a: RAgg = aggs.agg_at(sd);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        push_ind(&mut em, lvl + 1i64);
+        em.push_text("__ga_");
+        em.push_text(a.out);
+        if agg_flt[sd] {
+            if fnid == AGG_MIN()      { em.push_text(".push(1.7976931348623157e308f64);\n"); }
+            else if fnid == AGG_MAX() { em.push_text(".push(-1.7976931348623157e308f64);\n"); }
+            else                      { em.push_text(".push(0.0f64);\n"); }
+        } else if fnid == AGG_MIN() {
+            em.push_text(".push(9223372036854775807i64);\n");
+        } else if fnid == AGG_MAX() {
+            em.push_text(".push(-9223372036854775808i64);\n");
+        } else {
+            em.push_text(".push(0i64);\n");
+        }
+        sd = sd + 1i64;
+    }
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__gi = __g_key.len() - 1i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("}\n");
+    push_ind(&mut em, lvl);
+    em.push_text("__g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64);\n");
+    let mut fd: i64 = 0i64;
+    while fd < acount {
+        let a: RAgg = aggs.agg_at(fd);
+        let aname: str = a.out;
+        let fnid: i32 = agg_of_name(a.fn_name);
+        if fnid == AGG_COUNT() {
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi) + 1i64);\n");
+        } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __ga_");
+            em.push_text(aname);
+            if agg_cast[fd] { em.push_text(".get(__gi) + ((");  } else { em.push_text(".get(__gi) + ("); }
+            em.push_text(string_as_str(&agg_body[fd]));
+            if agg_cast[fd] { em.push_text(") as f64));\n"); } else { em.push_text("));\n"); }
+        } else if fnid == AGG_MIN() {
+            push_ind(&mut em, lvl);
+            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
+            else           { em.push_text("{ let __v: i64 = ("); }
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text("); if __v < __ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi) { __ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __v); } }\n");
+        } else {
+            push_ind(&mut em, lvl);
+            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
+            else           { em.push_text("{ let __v: i64 = ("); }
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text("); if __v > __ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi) { __ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __v); } }\n");
+        }
+        fd = fd + 1i64;
+    }
+    if has_where {
+        lvl = lvl - 1i64;
+        push_ind(&mut em, lvl);
+        em.push_text("}\n");
+    }
+
+    // Close the nest + the base loop.
+    let mut ki2: i64 = ch.n - 1i64;
+    while ki2 >= 0i64 {
+        let closed: i64 = emit_step_close(&mut em, lvl, ki2 + 1i64, st_strat[ki2],
+                                          ch.anti[ki2], st_hasres[ki2]);
+        lvl = lvl - closed;
+        ki2 = ki2 - 1i64;
+    }
+    push_ind(&mut em, lvl);
+    em.push_text("__i0 = __i0 + 1i64;\n");
+    lvl = lvl - 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("}\n");
+
+    // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns.
+    em.push_text("    let mut __gf_key: Vec<i64> = Vec::<i64>::new();\n");
+    let mut fg: i64 = 0i64;
+    while fg < acount {
+        let a: RAgg = aggs.agg_at(fg);
+        em.push_text("    let mut __gf_");
+        em.push_text(a.out);
+        if agg_flt[fg] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
+        else           { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+        fg = fg + 1i64;
+    }
+    em.push_text("    let mut __r0: i64 = 0i64;\n");
+    em.push_text("    while __r0 < __g_key.len() {\n");
+    em.push_text("        let key: i64 = __g_key.get(__r0);\n");
+    let mut fz: i64 = 0i64;
+    while fz < acount {
+        let a: RAgg = aggs.agg_at(fz);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        em.push_text("        let ");
+        em.push_text(a.out);
+        if agg_flt[fz] { em.push_text(": f64 = "); } else { em.push_text(": i64 = "); }
+        if fnid == AGG_AVG() {
+            em.push_text("(if __g_cnt.get(__r0) > 0i64 { __ga_");
+            em.push_text(a.out);
+            em.push_text(".get(__r0) / (__g_cnt.get(__r0) as f64) } else { 0.0f64 });\n");
+        } else {
+            em.push_text("__ga_");
+            em.push_text(a.out);
+            em.push_text(".get(__r0);\n");
+        }
+        fz = fz + 1i64;
+    }
+    let mut find2: str = "        ";
+    if has_having {
+        em.push_text("        if (");
+        em.push_text(string_as_str(&having_body));
+        em.push_text(") {\n");
+        find2 = "            ";
+    }
+    em.push_text(find2);
+    em.push_text("__gf_key.push(key);\n");
+    let mut fp: i64 = 0i64;
+    while fp < acount {
+        let a: RAgg = aggs.agg_at(fp);
+        em.push_text(find2);
+        em.push_text("__gf_");
+        em.push_text(a.out);
+        em.push_text(".push(");
+        em.push_text(a.out);
+        em.push_text(");\n");
+        fp = fp + 1i64;
+    }
+    if has_having { em.push_text("        }\n"); }
+    em.push_text("        __r0 = __r0 + 1i64;\n");
+    em.push_text("    }\n");
+
+    // Group-row OUTPUT phase: order → project → distinct → limit.
+    em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
+    if mods.has_sort {
+        em.push_text("    let mut __ks: Vec<");
+        em.push_text(okey_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(okey_ty);
+        em.push_text(">::new();\n");
+    }
+    em.push_text("    let mut __r: i64 = 0i64;\n");
+    em.push_text("    while __r < __gf_key.len() {\n");
+    if mods.has_sort {
+        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &agg_flt, "__gf_");
+        em.push_text("        __ix0.push(__r);\n");
+        em.push_text("        __ks.push(");
+        em.push_text(string_as_str(&okey_body));
+        em.push_text(");\n");
+    } else {
+        em.push_text("        __ix0.push(__r);\n");
+    }
+    em.push_text("        __r = __r + 1i64;\n");
+    em.push_text("    }\n");
+    if mods.has_sort {
+        emit_sort_perm(&mut em, okey_ty, mods.sort_desc, 1i64);
+    }
+    em.push_text("    let mut __o: i64 = 0i64;\n");
+    em.push_text("    while __o < __ix0.len()");
+    em.push_text(string_as_str(&lim_cond));
+    em.push_text(" {\n");
+    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &agg_flt, "__gf_");
+    emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
+    em.push_text("        __o = __o + 1i64;\n");
+    em.push_text("    }\n");
+    em.push_text("    return __out;\n");
+    em.push_text("}\n");
+    em.commit();
+    return true;
 }

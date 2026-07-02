@@ -1,0 +1,46 @@
+// WQL — JOIN + ANTI-JOIN chain e2e. The anti step is PER-STEP (`anti join c z
+// on …`): the joined (e, d) rows survive only when NO c-row matches the anti
+// predicate. With a pure equi anti-pred (`d.id == b.dept`) the strategy tier
+// is the HashSet ABSENCE test (anti + no residual — see the
+// `// join strategy:` trace line); the anti var binds only inside its own
+// probe, so downstream clauses see just (e, d).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub dept: i64, pub salary: i64 }
+struct Dept { pub id: i64,   pub budget: i64 }
+struct Ban  { pub dept: i64 }
+
+// emp ⋈ dept, minus departments present in the ban list.
+resource ok_salaries = wql!(emps: &[Emp], depts: &[Dept], bans: &[Ban]) {
+    from emps e
+    join depts d on e.dept == d.id
+    anti join bans b on d.id == b.dept
+    select e.salary };
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { dept: 1i64, salary: 50i64 },   // dept 1 not banned → kept
+        Emp { dept: 2i64, salary: 60i64 },   // dept 2 BANNED     → dropped
+        Emp { dept: 1i64, salary: 70i64 },   // dept 1 not banned → kept
+        Emp { dept: 9i64, salary: 99i64 },   // no dept row       → dropped
+    ];
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, budget: 100i64 },
+        Dept { id: 2i64, budget: 200i64 },
+    ];
+    let bans: [Ban; 1] = [ Ban { dept: 2i64 } ];
+
+    let rows: Vec<i64> = ok_salaries(&emps[..], &depts[..], &bans[..]);
+    if rows.len() != 2i64      { return 1i32; }
+    if rows.get(0i64) != 50i64 { return 2i32; }
+    if rows.get(1i64) != 70i64 { return 3i32; }
+
+    // Empty ban list → the anti step passes everything with a dept row.
+    let nobans: [Ban; 0] = [];
+    let all: Vec<i64> = ok_salaries(&emps[..], &depts[..], &nobans[..]);
+    if all.len() != 3i64 { return 4i32; }
+    return 0i32;
+}
