@@ -1,12 +1,14 @@
-// queue-2 I1 — the runtime CHECKER, errors as VALUES (ADR 0012-queue2 §§3,4):
-// never compile diagnostics — `Tpl::compile` / `render` return Result::Err
-// (QError) with the offending name in the message.
+// queue-2 I1 (+I3 amendments) — the runtime CHECKER, errors as VALUES (ADR
+// 0012-queue2 §§3,4): never compile diagnostics — `Tpl::compile` / `render`
+// return Result::Err (QError) with the offending name in the message.
 //
-//   compile-phase (env-independent): unknown function, builtin arity,
-//     catalog-wide unknown field, comprehension rejection, parse error;
+//   compile-phase (env-independent): builtin arity, comprehension rejection,
+//     parse error, literal type conflicts;
 //   render-phase (strict, needs the env's declarations): unknown variable,
-//     unknown field on the RESOLVED schema, operator/type misuse, `{% for %}`
-//     over a non-collection, object interpolation.
+//     unknown FUNCTION (I3 registry unification — may be a render-env UDF, so
+//     compile DEFERS), unknown field (I3 lenient — an erased binding may
+//     resolve it, so compile defers), operator/type misuse, `{% for %}` over
+//     a non-collection, object interpolation.
 package test;
 
 use logos.lang.writ.container;
@@ -51,10 +53,8 @@ fn main() -> i32 {
     let c: SchemaCatalog = cat();
 
     // ── compile-phase errors (no env needed) ──────────────────────────────
-    if !expect_compile_err("{{ frob(1) }}", &c, "unknown function 'frob'") { return 1i32; }
     if !expect_compile_err("{{ len(e.name, e.name) }}", &c, "wrong number of arguments for 'len'") { return 2i32; }
-    if !expect_compile_err("{{ e.salary }}", &c, "unknown field 'salary'") { return 3i32; }
-    if !expect_compile_err("{{ [x for x in xs] }}", &c, "comprehensions land with the relational slice") { return 4i32; }
+    if !expect_compile_err("{{ [x for x in xs] }}", &c, "not supported in the dynamic surface") { return 4i32; }
     if !expect_compile_err("{% if e.age %}no endif", &c, "parse error") { return 5i32; }
     if !expect_compile_err("{{ 1 - \"x\" }}", &c, "'-' needs numeric operands") { return 6i32; }
 
@@ -66,6 +66,10 @@ fn main() -> i32 {
     let mut env: QEnv = QEnv::new();
     env.bind_node("e", e1.as_any());
 
+    // I3: unknown fn / unknown field DEFER at compile (UDF registry + lenient
+    // bindings live on the env) and reject in the STRICT render check.
+    if !expect_render_err("{{ frob(1) }}", &c, &env, "unknown function 'frob'") { return 1i32; }
+    if !expect_render_err("{{ e.salary }}", &c, &env, "unknown field 'salary'") { return 3i32; }
     if !expect_render_err("{{ nobody }}", &c, &env, "unknown variable 'nobody'") { return 7i32; }
     if !expect_render_err("{{ e.name - 1 }}", &c, &env, "'-' needs numeric operands") { return 8i32; }
     if !expect_render_err("{{ e.name && e.age }}", &c, &env, "needs bool operands") { return 9i32; }

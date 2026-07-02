@@ -157,6 +157,8 @@ sym	logos.mem.any.FieldsView__type_id__g__ref_T
 sym	logos.mem.any.TypeInfo__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$u64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.encoding.csv.CsvReader__type_id__g__ref_T
 sym	logos.mem.encoding.json.JsonError__type_id__g__ref_T
@@ -230,8 +232,10 @@ sym	logos.std.lang.text.regex.Regex__type_id__g__ref_T
 sym	logos.std.process.Child__type_id__g__ref_T
 sym	logos.std.process.ExitStatus__type_id__g__ref_T
 sym	logos.std.process.LineReader__type_id__g__ref_T
+sym	logos.std.query.QBodyTab__type_id__g__ref_T
 sym	logos.std.query.QEnv__type_id__g__ref_T
 sym	logos.std.query.QError__type_id__g__ref_T
+sym	logos.std.query.QRelReg__type_id__g__ref_T
 sym	logos.std.query.QRows__type_id__g__ref_T
 sym	logos.std.query.Query__type_id__g__ref_T
 sym	logos.std.query.RtVal__type_id__g__ref_T
@@ -7898,8 +7902,10 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseIntError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Parser
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PhantomPinned
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Pipe
+sym	logos_lang.logos.lang.any$type_id_of__g__void__QBodyTab
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QEnv
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QError
+sym	logos_lang.logos.lang.any$type_id_of__g__void__QRelReg
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QRows
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Query
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QuoteItemBlob
@@ -8736,6 +8742,25 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__swap__g__refmut_Vec$G1$T__i64__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__at_const__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__borrow_mut__g__refmut_Vec$G1$T__i64
@@ -9022,6 +9047,7 @@ sym	logos_mem..logos.mem.writ.tag_system.WritTypeTagSystem__read_tag__f__ref_Wri
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__u64__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__u64__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.vec$vec_contains__g__ref_Vec$G1$T__ref_T__i32
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__&[u8]
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__DirEntry
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__ExprBlob
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Header
@@ -9033,6 +9059,7 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__RtVal
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__TokenTree
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i64
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u8
 sym	logos_mem.logos.mem.encoding.base64$base64_decode__f__pcst_u8__i64__refmut_String
 sym	logos_mem.logos.mem.encoding.base64$base64_decode_str__f__slice_u8__refmut_String
@@ -9305,7 +9332,9 @@ sym	logos_std..logos.std.query.QEnv__bind_bool__f__refmut_QEnv__slice_u8__bool
 sym	logos_std..logos.std.query.QEnv__bind_f64__f__refmut_QEnv__slice_u8__f64
 sym	logos_std..logos.std.query.QEnv__bind_i64__f__refmut_QEnv__slice_u8__i64
 sym	logos_std..logos.std.query.QEnv__bind_node__f__refmut_QEnv__slice_u8__WAny
+sym	logos_std..logos.std.query.QEnv__bind_node_erased__f__refmut_QEnv__slice_u8__WAny
 sym	logos_std..logos.std.query.QEnv__bind_source__f__refmut_QEnv__slice_u8__WAny
+sym	logos_std..logos.std.query.QEnv__bind_source_erased__f__refmut_QEnv__slice_u8__WAny
 sym	logos_std..logos.std.query.QEnv__bind_str__f__refmut_QEnv__slice_u8__slice_u8
 sym	logos_std..logos.std.query.QEnv__new__f__void
 sym	logos_std..logos.std.query.QEnv__register_agg__f__refmut_QEnv__slice_u8__fn() -> RtVal__fn(RtVal, RtVal) -> RtVal__fn(RtVal) -> RtVal__slice_u8__slice_u8
@@ -9318,6 +9347,7 @@ sym	logos_std..logos.std.query.QRows__get_f64__f__ref_QRows__i64__i64
 sym	logos_std..logos.std.query.QRows__get_i64__f__ref_QRows__i64__i64
 sym	logos_std..logos.std.query.QRows__get_node__f__ref_QRows__i64__i64
 sym	logos_std..logos.std.query.QRows__get_str__f__ref_QRows__i64__i64
+sym	logos_std..logos.std.query.QRows__is_null__f__ref_QRows__i64__i64
 sym	logos_std..logos.std.query.QRows__is_some__f__ref_QRows
 sym	logos_std..logos.std.query.QRows__row_count__f__ref_QRows
 sym	logos_std..logos.std.query.Query__compile__f__slice_u8__ref_SchemaCatalog
@@ -9990,12 +10020,14 @@ type	logos.std.lang.text.regex.Regex	fields=[pat:*const u8,plen:i64]
 type	logos.std.process.Child	fields=[pid:i32,stdin:i32,stdout:i32,stderr:i32]
 type	logos.std.process.ExitStatus	fields=[raw:i32]
 type	logos.std.process.LineReader	fields=[fd:i32,buf:*mut u8,cap:i64,head:i64,tail:i64,eof:bool]
+type	logos.std.query.QBodyTab	fields=[n:i64,owner:Vec<i64>,root:Vec<i64>,empty:Vec<i64>,occ_off:Vec<i64>,occ_n:Vec<i64>,ow:Vec<i64>,orel:Vec<i64>,on:i64]
 type	logos.std.query.QEnv	fields=[names:[&[u8]; 24],kinds:[i32; 24],ivals:[i64; 24],fvals:[f64; 24],bvals:[bool; 24],svals:[&[u8]; 24],words:[i64; 24],codes:[u64; 24],n:i64,f_names:[&[u8]; 8],f_ptrs:[fn(&[RtVal]) -> RtVal; 8],f_arity:[i64; 8],f_args:[i32; 32],f_ret:[i32; 8],f_n:i64,a_names:[&[u8]; 4],a_init:[fn() -> RtVal; 4],a_step:[fn(RtVal, RtVal) -> RtVal; 4],a_fin:[fn(RtVal) -> RtVal; 4],a_argty:[i32; 4],a_ret:[i32; 4],a_n:i64]
 type	logos.std.query.QError	fields=[msg:String]
+type	logos.std.query.QRelReg	fields=[n:i64,names:[&[u8]; 8],ncols:[i64; 8],coff:[i64; 8],cnames:Vec<&[u8]>,ctys:Vec<i64>,nscc:i64,comp:[i64; 8],rec:[bool; 8],order:[i64; 8]]
 type	logos.std.query.QRows	fields=[arena:Writ,ncols:i64,kinds:[i32; 8],cells:Vec<RtVal>,nrows:i64]
-type	logos.std.query.Query	fields=[doc:Writ,root:i64,empty:bool,sel_mode:i32,cat:SchemaCatalog]
+type	logos.std.query.Query	fields=[doc:Writ,root:i64,empty:bool,sel_mode:i32,cat:SchemaCatalog,reg:QRelReg,bodies:QBodyTab]
 type	logos.std.query.RtVal	variants=[I(i64),F(f64),B(bool),S(&[u8]),Node(WAny),Null]
-type	logos.std.query.SchemaCatalog	fields=[s_names:[&[u8]; 16],s_codes:[u64; 16],s_n:i64,f_owner:[i64; 96],f_names:[&[u8]; 96],f_keys:[i64; 96],f_tys:[i32; 96],f_kinds:[i32; 96],f_targets:[u64; 96],f_tnames:[&[u8]; 96],f_n:i64]
+type	logos.std.query.SchemaCatalog	fields=[s_names:Vec<&[u8]>,s_codes:Vec<u64>,s_n:i64,f_owner:Vec<i64>,f_names:Vec<&[u8]>,f_keys:Vec<i64>,f_tys:Vec<i64>,f_kinds:Vec<i64>,f_targets:Vec<u64>,f_tnames:Vec<&[u8]>,f_n:i64]
 type	logos.std.query.Tpl	fields=[doc:Writ,head:i64,cat:SchemaCatalog]
 type	logos.std.random.Rng	fields=[state:u64]
 type	logos.std.rt.fiber.Chan	fields=[buf:*mut u8,head:i64,tail:i64,cap:i64,len:i64,elem_size:i64,send_fiber:i64,send_val:i64,recv_fiber:i64]

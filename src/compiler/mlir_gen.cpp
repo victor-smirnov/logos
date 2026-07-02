@@ -13,6 +13,7 @@
 
 #include "mlir_gen_impl.hpp"
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
@@ -937,6 +938,9 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         if (arr_llvm && fval.kind() == ec::Code::ArrLit) {
             lir_view::EArrLitView arr_view{fval};
             auto elem_type = arr_llvm.getElementType();
+            // Large constant fill ([v; N] expansion) → memset / compact loop
+            // straight into the field slot (see gen_arr_fill_fast).
+            if (gen_arr_fill_fast(arr_view, arr_llvm, elem_type, gep)) return;
             // Cluster A (K3/N2): an AGGREGATE element (inline struct or nested
             // array) is pointer-represented by gen_expr; storing that 8-byte
             // pointer into the (wider) inline slot left only the pointer bits
@@ -1009,6 +1013,24 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         if (fi && fi->type && !mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type)) {
             if (mlir::isa<mlir::LLVM::LLVMStructType>(fi->type) &&
                 val.getType() == ptr_type()) {
+                // Inline struct field from a pointer-represented source. A
+                // BIG aggregate must NOT round-trip through a first-class
+                // LLVM struct value: `load %S` + `store %S` of a multi-KB
+                // type scalarizes in instruction selection into thousands of
+                // per-word movs (the queue-2 Query/QEnv structs made the
+                // scheduler grind for minutes). Memcpy pointer→slot instead;
+                // small aggregates keep the value form (more optimizable).
+                auto dl = mlir::DataLayout::closest(
+                    builder_.getInsertionBlock()->getParentOp());
+                uint64_t fsz = dl.getTypeSize(fi->type);
+                if (fsz > 64) {
+                    auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                        loc_, builder_.getI64Type(),
+                        builder_.getI64IntegerAttr((int64_t)fsz));
+                    builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz,
+                                                          /*isVolatile=*/false);
+                    return;
+                }
                 // Inline struct field: load the aggregate value from the alloca pointer.
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, fi->type, val);
             } else {
@@ -1063,11 +1085,166 @@ mlir::Type MLIRGenImpl::subscript_elem_type(const std::string& name) {
     return builder_.getI32Type();
 }
 
+// Is `v` a CONSTANT SPLAT — every element the same simple literal? Fills
+// `all_zero` when the constant's bit pattern is all zeroes (memset-able).
+// This is exactly the shape sema's `[v; N]` fill expansion produces (it
+// re-lowers the same literal node per slot); explicit literals that happen
+// to repeat one constant get the same (semantics-preserving) treatment.
+static bool arr_lit_const_splat(lir_view::EArrLitView& v, uint64_t n,
+                                bool* all_zero) {
+    using EC = lir_schema::expr::Code;
+    auto e0 = v.elem(0);
+    if (!e0) return false;
+    auto k0 = e0.kind();
+    int64_t iv = 0;
+    uint64_t fbits = 0;
+    bool bv = false;
+    std::string_view sv;
+    bool zero = false;
+    switch (k0) {
+        case EC::LitInt: {
+            lir_view::ELitIntView l{e0};
+            if (l.value_hi() != 0) return false;   // 128-bit literals: keep simple
+            iv = l.value();
+            zero = (iv == 0);
+            break;
+        }
+        case EC::LitFloat: {
+            lir_view::ELitFloatView l{e0};
+            double d = l.value();
+            std::memcpy(&fbits, &d, sizeof fbits);
+            zero = (fbits == 0);
+            break;
+        }
+        case EC::LitBool: {
+            lir_view::ELitBoolView l{e0};
+            bv = l.value();
+            zero = !bv;
+            break;
+        }
+        case EC::LitStr: {
+            lir_view::ELitStrView l{e0};
+            sv = l.value();
+            zero = false;   // a str view holds a (non-null) data pointer
+            break;
+        }
+        default: return false;
+    }
+    for (uint64_t i = 1; i < n; ++i) {
+        auto ei = v.elem(i);
+        if (!ei || ei.kind() != k0) return false;
+        switch (k0) {
+            case EC::LitInt: {
+                lir_view::ELitIntView l{ei};
+                if (l.value() != iv || l.value_hi() != 0) return false;
+                break;
+            }
+            case EC::LitFloat: {
+                lir_view::ELitFloatView l{ei};
+                double d = l.value();
+                uint64_t b = 0;
+                std::memcpy(&b, &d, sizeof b);
+                if (b != fbits) return false;
+                break;
+            }
+            case EC::LitBool: {
+                lir_view::ELitBoolView l{ei};
+                if (l.value() != bv) return false;
+                break;
+            }
+            case EC::LitStr: {
+                lir_view::ELitStrView l{ei};
+                if (l.value() != sv) return false;
+                break;
+            }
+            default: return false;
+        }
+    }
+    *all_zero = zero;
+    return true;
+}
+
+bool MLIRGenImpl::gen_arr_fill_fast(lir_view::EArrLitView v,
+                                    mlir::LLVM::LLVMArrayType arr_type,
+                                    mlir::Type elem_type, mlir::Value dst) {
+    // Threshold: below this the unrolled form is small AND more optimizable.
+    constexpr uint64_t kFillFastMin = 16;
+    uint64_t n = arr_type.getNumElements();
+    if (n < kFillFastMin) return false;
+    bool zero = false;
+    if (!arr_lit_const_splat(v, n, &zero)) return false;
+    auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+    uint64_t esz = dl.getTypeSize(elem_type);
+    if (esz == 0) return false;
+    if (zero) {
+        // All-zero-bits scalar splat → ONE memset over the whole array.
+        auto len = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(),
+            builder_.getI64IntegerAttr((int64_t)(esz * n)));
+        auto z8 = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI8Type(), builder_.getI8IntegerAttr(0));
+        builder_.create<mlir::LLVM::MemsetOp>(loc_, dst, z8, len,
+                                              /*isVolatile=*/false);
+        return true;
+    }
+    // Non-zero constant splat: materialize the value ONCE ([v; N] evaluates
+    // its operand once — Rust semantics), then a compact store loop.
+    auto er = v.elem(0);
+    if (!er) return false;
+    auto val = gen_expr(er);
+    if (!val) return false;
+    bool agg_src = (mlir::isa<mlir::LLVM::LLVMStructType>(elem_type) ||
+                    mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type)) &&
+                   val.getType() == ptr_type();
+    if (!agg_src) val = coerce_numeric(val, elem_type);
+    auto i64t = builder_.getI64Type();
+    auto i_alloca = create_entry_alloca(i64t);
+    auto c0 = builder_.create<mlir::LLVM::ConstantOp>(
+        loc_, i64t, builder_.getI64IntegerAttr(0));
+    auto c1 = builder_.create<mlir::LLVM::ConstantOp>(
+        loc_, i64t, builder_.getI64IntegerAttr(1));
+    auto cn = builder_.create<mlir::LLVM::ConstantOp>(
+        loc_, i64t, builder_.getI64IntegerAttr((int64_t)n));
+    builder_.create<mlir::LLVM::StoreOp>(loc_, c0, i_alloca);
+    auto* region     = builder_.getBlock()->getParent();
+    auto* cond_block = new mlir::Block();
+    auto* body_block = new mlir::Block();
+    auto* exit_block = new mlir::Block();
+    region->push_back(cond_block);
+    region->push_back(body_block);
+    region->push_back(exit_block);
+    builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+    builder_.setInsertionPointToStart(cond_block);
+    auto iv0 = builder_.create<mlir::LLVM::LoadOp>(loc_, i64t, i_alloca);
+    auto cmp = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::slt, iv0, cn);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, cmp, body_block, exit_block);
+    builder_.setInsertionPointToStart(body_block);
+    auto iv1 = builder_.create<mlir::LLVM::LoadOp>(loc_, i64t, i_alloca);
+    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), iv1.getResult()};
+    auto gep = builder_.create<mlir::LLVM::GEPOp>(
+        loc_, ptr_type(), arr_type, dst, idx);
+    if (agg_src) {
+        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, i64t, builder_.getI64IntegerAttr((int64_t)esz));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz,
+                                              /*isVolatile=*/false);
+    } else {
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+    }
+    auto nxt = builder_.create<mlir::LLVM::AddOp>(loc_, iv1, c1);
+    builder_.create<mlir::LLVM::StoreOp>(loc_, nxt, i_alloca);
+    builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
+    builder_.setInsertionPointToStart(exit_block);
+    return true;
+}
+
 mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type,
                                      TypeRef logos_elem) {
     uint64_t n = v.count();
     auto arr_type = mlir::LLVM::LLVMArrayType::get(elem_type, n);
     auto alloca   = create_entry_alloca(arr_type);
+    if (gen_arr_fill_fast(v, arr_type, elem_type, alloca)) return alloca;
     bool elem_is_array  = elem_type && mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type);
     bool elem_is_struct = elem_type && mlir::isa<mlir::LLVM::LLVMStructType>(elem_type);
     // N4: `[&dyn Trait; N]` — the array element is a trait object (pointer to a

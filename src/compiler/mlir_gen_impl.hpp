@@ -1353,6 +1353,19 @@ private:
     mlir::Type place_slot_type(TypeRef t);
     mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type,
                             TypeRef logos_elem = TypeRef(nullptr));
+    // Large-fill fast path: when EVERY element of the array literal is the
+    // SAME simple constant (the shape sema's `[v; N]` fill expansion
+    // produces) and N >= a small threshold, emit ONE memset (all-zero-bits
+    // scalars) or ONE store/memcpy inside a compact index loop into `dst`
+    // instead of N unrolled per-element stores. The unrolled form produced
+    // O(N) straight-line memops per literal — pathological SelectionDAG /
+    // scheduler times on the big fixed-array structs (queue-2 QEnv/RBinds/
+    // QRelReg tables surfaced it: minutes-long std-layer builds). Returns
+    // true when the fast path was emitted (caller skips the per-element
+    // loop); false = not a splat, fall through.
+    bool gen_arr_fill_fast(lir_view::EArrLitView v,
+                           mlir::LLVM::LLVMArrayType arr_type,
+                           mlir::Type elem_type, mlir::Value dst);
 
     // ── format() built-in ─────────────────────────────────────────
     static int format_type_tag(TypeRef t) noexcept;

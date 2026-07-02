@@ -215,6 +215,163 @@ pub fn rel_scc_new() -> RelScc {
     };
 }
 
+// ── RelDeps — the EXPLICIT rel dependency edge list ──────────────────────────
+// One edge per rel→rel source reference: `efrom[k]` (the referencing rel's
+// declaration index) → `eto[k]` (the referenced rel). The condensation
+// (compute_rel_scc) consumes this list to find the recursive SCCs; the
+// stratification check additionally consumes the NEGATED (anti-join) and
+// AGGREGATED sub-lists — a cycle through either is non-stratifiable.
+// MOVED here from plan_walker (queue-2 slice I3): the graph half is PURE
+// (no metaprog) and is now shared by the static walker AND the runtime
+// interpreter (logos.std.query) — the same layering move as lower.logos.
+pub struct RelDeps {
+    pub efrom: [i64; 64],
+    pub eto:   [i64; 64],
+    pub n:     i64,
+    // Anti-join rel edges: rel `afrom[k]`'s body `anti join`s rel `ato[k]`.
+    pub afrom: [i64; 16],
+    pub ato:   [i64; 16],
+    pub an:    i64,
+    // Aggregate-body rel-source edges: rel `gfrom[k]` has an AGGREGATE body
+    // scanning rel `gto[k]` (aggregate bodies are themselves rejected — this
+    // list only selects WHICH diagnostic: in-SCC ⇒ the non-stratified cycle
+    // error, else the plain "aggregate bodies are not allowed" one).
+    pub gfrom: [i64; 16],
+    pub gto:   [i64; 16],
+    pub gn:    i64,
+    // First rel with an aggregate body (-1 = none) — the deferred plain reject.
+    pub agg_head: i64,
+}
+
+pub fn rel_deps_new() -> RelDeps {
+    return RelDeps { efrom: [0i64; 64], eto: [0i64; 64], n: 0i64,
+                     afrom: [0i64; 16], ato: [0i64; 16], an: 0i64,
+                     gfrom: [0i64; 16], gto: [0i64; 16], gn: 0i64,
+                     agg_head: -1i64 };
+}
+
+impl RelDeps {
+    pub fn add(self: &mut RelDeps, f: i64, t: i64) {
+        if self.n >= 64i64 { return; }
+        self.efrom[self.n] = f;
+        self.eto[self.n]   = t;
+        self.n = self.n + 1i64;
+    }
+
+    pub fn add_anti(self: &mut RelDeps, f: i64, t: i64) {
+        if self.an >= 16i64 { return; }
+        self.afrom[self.an] = f;
+        self.ato[self.an]   = t;
+        self.an = self.an + 1i64;
+    }
+
+    pub fn add_agg(self: &mut RelDeps, f: i64, t: i64) {
+        if self.gn >= 16i64 { return; }
+        self.gfrom[self.gn] = f;
+        self.gto[self.gn]   = t;
+        self.gn = self.gn + 1i64;
+    }
+}
+
+// ── SCC condensation over RelDeps ────────────────────────────────────────────
+// Rel counts are tiny (≤ 8), so the CLEAN quadratic-closure formulation wins
+// over Tarjan bookkeeping: Warshall transitive closure (path length ≥ 1), then
+//   same SCC    ⇔ mutual reachability;
+//   RECURSIVE   ⇔ SCC size > 1, or reach[i][i] (a cycle through i — covers the
+//                 plain self-edge);
+//   topo order  ⇔ Kahn over the condensation, dependencies FIRST (an SCC is
+//                 placed once every SCC it depends on is placed; smallest id
+//                 first — deterministic);
+//   dep_mask[r] ⇔ DIRECT out-of-SCC dependencies (the helper-fn extra-param
+//                 set; in-SCC edges are the fixpoint's own state).
+pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
+    let mut scc: RelScc = rel_scc_new();
+    // Transitive closure (flat 8×8; reach[i*8+j] ⇔ a path of length ≥ 1).
+    let mut reach: [bool; 64] = [false; 64];
+    let mut e: i64 = 0i64;
+    while e < deps.n {
+        reach[deps.efrom[e] * 8i64 + deps.eto[e]] = true;
+        e = e + 1i64;
+    }
+    let mut k: i64 = 0i64;
+    while k < nr {
+        let mut i: i64 = 0i64;
+        while i < nr {
+            if reach[i * 8i64 + k] {
+                let mut j: i64 = 0i64;
+                while j < nr {
+                    if reach[k * 8i64 + j] { reach[i * 8i64 + j] = true; }
+                    j = j + 1i64;
+                }
+            }
+            i = i + 1i64;
+        }
+        k = k + 1i64;
+    }
+    // Components (mutual reachability), ids in declaration order.
+    let mut i0: i64 = 0i64;
+    while i0 < nr { scc.comp[i0] = -1i64; i0 = i0 + 1i64; }
+    let mut nscc: i64 = 0i64;
+    let mut a: i64 = 0i64;
+    while a < nr {
+        if scc.comp[a] < 0i64 {
+            let c: i64 = nscc;
+            nscc = nscc + 1i64;
+            scc.comp[a] = c;
+            let mut sz: i64 = 1i64;
+            let mut b: i64 = a + 1i64;
+            while b < nr {
+                if scc.comp[b] < 0i64 && reach[a * 8i64 + b] && reach[b * 8i64 + a] {
+                    scc.comp[b] = c;
+                    sz = sz + 1i64;
+                }
+                b = b + 1i64;
+            }
+            if sz > 1i64 || reach[a * 8i64 + a] { scc.rec[c] = true; }
+        }
+        a = a + 1i64;
+    }
+    scc.nscc = nscc;
+    // Direct out-of-SCC dependency masks.
+    let mut e2: i64 = 0i64;
+    while e2 < deps.n {
+        let f: i64 = deps.efrom[e2];
+        let t: i64 = deps.eto[e2];
+        if scc.comp[f] != scc.comp[t] {
+            scc.dep_mask[f] = scc.dep_mask[f] | (1i64 << t);
+        }
+        e2 = e2 + 1i64;
+    }
+    // Kahn over the condensation (a DAG by construction — the inner scan
+    // always finds a placeable SCC).
+    let mut placed: [bool; 8] = [false; 8];
+    let mut pos: i64 = 0i64;
+    while pos < nscc {
+        let mut c2: i64 = 0i64;
+        while c2 < nscc {
+            if !placed[c2] {
+                let mut okc: bool = true;
+                let mut e3: i64 = 0i64;
+                while e3 < deps.n {
+                    if scc.comp[deps.efrom[e3]] == c2 {
+                        let tc: i64 = scc.comp[deps.eto[e3]];
+                        if tc != c2 && !placed[tc] { okc = false; }
+                    }
+                    e3 = e3 + 1i64;
+                }
+                if okc {
+                    scc.order[pos] = c2;
+                    placed[c2] = true;
+                    break;
+                }
+            }
+            c2 = c2 + 1i64;
+        }
+        pos = pos + 1i64;
+    }
+    return scc;
+}
+
 // Parse a fn-style parameter list `name: type (, name: type)*` off `p`, filling
 // `out` with each param's name + CORE (deref/slice-stripped) type name + the
 // slice flag. The type text between the `:` and the next top-level `,` (or end)

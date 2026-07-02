@@ -1,0 +1,92 @@
+// queue-2 I3 — REGISTRY UNIFICATION (ADR 0012-queue2 §6): templates resolve
+// UDFs against the SAME env registry queries do — Tpl::compile DEFERS unknown
+// fn names (they may be UDFs registered on the render env), render's strict
+// check resolves builtin-first / registry-second, and an unresolved name is a
+// clean render-time QError. ONE resolution path for both surfaces.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.query;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema Emp : code(0x0B14_0000_0000_0001) {
+    name: str = 0,
+    age:  i64 = 1,
+}
+
+resource cat = schema_catalog!{ Emp };
+
+fn twice(args: &[RtVal]) -> RtVal {
+    match args[0i64] {
+        RtVal::I(x) => { return RtVal::I(x * 2i64); }
+        _ => { return RtVal::Null; }
+    }
+}
+
+// A UDF SHADOWING a builtin name — the builtin must still win.
+fn upper(args: &[RtVal]) -> RtVal {
+    let _x: RtVal = args[0i64];
+    return RtVal::I(-1i64);
+}
+
+fn sview(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(2048i64);
+    let c: SchemaCatalog = cat();
+    let e: Emp = d.make::<Emp>();
+    e.name = "Ann";
+    e.age = 42i64;
+    let ew: i64 = e.m as i64;
+    let eany: WAny = WAny::ref_to(ew as *const u8);
+
+    // COMPILES with `twice` unregistered — deferred to render (unification).
+    let t: Tpl = match Tpl::compile("{{ twice(e.age) }}/{{ upper(e.name) }}", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 1i32; }
+    };
+
+    // Render with the UDF registered → works; builtin `upper` still wins.
+    let mut env: QEnv = QEnv::new();
+    env.bind_node("e", eany);
+    let at1: [str; 1] = ["i64"];
+    if !env.register_fn("twice", twice, &at1[..], "i64") { return 2i32; }
+    let as1: [str; 1] = ["str"];
+    if !env.register_fn("upper", upper, &as1[..], "i64") { return 3i32; }
+    let s: String = match t.render(&env) {
+        Result::Ok(v) => { v }
+        Result::Err(_e2) => { return 4i32; }
+    };
+    if !str_eq(sview(&s), "84/ANN") { return 5i32; }
+
+    // Render over an env WITHOUT the registration → clean QError.
+    let mut env2: QEnv = QEnv::new();
+    env2.bind_node("e", eany);
+    match t.render(&env2) {
+        Result::Ok(_v) => { return 6i32; }
+        Result::Err(er) => {
+            if !str_contains(er.message(), "unknown function 'twice'") { return 7i32; }
+        }
+    }
+
+    // Arity mismatch against the REGISTERED signature → render-time QError.
+    let t2: Tpl = match Tpl::compile("{{ twice(e.age, e.age) }}", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e3) => { return 8i32; }
+    };
+    match t2.render(&env) {
+        Result::Ok(_v2) => { return 9i32; }
+        Result::Err(er2) => {
+            if !str_contains(er2.message(), "wrong number of arguments for 'twice'") { return 10i32; }
+        }
+    }
+
+    return 0i32;
+}

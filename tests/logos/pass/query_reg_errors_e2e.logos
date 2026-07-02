@@ -1,0 +1,57 @@
+// queue-2 I3 — register_fn / register_agg ERROR BEHAVIOR: registration
+// returns bool — FALSE (and registers NOTHING) on an out-of-lattice type
+// name, too many declared args, or a full registry; TRUE on success
+// (re-registration of an existing name overwrites and succeeds). The I2
+// silent no-op made the later "unknown function" error misleading.
+package test;
+
+use logos.std.query;
+use logos.mem.string;
+use logos.lang.str;
+
+fn f0(_a: &[RtVal]) -> RtVal { return RtVal::I(0i64); }
+
+fn ainit() -> RtVal { return RtVal::I(1i64); }
+fn astep(acc: RtVal, _v: RtVal) -> RtVal { return acc; }
+fn afin(acc: RtVal) -> RtVal { return acc; }
+
+fn main() -> i32 {
+    let mut env: QEnv = QEnv::new();
+    let a1: [str; 1] = ["i64"];
+
+    // ── register_fn ───────────────────────────────────────────────────────
+    if !env.register_fn("ok", f0, &a1[..], "i64") { return 1i32; }
+    // bad RETURN type name
+    if env.register_fn("bad1", f0, &a1[..], "banana") { return 2i32; }
+    // bad ARG type name
+    let abad: [str; 1] = ["banana"];
+    if env.register_fn("bad2", f0, &abad[..], "i64") { return 3i32; }
+    // too many declared args (max 4)
+    let a5: [str; 5] = ["i64", "i64", "i64", "i64", "i64"];
+    if env.register_fn("bad3", f0, &a5[..], "i64") { return 4i32; }
+    // failed registrations left NO entries: capacity is 8, "ok" holds 1 slot
+    if !env.register_fn("f2", f0, &a1[..], "i64") { return 5i32; }
+    if !env.register_fn("f3", f0, &a1[..], "i64") { return 6i32; }
+    if !env.register_fn("f4", f0, &a1[..], "i64") { return 7i32; }
+    if !env.register_fn("f5", f0, &a1[..], "i64") { return 8i32; }
+    if !env.register_fn("f6", f0, &a1[..], "i64") { return 9i32; }
+    if !env.register_fn("f7", f0, &a1[..], "i64") { return 10i32; }
+    if !env.register_fn("f8", f0, &a1[..], "i64") { return 11i32; }
+    // registry FULL (8/8): a NEW name fails …
+    if env.register_fn("f9", f0, &a1[..], "i64") { return 12i32; }
+    // … but OVERWRITING an existing name still succeeds
+    if !env.register_fn("ok", f0, &a1[..], "str") { return 13i32; }
+
+    // ── register_agg ──────────────────────────────────────────────────────
+    if !env.register_agg("prod", ainit, astep, afin, "i64", "i64") { return 14i32; }
+    if env.register_agg("badA", ainit, astep, afin, "banana", "i64") { return 15i32; }
+    if env.register_agg("badB", ainit, astep, afin, "i64", "banana") { return 16i32; }
+    if !env.register_agg("a2", ainit, astep, afin, "i64", "i64") { return 17i32; }
+    if !env.register_agg("a3", ainit, astep, afin, "str", "i64") { return 18i32; }
+    if !env.register_agg("a4", ainit, astep, afin, "f64", "f64") { return 19i32; }
+    // capacity 4 reached: a NEW name fails, overwrite succeeds
+    if env.register_agg("a5", ainit, astep, afin, "i64", "i64") { return 20i32; }
+    if !env.register_agg("prod", ainit, astep, afin, "i64", "f64") { return 21i32; }
+
+    return 0i32;
+}

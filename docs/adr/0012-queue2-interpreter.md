@@ -59,6 +59,48 @@ let t: Tpl = Tpl::compile(tpl_text, &cat)?;  t.render(&env)? -> String
 - The checker is a new runtime pass (SExpr/RQuery walk over the catalog) — it REPLACES the
   reflection stamping of the static queue; EL_TY lattice + ElTypes shape reused.
 
+### 4a. AMENDMENT (I3, as shipped) — API surface + exact Null semantics
+
+**API** — lenient-ness is a BIND-time property (per binding, not per compile):
+`env.bind_node_erased(name, node)` / `env.bind_source_erased(name, arr)`. The checker types
+such roots/rows `dyn` (runtime-typed); everything else stays strict. Additionally, a
+`WAny`-typed field on a STRICT schema (catalog kind `any`, e.g. `meta: WAny`) resolves
+leniently — I1's check-time rejection of `FK_ANY` is lifted.
+
+**Field resolution on a lenient value** (ONE dynamic read, shared with strict eval):
+- string-keyed Writ map (`is_map`) → get by NAME; missing key → `Null`; hit → value BY SHAPE
+  (int/float/bool/string → scalar, anything else → `Node` handle — "type surprise" keeps the
+  runtime shape, CEL-style);
+- schema-stamped TOM whose schema IS in the catalog → the cataloged key read, WritField
+  DEFAULTS included (schema'd data behaves schema'd even under an erased binding); `FK_ANY`
+  fields convert by shape, unset → `Null`;
+- unknown schema / unknown field / non-object base / `Null` base → `Null`.
+
+**Null propagation table** (`dyn` = check-time type of any lenient expression):
+
+| construct | rule |
+|---|---|
+| `a && b`, `a \|\| b`, `!a` | truthiness; `Null` is falsy (`!Null` → `true`) |
+| `==`, `!=` | `Null == Null` → `true`; `Null == x` → `false` (`!=` negates) |
+| `<` `<=` `>` `>=` | any `Null` operand → `false` (Null never orders) |
+| `+ - * / %`, unary `-` | any `Null` operand → `Null` (checked type `dyn`) |
+| `?:` | `Null` condition takes the else branch |
+| builtins (len/upper/…) | any non-STRING argument (incl. `Null`) → `Null` |
+| UDF args | `dyn` args pass UNCHECKED; the `RtVal` (incl. `Null`) reaches the fn as-is |
+| `where` / `{% if %}` | `Null` predicate → row dropped / branch not taken |
+| `{% for %}` / scans | non-array lenient value iterates as EMPTY |
+| `select` | `Null` cells are legal; column type reports `"dyn"`; `QRows::is_null(r,c)` probes, typed getters return zero-values |
+| `{{ x }}` render | `Null` renders as the EMPTY string |
+| `order by` | `Null` keys sort as 0 (numeric tier) — documented, not an error |
+| `group by` key | `Null` keys group together (`rt_eq`) |
+| aggregate args | REJECTED at check time (accumulator layout needs a checked type) |
+| join keys | a `dyn` side never qualifies as a HASH key (type unknown at compile) — such joins take the LOOP tier over the full predicate |
+| rel columns | a `dyn` select component cannot feed a typed rel column — check-time error |
+
+One consequence: the I1 compile-phase "no catalog schema declares this field" rejection is
+GONE — with lenient bindings legal, that field may resolve at run; the strict phase (which
+sees the env's binding kinds) owns the rejection now.
+
 ## 5. SchemaCatalog — queue-1 serving queue-2
 
 Runtime needs schema code → {field name → (key code, EL type, edge-target schema)}. Schema decls
@@ -117,10 +159,19 @@ later.
 ## 8. Slices
 
 - **I1** — RtVal + eval_sexpr + runtime checker (strict) + SchemaCatalog macro + **dynamic
-  Trama** (`Tpl::compile/render`): first user-visible dynamic surface.
+  Trama** (`Tpl::compile/render`): first user-visible dynamic surface. DONE.
 - **I2** — relational executor (scan/filter/join cascade/REdge/mods/aggregates+rule table) +
-  `Query::compile/run` for non-recursive queries; UDF/UDA registry.
-- **I3** — rel blocks + semi-naïve fixpoint + stratification at runtime; lenient mode.
+  `Query::compile/run` for non-recursive queries; UDF/UDA registry. DONE.
+- **I3** — rel blocks + semi-naïve fixpoint + stratification at runtime; lenient mode (§4a);
+  registry unification (templates resolve UDFs at render against the SAME env registry —
+  unknown-fn defers at compile for BOTH surfaces); `register_fn`/`register_agg` return `bool`
+  (false = bad type name / capacity — no silent no-op). DONE — queue-2 COMPLETE.
+  Implementation notes: the rel dependency-graph half (RelDeps + compute_rel_scc) moved to
+  the metaprog-free `logos.std.wql.params` and is shared by the static walker and the
+  interpreter; rel column reads compile to DOTTED idents ("p.b") over RtVal column groups;
+  the delta variant is a LOOP VARIABLE (which scan node reads the delta region), no IR
+  rewriting; termination = the standard Datalog contract, generative recursion deliberately
+  NOT capped (static parity).
 - Later (not scheduled): native-struct bridge via TypeInfo; queue-3 VM.
 
 ## 9. Non-goals (queue-2)

@@ -1,8 +1,9 @@
-// queue-2 I2 — QUERY errors are VALUES (ADR 0012-queue2 §3): compile-phase
-// (parse error, rel-block rejection, catalog-wide unknown field, `first`
-// envelope rule) vs run-phase (unknown source, unknown field on the RESOLVED
-// schema, unknown fn/aggregate, unbound limit param) — all asserted by
-// message substring, never compiler diagnostics.
+// queue-2 I2 (+I3 amendments) — QUERY errors are VALUES (ADR 0012-queue2 §3):
+// compile-phase (parse error, rel validation, `first` envelope rule) vs
+// run-phase (unknown source, unknown field on the RESOLVED schema — I3
+// DEFERS the catalog-wide field check to run, lenient bindings may resolve
+// it — unknown fn/aggregate, unbound limit param) — all asserted by message
+// substring, never compiler diagnostics.
 package test;
 
 use logos.lang.writ.container;
@@ -63,11 +64,13 @@ fn main() -> i32 {
 
     // ── compile-phase (env-independent) ───────────────────────────────────
     if !expect_compile_err("select e.name from emps e", &c, "parse error") { return 1i32; }
+    // rel VALIDATION is compile-phase (I3 — rel blocks are supported now;
+    // f64 columns break the set semantics and reject at compile)
     if !expect_compile_err(
-        "rel r(a: i64) { from emps e select e.age; } from emps e select e.age",
-        &c, "rel blocks") { return 2i32; }
-    if !expect_compile_err("from emps e select e.salary", &c,
-        "unknown field 'salary'") { return 3i32; }
+        "rel r(a: f64) { from emps e select e.age; } from emps e select e.age",
+        &c, "f64 columns are not allowed") { return 2i32; }
+    if !expect_compile_err("from emps e select first e.name limit 3", &c,
+        "`select first` excludes distinct/limit") { return 3i32; }
     if !expect_compile_err("from emps e where len(e.name, e.name) > 0 select e.name", &c,
         "wrong number of arguments for 'len'") { return 4i32; }
 
@@ -82,6 +85,10 @@ fn main() -> i32 {
     // unknown source: nothing bound under `people`
     if !expect_run_err("from people p select p.age", &c, &env,
         "unknown source 'people'") { return 5i32; }
+    // a field NO catalog schema declares: DEFERRED at compile (I3 — a lenient
+    // binding could resolve it), rejected by the strict run check
+    if !expect_run_err("from emps e select e.salary", &c, &env,
+        "unknown field 'salary'") { return 17i32; }
     // a field of ANOTHER schema, not the resolved one
     if !expect_run_err("from emps e select e.wage", &c, &env,
         "unknown field 'wage' on schema 'Emp'") { return 6i32; }

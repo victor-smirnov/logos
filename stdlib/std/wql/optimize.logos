@@ -668,6 +668,20 @@ pub fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
     }
 }
 
+// Does ident `name` reference row var `new_var`? Exact match, or the DOTTED
+// rel-column form `<new_var>.<col>` the runtime interpreter's rel rewrite
+// produces (queue-2 I3: `p.b` over a rel row becomes ONE ident named "p.b";
+// user identifiers cannot contain '.', so the prefix test is unambiguous.
+// The static IR never carries dotted idents — the extension is inert there).
+fn name_refs(name: str, new_var: str) -> bool {
+    if str_eq(name, new_var) { return true; }
+    let nl: i64 = new_var.len();
+    if name.len() > nl && str_byte_at(name, nl) == 46u8 && str_starts_with(name, new_var) {
+        return true;
+    }
+    return false;
+}
+
 // Name-usage mask of an expression: bit 1 — references the NEW step's row var;
 // bit 2 — references any OTHER name (an already-bound row var, a scalar param,
 // or an unknown ident — all "bound side" for classification). Literals add
@@ -675,12 +689,12 @@ pub fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
 pub fn refs_mask(e: SExpr, new_var: str) -> i32 {
     match e {
         SExpr::Lit(_)   => { return 0i32; }
-        SExpr::Param(p) => { if str_eq(p.name, new_var) { return 1i32; } return 2i32; }
-        SExpr::Var(v)   => { if str_eq(v.name, new_var) { return 1i32; } return 2i32; }
+        SExpr::Param(p) => { if name_refs(p.name, new_var) { return 1i32; } return 2i32; }
+        SExpr::Var(v)   => { if name_refs(v.name, new_var) { return 1i32; } return 2i32; }
         SExpr::Field(f) => {
             let bref: WRef<SExpr> = f.base;
             if bref.any().is_null() {
-                if str_eq(f.name, new_var) { return 1i32; }
+                if name_refs(f.name, new_var) { return 1i32; }
                 return 2i32;
             }
             return refs_mask(f.base_expr(), new_var);
