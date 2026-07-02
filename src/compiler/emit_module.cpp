@@ -43,6 +43,30 @@ namespace logos::compiler {
 
 namespace fs = std::filesystem;
 
+// ── ABI-spec scoping: the WQL/Trama query-engine internals ──────────────────
+// The whole `logos.std.wql.*` package tree — IR schemas (SExpr/RExpr/RQuery/
+// TStmt), the peg-generated parsers, plan_walker/rexpr_walk, optimize, codegen,
+// reflect, el/trama internals — is IMPLEMENTATION DETAIL. The only consumer-
+// facing surface is the macros (wql!/trama!/wql_walk!), which are #[token_macro]
+// and are ALREADY dropped by is_macro_hook(). A consumer never links a
+// logos.std.wql.* symbol: the macro expands into the CONSUMER's module using
+// Vec/String from OTHER packages. So the query engine is not link-time ABI, and
+// its churn (handler sigs, walk_query/walk_query_any, IR-schema layouts) keeps
+// falsely tripping the abi-gate as ABI-breaking. Exclude the package tree from
+// the .abi-pub allowlist AND from the .abi-layout type/vtable records.
+//
+// Matched on the PACKAGE precisely (not a substring of a mangled symbol): the
+// fn/struct/enum/trait views carry `package()`/`pkg()` directly, so we test the
+// package == "logos.std.wql" or has the "logos.std.wql." prefix (a sub-package
+// like logos.std.wql.ir / .optimize / .wql). This will NOT match an unrelated
+// package that merely embeds the substring.
+static bool is_wql_internal_pkg(std::string_view pkg) {
+    static constexpr std::string_view kRoot = "logos.std.wql";
+    if (pkg == kRoot) return true;
+    return pkg.size() > kRoot.size() && pkg.rfind(kRoot, 0) == 0 &&
+           pkg[kRoot.size()] == '.';
+}
+
 // ---------------------------------------------------------------------------
 // .writ0 format (version 3)
 //
@@ -479,6 +503,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // template is the ABI break at its source. Field offsets need LLVM
         // materialisation, but the field-type list is the layout determinant.
         for (auto& sd : prog.structs) {
+            if (is_wql_internal_pkg(sd.pkg())) continue;  // wql engine is internal
             std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
             bool first = true;
             for (auto f : sd.fields()) {
@@ -491,6 +516,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // Enums (templates included): variant name + payload types (a payload
         // type change, e.g. Some(i32)→Some(i64), changes the layout).
         for (auto& ed : prog.enums) {
+            if (is_wql_internal_pkg(ed.pkg())) continue;  // wql engine is internal
             std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
             bool first = true;
             ed.each_variant([&](lir_view::EnumVariantView v) {
@@ -511,6 +537,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             af << rec << "]\n";
         }
         for (auto& td : prog.traits) {
+            if (is_wql_internal_pkg(td.pkg())) continue;  // wql engine is internal
             std::string rec = "vtable\t" + qual(td.pkg(), td.name()) + "\tslots=[";
             bool first = true;
             for (auto& [owner, mname] : td.vtable_method_order()) {
@@ -655,6 +682,11 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // iterate, which would falsely trip the abi-gate as ABI-breaking, so
             // exclude them from the public ABI surface.
             if (fn.is_macro_hook()) return;
+            // The whole logos.std.wql.* query engine is internal implementation
+            // (is_wql_internal_pkg) — its only consumer surface is the macros,
+            // already dropped above; a consumer never links a wql symbol. Exclude
+            // it so query-engine refactors do not falsely trip the abi-gate.
+            if (is_wql_internal_pkg(fn.package())) return;
             pf << sym::link_name(fn, prog.pkg_module_ids) << '\n';
         };
         for (auto& fn : prog.functions) emit_pub(fn);
