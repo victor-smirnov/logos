@@ -112,7 +112,8 @@ impl SExprArr {
 // — which is (a) what a peg-generated parser produces natively (a captured IDENT
 // → a `str` field), and (b) more faithful to ADR-0011's "the schema IS the typed
 // view" + the seam's "backends trust the IR". A separate name→type dictionary
-// (built by the handler from schema reflection + `with`) supplies value-types.
+// (built by the handler from schema reflection + the macro param list)
+// supplies value-types.
 pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0 }                                  // literal, value verbatim
 pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0 }                                  // bound parameter (prepared-stmt arg) — by NAME
 pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0 }                                  // comprehension-bound row variable — by NAME
@@ -230,7 +231,7 @@ pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: W
 // projection (they act on the PROJECTED values). `having` has NO node of its own:
 // it lowers to an RFilter over the RAggr output (one filter mechanism).
 pub schema RSort     : code(0x0011_0000_0000_0008) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, desc: bool = 2 } // τ — ONE sort key, asc/desc
-pub schema RLimit    : code(0x0011_0000_0000_0009) { input: WRef<RExpr> = 0, n: i64 = 1, is_param: bool = 2, param: str = 3 } // first-n (literal or $param)
+pub schema RLimit    : code(0x0011_0000_0000_0009) { input: WRef<RExpr> = 0, n: i64 = 1, is_param: bool = 2, param: str = 3 } // first-n (literal or scalar-param name)
 pub schema RDistinct : code(0x0011_0000_0000_000A) { input: WRef<RExpr> = 0 }                          // δ — dedup projected values
 
 pub schema enum RExpr : category(0x0011_0000_0000_0000) {

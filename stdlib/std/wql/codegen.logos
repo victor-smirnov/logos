@@ -8,9 +8,9 @@
 // field/param/var NAMES directly off the IR nodes (`f.name`, `pp.name`,
 // `c.fn_name`, …) — NOT from an `ElParser` dense side table. Value-TYPES come
 // from a name→type dictionary (`ElTypes`) the handler builds from schema
-// reflection + the `with` clause. So the codegen depends only on the IR + a type
-// dict, never on the parser — which is what makes a peg-generated parser a
-// drop-in producer of the same IR.
+// reflection + the `wql!(…)`/`trama!(…)` parameter list. So the codegen depends
+// only on the IR + a type dict, never on the parser — which is what makes a
+// peg-generated parser a drop-in producer of the same IR.
 package logos.std.wql.codegen;
 
 use logos.std.compiler.metaprog;  // Emitter, OView — begin_chunk
@@ -115,7 +115,7 @@ pub fn wql_lower(s: str) -> String {
 // backend uses to choose `push_str` vs `push_i64`, emit a string literal, and
 // route the row/projection element type. Sources of type:
 //   • SLit          — the WAny payload (string / bool / float / int);
-//   • SParam / field — the type DICTIONARY (`ElTypes`, from `with` + reflection);
+//   • SParam / field — the type DICTIONARY (`ElTypes`, params + reflection);
 //   • SBin           — compare/logical ⇒ BOOL; `+` with a STR operand ⇒ STR
 //                      (string concatenation); arithmetic with a FLT operand ⇒
 //                      FLT (INT promotes to FLT), else INT;
@@ -328,115 +328,6 @@ pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
         }
         SExpr::Comp(cp) => { return call_diagnostic(cp.head_expr(), t); }
         _ => { return false; }
-    }
-}
-
-// Walk an SExpr tree and register every comprehension SOURCE (an `RScan.src_name`
-// under an SComp plan) into the type dict as a PARAM flagged as a source (a
-// `&[Elem]` slice fn argument). The self-describing IR carries the source name on
-// the RScan node, so this replaces the old parser `param_is_src` side flag: the
-// handler calls this after building the IR to surface comprehension sources as
-// generated-fn arguments. Recurses through all SExpr children.
-pub fn register_comp_sources(e: SExpr, t: &mut ElTypes) {
-    match e {
-        SExpr::Comp(cp) => {
-            let plan: RExpr = cp.plan_expr();
-            register_plan_source(plan, t);
-            let hd: SExpr = cp.head_expr();
-            register_comp_sources(hd, t);
-        }
-        SExpr::Bin(b)  => {
-            let l: SExpr = b.lhs_expr(); register_comp_sources(l, t);
-            let r: SExpr = b.rhs_expr(); register_comp_sources(r, t);
-        }
-        SExpr::Un(u)   => { let a: SExpr = u.arg_expr(); register_comp_sources(a, t); }
-        SExpr::Cond(c) => {
-            let cc: SExpr = c.cond_expr(); register_comp_sources(cc, t);
-            let tt: SExpr = c.then_expr(); register_comp_sources(tt, t);
-            let ee: SExpr = c.else_expr(); register_comp_sources(ee, t);
-        }
-        SExpr::Call(c) => {
-            let args: SExprArr = c.args_arr();
-            let mut i: i64 = 0i64;
-            while i < args.len() { let a: SExpr = args.arg_at(i); register_comp_sources(a, t); i = i + 1i64; }
-        }
-        SExpr::Field(f) => {
-            let bref: WRef<SExpr> = f.base;
-            let base: WAny = bref.any();
-            if !base.is_null() { let be: SExpr = f.base_expr(); register_comp_sources(be, t); }
-        }
-        _ => { }
-    }
-}
-
-// Collect `$param` names off the SExpr IR into the type dict's ORDERED arg list
-// (pre-order, left-to-right), matching the hand parser's parse-order `note_param`
-// side channel. With Option-B self-describing IR (names on nodes) the ordered
-// param list is recovered by walking the tree, not from a parser side table — so
-// a generated parser (no ElParser) feeds the emitted-fn arg list identically.
-pub fn collect_params(e: SExpr, t: &mut ElTypes) {
-    match e {
-        SExpr::Param(pp) => { t.note_param(pp.name); }
-        SExpr::Bin(b)  => {
-            let l: SExpr = b.lhs_expr(); collect_params(l, t);
-            let r: SExpr = b.rhs_expr(); collect_params(r, t);
-        }
-        SExpr::Un(u)   => { let a: SExpr = u.arg_expr(); collect_params(a, t); }
-        SExpr::Cond(c) => {
-            let cc: SExpr = c.cond_expr(); collect_params(cc, t);
-            let tt: SExpr = c.then_expr(); collect_params(tt, t);
-            let ee: SExpr = c.else_expr(); collect_params(ee, t);
-        }
-        SExpr::Call(c) => {
-            let args: SExprArr = c.args_arr();
-            let mut i: i64 = 0i64;
-            while i < args.len() { let a: SExpr = args.arg_at(i); collect_params(a, t); i = i + 1i64; }
-        }
-        SExpr::Field(f) => {
-            let bref: WRef<SExpr> = f.base;
-            let base: WAny = bref.any();
-            if !base.is_null() { let be: SExpr = f.base_expr(); collect_params(be, t); }
-        }
-        SExpr::Comp(cp) => {
-            // Parse order: the comprehension SOURCE (`for v in <src>`) is scanned
-            // before the head/guard, so the source name enters the ordered arg
-            // list first (the hand parser noted it into its param channel during
-            // comp parsing). Then the head, then the guard params.
-            let plan: RExpr = cp.plan_expr(); collect_plan_params(plan, t);
-            let hd: SExpr = cp.head_expr(); collect_params(hd, t);
-        }
-        _ => { }
-    }
-}
-
-fn collect_plan_params(plan: RExpr, t: &mut ElTypes) {
-    match plan {
-        RExpr::Scan(sc) => {
-            let nm: str = sc.src_name;
-            if nm.len() > 0i64 { t.note_param(nm); }
-        }
-        RExpr::Filter(fl) => {
-            let inp: RExpr = fl.input_expr(); collect_plan_params(inp, t);
-            let pr: SExpr = fl.pred_expr(); collect_params(pr, t);
-        }
-        _ => { }
-    }
-}
-
-// Register the RScan source name under a comprehension plan as a source param.
-fn register_plan_source(plan: RExpr, t: &mut ElTypes) {
-    match plan {
-        RExpr::Scan(sc) => {
-            let nm: str = sc.src_name;
-            if nm.len() > 0i64 { t.note_param(nm); t.set_source(nm); }
-        }
-        RExpr::Filter(fl) => {
-            let inp: RExpr = fl.input_expr();
-            register_plan_source(inp, t);
-            let pr: SExpr = fl.pred_expr();
-            register_comp_sources(pr, t);
-        }
-        _ => { }
     }
 }
 

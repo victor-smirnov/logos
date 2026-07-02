@@ -1,5 +1,5 @@
 // WQL Phase 3 — WALKER-EMITTER end-to-end (ADR 0012). Exercises the peg + walker
-// spine: `wql_walk!{ … }` parses the block via the peg-GENERATED surface parser
+// spine: `wql_walk!(<params>){ … }` parses the block via the peg-GENERATED surface parser
 // (→ an `RQuery` plan) and WALKS that schema'd plan (`plan_walker::walk_query`)
 // to emit the native fn — the peg-all-the-way replacement for the QLexer path.
 //
@@ -19,13 +19,13 @@ struct Dept   { pub id: i64,   pub head: i64 }
 struct Order  { pub dept: i64, pub amt: i64 }
 
 // ── SIMPLE: filter+project (adults' ages). ───────────────────────────────────
-resource adults = wql_walk!{ from people:[Person] p where p.age >= 18 select p.age : i64  };
+resource adults = wql_walk!(people: &[Person]) { from people p where p.age >= 18 select p.age : i64 };
 
 // ── JOIN: inner nested-loop join on p.name == d.id → project d.head. ──────────
-resource joined = wql_walk!{ from people:[Person] p join depts:[Dept] d on p.name == d.id select d.head : i64  };
+resource joined = wql_walk!(people: &[Person], depts: &[Dept]) { from people p join depts d on p.name == d.id select d.head : i64 };
 
 // ── AGGREGATE: group by dept, sum amt. ───────────────────────────────────────
-resource totals = wql_walk!{ from orders:[Order] o group by o.dept aggregate total = sum(o.amt) select total : i64  };
+resource totals = wql_walk!(orders: &[Order]) { from orders o group by o.dept aggregate total = sum(o.amt) select total : i64 };
 
 fn main() -> i32 {
     // ── simple ──

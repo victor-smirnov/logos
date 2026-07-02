@@ -1,0 +1,164 @@
+// logos.std.wql.params — the SHARED macro parameter-list parser (ADR 0012 §6,
+// parameterized-resource surface). Both `trama!(<params>){ … }` and
+// `wql!(<params>){ … }` carry a GENUINE Logos parameter list in the parens: the
+// handler re-emits it VERBATIM into the generated fn signature (the compiler
+// parses + type-checks it), and ALSO parses it here to drive schema reflection
+// + value-typing. ONE mechanism, two consumers.
+//
+// Per param we record:
+//   • name       — the parameter name (borrowed surface slice);
+//   • ty         — the CORE type name: any leading `&` / `&mut` and a slice
+//                  wrapper are stripped (`&Order` → `Order`, `&[Emp]` → `Emp`,
+//                  `str` → `str`) — enough for scalar/schema classification,
+//                  `el_ty_of_name`, and the wql! source row type;
+//   • is_slice   — the type was a slice/array collection (`&[T]` / `[T]` /
+//                  `[T; N]`): a wql! query SOURCE (`from <name> <var>`).
+//
+// Robust to trailing commas + arbitrary interior whitespace; balanced
+// brackets/parens/angles inside a type (`[T; N]`, `Foo<Bar>`) don't split on
+// their internal commas (a nesting depth is tracked).
+package logos.std.wql.params;
+
+use logos.lang.str;
+
+fn mp_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
+fn mp_is_alpha(c: u8) -> bool {
+    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+}
+fn mp_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
+fn mp_is_alnum(c: u8) -> bool { return mp_is_alpha(c) || mp_is_digit(c); }
+
+unsafe fn mp_str_range(src: str, start: i64, len: i64) -> str {
+    let l: i64 = if len < 0i64 { 0i64 } else { len };
+    return str_from_raw((src.as_ptr() as i64 + start) as *const u8, l);
+}
+
+// ── The parsed parameter list ──────────────────────────────────────────────
+pub struct MacroParams {
+    pub names:    [str; 64],
+    pub tys:      [str; 64],    // CORE type name (deref/slice-stripped)
+    pub is_slice: [bool; 64],   // `&[T]`-family — a query SOURCE param
+    pub n:        i64,
+}
+
+pub fn macro_params_new() -> MacroParams {
+    return MacroParams {
+        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        is_slice: [false; 64],
+        n: 0i64,
+    };
+}
+
+impl MacroParams {
+    // Index of the param named `name`, or -1.
+    pub fn index_of(self: &MacroParams, name: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.n {
+            if str_eq(self.names[i], name) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    // Is `name` a declared SLICE param (a wql! query source)?
+    pub fn is_source(self: &MacroParams, name: str) -> bool {
+        let i: i64 = self.index_of(name);
+        if i < 0i64 { return false; }
+        return self.is_slice[i];
+    }
+
+    // Is `name` a declared SCALAR (non-slice) param?
+    pub fn is_scalar(self: &MacroParams, name: str) -> bool {
+        let i: i64 = self.index_of(name);
+        if i < 0i64 { return false; }
+        return !self.is_slice[i];
+    }
+
+    // The CORE type name of the param named `name` ("" if absent).
+    pub fn ty_of(self: &MacroParams, name: str) -> str {
+        let i: i64 = self.index_of(name);
+        if i < 0i64 { return ""; }
+        return self.tys[i];
+    }
+}
+
+// Parse a fn-style parameter list `name: type (, name: type)*` off `p`, filling
+// `out` with each param's name + CORE (deref/slice-stripped) type name + the
+// slice flag. The type text between the `:` and the next top-level `,` (or end)
+// is scanned; a leading `&` or `&mut ` is skipped, then a `[`-wrapped collection
+// (`&[T]` / `[T]` / `[T; N]`) unwraps to its ELEMENT type name with `is_slice`
+// set — so a wql! source param `emps: &[Emp]` classifies as (emps, Emp, slice)
+// and a trama! context param `o: &Order` as (o, Order, scalar-shaped).
+// Empty `p` = zero params. A malformed param stops the scan (the compiler
+// re-reports on the verbatim re-emit).
+pub fn parse_macro_params(p: str, out: &mut MacroParams) {
+    let len: i64 = p.len();
+    let mut pos: i64 = 0i64;
+    loop {
+        while pos < len && mp_is_space(str_byte_at(p, pos)) { pos = pos + 1i64; }
+        if pos >= len { break; }
+        // Param name.
+        if !mp_is_alpha(str_byte_at(p, pos)) { break; }
+        let nstart: i64 = pos;
+        while pos < len && mp_is_alnum(str_byte_at(p, pos)) { pos = pos + 1i64; }
+        let nm: str = unsafe { mp_str_range(p, nstart, pos - nstart) };
+        while pos < len && mp_is_space(str_byte_at(p, pos)) { pos = pos + 1i64; }
+        if pos >= len || str_byte_at(p, pos) != 58u8 { break; }   // ':'
+        pos = pos + 1i64;
+        while pos < len && mp_is_space(str_byte_at(p, pos)) { pos = pos + 1i64; }
+        // Leading reference marker: `&mut ` or `&`.
+        if pos < len && str_byte_at(p, pos) == 38u8 {             // '&'
+            pos = pos + 1i64;
+            while pos < len && mp_is_space(str_byte_at(p, pos)) { pos = pos + 1i64; }
+            if pos + 3i64 <= len
+               && str_byte_at(p, pos) == 109u8            // 'm'
+               && str_byte_at(p, pos + 1i64) == 117u8     // 'u'
+               && str_byte_at(p, pos + 2i64) == 116u8 {   // 't'
+                let after: u8 = if pos + 3i64 < len { str_byte_at(p, pos + 3i64) } else { 0u8 };
+                if !mp_is_alnum(after) {
+                    pos = pos + 3i64;
+                    while pos < len && mp_is_space(str_byte_at(p, pos)) { pos = pos + 1i64; }
+                }
+            }
+        }
+        // Slice/array wrapper: `[T]` / `[T; N]` → unwrap to the element head.
+        let mut is_sl: bool = false;
+        if pos < len && str_byte_at(p, pos) == 91u8 {             // '['
+            is_sl = true;
+            pos = pos + 1i64;
+            while pos < len && mp_is_space(str_byte_at(p, pos)) { pos = pos + 1i64; }
+        }
+        // The core type name = the identifier head of the (possibly compound)
+        // type — enough for scalar/schema classification + el_ty_of_name.
+        let tstart: i64 = pos;
+        while pos < len && mp_is_alnum(str_byte_at(p, pos)) { pos = pos + 1i64; }
+        let ty: str = unsafe { mp_str_range(p, tstart, pos - tstart) };
+        if out.n < 64i64 {
+            out.names[out.n]    = nm;
+            out.tys[out.n]      = ty;
+            out.is_slice[out.n] = is_sl;
+            out.n = out.n + 1i64;
+        }
+        // Advance past the rest of this param's type to the next top-level comma,
+        // honoring bracket/paren/angle nesting so compound types don't mis-split.
+        // (The slice `[` already consumed above counts as one open level.)
+        let mut depth: i64 = if is_sl { 1i64 } else { 0i64 };
+        loop {
+            if pos >= len { break; }
+            let c: u8 = str_byte_at(p, pos);
+            if c == 40u8 || c == 91u8 || c == 60u8 { depth = depth + 1i64; }        // ( [ <
+            else if c == 41u8 || c == 93u8 || c == 62u8 { depth = depth - 1i64; }   // ) ] >
+            else if c == 44u8 && depth <= 0i64 { break; }                            // ','
+            pos = pos + 1i64;
+        }
+        if pos < len && str_byte_at(p, pos) == 44u8 { pos = pos + 1i64; continue; }  // ','
+        break;
+    }
+}

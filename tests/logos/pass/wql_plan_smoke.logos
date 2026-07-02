@@ -1,13 +1,14 @@
 // WQL query-PLAN smoke (ADR 0012 §2, dogfood ADR 0011): construct an
-// `RQuery::Simple` plan node — source name/type + loop var + a `where`
-// predicate edge + a `select` projection edge + a `with` list — via
-// make/view, then read it back through the `RQuery` schema-enum `match`
-// and resolve each `WRef<SExpr>` embedded-EL edge.
+// `RQuery::Simple` plan node — source name + loop var + a `where` predicate
+// edge + a `select` projection edge — via make/view, then read it back through
+// the `RQuery` schema-enum `match` and resolve each `WRef<SExpr>` embedded-EL
+// edge. The `row_ty` field is written the way the wql! HANDLER stamps it after
+// the parse (from the `wql!(…)` slice-param element type — the grammar no
+// longer captures `:[Ty]`, and the `with` clause is gone).
 //
 // This is the Phase-1 anchor: it proves the RQSimple plan schema round-trips
-// (str fields, bool flags, WRef<SExpr> edges to the embedded SExpr IR, and a
-// nested WRef<RQWithArr> fan-out list) the way the wql.peg grammar will build
-// it and the walker-emitter will consume it.
+// (str fields, bool flags, WRef<SExpr> edges to the embedded SExpr IR) the way
+// the wql.peg grammar builds it and the walker-emitter consumes it.
 //
 // Nodes are built inline against one live `Writ` arena `h`: a node's edge handle
 // (`as_ref`) targets the TOM in `h`, so each child view stays in scope while its
@@ -39,26 +40,16 @@ fn main() -> i32 {
     let proj: SField = h.make::<SField>();
     proj.name = "name";
 
-    // ── the `with` list:  with $q:str  → one RQWith(is_param, "q", "str").
-    let w0: RQWith = h.make::<RQWith>();
-    w0.is_param = true;
-    w0.name = "q";
-    w0.ty = "str";
-    let mut warr: RQWithArr = h.make::<RQWithArr>();
-    warr.set_len(1i64);
-    warr.set_with(0i64, w0.as_ref());
-
     // ── the RQSimple plan node.
     let q: RQSimple = h.make::<RQSimple>();
     q.fn_name       = "adults";
     q.src_name      = "people";
-    q.row_ty        = "Person";
+    q.row_ty        = "Person";     // handler-stamped (from `people: &[Person]`)
     q.var_name      = "p";
     q.has_where     = true;
     q.where_pred    = WRef::<SExpr>::from_any(pred.as_ref());
     q.select        = WRef::<SExpr>::from_any(proj.as_ref());
     q.has_result_ty = false;
-    q.with_decls    = WRef::<RQWithArr>::from_any(warr.as_ref());
 
     // ── read it back through the RQuery enum match.
     let plan: RQuery = q.as_ref().view::<RQuery>();
@@ -98,14 +89,6 @@ fn main() -> i32 {
                 SExpr::Field(f) => { if !str_eq(f.name, "name") { return 13i32; } }
                 _ => { return 14i32; }
             }
-
-            // Resolve the `with` list → one RQWith(is_param, "q", "str").
-            let wa: RQWithArr = s.with_arr();
-            if wa.len() != 1i64 { return 15i32; }
-            let d0: RQWith = wa.with_at(0i64);
-            if !d0.is_param              { return 16i32; }
-            if !str_eq(d0.name, "q")     { return 17i32; }
-            if !str_eq(d0.ty, "str")     { return 18i32; }
         }
         _ => { return 20i32; }
     }

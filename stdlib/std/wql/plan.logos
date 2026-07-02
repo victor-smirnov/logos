@@ -1,15 +1,16 @@
 // logos.std.wql.plan — the wql! QUERY PLAN, expressed as Writ schemas (ADR 0012
 // §2 relational surface, dogfooding ADR 0011). This is the AST the wql.peg
-// grammar BUILDS and the walker-emitter CONSUMES, REPLACING the hand-written
-// QLexer's procedural clause parsing (`stdlib/std/wql/wql.logos`).
+// grammar BUILDS and the walker-emitter CONSUMES.
 //
-// The wql! surface has three shapes, modelled here as a `schema enum` family
-// `RQuery` with one variant per shape:
+// The wql! surface has four shapes, modelled here as a `schema enum` family
+// `RQuery` with one variant per shape (params come from the `wql!(<params>)`
+// paren list — see wql.logos; there is NO `with` clause and NO inline `:[Ty]`
+// source typing any more):
 //
-//   • RQSimple — `fn N from src:[Ty] var [where P] select S [: RTy] [with …]`
-//   • RQJoin   — `… [anti] join b:[BTy] y on ON [where P] select S [: RTy] [with …]`
-//   • RQAggr   — `… [where P] group by K aggregate a=fn(e),… select S [: RTy] [with …]`
-//   • RQFind   — `from src:[Ty] var find P` (single-row borrow — Option<&Ty>)
+//   • RQSimple — `from src var [where P] select S [order/limit/…] [: RTy]`
+//   • RQJoin   — `… [anti] join b y on ON [where P] select S [: RTy]`
+//   • RQAggr   — `… [where P] group by K aggregate a=fn(e),… select S [: RTy]`
+//   • RQFind   — `from src var find P` (single-row borrow — Option<&Ty>)
 //
 // Every plan node is a first-class Writ schema view (no plain Logos structs/enums
 // for plan nodes — SCHEMA MANDATE). The embedded EL clause bodies (where / select
@@ -17,11 +18,13 @@
 // referenced through `WRef<SExpr>` edges — the exact edge primitive ir.logos uses,
 // resolved by the walker via `.any().view::<SExpr>()`.
 //
-// SELF-DESCRIBING (Option B, like ir.logos): source names/types + the loop var +
-// the result type + aggregate column names all live on the node as `str` fields;
-// the walker reads them directly (no side tables). Optionality is tracked with
-// explicit `has_*` bool flags (mirroring the QLexer's `has_where` / `infer_result`
-// tracking) rather than sentinel edges — strict + unambiguous.
+// SELF-DESCRIBING (Option B, like ir.logos): source names + the loop var + the
+// result type + aggregate column names all live on the node as `str` fields;
+// the walker reads them directly (no side tables). Row TYPES (`row_ty` /
+// `a_ty` / `b_ty`) are NOT grammar-captured: the HANDLER stamps them after the
+// parse from the `wql!(<params>)` slice-param element types (plan_walker::
+// walk_query_params). Optionality is tracked with explicit `has_*` bool flags
+// rather than sentinel edges — strict + unambiguous.
 //
 // Category allocation: 0x0012 (the "WQL type descriptors" slot the impl-seam ADR
 // dropped — free to reuse for the query-PLAN tier, distinct from SExpr 0x0010 /
@@ -98,80 +101,22 @@ impl RQAggArr {
     pub fn as_ref(self: &RQAggArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
 }
 
-// ── `with` type declaration — one `[$]name:ty` item ───────────────────────────
-// `is_param` = a `$`-prefixed PARAM (vs a bare FIELD); `name` / `ty` are the
-// declared name + type-name text. The walker replays these onto the ElTypes dict
-// exactly as `apply_with_types` did off the QLexer's parallel arrays.
-pub schema RQWith : code(0x0012_0000_0000_0012) {
-    is_param: bool = 0,
-    name:     str  = 1,
-    ty:       str  = 2,
-}
-
-impl RQWith {
-    pub fn as_ref(self: &RQWith) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
-}
-
-// The `with` clause list — a fan-out of up to `RQWITH_MAX` RQWith edges.
-pub schema RQWithArr : code(0x0012_0000_0000_0013) {
-    count: i32          = 0,
-    w0: WRef<RQWith> = 1,
-    w1: WRef<RQWith> = 2,
-    w2: WRef<RQWith> = 3,
-    w3: WRef<RQWith> = 4,
-    w4: WRef<RQWith> = 5,
-    w5: WRef<RQWith> = 6,
-    w6: WRef<RQWith> = 7,
-    w7: WRef<RQWith> = 8,
-}
-
-pub fn RQWITH_MAX() -> i64 { return 8i64; }
-
-impl RQWithArr {
-    pub fn len(self: &RQWithArr) -> i64 { return self.count as i64; }
-
-    pub fn with_at(self: &RQWithArr, i: i64) -> RQWith {
-        if i == 0i64 { return self.w0.any().view::<RQWith>(); }
-        if i == 1i64 { return self.w1.any().view::<RQWith>(); }
-        if i == 2i64 { return self.w2.any().view::<RQWith>(); }
-        if i == 3i64 { return self.w3.any().view::<RQWith>(); }
-        if i == 4i64 { return self.w4.any().view::<RQWith>(); }
-        if i == 5i64 { return self.w5.any().view::<RQWith>(); }
-        if i == 6i64 { return self.w6.any().view::<RQWith>(); }
-        return self.w7.any().view::<RQWith>();
-    }
-
-    pub fn set_with(self: &mut RQWithArr, i: i64, h: WAny) {
-        let r: WRef<RQWith> = WRef::<RQWith>::from_any(h);
-        if i == 0i64 { self.w0 = r; return; }
-        if i == 1i64 { self.w1 = r; return; }
-        if i == 2i64 { self.w2 = r; return; }
-        if i == 3i64 { self.w3 = r; return; }
-        if i == 4i64 { self.w4 = r; return; }
-        if i == 5i64 { self.w5 = r; return; }
-        if i == 6i64 { self.w6 = r; return; }
-        self.w7 = r;
-    }
-
-    pub fn set_len(self: &mut RQWithArr, n: i64) { self.count = n as i32; }
-    pub fn as_ref(self: &RQWithArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
-}
-
 // ── RQSimple — scan / filter / project (the simple query shape) ───────────────
-//   fn N from src:[row_ty] var [where P] select S [: result_ty] [with …]
+//   from src var [where P] select S [order/limit/…] [: result_ty]
 //
 // `has_where` / `where` — the optional predicate edge (WRef<SExpr>).
 // `select` — the required projection edge.
 // `has_result_ty` — false ⇒ INFER the result element type from `select`.
-// `with_decls` — the `with` list (may be empty, count 0).
-// SELECT-TAIL MODIFIERS (all three shapes): `distinct` dedups the projected
-// values; `has_order`/`order_key`/`order_desc` = `order by O [desc]` (the key
-// ranges over the row vars for simple/join, over the group key + aggregate
-// output names for the aggregate shape); `has_limit` + (`limit_n` XOR
-// `limit_is_param`/`limit_param`) = `limit N|$p`; `sel_first` = `select first S`
-// — SINGLE-ROW mode: the generated fn returns Option<ElemTy> (the first
-// projected value, honoring `order by`); excludes distinct/limit (walker
-// diagnoses the combination).
+// `row_ty` — the row TYPE name: stamped by the HANDLER from the slice param
+// `src_name: &[row_ty]` in the wql!(…) list (not grammar-captured).
+// SELECT-TAIL MODIFIERS (simple/join/aggregate shapes): `distinct` dedups the
+// projected values; `has_order`/`order_key`/`order_desc` = `order by O [desc]`
+// (the key ranges over the row vars for simple/join, over the group key +
+// aggregate output names for the aggregate shape); `has_limit` + (`limit_n` XOR
+// `limit_is_param`/`limit_param`) = `limit N|p` (p = a scalar param name);
+// `sel_first` = `select first S` — SINGLE-ROW mode: the generated fn returns
+// Option<ElemTy> (the first projected value, honoring `order by`); excludes
+// distinct/limit (walker diagnoses the combination).
 pub schema RQSimple : code(0x0012_0000_0000_0000) {
     fn_name:       str            = 0,
     src_name:      str            = 1,
@@ -182,22 +127,22 @@ pub schema RQSimple : code(0x0012_0000_0000_0000) {
     select:        WRef<SExpr>    = 6,
     has_result_ty: bool           = 7,
     result_ty:     str            = 8,
-    with_decls:    WRef<RQWithArr> = 9,
-    distinct:       bool          = 10,
-    has_order:      bool          = 11,
-    order_key:      WRef<SExpr>   = 12,
-    order_desc:     bool          = 13,
-    has_limit:      bool          = 14,
-    limit_n:        i64           = 15,
-    limit_is_param: bool          = 16,
-    limit_param:    str           = 17,
-    sel_first:      bool          = 18,
+    distinct:       bool          = 9,
+    has_order:      bool          = 10,
+    order_key:      WRef<SExpr>   = 11,
+    order_desc:     bool          = 12,
+    has_limit:      bool          = 13,
+    limit_n:        i64           = 14,
+    limit_is_param: bool          = 15,
+    limit_param:    str           = 16,
+    sel_first:      bool          = 17,
 }
 
 // ── RQJoin — inner / anti nested-loop join over two sources ───────────────────
-//   fn N from a:[a_ty] x [anti] join b:[b_ty] y on ON [where P] select S [: result_ty] [with …]
+//   from a x [anti] join b y on ON [where P] select S [: result_ty]
 // `has_result_ty` — false ⇒ INFER the result element type from `select` (both
 // source schemas are reflected, so a projection like `x.field`/`y.field` types).
+// `a_ty` / `b_ty` — stamped by the HANDLER from the slice params in wql!(…).
 pub schema RQJoin : code(0x0012_0000_0000_0001) {
     fn_name:    str             = 0,
     a_name:     str             = 1,
@@ -213,25 +158,24 @@ pub schema RQJoin : code(0x0012_0000_0000_0001) {
     select:     WRef<SExpr>     = 11,
     has_result_ty: bool         = 12,
     result_ty:  str             = 13,
-    with_decls: WRef<RQWithArr> = 14,
-    distinct:       bool        = 15,
-    has_order:      bool        = 16,
-    order_key:      WRef<SExpr> = 17,
-    order_desc:     bool        = 18,
-    has_limit:      bool        = 19,
-    limit_n:        i64         = 20,
-    limit_is_param: bool        = 21,
-    limit_param:    str         = 22,
-    sel_first:      bool        = 23,
+    distinct:       bool        = 14,
+    has_order:      bool        = 15,
+    order_key:      WRef<SExpr> = 16,
+    order_desc:     bool        = 17,
+    has_limit:      bool        = 18,
+    limit_n:        i64         = 19,
+    limit_is_param: bool        = 20,
+    limit_param:    str         = 21,
+    sel_first:      bool        = 22,
 }
 
 // ── RQAggr — group-by + aggregate ─────────────────────────────────────────────
-//   fn N from a:[a_ty] x [where P] group by key aggregate a=fn(e),… select S [: result_ty] [with …]
+//   from a x [where P] group by key aggregate a=fn(e),… select S [: result_ty]
 // `has_result_ty` — false ⇒ INFER from `select` (the group-key + each aggregate
 // column are bound as i64 locals, so the projection types over an i64 lattice).
 // `has_having`/`having_pred` — the aggregate-only `having H` clause: a filter
 // over the group rows (key + aggregate outputs), applied AFTER aggregation and
-// BEFORE order/project/distinct/limit.
+// BEFORE order/project/distinct/limit. `a_ty` — handler-stamped (see RQSimple).
 pub schema RQAggr : code(0x0012_0000_0000_0002) {
     fn_name:    str             = 0,
     a_name:     str             = 1,
@@ -244,26 +188,25 @@ pub schema RQAggr : code(0x0012_0000_0000_0002) {
     select:     WRef<SExpr>     = 8,
     has_result_ty: bool         = 9,
     result_ty:  str             = 10,
-    with_decls: WRef<RQWithArr> = 11,
-    distinct:       bool        = 12,
-    has_order:      bool        = 13,
-    order_key:      WRef<SExpr> = 14,
-    order_desc:     bool        = 15,
-    has_limit:      bool        = 16,
-    limit_n:        i64         = 17,
-    limit_is_param: bool        = 18,
-    limit_param:    str         = 19,
-    has_having:     bool        = 20,
-    having_pred:    WRef<SExpr> = 21,
-    sel_first:      bool        = 22,
+    distinct:       bool        = 11,
+    has_order:      bool        = 12,
+    order_key:      WRef<SExpr> = 13,
+    order_desc:     bool        = 14,
+    has_limit:      bool        = 15,
+    limit_n:        i64         = 16,
+    limit_is_param: bool        = 17,
+    limit_param:    str         = 18,
+    has_having:     bool        = 19,
+    having_pred:    WRef<SExpr> = 20,
+    sel_first:      bool        = 21,
 }
 
-// ── RQFind — single-row borrow: `from src:[row_ty] var find P` ────────────────
+// ── RQFind — single-row borrow: `from src var find P` ─────────────────────────
 // REPLACES where+select (SIMPLE shape only): the generated fn returns
 // Option<&row_ty> — a borrow of the FIRST row matching `pred` (early-exit scan;
 // zero-copy, the emit_identity accessor-collapse precedent), None when no row
-// matches. NO other clause (select/order/limit/distinct/with) exists on this
-// shape — the grammar admits only the predicate.
+// matches. NO other clause (select/order/limit/distinct) exists on this
+// shape — the grammar admits only the predicate. `row_ty` — handler-stamped.
 pub schema RQFind : code(0x0012_0000_0000_0003) {
     fn_name:  str         = 0,
     src_name: str         = 1,
@@ -291,14 +234,12 @@ impl RQSimple {
     pub fn where_expr(self: &RQSimple)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
     pub fn select_expr(self: &RQSimple) -> SExpr { return self.select.any().view::<SExpr>(); }
     pub fn order_expr(self: &RQSimple)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
-    pub fn with_arr(self: &RQSimple)    -> RQWithArr { return self.with_decls.any().view::<RQWithArr>(); }
 }
 impl RQJoin {
     pub fn on_expr(self: &RQJoin)     -> SExpr { return self.on.any().view::<SExpr>(); }
     pub fn where_expr(self: &RQJoin)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
     pub fn select_expr(self: &RQJoin) -> SExpr { return self.select.any().view::<SExpr>(); }
     pub fn order_expr(self: &RQJoin)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
-    pub fn with_arr(self: &RQJoin)    -> RQWithArr { return self.with_decls.any().view::<RQWithArr>(); }
 }
 impl RQFind {
     pub fn pred_expr(self: &RQFind) -> SExpr { return self.pred.any().view::<SExpr>(); }
@@ -310,5 +251,4 @@ impl RQAggr {
     pub fn select_expr(self: &RQAggr) -> SExpr { return self.select.any().view::<SExpr>(); }
     pub fn order_expr(self: &RQAggr)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
     pub fn having_expr(self: &RQAggr) -> SExpr { return self.having_pred.any().view::<SExpr>(); }
-    pub fn with_arr(self: &RQAggr)    -> RQWithArr { return self.with_decls.any().view::<RQWithArr>(); }
 }

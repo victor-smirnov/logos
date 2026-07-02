@@ -14,13 +14,13 @@ use logos.lang.str;
 struct Sale { pub dept: str, pub region: i64, pub amount: i64 }
 
 // distinct int projection: unique region codes, first-seen order.
-resource regions = wql!{ from sales:[Sale] s select distinct s.region };
+resource regions = wql!(sales: &[Sale]) { from sales s select distinct s.region };
 
 // distinct str projection over a filter: unique dept names with amount >= 10.
-resource big_depts = wql!{ from sales:[Sale] s where s.amount >= 10 select distinct s.dept : str };
+resource big_depts = wql!(sales: &[Sale]) { from sales s where s.amount >= 10 select distinct s.dept : str };
 
 // distinct + order by: unique regions, sorted descending.
-resource regions_desc = wql!{ from sales:[Sale] s select distinct s.region order by s.region desc };
+resource regions_desc = wql!(sales: &[Sale]) { from sales s select distinct s.region order by s.region desc };
 
 fn main() -> i32 {
     let sales: [Sale; 6] = [

@@ -23,8 +23,8 @@ struct Person {
     pub age:  i64,
 }
 
-resource all_rows  = wql!{ from people:[Person] p where 1 < 2 select p.age : i64 };
-resource none_rows = wql!{ from people:[Person] p where 1 > 2 select p.age : i64 };
+resource all_rows  = wql!(people: &[Person]) { from people p where 1 < 2 select p.age : i64 };
+resource none_rows = wql!(people: &[Person]) { from people p where 1 > 2 select p.age : i64 };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

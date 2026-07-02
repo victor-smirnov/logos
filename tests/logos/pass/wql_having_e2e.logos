@@ -15,7 +15,7 @@ struct Sale { pub dept: i64, pub amount: i64 }
 
 // Groups: dept → total = sum(amount), cnt = count(). HAVING keeps only groups
 // with total >= 20. Project key*1000 + total*10 + cnt (one recoverable i64).
-resource big_totals = wql!{ from sales:[Sale] s
+resource big_totals = wql!(sales: &[Sale]) { from sales s
       group by s.dept
       aggregate total = sum(s.amount) , cnt = count()
       having total >= 20
@@ -23,7 +23,7 @@ resource big_totals = wql!{ from sales:[Sale] s
 
 // HAVING over an f64 aggregate column (avg ⇒ FLT): keep groups with mean > 8.0,
 // ordered by the mean DESCENDING; project key (an i64 → typed via `: i64`).
-resource high_avg_depts = wql!{ from sales:[Sale] s
+resource high_avg_depts = wql!(sales: &[Sale]) { from sales s
       group by s.dept
       aggregate av = avg(s.amount)
       having av > 8.0

@@ -2,12 +2,13 @@
 // (ADR 0012 §6/§10.2, queue-1). Extends the i64-only MVP (wql_query_e2e) with
 // the dominant usability case: querying over a STRING field.
 //
-// The `wql!{ … }` handler parses the query, lowers the `where`/`select` EL to
+// The `wql!(…){ … }` handler parses the query, lowers the `where`/`select` EL to
 // the SExpr Writ-schema IR, and emits a native function that:
 //   • FILTERS on a string comparison  (`p.dept == "eng"`, native str ==), and
 //   • PROJECTS a string-typed column  (`select p.name : str` → `Vec<str>`).
-// The `with name:str, dept:str` clause declares those fields' value-types so the
-// codegen routes them as `str` (string literal emission + str result element).
+// Schema reflection over `Person` (the `people: &[Person]` source param) types
+// the fields, so the codegen routes them as `str` (string literal emission +
+// str result element).
 //
 // We run the generated `eng_names(people)` over a literal `&[Person]` and assert
 // the exact projected names — proving string fields/literals/comparison/
@@ -35,7 +36,7 @@ struct Person {
 //       }
 //       return __out;
 //   }
-resource eng_names = wql!{ from people:[Person] p where p.dept == "eng" select p.name : str with name:str, dept:str  };
+resource eng_names = wql!(people: &[Person]) { from people p where p.dept == "eng" select p.name : str };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

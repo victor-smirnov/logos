@@ -1,13 +1,20 @@
 // WQL SURFACE-parser smoke (ADR 0012 Phase 2): parse a sample `wql!` query
 // through the peg-GENERATED surface parser (`wql_surface_parser::parse_query`)
 // and assert it produced the correct RQuery plan — the schema-enum family the
-// walker-emitter consumes, REPLACING the hand-written QLexer clause carving.
+// walker-emitter consumes.
 //
-// Covers all three surface shapes:
-//   • simple:  from people:[Person] p where p.age >= 18 select p.name with $q:str
-//   • join:    from a:[A] x join b:[B] y on x.k == y.k select x.name : str
-//   • aggregate: from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64
-// (the `fn N` prefix is gone — the fn name is the `resource <name> =` binding.)
+// PARAMETERIZED surface: sources are named by their `wql!(…)` slice-param name
+// (`from people p` — no inline `:[Ty]`; the handler stamps row types AFTER the
+// parse, so `row_ty`/`a_ty`/`b_ty` are EMPTY here), scalar params are bare
+// idents inside the EL bodies, and `limit` takes an INTEGER or a bare IDENT
+// (the `$`/`with` machinery is gone from the grammar).
+//
+// Covers all four surface shapes:
+//   • simple:    from people p where p.age >= 18 select p.name
+//   • join:      from a x join b y on x.k == y.k select x.name : str
+//   • aggregate: from o r group by r.dept aggregate total = sum(r.amt) select total : i64
+//   • find:      (covered via the e2e tests; the shapes here spot-check parses)
+// plus the limit INTEGER|IDENT forms and the comprehension embed.
 //
 // Each parse builds the plan into a live Writ arena `h`; the root is viewed as
 // `RQuery` and matched. The embedded EL clause bodies (where/select/on/key/agg)
@@ -27,18 +34,17 @@ fn main() -> i32 {
     // ── SIMPLE ────────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from people:[Person] p where p.age >= 18 select p.name with $q:str";
+        let src: str = "from people p where p.age >= 18 select p.name";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 1i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
             RQuery::Simple(s) => {
-                // fn_name is NOT set by the parser (the grammar has no `fn N`
-                // prefix); the handler stamps it from the `resource <name> =`
-                // binding — so it is empty here.
+                // fn_name / row_ty are NOT set by the parser: the handler stamps
+                // them (binding name + slice-param element type) — empty here.
                 if s.fn_name.len() != 0i64       { return 2i32; }
-                if !str_eq(s.src_name, "people") { return 3i32; }
-                if !str_eq(s.row_ty, "Person")   { return 4i32; }
+                if s.row_ty.len() != 0i64        { return 3i32; }
+                if !str_eq(s.src_name, "people") { return 4i32; }
                 if !str_eq(s.var_name, "p")      { return 5i32; }
                 if !s.has_where                  { return 6i32; }
                 if s.has_result_ty               { return 7i32; }   // no `: RTy`
@@ -63,23 +69,47 @@ fn main() -> i32 {
                     SExpr::Field(f) => { if !str_eq(f.name, "name") { return 12i32; } }
                     _ => { return 13i32; }
                 }
-
-                // with $q:str  → one RQWith(is_param, "q", "str").
-                let wa: RQWithArr = s.with_arr();
-                if wa.len() != 1i64 { return 14i32; }
-                let d0: RQWith = wa.with_at(0i64);
-                if !d0.is_param            { return 15i32; }
-                if !str_eq(d0.name, "q")   { return 16i32; }
-                if !str_eq(d0.ty, "str")   { return 17i32; }
             }
             _ => { return 18i32; }
+        }
+    }
+
+    // ── LIMIT forms: INTEGER literal vs bare IDENT (scalar-param name) ─────
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "from people p select p.age limit 3";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 90i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Simple(s) => {
+                if !s.has_limit       { return 91i32; }
+                if s.limit_is_param   { return 92i32; }
+                if s.limit_n != 3i64  { return 93i32; }
+            }
+            _ => { return 94i32; }
+        }
+    }
+    {
+        let h: Writ = writ_new(4096i64);
+        let src: str = "from people p select p.age limit n";
+        let root: WAny = parse_query(src, &h);
+        if root.is_null() { return 95i32; }
+        let plan: RQuery = root.view::<RQuery>();
+        match plan {
+            RQuery::Simple(s) => {
+                if !s.has_limit                 { return 96i32; }
+                if !s.limit_is_param            { return 97i32; }
+                if !str_eq(s.limit_param, "n")  { return 98i32; }
+            }
+            _ => { return 99i32; }
         }
     }
 
     // ── JOIN ──────────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from a:[A] x join b:[B] y on x.k == y.k select x.name : str";
+        let src: str = "from a x join b y on x.k == y.k select x.name : str";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 20i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -87,11 +117,11 @@ fn main() -> i32 {
             RQuery::Join(j) => {
                 if j.fn_name.len() != 0i64  { return 21i32; }   // parser leaves fn_name empty
                 if !str_eq(j.a_name, "a")   { return 22i32; }
-                if !str_eq(j.a_ty, "A")     { return 23i32; }
+                if j.a_ty.len() != 0i64     { return 23i32; }   // handler-stamped, empty here
                 if !str_eq(j.x_var, "x")    { return 24i32; }
                 if j.is_anti                { return 25i32; }
                 if !str_eq(j.b_name, "b")   { return 26i32; }
-                if !str_eq(j.b_ty, "B")     { return 27i32; }
+                if j.b_ty.len() != 0i64     { return 27i32; }   // handler-stamped, empty here
                 if !str_eq(j.y_var, "y")    { return 28i32; }
                 if !str_eq(j.result_ty, "str") { return 29i32; }
                 if j.has_where              { return 30i32; }
@@ -110,14 +140,14 @@ fn main() -> i32 {
     // ── AGGREGATE ─────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from o:[Order] r group by r.dept aggregate total = sum(r.amt) select total : i64";
+        let src: str = "from o r group by r.dept aggregate total = sum(r.amt) select total : i64";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 40i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
             RQuery::Aggr(g) => {
                 if g.fn_name.len() != 0i64     { return 41i32; }   // parser leaves fn_name empty
-                if !str_eq(g.a_ty, "Order")    { return 42i32; }
+                if !str_eq(g.a_name, "o")      { return 42i32; }
                 if !str_eq(g.x_var, "r")       { return 43i32; }
                 if g.has_where                 { return 44i32; }
                 if !str_eq(g.result_ty, "i64") { return 45i32; }
@@ -156,7 +186,7 @@ fn main() -> i32 {
     // ── ANTI-JOIN + `where` (ordered-choice + is_anti flag) ───────────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from a:[A] x anti join b:[B] y on x.k == y.k where x.ok select x.name : str";
+        let src: str = "from a x anti join b y on x.k == y.k where x.ok select x.name : str";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 60i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -178,7 +208,7 @@ fn main() -> i32 {
     // ── AGGREGATE + `where` + count() (empty-paren alt) + 2 aggs ───────────
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from o:[Order] r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
+        let src: str = "from o r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 70i32; }
         let plan: RQuery = root.view::<RQuery>();
@@ -204,7 +234,7 @@ fn main() -> i32 {
     // terminate the sel_body embed early (they are inside brackets / not stops).
     {
         let h: Writ = writ_new(4096i64);
-        let src: str = "from rows:[Row] r select [ v.n for v in items ] : i64";
+        let src: str = "from rows r select [ v.n for v in items ] : i64";
         let root: WAny = parse_query(src, &h);
         if root.is_null() { return 80i32; }
         let plan: RQuery = root.view::<RQuery>();

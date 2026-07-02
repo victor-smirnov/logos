@@ -18,12 +18,13 @@
 //      wql! handler routes `parse → RQuery → lower_rquery_to_rexpr → simplify
 //      (Phase-1, on the embedded SExpr edges) → emit_rexpr`.
 //
-// The fn envelope (name, param list, `with`, result-type inference) is derived
-// off the RExpr tree itself — `RScan` now carries the source binding (name +
-// row-type + loop var) and `RProj.sel` the projection — so the algebra is
-// self-sufficient. The scalar clauses reuse `codegen.logos` (emit_sexpr /
-// collect_params / infer_ty / reflection) exactly as before: ONE lowering,
-// SExpr schema → Logos source text.
+// The fn envelope (name, the VERBATIM `wql!(…)` param list, result-type
+// inference) rides beside the RExpr tree — `RScan` carries the source binding
+// (name + row-type + loop var) and `RProj.sel` the projection. The generated fn
+// SIGNATURE is `pub fn <name>(<params verbatim>) -> Ret` (the trama! model);
+// scalar params are typed into ElTypes off the parsed param list (MacroParams).
+// The scalar clauses reuse `codegen.logos` (emit_sexpr / infer_ty / reflection):
+// ONE lowering, SExpr schema → Logos source text.
 //
 // SCHEMA MANDATE: consumes/produces ONLY Writ schema views (RQuery / RExpr /
 // RAgg + the WRef edges). No plain Logos structs for algebra nodes.
@@ -36,7 +37,8 @@ use logos.lang.writ.wmap;
 use logos.std.wql.ir;
 use logos.std.wql.plan;
 use logos.std.wql.el;         // ElTypes, el_types_new, el_ty_of_name, EL_TY_*
-use logos.std.wql.codegen;    // emit_sexpr / collect_params / infer_ty / el_ty_name / …
+use logos.std.wql.params;     // MacroParams — the parsed wql!(…) param list
+use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr — the IR→IR const-fold pass
 use logos.std.wql.reflect;    // stamp_types_from_schema
 use logos.mem.string;
@@ -70,12 +72,6 @@ fn agg_of_name(name: str) -> i32 {
 pub fn SELM_ALL()   -> i32 { return 0i32; }
 pub fn SELM_FIRST() -> i32 { return 1i32; }
 pub fn SELM_FIND()  -> i32 { return 2i32; }
-
-// A null `with`-list edge (the `find` shape has no `with` clause).
-pub fn null_with_ref() -> WRef<RQWithArr> {
-    let z: WAny = WAny::Ref(0i64 as *const u8);
-    return WRef::<RQWithArr>::from_any(z);
-}
 
 // ══════════════════════════════════════════════════════════════════════════
 // PART 1 — lower_rquery_to_rexpr : surface PLAN → real RExpr algebra
@@ -125,7 +121,7 @@ fn make_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef
     return WRef::<RExpr>::from_any(n.as_ref());
 }
 
-// Wrap `input` in an RLimit (first-n; literal or $param).
+// Wrap `input` in an RLimit (first-n; literal or scalar-param name).
 fn make_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
     let n: RLimit = h.make::<RLimit>();
     n.input    = input;
@@ -281,61 +277,59 @@ pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
 // plan to the RExpr algebra, run the RELATIONAL peephole pass `simplify_rexpr`
 // (filter folding, identity-projection collapse, projection composition) with
 // the embedded scalar clauses const-folded inside it, then EMIT the (possibly
-// thinner) form. `fn_name` / `with_decls` / `result_ty` come off the surface
-// plan envelope; the relational STRUCTURE + clause bodies live on the RExpr tree.
+// thinner) form. `fn_name` / `result_ty` come off the surface plan envelope;
+// `params_text` is the RAW `wql!(…)` paren text (re-emitted VERBATIM as the
+// generated fn signature) and `prm` its parsed form (scalar-param typing +
+// limit-param validation); the relational STRUCTURE + clause bodies live on
+// the RExpr tree.
 pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
-                           with_decls: WRef<RQWithArr>,
+                           params_text: str, prm: &MacroParams,
                            result_ty: str, has_result_ty: bool,
                            sel_mode: i32, h: &Writ) -> bool {
     let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h);
     let sig: RSimplified = simplify_rexpr_ref(root, root.any().view::<RExpr>(), h);
     let rx: RExpr = sig.root.any().view::<RExpr>();
     return emit_rexpr_opt(rx, sig.empty, sig.identity,
-                          fn_name, with_decls, result_ty, has_result_ty, sel_mode, h);
+                          fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, h);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 // PART 2 — emit_rexpr : the ONE walker (RExpr → native source)
 // ══════════════════════════════════════════════════════════════════════════
 
-// Shared: apply an RQWithArr's declarations onto the type dict (null-safe — the
-// `with` clause is optional). Mirrors plan_walker::apply_with_ref.
-fn apply_with_ref(ty: &mut ElTypes, wref: WRef<RQWithArr>) {
-    let hw: WAny = wref.any();
-    if hw.is_null() { return; }
-    let wa: RQWithArr = hw.view::<RQWithArr>();
-    let n: i64 = wa.len();
+// Shared: seed the type dict with each SCALAR param's declared value-type off
+// the parsed `wql!(…)` list — the replacement for the retired `with` overlay.
+// Slice params are SOURCES (their row schemas are reflected separately); a
+// scalar param referenced BARE in EL (`e.salary > min_sal`, `limit n`) types
+// through this seeding.
+fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
     let mut i: i64 = 0i64;
-    while i < n {
-        let w: RQWith = wa.with_at(i);
-        ty.set_ty(w.name, el_ty_of_name(w.ty));
+    while i < prm.n {
+        if !prm.is_slice[i] {
+            ty.set_ty(prm.names[i], el_ty_of_name(prm.tys[i]));
+        }
         i = i + 1i64;
     }
 }
 
-// Emit the generated-fn param list (identical to plan_walker::emit_params).
-fn emit_params(em: &mut Emitter, t: &ElTypes) {
-    let n: i64 = t.param_count();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let pname: str = t.param_name(i);
-        em.push_text(", ");
-        em.push_text(pname);
-        let pty: i32 = t.ty_of(pname);
-        if t.is_source(pname) {
-            em.push_text(": &[");
-            if pty == EL_TY_STR()       { em.push_text("str"); }
-            else if pty == EL_TY_BOOL() { em.push_text("bool"); }
-            else if pty == EL_TY_FLT()  { em.push_text("f64"); }
-            else                        { em.push_text("i64"); }
-            em.push_text("]");
-        }
-        else if pty == EL_TY_STR()  { em.push_text(": str"); }
-        else if pty == EL_TY_BOOL() { em.push_text(": bool"); }
-        else if pty == EL_TY_FLT()  { em.push_text(": f64"); }
-        else                        { em.push_text(": i64"); }
-        i = i + 1i64;
-    }
+// Validate a `limit <ident>` reference: the ident must name a SCALAR param
+// declared in the wql!(…) list. Surfaces an `error` (build failure) otherwise.
+fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
+    if !mods.has_limit || !mods.limit_is_param { return true; }
+    if prm.is_scalar(mods.limit_param) { return true; }
+    error("wql!: `limit <ident>` must name a scalar (i64) parameter declared in the wql!(…) parameter list");
+    return false;
+}
+
+// Emit the generated fn signature head: `pub fn <name>(<params verbatim>`.
+// The paren text is the REAL Logos parameter list from the wql!(…) surface —
+// the compiler parses + type-checks it when the emitted chunk compiles, and
+// the generated-fn param ORDER is the paren-list order, verbatim.
+fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str) {
+    em.push_text("pub fn ");
+    em.push_text(fn_name);
+    em.push_text("(");
+    em.push_text(params_text);
 }
 
 fn is_comp_root(e: SExpr) -> bool {
@@ -432,7 +426,7 @@ fn peel_sort(e: RExpr, mods: &mut QMods) -> RExpr {
 }
 
 // The `&& __out.len() < (N)` loop-condition suffix enforcing `limit` on every
-// output-producing loop ("" when no limit). N is the literal or the $param arg.
+// output-producing loop ("" when no limit). N is the literal or the param name.
 fn limit_cond_text(mods: &QMods) -> String {
     let mut s: String = String::new();
     if mods.has_limit {
@@ -512,26 +506,22 @@ fn emit_sort_perm(em: &mut Emitter, key_ty: str, desc: bool, two_idx: bool) {
 
 // (a·false) EMPTY plan — a const-false `where` proved the query yields NO rows.
 // Emit a fn with the same signature that returns an empty `Vec` DIRECTLY: no scan
-// loop, no per-row work. The row type + params still shape the signature (the
+// loop, no per-row work. The verbatim params still shape the signature (the
 // caller's call site is unchanged) but the body is a single empty-Vec return.
 // `first` (SELM_FIRST) narrows the return to `Option<E>` + a constant
 // `Option::None` — the single-row mode's empty collapse.
 fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
-              fn_name: str, with_decls: WRef<RQWithArr>,
+              fn_name: str, params_text: str, prm: &MacroParams,
               result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
-    let var_name: str = sc.var_name;
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
-    apply_with_ref(&mut ty, with_decls);
+    apply_scalar_params(&mut ty, prm);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
-    collect_params(proj_sexpr, &mut ty);
-    register_comp_sources(proj_sexpr, &mut ty);
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
@@ -552,14 +542,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(src_name);
-    em.push_text(": &[");
-    em.push_text(row_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
+    emit_fn_head(&mut em, fn_name, params_text);
     if first {
         // Single-row mode: constant None (no scan loop).
         em.push_text(") -> Option<");
@@ -582,18 +565,13 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
 
 // (a·false, FIND mode) — a const-false `find` predicate: constant None with the
 // borrow-returning signature (`Option<&Row>`), no scan loop.
-fn emit_none_find(scan_e: RExpr, fn_name: str, h: &Writ) -> bool {
+fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(sc.src_name);
-    em.push_text(": &[");
-    em.push_text(sc.row_ty);
-    em.push_text("]) -> Option<&");
+    emit_fn_head(&mut em, fn_name, params_text);
+    em.push_text(") -> Option<&");
     em.push_text(sc.row_ty);
     em.push_text("> {\n");
     em.push_text("    return Option::None;\n");
@@ -608,20 +586,15 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, h: &Writ) -> bool {
 // answer, so BORROW it: `Option<&Row>` = Some(&src[0]) when non-empty, None
 // otherwise — zero loop, zero copy (the emit_identity precedent, narrowed to
 // one row).
-fn emit_head_row(scan_e: RExpr, fn_name: str, h: &Writ) -> bool {
+fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(src_name);
-    em.push_text(": &[");
-    em.push_text(row_ty);
-    em.push_text("]) -> Option<&");
+    emit_fn_head(&mut em, fn_name, params_text);
+    em.push_text(") -> Option<&");
     em.push_text(row_ty);
     em.push_text("> {\n");
     em.push_text("    if (");
@@ -635,13 +608,13 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, h: &Writ) -> bool {
     return true;
 }
 
-// (b) IDENTITY PROJECTION over an UNFILTERED scan — `from src:[T] v select v`.
+// (b) IDENTITY PROJECTION over an UNFILTERED scan — `from src v select v`.
 // The result set IS the source, so BORROW it: emit a fn returning `&[T]` that
 // returns the source slice unchanged — zero loop, zero `Vec`, zero copy (the
 // accessor-collapse peephole). The return TYPE narrows from `Vec<T>` to `&[T]`
 // (a genuinely thinner form; there is no per-row materialization).
 fn emit_identity(scan_e: RExpr,
-                 fn_name: str, with_decls: WRef<RQWithArr>, h: &Writ) -> bool {
+                 fn_name: str, params_text: str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -649,13 +622,8 @@ fn emit_identity(scan_e: RExpr,
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(src_name);
-    em.push_text(": &[");
-    em.push_text(row_ty);
-    em.push_text("]) -> &[");
+    emit_fn_head(&mut em, fn_name, params_text);
+    em.push_text(") -> &[");
     em.push_text(row_ty);
     em.push_text("] {\n");
     em.push_text("    return ");
@@ -668,13 +636,14 @@ fn emit_identity(scan_e: RExpr,
 
 // ══════════════════════════════════════════════════════════════════════════
 // The unified walker entry: match RExpr, dispatch to the per-shape emitter.
-// `with_decls` (envelope) supplies the `with` type-dict overlay; `fn_name` the
-// generated fn name; `result_ty`/`has_result_ty` the explicit-result override.
+// `params_text`/`prm` (envelope) supply the VERBATIM signature + the parsed
+// param list (scalar typing / limit validation); `fn_name` the generated fn
+// name; `result_ty`/`has_result_ty` the explicit-result override.
 // `sig` carries the Phase-3 peephole signals (empty / identity); when either is
 // set the thin emitter above runs INSTEAD of the loop-nest walker.
 // ══════════════════════════════════════════════════════════════════════════
 pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
-                      fn_name: str, with_decls: WRef<RQWithArr>,
+                      fn_name: str, params_text: str, prm: &MacroParams,
                       result_ty: str, has_result_ty: bool, sel_mode: i32, h: &Writ) -> bool {
     // Phase-3 thin collapses (the root is always an RProj; peel it to reach the
     // scan for the signature). The single-row modes get their own thin forms:
@@ -685,30 +654,32 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                 let scan_e: RExpr = p.input_expr();
                 if empty {
                     if sel_mode == SELM_FIND() {
-                        return emit_none_find(scan_e, fn_name, h);
+                        return emit_none_find(scan_e, fn_name, params_text, h);
                     }
-                    return emit_empty(scan_e, p.sel, fn_name, with_decls, result_ty,
+                    return emit_empty(scan_e, p.sel, fn_name, params_text, prm, result_ty,
                                       has_result_ty, sel_mode == SELM_FIRST(), h);
                 }
                 if sel_mode != SELM_ALL() {
-                    return emit_head_row(scan_e, fn_name, h);
+                    return emit_head_row(scan_e, fn_name, params_text, h);
                 }
-                return emit_identity(scan_e, fn_name, with_decls, h);
+                return emit_identity(scan_e, fn_name, params_text, h);
             }
             _ => { }
         }
     }
-    return emit_rexpr(root, fn_name, with_decls, result_ty, has_result_ty, sel_mode, h);
+    return emit_rexpr(root, fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, h);
 }
 
 pub fn emit_rexpr(root: RExpr, fn_name: str,
-                  with_decls: WRef<RQWithArr>,
+                  params_text: str, prm: &MacroParams,
                   result_ty: str, has_result_ty: bool, sel_mode: i32, h: &Writ) -> bool {
     // Peel the post-projection wrappers (RLimit over RDistinct — the lowering
     // order) and the RSort under the projection into the QMods envelope.
     let mut mods: QMods = qmods_none();
     let r1: RExpr = peel_limit(root, &mut mods);
     let r2: RExpr = peel_distinct(r1, &mut mods);
+    // `limit <ident>` must reference a declared SCALAR param (build error else).
+    if !check_limit_param(&mods, prm) { return false; }
     match r2 {
         RExpr::Proj(p) => {
             let body0: RExpr = p.input_expr();
@@ -718,22 +689,22 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
             // the identity, so the emitter returns the row BORROW directly.
             if sel_mode == SELM_FIND() {
                 let pl: Peeled = peel_filter(body);
-                return emit_find(pl.inner, pl.pred, pl.has_pred, fn_name, h);
+                return emit_find(pl.inner, pl.pred, pl.has_pred, fn_name, params_text, prm, h);
             }
             let first: bool = sel_mode == SELM_FIRST();
             match body {
                 RExpr::Join(jn) => { return emit_join(jn.left_expr(), jn.right_expr(), jn.on, false,
                                                       null_sref(), false, sel, mods,
-                                                      fn_name, with_decls, result_ty, has_result_ty, first, h); }
+                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
                 RExpr::Anti(an) => { return emit_join(an.left_expr(), an.right_expr(), an.on, true,
                                                       null_sref(), false, sel, mods,
-                                                      fn_name, with_decls, result_ty, has_result_ty, first, h); }
+                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
                 RExpr::Aggr(ag) => {
                     if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                     let pl: Peeled = peel_filter(ag.input_expr());
                     return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
                                           null_sref(), false, sel, mods,
-                                          fn_name, with_decls, result_ty, has_result_ty, h);
+                                          fn_name, params_text, prm, result_ty, has_result_ty, h);
                 }
                 RExpr::Filter(f) => {
                     // RFilter over a join/anti (the `where` sits above the join), over
@@ -742,27 +713,27 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                     match f.input_expr() {
                         RExpr::Join(jn) => { return emit_join(jn.left_expr(), jn.right_expr(), jn.on, false,
                                                               f.pred, true, sel, mods,
-                                                              fn_name, with_decls, result_ty, has_result_ty, first, h); }
+                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
                         RExpr::Anti(an) => { return emit_join(an.left_expr(), an.right_expr(), an.on, true,
                                                               f.pred, true, sel, mods,
-                                                              fn_name, with_decls, result_ty, has_result_ty, first, h); }
+                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
                         RExpr::Aggr(ag) => {
                             if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                             let pl: Peeled = peel_filter(ag.input_expr());
                             return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
                                                   f.pred, true, sel, mods,
-                                                  fn_name, with_decls, result_ty, has_result_ty, h);
+                                                  fn_name, params_text, prm, result_ty, has_result_ty, h);
                         }
                         _ => {
                             return emit_simple(f.input_expr(), f.pred, true, sel, mods,
-                                               fn_name, with_decls, result_ty, has_result_ty, first, h);
+                                               fn_name, params_text, prm, result_ty, has_result_ty, first, h);
                         }
                     }
                 }
                 _ => {
                     // Bare RScan — simple, no `where`.
                     return emit_simple(body, null_sref(), false, sel, mods,
-                                       fn_name, with_decls, result_ty, has_result_ty, first, h);
+                                       fn_name, params_text, prm, result_ty, has_result_ty, first, h);
                 }
             }
         }
@@ -801,7 +772,7 @@ fn scan_of(e: RExpr) -> RScan {
 // upstream, so `mods` carries only the sort here.
 fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                mods: QMods,
-               fn_name: str, with_decls: WRef<RQWithArr>,
+               fn_name: str, params_text: str, prm: &MacroParams,
                result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
@@ -811,15 +782,9 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
-    apply_with_ref(&mut ty, with_decls);
+    apply_scalar_params(&mut ty, prm);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
-    collect_params(proj_sexpr, &mut ty);
-    if has_where { collect_params(pred.any().view::<SExpr>(), &mut ty); }
-    if mods.has_sort { collect_params(mods.sort_key.any().view::<SExpr>(), &mut ty); }
-    if mods.has_limit && mods.limit_is_param { ty.note_param(mods.limit_param); }
-    register_comp_sources(proj_sexpr, &mut ty);
-    if has_where { register_comp_sources(pred.any().view::<SExpr>(), &mut ty); }
 
     if call_diagnostic(proj_sexpr, &ty) {
         error("wql!: `select` calls an unknown or wrong-arity function");
@@ -876,14 +841,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(src_name);
-    em.push_text(": &[");
-    em.push_text(row_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
+    emit_fn_head(&mut em, fn_name, params_text);
     if first {
         em.push_text(") -> Option<");
         em.push_text(result_elem);
@@ -1016,15 +974,14 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     return true;
 }
 
-// ── emit_find — single-row BORROW scan (`from src:[Ty] v find P`) ─────────────
+// ── emit_find — single-row BORROW scan (`from src v find P`) ──────────────────
 // The generated fn returns `Option<&Ty>` — a borrow of the FIRST row matching
 // the predicate (zero-copy; the emit_identity accessor-collapse precedent shows
 // returning borrows of the slice param works), `Option::None` when no row
-// matches. Early-exit loop — no Vec, no materialization. `$params` in the
-// predicate flow as fn arguments (default i64 — the `find` shape has no `with`
-// clause to retype them).
+// matches. Early-exit loop — no Vec, no materialization. Scalar params from the
+// wql!(…) list may be referenced BARE in the predicate (typed off the list).
 fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
-             fn_name: str, h: &Writ) -> bool {
+             fn_name: str, params_text: str, prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -1033,11 +990,11 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
+    apply_scalar_params(&mut ty, prm);
 
     let mut pred_body: String = String::new();
     if has_pred {
         let pred_sexpr: SExpr = pred.any().view::<SExpr>();
-        collect_params(pred_sexpr, &mut ty);
         if call_diagnostic(pred_sexpr, &ty) {
             error("wql!: `find` calls an unknown or wrong-arity function");
             return false;
@@ -1048,14 +1005,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(src_name);
-    em.push_text(": &[");
-    em.push_text(row_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
+    emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Option<&");
     em.push_text(row_ty);
     em.push_text("> {\n");
@@ -1100,7 +1050,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
              where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
              mods: QMods,
-             fn_name: str, with_decls: WRef<RQWithArr>,
+             fn_name: str, params_text: str, prm: &MacroParams,
              result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let ls: RScan = scan_of(left_e);
     let rs: RScan = scan_of(right_e);
@@ -1115,15 +1065,10 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, a_ty);
     stamp_types_from_schema(&view, &mut ty, b_ty);
-    apply_with_ref(&mut ty, with_decls);
+    apply_scalar_params(&mut ty, prm);
 
     let on_e: SExpr   = on_ref.any().view::<SExpr>();
     let proj_e: SExpr = sel.any().view::<SExpr>();
-    collect_params(on_e, &mut ty);
-    if has_where { collect_params(where_ref.any().view::<SExpr>(), &mut ty); }
-    collect_params(proj_e, &mut ty);
-    if mods.has_sort { collect_params(mods.sort_key.any().view::<SExpr>(), &mut ty); }
-    if mods.has_limit && mods.limit_is_param { ty.note_param(mods.limit_param); }
 
     let on_opt: SExpr   = simplify_sexpr(on_e, h).any().view::<SExpr>();
     let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
@@ -1156,18 +1101,7 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(a_name);
-    em.push_text(": &[");
-    em.push_text(a_ty);
-    em.push_text("], ");
-    em.push_text(b_name);
-    em.push_text(": &[");
-    em.push_text(b_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
+    emit_fn_head(&mut em, fn_name, params_text);
     if first {
         em.push_text(") -> Option<");
         em.push_text(result_ty);
@@ -1364,7 +1298,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                   where_ref: WRef<SExpr>, has_where: bool,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
-                  fn_name: str, with_decls: WRef<RQWithArr>,
+                  fn_name: str, params_text: str, prm: &MacroParams,
                   result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let a_name: str = sc.src_name;
@@ -1376,7 +1310,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, a_ty);
-    apply_with_ref(&mut ty, with_decls);
+    apply_scalar_params(&mut ty, prm);
 
     ty.set_ty("key", EL_TY_INT());
     // Per-aggregate OUTPUT value-type + accumulator width:
@@ -1388,7 +1322,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // `agg_flt[i]`  — this aggregate's accumulator/result is f64;
     // `agg_cast[i]` — the fold step must cast the (INT-typed) arg to f64
     //                 (only avg over an int argument). Row-field types are
-    //                 already stamped (schema + `with`), so the arg infer here
+    //                 already stamped (schema + scalar params), so the arg infer here
     //                 is well-typed.
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
@@ -1412,12 +1346,6 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let key_e: SExpr = key_ref.any().view::<SExpr>();
     let proj_e: SExpr = sel.any().view::<SExpr>();
-    collect_params(key_e, &mut ty);
-    if has_where { collect_params(where_ref.any().view::<SExpr>(), &mut ty); }
-    collect_params(proj_e, &mut ty);
-    if has_having { collect_params(having_ref.any().view::<SExpr>(), &mut ty); }
-    if mods.has_sort { collect_params(mods.sort_key.any().view::<SExpr>(), &mut ty); }
-    if mods.has_limit && mods.limit_is_param { ty.note_param(mods.limit_param); }
 
     let key_opt: SExpr  = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
@@ -1470,7 +1398,6 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         if fnid != AGG_COUNT() {
             if !a.has_arg { error("wql!: aggregate fn expects an argument"); return false; }
             let ae: SExpr = a.arg_expr();
-            collect_params(ae, &mut ty);
             let ae_opt: SExpr = simplify_sexpr(ae, h).any().view::<SExpr>();
             emit_sexpr(&mut agg_body[ai], ae_opt, &ty, x_var);
         }
@@ -1479,14 +1406,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(a_name);
-    em.push_text(": &[");
-    em.push_text(a_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
+    emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Vec<");
     em.push_text(result_ty);
     em.push_text("> {\n");

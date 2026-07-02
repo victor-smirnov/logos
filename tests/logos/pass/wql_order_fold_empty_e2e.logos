@@ -12,10 +12,10 @@ struct Person { pub name: str, pub age: i64 }
 
 // where false + order by + limit → the plan provably yields no rows; the
 // optimizer folds sort+limit away and the emitter returns an empty Vec.
-resource nobody = wql!{ from people:[Person] p where 1 == 2 select p.age order by p.age desc limit 3 };
+resource nobody = wql!(people: &[Person]) { from people p where 1 == 2 select p.age order by p.age desc limit 3 };
 
 // limit 0 (literal) → empty regardless of the data.
-resource none_now = wql!{ from people:[Person] p select p.age limit 0 };
+resource none_now = wql!(people: &[Person]) { from people p select p.age limit 0 };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

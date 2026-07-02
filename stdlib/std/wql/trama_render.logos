@@ -64,6 +64,7 @@ use logos.lang.writ.wstring;
 use logos.lang.writ.array;        // WArray — the generated `tpl` statement array
 use logos.std.wql.ir;
 use logos.std.wql.el;             // ElTypes / el_types_new / el_ty_of_name / EL_TY_* (type dict)
+use logos.std.wql.params;         // MacroParams / parse_macro_params — SHARED with wql!
 use logos.std.wql.trama;          // TStmt schema family (TText/TVar/TFor/TIf/TSet)
 use logos.std.wql.trama_parser;   // parse_tpl — the GENERATED Trama parser (self-describing IR)
 use logos.std.wql.codegen;
@@ -80,11 +81,6 @@ struct TLexer {
 }
 
 fn tl_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
-fn tl_is_alpha(c: u8) -> bool {
-    return (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
-}
-fn tl_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
-fn tl_is_alnum(c: u8) -> bool { return tl_is_alpha(c) || tl_is_digit(c); }
 
 impl TLexer {
     fn cur(self: &TLexer) -> u8 {
@@ -94,28 +90,6 @@ impl TLexer {
     fn bump(self: &mut TLexer) { self.pos = self.pos + 1i64; }
     fn skip_ws(self: &mut TLexer) {
         while self.pos < self.len && tl_is_space(self.cur()) { self.bump(); }
-    }
-    fn eat_kw(self: &mut TLexer, kw: str) -> bool {
-        self.skip_ws();
-        let n: i64 = kw.len();
-        if self.pos + n > self.len { return false; }
-        let mut i: i64 = 0i64;
-        while i < n {
-            if str_byte_at(self.src, self.pos + i) != str_byte_at(kw, i) { return false; }
-            i = i + 1i64;
-        }
-        let after: u8 = if self.pos + n < self.len { str_byte_at(self.src, self.pos + n) } else { 0u8 };
-        if tl_is_alnum(after) { return false; }
-        self.pos = self.pos + n;
-        return true;
-    }
-    // Scan an identifier at the cursor → its slice (advances).
-    fn scan_ident_str(self: &mut TLexer) -> str {
-        self.skip_ws();
-        let start: i64 = self.pos;
-        if !tl_is_alpha(self.cur()) { return ""; }
-        while self.pos < self.len && tl_is_alnum(self.cur()) { self.bump(); }
-        return unsafe { tl_str_range(self.src, start, self.pos - start) };
     }
     // The template body, delimited by either `"…"` or backticks `` `…` ``.
     // Backtick delimiters let the template contain bare `"` string literals
@@ -680,80 +654,6 @@ fn next_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
 fn body_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
 fn alt_word(r: &WRef<TStmt>)  -> i64 { return r.any().raw(); }
 
-// ── Parsed parameter list ──────────────────────────────────────────────────
-// The raw params source text (`o: &Order, greeting: str`) parsed into per-param
-// (name, core-type-name) pairs. The CORE type name is the type with any leading
-// `&` / `&mut` and whitespace stripped (`&Order` → `Order`, `str` → `str`), used
-// to (a) decide schema reflection vs scalar rendering and (b) seed the value-type
-// dict. Slices borrow the surface text. `TVarTys`-sized (64) is plenty.
-struct TParams {
-    names: [str; 64],
-    tys:   [str; 64],   // core type name (deref-stripped)
-    n:     i64,
-}
-fn tparams_new() -> TParams {
-    return TParams {
-        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        n: 0i64,
-    };
-}
-
-// Parse a fn-style parameter list `name: type (, name: type)*` off `p`, filling
-// `out` with each param's name + CORE (deref-stripped) type name. The type text
-// between the `:` and the next top-level `,` (or end) is scanned; a leading `&`
-// or `&mut ` is skipped so a struct param's bare type name is recovered for
-// reflection. Balanced brackets/parens/angles inside a type (`[T; N]`,
-// `Foo<Bar>`) don't split on their internal commas — we track a nesting depth.
-// Empty `p` = zero params (a nullary render fn, allowed). Robust to trailing
-// commas + arbitrary interior whitespace.
-fn parse_params(p: str, out: &mut TParams) {
-    let mut lx: TLexer = TLexer { src: p, pos: 0i64, len: p.len() };
-    loop {
-        lx.skip_ws();
-        if lx.pos >= lx.len { break; }
-        let nm: str = lx.scan_ident_str();
-        if nm.len() == 0i64 { break; }
-        lx.skip_ws();
-        if lx.cur() != 58u8 { break; }   // ':' — malformed param, stop (compiler will re-report)
-        lx.bump();
-        // Skip a leading reference marker: `&mut ` or `&`.
-        lx.skip_ws();
-        if lx.cur() == 38u8 {            // '&'
-            lx.bump();
-            lx.skip_ws();
-            if lx.eat_kw("mut") { lx.skip_ws(); }
-        }
-        // The core type name = the identifier head of the (possibly compound)
-        // type — enough for scalar/schema classification + el_ty_of_name.
-        let ty: str = lx.scan_ident_str();
-        if out.n < 64i64 {
-            out.names[out.n] = nm;
-            out.tys[out.n]   = ty;
-            out.n = out.n + 1i64;
-        }
-        // Advance past the rest of this param's type to the next top-level comma,
-        // honoring bracket/paren/angle nesting so compound types don't mis-split.
-        let mut depth: i64 = 0i64;
-        loop {
-            if lx.pos >= lx.len { break; }
-            let c: u8 = lx.cur();
-            if c == 40u8 || c == 91u8 || c == 60u8 { depth = depth + 1i64; }        // ( [ <
-            else if c == 41u8 || c == 93u8 || c == 62u8 { depth = depth - 1i64; }   // ) ] >
-            else if c == 44u8 && depth <= 0i64 { break; }                            // ','
-            lx.bump();
-        }
-        if lx.cur() == 44u8 { lx.bump(); continue; }  // ','
-        break;
-    }
-}
-
 // ── The resource handler ───────────────────────────────────────────────────
 #[token_macro]
 pub fn trama(name: str, params: str, s: str) -> ItemList {
@@ -767,11 +667,12 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // §6); the params come from the parens, the template body from the braces.
     let fn_name: str = name;
 
-    // Parse the REAL parameter list. The params are re-emitted VERBATIM below as
-    // the generated fn signature (so the compiler parses + type-checks them); here
-    // we ALSO parse them locally to drive schema reflection + value-typing.
-    let mut prm: TParams = tparams_new();
-    parse_params(params, &mut prm);
+    // Parse the REAL parameter list (SHARED mechanism with wql! — params.logos).
+    // The params are re-emitted VERBATIM below as the generated fn signature (so
+    // the compiler parses + type-checks them); here we ALSO parse them locally
+    // to drive schema reflection + value-typing.
+    let mut prm: MacroParams = macro_params_new();
+    parse_macro_params(params, &mut prm);
     if prm.n == 0i64 {
         error("trama!: needs at least one parameter — write `resource <name> = trama!(o: &Ty){ … }`");
         return out;

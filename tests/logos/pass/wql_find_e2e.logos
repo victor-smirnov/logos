@@ -1,8 +1,8 @@
-// WQL `find` — single-row BORROW query e2e (ADR 0012). `from src:[Ty] v find P`
+// WQL `find` — single-row BORROW query e2e (ADR 0012). `from src v find P`
 // REPLACES where+select: the generated fn returns Option<&Ty> — a borrow of the
 // FIRST row matching P (early-exit scan, zero-copy), Option::None when no row
-// matches. The find shape takes NO other clause; `$params` in the predicate
-// flow as (i64) fn arguments.
+// matches. The find shape takes NO other clause; scalar params from the
+// wql!(…) list may be referenced bare in the predicate.
 package test;
 
 use logos.std.wql.wql;
@@ -13,13 +13,13 @@ struct Person { pub name: str, pub age: i64 }
 
 // hit: borrow of the first row with age 41 (Bob — Dan shares the age but comes
 // LATER in scan order).
-resource find_41 = wql!{ from people:[Person] p find p.age == 41 };
+resource find_41 = wql!(people: &[Person]) { from people p find p.age == 41 };
 
 // miss → None.
-resource find_ancient = wql!{ from people:[Person] p find p.age > 100 };
+resource find_ancient = wql!(people: &[Person]) { from people p find p.age > 100 };
 
-// $param predicate.
-resource find_by_age = wql!{ from people:[Person] p find p.age == $n };
+// scalar-param predicate (bare `n`).
+resource find_by_age = wql!(people: &[Person], n: i64) { from people p find p.age == n };
 
 fn main() -> i32 {
     let people: [Person; 4] = [
@@ -44,7 +44,7 @@ fn main() -> i32 {
         Option::None => { }
     }
 
-    // $param: 45 → Ada; 99 → None.
+    // scalar param: 45 → Ada; 99 → None.
     match find_by_age(&people[..], 45i64) {
         Option::Some(q) => { if !str_eq(q.name, "Ada") { return 5i32; } }
         Option::None => { return 6i32; }

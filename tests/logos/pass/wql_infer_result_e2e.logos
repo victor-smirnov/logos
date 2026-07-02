@@ -1,13 +1,13 @@
 // WQL Phase 5a — IMPLICIT result type via SCHEMA REFLECTION (ADR 0012 §10.3).
 //
-// Neither query below carries a `: <ResultTy>` annotation, and neither restates
-// field types with a `with` clause. The `wql!` handler REFLECTS the `Person`
+// Neither query below carries a `: <ResultTy>` annotation, and no field types
+// are restated anywhere. The `wql!` handler REFLECTS the `Person`
 // schema out of the user-module AST at metaprog time, stamps each field's true
 // value-type onto the parser, and INFERS the result element type from the
 // projection:
 //   • `select p.name`  over `name: str`  ⇒  `Vec<str>`
 //   • `select p.age`   over `age:  i64`  ⇒  `Vec<i64>`
-//   • `select p.age >= $min` (a comparison) ⇒ `Vec<bool>`
+//   • `select p.age >= min` (a comparison) ⇒ `Vec<bool>`
 //
 // We run each generated query over a literal `&[Person]` and assert the exact
 // projected rows — proving reflection-driven field typing AND result inference
@@ -26,14 +26,14 @@ struct Person {
 
 // STR projection, STR filter — no `: str`, no `with`. Reflection types `name`
 // and `dept` as `str` from the schema; the result element is inferred `str`.
-resource eng_names = wql!{ from people:[Person] p where p.dept == "eng" select p.name  };
+resource eng_names = wql!(people: &[Person]) { from people p where p.dept == "eng" select p.name };
 
 // INT projection — inferred `i64` from the schema's `age: i64`.
-resource ages = wql!{ from people:[Person] p where p.age >= 30 select p.age  };
+resource ages = wql!(people: &[Person]) { from people p where p.age >= 30 select p.age };
 
-// BOOL projection — a comparison projects a `bool` column (inferred). The param
-// `$min` is compared against the schema field `age`, so it types as i64.
-resource is_adult = wql!{ from people:[Person] p select p.age >= $min with $min:i64  };
+// BOOL projection — a comparison projects a `bool` column (inferred). The
+// scalar param `min: i64` is referenced bare in the predicate.
+resource is_adult = wql!(people: &[Person], min: i64) { from people p select p.age >= min };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

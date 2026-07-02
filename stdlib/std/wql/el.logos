@@ -1,7 +1,7 @@
 // logos.std.wql.el — EL (Expression Language) SHARED TYPES: the CEL operator ids
 // (`OP_*`), the value-type lattice (`EL_TY_*` / `el_ty_of_name`), and the
 // name→value-type dictionary (`ElTypes`) the wql!/trama! handlers build from
-// schema reflection + the `with` clause.
+// schema reflection + the `wql!(…)`/`trama!(…)` parameter list.
 //
 // The hand-written recursive-descent EL PARSER that used to live here is RETIRED
 // (ADR 0012 peg-frontend Phase 4). EL parsing is now done by the peg_gen_logos-
@@ -40,7 +40,7 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 // `push_i64` vs the f64 fmt path, emit typed literals, and route the
 // row/projection element type. Defaults to INT (the queue-1 numeric baseline);
 // STR/BOOL/FLT are inferred from literals/operators or DECLARED via the
-// surface (`$x:str`, typed fields). FLT is the f64 family (f64/f32 fields);
+// surface (`x: str` params, typed fields). FLT is the f64 family (f64/f32 fields);
 // INT promotes to FLT in mixed arithmetic (with an explicit `as f64` cast in
 // the emitted source — Logos is Rust-like, no implicit int→float).
 pub fn EL_TY_INT()  -> i32 { return 0i32; }
@@ -66,21 +66,16 @@ pub fn el_ty_of_name(name: str) -> i32 {
 // still needs each field/param/var's EL value-type (str/bool/int) to route
 // push_str vs push_i64 and choose the result element type. `ElTypes` is that
 // mapping, built by the wql!/trama! HANDLER from (a) schema reflection over the
-// source/context struct and (b) the `with` clause — the exact two sources the
-// old parser dense tables were stamped from — and passed to the codegen instead
+// source/context struct and (b) the `wql!(…)`/`trama!(…)` PARAM LIST (scalar
+// params seed their declared value-type) — and passed to the codegen instead
 // of the parser. It is a small association list over borrowed `str` name views
 // (the names live in the surface text / interned WStrings, which outlive the
-// codegen), plus a per-name "is comprehension source" flag (a `&[Elem]` slice
-// param vs a scalar).
+// codegen). The generated fn's argument list is NOT tracked here any more: the
+// signature is the paren param list re-emitted VERBATIM (the trama! model).
 pub struct ElTypes {
     pub names:  [str; 64],
     pub tys:    [i32; 64],
-    pub is_src: [bool; 64],
     pub n:      i64,
-    // Ordered list of PARAM names (a `$x` reference), in first-seen order — the
-    // generated fn's argument list. Populated by `note_param`.
-    pub params:   [str; 64],
-    pub param_n:  i64,
 }
 
 pub fn el_types_new() -> ElTypes {
@@ -90,13 +85,7 @@ pub fn el_types_new() -> ElTypes {
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         tys:    [0i32; 64],
-        is_src: [false; 64],
         n:      0i64,
-        params: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        param_n: 0i64,
     };
 }
 
@@ -111,18 +100,8 @@ impl ElTypes {
         return EL_TY_INT();
     }
 
-    // Is `name` a comprehension SOURCE (a `&[Elem]` slice param)?
-    pub fn is_source(self: &ElTypes, name: str) -> bool {
-        let mut i: i64 = 0i64;
-        while i < self.n {
-            if str_eq(self.names[i], name) { return self.is_src[i]; }
-            i = i + 1i64;
-        }
-        return false;
-    }
-
-    // Record / overwrite `name`'s value-type (idempotent by name). The `with`
-    // clause + reflection call this; last write wins (`with` after reflection).
+    // Record / overwrite `name`'s value-type (idempotent by name). Reflection +
+    // the param-list seeding call this; last write wins.
     pub fn set_ty(self: &mut ElTypes, name: str, ty: i32) {
         let mut i: i64 = 0i64;
         while i < self.n {
@@ -132,37 +111,6 @@ impl ElTypes {
         if self.n >= 64i64 { return; }
         self.names[self.n] = name;
         self.tys[self.n]   = ty;
-        self.is_src[self.n] = false;
         self.n = self.n + 1i64;
     }
-
-    // Flag `name` as a comprehension source (`&[Elem]`), recording it if new.
-    pub fn set_source(self: &mut ElTypes, name: str) {
-        let mut i: i64 = 0i64;
-        while i < self.n {
-            if str_eq(self.names[i], name) { self.is_src[i] = true; return; }
-            i = i + 1i64;
-        }
-        if self.n >= 64i64 { return; }
-        self.names[self.n]  = name;
-        self.tys[self.n]    = EL_TY_INT();
-        self.is_src[self.n] = true;
-        self.n = self.n + 1i64;
-    }
-
-    // Note a `$param` reference in first-seen order (the generated-fn arg list).
-    // Deduplicates by name.
-    pub fn note_param(self: &mut ElTypes, name: str) {
-        let mut i: i64 = 0i64;
-        while i < self.param_n {
-            if str_eq(self.params[i], name) { return; }
-            i = i + 1i64;
-        }
-        if self.param_n >= 64i64 { return; }
-        self.params[self.param_n] = name;
-        self.param_n = self.param_n + 1i64;
-    }
-
-    pub fn param_count(self: &ElTypes) -> i64 { return self.param_n; }
-    pub fn param_name(self: &ElTypes, i: i64) -> str { return self.params[i]; }
 }

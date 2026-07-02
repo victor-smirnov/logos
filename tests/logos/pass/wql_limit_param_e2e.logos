@@ -1,7 +1,7 @@
 // WQL LIMIT $param — the runtime-parameter limit form, static lowering
 // end-to-end (ADR 0012 select-tail modifiers, sqlx prepared-statement model).
-// `limit $n` makes the cap a GENERATED-FN ARGUMENT (declared `with $n:i64`,
-// exactly like predicate params): the same prepared query is called with
+// `limit n` makes the cap a GENERATED-FN ARGUMENT (the scalar param `n: i64`
+// from the wql!(…) list): the same prepared query is called with
 // different caps and the row count follows the runtime value.
 package test;
 
@@ -12,10 +12,10 @@ struct Person { pub name: str, pub age: i64 }
 
 // pub fn first_ages(people: &[Person], n: i64) -> Vec<i64> — ages of adults in
 // source order, capped at the runtime `n`.
-resource first_ages = wql!{ from people:[Person] p where p.age >= 18 select p.age limit $n with $n:i64 };
+resource first_ages = wql!(people: &[Person], n: i64) { from people p where p.age >= 18 select p.age limit n };
 
-// limit $n combined with order by desc — the cap applies AFTER the sort.
-resource top_ages = wql!{ from people:[Person] p select p.age order by p.age desc limit $n with $n:i64 };
+// limit n combined with order by desc — the cap applies AFTER the sort.
+resource top_ages = wql!(people: &[Person], n: i64) { from people p select p.age order by p.age desc limit n };
 
 fn main() -> i32 {
     let people: [Person; 5] = [

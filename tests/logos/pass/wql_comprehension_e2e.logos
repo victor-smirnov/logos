@@ -2,11 +2,11 @@
 // §1/§10.4, queue-1). A comprehension `[head for v in src if guard]` lowers to a
 // Source-driven for-loop collecting into a `Vec` (NOT the stdlib list-comp
 // desugar) — a BLOCK EXPRESSION yielding `Vec<HeadTy>`. The loop var `v` binds
-// each element by value; the comprehension SOURCE flows as a `&[Elem]` slice
-// argument to the generated function.
+// each element by value; the comprehension SOURCE is the `nums: &[i64]` slice
+// param from the wql!(…) list.
 //
 // The `select` projects, per driver row, the comprehension
-//   [ n * 2 for n in nums if n > $lo ]
+//   [ n * 2 for n in nums if n > lo ]
 // so the generated fn takes (rows: &[Driver], nums: &[i64], lo: i64) and returns
 // Vec<Vec<i64>>. We drive it with ONE driver row (the comprehension runs once)
 // and assert the inner multi-element Vec.
@@ -20,9 +20,8 @@ struct Driver { pub k: i64 }
 //   pub fn doubles(rows: &[Driver], nums: &[i64], lo: i64) -> Vec<Vec<i64>> {
 //       … push ({ let mut __cv: Vec<i64> = …; while … if (n > lo) { __cv.push((n * 2)); } … __cv }) …
 //   }
-resource doubles = wql!{ from rows:[Driver] r
-      select [ n * 2 for n in nums if n > $lo ] : i64
-      with $lo:i64  };
+resource doubles = wql!(rows: &[Driver], nums: &[i64], lo: i64) { from rows r
+      select [ n * 2 for n in nums if n > lo ] : i64 };
 
 fn main() -> i32 {
     let drivers: [Driver; 1] = [ Driver { k: 0i64 } ];

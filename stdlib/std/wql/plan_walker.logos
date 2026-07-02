@@ -1,6 +1,7 @@
 // logos.std.wql.plan_walker — the WALKER ENTRY (ADR 0012 Phase 3 → Phase 2
 // consolidation): take an `RQuery` surface query-PLAN, stamp the generated-fn
-// name, and route it through the UNIFIED relational algebra.
+// name + the ROW TYPES (from the `wql!(<params>)` list), and route it through
+// the UNIFIED relational algebra.
 //
 // Phase 2 resolved the RQuery-vs-RExpr duplication: this module no longer emits
 // the loop nest per plan-shape. Instead `walk_query` LOWERS the surface plan to
@@ -10,15 +11,21 @@
 // are RETIRED — the algebra is the single executable representation
 // (RScan/RFilter/RProj/RJoin/RAnti/RAggr).
 //
+// PARAMETERIZED surface (the trama! model): the handler passes the RAW
+// `wql!(…)` paren text (re-emitted VERBATIM as the generated fn signature) +
+// its parsed form (`MacroParams`). This module:
+//   • stamps `fn_name` (the `resource <name> =` binding) onto the plan root;
+//   • stamps `row_ty`/`a_ty`/`b_ty` from the SLICE params' element types —
+//     a `from`/`join` source ident MUST name a `&[RowTy]` param (error else);
+//   • threads the params through to the emitters (scalar-param typing +
+//     verbatim signature).
+//
 // Phase 3 (`optimize::simplify_rexpr`) rewrites the algebra BEFORE emission:
 // const-true `where` filters are DROPPED, const-false ones collapse the plan to
 // an empty-Vec return, and an identity `select v` over an unfiltered scan is
 // emitted as a borrowed `&[Row]` passthrough (the accessor collapse). Non-
 // optimized queries emit byte-for-byte as before (all wql! e2e behavior
 // unchanged; the optimizer preserves semantics exactly).
-//
-// This module keeps only the plan-root name-stamp (the `resource <name> =`
-// binding, ADR 0012 §6) + the RQuery→RExpr routing.
 //
 // SCHEMA MANDATE: consumes ONLY Writ schema views — `RQuery` / `RExpr`.
 package logos.std.wql.plan_walker;
@@ -28,22 +35,27 @@ use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.lang.writ.wmap;         // WSchemaH, WMap, Wu6 (name-stamp fat view)
 use logos.std.wql.ir;             // RExpr, WRef
-use logos.std.wql.plan;           // RQuery, RQSimple / RQJoin / RQAggr
+use logos.std.wql.plan;           // RQuery, RQSimple / RQJoin / RQAggr / RQFind
+use logos.std.wql.params;         // MacroParams — the parsed wql!(…) param list
 use logos.std.wql.rexpr_walk;     // lower_simplify_emit — lower → Phase-3 optimize → emit
+use logos.std.wql.codegen;        // string_as_str (dynamic error-message text)
+use logos.mem.string;
+use logos.lang.str;
 
 // ── The walker entry: RQuery plan → RExpr algebra → emitted native fn ─────────
 // LOWER the surface plan to the RExpr algebra, then emit off that one tree.
 // Returns false (+ surfaces an `error`) on a codegen-level diagnostic
-// (unknown/wrong-arity builtin, bad aggregate); true on success.
-pub fn walk_query(plan: RQuery, h: &Writ) -> bool {
+// (unknown source / unknown/wrong-arity builtin / bad aggregate); true on
+// success.
+pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams, h: &Writ) -> bool {
     // Phase 2: LOWER the surface plan to the real RExpr algebra.
     // Phase 3: run the RELATIONAL peephole pass (`simplify_rexpr`, inside
     // `lower_simplify_emit`) — filter folding, identity-projection collapse,
     // projection composition — over that tree BEFORE emission, then walk the
-    // (possibly thinner) form. The envelope (fn name / `with` overlay / result-
-    // type override / single-row SELECT MODE) is read off the RQuery per shape
-    // and threaded through; the relational STRUCTURE + clause bodies live on
-    // the RExpr tree.
+    // (possibly thinner) form. The envelope (fn name / verbatim params /
+    // result-type override / single-row SELECT MODE) is read off the RQuery per
+    // shape and threaded through; the relational STRUCTURE + clause bodies live
+    // on the RExpr tree.
     //
     // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
     // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors
@@ -57,7 +69,7 @@ pub fn walk_query(plan: RQuery, h: &Writ) -> bool {
                 if s.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
-            return lower_simplify_emit(plan, s.fn_name, s.with_decls, s.result_ty, s.has_result_ty, mode, h);
+            return lower_simplify_emit(plan, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, h);
         }
         RQuery::Join(j) => {
             let mut mode: i32 = SELM_ALL();
@@ -66,37 +78,27 @@ pub fn walk_query(plan: RQuery, h: &Writ) -> bool {
                 if j.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
-            return lower_simplify_emit(plan, j.fn_name, j.with_decls, j.result_ty, j.has_result_ty, mode, h);
+            return lower_simplify_emit(plan, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, h);
         }
         RQuery::Aggr(g) => {
             if g.sel_first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
-            return lower_simplify_emit(plan, g.fn_name, g.with_decls, g.result_ty, g.has_result_ty, SELM_ALL(), h);
+            return lower_simplify_emit(plan, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, SELM_ALL(), h);
         }
         RQuery::Find(f) => {
-            // `find P` — no `with` / result-type / tail modifiers exist on this
-            // shape (the grammar admits only the predicate).
-            return lower_simplify_emit(plan, f.fn_name, null_with_ref(), "", false, SELM_FIND(), h);
+            // `find P` — no result-type / tail modifiers exist on this shape
+            // (the grammar admits only the predicate).
+            return lower_simplify_emit(plan, f.fn_name, params_text, prm, "", false, SELM_FIND(), h);
         }
     }
 }
 
-// Convenience: view an erased plan-root handle as RQuery and walk it.
-pub fn walk_query_any(root: WAny, h: &Writ) -> bool {
-    if root.is_null() { error("wql!: empty query plan"); return false; }
-    return walk_query(root.view::<RQuery>(), h);
-}
-
-// Stamp the generated-fn NAME onto the plan root, then walk. The name comes from
-// the enclosing `resource <name> = wql!{ … }` binding (ADR 0012 §6) — the grammar
-// no longer captures an `fn N` prefix, so the handler supplies the name here.
-//
 // Writing a `str` schema field BOXES the bytes into the arena, which needs the
 // view's z (allocator). A plain `root.view::<RQuery>()` binds a READ-ONLY view
 // (z = null) — boxing through it would deref null. So we rebuild an ALLOCATOR-
 // CARRYING view over the SAME node: `WSchemaH { m: <node ptr>, z: <arena> }` is
 // layout-identical to a compiler schema view (ADR 0011 §Increment-6), so we
-// transmute it to the concrete variant view and write `fn_name` through it. The
-// variant is chosen off a cheap read-only match first.
+// transmute it to the concrete variant view and write `fn_name`/`row_ty`
+// through it. The variant is chosen off a cheap read-only match first.
 fn wrap_fat_simple(node: WAny, h: &Writ) -> RQSimple {
     let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
     return unsafe { *(&hh as *const WSchemaH as *const RQSimple) };
@@ -114,14 +116,71 @@ fn wrap_fat_find(node: WAny, h: &Writ) -> RQFind {
     return unsafe { *(&hh as *const WSchemaH as *const RQFind) };
 }
 
-pub fn walk_query_any_named(root: WAny, name: str, h: &Writ) -> bool {
+// Resolve a `from`/`join` SOURCE ident against the wql!(…) param list: it MUST
+// name a SLICE param (`<src>: &[RowTy]`); the row type is the slice ELEMENT
+// type. Returns "" + surfaces an `error` (build failure) otherwise.
+fn source_row_ty(prm: &MacroParams, src: str) -> str {
+    let i: i64 = prm.index_of(src);
+    if i >= 0i64 {
+        if prm.is_slice[i] { return prm.tys[i]; }
+        let mut m1: String = String::new();
+        m1.push_str("wql!: source `");
+        m1.push_str(src);
+        m1.push_str("` is not a slice — declare it as `");
+        m1.push_str(src);
+        m1.push_str(": &[RowTy]` in the wql!(…) parameter list");
+        error(string_as_str(&m1));
+        return "";
+    }
+    let mut msg: String = String::new();
+    msg.push_str("wql!: unknown source `");
+    msg.push_str(src);
+    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the wql!(…) parameter list");
+    error(string_as_str(&msg));
+    return "";
+}
+
+// Stamp the generated-fn NAME + the source ROW TYPES onto the plan root, then
+// walk. The name comes from the enclosing `resource <name> = wql!(…){ … }`
+// binding; the row types come from the SLICE params (the grammar no longer
+// captures `:[Ty]`). Returns false (error already surfaced) when a source
+// ident does not name a slice param.
+pub fn walk_query_params(root: WAny, name: str, params_text: str,
+                         prm: &MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
     let plan: RQuery = root.view::<RQuery>();
     match plan {
-        RQuery::Simple(_) => { let s: RQSimple = wrap_fat_simple(root, h); s.fn_name = name; }
-        RQuery::Join(_)   => { let j: RQJoin   = wrap_fat_join(root, h);   j.fn_name = name; }
-        RQuery::Aggr(_)   => { let g: RQAggr   = wrap_fat_aggr(root, h);   g.fn_name = name; }
-        RQuery::Find(_)   => { let f: RQFind   = wrap_fat_find(root, h);   f.fn_name = name; }
+        RQuery::Simple(_) => {
+            let s: RQSimple = wrap_fat_simple(root, h);
+            s.fn_name = name;
+            let rt: str = source_row_ty(prm, s.src_name);
+            if rt.len() == 0i64 { return false; }
+            s.row_ty = rt;
+        }
+        RQuery::Join(_) => {
+            let j: RQJoin = wrap_fat_join(root, h);
+            j.fn_name = name;
+            let at: str = source_row_ty(prm, j.a_name);
+            if at.len() == 0i64 { return false; }
+            j.a_ty = at;
+            let bt: str = source_row_ty(prm, j.b_name);
+            if bt.len() == 0i64 { return false; }
+            j.b_ty = bt;
+        }
+        RQuery::Aggr(_) => {
+            let g: RQAggr = wrap_fat_aggr(root, h);
+            g.fn_name = name;
+            let at2: str = source_row_ty(prm, g.a_name);
+            if at2.len() == 0i64 { return false; }
+            g.a_ty = at2;
+        }
+        RQuery::Find(_) => {
+            let f: RQFind = wrap_fat_find(root, h);
+            f.fn_name = name;
+            let rt2: str = source_row_ty(prm, f.src_name);
+            if rt2.len() == 0i64 { return false; }
+            f.row_ty = rt2;
+        }
     }
-    return walk_query(root.view::<RQuery>(), h);
+    return walk_query(root.view::<RQuery>(), params_text, prm, h);
 }

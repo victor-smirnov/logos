@@ -134,8 +134,8 @@ pub fn field_element_type_name(view: &OView, decl: WAny, field_name: str) -> str
 // type every field of the bound schema — the codegen queries only the names it
 // actually references, so typing all fields is harmless and matches the old
 // stamp-what-was-interned behavior). A struct that cannot be found (unknown name,
-// or no AST loaded) is a no-op: the dict keeps the i64 baseline and an explicit
-// `with` still works (and OVERRIDES, since `with` is applied after this).
+// or no AST loaded) is a no-op: the dict keeps the i64 baseline (scalar params
+// from the macro param list are seeded separately and still type their names).
 //
 // `view` is a fresh module-AST view; `t` the type dictionary the handler passes
 // to the codegen.

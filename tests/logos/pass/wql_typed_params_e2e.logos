@@ -1,13 +1,13 @@
 // WQL Phase 2 — TYPED PARAMS (str AND i64) as generated-fn arguments, static
 // lowering end-to-end (ADR 0012 §10.3, the sqlx prepared-statement model).
 //
-// The `with $q:str, $minage:i64` clause declares the runtime params' types; the
-// `wql!{ … }` handler emits them as ARGUMENTS of the generated function (not
-// captures), bound to the declared Logos type. We then call the prepared query
-// with concrete runtime values and assert the filtered/projected result.
+// The `q: str, minage: i64` params in the wql!(…) list declare the runtime
+// params' types; the handler re-emits the list VERBATIM as the generated fn's
+// ARGUMENTS. We then call the prepared query with concrete runtime values and
+// assert the filtered/projected result.
 //
-// Exercises BOTH a string-typed param (`p.name == $q`, native str ==) and an
-// int-typed param (`p.age >= $minage`) in one predicate, projecting a string
+// Exercises BOTH a string-typed param (`p.name == q`, native str ==) and an
+// int-typed param (`p.age >= minage`) in one predicate, projecting a string
 // column — proving typed params of mixed type flow through parse → IR → emit →
 // linked-fn as real function arguments.
 package test;
@@ -20,7 +20,7 @@ struct Person { pub name: str, pub age: i64 }
 
 // Emits:
 //   pub fn lookup(people: &[Person], q: str, minage: i64) -> Vec<str> { … }
-resource lookup = wql!{ from people:[Person] p where p.name == $q && p.age >= $minage select p.name : str with name:str, $q:str, $minage:i64  };
+resource lookup = wql!(people: &[Person], q: str, minage: i64) { from people p where p.name == q && p.age >= minage select p.name : str };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

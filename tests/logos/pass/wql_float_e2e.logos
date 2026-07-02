@@ -15,13 +15,13 @@ use logos.mem.collections.vec;
 struct Item { pub dept: i64, pub price: f64 }
 
 // Float compare in `where` + float field `select` → Vec<f64>.
-resource pricey = wql!{ from items:[Item] p where p.price > 10.5 select p.price };
+resource pricey = wql!(items: &[Item]) { from items p where p.price > 10.5 select p.price };
 
 // Mixed arithmetic: the INT literal 2 promotes (emitted `((2i64) as f64)`).
-resource doubled = wql!{ from items:[Item] p select p.price * 2 };
+resource doubled = wql!(items: &[Item]) { from items p select p.price * 2 };
 
 // Aggregates over floats: sum + avg + min + max, composed with FLOAT literals.
-resource dept_price = wql!{ from items:[Item] s
+resource dept_price = wql!(items: &[Item]) { from items s
       group by s.dept
       aggregate t = sum(s.price) , a = avg(s.price) , lo = min(s.price) , hi = max(s.price)
       select t * 1000.0 + a * 100.0 + lo * 10.0 + hi };

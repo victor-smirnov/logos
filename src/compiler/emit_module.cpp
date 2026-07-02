@@ -67,6 +67,35 @@ static bool is_wql_internal_pkg(std::string_view pkg) {
            pkg[kRoot.size()] == '.';
 }
 
+// Second leak form the package test can't see: generic INSTANCES parameterized
+// by an excluded type. `type_id_of__g__void__RQWith` lives in logos.lang.any
+// (its own package is public) and its signature never mentions the type — the
+// type argument survives only as a mangling token. Such instances exist in the
+// archive only because wql internals instantiated them; no consumer can even
+// name the type, so they are spec noise that churns with every wql refactor.
+// Detect them by scanning the mangled symbol for an excluded type NAME at a
+// mangling-token boundary (preceded by start/'_'/'$'/'.', followed by
+// end/'_'/'$'/'.') — the boundary test keeps SExpr from matching inside
+// SExprArr-the-different-token, and a non-excluded package that merely embeds
+// the substring cannot produce a boundary hit for a mangled TYPE token.
+static bool mentions_excluded_type(std::string_view sym,
+                                   const std::vector<std::string>& names) {
+    auto is_boundary = [](char c) {
+        return c == '_' || c == '$' || c == '.';
+    };
+    for (const auto& n : names) {
+        size_t pos = 0;
+        while ((pos = sym.find(n, pos)) != std::string_view::npos) {
+            bool l = pos == 0 || is_boundary(sym[pos - 1]);
+            size_t end = pos + n.size();
+            bool r = end == sym.size() || is_boundary(sym[end]);
+            if (l && r) return true;
+            pos += 1;
+        }
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // .writ0 format (version 3)
 //
@@ -667,6 +696,15 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         else
             pub_path += ".abi-pub";
         std::ofstream pf(pub_path);
+        // Bare names of every ABI-excluded (wql-internal) struct/enum — the
+        // token set for the generic-instance leak check (mentions_excluded_type).
+        std::vector<std::string> excluded_type_names;
+        for (auto& sd : prog.structs)
+            if (is_wql_internal_pkg(sd.pkg()))
+                excluded_type_names.emplace_back(sd.name());
+        for (auto& ed : prog.enums)
+            if (is_wql_internal_pkg(ed.pkg()))
+                excluded_type_names.emplace_back(ed.name());
         auto emit_pub = [&](lir_view::FunctionView fn) {
             if (!fn) return;
             // extern (C-ABI) symbols are the host/runtime boundary, not the
@@ -687,11 +725,21 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // already dropped above; a consumer never links a wql symbol. Exclude
             // it so query-engine refactors do not falsely trip the abi-gate.
             if (is_wql_internal_pkg(fn.package())) return;
-            pf << sym::link_name(fn, prog.pkg_module_ids) << '\n';
+            // Generic instances parameterized by an excluded type (the type
+            // survives only in the mangling — see mentions_excluded_type).
+            std::string ln = sym::link_name(fn, prog.pkg_module_ids);
+            if (mentions_excluded_type(ln, excluded_type_names)) return;
+            pf << ln << '\n';
         };
         for (auto& fn : prog.functions) emit_pub(fn);
-        for (auto& sd : prog.structs)
+        for (auto& sd : prog.structs) {
+            // Method mirrors may lack package attribution of their own — a
+            // method belongs to its struct's package, so an excluded struct's
+            // methods are excluded wholesale (fixes e.g. the wql
+            // <Type>__type_id__g__ref_T blanket-impl instances leaking in).
+            if (is_wql_internal_pkg(sd.pkg())) continue;
             for (auto& m : sd.methods()) emit_pub(m);
+        }
     }
 
     // M4 step 1: snapshot prog.type_pool arena bytes for the .writ0 LIR

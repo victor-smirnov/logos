@@ -1,7 +1,7 @@
 // WQL optimizer Phase 3 — IDENTITY-PROJECTION collapse (the accessor-collapse
 // peephole), asserted end-to-end through the real `wql!` codegen path.
 //
-// An UNFILTERED identity projection `from src:[T] v select v` yields exactly the
+// An UNFILTERED identity projection `from src v select v` yields exactly the
 // source rows, so `simplify_rexpr` marks it a PASSTHROUGH: the emitted fn RETURNS
 // THE SOURCE SLICE `&[T]` directly — no scan loop, no fresh `Vec`, no per-row
 // copy. The proof is at the TYPE level: this file binds the result to `&[Person]`
@@ -18,7 +18,7 @@ struct Person {
 }
 
 // Identity projection over an unfiltered scan → borrow-and-return `&[Person]`.
-resource all_people = wql!{ from people:[Person] p select p };
+resource all_people = wql!(people: &[Person]) { from people p select p };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

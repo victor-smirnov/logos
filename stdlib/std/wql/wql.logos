@@ -1,72 +1,82 @@
-// logos.std.wql.wql — the `wql!{ … }` RESOURCE surface (ADR 0012 §6 / §10.2,
-// queue-1 STATIC lowering). A `#[token_macro]` handler receives the raw block
-// text at compile time, PARSES it via the peg-GENERATED surface parser
-// (`wql_surface_parser::parse_query` → an `RQuery` query-PLAN, itself Writ
-// schemas — ADR 0011 dogfood), then WALKS that schema'd plan to EMIT a native
-// Logos function (`plan_walker::walk_query`) that iterates the source, filters,
-// and collects the projected rows — the "prepared statement" model (no
-// runtime-string queries; ADR 0012 §queues).
+// logos.std.wql.wql — the `wql!(<params>){ … }` RESOURCE surface (ADR 0012 §6 /
+// §10.2, queue-1 STATIC lowering). A `#[token_macro]` handler receives the raw
+// params source text + the raw query block bytes at compile time, PARSES the
+// query via the peg-GENERATED surface parser (`wql_surface_parser::parse_query`
+// → an `RQuery` query-PLAN, itself Writ schemas — ADR 0011 dogfood), then WALKS
+// that schema'd plan to EMIT a native Logos function (`plan_walker::
+// walk_query_params`) that iterates the source, filters, and collects the
+// projected rows — the "prepared statement" model (no runtime-string queries;
+// ADR 0012 §queues).
 //
-// This is the "peg + Writ-schemas all the way" frontend: the hand-written
-// QLexer clause carver + the procedural cursor-driven emit are GONE (retired in
-// Phase 4). Clause STRUCTURE lives in the grammar (`grammars/wql.peg`); the
-// embedded EL clause bodies (`where` / `select` / `on` / group-key /
-// aggregate-args) are parsed by the generated EL parser (`el_parser::parse_expr`,
-// %imported by the surface grammar) into the SExpr IR and hang off the plan node
-// as `WRef<SExpr>` edges; all emit logic is the walker (`plan_walker.logos`).
+// Surface (PARAMETERIZED form — a REAL fn-style parameter list in the parens,
+// exactly trama!'s model; the old inline `:[Ty]` source typing, the `$` param
+// sigil, and the `with` clause are GONE):
 //
-// MVP surface (explicit-typed, per the ADR static model — schema/types always
-// known at compile time, params/sources flow as generated-fn arguments):
+//   resource <name> = wql!(<params>) { from <src> <var> [ where P ] select S [: RTy] };
+//     e.g.  resource top = wql!(emps: &[Emp], n: i64) {
+//               from emps e where e.salary > 50.0 select e.name limit n };
 //
-//   resource <name> = wql! {
-//       from <src>:[<RowTy>] <var>
-//       [ where <predicate-EL> ]
-//       select <projection-EL> [ : <ResultTy> ]
-//       [ with [$]<name>:<ty>, … ]
-//   };
+//   →  pub fn top(emps: &[Emp], n: i64) -> Vec<str> { … }
 //
-//   →  pub fn <name>(<src>: &[<RowTy>], <$param>: <PTy>, …) -> Vec<ResultTy> { … }
+// The PARENS carry a genuine Logos parameter list — parsed + TYPE-CHECKED by
+// the compiler because the handler re-emits it VERBATIM into the generated fn
+// signature (param ORDER = the paren-list order):
+//   • SLICE params (`emps: &[Emp]`) are the query SOURCES: a `from`/`join`
+//     clause names one by its param name (`from emps e`); the row type is the
+//     slice ELEMENT type and its fields reflect automatically (reflect.logos).
+//     A source ident that does not match a slice param is a compile error.
+//   • SCALAR params (i64 / f64 / str / bool) are referenced BARE in the EL
+//     clause bodies (`e.salary > min_sal`, `limit n`) — typed off the list.
 //
-// The generated fn NAME is the `resource <name> =` binding (ADR 0012 §6), NOT an
-// `fn <name>` line inside the block; the handler receives it as the `name` arg.
+// The generated fn NAME is the `resource <name> =` binding (ADR 0012 §6); the
+// handler receives it as the `name` arg.
 //
-// plus the relational shapes off the same `from` prefix:
-//   • `[anti] join <b>:[<BTy>] <y> on <onPred>` → inner / anti nested-loop join;
+// Relational shapes off the same `from` prefix:
+//   • `[anti] join <b> <y> on <onPred>` → inner / anti nested-loop join;
 //   • `[where …] group by <key> aggregate <a>=<fn>(<e>),…` → group-by + aggregate;
 // and the SINGLE-ROW forms:
 //   • `select first <S>` (simple/join) → Option<ElemTy>, the first projected
 //     value (scan order, or ORDER BY order); excludes distinct/limit;
-//   • `from <src>:[<Ty>] <v> find <P>` → Option<&Ty>, a borrow of the first
-//     matching row (early-exit, zero-copy); takes no other clause.
+//   • `from <src> <v> find <P>` → Option<&Ty>, a borrow of the first matching
+//     row (early-exit, zero-copy); takes no other clause; P may reference
+//     scalar params bare.
 // The RQuery plan family (`logos.std.wql.plan`) has one schema variant per shape;
 // the walker (`plan_walker.logos`) dispatches on it via `match`.
-//
-// Runtime params `$x:Ty` flow as generated-fn ARGUMENTS (sqlx model, ADR
-// §10.3); the source `<src>` is the first argument (an explicit `&[RowTy]`
-// slice). The data is supplied by the caller at the `<name>(…)` call site.
 package logos.std.wql.wql;
 
 use logos.std.compiler.metaprog;         // ItemList, item_list_new, error
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
+use logos.std.wql.params;                // MacroParams / parse_macro_params — SHARED with trama!
 use logos.std.wql.wql_surface_parser;    // parse_query — the GENERATED surface parser
-use logos.std.wql.plan_walker;           // walk_query_any — the plan walker-emitter
+use logos.std.wql.plan_walker;           // walk_query_params — the plan walker-emitter
 
 // ── The resource handler ───────────────────────────────────────────────────
-// `#[token_macro]`: receives the raw `wql!{ … }` block bytes as a single `str`.
-// PARSE (peg-generated surface parser → RQuery plan) then WALK (plan_walker →
-// emitted native fn). The emitted source is spliced by the host's Emitter/
-// `logos_emit_source` (ADR 0012 §10.2); the handler returns an (empty) ItemList.
+// `#[token_macro]` 3-arg form: receives the `resource` binding name, the raw
+// params source text, and the raw `{ … }` block bytes. PARSE (peg-generated
+// surface parser → RQuery plan), STAMP (fn name + row types off the slice
+// params), then WALK (plan_walker → emitted native fn). The emitted source is
+// spliced by the host's Emitter/`logos_emit_source` (ADR 0012 §10.2); the
+// handler returns an (empty) ItemList.
 #[token_macro]
-pub fn wql(name: str, body: str) -> ItemList {
+pub fn wql(name: str, params: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
-        error("wql!: needs a binding name — write `resource <name> = wql!{ from … select … }`");
+        error("wql!: needs a binding name — write `resource <name> = wql!(<params>){ from … select … }`");
+        return out;
+    }
+    // Parse the REAL parameter list (shared mechanism with trama!). The params
+    // are re-emitted VERBATIM as the generated fn signature; here we ALSO parse
+    // them locally to bind sources (slice params) + type scalar params.
+    let mut prm: MacroParams = macro_params_new();
+    parse_macro_params(params, &mut prm);
+    if prm.n == 0i64 {
+        error("wql!: needs at least one parameter — write `resource <name> = wql!(<src>: &[RowTy], …){ from <src> <var> … }`");
         return out;
     }
     let h: Writ = writ_new(4096i64);
     let root: WAny = parse_query(body, &h);
-    if root.is_null() { error("wql!: malformed query (expected `from <src>:[<Ty>] <var> … select …`)"); return out; }
-    let _ok: bool = walk_query_any_named(root, name, &h);
+    if root.is_null() { error("wql!: malformed query (expected `from <src> <var> … select …`)"); return out; }
+    let _ok: bool = walk_query_params(root, name, params, &prm, &h);
     return out;
 }
