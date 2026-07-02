@@ -303,7 +303,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let result_elem: str = string_as_str(&elem_ty);
 
     let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
+    begin_chunk(&mut em, &view);
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");
@@ -335,8 +335,9 @@ fn emit_identity(scan_e: RExpr,
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
 
+    let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
+    begin_chunk(&mut em, &view);
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");
@@ -495,7 +496,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     }
 
     let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
+    begin_chunk(&mut em, &view);
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");
@@ -589,7 +590,7 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
     }
 
     let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
+    begin_chunk(&mut em, &view);
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");
@@ -757,7 +758,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     }
 
     let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
+    begin_chunk(&mut em, &view);
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");

@@ -269,6 +269,8 @@ extern "C" int32_t logos_emit_source(const char* src) {
         || !g_from_binary || !src) return 0;
     std::string s(src);
     if (!g_emit_seen->insert(s).second) return 0;  // already emitted
+    if (::getenv("LOGOS_TRACE_EMIT"))
+        std::fprintf(stderr, "[emit_source]---\n%s\n---[/emit_source]\n", s.c_str());
     logos::compiler::LogosParser parser(s);
     auto ast = parser.parse_module();
     if (ast.is_null() || !parser.at_eof()) {
@@ -2406,17 +2408,44 @@ int run_metaprog_dispatch(
         // functions, but mono_pass consumes meta_prog and drops those
         // fields. So snapshot them now, then move-construct meta_prog
         // from prog.
-        auto saved_targets  = std::move(prog.metaprog_targets);
-        auto saved_handlers = std::move(prog.metaprog_handlers);
+        // The target/handler/site mirrors are VIEWS into the current
+        // program's LIR arena. The item-macro path below REPLACES
+        // meta_prog via a fresh sema_lower; without a sema cache keeping
+        // the old arena alive (emit_module's stdlib build runs cache-
+        // less) that reassignment frees the arena and every saved view
+        // dangles — the dispatch then reads empty/garbage names. Deep-
+        // copy the fields the dispatch needs into OWNED structs before
+        // anything can invalidate them.
+        struct OwnedHandler  { std::string trigger, hook_fn; };
+        struct OwnedTarget   { size_t ast_idx; uint32_t item_offset;
+                               std::string trigger; };
+        struct OwnedItemSite { std::string thunk_source, callee_name, thunk_name;
+                               size_t ast_idx; uint64_t expr_offset; };
+        std::vector<OwnedTarget>  saved_targets;
+        std::vector<OwnedHandler> saved_handlers;
+        for (const auto& t : prog.metaprog_targets)
+            saved_targets.push_back({static_cast<size_t>(t.ast_idx()),
+                                     static_cast<uint32_t>(t.item_offset()),
+                                     std::string(t.trigger())});
+        for (const auto& h : prog.metaprog_handlers)
+            saved_handlers.push_back({std::string(h.trigger()),
+                                      std::string(h.hook_fn())});
+        prog.metaprog_targets.clear();
+        prog.metaprog_handlers.clear();
         auto meta_prog      = std::move(prog);
         stat_step(_t2, "meta_sema_lower", iter);
         if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
 
-        std::vector<lir_view::MetacallSiteView> meta_item_sites;
+        std::vector<OwnedItemSite> meta_item_sites;
         {
             using RT = lir::MetacallRetTag;
             for (const auto& s : meta_prog.metacall_sites) {
-                if (s.ret_tag() == RT::ItemBlob) meta_item_sites.push_back(s);
+                if (s.ret_tag() == RT::ItemBlob)
+                    meta_item_sites.push_back({std::string(s.thunk_source()),
+                                               std::string(s.callee_name()),
+                                               std::string(s.thunk_name()),
+                                               static_cast<size_t>(s.ast_idx()),
+                                               static_cast<uint64_t>(s.expr_offset())});
             }
         }
         if (!meta_item_sites.empty()) {
@@ -2424,14 +2453,14 @@ int run_metaprog_dispatch(
             bool* prev_any = g_any_emitted;
             g_any_emitted = &tmp_emitted;
             for (const auto& s : meta_item_sites) {
-                if (!s.thunk_source().empty())
-                    logos_emit_source(std::string(s.thunk_source()).c_str());
+                if (!s.thunk_source.empty())
+                    logos_emit_source(s.thunk_source.c_str());
             }
             g_any_emitted = prev_any;
             auto resema_opts = meta_opts;
             for (const auto& s : meta_item_sites) {
-                if (!s.callee_name().empty())
-                    resema_opts.metaprog_keep_fns.push_back(std::string(s.callee_name()));
+                if (!s.callee_name.empty())
+                    resema_opts.metaprog_keep_fns.push_back(s.callee_name);
             }
             // M6.1: bypass the cache for this re-sema. The cache snapshot
             // captured the iter-top sema where the callee bodies were
@@ -2625,13 +2654,13 @@ int run_metaprog_dispatch(
             // multiple non-binary asts in one pass). Restored after the
             // inner per-handler loop.
             auto saved_root = g_user_root_idx;
-            g_user_root_idx = tgt.ast_idx();
+            g_user_root_idx = tgt.ast_idx;
             bool any_handler = false;
-            std::string tgt_trigger(tgt.trigger());
+            std::string tgt_trigger(tgt.trigger);
             for (const auto& mh : saved_handlers) {
-                if (mh.trigger() != tgt_trigger) continue;
+                if (mh.trigger != tgt_trigger) continue;
                 any_handler = true;
-                std::string mh_hook_fn(mh.hook_fn());
+                std::string mh_hook_fn(mh.hook_fn);
                 std::string lookup_name = mh_hook_fn;
                 for (const auto& f : meta_prog.functions) {
                     if (bare_fn_name(f.name()) == mh_hook_fn) {
@@ -2650,10 +2679,10 @@ int run_metaprog_dispatch(
                 {
                     int line = 0;
                     std::string target_name;
-                    if (tgt.ast_idx() < asts.size()) {
-                        auto* h    = asts[tgt.ast_idx()].holder();
+                    if (tgt.ast_idx < asts.size()) {
+                        auto* h    = asts[tgt.ast_idx].holder();
                         auto tom   = writ::TinyMapView(
-                                        writ::arena_offset_t(tgt.item_offset()), h);
+                                        writ::arena_offset_t(tgt.item_offset), h);
                         auto av = tom.get(ast::SRC_LINE.code);
                         if (!av.is_null() && av.is_value())
                             line = static_cast<int>(av.as_value<uint32_t>());
@@ -2665,12 +2694,12 @@ int run_metaprog_dispatch(
                         }
                     }
                     g_current_emit_ctx = EmitProvenance{
-                        tgt.ast_idx() < filenames.size() ? filenames[tgt.ast_idx()] : std::string{},
+                        tgt.ast_idx < filenames.size() ? filenames[tgt.ast_idx] : std::string{},
                         line, mh_hook_fn, tgt_trigger, target_name, iter,
                     };
                     g_current_emit_ctx_valid = true;
                 }
-                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset());
+                reinterpret_cast<void (*)(uint32_t)>(sym)(tgt.item_offset);
                 g_current_emit_ctx_valid = false;
                 g_current_hook_name = nullptr;
             }
@@ -2696,14 +2725,22 @@ int run_metaprog_dispatch(
             ~M6MacroArgsGuard() { g_macro_args = nullptr; }
         } m6_macro_args_guard;
         for (const auto& site : meta_item_sites) {
-            if (site.thunk_source().empty()) continue;
-            if (site.ast_idx() >= asts.size()) continue;
-            auto* sym = meta_jit->lookup(std::string(site.thunk_name()));
+            if (site.thunk_source.empty()) continue;
+            if (site.ast_idx >= asts.size()) continue;
+            auto* sym = meta_jit->lookup(std::string(site.thunk_name));
             if (!sym) continue;
+            // Route oview_module_ast at the TRIGGER module's ast for the
+            // handler run (mirrors the derive dispatch above). Single-
+            // program builds got this for free (entry idx == the one user
+            // module); emit_module passes the -1 sentinel, which reads as
+            // a null OView inside the hook and crashes reflection.
+            auto saved_root = g_user_root_idx;
+            g_user_root_idx = site.ast_idx;
             reinterpret_cast<void (*)()>(sym)();
-            auto& doc = asts[site.ast_idx()];
+            g_user_root_idx = saved_root;
+            auto& doc = asts[site.ast_idx];
             auto* h    = doc.holder();
-            auto tom  = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset()), h);
+            auto tom  = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset), h);
             if (auto r = tom.put(
                     ast::CODE.code,
                     writ::AnyVal::from_value<int32_t>(

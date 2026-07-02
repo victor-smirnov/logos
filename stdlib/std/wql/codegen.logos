@@ -13,12 +13,26 @@
 // drop-in producer of the same IR.
 package logos.std.wql.codegen;
 
+use logos.std.compiler.metaprog;  // Emitter, OView — begin_chunk
 use logos.lang.writ.anyval;
 use logos.lang.writ.wstring;   // WAny::as_wstr (string-literal payloads)
 use logos.std.wql.ir;
 use logos.std.wql.el;          // ElTypes, EL_TY_*, OP_*
 use logos.mem.string;
 use logos.lang.str;
+
+// ── Chunk prologue (shared by all wql!/trama! emitters) ───────────────────
+// A generated-code chunk is a SEPARATE AST doc: it does NOT inherit the
+// trigger module's `use` list, and when the CONSUMER is the stdlib itself
+// (in-package macro use — no implicit prelude there) unqualified `String`/
+// `Vec` would not resolve at all. So every chunk carries its own imports,
+// the same convention the metacall thunk chunks follow. Package = the
+// TRIGGER module's (emit_target_pkg), so the generated fn lands next to
+// its callsite and sees the trigger package's types (row schemas etc.).
+pub fn begin_chunk(em: &mut Emitter, view: &OView) {
+    em.emit_target_pkg(view);
+    em.push_text("use logos.mem.string; use logos.mem.collections.vec; ");
+}
 
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────
 // `SCall.fn_name` carries the call NAME directly (self-describing IR); we map it

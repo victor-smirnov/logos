@@ -1953,6 +1953,14 @@ private:
     // bodies don't reach result_.diags. Set via sema_lower's SemaOptions.
     bool   metaprog_mode_           = false;
     size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
+    // The entry-ast gate above under-generalizes for multi-module CUs
+    // (emit_module passes entry_ast_idx = -1: N modules, no single entry):
+    // ANY module with a still-pending item-position macro callsite
+    // (FN_MACRO_CALL_ITEM / METACALL_ITEM, not yet *_DONE) may reference
+    // items the macro hasn't synthesized yet, so its plain fn bodies must
+    // be stubbed out of the metaprog JIT slice exactly like the entry
+    // ast's. Computed per module at the top of lower_module_items.
+    bool   cur_ast_has_pending_item_mc_ = false;
 
     // E0121 analog (audit-v2 T0-3): `_` is not allowed within types on item
     // signatures (fn params / return type / const item type). Set while

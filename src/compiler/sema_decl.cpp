@@ -888,7 +888,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                && !find_struct_by_name(struct_ctx).second
                                && !find_datatype_by_name(struct_ctx).second;
     bool skip_body = metaprog_mode_
-                  && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob)
+                  && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob
+                      || cur_ast_has_pending_item_mc_)
                   && (struct_ctx.empty() || impl_target_unresolved)
                   && !fn_is_metaprog_handler(fn_name)
                   && !fn_is_metaprog_keep(fn_name);

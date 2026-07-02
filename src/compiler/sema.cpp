@@ -7403,6 +7403,21 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         }
         flat_items.push_back(it);
     }
+    // Metaprog discovery: does THIS module still contain pending item-
+    // position macro callsites? Then its plain fns may call items the
+    // macros haven't synthesized yet — lower_fn stubs them so they never
+    // enter the metaprog JIT slice (multi-module analog of the entry-ast
+    // stub; see cur_ast_has_pending_item_mc_ in sema_impl.hpp).
+    cur_ast_has_pending_item_mc_ = false;
+    if (metaprog_mode_) {
+        for (auto& it : flat_items) {
+            int32_t cc = code_of(it);
+            if (cc == la::FN_MACRO_CALL_ITEM || cc == la::METACALL_ITEM) {
+                cur_ast_has_pending_item_mc_ = true;
+                break;
+            }
+        }
+    }
     for (uint64_t i = 0; i < flat_items.size(); ++i) {
         auto item = flat_items[i];
         int32_t c = code_of(item);

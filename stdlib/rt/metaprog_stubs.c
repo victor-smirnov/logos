@@ -126,6 +126,36 @@ const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
     metaprog_unavailable("logos_macro_arg");
 }
 
+__attribute__((weak))
+int32_t logos_emit_item_blob_subst(const void* blob) {
+    (void)blob;
+    metaprog_unavailable("logos_emit_item_blob_subst");
+}
+
+__attribute__((weak))
+const uint8_t* logos_qib_pack_cursors(const void* const* arr, uint64_t n) {
+    (void)arr; (void)n;
+    metaprog_unavailable("logos_qib_pack_cursors");
+}
+
+__attribute__((weak))
+void logos_qib_free_cursors(const uint8_t* blob) {
+    (void)blob;
+    metaprog_unavailable("logos_qib_free_cursors");
+}
+
+__attribute__((weak))
+void logos_get_module_ast(const uint8_t** out_base, uint64_t* out_size) {
+    (void)out_base; (void)out_size;
+    metaprog_unavailable("logos_get_module_ast");
+}
+
+__attribute__((weak))
+const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
+    (void)root_word;
+    metaprog_unavailable("logos_metacall_freeze2");
+}
+
 // ── Fiber-runtime stubs for the metacall JIT ────────────────────────
 //
 // liblstdlib_fibers.a (fiber_ctx.S) carries TLS relocations

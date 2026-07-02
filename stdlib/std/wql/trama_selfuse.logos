@@ -1,0 +1,23 @@
+// IN-PACKAGE macro-use canary (ADR 0012): this stdlib module CONSUMES the
+// `trama!` token-macro whose HANDLER lives in a SIBLING module of the SAME
+// `--emit-module` compilation unit (logos.std.wql.trama_render). Proves the
+// macro-hook machinery resolves + metacall-JITs an in-CU handler — the
+// architectural precondition for writing wql's own codegen in trama! (and,
+// generally, for stdlib layers to dogfood stdlib macros). If this module
+// stops compiling, in-CU macro expansion regressed — fix that, don't drop
+// this file. (trama_render itself can never do this: bootstrap cycle.)
+package logos.std.wql.trama_selfuse;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+resource selfuse_greet = trama!(name: str, excited: bool){
+Hello, {{ upper(name) }}{% if excited %}!{% else %}.{% endif %}
+};
+
+// Exercise the generated render fn so the canary checks RUNTIME behavior,
+// not just expansion: callers (tests) assert the woven text.
+pub fn trama_selfuse_probe(name: str, excited: bool) -> String {
+    return selfuse_greet(name, excited);
+}

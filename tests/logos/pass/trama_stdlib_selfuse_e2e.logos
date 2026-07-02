@@ -1,0 +1,23 @@
+// IN-PACKAGE macro-use canary, runtime half. The stdlib module
+// logos.std.wql.trama_selfuse CONSUMES `trama!` from a SIBLING module of the
+// same emit-module CU (the compile-time half — the stdlib build itself proves
+// expansion works). This test calls the resulting render fn from a normal
+// consumer and asserts the woven text, gating the generated code's BEHAVIOR.
+package test;
+use logos.std.wql.trama_selfuse;
+use logos.mem.string;
+use logos.lang.str;
+
+fn streq(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() { if str_byte_at(sv, i) != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    if !streq(&trama_selfuse_probe("ada", true),  "Hello, ADA!") { return 1i32; }
+    if !streq(&trama_selfuse_probe("bob", false), "Hello, BOB.") { return 2i32; }
+    return 0i32;
+}
