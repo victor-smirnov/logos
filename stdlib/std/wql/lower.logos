@@ -1,0 +1,272 @@
+// logos.std.wql.lower — the PLAN → ALGEBRA lowering: surface query plan
+// (`RQuery`, logos.std.wql.plan) → real `RExpr` algebra tree (logos.std.wql.ir).
+//
+// MOVED OUT of rexpr_walk (queue-2 slice I2): the lowering is a PURE IR→IR
+// function over Writ schemas — no Emitter, no reflection, no metaprog — and the
+// DYNAMIC interpreter (logos.std.query, ADR 0012-queue2) reuses it verbatim at
+// RUNTIME (`Query::compile`). rexpr_walk (metaprog-tainted: Emitter/error) keeps
+// the STATIC emitters and imports this module; logos.std.query imports it
+// without dragging compiler hooks into a runtime link.
+//
+// Shapes produced (identical to the pre-move rexpr_walk Part 1):
+//   simple    → RLimit?( RDistinct?( RProj( RSort?( RFilter?( RScan )), sel )))
+//   join/anti → the same wrappers over a LEFT-DEEP RJoin/RAnti/REdge chain
+//   aggregate → … RProj( RSort?( RFilter_having?( RAggr( … ))), sel ) …
+//   find      → RProj( RFilter( RScan ), identity )
+package logos.std.wql.lower;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.plan;
+use logos.mem.string;
+
+// &String → borrowed str view (local copy of the codegen string_as_str shape —
+// this package must stay metaprog-free).
+fn lw_str(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+// A null SExpr / RExpr edge (the "absent" edge — e.g. no `where` predicate).
+pub fn null_sref() -> WRef<SExpr> {
+    let z: WAny = WAny::Ref(0i64 as *const u8);
+    return WRef::<SExpr>::from_any(z);
+}
+pub fn null_rref() -> WRef<RExpr> {
+    let z: WAny = WAny::Ref(0i64 as *const u8);
+    return WRef::<RExpr>::from_any(z);
+}
+
+// Build an RScan leaf carrying the full source binding (self-describing IR).
+pub fn make_scan(h: &Writ, src_name: str, row_ty: str, var_name: str) -> WRef<RExpr> {
+    let n: RScan = h.make::<RScan>();
+    n.src_name = src_name;
+    n.row_ty   = row_ty;
+    n.var_name = var_name;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RFilter over `pred`.
+pub fn make_filter(h: &Writ, input: WRef<RExpr>, pred: WRef<SExpr>) -> WRef<RExpr> {
+    let n: RFilter = h.make::<RFilter>();
+    n.input = input;
+    n.pred  = pred;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RProj over the projection `sel`.
+pub fn make_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
+    let n: RProj = h.make::<RProj>();
+    n.input = input;
+    n.sel   = sel;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RSort by `key` (asc; `desc` flips).
+pub fn make_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef<RExpr> {
+    let n: RSort = h.make::<RSort>();
+    n.input = input;
+    n.key   = key;
+    n.desc  = desc;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RLimit (first-n; literal or scalar-param name).
+pub fn make_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
+    let n: RLimit = h.make::<RLimit>();
+    n.input    = input;
+    n.n        = n0;
+    n.is_param = is_param;
+    n.param    = param;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RDistinct (dedup the projected values).
+pub fn make_distinct(h: &Writ, input: WRef<RExpr>) -> WRef<RExpr> {
+    let n: RDistinct = h.make::<RDistinct>();
+    n.input = input;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// An IDENTITY projection selector — a bare identifier naming the loop var (the
+// exact node shape the EL parser builds for a bare ident: SField, NULL base).
+// `find P` lowers with this selector so the tree stays a well-formed RProj and
+// the Phase-3 identity peephole recognizes it (find + const-true pred → head
+// row without a filter loop).
+pub fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
+    let n: SField = h.make::<SField>();
+    n.base = null_sref();
+    n.name = name;
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+// Lower an RQSimple → RLimit?( RDistinct?( RProj( RSort?( RFilter?( RScan ) ), select ) ) ).
+// Pipeline order: where → order → project → distinct → limit. RSort sits UNDER
+// the projection (its key ranges over the row var); RDistinct/RLimit sit ABOVE
+// it (they act on the projected values).
+fn lower_simple(s: RQSimple, h: &Writ) -> WRef<RExpr> {
+    let scan: WRef<RExpr> = make_scan(h, s.src_name, s.row_ty, s.var_name);
+    let mut input: WRef<RExpr> = scan;
+    if s.has_where {
+        input = make_filter(h, input, s.where_pred);
+    }
+    if s.has_order {
+        input = make_sort(h, input, s.order_key, s.order_desc);
+    }
+    let mut root: WRef<RExpr> = make_proj(h, input, s.select);
+    if s.distinct {
+        root = make_distinct(h, root);
+    }
+    if s.has_limit {
+        root = make_limit(h, root, s.limit_n, s.limit_is_param, s.limit_param);
+    }
+    return root;
+}
+
+// Fold a join-step fan-out LEFT-DEEP onto a base input: step k wraps the
+// accumulated tree in RJoin(acc, RScan_k, on_k) — or RAnti at an anti step —
+// so an N-way chain is ordinary composition of the EXISTING binary algebra:
+// RJoin(RJoin(RScan a, RScan b, on1), RScan c, on2).
+// A TRAVERSAL step (is_edge, slice D) wraps the accumulated tree in the UNARY
+// graph step REdge{input, src, base_var, path, var_name, row_ty, on, has_on,
+// is_anti} — containment joins have no right scan (the source is a field path
+// of an outer-bound row var, walker-validated + stamped).
+pub fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> WRef<RExpr> {
+    let mut cur: WRef<RExpr> = input0;
+    let ns: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < ns {
+        let st: RQJoinStep = steps.step_at(i);
+        if st.is_edge {
+            let n: REdge = h.make::<REdge>();
+            n.input    = cur;
+            n.src      = st.src_name;   // walker-stamped full expression text
+            n.base_var = st.base_var;
+            // Join the grammar's segment fan-out into the dotted path text
+            // (self-describing IR — queue-2 re-resolves base_var + path).
+            let mut pb: String = String::new();
+            let segs: RQPathSegArr = st.path_arr();
+            let np: i64 = segs.len();
+            let mut k: i64 = 0i64;
+            while k < np {
+                if k > 0i64 { pb.push_str("."); }
+                pb.push_str(segs.seg_at(k).name);
+                k = k + 1i64;
+            }
+            n.path     = lw_str(&pb);
+            n.var_name = st.var_name;
+            n.row_ty   = st.row_ty;
+            n.has_on   = st.has_on;
+            n.on       = st.on;
+            n.is_anti  = st.is_anti;
+            cur = WRef::<RExpr>::from_any(n.as_ref());
+        } else if st.is_anti {
+            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
+            let n: RAnti = h.make::<RAnti>();
+            n.left = cur; n.right = right; n.on = st.on;
+            cur = WRef::<RExpr>::from_any(n.as_ref());
+        } else {
+            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
+            let n: RJoin = h.make::<RJoin>();
+            n.left = cur; n.right = right; n.on = st.on;
+            cur = WRef::<RExpr>::from_any(n.as_ref());
+        }
+        i = i + 1i64;
+    }
+    return cur;
+}
+
+// Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( join-chain ) ), select ) ) ).
+fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
+    let base: WRef<RExpr> = make_scan(h, j.a_name, j.a_ty, j.x_var);
+    let jn: WRef<RExpr> = fold_join_steps(base, j.steps_arr(), h);
+    let mut input: WRef<RExpr> = jn;
+    if j.has_where {
+        input = make_filter(h, input, j.where_pred);
+    }
+    if j.has_order {
+        input = make_sort(h, input, j.order_key, j.order_desc);
+    }
+    let mut root: WRef<RExpr> = make_proj(h, input, j.select);
+    if j.distinct {
+        root = make_distinct(h, root);
+    }
+    if j.has_limit {
+        root = make_limit(h, root, j.limit_n, j.limit_is_param, j.limit_param);
+    }
+    return root;
+}
+
+// Lower an RQAggr →
+//   RLimit?( RDistinct?( RProj( RSort?( RFilter_having?( RAggr( RFilter?( RScan ), key, aggSpecs ) ) ), select ) ) ).
+// Each surface `RQAgg` spec is copied to a relational `RAgg` (out/fn_name/arg).
+// `having` gets NO node of its own — it is an ordinary RFilter over the RAggr
+// output (the predicate ranges over the group key + aggregate output names).
+fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
+    let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
+    let mut input: WRef<RExpr> = scan;
+    // Optional join steps: the aggregate ranges over the JOINED stream (the
+    // same left-deep fold as the join shape; where filters ABOVE the chain).
+    if g.has_steps() {
+        input = fold_join_steps(input, g.steps_arr(), h);
+    }
+    if g.has_where {
+        input = make_filter(h, input, g.where_pred);
+    }
+    // Copy the surface aggregate-column list → relational RAgg specs.
+    let src_aggs: RQAggArr = g.aggs_arr();
+    let acount: i64 = src_aggs.len();
+    let mut ra: RAggArr = h.make::<RAggArr>();
+    ra.set_len(acount);
+    let mut i: i64 = 0i64;
+    while i < acount {
+        let sa: RQAgg = src_aggs.agg_at(i);
+        let mut rg: RAgg = h.make::<RAgg>();
+        rg.out     = sa.name;
+        rg.fn_name = sa.fn_name;
+        rg.has_arg = sa.has_arg;
+        rg.arg     = sa.arg;
+        ra.set_agg(i, rg.as_ref());
+        i = i + 1i64;
+    }
+    let n: RAggr = h.make::<RAggr>();
+    n.input = input;
+    n.key   = g.key;
+    n.aggs  = WRef::<RAggArr>::from_any(ra.as_ref());
+    let mut top: WRef<RExpr> = WRef::<RExpr>::from_any(n.as_ref());
+    if g.has_having {
+        top = make_filter(h, top, g.having_pred);
+    }
+    if g.has_order {
+        top = make_sort(h, top, g.order_key, g.order_desc);
+    }
+    let mut root: WRef<RExpr> = make_proj(h, top, g.select);
+    if g.distinct {
+        root = make_distinct(h, root);
+    }
+    if g.has_limit {
+        root = make_limit(h, root, g.limit_n, g.limit_is_param, g.limit_param);
+    }
+    return root;
+}
+
+// Lower an RQFind → RProj( RFilter( RScan ), identity ) — the RFilter(RScan)
+// shape with an IDENTITY projection; the single-row discipline is the SELM_FIND
+// envelope mode, not an algebra node. The Phase-3 peepholes apply unchanged:
+// const-false pred → empty (constant None), const-true pred → identity (head
+// row, no filter loop).
+fn lower_find(f: RQFind, h: &Writ) -> WRef<RExpr> {
+    let scan: WRef<RExpr> = make_scan(h, f.src_name, f.row_ty, f.var_name);
+    let flt: WRef<RExpr> = make_filter(h, scan, f.pred);
+    return make_proj(h, flt, make_ident_sel(h, f.var_name));
+}
+
+// The lowering entry: surface PLAN → real RExpr algebra tree.
+pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
+    match plan {
+        RQuery::Simple(s) => { return lower_simple(s, h); }
+        RQuery::Join(j)   => { return lower_join(j, h); }
+        RQuery::Aggr(g)   => { return lower_aggr(g, h); }
+        RQuery::Find(f)   => { return lower_find(f, h); }
+    }
+}

@@ -164,6 +164,50 @@ pub fn el_ret_class(name: str) -> i32 {
     return -1i32;
 }
 
+// ── The GENERIC aggregate rule table (ADR 0012-queue2 §6) ──────────────────
+// ONE `agg_result_ty(fn, arg_ty) -> ty` map shared by every backend tier:
+//   count : ()  → INT
+//   sum   : T   → T          (numeric T)
+//   min   : T   → T          (numeric T)
+//   max   : T   → T          (numeric T)
+//   avg   : T   → Quot(T)    (Quot(INT) = Quot(FLT) = FLT under the current
+//                             numeric tower — the exact mean, f64 division)
+// Lives HERE (metaprog-free, IR-level shared code) so the DYNAMIC interpreter
+// (logos.std.query) consults it now and the STATIC emitter (rexpr_walk's
+// agg_flt/act computation) MIGRATES to consult the same table later — one
+// rule source, two consumers.
+
+// Quot(T) — the quotient type of the aggregate mean. INT/FLT → FLT; anything
+// else is out of the numeric tower (-1).
+pub fn el_quot_ty(t: i32) -> i32 {
+    if t == EL_TY_INT() || t == EL_TY_FLT() { return EL_TY_FLT(); }
+    return -1i32;
+}
+
+// True iff `name` is a builtin aggregate function.
+pub fn is_builtin_agg(name: str) -> bool {
+    return str_eq(name, "count") || str_eq(name, "sum") || str_eq(name, "min")
+        || str_eq(name, "max")   || str_eq(name, "avg");
+}
+
+// Does the builtin aggregate take an argument? (count is the sole nullary.)
+pub fn agg_takes_arg(name: str) -> bool {
+    return is_builtin_agg(name) && !str_eq(name, "count");
+}
+
+// THE rule table: the EL result type of `fn(arg: arg_ty)`. `arg_ty` is ignored
+// for `count` (pass anything). Returns -1 for an unknown aggregate name or an
+// argument outside the rule's domain (sum/min/max/avg need numeric INT/FLT).
+pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
+    if str_eq(fn_name, "count") { return EL_TY_INT(); }
+    if str_eq(fn_name, "sum") || str_eq(fn_name, "min") || str_eq(fn_name, "max") {
+        if arg_ty == EL_TY_INT() || arg_ty == EL_TY_FLT() { return arg_ty; }
+        return -1i32;
+    }
+    if str_eq(fn_name, "avg") { return el_quot_ty(arg_ty); }
+    return -1i32;
+}
+
 // ── ElTypes — the name→value-type dictionary (the type seam, Option B) ─────
 // The self-describing IR carries NAMES, not declared value-types; the codegen
 // still needs each field/param/var's EL value-type (str/bool/int) to route

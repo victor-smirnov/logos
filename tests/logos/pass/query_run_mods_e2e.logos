@@ -1,0 +1,153 @@
+// queue-2 I2 — the select-tail MODIFIERS at runtime (ADR 0012-queue2 §7):
+// order by (asc/desc, stable), distinct (set semantics via row-hash+verify),
+// limit (literal AND scalar-param), `select first` (Option-shaped result),
+// `find` (row-handle result readable through the schema view).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.query;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema Emp : code(0x0B04_0000_0000_0001) {
+    name: str = 0,
+    dept: i64 = 1,
+    age:  i64 = 2,
+}
+
+impl Emp { pub fn as_any(self: &Emp) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+resource cat = schema_catalog!{ Emp };
+
+fn mk_emp(d: &Writ, name: str, dept: i64, age: i64) -> WAny {
+    let e: Emp = d.make::<Emp>();
+    e.name = name;
+    e.dept = dept;
+    e.age  = age;
+    let w: i64 = e.m as i64;
+    return WAny::ref_to(w as *const u8);
+}
+
+fn compile_ok(text: str, c: &SchemaCatalog) -> Result<Query, QError> {
+    return Query::compile(text, c);
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(8192i64);
+    let emps: &mut WArray<WAny> = d.array(8i64);
+    emps.push(mk_emp(&d, "Ann", 1i64, 45i64));
+    emps.push(mk_emp(&d, "Bob", 2i64, 31i64));
+    emps.push(mk_emp(&d, "Cid", 1i64, 52i64));
+    emps.push(mk_emp(&d, "Dee", 2i64, 31i64));
+    let src: WAny = WAny::ref_to(emps as *const WArray<WAny> as *const u8);
+
+    let c: SchemaCatalog = cat();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("emps", src);
+    env.bind_i64("k", 2i64);
+
+    // ── order by (desc) ───────────────────────────────────────────────────
+    let q1: Query = match compile_ok("from emps e select e.name order by e.age desc", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 1i32; }
+    };
+    let r1: QRows = match q1.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e2) => { return 2i32; }
+    };
+    if r1.row_count() != 4i64 { return 3i32; }
+    if !str_eq(r1.get_str(0i64, 0i64), "Cid") { return 4i32; }
+    if !str_eq(r1.get_str(1i64, 0i64), "Ann") { return 5i32; }
+    // STABLE: Bob and Dee tie at 31 — source order preserved
+    if !str_eq(r1.get_str(2i64, 0i64), "Bob") { return 6i32; }
+    if !str_eq(r1.get_str(3i64, 0i64), "Dee") { return 7i32; }
+
+    // ── distinct ──────────────────────────────────────────────────────────
+    let q2: Query = match compile_ok("from emps e select distinct e.dept", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e3) => { return 8i32; }
+    };
+    let r2: QRows = match q2.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e4) => { return 9i32; }
+    };
+    if r2.row_count() != 2i64 { return 10i32; }
+    if r2.get_i64(0i64, 0i64) != 1i64 { return 11i32; }
+    if r2.get_i64(1i64, 0i64) != 2i64 { return 12i32; }
+
+    // ── limit: literal + scalar param ─────────────────────────────────────
+    let q3: Query = match compile_ok("from emps e select e.name limit 3", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e5) => { return 13i32; }
+    };
+    let r3: QRows = match q3.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e6) => { return 14i32; }
+    };
+    if r3.row_count() != 3i64 { return 15i32; }
+    let q4: Query = match compile_ok("from emps e select e.name order by e.age limit k", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e7) => { return 16i32; }
+    };
+    let r4: QRows = match q4.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e8) => { return 17i32; }
+    };
+    if r4.row_count() != 2i64 { return 18i32; }
+    if !str_eq(r4.get_str(0i64, 0i64), "Bob") { return 19i32; }   // age asc: 31,31,45,52
+    if !str_eq(r4.get_str(1i64, 0i64), "Dee") { return 20i32; }
+
+    // ── select first: Option-shaped (hit + miss) ──────────────────────────
+    let q5: Query = match compile_ok("from emps e where e.dept == 1 select first e.name order by e.age", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e9) => { return 21i32; }
+    };
+    let r5: QRows = match q5.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e10) => { return 22i32; }
+    };
+    if !r5.is_some() { return 23i32; }
+    if r5.row_count() != 1i64 { return 24i32; }
+    if !str_eq(r5.get_str(0i64, 0i64), "Ann") { return 25i32; }   // youngest in dept 1
+    let q6: Query = match compile_ok("from emps e where e.age > 100 select first e.name", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e11) => { return 26i32; }
+    };
+    let r6: QRows = match q6.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e12) => { return 27i32; }
+    };
+    if r6.is_some() { return 28i32; }
+    if r6.row_count() != 0i64 { return 29i32; }
+
+    // ── find: a row HANDLE readable through the schema view ───────────────
+    let q7: Query = match compile_ok("from emps e find e.age == 52", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e13) => { return 30i32; }
+    };
+    let r7: QRows = match q7.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e14) => { return 31i32; }
+    };
+    if !r7.is_some() { return 32i32; }
+    if !str_eq(r7.col_ty(0i64), "node") { return 33i32; }
+    let w: WAny = r7.get_node(0i64, 0i64);
+    let emp: Emp = w.view::<Emp>();
+    if !str_eq(emp.name, "Cid") { return 34i32; }
+    if emp.age != 52i64 { return 35i32; }
+
+    // `select first` excludes distinct/limit — compile-time envelope rule
+    match compile_ok("from emps e select first e.name limit 2", &c) {
+        Result::Ok(_v) => { return 36i32; }
+        Result::Err(e) => {
+            if !str_contains(e.message(), "`select first` excludes distinct/limit") { return 37i32; }
+        }
+    }
+
+    return 0i32;
+}

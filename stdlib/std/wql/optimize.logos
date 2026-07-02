@@ -632,3 +632,80 @@ fn simplify_proj_root(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplif
 fn empty_proj(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplified {
     return RSimplified { root: rebuild_proj(h, body, sel), empty: true, identity: false };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SHARED IR-LEVEL JOIN-STEP ANALYSIS (the pure half of the join-strategy
+// cascade). Moved here from rexpr_walk (queue-2 I2): the STATIC emitter and the
+// DYNAMIC interpreter both decompose a step's on-predicate the same way —
+// top-level `&&` conjunction split + per-term side classification against the
+// step's NEW row var. What stays backend-specific is only the TYPE source for
+// the equi-key (ElTypes for the emitter, the runtime checker for the
+// interpreter) and what is done with the picked terms (source text vs eval).
+// ════════════════════════════════════════════════════════════════════════════
+
+// Top-level `&&` conjunction terms, stored as raw arena words (WAny edges are
+// reconstructed on read — the provenance-laundering idiom).
+pub struct TermList { pub w: [i64; 16], pub n: i64 }
+
+pub fn term_list_new() -> TermList { return TermList { w: [0i64; 16], n: 0i64 }; }
+
+// Split `e_ref`'s top-level `&&` conjunction into `tl` (left-to-right order).
+pub fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
+    let e: SExpr = e_ref.any().view::<SExpr>();
+    match e {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() {
+                split_and_terms(b.lhs, tl);
+                split_and_terms(b.rhs, tl);
+                return;
+            }
+        }
+        _ => { }
+    }
+    if tl.n < 16i64 {
+        tl.w[tl.n] = e_ref.any().raw();
+        tl.n = tl.n + 1i64;
+    }
+}
+
+// Name-usage mask of an expression: bit 1 — references the NEW step's row var;
+// bit 2 — references any OTHER name (an already-bound row var, a scalar param,
+// or an unknown ident — all "bound side" for classification). Literals add
+// nothing. Field STEPS (`x.k`) classify by their ROOT name.
+pub fn refs_mask(e: SExpr, new_var: str) -> i32 {
+    match e {
+        SExpr::Lit(_)   => { return 0i32; }
+        SExpr::Param(p) => { if str_eq(p.name, new_var) { return 1i32; } return 2i32; }
+        SExpr::Var(v)   => { if str_eq(v.name, new_var) { return 1i32; } return 2i32; }
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() {
+                if str_eq(f.name, new_var) { return 1i32; }
+                return 2i32;
+            }
+            return refs_mask(f.base_expr(), new_var);
+        }
+        SExpr::Bin(b)  => { return refs_mask(b.lhs_expr(), new_var) | refs_mask(b.rhs_expr(), new_var); }
+        SExpr::Un(u)   => { return refs_mask(u.arg_expr(), new_var); }
+        SExpr::Cond(c) => {
+            return refs_mask(c.cond_expr(), new_var)
+                 | refs_mask(c.then_expr(), new_var)
+                 | refs_mask(c.else_expr(), new_var);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut m: i32 = 0i32;
+            let mut i: i64 = 0i64;
+            while i < args.len() { m = m | refs_mask(args.arg_at(i), new_var); i = i + 1i64; }
+            return m;
+        }
+        SExpr::Comp(_) => { return 2i32; }   // ranges over a slice param — bound side
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut m2: i32 = 0i32;
+            let mut k: i64 = 0i64;
+            while k < items.len() { m2 = m2 | refs_mask(items.arg_at(k), new_var); k = k + 1i64; }
+            return m2;
+        }
+    }
+}

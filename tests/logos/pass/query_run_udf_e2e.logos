@@ -1,0 +1,128 @@
+// queue-2 I2 — the runtime UDF registry (ADR 0012-queue2 §6): `register_fn`
+// with a DECLARED RtVal-based signature; resolution at CHECK time with
+// builtin-first precedence; a registered UDF usable in `where` AND `select`;
+// arity/type mismatches against the declared signature → QError (never a
+// silent wrong call). No signature-unchecked UDFs exist.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.query;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema Emp : code(0x0B06_0000_0000_0001) {
+    name: str = 0,
+    age:  i64 = 1,
+}
+
+impl Emp { pub fn as_any(self: &Emp) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+resource cat = schema_catalog!{ Emp };
+
+fn mk_emp(d: &Writ, name: str, age: i64) -> WAny {
+    let e: Emp = d.make::<Emp>();
+    e.name = name;
+    e.age = age;
+    // launder locally: the WAny targets the TOM in `d`'s arena (as_ref idiom)
+    let w: i64 = e.m as i64;
+    return WAny::ref_to(w as *const u8);
+}
+
+// UDF score(age: i64, name: str) -> i64 = age + len(name)
+fn score(args: &[RtVal]) -> RtVal {
+    let mut a: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    match args[0i64] { RtVal::I(x) => { a = x; } _ => { } }
+    match args[1i64] { RtVal::S(s) => { n = s.len(); } _ => { } }
+    return RtVal::I(a + n);
+}
+
+// UDF that SHADOWS a builtin name — builtins must win (precedence check).
+fn upper(args: &[RtVal]) -> RtVal {
+    let _x: RtVal = args[0i64];
+    return RtVal::I(-1i64);
+}
+
+fn run_err(q: &Query, env: &QEnv, frag: str) -> bool {
+    match q.run(env) {
+        Result::Ok(_r) => { return false; }
+        Result::Err(e) => { return str_contains(e.message(), frag); }
+    }
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(4096i64);
+    let emps: &mut WArray<WAny> = d.array(4i64);
+    emps.push(mk_emp(&d, "Ann", 45i64));      // score 48
+    emps.push(mk_emp(&d, "Robert", 31i64));   // score 37
+    emps.push(mk_emp(&d, "Cid", 52i64));      // score 55
+    let src: WAny = WAny::ref_to(emps as *const WArray<WAny> as *const u8);
+
+    let c: SchemaCatalog = cat();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("emps", src);
+    let at2: [str; 2] = ["i64", "str"];
+    env.register_fn("score", score, &at2[..], "i64");
+    let at1: [str; 1] = ["str"];
+    env.register_fn("upper", upper, &at1[..], "i64");   // shadowed by builtin
+
+    // ── UDF in where + select ─────────────────────────────────────────────
+    let q1: Query = match Query::compile(
+        "from emps e where score(e.age, e.name) > 40 select (e.name, score(e.age, e.name))",
+        &c)
+    {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 1i32; }
+    };
+    let r1: QRows = match q1.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e2) => { return 2i32; }
+    };
+    if r1.row_count() != 2i64 { return 3i32; }
+    if !str_eq(r1.get_str(0i64, 0i64), "Ann") { return 4i32; }
+    if r1.get_i64(0i64, 1i64) != 48i64 { return 5i32; }
+    if !str_eq(r1.get_str(1i64, 0i64), "Cid") { return 6i32; }
+    if r1.get_i64(1i64, 1i64) != 55i64 { return 7i32; }
+
+    // ── builtin-first precedence: upper() is STILL the builtin ───────────
+    let q2: Query = match Query::compile("from emps e select upper(e.name)", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e3) => { return 8i32; }
+    };
+    let r2: QRows = match q2.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(_e4) => { return 9i32; }
+    };
+    if !str_eq(r2.get_str(0i64, 0i64), "ANN") { return 10i32; }
+    if !str_eq(r2.col_ty(0i64), "str") { return 11i32; }   // builtin ret, not the UDF's i64
+
+    // ── signature mismatches → QError at run (check time) ─────────────────
+    // swapped argument types
+    let q3: Query = match Query::compile(
+        "from emps e where score(e.name, e.age) > 0 select e.name", &c)
+    {
+        Result::Ok(v) => { v }
+        Result::Err(_e5) => { return 12i32; }
+    };
+    if !run_err(&q3, &env, "argument type mismatch for 'score'") { return 13i32; }
+    // wrong arity
+    let q4: Query = match Query::compile(
+        "from emps e where score(e.age) > 0 select e.name", &c)
+    {
+        Result::Ok(v) => { v }
+        Result::Err(_e6) => { return 14i32; }
+    };
+    if !run_err(&q4, &env, "wrong number of arguments for 'score'") { return 15i32; }
+
+    // ── unregistered env: the SAME compiled query now fails cleanly ───────
+    let mut env2: QEnv = QEnv::new();
+    env2.bind_source("emps", src);
+    if !run_err(&q1, &env2, "unknown function 'score'") { return 16i32; }
+
+    return 0i32;
+}

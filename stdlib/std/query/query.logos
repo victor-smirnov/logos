@@ -1,9 +1,9 @@
 // logos.std.query — the PUBLIC runtime query/template API (ADR 0012-queue2 §3,
-// slice I1). Query/template TEXT arrives at RUNTIME, is parsed by the SAME
+// slices I1+I2). Query/template TEXT arrives at RUNTIME, is parsed by the SAME
 // peg-generated parsers the static queue uses, checked against a SchemaCatalog
-// (queue-1-generated schema metadata), optimized by the SAME `simplify_sexpr`
-// IR pass, and executed by a tree-walk evaluator over the schema'd Writ IR.
-// No metacall, no codegen.
+// (queue-1-generated schema metadata), lowered/optimized by the SAME
+// `lower_rquery_to_rexpr` / `simplify_*` IR passes, and executed by a
+// tree-walk evaluator over the schema'd Writ IR. No metacall, no codegen.
 //
 //   let cat: SchemaCatalog = cat();          // resource cat = schema_catalog!{ Emp, … };
 //   let t: Tpl = Tpl::compile("Hello {{ e.name }}", &cat)?;   // Result<Tpl, QError>
@@ -11,11 +11,17 @@
 //   env.bind_node("e", emp_any);             // a schema'd Writ object (TOM)
 //   let s: String = t.render(&env)?;         // Result<String, QError>
 //
-// DESIGN NOTES (I1 scope):
+//   let q: Query = Query::compile("from emps e where e.age >= n select e.name", &cat)?;
+//   env.bind_source("emps", emps_warray);    // a Writ ARRAY of schema'd rows
+//   env.bind_i64("n", 40);
+//   let rows: QRows = q.run(&env)?;          // compile-once / run-many
+//
+// DESIGN NOTES:
 //   • This package is the ABI-carried stability surface (logos.std.wql.* stays
 //     ABI-excluded engine internals). Public types: SchemaCatalog, QEnv, Tpl,
-//     QError. The evaluator (RtVal + eval walk) is PRIVATE — it never crosses
-//     the API boundary; templates are the I1 eval surface.
+//     Query, QRows, QError, RtVal (+ the QFn/QAgg* fn-ptr aliases — the
+//     UDF/UDA registration surface, ADR §6). The evaluator internals stay
+//     private.
 //   • ERRORS ARE VALUES (Result + message), never compile diagnostics — the
 //     caller is a running program (ADR §3). `Tpl::compile` runs the
 //     env-INDEPENDENT checks (parse, unknown fn/arity, comprehension/tuple
@@ -56,11 +62,17 @@ use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
 use logos.lang.result;            // Result — the error-as-value carrier
 use logos.mem.string;             // String
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
 use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
-use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / wql_upper|lower|f64
-use logos.std.wql.optimize;       // simplify_sexpr — the reused IR→IR const-fold pass
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
 use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
 use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QError — a positioned runtime error VALUE.
@@ -109,6 +121,13 @@ fn sview2_str(v: SView2) -> str {
 const FK_SCALAR: i32 = 0i32;   // i64/str/bool/f64 family — f_tys holds EL_TY_*
 const FK_EDGE:   i32 = 1i32;   // WRef<S> — f_targets holds S's schema code
 const FK_ANY:    i32 = 2i32;   // WAny — type-erased (strict mode rejects access)
+const FK_EARR:   i32 = 3i32;   // WRef<scalar> — a SCALAR-ELEMENT array edge
+                               // (WRef<str>/<i64>/…): f_tys holds the ELEMENT
+                               // EL type. Emitted by the same catalog blob
+                               // entry shape as a schema edge ({"ty":"edge",
+                               // "target":"str"}) — the scalar target NAME is
+                               // the discriminator (primitive names cannot
+                               // name schemas). I2 extension per I1's note.
 
 const CAT_SCHEMAS: i64 = 16i64;
 const CAT_FIELDS:  i64 = 96i64;
@@ -221,13 +240,32 @@ impl SchemaCatalog {
     }
 
     // Register an EDGE field (`WRef<Target>` — by convention holds a Writ
-    // ARRAY of Target objects; `{% for %}` iterates it). A target not yet
-    // registered stays code 0 and is BACKFILLED when its schema arrives
-    // (add_schema) — a target never registered is diagnosed on use.
+    // ARRAY of Target objects OR a SINGLE Target object; iteration adapts to
+    // the runtime shape). A target not yet registered stays code 0 and is
+    // BACKFILLED when its schema arrives (add_schema) — a target never
+    // registered is diagnosed on use.
+    // SCALAR-ELEMENT arrays (I2): a `target` naming a PRIMITIVE type
+    // (str/i64 family/f64/bool — `el_ret_class`-classifiable) registers an
+    // FK_EARR field instead: the value is a Writ array of SCALARS, and the
+    // element EL type is recorded in `f_tys`. Both emission routes (the
+    // schema_catalog! macro and the future decl-site annotation) use the SAME
+    // blob entry shape — {"ty":"edge","target":"<name>"} — the name decides.
     pub fn add_edge(self: &mut SchemaCatalog, sname: str, field: str, key: i64, target: str) {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
         if self.f_n >= CAT_FIELDS { return; }
+        let scls: i32 = el_ret_class(target);
+        if scls >= 0i32 {
+            self.f_owner[self.f_n] = si;
+            self.f_names[self.f_n] = field;
+            self.f_keys[self.f_n]  = key;
+            self.f_tys[self.f_n]   = scls;
+            self.f_kinds[self.f_n] = FK_EARR;
+            self.f_targets[self.f_n] = 0u64;
+            self.f_tnames[self.f_n]  = target;
+            self.f_n = self.f_n + 1i64;
+            return;
+        }
         let ti: i64 = self.sidx_of_name(target);
         let tcode: u64 = if ti >= 0i64 { self.s_codes[ti] } else { 0u64 };
         self.f_owner[self.f_n] = si;
@@ -325,13 +363,21 @@ impl SchemaCatalog {
         return self.f_keys[fi];
     }
     // The value-type name of `schema.field`: "i64"/"f64"/"bool"/"str" for
-    // scalars, "edge" for WRef<S> fields, "any" for erased, "" for unknown.
+    // scalars, "edge" for WRef<S> fields, "arr:i64"/"arr:f64"/"arr:bool"/
+    // "arr:str" for scalar-element array edges, "any" for erased, "" unknown.
     pub fn field_ty(self: &SchemaCatalog, sname: str, field: str) -> str {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return ""; }
         let fi: i64 = self.fidx(si, field);
         if fi < 0i64 { return ""; }
         if self.f_kinds[fi] == FK_EDGE { return "edge"; }
+        if self.f_kinds[fi] == FK_EARR {
+            let t2: i32 = self.f_tys[fi];
+            if t2 == EL_TY_STR()  { return "arr:str"; }
+            if t2 == EL_TY_BOOL() { return "arr:bool"; }
+            if t2 == EL_TY_FLT()  { return "arr:f64"; }
+            return "arr:i64";
+        }
         if self.f_kinds[fi] == FK_ANY  { return "any"; }
         let t: i32 = self.f_tys[fi];
         if t == EL_TY_STR()  { return "str"; }
@@ -379,8 +425,13 @@ const QB_F64:  i32 = 2i32;
 const QB_BOOL: i32 = 3i32;
 const QB_STR:  i32 = 4i32;
 const QB_NODE: i32 = 5i32;
+const QB_SRC:  i32 = 6i32;   // a query SOURCE: a Writ ARRAY of schema'd rows
 
 const QENV_CAP: i64 = 24i64;
+// UDF/UDA registry capacities (metadata tables — rows are Vec-backed).
+const QENV_FNS:     i64 = 8i64;
+const QENV_FN_ARGS: i64 = 4i64;   // max declared args per UDF
+const QENV_AGGS:    i64 = 4i64;
 
 pub struct QEnv {
     names: [str; 24],
@@ -389,17 +440,40 @@ pub struct QEnv {
     fvals: [f64; 24],
     bvals: [bool; 24],
     svals: [str; 24],
-    words: [i64; 24],   // node bindings: the WAny ref word
+    words: [i64; 24],   // node/source bindings: the WAny ref word
     codes: [u64; 24],   // node bindings: the object's schema code
     n:     i64,
+    // ── UDF registry (ADR §6) — name + ptr + DECLARED signature ──────────
+    f_names: [str; 8],
+    f_ptrs:  [QFn; 8],
+    f_arity: [i64; 8],
+    f_args:  [i32; 32],   // flattened [fn][arg] EL types (QENV_FN_ARGS stride)
+    f_ret:   [i32; 8],    // EL return type
+    f_n:     i64,
+    // ── UDA registry — init/step/fin triple + declared arg/ret EL types ──
+    a_names: [str; 4],
+    a_init:  [QAggInit; 4],
+    a_step:  [QAggStep; 4],
+    a_fin:   [QAggFin; 4],
+    a_argty: [i32; 4],
+    a_ret:   [i32; 4],
+    a_n:     i64,
 }
 
 impl QEnv {
     pub fn new() -> QEnv {
+        let dfn: QFn      = qfn_nop;
+        let din: QAggInit = qagg_init_nop;
+        let dst: QAggStep = qagg_step_nop;
+        let dfi: QAggFin  = qagg_fin_nop;
         return QEnv {
             names: [""; 24], kinds: [0i32; 24], ivals: [0i64; 24],
             fvals: [0.0f64; 24], bvals: [false; 24], svals: [""; 24],
             words: [0i64; 24], codes: [0u64; 24], n: 0i64,
+            f_names: [""; 8], f_ptrs: [dfn; 8], f_arity: [0i64; 8],
+            f_args: [0i32; 32], f_ret: [0i32; 8], f_n: 0i64,
+            a_names: [""; 4], a_init: [din; 4], a_step: [dst; 4],
+            a_fin: [dfi; 4], a_argty: [0i32; 4], a_ret: [0i32; 4], a_n: 0i64,
         };
     }
 
@@ -455,6 +529,91 @@ impl QEnv {
         self.kinds[i] = QB_STR;
         self.svals[i] = v;
     }
+
+    // Bind a query SOURCE: a Writ ARRAY of schema'd rows (`from <name> v`
+    // scans it). The element schema is resolved LIVE at `run` (off the first
+    // element's stamped code) — an EMPTY array binds fine and yields no rows.
+    // The caller keeps the backing doc alive across `run`.
+    pub fn bind_source(self: &mut QEnv, name: str, arr: WAny) {
+        let i: i64 = self.slot(name);
+        if i < 0i64 { return; }
+        self.kinds[i] = QB_SRC;
+        self.words[i] = arr.raw();
+        self.codes[i] = 0u64;
+    }
+
+    // ── UDF/UDA registration (ADR §6) ───────────────────────────────────────
+    // Register a scalar UDF with its DECLARED signature: `args` are EL type
+    // names ("i64"/"f64"/"bool"/"str", max 4), `ret` likewise. The checker
+    // resolves calls against builtins FIRST, then this registry — an
+    // out-of-lattice type name makes the registration a no-op (the call then
+    // diagnoses as unknown). Re-registering a name overwrites it.
+    pub fn register_fn(self: &mut QEnv, name: str, f: QFn, args: &[str], ret: str) {
+        let rc: i32 = el_ret_class(ret);
+        if rc < 0i32 { return; }
+        let na: i64 = args.len();
+        if na > QENV_FN_ARGS { return; }
+        let mut ats: [i32; 4] = [0i32; 4];
+        let mut i: i64 = 0i64;
+        while i < na {
+            let ac: i32 = el_ret_class(args[i]);
+            if ac < 0i32 { return; }
+            ats[i] = ac;
+            i = i + 1i64;
+        }
+        let mut fi: i64 = self.find_fn(name);
+        if fi < 0i64 {
+            if self.f_n >= QENV_FNS { return; }
+            fi = self.f_n;
+            self.f_n = self.f_n + 1i64;
+        }
+        self.f_names[fi] = name;
+        self.f_ptrs[fi]  = f;
+        self.f_arity[fi] = na;
+        self.f_ret[fi]   = rc;
+        let mut k: i64 = 0i64;
+        while k < na { self.f_args[fi * QENV_FN_ARGS + k] = ats[k]; k = k + 1i64; }
+    }
+
+    fn find_fn(self: &QEnv, name: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.f_n {
+            if str_eq(self.f_names[i], name) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    // Register a UDA: init() → acc, step(acc, arg) → acc, fin(acc) → result.
+    // `arg_ty`/`ret_ty` are the DECLARED EL types of the aggregate argument
+    // and the finalized result. Builtin aggregate names shadow UDAs.
+    pub fn register_agg(self: &mut QEnv, name: str, init: QAggInit, step: QAggStep,
+                        fin: QAggFin, arg_ty: str, ret_ty: str) {
+        let ac: i32 = el_ret_class(arg_ty);
+        let rc: i32 = el_ret_class(ret_ty);
+        if ac < 0i32 || rc < 0i32 { return; }
+        let mut ai: i64 = self.find_agg(name);
+        if ai < 0i64 {
+            if self.a_n >= QENV_AGGS { return; }
+            ai = self.a_n;
+            self.a_n = self.a_n + 1i64;
+        }
+        self.a_names[ai] = name;
+        self.a_init[ai]  = init;
+        self.a_step[ai]  = step;
+        self.a_fin[ai]   = fin;
+        self.a_argty[ai] = ac;
+        self.a_ret[ai]   = rc;
+    }
+
+    fn find_agg(self: &QEnv, name: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.a_n {
+            if str_eq(self.a_names[i], name) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -493,11 +652,27 @@ fn wany_str(v: WAny) -> str {
     return wstr_at(v.resolve());
 }
 
+// A WAny value → RtVal by VALUE SHAPE: scalars map to their scalar variants,
+// anything else referencable becomes a Node handle. This is the ELEMENT
+// conversion for iterated Writ arrays — it makes scalar-element arrays
+// (WRef<str> etc., FK_EARR) and schema'd-node arrays iterate uniformly.
+fn wany_to_rt(v: WAny) -> RtVal {
+    if v.is_null()   { return RtVal::Null; }
+    if v.is_string() { return RtVal::S(wstr_at(v.resolve())); }
+    if v.is_bool()   { return RtVal::B(v.as_bool()); }
+    if v.is_float()  { return RtVal::F(v.as_f64()); }
+    if v.is_int()    { return RtVal::I(v.as_i64()); }
+    return RtVal::Node(v);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// RtVal — the runtime scalar (ADR §2). PRIVATE: it never crosses the API
-// boundary in I1. Cheap to copy (all payloads are word-sized views/handles).
+// RtVal — the runtime scalar (ADR §2). PUBLIC since I2: the UDF/UDA registry
+// signature is RtVal-based (ADR §6 — `fn(&[RtVal]) -> RtVal`), so user
+// functions match on / construct it directly. Cheap to copy (all payloads are
+// word-sized views/handles). `S` carries a VIEW — a UDF returning `S` must
+// return a view that outlives the call (a literal, or a view into an input).
 // ═══════════════════════════════════════════════════════════════════════════
-enum RtVal {
+pub enum RtVal {
     I(i64),
     F(f64),
     B(bool),
@@ -506,6 +681,21 @@ enum RtVal {
     Null,
 }
 impl Copy for RtVal {}
+
+// ── UDF/UDA function-pointer shapes (ADR §6, MVP) ───────────────────────────
+// UDF: eval'd args in, one value out. UDA: init() seeds the accumulator,
+// step(acc, arg) folds one row, fin(acc) finalizes (pass an identity fn when
+// no finalization is needed).
+pub type QFn      = fn(&[RtVal]) -> RtVal;
+pub type QAggInit = fn() -> RtVal;
+pub type QAggStep = fn(RtVal, RtVal) -> RtVal;
+pub type QAggFin  = fn(RtVal) -> RtVal;
+
+// Registry no-op seeds (the fixed-slot tables need an initial value).
+fn qfn_nop(_a: &[RtVal]) -> RtVal { return RtVal::Null; }
+fn qagg_init_nop() -> RtVal { return RtVal::Null; }
+fn qagg_step_nop(acc: RtVal, _v: RtVal) -> RtVal { return acc; }
+fn qagg_fin_nop(acc: RtVal) -> RtVal { return acc; }
 
 fn rt_kind(v: RtVal) -> i32 {
     match v {
@@ -588,6 +778,12 @@ fn intern(scratch: &Writ, s: &String) -> str {
     return ws.as_str();
 }
 
+// Intern a borrowed view into an arena (QRows string materialization).
+fn intern_str(arena: &Writ, s: str) -> str {
+    let ws: &WString = arena.wstring(s);
+    return ws.as_str();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // The CHECKER (ADR §4, strict) — an SExpr/TStmt walk over (catalog + env
 // declarations + template-local bindings). Two phases share this walker:
@@ -605,17 +801,23 @@ const CT_FLT:     i32 = 3i32;
 const CT_NODE:    i32 = 10i32;   // a schema'd object; code = schema code
 const CT_ARR:     i32 = 11i32;   // a collection edge; code = element schema code
 const CT_UNKNOWN: i32 = 12i32;   // compile phase only (root not yet bindable)
+const CT_SARR:    i32 = 13i32;   // a SCALAR-element array edge; code = element
+                                 // EL tag (CT_INT..CT_FLT) as u64 (FK_EARR)
 
 struct CTy { t: i32, code: u64 }
 impl Copy for CTy {}
 
 fn ct(t: i32) -> CTy { return CTy { t: t, code: 0u64 }; }
 fn ct_is_num(t: i32) -> bool { return t == CT_INT || t == CT_FLT; }
-fn ct_is_obj(t: i32) -> bool { return t == CT_NODE || t == CT_ARR; }
+fn ct_is_obj(t: i32) -> bool { return t == CT_NODE || t == CT_ARR || t == CT_SARR; }
 
 // Error latch — the first failure wins; the message is the QError payload.
-struct Chk { failed: bool, msg: String }
-fn chk_new() -> Chk { return Chk { failed: false, msg: String::new() }; }
+// `defer_unknown_fn`: the QUERY compile phase sets this — an unknown call name
+// may be a UDF registered on the env, which only exists at `run` (the strict
+// phase then resolves builtin-first, registry-second). The TEMPLATE compile
+// phase keeps I1's eager rejection (no template UDFs yet — I3 candidate).
+struct Chk { failed: bool, msg: String, defer_unknown_fn: bool }
+fn chk_new() -> Chk { return Chk { failed: false, msg: String::new(), defer_unknown_fn: false }; }
 fn chk_err(c: Chk) -> QError { return QError { msg: c.msg }; }
 fn chk_fail(c: &mut Chk, a: str, b: str, d: str, e: str, f: str) {
     if c.failed { return; }
@@ -674,6 +876,43 @@ impl CBinds {
     }
 }
 
+// The COLLECTION type of a bound source (QB_SRC word): CT_ARR{schema code}
+// for schema'd rows, CT_SARR{elem tag} for scalar elements, CT_UNKNOWN for an
+// EMPTY array (nothing to type — and nothing will be evaluated over it).
+fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy {
+    let av: WAny = WAny::ref_to(word as *const u8);
+    if !av.is_array() {
+        chk_fail(chk, "source '", name, "' is not bound to a Writ array", "", "");
+        return ct(CT_UNKNOWN);
+    }
+    let arr: &WArray<WAny> = av.as_array();
+    if arr.len() == 0i64 { return ct(CT_UNKNOWN); }   // empty source: zero rows
+    let e0: WAny = arr.get(0i64);
+    let code: u64 = node_schema_code(e0);
+    if code != 0u64 {
+        if cat.sidx_of_code(code) < 0i64 {
+            chk_fail(chk, "source '", name,
+                     "' has an element schema that is not in the catalog — add it to schema_catalog!",
+                     "", "");
+            return ct(CT_UNKNOWN);
+        }
+        return CTy { t: CT_ARR, code: code };
+    }
+    // Scalar elements: type off the first element's value shape.
+    let ev: RtVal = wany_to_rt(e0);
+    match ev {
+        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64 }; }
+        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64 }; }
+        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64 }; }
+        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64 }; }
+        _ => {
+            chk_fail(chk, "source '", name,
+                     "' elements are not schema'd Writ objects", "", "");
+            return ct(CT_UNKNOWN);
+        }
+    }
+}
+
 // Resolve a ROOT name (bare ident / $param / loop var) to a checked type.
 fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
               lb: &CBinds, chk: &mut Chk) -> CTy {
@@ -700,6 +939,7 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             }
             return CTy { t: CT_NODE, code: env.codes[ei] };
         }
+        if k == QB_SRC { return src_elem_ty(name, env.words[ei], cat, chk); }
     }
     if strict {
         chk_fail(chk, "unknown variable '", name,
@@ -748,6 +988,11 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     }
                     return CTy { t: CT_ARR, code: cat.f_targets[fi] };
                 }
+                if cat.f_kinds[fi] == FK_EARR {
+                    // scalar-element array edge — CT tags equal EL tags on the
+                    // scalar tier, so the catalog EL type maps across directly.
+                    return CTy { t: CT_SARR, code: cat.f_tys[fi] as u64 };
+                }
                 if cat.f_kinds[fi] == FK_ANY {
                     chk_fail(chk, "field '", f.name,
                              "' is type-erased (WAny) — lenient mode lands in a later slice",
@@ -756,7 +1001,7 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 }
                 return ct(cat.f_tys[fi]);
             }
-            if bt.t == CT_ARR {
+            if bt.t == CT_ARR || bt.t == CT_SARR {
                 chk_fail(chk, "field '", f.name,
                          "' is read through a collection edge — loop over it with {% for %} first",
                          "", "");
@@ -893,31 +1138,59 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
         }
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
-            if bfn == BFN_UNKNOWN() {
-                chk_fail(chk, "unknown function '", c.fn_name,
-                         "' — the dynamic builtins are len/upper/lower/contains/starts_with (a runtime UDF registry lands with the relational slice)",
-                         "", "");
-                return ct(CT_UNKNOWN);
-            }
-            let args: SExprArr = c.args_arr();
-            if args.len() != builtin_arity(bfn) {
-                chk_fail(chk, "wrong number of arguments for '", c.fn_name, "'", "", "");
-                return ct(CT_UNKNOWN);
-            }
-            let mut i: i64 = 0i64;
-            while i < args.len() {
-                let at2: CTy = check_expr(args.arg_at(i), cat, env, strict, lb, chk);
-                if chk.failed { return ct(CT_UNKNOWN); }
-                if at2.t != CT_STR && at2.t != CT_UNKNOWN {
-                    chk_fail(chk, "'", c.fn_name, "' needs string arguments", "", "");
+            if bfn != BFN_UNKNOWN() {
+                let args: SExprArr = c.args_arr();
+                if args.len() != builtin_arity(bfn) {
+                    chk_fail(chk, "wrong number of arguments for '", c.fn_name, "'", "", "");
                     return ct(CT_UNKNOWN);
                 }
-                i = i + 1i64;
+                let mut i: i64 = 0i64;
+                while i < args.len() {
+                    let at2: CTy = check_expr(args.arg_at(i), cat, env, strict, lb, chk);
+                    if chk.failed { return ct(CT_UNKNOWN); }
+                    if at2.t != CT_STR && at2.t != CT_UNKNOWN {
+                        chk_fail(chk, "'", c.fn_name, "' needs string arguments", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    i = i + 1i64;
+                }
+                return ct(builtin_ret_ty(bfn));   // EL_TY_* == CT_* on the scalar tier
             }
-            return ct(builtin_ret_ty(bfn));   // EL_TY_* == CT_* on the scalar tier
+            // Not a builtin: the UDF registry (builtin-first precedence, ADR §6).
+            let ui: i64 = env.find_fn(c.fn_name);
+            if ui >= 0i64 {
+                let uargs: SExprArr = c.args_arr();
+                if uargs.len() != env.f_arity[ui] {
+                    chk_fail(chk, "wrong number of arguments for '", c.fn_name,
+                             "' — the registered signature differs", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let mut ai: i64 = 0i64;
+                while ai < uargs.len() {
+                    let uat: CTy = check_expr(uargs.arg_at(ai), cat, env, strict, lb, chk);
+                    if chk.failed { return ct(CT_UNKNOWN); }
+                    // EXACT match (no implicit numeric promotion): the UDF
+                    // body pattern-matches the RtVal variant it declared.
+                    let want: i32 = env.f_args[ui * QENV_FN_ARGS + ai];
+                    if uat.t != CT_UNKNOWN && uat.t != want {
+                        chk_fail(chk, "argument type mismatch for '", c.fn_name,
+                                 "' — the registered signature differs", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    ai = ai + 1i64;
+                }
+                return ct(env.f_ret[ui]);
+            }
+            // Unknown: the QUERY compile phase defers (the registry lives on
+            // the env, which only exists at run); everything else rejects.
+            if !strict && chk.defer_unknown_fn { return ct(CT_UNKNOWN); }
+            chk_fail(chk, "unknown function '", c.fn_name,
+                     "' — not a builtin (len/upper/lower/contains/starts_with) and not registered on the QEnv (register_fn)",
+                     "", "");
+            return ct(CT_UNKNOWN);
         }
         SExpr::Comp(_cp) => {
-            chk_fail(chk, "dynamic comprehensions land with the relational slice", "", "", "", "");
+            chk_fail(chk, "dynamic comprehensions land with the relational slice (rel/fixpoint, next slice)", "", "", "", "");
             return ct(CT_UNKNOWN);
         }
         SExpr::Tuple(_tp) => {
@@ -963,6 +1236,9 @@ fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     let mark2: i64 = lb.n;
                     if it.t == CT_ARR {
                         lb.bind(f.var, CT_NODE, it.code);
+                    } else if it.t == CT_SARR {
+                        // scalar-element array: the loop var binds the SCALAR
+                        lb.bind(f.var, it.code as i32, 0u64);
                     } else if it.t == CT_UNKNOWN {
                         lb.bind(f.var, CT_UNKNOWN, 0u64);
                     } else {
@@ -1088,6 +1364,7 @@ fn env_val(env: &QEnv, i: i64) -> RtVal {
     if k == QB_BOOL { return RtVal::B(env.bvals[i]); }
     if k == QB_STR  { return RtVal::S(env.svals[i]); }
     if k == QB_NODE { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_SRC  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
     return RtVal::Null;
 }
 
@@ -1115,7 +1392,7 @@ fn field_read(cat: &SchemaCatalog, w: WAny, fname: str) -> RtVal {
     if fi < 0i64 { return RtVal::Null; }
     let m: &WMap<Wu6, WAny> = tom_at(w);
     let v: WAny = m.get(cat.f_keys[fi] as u8);
-    if cat.f_kinds[fi] == FK_EDGE {
+    if cat.f_kinds[fi] == FK_EDGE || cat.f_kinds[fi] == FK_EARR {
         if v.is_null() { return RtVal::Null; }
         return RtVal::Node(v);
     }
@@ -1256,6 +1533,19 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 let sb: RtVal = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch);
                 return RtVal::B(str_starts_with(rt_s(sa), rt_s(sb)));
             }
+            // Registered UDF (builtin-first precedence; arity/types checked).
+            let ui: i64 = env.find_fn(c.fn_name);
+            if ui >= 0i64 {
+                let mut argv: [RtVal; 8] = [RtVal::Null; 8];
+                let na: i64 = args.len();
+                let mut k: i64 = 0i64;
+                while k < na && k < 8i64 {
+                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch);
+                    k = k + 1i64;
+                }
+                let f: QFn = env.f_ptrs[ui];
+                return f(&argv[0i64..na]);
+            }
             return RtVal::Null;
         }
         _ => { return RtVal::Null; }
@@ -1326,7 +1616,10 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                             let n: i64 = arr.len();
                             let mut i2: i64 = 0i64;
                             while i2 < n {
-                                unsafe { (&mut *lb).set_val(slot, RtVal::Node(arr.get(i2))); }
+                                // shape-driven element conversion: schema'd
+                                // nodes stay Node, scalar elements (FK_EARR
+                                // arrays) become their scalar RtVal.
+                                unsafe { (&mut *lb).set_val(slot, wany_to_rt(arr.get(i2))); }
                                 render_stmts(body_word(&f.body), cat, env, lb, scratch, out);
                                 i2 = i2 + 1i64;
                             }
@@ -1391,5 +1684,1348 @@ impl Tpl {
         let mut out: String = String::new();
         render_stmts(self.head, &self.cat, env, rbp, &scratch, &mut out);
         return Result::Ok(out);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ QUERY — the relational executor (ADR 0012-queue2 §7, slice I2) ═══
+//
+// `Query::compile(text, &cat)` parses via the REUSED generated surface parser
+// (`wql_surface_parser::parse_program`), rejects rel blocks (I3), lowers via
+// the REUSED `lower_rquery_to_rexpr` and runs the REUSED `simplify_rexpr_ref`
+// relational peephole (queue-1 optimizer verbatim — the empty signal becomes
+// a zero-row fast path). The env-INDEPENDENT half of the checker runs at
+// compile; the FULL strict check + the join-strategy cascade decision run at
+// the top of every `run(&env)` (the I1 compile/render precedent: sources,
+// params and the UDF/UDA registry live on the env). `run` then tree-walks the
+// RExpr algebra over materialized Vec<row> pipelines (ADR §7) and returns a
+// self-contained QRows.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// Raw-pointer latch access for the EXECUTOR tier: exec fns return non-Copy
+// row sets, and the conservative borrow regions would pin a `&mut Chk` for
+// the result's lifetime — the RBinds provenance-laundering idiom applies.
+fn chk_bad(chk: *mut Chk) -> bool { return unsafe { (&*chk).failed }; }
+fn chk_fail_p(chk: *mut Chk, a: str, b: str, d: str, e: str, f: str) {
+    unsafe { chk_fail(&mut *chk, a, b, d, e, f); }
+}
+
+// Result-envelope modes (mirror rexpr_walk's SELM_* — first/find are not
+// algebra nodes; they shape the result).
+const QM_ALL:   i32 = 0i32;
+const QM_FIRST: i32 = 1i32;
+const QM_FIND:  i32 = 2i32;
+
+// Join-strategy tiers (runtime edition of the static cascade; the TREE tier
+// is unreachable over the scalar lattice — hash-able ⇔ ord-able here).
+const QT_HASH: i32 = 1i32;
+const QT_LOOP: i32 = 3i32;
+
+// Builtin aggregate ids (local mirror; the TYPE rules live in the SHARED
+// `el::agg_result_ty` table — one rule source for static + dynamic tiers).
+fn qagg_id(name: str) -> i32 {
+    if str_eq(name, "count") { return 1i32; }
+    if str_eq(name, "sum")   { return 2i32; }
+    if str_eq(name, "min")   { return 3i32; }
+    if str_eq(name, "max")   { return 4i32; }
+    if str_eq(name, "avg")   { return 5i32; }
+    return 0i32;
+}
+
+// An SExpr view from a raw arena word (the provenance-laundering idiom).
+fn sx_of(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
+
+// The RScan under a relational edge (join right sides are always scans).
+fn rscan_of(e: RExpr) -> RScan {
+    match e {
+        RExpr::Scan(sc) => { return sc; }
+        _ => {
+            // Unreachable by construction (lowering invariant); a defensive
+            // null-backed view would fault loudly on read.
+            return WAny::ref_to(0i64 as *const u8).view::<RScan>();
+        }
+    }
+}
+
+// ── QPlan — the per-run node decisions, filled by the STRICT check walk ─────
+// The cascade is decided ONCE per run from CHECKED types (never per row); the
+// executor looks decisions up by node word. Capacities are metadata-sized:
+// ≤ 8 join steps (grammar cap), ONE aggregate node, ≤ 8 output columns.
+struct QPlan {
+    // RJoin/RAnti step plans, keyed by node word
+    jw:     [i64; 8],
+    jtier:  [i32; 8],
+    jequi:  [i64; 8],    // the selected equi-TERM word (0 = none)
+    jbuild: [i64; 8],    // new-side key expr word
+    jprobe: [i64; 8],    // bound-side key expr word
+    jn:     i64,
+    // the single RAggr plan
+    agg_n:    i64,
+    agg_fnid: [i32; 8],  // 1..5 builtin, 0 = UDA
+    agg_uda:  [i64; 8],  // UDA registry index (fnid 0)
+    agg_ret:  [i32; 8],  // column result tag (CT_* scalar tier)
+    // projection
+    ncols: i64,
+    ckind: [i32; 8],
+}
+
+fn qplan_new() -> QPlan {
+    return QPlan {
+        jw: [0i64; 8], jtier: [0i32; 8], jequi: [0i64; 8],
+        jbuild: [0i64; 8], jprobe: [0i64; 8], jn: 0i64,
+        agg_n: 0i64, agg_fnid: [0i32; 8], agg_uda: [0i64; 8], agg_ret: [0i32; 8],
+        ncols: 0i64, ckind: [0i32; 8],
+    };
+}
+
+fn qp_jfind(qp: &QPlan, w: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < qp.jn {
+        if qp.jw[i] == w { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// ── Path splitting (REdge `path` — "a.b.c" → segments) ──────────────────────
+struct PathSegs { segs: [str; 8], n: i64 }
+
+fn split_path(p: str) -> PathSegs {
+    let mut out: PathSegs = PathSegs { segs: [""; 8], n: 0i64 };
+    let n: i64 = p.len();
+    let mut start: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i <= n {
+        let dot: bool = if i < n { str_byte_at(p, i) == 46u8 } else { true };
+        if dot {
+            if i > start && out.n < 8i64 {
+                out.segs[out.n] = unsafe {
+                    str_from_raw((p.as_ptr() as i64 + start) as *const u8, i - start)
+                };
+                out.n = out.n + 1i64;
+            }
+            start = i + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ── Source resolution (query scans) ─────────────────────────────────────────
+// A scan source must be a QB_SRC env binding; the element type resolves LIVE
+// (empty array ⇒ UNKNOWN ⇒ zero rows, every dependent check defers — nothing
+// is ever evaluated over it).
+fn resolve_source(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+                  chk: &mut Chk) -> CTy {
+    let ei: i64 = env.find(name);
+    if ei < 0i64 {
+        if strict {
+            chk_fail(chk, "unknown source '", name,
+                     "' — bind it on the QEnv with bind_source before run", "", "");
+        }
+        return ct(CT_UNKNOWN);
+    }
+    if env.kinds[ei] != QB_SRC {
+        chk_fail(chk, "source '", name,
+                 "' is not bound as a source — use bind_source", "", "");
+        return ct(CT_UNKNOWN);
+    }
+    return src_elem_ty(name, env.words[ei], cat, chk);
+}
+
+// Bind a scan/traversal row var from its collection type.
+fn bind_row_var(lb: &mut CBinds, var: str, coll: CTy) {
+    if coll.t == CT_ARR       { lb.bind(var, CT_NODE, coll.code); }
+    else if coll.t == CT_SARR { lb.bind(var, coll.code as i32, 0u64); }
+    else                      { lb.bind(var, CT_UNKNOWN, 0u64); }
+}
+
+// ── The QUERY check walk (SExpr checks reuse check_expr verbatim) ───────────
+// Walks the SIMPLIFIED RExpr tree binding row vars in scope order, checking
+// every embedded scalar clause against (catalog + env + binds), and — in the
+// STRICT phase — deciding the join cascade + aggregate plan + projection
+// column kinds into `qp`.
+fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+               lb: &mut CBinds, chk: &mut Chk, qp: &mut QPlan) {
+    if chk.failed { return; }
+    match e {
+        RExpr::Scan(sc) => {
+            let st: CTy = resolve_source(sc.src_name, cat, env, strict, chk);
+            if chk.failed { return; }
+            bind_row_var(lb, sc.var_name, st);
+        }
+        RExpr::Filter(f) => {
+            check_rexpr(f.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let pt: CTy = check_expr(f.pred_expr(), cat, env, strict, lb, chk);
+            if !chk.failed && pt.t != CT_BOOL && pt.t != CT_UNKNOWN {
+                chk_fail(chk, "a where/having predicate must be a bool", "", "", "", "");
+            }
+        }
+        RExpr::Sort(s) => {
+            check_rexpr(s.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let kt: CTy = check_expr(s.key_expr(), cat, env, strict, lb, chk);
+            if !chk.failed && ct_is_obj(kt.t) {
+                chk_fail(chk, "an `order by` key must be a scalar", "", "", "", "");
+            }
+        }
+        RExpr::Edge(ed) => {
+            check_rexpr(ed.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            // base var → path walk over the catalog
+            let bi: i64 = lb.find(ed.base_var);
+            let mut cur: CTy = ct(CT_UNKNOWN);
+            if bi >= 0i64 { cur = CTy { t: lb.tags[bi], code: lb.codes[bi] }; }
+            else if strict {
+                chk_fail(chk, "unknown traversal base '", ed.base_var,
+                         "' — it must be a row variable bound earlier in the chain", "", "");
+                return;
+            }
+            let ps: PathSegs = split_path(ed.path);
+            let mut vt: CTy = ct(CT_UNKNOWN);   // the new var's ELEMENT type
+            let mut i: i64 = 0i64;
+            while i < ps.n && !chk.failed {
+                if cur.t == CT_UNKNOWN { vt = ct(CT_UNKNOWN); break; }
+                if cur.t != CT_NODE {
+                    chk_fail(chk, "traversal segment '", ps.segs[i],
+                             "' is read off a non-object value", "", "");
+                    break;
+                }
+                let si: i64 = cat.sidx_of_code(cur.code);
+                if si < 0i64 {
+                    chk_fail(chk, "traversal segment '", ps.segs[i],
+                             "': the base schema is not in the catalog", "", "");
+                    break;
+                }
+                let fi: i64 = cat.fidx(si, ps.segs[i]);
+                if fi < 0i64 {
+                    chk_fail(chk, "unknown field '", ps.segs[i], "' on schema '",
+                             cat.s_names[si], "' in a traversal path");
+                    break;
+                }
+                let last: bool = i == ps.n - 1i64;
+                if !last {
+                    // intermediate hop: a SINGLE-NODE edge at runtime
+                    if cat.f_kinds[fi] != FK_EDGE || cat.f_targets[fi] == 0u64 {
+                        chk_fail(chk, "intermediate traversal segment '", ps.segs[i],
+                                 "' must be an edge field", "", "");
+                        break;
+                    }
+                    cur = CTy { t: CT_NODE, code: cat.f_targets[fi] };
+                } else {
+                    if cat.f_kinds[fi] == FK_EDGE {
+                        if cat.f_targets[fi] == 0u64 {
+                            chk_fail(chk, "edge field '", ps.segs[i],
+                                     "' targets a schema missing from the catalog", "", "");
+                            break;
+                        }
+                        vt = CTy { t: CT_NODE, code: cat.f_targets[fi] };
+                    } else if cat.f_kinds[fi] == FK_EARR {
+                        vt = CTy { t: cat.f_tys[fi], code: 0u64 };
+                    } else {
+                        chk_fail(chk, "traversal path must end at an edge field '",
+                                 ps.segs[i], "' (a collection or single-node edge)", "", "");
+                        break;
+                    }
+                }
+                i = i + 1i64;
+            }
+            if chk.failed { return; }
+            let mark: i64 = lb.n;
+            lb.bind(ed.var_name, vt.t, vt.code);
+            if ed.has_on {
+                let ot: CTy = check_expr(ed.on_expr(), cat, env, strict, lb, chk);
+                if !chk.failed && ot.t != CT_BOOL && ot.t != CT_UNKNOWN {
+                    chk_fail(chk, "a join `on` predicate must be a bool", "", "", "", "");
+                }
+            }
+            // an anti step's var binds ONLY inside its own `on`
+            if ed.is_anti { lb.n = mark; }
+        }
+        RExpr::Join(jn) => {
+            check_rexpr(jn.left_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let rs: RScan = rscan_of(jn.right_expr());
+            let st: CTy = resolve_source(rs.src_name, cat, env, strict, chk);
+            if chk.failed { return; }
+            bind_row_var(lb, rs.var_name, st);
+            let ot: CTy = check_expr(jn.on_expr(), cat, env, strict, lb, chk);
+            if chk.failed { return; }
+            if ot.t != CT_BOOL && ot.t != CT_UNKNOWN {
+                chk_fail(chk, "a join `on` predicate must be a bool", "", "", "", "");
+                return;
+            }
+            if strict {
+                analyze_join_step(jn.on.any().raw(), rs.var_name,
+                                  jn.as_ref().raw(), cat, env, lb, qp);
+            }
+        }
+        RExpr::Anti(an) => {
+            check_rexpr(an.left_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let rs: RScan = rscan_of(an.right_expr());
+            let st: CTy = resolve_source(rs.src_name, cat, env, strict, chk);
+            if chk.failed { return; }
+            let mark: i64 = lb.n;
+            bind_row_var(lb, rs.var_name, st);
+            let ot: CTy = check_expr(an.on_expr(), cat, env, strict, lb, chk);
+            if chk.failed { return; }
+            if ot.t != CT_BOOL && ot.t != CT_UNKNOWN {
+                chk_fail(chk, "a join `on` predicate must be a bool", "", "", "", "");
+                return;
+            }
+            if strict {
+                analyze_join_step(an.on.any().raw(), rs.var_name,
+                                  an.as_ref().raw(), cat, env, lb, qp);
+            }
+            lb.n = mark;   // anti var invisible downstream
+        }
+        RExpr::Aggr(g) => {
+            let mark: i64 = lb.n;
+            check_rexpr(g.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let kt: CTy = check_expr(g.key_expr(), cat, env, strict, lb, chk);
+            if chk.failed { return; }
+            if ct_is_obj(kt.t) {
+                chk_fail(chk, "a `group by` key must be a scalar", "", "", "", "");
+                return;
+            }
+            let aggs: RAggArr = g.aggs_arr();
+            let an2: i64 = aggs.len();
+            let mut rets: [i32; 8] = [0i32; 8];
+            let mut ci: i64 = 0i64;
+            while ci < an2 && ci < 8i64 {
+                let a: RAgg = aggs.agg_at(ci);
+                let fnid: i32 = qagg_id(a.fn_name);
+                let mut rett: i32 = CT_UNKNOWN;
+                let mut uidx: i64 = -1i64;
+                if fnid == 1i32 {
+                    if a.has_arg {
+                        chk_fail(chk, "count() takes no argument", "", "", "", "");
+                        return;
+                    }
+                    rett = CT_INT;
+                } else if fnid != 0i32 {
+                    if !a.has_arg {
+                        chk_fail(chk, "aggregate '", a.fn_name, "' needs an argument", "", "");
+                        return;
+                    }
+                    let at: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk);
+                    if chk.failed { return; }
+                    if at.t == CT_UNKNOWN {
+                        rett = CT_UNKNOWN;
+                    } else {
+                        // the SHARED rule table (avg: T→Quot(T), Quot=FLT)
+                        let r: i32 = agg_result_ty(a.fn_name, at.t);
+                        if r < 0i32 {
+                            chk_fail(chk, "aggregate '", a.fn_name,
+                                     "' needs a numeric argument", "", "");
+                            return;
+                        }
+                        rett = r;
+                    }
+                } else {
+                    // UDA via the env registry (builtin names shadow UDAs)
+                    uidx = env.find_agg(a.fn_name);
+                    if uidx >= 0i64 {
+                        if !a.has_arg {
+                            chk_fail(chk, "aggregate '", a.fn_name, "' needs an argument", "", "");
+                            return;
+                        }
+                        let at2: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk);
+                        if chk.failed { return; }
+                        if at2.t != CT_UNKNOWN && at2.t != env.a_argty[uidx] {
+                            chk_fail(chk, "argument type mismatch for aggregate '",
+                                     a.fn_name, "' — the registered signature differs", "", "");
+                            return;
+                        }
+                        rett = env.a_ret[uidx];
+                    } else if strict {
+                        chk_fail(chk, "unknown aggregate '", a.fn_name,
+                                 "' — builtins are count/sum/min/max/avg; register a UDA on the QEnv (register_agg)",
+                                 "", "");
+                        return;
+                    }
+                }
+                rets[ci] = rett;
+                qp.agg_fnid[ci] = fnid;
+                qp.agg_uda[ci]  = uidx;
+                qp.agg_ret[ci]  = rett;
+                ci = ci + 1i64;
+            }
+            qp.agg_n = ci;
+            // Above the aggregate only (key + outputs) are visible.
+            lb.n = mark;
+            lb.bind("key", kt.t, kt.code);
+            let mut co: i64 = 0i64;
+            while co < ci {
+                let a2: RAgg = aggs.agg_at(co);
+                lb.bind(a2.out, rets[co], 0u64);
+                co = co + 1i64;
+            }
+        }
+        RExpr::Proj(p) => {
+            check_rexpr(p.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let sel: SExpr = p.sel_expr();
+            match sel {
+                SExpr::Tuple(tp) => {
+                    let items: SExprArr = tp.items_arr();
+                    let nn: i64 = items.len();
+                    let mut i2: i64 = 0i64;
+                    while i2 < nn && i2 < 8i64 {
+                        let it: CTy = check_expr(items.arg_at(i2), cat, env, strict, lb, chk);
+                        if chk.failed { return; }
+                        if ct_is_obj(it.t) {
+                            chk_fail(chk, "a tuple projection component must be a scalar", "", "", "", "");
+                            return;
+                        }
+                        qp.ckind[i2] = it.t;
+                        i2 = i2 + 1i64;
+                    }
+                    qp.ncols = i2;
+                }
+                _ => {
+                    let st2: CTy = check_expr(sel, cat, env, strict, lb, chk);
+                    if chk.failed { return; }
+                    if st2.t == CT_ARR || st2.t == CT_SARR {
+                        chk_fail(chk, "cannot select a collection edge — traverse it with a join step first",
+                                 "", "", "", "");
+                        return;
+                    }
+                    qp.ckind[0] = st2.t;   // CT_NODE allowed (identity / find)
+                    qp.ncols = 1i64;
+                }
+            }
+        }
+        RExpr::Distinct(d) => {
+            check_rexpr(d.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            let mut i3: i64 = 0i64;
+            while i3 < qp.ncols {
+                if qp.ckind[i3] == CT_FLT {
+                    chk_fail(chk, "`distinct` over an f64 projection is not supported (set semantics require Eq)",
+                             "", "", "", "");
+                    return;
+                }
+                if qp.ckind[i3] == CT_NODE {
+                    chk_fail(chk, "`distinct` over an object projection is not supported", "", "", "", "");
+                    return;
+                }
+                i3 = i3 + 1i64;
+            }
+        }
+        RExpr::Limit(l) => {
+            check_rexpr(l.input_expr(), cat, env, strict, lb, chk, qp);
+            if chk.failed { return; }
+            if l.is_param && strict {
+                let ei: i64 = env.find(l.param);
+                if ei < 0i64 || env.kinds[ei] != QB_I64 {
+                    chk_fail(chk, "limit parameter '", l.param,
+                             "' must be bound as i64 on the QEnv", "", "");
+                }
+            }
+        }
+        RExpr::Fix(_fx) => {
+            chk_fail(chk, "recursive queries (rel blocks) land in the next slice", "", "", "", "");
+        }
+    }
+}
+
+// ── The equi/residual split + cascade decision (runtime edition) ────────────
+// The IR-level decomposition (split_and_terms / refs_mask) is REUSED from the
+// shared optimizer module — identical to the static analyzer's. The TYPE
+// source differs by design: the static queue reads ElTypes; here the runtime
+// checker (check_expr over catalog + env + binds) types each side. First
+// same-typed equi-term wins; Hash+Eq keys (INT/STR/BOOL) go hash tier, an f64
+// key (PartialEq only — NaN kills Hash and total Ord) or no equi-term at all
+// goes nested-loop over the FULL predicate.
+fn analyze_join_step(on_w: i64, new_var: str, node_w: i64,
+                     cat: &SchemaCatalog, env: &QEnv, lb: &CBinds, qp: &mut QPlan) {
+    let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(on_w as *const u8));
+    let mut tl: TermList = term_list_new();
+    split_and_terms(onr, &mut tl);
+
+    let mut tier: i32 = QT_LOOP;
+    let mut equi_w: i64 = 0i64;
+    let mut build_w: i64 = 0i64;
+    let mut probe_w: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < tl.n {
+        if equi_w == 0i64 {
+            let te: SExpr = sx_of(tl.w[i]);
+            match te {
+                SExpr::Bin(b) => {
+                    if b.op == OP_EQ() {
+                        let lm: i32 = refs_mask(b.lhs_expr(), new_var);
+                        let rm: i32 = refs_mask(b.rhs_expr(), new_var);
+                        let mut cw: i64 = 0i64;   // new-side (build)
+                        let mut cp: i64 = 0i64;   // bound-side (probe)
+                        if lm == 1i32 && (rm & 1i32) == 0i32 { cw = b.lhs.any().raw(); cp = b.rhs.any().raw(); }
+                        if rm == 1i32 && (lm & 1i32) == 0i32 { cw = b.rhs.any().raw(); cp = b.lhs.any().raw(); }
+                        if cw != 0i64 {
+                            // Usable key ⇔ both sides check to the SAME scalar
+                            // type (no cross-type hashing via promotion — a
+                            // mixed-type == stays residual, static parity).
+                            let mut c2: Chk = chk_new();
+                            let kb: CTy = check_expr(sx_of(cw), cat, env, true, lb, &mut c2);
+                            let kp: CTy = check_expr(sx_of(cp), cat, env, true, lb, &mut c2);
+                            if !c2.failed && kb.t == kp.t {
+                                if kb.t == CT_INT || kb.t == CT_STR || kb.t == CT_BOOL {
+                                    tier = QT_HASH;
+                                    equi_w = tl.w[i];
+                                    build_w = cw;
+                                    probe_w = cp;
+                                } else if kb.t == CT_FLT {
+                                    // equi-term exists but the key is f64 —
+                                    // loop tier over the full predicate.
+                                    tier = QT_LOOP;
+                                    equi_w = tl.w[i];
+                                    build_w = 0i64;
+                                    probe_w = 0i64;
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => { }
+            }
+        }
+        i = i + 1i64;
+    }
+    if qp.jn >= 8i64 { return; }
+    qp.jw[qp.jn]     = node_w;
+    qp.jtier[qp.jn]  = if build_w != 0i64 { tier } else { QT_LOOP };
+    qp.jequi[qp.jn]  = if build_w != 0i64 { equi_w } else { 0i64 };
+    qp.jbuild[qp.jn] = build_w;
+    qp.jprobe[qp.jn] = probe_w;
+    qp.jn = qp.jn + 1i64;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The EXECUTOR — materialized Vec<row> pipelines over the RExpr tree (§7).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const RS_VARS: i64 = 12i64;
+
+// A row set: named columns (row vars) × rows, cells flattened at stride nvars.
+struct RowSet {
+    vars:  [str; 12],
+    nvars: i64,
+    cells: Vec<RtVal>,
+    nrows: i64,
+}
+
+fn rs_new() -> RowSet {
+    return RowSet { vars: [""; 12], nvars: 0i64, cells: vec_new::<RtVal>(), nrows: 0i64 };
+}
+
+fn rs_vidx(rs: &RowSet, name: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < rs.nvars {
+        if str_eq(rs.vars[i], name) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn rs_cell(rs: &RowSet, r: i64, c: i64) -> RtVal {
+    return rs.cells.get(r * rs.nvars + c);
+}
+
+// Fresh eval binds with ONE slot per row var (slot index == var index).
+fn rs_binds(rs: &RowSet) -> RBinds {
+    let mut b: RBinds = rbinds_new();
+    let mut i: i64 = 0i64;
+    while i < rs.nvars {
+        b.bind_val(rs.vars[i], RtVal::Null);
+        i = i + 1i64;
+    }
+    return b;
+}
+
+// Load row `r`'s cells into the binds (slots 0..nvars).
+fn rs_load(rs: &RowSet, r: i64, lb: *mut RBinds) {
+    let mut c: i64 = 0i64;
+    while c < rs.nvars {
+        unsafe { (&mut *lb).set_val(c, rs_cell(rs, r, c)); }
+        c = c + 1i64;
+    }
+}
+
+// Append row `r` of `src` to `dst` (same column prefix), plus an optional
+// extra cell (has_extra) — the join/traversal row extension.
+fn rs_push_ext(dst: &mut RowSet, src: &RowSet, r: i64, has_extra: bool, extra: RtVal) {
+    let mut c: i64 = 0i64;
+    while c < src.nvars {
+        dst.cells.push(rs_cell(src, r, c));
+        c = c + 1i64;
+    }
+    if has_extra { dst.cells.push(extra); }
+    dst.nrows = dst.nrows + 1i64;
+}
+
+// ── RtVal ordering (sort keys) + hashing (join/distinct keys) ────────────────
+// Compare mirrors the eval `<`-family: str via str_cmp, int exactly, else f64.
+fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
+    if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 { return str_cmp(rt_s(l), rt_s(r)) as i64; }
+    if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
+        let a: i64 = rt_i(l);
+        let b: i64 = rt_i(r);
+        if a < b { return -1i64; }
+        if a > b { return 1i64; }
+        return 0i64;
+    }
+    let lf: f64 = rt_f(l);
+    let rf: f64 = rt_f(r);
+    if lf < rf { return -1i64; }
+    if lf > rf { return 1i64; }
+    return 0i64;
+}
+
+// FNV-1a over a NORMALIZED (tag, payload) form — RtVal itself needs no Hash
+// impl; buckets verify with rt_eq (hash collisions are benign). Only the
+// hashable tier (I/S/B) ever reaches this (cascade + distinct rules).
+// wrapping_mul: FNV intentionally wraps (bare `*` overflow-traps, Rust parity).
+fn h_step(h: u64, b: u64) -> u64 { return wrapping_mul(h ^ b, 1099511628211u64); }
+
+fn rt_key_hash(v: RtVal) -> u64 {
+    let mut h: u64 = 14695981039346656037u64;
+    match v {
+        RtVal::I(x) => { h = h_step(h, 1u64); h = h_step(h, x as u64); }
+        RtVal::B(b) => { h = h_step(h, 3u64); h = h_step(h, if b { 1u64 } else { 0u64 }); }
+        RtVal::S(s) => {
+            h = h_step(h, 2u64);
+            let n: i64 = s.len();
+            let mut i: i64 = 0i64;
+            while i < n { h = h_step(h, str_byte_at(s, i) as u64); i = i + 1i64; }
+        }
+        _ => { h = h_step(h, 0u64); }
+    }
+    return h;
+}
+
+// Residual check: every conjunction term EXCEPT the consumed equi-term must
+// hold (the equi/residual split — the probe already established the key).
+fn eval_on_residual(on_w: i64, equi_w: i64, cat: &SchemaCatalog, env: &QEnv,
+                    lb: *const RBinds, scratch: &Writ) -> bool {
+    let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(on_w as *const u8));
+    let mut tl: TermList = term_list_new();
+    split_and_terms(onr, &mut tl);
+    let mut i: i64 = 0i64;
+    while i < tl.n {
+        if tl.w[i] != equi_w {
+            if !rt_truthy(eval_sexpr(sx_of(tl.w[i]), cat, env, lb, scratch)) { return false; }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// ── exec_rexpr — the pipeline walk (everything BELOW the projection) ─────────
+fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+              scratch: &Writ, chk: *mut Chk) -> RowSet {
+    if chk_bad(chk) { return rs_new(); }
+    match e {
+        RExpr::Scan(sc) => {
+            let mut out: RowSet = rs_new();
+            out.vars[0] = sc.var_name;
+            out.nvars = 1i64;
+            let ei: i64 = env.find(sc.src_name);
+            if ei < 0i64 { return out; }   // checker guarantees; defensive
+            let av: WAny = WAny::ref_to(env.words[ei] as *const u8);
+            if !av.is_array() { return out; }
+            let arr: &WArray<WAny> = av.as_array();
+            let n: i64 = arr.len();
+            let mut i: i64 = 0i64;
+            while i < n {
+                out.cells.push(wany_to_rt(arr.get(i)));
+                out.nrows = out.nrows + 1i64;
+                i = i + 1i64;
+            }
+            return out;
+        }
+        RExpr::Filter(f) => {
+            let input: RowSet = exec_rexpr(f.input_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return rs_new(); }
+            let mut out: RowSet = rs_new();
+            out.vars = input.vars;
+            out.nvars = input.nvars;
+            let mut b: RBinds = rs_binds(&input);
+            let bp: *mut RBinds = &mut b;
+            let mut r: i64 = 0i64;
+            while r < input.nrows {
+                rs_load(&input, r, bp);
+                if rt_truthy(eval_sexpr(f.pred_expr(), cat, env, bp, scratch)) {
+                    rs_push_ext(&mut out, &input, r, false, RtVal::Null);
+                }
+                r = r + 1i64;
+            }
+            return out;
+        }
+        RExpr::Sort(s) => {
+            let input: RowSet = exec_rexpr(s.input_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return rs_new(); }
+            // per-row keys, then a STABLE O(n²) insertion sort over indices
+            // (the static emitter's MVP discipline, re-hosted).
+            let mut b: RBinds = rs_binds(&input);
+            let bp: *mut RBinds = &mut b;
+            let mut keys: Vec<RtVal> = vec_new::<RtVal>();
+            let mut r: i64 = 0i64;
+            while r < input.nrows {
+                rs_load(&input, r, bp);
+                keys.push(eval_sexpr(s.key_expr(), cat, env, bp, scratch));
+                r = r + 1i64;
+            }
+            let mut order: Vec<i64> = vec_new::<i64>();
+            let mut i: i64 = 0i64;
+            while i < input.nrows {
+                order.push(i);
+                let mut j: i64 = order.len() - 1i64;
+                while j > 0i64 {
+                    let c: i64 = rt_cmp(keys.get(order.get(j)), keys.get(order.get(j - 1i64)));
+                    let swap: bool = if s.desc { c > 0i64 } else { c < 0i64 };
+                    if !swap { break; }
+                    order.swap(j, j - 1i64);
+                    j = j - 1i64;
+                }
+                i = i + 1i64;
+            }
+            let mut out: RowSet = rs_new();
+            out.vars = input.vars;
+            out.nvars = input.nvars;
+            let mut k: i64 = 0i64;
+            while k < order.len() {
+                rs_push_ext(&mut out, &input, order.get(k), false, RtVal::Null);
+                k = k + 1i64;
+            }
+            return out;
+        }
+        RExpr::Edge(ed) => {
+            return exec_edge(ed, cat, env, qp, scratch, chk);
+        }
+        RExpr::Join(jn) => {
+            let left: RowSet = exec_rexpr(jn.left_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return rs_new(); }
+            let right: RowSet = exec_rexpr(jn.right_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return rs_new(); }
+            return exec_join(left, right, jn.on.any().raw(), jn.as_ref().raw(), false,
+                             cat, env, qp, scratch, chk);
+        }
+        RExpr::Anti(an) => {
+            let left: RowSet = exec_rexpr(an.left_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return rs_new(); }
+            let right: RowSet = exec_rexpr(an.right_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return rs_new(); }
+            return exec_join(left, right, an.on.any().raw(), an.as_ref().raw(), true,
+                             cat, env, qp, scratch, chk);
+        }
+        RExpr::Aggr(g) => {
+            return exec_aggr(g, cat, env, qp, scratch, chk);
+        }
+        _ => {
+            chk_fail_p(chk, "internal: unexpected relational node below the projection root",
+                     "", "", "", "");
+            return rs_new();
+        }
+    }
+}
+
+// REdge traversal: range the new var over `base_var`'s `path` collection —
+// nested-loop by construction (the source depends on the outer row). Runtime
+// SHAPE dispatch (the I2 single-node extension): a Writ ARRAY iterates its
+// elements; a SINGLE node iterates once; null/absent iterates zero times.
+// `is_anti` keeps the outer row iff NO element passes `on` (no `on` ⇒ iff the
+// collection is empty).
+fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk) -> RowSet {
+    let input: RowSet = exec_rexpr(ed.input_expr(), cat, env, qp, scratch, chk);
+    if chk_bad(chk) { return rs_new(); }
+    let mut out: RowSet = rs_new();
+    out.vars = input.vars;
+    out.nvars = input.nvars;
+    if !ed.is_anti {
+        if out.nvars >= RS_VARS {
+            chk_fail_p(chk, "too many row variables in the join chain", "", "", "", "");
+            return rs_new();
+        }
+        out.vars[out.nvars] = ed.var_name;
+        out.nvars = out.nvars + 1i64;
+    }
+    let bi: i64 = rs_vidx(&input, ed.base_var);
+    if bi < 0i64 { return out; }   // checker guarantees; defensive
+    let ps: PathSegs = split_path(ed.path);
+    // binds carry input vars + the element var (slot input.nvars)
+    let mut b: RBinds = rs_binds(&input);
+    b.bind_val(ed.var_name, RtVal::Null);
+    let bp: *mut RBinds = &mut b;
+    let eslot: i64 = input.nvars;
+    let mut r: i64 = 0i64;
+    while r < input.nrows && !chk_bad(chk) {
+        rs_load(&input, r, bp);
+        // walk the path off this row's base node
+        let mut cur: RtVal = rs_cell(&input, r, bi);
+        let mut i: i64 = 0i64;
+        while i < ps.n - 1i64 {
+            match cur {
+                RtVal::Node(w) => {
+                    if w.is_array() {
+                        chk_fail_p(chk, "traversal path '", ed.path,
+                                 "' crosses a collection before its final segment — intermediate steps must be single-node edges",
+                                 "", "");
+                        return rs_new();
+                    }
+                    cur = field_read(cat, w, ps.segs[i]);
+                }
+                _ => { cur = RtVal::Null; }
+            }
+            i = i + 1i64;
+        }
+        let mut fin: RtVal = RtVal::Null;
+        match cur {
+            RtVal::Node(w2) => {
+                if !w2.is_array() && ps.n > 0i64 { fin = field_read(cat, w2, ps.segs[ps.n - 1i64]); }
+            }
+            _ => { }
+        }
+        // iterate the final value's elements (array / single / none)
+        let mut matched: bool = false;
+        match fin {
+            RtVal::Node(w3) => {
+                if w3.is_array() {
+                    let arr: &WArray<WAny> = w3.as_array();
+                    let n: i64 = arr.len();
+                    let mut j: i64 = 0i64;
+                    while j < n {
+                        let ev: RtVal = wany_to_rt(arr.get(j));
+                        unsafe { (&mut *bp).set_val(eslot, ev); }
+                        let mut pass: bool = true;
+                        if ed.has_on {
+                            pass = rt_truthy(eval_sexpr(ed.on_expr(), cat, env, bp, scratch));
+                        }
+                        if pass {
+                            matched = true;
+                            if !ed.is_anti { rs_push_ext(&mut out, &input, r, true, ev); }
+                        }
+                        j = j + 1i64;
+                    }
+                } else {
+                    // SINGLE-NODE edge: iterate exactly this one element
+                    let ev1: RtVal = RtVal::Node(w3);
+                    unsafe { (&mut *bp).set_val(eslot, ev1); }
+                    let mut pass1: bool = true;
+                    if ed.has_on {
+                        pass1 = rt_truthy(eval_sexpr(ed.on_expr(), cat, env, bp, scratch));
+                    }
+                    if pass1 {
+                        matched = true;
+                        if !ed.is_anti { rs_push_ext(&mut out, &input, r, true, ev1); }
+                    }
+                }
+            }
+            _ => { }   // null / absent: zero elements
+        }
+        if ed.is_anti && !matched {
+            rs_push_ext(&mut out, &input, r, false, RtVal::Null);
+        }
+        r = r + 1i64;
+    }
+    return out;
+}
+
+// One keyed/loop join step over materialized sides. The tier was decided at
+// check time from CHECKED types (qp); hash buckets key on the FNV of the
+// NORMALIZED RtVal and verify with rt_eq (collision-safe).
+fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
+             cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk) -> RowSet {
+    let mut out: RowSet = rs_new();
+    out.vars = left.vars;
+    out.nvars = left.nvars;
+    if !anti {
+        if left.nvars + 1i64 > RS_VARS {
+            chk_fail_p(chk, "too many row variables in the join chain", "", "", "", "");
+            return rs_new();
+        }
+        out.vars[left.nvars] = right.vars[0];
+        out.nvars = left.nvars + 1i64;
+    }
+    let ji: i64 = qp_jfind(qp, node_w);
+    let tier: i32 = if ji >= 0i64 { qp.jtier[ji] } else { QT_LOOP };
+
+    // combined binds: left vars at slots 0.., the right var at slot left.nvars
+    let mut cb: RBinds = rs_binds(&left);
+    cb.bind_val(right.vars[0], RtVal::Null);
+    let cbp: *mut RBinds = &mut cb;
+    let rslot: i64 = left.nvars;
+
+    if tier == QT_HASH {
+        // ── build once over the NEW side ──
+        let mut rkeys: Vec<RtVal> = vec_new::<RtVal>();
+        let mut hm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+        let mp: *mut HashMap<u64, Vec<i64>> = &mut hm;
+        {
+            let mut rb: RBinds = rs_binds(&right);
+            let rbp: *mut RBinds = &mut rb;
+            let mut j: i64 = 0i64;
+            while j < right.nrows {
+                rs_load(&right, j, rbp);
+                let bk: RtVal = eval_sexpr(sx_of(qp.jbuild[ji]), cat, env, rbp, scratch);
+                rkeys.push(bk);
+                unsafe {
+                    let vp: *mut Vec<i64> = mp.get_or_insert(rt_key_hash(bk), vec_new::<i64>());
+                    vp.push(j);
+                }
+                j = j + 1i64;
+            }
+        }
+        // ── probe per bound row ──
+        let mut r: i64 = 0i64;
+        while r < left.nrows {
+            rs_load(&left, r, cbp);
+            let pk: RtVal = eval_sexpr(sx_of(qp.jprobe[ji]), cat, env, cbp, scratch);
+            let hp: u64 = rt_key_hash(pk);
+            let bp2: *const Vec<i64> = unsafe { mp.get(&hp) };
+            let mut matched: bool = false;
+            if (bp2 as i64) != 0i64 {
+                let bucket: &Vec<i64> = unsafe { &*bp2 };
+                let nb: i64 = bucket.len();
+                let mut t: i64 = 0i64;
+                while t < nb {
+                    let j2: i64 = bucket.get(t);
+                    if rt_eq(pk, rkeys.get(j2)) {
+                        unsafe { (&mut *cbp).set_val(rslot, rs_cell(&right, j2, 0i64)); }
+                        if eval_on_residual(on_w, qp.jequi[ji], cat, env, cbp, scratch) {
+                            matched = true;
+                            if !anti {
+                                rs_push_ext(&mut out, &left, r, true, rs_cell(&right, j2, 0i64));
+                            }
+                        }
+                    }
+                    t = t + 1i64;
+                }
+            }
+            if anti && !matched {
+                rs_push_ext(&mut out, &left, r, false, RtVal::Null);
+            }
+            r = r + 1i64;
+        }
+        return out;
+    }
+
+    // ── nested-loop tier: the FULL predicate per pair ──
+    let on_e: SExpr = sx_of(on_w);
+    let mut r2: i64 = 0i64;
+    while r2 < left.nrows {
+        rs_load(&left, r2, cbp);
+        let mut matched2: bool = false;
+        let mut j3: i64 = 0i64;
+        while j3 < right.nrows {
+            unsafe { (&mut *cbp).set_val(rslot, rs_cell(&right, j3, 0i64)); }
+            if rt_truthy(eval_sexpr(on_e, cat, env, cbp, scratch)) {
+                matched2 = true;
+                if !anti {
+                    rs_push_ext(&mut out, &left, r2, true, rs_cell(&right, j3, 0i64));
+                }
+            }
+            j3 = j3 + 1i64;
+        }
+        if anti && !matched2 {
+            rs_push_ext(&mut out, &left, r2, false, RtVal::Null);
+        }
+        r2 = r2 + 1i64;
+    }
+    return out;
+}
+
+// γ — single-pass grouping in FIRST-OCCURRENCE order (the static two-pass
+// discipline's observable order), accumulators per the SHARED rule table:
+// count→INT, sum/min/max→arg type, avg→f64 always (exact mean), UDA→the
+// registered init/step/fin triple over RtVal accumulators.
+fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk) -> RowSet {
+    let input: RowSet = exec_rexpr(g.input_expr(), cat, env, qp, scratch, chk);
+    if chk_bad(chk) { return rs_new(); }
+    let aggs: RAggArr = g.aggs_arr();
+    let an: i64 = qp.agg_n;
+    let mut b: RBinds = rs_binds(&input);
+    let bp: *mut RBinds = &mut b;
+    let mut gkeys: Vec<RtVal> = vec_new::<RtVal>();
+    let mut gacc:  Vec<RtVal> = vec_new::<RtVal>();   // stride an
+    let mut gcnt:  Vec<i64>   = vec_new::<i64>();
+    let mut r: i64 = 0i64;
+    while r < input.nrows {
+        rs_load(&input, r, bp);
+        let k: RtVal = eval_sexpr(g.key_expr(), cat, env, bp, scratch);
+        // group lookup by VALUE equality (rt_eq — group counts are small; a
+        // keyed index is a later optimization, mirrors the static O(n²) MVP)
+        let mut gi: i64 = -1i64;
+        let mut x: i64 = 0i64;
+        while x < gkeys.len() {
+            if rt_eq(gkeys.get(x), k) { gi = x; break; }
+            x = x + 1i64;
+        }
+        if gi < 0i64 {
+            gi = gkeys.len();
+            gkeys.push(k);
+            gcnt.push(0i64);
+            let mut c0: i64 = 0i64;
+            while c0 < an {
+                let fnid: i32 = qp.agg_fnid[c0];
+                let isf: bool = qp.agg_ret[c0] == CT_FLT;
+                if fnid == 1i32      { gacc.push(RtVal::I(0i64)); }
+                else if fnid == 2i32 { if isf { gacc.push(RtVal::F(0.0f64)); } else { gacc.push(RtVal::I(0i64)); } }
+                else if fnid == 3i32 { if isf { gacc.push(RtVal::F(1.7976931348623157e308f64)); } else { gacc.push(RtVal::I(9223372036854775807i64)); } }
+                else if fnid == 4i32 { if isf { gacc.push(RtVal::F(-1.7976931348623157e308f64)); } else { gacc.push(RtVal::I(-9223372036854775807i64 - 1i64)); } }
+                else if fnid == 5i32 { gacc.push(RtVal::F(0.0f64)); }
+                else {
+                    let init: QAggInit = env.a_init[qp.agg_uda[c0]];
+                    gacc.push(init());
+                }
+                c0 = c0 + 1i64;
+            }
+        }
+        gcnt.set(gi, gcnt.get(gi) + 1i64);
+        let mut c: i64 = 0i64;
+        while c < an {
+            let a: RAgg = aggs.agg_at(c);
+            let fnid2: i32 = qp.agg_fnid[c];
+            let isf2: bool = qp.agg_ret[c] == CT_FLT;
+            let cur: RtVal = gacc.get(gi * an + c);
+            let mut nv: RtVal = cur;
+            if fnid2 == 1i32 {
+                nv = RtVal::I(rt_i(cur) + 1i64);
+            } else {
+                let av: RtVal = eval_sexpr(a.arg_expr(), cat, env, bp, scratch);
+                if fnid2 == 2i32 {
+                    if isf2 { nv = RtVal::F(rt_f(cur) + rt_f(av)); }
+                    else    { nv = RtVal::I(rt_i(cur) + rt_i(av)); }
+                } else if fnid2 == 3i32 {
+                    if isf2 { if rt_f(av) < rt_f(cur) { nv = RtVal::F(rt_f(av)); } }
+                    else    { if rt_i(av) < rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
+                } else if fnid2 == 4i32 {
+                    if isf2 { if rt_f(av) > rt_f(cur) { nv = RtVal::F(rt_f(av)); } }
+                    else    { if rt_i(av) > rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
+                } else if fnid2 == 5i32 {
+                    nv = RtVal::F(rt_f(cur) + rt_f(av));
+                } else {
+                    let step: QAggStep = env.a_step[qp.agg_uda[c]];
+                    nv = step(cur, av);
+                }
+            }
+            gacc.set(gi * an + c, nv);
+            c = c + 1i64;
+        }
+        r = r + 1i64;
+    }
+    // materialize group rows: vars = key + output names
+    let mut out: RowSet = rs_new();
+    out.vars[0] = "key";
+    let mut cn: i64 = 0i64;
+    while cn < an {
+        let a2: RAgg = aggs.agg_at(cn);
+        out.vars[1i64 + cn] = a2.out;
+        cn = cn + 1i64;
+    }
+    out.nvars = 1i64 + an;
+    let mut gi2: i64 = 0i64;
+    while gi2 < gkeys.len() {
+        out.cells.push(gkeys.get(gi2));
+        let mut c2: i64 = 0i64;
+        while c2 < an {
+            let acc: RtVal = gacc.get(gi2 * an + c2);
+            let fnid3: i32 = qp.agg_fnid[c2];
+            if fnid3 == 5i32 {
+                // avg — ALWAYS FLT via the rule table (Quot(INT)=Quot(FLT)=FLT)
+                out.cells.push(RtVal::F(rt_f(acc) / (gcnt.get(gi2) as f64)));
+            } else if fnid3 == 0i32 {
+                let fin: QAggFin = env.a_fin[qp.agg_uda[c2]];
+                out.cells.push(fin(acc));
+            } else {
+                out.cells.push(acc);
+            }
+            c2 = c2 + 1i64;
+        }
+        out.nrows = out.nrows + 1i64;
+        gi2 = gi2 + 1i64;
+    }
+    return out;
+}
+
+// ── The OUTPUT table (projected values) + the wrapper walk ──────────────────
+struct OutTab { ncols: i64, cells: Vec<RtVal>, nrows: i64 }
+
+fn ot_new(nc: i64) -> OutTab {
+    return OutTab { ncols: nc, cells: vec_new::<RtVal>(), nrows: 0i64 };
+}
+
+// exec_root — RLimit?( RDistinct?( RProj( pipeline ) ) ).
+fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk) -> OutTab {
+    if chk_bad(chk) { return ot_new(0i64); }
+    match e {
+        RExpr::Limit(l) => {
+            let inner: OutTab = exec_root(l.input_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return ot_new(0i64); }
+            let mut n: i64 = l.n;
+            if l.is_param {
+                let ei: i64 = env.find(l.param);
+                n = if ei >= 0i64 { env.ivals[ei] } else { 0i64 };
+            }
+            if n < 0i64 { n = 0i64; }
+            if n >= inner.nrows { return inner; }
+            let mut out: OutTab = ot_new(inner.ncols);
+            let mut i: i64 = 0i64;
+            while i < n * inner.ncols {
+                out.cells.push(inner.cells.get(i));
+                i = i + 1i64;
+            }
+            out.nrows = n;
+            return out;
+        }
+        RExpr::Distinct(d) => {
+            let inner: OutTab = exec_root(d.input_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return ot_new(0i64); }
+            // set semantics: row-hash buckets + full rt_eq verification
+            let mut out: OutTab = ot_new(inner.ncols);
+            let mut hm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+            let mp: *mut HashMap<u64, Vec<i64>> = &mut hm;
+            let mut r: i64 = 0i64;
+            while r < inner.nrows {
+                let mut h: u64 = 1469598103934665603u64;
+                let mut c: i64 = 0i64;
+                while c < inner.ncols {
+                    h = h_step(h, rt_key_hash(inner.cells.get(r * inner.ncols + c)));
+                    c = c + 1i64;
+                }
+                let mut dup: bool = false;
+                unsafe {
+                    let vp: *mut Vec<i64> = mp.get_or_insert(h, vec_new::<i64>());
+                    let bv: &Vec<i64> = &*vp;
+                    let nb: i64 = bv.len();
+                    let mut t: i64 = 0i64;
+                    while t < nb && !dup {
+                        let o: i64 = bv.get(t);
+                        let mut same: bool = true;
+                        let mut c2: i64 = 0i64;
+                        while c2 < inner.ncols {
+                            if !rt_eq(out.cells.get(o * inner.ncols + c2),
+                                      inner.cells.get(r * inner.ncols + c2)) {
+                                same = false;
+                                break;
+                            }
+                            c2 = c2 + 1i64;
+                        }
+                        if same { dup = true; }
+                        t = t + 1i64;
+                    }
+                    if !dup {
+                        vp.push(out.nrows);
+                    }
+                }
+                if !dup {
+                    let mut c3: i64 = 0i64;
+                    while c3 < inner.ncols {
+                        out.cells.push(inner.cells.get(r * inner.ncols + c3));
+                        c3 = c3 + 1i64;
+                    }
+                    out.nrows = out.nrows + 1i64;
+                }
+                r = r + 1i64;
+            }
+            return out;
+        }
+        RExpr::Proj(p) => {
+            let rs: RowSet = exec_rexpr(p.input_expr(), cat, env, qp, scratch, chk);
+            if chk_bad(chk) { return ot_new(0i64); }
+            let mut b: RBinds = rs_binds(&rs);
+            let bp: *mut RBinds = &mut b;
+            let sel: SExpr = p.sel_expr();
+            let mut out: OutTab = ot_new(qp.ncols);
+            let mut r: i64 = 0i64;
+            while r < rs.nrows {
+                rs_load(&rs, r, bp);
+                match sel {
+                    SExpr::Tuple(tp) => {
+                        let items: SExprArr = tp.items_arr();
+                        let nn: i64 = items.len();
+                        let mut c: i64 = 0i64;
+                        while c < nn {
+                            out.cells.push(eval_sexpr(items.arg_at(c), cat, env, bp, scratch));
+                            c = c + 1i64;
+                        }
+                    }
+                    _ => {
+                        out.cells.push(eval_sexpr(sel, cat, env, bp, scratch));
+                    }
+                }
+                out.nrows = out.nrows + 1i64;
+                r = r + 1i64;
+            }
+            return out;
+        }
+        _ => {
+            chk_fail_p(chk, "internal: unexpected plan root", "", "", "", "");
+            return ot_new(0i64);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QRows — the materialized result (ADR §3). SELF-CONTAINED: every string cell
+// is interned into the QRows-OWNED Writ arena at materialization, so rows
+// outlive the run's scratch AND the Query itself. Node cells (identity/find
+// projections) are handles into the CALLER's data doc — the caller keeps it
+// alive while reading them (the bind_source contract).
+// ═══════════════════════════════════════════════════════════════════════════
+pub struct QRows {
+    arena: Writ,
+    ncols: i64,
+    kinds: [i32; 8],   // CT_* per column (checker-stamped)
+    cells: Vec<RtVal>,
+    nrows: i64,
+}
+
+impl QRows {
+    pub fn row_count(self: &QRows) -> i64 { return self.nrows; }
+    pub fn col_count(self: &QRows) -> i64 { return self.ncols; }
+    // Option-shaped accessor for `select first` / `find`: did a row match?
+    pub fn is_some(self: &QRows) -> bool { return self.nrows > 0i64; }
+
+    fn cell(self: &QRows, r: i64, c: i64) -> RtVal {
+        if r < 0i64 || r >= self.nrows || c < 0i64 || c >= self.ncols { return RtVal::Null; }
+        return self.cells.get(r * self.ncols + c);
+    }
+
+    pub fn get_i64(self: &QRows, r: i64, c: i64) -> i64 { return rt_i(self.cell(r, c)); }
+    pub fn get_f64(self: &QRows, r: i64, c: i64) -> f64 { return rt_f(self.cell(r, c)); }
+    pub fn get_bool(self: &QRows, r: i64, c: i64) -> bool { return rt_b(self.cell(r, c)); }
+    // The view is owned by THIS QRows (interned) — valid while it lives.
+    pub fn get_str(self: &QRows, r: i64, c: i64) -> str { return rt_s(self.cell(r, c)); }
+    // A row-object handle (identity / `find` projections).
+    pub fn get_node(self: &QRows, r: i64, c: i64) -> WAny { return rt_node(self.cell(r, c)); }
+
+    // The column's checked type name: "i64"/"str"/"bool"/"f64"/"node"/"".
+    pub fn col_ty(self: &QRows, c: i64) -> str {
+        if c < 0i64 || c >= self.ncols { return ""; }
+        let t: i32 = self.kinds[c];
+        if t == CT_INT  { return "i64"; }
+        if t == CT_STR  { return "str"; }
+        if t == CT_BOOL { return "bool"; }
+        if t == CT_FLT  { return "f64"; }
+        if t == CT_NODE { return "node"; }
+        return "";
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Query — compile-once / run-many dynamic query (ADR §3).
+// ═══════════════════════════════════════════════════════════════════════════
+pub struct Query {
+    doc:      Writ,            // owns the parsed plan + lowered algebra
+    root:     i64,             // simplified RExpr root word (into `doc`)
+    empty:    bool,            // queue-1 empty signal → zero-row fast path
+    sel_mode: i32,             // QM_ALL / QM_FIRST / QM_FIND
+    cat:      SchemaCatalog,   // catalog snapshot
+}
+
+impl Query {
+    // parse → reject rel blocks → envelope validation → lower (REUSED) →
+    // simplify (REUSED) → env-independent checks. Errors are VALUES.
+    pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Query, QError> {
+        let doc: Writ = writ_new(8192i64);
+        let prog_any: WAny = parse_program(text, &doc);
+        if prog_any.is_null() {
+            return Result::Err(qerr("Query::compile: parse error — expected `from <src> <var> [ [anti] join … on … ]* [where …] [group by … aggregate …] select …` (or `from <src> <var> find <pred>`)"));
+        }
+        let prog: RQProgram = prog_any.view::<RQProgram>();
+        if prog.has_rels() {
+            return Result::Err(qerr("Query::compile: rel blocks — recursive/derived relations land in the next slice"));
+        }
+        let entry: RQuery = prog.entry_any().view::<RQuery>();
+        // result-envelope mode + `first` exclusions (the static walker's rule)
+        let mut sel_mode: i32 = QM_ALL;
+        let mut first_bad: bool = false;
+        match entry {
+            RQuery::Simple(s) => {
+                if s.sel_first { sel_mode = QM_FIRST; if s.distinct || s.has_limit { first_bad = true; } }
+            }
+            RQuery::Join(j) => {
+                if j.sel_first { sel_mode = QM_FIRST; if j.distinct || j.has_limit { first_bad = true; } }
+            }
+            RQuery::Aggr(g) => {
+                if g.sel_first { sel_mode = QM_FIRST; if g.distinct || g.has_limit { first_bad = true; } }
+            }
+            RQuery::Find(_f) => { sel_mode = QM_FIND; }
+        }
+        if first_bad {
+            return Result::Err(qerr("Query::compile: `select first` excludes distinct/limit"));
+        }
+        // REUSED queue-1 passes: lowering + the relational peephole.
+        let root0: WRef<RExpr> = lower_rquery_to_rexpr(entry, &doc);
+        let sig: RSimplified = simplify_rexpr_ref(root0, root0.any().view::<RExpr>(), &doc);
+        // env-INDEPENDENT checks (sources/params/UDFs live on the env → run).
+        let e0: QEnv = QEnv::new();
+        let mut lb: CBinds = cbinds_new();
+        let mut chk: Chk = chk_new();
+        chk.defer_unknown_fn = true;
+        let mut qp: QPlan = qplan_new();
+        check_rexpr(sig.root.any().view::<RExpr>(), cat, &e0, false, &mut lb, &mut chk, &mut qp);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        return Result::Ok(Query {
+            doc: doc,
+            root: sig.root.any().raw(),
+            empty: sig.empty,
+            sel_mode: sel_mode,
+            cat: catalog_clone(cat),
+        });
+    }
+
+    // STRICT check against (catalog + this env) — including the join-cascade
+    // decision from CHECKED types — then execute. Re-entrant over different
+    // envs (compile-once/run-many; the check + cascade are per-env because
+    // sources, params and the UDF/UDA registry live there).
+    pub fn run(self: &Query, env: &QEnv) -> Result<QRows, QError> {
+        let root: RExpr = WAny::ref_to(self.root as *const u8).view::<RExpr>();
+        let mut lb: CBinds = cbinds_new();
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        check_rexpr(root, &self.cat, env, true, &mut lb, &mut chk, &mut qp);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        let mut rows: QRows = QRows {
+            arena: writ_new(1024i64),
+            ncols: qp.ncols,
+            kinds: qp.ckind,
+            cells: vec_new::<RtVal>(),
+            nrows: 0i64,
+        };
+        if self.empty { return Result::Ok(rows); }   // queue-1 empty signal
+        let scratch: Writ = writ_new(2048i64);
+        let cp: *mut Chk = &mut chk;
+        let out: OutTab = exec_root(root, &self.cat, env, &qp, &scratch, cp);
+        if chk_bad(cp) { return Result::Err(chk_err(chk)); }
+        // materialize: first/find keep at most one row; string views are
+        // interned into the QRows arena (self-contained result).
+        let mut nkeep: i64 = out.nrows;
+        if (self.sel_mode == QM_FIRST || self.sel_mode == QM_FIND) && nkeep > 1i64 {
+            nkeep = 1i64;
+        }
+        let mut r: i64 = 0i64;
+        while r < nkeep {
+            let mut c: i64 = 0i64;
+            while c < out.ncols {
+                let v: RtVal = out.cells.get(r * out.ncols + c);
+                match v {
+                    RtVal::S(s) => { rows.cells.push(RtVal::S(intern_str(&rows.arena, s))); }
+                    _ => { rows.cells.push(v); }
+                }
+                c = c + 1i64;
+            }
+            r = r + 1i64;
+        }
+        rows.nrows = nkeep;
+        return Result::Ok(rows);
     }
 }

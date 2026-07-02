@@ -1,0 +1,127 @@
+// queue-2 I2 — QUERY errors are VALUES (ADR 0012-queue2 §3): compile-phase
+// (parse error, rel-block rejection, catalog-wide unknown field, `first`
+// envelope rule) vs run-phase (unknown source, unknown field on the RESOLVED
+// schema, unknown fn/aggregate, unbound limit param) — all asserted by
+// message substring, never compiler diagnostics.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.query;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema Emp : code(0x0B07_0000_0000_0001) {
+    name: str = 0,
+    age:  i64 = 1,
+}
+
+// A second schema declaring `wage` so `e.wage` PASSES the catalog-wide
+// compile check but FAILS the run-phase resolved-schema check.
+pub schema Pay : code(0x0B07_0000_0000_0002) {
+    wage: i64 = 0,
+}
+
+impl Emp { pub fn as_any(self: &Emp) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+resource cat = schema_catalog!{ Emp, Pay };
+
+fn mk_emp(d: &Writ, name: str, age: i64) -> WAny {
+    let e: Emp = d.make::<Emp>();
+    e.name = name;
+    e.age = age;
+    // launder locally: the WAny targets the TOM in `d`'s arena (as_ref idiom)
+    let w: i64 = e.m as i64;
+    return WAny::ref_to(w as *const u8);
+}
+
+fn expect_compile_err(text: str, c: &SchemaCatalog, frag: str) -> bool {
+    match Query::compile(text, c) {
+        Result::Ok(_q) => { return false; }
+        Result::Err(e) => { return str_contains(e.message(), frag); }
+    }
+}
+
+fn expect_run_err(text: str, c: &SchemaCatalog, env: &QEnv, frag: str) -> bool {
+    match Query::compile(text, c) {
+        Result::Ok(q) => {
+            match q.run(env) {
+                Result::Ok(_r) => { return false; }
+                Result::Err(e) => { return str_contains(e.message(), frag); }
+            }
+        }
+        Result::Err(_e2) => { return false; }
+    }
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+
+    // ── compile-phase (env-independent) ───────────────────────────────────
+    if !expect_compile_err("select e.name from emps e", &c, "parse error") { return 1i32; }
+    if !expect_compile_err(
+        "rel r(a: i64) { from emps e select e.age; } from emps e select e.age",
+        &c, "rel blocks") { return 2i32; }
+    if !expect_compile_err("from emps e select e.salary", &c,
+        "unknown field 'salary'") { return 3i32; }
+    if !expect_compile_err("from emps e where len(e.name, e.name) > 0 select e.name", &c,
+        "wrong number of arguments for 'len'") { return 4i32; }
+
+    // ── run-phase (strict, needs the env) ─────────────────────────────────
+    let d: Writ = writ_new(4096i64);
+    let emps: &mut WArray<WAny> = d.array(4i64);
+    emps.push(mk_emp(&d, "Ann", 45i64));
+    let src: WAny = WAny::ref_to(emps as *const WArray<WAny> as *const u8);
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("emps", src);
+
+    // unknown source: nothing bound under `people`
+    if !expect_run_err("from people p select p.age", &c, &env,
+        "unknown source 'people'") { return 5i32; }
+    // a field of ANOTHER schema, not the resolved one
+    if !expect_run_err("from emps e select e.wage", &c, &env,
+        "unknown field 'wage' on schema 'Emp'") { return 6i32; }
+    // unknown fn: compile DEFERS (could be a UDF), run resolves → error
+    if !expect_run_err("from emps e where frob(e.age) > 0 select e.name", &c, &env,
+        "unknown function 'frob'") { return 7i32; }
+    // unknown aggregate (not builtin, not registered)
+    if !expect_run_err(
+        "from emps e group by e.age aggregate p = prodx(e.age) select key",
+        &c, &env, "unknown aggregate 'prodx'") { return 8i32; }
+    // unbound limit param
+    if !expect_run_err("from emps e select e.name limit k", &c, &env,
+        "limit parameter 'k' must be bound as i64") { return 9i32; }
+    // a scalar bound where a source is scanned
+    let mut env2: QEnv = QEnv::new();
+    env2.bind_i64("emps", 3i64);
+    if !expect_run_err("from emps e select e.age", &c, &env2,
+        "not bound as a source") { return 10i32; }
+    // sum over a str argument — outside the rule table's domain
+    if !expect_run_err(
+        "from emps e group by e.age aggregate t = sum(e.name) select key",
+        &c, &env, "aggregate 'sum' needs a numeric argument") { return 11i32; }
+    // distinct over f64 — set semantics require Eq
+    if !expect_run_err(
+        "from emps e select distinct e.age * 1.5", &c, &env,
+        "set semantics require Eq") { return 12i32; }
+
+    // ── and the happy path still runs ─────────────────────────────────────
+    match Query::compile("from emps e select e.age", &c) {
+        Result::Ok(q) => {
+            match q.run(&env) {
+                Result::Ok(r) => {
+                    if r.row_count() != 1i64 { return 13i32; }
+                    if r.get_i64(0i64, 0i64) != 45i64 { return 14i32; }
+                }
+                Result::Err(_e) => { return 15i32; }
+            }
+        }
+        Result::Err(_e2) => { return 16i32; }
+    }
+
+    return 0i32;
+}

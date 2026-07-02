@@ -39,7 +39,8 @@ use logos.std.wql.plan;
 use logos.std.wql.el;         // ElTypes, el_types_new, el_ty_of_name, EL_TY_*
 use logos.std.wql.params;     // MacroParams — the parsed wql!(…) param list
 use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
-use logos.std.wql.optimize;   // simplify_sexpr — the IR→IR const-fold pass
+use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
+use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
 use logos.std.wql.reflect;    // stamp_types_from_schema
 use logos.mem.string;
 use logos.lang.str;
@@ -76,250 +77,6 @@ pub fn SELM_FIND()  -> i32 { return 2i32; }
 // ══════════════════════════════════════════════════════════════════════════
 // PART 1 — lower_rquery_to_rexpr : surface PLAN → real RExpr algebra
 // ══════════════════════════════════════════════════════════════════════════
-
-// A null SExpr / RExpr edge (the "absent" edge — e.g. no `where` predicate).
-fn null_sref() -> WRef<SExpr> {
-    let z: WAny = WAny::Ref(0i64 as *const u8);
-    return WRef::<SExpr>::from_any(z);
-}
-fn null_rref() -> WRef<RExpr> {
-    let z: WAny = WAny::Ref(0i64 as *const u8);
-    return WRef::<RExpr>::from_any(z);
-}
-
-// Build an RScan leaf carrying the full source binding (self-describing IR).
-fn make_scan(h: &Writ, src_name: str, row_ty: str, var_name: str) -> WRef<RExpr> {
-    let n: RScan = h.make::<RScan>();
-    n.src_name = src_name;
-    n.row_ty   = row_ty;
-    n.var_name = var_name;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RFilter over `pred`.
-fn make_filter(h: &Writ, input: WRef<RExpr>, pred: WRef<SExpr>) -> WRef<RExpr> {
-    let n: RFilter = h.make::<RFilter>();
-    n.input = input;
-    n.pred  = pred;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RProj over the projection `sel`.
-fn make_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
-    let n: RProj = h.make::<RProj>();
-    n.input = input;
-    n.sel   = sel;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RSort by `key` (asc; `desc` flips).
-fn make_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef<RExpr> {
-    let n: RSort = h.make::<RSort>();
-    n.input = input;
-    n.key   = key;
-    n.desc  = desc;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RLimit (first-n; literal or scalar-param name).
-fn make_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
-    let n: RLimit = h.make::<RLimit>();
-    n.input    = input;
-    n.n        = n0;
-    n.is_param = is_param;
-    n.param    = param;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RDistinct (dedup the projected values).
-fn make_distinct(h: &Writ, input: WRef<RExpr>) -> WRef<RExpr> {
-    let n: RDistinct = h.make::<RDistinct>();
-    n.input = input;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// An IDENTITY projection selector — a bare identifier naming the loop var (the
-// exact node shape the EL parser builds for a bare ident: SField, NULL base).
-// `find P` lowers with this selector so the tree stays a well-formed RProj and
-// the Phase-3 identity peephole recognizes it (find + const-true pred → head
-// row without a filter loop).
-fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
-    let n: SField = h.make::<SField>();
-    n.base = null_sref();
-    n.name = name;
-    return WRef::<SExpr>::from_any(n.as_ref());
-}
-
-// Lower an RQSimple → RLimit?( RDistinct?( RProj( RSort?( RFilter?( RScan ) ), select ) ) ).
-// Pipeline order: where → order → project → distinct → limit. RSort sits UNDER
-// the projection (its key ranges over the row var); RDistinct/RLimit sit ABOVE
-// it (they act on the projected values).
-fn lower_simple(s: RQSimple, h: &Writ) -> WRef<RExpr> {
-    let scan: WRef<RExpr> = make_scan(h, s.src_name, s.row_ty, s.var_name);
-    let mut input: WRef<RExpr> = scan;
-    if s.has_where {
-        input = make_filter(h, input, s.where_pred);
-    }
-    if s.has_order {
-        input = make_sort(h, input, s.order_key, s.order_desc);
-    }
-    let mut root: WRef<RExpr> = make_proj(h, input, s.select);
-    if s.distinct {
-        root = make_distinct(h, root);
-    }
-    if s.has_limit {
-        root = make_limit(h, root, s.limit_n, s.limit_is_param, s.limit_param);
-    }
-    return root;
-}
-
-// Fold a join-step fan-out LEFT-DEEP onto a base input: step k wraps the
-// accumulated tree in RJoin(acc, RScan_k, on_k) — or RAnti at an anti step —
-// so an N-way chain is ordinary composition of the EXISTING binary algebra:
-// RJoin(RJoin(RScan a, RScan b, on1), RScan c, on2).
-// A TRAVERSAL step (is_edge, slice D) wraps the accumulated tree in the UNARY
-// graph step REdge{input, src, base_var, path, var_name, row_ty, on, has_on,
-// is_anti} — containment joins have no right scan (the source is a field path
-// of an outer-bound row var, walker-validated + stamped).
-fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> WRef<RExpr> {
-    let mut cur: WRef<RExpr> = input0;
-    let ns: i64 = steps.len();
-    let mut i: i64 = 0i64;
-    while i < ns {
-        let st: RQJoinStep = steps.step_at(i);
-        if st.is_edge {
-            let n: REdge = h.make::<REdge>();
-            n.input    = cur;
-            n.src      = st.src_name;   // walker-stamped full expression text
-            n.base_var = st.base_var;
-            // Join the grammar's segment fan-out into the dotted path text
-            // (self-describing IR — queue-2 re-resolves base_var + path).
-            let mut pb: String = String::new();
-            let segs: RQPathSegArr = st.path_arr();
-            let np: i64 = segs.len();
-            let mut k: i64 = 0i64;
-            while k < np {
-                if k > 0i64 { pb.push_str("."); }
-                pb.push_str(segs.seg_at(k).name);
-                k = k + 1i64;
-            }
-            n.path     = string_as_str(&pb);
-            n.var_name = st.var_name;
-            n.row_ty   = st.row_ty;
-            n.has_on   = st.has_on;
-            n.on       = st.on;
-            n.is_anti  = st.is_anti;
-            cur = WRef::<RExpr>::from_any(n.as_ref());
-        } else if st.is_anti {
-            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
-            let n: RAnti = h.make::<RAnti>();
-            n.left = cur; n.right = right; n.on = st.on;
-            cur = WRef::<RExpr>::from_any(n.as_ref());
-        } else {
-            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
-            let n: RJoin = h.make::<RJoin>();
-            n.left = cur; n.right = right; n.on = st.on;
-            cur = WRef::<RExpr>::from_any(n.as_ref());
-        }
-        i = i + 1i64;
-    }
-    return cur;
-}
-
-// Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( join-chain ) ), select ) ) ).
-fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
-    let base: WRef<RExpr> = make_scan(h, j.a_name, j.a_ty, j.x_var);
-    let jn: WRef<RExpr> = fold_join_steps(base, j.steps_arr(), h);
-    let mut input: WRef<RExpr> = jn;
-    if j.has_where {
-        input = make_filter(h, input, j.where_pred);
-    }
-    if j.has_order {
-        input = make_sort(h, input, j.order_key, j.order_desc);
-    }
-    let mut root: WRef<RExpr> = make_proj(h, input, j.select);
-    if j.distinct {
-        root = make_distinct(h, root);
-    }
-    if j.has_limit {
-        root = make_limit(h, root, j.limit_n, j.limit_is_param, j.limit_param);
-    }
-    return root;
-}
-
-// Lower an RQAggr →
-//   RLimit?( RDistinct?( RProj( RSort?( RFilter_having?( RAggr( RFilter?( RScan ), key, aggSpecs ) ) ), select ) ) ).
-// Each surface `RQAgg` spec is copied to a relational `RAgg` (out/fn_name/arg).
-// `having` gets NO node of its own — it is an ordinary RFilter over the RAggr
-// output (the predicate ranges over the group key + aggregate output names).
-fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
-    let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
-    let mut input: WRef<RExpr> = scan;
-    // Optional join steps: the aggregate ranges over the JOINED stream (the
-    // same left-deep fold as the join shape; where filters ABOVE the chain).
-    if g.has_steps() {
-        input = fold_join_steps(input, g.steps_arr(), h);
-    }
-    if g.has_where {
-        input = make_filter(h, input, g.where_pred);
-    }
-    // Copy the surface aggregate-column list → relational RAgg specs.
-    let src_aggs: RQAggArr = g.aggs_arr();
-    let acount: i64 = src_aggs.len();
-    let mut ra: RAggArr = h.make::<RAggArr>();
-    ra.set_len(acount);
-    let mut i: i64 = 0i64;
-    while i < acount {
-        let sa: RQAgg = src_aggs.agg_at(i);
-        let mut rg: RAgg = h.make::<RAgg>();
-        rg.out     = sa.name;
-        rg.fn_name = sa.fn_name;
-        rg.has_arg = sa.has_arg;
-        rg.arg     = sa.arg;
-        ra.set_agg(i, rg.as_ref());
-        i = i + 1i64;
-    }
-    let n: RAggr = h.make::<RAggr>();
-    n.input = input;
-    n.key   = g.key;
-    n.aggs  = WRef::<RAggArr>::from_any(ra.as_ref());
-    let mut top: WRef<RExpr> = WRef::<RExpr>::from_any(n.as_ref());
-    if g.has_having {
-        top = make_filter(h, top, g.having_pred);
-    }
-    if g.has_order {
-        top = make_sort(h, top, g.order_key, g.order_desc);
-    }
-    let mut root: WRef<RExpr> = make_proj(h, top, g.select);
-    if g.distinct {
-        root = make_distinct(h, root);
-    }
-    if g.has_limit {
-        root = make_limit(h, root, g.limit_n, g.limit_is_param, g.limit_param);
-    }
-    return root;
-}
-
-// Lower an RQFind → RProj( RFilter( RScan ), identity ) — the RFilter(RScan)
-// shape with an IDENTITY projection; the single-row discipline is the SELM_FIND
-// envelope mode, not an algebra node. The Phase-3 peepholes apply unchanged:
-// const-false pred → empty (constant None), const-true pred → identity (head
-// row, no filter loop).
-fn lower_find(f: RQFind, h: &Writ) -> WRef<RExpr> {
-    let scan: WRef<RExpr> = make_scan(h, f.src_name, f.row_ty, f.var_name);
-    let flt: WRef<RExpr> = make_filter(h, scan, f.pred);
-    return make_proj(h, flt, make_ident_sel(h, f.var_name));
-}
-
-// The lowering entry: surface PLAN → real RExpr algebra tree.
-pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
-    match plan {
-        RQuery::Simple(s) => { return lower_simple(s, h); }
-        RQuery::Join(j)   => { return lower_join(j, h); }
-        RQuery::Aggr(g)   => { return lower_aggr(g, h); }
-        RQuery::Find(f)   => { return lower_find(f, h); }
-    }
-}
 
 // The full PLAN → RExpr → simplify → emit pipeline (Phase 3): LOWER the surface
 // plan to the RExpr algebra, run the RELATIONAL peephole pass `simplify_rexpr`
@@ -1403,74 +1160,8 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
     }
 }
 
-// ── Predicate decomposition (Part-2 analysis) ────────────────────────────────
-// Top-level `&&` conjunction terms, stored as raw arena words (WAny edges are
-// reconstructed on read — the provenance-laundering idiom).
-struct TermList { w: [i64; 16], n: i64 }
-
-fn term_list_new() -> TermList { return TermList { w: [0i64; 16], n: 0i64 }; }
-
+// Rebuild an SExpr view from a raw arena word (the provenance-laundering idiom).
 fn sexpr_of_word(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
-
-fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
-    let e: SExpr = e_ref.any().view::<SExpr>();
-    match e {
-        SExpr::Bin(b) => {
-            if b.op == OP_AND() {
-                split_and_terms(b.lhs, tl);
-                split_and_terms(b.rhs, tl);
-                return;
-            }
-        }
-        _ => { }
-    }
-    if tl.n < 16i64 {
-        tl.w[tl.n] = e_ref.any().raw();
-        tl.n = tl.n + 1i64;
-    }
-}
-
-// Name-usage mask of an expression: bit 1 — references the NEW step's row var;
-// bit 2 — references any OTHER name (an already-bound row var, a scalar param,
-// or an unknown ident — all "bound side" for classification). Literals add
-// nothing. Field STEPS (`x.k`) classify by their ROOT name.
-fn refs_mask(e: SExpr, new_var: str) -> i32 {
-    match e {
-        SExpr::Lit(_)   => { return 0i32; }
-        SExpr::Param(p) => { if str_eq(p.name, new_var) { return 1i32; } return 2i32; }
-        SExpr::Var(v)   => { if str_eq(v.name, new_var) { return 1i32; } return 2i32; }
-        SExpr::Field(f) => {
-            let bref: WRef<SExpr> = f.base;
-            if bref.any().is_null() {
-                if str_eq(f.name, new_var) { return 1i32; }
-                return 2i32;
-            }
-            return refs_mask(f.base_expr(), new_var);
-        }
-        SExpr::Bin(b)  => { return refs_mask(b.lhs_expr(), new_var) | refs_mask(b.rhs_expr(), new_var); }
-        SExpr::Un(u)   => { return refs_mask(u.arg_expr(), new_var); }
-        SExpr::Cond(c) => {
-            return refs_mask(c.cond_expr(), new_var)
-                 | refs_mask(c.then_expr(), new_var)
-                 | refs_mask(c.else_expr(), new_var);
-        }
-        SExpr::Call(c) => {
-            let args: SExprArr = c.args_arr();
-            let mut m: i32 = 0i32;
-            let mut i: i64 = 0i64;
-            while i < args.len() { m = m | refs_mask(args.arg_at(i), new_var); i = i + 1i64; }
-            return m;
-        }
-        SExpr::Comp(_) => { return 2i32; }   // ranges over a slice param — bound side
-        SExpr::Tuple(tp) => {
-            let items: SExprArr = tp.items_arr();
-            let mut m2: i32 = 0i32;
-            let mut k: i64 = 0i64;
-            while k < items.len() { m2 = m2 | refs_mask(items.arg_at(k), new_var); k = k + 1i64; }
-            return m2;
-        }
-    }
-}
 
 // The per-step strategy decision (POD; the emitted TEXT lands in the caller's
 // build/probe/resid/pred Strings).
@@ -2841,8 +2532,12 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
         if ka.has_arg {
             if infer_ty(ka.arg_expr(), t) == EL_TY_FLT() { arg_is_flt = true; }
         }
-        let is_f: bool = kfn == AGG_AVG()
-            || ((kfn == AGG_SUM() || kfn == AGG_MIN() || kfn == AGG_MAX()) && arg_is_flt);
+        // THE SHARED RULE TABLE (el::agg_result_ty — one source for static +
+        // dynamic tiers): FLT result ⇔ f64 accumulator/column. count → INT,
+        // sum/min/max → arg type, avg → Quot(T) = FLT; UDA / out-of-domain
+        // names return -1 (their repr is decided by the UDA machinery).
+        let aty: i32 = if arg_is_flt { EL_TY_FLT() } else { EL_TY_INT() };
+        let is_f: bool = agg_result_ty(ka.fn_name, aty) == EL_TY_FLT();
         if ki < 8i64 {
             agg_flt[ki]  = is_f;
             agg_cast[ki] = is_f && !arg_is_flt && kfn != AGG_COUNT();

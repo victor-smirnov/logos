@@ -156,6 +156,7 @@ sym	logos.mem.any.FieldInfo__type_id__g__ref_T
 sym	logos.mem.any.FieldsView__type_id__g__ref_T
 sym	logos.mem.any.TypeInfo__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.encoding.csv.CsvReader__type_id__g__ref_T
 sym	logos.mem.encoding.json.JsonError__type_id__g__ref_T
@@ -231,6 +232,9 @@ sym	logos.std.process.ExitStatus__type_id__g__ref_T
 sym	logos.std.process.LineReader__type_id__g__ref_T
 sym	logos.std.query.QEnv__type_id__g__ref_T
 sym	logos.std.query.QError__type_id__g__ref_T
+sym	logos.std.query.QRows__type_id__g__ref_T
+sym	logos.std.query.Query__type_id__g__ref_T
+sym	logos.std.query.RtVal__type_id__g__ref_T
 sym	logos.std.query.SchemaCatalog__type_id__g__ref_T
 sym	logos.std.query.Tpl__type_id__g__ref_T
 sym	logos.std.random.Rng__type_id__g__ref_T
@@ -993,6 +997,7 @@ sym	logos_lang..logos.lang.hash.SipHasher__write_i64__f__refmut_SipHasher__i64
 sym	logos_lang..logos.lang.hash.SipHasher__write_u32__f__refmut_SipHasher__u32
 sym	logos_lang..logos.lang.hash.SipHasher__write_u64__f__refmut_SipHasher__u64
 sym	logos_lang..logos.lang.hash.i64__hash__g__ref_i64__refmut_H__FxHasher
+sym	logos_lang..logos.lang.hash.u64__hash__g__ref_u64__refmut_H__FxHasher
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__count__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__enumerate__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__filter__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool
@@ -2156,6 +2161,42 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__skip_while__g__OptionIter$
 sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$QRows__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Query__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$ReadDir__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$ReadDir__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$ReadDir__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2602,6 +2643,8 @@ sym	logos_lang..logos.lang.iter.Option__ParseBoolError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ParseFloatError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ParseIntError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__QError__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__QRows__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__Query__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ReadDir__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Request__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Response__into_iter__g__Option
@@ -2645,6 +2688,8 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ParseBoolError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ParseFloatError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ParseIntError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__QError
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__QRows
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Query
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ReadDir
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Request
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Response
@@ -3004,6 +3049,36 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__skip_while__g__ResultIter$G1
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Query__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$ReadDir__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$ReadDir__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$ReadDir__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3280,6 +3355,8 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$u8__take_while__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.Result__File__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__IoRing__IoUringError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Json__JsonError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__QRows__QError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__Query__QError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__ReadDir__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Request__HttpError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Response__HttpError__into_iter__g__Result
@@ -3308,6 +3385,8 @@ sym	logos_lang..logos.lang.iter.Result__i8__ConvertError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__File__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__QRows__QError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Query__QError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Response__HttpError
@@ -5258,6 +5337,34 @@ sym	logos_lang..logos.lang.option.Option__QError__unwrap__g__Option
 sym	logos_lang..logos.lang.option.Option__QError__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__QError__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__QError__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__QRows__default__g__void
+sym	logos_lang..logos.lang.option.Option__QRows__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__QRows__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__QRows__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__QRows__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__QRows__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__QRows__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__QRows__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__QRows__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__QRows__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__QRows__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__QRows__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__QRows__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__QRows__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Query__default__g__void
+sym	logos_lang..logos.lang.option.Option__Query__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__Query__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Query__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Query__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Query__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Query__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Query__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__Query__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__Query__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__Query__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__Query__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__Query__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__Query__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__ReadDir__default__g__void
 sym	logos_lang..logos.lang.option.Option__ReadDir__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__ReadDir__filter__g__Option__fn(T) -> bool
@@ -5412,6 +5519,8 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__default__g__void__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__default__g__void__ParseIntError
 sym	logos_lang..logos.lang.option.Option__default__g__void__QError
+sym	logos_lang..logos.lang.option.Option__default__g__void__QRows
+sym	logos_lang..logos.lang.option.Option__default__g__void__Query
 sym	logos_lang..logos.lang.option.Option__default__g__void__ReadDir
 sym	logos_lang..logos.lang.option.Option__default__g__void__Request
 sym	logos_lang..logos.lang.option.Option__default__g__void__Response
@@ -5461,6 +5570,8 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ParseBool
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ParseIntError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__QError
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__QRows
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Query
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ReadDir
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Request
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Response
@@ -5538,6 +5649,8 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Pars
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ParseIntError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__QError
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__QRows
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Query
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ReadDir
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Request
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Response
@@ -5643,6 +5756,8 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__QError
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__QRows
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Query
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Request
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Response
@@ -5692,6 +5807,8 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__QError
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__QRows
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Query
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Request
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Response
@@ -5741,6 +5858,8 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ParseIntError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__QError
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__QRows
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Query
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ReadDir
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Request
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Response
@@ -5790,6 +5909,8 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__QError
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__QRows
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Query
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Request
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Response
@@ -5839,6 +5960,8 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Pa
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__QError
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__QRows
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Query
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Request
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Response
@@ -5916,6 +6039,8 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ParseBoo
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ParseIntError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__QError
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__QRows
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Query
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ReadDir
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Request
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Response
@@ -5965,6 +6090,8 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__QError
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__QRows
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Query
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Request
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Response
@@ -6070,6 +6197,8 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__QError
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__QRows
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Query
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Request
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Response
@@ -6119,6 +6248,8 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ParseBoolErro
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ParseIntError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__QError
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__QRows
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Query
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ReadDir
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Request
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Response
@@ -6168,6 +6299,8 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ParseIntError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__QError
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__QRows
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Query
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ReadDir
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Request
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Response
@@ -6217,6 +6350,8 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__QError
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__QRows
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Query
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ReadDir
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Request
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Response
@@ -6459,6 +6594,30 @@ sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__QRows__QError__err__g__Result
+sym	logos_lang..logos.lang.result.Result__QRows__QError__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__QRows__QError__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__QRows__QError__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__QRows__QError__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__QRows__QError__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__QRows__QError__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__QRows__QError__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__QRows__QError__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__QRows__QError__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__QRows__QError__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__QRows__QError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__Query__QError__err__g__Result
+sym	logos_lang..logos.lang.result.Result__Query__QError__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__Query__QError__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__Query__QError__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__Query__QError__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__Query__QError__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__Query__QError__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__Query__QError__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__Query__QError__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__Query__QError__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__Query__QError__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__Query__QError__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__ReadDir__i32__err__g__Result
 sym	logos_lang..logos.lang.result.Result__ReadDir__i32__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__ReadDir__i32__expect_err__g__Result__slice_u8
@@ -6594,6 +6753,8 @@ sym	logos_lang..logos.lang.result.Result__char__ConvertError__unwrap_or_else__g_
 sym	logos_lang..logos.lang.result.Result__err__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__QRows__QError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Response__HttpError
@@ -6628,6 +6789,8 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__u8__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__File__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__QRows__QError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Query__QError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Response__HttpError
@@ -6662,6 +6825,8 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u8__Conve
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__File__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__QRows__QError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Query__QError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Response__HttpError
@@ -6864,6 +7029,8 @@ sym	logos_lang..logos.lang.result.Result__i8__ConvertError__unwrap_or_else__g__R
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__File__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__QRows__QError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Response__HttpError
@@ -6898,6 +7065,8 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u8__ConvertErro
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__QRows__QError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Response__HttpError
@@ -6932,6 +7101,8 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__QRows__QError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Response__HttpError
@@ -6966,6 +7137,8 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__QRows__QError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Response__HttpError
@@ -7000,6 +7173,8 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__QRows__QError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Response__HttpError
@@ -7106,6 +7281,8 @@ sym	logos_lang..logos.lang.result.Result__u8__ConvertError__unwrap_or_else__g__R
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__QRows__QError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Response__HttpError
@@ -7140,6 +7317,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__QRows__QError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Response__HttpError
@@ -7174,6 +7353,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u8__ConvertErro
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__QRows__QError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Response__HttpError
@@ -7208,6 +7389,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u8__ConvertEr
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__QRows__QError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__ReadDir__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Request__HttpError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Response__HttpError
@@ -7717,6 +7900,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__PhantomPinned
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Pipe
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QEnv
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QError
+sym	logos_lang.logos.lang.any$type_id_of__g__void__QRows
+sym	logos_lang.logos.lang.any$type_id_of__g__void__Query
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QuoteItemBlob
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFromI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFromI64
@@ -7737,6 +7922,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Response
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Rng
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RtVal
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView2
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Scheduler
@@ -8205,6 +8391,8 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ParseBoolErro
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ParseFloatError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ParseIntError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__QError
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__QRows
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Query
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ReadDir
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Request
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Response
@@ -8273,6 +8461,7 @@ sym	logos_lang.logos.lang.rc$rc_new__g__T__Writ
 sym	logos_lang.logos.lang.result$is_err_i32__f__Result
 sym	logos_lang.logos.lang.result$is_ok_i32__f__Result
 sym	logos_lang.logos.lang.result$unwrap_or_i32__f__Result__i32
+sym	logos_lang.logos.lang.slice$slice_get_range__g__slice_T__i64__i64__RtVal
 sym	logos_lang.logos.lang.str$bool_from_str__f__slice_u8
 sym	logos_lang.logos.lang.str$char_count__f__pcst_u8__i64
 sym	logos_lang.logos.lang.str$chars_from_raw__f__pcst_u8__i64
@@ -8422,6 +8611,10 @@ sym	logos_mem..logos.mem.any.TypeInfo__kind__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__name__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__pkg__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__type_code__f__ref_TypeInfo
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__drop__g__HashMap$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__get__g__pmut_HashMap$G2$K$V__ref_K
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__get_or_insert__g__pmut_HashMap$G2$K$V__K__V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__insert__g__pmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__drop__g__Vec$G1$T
@@ -8482,6 +8675,16 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index__g__ref_Vec
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__len__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RtVal__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__drop__g__Vec$G1$T
@@ -8521,6 +8724,18 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__set__g__refmut_Vec$G1$T__i6
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__swap__g__refmut_Vec$G1$T__i64__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__try_borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$i32__try_borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__len__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__set__g__refmut_Vec$G1$T__i64__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$i64__swap__g__refmut_Vec$G1$T__i64__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__at_const__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u8__borrow_mut__g__refmut_Vec$G1$T__i64
@@ -8804,6 +9019,8 @@ sym	logos_mem..logos.mem.writ.tag_system.DataTypeTagSystem__read_tag__f__ref_Dat
 sym	logos_mem..logos.mem.writ.tag_system.TomTagSystem__read_tag__f__ref_TomTagSystem__pcst_u8
 sym	logos_mem..logos.mem.writ.tag_system.WritTagSystem__read_tag__f__ref_WritTagSystem__pcst_u8
 sym	logos_mem..logos.mem.writ.tag_system.WritTypeTagSystem__read_tag__f__ref_WritTypeTagSystem__pcst_u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__u64__Vec$G1$i64
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__u64__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.vec$vec_contains__g__ref_Vec$G1$T__ref_T__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__DirEntry
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__ExprBlob
@@ -8812,8 +9029,10 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Ident
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Json
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__JsonField
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__QuoteItemBlob
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__RtVal
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__TokenTree
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i32
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u8
 sym	logos_mem.logos.mem.encoding.base64$base64_decode__f__pcst_u8__i64__refmut_String
 sym	logos_mem.logos.mem.encoding.base64$base64_decode_str__f__slice_u8__refmut_String
@@ -9086,9 +9305,23 @@ sym	logos_std..logos.std.query.QEnv__bind_bool__f__refmut_QEnv__slice_u8__bool
 sym	logos_std..logos.std.query.QEnv__bind_f64__f__refmut_QEnv__slice_u8__f64
 sym	logos_std..logos.std.query.QEnv__bind_i64__f__refmut_QEnv__slice_u8__i64
 sym	logos_std..logos.std.query.QEnv__bind_node__f__refmut_QEnv__slice_u8__WAny
+sym	logos_std..logos.std.query.QEnv__bind_source__f__refmut_QEnv__slice_u8__WAny
 sym	logos_std..logos.std.query.QEnv__bind_str__f__refmut_QEnv__slice_u8__slice_u8
 sym	logos_std..logos.std.query.QEnv__new__f__void
+sym	logos_std..logos.std.query.QEnv__register_agg__f__refmut_QEnv__slice_u8__fn() -> RtVal__fn(RtVal, RtVal) -> RtVal__fn(RtVal) -> RtVal__slice_u8__slice_u8
+sym	logos_std..logos.std.query.QEnv__register_fn__f__refmut_QEnv__slice_u8__fn(&[RtVal]) -> RtVal__slice_slice_u8__slice_u8
 sym	logos_std..logos.std.query.QError__message__f__ref_QError
+sym	logos_std..logos.std.query.QRows__col_count__f__ref_QRows
+sym	logos_std..logos.std.query.QRows__col_ty__f__ref_QRows__i64
+sym	logos_std..logos.std.query.QRows__get_bool__f__ref_QRows__i64__i64
+sym	logos_std..logos.std.query.QRows__get_f64__f__ref_QRows__i64__i64
+sym	logos_std..logos.std.query.QRows__get_i64__f__ref_QRows__i64__i64
+sym	logos_std..logos.std.query.QRows__get_node__f__ref_QRows__i64__i64
+sym	logos_std..logos.std.query.QRows__get_str__f__ref_QRows__i64__i64
+sym	logos_std..logos.std.query.QRows__is_some__f__ref_QRows
+sym	logos_std..logos.std.query.QRows__row_count__f__ref_QRows
+sym	logos_std..logos.std.query.Query__compile__f__slice_u8__ref_SchemaCatalog
+sym	logos_std..logos.std.query.Query__run__f__ref_Query__ref_QEnv
 sym	logos_std..logos.std.query.SchemaCatalog__add_edge__f__refmut_SchemaCatalog__slice_u8__slice_u8__i64__slice_u8
 sym	logos_std..logos.std.query.SchemaCatalog__add_field__f__refmut_SchemaCatalog__slice_u8__slice_u8__i64__slice_u8
 sym	logos_std..logos.std.query.SchemaCatalog__add_schema__f__refmut_SchemaCatalog__slice_u8__u64
@@ -9757,8 +9990,11 @@ type	logos.std.lang.text.regex.Regex	fields=[pat:*const u8,plen:i64]
 type	logos.std.process.Child	fields=[pid:i32,stdin:i32,stdout:i32,stderr:i32]
 type	logos.std.process.ExitStatus	fields=[raw:i32]
 type	logos.std.process.LineReader	fields=[fd:i32,buf:*mut u8,cap:i64,head:i64,tail:i64,eof:bool]
-type	logos.std.query.QEnv	fields=[names:[&[u8]; 24],kinds:[i32; 24],ivals:[i64; 24],fvals:[f64; 24],bvals:[bool; 24],svals:[&[u8]; 24],words:[i64; 24],codes:[u64; 24],n:i64]
+type	logos.std.query.QEnv	fields=[names:[&[u8]; 24],kinds:[i32; 24],ivals:[i64; 24],fvals:[f64; 24],bvals:[bool; 24],svals:[&[u8]; 24],words:[i64; 24],codes:[u64; 24],n:i64,f_names:[&[u8]; 8],f_ptrs:[fn(&[RtVal]) -> RtVal; 8],f_arity:[i64; 8],f_args:[i32; 32],f_ret:[i32; 8],f_n:i64,a_names:[&[u8]; 4],a_init:[fn() -> RtVal; 4],a_step:[fn(RtVal, RtVal) -> RtVal; 4],a_fin:[fn(RtVal) -> RtVal; 4],a_argty:[i32; 4],a_ret:[i32; 4],a_n:i64]
 type	logos.std.query.QError	fields=[msg:String]
+type	logos.std.query.QRows	fields=[arena:Writ,ncols:i64,kinds:[i32; 8],cells:Vec<RtVal>,nrows:i64]
+type	logos.std.query.Query	fields=[doc:Writ,root:i64,empty:bool,sel_mode:i32,cat:SchemaCatalog]
+type	logos.std.query.RtVal	variants=[I(i64),F(f64),B(bool),S(&[u8]),Node(WAny),Null]
 type	logos.std.query.SchemaCatalog	fields=[s_names:[&[u8]; 16],s_codes:[u64; 16],s_n:i64,f_owner:[i64; 96],f_names:[&[u8]; 96],f_keys:[i64; 96],f_tys:[i32; 96],f_kinds:[i32; 96],f_targets:[u64; 96],f_tnames:[&[u8]; 96],f_n:i64]
 type	logos.std.query.Tpl	fields=[doc:Writ,head:i64,cat:SchemaCatalog]
 type	logos.std.random.Rng	fields=[state:u64]
