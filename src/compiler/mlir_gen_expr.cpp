@@ -958,17 +958,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
             if (all_prim) {
                 mlir::Type struct_ty = tuple_llvm_type(lhs_ty);
                 if (struct_ty) {
+                    // A call-result tuple is an SSA struct VALUE (not the
+                    // by-pointer convention); GEP needs a base pointer —
+                    // spill first. Mirrors ETupleIndex's G144-6 spill.
+                    mlir::Value lb = lhs, rb = rhs;
+                    if (lb.getType() != ptr_type()) lb = spill_to_alloca(lb);
+                    if (rb.getType() != ptr_type()) rb = spill_to_alloca(rb);
                     mlir::Value acc;
                     size_t idx = 0;
                     for (auto e : le) {
                         auto elem_t = logos_to_mlir(e);
                         if (!elem_t) { acc = nullptr; break; }
                         auto l_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                            loc_, ptr_type(), struct_ty, lhs,
+                            loc_, ptr_type(), struct_ty, lb,
                             llvm::ArrayRef<mlir::LLVM::GEPArg>{
                                 0, (int32_t)idx});
                         auto r_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                            loc_, ptr_type(), struct_ty, rhs,
+                            loc_, ptr_type(), struct_ty, rb,
                             llvm::ArrayRef<mlir::LLVM::GEPArg>{
                                 0, (int32_t)idx});
                         auto l_val = builder_.create<mlir::LLVM::LoadOp>(
@@ -1044,6 +1050,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
                        k == K::Usize || k == K::Bool || k == K::Char;
             };
             if (struct_ty) {
+                // By-value tuple operand (call result) → spill before GEP;
+                // see the `==` fast-path above.
+                if (lp.getType() != ptr_type()) lp = spill_to_alloca(lp);
+                if (rp.getType() != ptr_type()) rp = spill_to_alloca(rp);
                 // Seed: all-equal ⇒ strict false / non-strict true.
                 mlir::Value acc = builder_.create<mlir::arith::ConstantIntOp>(
                     loc_, strict ? 0LL : 1LL, 1);

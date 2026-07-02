@@ -1,0 +1,25 @@
+// Regression (class check for mono_concrete_satisfies_bound): a user generic
+// struct whose impl carries a trait bound, instantiated with a tuple type-arg.
+// Covers per-arity generic impls (Hash → $tuple$N) and the variadic impl
+// (Eq → $tuple$variadic) plus a nested-tuple element bound.
+package test;
+use logos.lang.hash;
+use logos.lang.cmp;
+use logos.lang.str;
+
+struct WH<T> { pub v: T }
+impl<T: Hash> WH<T> { fn ok(&self) -> i64 { return 1i64; } }
+
+struct WE<T> { pub v: T }
+impl<T: Eq> WE<T> { fn ok(&self) -> i64 { return 2i64; } }
+
+fn main() -> i32 {
+    let wh: WH<(i64, i64)> = WH::<(i64, i64)> { v: (1i64, 2i64) };
+    if wh.ok() != 1i64 { return 1i32; }
+    let we: WE<(i64, i64)> = WE::<(i64, i64)> { v: (3i64, 4i64) };
+    if we.ok() != 2i64 { return 2i32; }
+    // nested tuple element: (i64, (i64, i64)) — recursion through elements.
+    let wn: WE<(i64, (i64, i64))> = WE::<(i64, (i64, i64))> { v: (1i64, (2i64, 3i64)) };
+    if wn.ok() != 2i64 { return 3i32; }
+    return 0i32;
+}

@@ -1395,6 +1395,24 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
 
 void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     gen_let_inner(v);
+    // Canary for the silent-drop class (tuple-keyed-container baghunt): a
+    // `let` with an initializer whose codegen failed leaves the name unbound
+    // in scope_, and every later statement referencing it is dropped too —
+    // a silent miscompile. Warn loudly instead. Void/Never-typed lets and
+    // `_` discards are legal no-binds and stay quiet. (Shadowing re-lets of
+    // an already-bound name are a known false-negative — acceptable for a
+    // canary.)
+    std::string let_nm(v.name());
+    if (v.value() && !let_nm.empty() && let_nm != "_" && !scope_.count(let_nm)) {
+        TypeRef lty = v.type(pool_impl());
+        auto lk = lty ? TypeRef(lty).kind() : LogosType::Kind::Void;
+        if (lk != LogosType::Kind::Void && lk != LogosType::Kind::Never)
+            std::fprintf(stderr,
+                         "mlir_gen: `let %s` initializer produced no value — "
+                         "statement DROPPED (compiler bug; dependents will "
+                         "vanish too)\n",
+                         let_nm.c_str());
+    }
     // -g: after the binding's slot is set in scope_, attach DWARF local-var info.
     if (debug_info_ && di_subprogram_)
         emit_local_dbg_declare(v.name(), v.type(pool_impl()), v.self.line());

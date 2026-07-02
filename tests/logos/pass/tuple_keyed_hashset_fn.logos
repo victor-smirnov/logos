@@ -1,0 +1,29 @@
+// Regression: mono_concrete_satisfies_bound missed the $tuple$N / $tuple$variadic
+// impl keys, so EVERY method of a bounded impl (impl<K: Hash + Eq> HashSet<K>)
+// with a tuple type-arg was silently skipped at mono — statements referencing
+// the container (or values derived from it) vanished from codegen: if-statement
+// branch stores were lost, insert results read as garbage.
+package test;
+use logos.mem.collections.set;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut rs: HashSet<(i64, i64)> = hashset_new::<(i64, i64)>();
+    let rsp: *mut HashSet<(i64, i64)> = &mut rs;
+    let a: bool = unsafe { rsp.insert((1i64, 10i64)) };
+    if !a { return 9i32; }
+    // if-STATEMENT with a branch store in the same fn (the lost-store shape).
+    let mut hit: i64 = 0i64;
+    if (a) { hit = hit + 1i64; }
+    if hit != 1i64 { return 1i32; }
+    // bare `if unsafe { … } { … }` condition (previously looked like a mis-parse;
+    // same root).
+    if unsafe { rsp.insert((2i64, 20i64)) } { hit = hit + 1i64; }
+    if hit != 2i64 { return 2i32; }
+    // duplicate insert must dedup.
+    let b: bool = unsafe { rsp.insert((1i64, 10i64)) };
+    if b { return 3i32; }
+    if !unsafe { rsp.contains(&(2i64, 20i64)) } { return 4i32; }
+    if rs.len() != 2i64 { return 5i32; }
+    return 0i32;
+}

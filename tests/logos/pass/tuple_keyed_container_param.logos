@@ -1,0 +1,25 @@
+// Regression: *mut HashSet<(i64,i64)> / &HashSet<(i64,i64)> passed to helpers
+// SEGFAULTed — same root as tuple_keyed_hashset_fn (methods never instantiated;
+// the call statements were silently dropped, leaving the callee operating on
+// garbage).
+package test;
+use logos.mem.collections.set;
+use logos.lang.str;
+
+fn ins(rsp: *mut HashSet<(i64, i64)>, x: i64, y: i64) -> bool {
+    return unsafe { rsp.insert((x, y)) };
+}
+
+fn count(rs: &HashSet<(i64, i64)>) -> i64 {
+    return rs.len();
+}
+
+fn main() -> i32 {
+    let mut rs: HashSet<(i64, i64)> = hashset_new::<(i64, i64)>();
+    let rsp: *mut HashSet<(i64, i64)> = &mut rs;
+    if !ins(rsp, 1i64, 10i64) { return 1i32; }
+    if !ins(rsp, 2i64, 20i64) { return 2i32; }
+    if ins(rsp, 1i64, 10i64)  { return 3i32; }
+    if count(&rs) != 2i64     { return 4i32; }
+    return 0i32;
+}

@@ -3428,11 +3428,9 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
 //   fn __wql_<query>_rel_<NAME>(<wql! params verbatim>
 //                               [, __rel_<earlier>_sl: &[RowTy]]*) -> Vec<RowTy>
 //
-// with SET semantics: dedup on insert by structural equality — currently a
-// LINEAR SCAN of the rel Vec (see emit_rel_push: the intended HashSet<RowTy>
-// shadow set is blocked by a compiler miscompile around tuple-keyed hash
-// containers; the per-arity tuple Hash impls in logos.lang.hash are the
-// groundwork slice C's O(1) membership needs). Bodies run through
+// with SET semantics: dedup on insert via a SHADOW HashSet<RowTy> (see
+// emit_rel_push — O(1) membership; tuple rows hash through the per-arity
+// tuple Hash impls in logos.lang.hash). Bodies run through
 // the EXISTING scan / join-chain machinery (strategy cascade included); their
 // projection PUSHES into the rel Vec instead of returning. Earlier rels are
 // passed in as slices (declaration-order scoping — the walker enforces it),
@@ -3583,19 +3581,13 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
     return true;
 }
 
-// The set-dedup push (Datalog SET semantics): bind the projected row, LINEAR-
-// SCAN the rel Vec for a structural-equality duplicate (tuple `==` routes
-// through the variadic tuple Eq; str/bool/i64 compare natively), push only
-// when new — O(n) per insert, the same mechanism the `distinct` modifier uses.
-//
-// KNOWN DEBT (slice C blocker): the intended sink is a HashSet<Row> SHADOW SET
-// (O(1) membership — what the semi-naïve fixpoint needs). The per-arity tuple
-// Hash impls LANDED (logos.lang.hash) and dedup semantics verify in isolation,
-// but instantiating a TUPLE-KEYED hash container inside a fn currently
-// MISCOMPILES that fn's if-statements (branch stores lost / conditions
-// mis-evaluating true→false / a segfault with a *mut HashSet<(i64,i64)> param
-// — all probe-verified). Until that compiler codegen bug is fixed, generated
-// rel code must not instantiate tuple-keyed hash containers.
+// The set-dedup push (Datalog SET semantics): bind the projected row, probe
+// the rel fn's SHADOW HashSet (declared in emit_rel_fns' prelude) — insert
+// returns true only for a NEW row, gating the Vec push. O(1) amortized per
+// insert; tuple rows hash via the per-arity `impl Hash for (…)` in
+// logos.lang.hash, scalar rows (i64/str/bool) via their primitive impls.
+// (f64 columns are rejected up front — set semantics require Eq.) This is the
+// membership structure slice C's semi-naïve fixpoint needs.
 fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
     push_ind(em, lvl);
     em.push_text("let __rv: ");
@@ -3604,20 +3596,7 @@ fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
     em.push_text(proj);
     em.push_text(");\n");
     push_ind(em, lvl);
-    em.push_text("let mut __dup: bool = false;\n");
-    push_ind(em, lvl);
-    em.push_text("let mut __d: i64 = 0i64;\n");
-    // The probed row BINDS to a local before the compare: an ALL-PRIMITIVE
-    // tuple `==` with a call-result temp operand (`__out.get(__d) == __rv`)
-    // hits an mlir-gen fast-path bug (GEP on a tuple VALUE — verify failure);
-    // comparing two locals is sound. Rel rows are Copy (scalars/tuples of
-    // i64/str/bool), so the bind is a plain copy.
-    push_ind(em, lvl);
-    em.push_text("while __d < __out.len() { let __cur: ");
-    em.push_text(row_ty);
-    em.push_text(" = __out.get(__d); if __cur == __rv { __dup = true; } __d = __d + 1i64; }\n");
-    push_ind(em, lvl);
-    em.push_text("if !__dup { __out.push(__rv); }\n");
+    em.push_text("if unsafe { __rsp.insert(__rv) } { __out.push(__rv); }\n");
 }
 
 // One SIMPLE rel body: scan + optional where + dedup-push projection.
@@ -3861,6 +3840,16 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
         em.push_text("> = Vec::<");
         em.push_text(row_ty);
         em.push_text(">::new();\n");
+        // Shadow set for O(1) dedup membership (see emit_rel_push). The raw
+        // pointer rides alongside because HashSet's mutators take `*mut self`.
+        em.push_text("    let mut __rs: HashSet<");
+        em.push_text(row_ty);
+        em.push_text("> = hashset_new::<");
+        em.push_text(row_ty);
+        em.push_text(">();\n");
+        em.push_text("    let __rsp: *mut HashSet<");
+        em.push_text(row_ty);
+        em.push_text("> = &mut __rs;\n");
         let bodies: RQBodyArr = rel.bodies_arr();
         let nb: i64 = bodies.len();
         let mut b: i64 = 0i64;

@@ -1,0 +1,30 @@
+// Regression: all-primitive tuple == where one operand is a call-result
+// TEMPORARY (an SSA struct value, not the by-pointer convention) hit a GEP on
+// a tuple VALUE → MLIR verify failure. The == / ordering fast-paths now spill
+// by-value operands to a stack slot first (mirrors ETupleIndex's G144-6).
+package test;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+fn mk(x: i64, y: i64) -> (i64, i64) { return (x, y); }
+
+fn main() -> i32 {
+    let mut v: Vec<(i64, i64)> = Vec::<(i64, i64)>::new();
+    v.push((1i64, 10i64));
+    v.push((2i64, 20i64));
+    let probe: (i64, i64) = (2i64, 20i64);
+    // call-result temporary on the LHS of ==
+    let mut found: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        if v.get(i) == probe { found = found + 1i64; }
+        i = i + 1i64;
+    }
+    if found != 1i64 { return 1i32; }
+    // call temps on BOTH sides + ordering ops
+    if mk(1i64, 2i64) != mk(1i64, 2i64) { return 2i32; }
+    if mk(1i64, 2i64) == mk(1i64, 3i64) { return 3i32; }
+    if !(mk(1i64, 2i64) < mk(1i64, 3i64)) { return 4i32; }
+    if !(mk(2i64, 0i64) > mk(1i64, 99i64)) { return 5i32; }
+    return 0i32;
+}

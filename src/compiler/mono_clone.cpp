@@ -3942,11 +3942,15 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     // *inner* call — replace with the receiver tuple's
                     // own element types so we generate a fresh inner
                     // spec instead of recursing into the outer one.
-                    if (TypeRef(tuple_rt).kind() == LogosType::Kind::Tuple) {
-                        nc.type_args.clear();
-                        for (auto e : TypeRef(tuple_rt).tuple_elems())
-                            nc.type_args.push_back(e);
-                    }
+                    //
+                    // Tuple-hash follow-up: the rebuild is DEFERRED until the
+                    // template's type-param count is known (below) — a plain
+                    // clear()+elems here wiped METHOD-level type-args (e.g.
+                    // `fn hash<H: Hasher>`'s sema-inferred H), leaving H
+                    // unbound in the instance → the hasher-write body was
+                    // silently dropped and every tuple key hashed identically.
+                    bool tuple_recv =
+                        TypeRef(tuple_rt).kind() == LogosType::Kind::Tuple;
                     // T9-tr-02: only mangle when the impl method is itself
                     // generic. Sema's TypeVar-receiver path stashes the
                     // trait's type-args on the call so we can mangle for
@@ -3994,6 +3998,29 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             tmpl_tparam_count = mit->second.type_param_count();
                             note_variadic(mit->second);
                         }
+                    }
+                    // Deferred SL-sl-08 / CP-cm-08b rebuild (see comment at
+                    // `tuple_recv`): impl-level slots get the receiver tuple's
+                    // element types; METHOD-level params (template params
+                    // beyond the impl-level ones, e.g. `hash<H: Hasher>`'s H)
+                    // keep the sema-stashed values, which ride at the TAIL of
+                    // the original type_args. Variadic templates bind the pack
+                    // to all elements (one param); per-arity templates bind one
+                    // param per element.
+                    if (tuple_recv) {
+                        auto elems = TypeRef(tuple_rt).tuple_elems();
+                        size_t method_slots = 0;
+                        if (tmpl_tparam_count > 0) {
+                            size_t impl_slots = tmpl_has_variadic ? 1 : elems.size();
+                            if (tmpl_tparam_count > impl_slots)
+                                method_slots = tmpl_tparam_count - impl_slots;
+                        }
+                        std::vector<TypeRef> rebuilt(elems.begin(), elems.end());
+                        if (method_slots > 0 && nc.type_args.size() >= method_slots)
+                            rebuilt.insert(rebuilt.end(),
+                                           nc.type_args.end() - method_slots,
+                                           nc.type_args.end());
+                        nc.type_args = std::move(rebuilt);
                     }
                     if (tmpl_tparam_count == 0) nc.type_args.clear();
                     else if (!tmpl_has_variadic && nc.type_args.size() > tmpl_tparam_count)
@@ -5068,6 +5095,22 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
         // `&i32` (the by-ref-iterator `&Item: Ord` gate, e.g. peekable's
         // `as_ref()` yielding `&&i32`, must NOT match `&i32`'s impl).
         cname = ref_target_key(ct);
+    } else if (ct.kind() == LogosType::Kind::Tuple) {
+        // SL-sl-08 / tuple-keyed containers: tuple-target impls register
+        // under `$tuple$N` (generic elems), `$tuple$N$<t1>$…` (concrete
+        // elems) or `$tuple$variadic` (pack target) — NEVER under the
+        // literal "(t1, t2)" type_str. Without this mapping every bound
+        // check against a concrete tuple failed silently and each method
+        // of a bounded impl (e.g. `impl<K: Hash + Eq> HashSet<K>` with
+        // K=(i64,i64)) was skipped at mono → statements referencing it
+        // vanished from codegen. Mirrors sema_collect.cpp:1221 and the
+        // receiver-side sentinel at mono_clone.cpp:3648.
+        cname = "$tuple$" + std::to_string(ct.tuple_elems().size());
+    } else if (LogosType::is_fn_value_kind(ct.kind())) {
+        // G149-6 sibling of the tuple gap: `impl … for fn(A,B)->C` keys on
+        // `$fnptr$N`. Fn-family bounds short-circuit before this lookup;
+        // this covers ordinary traits implemented for fn-pointer types.
+        cname = "$fnptr$" + std::to_string(ct.closure_params().size());
     } else {
         cname = type_str(ct);
     }
@@ -5083,7 +5126,77 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
     // impls (no bound) or blanket impls. For a primitive / no-args
     // type that's the whole story. Also keep simple-path semantics
     // for non-Struct/Enum kinds — only generic struct/enum
-    // instantiations need the deep blanket-bound recursion.
+    // instantiations (and tuples) need the deep blanket-bound recursion.
+    if (ct.kind() == LogosType::Kind::Tuple) {
+        // A tuple may satisfy via any of its three key forms; collect the
+        // admissible ones, then deep-check element bounds below.
+        std::string full = cname;                 // `$tuple$N$<t1>$…`
+        for (auto e : ct.tuple_elems()) {
+            full += "$";
+            full += (e ? type_str(e) : std::string("?"));
+        }
+        // Concrete per-type impl (`impl Hash for (i64, str)`) — boundless
+        // by construction; the key match is the whole check.
+        if (mono_has_impl_recursive(trait_name, full, seen)) return true;
+        bool per_arity = mono_has_impl_recursive(trait_name, cname, seen);
+        bool variadic  = mono_has_impl_recursive(trait_name, "$tuple$variadic", seen);
+        if (!per_arity && !variadic) return false;
+        if (ct.tuple_elems().empty()) return true;
+        // Deep check: walk matching impls; per-arity form unifies its
+        // `(A, B, …)` pattern (element bounds checked via the generic
+        // step-3 loop below); variadic form checks every element against
+        // the pack param's bounds here.
+        const TypePoolImpl* tp_pool = out_.type_pool.impl();
+        for (auto& cand : out_.impls) {
+            if (cand.trait_name() != trait_name) continue;
+            bool is_var = variadic && cand.target_type() == "$tuple$variadic";
+            bool is_ar  = per_arity && cand.target_type() == cname;
+            if (!is_var && !is_ar) continue;
+            if (cand.impl_type_params_empty()) return true;
+            bool all_ok = true;
+            if (is_var) {
+                // `impl<A...: B> Trait for (A...)` — every element must
+                // satisfy every bound of the pack param.
+                cand.each_impl_type_param([&](lir_view::FnTParamView itp) {
+                    if (!all_ok || itp.bounds_empty()) return;
+                    itp.each_bound([&](lir_view::FnTraitBoundView tb) {
+                        if (!all_ok) return;
+                        for (auto e : ct.tuple_elems()) {
+                            if (!e) continue;
+                            if (TypeRef(e).kind() == LogosType::Kind::TypeVar)
+                                continue;   // still abstract — outer mono resolves
+                            if (!mono_concrete_satisfies_bound(
+                                    std::string(tb.trait_name()), e, seen)) {
+                                all_ok = false;
+                                return;
+                            }
+                        }
+                    });
+                });
+            } else {
+                TypeRef pat{cand.target_typeref(tp_pool)};
+                if (!pat) return true;   // no pattern recorded — key match stands
+                SubstMap subst;
+                if (!unify_impl_target(concrete, pat, subst)) continue;
+                cand.each_impl_type_param([&](lir_view::FnTParamView itp) {
+                    if (!all_ok || itp.bounds_empty()) return;
+                    auto sit = subst.find(std::string(itp.name()));
+                    if (sit == subst.end()) return;
+                    TypeRef inner{sit->second};
+                    if (inner && TypeRef(inner).kind() == LogosType::Kind::TypeVar)
+                        return;             // still abstract — outer mono resolves
+                    itp.each_bound([&](lir_view::FnTraitBoundView tb) {
+                        if (!all_ok) return;
+                        if (!mono_concrete_satisfies_bound(
+                                std::string(tb.trait_name()), inner, seen))
+                            all_ok = false;
+                    });
+                });
+            }
+            if (all_ok) return true;
+        }
+        return false;
+    }
     if (!mono_has_impl_recursive(trait_name, cname, seen)) return false;
     if (ct.kind() != LogosType::Kind::Struct &&
         ct.kind() != LogosType::Kind::ZonedStruct &&
@@ -5172,6 +5285,11 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
             cname = concrete_struct_name(concrete);
         else if (TypeRef(concrete).kind() == LogosType::Kind::Enum)
             cname = TypeRef(concrete).enum_name();
+        else if (TypeRef(concrete).kind() == LogosType::Kind::Tuple)
+            // Tuple impls key on `$tuple$N` (see mono_concrete_satisfies_bound);
+            // keeps the HRTB impl lookup below consistent for tuple concretes.
+            cname = "$tuple$" +
+                    std::to_string(TypeRef(concrete).tuple_elems().size());
         else
             cname = type_str(concrete);
         if (auto p = cname.find("$G"); p != std::string::npos)
