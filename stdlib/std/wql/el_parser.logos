@@ -50,9 +50,10 @@ pub const ElTK_KW_IN: i32 = 26i32;
 pub const ElTK_KW_IF: i32 = 27i32;
 pub const ElTK_TRUE: i32 = 28i32;
 pub const ElTK_FALSE: i32 = 29i32;
-pub const ElTK_INTEGER: i32 = 30i32;
-pub const ElTK_STRING: i32 = 31i32;
-pub const ElTK_IDENT: i32 = 32i32;
+pub const ElTK_FLOAT: i32 = 30i32;
+pub const ElTK_INTEGER: i32 = 31i32;
+pub const ElTK_STRING: i32 = 32i32;
+pub const ElTK_IDENT: i32 = 33i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
@@ -304,7 +305,7 @@ impl Lexer {
                 while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }
             }
             self.scan_num_suffix();
-            if is_float { return Token { kind: ElTK_INTEGER, start: start, len: self.pos - start, line: sl }; }
+            if is_float { return Token { kind: ElTK_FLOAT, start: start, len: self.pos - start, line: sl }; }
             return Token { kind: ElTK_INTEGER, start: start, len: self.pos - start, line: sl };
         }
         if c == 34u8 {
@@ -357,6 +358,32 @@ fn wstr_decode_i64(p: *const u8) -> i64 {
         i = i + 1i64;
     }
     return v;
+}
+// Decode a captured FLOAT token (digits '.' digits) into its f64 VALUE —
+// the token->f64 hook for float literal fields. Parses the mantissa as an
+// integer and divides by 10^k (k = fraction digits): exact powers of ten
+// give the correctly-rounded double for short decimal literals.
+fn wstr_decode_f64(p: *const u8) -> f64 {
+    let s: &str = wstr_as_str(p);
+    let n: i64 = s.len();
+    let mut mant: i64 = 0i64;
+    let mut frac: i64 = 0i64;
+    let mut in_frac: bool = false;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 46u8 && !in_frac { in_frac = true; i = i + 1i64; continue; }
+        if c < 48u8 || c > 57u8 { break; }
+        if mant < 922337203685477580i64 {
+            mant = mant * 10i64 + ((c as i64) - 48i64);
+            if in_frac { frac = frac + 1i64; }
+        }
+        i = i + 1i64;
+    }
+    let mut p10: f64 = 1.0f64;
+    let mut k: i64 = 0i64;
+    while k < frac { p10 = p10 * 10.0f64; k = k + 1i64; }
+    return (mant as f64) / p10;
 }
 // Re-intern a captured STRING token WITHOUT its surrounding quotes: the
 // token text is `"..."`; a string literal's VALUE is the inner content
@@ -989,6 +1016,18 @@ fn alt_primary_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    if lex.peek().kind != ElTK_FLOAT { lex.reset(sp, sln); return ElNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    let node: SLit = doc.make::<SLit>();
+    node.val = doc.float(wstr_decode_f64(cap1));
+    return node.as_ref().raw() as *const u8;
+}
+
+fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
     if lex.peek().kind != ElTK_INTEGER { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -997,7 +1036,7 @@ fn alt_primary_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1012,7 +1051,7 @@ fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1032,7 +1071,7 @@ fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_9(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1055,6 +1094,7 @@ fn rule_primary(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_primary_6(lex, doc); if r != ElNULLP { return r; } }
     { let r: *const u8 = alt_primary_7(lex, doc); if r != ElNULLP { return r; } }
     { let r: *const u8 = alt_primary_8(lex, doc); if r != ElNULLP { return r; } }
+    { let r: *const u8 = alt_primary_9(lex, doc); if r != ElNULLP { return r; } }
     return ElNULLP;
 }
 

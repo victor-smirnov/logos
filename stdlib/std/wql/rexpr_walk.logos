@@ -58,6 +58,25 @@ fn agg_of_name(name: str) -> i32 {
     return 0i32;
 }
 
+// ── SELECT-MODE ids — the single-row emit-envelope modes ────────────────────
+// `first`/`find` are NOT algebra nodes: they change the generated fn's RETURN
+// TYPE (Vec<E> → Option<E> / Option<&Row>) + the loop's exit discipline (early
+// return on the first hit), so they ride on the emit ENVELOPE next to
+// fn_name/result_ty. The relational tree is unchanged (the same RProj/RFilter/
+// RScan shape), which keeps every Phase-3 peephole (empty/identity) applicable.
+//   SELM_ALL   — multi-row (Vec) — the default;
+//   SELM_FIRST — `select first S` → Option<ElemTy>, first projected value;
+//   SELM_FIND  — `find P`         → Option<&Row>, borrow of the first match.
+pub fn SELM_ALL()   -> i32 { return 0i32; }
+pub fn SELM_FIRST() -> i32 { return 1i32; }
+pub fn SELM_FIND()  -> i32 { return 2i32; }
+
+// A null `with`-list edge (the `find` shape has no `with` clause).
+pub fn null_with_ref() -> WRef<RQWithArr> {
+    let z: WAny = WAny::Ref(0i64 as *const u8);
+    return WRef::<RQWithArr>::from_any(z);
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // PART 1 — lower_rquery_to_rexpr : surface PLAN → real RExpr algebra
 // ══════════════════════════════════════════════════════════════════════════
@@ -97,17 +116,68 @@ fn make_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
     return WRef::<RExpr>::from_any(n.as_ref());
 }
 
-// Lower an RQSimple → RProj( RFilter?( RScan ), select ).
+// Wrap `input` in an RSort by `key` (asc; `desc` flips).
+fn make_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef<RExpr> {
+    let n: RSort = h.make::<RSort>();
+    n.input = input;
+    n.key   = key;
+    n.desc  = desc;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RLimit (first-n; literal or $param).
+fn make_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
+    let n: RLimit = h.make::<RLimit>();
+    n.input    = input;
+    n.n        = n0;
+    n.is_param = is_param;
+    n.param    = param;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Wrap `input` in an RDistinct (dedup the projected values).
+fn make_distinct(h: &Writ, input: WRef<RExpr>) -> WRef<RExpr> {
+    let n: RDistinct = h.make::<RDistinct>();
+    n.input = input;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// An IDENTITY projection selector — a bare identifier naming the loop var (the
+// exact node shape the EL parser builds for a bare ident: SField, NULL base).
+// `find P` lowers with this selector so the tree stays a well-formed RProj and
+// the Phase-3 identity peephole recognizes it (find + const-true pred → head
+// row without a filter loop).
+fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
+    let n: SField = h.make::<SField>();
+    n.base = null_sref();
+    n.name = name;
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+// Lower an RQSimple → RLimit?( RDistinct?( RProj( RSort?( RFilter?( RScan ) ), select ) ) ).
+// Pipeline order: where → order → project → distinct → limit. RSort sits UNDER
+// the projection (its key ranges over the row var); RDistinct/RLimit sit ABOVE
+// it (they act on the projected values).
 fn lower_simple(s: RQSimple, h: &Writ) -> WRef<RExpr> {
     let scan: WRef<RExpr> = make_scan(h, s.src_name, s.row_ty, s.var_name);
     let mut input: WRef<RExpr> = scan;
     if s.has_where {
         input = make_filter(h, input, s.where_pred);
     }
-    return make_proj(h, input, s.select);
+    if s.has_order {
+        input = make_sort(h, input, s.order_key, s.order_desc);
+    }
+    let mut root: WRef<RExpr> = make_proj(h, input, s.select);
+    if s.distinct {
+        root = make_distinct(h, root);
+    }
+    if s.has_limit {
+        root = make_limit(h, root, s.limit_n, s.limit_is_param, s.limit_param);
+    }
+    return root;
 }
 
-// Lower an RQJoin → RProj( RFilter?( RJoin|RAnti( RScan, RScan, on ) ), select ).
+// Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( RJoin|RAnti ) ), select ) ) ).
 fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
     let left:  WRef<RExpr> = make_scan(h, j.a_name, j.a_ty, j.x_var);
     let right: WRef<RExpr> = make_scan(h, j.b_name, j.b_ty, j.y_var);
@@ -125,11 +195,24 @@ fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
     if j.has_where {
         input = make_filter(h, input, j.where_pred);
     }
-    return make_proj(h, input, j.select);
+    if j.has_order {
+        input = make_sort(h, input, j.order_key, j.order_desc);
+    }
+    let mut root: WRef<RExpr> = make_proj(h, input, j.select);
+    if j.distinct {
+        root = make_distinct(h, root);
+    }
+    if j.has_limit {
+        root = make_limit(h, root, j.limit_n, j.limit_is_param, j.limit_param);
+    }
+    return root;
 }
 
-// Lower an RQAggr → RProj( RAggr( RFilter?( RScan ), key, aggSpecs ), select ).
+// Lower an RQAggr →
+//   RLimit?( RDistinct?( RProj( RSort?( RFilter_having?( RAggr( RFilter?( RScan ), key, aggSpecs ) ) ), select ) ) ).
 // Each surface `RQAgg` spec is copied to a relational `RAgg` (out/fn_name/arg).
+// `having` gets NO node of its own — it is an ordinary RFilter over the RAggr
+// output (the predicate ranges over the group key + aggregate output names).
 fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
     let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
     let mut input: WRef<RExpr> = scan;
@@ -156,8 +239,32 @@ fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
     n.input = input;
     n.key   = g.key;
     n.aggs  = WRef::<RAggArr>::from_any(ra.as_ref());
-    let aggr: WRef<RExpr> = WRef::<RExpr>::from_any(n.as_ref());
-    return make_proj(h, aggr, g.select);
+    let mut top: WRef<RExpr> = WRef::<RExpr>::from_any(n.as_ref());
+    if g.has_having {
+        top = make_filter(h, top, g.having_pred);
+    }
+    if g.has_order {
+        top = make_sort(h, top, g.order_key, g.order_desc);
+    }
+    let mut root: WRef<RExpr> = make_proj(h, top, g.select);
+    if g.distinct {
+        root = make_distinct(h, root);
+    }
+    if g.has_limit {
+        root = make_limit(h, root, g.limit_n, g.limit_is_param, g.limit_param);
+    }
+    return root;
+}
+
+// Lower an RQFind → RProj( RFilter( RScan ), identity ) — the RFilter(RScan)
+// shape with an IDENTITY projection; the single-row discipline is the SELM_FIND
+// envelope mode, not an algebra node. The Phase-3 peepholes apply unchanged:
+// const-false pred → empty (constant None), const-true pred → identity (head
+// row, no filter loop).
+fn lower_find(f: RQFind, h: &Writ) -> WRef<RExpr> {
+    let scan: WRef<RExpr> = make_scan(h, f.src_name, f.row_ty, f.var_name);
+    let flt: WRef<RExpr> = make_filter(h, scan, f.pred);
+    return make_proj(h, flt, make_ident_sel(h, f.var_name));
 }
 
 // The lowering entry: surface PLAN → real RExpr algebra tree.
@@ -166,6 +273,7 @@ pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
         RQuery::Simple(s) => { return lower_simple(s, h); }
         RQuery::Join(j)   => { return lower_join(j, h); }
         RQuery::Aggr(g)   => { return lower_aggr(g, h); }
+        RQuery::Find(f)   => { return lower_find(f, h); }
     }
 }
 
@@ -177,12 +285,13 @@ pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
 // plan envelope; the relational STRUCTURE + clause bodies live on the RExpr tree.
 pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
                            with_decls: WRef<RQWithArr>,
-                           result_ty: str, has_result_ty: bool, h: &Writ) -> bool {
+                           result_ty: str, has_result_ty: bool,
+                           sel_mode: i32, h: &Writ) -> bool {
     let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h);
     let sig: RSimplified = simplify_rexpr_ref(root, root.any().view::<RExpr>(), h);
     let rx: RExpr = sig.root.any().view::<RExpr>();
     return emit_rexpr_opt(rx, sig.empty, sig.identity,
-                          fn_name, with_decls, result_ty, has_result_ty, h);
+                          fn_name, with_decls, result_ty, has_result_ty, sel_mode, h);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -217,11 +326,13 @@ fn emit_params(em: &mut Emitter, t: &ElTypes) {
             em.push_text(": &[");
             if pty == EL_TY_STR()       { em.push_text("str"); }
             else if pty == EL_TY_BOOL() { em.push_text("bool"); }
+            else if pty == EL_TY_FLT()  { em.push_text("f64"); }
             else                        { em.push_text("i64"); }
             em.push_text("]");
         }
         else if pty == EL_TY_STR()  { em.push_text(": str"); }
         else if pty == EL_TY_BOOL() { em.push_text(": bool"); }
+        else if pty == EL_TY_FLT()  { em.push_text(": f64"); }
         else                        { em.push_text(": i64"); }
         i = i + 1i64;
     }
@@ -242,8 +353,9 @@ fn comp_head_ty(e: SExpr, t: &ElTypes) -> i32 {
 }
 
 // ── RExpr shape decomposition helpers ────────────────────────────────────────
-// The top of a lowered plan is always `RProj( body, select )`; `body` is a
-// scan/filter/join/anti/aggr sub-tree. These peel the wrapping to route to the
+// The top of a lowered plan is `RLimit?( RDistinct?( RProj( RSort?( body ), sel ) ) )`;
+// `body` is a scan/filter/join/anti/aggr sub-tree (with an optional HAVING
+// RFilter directly over an RAggr). These peel the wrapping to route to the
 // right emitter — the walker's `match` over the algebra.
 
 // Peel an optional RFilter: returns (inner, pred_ref, has_pred).
@@ -260,6 +372,140 @@ fn peel_filter(e: RExpr) -> Peeled {
     }
 }
 
+// ── QMods — the peeled ORDER/DISTINCT/LIMIT modifier envelope ────────────────
+// Collected off the RSort / RDistinct / RLimit wrappers around the projection
+// root and threaded to the per-shape emitters (which weave sort / dedup / first-n
+// into the generated loop nest).
+struct QMods {
+    has_sort:       bool,
+    sort_key:       WRef<SExpr>,
+    sort_desc:      bool,
+    distinct:       bool,
+    has_limit:      bool,
+    limit_n:        i64,
+    limit_is_param: bool,
+    limit_param:    str,
+}
+
+fn qmods_none() -> QMods {
+    return QMods { has_sort: false, sort_key: null_sref(), sort_desc: false,
+                   distinct: false,
+                   has_limit: false, limit_n: 0i64, limit_is_param: false, limit_param: "" };
+}
+
+// Peel a root RLimit wrapper into `mods` (identity otherwise).
+fn peel_limit(e: RExpr, mods: &mut QMods) -> RExpr {
+    match e {
+        RExpr::Limit(l) => {
+            mods.has_limit      = true;
+            mods.limit_n        = l.n;
+            mods.limit_is_param = l.is_param;
+            mods.limit_param    = l.param;
+            return l.input_expr();
+        }
+        _ => { return e; }
+    }
+}
+
+// Peel a root RDistinct wrapper into `mods` (identity otherwise).
+fn peel_distinct(e: RExpr, mods: &mut QMods) -> RExpr {
+    match e {
+        RExpr::Distinct(d) => {
+            mods.distinct = true;
+            return d.input_expr();
+        }
+        _ => { return e; }
+    }
+}
+
+// Peel an RSort under the projection into `mods` (identity otherwise).
+fn peel_sort(e: RExpr, mods: &mut QMods) -> RExpr {
+    match e {
+        RExpr::Sort(s) => {
+            mods.has_sort  = true;
+            mods.sort_key  = s.key;
+            mods.sort_desc = s.desc;
+            return s.input_expr();
+        }
+        _ => { return e; }
+    }
+}
+
+// The `&& __out.len() < (N)` loop-condition suffix enforcing `limit` on every
+// output-producing loop ("" when no limit). N is the literal or the $param arg.
+fn limit_cond_text(mods: &QMods) -> String {
+    let mut s: String = String::new();
+    if mods.has_limit {
+        s.push_str(" && __out.len() < (");
+        if mods.limit_is_param {
+            s.push_str(mods.limit_param);
+        } else {
+            s.push_i64(mods.limit_n);
+            s.push_str("i64");
+        }
+        s.push_str(")");
+    }
+    return s;
+}
+
+// Emit one guarded output push at `indent`: plain `__out.push(v)` without
+// `distinct`, else bind the projected value and push only when not already in
+// `__out` (linear scan — O(n²) MVP dedup; `==` covers i64/f64/str natively).
+fn emit_push_guarded(em: &mut Emitter, indent: str, val_ty: str, body: str, distinct: bool) {
+    if !distinct {
+        em.push_text(indent);
+        em.push_text("__out.push(");
+        em.push_text(body);
+        em.push_text(");\n");
+        return;
+    }
+    em.push_text(indent);
+    em.push_text("let __pv: ");
+    em.push_text(val_ty);
+    em.push_text(" = (");
+    em.push_text(body);
+    em.push_text(");\n");
+    em.push_text(indent);
+    em.push_text("let mut __dup: bool = false;\n");
+    em.push_text(indent);
+    em.push_text("let mut __d: i64 = 0i64;\n");
+    em.push_text(indent);
+    em.push_text("while __d < __out.len() { if __out.get(__d) == __pv { __dup = true; } __d = __d + 1i64; }\n");
+    em.push_text(indent);
+    em.push_text("if !__dup { __out.push(__pv); }\n");
+}
+
+// Emit the stable in-place insertion sort over the parallel (key, index) vecs
+// `__ks` + `__ix` (+ `__jx` for join pairs) — O(n²) MVP codegen (strict compare
+// keeps equal keys in source order = stable); `desc` flips the comparison.
+// str keys compare with the native `<`/`>` (sema lowers str relationals to
+// byte-lexicographic `str_cmp`).
+fn emit_sort_perm(em: &mut Emitter, key_ty: str, desc: bool, two_idx: bool) {
+    em.push_text("    let mut __a: i64 = 1i64;\n");
+    em.push_text("    while __a < __ks.len() {\n");
+    em.push_text("        let __kv: ");
+    em.push_text(key_ty);
+    em.push_text(" = __ks.get(__a);\n");
+    em.push_text("        let __iv: i64 = __ix.get(__a);\n");
+    if two_idx { em.push_text("        let __jv: i64 = __jx.get(__a);\n"); }
+    em.push_text("        let mut __b: i64 = __a;\n");
+    if desc {
+        em.push_text("        while __b > 0i64 && __ks.get(__b - 1i64) < __kv {\n");
+    } else {
+        em.push_text("        while __b > 0i64 && __ks.get(__b - 1i64) > __kv {\n");
+    }
+    em.push_text("            __ks.set(__b, __ks.get(__b - 1i64));\n");
+    em.push_text("            __ix.set(__b, __ix.get(__b - 1i64));\n");
+    if two_idx { em.push_text("            __jx.set(__b, __jx.get(__b - 1i64));\n"); }
+    em.push_text("            __b = __b - 1i64;\n");
+    em.push_text("        }\n");
+    em.push_text("        __ks.set(__b, __kv);\n");
+    em.push_text("        __ix.set(__b, __iv);\n");
+    if two_idx { em.push_text("        __jx.set(__b, __jv);\n"); }
+    em.push_text("        __a = __a + 1i64;\n");
+    em.push_text("    }\n");
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // Phase-3 THIN emitters — the two peephole collapses `simplify_rexpr` signals.
 // ══════════════════════════════════════════════════════════════════════════
@@ -268,9 +514,11 @@ fn peel_filter(e: RExpr) -> Peeled {
 // Emit a fn with the same signature that returns an empty `Vec` DIRECTLY: no scan
 // loop, no per-row work. The row type + params still shape the signature (the
 // caller's call site is unchanged) but the body is a single empty-Vec return.
+// `first` (SELM_FIRST) narrows the return to `Option<E>` + a constant
+// `Option::None` — the single-row mode's empty collapse.
 fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
               fn_name: str, with_decls: WRef<RQWithArr>,
-              result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
+              result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -312,13 +560,76 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     em.push_text(row_ty);
     em.push_text("]");
     emit_params(&mut em, &ty);
-    em.push_text(") -> Vec<");
-    em.push_text(result_elem);
+    if first {
+        // Single-row mode: constant None (no scan loop).
+        em.push_text(") -> Option<");
+        em.push_text(result_elem);
+        em.push_text("> {\n");
+        em.push_text("    return Option::None;\n");
+    } else {
+        em.push_text(") -> Vec<");
+        em.push_text(result_elem);
+        em.push_text("> {\n");
+        // The const-false filter proved emptiness: return the empty Vec directly.
+        em.push_text("    return Vec::<");
+        em.push_text(result_elem);
+        em.push_text(">::new();\n");
+    }
+    em.push_text("}\n");
+    em.commit();
+    return true;
+}
+
+// (a·false, FIND mode) — a const-false `find` predicate: constant None with the
+// borrow-returning signature (`Option<&Row>`), no scan loop.
+fn emit_none_find(scan_e: RExpr, fn_name: str, h: &Writ) -> bool {
+    let sc: RScan = scan_of(scan_e);
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    begin_chunk(&mut em, &view);
+    em.push_text("pub fn ");
+    em.push_text(fn_name);
+    em.push_text("(");
+    em.push_text(sc.src_name);
+    em.push_text(": &[");
+    em.push_text(sc.row_ty);
+    em.push_text("]) -> Option<&");
+    em.push_text(sc.row_ty);
     em.push_text("> {\n");
-    // The const-false filter proved emptiness: return the empty Vec directly.
-    em.push_text("    return Vec::<");
-    em.push_text(result_elem);
-    em.push_text(">::new();\n");
+    em.push_text("    return Option::None;\n");
+    em.push_text("}\n");
+    em.commit();
+    return true;
+}
+
+// (b, single-row modes) HEAD ROW — the identity peephole under SELM_FIRST/
+// SELM_FIND: an identity selection over an UNFILTERED scan (`select first v`,
+// or `find P` whose predicate const-folded to true). The first row IS the
+// answer, so BORROW it: `Option<&Row>` = Some(&src[0]) when non-empty, None
+// otherwise — zero loop, zero copy (the emit_identity precedent, narrowed to
+// one row).
+fn emit_head_row(scan_e: RExpr, fn_name: str, h: &Writ) -> bool {
+    let sc: RScan = scan_of(scan_e);
+    let src_name: str = sc.src_name;
+    let row_ty: str   = sc.row_ty;
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    begin_chunk(&mut em, &view);
+    em.push_text("pub fn ");
+    em.push_text(fn_name);
+    em.push_text("(");
+    em.push_text(src_name);
+    em.push_text(": &[");
+    em.push_text(row_ty);
+    em.push_text("]) -> Option<&");
+    em.push_text(row_ty);
+    em.push_text("> {\n");
+    em.push_text("    if (");
+    em.push_text(src_name);
+    em.push_text(").len() > 0i64 { return Option::Some(&(");
+    em.push_text(src_name);
+    em.push_text(")[0i64]); }\n");
+    em.push_text("    return Option::None;\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -364,63 +675,94 @@ fn emit_identity(scan_e: RExpr,
 // ══════════════════════════════════════════════════════════════════════════
 pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                       fn_name: str, with_decls: WRef<RQWithArr>,
-                      result_ty: str, has_result_ty: bool, h: &Writ) -> bool {
+                      result_ty: str, has_result_ty: bool, sel_mode: i32, h: &Writ) -> bool {
     // Phase-3 thin collapses (the root is always an RProj; peel it to reach the
-    // scan for the signature).
+    // scan for the signature). The single-row modes get their own thin forms:
+    // empty → constant None; identity → head-row borrow.
     if empty || identity {
         match root {
             RExpr::Proj(p) => {
                 let scan_e: RExpr = p.input_expr();
                 if empty {
-                    return emit_empty(scan_e, p.sel, fn_name, with_decls, result_ty, has_result_ty, h);
+                    if sel_mode == SELM_FIND() {
+                        return emit_none_find(scan_e, fn_name, h);
+                    }
+                    return emit_empty(scan_e, p.sel, fn_name, with_decls, result_ty,
+                                      has_result_ty, sel_mode == SELM_FIRST(), h);
+                }
+                if sel_mode != SELM_ALL() {
+                    return emit_head_row(scan_e, fn_name, h);
                 }
                 return emit_identity(scan_e, fn_name, with_decls, h);
             }
             _ => { }
         }
     }
-    return emit_rexpr(root, fn_name, with_decls, result_ty, has_result_ty, h);
+    return emit_rexpr(root, fn_name, with_decls, result_ty, has_result_ty, sel_mode, h);
 }
 
 pub fn emit_rexpr(root: RExpr, fn_name: str,
                   with_decls: WRef<RQWithArr>,
-                  result_ty: str, has_result_ty: bool, h: &Writ) -> bool {
-    match root {
+                  result_ty: str, has_result_ty: bool, sel_mode: i32, h: &Writ) -> bool {
+    // Peel the post-projection wrappers (RLimit over RDistinct — the lowering
+    // order) and the RSort under the projection into the QMods envelope.
+    let mut mods: QMods = qmods_none();
+    let r1: RExpr = peel_limit(root, &mut mods);
+    let r2: RExpr = peel_distinct(r1, &mut mods);
+    match r2 {
         RExpr::Proj(p) => {
-            let body: RExpr = p.input_expr();
+            let body0: RExpr = p.input_expr();
+            let body: RExpr = peel_sort(body0, &mut mods);
             let sel: WRef<SExpr> = p.sel;
+            // FIND mode — the body is a (possibly filtered) scan; the selector is
+            // the identity, so the emitter returns the row BORROW directly.
+            if sel_mode == SELM_FIND() {
+                let pl: Peeled = peel_filter(body);
+                return emit_find(pl.inner, pl.pred, pl.has_pred, fn_name, h);
+            }
+            let first: bool = sel_mode == SELM_FIRST();
             match body {
                 RExpr::Join(jn) => { return emit_join(jn.left_expr(), jn.right_expr(), jn.on, false,
-                                                      null_sref(), false, sel,
-                                                      fn_name, with_decls, result_ty, has_result_ty, h); }
+                                                      null_sref(), false, sel, mods,
+                                                      fn_name, with_decls, result_ty, has_result_ty, first, h); }
                 RExpr::Anti(an) => { return emit_join(an.left_expr(), an.right_expr(), an.on, true,
-                                                      null_sref(), false, sel,
-                                                      fn_name, with_decls, result_ty, has_result_ty, h); }
+                                                      null_sref(), false, sel, mods,
+                                                      fn_name, with_decls, result_ty, has_result_ty, first, h); }
                 RExpr::Aggr(ag) => {
+                    if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                     let pl: Peeled = peel_filter(ag.input_expr());
-                    return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred, sel,
+                    return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
+                                          null_sref(), false, sel, mods,
                                           fn_name, with_decls, result_ty, has_result_ty, h);
                 }
                 RExpr::Filter(f) => {
-                    // RFilter over a join/anti (the `where` sits above the join), or
-                    // over a scan (simple with `where`).
+                    // RFilter over a join/anti (the `where` sits above the join), over
+                    // an aggregate (the HAVING filter over the group rows), or over a
+                    // scan (simple with `where`).
                     match f.input_expr() {
                         RExpr::Join(jn) => { return emit_join(jn.left_expr(), jn.right_expr(), jn.on, false,
-                                                              f.pred, true, sel,
-                                                              fn_name, with_decls, result_ty, has_result_ty, h); }
+                                                              f.pred, true, sel, mods,
+                                                              fn_name, with_decls, result_ty, has_result_ty, first, h); }
                         RExpr::Anti(an) => { return emit_join(an.left_expr(), an.right_expr(), an.on, true,
-                                                              f.pred, true, sel,
-                                                              fn_name, with_decls, result_ty, has_result_ty, h); }
+                                                              f.pred, true, sel, mods,
+                                                              fn_name, with_decls, result_ty, has_result_ty, first, h); }
+                        RExpr::Aggr(ag) => {
+                            if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
+                            let pl: Peeled = peel_filter(ag.input_expr());
+                            return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
+                                                  f.pred, true, sel, mods,
+                                                  fn_name, with_decls, result_ty, has_result_ty, h);
+                        }
                         _ => {
-                            return emit_simple(f.input_expr(), f.pred, true, sel,
-                                               fn_name, with_decls, result_ty, has_result_ty, h);
+                            return emit_simple(f.input_expr(), f.pred, true, sel, mods,
+                                               fn_name, with_decls, result_ty, has_result_ty, first, h);
                         }
                     }
                 }
                 _ => {
                     // Bare RScan — simple, no `where`.
-                    return emit_simple(body, null_sref(), false, sel,
-                                       fn_name, with_decls, result_ty, has_result_ty, h);
+                    return emit_simple(body, null_sref(), false, sel, mods,
+                                       fn_name, with_decls, result_ty, has_result_ty, first, h);
                 }
             }
         }
@@ -428,19 +770,39 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
     }
 }
 
-// The RScan bound under a (possibly filtered) input. Returns the RScan view.
+// The RScan bound under a (possibly wrapped) input. TOTAL over the algebra
+// (every compound node recurses into its input / left child) — an unexpected
+// shape resolves to SOME scan rather than diverging.
 fn scan_of(e: RExpr) -> RScan {
     match e {
-        RExpr::Scan(sc) => { return sc; }
-        RExpr::Filter(f) => { return scan_of(f.input_expr()); }
-        _ => { return scan_of(e); }
+        RExpr::Scan(sc)     => { return sc; }
+        RExpr::Filter(f)    => { return scan_of(f.input_expr()); }
+        RExpr::Sort(s)      => { return scan_of(s.input_expr()); }
+        RExpr::Proj(p)      => { return scan_of(p.input_expr()); }
+        RExpr::Limit(l)     => { return scan_of(l.input_expr()); }
+        RExpr::Distinct(d)  => { return scan_of(d.input_expr()); }
+        RExpr::Aggr(ag)     => { return scan_of(ag.input_expr()); }
+        RExpr::Join(jn)     => { return scan_of(jn.left_expr()); }
+        RExpr::Anti(an)     => { return scan_of(an.left_expr()); }
+        RExpr::Edge(ed)     => { return scan_of(ed.input_expr()); }
+        RExpr::Fix(fx)      => { return scan_of(fx.base.any().view::<RExpr>()); }
     }
 }
 
-// ── emit_simple — scan / filter / project (mirror walk_simple) ────────────────
+// ── emit_simple — scan / filter / [sort] / project / [distinct/limit] ─────────
+// Base shape mirrors walk_simple; with an `order by` the matching row INDICES +
+// their keys are materialized and insertion-sorted (stable, O(n²) MVP codegen)
+// before the projection loop; `distinct` dedups the projected values (linear
+// scan); `limit` caps the output via the loop condition.
+// `first` (SELM_FIRST) — single-row mode: `-> Option<E>`; without `order by`
+// the scan loop EARLY-RETURNS `Option::Some(proj)` on the first match (genuinely
+// lazy, no Vec); with `order by` the (key, index) permutation is sorted first
+// and only the HEAD row is projected. distinct/limit are diagnosed away
+// upstream, so `mods` carries only the sort here.
 fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+               mods: QMods,
                fn_name: str, with_decls: WRef<RQWithArr>,
-               result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
+               result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -454,6 +816,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
     collect_params(proj_sexpr, &mut ty);
     if has_where { collect_params(pred.any().view::<SExpr>(), &mut ty); }
+    if mods.has_sort { collect_params(mods.sort_key.any().view::<SExpr>(), &mut ty); }
+    if mods.has_limit && mods.limit_is_param { ty.note_param(mods.limit_param); }
     register_comp_sources(proj_sexpr, &mut ty);
     if has_where { register_comp_sources(pred.any().view::<SExpr>(), &mut ty); }
 
@@ -495,6 +859,21 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
 
+    // The optional `order by` key: emitted body + its EL value type (i64/f64/str).
+    let mut key_body: String = String::new();
+    let mut key_ty: str = "i64";
+    if mods.has_sort {
+        let key_e: SExpr = mods.sort_key.any().view::<SExpr>();
+        if call_diagnostic(key_e, &ty) {
+            error("wql!: `order by` calls an unknown or wrong-arity function");
+            return false;
+        }
+        let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+        key_ty = el_ty_name(infer_ty(key_opt, &ty));
+        emit_sexpr(&mut key_body, key_opt, &ty, var_name);
+    }
+    let lim_cond: String = limit_cond_text(&mods);
+
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     em.push_text("pub fn ");
@@ -505,14 +884,181 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     em.push_text(row_ty);
     em.push_text("]");
     emit_params(&mut em, &ty);
-    em.push_text(") -> Vec<");
-    em.push_text(result_elem);
+    if first {
+        em.push_text(") -> Option<");
+        em.push_text(result_elem);
+        em.push_text("> {\n");
+    } else {
+        em.push_text(") -> Vec<");
+        em.push_text(result_elem);
+        em.push_text("> {\n");
+        em.push_text("    let mut __out: Vec<");
+        em.push_text(result_elem);
+        em.push_text("> = Vec::<");
+        em.push_text(result_elem);
+        em.push_text(">::new();\n");
+    }
+    if mods.has_sort {
+        // Phase 1: collect matching row indices + sort keys.
+        em.push_text("    let mut __ix: Vec<i64> = Vec::<i64>::new();\n");
+        em.push_text("    let mut __ks: Vec<");
+        em.push_text(key_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(key_ty);
+        em.push_text(">::new();\n");
+        em.push_text("    let mut __i: i64 = 0i64;\n");
+        em.push_text("    while __i < (");
+        em.push_text(src_name);
+        em.push_text(").len() {\n");
+        em.push_text("        let ");
+        em.push_text(var_name);
+        em.push_text(": &");
+        em.push_text(row_ty);
+        em.push_text(" = &(");
+        em.push_text(src_name);
+        em.push_text(")[__i];\n");
+        if has_where {
+            em.push_text("        if ");
+            em.push_text(string_as_str(&pred_body));
+            em.push_text(" {\n");
+            em.push_text("            __ix.push(__i);\n");
+            em.push_text("            __ks.push(");
+            em.push_text(string_as_str(&key_body));
+            em.push_text(");\n");
+            em.push_text("        }\n");
+        } else {
+            em.push_text("        __ix.push(__i);\n");
+            em.push_text("        __ks.push(");
+            em.push_text(string_as_str(&key_body));
+            em.push_text(");\n");
+        }
+        em.push_text("        __i = __i + 1i64;\n");
+        em.push_text("    }\n");
+        // Phase 2: stable insertion sort of the (key, index) permutation.
+        emit_sort_perm(&mut em, key_ty, mods.sort_desc, false);
+        if first {
+            // Phase 3 (single-row): project only the HEAD of the sorted order.
+            em.push_text("    if __ix.len() > 0i64 {\n");
+            em.push_text("        let ");
+            em.push_text(var_name);
+            em.push_text(": &");
+            em.push_text(row_ty);
+            em.push_text(" = &(");
+            em.push_text(src_name);
+            em.push_text(")[__ix.get(0i64)];\n");
+            em.push_text("        return Option::Some(");
+            em.push_text(string_as_str(&body));
+            em.push_text(");\n");
+            em.push_text("    }\n");
+        } else {
+            // Phase 3: project in sorted order (distinct dedups; limit caps).
+            em.push_text("    let mut __o: i64 = 0i64;\n");
+            em.push_text("    while __o < __ix.len()");
+            em.push_text(string_as_str(&lim_cond));
+            em.push_text(" {\n");
+            em.push_text("        let ");
+            em.push_text(var_name);
+            em.push_text(": &");
+            em.push_text(row_ty);
+            em.push_text(" = &(");
+            em.push_text(src_name);
+            em.push_text(")[__ix.get(__o)];\n");
+            emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
+            em.push_text("        __o = __o + 1i64;\n");
+            em.push_text("    }\n");
+        }
+    } else {
+        em.push_text("    let mut __i: i64 = 0i64;\n");
+        em.push_text("    while __i < (");
+        em.push_text(src_name);
+        em.push_text(").len()");
+        em.push_text(string_as_str(&lim_cond));
+        em.push_text(" {\n");
+        em.push_text("        let ");
+        em.push_text(var_name);
+        em.push_text(": &");
+        em.push_text(row_ty);
+        em.push_text(" = &(");
+        em.push_text(src_name);
+        em.push_text(")[__i];\n");
+        if has_where {
+            em.push_text("        if ");
+            em.push_text(string_as_str(&pred_body));
+            em.push_text(" {\n");
+            if first {
+                // Early exit: the FIRST matching row's projection is the answer.
+                em.push_text("            return Option::Some(");
+                em.push_text(string_as_str(&body));
+                em.push_text(");\n");
+            } else {
+                emit_push_guarded(&mut em, "            ", result_elem, string_as_str(&body), mods.distinct);
+            }
+            em.push_text("        }\n");
+        } else {
+            if first {
+                em.push_text("        return Option::Some(");
+                em.push_text(string_as_str(&body));
+                em.push_text(");\n");
+            } else {
+                emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
+            }
+        }
+        em.push_text("        __i = __i + 1i64;\n");
+        em.push_text("    }\n");
+    }
+    if first {
+        em.push_text("    return Option::None;\n");
+    } else {
+        em.push_text("    return __out;\n");
+    }
+    em.push_text("}\n");
+    em.commit();
+    return true;
+}
+
+// ── emit_find — single-row BORROW scan (`from src:[Ty] v find P`) ─────────────
+// The generated fn returns `Option<&Ty>` — a borrow of the FIRST row matching
+// the predicate (zero-copy; the emit_identity accessor-collapse precedent shows
+// returning borrows of the slice param works), `Option::None` when no row
+// matches. Early-exit loop — no Vec, no materialization. `$params` in the
+// predicate flow as fn arguments (default i64 — the `find` shape has no `with`
+// clause to retype them).
+fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
+             fn_name: str, h: &Writ) -> bool {
+    let sc: RScan = scan_of(scan_e);
+    let src_name: str = sc.src_name;
+    let row_ty: str   = sc.row_ty;
+    let var_name: str = sc.var_name;
+
+    let mut ty: ElTypes = el_types_new();
+    let view: OView = oview_module_ast();
+    stamp_types_from_schema(&view, &mut ty, row_ty);
+
+    let mut pred_body: String = String::new();
+    if has_pred {
+        let pred_sexpr: SExpr = pred.any().view::<SExpr>();
+        collect_params(pred_sexpr, &mut ty);
+        if call_diagnostic(pred_sexpr, &ty) {
+            error("wql!: `find` calls an unknown or wrong-arity function");
+            return false;
+        }
+        let pred_opt: SExpr = simplify_sexpr(pred_sexpr, h).any().view::<SExpr>();
+        emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
+    }
+
+    let mut em: Emitter = Emitter::new();
+    begin_chunk(&mut em, &view);
+    em.push_text("pub fn ");
+    em.push_text(fn_name);
+    em.push_text("(");
+    em.push_text(src_name);
+    em.push_text(": &[");
+    em.push_text(row_ty);
+    em.push_text("]");
+    emit_params(&mut em, &ty);
+    em.push_text(") -> Option<&");
+    em.push_text(row_ty);
     em.push_text("> {\n");
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_elem);
-    em.push_text("> = Vec::<");
-    em.push_text(result_elem);
-    em.push_text(">::new();\n");
     em.push_text("    let mut __i: i64 = 0i64;\n");
     em.push_text("    while __i < (");
     em.push_text(src_name);
@@ -524,32 +1070,38 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     em.push_text(" = &(");
     em.push_text(src_name);
     em.push_text(")[__i];\n");
-    if has_where {
+    if has_pred {
         em.push_text("        if ");
         em.push_text(string_as_str(&pred_body));
-        em.push_text(" {\n");
-        em.push_text("            __out.push(");
-        em.push_text(string_as_str(&body));
-        em.push_text(");\n");
-        em.push_text("        }\n");
+        em.push_text(" { return Option::Some(");
+        em.push_text(var_name);
+        em.push_text("); }\n");
     } else {
-        em.push_text("        __out.push(");
-        em.push_text(string_as_str(&body));
+        em.push_text("        return Option::Some(");
+        em.push_text(var_name);
         em.push_text(");\n");
     }
     em.push_text("        __i = __i + 1i64;\n");
     em.push_text("    }\n");
-    em.push_text("    return __out;\n");
+    em.push_text("    return Option::None;\n");
     em.push_text("}\n");
     em.commit();
     return true;
 }
 
 // ── emit_join — inner / anti nested-loop join (mirror walk_join) ──────────────
+// With an `order by` the matched row-index PAIRS (x-index + y-index; anti keeps
+// only the x-index) + their keys are materialized and insertion-sorted (stable,
+// O(n²) MVP codegen) before the projection loop; `distinct` dedups the projected
+// values; `limit` caps the output via the loop conditions.
+// `first` (SELM_FIRST) — single-row mode: `-> Option<E>`; without `order by` the
+// match site EARLY-RETURNS `Option::Some(proj)` (no Vec); with `order by` the
+// pair permutation is sorted first and only the HEAD pair is projected.
 fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
              where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+             mods: QMods,
              fn_name: str, with_decls: WRef<RQWithArr>,
-             result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
+             result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let ls: RScan = scan_of(left_e);
     let rs: RScan = scan_of(right_e);
     let a_name: str = ls.src_name;
@@ -570,6 +1122,8 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
     collect_params(on_e, &mut ty);
     if has_where { collect_params(where_ref.any().view::<SExpr>(), &mut ty); }
     collect_params(proj_e, &mut ty);
+    if mods.has_sort { collect_params(mods.sort_key.any().view::<SExpr>(), &mut ty); }
+    if mods.has_limit && mods.limit_is_param { ty.note_param(mods.limit_param); }
 
     let on_opt: SExpr   = simplify_sexpr(on_e, h).any().view::<SExpr>();
     let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
@@ -588,6 +1142,17 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
         let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
         emit_sexpr(&mut where_body, where_opt, &ty, x_var);
     }
+    // The optional `order by` key (ranges over the row vars, like `where`).
+    let mut key_body: String = String::new();
+    let mut key_ty: str = "i64";
+    if mods.has_sort {
+        let key_e: SExpr = mods.sort_key.any().view::<SExpr>();
+        let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+        key_ty = el_ty_name(infer_ty(key_opt, &ty));
+        emit_sexpr(&mut key_body, key_opt, &ty, x_var);
+    }
+    let lim_cond: String = limit_cond_text(&mods);
+    let has_sort: bool = mods.has_sort;
 
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
@@ -603,18 +1168,37 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
     em.push_text(b_ty);
     em.push_text("]");
     emit_params(&mut em, &ty);
-    em.push_text(") -> Vec<");
-    em.push_text(result_ty);
-    em.push_text("> {\n");
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(result_ty);
-    em.push_text(">::new();\n");
+    if first {
+        em.push_text(") -> Option<");
+        em.push_text(result_ty);
+        em.push_text("> {\n");
+    } else {
+        em.push_text(") -> Vec<");
+        em.push_text(result_ty);
+        em.push_text("> {\n");
+        em.push_text("    let mut __out: Vec<");
+        em.push_text(result_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(result_ty);
+        em.push_text(">::new();\n");
+    }
+    if has_sort {
+        // Phase 1 collects matched index pairs + keys; the match loops must run
+        // in full (no limit cap here — the cap applies to the OUTPUT loop).
+        em.push_text("    let mut __ix: Vec<i64> = Vec::<i64>::new();\n");
+        if !is_anti { em.push_text("    let mut __jx: Vec<i64> = Vec::<i64>::new();\n"); }
+        em.push_text("    let mut __ks: Vec<");
+        em.push_text(key_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(key_ty);
+        em.push_text(">::new();\n");
+    }
     em.push_text("    let mut __i: i64 = 0i64;\n");
     em.push_text("    while __i < (");
     em.push_text(a_name);
-    em.push_text(").len() {\n");
+    em.push_text(").len()");
+    if !has_sort { em.push_text(string_as_str(&lim_cond)); }
+    em.push_text(" {\n");
     em.push_text("        let ");
     em.push_text(x_var);
     em.push_text(": &");
@@ -644,20 +1228,31 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
         if has_where {
             em.push_text("            if (");
             em.push_text(string_as_str(&where_body));
-            em.push_text(") { __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text("); }\n");
-        } else {
-            em.push_text("            __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text(");\n");
+            em.push_text(") {\n");
         }
+        if has_sort {
+            em.push_text("            __ix.push(__i);\n");
+            em.push_text("            __ks.push(");
+            em.push_text(string_as_str(&key_body));
+            em.push_text(");\n");
+        } else {
+            if first {
+                em.push_text("            return Option::Some(");
+                em.push_text(string_as_str(&proj_body));
+                em.push_text(");\n");
+            } else {
+                emit_push_guarded(&mut em, "            ", result_ty, string_as_str(&proj_body), mods.distinct);
+            }
+        }
+        if has_where { em.push_text("            }\n"); }
         em.push_text("        }\n");
     } else {
         em.push_text("        let mut __j: i64 = 0i64;\n");
         em.push_text("        while __j < (");
         em.push_text(b_name);
-        em.push_text(").len() {\n");
+        em.push_text(").len()");
+        if !has_sort { em.push_text(string_as_str(&lim_cond)); }
+        em.push_text(" {\n");
         em.push_text("            let ");
         em.push_text(y_var);
         em.push_text(": &");
@@ -671,29 +1266,104 @@ fn emit_join(left_e: RExpr, right_e: RExpr, on_ref: WRef<SExpr>, is_anti: bool,
         if has_where {
             em.push_text("                if (");
             em.push_text(string_as_str(&where_body));
-            em.push_text(") { __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text("); }\n");
-        } else {
-            em.push_text("                __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text(");\n");
+            em.push_text(") {\n");
         }
+        if has_sort {
+            em.push_text("                __ix.push(__i);\n");
+            em.push_text("                __jx.push(__j);\n");
+            em.push_text("                __ks.push(");
+            em.push_text(string_as_str(&key_body));
+            em.push_text(");\n");
+        } else {
+            if first {
+                em.push_text("                return Option::Some(");
+                em.push_text(string_as_str(&proj_body));
+                em.push_text(");\n");
+            } else {
+                emit_push_guarded(&mut em, "                ", result_ty, string_as_str(&proj_body), mods.distinct);
+            }
+        }
+        if has_where { em.push_text("                }\n"); }
         em.push_text("            }\n");
         em.push_text("            __j = __j + 1i64;\n");
         em.push_text("        }\n");
     }
     em.push_text("        __i = __i + 1i64;\n");
     em.push_text("    }\n");
-    em.push_text("    return __out;\n");
+    if has_sort {
+        emit_sort_perm(&mut em, key_ty, mods.sort_desc, !is_anti);
+        if first {
+            // Single-row: project only the HEAD of the sorted pair order.
+            em.push_text("    if __ix.len() > 0i64 {\n");
+            em.push_text("        let ");
+            em.push_text(x_var);
+            em.push_text(": &");
+            em.push_text(a_ty);
+            em.push_text(" = &(");
+            em.push_text(a_name);
+            em.push_text(")[__ix.get(0i64)];\n");
+            if !is_anti {
+                em.push_text("        let ");
+                em.push_text(y_var);
+                em.push_text(": &");
+                em.push_text(b_ty);
+                em.push_text(" = &(");
+                em.push_text(b_name);
+                em.push_text(")[__jx.get(0i64)];\n");
+            }
+            em.push_text("        return Option::Some(");
+            em.push_text(string_as_str(&proj_body));
+            em.push_text(");\n");
+            em.push_text("    }\n");
+        } else {
+            em.push_text("    let mut __o: i64 = 0i64;\n");
+            em.push_text("    while __o < __ix.len()");
+            em.push_text(string_as_str(&lim_cond));
+            em.push_text(" {\n");
+            em.push_text("        let ");
+            em.push_text(x_var);
+            em.push_text(": &");
+            em.push_text(a_ty);
+            em.push_text(" = &(");
+            em.push_text(a_name);
+            em.push_text(")[__ix.get(__o)];\n");
+            if !is_anti {
+                em.push_text("        let ");
+                em.push_text(y_var);
+                em.push_text(": &");
+                em.push_text(b_ty);
+                em.push_text(" = &(");
+                em.push_text(b_name);
+                em.push_text(")[__jx.get(__o)];\n");
+            }
+            emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
+            em.push_text("        __o = __o + 1i64;\n");
+            em.push_text("    }\n");
+        }
+    }
+    if first {
+        em.push_text("    return Option::None;\n");
+    } else {
+        em.push_text("    return __out;\n");
+    }
     em.push_text("}\n");
     em.commit();
     return true;
 }
 
 // ── emit_aggregate — group-by + aggregate (mirror walk_aggregate) ─────────────
+// `having_ref`/`has_having` — the post-aggregation filter over the group rows
+// (predicate over the group `key` + aggregate output names). With any of
+// having / order / distinct / limit the group COLUMNS are materialized into
+// parallel Vecs (key + one per aggregate) and the projection runs as a separate
+// output phase (having filters at materialization; order sorts a group-row
+// permutation — stable insertion sort, O(n²) MVP; distinct dedups projected
+// values; limit caps via the output-loop condition). Without modifiers the
+// original single-pass push shape is emitted unchanged.
 fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
-                  where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+                  where_ref: WRef<SExpr>, has_where: bool,
+                  having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
+                  mods: QMods,
                   fn_name: str, with_decls: WRef<RQWithArr>,
                   result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
@@ -709,10 +1379,34 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     apply_with_ref(&mut ty, with_decls);
 
     ty.set_ty("key", EL_TY_INT());
+    // Per-aggregate OUTPUT value-type + accumulator width:
+    //   • count → INT (always an i64 row count);
+    //   • avg   → FLT ALWAYS (exact mean, f64 accumulator + f64 division — no
+    //             integer truncation), for BOTH int and float arguments;
+    //   • sum/min/max → the ARGUMENT's type: an f64-typed arg gets an f64
+    //             accumulator + f64 result column, an int arg stays i64.
+    // `agg_flt[i]`  — this aggregate's accumulator/result is f64;
+    // `agg_cast[i]` — the fold step must cast the (INT-typed) arg to f64
+    //                 (only avg over an int argument). Row-field types are
+    //                 already stamped (schema + `with`), so the arg infer here
+    //                 is well-typed.
+    let mut agg_flt:  [bool; 8] = [false; 8];
+    let mut agg_cast: [bool; 8] = [false; 8];
     let mut ki: i64 = 0i64;
     while ki < acount {
         let ka: RAgg = aggs.agg_at(ki);
-        ty.set_ty(ka.out, EL_TY_INT());
+        let kfn: i32 = agg_of_name(ka.fn_name);
+        let mut arg_is_flt: bool = false;
+        if ka.has_arg {
+            if infer_ty(ka.arg_expr(), &ty) == EL_TY_FLT() { arg_is_flt = true; }
+        }
+        let is_f: bool = kfn == AGG_AVG()
+            || ((kfn == AGG_SUM() || kfn == AGG_MIN() || kfn == AGG_MAX()) && arg_is_flt);
+        if ki < 8i64 {
+            agg_flt[ki]  = is_f;
+            agg_cast[ki] = is_f && !arg_is_flt && kfn != AGG_COUNT();
+        }
+        if is_f { ty.set_ty(ka.out, EL_TY_FLT()); } else { ty.set_ty(ka.out, EL_TY_INT()); }
         ki = ki + 1i64;
     }
 
@@ -721,6 +1415,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     collect_params(key_e, &mut ty);
     if has_where { collect_params(where_ref.any().view::<SExpr>(), &mut ty); }
     collect_params(proj_e, &mut ty);
+    if has_having { collect_params(having_ref.any().view::<SExpr>(), &mut ty); }
+    if mods.has_sort { collect_params(mods.sort_key.any().view::<SExpr>(), &mut ty); }
+    if mods.has_limit && mods.limit_is_param { ty.note_param(mods.limit_param); }
 
     let key_opt: SExpr  = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
@@ -739,6 +1436,29 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     }
     let mut proj_body: String = String::new();
     emit_sexpr(&mut proj_body, proj_opt, &ty, x_var);
+    // The HAVING predicate + the `order by` key range over the group `key` +
+    // aggregate OUTPUT names (typed above), not the row var.
+    let mut having_body: String = String::new();
+    if has_having {
+        let hav_e: SExpr = having_ref.any().view::<SExpr>();
+        if call_diagnostic(hav_e, &ty) {
+            error("wql!: `having` calls an unknown or wrong-arity function");
+            return false;
+        }
+        let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
+        emit_sexpr(&mut having_body, hav_opt, &ty, x_var);
+    }
+    let mut okey_body: String = String::new();
+    let mut okey_ty: str = "i64";
+    if mods.has_sort {
+        let okey_e: SExpr = mods.sort_key.any().view::<SExpr>();
+        let okey_opt: SExpr = simplify_sexpr(okey_e, h).any().view::<SExpr>();
+        okey_ty = el_ty_name(infer_ty(okey_opt, &ty));
+        emit_sexpr(&mut okey_body, okey_opt, &ty, x_var);
+    }
+    let lim_cond: String = limit_cond_text(&mods);
+    // Any modifier ⇒ materialize the group columns + separate output phase.
+    let mods_any: bool = has_having || mods.has_sort || mods.distinct || mods.has_limit;
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
@@ -775,6 +1495,19 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("> = Vec::<");
     em.push_text(result_ty);
     em.push_text(">::new();\n");
+    if mods_any {
+        // Materialized group columns: `key` + one Vec per aggregate output.
+        em.push_text("    let mut __g_key: Vec<i64> = Vec::<i64>::new();\n");
+        let mut gd: i64 = 0i64;
+        while gd < acount {
+            let a: RAgg = aggs.agg_at(gd);
+            em.push_text("    let mut __g_");
+            em.push_text(a.out);
+            if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
+            else           { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+            gd = gd + 1i64;
+        }
+    }
     em.push_text("    let mut __seen: Vec<i64> = Vec::<i64>::new();\n");
     em.push_text("    let mut __i: i64 = 0i64;\n");
     em.push_text("    while __i < (");
@@ -806,7 +1539,16 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let fnid: i32 = agg_of_name(a.fn_name);
         em.push_text("            let mut __agg_");
         em.push_text(a.out);
-        if fnid == AGG_MIN() {
+        if agg_flt[c0] {
+            // f64 accumulator: min/max seed with ±f64::MAX (finite extremes).
+            if fnid == AGG_MIN() {
+                em.push_text(": f64 = 1.7976931348623157e308f64;\n");
+            } else if fnid == AGG_MAX() {
+                em.push_text(": f64 = -1.7976931348623157e308f64;\n");
+            } else {
+                em.push_text(": f64 = 0.0f64;\n");
+            }
+        } else if fnid == AGG_MIN() {
             em.push_text(": i64 = 9223372036854775807i64;\n");
         } else if fnid == AGG_MAX() {
             em.push_text(": i64 = -9223372036854775808i64;\n");
@@ -852,11 +1594,14 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             em.push_text(aname2);
             em.push_text(" = __agg_");
             em.push_text(aname2);
-            em.push_text(" + (");
+            // avg over an INT arg folds into an f64 accumulator: explicit cast
+            // (Logos has no implicit int→float).
+            if agg_cast[c1] { em.push_text(" + ((");  } else { em.push_text(" + ("); }
             em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text(");\n");
+            if agg_cast[c1] { em.push_text(") as f64);\n"); } else { em.push_text(");\n"); }
         } else if fnid2 == AGG_MIN() {
-            em.push_text("                    { let __v: i64 = (");
+            if agg_flt[c1] { em.push_text("                    { let __v: f64 = ("); }
+            else           { em.push_text("                    { let __v: i64 = ("); }
             em.push_text(string_as_str(&agg_body[c1]));
             em.push_text("); if __v < __agg_");
             em.push_text(aname2);
@@ -864,7 +1609,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             em.push_text(aname2);
             em.push_text(" = __v; } }\n");
         } else {
-            em.push_text("                    { let __v: i64 = (");
+            if agg_flt[c1] { em.push_text("                    { let __v: f64 = ("); }
+            else           { em.push_text("                    { let __v: i64 = ("); }
             em.push_text(string_as_str(&agg_body[c1]));
             em.push_text("); if __v > __agg_");
             em.push_text(aname2);
@@ -886,11 +1632,13 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let fnid3: i32 = agg_of_name(a.fn_name);
         em.push_text("            let ");
         em.push_text(aname3);
-        em.push_text(": i64 = ");
+        if agg_flt[c2] { em.push_text(": f64 = "); } else { em.push_text(": i64 = "); }
         if fnid3 == AGG_AVG() {
+            // avg is ALWAYS f64: an f64 accumulator divided by the (cast) count
+            // — the exact mean, no integer truncation.
             em.push_text("(if __cnt > 0i64 { __agg_");
             em.push_text(aname3);
-            em.push_text(" / __cnt } else { 0i64 });\n");
+            em.push_text(" / (__cnt as f64) } else { 0.0f64 });\n");
         } else {
             em.push_text("__agg_");
             em.push_text(aname3);
@@ -898,15 +1646,97 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         }
         c2 = c2 + 1i64;
     }
-    em.push_text("            __out.push(");
-    em.push_text(string_as_str(&proj_body));
-    em.push_text(");\n");
+    if mods_any {
+        // HAVING gates the group row at materialization; the projection runs in
+        // the separate output phase below.
+        if has_having {
+            em.push_text("            if (");
+            em.push_text(string_as_str(&having_body));
+            em.push_text(") {\n");
+        }
+        em.push_text("            __g_key.push(key);\n");
+        let mut gp: i64 = 0i64;
+        while gp < acount {
+            let a: RAgg = aggs.agg_at(gp);
+            em.push_text("            __g_");
+            em.push_text(a.out);
+            em.push_text(".push(");
+            em.push_text(a.out);
+            em.push_text(");\n");
+            gp = gp + 1i64;
+        }
+        if has_having { em.push_text("            }\n"); }
+    } else {
+        em.push_text("            __out.push(");
+        em.push_text(string_as_str(&proj_body));
+        em.push_text(");\n");
+    }
     em.push_text("        }\n");
     if has_where { em.push_text("        }\n"); }
     em.push_text("        __i = __i + 1i64;\n");
     em.push_text("    }\n");
+    if mods_any {
+        // Output phase: order the group-row permutation (or keep discovery
+        // order), then re-bind the group columns per row and project.
+        em.push_text("    let mut __ix: Vec<i64> = Vec::<i64>::new();\n");
+        if mods.has_sort {
+            em.push_text("    let mut __ks: Vec<");
+            em.push_text(okey_ty);
+            em.push_text("> = Vec::<");
+            em.push_text(okey_ty);
+            em.push_text(">::new();\n");
+        }
+        em.push_text("    let mut __r: i64 = 0i64;\n");
+        em.push_text("    while __r < __g_key.len() {\n");
+        if mods.has_sort {
+            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &agg_flt);
+            em.push_text("        __ix.push(__r);\n");
+            em.push_text("        __ks.push(");
+            em.push_text(string_as_str(&okey_body));
+            em.push_text(");\n");
+        } else {
+            em.push_text("        __ix.push(__r);\n");
+        }
+        em.push_text("        __r = __r + 1i64;\n");
+        em.push_text("    }\n");
+        if mods.has_sort {
+            emit_sort_perm(&mut em, okey_ty, mods.sort_desc, false);
+        }
+        em.push_text("    let mut __o: i64 = 0i64;\n");
+        em.push_text("    while __o < __ix.len()");
+        em.push_text(string_as_str(&lim_cond));
+        em.push_text(" {\n");
+        emit_group_binds(&mut em, "        ", "__ix.get(__o)", &aggs, acount, &agg_flt);
+        emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
+        em.push_text("        __o = __o + 1i64;\n");
+        em.push_text("    }\n");
+    }
     em.push_text("    return __out;\n");
     em.push_text("}\n");
     em.commit();
     return true;
+}
+
+// Emit the group-column re-binds for one materialized group row (`key` + each
+// aggregate output as a local of its declared name, read from the parallel
+// Vecs at index expression `idx`).
+fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
+                    aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8]) {
+    em.push_text(indent);
+    em.push_text("let key: i64 = __g_key.get(");
+    em.push_text(idx);
+    em.push_text(");\n");
+    let mut gi: i64 = 0i64;
+    while gi < acount {
+        let a: RAgg = aggs.agg_at(gi);
+        em.push_text(indent);
+        em.push_text("let ");
+        em.push_text(a.out);
+        if agg_flt[gi] { em.push_text(": f64 = __g_"); } else { em.push_text(": i64 = __g_"); }
+        em.push_text(a.out);
+        em.push_text(".get(");
+        em.push_text(idx);
+        em.push_text(");\n");
+        gi = gi + 1i64;
+    }
 }

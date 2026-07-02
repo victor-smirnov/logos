@@ -31,7 +31,9 @@ use logos.lang.str;
 // its callsite and sees the trigger package's types (row schemas etc.).
 pub fn begin_chunk(em: &mut Emitter, view: &OView) {
     em.emit_target_pkg(view);
-    em.push_text("use logos.mem.string; use logos.mem.collections.vec; ");
+    // logos.lang.option covers the single-row query modes (`select first` /
+    // `find` return Option<E> / Option<&Row>).
+    em.push_text("use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option; ");
 }
 
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────
@@ -112,11 +114,12 @@ pub fn wql_lower(s: str) -> String {
 // Compute the EL value-type (EL_TY_*) of an SExpr, the signal the static
 // backend uses to choose `push_str` vs `push_i64`, emit a string literal, and
 // route the row/projection element type. Sources of type:
-//   • SLit          — the WAny payload (string / bool / int);
+//   • SLit          — the WAny payload (string / bool / float / int);
 //   • SParam / field — the type DICTIONARY (`ElTypes`, from `with` + reflection);
 //   • SBin           — compare/logical ⇒ BOOL; `+` with a STR operand ⇒ STR
-//                      (string concatenation), else INT;
-//   • SUn            — `!` ⇒ BOOL, `-` ⇒ INT;
+//                      (string concatenation); arithmetic with a FLT operand ⇒
+//                      FLT (INT promotes to FLT), else INT;
+//   • SUn            — `!` ⇒ BOOL, `-` ⇒ the argument's numeric type (FLT/INT);
 //   • SCond          — the then-branch's type (both arms agree under strict typing).
 // Unknown / out-of-MVP nodes default to INT.
 pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
@@ -125,6 +128,7 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
             let v: WAny = l.val;
             if v.is_string() { return EL_TY_STR(); }
             if v.is_bool()   { return EL_TY_BOOL(); }
+            if v.is_float()  { return EL_TY_FLT(); }
             return EL_TY_INT();
         }
         SExpr::Param(pp) => { return t.ty_of(pp.name); }
@@ -136,15 +140,19 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
                || op == OP_EQ() || op == OP_NE()
                || op == OP_LT() || op == OP_LE()
                || op == OP_GT() || op == OP_GE() { return EL_TY_BOOL(); }
+            let lt: i32 = infer_ty(b.lhs_expr(), t);
+            let rt: i32 = infer_ty(b.rhs_expr(), t);
             if op == OP_ADD() {
-                let lt: i32 = infer_ty(b.lhs_expr(), t);
-                let rt: i32 = infer_ty(b.rhs_expr(), t);
                 if lt == EL_TY_STR() || rt == EL_TY_STR() { return EL_TY_STR(); }
             }
+            // Arithmetic (+ - * / %) with a FLT operand promotes to FLT.
+            if lt == EL_TY_FLT() || rt == EL_TY_FLT() { return EL_TY_FLT(); }
             return EL_TY_INT();
         }
         SExpr::Un(u) => {
             if u.op == OP_NOT() { return EL_TY_BOOL(); }
+            // Unary minus keeps the argument's numeric type (FLT stays FLT).
+            if infer_ty(u.arg_expr(), t) == EL_TY_FLT() { return EL_TY_FLT(); }
             return EL_TY_INT();
         }
         SExpr::Cond(c) => { return infer_ty(c.then_expr(), t); }
@@ -177,6 +185,10 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
                 out.push_str("\"");
             } else if v.is_bool() {
                 if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); }
+            } else if v.is_float() {
+                // A float literal → a Logos f64 literal (`2.5f64`): the shortest
+                // round-trip decimal, forced to carry a `.` so it parses as float.
+                push_f64_lit(out, v.as_f64());
             } else {
                 out.push_i64(v.as_i64());
                 out.push_str("i64");
@@ -209,10 +221,22 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
             let op: i32 = b.op;
             let lhs: SExpr = b.lhs_expr();
             let rhs: SExpr = b.rhs_expr();
+            // INT→FLT promotion: Logos has NO implicit int→float, so when one
+            // operand is FLT and the other INT (arithmetic OR comparison), the
+            // INT side gets an explicit `as f64` cast so the emitted source
+            // type-checks. Logical ops never mix (both sides BOOL).
+            let lt: i32 = infer_ty(lhs, t);
+            let rt: i32 = infer_ty(rhs, t);
+            let cast_l: bool = lt == EL_TY_INT() && rt == EL_TY_FLT();
+            let cast_r: bool = rt == EL_TY_INT() && lt == EL_TY_FLT();
             out.push_str("(");
+            if cast_l { out.push_str("(("); }
             emit_sexpr(out, lhs, t, var);
+            if cast_l { out.push_str(") as f64)"); }
             out.push_str(emit_binop(op));
+            if cast_r { out.push_str("(("); }
             emit_sexpr(out, rhs, t, var);
+            if cast_r { out.push_str(") as f64)"); }
             out.push_str(")");
         }
         SExpr::Un(u) => {
@@ -417,11 +441,42 @@ fn register_plan_source(plan: RExpr, t: &mut ElTypes) {
 }
 
 // Map an EL value-type tag → the Logos type NAME for an emitted binding /
-// Vec element (str → `str`, bool → `bool`, else the i64 baseline).
+// Vec element (str → `str`, bool → `bool`, flt → `f64`, else the i64 baseline).
 pub fn el_ty_name(ty: i32) -> str {
     if ty == EL_TY_STR()  { return "str"; }
     if ty == EL_TY_BOOL() { return "bool"; }
+    if ty == EL_TY_FLT()  { return "f64"; }
     return "i64";
+}
+
+// ── f64 formatting (shared by literal emission + the render value path) ─────
+// Deterministic f64 → decimal text via the stdlib's `%g` bridge (`f64
+// ::to_string`, `logos_fmt_f64_g` — shortest round-trippable form, Rust-Display
+// convention). Runtime helper the generated render code calls (qualified).
+pub fn wql_f64_to_str(x: f64) -> String {
+    return x.to_string();
+}
+
+// Append `v` as a LOGOS f64 LITERAL (`2.5f64`): the shortest round-trip decimal
+// (%g), forced to carry a `.0` when it prints as a bare integer (e.g. `2` →
+// `2.0`) so the emitted token is unambiguously float-shaped, plus the `f64`
+// suffix. `%g` may print an exponent form (`1e+20`) — a valid Logos float
+// literal shape as well.
+fn push_f64_lit(out: &mut String, v: f64) {
+    let s: String = v.to_string();
+    let sv: str = string_as_str(&s);
+    out.push_str(sv);
+    // Bare-integer print (no '.', no exponent) → force the decimal point.
+    let n: i64 = sv.len();
+    let mut has_mark: bool = false;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(sv, i);
+        if c == 46u8 || c == 101u8 || c == 69u8 || c == 110u8 { has_mark = true; }  // . e E n(an/inf)
+        i = i + 1i64;
+    }
+    if !has_mark { out.push_str(".0"); }
+    out.push_str("f64");
 }
 
 // Emit a comprehension `[head for v in src (if guard)?]` as a Logos BLOCK
@@ -513,6 +568,13 @@ pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
         out.push_str("((");
         emit_sexpr(out, e, t, var);
         out.push_str(").len() != 0i64)");
+        return;
+    }
+    if ty == EL_TY_FLT() {
+        // FLT: non-zero is truthy (typed 0.0 comparison — no implicit int→float).
+        out.push_str("((");
+        emit_sexpr(out, e, t, var);
+        out.push_str(") != 0.0f64)");
         return;
     }
     // INT (the numeric baseline): non-zero is truthy.

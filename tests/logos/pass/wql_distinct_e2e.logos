@@ -1,0 +1,57 @@
+// WQL SELECT DISTINCT — static lowering end-to-end (ADR 0012 select-tail
+// modifiers). `select distinct S` dedups the PROJECTED values (linear-scan
+// membership in the generated code — O(n²) MVP): the first occurrence wins,
+// output keeps first-seen order.
+//
+// Exercises int-valued and str-valued projections, distinct combined with
+// `where`, and distinct + order by (dedup over the sorted projection).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Sale { pub dept: str, pub region: i64, pub amount: i64 }
+
+// distinct int projection: unique region codes, first-seen order.
+resource regions = wql!{ from sales:[Sale] s select distinct s.region };
+
+// distinct str projection over a filter: unique dept names with amount >= 10.
+resource big_depts = wql!{ from sales:[Sale] s where s.amount >= 10 select distinct s.dept : str };
+
+// distinct + order by: unique regions, sorted descending.
+resource regions_desc = wql!{ from sales:[Sale] s select distinct s.region order by s.region desc };
+
+fn main() -> i32 {
+    let sales: [Sale; 6] = [
+        Sale { dept: "eng",   region: 2i64, amount: 12i64 },
+        Sale { dept: "sales", region: 1i64, amount: 5i64  },
+        Sale { dept: "eng",   region: 2i64, amount: 30i64 },
+        Sale { dept: "ops",   region: 3i64, amount: 11i64 },
+        Sale { dept: "sales", region: 1i64, amount: 40i64 },
+        Sale { dept: "eng",   region: 3i64, amount: 7i64  },
+    ];
+
+    // regions in first-seen order: 2, 1, 3.
+    let r: Vec<i64> = regions(&sales[..]);
+    if r.len() != 3i64 { return 1i32; }
+    if r.get(0i64) != 2i64 { return 2i32; }
+    if r.get(1i64) != 1i64 { return 3i32; }
+    if r.get(2i64) != 3i64 { return 4i32; }
+
+    // amount >= 10 keeps eng(12), eng(30), ops(11), sales(40) → distinct depts
+    // in first-seen order: eng, ops, sales.
+    let d: Vec<str> = big_depts(&sales[..]);
+    if d.len() != 3i64 { return 5i32; }
+    if !str_eq(d.get(0i64), "eng")   { return 6i32; }
+    if !str_eq(d.get(1i64), "ops")   { return 7i32; }
+    if !str_eq(d.get(2i64), "sales") { return 8i32; }
+
+    // distinct + order desc: 3, 2, 1.
+    let rd: Vec<i64> = regions_desc(&sales[..]);
+    if rd.len() != 3i64 { return 9i32; }
+    if rd.get(0i64) != 3i64 { return 10i32; }
+    if rd.get(1i64) != 2i64 { return 11i32; }
+    if rd.get(2i64) != 1i64 { return 12i32; }
+    return 0i32;
+}

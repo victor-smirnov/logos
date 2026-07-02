@@ -1325,6 +1325,32 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
         w.line("    }");
         w.line("    return v;");
         w.line("}");
+        w.line("// Decode a captured FLOAT token (digits '.' digits) into its f64 VALUE —");
+        w.line("// the token->f64 hook for float literal fields. Parses the mantissa as an");
+        w.line("// integer and divides by 10^k (k = fraction digits): exact powers of ten");
+        w.line("// give the correctly-rounded double for short decimal literals.");
+        w.line("fn wstr_decode_f64(p: *const u8) -> f64 {");
+        w.line("    let s: &str = wstr_as_str(p);");
+        w.line("    let n: i64 = s.len();");
+        w.line("    let mut mant: i64 = 0i64;");
+        w.line("    let mut frac: i64 = 0i64;");
+        w.line("    let mut in_frac: bool = false;");
+        w.line("    let mut i: i64 = 0i64;");
+        w.line("    while i < n {");
+        w.line("        let c: u8 = str_byte_at(s, i);");
+        w.line("        if c == 46u8 && !in_frac { in_frac = true; i = i + 1i64; continue; }");
+        w.line("        if c < 48u8 || c > 57u8 { break; }");
+        w.line("        if mant < 922337203685477580i64 {");
+        w.line("            mant = mant * 10i64 + ((c as i64) - 48i64);");
+        w.line("            if in_frac { frac = frac + 1i64; }");
+        w.line("        }");
+        w.line("        i = i + 1i64;");
+        w.line("    }");
+        w.line("    let mut p10: f64 = 1.0f64;");
+        w.line("    let mut k: i64 = 0i64;");
+        w.line("    while k < frac { p10 = p10 * 10.0f64; k = k + 1i64; }");
+        w.line("    return (mant as f64) / p10;");
+        w.line("}");
         w.line("// Re-intern a captured STRING token WITHOUT its surrounding quotes: the");
         w.line("// token text is `\"...\"`; a string literal's VALUE is the inner content");
         w.line("// (matches el.logos parse_string, which stores str_from_range between the");
@@ -1948,8 +1974,29 @@ fn emit_template_raw_text(cg: &mut Codegen, w: &mut CodeWriter) {
     }
     if !any { stopcond.push_str("false"); }
     w.l3("        // RAW-TEXT run ", name, " — bytes up to the next tag-open delimiter.");
-    w.line("        self.pos = self.pos + 1i64;");
+    // BACKSLASH ESCAPE (`\{`, `\}`, `` \` ``, `\\`): the following char is
+    // LITERAL text — both bytes are absorbed into the run, so a `\{{` does NOT
+    // open a tag and a stray `\{`/`\}` stays plain text. The backslash survives
+    // in the TEXT slice; the render layer (emit_escaped) de-escapes it to the
+    // bare char. The escape set mirrors the raw-GROUP capture's (emit_one_raw_
+    // group / peg_gen_cpp emit_raw_group) — the ONE byte-escape convention.
+    w.line("        // A BACKSLASH ESCAPE (`\\{`, `\\}`, `` \\` ``, `\\\\`) makes the following");
+    w.line("        // char LITERAL text: both bytes are absorbed into the run so a `\\{{`");
+    w.line("        // does NOT open a tag and a stray `\\{`/`\\}` stays plain text. The");
+    w.line("        // backslash survives in the TEXT slice; emit_escaped (the render layer)");
+    w.line("        // de-escapes it to the bare char at render time.");
+    w.line("        if c == 92u8 {");
+    w.line("            let e: u8 = self.cur(1i64);");
+    w.line("            if e == 123u8 || e == 125u8 || e == 96u8 || e == 92u8 { self.pos = self.pos + 2i64; }");
+    w.line("            else { self.pos = self.pos + 1i64; }");
+    w.line("        } else {");
+    w.line("            self.pos = self.pos + 1i64;");
+    w.line("        }");
     w.line("        while self.pos < self.src.len() {");
+    w.line("            if self.cur(0i64) == 92u8 {");
+    w.line("                let e2: u8 = self.cur(1i64);");
+    w.line("                if e2 == 123u8 || e2 == 125u8 || e2 == 96u8 || e2 == 92u8 { self.pos = self.pos + 2i64; continue; }");
+    w.line("            }");
     let mut cx: String = String::new();
     cx.push_str("            if self.cur(0i64) == "); cx.push_i64(x as i64);
     cx.push_str("u8 && ("); cx.push_str(stopcond.as_str()); cx.push_str(") { break; }");
@@ -3515,8 +3562,10 @@ fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_v
                 && capture_is_token_named(cg, alt_idx, index, "INTEGER");
             let is_str_tok: bool = ekind == CAPTURE
                 && capture_is_token_named(cg, alt_idx, index, "STRING");
+            let is_flt_tok: bool = ekind == CAPTURE
+                && capture_is_token_named(cg, alt_idx, index, "FLOAT");
             emit_schema_field(w, node_var, capvar.as_str(), fname.as_str(), ftype.as_str(),
-                              ekind, sval.as_str(), ival, "", cg.ref_wrap.as_str(), is_int_tok, is_str_tok);
+                              ekind, sval.as_str(), ival, "", cg.ref_wrap.as_str(), is_int_tok, is_str_tok, is_flt_tok);
         }
         fi = fi + 1i64;
     }
@@ -3571,8 +3620,10 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
                 && capture_is_token_named(cg, galt, index, "INTEGER");
             let is_str_tok: bool = ekind == CAPTURE
                 && capture_is_token_named(cg, galt, index, "STRING");
+            let is_flt_tok: bool = ekind == CAPTURE
+                && capture_is_token_named(cg, galt, index, "FLOAT");
             emit_schema_field(w, "gnode", capvar.as_str(), fname.as_str(), ftype.as_str(),
-                              ekind, sval.as_str(), ival, foldv.as_str(), cg.ref_wrap.as_str(), is_int_tok, is_str_tok);
+                              ekind, sval.as_str(), ival, foldv.as_str(), cg.ref_wrap.as_str(), is_int_tok, is_str_tok, is_flt_tok);
         }
         fi = fi + 1i64;
     }
@@ -3591,7 +3642,7 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
 //   scalar i8..i64/u8..u64/i56/isize/usize/bool → `n.f = <val> as T` (inline)
 fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
                      ftype: str, ekind: i64, sval: str, ival: i64, foldv: str, ref_wrap: str,
-                     cap_is_int_tok: bool, cap_is_str_tok: bool) {
+                     cap_is_int_tok: bool, cap_is_str_tok: bool, cap_is_flt_tok: bool) {
     // Assignment LHS: `node.f = `.
     let mut lhs: String = String::new();
     lhs.push_str(node_var); lhs.push_str("."); lhs.push_str(fname); lhs.push_str(" = ");
@@ -3638,6 +3689,10 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
             // INTEGER-token capture into a dynamic WAny field: decode the digits to
             // an i64 and BOX it in the arena (`doc.int`) — the token->value hook.
             l.push_str("doc.int(wstr_decode_i64("); l.push_str(capvar); l.push_str("));");
+        } else if ekind == CAPTURE && cap_is_flt_tok {
+            // FLOAT-token capture into a dynamic WAny field: decode the digits to
+            // an f64 and BOX it (`doc.float`) — the token->f64 value hook.
+            l.push_str("doc.float(wstr_decode_f64("); l.push_str(capvar); l.push_str("));");
         } else if ekind == CAPTURE && cap_is_str_tok {
             // STRING-token capture into a dynamic WAny field: intern the UNQUOTED
             // content as a WString ref (the literal's value is the inner text, not
@@ -3703,8 +3758,20 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
         // scalar type (the token->value hook for numeric scalar fields).
         l.push_str("wstr_decode_i64("); l.push_str(capvar); l.push_str(") as ");
         l.push_str(ftype); l.push_str(";");
+    } else if ekind == CAPTURE && cap_is_flt_tok {
+        // Captured FLOAT token → decode to f64, cast to the field's scalar type.
+        l.push_str("wstr_decode_f64("); l.push_str(capvar); l.push_str(") as ");
+        l.push_str(ftype); l.push_str(";");
+    } else if ekind == CAPTURE {
+        // A capture that is not a direct INTEGER/FLOAT token — an OPT-wrapped
+        // token or a pass-through sub-rule whose value is the token's interned
+        // text (a WString ptr). Decode the digits to i64 and cast (the token->
+        // value hook generalized to indirect captures; e.g. wql.peg's optional
+        // `INTEGER?` limit literal). A NULLP capture (absent OPT) decodes to 0.
+        l.push_str("wstr_decode_i64("); l.push_str(capvar); l.push_str(") as ");
+        l.push_str(ftype); l.push_str(";");
     } else {
-        // A captured non-numeric token → its scalar value is not available; store 0.
+        // No usable value expression → store 0.
         l.push_str("0 as "); l.push_str(ftype); l.push_str(";");
     }
     w.line(l.as_str());

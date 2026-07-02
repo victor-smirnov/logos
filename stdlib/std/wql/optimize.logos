@@ -12,8 +12,10 @@
 //
 // CONST-FOLD rules (Phase 1b):
 //   • SBin over two const literals:
-//       - arithmetic  (+ - * / %) → an int SLit
-//       - comparison  (== != < <= > >=) → a bool SLit
+//       - arithmetic  (+ - * / %) → an int SLit; float (or mixed int/float,
+//         int promoted) `+ - * /` → a float SLit (EXACT IEEE, non-finite
+//         results left unfolded; float `%` not folded)
+//       - comparison  (== != < <= > >=) → a bool SLit (float compare included)
 //   • SBin boolean (&& ||) with a const operand:
 //       (true && x)→x  (false && x)→false  (true || x)→true  (false || x)→x
 //     (and the symmetric forms when the RHS is the const)
@@ -38,32 +40,44 @@ use logos.lang.str;        // str_eq (identity-projection name match, Phase 3)
 // A tiny tagged value used to detect + carry a const literal through the fold:
 //   kind 0 = not a const literal (or a string literal — not folded here);
 //   kind 1 = int   (value in `i`);
-//   kind 2 = bool  (value in `b`).
+//   kind 2 = bool  (value in `b`);
+//   kind 3 = float (value in `f`).
 pub struct ConstVal {
     pub kind: i32,
     pub i:    i64,
     pub b:    bool,
+    pub f:    f64,
 }
 
-pub fn const_none() -> ConstVal { return ConstVal { kind: 0i32, i: 0i64, b: false }; }
-pub fn const_int(v: i64) -> ConstVal { return ConstVal { kind: 1i32, i: v, b: false }; }
-pub fn const_bool(v: bool) -> ConstVal { return ConstVal { kind: 2i32, i: 0i64, b: v }; }
+pub fn const_none() -> ConstVal { return ConstVal { kind: 0i32, i: 0i64, b: false, f: 0.0f64 }; }
+pub fn const_int(v: i64) -> ConstVal { return ConstVal { kind: 1i32, i: v, b: false, f: 0.0f64 }; }
+pub fn const_bool(v: bool) -> ConstVal { return ConstVal { kind: 2i32, i: 0i64, b: v, f: 0.0f64 }; }
+pub fn const_float(v: f64) -> ConstVal { return ConstVal { kind: 3i32, i: 0i64, b: false, f: v }; }
 
 impl ConstVal {
-    pub fn is_int(self: &ConstVal)  -> bool { return self.kind == 1i32; }
-    pub fn is_bool(self: &ConstVal) -> bool { return self.kind == 2i32; }
-    pub fn is_some(self: &ConstVal) -> bool { return self.kind != 0i32; }
+    pub fn is_int(self: &ConstVal)   -> bool { return self.kind == 1i32; }
+    pub fn is_bool(self: &ConstVal)  -> bool { return self.kind == 2i32; }
+    pub fn is_float(self: &ConstVal) -> bool { return self.kind == 3i32; }
+    pub fn is_some(self: &ConstVal)  -> bool { return self.kind != 0i32; }
+    // Numeric (int OR float) — the mixed-fold promotion domain.
+    pub fn is_num(self: &ConstVal)   -> bool { return self.kind == 1i32 || self.kind == 3i32; }
+    // The numeric value promoted to f64 (int → exact for |i| < 2^53 literals).
+    pub fn num_f64(self: &ConstVal)  -> f64 {
+        if self.kind == 1i32 { return self.i as f64; }
+        return self.f;
+    }
 }
 
-// Classify an SExpr as a const literal (int / bool), else `none`. A STRING SLit
-// is deliberately NOT folded (kind stays 0) — arithmetic/compare folds are over
-// int/bool only in the queue-1 scalar lattice.
+// Classify an SExpr as a const literal (int / bool / float), else `none`. A
+// STRING SLit is deliberately NOT folded (kind stays 0) — arithmetic/compare
+// folds are over the numeric/bool scalar lattice.
 pub fn sexpr_const(e: SExpr) -> ConstVal {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
-            if v.is_bool() { return const_bool(v.as_bool()); }
-            if v.is_int()  { return const_int(v.as_i64()); }
+            if v.is_bool()  { return const_bool(v.as_bool()); }
+            if v.is_float() { return const_float(v.as_f64()); }
+            if v.is_int()   { return const_int(v.as_i64()); }
             return const_none();
         }
         _ => { return const_none(); }
@@ -82,6 +96,13 @@ pub fn make_int_lit(h: &Writ, v: i64) -> WRef<SExpr> {
 pub fn make_bool_lit(h: &Writ, v: bool) -> WRef<SExpr> {
     let n: SLit = h.make::<SLit>();
     n.val = WAny::from(v);
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+// Float literals are BOXED via `h.float` (the EL parser's `doc.float(...)`
+// convention), so the emitted `2.5f64`-literal path is identical.
+pub fn make_float_lit(h: &Writ, v: f64) -> WRef<SExpr> {
+    let n: SLit = h.make::<SLit>();
+    n.val = h.float(v);
     return WRef::<SExpr>::from_any(n.as_ref());
 }
 
@@ -117,6 +138,37 @@ fn fold_cmp_bb(op: i32, l: bool, r: bool) -> ConstVal {
     return const_none();
 }
 
+// Fold `l <op> r` over two const f64s (int operands are PROMOTED to f64 by the
+// caller — mixed int/float folding). EXACT IEEE semantics — the fold computes
+// the same f64 op the emitted code would (no fast-math re-association):
+//   • arithmetic + - * /  → a float SLit. `%` is NOT folded (kept runtime).
+//   • a NON-FINITE result (inf/NaN — e.g. divide by 0.0, overflow) is left
+//     UNFOLDED: there is no Logos literal spelling for it, and the runtime
+//     computes the identical IEEE value anyway.
+fn fold_arith_ff(op: i32, l: f64, r: f64) -> ConstVal {
+    let mut v: f64 = 0.0f64;
+    if op == OP_ADD()      { v = l + r; }
+    else if op == OP_SUB() { v = l - r; }
+    else if op == OP_MUL() { v = l * r; }
+    else if op == OP_DIV() { v = l / r; }
+    else { return const_none(); }
+    // Finite check: finite−finite = 0; inf−inf / NaN−NaN = NaN ≠ 0.
+    if (v - v) != 0.0f64 { return const_none(); }
+    return const_float(v);
+}
+
+// Fold a comparison `l <op> r` over two const f64s → a bool (IEEE ordering; the
+// operands are finite literals, so no NaN edge arises).
+fn fold_cmp_ff(op: i32, l: f64, r: f64) -> ConstVal {
+    if op == OP_EQ() { return const_bool(l == r); }
+    if op == OP_NE() { return const_bool(l != r); }
+    if op == OP_LT() { return const_bool(l <  r); }
+    if op == OP_LE() { return const_bool(l <= r); }
+    if op == OP_GT() { return const_bool(l >  r); }
+    if op == OP_GE() { return const_bool(l >= r); }
+    return const_none();
+}
+
 // True iff `op` is a comparison operator (== != < <= > >=).
 fn is_cmp_op(op: i32) -> bool {
     return op == OP_EQ() || op == OP_NE() || op == OP_LT()
@@ -141,6 +193,18 @@ fn simplify_bin(h: &Writ, op: i32,
             } else {
                 let cv: ConstVal = fold_arith_ii(op, lc.i, rc.i);
                 if cv.is_some() { return make_int_lit(h, cv.i); }
+            }
+        }
+        // FLOAT / MIXED numeric: at least one FLT operand, both numeric — the
+        // int side PROMOTES to f64 (exactly what the emitted `as f64` cast
+        // computes), then IEEE fold: arithmetic → float SLit, compare → bool.
+        if lc.is_num() && rc.is_num() && (lc.is_float() || rc.is_float()) {
+            if is_cmp_op(op) {
+                let cv: ConstVal = fold_cmp_ff(op, lc.num_f64(), rc.num_f64());
+                if cv.is_some() { return make_bool_lit(h, cv.b); }
+            } else {
+                let cv: ConstVal = fold_arith_ff(op, lc.num_f64(), rc.num_f64());
+                if cv.is_some() { return make_float_lit(h, cv.f); }
             }
         }
         if lc.is_bool() && rc.is_bool() {
@@ -196,8 +260,9 @@ fn simplify_bin(h: &Writ, op: i32,
 // ── The SUn rewrite ───────────────────────────────────────────────────────────
 fn simplify_un(h: &Writ, op: i32, ah: WRef<SExpr>, ac: ConstVal,
                orig: WRef<SExpr>, changed_child: bool) -> WRef<SExpr> {
-    if op == OP_NOT() && ac.is_bool() { return make_bool_lit(h, !ac.b); }
-    if op == OP_NEG() && ac.is_int()  { return make_int_lit(h, -ac.i); }
+    if op == OP_NOT() && ac.is_bool()  { return make_bool_lit(h, !ac.b); }
+    if op == OP_NEG() && ac.is_int()   { return make_int_lit(h, -ac.i); }
+    if op == OP_NEG() && ac.is_float() { return make_float_lit(h, -ac.f); }
     if !changed_child { return orig; }
     let n: SUn = h.make::<SUn>();
     n.op  = op;
@@ -368,6 +433,42 @@ fn rebuild_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
     return WRef::<RExpr>::from_any(n.as_ref());
 }
 
+// Rebuild an `RSort(input, key, desc)` node in `h`.
+fn rebuild_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef<RExpr> {
+    let n: RSort = h.make::<RSort>();
+    n.input = input;
+    n.key   = key;
+    n.desc  = desc;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Rebuild an `RLimit(input, n, is_param, param)` node in `h`.
+fn rebuild_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
+    let n: RLimit = h.make::<RLimit>();
+    n.input    = input;
+    n.n        = n0;
+    n.is_param = is_param;
+    n.param    = param;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Rebuild an `RDistinct(input)` node in `h`.
+fn rebuild_distinct(h: &Writ, input: WRef<RExpr>) -> WRef<RExpr> {
+    let n: RDistinct = h.make::<RDistinct>();
+    n.input = input;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Peel RDistinct wrappers down to the projection root — the EMPTY signal's root
+// must be a bare `RProj` (the thin emitter reads the scan signature + `sel` off
+// it), so an empty-collapse under a wrapper hands back the unwrapped proj edge.
+fn peel_to_proj(r: WRef<RExpr>) -> WRef<RExpr> {
+    match r.any().view::<RExpr>() {
+        RExpr::Distinct(d) => { return peel_to_proj(d.input); }
+        _ => { return r; }
+    }
+}
+
 // Simplify a RELATIONAL sub-tree that is NOT the projection root — a scan /
 // filter / (nested) sub-plan. Returns the rewritten edge + empty signal. Filter
 // folding lives here (rule a). Scans and the join/anti/aggr bodies pass through
@@ -381,6 +482,9 @@ fn simplify_rbody(in_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
     match e {
         RExpr::Filter(f) => {
             // Fold the predicate first (scalar pass), then apply filter folding.
+            // This covers BOTH the `where` filter (over scan/join) and the
+            // `having` filter (over an RAggr output): a const-true `having` is
+            // dropped, a const-false one proves the plan empty.
             let ir: WRef<RExpr> = f.input;
             let inner: RSimplified = simplify_rbody(ir, ir.any().view::<RExpr>(), h);
             if inner.empty { return inner; }   // filter over an empty plan stays empty
@@ -397,6 +501,23 @@ fn simplify_rbody(in_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
             // Non-const predicate: keep the filter over the simplified input+pred.
             return rsimp(rebuild_filter(h, inner.root, ph));
         }
+        RExpr::Sort(s) => {
+            // (d) SORT FOLDING — sort over an EMPTY input is empty; a sort by a
+            // CONSTANT key orders nothing (every row compares equal; the pass is
+            // stable) → drop the sort. Otherwise rebuild over the simplified
+            // input with the const-folded key.
+            let ir: WRef<RExpr> = s.input;
+            let inner: RSimplified = simplify_rbody(ir, ir.any().view::<RExpr>(), h);
+            if inner.empty { return inner; }
+            let kh: WRef<SExpr> = simplify_sexpr(s.key_expr(), h);
+            let mut key_const: bool = false;
+            match kh.any().view::<SExpr>() {
+                SExpr::Lit(_) => { key_const = true; }   // int/bool/float/str literal
+                _ => { }
+            }
+            if key_const { return inner; }
+            return rsimp(rebuild_sort(h, inner.root, kh, s.desc));
+        }
         _ => {
             // A scan / join / anti / aggr body: pass through the ORIGINAL edge
             // (its own scalar clauses fold at emit time; relational shape kept).
@@ -406,12 +527,37 @@ fn simplify_rbody(in_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
 }
 
 // ── simplify_rexpr — the RExpr→RExpr pass entry ───────────────────────────────
-// The lowered plan is ALWAYS rooted at `RProj(body, sel)`. Simplify the body
-// (rule a: filter folding, propagating an empty signal), then apply the
-// projection peepholes (rules b, c) at the root. Takes the root edge HANDLE
-// `root_ref` so the pass-through case returns it without re-deriving a ref.
+// The lowered plan is rooted at `RLimit?( RDistinct?( RProj(body, sel) ) )`.
+// The wrapper cases recurse inward first, then fold:
+//   • limit 0 (literal)            → EMPTY (no output can survive);
+//   • limit / distinct over EMPTY  → EMPTY (wrapper dropped);
+//   • otherwise the wrapper is rebuilt over the simplified inner root — and the
+//     IDENTITY collapse is GATED OFF (a distinct/limit changes the row set, so
+//     the source slice can NOT be returned unchanged).
+// Under the projection root: simplify the body (rules a + d: filter/sort
+// folding, propagating the empty signal), then apply the projection peepholes
+// (rules b, c). Takes the root edge HANDLE `root_ref` so the pass-through case
+// returns it without re-deriving a ref.
 pub fn simplify_rexpr_ref(root_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
     match e {
+        RExpr::Limit(l) => {
+            let iref: WRef<RExpr> = l.input;
+            let sub: RSimplified = simplify_rexpr_ref(iref, iref.any().view::<RExpr>(), h);
+            if sub.empty { return sub; }   // limit over an empty plan stays empty
+            if !l.is_param && l.n == 0i64 {
+                // limit 0 → the plan yields no rows (root peeled to the proj).
+                return RSimplified { root: peel_to_proj(sub.root), empty: true, identity: false };
+            }
+            return RSimplified { root: rebuild_limit(h, sub.root, l.n, l.is_param, l.param),
+                                 empty: false, identity: false };
+        }
+        RExpr::Distinct(d) => {
+            let iref: WRef<RExpr> = d.input;
+            let sub: RSimplified = simplify_rexpr_ref(iref, iref.any().view::<RExpr>(), h);
+            if sub.empty { return sub; }   // distinct over an empty plan stays empty
+            return RSimplified { root: rebuild_distinct(h, sub.root),
+                                 empty: false, identity: false };
+        }
         RExpr::Proj(p) => {
             let sel: WRef<SExpr> = p.sel;
             let bref: WRef<RExpr> = p.input;

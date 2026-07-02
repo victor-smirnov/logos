@@ -36,21 +36,28 @@ pub fn OP_NOT() -> i32 { return 1i32; }   // !
 pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 
 // ── EL value-type lattice (codegen type detection) ────────────────────────
-// A coarse 3-valued type tag for static codegen: choose `push_str` vs
-// `push_i64`, emit string literals, and route the row/projection element type.
-// Defaults to INT (the queue-1 numeric baseline); STR/BOOL are inferred from
-// literals/operators or DECLARED via the surface (`$x:str`, typed fields).
+// A coarse 4-valued type tag for static codegen: choose `push_str` vs
+// `push_i64` vs the f64 fmt path, emit typed literals, and route the
+// row/projection element type. Defaults to INT (the queue-1 numeric baseline);
+// STR/BOOL/FLT are inferred from literals/operators or DECLARED via the
+// surface (`$x:str`, typed fields). FLT is the f64 family (f64/f32 fields);
+// INT promotes to FLT in mixed arithmetic (with an explicit `as f64` cast in
+// the emitted source — Logos is Rust-like, no implicit int→float).
 pub fn EL_TY_INT()  -> i32 { return 0i32; }
 pub fn EL_TY_STR()  -> i32 { return 1i32; }
 pub fn EL_TY_BOOL() -> i32 { return 2i32; }
+pub fn EL_TY_FLT()  -> i32 { return 3i32; }
 
 // Map a Logos type NAME (as written in the surface) to an EL value-type tag.
-// `str`/`String` → STR, `bool` → BOOL, everything else → INT (the integer
-// family is rendered identically by `push_i64`). Unknown names default to INT.
+// `str`/`String` → STR, `bool` → BOOL, `f64`/`f32` → FLT, everything else →
+// INT (the integer family is rendered identically by `push_i64`). Unknown
+// names default to INT.
 pub fn el_ty_of_name(name: str) -> i32 {
     if str_eq(name, "str")    { return EL_TY_STR(); }
     if str_eq(name, "String") { return EL_TY_STR(); }
     if str_eq(name, "bool")   { return EL_TY_BOOL(); }
+    if str_eq(name, "f64")    { return EL_TY_FLT(); }
+    if str_eq(name, "f32")    { return EL_TY_FLT(); }
     return EL_TY_INT();
 }
 

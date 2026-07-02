@@ -1,0 +1,67 @@
+// WQL optimizer fold × the single-row modes (ADR 0012 Phase-3 peepholes under
+// SELM_FIRST / SELM_FIND):
+//   • const-false `where` + `select first` → constant Option::None (no scan);
+//   • const-false `find` predicate         → constant Option::None (no scan);
+//   • const-true  `find` predicate         → head-row borrow (identity peephole:
+//     the filter is dropped, the selector is the identity → Some(&src[0]));
+//   • identity `select first v`            → head-row borrow, no projection
+//     overhead (Option<&Row>).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person { pub name: str, pub age: i64 }
+
+// where false + first → the plan provably yields no rows; constant None.
+resource nobody_first = wql!{ from people:[Person] p where 1 == 2 select first p.age };
+
+// find false → constant None.
+resource find_nothing = wql!{ from people:[Person] p find 1 == 2 };
+
+// find true → the filter folds away; head-row borrow.
+resource find_any = wql!{ from people:[Person] p find 1 == 1 };
+
+// identity + first: `select first p` → the first row itself, borrowed.
+resource head_person = wql!{ from people:[Person] p select first p };
+
+fn main() -> i32 {
+    let people: [Person; 3] = [
+        Person { name: "Eve", age: 12i64 },
+        Person { name: "Ada", age: 45i64 },
+        Person { name: "Bob", age: 41i64 },
+    ];
+
+    match nobody_first(&people[..]) {
+        Option::Some(_) => { return 1i32; }
+        Option::None => { }
+    }
+
+    match find_nothing(&people[..]) {
+        Option::Some(_) => { return 2i32; }
+        Option::None => { }
+    }
+
+    match find_any(&people[..]) {
+        Option::Some(q) => { if !str_eq(q.name, "Eve") { return 3i32; } }
+        Option::None => { return 4i32; }
+    }
+
+    match head_person(&people[..]) {
+        Option::Some(q) => { if q.age != 12i64 { return 5i32; } }
+        Option::None => { return 6i32; }
+    }
+
+    // Head-row over an EMPTY slice → None (both identity-collapsed forms).
+    let empty: [Person; 0] = [];
+    match find_any(&empty[..]) {
+        Option::Some(_) => { return 7i32; }
+        Option::None => { }
+    }
+    match head_person(&empty[..]) {
+        Option::Some(_) => { return 8i32; }
+        Option::None => { }
+    }
+    return 0i32;
+}

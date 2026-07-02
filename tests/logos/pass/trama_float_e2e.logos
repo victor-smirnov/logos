@@ -1,0 +1,32 @@
+// Trama FLOAT support end-to-end: `{{ price }}` interpolation of an f64 field
+// (rendered via the shared %g helper `wql_f64_to_str` — shortest round-trip
+// decimal, Rust-Display convention: 2.5 → "2.5", 5.0 → "5"), mixed arithmetic
+// `{{ p.price * 2 }}` (INT promotes with an explicit `as f64` cast), a float
+// comparison in `{% if %}`, and a CONST-FOLDED mixed literal `{{ 1.5 + 2 }}`
+// (the optimizer folds it to the float SLit 3.5 at compile time).
+package test;
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Product { pub name: str, pub price: f64 }
+
+resource label = trama!(p: &Product){
+{{ p.name }}: {{ p.price }} (x2 = {{ p.price * 2 }}) [{% if p.price > 10.0 %}spendy{% else %}cheap{% endif %}] s={{ 1.5 + 2 }}
+};
+
+fn streq(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() { if str_byte_at(sv, i) != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let a: Product = Product { name: "ada", price: 2.5f64 };
+    if !streq(&label(&a), "ada: 2.5 (x2 = 5) [cheap] s=3.5") { return 1i32; }
+    let b: Product = Product { name: "bob", price: 12.75f64 };
+    if !streq(&label(&b), "bob: 12.75 (x2 = 25.5) [spendy] s=3.5") { return 2i32; }
+    return 0i32;
+}

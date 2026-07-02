@@ -34,16 +34,24 @@ pub const WqTK_KW_ON: i32 = 7i32;
 pub const WqTK_KW_GROUP: i32 = 8i32;
 pub const WqTK_KW_BY: i32 = 9i32;
 pub const WqTK_KW_AGGREGATE: i32 = 10i32;
-pub const WqTK_KW_WITH: i32 = 11i32;
-pub const WqTK_COLON: i32 = 12i32;
-pub const WqTK_COMMA: i32 = 13i32;
-pub const WqTK_EQ: i32 = 14i32;
-pub const WqTK_DOLLAR: i32 = 15i32;
-pub const WqTK_LBRACKET: i32 = 16i32;
-pub const WqTK_RBRACKET: i32 = 17i32;
-pub const WqTK_LPAREN: i32 = 18i32;
-pub const WqTK_RPAREN: i32 = 19i32;
-pub const WqTK_IDENT: i32 = 20i32;
+pub const WqTK_KW_HAVING: i32 = 11i32;
+pub const WqTK_KW_DISTINCT: i32 = 12i32;
+pub const WqTK_KW_FIRST: i32 = 13i32;
+pub const WqTK_KW_FIND: i32 = 14i32;
+pub const WqTK_KW_ORDER: i32 = 15i32;
+pub const WqTK_KW_DESC: i32 = 16i32;
+pub const WqTK_KW_LIMIT: i32 = 17i32;
+pub const WqTK_KW_WITH: i32 = 18i32;
+pub const WqTK_COLON: i32 = 19i32;
+pub const WqTK_COMMA: i32 = 20i32;
+pub const WqTK_EQ: i32 = 21i32;
+pub const WqTK_DOLLAR: i32 = 22i32;
+pub const WqTK_LBRACKET: i32 = 23i32;
+pub const WqTK_RBRACKET: i32 = 24i32;
+pub const WqTK_LPAREN: i32 = 25i32;
+pub const WqTK_RPAREN: i32 = 26i32;
+pub const WqTK_INTEGER: i32 = 27i32;
+pub const WqTK_IDENT: i32 = 28i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
@@ -160,25 +168,53 @@ impl Lexer {
             self.pos = self.pos + 9i64;
             return Token { kind: WqTK_KW_AGGREGATE, start: start, len: 9i64, line: sl };
         }
+        if self.cur(0i64) == 100u8 && self.cur(1i64) == 105u8 && self.cur(2i64) == 115u8 && self.cur(3i64) == 116u8 && self.cur(4i64) == 105u8 && self.cur(5i64) == 110u8 && self.cur(6i64) == 99u8 && self.cur(7i64) == 116u8 && !lx_is_alnum(self.cur(8i64)) {
+            self.pos = self.pos + 8i64;
+            return Token { kind: WqTK_KW_DISTINCT, start: start, len: 8i64, line: sl };
+        }
         if self.cur(0i64) == 115u8 && self.cur(1i64) == 101u8 && self.cur(2i64) == 108u8 && self.cur(3i64) == 101u8 && self.cur(4i64) == 99u8 && self.cur(5i64) == 116u8 && !lx_is_alnum(self.cur(6i64)) {
             self.pos = self.pos + 6i64;
             return Token { kind: WqTK_KW_SELECT, start: start, len: 6i64, line: sl };
         }
-        if self.cur(0i64) == 119u8 && self.cur(1i64) == 104u8 && self.cur(2i64) == 101u8 && self.cur(3i64) == 114u8 && self.cur(4i64) == 101u8 && !lx_is_alnum(self.cur(5i64)) {
-            self.pos = self.pos + 5i64;
-            return Token { kind: WqTK_KW_WHERE, start: start, len: 5i64, line: sl };
+        if self.cur(0i64) == 104u8 && self.cur(1i64) == 97u8 && self.cur(2i64) == 118u8 && self.cur(3i64) == 105u8 && self.cur(4i64) == 110u8 && self.cur(5i64) == 103u8 && !lx_is_alnum(self.cur(6i64)) {
+            self.pos = self.pos + 6i64;
+            return Token { kind: WqTK_KW_HAVING, start: start, len: 6i64, line: sl };
         }
         if self.cur(0i64) == 103u8 && self.cur(1i64) == 114u8 && self.cur(2i64) == 111u8 && self.cur(3i64) == 117u8 && self.cur(4i64) == 112u8 && !lx_is_alnum(self.cur(5i64)) {
             self.pos = self.pos + 5i64;
             return Token { kind: WqTK_KW_GROUP, start: start, len: 5i64, line: sl };
         }
-        if self.cur(0i64) == 106u8 && self.cur(1i64) == 111u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 110u8 && !lx_is_alnum(self.cur(4i64)) {
-            self.pos = self.pos + 4i64;
-            return Token { kind: WqTK_KW_JOIN, start: start, len: 4i64, line: sl };
+        if self.cur(0i64) == 119u8 && self.cur(1i64) == 104u8 && self.cur(2i64) == 101u8 && self.cur(3i64) == 114u8 && self.cur(4i64) == 101u8 && !lx_is_alnum(self.cur(5i64)) {
+            self.pos = self.pos + 5i64;
+            return Token { kind: WqTK_KW_WHERE, start: start, len: 5i64, line: sl };
+        }
+        if self.cur(0i64) == 102u8 && self.cur(1i64) == 105u8 && self.cur(2i64) == 114u8 && self.cur(3i64) == 115u8 && self.cur(4i64) == 116u8 && !lx_is_alnum(self.cur(5i64)) {
+            self.pos = self.pos + 5i64;
+            return Token { kind: WqTK_KW_FIRST, start: start, len: 5i64, line: sl };
+        }
+        if self.cur(0i64) == 111u8 && self.cur(1i64) == 114u8 && self.cur(2i64) == 100u8 && self.cur(3i64) == 101u8 && self.cur(4i64) == 114u8 && !lx_is_alnum(self.cur(5i64)) {
+            self.pos = self.pos + 5i64;
+            return Token { kind: WqTK_KW_ORDER, start: start, len: 5i64, line: sl };
+        }
+        if self.cur(0i64) == 108u8 && self.cur(1i64) == 105u8 && self.cur(2i64) == 109u8 && self.cur(3i64) == 105u8 && self.cur(4i64) == 116u8 && !lx_is_alnum(self.cur(5i64)) {
+            self.pos = self.pos + 5i64;
+            return Token { kind: WqTK_KW_LIMIT, start: start, len: 5i64, line: sl };
         }
         if self.cur(0i64) == 97u8 && self.cur(1i64) == 110u8 && self.cur(2i64) == 116u8 && self.cur(3i64) == 105u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
             return Token { kind: WqTK_KW_ANTI, start: start, len: 4i64, line: sl };
+        }
+        if self.cur(0i64) == 106u8 && self.cur(1i64) == 111u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 110u8 && !lx_is_alnum(self.cur(4i64)) {
+            self.pos = self.pos + 4i64;
+            return Token { kind: WqTK_KW_JOIN, start: start, len: 4i64, line: sl };
+        }
+        if self.cur(0i64) == 102u8 && self.cur(1i64) == 105u8 && self.cur(2i64) == 110u8 && self.cur(3i64) == 100u8 && !lx_is_alnum(self.cur(4i64)) {
+            self.pos = self.pos + 4i64;
+            return Token { kind: WqTK_KW_FIND, start: start, len: 4i64, line: sl };
+        }
+        if self.cur(0i64) == 100u8 && self.cur(1i64) == 101u8 && self.cur(2i64) == 115u8 && self.cur(3i64) == 99u8 && !lx_is_alnum(self.cur(4i64)) {
+            self.pos = self.pos + 4i64;
+            return Token { kind: WqTK_KW_DESC, start: start, len: 4i64, line: sl };
         }
         if self.cur(0i64) == 102u8 && self.cur(1i64) == 114u8 && self.cur(2i64) == 111u8 && self.cur(3i64) == 109u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
@@ -188,13 +224,13 @@ impl Lexer {
             self.pos = self.pos + 4i64;
             return Token { kind: WqTK_KW_WITH, start: start, len: 4i64, line: sl };
         }
-        if self.cur(0i64) == 111u8 && self.cur(1i64) == 110u8 && !lx_is_alnum(self.cur(2i64)) {
-            self.pos = self.pos + 2i64;
-            return Token { kind: WqTK_KW_ON, start: start, len: 2i64, line: sl };
-        }
         if self.cur(0i64) == 98u8 && self.cur(1i64) == 121u8 && !lx_is_alnum(self.cur(2i64)) {
             self.pos = self.pos + 2i64;
             return Token { kind: WqTK_KW_BY, start: start, len: 2i64, line: sl };
+        }
+        if self.cur(0i64) == 111u8 && self.cur(1i64) == 110u8 && !lx_is_alnum(self.cur(2i64)) {
+            self.pos = self.pos + 2i64;
+            return Token { kind: WqTK_KW_ON, start: start, len: 2i64, line: sl };
         }
         if self.cur(0i64) == 58u8 {
             self.pos = self.pos + 1i64;
@@ -230,6 +266,34 @@ impl Lexer {
         }
 
         // Regex tokens (matched by hand-coded recognisers).
+        // NUMBER (chooses FLOAT vs INTEGER by a '.' / exponent in the run).
+        if lx_is_digit(c) || (c == 45u8 && (lx_is_digit(self.cur(1i64)) || self.cur(1i64) == 46u8)) || (c == 46u8 && lx_is_digit(self.cur(1i64))) {
+            if self.cur(0i64) == 45u8 { self.pos = self.pos + 1i64; }
+            // Radix-prefixed integers: 0x.. 0b.. 0o.. (always INTEGER).
+            if self.cur(0i64) == 48u8 && (self.cur(1i64) == 120u8 || self.cur(1i64) == 88u8 || self.cur(1i64) == 98u8 || self.cur(1i64) == 66u8 || self.cur(1i64) == 111u8 || self.cur(1i64) == 79u8) {
+                self.pos = self.pos + 2i64;
+                while self.pos < self.src.len() && (lx_is_hex(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }
+                self.scan_num_suffix();
+                return Token { kind: WqTK_INTEGER, start: start, len: self.pos - start, line: sl };
+            }
+            // Decimal integer part.
+            while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }
+            let mut is_float: bool = false;
+            if self.cur(0i64) == 46u8 && lx_is_digit(self.cur(1i64)) && (start == 0i64 || unsafe { self.src.as_ptr()[start - 1i64] } != 46u8) {
+                is_float = true;
+                self.pos = self.pos + 1i64;
+                while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }
+            }
+            if self.cur(0i64) == 101u8 || self.cur(0i64) == 69u8 {
+                is_float = true;
+                self.pos = self.pos + 1i64;
+                if self.cur(0i64) == 43u8 || self.cur(0i64) == 45u8 { self.pos = self.pos + 1i64; }
+                while self.pos < self.src.len() && (lx_is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.pos = self.pos + 1i64; }
+            }
+            self.scan_num_suffix();
+            if is_float { return Token { kind: WqTK_INTEGER, start: start, len: self.pos - start, line: sl }; }
+            return Token { kind: WqTK_INTEGER, start: start, len: self.pos - start, line: sl };
+        }
         // IDENT token IDENT.
         if lx_is_alpha(c) {
             self.pos = self.pos + 1i64;
@@ -272,6 +336,32 @@ fn wstr_decode_i64(p: *const u8) -> i64 {
     }
     return v;
 }
+// Decode a captured FLOAT token (digits '.' digits) into its f64 VALUE —
+// the token->f64 hook for float literal fields. Parses the mantissa as an
+// integer and divides by 10^k (k = fraction digits): exact powers of ten
+// give the correctly-rounded double for short decimal literals.
+fn wstr_decode_f64(p: *const u8) -> f64 {
+    let s: &str = wstr_as_str(p);
+    let n: i64 = s.len();
+    let mut mant: i64 = 0i64;
+    let mut frac: i64 = 0i64;
+    let mut in_frac: bool = false;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 46u8 && !in_frac { in_frac = true; i = i + 1i64; continue; }
+        if c < 48u8 || c > 57u8 { break; }
+        if mant < 922337203685477580i64 {
+            mant = mant * 10i64 + ((c as i64) - 48i64);
+            if in_frac { frac = frac + 1i64; }
+        }
+        i = i + 1i64;
+    }
+    let mut p10: f64 = 1.0f64;
+    let mut k: i64 = 0i64;
+    while k < frac { p10 = p10 * 10.0f64; k = k + 1i64; }
+    return (mant as f64) / p10;
+}
 // Re-intern a captured STRING token WITHOUT its surrounding quotes: the
 // token text is `"..."`; a string literal's VALUE is the inner content
 // (matches el.logos parse_string, which stores str_from_range between the
@@ -299,6 +389,13 @@ fn embed_at_kw(src: str, p: i64, len: i64) -> bool {
     if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 103u8 && str_byte_at(src, p + 1i64) == 114u8 && str_byte_at(src, p + 2i64) == 111u8 && str_byte_at(src, p + 3i64) == 117u8 && str_byte_at(src, p + 4i64) == 112u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
     if p + 2i64 <= len && str_byte_at(src, p + 0i64) == 98u8 && str_byte_at(src, p + 1i64) == 121u8 && (p + 2i64 >= len || !lx_is_alnum(str_byte_at(src, p + 2i64))) { return true; }
     if p + 9i64 <= len && str_byte_at(src, p + 0i64) == 97u8 && str_byte_at(src, p + 1i64) == 103u8 && str_byte_at(src, p + 2i64) == 103u8 && str_byte_at(src, p + 3i64) == 114u8 && str_byte_at(src, p + 4i64) == 101u8 && str_byte_at(src, p + 5i64) == 103u8 && str_byte_at(src, p + 6i64) == 97u8 && str_byte_at(src, p + 7i64) == 116u8 && str_byte_at(src, p + 8i64) == 101u8 && (p + 9i64 >= len || !lx_is_alnum(str_byte_at(src, p + 9i64))) { return true; }
+    if p + 6i64 <= len && str_byte_at(src, p + 0i64) == 104u8 && str_byte_at(src, p + 1i64) == 97u8 && str_byte_at(src, p + 2i64) == 118u8 && str_byte_at(src, p + 3i64) == 105u8 && str_byte_at(src, p + 4i64) == 110u8 && str_byte_at(src, p + 5i64) == 103u8 && (p + 6i64 >= len || !lx_is_alnum(str_byte_at(src, p + 6i64))) { return true; }
+    if p + 8i64 <= len && str_byte_at(src, p + 0i64) == 100u8 && str_byte_at(src, p + 1i64) == 105u8 && str_byte_at(src, p + 2i64) == 115u8 && str_byte_at(src, p + 3i64) == 116u8 && str_byte_at(src, p + 4i64) == 105u8 && str_byte_at(src, p + 5i64) == 110u8 && str_byte_at(src, p + 6i64) == 99u8 && str_byte_at(src, p + 7i64) == 116u8 && (p + 8i64 >= len || !lx_is_alnum(str_byte_at(src, p + 8i64))) { return true; }
+    if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 102u8 && str_byte_at(src, p + 1i64) == 105u8 && str_byte_at(src, p + 2i64) == 114u8 && str_byte_at(src, p + 3i64) == 115u8 && str_byte_at(src, p + 4i64) == 116u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
+    if p + 4i64 <= len && str_byte_at(src, p + 0i64) == 102u8 && str_byte_at(src, p + 1i64) == 105u8 && str_byte_at(src, p + 2i64) == 110u8 && str_byte_at(src, p + 3i64) == 100u8 && (p + 4i64 >= len || !lx_is_alnum(str_byte_at(src, p + 4i64))) { return true; }
+    if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 111u8 && str_byte_at(src, p + 1i64) == 114u8 && str_byte_at(src, p + 2i64) == 100u8 && str_byte_at(src, p + 3i64) == 101u8 && str_byte_at(src, p + 4i64) == 114u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
+    if p + 4i64 <= len && str_byte_at(src, p + 0i64) == 100u8 && str_byte_at(src, p + 1i64) == 101u8 && str_byte_at(src, p + 2i64) == 115u8 && str_byte_at(src, p + 3i64) == 99u8 && (p + 4i64 >= len || !lx_is_alnum(str_byte_at(src, p + 4i64))) { return true; }
+    if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 108u8 && str_byte_at(src, p + 1i64) == 105u8 && str_byte_at(src, p + 2i64) == 109u8 && str_byte_at(src, p + 3i64) == 105u8 && str_byte_at(src, p + 4i64) == 116u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
     if p + 4i64 <= len && str_byte_at(src, p + 0i64) == 119u8 && str_byte_at(src, p + 1i64) == 105u8 && str_byte_at(src, p + 2i64) == 116u8 && str_byte_at(src, p + 3i64) == 104u8 && (p + 4i64 >= len || !lx_is_alnum(str_byte_at(src, p + 4i64))) { return true; }
     return false;
 }
@@ -359,6 +456,15 @@ fn alt_query_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let cap1: *const u8 = rule_find_query(lex, doc);
+    if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    return cap1;
+}
+
+fn alt_query_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
     let cap1: *const u8 = rule_simple_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     return cap1;
@@ -368,6 +474,7 @@ fn rule_query(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_query_0(lex, doc); if r != WqNULLP { return r; } }
     { let r: *const u8 = alt_query_1(lex, doc); if r != WqNULLP { return r; } }
     { let r: *const u8 = alt_query_2(lex, doc); if r != WqNULLP { return r; } }
+    { let r: *const u8 = alt_query_3(lex, doc); if r != WqNULLP { return r; } }
     return WqNULLP;
 }
 
@@ -405,35 +512,124 @@ fn alt_simple_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
     let tk9: Token = lex.next();
     let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
-    let cap10: *const u8 = rule_sel_body(lex, doc);
-    if cap10 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap10: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_FIRST { let t: Token = lex.next(); cap10 = wstr_p(doc, t.text(lex.src)); }
+    }
     let mut cap11: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
-        let sub_r: *const u8 = rule_result_clause(lex, doc);
-        if sub_r != WqNULLP { cap11 = sub_r; } else { lex.reset(osp, osln); }
+        if lex.peek().kind == WqTK_KW_DISTINCT { let t: Token = lex.next(); cap11 = wstr_p(doc, t.text(lex.src)); }
     }
-    let mut cap12: *const u8 = WqNULLP;
+    let cap12: *const u8 = rule_sel_body(lex, doc);
+    if cap12 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap13: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_order_clause(lex, doc);
+        if sub_r != WqNULLP { cap13 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap14: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_DESC { let t: Token = lex.next(); cap14 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap15: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_LIMIT { let t: Token = lex.next(); cap15 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap16: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_limit_par(lex, doc);
+        if sub_r != WqNULLP { cap16 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap17: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_INTEGER { let t: Token = lex.next(); cap17 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap18: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_result_clause(lex, doc);
+        if sub_r != WqNULLP { cap18 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap19: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_with_opt(lex, doc);
-        if sub_r != WqNULLP { cap12 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap19 = sub_r; } else { lex.reset(osp, osln); }
     }
     let node: RQSimple = doc.make::<RQSimple>();
-    node.result_ty = wstr_as_str(cap11);
+    node.result_ty = wstr_as_str(cap18);
     node.row_ty = wstr_as_str(cap5);
     node.where_pred = WRef::<SExpr>::from_any(hand_any(cap8));
-    node.var_name = wstr_as_str(cap7);
+    node.order_key = WRef::<SExpr>::from_any(hand_any(cap13));
+    node.has_limit = cap15 != WqNULLP;
     node.src_name = wstr_as_str(cap2);
-    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap12));
-    node.select = WRef::<SExpr>::from_any(hand_any(cap10));
-    node.has_result_ty = cap11 != WqNULLP;
+    node.order_desc = cap14 != WqNULLP;
+    node.limit_is_param = cap16 != WqNULLP;
+    node.has_order = cap13 != WqNULLP;
+    node.distinct = cap11 != WqNULLP;
+    node.select = WRef::<SExpr>::from_any(hand_any(cap12));
+    node.limit_param = wstr_as_str(cap16);
+    node.limit_n = wstr_decode_i64(cap17) as i64;
+    node.has_result_ty = cap18 != WqNULLP;
+    node.sel_first = cap10 != WqNULLP;
+    node.var_name = wstr_as_str(cap7);
+    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap19));
     node.has_where = cap8 != WqNULLP;
     return node.as_ref().raw() as *const u8;
 }
 
 fn rule_simple_query(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_simple_query_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+
+fn alt_find_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    let tk2: Token = lex.next();
+    let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
+    if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
+    let tk3: Token = lex.next();
+    let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
+    if lex.peek().kind != WqTK_LBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    let tk4: Token = lex.next();
+    let cap4: *const u8 = wstr_p(doc, tk4.text(lex.src));
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    let tk5: Token = lex.next();
+    let cap5: *const u8 = wstr_p(doc, tk5.text(lex.src));
+    if lex.peek().kind != WqTK_RBRACKET { lex.reset(sp, sln); return WqNULLP; }
+    let tk6: Token = lex.next();
+    let cap6: *const u8 = wstr_p(doc, tk6.text(lex.src));
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    let tk7: Token = lex.next();
+    let cap7: *const u8 = wstr_p(doc, tk7.text(lex.src));
+    if lex.peek().kind != WqTK_KW_FIND { lex.reset(sp, sln); return WqNULLP; }
+    let tk8: Token = lex.next();
+    let cap8: *const u8 = wstr_p(doc, tk8.text(lex.src));
+    let cap9: *const u8 = rule_find_body(lex, doc);
+    if cap9 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let node: RQFind = doc.make::<RQFind>();
+    node.var_name = wstr_as_str(cap7);
+    node.src_name = wstr_as_str(cap2);
+    node.row_ty = wstr_as_str(cap5);
+    node.pred = WRef::<SExpr>::from_any(hand_any(cap9));
+    return node.as_ref().raw() as *const u8;
+}
+
+fn rule_find_query(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_find_query_0(lex, doc); if r != WqNULLP { return r; } }
     return WqNULLP;
 }
 
@@ -502,34 +698,80 @@ fn alt_join_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
     let tk19: Token = lex.next();
     let cap19: *const u8 = wstr_p(doc, tk19.text(lex.src));
-    let cap20: *const u8 = rule_sel_body(lex, doc);
-    if cap20 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap20: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_FIRST { let t: Token = lex.next(); cap20 = wstr_p(doc, t.text(lex.src)); }
+    }
     let mut cap21: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
-        let sub_r: *const u8 = rule_result_clause(lex, doc);
-        if sub_r != WqNULLP { cap21 = sub_r; } else { lex.reset(osp, osln); }
+        if lex.peek().kind == WqTK_KW_DISTINCT { let t: Token = lex.next(); cap21 = wstr_p(doc, t.text(lex.src)); }
     }
-    let mut cap22: *const u8 = WqNULLP;
+    let cap22: *const u8 = rule_sel_body(lex, doc);
+    if cap22 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap23: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_order_clause(lex, doc);
+        if sub_r != WqNULLP { cap23 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap24: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_DESC { let t: Token = lex.next(); cap24 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap25: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_LIMIT { let t: Token = lex.next(); cap25 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap26: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_limit_par(lex, doc);
+        if sub_r != WqNULLP { cap26 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap27: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_INTEGER { let t: Token = lex.next(); cap27 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap28: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_result_clause(lex, doc);
+        if sub_r != WqNULLP { cap28 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap29: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_with_opt(lex, doc);
-        if sub_r != WqNULLP { cap22 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap29 = sub_r; } else { lex.reset(osp, osln); }
     }
     let node: RQJoin = doc.make::<RQJoin>();
     node.a_name = wstr_as_str(cap2);
-    node.result_ty = wstr_as_str(cap21);
+    node.result_ty = wstr_as_str(cap28);
     node.where_pred = WRef::<SExpr>::from_any(hand_any(cap18));
+    node.order_key = WRef::<SExpr>::from_any(hand_any(cap23));
+    node.has_limit = cap25 != WqNULLP;
     node.x_var = wstr_as_str(cap7);
+    node.order_desc = cap24 != WqNULLP;
+    node.limit_is_param = cap26 != WqNULLP;
+    node.has_order = cap23 != WqNULLP;
     node.b_name = wstr_as_str(cap10);
-    node.select = WRef::<SExpr>::from_any(hand_any(cap20));
-    node.has_result_ty = cap21 != WqNULLP;
+    node.distinct = cap21 != WqNULLP;
+    node.select = WRef::<SExpr>::from_any(hand_any(cap22));
     node.on = WRef::<SExpr>::from_any(hand_any(cap17));
+    node.limit_param = wstr_as_str(cap26);
+    node.sel_first = cap20 != WqNULLP;
+    node.limit_n = wstr_decode_i64(cap27) as i64;
     node.b_ty = wstr_as_str(cap13);
+    node.has_result_ty = cap28 != WqNULLP;
     node.a_ty = wstr_as_str(cap5);
     node.is_anti = cap8 != WqNULLP;
     node.y_var = wstr_as_str(cap15);
-    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap22));
+    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap29));
     node.has_where = cap18 != WqNULLP;
     return node.as_ref().raw() as *const u8;
 }
@@ -583,34 +825,88 @@ fn alt_aggr_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap12: *const u8 = wstr_p(doc, tk12.text(lex.src));
     let cap13: *const u8 = rule_agg_list(lex, doc);
     if cap13 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap14: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_having_clause(lex, doc);
+        if sub_r != WqNULLP { cap14 = sub_r; } else { lex.reset(osp, osln); }
+    }
     if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
-    let tk14: Token = lex.next();
-    let cap14: *const u8 = wstr_p(doc, tk14.text(lex.src));
-    let cap15: *const u8 = rule_sel_body(lex, doc);
-    if cap15 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let tk15: Token = lex.next();
+    let cap15: *const u8 = wstr_p(doc, tk15.text(lex.src));
     let mut cap16: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
-        let sub_r: *const u8 = rule_result_clause(lex, doc);
-        if sub_r != WqNULLP { cap16 = sub_r; } else { lex.reset(osp, osln); }
+        if lex.peek().kind == WqTK_KW_FIRST { let t: Token = lex.next(); cap16 = wstr_p(doc, t.text(lex.src)); }
     }
     let mut cap17: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_DISTINCT { let t: Token = lex.next(); cap17 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let cap18: *const u8 = rule_sel_body(lex, doc);
+    if cap18 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap19: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_order_clause(lex, doc);
+        if sub_r != WqNULLP { cap19 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap20: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_DESC { let t: Token = lex.next(); cap20 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap21: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_KW_LIMIT { let t: Token = lex.next(); cap21 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap22: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_limit_par(lex, doc);
+        if sub_r != WqNULLP { cap22 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap23: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        if lex.peek().kind == WqTK_INTEGER { let t: Token = lex.next(); cap23 = wstr_p(doc, t.text(lex.src)); }
+    }
+    let mut cap24: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_result_clause(lex, doc);
+        if sub_r != WqNULLP { cap24 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let mut cap25: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
         let sub_r: *const u8 = rule_with_opt(lex, doc);
-        if sub_r != WqNULLP { cap17 = sub_r; } else { lex.reset(osp, osln); }
+        if sub_r != WqNULLP { cap25 = sub_r; } else { lex.reset(osp, osln); }
     }
     let node: RQAggr = doc.make::<RQAggr>();
     node.a_name = wstr_as_str(cap2);
     node.aggs = WRef::<RQAggArr>::from_any(hand_any(cap13));
-    node.result_ty = wstr_as_str(cap16);
+    node.result_ty = wstr_as_str(cap24);
     node.where_pred = WRef::<SExpr>::from_any(hand_any(cap8));
+    node.order_key = WRef::<SExpr>::from_any(hand_any(cap19));
+    node.has_limit = cap21 != WqNULLP;
     node.x_var = wstr_as_str(cap7);
-    node.a_ty = wstr_as_str(cap5);
-    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap17));
+    node.order_desc = cap20 != WqNULLP;
+    node.limit_is_param = cap22 != WqNULLP;
     node.key = WRef::<SExpr>::from_any(hand_any(cap11));
-    node.select = WRef::<SExpr>::from_any(hand_any(cap15));
-    node.has_result_ty = cap16 != WqNULLP;
+    node.distinct = cap17 != WqNULLP;
+    node.select = WRef::<SExpr>::from_any(hand_any(cap18));
+    node.has_order = cap19 != WqNULLP;
+    node.limit_param = wstr_as_str(cap22);
+    node.limit_n = wstr_decode_i64(cap23) as i64;
+    node.sel_first = cap16 != WqNULLP;
+    node.has_result_ty = cap24 != WqNULLP;
+    node.a_ty = wstr_as_str(cap5);
+    node.having_pred = WRef::<SExpr>::from_any(hand_any(cap14));
+    node.with_decls = WRef::<RQWithArr>::from_any(hand_any(cap25));
+    node.has_having = cap14 != WqNULLP;
     node.has_where = cap8 != WqNULLP;
     return node.as_ref().raw() as *const u8;
 }
@@ -637,7 +933,7 @@ fn rule_where_clause_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return WqNULLP;
 }
 fn rule_where_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
-    let mk: i64 = lex.save_pos() * 1024i64 + 4i64;
+    let mk: i64 = lex.save_pos() * 1024i64 + 5i64;
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
@@ -646,6 +942,89 @@ fn rule_where_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_where_clause_impl(lex, doc);
+    let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    return r;
+}
+
+fn alt_having_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    if lex.peek().kind != WqTK_KW_HAVING { lex.reset(sp, sln); return WqNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    let cap2: *const u8 = rule_having_body(lex, doc);
+    if cap2 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    return cap2;
+}
+
+fn rule_having_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_having_clause_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+
+fn alt_order_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    if lex.peek().kind != WqTK_KW_ORDER { lex.reset(sp, sln); return WqNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    if lex.peek().kind != WqTK_KW_BY { lex.reset(sp, sln); return WqNULLP; }
+    let tk2: Token = lex.next();
+    let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
+    let cap3: *const u8 = rule_order_body(lex, doc);
+    if cap3 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    return cap3;
+}
+
+fn rule_order_clause_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_order_clause_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+fn rule_order_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let mk: i64 = lex.save_pos() * 1024i64 + 7i64;
+    let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
+    unsafe {
+        let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
+        let hp: *const WqMemoCell = mp.get(&mk);
+        if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
+    }
+    if hok { lex.reset(hep, hel); return hr; }
+    let r: *const u8 = rule_order_clause_impl(lex, doc);
+    let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    return r;
+}
+
+fn alt_limit_par_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    if lex.peek().kind != WqTK_DOLLAR { lex.reset(sp, sln); return WqNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    let tk2: Token = lex.next();
+    let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
+    return cap2;
+}
+
+fn rule_limit_par_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_limit_par_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+fn rule_limit_par(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let mk: i64 = lex.save_pos() * 1024i64 + 8i64;
+    let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
+    unsafe {
+        let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
+        let hp: *const WqMemoCell = mp.get(&mk);
+        if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
+    }
+    if hok { lex.reset(hep, hel); return hr; }
+    let r: *const u8 = rule_limit_par_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
     unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
@@ -669,7 +1048,7 @@ fn rule_result_clause_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return WqNULLP;
 }
 fn rule_result_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
-    let mk: i64 = lex.save_pos() * 1024i64 + 5i64;
+    let mk: i64 = lex.save_pos() * 1024i64 + 9i64;
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
@@ -729,7 +1108,7 @@ fn rule_sel_body_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return WqNULLP;
 }
 fn rule_sel_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
-    let mk: i64 = lex.save_pos() * 1024i64 + 7i64;
+    let mk: i64 = lex.save_pos() * 1024i64 + 11i64;
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
@@ -812,6 +1191,75 @@ fn rule_agg_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return WqNULLP;
 }
 
+fn alt_having_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
+    let est_cap1: i64 = lex.save_pos();
+    let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
+    if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
+    let mut eend_cap1: i64 = ecl_cap1;
+    if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
+    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr(esub_cap1, doc);
+    lex.reset(eend_cap1, lex.save_line());
+    let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
+    if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    return cap1;
+}
+
+fn rule_having_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_having_body_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+
+fn alt_order_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
+    let est_cap1: i64 = lex.save_pos();
+    let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
+    if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
+    let mut eend_cap1: i64 = ecl_cap1;
+    if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
+    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr(esub_cap1, doc);
+    lex.reset(eend_cap1, lex.save_line());
+    let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
+    if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    return cap1;
+}
+
+fn rule_order_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_order_body_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+
+fn alt_find_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
+    let est_cap1: i64 = lex.save_pos();
+    let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
+    if ecl_cap1 < 0i64 { lex.reset(sp, sln); return WqNULLP; }
+    let mut eend_cap1: i64 = ecl_cap1;
+    if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
+    let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
+    let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr(esub_cap1, doc);
+    lex.reset(eend_cap1, lex.save_line());
+    let cap1: *const u8 = if eroot_cap1.is_null() { WqNULLP } else { eroot_cap1.raw() as *const u8 };
+    if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    return cap1;
+}
+
+fn rule_find_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_find_body_0(lex, doc); if r != WqNULLP { return r; } }
+    return WqNULLP;
+}
+
 fn alt_with_opt_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
@@ -862,7 +1310,7 @@ fn rule_with_opt_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return WqNULLP;
 }
 fn rule_with_opt(lex: &mut Lexer, doc: &Writ) -> *const u8 {
-    let mk: i64 = lex.save_pos() * 1024i64 + 11i64;
+    let mk: i64 = lex.save_pos() * 1024i64 + 18i64;
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;

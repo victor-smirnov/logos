@@ -236,7 +236,7 @@ impl Lexer {
         // A BACKSLASH ESCAPE (`\{`, `\}`, `` \` ``, `\\`) makes the following
         // char LITERAL text: both bytes are absorbed into the run so a `\{{`
         // does NOT open a tag and a stray `\{`/`\}` stays plain text. The
-        // backslash survives in the TEXT slice; emit_escaped (trama_render)
+        // backslash survives in the TEXT slice; emit_escaped (the render layer)
         // de-escapes it to the bare char at render time.
         if c == 92u8 {
             let e: u8 = self.cur(1i64);
@@ -246,13 +246,12 @@ impl Lexer {
             self.pos = self.pos + 1i64;
         }
         while self.pos < self.src.len() {
-            let d: u8 = self.cur(0i64);
-            if d == 92u8 {
+            if self.cur(0i64) == 92u8 {
                 let e2: u8 = self.cur(1i64);
                 if e2 == 123u8 || e2 == 125u8 || e2 == 96u8 || e2 == 92u8 { self.pos = self.pos + 2i64; continue; }
             }
-            if d == 123u8 && (self.cur(1i64) == 37u8 || self.cur(1i64) == 123u8) { break; }
-            if d == 10u8 { self.line = self.line + 1i64; }
+            if self.cur(0i64) == 123u8 && (self.cur(1i64) == 37u8 || self.cur(1i64) == 123u8) { break; }
+            if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }
             self.pos = self.pos + 1i64;
         }
         let mut tlen: i64 = self.pos - start;
@@ -292,6 +291,32 @@ fn wstr_decode_i64(p: *const u8) -> i64 {
         i = i + 1i64;
     }
     return v;
+}
+// Decode a captured FLOAT token (digits '.' digits) into its f64 VALUE —
+// the token->f64 hook for float literal fields. Parses the mantissa as an
+// integer and divides by 10^k (k = fraction digits): exact powers of ten
+// give the correctly-rounded double for short decimal literals.
+fn wstr_decode_f64(p: *const u8) -> f64 {
+    let s: &str = wstr_as_str(p);
+    let n: i64 = s.len();
+    let mut mant: i64 = 0i64;
+    let mut frac: i64 = 0i64;
+    let mut in_frac: bool = false;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 46u8 && !in_frac { in_frac = true; i = i + 1i64; continue; }
+        if c < 48u8 || c > 57u8 { break; }
+        if mant < 922337203685477580i64 {
+            mant = mant * 10i64 + ((c as i64) - 48i64);
+            if in_frac { frac = frac + 1i64; }
+        }
+        i = i + 1i64;
+    }
+    let mut p10: f64 = 1.0f64;
+    let mut k: i64 = 0i64;
+    while k < frac { p10 = p10 * 10.0f64; k = k + 1i64; }
+    return (mant as f64) / p10;
 }
 // Re-intern a captured STRING token WITHOUT its surrounding quotes: the
 // token text is `"..."`; a string literal's VALUE is the inner content

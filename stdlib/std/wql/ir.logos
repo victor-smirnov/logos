@@ -224,10 +224,19 @@ pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right:
 pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
 pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
 pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
+// ── ORDER/LIMIT/DISTINCT tier (`select [distinct] S [order by O [desc]] [limit …]`) ──
+// RSort sits UNDER the projection (its key ranges over the input rows — the scan
+// vars, or the group key + aggregate outputs); RDistinct / RLimit sit ABOVE the
+// projection (they act on the PROJECTED values). `having` has NO node of its own:
+// it lowers to an RFilter over the RAggr output (one filter mechanism).
+pub schema RSort     : code(0x0011_0000_0000_0008) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, desc: bool = 2 } // τ — ONE sort key, asc/desc
+pub schema RLimit    : code(0x0011_0000_0000_0009) { input: WRef<RExpr> = 0, n: i64 = 1, is_param: bool = 2, param: str = 3 } // first-n (literal or $param)
+pub schema RDistinct : code(0x0011_0000_0000_000A) { input: WRef<RExpr> = 0 }                          // δ — dedup projected values
 
 pub schema enum RExpr : category(0x0011_0000_0000_0000) {
     Scan(RScan), Edge(REdge), Filter(RFilter), Proj(RProj),
     Join(RJoin), Anti(RAnti), Aggr(RAggr), Fix(RFix),
+    Sort(RSort), Limit(RLimit), Distinct(RDistinct),
 }
 
 // Relational-node edge handles (same provenance-laundering rationale as the
@@ -240,6 +249,9 @@ impl RJoin   { pub fn as_ref(self: &RJoin)   -> WAny { return WAny::ref_to((self
 impl RAnti   { pub fn as_ref(self: &RAnti)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl RAggr   { pub fn as_ref(self: &RAggr)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl RFix    { pub fn as_ref(self: &RFix)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RSort     { pub fn as_ref(self: &RSort)     -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RLimit    { pub fn as_ref(self: &RLimit)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RDistinct { pub fn as_ref(self: &RDistinct) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 
 // ── Typed edge RESOLVERS (the IR-walking convenience API) ─────────────────
 // Read a `WRef<S>` field → resolve the handle → bind the target view. These are
@@ -297,3 +309,9 @@ impl RAggr {
     pub fn key_expr(self: &RAggr)   -> SExpr   { return self.key.any().view::<SExpr>(); }
     pub fn aggs_arr(self: &RAggr)   -> RAggArr { return self.aggs.any().view::<RAggArr>(); }
 }
+impl RSort {
+    pub fn input_expr(self: &RSort) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn key_expr(self: &RSort)   -> SExpr { return self.key.any().view::<SExpr>(); }
+}
+impl RLimit    { pub fn input_expr(self: &RLimit)    -> RExpr { return self.input.any().view::<RExpr>(); } }
+impl RDistinct { pub fn input_expr(self: &RDistinct) -> RExpr { return self.input.any().view::<RExpr>(); } }

@@ -41,17 +41,41 @@ pub fn walk_query(plan: RQuery, h: &Writ) -> bool {
     // `lower_simplify_emit`) — filter folding, identity-projection collapse,
     // projection composition — over that tree BEFORE emission, then walk the
     // (possibly thinner) form. The envelope (fn name / `with` overlay / result-
-    // type override) is read off the RQuery per shape and threaded through; the
-    // relational STRUCTURE + clause bodies live on the RExpr tree.
+    // type override / single-row SELECT MODE) is read off the RQuery per shape
+    // and threaded through; the relational STRUCTURE + clause bodies live on
+    // the RExpr tree.
+    //
+    // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
+    // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors
+    // (and the aggregate shape rejects it outright — group-by emission is
+    // multi-row by construction; kept out of scope, see wql.peg).
     match plan {
         RQuery::Simple(s) => {
-            return lower_simplify_emit(plan, s.fn_name, s.with_decls, s.result_ty, s.has_result_ty, h);
+            let mut mode: i32 = SELM_ALL();
+            if s.sel_first {
+                if s.distinct  { error("wql!: `select first` cannot be combined with `distinct` — first returns a single value"); return false; }
+                if s.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
+                mode = SELM_FIRST();
+            }
+            return lower_simplify_emit(plan, s.fn_name, s.with_decls, s.result_ty, s.has_result_ty, mode, h);
         }
         RQuery::Join(j) => {
-            return lower_simplify_emit(plan, j.fn_name, j.with_decls, j.result_ty, j.has_result_ty, h);
+            let mut mode: i32 = SELM_ALL();
+            if j.sel_first {
+                if j.distinct  { error("wql!: `select first` cannot be combined with `distinct` — first returns a single value"); return false; }
+                if j.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
+                mode = SELM_FIRST();
+            }
+            return lower_simplify_emit(plan, j.fn_name, j.with_decls, j.result_ty, j.has_result_ty, mode, h);
         }
         RQuery::Aggr(g) => {
-            return lower_simplify_emit(plan, g.fn_name, g.with_decls, g.result_ty, g.has_result_ty, h);
+            if g.sel_first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
+            return lower_simplify_emit(plan, g.fn_name, g.with_decls, g.result_ty, g.has_result_ty, SELM_ALL(), h);
+        }
+        RQuery::Find(f) => {
+            // `find P` — no `with` / result-type / tail modifiers exist on this
+            // shape (the grammar admits only the predicate).
+            return lower_simplify_emit(plan, f.fn_name, null_with_ref(), "", false, SELM_FIND(), h);
         }
     }
 }
@@ -85,6 +109,10 @@ fn wrap_fat_aggr(node: WAny, h: &Writ) -> RQAggr {
     let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
     return unsafe { *(&hh as *const WSchemaH as *const RQAggr) };
 }
+fn wrap_fat_find(node: WAny, h: &Writ) -> RQFind {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQFind) };
+}
 
 pub fn walk_query_any_named(root: WAny, name: str, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
@@ -93,6 +121,7 @@ pub fn walk_query_any_named(root: WAny, name: str, h: &Writ) -> bool {
         RQuery::Simple(_) => { let s: RQSimple = wrap_fat_simple(root, h); s.fn_name = name; }
         RQuery::Join(_)   => { let j: RQJoin   = wrap_fat_join(root, h);   j.fn_name = name; }
         RQuery::Aggr(_)   => { let g: RQAggr   = wrap_fat_aggr(root, h);   g.fn_name = name; }
+        RQuery::Find(_)   => { let f: RQFind   = wrap_fat_find(root, h);   f.fn_name = name; }
     }
     return walk_query(root.view::<RQuery>(), h);
 }

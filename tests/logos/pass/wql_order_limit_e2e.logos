@@ -1,0 +1,82 @@
+// WQL ORDER BY + LIMIT — static lowering end-to-end (ADR 0012 select-tail
+// modifiers). `order by <key> [desc]` sorts the matching rows by ONE key
+// expression BEFORE projection (stable insertion sort in the generated code —
+// O(n²) MVP codegen); `limit N` caps the projected output.
+//
+// Pipeline: where → order → project → limit. Exercises:
+//   • asc int key            (ages_asc)
+//   • desc int key + limit   (top2_ages)
+//   • asc STR key            (names_by_name — byte-lexicographic str compare)
+//   • asc FLT key + limit    (lightest2 — f64 sort keys, Vec<f64> key buffer)
+//   • where + order + limit combined (adult_names)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person { pub name: str, pub age: i64, pub weight: f64 }
+
+// asc int key: ages sorted ascending.
+resource ages_asc = wql!{ from people:[Person] p select p.age order by p.age };
+
+// desc int key + limit 2: the two largest ages, descending.
+resource top2_ages = wql!{ from people:[Person] p select p.age order by p.age desc limit 2 };
+
+// asc str key: names sorted byte-lexicographically.
+resource names_by_name = wql!{ from people:[Person] p select p.name order by p.name : str };
+
+// asc FLT key + limit 2: the two lightest people's names (f64 sort keys).
+resource lightest2 = wql!{ from people:[Person] p select p.name order by p.weight limit 2 : str };
+
+// where + order desc + limit: adult names by age descending, first 2.
+resource adult_names = wql!{ from people:[Person] p where p.age >= 18 select p.name order by p.age desc limit 2 : str };
+
+fn main() -> i32 {
+    let people: [Person; 5] = [
+        Person { name: "Cleo", age: 30i64, weight: 61.5f64 },
+        Person { name: "Ada",  age: 45i64, weight: 58.0f64 },
+        Person { name: "Eve",  age: 12i64, weight: 40.25f64 },
+        Person { name: "Bob",  age: 41i64, weight: 82.0f64 },
+        Person { name: "Dane", age: 30i64, weight: 75.5f64 },
+    ];
+
+    // asc int: 12, 30, 30, 41, 45 (stable: Cleo's 30 before Dane's 30).
+    let a: Vec<i64> = ages_asc(&people[..]);
+    if a.len() != 5i64 { return 1i32; }
+    if a.get(0i64) != 12i64 { return 2i32; }
+    if a.get(1i64) != 30i64 { return 3i32; }
+    if a.get(2i64) != 30i64 { return 4i32; }
+    if a.get(3i64) != 41i64 { return 5i32; }
+    if a.get(4i64) != 45i64 { return 6i32; }
+
+    // desc int + limit 2: 45, 41.
+    let t: Vec<i64> = top2_ages(&people[..]);
+    if t.len() != 2i64 { return 7i32; }
+    if t.get(0i64) != 45i64 { return 8i32; }
+    if t.get(1i64) != 41i64 { return 9i32; }
+
+    // asc str: Ada, Bob, Cleo, Dane, Eve.
+    let n: Vec<str> = names_by_name(&people[..]);
+    if n.len() != 5i64 { return 10i32; }
+    if !str_eq(n.get(0i64), "Ada")  { return 11i32; }
+    if !str_eq(n.get(1i64), "Bob")  { return 12i32; }
+    if !str_eq(n.get(2i64), "Cleo") { return 13i32; }
+    if !str_eq(n.get(3i64), "Dane") { return 14i32; }
+    if !str_eq(n.get(4i64), "Eve")  { return 15i32; }
+
+    // asc f64 weight: Eve(40.25), Ada(58.0), Cleo(61.5), Dane(75.5), Bob(82.0);
+    // limit 2 → Eve, Ada.
+    let l: Vec<str> = lightest2(&people[..]);
+    if l.len() != 2i64 { return 16i32; }
+    if !str_eq(l.get(0i64), "Eve") { return 17i32; }
+    if !str_eq(l.get(1i64), "Ada") { return 18i32; }
+
+    // where (age>=18) keeps Cleo/Ada/Bob/Dane; order by age desc → Ada(45),
+    // Bob(41), Cleo(30), Dane(30); limit 2 → Ada, Bob.
+    let w: Vec<str> = adult_names(&people[..]);
+    if w.len() != 2i64 { return 19i32; }
+    if !str_eq(w.get(0i64), "Ada") { return 20i32; }
+    if !str_eq(w.get(1i64), "Bob") { return 21i32; }
+    return 0i32;
+}

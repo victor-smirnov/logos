@@ -1,0 +1,33 @@
+// WQL optimizer fold — a const-false `where` under ORDER BY + LIMIT still
+// collapses the WHOLE plan to the empty accessor (ADR 0012 Phase-3 relational
+// peephole): the empty signal propagates THROUGH the RSort / RLimit wrappers
+// (which drop themselves), so the emitted fn is the thin empty-Vec return (no
+// scan loop, no sort, no cap check). Also covers `limit 0` (literal) → empty.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person { pub name: str, pub age: i64 }
+
+// where false + order by + limit → the plan provably yields no rows; the
+// optimizer folds sort+limit away and the emitter returns an empty Vec.
+resource nobody = wql!{ from people:[Person] p where 1 == 2 select p.age order by p.age desc limit 3 };
+
+// limit 0 (literal) → empty regardless of the data.
+resource none_now = wql!{ from people:[Person] p select p.age limit 0 };
+
+fn main() -> i32 {
+    let people: [Person; 3] = [
+        Person { name: "Ada",  age: 45i64 },
+        Person { name: "Bob",  age: 41i64 },
+        Person { name: "Eve",  age: 12i64 },
+    ];
+
+    let r: Vec<i64> = nobody(&people[..]);
+    if r.len() != 0i64 { return 1i32; }
+
+    let z: Vec<i64> = none_now(&people[..]);
+    if z.len() != 0i64 { return 2i32; }
+    return 0i32;
+}

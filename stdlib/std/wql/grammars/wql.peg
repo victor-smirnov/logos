@@ -13,11 +13,26 @@
 // `name` arg and stamped onto the plan node's `fn_name` field after the parse (so
 // the grammar no longer carries an `fn N` prefix):
 //
-//   RQSimple — from src:[Ty] var [where P] select S [: RTy] [with …]
+//   RQSimple — from src:[Ty] var [where P]
+//              select [first|distinct] S [order by O [desc]] [limit N|$p] [: RTy] [with …]
 //   RQJoin   — from a:[ATy] x [anti] join b:[BTy] y on ON [where P]
-//              select S [: RTy] [with …]
+//              select [first|distinct] S [order by O [desc]] [limit N|$p] [: RTy] [with …]
 //   RQAggr   — from a:[ATy] x [where P] group by K
-//              aggregate name=fn(arg?),… select S [: RTy] [with …]
+//              aggregate name=fn(arg?),… [having H]
+//              select [first|distinct] S [order by O [desc]] [limit N|$p] [: RTy] [with …]
+//   RQFind   — from src:[Ty] var find P            (NO other clause — single-row
+//              borrow: the generated fn returns Option<&Ty>, the first matching row)
+//
+// Pipeline semantics: where → group/aggregate → having → order → project(select)
+// → distinct → limit. `having` exists ONLY on the aggregate shape (a predicate
+// over the group key + aggregate output names); `order by` takes ONE key
+// expression + an optional trailing `desc` (asc default); `limit` takes an
+// INTEGER literal or a `$param` (a query parameter, typed via `with $p:i64`);
+// `distinct` dedups the PROJECTED values; `first` (`select first S`) makes the
+// query SINGLE-ROW — the generated fn returns Option<ElemTy> (the first
+// projected value in scan order, or in ORDER BY order when `order by` is
+// present). `first` excludes `distinct`/`limit` (diagnosed by the walker, not
+// the grammar — both parse as independent OPT captures).
 //
 // ── EMBEDDED-EL CLAUSE BODIES (the ONE cross-grammar coupling) ──────────────
 // Every EXPRESSION clause body (where / select / on / group-key / aggregate-arg)
@@ -29,8 +44,8 @@
 //
 // A WQL clause body does NOT end at a `}}`-style tag close (as Trama's does) — it
 // ends at the next structural KEYWORD (where/select/join/anti/group/by/aggregate/
-// on/with), a top-level result-type `:` (ternary `?:` balanced), or a top-level
-// `,`/`)` (an aggregate arg list). The generator emits a KEYWORD-DELIMITED embed
+// having/distinct/order/desc/limit/on/with), a top-level result-type `:` (ternary
+// `?:` balanced), or a top-level `,`/`)` (an aggregate arg list). The generator emits a KEYWORD-DELIMITED embed
 // close-finder (`embed_find_close`) driven by this grammar's keyword tokens +
 // `(`/`[` depth tracking — the schema-mode-gated generalization of the template
 // close-finder (logos.peg has no embed, so its output stays byte-identical).
@@ -72,6 +87,15 @@
 // A `bool` field written from a `$N` capture emits the OPT-PRESENCE test
 // `capN != NULLP` (an OPT capture is NULLP when it did not match) — that is how
 // `has_where` / `has_result_ty` / `is_anti` are populated.
+// The SELECT-TAIL modifier fields (shared by all three shapes):
+//   sel_first       — `select first …`        (OPT KW_FIRST capture presence;
+//                     single-row mode — the fn returns Option<ElemTy>)
+//   distinct        — `select distinct …`     (OPT KW_DISTINCT capture presence)
+//   has_order/order_key/order_desc — `order by O [desc]` (order_clause? capture:
+//                     presence + the key SExpr edge; KW_DESC? capture presence)
+//   has_limit       — KW_LIMIT? capture presence (covers BOTH value forms)
+//   limit_n         — `INTEGER?` capture, token-text decoded to i64 (0 if absent)
+//   limit_is_param/limit_param — `limit_par?` ($-param form) presence + name
 %schema {
     use:      "logos.std.wql.plan"
     use:      "logos.std.wql.ir"
@@ -79,20 +103,36 @@
     ref_wrap: "WRef"
 
     RQSimple { src_name: "str", row_ty: "str", var_name: "str",
-               has_where: "bool", where_pred: "ref SExpr", select: "ref SExpr",
+               has_where: "bool", where_pred: "ref SExpr",
+               sel_first: "bool", distinct: "bool", select: "ref SExpr",
+               has_order: "bool", order_key: "ref SExpr", order_desc: "bool",
+               has_limit: "bool", limit_n: "i64",
+               limit_is_param: "bool", limit_param: "str",
                has_result_ty: "bool", result_ty: "str", with_decls: "ref RQWithArr" }
 
     RQJoin   { a_name: "str", a_ty: "str", x_var: "str",
                is_anti: "bool", b_name: "str", b_ty: "str", y_var: "str",
                on: "ref SExpr", has_where: "bool", where_pred: "ref SExpr",
-               select: "ref SExpr", has_result_ty: "bool", result_ty: "str",
+               sel_first: "bool", distinct: "bool", select: "ref SExpr",
+               has_order: "bool", order_key: "ref SExpr", order_desc: "bool",
+               has_limit: "bool", limit_n: "i64",
+               limit_is_param: "bool", limit_param: "str",
+               has_result_ty: "bool", result_ty: "str",
                with_decls: "ref RQWithArr" }
 
     RQAggr   { a_name: "str", a_ty: "str", x_var: "str",
                has_where: "bool", where_pred: "ref SExpr", key: "ref SExpr",
-               aggs: "ref RQAggArr", select: "ref SExpr",
+               aggs: "ref RQAggArr",
+               has_having: "bool", having_pred: "ref SExpr",
+               sel_first: "bool", distinct: "bool", select: "ref SExpr",
+               has_order: "bool", order_key: "ref SExpr", order_desc: "bool",
+               has_limit: "bool", limit_n: "i64",
+               limit_is_param: "bool", limit_param: "str",
                has_result_ty: "bool", result_ty: "str",
                with_decls: "ref RQWithArr" }
+
+    RQFind   { src_name: "str", row_ty: "str", var_name: "str",
+               pred: "ref SExpr" }
 
     RQAgg      { name: "str", fn_name: "str", arg: "ref SExpr", has_arg: "bool" }
     RQAggArr   { aggs: "fan set_agg RQAGG_MAX" }
@@ -114,6 +154,13 @@
     KW_GROUP     = "group"
     KW_BY        = "by"
     KW_AGGREGATE = "aggregate"
+    KW_HAVING    = "having"
+    KW_DISTINCT  = "distinct"
+    KW_FIRST     = "first"
+    KW_FIND      = "find"
+    KW_ORDER     = "order"
+    KW_DESC      = "desc"
+    KW_LIMIT     = "limit"
     KW_WITH      = "with"
 
     // Punctuation.
@@ -126,6 +173,7 @@
     LPAREN   = "("
     RPAREN   = ")"
 
+    INTEGER = /[0-9]+/
     IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
 
     // Skip whitespace + line comments.
@@ -139,72 +187,137 @@
     // Ordered choice (PEG first-match): the relational shapes are distinguished by
     // a structural keyword after the source; the leading optional `where` can
     // precede `group`, and `join`/`anti` can precede the select. Try join, then
-    // aggregate, then the simple scan/filter/project fallback. Each alt re-parses
-    // the shared `from src:[Ty] var` prefix (cheap; packrat-memoized).
+    // aggregate, then the single-row `find`, then the simple scan/filter/project
+    // fallback. Each alt re-parses the shared `from src:[Ty] var` prefix (cheap;
+    // packrat-memoized).
     query <- join_query
            / aggr_query
+           / find_query
            / simple_query
 
     // ── RQSimple ──────────────────────────────────────────────────────────
-    //   from src:[Ty] var [where P] select S [: RTy] [with …]
+    //   from src:[Ty] var [where P]
+    //   select [first] [distinct] S [order by O [desc]] [limit N|$p] [: RTy] [with …]
     //   $1=KW_FROM $2=IDENT(src) $3=: $4=[ $5=IDENT(row) $6=] $7=IDENT(var)
-    //   $8=where_opt? $9=KW_SELECT $10=sel_body $11=result_opt? $12=with_opt?
+    //   $8=where_opt? $9=KW_SELECT $10=KW_FIRST? $11=KW_DISTINCT? $12=sel_body
+    //   $13=order_clause? $14=KW_DESC? $15=KW_LIMIT? $16=limit_par? $17=INTEGER?
+    //   $18=result_opt? $19=with_opt?
     simple_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
                     where_clause?
-                    KW_SELECT sel_body result_clause? with_opt?
+                    KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
+                    order_clause? KW_DESC?
+                    KW_LIMIT? limit_par? INTEGER?
+                    result_clause? with_opt?
                     => { CODE: "RQSimple", src_name: $2, row_ty: $5,
                          var_name: $7, has_where: $8, where_pred: $8,
-                         select: $10, has_result_ty: $11, result_ty: $11,
-                         with_decls: $12 }
+                         sel_first: $10, distinct: $11, select: $12,
+                         has_order: $13, order_key: $13, order_desc: $14,
+                         has_limit: $15, limit_is_param: $16, limit_param: $16,
+                         limit_n: $17,
+                         has_result_ty: $18, result_ty: $18,
+                         with_decls: $19 }
+
+    // ── RQFind — single-row borrow: `from src:[Ty] var find P` ────────────
+    // REPLACES where+select: the generated fn returns Option<&Ty> — a borrow of
+    // the FIRST row matching P (early-exit scan), None when no row matches. NO
+    // other clause may follow (the predicate body ends at EOI; a trailing
+    // clause keyword fails the whole-query parse). Ordered BEFORE simple_query.
+    //   $1=KW_FROM $2=IDENT(src) $3=: $4=[ $5=IDENT(row) $6=] $7=IDENT(var)
+    //   $8=KW_FIND $9=find_body
+    find_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
+                  KW_FIND find_body
+                  => { CODE: "RQFind", src_name: $2, row_ty: $5,
+                       var_name: $7, pred: $9 }
 
     // ── RQJoin ────────────────────────────────────────────────────────────
-    //   from a:[ATy] x [anti] join b:[BTy] y on ON [where P] select S : RTy [with …]
+    //   from a:[ATy] x [anti] join b:[BTy] y on ON [where P]
+    //   select [first] [distinct] S [order by O [desc]] [limit N|$p] [: RTy] [with …]
     //   $1=KW_FROM $2=IDENT(a) $3=: $4=[ $5=IDENT(aty) $6=] $7=IDENT(x)
     //   $8=anti? $9=KW_JOIN $10=IDENT(b) $11=: $12=[ $13=IDENT(bty)
     //   $14=] $15=IDENT(y) $16=KW_ON $17=on_body $18=where_opt?
-    //   $19=KW_SELECT $20=sel_body $21=: $22=IDENT(RTy) $23=with_opt?
+    //   $19=KW_SELECT $20=KW_FIRST? $21=KW_DISTINCT? $22=sel_body
+    //   $23=order_clause? $24=KW_DESC? $25=KW_LIMIT? $26=limit_par? $27=INTEGER?
+    //   $28=result_opt? $29=with_opt?
     join_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   KW_ANTI? KW_JOIN IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   KW_ON on_body
                   where_clause?
-                  KW_SELECT sel_body result_clause? with_opt?
+                  KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
+                  order_clause? KW_DESC?
+                  KW_LIMIT? limit_par? INTEGER?
+                  result_clause? with_opt?
                   => { CODE: "RQJoin", a_name: $2, a_ty: $5, x_var: $7,
                        is_anti: $8, b_name: $10, b_ty: $13, y_var: $15,
                        on: $17, has_where: $18, where_pred: $18,
-                       select: $20, has_result_ty: $21, result_ty: $21,
-                       with_decls: $22 }
+                       sel_first: $20, distinct: $21, select: $22,
+                       has_order: $23, order_key: $23, order_desc: $24,
+                       has_limit: $25, limit_is_param: $26, limit_param: $26,
+                       limit_n: $27,
+                       has_result_ty: $28, result_ty: $28,
+                       with_decls: $29 }
 
     // ── RQAggr ────────────────────────────────────────────────────────────
-    //   from a:[ATy] x [where P] group by K aggregate a=fn(e),… select S : RTy [with …]
+    //   from a:[ATy] x [where P] group by K aggregate a=fn(e),… [having H]
+    //   select [first] [distinct] S [order by O [desc]] [limit N|$p] [: RTy] [with …]
+    //   (`first` PARSES here for a clear diagnostic, but the walker REJECTS it —
+    //   group-by emission is multi-row by construction.)
     //   $1=KW_FROM $2=IDENT(a) $3=: $4=[ $5=IDENT(aty) $6=] $7=IDENT(x)
     //   $8=where_opt? $9=KW_GROUP $10=KW_BY $11=key_body
-    //   $12=KW_AGGREGATE $13=agg_list $14=KW_SELECT $15=sel_body $16=: $17=IDENT(RTy)
-    //   $18=with_opt?
+    //   $12=KW_AGGREGATE $13=agg_list $14=having_clause?
+    //   $15=KW_SELECT $16=KW_FIRST? $17=KW_DISTINCT? $18=sel_body
+    //   $19=order_clause? $20=KW_DESC? $21=KW_LIMIT? $22=limit_par? $23=INTEGER?
+    //   $24=result_opt? $25=with_opt?
     aggr_query <- KW_FROM IDENT COLON LBRACKET IDENT RBRACKET IDENT
                   where_clause?
                   KW_GROUP KW_BY key_body
                   KW_AGGREGATE agg_list
-                  KW_SELECT sel_body result_clause? with_opt?
+                  having_clause?
+                  KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
+                  order_clause? KW_DESC?
+                  KW_LIMIT? limit_par? INTEGER?
+                  result_clause? with_opt?
                   => { CODE: "RQAggr", a_name: $2, a_ty: $5, x_var: $7,
                        has_where: $8, where_pred: $8,
-                       key: $11, aggs: $13, select: $15,
-                       has_result_ty: $16, result_ty: $16,
-                       with_decls: $17 }
+                       key: $11, aggs: $13,
+                       has_having: $14, having_pred: $14,
+                       sel_first: $16, distinct: $17, select: $18,
+                       has_order: $19, order_key: $19, order_desc: $20,
+                       has_limit: $21, limit_is_param: $22, limit_param: $22,
+                       limit_n: $23,
+                       has_result_ty: $24, result_ty: $24,
+                       with_decls: $25 }
 
     // ── Shared sub-rules ───────────────────────────────────────────────────
     // `where P` — the value is the predicate SExpr ($2, past the KW_WHERE token).
     where_clause <- KW_WHERE where_body
+
+    // `having H` — aggregate shape only: a predicate over the group key +
+    // aggregate output names. The value is the predicate SExpr ($2).
+    having_clause <- KW_HAVING having_body
+
+    // `order by O` — ONE key expression; the trailing `desc` is a separate OPT
+    // token capture in the query rule (KW_DESC ends the embedded key body — a
+    // structural stop). The value is the key SExpr ($3).
+    order_clause <- KW_ORDER KW_BY order_body
+
+    // `limit $p` — the $-param form; the value is the param-name IDENT ($2).
+    // The literal form is a direct `INTEGER?` capture in the query rule (its
+    // token text decodes into the i64 `limit_n` schema field).
+    limit_par <- DOLLAR IDENT
 
     // `: <ResultTy>` — the value is the type-name IDENT ($2).
     result_clause <- COLON IDENT
 
     // The embedded EL clause bodies. Each `<- el::expr` is a cross-grammar embed:
     // scan the raw sub-range to the next structural stop, sub-parse into `doc`.
-    where_body <- el::expr
-    sel_body   <- el::expr
-    on_body    <- el::expr
-    key_body   <- el::expr
-    agg_body   <- el::expr
+    where_body  <- el::expr
+    sel_body    <- el::expr
+    on_body     <- el::expr
+    key_body    <- el::expr
+    agg_body    <- el::expr
+    having_body <- el::expr
+    order_body  <- el::expr
+    find_body   <- el::expr
 
     // Optional `with [$]name:ty (, …)*` → RQWithArr fan-out.
     with_opt   <- KW_WITH with_item ( COMMA with_item )*

@@ -531,6 +531,15 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
                 em.push_text("    if (");
                 em.push_text(string_as_str(&body));
                 em.push_text(") { __out.push_str(\"true\"); } else { __out.push_str(\"false\"); }\n");
+            } else if vt == EL_TY_FLT() {
+                // FLT: format via the shared %g helper (shortest round-trip
+                // decimal, Rust-Display convention), then append. The owned
+                // String temporary is `.as_str()`-borrowed for push_str.
+                let mut body: String = String::new();
+                emit_sexpr(&mut body, se, ty, ctx);
+                em.push_text("    __out.push_str((logos.std.wql.codegen::wql_f64_to_str(");
+                em.push_text(string_as_str(&body));
+                em.push_text(")).as_str());\n");
             } else {
                 let mut body: String = String::new();
                 emit_sexpr(&mut body, se, ty, ctx);
@@ -555,6 +564,8 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
                 em.push_text(": str = ");
             } else if vt == EL_TY_BOOL() {
                 em.push_text(": bool = ");
+            } else if vt == EL_TY_FLT() {
+                em.push_text(": f64 = ");
             } else {
                 em.push_text(": i64 = ");
             }

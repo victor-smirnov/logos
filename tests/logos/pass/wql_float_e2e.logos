@@ -1,0 +1,60 @@
+// WQL FLOAT support end-to-end (EL FLOAT literals + EL_TY_FLT threading):
+//   • FLOAT literal in a `where` predicate (`p.price > 10.5`) — the peg-generated
+//     EL parser lexes FLOAT, decodes it via wstr_decode_f64, boxes `doc.float`;
+//   • `select` of an f64 field → schema reflection stamps EL_TY_FLT → Vec<f64>;
+//   • MIXED arithmetic `p.price * 2` — INT promotes to FLT with an explicit
+//     `as f64` cast in the emitted source (Logos has no implicit int→float);
+//   • aggregates over an f64 argument: sum/min/max get f64 accumulators + f64
+//     result columns; avg is ALWAYS f64 (exact mean).
+// All asserted values are dyadic rationals (exact in IEEE f64), so `==` is exact.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Item { pub dept: i64, pub price: f64 }
+
+// Float compare in `where` + float field `select` → Vec<f64>.
+resource pricey = wql!{ from items:[Item] p where p.price > 10.5 select p.price };
+
+// Mixed arithmetic: the INT literal 2 promotes (emitted `((2i64) as f64)`).
+resource doubled = wql!{ from items:[Item] p select p.price * 2 };
+
+// Aggregates over floats: sum + avg + min + max, composed with FLOAT literals.
+resource dept_price = wql!{ from items:[Item] s
+      group by s.dept
+      aggregate t = sum(s.price) , a = avg(s.price) , lo = min(s.price) , hi = max(s.price)
+      select t * 1000.0 + a * 100.0 + lo * 10.0 + hi };
+
+fn main() -> i32 {
+    let items: [Item; 4] = [
+        Item { dept: 1i64, price: 10.25f64 },
+        Item { dept: 1i64, price: 20.75f64 },
+        Item { dept: 2i64, price: 8.5f64  },
+        Item { dept: 2i64, price: 11.5f64 },
+    ];
+
+    // where p.price > 10.5 → 20.75, 11.5 (10.25 and 8.5 filtered out).
+    let hp: Vec<f64> = pricey(&items[..]);
+    if hp.len() != 2i64 { return 1i32; }
+    if hp.get(0i64) != 20.75f64 { return 2i32; }
+    if hp.get(1i64) != 11.5f64  { return 3i32; }
+
+    // p.price * 2 → 20.5, 41.5, 17.0, 23.0.
+    let d: Vec<f64> = doubled(&items[..]);
+    if d.len() != 4i64 { return 4i32; }
+    if d.get(0i64) != 20.5f64 { return 5i32; }
+    if d.get(1i64) != 41.5f64 { return 6i32; }
+    if d.get(2i64) != 17.0f64 { return 7i32; }
+    if d.get(3i64) != 23.0f64 { return 8i32; }
+
+    // dept 1: sum=31.0 avg=15.5 lo=10.25 hi=20.75
+    //         → 31.0*1000 + 15.5*100 + 10.25*10 + 20.75 = 32673.25
+    // dept 2: sum=20.0 avg=10.0 lo=8.5  hi=11.5
+    //         → 20000 + 1000 + 85 + 11.5 = 21096.5
+    let st: Vec<f64> = dept_price(&items[..]);
+    if st.len() != 2i64 { return 9i32; }
+    if st.get(0i64) != 32673.25f64 { return 10i32; }
+    if st.get(1i64) != 21096.5f64  { return 11i32; }
+    return 0i32;
+}

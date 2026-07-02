@@ -1,0 +1,57 @@
+// WQL HAVING — aggregate-shape post-group filter, static lowering end-to-end
+// (ADR 0012 select-tail modifiers). `group by K aggregate … having H select S`:
+// the HAVING predicate ranges over the group `key` + the aggregate OUTPUT names
+// and filters GROUP rows (after aggregation, before order/project/limit) — it
+// lowers to a plain RFilter over the RAggr output (no dedicated node).
+//
+// Also exercises having over an f64 aggregate column (avg — the FLT lattice)
+// and having combined with order by over an aggregate output.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Sale { pub dept: i64, pub amount: i64 }
+
+// Groups: dept → total = sum(amount), cnt = count(). HAVING keeps only groups
+// with total >= 20. Project key*1000 + total*10 + cnt (one recoverable i64).
+resource big_totals = wql!{ from sales:[Sale] s
+      group by s.dept
+      aggregate total = sum(s.amount) , cnt = count()
+      having total >= 20
+      select key * 1000 + total * 10 + cnt };
+
+// HAVING over an f64 aggregate column (avg ⇒ FLT): keep groups with mean > 8.0,
+// ordered by the mean DESCENDING; project key (an i64 → typed via `: i64`).
+resource high_avg_depts = wql!{ from sales:[Sale] s
+      group by s.dept
+      aggregate av = avg(s.amount)
+      having av > 8.0
+      select key order by av desc : i64 };
+
+fn main() -> i32 {
+    let sales: [Sale; 6] = [
+        Sale { dept: 1i64, amount: 10i64 },
+        Sale { dept: 2i64, amount: 5i64  },
+        Sale { dept: 1i64, amount: 20i64 },
+        Sale { dept: 2i64, amount: 7i64  },
+        Sale { dept: 3i64, amount: 9i64  },
+        Sale { dept: 3i64, amount: 15i64 },
+    ];
+
+    // Groups: dept1 total=30 cnt=2 → 1*1000+30*10+2 = 1302
+    //         dept2 total=12 cnt=2 → filtered out by having (12 < 20)
+    //         dept3 total=24 cnt=2 → 3*1000+24*10+2 = 3242
+    let rows: Vec<i64> = big_totals(&sales[..]);
+    if rows.len() != 2i64 { return 1i32; }
+    if rows.get(0i64) != 1302i64 { return 2i32; }
+    if rows.get(1i64) != 3242i64 { return 3i32; }
+
+    // Means: dept1 = 15.0, dept2 = 6.0 (filtered: ≤ 8.0), dept3 = 12.0.
+    // Order by av desc → dept1 (15.0), dept3 (12.0).
+    let hi: Vec<i64> = high_avg_depts(&sales[..]);
+    if hi.len() != 2i64 { return 4i32; }
+    if hi.get(0i64) != 1i64 { return 5i32; }
+    if hi.get(1i64) != 3i64 { return 6i32; }
+    return 0i32;
+}

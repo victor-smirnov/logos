@@ -1,0 +1,57 @@
+// WQL `find` — single-row BORROW query e2e (ADR 0012). `from src:[Ty] v find P`
+// REPLACES where+select: the generated fn returns Option<&Ty> — a borrow of the
+// FIRST row matching P (early-exit scan, zero-copy), Option::None when no row
+// matches. The find shape takes NO other clause; `$params` in the predicate
+// flow as (i64) fn arguments.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Person { pub name: str, pub age: i64 }
+
+// hit: borrow of the first row with age 41 (Bob — Dan shares the age but comes
+// LATER in scan order).
+resource find_41 = wql!{ from people:[Person] p find p.age == 41 };
+
+// miss → None.
+resource find_ancient = wql!{ from people:[Person] p find p.age > 100 };
+
+// $param predicate.
+resource find_by_age = wql!{ from people:[Person] p find p.age == $n };
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: "Eve", age: 12i64 },
+        Person { name: "Ada", age: 45i64 },
+        Person { name: "Bob", age: 41i64 },
+        Person { name: "Dan", age: 41i64 },
+    ];
+
+    // hit → a borrow of Bob's row; fields read THROUGH the borrow.
+    match find_41(&people[..]) {
+        Option::Some(q) => {
+            if !str_eq(q.name, "Bob") { return 1i32; }
+            if q.age != 41i64 { return 2i32; }
+        }
+        Option::None => { return 3i32; }
+    }
+
+    // miss → None.
+    match find_ancient(&people[..]) {
+        Option::Some(_) => { return 4i32; }
+        Option::None => { }
+    }
+
+    // $param: 45 → Ada; 99 → None.
+    match find_by_age(&people[..], 45i64) {
+        Option::Some(q) => { if !str_eq(q.name, "Ada") { return 5i32; } }
+        Option::None => { return 6i32; }
+    }
+    match find_by_age(&people[..], 99i64) {
+        Option::Some(_) => { return 7i32; }
+        Option::None => { }
+    }
+    return 0i32;
+}

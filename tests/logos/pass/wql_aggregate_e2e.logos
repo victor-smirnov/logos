@@ -36,7 +36,10 @@ resource dept_totals = wql!{ from sales:[Sale] s
 
 // A second resource exercising min / max / avg AND a pre-group `where` filter:
 // keep only sales with amount >= 5, then per dept compute min/max/avg amount.
-//   pub fn dept_stats(sales: &[Sale]) -> Vec<i64> { … two-pass min/max/avg … }
+// `avg` is ALWAYS f64 (the exact mean — no integer truncation), so the `av`
+// column is FLT and the projection PROMOTES to f64 (key/lo/hi get explicit
+// `as f64` casts in the emitted source) ⇒ the inferred result is Vec<f64>.
+//   pub fn dept_stats(sales: &[Sale]) -> Vec<f64> { … two-pass min/max/avg … }
 resource dept_stats = wql!{ from sales:[Sale] s
       where s.amount >= 5
       group by s.dept
@@ -61,14 +64,16 @@ fn main() -> i32 {
     if rows.get(0i64) != 1333i64 { return 2i32; }
     if rows.get(1i64) != 2122i64 { return 3i32; }
 
-    // min / max / avg with a pre-group `where s.amount >= 5` filter.
+    // min / max / avg with a pre-group `where s.amount >= 5` filter. avg is
+    // ALWAYS f64, so the projection promotes and the result is Vec<f64>; every
+    // component value here is small-integer-exact in f64, so `==` is exact.
     //   dept 1 kept amounts: 10, 20    (3 is filtered out)
-    //          min=10 max=20 avg=(10+20)/2=15 → 1*1e6 +10*1e4 +20*100 +15 = 1102015
+    //          min=10 max=20 avg=(10+20)/2=15.0 → 1*1e6 +10*1e4 +20*100 +15.0 = 1102015.0
     //   dept 2 kept amounts: 5, 7
-    //          min=5  max=7  avg=(5+7)/2=6     → 2*1e6 + 5*1e4 + 7*100 + 6  = 2050706
-    let stats: Vec<i64> = dept_stats(&sales[..]);
+    //          min=5  max=7  avg=(5+7)/2=6.0     → 2*1e6 + 5*1e4 + 7*100 + 6.0  = 2050706.0
+    let stats: Vec<f64> = dept_stats(&sales[..]);
     if stats.len() != 2i64 { return 4i32; }
-    if stats.get(0i64) != 1102015i64 { return 5i32; }
-    if stats.get(1i64) != 2050706i64 { return 6i32; }
+    if stats.get(0i64) != 1102015.0f64 { return 5i32; }
+    if stats.get(1i64) != 2050706.0f64 { return 6i32; }
     return 0i32;
 }

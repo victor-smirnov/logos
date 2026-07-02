@@ -1,0 +1,12 @@
+// wql! diagnostic: `select first` is a SINGLE-ROW mode — combining it with the
+// multi-row `distinct` tail modifier is a compile-time error.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub v: i64 }
+
+resource bad = wql!{ from xs:[P] x select first distinct x.v };
+
+fn main() -> i32 { return 0i32; }

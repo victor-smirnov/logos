@@ -1,0 +1,50 @@
+// WQL LIMIT $param — the runtime-parameter limit form, static lowering
+// end-to-end (ADR 0012 select-tail modifiers, sqlx prepared-statement model).
+// `limit $n` makes the cap a GENERATED-FN ARGUMENT (declared `with $n:i64`,
+// exactly like predicate params): the same prepared query is called with
+// different caps and the row count follows the runtime value.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person { pub name: str, pub age: i64 }
+
+// pub fn first_ages(people: &[Person], n: i64) -> Vec<i64> — ages of adults in
+// source order, capped at the runtime `n`.
+resource first_ages = wql!{ from people:[Person] p where p.age >= 18 select p.age limit $n with $n:i64 };
+
+// limit $n combined with order by desc — the cap applies AFTER the sort.
+resource top_ages = wql!{ from people:[Person] p select p.age order by p.age desc limit $n with $n:i64 };
+
+fn main() -> i32 {
+    let people: [Person; 5] = [
+        Person { name: "Ada",  age: 45i64 },
+        Person { name: "Eve",  age: 12i64 },
+        Person { name: "Bob",  age: 41i64 },
+        Person { name: "Cleo", age: 30i64 },
+        Person { name: "Dane", age: 33i64 },
+    ];
+
+    // Adults in source order: 45, 41, 30, 33. Cap 2 → 45, 41.
+    let r2: Vec<i64> = first_ages(&people[..], 2i64);
+    if r2.len() != 2i64 { return 1i32; }
+    if r2.get(0i64) != 45i64 { return 2i32; }
+    if r2.get(1i64) != 41i64 { return 3i32; }
+
+    // Cap larger than the match count → all 4 adults.
+    let r9: Vec<i64> = first_ages(&people[..], 9i64);
+    if r9.len() != 4i64 { return 4i32; }
+
+    // Runtime cap 0 → empty.
+    let r0: Vec<i64> = first_ages(&people[..], 0i64);
+    if r0.len() != 0i64 { return 5i32; }
+
+    // Sorted desc (45, 41, 33, 30, 12), runtime cap 3 → 45, 41, 33.
+    let t3: Vec<i64> = top_ages(&people[..], 3i64);
+    if t3.len() != 3i64 { return 6i32; }
+    if t3.get(0i64) != 45i64 { return 7i32; }
+    if t3.get(1i64) != 41i64 { return 8i32; }
+    if t3.get(2i64) != 33i64 { return 9i32; }
+    return 0i32;
+}

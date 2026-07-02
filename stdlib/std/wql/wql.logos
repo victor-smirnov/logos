@@ -32,7 +32,12 @@
 //
 // plus the relational shapes off the same `from` prefix:
 //   • `[anti] join <b>:[<BTy>] <y> on <onPred>` → inner / anti nested-loop join;
-//   • `[where …] group by <key> aggregate <a>=<fn>(<e>),…` → group-by + aggregate.
+//   • `[where …] group by <key> aggregate <a>=<fn>(<e>),…` → group-by + aggregate;
+// and the SINGLE-ROW forms:
+//   • `select first <S>` (simple/join) → Option<ElemTy>, the first projected
+//     value (scan order, or ORDER BY order); excludes distinct/limit;
+//   • `from <src>:[<Ty>] <v> find <P>` → Option<&Ty>, a borrow of the first
+//     matching row (early-exit, zero-copy); takes no other clause.
 // The RQuery plan family (`logos.std.wql.plan`) has one schema variant per shape;
 // the walker (`plan_walker.logos`) dispatches on it via `match`.
 //

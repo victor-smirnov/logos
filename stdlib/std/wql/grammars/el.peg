@@ -22,7 +22,7 @@
 //   mul      := unary ( ('*'|'/'|'%') unary )*       // → SBin(OP_MUL/DIV/MOD)
 //   unary    := ('!'|'-') unary | postfix            // → SUn(OP_NOT/OP_NEG)
 //   postfix  := primary ( '.' ident )*               // field access → SField
-//   primary  := int | bool | string | '$' ident | ident ( '(' args ')' )?
+//   primary  := float | int | bool | string | '$' ident | ident ( '(' args ')' )?
 //             | '(' expr ')'
 //             | '[' expr 'for' ident 'in' postfix ( 'if' expr )? ']'  // SComp
 //
@@ -157,7 +157,10 @@
     TRUE     = "true"
     FALSE    = "false"
 
-    // Literals + identifier.
+    // Literals + identifier. FLOAT is ordered BEFORE INTEGER (PEG first-match;
+    // the generated combined number matcher tags a digit run containing `.` as
+    // FLOAT, so `2.5` never lexes as INTEGER `2` + junk).
+    FLOAT    = /[0-9]+\.[0-9]+/
     INTEGER  = /[0-9]+/
     STRING   = /"([^"\\]|\\.)*"/
     IDENT    = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -231,6 +234,7 @@
              / TRUE    => { CODE: "SLit", val: true }
              / FALSE   => { CODE: "SLit", val: false }
              / STRING  => { CODE: "SLit", val: $1 }   // faithful: interned WString ref
+             / FLOAT   => { CODE: "SLit", val: $1 }    // token->f64 decode: doc.float(wstr_decode_f64($1))
              / INTEGER => { CODE: "SLit", val: $1 }    // token->i64 decode: doc.int(wstr_decode_i64($1))
              / DOLLAR IDENT => { CODE: "SParam", name: $2 }            // $name — captured IDENT
              / IDENT LPAREN arglist RPAREN => { CODE: "SCall", fn_name: $1, args: $3 }  // call NAME — captured IDENT

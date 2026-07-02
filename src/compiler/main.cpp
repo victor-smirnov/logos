@@ -2751,6 +2751,15 @@ int run_metaprog_dispatch(
                 return 1;
             }
         }
+        // Raw-text item-macro thunks (#[token_macro] — wql!/trama!) report
+        // diagnostics through the same `error()` channel as metaprog hooks;
+        // hook_diags was drained (and required empty) after the hook loop
+        // above, so anything here came from THESE thunks. Fail the compile.
+        if (!hook_diags.empty()) {
+            for (const auto& d : hook_diags)
+                std::fprintf(stderr, "error: %s\n", d.c_str());
+            return 1;
+        }
 
         if (!any_emitted) break;
         if (iter + 1 >= kMaxMetaprogIters) {
@@ -4234,6 +4243,16 @@ int main(int argc, char** argv) {
                 ~MacroArgsGuard() { g_macro_args = nullptr; }
             } macro_args_guard;
 
+            // Metaprog diagnostics channel for the metacall/token-macro thunk
+            // path: `error()` from a #[token_macro] handler (wql!/trama!) or
+            // any metacall callee pushes here; a non-empty set after the
+            // invoke loop FAILS the compile — the same contract the
+            // #[metaprog_handler] hook loop enforces. (Previously this path
+            // left g_metaprog_diags null, silently swallowing `error()`.)
+            std::vector<std::string> mc_diags;
+            auto* prev_mc_diags = g_metaprog_diags;
+            g_metaprog_diags = &mc_diags;
+
             // Step 3: invoke each thunk and splice the result into the AST.
             using RT = logos::compiler::lir::MetacallRetTag;
             bool any_spliced = false;
@@ -4418,6 +4437,15 @@ int main(int argc, char** argv) {
                     return 1;
                 }
                 any_spliced = true;
+            }
+
+            // Drain the thunk diag channel: any `error()` reported during the
+            // invoke loop fails the compile with the reported messages.
+            g_metaprog_diags = prev_mc_diags;
+            if (!mc_diags.empty()) {
+                for (const auto& d : mc_diags)
+                    std::fprintf(stderr, "error: %s\n", d.c_str());
+                return 1;
             }
 
             // Step 4: re-run sema. Sites should disappear (METACALL→LIT_INT).
