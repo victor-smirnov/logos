@@ -1,0 +1,58 @@
+// WQL TUPLE PROJECTIONS over a GROUP ROW — `select (key, n, mean)` returns the
+// group key + aggregate outputs TOGETHER in one result row (this is what makes
+// group-by output usable in a single query). Exercises both aggregate paths:
+//   • the modifier path (having → materialized group columns + output phase);
+//   • the plain single-pass path (no having/order/distinct/limit).
+// The tuple's f64 component (avg) is fine — only `distinct` needs tuple Eq.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Sale { pub dept: i64, pub amount: i64 }
+
+// (key, n, mean) + having: only groups with ≥ 2 sales survive.
+resource dept_stats = wql!(sales: &[Sale]) {
+    from sales s
+    group by s.dept
+    aggregate n = count(), mean = avg(s.amount)
+    having n >= 2
+    select (key, n, mean) };
+
+// Plain single-pass shape (no modifiers): (key, total).
+resource dept_totals = wql!(sales: &[Sale]) {
+    from sales s
+    group by s.dept
+    aggregate total = sum(s.amount)
+    select (key, total) };
+
+fn main() -> i32 {
+    let sales: [Sale; 5] = [
+        Sale { dept: 1i64, amount: 10i64 },
+        Sale { dept: 2i64, amount: 100i64 },
+        Sale { dept: 1i64, amount: 20i64 },
+        Sale { dept: 2i64, amount: 200i64 },
+        Sale { dept: 3i64, amount: 7i64 },     // singleton → dropped by having
+    ];
+
+    let stats: Vec<(i64, i64, f64)> = dept_stats(&sales[..]);
+    if stats.len() != 2i64 { return 1i32; }
+    let s0: (i64, i64, f64) = stats.get(0i64);   // dept 1: n=2, mean=15.0
+    if s0.0 != 1i64 { return 2i32; }
+    if s0.1 != 2i64 { return 3i32; }
+    if s0.2 != 15.0f64 { return 4i32; }
+    let s1: (i64, i64, f64) = stats.get(1i64);   // dept 2: n=2, mean=150.0
+    if s1.0 != 2i64 { return 5i32; }
+    if s1.1 != 2i64 { return 6i32; }
+    if s1.2 != 150.0f64 { return 7i32; }
+
+    let totals: Vec<(i64, i64)> = dept_totals(&sales[..]);
+    if totals.len() != 3i64 { return 8i32; }
+    let t0: (i64, i64) = totals.get(0i64);
+    if t0.0 != 1i64 { return 9i32; }
+    if t0.1 != 30i64 { return 10i32; }
+    let t2: (i64, i64) = totals.get(2i64);
+    if t2.0 != 3i64 { return 11i32; }
+    if t2.1 != 7i64 { return 12i32; }
+    return 0i32;
+}

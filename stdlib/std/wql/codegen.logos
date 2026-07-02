@@ -181,8 +181,76 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
             return EL_TY_INT();
         }
         SExpr::Comp(_) => { return EL_TY_INT(); }   // list value (element ty = INT in the scalar lattice)
+        SExpr::Tuple(_) => { return EL_TY_INT(); }  // OUT of the scalar lattice — projection paths
+                                                    // special-case tuples via tuple_ty_text BEFORE
+                                                    // consulting the EL_TY_* tag (never meaningful here)
         _ => { return EL_TY_INT(); }
     }
+}
+
+// ── Tuple projections (`select (a, b, …)`) ─────────────────────────────────
+// True iff `e`'s ROOT is a tuple expression — the multi-column projection form.
+// A tuple is only meaningful as the `select` body; every other clause site
+// rejects it via `reject_tuple`.
+pub fn is_tuple_root(e: SExpr) -> bool {
+    match e {
+        SExpr::Tuple(_) => { return true; }
+        _ => { return false; }
+    }
+}
+
+// Diagnose a tuple expression at a NON-select clause site (`where`, `on`,
+// `group by`, `having`, `order by`, aggregate args, `find`, trama contexts).
+// Returns false + surfaces the error when `e` is tuple-rooted.
+pub fn reject_tuple(e: SExpr, ctx: str) -> bool {
+    if !is_tuple_root(e) { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": a tuple expression `(a, b, …)` is only supported as the `select` projection");
+    error(string_as_str(&m));
+    return false;
+}
+
+// Append the NATIVE Logos tuple TYPE text `(T1, T2, …)` of a tuple projection:
+// per-component EL lattice type name, with the owned-String promotion for
+// String-returning calls (a borrowed `str` view of the call's temporary would
+// dangle) and recursion for nested tuples.
+pub fn push_tuple_ty(out: &mut String, tp: STuple, t: &ElTypes) {
+    let items: SExprArr = tp.items_arr();
+    let n: i64 = items.len();
+    out.push_str("(");
+    let mut i: i64 = 0i64;
+    while i < n {
+        if i > 0i64 { out.push_str(", "); }
+        let c: SExpr = items.arg_at(i);
+        match c {
+            SExpr::Tuple(nt) => { push_tuple_ty(out, nt, t); }
+            _ => {
+                if returns_string(c, t) { out.push_str("String"); }
+                else { out.push_str(el_ty_name(infer_ty(c, t))); }
+            }
+        }
+        i = i + 1i64;
+    }
+    out.push_str(")");
+}
+
+// True iff ANY component of the tuple projection is FLT-typed (f64) — tuple
+// structural `==` routes through `variadic__eq`, which requires `Eq`; f64 is
+// PartialEq only, so `distinct` over such a tuple is diagnosed (probe-verified).
+pub fn tuple_has_flt(tp: STuple, t: &ElTypes) -> bool {
+    let items: SExprArr = tp.items_arr();
+    let n: i64 = items.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: SExpr = items.arg_at(i);
+        match c {
+            SExpr::Tuple(nt) => { if tuple_has_flt(nt, t) { return true; } }
+            _ => { if infer_ty(c, t) == EL_TY_FLT() { return true; } }
+        }
+        i = i + 1i64;
+    }
+    return false;
 }
 
 // Walk the SExpr schema'd IR (`match` over the family enum), emitting a Logos
@@ -279,6 +347,19 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
             out.push_str(" })");
         }
         SExpr::Comp(cp) => { emit_comp(out, cp, t, var); }
+        SExpr::Tuple(tp) => {
+            // Native tuple literal `(c0, c1, …)` — the multi-column projection.
+            let items: SExprArr = tp.items_arr();
+            let n: i64 = items.len();
+            out.push_str("(");
+            let mut i: i64 = 0i64;
+            while i < n {
+                if i > 0i64 { out.push_str(", "); }
+                emit_sexpr(out, items.arg_at(i), t, var);
+                i = i + 1i64;
+            }
+            out.push_str(")");
+        }
         _ => {
             out.push_str("0i64");
         }
@@ -409,6 +490,15 @@ pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
                 || call_diagnostic(c.else_expr(), t);
         }
         SExpr::Comp(cp) => { return call_diagnostic(cp.head_expr(), t); }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if call_diagnostic(items.arg_at(i), t) { return true; }
+                i = i + 1i64;
+            }
+            return false;
+        }
         _ => { return false; }
     }
 }
@@ -490,6 +580,15 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                 && check_calls(c.else_expr(), t, ctx);
         }
         SExpr::Comp(cp) => { return check_calls(cp.head_expr(), t, ctx); }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if !check_calls(items.arg_at(i), t, ctx) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
         _ => { return true; }
     }
 }
@@ -550,6 +649,9 @@ fn push_f64_lit(out: &mut String, v: f64) {
 //      __cv })
 pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
     let head: SExpr = cp.head_expr();
+    // A tuple comprehension head is out of the scalar comprehension lattice
+    // (Vec<HeadTy> is typed off EL_TY_*) — clean diagnostic, not a broken chunk.
+    if !reject_tuple(head, "wql!/trama!: comprehension head") { out.push_str("0i64"); return; }
     let plan: RExpr = cp.plan_expr();
     // Decompose the plan into (scan, optional guard).
     let mut src_name: str = "";

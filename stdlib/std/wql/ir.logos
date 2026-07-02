@@ -88,6 +88,21 @@ impl SExprArr {
         return self.a7.any().view::<SExpr>();
     }
 
+    // The i-th argument's RAW edge handle (0-based) — for callers that need the
+    // WAny edge itself (e.g. the optimizer's changed-child comparison) rather
+    // than a bound view. Rebuilt through `raw()` (the step_any provenance-
+    // laundering idiom) so no reference to the temporary WRef escapes.
+    pub fn arg_any(self: &SExprArr, i: i64) -> WAny {
+        if i == 0i64 { return WAny::ref_to(self.a0.any().raw() as *const u8); }
+        if i == 1i64 { return WAny::ref_to(self.a1.any().raw() as *const u8); }
+        if i == 2i64 { return WAny::ref_to(self.a2.any().raw() as *const u8); }
+        if i == 3i64 { return WAny::ref_to(self.a3.any().raw() as *const u8); }
+        if i == 4i64 { return WAny::ref_to(self.a4.any().raw() as *const u8); }
+        if i == 5i64 { return WAny::ref_to(self.a5.any().raw() as *const u8); }
+        if i == 6i64 { return WAny::ref_to(self.a6.any().raw() as *const u8); }
+        return WAny::ref_to(self.a7.any().raw() as *const u8);
+    }
+
     // Store the i-th argument edge (0-based). The parser fills slots 0..count-1.
     pub fn set_arg(self: &mut SExprArr, i: i64, h: WAny) {
         let r: WRef<SExpr> = WRef::<SExpr>::from_any(h);
@@ -123,10 +138,12 @@ pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> 
 pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<SExprArr> = 1 }     // function/filter call — call NAME
 pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2 }  // ternary
 pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2 }   // comprehension → list value; `var` = loop-var NAME
+pub schema STuple : code(0x0010_0000_0000_0009) { items: WRef<SExprArr> = 0 }                       // tuple projection `(a, b, …)` — ≥2 components
 
 pub schema enum SExpr : category(0x0010_0000_0000_0000) {
     Lit(SLit), Param(SParam), Var(SVar), Field(SField),
     Bin(SBin), Un(SUn), Call(SCall), Cond(SCond), Comp(SComp),
+    Tuple(STuple),
 }
 
 // Node → erased edge handle. A node's `as_ref` yields the `WAny` self-relative
@@ -145,6 +162,7 @@ impl SUn      { pub fn as_ref(self: &SUn)      -> WAny { return WAny::ref_to((se
 impl SCall    { pub fn as_ref(self: &SCall)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl SCond    { pub fn as_ref(self: &SCond)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl SComp    { pub fn as_ref(self: &SComp)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl STuple   { pub fn as_ref(self: &STuple)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl SExprArr { pub fn as_ref(self: &SExprArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 
 // ── RAgg — one aggregate SPEC `out = fn(arg)` of an RAggr (ADR 0012 §2/§8) ────
@@ -285,6 +303,9 @@ impl SCall  {
 impl SComp  {
     pub fn plan_expr(self: &SComp) -> RExpr { return self.plan.any().view::<RExpr>(); }
     pub fn head_expr(self: &SComp) -> SExpr { return self.head.any().view::<SExpr>(); }
+}
+impl STuple {
+    pub fn items_arr(self: &STuple) -> SExprArr { return self.items.any().view::<SExprArr>(); }
 }
 impl RFilter {
     pub fn input_expr(self: &RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }

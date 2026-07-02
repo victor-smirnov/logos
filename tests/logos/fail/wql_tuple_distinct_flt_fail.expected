@@ -1,0 +1,1 @@
+`distinct` over a tuple projection with an f64 component is not supported

@@ -495,7 +495,10 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // BOOL renders as the words true/false; otherwise the i64 value.
             let se: SExpr = simplify_sexpr(v.expr_expr(), h).any().view::<SExpr>();
             // Unknown-fn / arity diagnostics (error() latches the build failure;
-            // emission continues over the safe placeholder).
+            // emission continues over the safe placeholder). Tuples are a WQL
+            // projection form — templates render TEXT, not rows (clean error,
+            // not a broken chunk).
+            if !reject_tuple(se, "trama!: `{{ … }}`") { return next_word(&v.next); }
             if !check_calls(se, ty, "trama!") { }
             let vt: i32 = infer_ty(se, ty);
             if vt == EL_TY_STR() {
@@ -532,6 +535,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // (single value) or, when the RHS is a concat, a built `String`.
             let vname: str = s.var;
             let se: SExpr = simplify_sexpr(s.expr_expr(), h).any().view::<SExpr>();
+            if !reject_tuple(se, "trama!: `{% set %}`") { return next_word(&s.next); }
             if !check_calls(se, ty, "trama!") { }
             let vt: i32 = infer_ty(se, ty);
             let mut body: String = String::new();
@@ -565,6 +569,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // truthiness stays a runtime `!= 0` guard; only a boolean-typed const
             // collapses. A comparison like `1 > 0` folds to a bool → collapses.)
             let se: SExpr = simplify_sexpr(i.expr_expr(), h).any().view::<SExpr>();
+            if !reject_tuple(se, "trama!: `{% if %}`") { return next_word(&i.next); }
             if !check_calls(se, ty, "trama!") { }
             let cc: ConstVal = sexpr_const(se);
             if cc.is_bool() {
@@ -597,6 +602,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             let vname: str = f.var;
             let mut iter: String = String::new();
             let se: SExpr = simplify_sexpr(f.expr_expr(), h).any().view::<SExpr>();
+            if !reject_tuple(se, "trama!: `{% for %}`") { return next_word(&f.next); }
             if !check_calls(se, ty, "trama!") { }
             emit_sexpr(&mut iter, se, ty, ctx);
             let iter_s: str = string_as_str(&iter);

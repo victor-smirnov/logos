@@ -139,6 +139,23 @@ fn eq_sexpr(a: SExpr, b: SExpr) -> bool {
                 _ => { return false; }
             }
         }
+        SExpr::Tuple(ta) => {
+            match b {
+                SExpr::Tuple(tb) => {
+                    let ia: SExprArr = ta.items.any().view::<SExprArr>();
+                    let ib: SExprArr = tb.items.any().view::<SExprArr>();
+                    if ia.len() != ib.len() { return false; }
+                    let mut i: i64 = 0i64;
+                    let n: i64 = ia.len();
+                    while i < n {
+                        if !eq_sexpr(ia.arg_at(i), ib.arg_at(i)) { return false; }
+                        i = i + 1i64;
+                    }
+                    return true;
+                }
+                _ => { return false; }
+            }
+        }
     }
 }
 

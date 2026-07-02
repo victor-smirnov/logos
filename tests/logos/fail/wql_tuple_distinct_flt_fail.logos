@@ -1,0 +1,14 @@
+// wql! diagnostic: `distinct` over a tuple projection with an f64 component.
+// Tuple structural `==` routes through variadic__eq, which requires Eq on every
+// component — f64 is PartialEq only, so the dedup comparison cannot compile;
+// diagnosed cleanly at metacall time instead.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct M { pub id: i64, pub score: f64 }
+
+resource bad = wql!(ms: &[M]) { from ms m select distinct (m.id, m.score) };
+
+fn main() -> i32 { return 0i32; }

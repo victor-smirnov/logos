@@ -329,6 +329,32 @@ pub fn simplify_sexpr(e: SExpr, h: &Writ) -> WRef<SExpr> {
             n.name = f.name;
             return WRef::<SExpr>::from_any(n.as_ref());
         }
+        SExpr::Tuple(tp) => {
+            // Tuple projection: const-fold EACH component (no tuple-level folds).
+            // Rebuild the node only when some component actually changed.
+            let items: SExprArr = tp.items_arr();
+            let n: i64 = items.len();
+            let mut w: [i64; 8] = [0i64; 8];
+            let mut changed: bool = false;
+            let mut i: i64 = 0i64;
+            while i < n {
+                let ch: WRef<SExpr> = simplify_sexpr(items.arg_at(i), h);
+                if ch.any().raw() != items.arg_any(i).raw() { changed = true; }
+                if i < 8i64 { w[i] = ch.any().raw(); }
+                i = i + 1i64;
+            }
+            if !changed { return WRef::<SExpr>::from_any(tp.as_ref()); }
+            let mut na: SExprArr = h.make::<SExprArr>();
+            na.set_len(n);
+            let mut k: i64 = 0i64;
+            while k < n {
+                if k < 8i64 { na.set_arg(k, WAny::ref_to(w[k] as *const u8)); }
+                k = k + 1i64;
+            }
+            let nt: STuple = h.make::<STuple>();
+            nt.items = WRef::<SExprArr>::from_any(na.as_ref());
+            return WRef::<SExpr>::from_any(nt.as_ref());
+        }
         // Leaves + out-of-fold-scope nodes (Call / Comp): returned unchanged. (A
         // future pass may fold pure builtin calls over const args; not Phase 1.)
         SExpr::Lit(l)   => { return WRef::<SExpr>::from_any(l.as_ref()); }

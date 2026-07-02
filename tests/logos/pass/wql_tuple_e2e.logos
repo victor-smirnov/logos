@@ -1,0 +1,73 @@
+// WQL TUPLE PROJECTIONS — `select (e.a, e.b, …)` → multi-column rows (static-
+// Datalog slice A). A parenthesized, COMMA-separated list in select position
+// builds an STuple over an SExprArr fan-out; the emitted element type is the
+// NATIVE Logos tuple `(T1, T2, …)` with per-component EL inference (str stays a
+// borrowed view; String-returning calls promote to owned String). `(e)` without
+// a comma stays grouping — untouched.
+//
+// Exercises (simple shape): a 2-tuple (i64, str), a 3-tuple mixed
+// (i64, str, f64), a where-filtered tuple, component expressions (arith +
+// builtin call), grouping non-regression, and const-fold INTO components.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp { pub id: i64, pub name: str, pub score: f64, pub dept: i64 }
+
+// 2-tuple: (id, name) for every row.
+resource id_names = wql!(emps: &[Emp]) { from emps e select (e.id, e.name) };
+
+// 3-tuple mixed i64/str/f64, filtered.
+resource top_rows = wql!(emps: &[Emp]) { from emps e where e.score > 2.0 select (e.id, e.name, e.score) };
+
+// Component EXPRESSIONS: arithmetic + a builtin call + const-fold inside a
+// component ((2 + 3) * e.id folds the (2+3)) — components are full EL exprs.
+resource calc_rows = wql!(emps: &[Emp]) { from emps e select ((2 + 3) * e.id, len(e.name)) };
+
+// Grouping non-regression: `(e.id)` (NO comma) is still plain grouping — a
+// scalar i64 projection, not a 1-tuple.
+resource grouped = wql!(emps: &[Emp]) { from emps e select (e.id) };
+
+fn main() -> i32 {
+    let emps: [Emp; 3] = [
+        Emp { id: 1i64, name: "ann", score: 1.5f64, dept: 10i64 },
+        Emp { id: 2i64, name: "bob", score: 2.5f64, dept: 10i64 },
+        Emp { id: 3i64, name: "cyd", score: 3.5f64, dept: 20i64 },
+    ];
+
+    // (id, name) — all rows, source order.
+    let rows: Vec<(i64, str)> = id_names(&emps[..]);
+    if rows.len() != 3i64 { return 1i32; }
+    let r0: (i64, str) = rows.get(0i64);
+    if r0.0 != 1i64 { return 2i32; }
+    if !str_eq(r0.1, "ann") { return 3i32; }
+    let r2: (i64, str) = rows.get(2i64);
+    if r2.0 != 3i64 { return 4i32; }
+    if !str_eq(r2.1, "cyd") { return 5i32; }
+
+    // (id, name, score) — filtered, exact values incl. the f64 column.
+    let top: Vec<(i64, str, f64)> = top_rows(&emps[..]);
+    if top.len() != 2i64 { return 6i32; }
+    let t0: (i64, str, f64) = top.get(0i64);
+    if t0.0 != 2i64 { return 7i32; }
+    if !str_eq(t0.1, "bob") { return 8i32; }
+    if t0.2 != 2.5f64 { return 9i32; }
+    let t1: (i64, str, f64) = top.get(1i64);
+    if t1.2 != 3.5f64 { return 10i32; }
+
+    // Component expressions: (5*id, len(name)).
+    let calc: Vec<(i64, i64)> = calc_rows(&emps[..]);
+    if calc.len() != 3i64 { return 11i32; }
+    let c1: (i64, i64) = calc.get(1i64);
+    if c1.0 != 10i64 { return 12i32; }
+    if c1.1 != 3i64 { return 13i32; }
+
+    // Grouping stays scalar.
+    let g: Vec<i64> = grouped(&emps[..]);
+    if g.len() != 3i64 { return 14i32; }
+    if g.get(1i64) != 2i64 { return 15i32; }
+
+    return 0i32;
+}

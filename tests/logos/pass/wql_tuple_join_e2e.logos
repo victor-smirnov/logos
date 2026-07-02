@@ -1,0 +1,49 @@
+// WQL TUPLE PROJECTIONS over a JOIN CHAIN — `select (x.a, y.b, z.c)` with
+// components ranging across ALL bound row vars of a 3-way join (base + 2 hash
+// steps). The tuple element type is inferred per component (i64/str mixed
+// across sources); rows replay in nested-loop order (bucket payloads are scan-
+// order row indices).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp  { pub dept: i64, pub name: str }
+struct Dept { pub id: i64, pub region: i64 }
+struct Reg  { pub rid: i64, pub label: str }
+
+// 3-way join; the projection takes one column from EACH bound var.
+resource emp_geo = wql!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+    from emps e
+    join depts d on e.dept == d.id
+    join regs r on d.region == r.rid
+    select (e.name, d.region, r.label) };
+
+fn main() -> i32 {
+    let emps: [Emp; 3] = [
+        Emp { dept: 1i64, name: "ann" },
+        Emp { dept: 2i64, name: "bob" },
+        Emp { dept: 9i64, name: "zed" },   // no dept → dropped
+    ];
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, region: 10i64 },
+        Dept { id: 2i64, region: 20i64 },
+    ];
+    let regs: [Reg; 2] = [
+        Reg { rid: 10i64, label: "north" },
+        Reg { rid: 20i64, label: "south" },
+    ];
+
+    let rows: Vec<(str, i64, str)> = emp_geo(&emps[..], &depts[..], &regs[..]);
+    if rows.len() != 2i64 { return 1i32; }
+    let r0: (str, i64, str) = rows.get(0i64);
+    if !str_eq(r0.0, "ann") { return 2i32; }
+    if r0.1 != 10i64 { return 3i32; }
+    if !str_eq(r0.2, "north") { return 4i32; }
+    let r1: (str, i64, str) = rows.get(1i64);
+    if !str_eq(r1.0, "bob") { return 5i32; }
+    if r1.1 != 20i64 { return 6i32; }
+    if !str_eq(r1.2, "south") { return 7i32; }
+    return 0i32;
+}

@@ -968,6 +968,23 @@ fn alt_primary_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     if lex.peek().kind != ElTK_LPAREN { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    let cap2: *const u8 = rule_tuple_body(lex, doc);
+    if cap2 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    if lex.peek().kind != ElTK_RPAREN { lex.reset(sp, sln); return ElNULLP; }
+    let tk3: Token = lex.next();
+    let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
+    let node: STuple = doc.make::<STuple>();
+    node.items = WRef::<SExprArr>::from_any(hand_any(cap2));
+    return node.as_ref().raw() as *const u8;
+}
+
+fn alt_primary_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    if lex.peek().kind != ElTK_LPAREN { lex.reset(sp, sln); return ElNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let cap2: *const u8 = rule_expr(lex, doc);
     if cap2 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     if lex.peek().kind != ElTK_RPAREN { lex.reset(sp, sln); return ElNULLP; }
@@ -976,7 +993,7 @@ fn alt_primary_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return cap2;
 }
 
-fn alt_primary_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -988,7 +1005,7 @@ fn alt_primary_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_4(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1000,7 +1017,7 @@ fn alt_primary_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_4(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1012,7 +1029,7 @@ fn alt_primary_4(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1024,7 +1041,7 @@ fn alt_primary_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1036,7 +1053,7 @@ fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1051,7 +1068,7 @@ fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_9(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1071,7 +1088,7 @@ fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
-fn alt_primary_9(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+fn alt_primary_10(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
@@ -1095,6 +1112,7 @@ fn rule_primary(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_primary_7(lex, doc); if r != ElNULLP { return r; } }
     { let r: *const u8 = alt_primary_8(lex, doc); if r != ElNULLP { return r; } }
     { let r: *const u8 = alt_primary_9(lex, doc); if r != ElNULLP { return r; } }
+    { let r: *const u8 = alt_primary_10(lex, doc); if r != ElNULLP { return r; } }
     return ElNULLP;
 }
 
@@ -1155,6 +1173,59 @@ fn alt_arglist_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 
 fn rule_arglist(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_arglist_0(lex, doc); if r != ElNULLP { return r; } }
+    return ElNULLP;
+}
+
+fn alt_tuple_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let rcap: &mut WArray<WAny> = doc.array(4i64);
+    let cap1: *const u8 = rule_expr(lex, doc);
+    if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    rcap.push(WAny::ref_to(cap1));
+    if lex.peek().kind != ElTK_COMMA { lex.reset(sp, sln); return ElNULLP; }
+    let tk2: Token = lex.next();
+    let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
+    let cap3: *const u8 = rule_expr(lex, doc);
+    if cap3 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    rcap.push(WAny::ref_to(cap3));
+    let arr0: &mut WArray<WAny> = doc.array(4i64);
+    let mut cnt0: i64 = 0i64;
+    loop {
+        let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();
+        let mut rep0: *const u8 = ElNULLP;
+        let mut rep0_ok: bool = false;
+        if !rep0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_COMMA { lex.reset(gsp, gsln); break; }
+                let grep0_1_1_t: Token = lex.next();
+                let grep0_1_1: *const u8 = wstr_p(doc, grep0_1_1_t.text(lex.src));
+                let grep0_2_1: *const u8 = rule_expr(lex, doc);
+                if grep0_2_1 == ElNULLP { lex.reset(gsp, gsln); break; }
+                rcap.push(WAny::ref_to(grep0_2_1));
+                rep0 = grep0_2_1;
+                rep0_ok = true;
+                break;
+            }
+        }
+        if !rep0_ok { lex.reset(rsp, rsln); break; }
+        if rep0 != ElNULLP { arr0.push(WAny::ref_to(rep0)); }
+        if lex.save_pos() == rsp { break; }
+        cnt0 = cnt0 + 1i64;
+    }
+    let cap4: *const u8 = arr0 as *const WArray<WAny> as *const u8;
+    let mut node: SExprArr = doc.make::<SExprArr>();
+    let mut afi: i64 = 0i64;
+    let alen: i64 = rcap.len();
+    while afi < alen && afi < SEXPRARR_MAX() { node.set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }
+    node.set_len(afi);
+    return node.as_ref().raw() as *const u8;
+}
+
+fn rule_tuple_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_tuple_body_0(lex, doc); if r != ElNULLP { return r; } }
     return ElNULLP;
 }
 

@@ -1,0 +1,37 @@
+// WQL TUPLE PROJECTIONS + `distinct` — dedup over tuple rows via native
+// STRUCTURAL tuple equality (probe-verified: tuple `==` routes through
+// variadic__eq over Eq components; i64/str/bool qualify — f64 does NOT, which
+// is a separate diagnostic, see wql_tuple_distinct_flt_fail). The linear-scan
+// dedup compares whole (i64, str) rows.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp { pub dept: i64, pub name: str, pub id: i64 }
+
+// (dept, name) with duplicates in the source → distinct tuple rows.
+resource dept_names = wql!(emps: &[Emp]) { from emps e select distinct (e.dept, e.name) };
+
+fn main() -> i32 {
+    let emps: [Emp; 4] = [
+        Emp { dept: 1i64, name: "ann", id: 1i64 },
+        Emp { dept: 1i64, name: "ann", id: 2i64 },   // dup (dept,name) row
+        Emp { dept: 1i64, name: "bob", id: 3i64 },   // same dept, new name
+        Emp { dept: 2i64, name: "ann", id: 4i64 },   // same name, new dept
+    ];
+
+    let rows: Vec<(i64, str)> = dept_names(&emps[..]);
+    if rows.len() != 3i64 { return 1i32; }
+    let r0: (i64, str) = rows.get(0i64);
+    if r0.0 != 1i64 { return 2i32; }
+    if !str_eq(r0.1, "ann") { return 3i32; }
+    let r1: (i64, str) = rows.get(1i64);
+    if r1.0 != 1i64 { return 4i32; }
+    if !str_eq(r1.1, "bob") { return 5i32; }
+    let r2: (i64, str) = rows.get(2i64);
+    if r2.0 != 2i64 { return 6i32; }
+    if !str_eq(r2.1, "ann") { return 7i32; }
+    return 0i32;
+}

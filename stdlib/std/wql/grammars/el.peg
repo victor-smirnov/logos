@@ -23,7 +23,8 @@
 //   unary    := ('!'|'-') unary | postfix            // → SUn(OP_NOT/OP_NEG)
 //   postfix  := primary ( '.' ident )*               // field access → SField
 //   primary  := float | int | bool | string | '$' ident | ident ( '(' args ')' )?
-//             | '(' expr ')'
+//             | '(' expr ',' expr ( ',' expr )* ')'  // TUPLE (≥1 comma) → STuple
+//             | '(' expr ')'                         // grouping (no comma)
 //             | '[' expr 'for' ident 'in' postfix ( 'if' expr )? ']'  // SComp
 //
 // LEFT-ASSOCIATIVITY is expressed with fold-mode `$0` (the fold accumulator =
@@ -105,6 +106,7 @@
     SCall  { fn_name: "str", args: "ref SExprArr" }          // call NAME — captured IDENT
     SCond  { c: "ref SExpr", t: "ref SExpr", e: "ref SExpr" }
     SComp  { plan: "ref RExpr", head: "ref SExpr", var: "str" }
+    STuple { items: "ref SExprArr" }                         // tuple projection `(a, b, …)`
 
     // The materialized argument list. `args: "argfan"` is a fan-out field type: an
     // ARRAY_CAPTURE ($...) of the parsed arg edges is spread into the fixed slots
@@ -225,11 +227,16 @@
     postfix <- primary
                ( DOT IDENT => { CODE: "SField", base: $0, name: $2 } )*
 
-    // primary := literals | param | call | var/field-root | paren | comprehension
+    // primary := literals | param | call | var/field-root | paren | tuple | comprehension
     //
     // Ordered choice (PEG first-match): keyword literals + comprehension +
-    // parenthesised before the bare-identifier field-root fallback.
+    // parenthesised before the bare-identifier field-root fallback. The TUPLE
+    // alternative is tried BEFORE plain grouping: `(a, b)` (≥ 1 top-level comma)
+    // builds an STuple over an SExprArr fan-out; `(a)` fails tuple_body at the
+    // COMMA and backtracks to grouping — existing semantics untouched.
+    //   $1=LPAREN $2=tuple_body $3=RPAREN
     primary <- comprehension
+             / LPAREN tuple_body RPAREN => { CODE: "STuple", items: $2 }
              / LPAREN expr RPAREN                     // grouping (value passes through)
              / TRUE    => { CODE: "SLit", val: true }
              / FALSE   => { CODE: "SLit", val: false }
@@ -247,6 +254,12 @@
     // comma-repeated ones); the `args: "argfan"` schema field spreads them into the
     // SExprArr's fixed slots (set_arg/set_len). Full multi-arg support.
     arglist <- ( expr ( COMMA expr )* )?
+                => { CODE: "SExprArr", args: $... }
+
+    // tuple_body := expr ',' expr ( ',' expr )*  →  SExprArr backing (STuple items)
+    // ≥ 2 components REQUIRED (the leading `expr COMMA expr`): `(e)` never reaches
+    // here (grouping), `()` fails the parse. Same argfan spread as arglist.
+    tuple_body <- expr COMMA expr ( COMMA expr )*
                 => { CODE: "SExprArr", args: $... }
 
     // comprehension := '[' expr 'for' ident 'in' comp_plan ']'
