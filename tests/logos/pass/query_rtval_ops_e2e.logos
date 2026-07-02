@@ -1,0 +1,101 @@
+// queue-2 I1 — RtVal operator/builtin semantics through the dynamic template
+// surface (ADR 0012-queue2 §§2,7): arithmetic (incl. INT→FLT promotion and
+// the %g float formatting), comparison (numeric + string via str_cmp),
+// string concatenation (scratch-arena interning), &&/|| short-circuit over
+// jinja truthiness, ternary, unary !/-, builtins len/upper/lower/contains/
+// starts_with, {% set %} locals, and OPTIMIZER REUSE — `{{ 1 + 2 }}` and the
+// const-folded `{% if 1 > 0 %}` render from folded literals (behavioral
+// assertion; simplify_sexpr is wired into Tpl::compile).
+package test;
+
+use logos.std.wql.catalog_macro;
+use logos.std.query;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+// The catalog macro needs at least one schema; the templates here use only
+// scalar env params.
+pub schema Dummy : code(0x0A04_0000_0000_0001) { v: i64 = 0 }
+
+resource cat = schema_catalog!{ Dummy };
+
+fn render_ok(text: str, c: &SchemaCatalog, env: &QEnv) -> String {
+    match Tpl::compile(text, c) {
+        Result::Ok(t) => {
+            match t.render(env) {
+                Result::Ok(s) => { return s; }
+                Result::Err(e) => {
+                    let mut m: String = String::new();
+                    m.push_str("<render-err: ");
+                    m.push_str(e.message());
+                    m.push_str(">");
+                    return m;
+                }
+            }
+        }
+        Result::Err(e2) => {
+            let mut m2: String = String::new();
+            m2.push_str("<compile-err: ");
+            m2.push_str(e2.message());
+            m2.push_str(">");
+            return m2;
+        }
+    }
+}
+
+fn check(text: str, c: &SchemaCatalog, env: &QEnv, want: str) -> bool {
+    let s: String = render_ok(text, c, env);
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    return str_eq(sv, want);
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let mut env: QEnv = QEnv::new();
+    env.bind_i64("a", 7i64);
+    env.bind_f64("x", 2.5f64);
+    env.bind_bool("flag", true);
+    env.bind_str("name", "Ann");
+
+    // const fold (optimizer reuse) + arithmetic
+    if !check("{{ 1 + 2 }}", &c, &env, "3") { return 1i32; }
+    if !check("{{ a * 3 - 1 }}", &c, &env, "20") { return 2i32; }
+    if !check("{{ a / 2 }}", &c, &env, "3") { return 3i32; }
+    if !check("{{ a % 4 }}", &c, &env, "3") { return 4i32; }
+    // INT→FLT promotion + %g formatting
+    if !check("{{ a + 0.5 }}", &c, &env, "7.5") { return 5i32; }
+    if !check("{{ x * 2 }}", &c, &env, "5") { return 6i32; }
+    // unary
+    if !check("{{ -a }}", &c, &env, "-7") { return 7i32; }
+    if !check("{% if !(a == 8) %}ok{% endif %}", &c, &env, "ok") { return 8i32; }
+    // comparison: numeric + string ordering
+    if !check("{% if a >= 7 %}Y{% else %}N{% endif %}", &c, &env, "Y") { return 9i32; }
+    if !check("{% if name < \"Bob\" %}lt{% endif %}", &c, &env, "lt") { return 10i32; }
+    if !check("{% if name == \"Ann\" %}eq{% endif %}", &c, &env, "eq") { return 11i32; }
+    // concat
+    if !check("{{ \"id-\" + name + \"!\" }}", &c, &env, "id-Ann!") { return 12i32; }
+    // truthiness + short-circuit (RHS var is UNBOUND — strict-checked lazily?
+    // no: strict rejects unknown names, so use bound operands only)
+    if !check("{% if flag && a > 3 %}both{% endif %}", &c, &env, "both") { return 13i32; }
+    if !check("{% if a == 0 || flag %}or{% endif %}", &c, &env, "or") { return 14i32; }
+    // ternary
+    if !check("{{ a > 3 ? \"big\" : \"small\" }}", &c, &env, "big") { return 15i32; }
+    // bool interpolation
+    if !check("{{ flag }}", &c, &env, "true") { return 16i32; }
+    // builtins
+    if !check("{{ len(name) }}", &c, &env, "3") { return 17i32; }
+    if !check("{{ upper(name) }}", &c, &env, "ANN") { return 18i32; }
+    if !check("{{ lower(\"AbC\") }}", &c, &env, "abc") { return 19i32; }
+    if !check("{% if contains(name, \"nn\") %}has{% endif %}", &c, &env, "has") { return 20i32; }
+    if !check("{% if starts_with(name, \"An\") %}pre{% endif %}", &c, &env, "pre") { return 21i32; }
+    // set + dead-branch const bool (folded by simplify_sexpr)
+    if !check("{% set y = a + 1 %}{{ y * 2 }}", &c, &env, "16") { return 22i32; }
+    if !check("{% if 1 > 0 %}alive{% else %}dead{% endif %}", &c, &env, "alive") { return 23i32; }
+    // $param form resolves against the same env
+    if !check("{{ $a + 1 }}", &c, &env, "8") { return 24i32; }
+    // string truthiness
+    if !check("{% if name %}nonempty{% endif %}", &c, &env, "nonempty") { return 25i32; }
+
+    return 0i32;
+}

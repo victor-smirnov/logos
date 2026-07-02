@@ -1,0 +1,52 @@
+// queue-2 I1 — `schema_catalog!` (ADR 0012-queue2 §5): the queue-1 metacall
+// macro reflects ADR-0011 `schema` decls from THIS module's AST and emits a fn
+// returning a SchemaCatalog built from a `@{…}` STATIC Writ blob in .rodata
+// (the designated metadata channel: annotation/macro → metaprog hook → rodata
+// blob → runtime view). This test probes the catalog through the PUBLIC API:
+// schema codes, field keys, value types, edge fields (WRef<S> → "edge" +
+// resolvable target), and the absent-name probes.
+package test;
+
+use logos.std.wql.catalog_macro;   // schema_catalog! — the handler
+use logos.std.wql.ir;              // WRef<S> — the edge field type
+use logos.std.query;               // SchemaCatalog — the public surface
+use logos.lang.str;
+
+pub schema Emp : code(0x0A01_0000_0000_0001) {
+    name:   str  = 0,
+    age:    i64  = 1,
+    rating: f64  = 2,
+    active: bool = 3,
+}
+
+pub schema Team : code(0x0A01_0000_0000_0002) {
+    title: str       = 0,
+    emps:  WRef<Emp> = 5,     // edge — a Writ ARRAY of Emp objects
+}
+
+resource cat = schema_catalog!{ Emp, Team };
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+
+    // schema codes (read out of the rodata blob)
+    if c.schema_code("Emp")  != 0x0A01_0000_0000_0001u64 { return 1i32; }
+    if c.schema_code("Team") != 0x0A01_0000_0000_0002u64 { return 2i32; }
+    if c.schema_code("Nope") != 0u64 { return 3i32; }
+
+    // field keys
+    if c.field_key("Emp", "name")  != 0i64 { return 4i32; }
+    if c.field_key("Emp", "age")   != 1i64 { return 5i32; }
+    if c.field_key("Team", "emps") != 5i64 { return 6i32; }
+    if c.field_key("Emp", "salary") != -1i64 { return 7i32; }
+
+    // value types
+    if !str_eq(c.field_ty("Emp", "name"),   "str")  { return 8i32; }
+    if !str_eq(c.field_ty("Emp", "age"),    "i64")  { return 9i32; }
+    if !str_eq(c.field_ty("Emp", "rating"), "f64")  { return 10i32; }
+    if !str_eq(c.field_ty("Emp", "active"), "bool") { return 11i32; }
+    if !str_eq(c.field_ty("Team", "emps"),  "edge") { return 12i32; }
+    if !str_eq(c.field_ty("Emp", "salary"), "")     { return 13i32; }
+
+    return 0i32;
+}

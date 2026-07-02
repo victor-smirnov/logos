@@ -1,0 +1,277 @@
+// logos.std.wql.catalog_macro — the `schema_catalog!` queue-1 metacall macro
+// (ADR 0012-queue2 §5): queue-1 serving queue-2 over the DESIGNATED metadata
+// channel — annotation/macro → metaprog hook → RODATA Writ blob → runtime view.
+//
+//   resource cat = schema_catalog!{ Emp, Team };
+//   …
+//   let c: SchemaCatalog = cat();
+//
+// The handler REFLECTS the named ADR-0011 `schema` declarations out of the
+// trigger module's AST (SCHEMA_DEF items: name, `code(0x…)` clause, per-field
+// name/type/`= key`) and emits a fn returning a `logos.std.query::SchemaCatalog`
+// built from a `@{…}` STATIC Writ blob in .rodata (content-deduped; zero heap,
+// zero global registry — explicit-metacall house style). Blob envelope — the
+// GENERIC typed-metadata-entry shape (fn-signature entries ride the same array
+// in later slices):
+//
+//   { "v": 1, "entries": [
+//       { "kind": "schema", "name": "Emp", "code": <u64>, "fields": [
+//           { "name": "age",  "key": 1, "ty": "i64" },
+//           { "name": "emps", "key": 2, "ty": "edge", "target": "Emp" } ] } ] }
+//
+// Field TYPE classification (catalog value-type names):
+//   integer family (i8…i64/u8…u64/i56/u56/usize/isize) → "i64"
+//   f64/f32 → "f64" · bool → "bool" · str/String → "str"
+//   WRef<T> → "edge" + target T · anything else (incl. WAny) → "any" (erased)
+//
+// VISIBILITY (I1 MVP): reflection sees the TRIGGER module's AST only — the
+// schemas must be declared in the module invoking `schema_catalog!`. Schemas
+// declared in OTHER modules take the decl-site annotation route (a derive-style
+// hook emitting the same per-schema blob entries) in a later slice.
+package logos.std.wql.catalog_macro;
+
+use logos.std.compiler.metaprog;   // Emitter, ItemList, item_list_new, error, OView
+use logos.lang.writ.anyval;        // WAny
+use logos.std.wql.reflect;         // find_decl_by_name — the module-item walk
+use logos.mem.string;
+use logos.lang.str;
+
+// AST node codes (la::Code, include/logos/compiler/ast.hpp) — low 16 bits of
+// the AST TOM's schema_type_code (high bits are a namespace tag).
+fn CM_SCHEMA_DEF()   -> u64 { return 256 as u64; }
+fn CM_GENERIC_INST() -> u64 { return 92 as u64; }
+
+// AST TOM keys used here (ast.hpp la::Key).
+fn K_CODE_EXPR() -> u8 { return 6 as u8; }   // SCHEMA_DEF: the `code(expr)` clause
+fn K_VALUE()     -> u8 { return 7 as u8; }   // clause → expr; LIT_INT → token text; field → key expr
+fn K_ITEMS()     -> u8 { return 2 as u8; }   // GENERIC_INST: type-arg array
+
+// SView (borrowed AST bytes) → str (shares the AST arena for the hook's life).
+fn sv_str(sv: SView) -> str {
+    if sv.ptr == (0 as *const u8) || sv.len == (0 as u64) { return ""; }
+    return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
+}
+
+// ── Integer-literal TOKEN decoding ─────────────────────────────────────────
+// AST literal nodes carry the RAW TOKEN TEXT (LIT_INT.VALUE = "0x0A01_…" /
+// "42" / "7u64"); decode decimal/hex with `_` separators, ignoring a trailing
+// type suffix. `ok=false` when no digits were found (not an int literal).
+struct U64Lit { ok: bool, v: u64 }
+
+fn parse_u64_lit(t: str) -> U64Lit {
+    let n: i64 = t.len();
+    let mut i: i64 = 0i64;
+    let mut hex: bool = false;
+    if n >= 2i64 && str_byte_at(t, 0i64) == 48u8 {
+        let x: u8 = str_byte_at(t, 1i64);
+        if x == 120u8 || x == 88u8 { hex = true; i = 2i64; }
+    }
+    let mut v: u64 = 0u64;
+    let mut any: bool = false;
+    while i < n {
+        let c: u8 = str_byte_at(t, i);
+        if c == 95u8 { i = i + 1i64; continue; }           // '_'
+        let mut d: i64 = -1i64;
+        if c >= 48u8 && c <= 57u8 { d = (c as i64) - 48i64; }
+        else if hex && c >= 97u8 && c <= 102u8 { d = (c as i64) - 87i64; }
+        else if hex && c >= 65u8 && c <= 70u8  { d = (c as i64) - 55i64; }
+        if d < 0i64 { break; }                              // suffix / junk
+        if hex { v = v * 16u64 + (d as u64); } else { v = v * 10u64 + (d as u64); }
+        any = true;
+        i = i + 1i64;
+    }
+    return U64Lit { ok: any, v: v };
+}
+
+// Decode an AST const-expr node (a LIT_INT) → its u64 value.
+fn expr_u64(view: &OView, expr: WAny) -> U64Lit {
+    if expr.is_null() { return U64Lit { ok: false, v: 0u64 }; }
+    let txt: str = sv_str(view.get_str_view(view.tiny_map_get(expr, K_VALUE())));
+    return parse_u64_lit(txt);
+}
+
+// ── Field-type classification ───────────────────────────────────────────────
+fn is_int_family(name: str) -> bool {
+    return str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
+        || str_eq(name, "i8")  || str_eq(name, "u64") || str_eq(name, "u32")
+        || str_eq(name, "u16") || str_eq(name, "u8")  || str_eq(name, "i56")
+        || str_eq(name, "u56") || str_eq(name, "usize") || str_eq(name, "isize");
+}
+
+// The catalog value-type name of a field's TYPE node; edges report "edge" and
+// fill `target` (the WRef<T> type-arg name) into `tgt`.
+struct FieldTy { ty: str, target: str }
+
+fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
+    let tynode: WAny = view.ast_type_child(fld);
+    if tynode.is_null() { return FieldTy { ty: "any", target: "" }; }
+    let code: u64 = view.ast_node_code(tynode) & (0xFFFF as u64);
+    if code == CM_GENERIC_INST() {
+        if str_eq(sv_str(view.ast_node_name(tynode)), "WRef") {
+            let args: WAny = view.tiny_map_get(tynode, K_ITEMS());
+            if !args.is_null() && view.array_len(args) == (1 as u64) {
+                let a0: WAny = view.array_get(args, 0 as u64);
+                let tn: str = sv_str(view.ast_node_name(a0));
+                if tn.len() > 0i64 { return FieldTy { ty: "edge", target: tn }; }
+            }
+        }
+        return FieldTy { ty: "any", target: "" };
+    }
+    let name: str = sv_str(view.ast_node_name(tynode));
+    if is_int_family(name)                            { return FieldTy { ty: "i64",  target: "" }; }
+    if str_eq(name, "f64") || str_eq(name, "f32")     { return FieldTy { ty: "f64",  target: "" }; }
+    if str_eq(name, "bool")                           { return FieldTy { ty: "bool", target: "" }; }
+    if str_eq(name, "str") || str_eq(name, "String")  { return FieldTy { ty: "str",  target: "" }; }
+    return FieldTy { ty: "any", target: "" };
+}
+
+// ── Requested-schema list (idents in the macro body) ───────────────────────
+struct NameList { names: [str; 16], n: i64 }
+
+fn scan_names(s: str) -> NameList {
+    let mut out: NameList = NameList { names: [""; 16], n: 0i64 };
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        let alpha: bool = (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+        if alpha {
+            let start: i64 = i;
+            while i < n {
+                let c2: u8 = str_byte_at(s, i);
+                let alnum: bool = (c2 >= 65u8 && c2 <= 90u8) || (c2 >= 97u8 && c2 <= 122u8)
+                                || (c2 >= 48u8 && c2 <= 57u8) || c2 == 95u8;
+                if !alnum { break; }
+                i = i + 1i64;
+            }
+            if out.n < 16i64 {
+                out.names[out.n] = unsafe { str_from_raw((s.as_ptr() as i64 + start) as *const u8, i - start) };
+                out.n = out.n + 1i64;
+            }
+        } else {
+            i = i + 1i64;
+        }
+    }
+    return out;
+}
+
+// ── Blob emission — one "schema" entry per requested schema ────────────────
+// Emits `{ "kind": "schema", "name": "…", "code": N, "fields": […] }` into the
+// @-literal body. Returns false when a diagnostic was raised.
+fn emit_schema_entry(em: &mut Emitter, view: &OView, nm: str) -> bool {
+    let decl: WAny = find_decl_by_name(view, nm);
+    if decl.is_null() {
+        let mut m: String = String::new();
+        m.push_str("schema_catalog!: unknown schema '");
+        m.push_str(nm);
+        m.push_str("' — declare it in the module invoking the macro (cross-module schemas take the decl-site annotation route)");
+        error(str_of(&m));
+        return false;
+    }
+    if (view.ast_node_code(decl) & (0xFFFF as u64)) != CM_SCHEMA_DEF() {
+        let mut m2: String = String::new();
+        m2.push_str("schema_catalog!: '");
+        m2.push_str(nm);
+        m2.push_str("' is not a `schema` declaration");
+        error(str_of(&m2));
+        return false;
+    }
+    // schema code: the `code(expr)` clause's VALUE, an integer literal.
+    let clause: WAny = view.tiny_map_get(decl, K_CODE_EXPR());
+    if clause.is_null() {
+        let mut m3: String = String::new();
+        m3.push_str("schema_catalog!: schema '");
+        m3.push_str(nm);
+        m3.push_str("' needs an explicit code(0x…) clause");
+        error(str_of(&m3));
+        return false;
+    }
+    let code: U64Lit = expr_u64(view, view.tiny_map_get(clause, K_VALUE()));
+    if !code.ok {
+        let mut m4: String = String::new();
+        m4.push_str("schema_catalog!: schema '");
+        m4.push_str(nm);
+        m4.push_str("': code(…) must be an integer literal");
+        error(str_of(&m4));
+        return false;
+    }
+
+    em.push_text("{\"kind\": \"schema\", \"name\": \"");
+    em.push_text(nm);
+    em.push_text("\", \"code\": ");
+    em.push_num(code.v);
+    em.push_text(", \"fields\": [");
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        let fname: str = sv_str(view.ast_field_name(fld));
+        // field key: the `= N` const-expr; absent ⇒ positional index.
+        let kexpr: WAny = view.tiny_map_get(fld, K_VALUE());
+        let mut key: u64 = i;
+        if !kexpr.is_null() {
+            let kl: U64Lit = expr_u64(view, kexpr);
+            if kl.ok { key = kl.v; }
+        }
+        let ft: FieldTy = classify_field_type(view, fld);
+        if i > (0 as u64) { em.push_text(", "); }
+        em.push_text("{\"name\": \"");
+        em.push_text(fname);
+        em.push_text("\", \"key\": ");
+        em.push_num(key);
+        em.push_text(", \"ty\": \"");
+        em.push_text(ft.ty);
+        em.push_text("\"");
+        if str_eq(ft.ty, "edge") {
+            em.push_text(", \"target\": \"");
+            em.push_text(ft.target);
+            em.push_text("\"");
+        }
+        em.push_text("}");
+        i = i + (1 as u64);
+    }
+    em.push_text("]}");
+    return true;
+}
+
+fn str_of(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+// ── The resource handler ────────────────────────────────────────────────────
+//   resource <name> = schema_catalog!{ S1, S2, … };
+// emits:
+//   pub fn <name>() -> SchemaCatalog {
+//       return SchemaCatalog::from_static(@{ …blob… });
+//   }
+#[token_macro]
+pub fn schema_catalog(name: str, s: str) -> ItemList {
+    let out: ItemList = item_list_new();
+    if name.len() == 0i64 {
+        error("schema_catalog!: needs a binding name — write `resource <name> = schema_catalog!{ S1, S2 };`");
+        return out;
+    }
+    let req: NameList = scan_names(s);
+    if req.n == 0i64 {
+        error("schema_catalog!: needs at least one schema name — `resource cat = schema_catalog!{ Emp };`");
+        return out;
+    }
+
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    // A chunk is a SEPARATE AST — it carries its own use-decls.
+    em.push_text("use logos.std.query; use logos.lang.writ.wstatic; ");
+    em.push_text("pub fn ");
+    em.push_text(name);
+    em.push_text("() -> SchemaCatalog { return SchemaCatalog::from_static(@{\"v\": 1, \"entries\": [");
+    let mut i: i64 = 0i64;
+    while i < req.n {
+        if i > 0i64 { em.push_text(", "); }
+        if !emit_schema_entry(&mut em, &view, req.names[i]) { return out; }
+        i = i + 1i64;
+    }
+    em.push_text("]}); }\n");
+    em.commit();
+    return out;
+}

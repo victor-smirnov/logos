@@ -28,6 +28,8 @@ package logos.std.wql.trama;
 
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
+use logos.lang.writ.array;     // WArray — the parser's raw statement-array form
+use logos.lang.writ.wstring;   // as_wstr — TText literal recovery
 use logos.std.wql.ir;
 use logos.lang.str;
 
@@ -109,3 +111,124 @@ impl TIf   { pub fn has_next(self: &TIf)   -> bool { return !self.next.any().is_
              pub fn next_stmt(self: &TIf)   -> TStmt { return self.next.any().view::<TStmt>(); } }
 impl TSet  { pub fn has_next(self: &TSet)  -> bool { return !self.next.any().is_null(); }
              pub fn next_stmt(self: &TSet)  -> TStmt { return self.next.any().view::<TStmt>(); } }
+
+// ── Shared chain-walk primitives ────────────────────────────────────────────
+// The ONE chain-stitch + walk mechanism, shared by the STATIC `trama!` handler
+// (trama_render) and the DYNAMIC `Tpl::compile` runtime (logos.std.query).
+// Moved here from trama_render so runtime consumers need no metaprog import.
+
+// Edge-word readers (launder WRef<TStmt> → raw chain word, no borrow carried).
+pub fn next_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
+pub fn body_word(r: &WRef<TStmt>) -> i64 { return r.any().raw(); }
+pub fn alt_word(r: &WRef<TStmt>)  -> i64 { return r.any().raw(); }
+
+// The `next`-chain successor word of any TStmt node (post-T3 stitch).
+pub fn next_of_stmt(node_w: i64) -> i64 {
+    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    match e {
+        TStmt::Text(t) => { return next_word(&t.next); }
+        TStmt::Var(v)  => { return next_word(&v.next); }
+        TStmt::For(f)  => { return next_word(&f.next); }
+        TStmt::If(i)   => { return next_word(&i.next); }
+        TStmt::Set(s)  => { return next_word(&s.next); }
+    }
+}
+
+// Read a TText node's literal bytes as a `str` (WAny Ref → WString, boxed at
+// parse time). The backslash escapes (`\{` `\}` `` \` `` `\\`) are still RAW
+// in this slice — the consumer de-escapes (emit_escaped / the dynamic renderer).
+pub fn ttext_str(t: &TText) -> str {
+    let w: WAny = t.text;
+    if !w.is_string() { return ""; }
+    return w.as_wstr();
+}
+
+// ── T3 post-pass: WArray-of-statements → `next`-linked TStmt chain ──────────
+// The GENERATED `parse_tpl` returns a `tpl` as a WArray of per-statement TStmt
+// handles (the grammar `tpl <- stmt*`); bodies (`TFor.body`, `TIf.body`, and the
+// else edge `TIf.alt`) are likewise WArray handles. Consumers walk a `next`-
+// linked chain, so this post-pass STITCHES it (ADR 0012 §T3): link each array
+// element to its successor, and recurse into every for/if body + else edge. The
+// elif chain is already NESTED TIf (grammar-desugared), so `TIf.alt` may be a
+// TIf node (elif) rather than a WArray — that node is left as its own head.
+
+// Rebind a TStmt node's `next` edge to a raw chain-word.
+fn set_next_w(next_of: i64, next: i64) {
+    let e: TStmt = WAny::ref_to(next_of as *const u8).view::<TStmt>();
+    let nref: WRef<TStmt> = WRef::<TStmt>::from_any(WAny::ref_to(next as *const u8));
+    match e {
+        TStmt::Text(t) => { t.next = nref; }
+        TStmt::Var(v)  => { v.next = nref; }
+        TStmt::For(f)  => { f.next = nref; }
+        TStmt::If(i)   => { i.next = nref; }
+        TStmt::Set(s)  => { s.next = nref; }
+    }
+}
+
+// Rebind a TFor's `body` edge (WArray → chain head).
+fn set_for_body(node_w: i64, head: i64) {
+    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    match e { TStmt::For(f) => { f.body = WRef::<TStmt>::from_any(WAny::ref_to(head as *const u8)); } _ => { } }
+}
+// Rebind a TIf's `body` edge.
+fn set_if_body(node_w: i64, head: i64) {
+    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    match e { TStmt::If(i) => { i.body = WRef::<TStmt>::from_any(WAny::ref_to(head as *const u8)); } _ => { } }
+}
+// Rebind a TIf's `alt` edge.
+fn set_if_alt(node_w: i64, head: i64) {
+    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    match e { TStmt::If(i) => { i.alt = WRef::<TStmt>::from_any(WAny::ref_to(head as *const u8)); } _ => { } }
+}
+
+// Convert a body/alt edge word into a `next`-linked chain HEAD word. The edge is
+// either: null (→ 0), a WArray of statements (→ link them, recurse), or a single
+// TStmt node (an elif TIf → treat as a one-element chain: recurse its bodies).
+pub fn chain_edge(edge_w: i64) -> i64 {
+    if edge_w == 0i64 { return 0i64; }
+    let a: WAny = WAny::ref_to(edge_w as *const u8);
+    if a.is_array() {
+        let arr: &WArray<WAny> = a.as_array();
+        return chain_array(arr);
+    }
+    // A single node (grammar-desugared elif TIf): recurse into its sub-edges and
+    // return it as the chain head (its own `next` stays null unless the caller sets it).
+    chain_node(edge_w);
+    return edge_w;
+}
+
+// Recurse into a node's for/if bodies + else edge, rewriting them to chain heads.
+pub fn chain_node(node_w: i64) {
+    let e: TStmt = WAny::ref_to(node_w as *const u8).view::<TStmt>();
+    match e {
+        TStmt::For(f) => {
+            let b: i64 = f.body.any().raw();
+            set_for_body(node_w, chain_edge(b));
+        }
+        TStmt::If(i) => {
+            let b: i64 = i.body.any().raw();
+            set_if_body(node_w, chain_edge(b));
+            let a: i64 = i.alt.any().raw();
+            set_if_alt(node_w, chain_edge(a));
+        }
+        _ => { }
+    }
+}
+
+// Link a WArray of statement handles into a `next`-linked chain; recurse into each
+// node's bodies. Returns the head word (0 = empty).
+pub fn chain_array(arr: &WArray<WAny>) -> i64 {
+    let n: i64 = arr.len();
+    if n == 0i64 { return 0i64; }
+    let mut head: i64 = 0i64;
+    let mut prev: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let w: i64 = arr.get(i).raw();
+        chain_node(w);                       // stitch this node's own bodies first
+        if head == 0i64 { head = w; } else { set_next_w(prev, w); }
+        prev = w;
+        i = i + 1i64;
+    }
+    return head;
+}

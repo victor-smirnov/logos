@@ -49,79 +49,19 @@ pub fn begin_chunk(em: &mut Emitter, view: &OView) {
     em.push_text("use logos.mem.collections.hashmap; use logos.mem.collections.set; use logos.mem.collections.btree; ");
 }
 
-// ── Builtin function registry (CEL canon + common Trama filters) ──────────
-// `SCall.fn_name` carries the call NAME directly (self-describing IR); we map it
-// to one of these builtin ids. The id table is small + stable; unknown names
-// latch an error in the caller.
+// ── Builtin function registry ───────────────────────────────────────────────
+// The registry (BFN_* ids, builtin_of_name/arity/ret_ty) and the RUNTIME helper
+// fns (wql_upper / wql_lower / wql_f64_to_str) now live in logos.std.wql.el —
+// shared with the DYNAMIC interpreter (logos.std.query), which must not import
+// this metaprog-tainted package. Imported here via `use logos.std.wql.el`.
 //
 // Each builtin lowers to a fully-qualified stdlib call (qualified-path form, so
 // the generated function compiles regardless of the user module's `use`s):
 //   len(s)            → ((s).len())                                  : INT
-//   upper(s)          → logos.std.wql.codegen::wql_upper(s)          : STR
-//   lower(s)          → logos.std.wql.codegen::wql_lower(s)          : STR
+//   upper(s)          → logos.std.wql.el::wql_upper(s)               : STR
+//   lower(s)          → logos.std.wql.el::wql_lower(s)               : STR
 //   contains(s,n)     → logos.lang.str::str_contains((s),(n))        : BOOL
 //   starts_with(s,p)  → logos.lang.str::str_starts_with((s),(p))     : BOOL
-pub fn BFN_UNKNOWN()     -> i32 { return 0i32; }
-pub fn BFN_LEN()         -> i32 { return 1i32; }
-pub fn BFN_UPPER()       -> i32 { return 2i32; }
-pub fn BFN_LOWER()       -> i32 { return 3i32; }
-pub fn BFN_CONTAINS()    -> i32 { return 4i32; }
-pub fn BFN_STARTS_WITH() -> i32 { return 5i32; }
-
-// Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
-pub fn builtin_of_name(name: str) -> i32 {
-    if str_eq(name, "len")         { return BFN_LEN(); }
-    if str_eq(name, "upper")       { return BFN_UPPER(); }
-    if str_eq(name, "lower")       { return BFN_LOWER(); }
-    if str_eq(name, "contains")    { return BFN_CONTAINS(); }
-    if str_eq(name, "starts_with") { return BFN_STARTS_WITH(); }
-    return BFN_UNKNOWN();
-}
-
-// The arity each builtin expects (used to validate the materialized arg list).
-pub fn builtin_arity(bfn: i32) -> i64 {
-    if bfn == BFN_LEN() || bfn == BFN_UPPER() || bfn == BFN_LOWER() { return 1i64; }
-    if bfn == BFN_CONTAINS() || bfn == BFN_STARTS_WITH()           { return 2i64; }
-    return 0i64;
-}
-
-// The EL value-type a builtin RETURNS (drives push_str vs push_i64 + result ty).
-pub fn builtin_ret_ty(bfn: i32) -> i32 {
-    if bfn == BFN_LEN()         { return EL_TY_INT(); }
-    if bfn == BFN_UPPER()       { return EL_TY_STR(); }
-    if bfn == BFN_LOWER()       { return EL_TY_STR(); }
-    if bfn == BFN_CONTAINS()    { return EL_TY_BOOL(); }
-    if bfn == BFN_STARTS_WITH() { return EL_TY_BOOL(); }
-    return EL_TY_INT();
-}
-
-// ASCII upper/lowercase a `str` into a fresh `String` (the `upper`/`lower`
-// builtins). Byte-wise, UTF-8-agnostic (ASCII-only case folding — the CEL
-// string fns are byte oriented in the MVP). Returned by value (owns its buffer).
-pub fn wql_upper(s: str) -> String {
-    let mut out: String = String::new();
-    let n: i64 = s.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let c: u8 = str_byte_at(s, i);
-        let u: u8 = if c >= 97u8 && c <= 122u8 { c - 32u8 } else { c };
-        out.push_u8(u);
-        i = i + 1i64;
-    }
-    return out;
-}
-pub fn wql_lower(s: str) -> String {
-    let mut out: String = String::new();
-    let n: i64 = s.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let c: u8 = str_byte_at(s, i);
-        let l: u8 = if c >= 65u8 && c <= 90u8 { c + 32u8 } else { c };
-        out.push_u8(l);
-        i = i + 1i64;
-    }
-    return out;
-}
 
 // ── Value-type inference (codegen type detection) ─────────────────────────
 // Compute the EL value-type (EL_TY_*) of an SExpr, the signal the static
@@ -443,8 +383,8 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         return;
     }
     if bfn == BFN_UPPER() || bfn == BFN_LOWER() {
-        if bfn == BFN_UPPER() { out.push_str("logos.std.wql.codegen::wql_upper("); }
-        else                  { out.push_str("logos.std.wql.codegen::wql_lower("); }
+        if bfn == BFN_UPPER() { out.push_str("logos.std.wql.el::wql_upper("); }
+        else                  { out.push_str("logos.std.wql.el::wql_lower("); }
         emit_sexpr(out, args.arg_at(0i64), t, var);
         out.push_str(")");
         return;
@@ -651,14 +591,6 @@ pub fn el_ty_name(ty: i32) -> str {
     if ty == EL_TY_BOOL() { return "bool"; }
     if ty == EL_TY_FLT()  { return "f64"; }
     return "i64";
-}
-
-// ── f64 formatting (shared by literal emission + the render value path) ─────
-// Deterministic f64 → decimal text via the stdlib's `%g` bridge (`f64
-// ::to_string`, `logos_fmt_f64_g` — shortest round-trippable form, Rust-Display
-// convention). Runtime helper the generated render code calls (qualified).
-pub fn wql_f64_to_str(x: f64) -> String {
-    return x.to_string();
 }
 
 // Append `v` as a LOGOS f64 LITERAL (`2.5f64`): the shortest round-trip decimal

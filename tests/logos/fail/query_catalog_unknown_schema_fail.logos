@@ -1,0 +1,14 @@
+// schema_catalog! diagnostic (queue-2 I1): a requested name with no matching
+// declaration in the trigger module is a named compile-time error — the
+// catalog macro reflects the SAME-module AST only (cross-module schemas take
+// the decl-site annotation route in a later slice).
+package test;
+
+use logos.std.wql.catalog_macro;
+use logos.std.query;
+
+pub schema Emp : code(0x0A05_0000_0000_0001) { name: str = 0 }
+
+resource cat = schema_catalog!{ Emp, Nope };
+
+fn main() -> i32 { return 0i32; }
