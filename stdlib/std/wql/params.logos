@@ -34,11 +34,29 @@ unsafe fn mp_str_range(src: str, start: i64, len: i64) -> str {
 }
 
 // ── The parsed parameter list ──────────────────────────────────────────────
+// The REL REGISTRY section (`rel_*` / `relc_*`) is filled by the wql! PROGRAM
+// walker (plan_walker) when the block declares `rel` blocks (slice B): the
+// rels are query SOURCES exactly like slice params, so they ride on the same
+// threaded struct — the emitters resolve a scan's src_name against this
+// registry to stamp rel COLUMN types + positional bindings (trama! ignores
+// it). Per rel: the declared NAME, the emitted slice-local/param NAME
+// (`__rel_<name>_sl` — the plan nodes' src_name is REWRITTEN to this), the
+// native ROW TYPE text (`(i64, str)` / scalar `i64` for a 1-column rel), and
+// the column window [coff, coff+ccnt) into the flat relc_* arrays.
 pub struct MacroParams {
     pub names:    [str; 64],
     pub tys:      [str; 64],    // CORE type name (deref/slice-stripped)
     pub is_slice: [bool; 64],   // `&[T]`-family — a query SOURCE param
     pub n:        i64,
+    // ── rel registry (wql! rel blocks — slice B) ──
+    pub rel_names: [str; 8],    // declared rel name ("step")
+    pub rel_srcs:  [str; 8],    // emitted source name ("__rel_step_sl")
+    pub rel_rowty: [str; 8],    // native row type text ("(i64, i64)" / "i64")
+    pub rel_coff:  [i64; 8],    // column window offset (flat relc_* arrays)
+    pub rel_ccnt:  [i64; 8],    // column count
+    pub relc_name: [str; 64],   // flat column names
+    pub relc_ty:   [str; 64],   // flat column type names ("i64"/"str"/"bool")
+    pub rel_n:     i64,
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -53,6 +71,20 @@ pub fn macro_params_new() -> MacroParams {
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         is_slice: [false; 64],
         n: 0i64,
+        rel_names: ["", "", "", "", "", "", "", ""],
+        rel_srcs:  ["", "", "", "", "", "", "", ""],
+        rel_rowty: ["", "", "", "", "", "", "", ""],
+        rel_coff:  [0i64; 8],
+        rel_ccnt:  [0i64; 8],
+        relc_name: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        relc_ty:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        rel_n: 0i64,
     };
 }
 
@@ -86,6 +118,56 @@ impl MacroParams {
         let i: i64 = self.index_of(name);
         if i < 0i64 { return ""; }
         return self.tys[i];
+    }
+
+    // ── rel registry (filled by the wql! program walker; slice B) ──────────
+
+    // Register a rel (declaration order). Returns the rel index (-1 = full).
+    pub fn rel_add(self: &mut MacroParams, name: str, src: str, rowty: str) -> i64 {
+        if self.rel_n >= 8i64 { return -1i64; }
+        let i: i64 = self.rel_n;
+        self.rel_names[i] = name;
+        self.rel_srcs[i]  = src;
+        self.rel_rowty[i] = rowty;
+        // Columns append at the current flat top.
+        let mut off: i64 = 0i64;
+        if i > 0i64 { off = self.rel_coff[i - 1i64] + self.rel_ccnt[i - 1i64]; }
+        self.rel_coff[i] = off;
+        self.rel_ccnt[i] = 0i64;
+        self.rel_n = i + 1i64;
+        return i;
+    }
+
+    // Append one column to the LAST registered rel.
+    pub fn rel_add_col(self: &mut MacroParams, col_name: str, col_ty: str) {
+        if self.rel_n == 0i64 { return; }
+        let i: i64 = self.rel_n - 1i64;
+        let k: i64 = self.rel_coff[i] + self.rel_ccnt[i];
+        if k >= 64i64 { return; }
+        self.relc_name[k] = col_name;
+        self.relc_ty[k]   = col_ty;
+        self.rel_ccnt[i]  = self.rel_ccnt[i] + 1i64;
+    }
+
+    // Rel index by DECLARED name ("step"), or -1.
+    pub fn rel_find_name(self: &MacroParams, name: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.rel_n {
+            if str_eq(self.rel_names[i], name) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    // Rel index by EMITTED source name ("__rel_step_sl"), or -1 — the emit-side
+    // lookup (plan nodes' src_name is rewritten to the emitted name).
+    pub fn rel_find_src(self: &MacroParams, src: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.rel_n {
+            if str_eq(self.rel_srcs[i], src) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
     }
 }
 

@@ -1,0 +1,43 @@
+// WQL REL BLOCKS — SET semantics (slice B): TWO duplicate-producing bodies
+// feed one rel; dedup is by structural equality ACROSS bodies (Datalog set
+// semantics), proven by the entry count. Sources of duplication:
+//   • input rows repeating the same (src, dst) pair (within-body dups);
+//   • body 2 re-deriving pairs body 1 already produced (cross-body dups),
+//     plus one pair only body 2 produces (via the reversed projection).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource pair_count = wql!(edges: &[Edge], back: &[Edge]) {
+    rel p(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from back r select (r.dst, r.src);
+    }
+    from p s select s.a
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 3] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 1i64, dst: 2i64 },   // within-body duplicate
+        Edge { src: 3i64, dst: 4i64 },
+    ];
+    let back: [Edge; 2] = [
+        Edge { src: 2i64, dst: 1i64 },   // reversed → (1,2): cross-body duplicate
+        Edge { src: 9i64, dst: 8i64 },   // reversed → (8,9): unique to body 2
+    ];
+
+    // p = {(1,2), (3,4), (8,9)} — 4 raw within-body rows + 2 reversed rows
+    // collapse to 3 distinct pairs. The entry projects s.a (no distinct —
+    // the SET already deduped), so the COUNT proves set semantics.
+    let out: Vec<i64> = pair_count(&edges[..], &back[..]);
+    if out.len() != 3i64 { return 10i32 + (out.len() as i32); }
+    if out.get(0i64) != 1i64 { return 2i32; }
+    if out.get(1i64) != 3i64 { return 3i32; }
+    if out.get(2i64) != 8i64 { return 4i32; }
+    return 0i32;
+}

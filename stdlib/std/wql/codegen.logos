@@ -146,7 +146,20 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
         }
         SExpr::Param(pp) => { return t.ty_of(pp.name); }
         SExpr::Var(vv)   => { return t.ty_of(vv.name); }
-        SExpr::Field(f)  => { return t.ty_of(f.name); }
+        SExpr::Field(f)  => {
+            // Rel-sourced column (`s.a` over a rel-bound var): the (var, col)
+            // pair types off the rel-binding table — precise per-var (the flat
+            // name dict can collide across same-named struct fields).
+            let base_ref: WRef<SExpr> = f.base;
+            if !base_ref.any().is_null() {
+                let rn: str = root_ident_name(f.base_expr());
+                if rn.len() > 0i64 {
+                    let rt: i32 = t.rel_col_ty(rn, f.name);
+                    if rt >= 0i32 { return rt; }
+                }
+            }
+            return t.ty_of(f.name);
+        }
         SExpr::Bin(b) => {
             let op: i32 = b.op;
             if op == OP_OR() || op == OP_AND()
@@ -185,6 +198,23 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
                                                     // special-case tuples via tuple_ty_text BEFORE
                                                     // consulting the EL_TY_* tag (never meaningful here)
         _ => { return EL_TY_INT(); }
+    }
+}
+
+// The bare-identifier ROOT name of `e` — the name when `e` is a root-shaped
+// leaf (a null-base SField — the EL parser's bare-ident node — or an SVar /
+// SParam), "" otherwise. The rel-binding lookups key off this (a rel row var
+// is always a direct scan binding, never a nested path).
+pub fn root_ident_name(e: SExpr) -> str {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return f.name; }
+            return "";
+        }
+        SExpr::Var(v)   => { return v.name; }
+        SExpr::Param(p) => { return p.name; }
+        _ => { return ""; }
     }
 }
 
@@ -300,6 +330,27 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
                 out.push_str(name);
             } else {
                 let be: SExpr = f.base_expr();
+                // Rel-sourced column: `s.a` over a rel-bound row var emits the
+                // POSITIONAL tuple access `s.0` (the rel row is a native tuple;
+                // the column map lives in the ElTypes rel-binding table). A
+                // 1-COLUMN rel stores SCALAR rows — its (only) column reads the
+                // whole row through the binding: `(*s)`.
+                let rn: str = root_ident_name(be);
+                if rn.len() > 0i64 {
+                    if t.rel_col_ty(rn, name) >= 0i32 {
+                        let k: i64 = t.rel_col_of(rn, name);
+                        if k >= 0i64 {
+                            out.push_str(rn);
+                            out.push_str(".");
+                            out.push_i64(k);
+                        } else {
+                            out.push_str("(*");
+                            out.push_str(rn);
+                            out.push_str(")");
+                        }
+                        return;
+                    }
+                }
                 emit_sexpr(out, be, t, var);
                 out.push_str(".");
                 out.push_str(name);

@@ -1,0 +1,23 @@
+// WQL REL BLOCKS — select-width diagnostic (slice B): a body's select must be
+// a tuple of EXACTLY the declared column count (here 3 components against 2
+// declared columns → the named width error).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource wide = wql!(edges: &[Edge]) {
+    rel p(a: i64, b: i64) {
+        from edges e select (e.src, e.dst, e.src);
+    }
+    from p s select s.a
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64 } ];
+    let out: Vec<i64> = wide(&edges[..]);
+    return out.len() as i32;
+}

@@ -54,12 +54,23 @@
 // `logos.std.wql.el_parser::parse_expr(sub, doc)` into the SHARED arena.
 //
 // A WQL clause body does NOT end at a `}}`-style tag close (as Trama's does) — it
-// ends at the next structural KEYWORD (where/select/join/anti/group/by/aggregate/
-// having/distinct/order/desc/limit/on), a top-level result-type `:` (ternary
-// `?:` balanced), or a top-level `,`/`)` (an aggregate arg list). The generator emits a KEYWORD-DELIMITED embed
+// ends at the next structural KEYWORD (rel/where/select/join/anti/group/by/
+// aggregate/having/distinct/order/desc/limit/on), a top-level result-type `:`
+// (ternary `?:` balanced), a top-level `,`/`)` (an aggregate arg list), or a
+// top-level `;`/`}` (a rel-body terminator / rel-block close). The generator
+// emits a KEYWORD-DELIMITED embed
 // close-finder (`embed_find_close`) driven by this grammar's keyword tokens +
 // `(`/`[` depth tracking — the schema-mode-gated generalization of the template
 // close-finder (logos.peg has no embed, so its output stays byte-identical).
+//
+// ── REL BLOCKS (slice B — named derived relations, NON-recursive) ──────────
+// Zero or more `rel NAME ( col: ty, … ) { body; body; … }` blocks may precede
+// the entry query; the export is then the RQProgram ENVELOPE {rels[], entry}.
+// Each rel body is a full `query` production terminated by `;` — the WALKER
+// (not the grammar) restricts bodies to from/join/where/select, checks the
+// select against the declared columns, enforces declaration-order rel scoping
+// (self/forward/mutual reference → the recursion diagnostic; the fixpoint is
+// slice C), and rejects f64 columns (set semantics require Eq).
 //
 // ── SELF-DESCRIBING (Option B) ─────────────────────────────────────────────
 // source / var NAMES + the result type + aggregate column names live on the
@@ -78,8 +89,11 @@
     prefix:    "Wq"
 }
 
-// The wql! entry rule: a whole query → an RQuery root edge handle.
-%export { query }
+// The wql! entry rule: a whole PROGRAM — zero or more `rel NAME(cols){bodies}`
+// blocks followed by ONE entry query — → an RQProgram root edge handle (the
+// program ENVELOPE; slice B static Datalog). A rel-less block still parses as
+// a program (rels edge NULL), so the handler consumes one shape.
+%export { program }
 
 // ── CROSS-GRAMMAR EL EMBEDDING ─────────────────────────────────────────────
 %import "logos.std.wql.el_parser" as el
@@ -149,6 +163,14 @@
 
     RQJoinStep    { is_anti: "bool", src_name: "str", var_name: "str", on: "ref SExpr" }
     RQJoinStepArr { steps: "fan set_step RQJSTEP_MAX" }
+
+    // ── rel blocks + the program envelope (slice B static Datalog) ────────
+    RQProgram   { rels: "ref RQRelArr", entry: "ref RQuery" }
+    RQRel       { name: "str", cols: "ref RQRelColArr", bodies: "ref RQBodyArr" }
+    RQRelCol    { name: "str", ty_name: "str" }
+    RQRelColArr { cols: "fan set_col RQRELCOL_MAX" }
+    RQRelArr    { rels: "fan set_rel RQREL_MAX" }
+    RQBodyArr   { bodies: "fan set_body RQBODY_MAX" }
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────
@@ -156,6 +178,7 @@
 // `from`/`where`/… win). Every alpha-keyword literal ALSO drives the embed
 // close-finder's structural-stop set (a top-level clause boundary).
 %tokens {
+    KW_REL       = "rel"
     KW_FROM      = "from"
     KW_WHERE     = "where"
     KW_SELECT    = "select"
@@ -179,6 +202,9 @@
     EQ       = "="
     LPAREN   = "("
     RPAREN   = ")"
+    LBRACE   = "{"
+    RBRACE   = "}"
+    SEMI     = ";"
 
     INTEGER = /[0-9]+/
     IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -190,6 +216,45 @@
 
 // ── Rules ──────────────────────────────────────────────────────────────────
 %rules {
+    // program := the whole wql! block — zero or more `rel` blocks + ONE entry
+    // query → the RQProgram envelope. Alt 1 requires ≥ 1 rel block; alt 2 is
+    // the rel-less form (rels edge stays NULL — `has_rels` on the schema).
+    //   $1=rel_list $2=query        |        $1=query
+    program <- rel_list query
+               => { CODE: "RQProgram", rels: $1, entry: $2 }
+             / query
+               => { CODE: "RQProgram", entry: $1 }
+
+    // ── rel blocks (slice B: named derived relations, NON-recursive) ──────
+    // `rel NAME ( col: ty, … ) { body; body; … }` — each body is a full query
+    // shape (the walker restricts bodies to from/join/where/select and checks
+    // the select against the declared columns; declaration-order scoping +
+    // the recursion diagnostic also live in the walker, which builds the rel
+    // dependency edge list explicitly — slice C reuses it for the fixpoint).
+    //   $1=KW_REL $2=IDENT(name) $3=LPAREN $4=rel_cols $5=RPAREN
+    //   $6=LBRACE $7=rel_bodies $8=RBRACE
+    rel_block <- KW_REL IDENT LPAREN rel_cols RPAREN
+                 LBRACE rel_bodies RBRACE
+                 => { CODE: "RQRel", name: $2, cols: $4, bodies: $7 }
+
+    // The rel list (≥ 1) → RQRelArr fan-out (the join_steps pattern).
+    rel_list <- rel_block rel_block* => { CODE: "RQRelArr", rels: $... }
+
+    // One declared column: `name: ty` (ty ∈ i64/str/bool — walker-checked;
+    // f64 is rejected there: set semantics require Eq).
+    //   $1=IDENT(name) $2=COLON $3=IDENT(ty)
+    rel_col  <- IDENT COLON IDENT
+                => { CODE: "RQRelCol", name: $1, ty_name: $3 }
+
+    // The column list (≥ 1) → RQRelColArr fan-out.
+    rel_cols <- rel_col ( COMMA rel_col )* => { CODE: "RQRelColArr", cols: $... }
+
+    // The body list (≥ 1, each `;`-terminated) → RQBodyArr fan-out. Every
+    // body parses as a full `query` (an RQuery variant); `$...` collects the
+    // query nodes (SEMI is a token capture — excluded).
+    rel_bodies <- query SEMI ( query SEMI )*
+                  => { CODE: "RQBodyArr", bodies: $... }
+
     // query := the whole wql! block → one RQuery variant.
     // Ordered choice (PEG first-match): the relational shapes are distinguished by
     // a structural keyword after the source; the leading optional `where` can

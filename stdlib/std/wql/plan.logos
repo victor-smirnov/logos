@@ -294,11 +294,202 @@ pub schema RQFind : code(0x0012_0000_0000_0003) {
 }
 
 // ── The RQuery family — one variant per surface shape ─────────────────────────
+// The rel/program tier (RQRel* / RQProgram below) is deliberately NOT part of
+// this enum: RQuery stays the four QUERY shapes (rel bodies and the entry are
+// RQuery values); the program is the ENVELOPE the parser export returns, bound
+// as a plain `RQProgram` view by the walker.
 pub schema enum RQuery : category(0x0012_0000_0000_0000) {
     Simple(RQSimple),
     Join(RQJoin),
     Aggr(RQAggr),
     Find(RQFind),
+}
+
+// ── REL blocks (slice B — named derived relations, NON-recursive) ─────────────
+// `rel NAME ( col: ty, … ) { body; body; … }` — a named derived relation with
+// SET semantics (structural-equality dedup on insert). Columns are restricted
+// to i64/str/bool (f64 kills Eq — walker-diagnosed). Bodies are RQuery values
+// (Simple/Join only — walker-enforced); the entry query + later rels scan the
+// materialized relation. Declaration-order scoping; the walker builds the rel
+// DEPENDENCY EDGE LIST explicitly (slice C's fixpoint reuses it).
+
+// One declared column: `name: ty`.
+pub schema RQRelCol : code(0x0012_0000_0000_0014) {
+    name:    str = 0,
+    ty_name: str = 1,
+}
+
+impl RQRelCol {
+    pub fn as_ref(self: &RQRelCol) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized column list — fan-out of up to RQRELCOL_MAX RQRelCol edges.
+pub schema RQRelColArr : code(0x0012_0000_0000_0015) {
+    count: i32           = 0,
+    c0: WRef<RQRelCol> = 1,
+    c1: WRef<RQRelCol> = 2,
+    c2: WRef<RQRelCol> = 3,
+    c3: WRef<RQRelCol> = 4,
+    c4: WRef<RQRelCol> = 5,
+    c5: WRef<RQRelCol> = 6,
+    c6: WRef<RQRelCol> = 7,
+    c7: WRef<RQRelCol> = 8,
+}
+
+pub fn RQRELCOL_MAX() -> i64 { return 8i64; }
+
+impl RQRelColArr {
+    pub fn len(self: &RQRelColArr) -> i64 { return self.count as i64; }
+
+    pub fn col_at(self: &RQRelColArr, i: i64) -> RQRelCol {
+        if i == 0i64 { return self.c0.any().view::<RQRelCol>(); }
+        if i == 1i64 { return self.c1.any().view::<RQRelCol>(); }
+        if i == 2i64 { return self.c2.any().view::<RQRelCol>(); }
+        if i == 3i64 { return self.c3.any().view::<RQRelCol>(); }
+        if i == 4i64 { return self.c4.any().view::<RQRelCol>(); }
+        if i == 5i64 { return self.c5.any().view::<RQRelCol>(); }
+        if i == 6i64 { return self.c6.any().view::<RQRelCol>(); }
+        return self.c7.any().view::<RQRelCol>();
+    }
+
+    pub fn set_col(self: &mut RQRelColArr, i: i64, h: WAny) {
+        let r: WRef<RQRelCol> = WRef::<RQRelCol>::from_any(h);
+        if i == 0i64 { self.c0 = r; return; }
+        if i == 1i64 { self.c1 = r; return; }
+        if i == 2i64 { self.c2 = r; return; }
+        if i == 3i64 { self.c3 = r; return; }
+        if i == 4i64 { self.c4 = r; return; }
+        if i == 5i64 { self.c5 = r; return; }
+        if i == 6i64 { self.c6 = r; return; }
+        self.c7 = r;
+    }
+
+    pub fn set_len(self: &mut RQRelColArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQRelColArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized body list — fan-out of up to RQBODY_MAX RQuery edges (each
+// body is a full query shape node; the walker matches the variant).
+pub schema RQBodyArr : code(0x0012_0000_0000_0018) {
+    count: i32        = 0,
+    b0: WRef<RQuery> = 1,
+    b1: WRef<RQuery> = 2,
+    b2: WRef<RQuery> = 3,
+    b3: WRef<RQuery> = 4,
+    b4: WRef<RQuery> = 5,
+    b5: WRef<RQuery> = 6,
+    b6: WRef<RQuery> = 7,
+    b7: WRef<RQuery> = 8,
+}
+
+pub fn RQBODY_MAX() -> i64 { return 8i64; }
+
+impl RQBodyArr {
+    pub fn len(self: &RQBodyArr) -> i64 { return self.count as i64; }
+
+    // The i-th body's raw edge handle (raw()/ref_to provenance laundering —
+    // the step_any idiom; feeds the walker's fat-view rewrap for stamping).
+    pub fn body_any(self: &RQBodyArr, i: i64) -> WAny {
+        if i == 0i64 { return WAny::ref_to(self.b0.any().raw() as *const u8); }
+        if i == 1i64 { return WAny::ref_to(self.b1.any().raw() as *const u8); }
+        if i == 2i64 { return WAny::ref_to(self.b2.any().raw() as *const u8); }
+        if i == 3i64 { return WAny::ref_to(self.b3.any().raw() as *const u8); }
+        if i == 4i64 { return WAny::ref_to(self.b4.any().raw() as *const u8); }
+        if i == 5i64 { return WAny::ref_to(self.b5.any().raw() as *const u8); }
+        if i == 6i64 { return WAny::ref_to(self.b6.any().raw() as *const u8); }
+        return WAny::ref_to(self.b7.any().raw() as *const u8);
+    }
+
+    pub fn set_body(self: &mut RQBodyArr, i: i64, h: WAny) {
+        let r: WRef<RQuery> = WRef::<RQuery>::from_any(h);
+        if i == 0i64 { self.b0 = r; return; }
+        if i == 1i64 { self.b1 = r; return; }
+        if i == 2i64 { self.b2 = r; return; }
+        if i == 3i64 { self.b3 = r; return; }
+        if i == 4i64 { self.b4 = r; return; }
+        if i == 5i64 { self.b5 = r; return; }
+        if i == 6i64 { self.b6 = r; return; }
+        self.b7 = r;
+    }
+
+    pub fn set_len(self: &mut RQBodyArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQBodyArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// One rel block: name + declared columns + producing bodies.
+pub schema RQRel : code(0x0012_0000_0000_0016) {
+    name:   str                = 0,
+    cols:   WRef<RQRelColArr>  = 1,
+    bodies: WRef<RQBodyArr>    = 2,
+}
+
+impl RQRel {
+    pub fn cols_arr(self: &RQRel)   -> RQRelColArr { return self.cols.any().view::<RQRelColArr>(); }
+    pub fn bodies_arr(self: &RQRel) -> RQBodyArr   { return self.bodies.any().view::<RQBodyArr>(); }
+    pub fn as_ref(self: &RQRel) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized rel list — fan-out of up to RQREL_MAX RQRel edges,
+// DECLARATION ORDER (the scoping + materialization order).
+pub schema RQRelArr : code(0x0012_0000_0000_0017) {
+    count: i32      = 0,
+    r0: WRef<RQRel> = 1,
+    r1: WRef<RQRel> = 2,
+    r2: WRef<RQRel> = 3,
+    r3: WRef<RQRel> = 4,
+    r4: WRef<RQRel> = 5,
+    r5: WRef<RQRel> = 6,
+    r6: WRef<RQRel> = 7,
+    r7: WRef<RQRel> = 8,
+}
+
+pub fn RQREL_MAX() -> i64 { return 8i64; }
+
+impl RQRelArr {
+    pub fn len(self: &RQRelArr) -> i64 { return self.count as i64; }
+
+    pub fn rel_at(self: &RQRelArr, i: i64) -> RQRel {
+        if i == 0i64 { return self.r0.any().view::<RQRel>(); }
+        if i == 1i64 { return self.r1.any().view::<RQRel>(); }
+        if i == 2i64 { return self.r2.any().view::<RQRel>(); }
+        if i == 3i64 { return self.r3.any().view::<RQRel>(); }
+        if i == 4i64 { return self.r4.any().view::<RQRel>(); }
+        if i == 5i64 { return self.r5.any().view::<RQRel>(); }
+        if i == 6i64 { return self.r6.any().view::<RQRel>(); }
+        return self.r7.any().view::<RQRel>();
+    }
+
+    pub fn set_rel(self: &mut RQRelArr, i: i64, h: WAny) {
+        let r: WRef<RQRel> = WRef::<RQRel>::from_any(h);
+        if i == 0i64 { self.r0 = r; return; }
+        if i == 1i64 { self.r1 = r; return; }
+        if i == 2i64 { self.r2 = r; return; }
+        if i == 3i64 { self.r3 = r; return; }
+        if i == 4i64 { self.r4 = r; return; }
+        if i == 5i64 { self.r5 = r; return; }
+        if i == 6i64 { self.r6 = r; return; }
+        self.r7 = r;
+    }
+
+    pub fn set_len(self: &mut RQRelArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQRelArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// ── RQProgram — the program ENVELOPE the parser export returns ────────────────
+// {rels[], entry}: the (possibly NULL) rel fan-out + the ONE entry query.
+pub schema RQProgram : code(0x0012_0000_0000_0019) {
+    rels:  WRef<RQRelArr> = 0,
+    entry: WRef<RQuery>   = 1,
+}
+
+impl RQProgram {
+    // True iff the block declared ≥ 1 rel (the rels edge is non-null).
+    pub fn has_rels(self: &RQProgram) -> bool { return !self.rels.any().is_null(); }
+    pub fn rels_arr(self: &RQProgram) -> RQRelArr { return self.rels.any().view::<RQRelArr>(); }
+    // The entry query's raw edge handle (provenance-laundered — the walker
+    // fat-wraps it per shape for the fn_name / row_ty stamps).
+    pub fn entry_any(self: &RQProgram) -> WAny { return WAny::ref_to(self.entry.any().raw() as *const u8); }
+    pub fn as_ref(self: &RQProgram) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
 }
 
 // ── Edge handles (same provenance-laundering rationale as ir.logos) ───────────

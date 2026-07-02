@@ -31,6 +31,16 @@
 // The generated fn NAME is the `resource <name> =` binding (ADR 0012 §6); the
 // handler receives it as the `name` arg.
 //
+// REL BLOCKS (slice B — static Datalog, NON-recursive): zero or more
+//   rel NAME ( col: ty, … ) { body; body; … }
+// blocks may precede the entry query. Each rel is a named derived relation
+// with SET semantics (structural-equality dedup; columns i64/str/bool — f64
+// kills Eq); bodies are from/join/where/select producers over slice params +
+// PREVIOUSLY declared rels (self/forward/mutual reference = the recursion
+// diagnostic; the fixpoint is the next slice). The entry query scans rels
+// like sources (all modifiers compose; `find`/whole-row select are gated —
+// rels are fn-locals, rows cannot be borrowed out).
+//
 // Relational shapes off the same `from` prefix:
 //   • `[anti] join <b> <y> on <onPred>` → inner / anti nested-loop join;
 //   • `[where …] group by <key> aggregate <a>=<fn>(<e>),…` → group-by + aggregate;
@@ -48,8 +58,8 @@ use logos.std.compiler.metaprog;         // ItemList, item_list_new, error
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.std.wql.params;                // MacroParams / parse_macro_params — SHARED with trama!
-use logos.std.wql.wql_surface_parser;    // parse_query — the GENERATED surface parser
-use logos.std.wql.plan_walker;           // walk_query_params — the plan walker-emitter
+use logos.std.wql.wql_surface_parser;    // parse_program — the GENERATED surface parser
+use logos.std.wql.plan_walker;           // walk_program_params — the program walker-emitter
 
 // ── The resource handler ───────────────────────────────────────────────────
 // `#[token_macro]` 3-arg form: receives the `resource` binding name, the raw
@@ -75,8 +85,10 @@ pub fn wql(name: str, params: str, body: str) -> ItemList {
         return out;
     }
     let h: Writ = writ_new(4096i64);
-    let root: WAny = parse_query(body, &h);
-    if root.is_null() { error("wql!: malformed query (expected `from <src> <var> … select …`)"); return out; }
-    let _ok: bool = walk_query_params(root, name, params, &prm, &h);
+    // The export is the PROGRAM envelope (slice B): zero or more `rel` blocks
+    // + one entry query. A rel-less block still parses as a program.
+    let root: WAny = parse_program(body, &h);
+    if root.is_null() { error("wql!: malformed query (expected `[rel N(cols){bodies}]* from <src> <var> … select …`)"); return out; }
+    let _ok: bool = walk_program_params(root, name, params, &mut prm, &h);
     return out;
 }

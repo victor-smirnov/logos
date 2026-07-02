@@ -302,20 +302,57 @@ pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
 // generated fn signature) and `prm` its parsed form (scalar-param typing +
 // limit-param validation); the relational STRUCTURE + clause bodies live on
 // the RExpr tree.
+// `prelude` — statements spliced right after the generated fn's opening brace
+// ("" when absent). The wql! REL path (slice B) uses it to materialize the
+// derived relations (`let __rel_X: Vec<Row> = __wql_<fn>_rel_X(…); let
+// __rel_X_sl: &[Row] = __rel_X.as_slice();`) before the entry query's loops.
 pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
                            params_text: str, prm: &MacroParams,
                            result_ty: str, has_result_ty: bool,
-                           sel_mode: i32, h: &Writ) -> bool {
+                           sel_mode: i32, prelude: str, h: &Writ) -> bool {
     let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h);
     let sig: RSimplified = simplify_rexpr_ref(root, root.any().view::<RExpr>(), h);
     let rx: RExpr = sig.root.any().view::<RExpr>();
     return emit_rexpr_opt(rx, sig.empty, sig.identity,
-                          fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, h);
+                          fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, prelude, h);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 // PART 2 — emit_rexpr : the ONE walker (RExpr → native source)
 // ══════════════════════════════════════════════════════════════════════════
+
+// Shared: when `src_name` names a REL (slice B — the emitted `__rel_<r>_sl`
+// source, resolved against the MacroParams rel registry), stamp its COLUMN
+// value-types into the flat dict AND bind (var, col) → tuple-component-index
+// entries so `emit_sexpr`/`infer_ty` emit the positional `var.k` access with
+// the right type. A non-rel source is a no-op (returns false). This is the
+// rel counterpart of `stamp_types_from_schema` — called right beside it at
+// every scan-source stamping site.
+pub fn stamp_rel_source(ty: &mut ElTypes, prm: &MacroParams,
+                        src_name: str, var_name: str) -> bool {
+    let ri: i64 = prm.rel_find_src(src_name);
+    if ri < 0i64 { return false; }
+    let off: i64 = prm.rel_coff[ri];
+    let nc: i64  = prm.rel_ccnt[ri];
+    if nc == 1i64 {
+        // 1-column rel: SCALAR rows (`Vec<i64>` etc. — no 1-tuple exists), so
+        // the column binds the WHOLE row (idx -1 → the codegen emits `(*var)`).
+        let cn0: str = prm.relc_name[off];
+        let ct0: i32 = el_ty_of_name(prm.relc_ty[off]);
+        ty.set_ty(cn0, ct0);
+        ty.rel_bind(var_name, cn0, -1i64, ct0);
+        return true;
+    }
+    let mut k: i64 = 0i64;
+    while k < nc {
+        let cn: str = prm.relc_name[off + k];
+        let ct: i32 = el_ty_of_name(prm.relc_ty[off + k]);
+        ty.set_ty(cn, ct);
+        ty.rel_bind(var_name, cn, k, ct);
+        k = k + 1i64;
+    }
+    return true;
+}
 
 // Shared: seed the type dict with each SCALAR param's declared value-type off
 // the parsed `wql!(…)` list — the replacement for the retired `with` overlay.
@@ -602,6 +639,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
+    stamp_rel_source(&mut ty, prm, sc.src_name, sc.var_name);
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
@@ -735,10 +773,14 @@ fn emit_identity(scan_e: RExpr,
 // ══════════════════════════════════════════════════════════════════════════
 pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                       fn_name: str, params_text: str, prm: &MacroParams,
-                      result_ty: str, has_result_ty: bool, sel_mode: i32, h: &Writ) -> bool {
+                      result_ty: str, has_result_ty: bool, sel_mode: i32,
+                      prelude: str, h: &Writ) -> bool {
     // Phase-3 thin collapses (the root is always an RProj; peel it to reach the
     // scan for the signature). The single-row modes get their own thin forms:
-    // empty → constant None; identity → head-row borrow.
+    // empty → constant None; identity → head-row borrow. The THIN emitters do
+    // NOT take the rel prelude: an empty collapse never reads a rel, and the
+    // identity / head-row / find borrows are gated OFF rel sources upstream
+    // (the program walker diagnoses whole-row selects + `find` over a rel).
     if empty || identity {
         match root {
             RExpr::Proj(p) => {
@@ -758,12 +800,13 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
             _ => { }
         }
     }
-    return emit_rexpr(root, fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, h);
+    return emit_rexpr(root, fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, prelude, h);
 }
 
 pub fn emit_rexpr(root: RExpr, fn_name: str,
                   params_text: str, prm: &MacroParams,
-                  result_ty: str, has_result_ty: bool, sel_mode: i32, h: &Writ) -> bool {
+                  result_ty: str, has_result_ty: bool, sel_mode: i32,
+                  prelude: str, h: &Writ) -> bool {
     // Peel the post-projection wrappers (RLimit over RDistinct — the lowering
     // order) and the RSort under the projection into the QMods envelope.
     let mut mods: QMods = qmods_none();
@@ -780,22 +823,22 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
             // the identity, so the emitter returns the row BORROW directly.
             if sel_mode == SELM_FIND() {
                 let pl: Peeled = peel_filter(body);
-                return emit_find(pl.inner, pl.pred, pl.has_pred, fn_name, params_text, prm, h);
+                return emit_find(pl.inner, pl.pred, pl.has_pred, fn_name, params_text, prm, prelude, h);
             }
             let first: bool = sel_mode == SELM_FIRST();
             match body {
                 RExpr::Join(jn) => { return emit_join_chain(jn.as_ref().view::<RExpr>(),
                                                       null_sref(), false, sel, mods,
-                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
+                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                 RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
                                                       null_sref(), false, sel, mods,
-                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
+                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                 RExpr::Aggr(ag) => {
                     if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                     let pl: Peeled = peel_filter(ag.input_expr());
                     return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
                                           null_sref(), false, sel, mods,
-                                          fn_name, params_text, prm, result_ty, has_result_ty, h);
+                                          fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
                 }
                 RExpr::Filter(f) => {
                     // RFilter over a join/anti (the `where` sits above the join), over
@@ -804,27 +847,27 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                     match f.input_expr() {
                         RExpr::Join(jn) => { return emit_join_chain(jn.as_ref().view::<RExpr>(),
                                                               f.pred, true, sel, mods,
-                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
+                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                         RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
                                                               f.pred, true, sel, mods,
-                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, h); }
+                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                         RExpr::Aggr(ag) => {
                             if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                             let pl: Peeled = peel_filter(ag.input_expr());
                             return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
                                                   f.pred, true, sel, mods,
-                                                  fn_name, params_text, prm, result_ty, has_result_ty, h);
+                                                  fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
                         }
                         _ => {
                             return emit_simple(f.input_expr(), f.pred, true, sel, mods,
-                                               fn_name, params_text, prm, result_ty, has_result_ty, first, h);
+                                               fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h);
                         }
                     }
                 }
                 _ => {
                     // Bare RScan — simple, no `where`.
                     return emit_simple(body, null_sref(), false, sel, mods,
-                                       fn_name, params_text, prm, result_ty, has_result_ty, first, h);
+                                       fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h);
                 }
             }
         }
@@ -864,7 +907,8 @@ fn scan_of(e: RExpr) -> RScan {
 fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                mods: QMods,
                fn_name: str, params_text: str, prm: &MacroParams,
-               result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
+               result_ty0: str, has_result_ty: bool, first: bool,
+               prelude: str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -873,6 +917,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
+    stamp_rel_source(&mut ty, prm, src_name, var_name);
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
@@ -941,10 +986,12 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         em.push_text(") -> Option<");
         em.push_text(result_elem);
         em.push_text("> {\n");
+        em.push_text(prelude);
     } else {
         em.push_text(") -> Vec<");
         em.push_text(result_elem);
         em.push_text("> {\n");
+        em.push_text(prelude);
         em.push_text("    let mut __out: Vec<");
         em.push_text(result_elem);
         em.push_text("> = Vec::<");
@@ -1076,7 +1123,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 // matches. Early-exit loop — no Vec, no materialization. Scalar params from the
 // wql!(…) list may be referenced BARE in the predicate (typed off the list).
 fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
-             fn_name: str, params_text: str, prm: &MacroParams, h: &Writ) -> bool {
+             fn_name: str, params_text: str, prm: &MacroParams,
+             prelude: str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -1085,6 +1133,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
+    stamp_rel_source(&mut ty, prm, src_name, var_name);
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
@@ -1103,6 +1152,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     em.push_text(") -> Option<&");
     em.push_text(row_ty);
     em.push_text("> {\n");
+    em.push_text(prelude);
     em.push_text("    let mut __i: i64 = 0i64;\n");
     em.push_text("    while __i < (");
     em.push_text(src_name);
@@ -1934,18 +1984,23 @@ fn emit_step_close(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
 fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
                    fn_name: str, params_text: str, prm: &MacroParams,
-                   result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
+                   result_ty0: str, has_result_ty: bool, first: bool,
+                   prelude: str, h: &Writ) -> bool {
     // 1. Linearize the left-deep tree into base + steps.
     let mut ch: JChain = jchain_new();
     collect_chain(body, &mut ch);
 
     // 2. Type dict: EVERY bound source's row schema + the scalar params.
+    // Rel-sourced scans (slice B) stamp their COLUMN types + the positional
+    // (var, col) → tuple-index bindings instead of a schema reflection.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
@@ -2058,10 +2113,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         em.push_text(") -> Option<");
         em.push_text(result_ty);
         em.push_text("> {\n");
+        em.push_text(prelude);
     } else {
         em.push_text(") -> Vec<");
         em.push_text(result_ty);
         em.push_text("> {\n");
+        em.push_text(prelude);
         em.push_text("    let mut __out: Vec<");
         em.push_text(result_ty);
         em.push_text("> = Vec::<");
@@ -2254,7 +2311,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
                   fn_name: str, params_text: str, prm: &MacroParams,
-                  result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
+                  result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
     // Decompose the input: a bare scan keeps the classic two-pass shape below;
     // a join chain (≥ 1 step) takes the joined-stream fold.
     let mut ch: JChain = jchain_new();
@@ -2262,7 +2319,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     if ch.n > 0i64 {
         return emit_aggregate_join(&ch, key_ref, aggs, where_ref, has_where,
                                    having_ref, has_having, sel, mods,
-                                   fn_name, params_text, prm, result_ty0, has_result_ty, h);
+                                   fn_name, params_text, prm, result_ty0, has_result_ty, prelude, h);
     }
     let a_name: str = ch.base_src;
     let a_ty: str   = ch.base_ty;
@@ -2273,6 +2330,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, a_ty);
+    stamp_rel_source(&mut ty, prm, a_name, x_var);
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
@@ -2360,6 +2418,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text(") -> Vec<");
     em.push_text(result_ty);
     em.push_text("> {\n");
+    em.push_text(prelude);
     em.push_text("    let mut __out: Vec<");
     em.push_text(result_ty);
     em.push_text("> = Vec::<");
@@ -2931,16 +2990,18 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
                        having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                        mods: QMods,
                        fn_name: str, params_text: str, prm: &MacroParams,
-                       result_ty0: str, has_result_ty: bool, h: &Writ) -> bool {
+                       result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
     let acount: i64 = aggs.len();
 
     // Types: every bound source's row schema + scalar params + key/outputs.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
@@ -3048,6 +3109,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text(") -> Vec<");
     em.push_text(result_ty);
     em.push_text("> {\n");
+    em.push_text(prelude);
     em.push_text("    let mut __out: Vec<");
     em.push_text(result_ty);
     em.push_text("> = Vec::<");
@@ -3354,6 +3416,475 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("    }\n");
     em.push_text("    return __out;\n");
     em.push_text("}\n");
+    em.commit();
+    return true;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PART 3 — REL blocks (slice B): named derived relations, NON-recursive.
+//
+// Each `rel NAME(cols){bodies}` materializes as ONE emitted helper fn
+//
+//   fn __wql_<query>_rel_<NAME>(<wql! params verbatim>
+//                               [, __rel_<earlier>_sl: &[RowTy]]*) -> Vec<RowTy>
+//
+// with SET semantics: dedup on insert by structural equality — currently a
+// LINEAR SCAN of the rel Vec (see emit_rel_push: the intended HashSet<RowTy>
+// shadow set is blocked by a compiler miscompile around tuple-keyed hash
+// containers; the per-arity tuple Hash impls in logos.lang.hash are the
+// groundwork slice C's O(1) membership needs). Bodies run through
+// the EXISTING scan / join-chain machinery (strategy cascade included); their
+// projection PUSHES into the rel Vec instead of returning. Earlier rels are
+// passed in as slices (declaration-order scoping — the walker enforces it),
+// so a rel body scans them exactly like a slice param. The ENTRY fn's prelude
+// (built by the walker) calls the helpers in declaration order and takes an
+// `as_slice()` view per rel; entry scans then reference `__rel_<NAME>_sl`.
+// Each body's loop nest is wrapped in its own `{ … }` block so per-step
+// generated names (`__hm1`, `__j1`, …) cannot collide across bodies.
+// ══════════════════════════════════════════════════════════════════════════
+
+// Build a JChain directly from an RQJoin PLAN node (the rel bodies skip the
+// RExpr lowering — they are restricted to scan/join+where+select, so the plan
+// node IS the chain description; row types were stamped by the walker).
+fn jchain_from_plan(j: RQJoin, ch: &mut JChain) {
+    ch.base_src = j.a_name;
+    ch.base_ty  = j.a_ty;
+    ch.base_var = j.x_var;
+    let steps: RQJoinStepArr = j.steps_arr();
+    let ns: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < ns {
+        let st: RQJoinStep = steps.step_at(i);
+        if ch.n < 8i64 {
+            ch.src[ch.n]  = st.src_name;
+            ch.ty[ch.n]   = st.row_ty;
+            ch.var[ch.n]  = st.var_name;
+            ch.anti[ch.n] = st.is_anti;
+            ch.onw[ch.n]  = st.on.any().raw();
+            ch.n = ch.n + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+// Is `name` one of the body's bound row vars?
+fn is_bound_var(name: str, vars: &[str; 9], nvars: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < nvars {
+        if str_eq(vars[i], name) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// Validate a rel body's SELECT against the declared columns (rel `ri` in the
+// registry): width (tuple of exactly ncols / single expr for a 1-column rel),
+// per-component TYPE equality with the declared column type, no whole-row
+// (bare row-var) components, no owned-String components (a str column stores
+// a borrowed view; the call's String temporary would dangle). Errors are
+// NAMED per rel/column. Returns false with the error surfaced.
+fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes,
+                 vars: &[str; 9], nvars: i64) -> bool {
+    let rel_name: str = prm.rel_names[ri];
+    let nc: i64  = prm.rel_ccnt[ri];
+    let off: i64 = prm.rel_coff[ri];
+    if nc >= 2i64 {
+        match proj {
+            SExpr::Tuple(tp) => {
+                let items: SExprArr = tp.items_arr();
+                if items.len() != nc {
+                    let mut m: String = String::new();
+                    m.push_str("wql!: rel '");
+                    m.push_str(rel_name);
+                    m.push_str("': select tuple width ");
+                    m.push_i64(items.len());
+                    m.push_str(" does not match the declared column count ");
+                    m.push_i64(nc);
+                    error(string_as_str(&m));
+                    return false;
+                }
+                let mut k: i64 = 0i64;
+                while k < nc {
+                    let comp: SExpr = items.arg_at(k);
+                    if !rel_select_comp_ok(comp, rel_name, prm.relc_name[off + k],
+                                           prm.relc_ty[off + k], t, vars, nvars) { return false; }
+                    k = k + 1i64;
+                }
+            }
+            _ => {
+                let mut m2: String = String::new();
+                m2.push_str("wql!: rel '");
+                m2.push_str(rel_name);
+                m2.push_str("' declares ");
+                m2.push_i64(nc);
+                m2.push_str(" columns — the body select must be a tuple of exactly that many components");
+                error(string_as_str(&m2));
+                return false;
+            }
+        }
+        return true;
+    }
+    // 1-column rel: a single (non-tuple) expression.
+    if is_tuple_root(proj) {
+        let mut m3: String = String::new();
+        m3.push_str("wql!: rel '");
+        m3.push_str(rel_name);
+        m3.push_str("' declares 1 column — the body select must be a single expression (`(e)` is grouping, not a 1-tuple)");
+        error(string_as_str(&m3));
+        return false;
+    }
+    return rel_select_comp_ok(proj, rel_name, prm.relc_name[off],
+                              prm.relc_ty[off], t, vars, nvars);
+}
+
+// One select component vs its declared column: whole-row / String / type.
+fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
+                      t: &ElTypes, vars: &[str; 9], nvars: i64) -> bool {
+    let rn: str = root_ident_name(comp);
+    if rn.len() > 0i64 && is_bound_var(rn, vars, nvars) {
+        let mut m: String = String::new();
+        m.push_str("wql!: rel '");
+        m.push_str(rel_name);
+        m.push_str("': select projects the whole row var `");
+        m.push_str(rn);
+        m.push_str("` — project explicit columns/fields (e.g. `select (");
+        m.push_str(rn);
+        m.push_str(".a, ");
+        m.push_str(rn);
+        m.push_str(".b)`)");
+        error(string_as_str(&m));
+        return false;
+    }
+    if returns_string(comp, t) {
+        let mut m1: String = String::new();
+        m1.push_str("wql!: rel '");
+        m1.push_str(rel_name);
+        m1.push_str("' column '");
+        m1.push_str(col_name);
+        m1.push_str("': an owned-String-returning expression cannot feed a rel column (str columns store borrowed views)");
+        error(string_as_str(&m1));
+        return false;
+    }
+    let got: i32  = infer_ty(comp, t);
+    let want: i32 = el_ty_of_name(col_ty);
+    if got != want {
+        let mut m2: String = String::new();
+        m2.push_str("wql!: rel '");
+        m2.push_str(rel_name);
+        m2.push_str("' column '");
+        m2.push_str(col_name);
+        m2.push_str("': select component has type ");
+        m2.push_str(el_ty_name(got));
+        m2.push_str(", declared ");
+        m2.push_str(col_ty);
+        error(string_as_str(&m2));
+        return false;
+    }
+    return true;
+}
+
+// The set-dedup push (Datalog SET semantics): bind the projected row, LINEAR-
+// SCAN the rel Vec for a structural-equality duplicate (tuple `==` routes
+// through the variadic tuple Eq; str/bool/i64 compare natively), push only
+// when new — O(n) per insert, the same mechanism the `distinct` modifier uses.
+//
+// KNOWN DEBT (slice C blocker): the intended sink is a HashSet<Row> SHADOW SET
+// (O(1) membership — what the semi-naïve fixpoint needs). The per-arity tuple
+// Hash impls LANDED (logos.lang.hash) and dedup semantics verify in isolation,
+// but instantiating a TUPLE-KEYED hash container inside a fn currently
+// MISCOMPILES that fn's if-statements (branch stores lost / conditions
+// mis-evaluating true→false / a segfault with a *mut HashSet<(i64,i64)> param
+// — all probe-verified). Until that compiler codegen bug is fixed, generated
+// rel code must not instantiate tuple-keyed hash containers.
+fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
+    push_ind(em, lvl);
+    em.push_text("let __rv: ");
+    em.push_text(row_ty);
+    em.push_text(" = (");
+    em.push_text(proj);
+    em.push_text(");\n");
+    push_ind(em, lvl);
+    em.push_text("let mut __dup: bool = false;\n");
+    push_ind(em, lvl);
+    em.push_text("let mut __d: i64 = 0i64;\n");
+    // The probed row BINDS to a local before the compare: an ALL-PRIMITIVE
+    // tuple `==` with a call-result temp operand (`__out.get(__d) == __rv`)
+    // hits an mlir-gen fast-path bug (GEP on a tuple VALUE — verify failure);
+    // comparing two locals is sound. Rel rows are Copy (scalars/tuples of
+    // i64/str/bool), so the bind is a plain copy.
+    push_ind(em, lvl);
+    em.push_text("while __d < __out.len() { let __cur: ");
+    em.push_text(row_ty);
+    em.push_text(" = __out.get(__d); if __cur == __rv { __dup = true; } __d = __d + 1i64; }\n");
+    push_ind(em, lvl);
+    em.push_text("if !__dup { __out.push(__rv); }\n");
+}
+
+// One SIMPLE rel body: scan + optional where + dedup-push projection.
+fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
+                        prm: &MacroParams, h: &Writ) -> bool {
+    let mut ty: ElTypes = el_types_new();
+    let view: OView = oview_module_ast();
+    stamp_types_from_schema(&view, &mut ty, s.row_ty);
+    stamp_rel_source(&mut ty, prm, s.src_name, s.var_name);
+    apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
+
+    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    vars[0] = s.var_name;
+
+    let proj_opt: SExpr = simplify_sexpr(s.select_expr(), h).any().view::<SExpr>();
+    if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
+    if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, 1i64) { return false; }
+    let mut proj_body: String = String::new();
+    emit_sexpr(&mut proj_body, proj_opt, &ty, s.var_name);
+
+    let mut pred_body: String = String::new();
+    if s.has_where {
+        let pe: SExpr = s.where_expr();
+        if !reject_tuple(pe, "wql!: rel `where`") { return false; }
+        if !check_calls(pe, &ty, "wql!: rel `where`") { return false; }
+        let pe_opt: SExpr = simplify_sexpr(pe, h).any().view::<SExpr>();
+        emit_sexpr(&mut pred_body, pe_opt, &ty, s.var_name);
+    }
+
+    em.push_text("    {\n");
+    em.push_text("        let mut __i: i64 = 0i64;\n");
+    em.push_text("        while __i < (");
+    em.push_text(s.src_name);
+    em.push_text(").len() {\n");
+    em.push_text("            let ");
+    em.push_text(s.var_name);
+    em.push_text(": &");
+    em.push_text(s.row_ty);
+    em.push_text(" = &(");
+    em.push_text(s.src_name);
+    em.push_text(")[__i];\n");
+    let mut lvl: i64 = 3i64;
+    if s.has_where {
+        push_ind(em, lvl);
+        em.push_text("if (");
+        em.push_text(string_as_str(&pred_body));
+        em.push_text(") {\n");
+        lvl = lvl + 1i64;
+    }
+    emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+    if s.has_where {
+        lvl = lvl - 1i64;
+        push_ind(em, lvl);
+        em.push_text("}\n");
+    }
+    em.push_text("            __i = __i + 1i64;\n");
+    em.push_text("        }\n");
+    em.push_text("    }\n");
+    return true;
+}
+
+// One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
+// strategy cascade — rel-sourced sides included) + optional where + dedup push.
+fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
+                      prm: &MacroParams, h: &Writ) -> bool {
+    let mut ch: JChain = jchain_new();
+    jchain_from_plan(j, &mut ch);
+
+    let mut ty: ElTypes = el_types_new();
+    let view: OView = oview_module_ast();
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
+    let mut si: i64 = 0i64;
+    while si < ch.n {
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        si = si + 1i64;
+    }
+    apply_scalar_params(&mut ty, prm);
+    stamp_udfs_from_module(&view, &mut ty);
+
+    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    vars[0] = ch.base_var;
+    let mut nv: i64 = 1i64;
+    let mut vi: i64 = 0i64;
+    while vi < ch.n {
+        if nv < 9i64 { vars[nv] = ch.var[vi]; nv = nv + 1i64; }
+        vi = vi + 1i64;
+    }
+
+    // Clause validation (select / where / per-step on).
+    let proj_opt: SExpr = simplify_sexpr(j.select_expr(), h).any().view::<SExpr>();
+    if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
+    if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, nv) { return false; }
+    let mut proj_body: String = String::new();
+    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+    let mut where_body: String = String::new();
+    if j.has_where {
+        let we: SExpr = j.where_expr();
+        if !reject_tuple(we, "wql!: rel `where`") { return false; }
+        if !check_calls(we, &ty, "wql!: rel `where`") { return false; }
+        let we_opt: SExpr = simplify_sexpr(we, h).any().view::<SExpr>();
+        emit_sexpr(&mut where_body, we_opt, &ty, ch.base_var);
+    }
+    let mut ci0: i64 = 0i64;
+    while ci0 < ch.n {
+        if ch.onw[ci0] != 0i64 {
+            let on_e: SExpr = sexpr_of_word(ch.onw[ci0]);
+            if !reject_tuple(on_e, "wql!: rel `on`") { return false; }
+            if !check_calls(on_e, &ty, "wql!: rel `on`") { return false; }
+        }
+        ci0 = ci0 + 1i64;
+    }
+
+    // Per-step strategy analysis (the same cascade as the query join shape).
+    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_strat:  [i32; 8]  = [0i32; 8];
+    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut st_hasres: [bool; 8] = [false; 8];
+    let mut st_equi:   [bool; 8] = [false; 8];
+    analyze_chain(&ch, &ty, ch.base_var, h,
+                  &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                  &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
+
+    // The body block: builds + nest + shared inner dedup-push.
+    em.push_text("    {\n");
+    let mut ci: i64 = 0i64;
+    while ci < ch.n {
+        emit_strategy_comment(em, ci + 1i64, st_strat[ci], ch.anti[ci],
+                              st_equi[ci], st_hasres[ci], st_ktn[ci]);
+        ci = ci + 1i64;
+    }
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        emit_build_phase(em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                         string_as_str(&st_build[bpi]));
+        bpi = bpi + 1i64;
+    }
+    let mut lvl: i64 = 2i64;
+    push_ind(em, lvl);
+    em.push_text("let mut __i0: i64 = 0i64;\n");
+    push_ind(em, lvl);
+    em.push_text("while __i0 < (");
+    em.push_text(ch.base_src);
+    em.push_text(").len() {\n");
+    lvl = lvl + 1i64;
+    push_ind(em, lvl);
+    em.push_text("let ");
+    em.push_text(ch.base_var);
+    em.push_text(": &");
+    em.push_text(ch.base_ty);
+    em.push_text(" = &(");
+    em.push_text(ch.base_src);
+    em.push_text(")[__i0];\n");
+    let mut opens: [i64; 8] = [0i64; 8];
+    let mut oi: i64 = 0i64;
+    while oi < ch.n {
+        opens[oi] = emit_step_open(em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
+                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
+                                   ch.var[oi], string_as_str(&st_probe[oi]),
+                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
+                                   "");
+        lvl = lvl + opens[oi];
+        oi = oi + 1i64;
+    }
+    if j.has_where {
+        push_ind(em, lvl);
+        em.push_text("if (");
+        em.push_text(string_as_str(&where_body));
+        em.push_text(") {\n");
+        lvl = lvl + 1i64;
+    }
+    emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+    if j.has_where {
+        lvl = lvl - 1i64;
+        push_ind(em, lvl);
+        em.push_text("}\n");
+    }
+    let mut ki: i64 = ch.n - 1i64;
+    while ki >= 0i64 {
+        let closed: i64 = emit_step_close(em, lvl, ki + 1i64, st_strat[ki],
+                                          ch.anti[ki], st_hasres[ki]);
+        lvl = lvl - closed;
+        ki = ki - 1i64;
+    }
+    push_ind(em, lvl);
+    em.push_text("__i0 = __i0 + 1i64;\n");
+    lvl = lvl - 1i64;
+    push_ind(em, lvl);
+    em.push_text("}\n");
+    em.push_text("    }\n");
+    return true;
+}
+
+// Emit ONE helper fn per rel (declaration order), all in one chunk. The walker
+// has already: validated columns (i64/str/bool), rejected disallowed body
+// shapes/modifiers, resolved + REWRITTEN every body source (slice params keep
+// their name; rels rewrite to `__rel_<r>_sl` with the tuple row type), and
+// enforced declaration-order scoping. `fn_name` is the entry resource name —
+// it prefixes the helper names so multiple wql! resources per module coexist.
+pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
+                    prm: &MacroParams, h: &Writ) -> bool {
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    begin_chunk(&mut em, &view);
+    let n: i64 = rels.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let rel: RQRel = rels.rel_at(i);
+        let row_ty: str = prm.rel_rowty[i];
+        em.push_text("fn __wql_");
+        em.push_text(fn_name);
+        em.push_text("_rel_");
+        em.push_text(prm.rel_names[i]);
+        em.push_text("(");
+        em.push_text(params_text);
+        // Earlier rels ride in as slice params (declaration-order scoping).
+        let mut jj: i64 = 0i64;
+        while jj < i {
+            em.push_text(", ");
+            em.push_text(prm.rel_srcs[jj]);
+            em.push_text(": &[");
+            em.push_text(prm.rel_rowty[jj]);
+            em.push_text("]");
+            jj = jj + 1i64;
+        }
+        em.push_text(") -> Vec<");
+        em.push_text(row_ty);
+        em.push_text("> {\n");
+        em.push_text("    let mut __out: Vec<");
+        em.push_text(row_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(row_ty);
+        em.push_text(">::new();\n");
+        let bodies: RQBodyArr = rel.bodies_arr();
+        let nb: i64 = bodies.len();
+        let mut b: i64 = 0i64;
+        while b < nb {
+            let q: RQuery = bodies.body_any(b).view::<RQuery>();
+            match q {
+                RQuery::Simple(s) => {
+                    if !emit_rel_body_simple(&mut em, s, i, prm, h) { return false; }
+                }
+                RQuery::Join(jq) => {
+                    if !emit_rel_body_join(&mut em, jq, i, prm, h) { return false; }
+                }
+                _ => {
+                    // Unreachable — the walker rejects aggregate/find bodies.
+                    error("wql!: rel body must be a scan or join query (from/join/where/select)");
+                    return false;
+                }
+            }
+            b = b + 1i64;
+        }
+        em.push_text("    return __out;\n");
+        em.push_text("}\n");
+        i = i + 1i64;
+    }
     em.commit();
     return true;
 }

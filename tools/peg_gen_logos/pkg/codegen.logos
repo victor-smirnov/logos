@@ -1514,8 +1514,9 @@ fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     w.blank();
     w.line("// Keyword-delimited embed scan (the wql! surface): the embedded EL clause");
     w.line("// body ends at the next STRUCTURAL STOP — a top-level structural keyword, a");
-    w.line("// top-level result-type `:` (ternary `?:` balanced), or a top-level `,`/`)`");
-    w.line("// (an aggregate arg list). `(`/`[` nesting is tracked so punctuation/keywords");
+    w.line("// top-level result-type `:` (ternary `?:` balanced), a top-level `,`/`)`");
+    w.line("// (an aggregate arg list), or a top-level `;`/`}` (a rel-body terminator /");
+    w.line("// rel-block close). `(`/`[` nesting is tracked so punctuation/keywords");
     w.line("// INSIDE a call / comprehension are NOT stops. EOI is a valid stop (the last");
     w.line("// clause). Mirrors the hand QLexer's take_until_kw / take_until_colon /");
     w.line("// take_until_any3 / aggregate-arg depth-balancing, unified into one scan.");
@@ -1537,6 +1538,8 @@ fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("                else { return p; }                      // result-type colon");
     w.line("            }");
     w.line("            else if c == 44u8 { return p; }                         // , (arg sep)");
+    w.line("            else if c == 59u8 { return p; }                         // ; (rel-body terminator)");
+    w.line("            else if c == 125u8 { return p; }                        // } (rel-block close)");
     w.line("            else if embed_at_kw(src, p, len) { return p; }          // keyword stop");
     w.line("        }");
     w.line("        p = p + 1i64;");

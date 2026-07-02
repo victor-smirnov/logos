@@ -1,0 +1,41 @@
+// WQL REL BLOCKS — layered derivation (slice B): rel B reads rel A (an
+// EARLIER rel), the entry reads B. Also exercises the 1-COLUMN rel path: B's
+// rows are SCALAR i64 (Vec<i64>, no 1-tuple), its column access emits `(*s)`.
+//
+//   rel pairs(x, y)  ← projection over the slice param;
+//   rel bigy(p)      ← filtered projection over `pairs` (rel-sourced scan,
+//                      positional `t.x`/`t.y` → t.0/t.1);
+//   entry            ← ordered scan over `bigy` ((*s) access).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource layered = wql!(edges: &[Edge]) {
+    rel pairs(x: i64, y: i64) {
+        from edges e select (e.src, e.dst);
+    }
+    rel bigy(p: i64) {
+        from pairs t where t.x > 1 select t.y;
+    }
+    from bigy s select s.p order by s.p
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 4] = [
+        Edge { src: 1i64, dst: 10i64 },
+        Edge { src: 2i64, dst: 30i64 },
+        Edge { src: 3i64, dst: 20i64 },
+        Edge { src: 2i64, dst: 30i64 },   // duplicate pair — deduped in `pairs`
+    ];
+
+    // pairs = {(1,10),(2,30),(3,20)}; bigy = {30, 20}; ordered → [20, 30].
+    let out: Vec<i64> = layered(&edges[..]);
+    if out.len() != 2i64      { return 1i32; }
+    if out.get(0i64) != 20i64 { return 2i32; }
+    if out.get(1i64) != 30i64 { return 3i32; }
+    return 0i32;
+}

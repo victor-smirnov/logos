@@ -1,33 +1,44 @@
 // logos.std.wql.plan_walker — the WALKER ENTRY (ADR 0012 Phase 3 → Phase 2
-// consolidation): take an `RQuery` surface query-PLAN, stamp the generated-fn
-// name + the ROW TYPES (from the `wql!(<params>)` list), and route it through
-// the UNIFIED relational algebra.
+// consolidation): take the parsed wql! PROGRAM (`RQProgram` = zero or more
+// `rel` blocks + ONE entry query — slice B static Datalog), validate + stamp
+// it, and route the entry through the UNIFIED relational algebra.
 //
 // Phase 2 resolved the RQuery-vs-RExpr duplication: this module no longer emits
 // the loop nest per plan-shape. Instead `walk_query` LOWERS the surface plan to
 // a real `RExpr` algebra tree, runs the Phase-3 RELATIONAL peephole optimizer
 // over it, and walks that ONE tree — all via `rexpr_walk::lower_simplify_emit`.
-// The per-shape procedural emitters (`walk_simple`/`walk_join`/`walk_aggregate`)
-// are RETIRED — the algebra is the single executable representation
-// (RScan/RFilter/RProj/RJoin/RAnti/RAggr).
+//
+// ── REL BLOCKS (slice B — named derived relations, NON-recursive) ───────────
+// The program walker:
+//   • REGISTERS each rel (declaration order) in the MacroParams rel registry:
+//     name, the emitted source name `__rel_<name>_sl`, the native row type
+//     text (`(i64, str)` / scalar for 1 column), and the column name/type
+//     window. Column types are restricted to i64/str/bool — rels are SETS
+//     (structural-equality dedup on insert), and f64 kills Eq;
+//   • VALIDATES each body: Simple/Join shape only (aggregate/find → named
+//     error), no select-tail modifiers (first/distinct/order/limit/`: RTy` are
+//     entry-query concerns; distinct is implicit — set semantics), select
+//     width = the declared column count (tuple, or a single expr for 1 col);
+//   • RESOLVES + REWRITES every source: a slice param keeps its name; a rel
+//     reference rewrites `src_name` → `__rel_<r>_sl` + `row_ty` → the tuple
+//     text, recording an explicit DEPENDENCY EDGE (RelDeps — slice C's
+//     fixpoint reuses the edge list). Declaration-order scoping: a body may
+//     reference only PREVIOUSLY declared rels — self/forward/mutual reference
+//     is the named "recursive rel" diagnostic (recursion = the next slice);
+//   • GATES the borrow-outward forms OFF rel sources: `find` over a rel and a
+//     whole-rel-row `select` are compile errors (rels are fn-locals — a
+//     borrow of their rows cannot leave the generated fn);
+//   • EMITS one helper fn per rel (`rexpr_walk::emit_rel_fns`) + the entry-fn
+//     PRELUDE that materializes each rel in declaration order and takes an
+//     `as_slice()` view the entry scans reference.
 //
 // PARAMETERIZED surface (the trama! model): the handler passes the RAW
 // `wql!(…)` paren text (re-emitted VERBATIM as the generated fn signature) +
-// its parsed form (`MacroParams`). This module:
-//   • stamps `fn_name` (the `resource <name> =` binding) onto the plan root;
-//   • stamps `row_ty`/`a_ty`/`b_ty` from the SLICE params' element types —
-//     a `from`/`join` source ident MUST name a `&[RowTy]` param (error else);
-//   • threads the params through to the emitters (scalar-param typing +
-//     verbatim signature).
+// its parsed form (`MacroParams`). Row TYPES are stamped from the SLICE
+// params' element types; rel row types from the declared columns.
 //
-// Phase 3 (`optimize::simplify_rexpr`) rewrites the algebra BEFORE emission:
-// const-true `where` filters are DROPPED, const-false ones collapse the plan to
-// an empty-Vec return, and an identity `select v` over an unfiltered scan is
-// emitted as a borrowed `&[Row]` passthrough (the accessor collapse). Non-
-// optimized queries emit byte-for-byte as before (all wql! e2e behavior
-// unchanged; the optimizer preserves semantics exactly).
-//
-// SCHEMA MANDATE: consumes ONLY Writ schema views — `RQuery` / `RExpr`.
+// SCHEMA MANDATE: consumes ONLY Writ schema views — `RQProgram` / `RQuery` /
+// `RExpr`.
 package logos.std.wql.plan_walker;
 
 use logos.std.compiler.metaprog;  // error
@@ -35,28 +46,18 @@ use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.lang.writ.wmap;         // WSchemaH, WMap, Wu6 (name-stamp fat view)
 use logos.std.wql.ir;             // RExpr, WRef
-use logos.std.wql.plan;           // RQuery, RQSimple / RQJoin / RQAggr / RQFind
-use logos.std.wql.params;         // MacroParams — the parsed wql!(…) param list
-use logos.std.wql.rexpr_walk;     // lower_simplify_emit — lower → Phase-3 optimize → emit
-use logos.std.wql.codegen;        // string_as_str (dynamic error-message text)
+use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, RQSimple / RQJoin / RQAggr / RQFind
+use logos.std.wql.params;         // MacroParams — the parsed wql!(…) param list + rel registry
+use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
+use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.mem.string;
 use logos.lang.str;
 
-// ── The walker entry: RQuery plan → RExpr algebra → emitted native fn ─────────
-// LOWER the surface plan to the RExpr algebra, then emit off that one tree.
-// Returns false (+ surfaces an `error`) on a codegen-level diagnostic
-// (unknown source / unknown/wrong-arity builtin / bad aggregate); true on
-// success.
-pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams, h: &Writ) -> bool {
-    // Phase 2: LOWER the surface plan to the real RExpr algebra.
-    // Phase 3: run the RELATIONAL peephole pass (`simplify_rexpr`, inside
-    // `lower_simplify_emit`) — filter folding, identity-projection collapse,
-    // projection composition — over that tree BEFORE emission, then walk the
-    // (possibly thinner) form. The envelope (fn name / verbatim params /
-    // result-type override / single-row SELECT MODE) is read off the RQuery per
-    // shape and threaded through; the relational STRUCTURE + clause bodies live
-    // on the RExpr tree.
-    //
+// ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
+// `prelude` — statements spliced after the generated fn's opening brace (the
+// rel materialization lines; "" for a rel-less program).
+pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
+                  prelude: str, h: &Writ) -> bool {
     // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
     // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors
     // (and the aggregate shape rejects it outright — group-by emission is
@@ -69,7 +70,7 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams, h: &Writ) -
                 if s.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
-            return lower_simplify_emit(plan, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, h);
+            return lower_simplify_emit(plan, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h);
         }
         RQuery::Join(j) => {
             let mut mode: i32 = SELM_ALL();
@@ -78,16 +79,16 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams, h: &Writ) -
                 if j.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
-            return lower_simplify_emit(plan, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, h);
+            return lower_simplify_emit(plan, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h);
         }
         RQuery::Aggr(g) => {
             if g.sel_first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
-            return lower_simplify_emit(plan, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, SELM_ALL(), h);
+            return lower_simplify_emit(plan, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, SELM_ALL(), prelude, h);
         }
         RQuery::Find(f) => {
             // `find P` — no result-type / tail modifiers exist on this shape
             // (the grammar admits only the predicate).
-            return lower_simplify_emit(plan, f.fn_name, params_text, prm, "", false, SELM_FIND(), h);
+            return lower_simplify_emit(plan, f.fn_name, params_text, prm, "", false, SELM_FIND(), prelude, h);
         }
     }
 }
@@ -120,13 +121,45 @@ fn wrap_fat_step(node: WAny, h: &Writ) -> RQJoinStep {
     return unsafe { *(&hh as *const WSchemaH as *const RQJoinStep) };
 }
 
-// Resolve a `from`/`join` SOURCE ident against the wql!(…) param list: it MUST
-// name a SLICE param (`<src>: &[RowTy]`); the row type is the slice ELEMENT
-// type. Returns "" + surfaces an `error` (build failure) otherwise.
-fn source_row_ty(prm: &MacroParams, src: str) -> str {
+// ── RelDeps — the EXPLICIT rel dependency edge list ──────────────────────────
+// One edge per rel→rel source reference: `efrom[k]` (the referencing rel's
+// declaration index) → `eto[k]` (the referenced rel). Slice B only DIAGNOSES
+// off it (an edge with eto >= efrom = self/forward reference = recursion);
+// slice C's fixpoint consumes the same list to find the recursive strata.
+pub struct RelDeps {
+    pub efrom: [i64; 64],
+    pub eto:   [i64; 64],
+    pub n:     i64,
+}
+
+pub fn rel_deps_new() -> RelDeps {
+    return RelDeps { efrom: [0i64; 64], eto: [0i64; 64], n: 0i64 };
+}
+
+impl RelDeps {
+    pub fn add(self: &mut RelDeps, f: i64, t: i64) {
+        if self.n >= 64i64 { return; }
+        self.efrom[self.n] = f;
+        self.eto[self.n]   = t;
+        self.n = self.n + 1i64;
+    }
+}
+
+// ── Source resolution (slice params + rels, declaration-order scoping) ───────
+// `cur_rel` — the declaration index of the rel whose body is being resolved,
+// or -1 for the ENTRY query (which may reference every rel). A rel reference
+// records a dependency edge; a self/forward reference (eto >= efrom) is the
+// named recursion diagnostic.
+struct SrcRes { ok: bool, is_rel: bool, idx: i64, row_ty: str }
+
+fn src_fail() -> SrcRes { return SrcRes { ok: false, is_rel: false, idx: -1i64, row_ty: "" }; }
+
+fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps) -> SrcRes {
     let i: i64 = prm.index_of(src);
     if i >= 0i64 {
-        if prm.is_slice[i] { return prm.tys[i]; }
+        if prm.is_slice[i] {
+            return SrcRes { ok: true, is_rel: false, idx: i, row_ty: prm.tys[i] };
+        }
         let mut m1: String = String::new();
         m1.push_str("wql!: source `");
         m1.push_str(src);
@@ -134,23 +167,87 @@ fn source_row_ty(prm: &MacroParams, src: str) -> str {
         m1.push_str(src);
         m1.push_str(": &[RowTy]` in the wql!(…) parameter list");
         error(string_as_str(&m1));
-        return "";
+        return src_fail();
+    }
+    let ri: i64 = prm.rel_find_name(src);
+    if ri >= 0i64 {
+        if cur_rel >= 0i64 {
+            deps.add(cur_rel, ri);
+            if ri >= cur_rel {
+                let mut m2: String = String::new();
+                m2.push_str("wql!: recursive rel '");
+                m2.push_str(src);
+                m2.push_str("' — self/forward/mutual rel references are recursion, which lands in the next slice; a rel body may reference only PREVIOUSLY declared rels");
+                error(string_as_str(&m2));
+                return src_fail();
+            }
+        }
+        return SrcRes { ok: true, is_rel: true, idx: ri, row_ty: prm.rel_rowty[ri] };
     }
     let mut msg: String = String::new();
     msg.push_str("wql!: unknown source `");
     msg.push_str(src);
-    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the wql!(…) parameter list");
+    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the wql!(…) parameter list or a rel declared earlier in the block");
     error(string_as_str(&msg));
-    return "";
+    return src_fail();
 }
 
-// Stamp the row TYPES onto a join-step fan-out (each step's src must name a
-// slice param) and check ROW-VAR UNIQUENESS across the whole chain: the base
-// var + every step var must be pairwise distinct (each becomes a `let` binding
-// in one loop nest; anti vars included — they bind inside their own `on` scope
-// but share the generated-name space). Returns false with the error surfaced.
-fn stamp_join_steps(steps: RQJoinStepArr, base_var: str,
-                    prm: &MacroParams, h: &Writ) -> bool {
+// Resolve + REWRITE one scan source on a fat plan-node view: slice params keep
+// their name (row_ty stamped from the element type); rels rewrite src_name →
+// the emitted `__rel_<r>_sl` and row_ty → the tuple row type. On a rel hit the
+// bound VAR is appended to `relvars` (the whole-row/find gating set).
+// Returns the SrcRes (ok=false ⇒ error already surfaced).
+
+// ── Rel-body modifier gate ────────────────────────────────────────────────────
+// Bodies are RELATION PRODUCERS: from/join/where/select only. Every select-tail
+// modifier is an entry-query concern; `distinct` is additionally IMPLICIT
+// (set semantics dedup on insert).
+fn rel_body_mods_ok(rel_name: str, first: bool, distinct: bool,
+                    has_order: bool, has_limit: bool, has_resty: bool) -> bool {
+    if first {
+        let mut m: String = String::new();
+        m.push_str("wql!: rel '"); m.push_str(rel_name);
+        m.push_str("': `select first` is not allowed in a rel body — bodies produce relations (single-row modes are entry-query concerns)");
+        error(string_as_str(&m));
+        return false;
+    }
+    if distinct {
+        let mut m1: String = String::new();
+        m1.push_str("wql!: rel '"); m1.push_str(rel_name);
+        m1.push_str("': `distinct` is not allowed in a rel body — rels are SETS, deduplication is implicit");
+        error(string_as_str(&m1));
+        return false;
+    }
+    if has_order {
+        let mut m2: String = String::new();
+        m2.push_str("wql!: rel '"); m2.push_str(rel_name);
+        m2.push_str("': `order by` is not allowed in a rel body — rels are unordered sets (order in the entry query)");
+        error(string_as_str(&m2));
+        return false;
+    }
+    if has_limit {
+        let mut m3: String = String::new();
+        m3.push_str("wql!: rel '"); m3.push_str(rel_name);
+        m3.push_str("': `limit` is not allowed in a rel body (an entry-query concern)");
+        error(string_as_str(&m3));
+        return false;
+    }
+    if has_resty {
+        let mut m4: String = String::new();
+        m4.push_str("wql!: rel '"); m4.push_str(rel_name);
+        m4.push_str("': a `: ResultTy` annotation is not allowed in a rel body — the row type is the declared column list");
+        error(string_as_str(&m4));
+        return false;
+    }
+    return true;
+}
+
+// Resolve + rewrite a join-step fan-out (body OR entry: `cur_rel` = -1 for the
+// entry) and check ROW-VAR UNIQUENESS across the whole chain. Rel-sourced step
+// vars append to `relvars`.
+fn stamp_steps(steps: RQJoinStepArr, base_var: str, prm: &MacroParams,
+               cur_rel: i64, deps: &mut RelDeps,
+               relvars: &mut [str; 9], nrelv: &mut i64, h: &Writ) -> bool {
     let n: i64 = steps.len();
     let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
     vars[0] = base_var;
@@ -158,9 +255,13 @@ fn stamp_join_steps(steps: RQJoinStepArr, base_var: str,
     let mut i: i64 = 0i64;
     while i < n {
         let st: RQJoinStep = wrap_fat_step(steps.step_any(i), h);
-        let rt: str = source_row_ty(prm, st.src_name);
-        if rt.len() == 0i64 { return false; }
-        st.row_ty = rt;
+        let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
+        if !sr.ok { return false; }
+        if sr.is_rel {
+            st.src_name = prm.rel_srcs[sr.idx];
+            if *nrelv < 9i64 { relvars[*nrelv] = st.var_name; *nrelv = *nrelv + 1i64; }
+        }
+        st.row_ty = sr.row_ty;
         // Uniqueness against every var bound so far.
         let v: str = st.var_name;
         let mut k: i64 = 0i64;
@@ -181,51 +282,347 @@ fn stamp_join_steps(steps: RQJoinStepArr, base_var: str,
     return true;
 }
 
-// Stamp the generated-fn NAME + the source ROW TYPES onto the plan root, then
-// walk. The name comes from the enclosing `resource <name> = wql!(…){ … }`
-// binding; the row types come from the SLICE params (the grammar no longer
-// captures `:[Ty]`). Returns false (error already surfaced) when a source
-// ident does not name a slice param.
-pub fn walk_query_params(root: WAny, name: str, params_text: str,
-                         prm: &MacroParams, h: &Writ) -> bool {
-    if root.is_null() { error("wql!: empty query plan"); return false; }
-    let plan: RQuery = root.view::<RQuery>();
-    match plan {
+// ── Whole-rel-row select gate ────────────────────────────────────────────────
+// A rel row is a native tuple materialized in a fn-LOCAL Vec — projecting the
+// whole row var (bare ident at the select root or as a tuple component) has no
+// sound emission (identity would borrow a local out; a bare tuple var inside a
+// projection defeats the EL scalar lattice). Diagnosed here, which also gates
+// the identity/head-row thin collapses OFF rel sources (they only trigger on
+// bare-var selects).
+fn sel_whole_row_ok(sel: SExpr, relvars: &[str; 9], n: i64) -> bool {
+    if n == 0i64 { return true; }
+    let rn: str = root_ident_name(sel);
+    if rn.len() > 0i64 {
+        let mut i: i64 = 0i64;
+        while i < n {
+            if str_eq(relvars[i], rn) {
+                let mut m: String = String::new();
+                m.push_str("wql!: `select ");
+                m.push_str(rn);
+                m.push_str("` projects the whole rel row — a rel row cannot be borrowed or projected whole; select explicit columns (e.g. `select (");
+                m.push_str(rn);
+                m.push_str(".a, ");
+                m.push_str(rn);
+                m.push_str(".b)`)");
+                error(string_as_str(&m));
+                return false;
+            }
+            i = i + 1i64;
+        }
+    }
+    match sel {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut k: i64 = 0i64;
+            while k < items.len() {
+                if !sel_whole_row_ok(items.arg_at(k), relvars, n) { return false; }
+                k = k + 1i64;
+            }
+        }
+        _ => { }
+    }
+    return true;
+}
+
+// ── One rel body: shape + modifier gate + source resolution/rewrite ─────────
+fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
+                  prm: &MacroParams, deps: &mut RelDeps, h: &Writ) -> bool {
+    if body_any.is_null() {
+        error("wql!: empty rel body");
+        return false;
+    }
+    let q: RQuery = body_any.view::<RQuery>();
+    let mut relvars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut nrelv: i64 = 0i64;
+    match q {
         RQuery::Simple(_) => {
-            let s: RQSimple = wrap_fat_simple(root, h);
-            s.fn_name = name;
-            let rt: str = source_row_ty(prm, s.src_name);
-            if rt.len() == 0i64 { return false; }
-            s.row_ty = rt;
+            let s: RQSimple = wrap_fat_simple(body_any, h);
+            if !rel_body_mods_ok(rel_name, s.sel_first, s.distinct,
+                                 s.has_order, s.has_limit, s.has_result_ty) { return false; }
+            let sr: SrcRes = resolve_source(prm, s.src_name, cur_rel, deps);
+            if !sr.ok { return false; }
+            if sr.is_rel { s.src_name = prm.rel_srcs[sr.idx]; }
+            s.row_ty = sr.row_ty;
+            return true;
         }
         RQuery::Join(_) => {
-            let j: RQJoin = wrap_fat_join(root, h);
-            j.fn_name = name;
-            let at: str = source_row_ty(prm, j.a_name);
-            if at.len() == 0i64 { return false; }
-            j.a_ty = at;
-            // Stamp every step's row_ty + validate the var set (unique names,
-            // every step src a slice param).
-            if !stamp_join_steps(j.steps_arr(), j.x_var, prm, h) { return false; }
+            let j: RQJoin = wrap_fat_join(body_any, h);
+            if !rel_body_mods_ok(rel_name, j.sel_first, j.distinct,
+                                 j.has_order, j.has_limit, j.has_result_ty) { return false; }
+            let sr: SrcRes = resolve_source(prm, j.a_name, cur_rel, deps);
+            if !sr.ok { return false; }
+            if sr.is_rel { j.a_name = prm.rel_srcs[sr.idx]; }
+            j.a_ty = sr.row_ty;
+            return stamp_steps(j.steps_arr(), j.x_var, prm, cur_rel, deps,
+                               &mut relvars, &mut nrelv, h);
         }
         RQuery::Aggr(_) => {
-            let g: RQAggr = wrap_fat_aggr(root, h);
+            let mut m: String = String::new();
+            m.push_str("wql!: rel '");
+            m.push_str(rel_name);
+            m.push_str("': aggregate bodies are not allowed — a rel body is a relation producer (from/join/where/select only)");
+            error(string_as_str(&m));
+            return false;
+        }
+        RQuery::Find(_) => {
+            let mut m1: String = String::new();
+            m1.push_str("wql!: rel '");
+            m1.push_str(rel_name);
+            m1.push_str("': `find` is not allowed in a rel body — bodies produce relations (from/join/where/select only)");
+            error(string_as_str(&m1));
+            return false;
+        }
+    }
+}
+
+// Is `t` a supported rel column type? Rels are SETS — dedup by structural
+// equality — so columns must be Hash+Eq: i64 / str / bool. f64 gets its OWN
+// named diagnostic (the Eq loss is the reason, worth spelling).
+fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
+    if str_eq(t, "i64") || str_eq(t, "str") || str_eq(t, "bool") { return true; }
+    if str_eq(t, "f64") || str_eq(t, "f32") {
+        let mut m: String = String::new();
+        m.push_str("wql!: rel column '");
+        m.push_str(col_name);
+        m.push_str("': f64 columns are not allowed (set semantics require Eq)");
+        error(string_as_str(&m));
+        return false;
+    }
+    let mut m1: String = String::new();
+    m1.push_str("wql!: rel '");
+    m1.push_str(rel_name);
+    m1.push_str("' column '");
+    m1.push_str(col_name);
+    m1.push_str("': unsupported column type `");
+    m1.push_str(t);
+    m1.push_str("` — rel columns are i64 / str / bool");
+    error(string_as_str(&m1));
+    return false;
+}
+
+// ── The PROGRAM walker entry ─────────────────────────────────────────────────
+// `root` is the RQProgram envelope the generated parser export returns. The
+// String buffers backing the rel registry (emitted source names + row-type
+// texts) and the prelude live in THIS frame — everything downstream is called
+// from here, so the borrowed `str` views stay valid for the whole walk.
+pub fn walk_program_params(root: WAny, name: str, params_text: str,
+                           prm: &mut MacroParams, h: &Writ) -> bool {
+    if root.is_null() { error("wql!: empty query plan"); return false; }
+    let prog: RQProgram = root.view::<RQProgram>();
+    let mut deps: RelDeps = rel_deps_new();
+    let mut src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut row_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+
+    if prog.has_rels() {
+        let rels: RQRelArr = prog.rels_arr();
+        let nr: i64 = rels.len();
+        // ── Pass 1: register every rel (names, columns, row types) ──────────
+        let mut i: i64 = 0i64;
+        while i < nr {
+            let rel: RQRel = rels.rel_at(i);
+            let rname: str = rel.name;
+            if prm.index_of(rname) >= 0i64 {
+                let mut m: String = String::new();
+                m.push_str("wql!: rel '");
+                m.push_str(rname);
+                m.push_str("' collides with a wql! parameter of the same name");
+                error(string_as_str(&m));
+                return false;
+            }
+            if prm.rel_find_name(rname) >= 0i64 {
+                let mut m1: String = String::new();
+                m1.push_str("wql!: duplicate rel name '");
+                m1.push_str(rname);
+                m1.push_str("'");
+                error(string_as_str(&m1));
+                return false;
+            }
+            let cols: RQRelColArr = rel.cols_arr();
+            let nc: i64 = cols.len();
+            if nc < 1i64 { error("wql!: a rel needs at least one column"); return false; }
+            // Validate columns (type whitelist + per-rel name uniqueness).
+            let mut k: i64 = 0i64;
+            while k < nc {
+                let c: RQRelCol = cols.col_at(k);
+                if !rel_col_ty_ok(rname, c.name, c.ty_name) { return false; }
+                let mut k2: i64 = 0i64;
+                while k2 < k {
+                    if str_eq(cols.col_at(k2).name, c.name) {
+                        let mut m2: String = String::new();
+                        m2.push_str("wql!: rel '");
+                        m2.push_str(rname);
+                        m2.push_str("': duplicate column name '");
+                        m2.push_str(c.name);
+                        m2.push_str("'");
+                        error(string_as_str(&m2));
+                        return false;
+                    }
+                    k2 = k2 + 1i64;
+                }
+                k = k + 1i64;
+            }
+            // Emitted source name + native row type text (frame-held Strings
+            // back the registry's borrowed views).
+            src_bufs[i].push_str("__rel_");
+            src_bufs[i].push_str(rname);
+            src_bufs[i].push_str("_sl");
+            if nc == 1i64 {
+                row_bufs[i].push_str(cols.col_at(0i64).ty_name);
+            } else {
+                row_bufs[i].push_str("(");
+                let mut k3: i64 = 0i64;
+                while k3 < nc {
+                    if k3 > 0i64 { row_bufs[i].push_str(", "); }
+                    row_bufs[i].push_str(cols.col_at(k3).ty_name);
+                    k3 = k3 + 1i64;
+                }
+                row_bufs[i].push_str(")");
+            }
+            let idx: i64 = prm.rel_add(rname, string_as_str(&src_bufs[i]),
+                                       string_as_str(&row_bufs[i]));
+            if idx < 0i64 { error("wql!: too many rel blocks (max 8)"); return false; }
+            let mut k4: i64 = 0i64;
+            while k4 < nc {
+                let c4: RQRelCol = cols.col_at(k4);
+                prm.rel_add_col(c4.name, c4.ty_name);
+                k4 = k4 + 1i64;
+            }
+            i = i + 1i64;
+        }
+        // ── Pass 2: validate + resolve + rewrite every body ─────────────────
+        // (The registry is complete, so forward references RESOLVE — and then
+        // diagnose as recursion via the index compare. Dep edges recorded.)
+        let mut i2: i64 = 0i64;
+        while i2 < nr {
+            let rel2: RQRel = rels.rel_at(i2);
+            let bodies: RQBodyArr = rel2.bodies_arr();
+            let nb: i64 = bodies.len();
+            if nb < 1i64 { error("wql!: a rel needs at least one body"); return false; }
+            let mut b: i64 = 0i64;
+            while b < nb {
+                if !check_rel_body(bodies.body_any(b), rel2.name, i2, prm, &mut deps, h) {
+                    return false;
+                }
+                b = b + 1i64;
+            }
+            i2 = i2 + 1i64;
+        }
+    }
+
+    // ── The ENTRY query: stamp fn name + resolve/rewrite sources ────────────
+    let entry_any: WAny = prog.entry_any();
+    if entry_any.is_null() { error("wql!: missing entry query"); return false; }
+    let eplan: RQuery = entry_any.view::<RQuery>();
+    let mut relvars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut nrelv: i64 = 0i64;
+    match eplan {
+        RQuery::Simple(_) => {
+            let s: RQSimple = wrap_fat_simple(entry_any, h);
+            s.fn_name = name;
+            let sr: SrcRes = resolve_source(prm, s.src_name, -1i64, &mut deps);
+            if !sr.ok { return false; }
+            if sr.is_rel {
+                s.src_name = prm.rel_srcs[sr.idx];
+                relvars[0] = s.var_name;
+                nrelv = 1i64;
+            }
+            s.row_ty = sr.row_ty;
+            if !sel_whole_row_ok(s.select_expr(), &relvars, nrelv) { return false; }
+        }
+        RQuery::Join(_) => {
+            let j: RQJoin = wrap_fat_join(entry_any, h);
+            j.fn_name = name;
+            let sr2: SrcRes = resolve_source(prm, j.a_name, -1i64, &mut deps);
+            if !sr2.ok { return false; }
+            if sr2.is_rel {
+                j.a_name = prm.rel_srcs[sr2.idx];
+                relvars[0] = j.x_var;
+                nrelv = 1i64;
+            }
+            j.a_ty = sr2.row_ty;
+            if !stamp_steps(j.steps_arr(), j.x_var, prm, -1i64, &mut deps,
+                            &mut relvars, &mut nrelv, h) { return false; }
+            if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
+        }
+        RQuery::Aggr(_) => {
+            let g: RQAggr = wrap_fat_aggr(entry_any, h);
             g.fn_name = name;
-            let at2: str = source_row_ty(prm, g.a_name);
-            if at2.len() == 0i64 { return false; }
-            g.a_ty = at2;
+            let sr3: SrcRes = resolve_source(prm, g.a_name, -1i64, &mut deps);
+            if !sr3.ok { return false; }
+            if sr3.is_rel {
+                g.a_name = prm.rel_srcs[sr3.idx];
+                relvars[0] = g.x_var;
+                nrelv = 1i64;
+            }
+            g.a_ty = sr3.row_ty;
             // Optional join steps — the aggregate over a JOINED stream.
             if g.has_steps() {
-                if !stamp_join_steps(g.steps_arr(), g.x_var, prm, h) { return false; }
+                if !stamp_steps(g.steps_arr(), g.x_var, prm, -1i64, &mut deps,
+                                &mut relvars, &mut nrelv, h) { return false; }
             }
         }
         RQuery::Find(_) => {
-            let f: RQFind = wrap_fat_find(root, h);
+            let f: RQFind = wrap_fat_find(entry_any, h);
             f.fn_name = name;
-            let rt2: str = source_row_ty(prm, f.src_name);
-            if rt2.len() == 0i64 { return false; }
-            f.row_ty = rt2;
+            let sr4: SrcRes = resolve_source(prm, f.src_name, -1i64, &mut deps);
+            if !sr4.ok { return false; }
+            if sr4.is_rel {
+                // `find` returns Option<&Row> — a borrow of a fn-LOCAL rel row
+                // would dangle at return. Gated with a diagnostic (the
+                // by-value alternative is `select first (…columns…)`).
+                let mut m: String = String::new();
+                m.push_str("wql!: `find` over rel '");
+                m.push_str(f.src_name);
+                m.push_str("' is not supported — rels are locals of the generated fn, so borrowing a row out is unsound; use `select first (…columns…)` instead");
+                error(string_as_str(&m));
+                return false;
+            }
+            f.row_ty = sr4.row_ty;
         }
     }
-    return walk_query(root.view::<RQuery>(), params_text, prm, h);
+
+    // ── Emit the rel helper fns + build the entry prelude ───────────────────
+    let mut prelude: String = String::new();
+    if prm.rel_n > 0i64 {
+        if !emit_rel_fns(prog.rels_arr(), name, params_text, prm, h) { return false; }
+        let mut r: i64 = 0i64;
+        while r < prm.rel_n {
+            // let __rel_<r>: Vec<Row> = __wql_<fn>_rel_<r>(<params>[, earlier slices]);
+            prelude.push_str("    let __rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(": Vec<");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str("> = __wql_");
+            prelude.push_str(name);
+            prelude.push_str("_rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str("(");
+            let mut a: i64 = 0i64;
+            while a < prm.n {
+                if a > 0i64 { prelude.push_str(", "); }
+                prelude.push_str(prm.names[a]);
+                a = a + 1i64;
+            }
+            let mut e2: i64 = 0i64;
+            while e2 < r {
+                prelude.push_str(", ");
+                prelude.push_str(prm.rel_srcs[e2]);
+                e2 = e2 + 1i64;
+            }
+            prelude.push_str(");\n");
+            // let __rel_<r>_sl: &[Row] = __rel_<r>.as_slice();
+            prelude.push_str("    let ");
+            prelude.push_str(prm.rel_srcs[r]);
+            prelude.push_str(": &[");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str("] = __rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(".as_slice();\n");
+            r = r + 1i64;
+        }
+    }
+    return walk_query(entry_any.view::<RQuery>(), params_text, prm,
+                      string_as_str(&prelude), h);
 }

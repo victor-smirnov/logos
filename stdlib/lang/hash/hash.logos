@@ -89,6 +89,53 @@ impl Hash for bool {
 impl Hash for usize {
     fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
 }
+// Tuple Hash — per-arity generic impls (arities 2..8), Rust-parity: hash each
+// component in order (no length prefix — the arity is part of the type). The
+// per-arity form is the pattern tuple Eq used before its variadic rewrite; a
+// variadic `impl<A...: Hash> Hash for (A...)` needs a new mono intrinsic
+// (`__tuple_each_hash__`, complicated by the method-level `H: Hasher` type
+// param) — tracked for when >8-ary tuple keys matter. 8 covers the WQL rel
+// column fan-out (RQRELCOL_MAX) and the common compound-key range.
+impl<A: Hash, B: Hash> Hash for (A, B) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash> Hash for (A, B, C) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash> Hash for (A, B, C, D) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash> Hash for (A, B, C, D, E) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash> Hash for (A, B, C, D, E, F) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash> Hash for (A, B, C, D, E, F, G) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state); self.6.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash> Hash for (A, B, C, D, E, F, G, I) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state); self.6.hash(state); self.7.hash(state);
+    }
+}
+
 // `str` hashes by CONTENT (Rust parity: `Hash for str` hashes the bytes + a
 // length terminator). The Hasher trait has no byte-stream writer yet, so the
 // bytes are pre-mixed with FNV-1a and fed as one u64, followed by the length

@@ -1,7 +1,9 @@
 // WQL SURFACE-parser smoke (ADR 0012 Phase 2): parse a sample `wql!` query
-// through the peg-GENERATED surface parser (`wql_surface_parser::parse_query`)
-// and assert it produced the correct RQuery plan — the schema-enum family the
-// walker-emitter consumes.
+// through the peg-GENERATED surface parser (`wql_surface_parser::parse_program`
+// → the RQProgram envelope; slice B) and assert the ENTRY is the correct
+// RQuery plan — the schema-enum family the walker-emitter consumes. The local
+// `parse_entry` helper unwraps the envelope (these samples declare no rels, so
+// the rels edge is NULL).
 //
 // PARAMETERIZED surface: sources are named by their `wql!(…)` slice-param name
 // (`from people p` — no inline `:[Ty]`; the handler stamps row types AFTER the
@@ -28,14 +30,29 @@ use logos.lang.writ.wmap;
 use logos.lang.str;
 use logos.std.wql.ir;
 use logos.std.wql.plan;
-use logos.std.wql.wql_surface_parser;   // parse_query — the GENERATED surface parser
+use logos.std.wql.wql_surface_parser;   // parse_program — the GENERATED surface parser
+
+// Parse + unwrap the RQProgram envelope: the ENTRY query node (a null WAny on
+// a parse failure — also asserts the rels edge is NULL for these rel-less
+// samples, exercising `has_rels` on the envelope).
+fn parse_entry(src: str, h: &Writ) -> WAny {
+    let root: WAny = parse_program(src, h);
+    if root.is_null() { return WAny::Ref(0i64 as *const u8); }
+    let prog: RQProgram = root.view::<RQProgram>();
+    if prog.has_rels() { return WAny::Ref(0i64 as *const u8); }
+    // Launder through the raw arena word (the ref_to(raw) idiom): the WAny
+    // targets the entry's TOM in the arena (outlives this frame), not the
+    // local view — keeps the borrow checker off the local `prog`.
+    let w: i64 = prog.entry_any().raw();
+    return WAny::ref_to(w as *const u8);
+}
 
 fn main() -> i32 {
     // ── SIMPLE ────────────────────────────────────────────────────────────
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from people p where p.age >= 18 select p.name";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 1i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -78,7 +95,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from people p select p.age limit 3";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 90i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -93,7 +110,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from people p select p.age limit n";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 95i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -110,7 +127,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from a x join b y on x.k == y.k select x.name : str";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 20i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -143,7 +160,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(8192i64);
         let src: str = "from a x join b y on x.k == y.k anti join c z on y.j == z.j select x.name : str";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 100i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -173,7 +190,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(8192i64);
         let src: str = "from o r join d q on r.dept == q.id group by q.region aggregate total = sum(r.amt) select total : i64";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 120i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -191,7 +208,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from o r group by r.dept aggregate total = sum(r.amt) select total : i64";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 40i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -237,7 +254,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from a x anti join b y on x.k == y.k where x.ok select x.name : str";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 60i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -259,7 +276,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from o r where r.paid group by r.dept aggregate n = count(), total = sum(r.amt) select total : i64";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 70i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {
@@ -285,7 +302,7 @@ fn main() -> i32 {
     {
         let h: Writ = writ_new(4096i64);
         let src: str = "from rows r select [ v.n for v in items ] : i64";
-        let root: WAny = parse_query(src, &h);
+        let root: WAny = parse_entry(src, &h);
         if root.is_null() { return 80i32; }
         let plan: RQuery = root.view::<RQuery>();
         match plan {

@@ -1,0 +1,1 @@
+rel column 'w': f64 columns are not allowed (set semantics require Eq)

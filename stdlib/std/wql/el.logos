@@ -107,6 +107,12 @@ pub fn el_ret_class(name: str) -> i32 {
 // NOTE (queue-2): this table is metacall-time DATA only — the IR still carries
 // just the call NAME (`SCall.fn_name`); a future interpreter re-resolves the
 // same names against its own registry.
+// The REL-BINDING section (`rb_*`): rel-sourced scans (wql! `rel` blocks,
+// slice B) bind a row var to a NATIVE TUPLE row, so a field step `s.a` must
+// emit the POSITIONAL access `s.0`. Per entry: the bound VAR name, the column
+// NAME, the tuple component INDEX, and the column's EL value-type. Filled per
+// emitted query by `rexpr_walk::stamp_rel_source`; consulted by the codegen
+// (emit_sexpr / infer_ty) BEFORE the flat name dictionary.
 pub struct ElTypes {
     pub names:  [str; 64],
     pub tys:    [i32; 64],
@@ -116,6 +122,11 @@ pub struct ElTypes {
     pub udf_rets:  [str; 32],
     pub udf_arity: [i64; 32],
     pub udf_n:     i64,
+    pub rb_var: [str; 32],
+    pub rb_col: [str; 32],
+    pub rb_idx: [i64; 32],
+    pub rb_ty:  [i32; 32],
+    pub rb_n:   i64,
 }
 
 pub fn el_types_new() -> ElTypes {
@@ -133,6 +144,13 @@ pub fn el_types_new() -> ElTypes {
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         udf_arity: [0i64; 32],
         udf_n:     0i64,
+        rb_var: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        rb_col: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        rb_idx: [0i64; 32],
+        rb_ty:  [0i32; 32],
+        rb_n:   0i64,
     };
 }
 
@@ -189,5 +207,51 @@ impl ElTypes {
         let i: i64 = self.udf_find(name);
         if i < 0i64 { return false; }
         return str_eq(self.udf_rets[i], "String");
+    }
+
+    // ── rel bindings (rel-sourced scans — positional tuple columns) ────────
+    // `idx` ≥ 0 — tuple component index (`var.idx`); `idx` = -1 — the WHOLE
+    // scalar row of a 1-COLUMN rel (`Vec<i64>` rows, no tuple: access emits
+    // `(*var)`). Existence tests go through `rel_col_ty` (≥ 0 iff bound) —
+    // `rel_col_of`'s -1 is only meaningful under a bound (var, col).
+
+    // Bind (var, col) → tuple component `idx` of EL type `ty`.
+    pub fn rel_bind(self: &mut ElTypes, var: str, col: str, idx: i64, ty: i32) {
+        if self.rb_n >= 32i64 { return; }
+        self.rb_var[self.rb_n] = var;
+        self.rb_col[self.rb_n] = col;
+        self.rb_idx[self.rb_n] = idx;
+        self.rb_ty[self.rb_n]  = ty;
+        self.rb_n = self.rb_n + 1i64;
+    }
+
+    // The tuple component index of `var.col`, or -1 (not a rel binding).
+    pub fn rel_col_of(self: &ElTypes, var: str, col: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.rb_n {
+            if str_eq(self.rb_var[i], var) && str_eq(self.rb_col[i], col) { return self.rb_idx[i]; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    // The EL value-type of `var.col`, or -1 (not a rel binding).
+    pub fn rel_col_ty(self: &ElTypes, var: str, col: str) -> i32 {
+        let mut i: i64 = 0i64;
+        while i < self.rb_n {
+            if str_eq(self.rb_var[i], var) && str_eq(self.rb_col[i], col) { return self.rb_ty[i]; }
+            i = i + 1i64;
+        }
+        return -1i32;
+    }
+
+    // True iff `var` is a rel-bound row var (any column bound under it).
+    pub fn rel_var_bound(self: &ElTypes, var: str) -> bool {
+        let mut i: i64 = 0i64;
+        while i < self.rb_n {
+            if str_eq(self.rb_var[i], var) { return true; }
+            i = i + 1i64;
+        }
+        return false;
     }
 }

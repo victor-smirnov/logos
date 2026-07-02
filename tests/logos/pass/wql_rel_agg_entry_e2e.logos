@@ -1,0 +1,43 @@
+// WQL REL BLOCKS — entry AGGREGATE over a rel (slice B): the entry query
+// groups + aggregates over a REL scan — the existing group-by machinery over
+// the rel-sourced source (group key `s.a` → positional `s.0`, aggregate arg
+// `s.b` → `s.1`), falling out of the shared emitters unchanged.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource src_sums = wql!(edges: &[Edge]) {
+    rel p(a: i64, b: i64) {
+        from edges e where e.dst > 0 select (e.src, e.dst);
+    }
+    from p s group by s.a aggregate n = count(), total = sum(s.b)
+    select (key, n, total) order by key
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 5] = [
+        Edge { src: 1i64, dst: 10i64 },
+        Edge { src: 2i64, dst: 20i64 },
+        Edge { src: 1i64, dst: 30i64 },
+        Edge { src: 1i64, dst: 10i64 },   // duplicate pair — SET-deduped before the aggregate
+        Edge { src: 2i64, dst: -5i64 },   // body-filtered
+    ];
+
+    // p = {(1,10),(2,20),(1,30)} — the (1,10) dup collapses. Groups:
+    //   key 1 → n=2, total=40;  key 2 → n=1, total=20.
+    let out: Vec<(i64, i64, i64)> = src_sums(&edges[..]);
+    if out.len() != 2i64 { return 1i32; }
+    let g0: (i64, i64, i64) = out.get(0i64);
+    if g0.0 != 1i64  { return 2i32; }
+    if g0.1 != 2i64  { return 3i32; }
+    if g0.2 != 40i64 { return 4i32; }
+    let g1: (i64, i64, i64) = out.get(1i64);
+    if g1.0 != 2i64  { return 5i32; }
+    if g1.1 != 1i64  { return 6i32; }
+    if g1.2 != 20i64 { return 7i32; }
+    return 0i32;
+}

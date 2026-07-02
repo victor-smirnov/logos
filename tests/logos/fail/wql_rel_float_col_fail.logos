@@ -1,0 +1,23 @@
+// WQL REL BLOCKS — f64 column diagnostic (slice B): rels are SETS (structural-
+// equality dedup on insert); f64 is PartialEq only (NaN), so an f64 column is
+// rejected with the named error.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Reading { pub id: i64, pub w: f64 }
+
+resource weights = wql!(rs: &[Reading]) {
+    rel wr(id: i64, w: f64) {
+        from rs r select (r.id, r.w);
+    }
+    from wr s select s.id
+};
+
+fn main() -> i32 {
+    let rs: [Reading; 1] = [ Reading { id: 1i64, w: 2.5f64 } ];
+    let out: Vec<i64> = weights(&rs[..]);
+    return out.len() as i32;
+}

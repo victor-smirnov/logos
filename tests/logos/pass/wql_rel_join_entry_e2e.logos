@@ -1,0 +1,43 @@
+// WQL REL BLOCKS — entry JOIN against a rel (slice B): the entry query joins
+// a REL scan against a SLICE PARAM. The join key extracts a tuple COMPONENT
+// from the rel row (`s.a` → `s.0`, i64) — Hash-capable, so the strategy
+// cascade picks the HASH tier (probe-verified in the emitted `// join
+// strategy:` trace) with the rel scan as the probe side.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+struct Name { pub id: i64, pub label: str }
+
+resource dst_labels = wql!(edges: &[Edge], names: &[Name]) {
+    rel hops(a: i64, b: i64) {
+        from edges e where e.src > 0 select (e.src, e.dst);
+    }
+    from hops s join names n on s.b == n.id select (s.a, n.label)
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 3] = [
+        Edge { src: 1i64, dst: 100i64 },
+        Edge { src: 2i64, dst: 200i64 },
+        Edge { src: 0i64, dst: 100i64 },   // body-filtered
+    ];
+    let names: [Name; 2] = [
+        Name { id: 100i64, label: "hub" },
+        Name { id: 200i64, label: "edge" },
+    ];
+
+    // hops = {(1,100),(2,200)}; join on b == id → [(1,"hub"), (2,"edge")].
+    let out: Vec<(i64, str)> = dst_labels(&edges[..], &names[..]);
+    if out.len() != 2i64 { return 1i32; }
+    let r0: (i64, str) = out.get(0i64);
+    if r0.0 != 1i64              { return 2i32; }
+    if !str_eq(r0.1, "hub")      { return 3i32; }
+    let r1: (i64, str) = out.get(1i64);
+    if r1.0 != 2i64              { return 4i32; }
+    if !str_eq(r1.1, "edge")     { return 5i32; }
+    return 0i32;
+}
