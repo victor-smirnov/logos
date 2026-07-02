@@ -41,16 +41,20 @@ unsafe fn mp_str_range(src: str, start: i64, len: i64) -> str {
 // registry to stamp rel COLUMN types + positional bindings (trama! ignores
 // it). Per rel: the declared NAME, the emitted slice-local/param NAME
 // (`__rel_<name>_sl` — the plan nodes' src_name is REWRITTEN to this), the
-// native ROW TYPE text (`(i64, str)` / scalar `i64` for a 1-column rel), and
-// the column window [coff, coff+ccnt) into the flat relc_* arrays.
+// emitted DELTA slice name (`__dl_<name>_sl` — the semi-naïve fixpoint's
+// per-round delta view, slice C; a plan node's src_name is TEMPORARILY
+// rewritten to it while a delta-variant body is emitted), the native ROW TYPE
+// text (`(i64, str)` / scalar `i64` for a 1-column rel), and the column
+// window [coff, coff+ccnt) into the flat relc_* arrays.
 pub struct MacroParams {
     pub names:    [str; 64],
     pub tys:      [str; 64],    // CORE type name (deref/slice-stripped)
     pub is_slice: [bool; 64],   // `&[T]`-family — a query SOURCE param
     pub n:        i64,
-    // ── rel registry (wql! rel blocks — slice B) ──
+    // ── rel registry (wql! rel blocks — slices B/C) ──
     pub rel_names: [str; 8],    // declared rel name ("step")
     pub rel_srcs:  [str; 8],    // emitted source name ("__rel_step_sl")
+    pub rel_dsrcs: [str; 8],    // emitted DELTA source name ("__dl_step_sl")
     pub rel_rowty: [str; 8],    // native row type text ("(i64, i64)" / "i64")
     pub rel_coff:  [i64; 8],    // column window offset (flat relc_* arrays)
     pub rel_ccnt:  [i64; 8],    // column count
@@ -73,6 +77,7 @@ pub fn macro_params_new() -> MacroParams {
         n: 0i64,
         rel_names: ["", "", "", "", "", "", "", ""],
         rel_srcs:  ["", "", "", "", "", "", "", ""],
+        rel_dsrcs: ["", "", "", "", "", "", "", ""],
         rel_rowty: ["", "", "", "", "", "", "", ""],
         rel_coff:  [0i64; 8],
         rel_ccnt:  [0i64; 8],
@@ -120,14 +125,15 @@ impl MacroParams {
         return self.tys[i];
     }
 
-    // ── rel registry (filled by the wql! program walker; slice B) ──────────
+    // ── rel registry (filled by the wql! program walker; slices B/C) ────────
 
     // Register a rel (declaration order). Returns the rel index (-1 = full).
-    pub fn rel_add(self: &mut MacroParams, name: str, src: str, rowty: str) -> i64 {
+    pub fn rel_add(self: &mut MacroParams, name: str, src: str, dsrc: str, rowty: str) -> i64 {
         if self.rel_n >= 8i64 { return -1i64; }
         let i: i64 = self.rel_n;
         self.rel_names[i] = name;
         self.rel_srcs[i]  = src;
+        self.rel_dsrcs[i] = dsrc;
         self.rel_rowty[i] = rowty;
         // Columns append at the current flat top.
         let mut off: i64 = 0i64;
@@ -159,16 +165,54 @@ impl MacroParams {
         return -1i64;
     }
 
-    // Rel index by EMITTED source name ("__rel_step_sl"), or -1 — the emit-side
-    // lookup (plan nodes' src_name is rewritten to the emitted name).
+    // Rel index by EMITTED source name ("__rel_step_sl") OR delta source name
+    // ("__dl_step_sl"), or -1 — the emit-side lookup (plan nodes' src_name is
+    // rewritten to the emitted name; the semi-naïve delta-variant emission
+    // temporarily rewrites an in-SCC occurrence to the delta name, and the
+    // column stamping must resolve BOTH spellings to the same rel).
     pub fn rel_find_src(self: &MacroParams, src: str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.rel_n {
             if str_eq(self.rel_srcs[i], src) { return i; }
+            if str_eq(self.rel_dsrcs[i], src) { return i; }
             i = i + 1i64;
         }
         return -1i64;
     }
+}
+
+// ── RelScc — the rel dependency CONDENSATION (slice C — recursive rels) ──────
+// Computed by the program walker (plan_walker::compute_rel_scc) from the
+// RelDeps edge list; consumed by BOTH the walker (stratification validation +
+// entry-prelude materialization order) and the emitter (rexpr_walk::
+// emit_rel_fns — one helper fn per non-recursive rel, one semi-naïve fixpoint
+// fn per recursive SCC). Lives here because params.logos is the module both
+// sides already share (the rel registry's home).
+//   comp[r]     — rel index → SCC id (ids assigned in declaration order);
+//   rec[c]      — SCC id → RECURSIVE? (size > 1, or a self-loop member);
+//   order[k]    — topo position → SCC id (dependencies-first — the
+//                 materialization/evaluation order of the condensation DAG);
+//   nscc        — SCC count;
+//   dep_mask[r] — rel index → bitmask of DIRECT out-of-SCC rel dependencies
+//                 (bit j ⇔ some body of r scans rel j, comp[j] != comp[r]) —
+//                 the helper-fn extra-parameter set (in-SCC edges are the
+//                 fixpoint's own state, not parameters).
+pub struct RelScc {
+    pub comp:     [i64; 8],
+    pub rec:      [bool; 8],
+    pub order:    [i64; 8],
+    pub nscc:     i64,
+    pub dep_mask: [i64; 8],
+}
+
+pub fn rel_scc_new() -> RelScc {
+    return RelScc {
+        comp:     [0i64; 8],
+        rec:      [false; 8],
+        order:    [0i64; 8],
+        nscc:     0i64,
+        dep_mask: [0i64; 8],
+    };
 }
 
 // Parse a fn-style parameter list `name: type (, name: type)*` off `p`, filling

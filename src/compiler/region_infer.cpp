@@ -23,6 +23,34 @@ bool is_mut_ref_type(TypeRef t) {
     return t && t.kind() == LogosType::Kind::MutRef;
 }
 
+// ── Phase-1 slot-qualified liveness keys ─────────────────────────────────────
+// Two same-named bindings in sibling scopes (`{ let out = &mut a; … }
+// { let out = &mut b; … }`) are DIFFERENT variables; name-keyed liveness
+// merged them, so the first borrow's holder stayed "live" over the second
+// binding's points and its region grew across both — a false "borrow still
+// in scope here" conflict (the WQL semi-naïve driver emits exactly this
+// sibling-block holder shape). Sema allocates a fresh dense slot per binding
+// (shadowing → new slot), so "name#slot" is a true binding identity. Slotless
+// sites (fn params, stmt-level write receivers, Assign LHS) fall back to the
+// bare name; a BARE def kills every slot variant of the name (an `x = …`
+// reinit ends the current binding's upward liveness), and a BARE use keeps
+// any same-named holder alive (conservative, matches the old behavior for
+// the few slotless sites).
+constexpr uint32_t LIVE_NO_SLOT = 0xFFFFFFFFu;
+
+std::string live_key(std::string_view name, uint32_t slot) {
+    if (slot == LIVE_NO_SLOT) return std::string(name);
+    std::string k(name);
+    k += '#';
+    k += std::to_string(slot);
+    return k;
+}
+
+std::string_view live_key_bare(std::string_view key) {
+    auto h = key.rfind('#');
+    return h == std::string_view::npos ? key : key.substr(0, h);
+}
+
 } // namespace
 
 void RegionInferer::analyze(lir_view::FunctionView fn, const lir::LProgram& prog) {
@@ -87,12 +115,17 @@ void RegionInferer::analyze(lir_view::FunctionView fn, const lir::LProgram& prog
     // holder (let/assign LHS that binds the `&x`) is live.
     for (auto& b : borrows_) {
         if (b.holder.empty()) continue;
+        // Slot-qualified holder: a bare use of the same NAME (slotless
+        // stmt-level sites) conservatively keeps the region alive too.
+        const std::string bare_holder{live_key_bare(b.holder)};
+        const bool has_bare = bare_holder != b.holder;
         for (uint32_t bi = 0; bi < cfg_.blocks.size(); ++bi) {
             for (uint32_t si = 0; si < cfg_.blocks[bi].n_stmts; ++si) {
                 StmtPoint p{bi, si};
                 auto it = live_in_.find(p);
                 if (it == live_in_.end()) continue;
-                if (!it->second.count(b.holder)) continue;
+                if (!it->second.count(b.holder) &&
+                    !(has_bare && it->second.count(bare_holder))) continue;
                 RegionConstraint c;
                 c.kind    = RegionConstraint::Kind::Contains;
                 c.longer  = b.region;
@@ -494,9 +527,10 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
 
     switch (sr.kind()) {
         case SCode::Let: {
+            // Holder key is slot-qualified — the binding identity, so two
+            // same-named sibling holders don't merge live ranges.
             SLetView v{sr};
-            std::string name(v.name());
-            walk_expr(v.value(), name);
+            walk_expr(v.value(), live_key(v.name(), v.var_slot()));
             break;
         }
         case SCode::Assign: {
@@ -588,9 +622,11 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
     walk_use = [&](ExprRef e) {
         if (!e) return;
         switch (e.kind()) {
-            case ECode::VarRef:
-                use.insert(std::string(EVarRefView{e}.name()));
+            case ECode::VarRef: {
+                EVarRefView v{e};
+                use.insert(live_key(v.name(), v.var_slot()));
                 return;
+            }
             case ECode::AddrOf:
                 use.insert(std::string(EAddrOfView{e}.var_name()));
                 return;
@@ -678,10 +714,13 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
         case SCode::Let: {
             SLetView v{sr};
             walk_use(v.value());
-            def.insert(std::string(v.name()));
+            def.insert(live_key(v.name(), v.var_slot()));
             break;
         }
         case SCode::Assign: {
+            // No slot on Assign LHS — the bare def kills every slot variant
+            // of the name in compute_liveness (a reinit ends the current
+            // binding's upward liveness).
             SAssignView v{sr};
             walk_use(v.value());
             def.insert(std::string(v.name()));
@@ -746,13 +785,13 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
         case SCode::For: {
             SForView v{sr};
             walk_use(v.lo()); walk_use(v.hi());
-            def.insert(std::string(v.var()));
+            def.insert(live_key(v.var(), v.var_slot()));
             break;
         }
         case SCode::ForEach: {
             SForEachView v{sr};
             walk_use(v.iter());
-            def.insert(std::string(v.var()));
+            def.insert(live_key(v.var(), v.var_slot()));
             break;
         }
         case SCode::Match:
@@ -823,8 +862,34 @@ void RegionInferer::compute_liveness() {
                 auto& u = use_[p];
                 auto& d = def_[p];
                 LiveSet in = u;
-                for (auto& v : out)
-                    if (!d.count(v)) in.insert(v);
+                for (auto& v : out) {
+                    if (d.count(v)) continue;
+                    // A BARE (slotless — Assign LHS) def kills every slot
+                    // variant of the name: the reinit ends the current
+                    // binding's upward liveness.
+                    auto bare = live_key_bare(v);
+                    if (bare.size() != v.size() && d.count(std::string(bare)))
+                        continue;
+                    // Symmetric kill: a SLOT-QUALIFIED def (`let n = …`) is a
+                    // fresh-binding boundary and ends the upward liveness of
+                    // the BARE key too — the pre-slot semantics (def "n"
+                    // killed use "n"). Without it a bare-keyed borrow holder
+                    // from an earlier same-named binding leaks across the
+                    // next `let n` and false-conflicts (spec trait_2: three
+                    // sibling blocks each declaring `n`).
+                    if (bare.size() == v.size()) {
+                        bool killed = false;
+                        for (auto& dv : d) {
+                            auto db = live_key_bare(dv);
+                            if (db.size() != dv.size() && db == v) {
+                                killed = true;
+                                break;
+                            }
+                        }
+                        if (killed) continue;
+                    }
+                    in.insert(v);
+                }
 
                 auto& cur_out = live_out_[p];
                 auto& cur_in  = live_in_[p];

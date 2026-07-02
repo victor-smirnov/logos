@@ -1,0 +1,1 @@
+rel 'q' `anti join`s rel 'p' of the same recursive component {p, q}

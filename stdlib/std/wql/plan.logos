@@ -305,13 +305,15 @@ pub schema enum RQuery : category(0x0012_0000_0000_0000) {
     Find(RQFind),
 }
 
-// ── REL blocks (slice B — named derived relations, NON-recursive) ─────────────
+// ── REL blocks (slices B/C — named derived relations, recursion supported) ───
 // `rel NAME ( col: ty, … ) { body; body; … }` — a named derived relation with
 // SET semantics (structural-equality dedup on insert). Columns are restricted
 // to i64/str/bool (f64 kills Eq — walker-diagnosed). Bodies are RQuery values
-// (Simple/Join only — walker-enforced); the entry query + later rels scan the
-// materialized relation. Declaration-order scoping; the walker builds the rel
-// DEPENDENCY EDGE LIST explicitly (slice C's fixpoint reuses it).
+// (Simple/Join only — walker-enforced) and may reference ANY rel (self /
+// forward / mutual = recursion, realized by the semi-naïve SCC fixpoint);
+// the entry query + other rels scan the materialized relation. The walker
+// builds the rel DEPENDENCY EDGE LIST explicitly, condenses it (SCC + topo
+// order), and stratifies negation/aggregation over it.
 
 // One declared column: `name: ty`.
 pub schema RQRelCol : code(0x0012_0000_0000_0014) {
@@ -490,6 +492,36 @@ impl RQProgram {
     // fat-wraps it per shape for the fn_name / row_ty stamps).
     pub fn entry_any(self: &RQProgram) -> WAny { return WAny::ref_to(self.entry.any().raw() as *const u8); }
     pub fn as_ref(self: &RQProgram) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// ── Fat (allocator-carrying) view wrappers ────────────────────────────────────
+// Writing a `str` schema field BOXES the bytes into the arena, which needs the
+// view's z (allocator). A plain `node.view::<T>()` binds a READ-ONLY view
+// (z = null) — boxing through it would deref null. These rebuild an ALLOCATOR-
+// CARRYING view over the SAME node: `WSchemaH { m: <node ptr>, z: <arena> }` is
+// layout-identical to a compiler schema view (ADR 0011 §Increment-6), so the
+// transmute to the concrete variant view is sound. Shared by the program
+// walker (fn_name / row_ty / src_name stamping) and the semi-naïve emitter
+// (per-delta-variant src_name rewrites).
+pub fn rq_fat_simple(node: WAny, h: &Writ) -> RQSimple {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQSimple) };
+}
+pub fn rq_fat_join(node: WAny, h: &Writ) -> RQJoin {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQJoin) };
+}
+pub fn rq_fat_aggr(node: WAny, h: &Writ) -> RQAggr {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQAggr) };
+}
+pub fn rq_fat_find(node: WAny, h: &Writ) -> RQFind {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQFind) };
+}
+pub fn rq_fat_step(node: WAny, h: &Writ) -> RQJoinStep {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQJoinStep) };
 }
 
 // ── Edge handles (same provenance-laundering rationale as ir.logos) ───────────

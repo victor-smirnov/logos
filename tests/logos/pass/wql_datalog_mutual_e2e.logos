@@ -1,0 +1,71 @@
+// WQL RECURSIVE RELS (slice C) — MUTUAL RECURSION + FORWARD REFERENCE.
+// `odd`/`even` (odd-/even-length paths) form a TWO-member SCC: odd's step
+// body reads `even` (a FORWARD reference — declared later, now legal) and
+// even's body reads `odd`. The walker condenses them into ONE SCC and emits
+// a SINGLE shared semi-naïve fn (`__wql_<res>_scc0`) whose loop rounds
+// alternate the two deltas until BOTH are empty.
+//
+// Two resources share the same rel program with different entries (helper
+// names are resource-prefixed, so they coexist in one module) — asserting
+// BOTH members of the component.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource odd_reach = wql!(edges: &[Edge], start: i64) {
+    rel odd(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from even v join edges e on v.b == e.src select (v.a, e.dst);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join edges e on o.b == e.src select (o.a, e.dst);
+    }
+    from odd p where p.a == start select p.b order by p.b
+};
+
+resource even_reach = wql!(edges: &[Edge], start: i64) {
+    rel odd(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from even v join edges e on v.b == e.src select (v.a, e.dst);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join edges e on o.b == e.src select (o.a, e.dst);
+    }
+    from even p where p.a == start select p.b order by p.b
+};
+
+fn main() -> i32 {
+    // Chain 1→2→3→4→5.
+    let edges: [Edge; 4] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 2i64, dst: 3i64 },
+        Edge { src: 3i64, dst: 4i64 },
+        Edge { src: 4i64, dst: 5i64 },
+    ];
+
+    // Odd-length paths from 1: 1 hop → 2, 3 hops → 4.
+    let o1: Vec<i64> = odd_reach(&edges[..], 1i64);
+    if o1.len() != 2i64      { return 1i32; }
+    if o1.get(0i64) != 2i64  { return 2i32; }
+    if o1.get(1i64) != 4i64  { return 3i32; }
+
+    // Even-length paths from 1: 2 hops → 3, 4 hops → 5.
+    let e1: Vec<i64> = even_reach(&edges[..], 1i64);
+    if e1.len() != 2i64      { return 4i32; }
+    if e1.get(0i64) != 3i64  { return 5i32; }
+    if e1.get(1i64) != 5i64  { return 6i32; }
+
+    // From 2: odd → {3, 5}; even → {4}.
+    let o2: Vec<i64> = odd_reach(&edges[..], 2i64);
+    if o2.len() != 2i64      { return 7i32; }
+    if o2.get(1i64) != 5i64  { return 8i32; }
+    let e2: Vec<i64> = even_reach(&edges[..], 2i64);
+    if e2.len() != 1i64      { return 9i32; }
+    if e2.get(0i64) != 4i64  { return 10i32; }
+
+    return 0i32;
+}

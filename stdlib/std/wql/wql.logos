@@ -31,15 +31,18 @@
 // The generated fn NAME is the `resource <name> =` binding (ADR 0012 §6); the
 // handler receives it as the `name` arg.
 //
-// REL BLOCKS (slice B — static Datalog, NON-recursive): zero or more
+// REL BLOCKS (slices B/C — static Datalog, RECURSION SUPPORTED): zero or more
 //   rel NAME ( col: ty, … ) { body; body; … }
 // blocks may precede the entry query. Each rel is a named derived relation
 // with SET semantics (structural-equality dedup; columns i64/str/bool — f64
 // kills Eq); bodies are from/join/where/select producers over slice params +
-// PREVIOUSLY declared rels (self/forward/mutual reference = the recursion
-// diagnostic; the fixpoint is the next slice). The entry query scans rels
-// like sources (all modifiers compose; `find`/whole-row select are gated —
-// rels are fn-locals, rows cannot be borrowed out).
+// ANY rel (self/forward/mutual references are legal — recursive SCCs run as
+// ONE shared semi-naïve fixpoint; negation/aggregation against a rel of the
+// SAME SCC is the named non-stratifiable error, against an earlier stratum
+// it composes). Termination is the standard Datalog contract: guaranteed
+// unless a recursive head MINTS values (arithmetic) — not capped. The entry
+// query scans rels like sources (all modifiers compose; `find`/whole-row
+// select are gated — rels are fn-locals, rows cannot be borrowed out).
 //
 // Relational shapes off the same `from` prefix:
 //   • `[anti] join <b> <y> on <onPred>` → inner / anti nested-loop join;

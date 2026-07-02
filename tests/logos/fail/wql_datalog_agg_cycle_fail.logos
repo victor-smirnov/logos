@@ -1,0 +1,26 @@
+// WQL RECURSIVE RELS (slice C) — NON-STRATIFIABLE AGGREGATION diagnostic.
+// p's second body AGGREGATES over p itself: the aggregate-source edge closes
+// a self-cycle, so the aggregation reads its own (unfinished) fixpoint — no
+// stratified semantics. The error must NAME the cycle (and takes precedence
+// over the plain "aggregate bodies are not allowed" shape reject).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource badagg = wql!(edges: &[Edge]) {
+    rel p(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from p x group by x.a aggregate n = count() select (x.a, n);
+    }
+    from p t select t.b
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64 } ];
+    let out: Vec<i64> = badagg(&edges[..]);
+    return out.len() as i32;
+}

@@ -1,0 +1,48 @@
+// WQL RECURSIVE RELS (slice C) — TERMINATION ON CYCLIC DATA. The edge list
+// contains a directed cycle (1→2→3→1) and a self-loop (4→4): a naïve
+// re-derivation loop would spin forever, but the semi-naïve driver's SET
+// semantics (shadow HashSet gates every insert) empty the deltas once the
+// closure saturates — the fixpoint terminates and reachability is exact
+// (every cycle member reaches every member, including itself).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource reach = wql!(edges: &[Edge], start: i64) {
+    rel path(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from path p join edges e on p.b == e.src select (p.a, e.dst);
+    }
+    from path p where p.a == start select p.b order by p.b
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 4] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 2i64, dst: 3i64 },
+        Edge { src: 3i64, dst: 1i64 },   // closes the 3-cycle
+        Edge { src: 4i64, dst: 4i64 },   // self-loop
+    ];
+
+    // Every cycle member reaches all three members (itself included).
+    let out1: Vec<i64> = reach(&edges[..], 1i64);
+    if out1.len() != 3i64      { return 1i32; }
+    if out1.get(0i64) != 1i64  { return 2i32; }
+    if out1.get(1i64) != 2i64  { return 3i32; }
+    if out1.get(2i64) != 3i64  { return 4i32; }
+
+    let out2: Vec<i64> = reach(&edges[..], 2i64);
+    if out2.len() != 3i64      { return 5i32; }
+    if out2.get(0i64) != 1i64  { return 6i32; }
+
+    // Self-loop: 4 reaches exactly itself.
+    let out4: Vec<i64> = reach(&edges[..], 4i64);
+    if out4.len() != 1i64      { return 7i32; }
+    if out4.get(0i64) != 4i64  { return 8i32; }
+
+    return 0i32;
+}

@@ -1409,7 +1409,15 @@ class BorrowChecker {
         if (field_borrow_conflicts((*it), name, /*path=*/"",
                                    /*need_exclusive=*/true, line, "move"))
             return false;
-        (*it) = VarState{};
+        {
+            // Value state resets, but the BINDING property `is_mut_binding`
+            // persists across the move — a reinit (`nd = fresh`) of a
+            // moved-from `let mut` binding must still admit `&mut nd`
+            // (mirrors the Assign re-own; Rust keeps binding mut-ness).
+            bool was_mut = it->is_mut_binding;
+            (*it) = VarState{};
+            it->is_mut_binding = was_mut;
+        }
         it->moved = true;
         it->moved_line = line;
         return true;
@@ -2764,8 +2772,18 @@ class BorrowChecker {
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
                 }
-                if (var_has(NO_SLOT, name))
-                    var_at(NO_SLOT, name) = VarState{};  // re-own
+                if (var_has(NO_SLOT, name)) {
+                    // Re-own: value state (moves/borrows) resets, but the
+                    // BINDING property `is_mut_binding` persists — `let mut
+                    // nd = …; dl = nd; nd = fresh; &mut nd` is legal Rust
+                    // (reinit of a moved-from mut binding keeps its mut-ness;
+                    // wiping it made every explicit `&mut` after a
+                    // reassignment fail "not declared as mut").
+                    auto& st = var_at(NO_SLOT, name);
+                    bool was_mut = st.is_mut_binding;
+                    st = VarState{};
+                    st.is_mut_binding = was_mut;
+                }
                 if (is_ref_assign)
                     prov_[name] = prov_of(val);
                 // B87 dropck: record on (re-)assign too.

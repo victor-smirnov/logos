@@ -5220,8 +5220,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
     auto slice = gen_expr(v.slice());
     auto index = gen_expr(v.index());
     if (!slice || !index) return nullptr;
-    auto elem_type = logos_to_mlir(type);
-    if (!elem_type) elem_type = builder_.getI32Type();
     auto stype = slice_llvm_type();
     // Load ptr from field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
@@ -5241,45 +5239,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
         gep_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index);
     else
         gep_idx = index;
-    // P4-pm-15: struct/ZonedStruct elements lay out inline in arrays
-    // (stride = sizeof(struct)) but logos_to_mlir resolves them to
-    // ptr_type. Using ptr_type as GEP stride strides by 8B and then
-    // load-as-ptr re-dereferences into garbage. Detect struct elements
-    // and switch to the actual aggregate LLVM type for stride, and
-    // return the element ptr (the caller will memcpy by-value for
-    // aggregate values).
-    if (TypeRef rt(type); rt && (rt.kind() == LogosType::Kind::Struct ||
-                                  rt.kind() == LogosType::Kind::ZonedStruct)) {
-        // PKG-QUALIFIED lookup: a bare `concrete_struct_name` would alias a
-        // same-named struct from another package (the "first-registered wins"
-        // bare slot) → wrong element stride. See find_struct_it.
-        auto sit = find_struct_it(rt);
-        if (sit != struct_types_.end()) {
-            auto agg_t = sit->second.llvm_type;
-            llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
-            auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), agg_t, data_ptr, di);
-            return elem_ptr;
-        }
-    }
-    // Fat-pointer element (`&[&dyn]`/`&[closure]`/`&[str]`/`&[&Wrap<[u8]>]`): the
-    // slot is a 16-byte {data,vtable}/{fn,env}/{ptr,len} pair stored INLINE —
-    // stride by the pair footprint and return the slot ADDRESS (a fat value IS a
-    // pointer to its storage), NOT an 8-byte load of the first half. Mirrors the
-    // struct branch. RefRepr (Phase 1): "is this element a fat reference?" =
-    // ref_repr_of is a Fat* kind (thin ptr/ref elements load below, as before).
-    if (TypeRef rt(type); rt) {
-        auto rk = ref_repr_of(rt);
-        if (rk != RefReprKind::NotARef && rk != RefReprKind::ThinPtr) {
-            llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
-            return builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), place_slot_type(rt), data_ptr, di);
-        }
-    }
+    // Element slot type + return convention derive from ONE foundation —
+    // place_slot_type — exactly the type the lvalue path (`&s[i]` / `s[i]=v`,
+    // gen_lvalue_addr::SliceIndex) strides by, so reads and writes address
+    // the identical slot by construction. Aggregate slots (inline struct /
+    // TUPLE / tagged-enum value-repr / fat {data,meta} pairs) are consumed
+    // BY POINTER downstream — return the slot ADDRESS; scalar / thin-ptr
+    // slots load the value. (P4-pm-15 hand-rolled only the Struct + fat-ref
+    // cases here; logos_to_mlir collapses tuple/enum elements to `ptr` too,
+    // so `let v: (i64, i64) = ps[k]` mis-strode by 8B and loaded value bits
+    // as a pointer — SIGSEGV. place_slot_type is total over element shapes.)
+    mlir::Type slot = place_slot_type(type);
+    if (!slot) slot = builder_.getI32Type();
     llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
     auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-        loc_, ptr_type(), elem_type, data_ptr, di);
-    return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, elem_ptr);
+        loc_, ptr_type(), slot, data_ptr, di);
+    if (mlir::isa<mlir::LLVM::LLVMStructType>(slot))
+        return elem_ptr;
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, slot, elem_ptr);
 }
 
 // RefRepr op: extract the DATA half of a reference value. Thin → the value is

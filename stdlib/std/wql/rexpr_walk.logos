@@ -3421,24 +3421,34 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// PART 3 — REL blocks (slice B): named derived relations, NON-recursive.
+// PART 3 — REL blocks: named derived relations (slice B one-shot + slice C
+// RECURSIVE semi-naïve fixpoint).
 //
-// Each `rel NAME(cols){bodies}` materializes as ONE emitted helper fn
+// A NON-recursive rel (singleton SCC, no self-edge) materializes as ONE
+// emitted helper fn
 //
 //   fn __wql_<query>_rel_<NAME>(<wql! params verbatim>
-//                               [, __rel_<earlier>_sl: &[RowTy]]*) -> Vec<RowTy>
+//                               [, __rel_<dep>_sl: &[RowTy]]*) -> Vec<RowTy>
 //
 // with SET semantics: dedup on insert via a SHADOW HashSet<RowTy> (see
 // emit_rel_push — O(1) membership; tuple rows hash through the per-arity
 // tuple Hash impls in logos.lang.hash). Bodies run through
 // the EXISTING scan / join-chain machinery (strategy cascade included); their
-// projection PUSHES into the rel Vec instead of returning. Earlier rels are
-// passed in as slices (declaration-order scoping — the walker enforces it),
-// so a rel body scans them exactly like a slice param. The ENTRY fn's prelude
-// (built by the walker) calls the helpers in declaration order and takes an
-// `as_slice()` view per rel; entry scans then reference `__rel_<NAME>_sl`.
-// Each body's loop nest is wrapped in its own `{ … }` block so per-step
-// generated names (`__hm1`, `__j1`, …) cannot collide across bodies.
+// projection PUSHES into the rel Vec instead of returning. Rel dependencies
+// ride in as slices (the walker's dep masks — materialization follows the
+// condensation topo order, so a dep is always ready first), and a rel body
+// scans them exactly like a slice param.
+//
+// A RECURSIVE SCC materializes as ONE fn for the WHOLE component —
+// `__wql_<query>_scc<c>` (see emit_scc_fn): member totals as `&mut Vec`
+// out-params, per-member delta Vecs + shadow sets, seed bodies once, then the
+// semi-naïve delta-variant loop to the least fixpoint.
+//
+// The ENTRY fn's prelude (built by the walker) materializes the SCCs in topo
+// order and takes an `as_slice()` view per rel; entry scans then reference
+// `__rel_<NAME>_sl`. Each body's loop nest is wrapped in its own `{ … }`
+// block so per-step generated names (`__hm1`, `__j1`, …) cannot collide
+// across bodies (or across the delta variants of one body).
 // ══════════════════════════════════════════════════════════════════════════
 
 // Build a JChain directly from an RQJoin PLAN node (the rel bodies skip the
@@ -3582,12 +3592,15 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 }
 
 // The set-dedup push (Datalog SET semantics): bind the projected row, probe
-// the rel fn's SHADOW HashSet (declared in emit_rel_fns' prelude) — insert
-// returns true only for a NEW row, gating the Vec push. O(1) amortized per
-// insert; tuple rows hash via the per-arity `impl Hash for (…)` in
-// logos.lang.hash, scalar rows (i64/str/bool) via their primitive impls.
-// (f64 columns are rejected up front — set semantics require Eq.) This is the
-// membership structure slice C's semi-naïve fixpoint needs.
+// the SHADOW HashSet through `__rsp` — insert returns true only for a NEW
+// row, gating the `__out` push. O(1) amortized per insert; tuple rows hash
+// via the per-arity `impl Hash for (…)` in logos.lang.hash, scalar rows
+// (i64/str/bool) via their primitive impls. (f64 columns are rejected up
+// front — set semantics require Eq.) `__out`/`__rsp` bind CONTEXTUALLY: the
+// one-shot helper fn declares them over its result Vec; the semi-naïve SCC
+// driver lexically rebinds them per member block onto that member's
+// next-delta Vec + shadow set (which is total ∪ next-delta — exactly the
+// "new w.r.t. the total" probe semi-naïve needs).
 fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
     push_ind(em, lvl);
     em.push_text("let __rv: ");
@@ -3800,79 +3813,431 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
     return true;
 }
 
-// Emit ONE helper fn per rel (declaration order), all in one chunk. The walker
-// has already: validated columns (i64/str/bool), rejected disallowed body
-// shapes/modifiers, resolved + REWRITTEN every body source (slice params keep
-// their name; rels rewrite to `__rel_<r>_sl` with the tuple row type), and
-// enforced declaration-order scoping. `fn_name` is the entry resource name —
-// it prefixes the helper names so multiple wql! resources per module coexist.
+// Emit the extra `, __rel_<j>_sl: &[RowJ]` PARAMS selected by `mask` (ascending
+// rel index) — the helper-fn dependency-slice parameters; the walker's prelude
+// builds the matching call-argument list from the SAME masks (plan_walker::
+// push_call_args), so signature and call site cannot drift.
+fn push_dep_params(em: &mut Emitter, prm: &MacroParams, mask: i64) {
+    let mut j: i64 = 0i64;
+    while j < prm.rel_n {
+        if (mask & (1i64 << j)) != 0i64 {
+            em.push_text(", ");
+            em.push_text(prm.rel_srcs[j]);
+            em.push_text(": &[");
+            em.push_text(prm.rel_rowty[j]);
+            em.push_text("]");
+        }
+        j = j + 1i64;
+    }
+}
+
+// Emit one rel body (fat-wrapped per shape — the emitters read edge methods
+// and the SCC driver rewrites src_name fields, both of which want the
+// allocator-carrying view). Shared by the one-shot path and the SCC driver.
+fn emit_rel_body(em: &mut Emitter, body_any: WAny, ri: i64,
+                 prm: &MacroParams, h: &Writ) -> bool {
+    let q: RQuery = body_any.view::<RQuery>();
+    match q {
+        RQuery::Simple(_) => {
+            return emit_rel_body_simple(em, rq_fat_simple(body_any, h), ri, prm, h);
+        }
+        RQuery::Join(_) => {
+            return emit_rel_body_join(em, rq_fat_join(body_any, h), ri, prm, h);
+        }
+        _ => {
+            // Unreachable — the walker rejects aggregate/find bodies.
+            error("wql!: rel body must be a scan or join query (from/join/where/select)");
+            return false;
+        }
+    }
+}
+
+// ── ONE-SHOT rel fn (singleton SCC, no self-edge — the slice-B path) ─────────
+// `fn __wql_<fn>_rel_<name>(<params verbatim>[, dep slices]) -> Vec<Row>`:
+// out Vec + shadow HashSet (O(1) dedup membership, see emit_rel_push; the raw
+// pointer rides alongside because HashSet's mutators take `*mut self`), then
+// every body's loop nest, dedup-pushing into the shared pair.
+fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
+                       params_text: str, prm: &MacroParams, scc: &RelScc,
+                       h: &Writ) -> bool {
+    let row_ty: str = prm.rel_rowty[ri];
+    em.push_text("fn __wql_");
+    em.push_text(fn_name);
+    em.push_text("_rel_");
+    em.push_text(prm.rel_names[ri]);
+    em.push_text("(");
+    em.push_text(params_text);
+    push_dep_params(em, prm, scc.dep_mask[ri]);
+    em.push_text(") -> Vec<");
+    em.push_text(row_ty);
+    em.push_text("> {\n");
+    em.push_text("    let mut __out: Vec<");
+    em.push_text(row_ty);
+    em.push_text("> = Vec::<");
+    em.push_text(row_ty);
+    em.push_text(">::new();\n");
+    em.push_text("    let mut __rs: HashSet<");
+    em.push_text(row_ty);
+    em.push_text("> = hashset_new::<");
+    em.push_text(row_ty);
+    em.push_text(">();\n");
+    em.push_text("    let __rsp: *mut HashSet<");
+    em.push_text(row_ty);
+    em.push_text("> = &mut __rs;\n");
+    let bodies: RQBodyArr = rel.bodies_arr();
+    let nb: i64 = bodies.len();
+    let mut b: i64 = 0i64;
+    while b < nb {
+        if !emit_rel_body(em, bodies.body_any(b), ri, prm, h) { return false; }
+        b = b + 1i64;
+    }
+    em.push_text("    return __out;\n");
+    em.push_text("}\n");
+    return true;
+}
+
+// ── In-SCC source OCCURRENCES of one body (semi-naïve variant expansion) ─────
+// `pos` = -1 for the base scan, else the join-step index; `rel` = the source's
+// rel registry index. A body with ZERO occurrences is a SEED (runs once,
+// before the loop); k occurrences ⇒ k delta variants per round — variant v
+// reads occurrence v from the rel's DELTA slice and every other in-SCC
+// occurrence from the TOTAL slice (the standard semi-naïve rewriting).
+struct OccList { pos: [i64; 9], rel: [i64; 9], n: i64 }
+
+fn occ_new() -> OccList { return OccList { pos: [0i64; 9], rel: [0i64; 9], n: 0i64 }; }
+
+fn occ_push(o: &mut OccList, pos: i64, rel: i64) {
+    if o.n >= 9i64 { return; }
+    o.pos[o.n] = pos;
+    o.rel[o.n] = rel;
+    o.n = o.n + 1i64;
+}
+
+// Scan a (walker-rewritten) body for sources landing in SCC `c`.
+fn body_scc_occs(body_any: WAny, prm: &MacroParams, scc: &RelScc, c: i64,
+                 h: &Writ) -> OccList {
+    let mut o: OccList = occ_new();
+    let q: RQuery = body_any.view::<RQuery>();
+    match q {
+        RQuery::Simple(_) => {
+            let s: RQSimple = rq_fat_simple(body_any, h);
+            let ri: i64 = prm.rel_find_src(s.src_name);
+            if ri >= 0i64 && scc.comp[ri] == c { occ_push(&mut o, -1i64, ri); }
+        }
+        RQuery::Join(_) => {
+            let j: RQJoin = rq_fat_join(body_any, h);
+            let ri0: i64 = prm.rel_find_src(j.a_name);
+            if ri0 >= 0i64 && scc.comp[ri0] == c { occ_push(&mut o, -1i64, ri0); }
+            let steps: RQJoinStepArr = j.steps_arr();
+            let ns: i64 = steps.len();
+            let mut i: i64 = 0i64;
+            while i < ns {
+                let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
+                let ri1: i64 = prm.rel_find_src(st.src_name);
+                if ri1 >= 0i64 && scc.comp[ri1] == c { occ_push(&mut o, i, ri1); }
+                i = i + 1i64;
+            }
+        }
+        _ => { }
+    }
+    return o;
+}
+
+// Point occurrence `w` of a body at `name` (the total `__rel_<r>_sl` or delta
+// `__dl_<r>_sl` slice) — the per-variant source rebinding. Fat views: a
+// src_name write boxes the bytes into the arena.
+fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
+    if o.pos[w] < 0i64 {
+        let q: RQuery = body_any.view::<RQuery>();
+        match q {
+            RQuery::Simple(_) => { let s: RQSimple = rq_fat_simple(body_any, h); s.src_name = name; }
+            RQuery::Join(_)   => { let j: RQJoin = rq_fat_join(body_any, h); j.a_name = name; }
+            _ => { }
+        }
+        return;
+    }
+    let j2: RQJoin = rq_fat_join(body_any, h);
+    let st: RQJoinStep = rq_fat_step(j2.steps_arr().step_any(o.pos[w]), h);
+    st.src_name = name;
+}
+
+// ── The SEMI-NAÏVE fixpoint fn — one per RECURSIVE SCC (slice C) ─────────────
+// `fn __wql_<fn>_scc<c>(<params verbatim>[, dep slices], __tot_<m>: &mut
+// Vec<RowM>, …)` — the member TOTAL Vecs are caller-owned out-params (the
+// prelude declares them and takes the entry's `as_slice()` views after the
+// call); per member the fn keeps a shadow HashSet `__rs_<m>` (= total ∪
+// next-delta at all times — the O(1) membership emit_rel_push probes), the
+// current delta `__dl_<m>` and the next delta `__nd_<m>`.
+//
+//   seed:  every body with NO in-SCC source runs once, dedup-pushing into
+//          `__nd_<m>` (sources: params + earlier strata — fn params);
+//   loop:  PROMOTE  — `__dl = __nd; __nd = fresh; total ∪= __dl` (the shadow
+//          set already holds the rows, so the promote is a plain append);
+//          EXIT     — every member delta empty ⇒ least fixpoint reached;
+//          BIND     — `__rel_<m>_sl` = total slice, `__dl_<m>_sl` = delta
+//          slice (fresh each round);
+//          VARIANTS — every recursive body of every member runs once per
+//          in-SCC occurrence, that occurrence's src_name TEMPORARILY rewritten
+//          to the delta slice (the others read totals), new rows dedup-pushing
+//          into `__nd_<m>` via the block-shadowed `__out`/`__rsp` pair.
+//
+// TERMINATION: guaranteed for non-generative programs (set semantics over a
+// finite universe); recursive heads that MINT values (arithmetic) can diverge
+// — the standard Datalog-with-arithmetic caveat, deliberately NOT capped.
+// Body emitters are reused UNCHANGED: `__out`/`__rsp` are lexically rebound
+// per member block, source slices per round/variant — the emission is
+// parameterized by NAMES only.
+fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
+               params_text: str, prm: &MacroParams, scc: &RelScc,
+               h: &Writ) -> bool {
+    // Members (declaration order) + the union out-of-SCC dep mask.
+    let mut mem: [i64; 8] = [0i64; 8];
+    let mut nm: i64 = 0i64;
+    let mut mask: i64 = 0i64;
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        if scc.comp[r] == c {
+            if nm < 8i64 { mem[nm] = r; nm = nm + 1i64; }
+            mask = mask | scc.dep_mask[r];
+        }
+        r = r + 1i64;
+    }
+    // ── Signature ──
+    em.push_text("fn __wql_");
+    em.push_text(fn_name);
+    em.push_text("_scc");
+    push_nk(em, "", c);
+    em.push_text("(");
+    em.push_text(params_text);
+    push_dep_params(em, prm, mask);
+    let mut m0: i64 = 0i64;
+    while m0 < nm {
+        em.push_text(", __tot_");
+        em.push_text(prm.rel_names[mem[m0]]);
+        em.push_text(": &mut Vec<");
+        em.push_text(prm.rel_rowty[mem[m0]]);
+        em.push_text(">");
+        m0 = m0 + 1i64;
+    }
+    em.push_text(") {\n");
+    // ── Per-member state ──
+    let mut m1: i64 = 0i64;
+    while m1 < nm {
+        let rn: str = prm.rel_names[mem[m1]];
+        let rt: str = prm.rel_rowty[mem[m1]];
+        em.push_text("    let mut __rs_");
+        em.push_text(rn);
+        em.push_text(": HashSet<");
+        em.push_text(rt);
+        em.push_text("> = hashset_new::<");
+        em.push_text(rt);
+        em.push_text(">();\n");
+        em.push_text("    let mut __dl_");
+        em.push_text(rn);
+        em.push_text(": Vec<");
+        em.push_text(rt);
+        em.push_text("> = Vec::<");
+        em.push_text(rt);
+        em.push_text(">::new();\n");
+        em.push_text("    let mut __nd_");
+        em.push_text(rn);
+        em.push_text(": Vec<");
+        em.push_text(rt);
+        em.push_text("> = Vec::<");
+        em.push_text(rt);
+        em.push_text(">::new();\n");
+        m1 = m1 + 1i64;
+    }
+    // ── Seeds: bodies with no in-SCC source, once, into __nd ──
+    let mut m2: i64 = 0i64;
+    while m2 < nm {
+        let ri: i64 = mem[m2];
+        let bodies: RQBodyArr = rels.rel_at(ri).bodies_arr();
+        let nb: i64 = bodies.len();
+        // Any seed bodies at all? (skip the member block when none)
+        let mut nseed: i64 = 0i64;
+        let mut b0: i64 = 0i64;
+        while b0 < nb {
+            let oc0: OccList = body_scc_occs(bodies.body_any(b0), prm, scc, c, h);
+            if oc0.n == 0i64 { nseed = nseed + 1i64; }
+            b0 = b0 + 1i64;
+        }
+        if nseed > 0i64 {
+            emit_member_block_open(em, prm, ri);
+            let mut b1: i64 = 0i64;
+            while b1 < nb {
+                let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
+                if oc1.n == 0i64 {
+                    if !emit_rel_body(em, bodies.body_any(b1), ri, prm, h) { return false; }
+                }
+                b1 = b1 + 1i64;
+            }
+            em.push_text("    }\n");
+        }
+        m2 = m2 + 1i64;
+    }
+    // ── The fixpoint loop ──
+    em.push_text("    loop {\n");
+    // PROMOTE: dl ← nd, nd ← fresh, total ∪= dl (rows already in the set).
+    let mut m3: i64 = 0i64;
+    while m3 < nm {
+        let rn3: str = prm.rel_names[mem[m3]];
+        let rt3: str = prm.rel_rowty[mem[m3]];
+        em.push_text("        __dl_");
+        em.push_text(rn3);
+        em.push_text(" = __nd_");
+        em.push_text(rn3);
+        em.push_text(";\n");
+        em.push_text("        __nd_");
+        em.push_text(rn3);
+        em.push_text(" = Vec::<");
+        em.push_text(rt3);
+        em.push_text(">::new();\n");
+        em.push_text("        {\n");
+        em.push_text("            let __ps: &[");
+        em.push_text(rt3);
+        em.push_text("] = __dl_");
+        em.push_text(rn3);
+        em.push_text(".as_slice();\n");
+        em.push_text("            let mut __pk: i64 = 0i64;\n");
+        em.push_text("            while __pk < __ps.len() {\n");
+        em.push_text("                __tot_");
+        em.push_text(rn3);
+        em.push_text(".push(__ps[__pk]);\n");
+        em.push_text("                __pk = __pk + 1i64;\n");
+        em.push_text("            }\n");
+        em.push_text("        }\n");
+        m3 = m3 + 1i64;
+    }
+    // EXIT: all deltas empty ⇒ least fixpoint.
+    em.push_text("        if ");
+    let mut m4: i64 = 0i64;
+    while m4 < nm {
+        if m4 > 0i64 { em.push_text(" && "); }
+        em.push_text("__dl_");
+        em.push_text(prm.rel_names[mem[m4]]);
+        em.push_text(".len() == 0i64");
+        m4 = m4 + 1i64;
+    }
+    em.push_text(" { break; }\n");
+    // BIND the round's total + delta slices.
+    let mut m5: i64 = 0i64;
+    while m5 < nm {
+        let rn5: str = prm.rel_names[mem[m5]];
+        let rt5: str = prm.rel_rowty[mem[m5]];
+        em.push_text("        let ");
+        em.push_text(prm.rel_srcs[mem[m5]]);
+        em.push_text(": &[");
+        em.push_text(rt5);
+        em.push_text("] = __tot_");
+        em.push_text(rn5);
+        em.push_text(".as_slice();\n");
+        em.push_text("        let ");
+        em.push_text(prm.rel_dsrcs[mem[m5]]);
+        em.push_text(": &[");
+        em.push_text(rt5);
+        em.push_text("] = __dl_");
+        em.push_text(rn5);
+        em.push_text(".as_slice();\n");
+        m5 = m5 + 1i64;
+    }
+    // VARIANTS: every recursive body × its in-SCC occurrences.
+    let mut m6: i64 = 0i64;
+    while m6 < nm {
+        let ri6: i64 = mem[m6];
+        let bodies6: RQBodyArr = rels.rel_at(ri6).bodies_arr();
+        let nb6: i64 = bodies6.len();
+        let mut nrec: i64 = 0i64;
+        let mut b2: i64 = 0i64;
+        while b2 < nb6 {
+            let oc2: OccList = body_scc_occs(bodies6.body_any(b2), prm, scc, c, h);
+            if oc2.n > 0i64 { nrec = nrec + 1i64; }
+            b2 = b2 + 1i64;
+        }
+        if nrec > 0i64 {
+            emit_member_block_open(em, prm, ri6);
+            let mut b3: i64 = 0i64;
+            while b3 < nb6 {
+                let body_any: WAny = bodies6.body_any(b3);
+                let oc: OccList = body_scc_occs(body_any, prm, scc, c, h);
+                if oc.n > 0i64 {
+                    let mut v: i64 = 0i64;
+                    while v < oc.n {
+                        let mut w: i64 = 0i64;
+                        while w < oc.n {
+                            let nm_w: str = if w == v { prm.rel_dsrcs[oc.rel[w]] }
+                                            else      { prm.rel_srcs[oc.rel[w]] };
+                            set_occ_src(body_any, &oc, w, nm_w, h);
+                            w = w + 1i64;
+                        }
+                        if !emit_rel_body(em, body_any, ri6, prm, h) { return false; }
+                        v = v + 1i64;
+                    }
+                    // Restore the canonical (total) source names.
+                    let mut w2: i64 = 0i64;
+                    while w2 < oc.n {
+                        set_occ_src(body_any, &oc, w2, prm.rel_srcs[oc.rel[w2]], h);
+                        w2 = w2 + 1i64;
+                    }
+                }
+                b3 = b3 + 1i64;
+            }
+            em.push_text("    }\n");
+        }
+        m6 = m6 + 1i64;
+    }
+    em.push_text("    }\n");
+    em.push_text("}\n");
+    return true;
+}
+
+// Open a member's push-target block: lexically rebind the body emitters'
+// fixed `__out`/`__rsp` names onto THIS member's next-delta Vec + shadow set
+// (sibling blocks scope-isolate the rebinding per member).
+fn emit_member_block_open(em: &mut Emitter, prm: &MacroParams, ri: i64) {
+    let rn: str = prm.rel_names[ri];
+    let rt: str = prm.rel_rowty[ri];
+    em.push_text("    {\n");
+    em.push_text("    let __out: &mut Vec<");
+    em.push_text(rt);
+    em.push_text("> = &mut __nd_");
+    em.push_text(rn);
+    em.push_text(";\n");
+    em.push_text("    let __rsp: *mut HashSet<");
+    em.push_text(rt);
+    em.push_text("> = &mut __rs_");
+    em.push_text(rn);
+    em.push_text(";\n");
+}
+
+// ── The rel-tier emission entry ──────────────────────────────────────────────
+// One chunk: per non-recursive rel a one-shot helper fn (slice B), per
+// RECURSIVE SCC one semi-naïve fixpoint fn (slice C) — emitted in condensation
+// topo order (cosmetic: top-level fns don't need it). The walker has already
+// validated columns/shapes/modifiers, resolved + REWRITTEN every body source,
+// and checked stratification. `fn_name` is the entry resource name — it
+// prefixes the helper names so multiple wql! resources per module coexist.
 pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
-                    prm: &MacroParams, h: &Writ) -> bool {
+                    prm: &MacroParams, scc: &RelScc, h: &Writ) -> bool {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
-    let n: i64 = rels.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let rel: RQRel = rels.rel_at(i);
-        let row_ty: str = prm.rel_rowty[i];
-        em.push_text("fn __wql_");
-        em.push_text(fn_name);
-        em.push_text("_rel_");
-        em.push_text(prm.rel_names[i]);
-        em.push_text("(");
-        em.push_text(params_text);
-        // Earlier rels ride in as slice params (declaration-order scoping).
-        let mut jj: i64 = 0i64;
-        while jj < i {
-            em.push_text(", ");
-            em.push_text(prm.rel_srcs[jj]);
-            em.push_text(": &[");
-            em.push_text(prm.rel_rowty[jj]);
-            em.push_text("]");
-            jj = jj + 1i64;
-        }
-        em.push_text(") -> Vec<");
-        em.push_text(row_ty);
-        em.push_text("> {\n");
-        em.push_text("    let mut __out: Vec<");
-        em.push_text(row_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(row_ty);
-        em.push_text(">::new();\n");
-        // Shadow set for O(1) dedup membership (see emit_rel_push). The raw
-        // pointer rides alongside because HashSet's mutators take `*mut self`.
-        em.push_text("    let mut __rs: HashSet<");
-        em.push_text(row_ty);
-        em.push_text("> = hashset_new::<");
-        em.push_text(row_ty);
-        em.push_text(">();\n");
-        em.push_text("    let __rsp: *mut HashSet<");
-        em.push_text(row_ty);
-        em.push_text("> = &mut __rs;\n");
-        let bodies: RQBodyArr = rel.bodies_arr();
-        let nb: i64 = bodies.len();
-        let mut b: i64 = 0i64;
-        while b < nb {
-            let q: RQuery = bodies.body_any(b).view::<RQuery>();
-            match q {
-                RQuery::Simple(s) => {
-                    if !emit_rel_body_simple(&mut em, s, i, prm, h) { return false; }
+    let mut p: i64 = 0i64;
+    while p < scc.nscc {
+        let c: i64 = scc.order[p];
+        if scc.rec[c] {
+            if !emit_scc_fn(&mut em, rels, c, fn_name, params_text, prm, scc, h) { return false; }
+        } else {
+            let mut i: i64 = 0i64;
+            while i < prm.rel_n {
+                if scc.comp[i] == c {
+                    if !emit_rel_fn_oneshot(&mut em, rels.rel_at(i), i, fn_name,
+                                            params_text, prm, scc, h) { return false; }
                 }
-                RQuery::Join(jq) => {
-                    if !emit_rel_body_join(&mut em, jq, i, prm, h) { return false; }
-                }
-                _ => {
-                    // Unreachable — the walker rejects aggregate/find bodies.
-                    error("wql!: rel body must be a scan or join query (from/join/where/select)");
-                    return false;
-                }
+                i = i + 1i64;
             }
-            b = b + 1i64;
         }
-        em.push_text("    return __out;\n");
-        em.push_text("}\n");
-        i = i + 1i64;
+        p = p + 1i64;
     }
     em.commit();
     return true;

@@ -8,10 +8,11 @@
 // a real `RExpr` algebra tree, runs the Phase-3 RELATIONAL peephole optimizer
 // over it, and walks that ONE tree — all via `rexpr_walk::lower_simplify_emit`.
 //
-// ── REL BLOCKS (slice B — named derived relations, NON-recursive) ───────────
+// ── REL BLOCKS (slice B non-recursive + slice C RECURSIVE static Datalog) ───
 // The program walker:
 //   • REGISTERS each rel (declaration order) in the MacroParams rel registry:
-//     name, the emitted source name `__rel_<name>_sl`, the native row type
+//     name, the emitted source name `__rel_<name>_sl` (+ the delta name
+//     `__dl_<name>_sl` — the semi-naïve per-round view), the native row type
 //     text (`(i64, str)` / scalar for 1 column), and the column name/type
 //     window. Column types are restricted to i64/str/bool — rels are SETS
 //     (structural-equality dedup on insert), and f64 kills Eq;
@@ -21,16 +22,33 @@
 //     width = the declared column count (tuple, or a single expr for 1 col);
 //   • RESOLVES + REWRITES every source: a slice param keeps its name; a rel
 //     reference rewrites `src_name` → `__rel_<r>_sl` + `row_ty` → the tuple
-//     text, recording an explicit DEPENDENCY EDGE (RelDeps — slice C's
-//     fixpoint reuses the edge list). Declaration-order scoping: a body may
-//     reference only PREVIOUSLY declared rels — self/forward/mutual reference
-//     is the named "recursive rel" diagnostic (recursion = the next slice);
+//     text, recording an explicit DEPENDENCY EDGE (RelDeps). Self / forward /
+//     mutual references are LEGAL (slice C) — the registry is completed
+//     before any body resolves, so every rel name is in scope everywhere;
+//   • CONDENSES the dependency graph (compute_rel_scc — SCC + topo order of
+//     the condensation). A singleton SCC without a self-edge materializes
+//     one-shot (the slice-B helper-fn path, unchanged); a RECURSIVE SCC
+//     (self-edge or multi-rel cycle) evaluates as ONE shared SEMI-NAÏVE
+//     fixpoint fn for the whole SCC (mutual recursion supported);
+//   • ENFORCES STRATIFICATION: `anti join R` / an aggregate body reading R
+//     where R is in the SAME SCC as the body's head rel is non-stratifiable —
+//     a named error listing the cycle members. Negation/aggregation against
+//     an EARLIER stratum (fully materialized rel) is fine.
+//     TERMINATION is the standard Datalog contract: finite iff the recursion
+//     is not GENERATIVE. Recursive rules whose heads only recombine values
+//     drawn from the sources reach a least fixpoint (set semantics — every
+//     round either adds a new tuple from a finite universe or the deltas
+//     empty out). Arithmetic in a recursive head (`select (p.a + 1, …)`)
+//     mints NEW values each round and can diverge — the user's
+//     responsibility, deliberately NOT capped (a silent iteration cap would
+//     change semantics);
 //   • GATES the borrow-outward forms OFF rel sources: `find` over a rel and a
 //     whole-rel-row `select` are compile errors (rels are fn-locals — a
 //     borrow of their rows cannot leave the generated fn);
-//   • EMITS one helper fn per rel (`rexpr_walk::emit_rel_fns`) + the entry-fn
-//     PRELUDE that materializes each rel in declaration order and takes an
-//     `as_slice()` view the entry scans reference.
+//   • EMITS the helper fns (`rexpr_walk::emit_rel_fns` — one fn per
+//     non-recursive rel, one semi-naïve fn per recursive SCC) + the entry-fn
+//     PRELUDE that materializes each SCC in condensation-topo order and takes
+//     the `as_slice()` views the entry scans reference.
 //
 // PARAMETERIZED surface (the trama! model): the handler passes the RAW
 // `wql!(…)` paren text (re-emitted VERBATIM as the generated fn signature) +
@@ -44,9 +62,8 @@ package logos.std.wql.plan_walker;
 use logos.std.compiler.metaprog;  // error
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
-use logos.lang.writ.wmap;         // WSchemaH, WMap, Wu6 (name-stamp fat view)
 use logos.std.wql.ir;             // RExpr, WRef
-use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, RQSimple / RQJoin / RQAggr / RQFind
+use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (allocator-carrying views)
 use logos.std.wql.params;         // MacroParams — the parsed wql!(…) param list + rel registry
 use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
@@ -93,47 +110,40 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
     }
 }
 
-// Writing a `str` schema field BOXES the bytes into the arena, which needs the
-// view's z (allocator). A plain `root.view::<RQuery>()` binds a READ-ONLY view
-// (z = null) — boxing through it would deref null. So we rebuild an ALLOCATOR-
-// CARRYING view over the SAME node: `WSchemaH { m: <node ptr>, z: <arena> }` is
-// layout-identical to a compiler schema view (ADR 0011 §Increment-6), so we
-// transmute it to the concrete variant view and write `fn_name`/`row_ty`
-// through it. The variant is chosen off a cheap read-only match first.
-fn wrap_fat_simple(node: WAny, h: &Writ) -> RQSimple {
-    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
-    return unsafe { *(&hh as *const WSchemaH as *const RQSimple) };
-}
-fn wrap_fat_join(node: WAny, h: &Writ) -> RQJoin {
-    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
-    return unsafe { *(&hh as *const WSchemaH as *const RQJoin) };
-}
-fn wrap_fat_aggr(node: WAny, h: &Writ) -> RQAggr {
-    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
-    return unsafe { *(&hh as *const WSchemaH as *const RQAggr) };
-}
-fn wrap_fat_find(node: WAny, h: &Writ) -> RQFind {
-    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
-    return unsafe { *(&hh as *const WSchemaH as *const RQFind) };
-}
-fn wrap_fat_step(node: WAny, h: &Writ) -> RQJoinStep {
-    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
-    return unsafe { *(&hh as *const WSchemaH as *const RQJoinStep) };
-}
+// Fat (allocator-carrying) view wrappers — shared with the emitter, see
+// plan.logos (`rq_fat_*`): str-field writes box into the arena and need z.
+// The variant is chosen off a cheap read-only match first.
 
 // ── RelDeps — the EXPLICIT rel dependency edge list ──────────────────────────
 // One edge per rel→rel source reference: `efrom[k]` (the referencing rel's
-// declaration index) → `eto[k]` (the referenced rel). Slice B only DIAGNOSES
-// off it (an edge with eto >= efrom = self/forward reference = recursion);
-// slice C's fixpoint consumes the same list to find the recursive strata.
+// declaration index) → `eto[k]` (the referenced rel). Slice C's condensation
+// (compute_rel_scc) consumes this list to find the recursive SCCs; the
+// stratification check additionally consumes the NEGATED (anti-join) and
+// AGGREGATED sub-lists — a cycle through either is non-stratifiable.
 pub struct RelDeps {
     pub efrom: [i64; 64],
     pub eto:   [i64; 64],
     pub n:     i64,
+    // Anti-join rel edges: rel `afrom[k]`'s body `anti join`s rel `ato[k]`.
+    pub afrom: [i64; 16],
+    pub ato:   [i64; 16],
+    pub an:    i64,
+    // Aggregate-body rel-source edges: rel `gfrom[k]` has an AGGREGATE body
+    // scanning rel `gto[k]` (aggregate bodies are themselves rejected — this
+    // list only selects WHICH diagnostic: in-SCC ⇒ the non-stratified cycle
+    // error, else the plain "aggregate bodies are not allowed" one).
+    pub gfrom: [i64; 16],
+    pub gto:   [i64; 16],
+    pub gn:    i64,
+    // First rel with an aggregate body (-1 = none) — the deferred plain reject.
+    pub agg_head: i64,
 }
 
 pub fn rel_deps_new() -> RelDeps {
-    return RelDeps { efrom: [0i64; 64], eto: [0i64; 64], n: 0i64 };
+    return RelDeps { efrom: [0i64; 64], eto: [0i64; 64], n: 0i64,
+                     afrom: [0i64; 16], ato: [0i64; 16], an: 0i64,
+                     gfrom: [0i64; 16], gto: [0i64; 16], gn: 0i64,
+                     agg_head: -1i64 };
 }
 
 impl RelDeps {
@@ -143,13 +153,193 @@ impl RelDeps {
         self.eto[self.n]   = t;
         self.n = self.n + 1i64;
     }
+
+    pub fn add_anti(self: &mut RelDeps, f: i64, t: i64) {
+        if self.an >= 16i64 { return; }
+        self.afrom[self.an] = f;
+        self.ato[self.an]   = t;
+        self.an = self.an + 1i64;
+    }
+
+    pub fn add_agg(self: &mut RelDeps, f: i64, t: i64) {
+        if self.gn >= 16i64 { return; }
+        self.gfrom[self.gn] = f;
+        self.gto[self.gn]   = t;
+        self.gn = self.gn + 1i64;
+    }
 }
 
-// ── Source resolution (slice params + rels, declaration-order scoping) ───────
+// ── SCC condensation over RelDeps ────────────────────────────────────────────
+// Rel counts are tiny (≤ 8), so the CLEAN quadratic-closure formulation wins
+// over Tarjan bookkeeping: Warshall transitive closure (path length ≥ 1), then
+//   same SCC    ⇔ mutual reachability;
+//   RECURSIVE   ⇔ SCC size > 1, or reach[i][i] (a cycle through i — covers the
+//                 plain self-edge);
+//   topo order  ⇔ Kahn over the condensation, dependencies FIRST (an SCC is
+//                 placed once every SCC it depends on is placed; smallest id
+//                 first — deterministic);
+//   dep_mask[r] ⇔ DIRECT out-of-SCC dependencies (the helper-fn extra-param
+//                 set; in-SCC edges are the fixpoint's own state).
+pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
+    let mut scc: RelScc = rel_scc_new();
+    // Transitive closure (flat 8×8; reach[i*8+j] ⇔ a path of length ≥ 1).
+    let mut reach: [bool; 64] = [false; 64];
+    let mut e: i64 = 0i64;
+    while e < deps.n {
+        reach[deps.efrom[e] * 8i64 + deps.eto[e]] = true;
+        e = e + 1i64;
+    }
+    let mut k: i64 = 0i64;
+    while k < nr {
+        let mut i: i64 = 0i64;
+        while i < nr {
+            if reach[i * 8i64 + k] {
+                let mut j: i64 = 0i64;
+                while j < nr {
+                    if reach[k * 8i64 + j] { reach[i * 8i64 + j] = true; }
+                    j = j + 1i64;
+                }
+            }
+            i = i + 1i64;
+        }
+        k = k + 1i64;
+    }
+    // Components (mutual reachability), ids in declaration order.
+    let mut i0: i64 = 0i64;
+    while i0 < nr { scc.comp[i0] = -1i64; i0 = i0 + 1i64; }
+    let mut nscc: i64 = 0i64;
+    let mut a: i64 = 0i64;
+    while a < nr {
+        if scc.comp[a] < 0i64 {
+            let c: i64 = nscc;
+            nscc = nscc + 1i64;
+            scc.comp[a] = c;
+            let mut sz: i64 = 1i64;
+            let mut b: i64 = a + 1i64;
+            while b < nr {
+                if scc.comp[b] < 0i64 && reach[a * 8i64 + b] && reach[b * 8i64 + a] {
+                    scc.comp[b] = c;
+                    sz = sz + 1i64;
+                }
+                b = b + 1i64;
+            }
+            if sz > 1i64 || reach[a * 8i64 + a] { scc.rec[c] = true; }
+        }
+        a = a + 1i64;
+    }
+    scc.nscc = nscc;
+    // Direct out-of-SCC dependency masks.
+    let mut e2: i64 = 0i64;
+    while e2 < deps.n {
+        let f: i64 = deps.efrom[e2];
+        let t: i64 = deps.eto[e2];
+        if scc.comp[f] != scc.comp[t] {
+            scc.dep_mask[f] = scc.dep_mask[f] | (1i64 << t);
+        }
+        e2 = e2 + 1i64;
+    }
+    // Kahn over the condensation (a DAG by construction — the inner scan
+    // always finds a placeable SCC).
+    let mut placed: [bool; 8] = [false; 8];
+    let mut pos: i64 = 0i64;
+    while pos < nscc {
+        let mut c2: i64 = 0i64;
+        while c2 < nscc {
+            if !placed[c2] {
+                let mut okc: bool = true;
+                let mut e3: i64 = 0i64;
+                while e3 < deps.n {
+                    if scc.comp[deps.efrom[e3]] == c2 {
+                        let tc: i64 = scc.comp[deps.eto[e3]];
+                        if tc != c2 && !placed[tc] { okc = false; }
+                    }
+                    e3 = e3 + 1i64;
+                }
+                if okc {
+                    scc.order[pos] = c2;
+                    placed[c2] = true;
+                    break;
+                }
+            }
+            c2 = c2 + 1i64;
+        }
+        pos = pos + 1i64;
+    }
+    return scc;
+}
+
+// "{p, q}" — the member list of SCC `c`, declaration order.
+fn push_scc_members(out: &mut String, prm: &MacroParams, scc: &RelScc, c: i64) {
+    out.push_str("{");
+    let mut first: bool = true;
+    let mut i: i64 = 0i64;
+    while i < prm.rel_n {
+        if scc.comp[i] == c {
+            if !first { out.push_str(", "); }
+            out.push_str(prm.rel_names[i]);
+            first = false;
+        }
+        i = i + 1i64;
+    }
+    out.push_str("}");
+}
+
+// ── Stratification (slice C) ─────────────────────────────────────────────────
+// Negation (`anti join`) and aggregation must read an EARLIER stratum: an
+// anti/aggregate source in the SAME SCC as the body's head rel has no
+// stratified semantics — a named error listing the cycle members. An
+// aggregate body OUTSIDE any cycle still gets the slice-B shape reject
+// (bodies are relation producers).
+fn check_stratified(prm: &MacroParams, deps: &RelDeps, scc: &RelScc) -> bool {
+    let mut k: i64 = 0i64;
+    while k < deps.gn {
+        if scc.comp[deps.gfrom[k]] == scc.comp[deps.gto[k]] {
+            let mut m: String = String::new();
+            m.push_str("wql!: non-stratifiable aggregation — rel '");
+            m.push_str(prm.rel_names[deps.gfrom[k]]);
+            m.push_str("' aggregates over rel '");
+            m.push_str(prm.rel_names[deps.gto[k]]);
+            m.push_str("' of the same recursive component ");
+            push_scc_members(&mut m, prm, scc, scc.comp[deps.gfrom[k]]);
+            m.push_str(" — aggregation through recursion has no stratified semantics; aggregate only over rels from an earlier stratum");
+            error(string_as_str(&m));
+            return false;
+        }
+        k = k + 1i64;
+    }
+    let mut k2: i64 = 0i64;
+    while k2 < deps.an {
+        if scc.comp[deps.afrom[k2]] == scc.comp[deps.ato[k2]] {
+            let mut m2: String = String::new();
+            m2.push_str("wql!: non-stratifiable negation — rel '");
+            m2.push_str(prm.rel_names[deps.afrom[k2]]);
+            m2.push_str("' `anti join`s rel '");
+            m2.push_str(prm.rel_names[deps.ato[k2]]);
+            m2.push_str("' of the same recursive component ");
+            push_scc_members(&mut m2, prm, scc, scc.comp[deps.afrom[k2]]);
+            m2.push_str(" — negation through recursion has no stratified semantics; anti join only rels from an earlier stratum");
+            error(string_as_str(&m2));
+            return false;
+        }
+        k2 = k2 + 1i64;
+    }
+    if deps.agg_head >= 0i64 {
+        let mut m3: String = String::new();
+        m3.push_str("wql!: rel '");
+        m3.push_str(prm.rel_names[deps.agg_head]);
+        m3.push_str("': aggregate bodies are not allowed — a rel body is a relation producer (from/join/where/select only)");
+        error(string_as_str(&m3));
+        return false;
+    }
+    return true;
+}
+
+// ── Source resolution (slice params + rels) ──────────────────────────────────
 // `cur_rel` — the declaration index of the rel whose body is being resolved,
-// or -1 for the ENTRY query (which may reference every rel). A rel reference
-// records a dependency edge; a self/forward reference (eto >= efrom) is the
-// named recursion diagnostic.
+// or -1 for the ENTRY query. Every rel is in scope everywhere (the registry is
+// completed before any body resolves), so self/forward/mutual references are
+// LEGAL — a rel reference from a body records the dependency edge the SCC
+// condensation consumes; recursion is realized by the semi-naïve fixpoint.
 struct SrcRes { ok: bool, is_rel: bool, idx: i64, row_ty: str }
 
 fn src_fail() -> SrcRes { return SrcRes { ok: false, is_rel: false, idx: -1i64, row_ty: "" }; }
@@ -173,21 +363,13 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     if ri >= 0i64 {
         if cur_rel >= 0i64 {
             deps.add(cur_rel, ri);
-            if ri >= cur_rel {
-                let mut m2: String = String::new();
-                m2.push_str("wql!: recursive rel '");
-                m2.push_str(src);
-                m2.push_str("' — self/forward/mutual rel references are recursion, which lands in the next slice; a rel body may reference only PREVIOUSLY declared rels");
-                error(string_as_str(&m2));
-                return src_fail();
-            }
         }
         return SrcRes { ok: true, is_rel: true, idx: ri, row_ty: prm.rel_rowty[ri] };
     }
     let mut msg: String = String::new();
     msg.push_str("wql!: unknown source `");
     msg.push_str(src);
-    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the wql!(…) parameter list or a rel declared earlier in the block");
+    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the wql!(…) parameter list or a rel declared in the block");
     error(string_as_str(&msg));
     return src_fail();
 }
@@ -244,7 +426,9 @@ fn rel_body_mods_ok(rel_name: str, first: bool, distinct: bool,
 
 // Resolve + rewrite a join-step fan-out (body OR entry: `cur_rel` = -1 for the
 // entry) and check ROW-VAR UNIQUENESS across the whole chain. Rel-sourced step
-// vars append to `relvars`.
+// vars append to `relvars`. A BODY's rel-sourced ANTI step records a negation
+// edge (afrom/ato) — the post-SCC stratification check errors when it lands
+// inside the head rel's own SCC.
 fn stamp_steps(steps: RQJoinStepArr, base_var: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
                relvars: &mut [str; 9], nrelv: &mut i64, h: &Writ) -> bool {
@@ -254,11 +438,12 @@ fn stamp_steps(steps: RQJoinStepArr, base_var: str, prm: &MacroParams,
     let mut nv: i64 = 1i64;
     let mut i: i64 = 0i64;
     while i < n {
-        let st: RQJoinStep = wrap_fat_step(steps.step_any(i), h);
+        let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
         let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
         if !sr.ok { return false; }
         if sr.is_rel {
             st.src_name = prm.rel_srcs[sr.idx];
+            if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
             if *nrelv < 9i64 { relvars[*nrelv] = st.var_name; *nrelv = *nrelv + 1i64; }
         }
         st.row_ty = sr.row_ty;
@@ -336,7 +521,7 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
     let mut nrelv: i64 = 0i64;
     match q {
         RQuery::Simple(_) => {
-            let s: RQSimple = wrap_fat_simple(body_any, h);
+            let s: RQSimple = rq_fat_simple(body_any, h);
             if !rel_body_mods_ok(rel_name, s.sel_first, s.distinct,
                                  s.has_order, s.has_limit, s.has_result_ty) { return false; }
             let sr: SrcRes = resolve_source(prm, s.src_name, cur_rel, deps);
@@ -346,7 +531,7 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             return true;
         }
         RQuery::Join(_) => {
-            let j: RQJoin = wrap_fat_join(body_any, h);
+            let j: RQJoin = rq_fat_join(body_any, h);
             if !rel_body_mods_ok(rel_name, j.sel_first, j.distinct,
                                  j.has_order, j.has_limit, j.has_result_ty) { return false; }
             let sr: SrcRes = resolve_source(prm, j.a_name, cur_rel, deps);
@@ -357,12 +542,30 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
                                &mut relvars, &mut nrelv, h);
         }
         RQuery::Aggr(_) => {
-            let mut m: String = String::new();
-            m.push_str("wql!: rel '");
-            m.push_str(rel_name);
-            m.push_str("': aggregate bodies are not allowed — a rel body is a relation producer (from/join/where/select only)");
-            error(string_as_str(&m));
-            return false;
+            // Aggregate bodies are rejected either way — but the ERROR is
+            // chosen POST-SCC: an aggregate reading a rel of its own SCC is
+            // the non-stratifiable-aggregation cycle error, anything else the
+            // plain shape reject. So here we only RESOLVE the sources (which
+            // records the dependency edges the condensation needs — an
+            // aggregate edge participates in cycle formation) and defer.
+            let g: RQAggr = rq_fat_aggr(body_any, h);
+            let sra: SrcRes = resolve_source(prm, g.a_name, cur_rel, deps);
+            if !sra.ok { return false; }
+            if sra.is_rel { deps.add_agg(cur_rel, sra.idx); }
+            if g.has_steps() {
+                let gsteps: RQJoinStepArr = g.steps_arr();
+                let gn: i64 = gsteps.len();
+                let mut gi: i64 = 0i64;
+                while gi < gn {
+                    let gst: RQJoinStep = rq_fat_step(gsteps.step_any(gi), h);
+                    let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
+                    if !srs.ok { return false; }
+                    if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
+                    gi = gi + 1i64;
+                }
+            }
+            if deps.agg_head < 0i64 { deps.agg_head = cur_rel; }
+            return true;
         }
         RQuery::Find(_) => {
             let mut m1: String = String::new();
@@ -410,8 +613,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     if root.is_null() { error("wql!: empty query plan"); return false; }
     let prog: RQProgram = root.view::<RQProgram>();
     let mut deps: RelDeps = rel_deps_new();
+    let mut scc: RelScc = rel_scc_new();
     let mut src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
+    let mut dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                      String::new(), String::new(), String::new(), String::new()];
     let mut row_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
 
@@ -463,11 +669,14 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 }
                 k = k + 1i64;
             }
-            // Emitted source name + native row type text (frame-held Strings
-            // back the registry's borrowed views).
+            // Emitted source + delta-source names + native row type text
+            // (frame-held Strings back the registry's borrowed views).
             src_bufs[i].push_str("__rel_");
             src_bufs[i].push_str(rname);
             src_bufs[i].push_str("_sl");
+            dsrc_bufs[i].push_str("__dl_");
+            dsrc_bufs[i].push_str(rname);
+            dsrc_bufs[i].push_str("_sl");
             if nc == 1i64 {
                 row_bufs[i].push_str(cols.col_at(0i64).ty_name);
             } else {
@@ -481,6 +690,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 row_bufs[i].push_str(")");
             }
             let idx: i64 = prm.rel_add(rname, string_as_str(&src_bufs[i]),
+                                       string_as_str(&dsrc_bufs[i]),
                                        string_as_str(&row_bufs[i]));
             if idx < 0i64 { error("wql!: too many rel blocks (max 8)"); return false; }
             let mut k4: i64 = 0i64;
@@ -492,8 +702,9 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             i = i + 1i64;
         }
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
-        // (The registry is complete, so forward references RESOLVE — and then
-        // diagnose as recursion via the index compare. Dep edges recorded.)
+        // (The registry is complete, so self/forward/mutual references RESOLVE
+        // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
+        // anti/aggregate sub-edges recorded for the condensation below.)
         let mut i2: i64 = 0i64;
         while i2 < nr {
             let rel2: RQRel = rels.rel_at(i2);
@@ -509,6 +720,9 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             }
             i2 = i2 + 1i64;
         }
+        // ── Condense + stratify (slice C) ───────────────────────────────────
+        scc = compute_rel_scc(&deps, nr);
+        if !check_stratified(prm, &deps, &scc) { return false; }
     }
 
     // ── The ENTRY query: stamp fn name + resolve/rewrite sources ────────────
@@ -519,7 +733,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     let mut nrelv: i64 = 0i64;
     match eplan {
         RQuery::Simple(_) => {
-            let s: RQSimple = wrap_fat_simple(entry_any, h);
+            let s: RQSimple = rq_fat_simple(entry_any, h);
             s.fn_name = name;
             let sr: SrcRes = resolve_source(prm, s.src_name, -1i64, &mut deps);
             if !sr.ok { return false; }
@@ -532,7 +746,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if !sel_whole_row_ok(s.select_expr(), &relvars, nrelv) { return false; }
         }
         RQuery::Join(_) => {
-            let j: RQJoin = wrap_fat_join(entry_any, h);
+            let j: RQJoin = rq_fat_join(entry_any, h);
             j.fn_name = name;
             let sr2: SrcRes = resolve_source(prm, j.a_name, -1i64, &mut deps);
             if !sr2.ok { return false; }
@@ -547,7 +761,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
         }
         RQuery::Aggr(_) => {
-            let g: RQAggr = wrap_fat_aggr(entry_any, h);
+            let g: RQAggr = rq_fat_aggr(entry_any, h);
             g.fn_name = name;
             let sr3: SrcRes = resolve_source(prm, g.a_name, -1i64, &mut deps);
             if !sr3.ok { return false; }
@@ -564,7 +778,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             }
         }
         RQuery::Find(_) => {
-            let f: RQFind = wrap_fat_find(entry_any, h);
+            let f: RQFind = rq_fat_find(entry_any, h);
             f.fn_name = name;
             let sr4: SrcRes = resolve_source(prm, f.src_name, -1i64, &mut deps);
             if !sr4.ok { return false; }
@@ -584,45 +798,131 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     }
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
+    // Materialization order = the condensation TOPO order (dependencies first
+    // — declaration order no longer implies evaluability once forward/mutual
+    // references are legal). One-shot SCCs call the slice-B per-rel helper;
+    // recursive SCCs call the semi-naïve SCC fn (member Vecs as out-params).
     let mut prelude: String = String::new();
     if prm.rel_n > 0i64 {
-        if !emit_rel_fns(prog.rels_arr(), name, params_text, prm, h) { return false; }
-        let mut r: i64 = 0i64;
-        while r < prm.rel_n {
-            // let __rel_<r>: Vec<Row> = __wql_<fn>_rel_<r>(<params>[, earlier slices]);
-            prelude.push_str("    let __rel_");
-            prelude.push_str(prm.rel_names[r]);
-            prelude.push_str(": Vec<");
-            prelude.push_str(prm.rel_rowty[r]);
-            prelude.push_str("> = __wql_");
-            prelude.push_str(name);
-            prelude.push_str("_rel_");
-            prelude.push_str(prm.rel_names[r]);
-            prelude.push_str("(");
-            let mut a: i64 = 0i64;
-            while a < prm.n {
-                if a > 0i64 { prelude.push_str(", "); }
-                prelude.push_str(prm.names[a]);
-                a = a + 1i64;
+        if !emit_rel_fns(prog.rels_arr(), name, params_text, prm, &scc, h) { return false; }
+        let mut p: i64 = 0i64;
+        while p < scc.nscc {
+            let c: i64 = scc.order[p];
+            if scc.rec[c] {
+                emit_prelude_scc(&mut prelude, name, prm, &scc, c);
+            } else {
+                let mut r: i64 = 0i64;
+                while r < prm.rel_n {
+                    if scc.comp[r] == c { emit_prelude_oneshot(&mut prelude, name, prm, &scc, r); }
+                    r = r + 1i64;
+                }
             }
-            let mut e2: i64 = 0i64;
-            while e2 < r {
-                prelude.push_str(", ");
-                prelude.push_str(prm.rel_srcs[e2]);
-                e2 = e2 + 1i64;
-            }
-            prelude.push_str(");\n");
-            // let __rel_<r>_sl: &[Row] = __rel_<r>.as_slice();
-            prelude.push_str("    let ");
-            prelude.push_str(prm.rel_srcs[r]);
-            prelude.push_str(": &[");
-            prelude.push_str(prm.rel_rowty[r]);
-            prelude.push_str("] = __rel_");
-            prelude.push_str(prm.rel_names[r]);
-            prelude.push_str(".as_slice();\n");
-            r = r + 1i64;
+            p = p + 1i64;
         }
     }
     return walk_query(entry_any.view::<RQuery>(), params_text, prm,
                       string_as_str(&prelude), h);
+}
+
+// Push the wql! param names + the `__rel_<j>_sl` slices selected by `mask`
+// (ascending rel index) as a call ARGUMENT list (no parens) — mirrors the
+// helper-fn parameter lists emit_rel_fns builds from the same masks.
+fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
+    let mut first: bool = true;
+    let mut a: i64 = 0i64;
+    while a < prm.n {
+        if !first { out.push_str(", "); }
+        out.push_str(prm.names[a]);
+        first = false;
+        a = a + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < prm.rel_n {
+        if (mask & (1i64 << j)) != 0i64 {
+            if !first { out.push_str(", "); }
+            out.push_str(prm.rel_srcs[j]);
+            first = false;
+        }
+        j = j + 1i64;
+    }
+}
+
+// One-shot rel `r` (singleton SCC, no self-edge — the slice-B path):
+//   let __rel_<r>: Vec<Row> = __wql_<fn>_rel_<r>(<params>[, dep slices]);
+//   let __rel_<r>_sl: &[Row] = __rel_<r>.as_slice();
+fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
+                        scc: &RelScc, r: i64) {
+    prelude.push_str("    let __rel_");
+    prelude.push_str(prm.rel_names[r]);
+    prelude.push_str(": Vec<");
+    prelude.push_str(prm.rel_rowty[r]);
+    prelude.push_str("> = __wql_");
+    prelude.push_str(name);
+    prelude.push_str("_rel_");
+    prelude.push_str(prm.rel_names[r]);
+    prelude.push_str("(");
+    push_call_args(prelude, prm, scc.dep_mask[r]);
+    prelude.push_str(");\n");
+    prelude.push_str("    let ");
+    prelude.push_str(prm.rel_srcs[r]);
+    prelude.push_str(": &[");
+    prelude.push_str(prm.rel_rowty[r]);
+    prelude.push_str("] = __rel_");
+    prelude.push_str(prm.rel_names[r]);
+    prelude.push_str(".as_slice();\n");
+}
+
+// Recursive SCC `c`: declare each member's total Vec, run the semi-naïve
+// fixpoint fn (members as `&mut Vec` out-params, earlier-stratum deps as
+// slices), bind the `as_slice()` views the entry/later strata scan.
+fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
+                    scc: &RelScc, c: i64) {
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        if scc.comp[r] == c {
+            prelude.push_str("    let mut __rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(": Vec<");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str("> = Vec::<");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str(">::new();\n");
+        }
+        r = r + 1i64;
+    }
+    // Union of the members' out-of-SCC dep masks — the SCC fn's dep params.
+    let mut mask: i64 = 0i64;
+    let mut r2: i64 = 0i64;
+    while r2 < prm.rel_n {
+        if scc.comp[r2] == c { mask = mask | scc.dep_mask[r2]; }
+        r2 = r2 + 1i64;
+    }
+    prelude.push_str("    __wql_");
+    prelude.push_str(name);
+    prelude.push_str("_scc");
+    prelude.push_i64(c);
+    prelude.push_str("(");
+    push_call_args(prelude, prm, mask);
+    let mut r3: i64 = 0i64;
+    while r3 < prm.rel_n {
+        if scc.comp[r3] == c {
+            prelude.push_str(", &mut __rel_");
+            prelude.push_str(prm.rel_names[r3]);
+        }
+        r3 = r3 + 1i64;
+    }
+    prelude.push_str(");\n");
+    let mut r4: i64 = 0i64;
+    while r4 < prm.rel_n {
+        if scc.comp[r4] == c {
+            prelude.push_str("    let ");
+            prelude.push_str(prm.rel_srcs[r4]);
+            prelude.push_str(": &[");
+            prelude.push_str(prm.rel_rowty[r4]);
+            prelude.push_str("] = __rel_");
+            prelude.push_str(prm.rel_names[r4]);
+            prelude.push_str(".as_slice();\n");
+        }
+        r4 = r4 + 1i64;
+    }
 }

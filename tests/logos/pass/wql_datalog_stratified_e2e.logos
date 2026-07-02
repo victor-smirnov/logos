@@ -1,0 +1,53 @@
+// WQL RECURSIVE RELS (slice C) — STRATIFIED NEGATION ACROSS STRATA.
+// Stratum 0: the recursive `path` SCC (transitive closure, semi-naïve).
+// Stratum 1: the NON-recursive `far` rel `anti join`s the FULLY MATERIALIZED
+// `path` — negation against an EARLIER stratum is legal (only an in-SCC
+// anti join is the non-stratifiable error). The condensation topo order
+// materializes `path` first; `far` receives it as a dep-slice parameter.
+//
+//   far = pairs connected only TRANSITIVELY (path minus the direct edges) —
+//   the anti step carries a composite equi (`e.src == p.a && e.dst == p.b`:
+//   hash key + residual).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource farq = wql!(edges: &[Edge], start: i64) {
+    rel path(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from path p join edges e on p.b == e.src select (p.a, e.dst);
+    }
+    rel far(a: i64, b: i64) {
+        from path p anti join edges e on e.src == p.a && e.dst == p.b select (p.a, p.b);
+    }
+    from far f where f.a == start select f.b order by f.b
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 4] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 2i64, dst: 3i64 },
+        Edge { src: 1i64, dst: 3i64 },   // direct shortcut — (1,3) is NOT far
+        Edge { src: 3i64, dst: 4i64 },
+    ];
+
+    // path = {(1,2),(2,3),(1,3),(3,4),(2,4),(1,4)}; far = path \ edges =
+    // {(2,4),(1,4)}.
+    let f1: Vec<i64> = farq(&edges[..], 1i64);
+    if f1.len() != 1i64      { return 1i32; }
+    if f1.get(0i64) != 4i64  { return 2i32; }
+
+    let f2: Vec<i64> = farq(&edges[..], 2i64);
+    if f2.len() != 1i64      { return 3i32; }
+    if f2.get(0i64) != 4i64  { return 4i32; }
+
+    // (3,4) is a direct edge — not far.
+    let f3: Vec<i64> = farq(&edges[..], 3i64);
+    if f3.len() != 0i64      { return 5i32; }
+
+    return 0i32;
+}

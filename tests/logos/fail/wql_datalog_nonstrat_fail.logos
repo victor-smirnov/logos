@@ -1,0 +1,28 @@
+// WQL RECURSIVE RELS (slice C) — NON-STRATIFIABLE NEGATION diagnostic.
+// p's step body reads q, and q's body `anti join`s p — the anti edge lands
+// INSIDE the {p, q} SCC, so no stratification exists (negation through
+// recursion). The error must NAME the cycle members.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource bad = wql!(edges: &[Edge]) {
+    rel p(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from q x join edges e on x.b == e.src select (x.a, e.dst);
+    }
+    rel q(a: i64, b: i64) {
+        from edges e anti join p z on z.a == e.src select (e.src, e.dst);
+    }
+    from p t select t.b
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64 } ];
+    let out: Vec<i64> = bad(&edges[..]);
+    return out.len() as i32;
+}

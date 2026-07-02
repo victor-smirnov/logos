@@ -1,0 +1,81 @@
+// WQL RECURSIVE RELS (slice C) — the classic SAME-GENERATION program + a
+// NONLINEAR transitive closure.
+//
+//   sg(x,y) :- par(p,x), par(p,y), x != y.          (siblings — seed)
+//   sg(x,y) :- par(xp,x), sg(xp,yp), par(yp,y).     (recurse UP two joins)
+// The recursive body chains TWO `par` joins around the in-SCC `sg` source —
+// the delta variant substitutes the sg STEP with the delta slice, so the
+// hash build for that step lands on the (small) DELTA side.
+//
+//   tc(a,c) :- e(a,c).
+//   tc(a,c) :- tc(a,b), tc(b,c).                    (NONLINEAR — 2 in-SCC refs)
+// One body, TWO in-SCC occurrences ⇒ TWO delta variants per round
+// (Δtc ⋈ tc  ∪  tc ⋈ Δtc) — the multi-delta-variant expansion.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Par { pub par: i64, pub chi: i64 }
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource sgq = wql!(pars: &[Par], who: i64) {
+    rel sg(x: i64, y: i64) {
+        from pars p1 join pars p2 on p1.par == p2.par where p1.chi != p2.chi select (p1.chi, p2.chi);
+        from pars p1 join sg s on s.x == p1.par join pars p2 on s.y == p2.par select (p1.chi, p2.chi);
+    }
+    from sg s where s.x == who select s.y order by s.y
+};
+
+resource tcq = wql!(edges: &[Edge], start: i64) {
+    rel tc(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from tc t1 join tc t2 on t1.b == t2.a select (t1.a, t2.b);
+    }
+    from tc t where t.a == start select t.b order by t.b
+};
+
+fn main() -> i32 {
+    //        1
+    //       / \
+    //      2   3
+    //      |   |
+    //      4   5
+    let pars: [Par; 4] = [
+        Par { par: 1i64, chi: 2i64 },
+        Par { par: 1i64, chi: 3i64 },
+        Par { par: 2i64, chi: 4i64 },
+        Par { par: 3i64, chi: 5i64 },
+    ];
+
+    // sg = {(2,3),(3,2)} ∪ {(4,5),(5,4)} (cousins via the recursive rule).
+    let s2: Vec<i64> = sgq(&pars[..], 2i64);
+    if s2.len() != 1i64      { return 1i32; }
+    if s2.get(0i64) != 3i64  { return 2i32; }
+
+    let s4: Vec<i64> = sgq(&pars[..], 4i64);
+    if s4.len() != 1i64      { return 3i32; }
+    if s4.get(0i64) != 5i64  { return 4i32; }
+
+    let s1: Vec<i64> = sgq(&pars[..], 1i64);
+    if s1.len() != 0i64      { return 5i32; }
+
+    // Nonlinear TC over the chain 1→2→3→4.
+    let edges: [Edge; 3] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 2i64, dst: 3i64 },
+        Edge { src: 3i64, dst: 4i64 },
+    ];
+    let t1: Vec<i64> = tcq(&edges[..], 1i64);
+    if t1.len() != 3i64      { return 6i32; }
+    if t1.get(0i64) != 2i64  { return 7i32; }
+    if t1.get(1i64) != 3i64  { return 8i32; }
+    if t1.get(2i64) != 4i64  { return 9i32; }
+
+    let t2: Vec<i64> = tcq(&edges[..], 2i64);
+    if t2.len() != 2i64      { return 10i32; }
+    if t2.get(1i64) != 4i64  { return 11i32; }
+
+    return 0i32;
+}
