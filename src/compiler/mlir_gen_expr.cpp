@@ -1824,6 +1824,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     if (type && TypeRef(type).kind() == LogosType::Kind::Enum &&
         resolve_tagged_enum(std::string(TypeRef(type).enum_name()), type))
         return ptr;
+    // FatSlice pointee — str / &[T]: the pointee's storage is its 16-byte
+    // {data,len} pair and the slice VALUE convention is pointer-to-that-
+    // storage, so `*p` yields the SAME pointer — exactly like the Struct/
+    // Tuple/TraitObject branches above. Falling through to the 8-byte load
+    // below read the DATA half of the pair and re-interpreted it as the
+    // pair pointer → garbage {ptr,len} downstream. This was the fat-element
+    // deref class: `*(v.borrow(i))` on a Vec<str>, and `v[i]` on any
+    // Vec<str> via the Index-trait desugar `*v.index(i)`. Same convention
+    // foundation as place_slot_type / the SliceIndex fat-element fix.
+    //
+    // Deliberately FatSlice-ONLY (a broader all-fat-kinds version regressed
+    // 7 tests): a CLOSURE value is an 8-byte pointer-to-{fn,env} handle
+    // (aggregate_member_layout convention) — `*p` over &Closure must LOAD
+    // the handle, so FatClosure stays on the load path; TraitObject is
+    // handled by its own branch above; RelOffset slots are 8B i64 offsets;
+    // FatCustomDst/FatZoneMut deref is unexercised — left on the load path
+    // until a repro says otherwise.
+    if (type && ref_repr_of(type) == RefReprKind::FatSlice)
+        return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
     return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);

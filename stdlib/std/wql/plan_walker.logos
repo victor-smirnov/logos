@@ -642,6 +642,10 @@ fn stamp_edge_step(st: RQJoinStep,
     // the fat-view str write; the local String may die). A Vec-typed final
     // segment takes a `.as_slice()` view — the emitters then index a SLICE
     // (the native fat-element path); slice/array fields index in place.
+    // (Plain `vec[i]` on fat elements works too — the fat-element deref
+    // class is fixed, see tests/logos/pass/fat_elem_{borrow_deref,
+    // index_field}.logos — the `.as_slice()` spelling is kept as the more
+    // explicit form, not as a workaround.)
     let mut buf: String = String::new();
     buf.push_str(bv);
     let mut k2: i64 = 0i64;

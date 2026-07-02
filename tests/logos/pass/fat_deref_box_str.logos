@@ -1,0 +1,13 @@
+// Fat-element deref class, Box sibling: `*b` where b: Box<str>. The box's
+// storage holds the 16-byte {ptr,len} pair inline; deref must yield the
+// pair pointer (str value convention), not load the data half.
+package test;
+use logos.mem.boxed;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let b = box_new::<str>("bx");
+    let s: str = *b;
+    if !str_eq(s, "bx") { return 1i32; }
+    return 0i32;
+}

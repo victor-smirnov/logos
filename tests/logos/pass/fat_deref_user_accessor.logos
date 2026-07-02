@@ -1,0 +1,23 @@
+// Fat-element deref class, user-accessor siblings: a USER generic impl
+// method returning &T (T=str) and a free generic fn returning &T — the same
+// `&T`-accessor + deref convention as Vec::borrow, exercised outside the
+// stdlib. `*(accessor())` must no-op over the fat {ptr,len} pointee.
+package test;
+use logos.lang.str;
+
+struct GBox<T> { item: T }
+impl<T> GBox<T> {
+    pub fn br(&self) -> &T { return &self.item; }
+}
+
+fn ident<T>(x: &T) -> &T { return x; }
+
+fn main() -> i32 {
+    let g: GBox<str> = GBox { item: "gg" };
+    let s: str = *(g.br());
+    if !str_eq(s, "gg") { return 1i32; }
+    let a: str = "ii";
+    let t: str = *(ident::<str>(&a));
+    if !str_eq(t, "ii") { return 2i32; }
+    return 0i32;
+}

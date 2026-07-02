@@ -1,0 +1,19 @@
+// Fat-element deref class: `field_vec[i]` with str elements — the Index-trait
+// path (`v[i]` desugars to `*v.index(i)`; index returns &T, T=str = fat
+// {ptr,len}). The deref of that &str must be a no-op (str value =
+// pointer-to-pair), not an 8-byte load of the data half. See
+// fat_elem_borrow_deref for the class description.
+package test;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Box1 { pub skills: Vec<str> }
+
+fn main() -> i32 {
+    let b: Box1 = Box1 { skills: { let mut z: Vec<str> = Vec::<str>::new(); z.push("c"); z } };
+    let g1: str = (b.skills).get(0i64);
+    if !str_eq(g1, "c") { return 1i32; }
+    let s1: str = (b.skills)[0i64];
+    if !str_eq(s1, "c") { return 2i32; }
+    return 0i32;
+}

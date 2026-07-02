@@ -1,0 +1,18 @@
+// Fat-element deref class, &[T]-element sibling: Vec<&[i64]> — the element
+// is a fat {ptr,len} slice pair; borrow+deref and the Index-trait `[i]` path
+// must both yield the pair pointer, not an 8-byte load of the data half.
+package test;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let arr: [i64; 3] = [10i64, 20i64, 30i64];
+    let sl: &[i64] = &arr;
+    let mut v: Vec<&[i64]> = Vec::<&[i64]>::new();
+    v.push(sl);
+    let got: &[i64] = *(v.borrow(0i64));
+    if got.len() != 3i64 { return 1i32; }
+    if got[1i64] != 20i64 { return 2i32; }
+    let g2: &[i64] = v[0i64];
+    if g2[2i64] != 30i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+// Fat-element deref class, match sibling: match scrutinee through a deref of
+// an accessor-returned &str. The scrutinee value must be the pair pointer
+// (str convention) for the string-pattern comparisons to read real bytes.
+package test;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut v: Vec<str> = Vec::<str>::new();
+    v.push("mm");
+    let m: i32 = match *(v.borrow(0i64)) {
+        "mm" => 0i32,
+        _ => 1i32,
+    };
+    return m;
+}

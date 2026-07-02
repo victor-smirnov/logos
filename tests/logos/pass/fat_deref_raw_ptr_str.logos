@@ -1,0 +1,15 @@
+// Fat-element deref class, raw-pointer sibling: `*p` where p: *const str.
+// The raw pointer addresses a str PLACE ({ptr,len} fat pair); the deref
+// yields the str value = that same pointer (no 8-byte load of the data half).
+package test;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let a: str = "raw";
+    let p: *const str = &a;
+    unsafe {
+        let b: str = *p;
+        if !str_eq(b, "raw") { return 1i32; }
+    }
+    return 0i32;
+}
