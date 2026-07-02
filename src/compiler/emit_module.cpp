@@ -504,6 +504,25 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // `logosc --emit-abi` globs and merges. A reorder/retype/add/remove changes
     // the record, so the ABI differ flags the break (symbols alone miss a field
     // reorder). Non-generic only: a template's layout is per-instantiation.
+    // ── Shared ABI-spec pub-scoping helpers (layout + pub-allowlist blocks) ──
+    // A mirror may miss the IS_PUB flag on side lowering paths (explicit
+    // specializations like `pub struct WArray<WAny>` lower outside
+    // lower_struct_def). Err toward INCLUSION: a type is treated pub when its
+    // flag is set OR a same-BARE-named pub type exists (bare = instance name
+    // up to the `$G` mangle marker). A false drop removes real API from the
+    // spec; a false keep is only noise.
+    std::set<std::string, std::less<>> abi_pub_type_names;
+    for (auto& sd : prog.structs)
+        if (sd.is_pub()) abi_pub_type_names.insert(std::string(sd.name()));
+    for (auto& ed : prog.enums)
+        if (ed.is_pub()) abi_pub_type_names.insert(std::string(ed.name()));
+    auto abi_bare_template = [](std::string_view n) {
+        auto g = n.find("$G");
+        return g == std::string_view::npos ? n : n.substr(0, g);
+    };
+    auto abi_treat_pub = [&](std::string_view name, bool flag) {
+        return flag || abi_pub_type_names.count(abi_bare_template(name)) > 0;
+    };
     if (!module_name.empty() && !abi_layout_path.empty()) {
         const auto* pool = prog.type_pool.impl();
         auto qual = [](std::string_view pkg, std::string_view name) {
@@ -533,6 +552,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // materialisation, but the field-type list is the layout determinant.
         for (auto& sd : prog.structs) {
             if (is_wql_internal_pkg(sd.pkg())) continue;  // wql engine is internal
+            if (!abi_treat_pub(sd.name(), sd.is_pub())) continue;  // private type: not consumer ABI
             std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
             bool first = true;
             for (auto f : sd.fields()) {
@@ -546,6 +566,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // type change, e.g. Some(i32)→Some(i64), changes the layout).
         for (auto& ed : prog.enums) {
             if (is_wql_internal_pkg(ed.pkg())) continue;  // wql engine is internal
+            if (!abi_treat_pub(ed.name(), ed.is_pub())) continue;  // private type: not consumer ABI
             std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
             bool first = true;
             ed.each_variant([&](lir_view::EnumVariantView v) {
@@ -696,15 +717,28 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         else
             pub_path += ".abi-pub";
         std::ofstream pf(pub_path);
-        // Bare names of every ABI-excluded (wql-internal) struct/enum — the
-        // token set for the generic-instance leak check (mentions_excluded_type).
+        // Bare names of every ABI-excluded struct/enum — the token set for the
+        // generic-instance leak check (mentions_excluded_type). Two sources:
+        // wql-internal packages, and NON-PUB types anywhere (a private type is
+        // not consumer-nameable, so its generic instantiations — e.g.
+        // type_id_of__g__void__<Private> in logos.lang — are spec noise that
+        // churns with every engine refactor; the logos.std.query interpreter
+        // engine surfaced this class). Collision guard: a private name that a
+        // PUB type elsewhere also uses is NOT added — bare-name token matching
+        // must never drop a public type's instantiations.
         std::vector<std::string> excluded_type_names;
-        for (auto& sd : prog.structs)
+        for (auto& sd : prog.structs) {
             if (is_wql_internal_pkg(sd.pkg()))
                 excluded_type_names.emplace_back(sd.name());
-        for (auto& ed : prog.enums)
+            else if (!abi_treat_pub(sd.name(), sd.is_pub()))
+                excluded_type_names.emplace_back(sd.name());
+        }
+        for (auto& ed : prog.enums) {
             if (is_wql_internal_pkg(ed.pkg()))
                 excluded_type_names.emplace_back(ed.name());
+            else if (!abi_treat_pub(ed.name(), ed.is_pub()))
+                excluded_type_names.emplace_back(ed.name());
+        }
         auto emit_pub = [&](lir_view::FunctionView fn) {
             if (!fn) return;
             // extern (C-ABI) symbols are the host/runtime boundary, not the
@@ -738,6 +772,10 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // methods are excluded wholesale (fixes e.g. the wql
             // <Type>__type_id__g__ref_T blanket-impl instances leaking in).
             if (is_wql_internal_pkg(sd.pkg())) continue;
+            // A NON-pub struct's methods are not consumer-callable API (the
+            // type is unnameable outside its module) — spec noise. Uses the
+            // shared abi_treat_pub include-on-ambiguity fallback.
+            if (!abi_treat_pub(sd.name(), sd.is_pub())) continue;
             for (auto& m : sd.methods()) emit_pub(m);
         }
     }

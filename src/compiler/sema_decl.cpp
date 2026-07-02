@@ -1201,6 +1201,13 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
             return sd;
         }
     }
+    // Carry source-level `pub` onto the mirror (same rationale as lower_fn's
+    // dk::IS_PUB): StructView::is_pub() feeds the --emit-abi spec scoping — a
+    // NON-pub type is not consumer-nameable, so its methods and its generic
+    // instantiations are spec noise. Read the COLLECT-phase truth (sinfo),
+    // not the AST node — lower may receive placeholder/re-lowered nodes
+    // without the visibility key. Sparse: set only when true.
+    if (sinfo->is_pub) sd.flag(stk::IS_PUB, true);
     // Local validation sets (NOT all stored verbatim).
     std::vector<TypeParam>   type_params = sinfo->type_params;
     std::vector<std::string> lifetime_params = sinfo->lifetime_params;
@@ -1428,6 +1435,9 @@ lir_view::EnumView SemaChecker::lower_enum_def(TinyMapView node) {
         return ed.view<lir_view::EnumView>();
     }
     auto& einfo = eit_led->second;
+    // Source-level `pub` → mirror from the COLLECT-phase truth (same as
+    // lower_struct_def): feeds the --emit-abi private-type spec scoping.
+    if (einfo.is_pub) ed.flag(dk::IS_PUB, true);
     tparams = einfo.type_params;
     if (einfo.backing_type)  ed.type(dk::BACKING_TYPE, einfo.backing_type);
     if (einfo.zoned2)          ed.flag(dk::ZONED2, true);   // F3: niche enum's Ref arm self-relative at-rest

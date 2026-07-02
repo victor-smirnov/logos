@@ -552,6 +552,10 @@ struct EnumView {
     bool borrow_carrying() const noexcept {
         return detail::read_bool(self, lir_schema::decl_keys::BORROW_CARRYING.code);
     }
+    // Source-level `pub` (sparse; set by lower_enum_def) — --emit-abi scoping.
+    bool is_pub() const noexcept {
+        return detail::read_bool(self, lir_schema::decl_keys::IS_PUB.code);
+    }
     // C-style enum discriminant type (null ⇒ default i32).
     TypeRef backing_type(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::decl_keys::BACKING_TYPE.code, pool);

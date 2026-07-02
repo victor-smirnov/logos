@@ -174,7 +174,6 @@ sym	logos.mem.fmt.Formatter__type_id__g__ref_T
 sym	logos.mem.manually_drop.Alignment__type_id__g__ref_T
 sym	logos.mem.string.String__to_string__g__T
 sym	logos.mem.string.String__type_id__g__ref_T
-sym	logos.mem.writ.parser.P__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.DataTypeTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.TomTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.WritTagSystem__type_id__g__ref_T
@@ -201,7 +200,6 @@ sym	logos.std.data.persistent.bt.shuttle.ShuttleResult__type_id__g__ref_T
 sym	logos.std.data.persistent.handle.InsertError__type_id__g__ref_T
 sym	logos.std.io.buffered.FdReader__type_id__g__ref_T
 sym	logos.std.io.buffered.FdWriter__type_id__g__ref_T
-sym	logos.std.io.bytes.BytesInner__type_id__g__ref_T
 sym	logos.std.io.bytes.BytesMut__type_id__g__ref_T
 sym	logos.std.io.error.BorrowedBuf__type_id__g__ref_T
 sym	logos.std.io.error.ErrorKind__type_id__g__ref_T
@@ -231,19 +229,13 @@ sym	logos.std.lang.text.regex.Regex__type_id__g__ref_T
 sym	logos.std.process.Child__type_id__g__ref_T
 sym	logos.std.process.ExitStatus__type_id__g__ref_T
 sym	logos.std.process.LineReader__type_id__g__ref_T
-sym	logos.std.query.CBinds__type_id__g__ref_T
-sym	logos.std.query.CTy__type_id__g__ref_T
-sym	logos.std.query.Chk__type_id__g__ref_T
 sym	logos.std.query.QEnv__type_id__g__ref_T
 sym	logos.std.query.QError__type_id__g__ref_T
-sym	logos.std.query.RBinds__type_id__g__ref_T
-sym	logos.std.query.RtVal__type_id__g__ref_T
 sym	logos.std.query.SchemaCatalog__type_id__g__ref_T
 sym	logos.std.query.Tpl__type_id__g__ref_T
 sym	logos.std.random.Rng__type_id__g__ref_T
 sym	logos.std.rt.fiber.FiberCtx__type_id__g__ref_T
 sym	logos.std.rt.fiber.Fiber__type_id__g__ref_T
-sym	logos.std.rt.fiber.KernelTimespec__type_id__g__ref_T
 sym	logos.std.rt.fiber.Latch__type_id__g__ref_T
 sym	logos.std.rt.fiber.Reactor__type_id__g__ref_T
 sym	logos.std.rt.fiber.Scheduler__type_id__g__ref_T
@@ -7644,15 +7636,11 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowMutError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowedBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes
-sym	logos_lang.logos.lang.any$type_id_of__g__void__BytesInner
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BytesMut
-sym	logos_lang.logos.lang.any$type_id_of__g__void__CBinds
-sym	logos_lang.logos.lang.any$type_id_of__g__void__CTy
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CharIndex
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CharIndices
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Chars
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Child
-sym	logos_lang.logos.lang.any$type_id_of__g__void__Chk
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CivilTime
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ConnTask
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ConvertError
@@ -7708,7 +7696,6 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Json
 sym	logos_lang.logos.lang.any$type_id_of__g__void__JsonError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__JsonField
 sym	logos_lang.logos.lang.any$type_id_of__g__void__JsonWriter
-sym	logos_lang.logos.lang.any$type_id_of__g__void__KernelTimespec
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Latch
 sym	logos_lang.logos.lang.any$type_id_of__g__void__LineReader
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Lines
@@ -7721,7 +7708,6 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Method
 sym	logos_lang.logos.lang.any$type_id_of__g__void__OView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Ordering
-sym	logos_lang.logos.lang.any$type_id_of__g__void__P
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PanicInfo
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseBoolError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseFloatError
@@ -7732,7 +7718,6 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Pipe
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QEnv
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QuoteItemBlob
-sym	logos_lang.logos.lang.any$type_id_of__g__void__RBinds
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFromI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFromI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFull
@@ -7752,7 +7737,6 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Response
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Rng
-sym	logos_lang.logos.lang.any$type_id_of__g__void__RtVal
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView2
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Scheduler
@@ -9661,7 +9645,6 @@ type	logos.mem.boxed.Box	fields=[ptr:*mut T]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]
 type	logos.mem.collections.deque.VecDeque	fields=[buf:*mut T,head:i64,len:i64,cap:i64]
-type	logos.mem.collections.hashmap.Entry	fields=[key:K,val:V]
 type	logos.mem.collections.hashmap.HashMap	fields=[states:*mut u8,entries:*mut Entry<K, V>,len:i64,cap:i64]
 type	logos.mem.collections.hashmap.HashMapIter	fields=[states:*const u8,entries:*const Entry<K, V>,cap:i64,idx:i64]
 type	logos.mem.collections.hashmap.HashMapKeys	fields=[states:*const u8,entries:*const Entry<K, V>,cap:i64,idx:i64]
@@ -9695,7 +9678,6 @@ type	logos.mem.sync.Arc	fields=[inner:*mut ArcInner<T>]
 type	logos.mem.sync.ArcInner	fields=[strong:AtomicI32,weak:AtomicI32,val:T]
 type	logos.mem.sync.Weak	fields=[inner:*mut ArcInner<T>]
 type	logos.mem.uninit.MaybeUninit	fields=[value:T]
-type	logos.mem.writ.parser.P	fields=[data:*const u8,len:i64,pos:i64]
 type	logos.mem.writ.tag_system.DataTypeTagSystem	fields=[]
 type	logos.mem.writ.tag_system.TomTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTagSystem	fields=[]
@@ -9743,7 +9725,6 @@ type	logos.std.io.buffered.BufWriter	fields=[writer:W,buf:*mut u8,pos:i64,cap:i6
 type	logos.std.io.buffered.FdReader	fields=[fd:i32]
 type	logos.std.io.buffered.FdWriter	fields=[fd:i32]
 type	logos.std.io.bytes.Bytes	fields=[inner:*mut BytesInner,offset:i64,len:i64]
-type	logos.std.io.bytes.BytesInner	fields=[data:*mut u8,cap:i64,refcount:AtomicI32]
 type	logos.std.io.bytes.BytesMut	fields=[inner:*mut BytesInner,len:i64]
 type	logos.std.io.error.BorrowedBuf	fields=[data:*mut u8,capacity:i64,filled:i64]
 type	logos.std.io.error.ErrorKind	variants=[NotFound,PermissionDenied,ConnectionRefused,ConnectionReset,ConnectionAborted,NotConnected,AddrInUse,AddrNotAvailable,BrokenPipe,AlreadyExists,WouldBlock,InvalidInput,InvalidData,TimedOut,WriteZero,Interrupted,Unsupported,UnexpectedEof,OutOfMemory,Other]
@@ -9776,13 +9757,8 @@ type	logos.std.lang.text.regex.Regex	fields=[pat:*const u8,plen:i64]
 type	logos.std.process.Child	fields=[pid:i32,stdin:i32,stdout:i32,stderr:i32]
 type	logos.std.process.ExitStatus	fields=[raw:i32]
 type	logos.std.process.LineReader	fields=[fd:i32,buf:*mut u8,cap:i64,head:i64,tail:i64,eof:bool]
-type	logos.std.query.CBinds	fields=[names:[&[u8]; 40],tags:[i32; 40],codes:[u64; 40],n:i64]
-type	logos.std.query.CTy	fields=[t:i32,code:u64]
-type	logos.std.query.Chk	fields=[failed:bool,msg:String]
 type	logos.std.query.QEnv	fields=[names:[&[u8]; 24],kinds:[i32; 24],ivals:[i64; 24],fvals:[f64; 24],bvals:[bool; 24],svals:[&[u8]; 24],words:[i64; 24],codes:[u64; 24],n:i64]
 type	logos.std.query.QError	fields=[msg:String]
-type	logos.std.query.RBinds	fields=[names:[&[u8]; 40],kinds:[i32; 40],ivals:[i64; 40],fvals:[f64; 40],bvals:[bool; 40],svals:[&[u8]; 40],words:[i64; 40],n:i64]
-type	logos.std.query.RtVal	variants=[I(i64),F(f64),B(bool),S(&[u8]),Node(WAny),Null]
 type	logos.std.query.SchemaCatalog	fields=[s_names:[&[u8]; 16],s_codes:[u64; 16],s_n:i64,f_owner:[i64; 96],f_names:[&[u8]; 96],f_keys:[i64; 96],f_tys:[i32; 96],f_kinds:[i32; 96],f_targets:[u64; 96],f_tnames:[&[u8]; 96],f_n:i64]
 type	logos.std.query.Tpl	fields=[doc:Writ,head:i64,cat:SchemaCatalog]
 type	logos.std.random.Rng	fields=[state:u64]
@@ -9790,7 +9766,6 @@ type	logos.std.rt.fiber.Chan	fields=[buf:*mut u8,head:i64,tail:i64,cap:i64,len:i
 type	logos.std.rt.fiber.Fiber	fields=[ctx:FiberCtx,stack_base:*mut u8,stack_size:i64,fls:*mut i64,next:*mut Fiber]
 type	logos.std.rt.fiber.FiberCtx	fields=[rbp:i64,rbx:i64,r12:i64,r13:i64,r14:i64,r15:i64,rsp:i64]
 type	logos.std.rt.fiber.FutureSlot	fields=[value_ptr:*mut T,waiter:i64,waiter_thr:i64]
-type	logos.std.rt.fiber.KernelTimespec	fields=[tv_sec:i64,tv_nsec:i64]
 type	logos.std.rt.fiber.Latch	fields=[count:i64,waiter:i64]
 type	logos.std.rt.fiber.Reactor	fields=[ring:*mut u8,parked_count:i64]
 type	logos.std.rt.fiber.Scheduler	fields=[ready_head:*mut Fiber,ready_tail:*mut Fiber,current:i64,pending_free:i64,stack_pool_buf:*mut i64,stack_pool_len:i64,stack_pool_cap:i64,sched_ctx:FiberCtx]

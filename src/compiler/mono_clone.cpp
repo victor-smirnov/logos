@@ -5468,6 +5468,7 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
     DeclBuilder nd(out_, lir_schema::decl::Code::Struct, /*cap=*/40);
     nd.str_always(stk::NAME, new_name);
     nd.str(stk::PKG, tmpl.pkg());
+    if (tmpl.is_pub())          nd.flag(stk::IS_PUB, true);           // ABI pub-scoping — mirrors clone_fn.
     if (tmpl.is_zoned())        nd.flag(stk::IS_ZONED, true);
     bool is_dst = tmpl.is_dst();  // Phase 1B-15: preserved; possibly upgraded below.
     if (tmpl.self_describing())  nd.flag(stk::SELF_DESCRIBING, true);  // Writ: thin-*Self marker preserved.
@@ -5994,6 +5995,7 @@ lir_view::EnumView Mono::clone_enum_def(lir_view::EnumView tmpl,
     DeclBuilder nd(out_, lir_schema::decl::Code::Enum, /*cap=*/16);
     nd.str_always(dk::NAME, new_name);
     nd.str(dk::PKG, tmpl.pkg());
+    if (tmpl.is_pub()) nd.flag(dk::IS_PUB, true);   // ABI pub-scoping — mirrors clone_fn.
     if (tmpl.zoned2()) nd.flag(dk::ZONED2, true);   // F3: preserve niche enum's at-rest-relative marker
     auto va = nd.array(dk::VARIANTS);
     tmpl.each_variant([&](lir_view::EnumVariantView v) {
