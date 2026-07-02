@@ -1,136 +1,65 @@
-// logos.std.wql.plan_walker — the WALKER-EMITTER (ADR 0012 Phase 3): walk an
-// `RQuery` query-PLAN (the `logos.std.wql.plan` schema-enum family) and emit the
-// native Logos function, REPLACING the QLexer-cursor-driven emit in `wql.logos`.
+// logos.std.wql.plan_walker — the WALKER ENTRY (ADR 0012 Phase 3 → Phase 2
+// consolidation): take an `RQuery` surface query-PLAN, stamp the generated-fn
+// name, and route it through the UNIFIED relational algebra.
 //
-// This is the port of `wql.logos`'s `emit_join` / `emit_aggregate` / simple-path
-// emit logic to read PLAN FIELDS (the RQuery schema tree, via `match` + WRef
-// resolves) instead of the hand `QLexer` cursor. The GENERATED SOURCE SHAPE is
-// IDENTICAL to the QLexer path (Vec<ResultTy> scan/filter/project; nested-loop
-// join/anti; two-pass group-by aggregate), so the existing wql! e2e BEHAVIOR is
-// preserved — the plan carries exactly the same clause bodies (SExpr edges) +
-// names/types the QLexer path recovered.
+// Phase 2 resolved the RQuery-vs-RExpr duplication: this module no longer emits
+// the loop nest per plan-shape. Instead `walk_query` LOWERS the surface plan to
+// a real `RExpr` algebra tree, runs the Phase-3 RELATIONAL peephole optimizer
+// over it, and walks that ONE tree — all via `rexpr_walk::lower_simplify_emit`.
+// The per-shape procedural emitters (`walk_simple`/`walk_join`/`walk_aggregate`)
+// are RETIRED — the algebra is the single executable representation
+// (RScan/RFilter/RProj/RJoin/RAnti/RAggr).
 //
-// The embedded EL clause bodies (where / select / on / group-key / aggregate-arg)
-// are already the SExpr IR (parsed by the peg-generated EL parser, wired into the
-// plan node's `WRef<SExpr>` edges). The walker keeps reusing `codegen.logos`
-// (`emit_sexpr`/`collect_params`/`infer_ty`/reflection) for those clauses — the
-// ONE lowering: SExpr schema → Logos source text.
+// Phase 3 (`optimize::simplify_rexpr`) rewrites the algebra BEFORE emission:
+// const-true `where` filters are DROPPED, const-false ones collapse the plan to
+// an empty-Vec return, and an identity `select v` over an unfiltered scan is
+// emitted as a borrowed `&[Row]` passthrough (the accessor collapse). Non-
+// optimized queries emit byte-for-byte as before (all wql! e2e behavior
+// unchanged; the optimizer preserves semantics exactly).
 //
-// SCHEMA MANDATE: the walker consumes ONLY Writ schema views — `RQuery`, `RQAgg`,
-// `RQWith`, and the `WRef<SExpr>` edges. No plain Logos structs/enums for plan
-// nodes.
+// This module keeps only the plan-root name-stamp (the `resource <name> =`
+// binding, ADR 0012 §6) + the RQuery→RExpr routing.
+//
+// SCHEMA MANDATE: consumes ONLY Writ schema views — `RQuery` / `RExpr`.
 package logos.std.wql.plan_walker;
 
-use logos.std.compiler.metaprog;  // Emitter, error, OView, oview_module_ast
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.lang.writ.wmap;
-use logos.std.wql.ir;
-use logos.std.wql.plan;
-use logos.std.wql.el;         // ElTypes, el_types_new, el_ty_of_name, EL_TY_*
-use logos.std.wql.codegen;    // emit_sexpr / collect_params / infer_ty / el_ty_name / …
-use logos.std.wql.reflect;    // stamp_types_from_schema
-use logos.mem.string;
-use logos.lang.str;
+use logos.std.compiler.metaprog;  // error
+use logos.lang.writ.container;    // Writ
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WSchemaH, WMap, Wu6 (name-stamp fat view)
+use logos.std.wql.ir;             // RExpr, WRef
+use logos.std.wql.plan;           // RQuery, RQSimple / RQJoin / RQAggr
+use logos.std.wql.rexpr_walk;     // lower_simplify_emit — lower → Phase-3 optimize → emit
 
-// ── Aggregate fn ids (mirror wql.logos) ──────────────────────────────────────
-fn AGG_COUNT() -> i32 { return 1i32; }
-fn AGG_SUM()   -> i32 { return 2i32; }
-fn AGG_MIN()   -> i32 { return 3i32; }
-fn AGG_MAX()   -> i32 { return 4i32; }
-fn AGG_AVG()   -> i32 { return 5i32; }
-
-fn agg_of_name(name: str) -> i32 {
-    if str_eq(name, "count") { return AGG_COUNT(); }
-    if str_eq(name, "sum")   { return AGG_SUM(); }
-    if str_eq(name, "min")   { return AGG_MIN(); }
-    if str_eq(name, "max")   { return AGG_MAX(); }
-    if str_eq(name, "avg")   { return AGG_AVG(); }
-    return 0i32;
-}
-
-// ── Shared: apply an RQWithArr's declarations onto the type dict ──────────────
-// Replays the `with [$]name:ty` list onto `ty` exactly as `apply_with_types` did
-// off the QLexer's parallel arrays — but the names/types live on RQWith nodes now
-// (self-describing IR). `is_param` distinguishes a PARAM from a bare FIELD (both
-// stamp the ONE name→type dict; the param/field distinction is only used for the
-// source/scalar shape, handled by `note_param` off the SExpr IR).
-// Null-safe: the `with` clause is OPTIONAL, so its edge (`with_decls`) is a NULL
-// `WRef<RQWithArr>` when absent — resolving it would deref null. Guard on the
-// raw ref before viewing (the QLexer path built an empty dict for no-`with`).
-fn apply_with_ref(ty: &mut ElTypes, wref: WRef<RQWithArr>) {
-    let h: WAny = wref.any();
-    if h.is_null() { return; }
-    let wa: RQWithArr = h.view::<RQWithArr>();
-    let n: i64 = wa.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let w: RQWith = wa.with_at(i);
-        ty.set_ty(w.name, el_ty_of_name(w.ty));
-        i = i + 1i64;
-    }
-}
-
-// ── Shared: emit the generated-fn param list ─────────────────────────────────
-// `, <pname>: <ty>` per interned param (str → `str`, bool → `bool`, else i64); a
-// comprehension SOURCE param flows as `&[Elem]`. Identical to wql.logos::emit_params
-// (params flow as generated-fn arguments — the sqlx model).
-fn emit_params(em: &mut Emitter, t: &ElTypes) {
-    let n: i64 = t.param_count();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let pname: str = t.param_name(i);
-        em.push_text(", ");
-        em.push_text(pname);
-        let pty: i32 = t.ty_of(pname);
-        if t.is_source(pname) {
-            em.push_text(": &[");
-            if pty == EL_TY_STR()       { em.push_text("str"); }
-            else if pty == EL_TY_BOOL() { em.push_text("bool"); }
-            else                        { em.push_text("i64"); }
-            em.push_text("]");
-        }
-        else if pty == EL_TY_STR()  { em.push_text(": str"); }
-        else if pty == EL_TY_BOOL() { em.push_text(": bool"); }
-        else                        { em.push_text(": i64"); }
-        i = i + 1i64;
-    }
-}
-
-// True iff the projection's ROOT SExpr is a comprehension (→ the row push value
-// is a `Vec<Elem>`, so the query returns `Vec<Vec<Elem>>`).
-fn is_comp_root(e: SExpr) -> bool {
-    match e {
-        SExpr::Comp(_) => { return true; }
-        _ => { return false; }
-    }
-}
-
-// The EL value-type of a comprehension projection's HEAD expression.
-fn comp_head_ty(e: SExpr, t: &ElTypes) -> i32 {
-    match e {
-        SExpr::Comp(cp) => { return infer_ty(cp.head_expr(), t); }
-        _ => { return EL_TY_INT(); }
-    }
-}
-
-// ── The walker entry: RQuery plan → emitted native fn ─────────────────────────
-// Match the plan family and dispatch to the per-shape emitter. Returns false (+
-// surfaces an `error`) on a codegen-level diagnostic (unknown/wrong-arity builtin
-// in a clause); true on success. The plan's clause bodies are already SExpr edges,
-// so this is a pure WALK — no re-lex, no re-parse.
-pub fn walk_query(plan: RQuery) -> bool {
+// ── The walker entry: RQuery plan → RExpr algebra → emitted native fn ─────────
+// LOWER the surface plan to the RExpr algebra, then emit off that one tree.
+// Returns false (+ surfaces an `error`) on a codegen-level diagnostic
+// (unknown/wrong-arity builtin, bad aggregate); true on success.
+pub fn walk_query(plan: RQuery, h: &Writ) -> bool {
+    // Phase 2: LOWER the surface plan to the real RExpr algebra.
+    // Phase 3: run the RELATIONAL peephole pass (`simplify_rexpr`, inside
+    // `lower_simplify_emit`) — filter folding, identity-projection collapse,
+    // projection composition — over that tree BEFORE emission, then walk the
+    // (possibly thinner) form. The envelope (fn name / `with` overlay / result-
+    // type override) is read off the RQuery per shape and threaded through; the
+    // relational STRUCTURE + clause bodies live on the RExpr tree.
     match plan {
-        RQuery::Simple(s) => { return walk_simple(s); }
-        RQuery::Join(j)   => { return walk_join(j); }
-        RQuery::Aggr(g)   => { return walk_aggregate(g); }
+        RQuery::Simple(s) => {
+            return lower_simplify_emit(plan, s.fn_name, s.with_decls, s.result_ty, s.has_result_ty, h);
+        }
+        RQuery::Join(j) => {
+            return lower_simplify_emit(plan, j.fn_name, j.with_decls, j.result_ty, j.has_result_ty, h);
+        }
+        RQuery::Aggr(g) => {
+            return lower_simplify_emit(plan, g.fn_name, g.with_decls, g.result_ty, g.has_result_ty, h);
+        }
     }
 }
 
 // Convenience: view an erased plan-root handle as RQuery and walk it.
-pub fn walk_query_any(root: WAny) -> bool {
+pub fn walk_query_any(root: WAny, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
-    return walk_query(root.view::<RQuery>());
+    return walk_query(root.view::<RQuery>(), h);
 }
 
 // Stamp the generated-fn NAME onto the plan root, then walk. The name comes from
@@ -165,493 +94,5 @@ pub fn walk_query_any_named(root: WAny, name: str, h: &Writ) -> bool {
         RQuery::Join(_)   => { let j: RQJoin   = wrap_fat_join(root, h);   j.fn_name = name; }
         RQuery::Aggr(_)   => { let g: RQAggr   = wrap_fat_aggr(root, h);   g.fn_name = name; }
     }
-    return walk_query(root.view::<RQuery>());
-}
-
-// ── RQSimple — scan / filter / project ───────────────────────────────────────
-// Mirrors the simple path in wql.logos::wql: reflect the source schema, apply
-// `with`, collect params off the SExpr IR, register comprehension sources, then
-// emit the indexed while-loop that filters + pushes the projection.
-fn walk_simple(s: RQSimple) -> bool {
-    let fn_name: str  = s.fn_name;
-    let src_name: str = s.src_name;
-    let row_ty: str   = s.row_ty;
-    let var_name: str = s.var_name;
-    let has_where: bool = s.has_where;
-
-    // Type dict: reflect the source schema, apply `with`.
-    let mut ty: ElTypes = el_types_new();
-    let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, row_ty);
-    apply_with_ref(&mut ty, s.with_decls);
-
-    // Projection SExpr (required).
-    let proj_sexpr: SExpr = s.select_expr();
-    collect_params(proj_sexpr, &mut ty);
-    if has_where { collect_params(s.where_expr(), &mut ty); }
-    register_comp_sources(proj_sexpr, &mut ty);
-    if has_where { register_comp_sources(s.where_expr(), &mut ty); }
-
-    // Diagnostic pass over the clauses BEFORE emitting.
-    if call_diagnostic(proj_sexpr, &ty) {
-        error("wql!: `select` calls an unknown or wrong-arity function");
-        return false;
-    }
-
-    // Lower the projection.
-    let mut body: String = String::new();
-    emit_sexpr(&mut body, proj_sexpr, &ty, var_name);
-
-    // Result element type: explicit `: RTy` wins, else INFER from the projection.
-    let mut result_ty: str = s.result_ty;
-    if !s.has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_sexpr, &ty));
-    }
-    // A comprehension projection pushes a `Vec<Elem>` per row → `Vec<Vec<Elem>>`.
-    let is_comp: bool = is_comp_root(proj_sexpr);
-    if !s.has_result_ty && is_comp {
-        result_ty = el_ty_name(comp_head_ty(proj_sexpr, &ty));
-    }
-    let mut elem_ty: String = String::new();
-    if is_comp {
-        elem_ty.push_str("Vec<");
-        elem_ty.push_str(result_ty);
-        elem_ty.push_str(">");
-    } else {
-        elem_ty.push_str(result_ty);
-    }
-    let result_elem: str = string_as_str(&elem_ty);
-
-    // Predicate.
-    let mut pred_body: String = String::new();
-    if has_where {
-        let pred_sexpr: SExpr = s.where_expr();
-        if call_diagnostic(pred_sexpr, &ty) {
-            error("wql!: `where` calls an unknown or wrong-arity function");
-            return false;
-        }
-        emit_sexpr(&mut pred_body, pred_sexpr, &ty, var_name);
-    }
-
-    // ── Emit the generated function source (identical shape to wql.logos) ─────
-    let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(src_name);
-    em.push_text(": &[");
-    em.push_text(row_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
-    em.push_text(") -> Vec<");
-    em.push_text(result_elem);
-    em.push_text("> {\n");
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_elem);
-    em.push_text("> = Vec::<");
-    em.push_text(result_elem);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __i: i64 = 0i64;\n");
-    em.push_text("    while __i < (");
-    em.push_text(src_name);
-    em.push_text(").len() {\n");
-    em.push_text("        let ");
-    em.push_text(var_name);
-    em.push_text(": &");
-    em.push_text(row_ty);
-    em.push_text(" = &(");
-    em.push_text(src_name);
-    em.push_text(")[__i];\n");
-    if has_where {
-        em.push_text("        if ");
-        em.push_text(string_as_str(&pred_body));
-        em.push_text(" {\n");
-        em.push_text("            __out.push(");
-        em.push_text(string_as_str(&body));
-        em.push_text(");\n");
-        em.push_text("        }\n");
-    } else {
-        em.push_text("        __out.push(");
-        em.push_text(string_as_str(&body));
-        em.push_text(");\n");
-    }
-    em.push_text("        __i = __i + 1i64;\n");
-    em.push_text("    }\n");
-    em.push_text("    return __out;\n");
-    em.push_text("}\n");
-    em.commit();
-    return true;
-}
-
-// ── RQJoin — inner / anti nested-loop join ───────────────────────────────────
-// Mirrors wql.logos::emit_join: reflect BOTH row schemas, apply `with`, collect
-// params, lower on/where/select, emit the nested loops.
-fn walk_join(j: RQJoin) -> bool {
-    let fn_name: str = j.fn_name;
-    let a_name: str  = j.a_name;
-    let a_ty: str    = j.a_ty;
-    let x_var: str   = j.x_var;
-    let is_anti: bool = j.is_anti;
-    let b_name: str  = j.b_name;
-    let b_ty: str    = j.b_ty;
-    let y_var: str   = j.y_var;
-    let has_where: bool = j.has_where;
-
-    let mut ty: ElTypes = el_types_new();
-    let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, a_ty);
-    stamp_types_from_schema(&view, &mut ty, b_ty);
-    apply_with_ref(&mut ty, j.with_decls);
-
-    let on_e: SExpr   = j.on_expr();
-    let proj_e: SExpr = j.select_expr();
-    collect_params(on_e, &mut ty);
-    if has_where { collect_params(j.where_expr(), &mut ty); }
-    collect_params(proj_e, &mut ty);
-
-    // Result element type: explicit `: RTy` wins, else INFER from the projection.
-    // Both source schemas are reflected into `ty`, so a projection referencing
-    // `x.field` / `y.field` (or a builtin / literal / arithmetic thereof) types.
-    let mut result_ty: str = j.result_ty;
-    if !j.has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_e, &ty));
-    }
-
-    let mut on_body: String = String::new();
-    emit_sexpr(&mut on_body, on_e, &ty, x_var);
-    let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_e, &ty, x_var);
-    let mut where_body: String = String::new();
-    if has_where {
-        emit_sexpr(&mut where_body, j.where_expr(), &ty, x_var);
-    }
-
-    let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(a_name);
-    em.push_text(": &[");
-    em.push_text(a_ty);
-    em.push_text("], ");
-    em.push_text(b_name);
-    em.push_text(": &[");
-    em.push_text(b_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
-    em.push_text(") -> Vec<");
-    em.push_text(result_ty);
-    em.push_text("> {\n");
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(result_ty);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __i: i64 = 0i64;\n");
-    em.push_text("    while __i < (");
-    em.push_text(a_name);
-    em.push_text(").len() {\n");
-    em.push_text("        let ");
-    em.push_text(x_var);
-    em.push_text(": &");
-    em.push_text(a_ty);
-    em.push_text(" = &(");
-    em.push_text(a_name);
-    em.push_text(")[__i];\n");
-    if is_anti {
-        em.push_text("        let mut __matched: bool = false;\n");
-        em.push_text("        let mut __j: i64 = 0i64;\n");
-        em.push_text("        while __j < (");
-        em.push_text(b_name);
-        em.push_text(").len() {\n");
-        em.push_text("            let ");
-        em.push_text(y_var);
-        em.push_text(": &");
-        em.push_text(b_ty);
-        em.push_text(" = &(");
-        em.push_text(b_name);
-        em.push_text(")[__j];\n");
-        em.push_text("            if (");
-        em.push_text(string_as_str(&on_body));
-        em.push_text(") { __matched = true; }\n");
-        em.push_text("            __j = __j + 1i64;\n");
-        em.push_text("        }\n");
-        em.push_text("        if (!__matched) {\n");
-        if has_where {
-            em.push_text("            if (");
-            em.push_text(string_as_str(&where_body));
-            em.push_text(") { __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text("); }\n");
-        } else {
-            em.push_text("            __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text(");\n");
-        }
-        em.push_text("        }\n");
-    } else {
-        em.push_text("        let mut __j: i64 = 0i64;\n");
-        em.push_text("        while __j < (");
-        em.push_text(b_name);
-        em.push_text(").len() {\n");
-        em.push_text("            let ");
-        em.push_text(y_var);
-        em.push_text(": &");
-        em.push_text(b_ty);
-        em.push_text(" = &(");
-        em.push_text(b_name);
-        em.push_text(")[__j];\n");
-        em.push_text("            if (");
-        em.push_text(string_as_str(&on_body));
-        em.push_text(") {\n");
-        if has_where {
-            em.push_text("                if (");
-            em.push_text(string_as_str(&where_body));
-            em.push_text(") { __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text("); }\n");
-        } else {
-            em.push_text("                __out.push(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text(");\n");
-        }
-        em.push_text("            }\n");
-        em.push_text("            __j = __j + 1i64;\n");
-        em.push_text("        }\n");
-    }
-    em.push_text("        __i = __i + 1i64;\n");
-    em.push_text("    }\n");
-    em.push_text("    return __out;\n");
-    em.push_text("}\n");
-    em.commit();
-    return true;
-}
-
-// ── RQAggr — group-by + aggregate (two-pass nested loop) ─────────────────────
-// Mirrors wql.logos::emit_aggregate: reflect the source schema, apply `with`,
-// collect params, lower key/where/select + each aggregate inner-expr, emit the
-// distinct-key outer pass + inner fold.
-fn walk_aggregate(g: RQAggr) -> bool {
-    let fn_name: str = g.fn_name;
-    let a_name: str  = g.a_name;
-    let a_ty: str    = g.a_ty;
-    let x_var: str   = g.x_var;
-    let has_where: bool = g.has_where;
-
-    let aggs: RQAggArr = g.aggs_arr();
-    let acount: i64 = aggs.len();
-
-    let mut ty: ElTypes = el_types_new();
-    let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, a_ty);
-    apply_with_ref(&mut ty, g.with_decls);
-
-    // The grouped projection binds `key` + each aggregate column as an i64 local
-    // (count/sum/min/max/avg all yield i64 today), so type those names in the
-    // dict — this is what lets `select` INFER its result type (and matches how
-    // the projection is actually emitted below).
-    ty.set_ty("key", EL_TY_INT());
-    let mut ki: i64 = 0i64;
-    while ki < acount {
-        let ka: RQAgg = aggs.agg_at(ki);
-        ty.set_ty(ka.name, EL_TY_INT());
-        ki = ki + 1i64;
-    }
-
-    let key_e: SExpr = g.key_expr();
-    collect_params(key_e, &mut ty);
-    if has_where { collect_params(g.where_expr(), &mut ty); }
-    collect_params(g.select_expr(), &mut ty);
-
-    // Result element type: explicit `: RTy` wins, else INFER from the projection
-    // (over the group-key + aggregate-column i64 locals typed above).
-    let mut result_ty: str = g.result_ty;
-    if !g.has_result_ty {
-        result_ty = el_ty_name(infer_ty(g.select_expr(), &ty));
-    }
-
-    let mut key_body: String = String::new();
-    emit_sexpr(&mut key_body, key_e, &ty, x_var);
-    let mut where_body: String = String::new();
-    if has_where {
-        emit_sexpr(&mut where_body, g.where_expr(), &ty, x_var);
-    }
-    let proj_e: SExpr = g.select_expr();
-    let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_e, &ty, x_var);
-
-    // Lower each aggregate inner-expr (count() has none). Collect its params too.
-    let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut ai: i64 = 0i64;
-    while ai < acount {
-        let a: RQAgg = aggs.agg_at(ai);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        if fnid == 0i32 { error("wql!: aggregate fn must be count/sum/min/max/avg"); return false; }
-        if fnid != AGG_COUNT() {
-            if !a.has_arg { error("wql!: aggregate fn expects an argument"); return false; }
-            let ae: SExpr = a.arg_expr();
-            collect_params(ae, &mut ty);
-            emit_sexpr(&mut agg_body[ai], ae, &ty, x_var);
-        }
-        ai = ai + 1i64;
-    }
-
-    // ── Emit the grouped two-pass loop (identical shape to wql.logos) ─────────
-    let mut em: Emitter = Emitter::new();
-    em.emit_into("test");
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(a_name);
-    em.push_text(": &[");
-    em.push_text(a_ty);
-    em.push_text("]");
-    emit_params(&mut em, &ty);
-    em.push_text(") -> Vec<");
-    em.push_text(result_ty);
-    em.push_text("> {\n");
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(result_ty);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __seen: Vec<i64> = Vec::<i64>::new();\n");
-    em.push_text("    let mut __i: i64 = 0i64;\n");
-    em.push_text("    while __i < (");
-    em.push_text(a_name);
-    em.push_text(").len() {\n");
-    em.push_text("        let ");
-    em.push_text(x_var);
-    em.push_text(": &");
-    em.push_text(a_ty);
-    em.push_text(" = &(");
-    em.push_text(a_name);
-    em.push_text(")[__i];\n");
-    if has_where {
-        em.push_text("        if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-    }
-    em.push_text("        let __k: i64 = (");
-    em.push_text(string_as_str(&key_body));
-    em.push_text(");\n");
-    em.push_text("        let mut __f: bool = false;\n");
-    em.push_text("        let mut __s: i64 = 0i64;\n");
-    em.push_text("        while __s < __seen.len() { if __seen.get(__s) == __k { __f = true; } __s = __s + 1i64; }\n");
-    em.push_text("        if (!__f) {\n");
-    em.push_text("            __seen.push(__k);\n");
-    // Aggregate accumulators.
-    let mut c0: i64 = 0i64;
-    while c0 < acount {
-        let a: RQAgg = aggs.agg_at(c0);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        em.push_text("            let mut __agg_");
-        em.push_text(a.name);
-        if fnid == AGG_MIN() {
-            em.push_text(": i64 = 9223372036854775807i64;\n");
-        } else if fnid == AGG_MAX() {
-            em.push_text(": i64 = -9223372036854775808i64;\n");
-        } else {
-            em.push_text(": i64 = 0i64;\n");
-        }
-        c0 = c0 + 1i64;
-    }
-    em.push_text("            let mut __cnt: i64 = 0i64;\n");
-    em.push_text("            let mut __j: i64 = 0i64;\n");
-    em.push_text("            while __j < (");
-    em.push_text(a_name);
-    em.push_text(").len() {\n");
-    em.push_text("                let ");
-    em.push_text(x_var);
-    em.push_text(": &");
-    em.push_text(a_ty);
-    em.push_text(" = &(");
-    em.push_text(a_name);
-    em.push_text(")[__j];\n");
-    if has_where {
-        em.push_text("                if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-    }
-    em.push_text("                if ((");
-    em.push_text(string_as_str(&key_body));
-    em.push_text(") == __k) {\n");
-    em.push_text("                    __cnt = __cnt + 1i64;\n");
-    let mut c1: i64 = 0i64;
-    while c1 < acount {
-        let a: RQAgg = aggs.agg_at(c1);
-        let aname2: str = a.name;
-        let fnid2: i32 = agg_of_name(a.fn_name);
-        if fnid2 == AGG_COUNT() {
-            em.push_text("                    __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __agg_");
-            em.push_text(aname2);
-            em.push_text(" + 1i64;\n");
-        } else if fnid2 == AGG_SUM() || fnid2 == AGG_AVG() {
-            em.push_text("                    __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __agg_");
-            em.push_text(aname2);
-            em.push_text(" + (");
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text(");\n");
-        } else if fnid2 == AGG_MIN() {
-            em.push_text("                    { let __v: i64 = (");
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text("); if __v < __agg_");
-            em.push_text(aname2);
-            em.push_text(" { __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __v; } }\n");
-        } else {
-            em.push_text("                    { let __v: i64 = (");
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text("); if __v > __agg_");
-            em.push_text(aname2);
-            em.push_text(" { __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __v; } }\n");
-        }
-        c1 = c1 + 1i64;
-    }
-    em.push_text("                }\n");
-    if has_where { em.push_text("                }\n"); }
-    em.push_text("                __j = __j + 1i64;\n");
-    em.push_text("            }\n");
-    // Bind the grouped row's locals: `key` + each agg name.
-    em.push_text("            let key: i64 = __k;\n");
-    let mut c2: i64 = 0i64;
-    while c2 < acount {
-        let a: RQAgg = aggs.agg_at(c2);
-        let aname3: str = a.name;
-        let fnid3: i32 = agg_of_name(a.fn_name);
-        em.push_text("            let ");
-        em.push_text(aname3);
-        em.push_text(": i64 = ");
-        if fnid3 == AGG_AVG() {
-            em.push_text("(if __cnt > 0i64 { __agg_");
-            em.push_text(aname3);
-            em.push_text(" / __cnt } else { 0i64 });\n");
-        } else {
-            em.push_text("__agg_");
-            em.push_text(aname3);
-            em.push_text(";\n");
-        }
-        c2 = c2 + 1i64;
-    }
-    em.push_text("            __out.push(");
-    em.push_text(string_as_str(&proj_body));
-    em.push_text(");\n");
-    em.push_text("        }\n");
-    if has_where { em.push_text("        }\n"); }
-    em.push_text("        __i = __i + 1i64;\n");
-    em.push_text("    }\n");
-    em.push_text("    return __out;\n");
-    em.push_text("}\n");
-    em.commit();
-    return true;
+    return walk_query(root.view::<RQuery>(), h);
 }

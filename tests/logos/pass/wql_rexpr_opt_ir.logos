@@ -1,0 +1,148 @@
+// WQL optimizer Phase 3 — RELATIONAL peephole pass `simplify_rexpr`, asserted at
+// the IR level (mutation-verified). Builds RExpr Writ-schema trees directly, runs
+// `simplify_rexpr_ref`, and inspects the returned `RSimplified` — proving each
+// collapse FIRES (break a rule and the matching assert fails), and that a
+// non-const filter is PRESERVED (no over-collapse).
+//
+// Rules exercised:
+//   (a) const-true  `where` over a scan          → filter DROPPED (root = RScan).
+//   (a) const-false `where` over a scan          → `empty` signalled.
+//   (b) identity `select v` over an unfiltered scan → `identity` signalled.
+//   (c) RProj over RProj                          → composed (single projection).
+//   (-) non-const `where` (x)                     → filter KEPT (RFilter root).
+//
+// IR nodes are LOCALS kept in scope (a node's `as_ref` edge targets the arena
+// TOM; the borrow checker treats it as a borrow of the local view), so trees are
+// built inline — the standard IR-construction shape (cf. wql_ir_smoke).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;
+use logos.std.wql.el;         // OP_* operator ids
+use logos.std.wql.optimize;   // simplify_rexpr_ref, RSimplified
+
+// Classify a simplified root: 1=RScan, 2=RFilter, 3=RProj, 0=other.
+fn root_kind(r: WRef<RExpr>) -> i32 {
+    let e: RExpr = r.any().view::<RExpr>();
+    match e {
+        RExpr::Scan(_)   => { return 1i32; }
+        RExpr::Filter(_) => { return 2i32; }
+        RExpr::Proj(_)   => { return 3i32; }
+        _ => { return 0i32; }
+    }
+}
+
+// Under an RProj root, is the projected body an RScan (i.e. the filter was
+// dropped)? Returns 1=scan-body, 2=filter-body, 0=other/not-a-proj.
+fn proj_body_kind(r: WRef<RExpr>) -> i32 {
+    let e: RExpr = r.any().view::<RExpr>();
+    match e {
+        RExpr::Proj(p) => {
+            let bref: WRef<RExpr> = p.input;
+            let be: RExpr = bref.any().view::<RExpr>();
+            match be {
+                RExpr::Scan(_)   => { return 1i32; }
+                RExpr::Filter(_) => { return 2i32; }
+                _ => { return 0i32; }
+            }
+        }
+        _ => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(16384i64);
+
+    // ── Shared leaves ────────────────────────────────────────────────────────
+    let bt: SLit = h.make::<SLit>(); bt.val = WAny::from(true);
+    let bf: SLit = h.make::<SLit>(); bf.val = WAny::from(false);
+    // A non-const predicate `p.age` (a field STEP) — must NOT collapse.
+    let base_p: SField = h.make::<SField>(); base_p.name = "p";      // bare root `p`
+    let fld_age: SField = h.make::<SField>();
+    fld_age.base = WRef::<SExpr>::from_any(base_p.as_ref());
+    fld_age.name = "age";
+    // The identity projection `select p` — a bare field-root naming the loop var.
+    let sel_p: SField = h.make::<SField>(); sel_p.name = "p";
+    // A non-identity projection `select p.age`.
+    let base_p2: SField = h.make::<SField>(); base_p2.name = "p";
+    let sel_age: SField = h.make::<SField>();
+    sel_age.base = WRef::<SExpr>::from_any(base_p2.as_ref());
+    sel_age.name = "age";
+
+    // ── (a) const-TRUE filter dropped ────────────────────────────────────────
+    // RProj( RFilter( RScan(people:[Person] p), true ), p.age )
+    let sc1: RScan = h.make::<RScan>();
+    sc1.src_name = "people"; sc1.row_ty = "Person"; sc1.var_name = "p";
+    let flt1: RFilter = h.make::<RFilter>();
+    flt1.input = WRef::<RExpr>::from_any(sc1.as_ref());
+    flt1.pred  = WRef::<SExpr>::from_any(bt.as_ref());
+    let pr1: RProj = h.make::<RProj>();
+    pr1.input = WRef::<RExpr>::from_any(flt1.as_ref());
+    pr1.sel   = WRef::<SExpr>::from_any(sel_age.as_ref());
+    let pr1ref: WRef<RExpr> = WRef::<RExpr>::from_any(pr1.as_ref());
+    let s1: RSimplified = simplify_rexpr_ref(pr1ref, pr1ref.any().view::<RExpr>(), &h);
+    if s1.empty || s1.identity { return 1i32; }
+    if root_kind(s1.root) != 3i32 { return 2i32; }         // still an RProj root
+    if proj_body_kind(s1.root) != 1i32 { return 3i32; }    // body is the SCAN (filter dropped)
+
+    // ── (a) const-FALSE filter → empty ───────────────────────────────────────
+    let sc2: RScan = h.make::<RScan>();
+    sc2.src_name = "people"; sc2.row_ty = "Person"; sc2.var_name = "p";
+    let flt2: RFilter = h.make::<RFilter>();
+    flt2.input = WRef::<RExpr>::from_any(sc2.as_ref());
+    flt2.pred  = WRef::<SExpr>::from_any(bf.as_ref());
+    let pr2: RProj = h.make::<RProj>();
+    pr2.input = WRef::<RExpr>::from_any(flt2.as_ref());
+    pr2.sel   = WRef::<SExpr>::from_any(sel_age.as_ref());
+    let pr2ref: WRef<RExpr> = WRef::<RExpr>::from_any(pr2.as_ref());
+    let s2: RSimplified = simplify_rexpr_ref(pr2ref, pr2ref.any().view::<RExpr>(), &h);
+    if !s2.empty { return 4i32; }                          // empty signalled
+    if s2.identity { return 5i32; }
+
+    // ── (b) identity projection over an unfiltered scan ──────────────────────
+    // RProj( RScan(people:[Person] p), p )   → identity passthrough.
+    let sc3: RScan = h.make::<RScan>();
+    sc3.src_name = "people"; sc3.row_ty = "Person"; sc3.var_name = "p";
+    let pr3: RProj = h.make::<RProj>();
+    pr3.input = WRef::<RExpr>::from_any(sc3.as_ref());
+    pr3.sel   = WRef::<SExpr>::from_any(sel_p.as_ref());
+    let pr3ref: WRef<RExpr> = WRef::<RExpr>::from_any(pr3.as_ref());
+    let s3: RSimplified = simplify_rexpr_ref(pr3ref, pr3ref.any().view::<RExpr>(), &h);
+    if !s3.identity { return 6i32; }                       // identity signalled
+    if s3.empty { return 7i32; }
+
+    // ── (b, negative) identity `select p` but WITH a filter → NOT passthrough ─
+    let sc4: RScan = h.make::<RScan>();
+    sc4.src_name = "people"; sc4.row_ty = "Person"; sc4.var_name = "p";
+    let flt4: RFilter = h.make::<RFilter>();
+    flt4.input = WRef::<RExpr>::from_any(sc4.as_ref());
+    flt4.pred  = WRef::<SExpr>::from_any(fld_age.as_ref());   // non-const `p.age`
+    let pr4: RProj = h.make::<RProj>();
+    pr4.input = WRef::<RExpr>::from_any(flt4.as_ref());
+    pr4.sel   = WRef::<SExpr>::from_any(sel_p.as_ref());
+    let pr4ref: WRef<RExpr> = WRef::<RExpr>::from_any(pr4.as_ref());
+    let s4: RSimplified = simplify_rexpr_ref(pr4ref, pr4ref.any().view::<RExpr>(), &h);
+    if s4.identity { return 8i32; }                        // filtered ⇒ NOT identity
+    if s4.empty { return 9i32; }
+    if proj_body_kind(s4.root) != 2i32 { return 10i32; }   // non-const filter KEPT
+
+    // ── (c) RProj over RProj → composed to one projection ────────────────────
+    // RProj( RProj( RScan, p.age ), p.age )  → RProj( RScan, p.age ).
+    let sc5: RScan = h.make::<RScan>();
+    sc5.src_name = "people"; sc5.row_ty = "Person"; sc5.var_name = "p";
+    let inner: RProj = h.make::<RProj>();
+    inner.input = WRef::<RExpr>::from_any(sc5.as_ref());
+    inner.sel   = WRef::<SExpr>::from_any(sel_age.as_ref());
+    let outer: RProj = h.make::<RProj>();
+    outer.input = WRef::<RExpr>::from_any(inner.as_ref());
+    outer.sel   = WRef::<SExpr>::from_any(sel_age.as_ref());
+    let pr5ref: WRef<RExpr> = WRef::<RExpr>::from_any(outer.as_ref());
+    let s5: RSimplified = simplify_rexpr_ref(pr5ref, pr5ref.any().view::<RExpr>(), &h);
+    if s5.empty || s5.identity { return 11i32; }
+    if root_kind(s5.root) != 3i32 { return 12i32; }        // single RProj root
+    if proj_body_kind(s5.root) != 1i32 { return 13i32; }   // body is the SCAN (inner proj dropped)
+
+    return 0i32;
+}

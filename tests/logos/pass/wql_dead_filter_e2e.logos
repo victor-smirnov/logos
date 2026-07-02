@@ -1,0 +1,48 @@
+// WQL optimizer Phase 3 — FILTER FOLDING end-to-end (rules a).
+//
+// Two queries exercise the relational filter-fold collapse through the real
+// `wql!` codegen path, proving the OPTIMIZED plan computes IDENTICAL results:
+//
+//   • `all`  : `where 1 < 2` const-folds to `true` → `simplify_rexpr` DROPS the
+//              RFilter; the emitted fn is the bare scan/project loop with NO
+//              per-row predicate → every row passes (all four ages).
+//   • `none` : `where 1 > 2` const-folds to `false` → `simplify_rexpr` proves the
+//              plan EMPTY; the emitted fn returns an empty `Vec` DIRECTLY (no scan
+//              loop) → zero rows.
+//
+// The empty case is a DISTINCT emitted body (empty-Vec return, not a loop), so a
+// zero-length result here is the observable signature of the const-false collapse
+// firing; semantics (an always-false filter yields no rows) are preserved.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person {
+    pub name: i64,
+    pub age:  i64,
+}
+
+resource all_rows  = wql!{ from people:[Person] p where 1 < 2 select p.age : i64 };
+resource none_rows = wql!{ from people:[Person] p where 1 > 2 select p.age : i64 };
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: 1i64, age: 15i64 },
+        Person { name: 2i64, age: 18i64 },
+        Person { name: 3i64, age: 40i64 },
+        Person { name: 4i64, age: 9i64  },
+    ];
+
+    // const-true `where` dropped → all four rows survive, in order.
+    let a: Vec<i64> = all_rows(&people[..]);
+    if a.len() != 4i64 { return 1i32; }
+    if a.get(0i64) != 15i64 { return 2i32; }
+    if a.get(3i64) != 9i64  { return 3i32; }
+
+    // const-false `where` → empty plan → zero rows (empty-Vec thin form).
+    let n: Vec<i64> = none_rows(&people[..]);
+    if n.len() != 0i64 { return 4i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,36 @@
+// WQL optimizer Phase 3 — IDENTITY-PROJECTION collapse (the accessor-collapse
+// peephole), asserted end-to-end through the real `wql!` codegen path.
+//
+// An UNFILTERED identity projection `from src:[T] v select v` yields exactly the
+// source rows, so `simplify_rexpr` marks it a PASSTHROUGH: the emitted fn RETURNS
+// THE SOURCE SLICE `&[T]` directly — no scan loop, no fresh `Vec`, no per-row
+// copy. The proof is at the TYPE level: this file binds the result to `&[Person]`
+// and indexes it. If the peephole did NOT fire (the fn still returned `Vec<T>`),
+// this would FAIL to compile — a mutation-verified check that the collapse fires
+// AND preserves semantics (the borrowed slice IS the input, same rows/order).
+package test;
+
+use logos.std.wql.wql;
+
+struct Person {
+    pub name: i64,
+    pub age:  i64,
+}
+
+// Identity projection over an unfiltered scan → borrow-and-return `&[Person]`.
+resource all_people = wql!{ from people:[Person] p select p };
+
+fn main() -> i32 {
+    let people: [Person; 3] = [
+        Person { name: 1i64, age: 15i64 },
+        Person { name: 2i64, age: 18i64 },
+        Person { name: 3i64, age: 40i64 },
+    ];
+    // The return type is `&[Person]` (the thin form). Binding to `&[Person]`
+    // typechecks ONLY because the identity peephole fired.
+    let rows: &[Person] = all_people(&people[..]);
+    if rows.len() != 3i64 { return 1i32; }
+    if rows[1i64].age != 18i64 { return 2i32; }   // slice IS the source, in order
+    if rows[2i64].name != 3i64 { return 3i32; }
+    return 0i32;
+}

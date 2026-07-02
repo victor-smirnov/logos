@@ -1,0 +1,169 @@
+// WQL/Trama optimizer Phase 1 — CONST-FOLD, asserted at the IR level (ADR 0012
+// §optimization). Builds SExpr Writ-schema trees directly (as `wql_ir_smoke`
+// does), runs the IR→IR pass `simplify_sexpr`, and asserts the RESULT NODE is the
+// folded literal — i.e. it inspects the *folded form*, not merely a downstream
+// value. This is the mutation-verified proof that folding actually happens: break
+// a fold rule and the corresponding assert fails.
+//
+// IR nodes are built as LOCALS kept in scope (a node's `as_ref()` edge handle
+// targets the TOM in the arena `h`, but the borrow checker treats it as borrowing
+// the local view — so, like `wql_ir_smoke`, construction is inlined rather than
+// factored into handle-returning helpers).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.std.wql.ir;
+use logos.std.wql.el;         // OP_* operator ids
+use logos.std.wql.optimize;   // simplify_sexpr
+use logos.lang.str;           // str_eq
+
+// Classify a folded result edge: 1=int(value in `oi`), 2=bool(value in `ob`),
+// 3=bare field-root `x`, 4=SBin, 0=other. Returned via a small struct.
+struct Folded { kind: i32, oi: i64, ob: bool }
+
+// Run the pass on an input edge and classify the result. Binding the returned
+// `WRef<SExpr>` to a local `r` keeps the borrow alive across the `.any()` read.
+fn fold(input: WAny, h: &Writ) -> Folded {
+    let r: WRef<SExpr> = simplify_sexpr(input.view::<SExpr>(), h);
+    return classify(r.any());
+}
+// Run the pass and return the result edge's raw word (identity check).
+fn fold_raw(input: WAny, h: &Writ) -> i64 {
+    let r: WRef<SExpr> = simplify_sexpr(input.view::<SExpr>(), h);
+    let a: WAny = r.any();
+    return a.raw();
+}
+
+fn classify(res: WAny) -> Folded {
+    let e: SExpr = res.view::<SExpr>();
+    match e {
+        SExpr::Lit(l) => {
+            if l.val.is_bool() { return Folded { kind: 2i32, oi: 0i64, ob: l.val.as_bool() }; }
+            return Folded { kind: 1i32, oi: l.val.as_i64(), ob: false };
+        }
+        SExpr::Field(f) => {
+            if str_eq(f.name, "x") { return Folded { kind: 3i32, oi: 0i64, ob: false }; }
+            return Folded { kind: 0i32, oi: 0i64, ob: false };
+        }
+        SExpr::Bin(_) => { return Folded { kind: 4i32, oi: 0i64, ob: false }; }
+        _ => { return Folded { kind: 0i32, oi: 0i64, ob: false }; }
+    }
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(16384i64);
+
+    // Reusable child leaves (kept in scope for the whole test).
+    let i0: SLit = h.make::<SLit>();  i0.val = h.int(0i64);
+    let i1: SLit = h.make::<SLit>();  i1.val = h.int(1i64);
+    let i2: SLit = h.make::<SLit>();  i2.val = h.int(2i64);
+    let i3: SLit = h.make::<SLit>();  i3.val = h.int(3i64);
+    let i4: SLit = h.make::<SLit>();  i4.val = h.int(4i64);
+    let bt: SLit = h.make::<SLit>();  bt.val = WAny::from(true);
+    let bf: SLit = h.make::<SLit>();  bf.val = WAny::from(false);
+    let fx: SField = h.make::<SField>(); fx.name = "x";
+    let fxref: WAny = fx.as_ref();
+
+    // 2 + 3  → int 5.
+    let b_add: SBin = h.make::<SBin>();
+    b_add.op = OP_ADD(); b_add.lhs = WRef::<SExpr>::from_any(i2.as_ref()); b_add.rhs = WRef::<SExpr>::from_any(i3.as_ref());
+    let f1: Folded = fold(b_add.as_ref(), &h);
+    if f1.kind != 1i32 || f1.oi != 5i64 { return 1i32; }
+
+    // (2 + 3) > 4  → bool true   [the prompt canary]
+    let b_gt: SBin = h.make::<SBin>();
+    b_gt.op = OP_GT(); b_gt.lhs = WRef::<SExpr>::from_any(b_add.as_ref()); b_gt.rhs = WRef::<SExpr>::from_any(i4.as_ref());
+    let f2: Folded = fold(b_gt.as_ref(), &h);
+    if f2.kind != 2i32 || !f2.ob { return 2i32; }
+
+    // 6 * 7 (built from 2*3 and a fresh 42? use 2*3 → 6, then *7). Use 20 % 6 → 2.
+    let l20: SLit = h.make::<SLit>(); l20.val = h.int(20i64);
+    let l6: SLit = h.make::<SLit>();  l6.val = h.int(6i64);
+    let b_mod: SBin = h.make::<SBin>();
+    b_mod.op = OP_MOD(); b_mod.lhs = WRef::<SExpr>::from_any(l20.as_ref()); b_mod.rhs = WRef::<SExpr>::from_any(l6.as_ref());
+    let f3: Folded = fold(b_mod.as_ref(), &h);
+    if f3.kind != 1i32 || f3.oi != 2i64 { return 3i32; }
+
+    // (true && x) → x
+    let b_and: SBin = h.make::<SBin>();
+    b_and.op = OP_AND(); b_and.lhs = WRef::<SExpr>::from_any(bt.as_ref()); b_and.rhs = WRef::<SExpr>::from_any(fxref);
+    let f4: Folded = fold(b_and.as_ref(), &h);
+    if f4.kind != 3i32 { return 4i32; }
+
+    // (false && x) → false
+    let b_and2: SBin = h.make::<SBin>();
+    b_and2.op = OP_AND(); b_and2.lhs = WRef::<SExpr>::from_any(bf.as_ref()); b_and2.rhs = WRef::<SExpr>::from_any(fxref);
+    let f5: Folded = fold(b_and2.as_ref(), &h);
+    if f5.kind != 2i32 || f5.ob { return 5i32; }
+
+    // (true || x) → true
+    let b_or: SBin = h.make::<SBin>();
+    b_or.op = OP_OR(); b_or.lhs = WRef::<SExpr>::from_any(bt.as_ref()); b_or.rhs = WRef::<SExpr>::from_any(fxref);
+    let f6: Folded = fold(b_or.as_ref(), &h);
+    if f6.kind != 2i32 || !f6.ob { return 6i32; }
+
+    // (false || x) → x
+    let b_or2: SBin = h.make::<SBin>();
+    b_or2.op = OP_OR(); b_or2.lhs = WRef::<SExpr>::from_any(bf.as_ref()); b_or2.rhs = WRef::<SExpr>::from_any(fxref);
+    let f7: Folded = fold(b_or2.as_ref(), &h);
+    if f7.kind != 3i32 { return 7i32; }
+
+    // x + 0 → x
+    let b_x0: SBin = h.make::<SBin>();
+    b_x0.op = OP_ADD(); b_x0.lhs = WRef::<SExpr>::from_any(fxref); b_x0.rhs = WRef::<SExpr>::from_any(i0.as_ref());
+    let f8: Folded = fold(b_x0.as_ref(), &h);
+    if f8.kind != 3i32 { return 8i32; }
+
+    // 0 + x → x
+    let b_0x: SBin = h.make::<SBin>();
+    b_0x.op = OP_ADD(); b_0x.lhs = WRef::<SExpr>::from_any(i0.as_ref()); b_0x.rhs = WRef::<SExpr>::from_any(fxref);
+    let f9: Folded = fold(b_0x.as_ref(), &h);
+    if f9.kind != 3i32 { return 9i32; }
+
+    // x * 1 → x
+    let b_x1: SBin = h.make::<SBin>();
+    b_x1.op = OP_MUL(); b_x1.lhs = WRef::<SExpr>::from_any(fxref); b_x1.rhs = WRef::<SExpr>::from_any(i1.as_ref());
+    let f10: Folded = fold(b_x1.as_ref(), &h);
+    if f10.kind != 3i32 { return 10i32; }
+
+    // x * 0 → 0
+    let b_xz: SBin = h.make::<SBin>();
+    b_xz.op = OP_MUL(); b_xz.lhs = WRef::<SExpr>::from_any(fxref); b_xz.rhs = WRef::<SExpr>::from_any(i0.as_ref());
+    let f11: Folded = fold(b_xz.as_ref(), &h);
+    if f11.kind != 1i32 || f11.oi != 0i64 { return 11i32; }
+
+    // -(4) → -4  (unary neg over a literal)
+    let u_neg: SUn = h.make::<SUn>();
+    u_neg.op = OP_NEG(); u_neg.arg = WRef::<SExpr>::from_any(i4.as_ref());
+    let f12: Folded = fold(u_neg.as_ref(), &h);
+    if f12.kind != 1i32 || f12.oi != -4i64 { return 12i32; }
+
+    // !true → false
+    let u_not: SUn = h.make::<SUn>();
+    u_not.op = OP_NOT(); u_not.arg = WRef::<SExpr>::from_any(bt.as_ref());
+    let f13: Folded = fold(u_not.as_ref(), &h);
+    if f13.kind != 2i32 || f13.ob { return 13i32; }
+
+    // (true ? 2 : 3) → 2   ;   (false ? 2 : 3) → 3
+    let c_t: SCond = h.make::<SCond>();
+    c_t.c = WRef::<SExpr>::from_any(bt.as_ref()); c_t.t = WRef::<SExpr>::from_any(i2.as_ref()); c_t.e = WRef::<SExpr>::from_any(i3.as_ref());
+    let f14: Folded = fold(c_t.as_ref(), &h);
+    if f14.kind != 1i32 || f14.oi != 2i64 { return 14i32; }
+    let c_f: SCond = h.make::<SCond>();
+    c_f.c = WRef::<SExpr>::from_any(bf.as_ref()); c_f.t = WRef::<SExpr>::from_any(i2.as_ref()); c_f.e = WRef::<SExpr>::from_any(i3.as_ref());
+    let f15: Folded = fold(c_f.as_ref(), &h);
+    if f15.kind != 1i32 || f15.oi != 3i64 { return 15i32; }
+
+    // NON-const stays put: `x > 3` (one const operand) does NOT fold.
+    let b_x3: SBin = h.make::<SBin>();
+    b_x3.op = OP_GT(); b_x3.lhs = WRef::<SExpr>::from_any(fxref); b_x3.rhs = WRef::<SExpr>::from_any(i3.as_ref());
+    let f16: Folded = fold(b_x3.as_ref(), &h);
+    if f16.kind != 4i32 { return 16i32; }
+
+    // A bare field alone returns the SAME node (no over-folding).
+    if fold_raw(fxref, &h) != fxref.raw() { return 17i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,462 @@
+// logos.std.wql.optimize — the WQL/Trama IR OPTIMIZER: composable IR→IR rewrite
+// passes over the SExpr Writ-schema tree (ADR 0012 §"optimization"). Phase 1 is
+// the framework + the first pass, CONST-FOLD.
+//
+// The pass shape every future pass follows: `simplify_sexpr(e, h)` recurses over
+// the schema enum, simplifies the CHILDREN first, then applies the rule at the
+// current node — producing a NEW node only when something actually changed and
+// otherwise REUSING the input edge. Because the IR is Writ-schema'd (ADR 0011),
+// a "new node" is just `h.make::<S>()` + field writes into the same arena `h` the
+// input tree lives in; the returned `WRef<SExpr>` is the possibly-rewritten edge
+// the caller emits from.
+//
+// CONST-FOLD rules (Phase 1b):
+//   • SBin over two const literals:
+//       - arithmetic  (+ - * / %) → an int SLit
+//       - comparison  (== != < <= > >=) → a bool SLit
+//   • SBin boolean (&& ||) with a const operand:
+//       (true && x)→x  (false && x)→false  (true || x)→true  (false || x)→x
+//     (and the symmetric forms when the RHS is the const)
+//   • algebraic identities: x+0 0+x x-0 x*1 1*x → x ;  x*0 0*x → 0
+//   • SUn over a const literal: -intlit → int SLit, !boollit → bool SLit
+//   • SCond with a const-bool condition → the taken branch (no new node — reuse
+//     the branch edge directly)
+//
+// The pass PRESERVES SEMANTICS exactly (a folded expression computes the same
+// value); the emitted source merely gets the already-reduced form. Division /
+// modulo by a const ZERO is left UNFOLDED (so the emitted code keeps the runtime
+// trap behaviour rather than the optimizer faulting at compile time).
+package logos.std.wql.optimize;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.el;      // OP_* operator ids
+use logos.lang.str;        // str_eq (identity-projection name match, Phase 3)
+
+// ── ConstVal — the folded-value carrier ───────────────────────────────────────
+// A tiny tagged value used to detect + carry a const literal through the fold:
+//   kind 0 = not a const literal (or a string literal — not folded here);
+//   kind 1 = int   (value in `i`);
+//   kind 2 = bool  (value in `b`).
+pub struct ConstVal {
+    pub kind: i32,
+    pub i:    i64,
+    pub b:    bool,
+}
+
+pub fn const_none() -> ConstVal { return ConstVal { kind: 0i32, i: 0i64, b: false }; }
+pub fn const_int(v: i64) -> ConstVal { return ConstVal { kind: 1i32, i: v, b: false }; }
+pub fn const_bool(v: bool) -> ConstVal { return ConstVal { kind: 2i32, i: 0i64, b: v }; }
+
+impl ConstVal {
+    pub fn is_int(self: &ConstVal)  -> bool { return self.kind == 1i32; }
+    pub fn is_bool(self: &ConstVal) -> bool { return self.kind == 2i32; }
+    pub fn is_some(self: &ConstVal) -> bool { return self.kind != 0i32; }
+}
+
+// Classify an SExpr as a const literal (int / bool), else `none`. A STRING SLit
+// is deliberately NOT folded (kind stays 0) — arithmetic/compare folds are over
+// int/bool only in the queue-1 scalar lattice.
+pub fn sexpr_const(e: SExpr) -> ConstVal {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_bool() { return const_bool(v.as_bool()); }
+            if v.is_int()  { return const_int(v.as_i64()); }
+            return const_none();
+        }
+        _ => { return const_none(); }
+    }
+}
+
+// ── Leaf builders (new SLit nodes in `h`) ─────────────────────────────────────
+// Build a fresh int / bool literal node and return its edge handle. Int literals
+// are BOXED via `h.int` to match the EL parser's convention (`doc.int(...)`), so
+// the emitted `push_i64` / `i64`-suffixed literal path is identical.
+pub fn make_int_lit(h: &Writ, v: i64) -> WRef<SExpr> {
+    let n: SLit = h.make::<SLit>();
+    n.val = h.int(v);
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+pub fn make_bool_lit(h: &Writ, v: bool) -> WRef<SExpr> {
+    let n: SLit = h.make::<SLit>();
+    n.val = WAny::from(v);
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+// ── Const arithmetic / comparison / boolean fold ──────────────────────────────
+// Fold `l <op> r` where BOTH operands are const ints. Returns `none` when the op
+// is a comparison over ints (→ handled by fold_cmp_ii) or when division/modulo by
+// zero would trap (left unfolded). Arithmetic → int; nothing else here.
+fn fold_arith_ii(op: i32, l: i64, r: i64) -> ConstVal {
+    if op == OP_ADD() { return const_int(l + r); }
+    if op == OP_SUB() { return const_int(l - r); }
+    if op == OP_MUL() { return const_int(l * r); }
+    if op == OP_DIV() { if r == 0i64 { return const_none(); } return const_int(l / r); }
+    if op == OP_MOD() { if r == 0i64 { return const_none(); } return const_int(l % r); }
+    return const_none();
+}
+
+// Fold a comparison `l <op> r` over two const ints → a bool.
+fn fold_cmp_ii(op: i32, l: i64, r: i64) -> ConstVal {
+    if op == OP_EQ() { return const_bool(l == r); }
+    if op == OP_NE() { return const_bool(l != r); }
+    if op == OP_LT() { return const_bool(l <  r); }
+    if op == OP_LE() { return const_bool(l <= r); }
+    if op == OP_GT() { return const_bool(l >  r); }
+    if op == OP_GE() { return const_bool(l >= r); }
+    return const_none();
+}
+
+// Fold a comparison `l <op> r` over two const bools (== / != only — CEL bools are
+// not ordered).
+fn fold_cmp_bb(op: i32, l: bool, r: bool) -> ConstVal {
+    if op == OP_EQ() { return const_bool(l == r); }
+    if op == OP_NE() { return const_bool(l != r); }
+    return const_none();
+}
+
+// True iff `op` is a comparison operator (== != < <= > >=).
+fn is_cmp_op(op: i32) -> bool {
+    return op == OP_EQ() || op == OP_NE() || op == OP_LT()
+        || op == OP_LE() || op == OP_GT() || op == OP_GE();
+}
+
+// ── The SBin rewrite ──────────────────────────────────────────────────────────
+// `lh`/`rh` are the ALREADY-SIMPLIFIED child edges; `lc`/`rc` their const
+// classifications. Apply, in order: full const fold, boolean short-circuit with a
+// const operand, algebraic identities. Falls through to a rebuilt SBin over the
+// simplified children (or the original edges if nothing changed upstream).
+fn simplify_bin(h: &Writ, op: i32,
+                lh: WRef<SExpr>, rh: WRef<SExpr>,
+                lc: ConstVal, rc: ConstVal,
+                orig: WRef<SExpr>, changed_child: bool) -> WRef<SExpr> {
+    // (1) Both operands const → fold to a literal.
+    if lc.is_some() && rc.is_some() {
+        if lc.is_int() && rc.is_int() {
+            if is_cmp_op(op) {
+                let cv: ConstVal = fold_cmp_ii(op, lc.i, rc.i);
+                if cv.is_some() { return make_bool_lit(h, cv.b); }
+            } else {
+                let cv: ConstVal = fold_arith_ii(op, lc.i, rc.i);
+                if cv.is_some() { return make_int_lit(h, cv.i); }
+            }
+        }
+        if lc.is_bool() && rc.is_bool() {
+            // Comparison of bools folds; && / || also fold (both const).
+            if is_cmp_op(op) {
+                let cv: ConstVal = fold_cmp_bb(op, lc.b, rc.b);
+                if cv.is_some() { return make_bool_lit(h, cv.b); }
+            }
+            if op == OP_AND() { return make_bool_lit(h, lc.b && rc.b); }
+            if op == OP_OR()  { return make_bool_lit(h, lc.b || rc.b); }
+        }
+    }
+
+    // (2) Boolean short-circuit with ONE const operand.
+    if op == OP_AND() {
+        // (true && x) → x ;  (false && x) → false
+        if lc.is_bool() { if lc.b { return rh; } return make_bool_lit(h, false); }
+        // (x && true) → x ;  (x && false) → false  (x pure in this lattice)
+        if rc.is_bool() { if rc.b { return lh; } return make_bool_lit(h, false); }
+    }
+    if op == OP_OR() {
+        // (true || x) → true ;  (false || x) → x
+        if lc.is_bool() { if lc.b { return make_bool_lit(h, true); } return rh; }
+        // (x || true) → true ;  (x || false) → x
+        if rc.is_bool() { if rc.b { return make_bool_lit(h, true); } return lh; }
+    }
+
+    // (3) Algebraic identities over an int const operand.
+    if op == OP_ADD() {
+        if lc.is_int() && lc.i == 0i64 { return rh; }   // 0 + x → x
+        if rc.is_int() && rc.i == 0i64 { return lh; }   // x + 0 → x
+    }
+    if op == OP_SUB() {
+        if rc.is_int() && rc.i == 0i64 { return lh; }   // x - 0 → x
+    }
+    if op == OP_MUL() {
+        if lc.is_int() && lc.i == 1i64 { return rh; }   // 1 * x → x
+        if rc.is_int() && rc.i == 1i64 { return lh; }   // x * 1 → x
+        if lc.is_int() && lc.i == 0i64 { return make_int_lit(h, 0i64); }  // 0 * x → 0
+        if rc.is_int() && rc.i == 0i64 { return make_int_lit(h, 0i64); }  // x * 0 → 0
+    }
+
+    // (4) Nothing folded. Reuse the original edge if children were unchanged; else
+    // rebuild the SBin over the simplified children.
+    if !changed_child { return orig; }
+    let n: SBin = h.make::<SBin>();
+    n.op  = op;
+    n.lhs = lh;
+    n.rhs = rh;
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+// ── The SUn rewrite ───────────────────────────────────────────────────────────
+fn simplify_un(h: &Writ, op: i32, ah: WRef<SExpr>, ac: ConstVal,
+               orig: WRef<SExpr>, changed_child: bool) -> WRef<SExpr> {
+    if op == OP_NOT() && ac.is_bool() { return make_bool_lit(h, !ac.b); }
+    if op == OP_NEG() && ac.is_int()  { return make_int_lit(h, -ac.i); }
+    if !changed_child { return orig; }
+    let n: SUn = h.make::<SUn>();
+    n.op  = op;
+    n.arg = ah;
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+// ── simplify_sexpr — the composable IR→IR pass ────────────────────────────────
+// Recursively rewrite `e`; return the (possibly new) edge handle. Leaves (Lit /
+// Param / Var / bare Field) return their own edge unchanged. Compound nodes
+// simplify their children first, then apply the const-fold / identity rules.
+pub fn simplify_sexpr(e: SExpr, h: &Writ) -> WRef<SExpr> {
+    match e {
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            let lh: WRef<SExpr> = simplify_sexpr(b.lhs_expr(), h);
+            let rh: WRef<SExpr> = simplify_sexpr(b.rhs_expr(), h);
+            let changed: bool = lh.any().raw() != b.lhs.any().raw()
+                             || rh.any().raw() != b.rhs.any().raw();
+            let lc: ConstVal = sexpr_const(lh.any().view::<SExpr>());
+            let rc: ConstVal = sexpr_const(rh.any().view::<SExpr>());
+            let orig: WRef<SExpr> = WRef::<SExpr>::from_any(b.as_ref());
+            return simplify_bin(h, op, lh, rh, lc, rc, orig, changed);
+        }
+        SExpr::Un(u) => {
+            let op: i32 = u.op;
+            let ah: WRef<SExpr> = simplify_sexpr(u.arg_expr(), h);
+            let changed: bool = ah.any().raw() != u.arg.any().raw();
+            let ac: ConstVal = sexpr_const(ah.any().view::<SExpr>());
+            let orig: WRef<SExpr> = WRef::<SExpr>::from_any(u.as_ref());
+            return simplify_un(h, op, ah, ac, orig, changed);
+        }
+        SExpr::Cond(c) => {
+            // Simplify the condition; a const-bool condition collapses to the
+            // taken branch (which is itself simplified). Otherwise rebuild with
+            // all three children simplified.
+            let ch: WRef<SExpr> = simplify_sexpr(c.cond_expr(), h);
+            let cc: ConstVal = sexpr_const(ch.any().view::<SExpr>());
+            if cc.is_bool() {
+                if cc.b { return simplify_sexpr(c.then_expr(), h); }
+                return simplify_sexpr(c.else_expr(), h);
+            }
+            let th: WRef<SExpr> = simplify_sexpr(c.then_expr(), h);
+            let eh: WRef<SExpr> = simplify_sexpr(c.else_expr(), h);
+            let changed: bool = ch.any().raw() != c.c.any().raw()
+                             || th.any().raw() != c.t.any().raw()
+                             || eh.any().raw() != c.e.any().raw();
+            if !changed { return WRef::<SExpr>::from_any(c.as_ref()); }
+            let n: SCond = h.make::<SCond>();
+            n.c = ch;
+            n.t = th;
+            n.e = eh;
+            return WRef::<SExpr>::from_any(n.as_ref());
+        }
+        SExpr::Field(f) => {
+            // A field STEP simplifies its base (rare, but a base could be a folded
+            // sub-expression); a bare root (null base) is returned as-is.
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() { return WRef::<SExpr>::from_any(f.as_ref()); }
+            let bh: WRef<SExpr> = simplify_sexpr(f.base_expr(), h);
+            if bh.any().raw() == bref.any().raw() { return WRef::<SExpr>::from_any(f.as_ref()); }
+            let n: SField = h.make::<SField>();
+            n.base = bh;
+            n.name = f.name;
+            return WRef::<SExpr>::from_any(n.as_ref());
+        }
+        // Leaves + out-of-fold-scope nodes (Call / Comp): returned unchanged. (A
+        // future pass may fold pure builtin calls over const args; not Phase 1.)
+        SExpr::Lit(l)   => { return WRef::<SExpr>::from_any(l.as_ref()); }
+        SExpr::Param(p) => { return WRef::<SExpr>::from_any(p.as_ref()); }
+        SExpr::Var(v)   => { return WRef::<SExpr>::from_any(v.as_ref()); }
+        SExpr::Call(c)  => { return WRef::<SExpr>::from_any(c.as_ref()); }
+        SExpr::Comp(cp) => { return WRef::<SExpr>::from_any(cp.as_ref()); }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase 3 — RELATIONAL optimizer passes over the RExpr algebra tree.
+//
+// `simplify_rexpr` is the RExpr→RExpr peephole pipeline, run AFTER the embedded
+// scalar clauses are const-folded (`simplify_sexpr`) and BEFORE emission. It
+// preserves semantics EXACTLY — a folded/rewritten plan computes identical rows —
+// while shrinking the tree the emitter walks. Three rules (all provably safe):
+//
+//   (a) FILTER FOLDING — an `RFilter` whose predicate const-folds to
+//         • `true`  → the filter is DROPPED (return its input; every row passes);
+//         • `false` → the whole sub-plan is EMPTY (signalled to the emitter so it
+//                     emits an empty `Vec` directly, skipping the scan loop).
+//   (b) IDENTITY PROJECTION — `RProj(RScan, select v)` where the projection is
+//       exactly the row identity (a bare loop-var reference `v`) over an
+//       UNFILTERED scan: the result IS the source slice, so the emitter can BORROW
+//       and return `&[Row]` instead of copying every row into a fresh `Vec` (the
+//       accessor-collapse peephole).
+//   (c) PROJECTION COMPOSITION — `RProj(RProj(x, _inner), outer)` collapses to a
+//       single `RProj(x, outer)` (the inner projection's rows are re-projected, so
+//       only the outer selection survives). A safety net; the surface never stacks
+//       projections today, but the peephole makes the pass total over the algebra.
+//
+// The pass returns an `RSimplified` carrying the rewritten root PLUS two emission
+// signals (`empty`, `identity`) — cheaper than adding an `REmpty`/`RPass` schema
+// variant (which would churn every exhaustive `match RExpr` in-tree). The emitter
+// reads the flags and emits the thinner form; when neither fires it walks the
+// (possibly filter-collapsed) tree exactly as before.
+// ════════════════════════════════════════════════════════════════════════════
+
+// The result of the RExpr peephole pass:
+//   • `root`     — the rewritten algebra tree (an `RProj` root, or the input's
+//                  input when a const-true filter was dropped);
+//   • `empty`    — a const-false filter proved the plan yields NO rows; the
+//                  emitter emits an empty `Vec` (no scan loop);
+//   • `identity` — an unfiltered identity projection; the emitter returns the
+//                  source slice directly (`&[Row]`), skipping the copy loop.
+// `empty` and `identity` are mutually exclusive; when both are false the emitter
+// walks `root` unchanged.
+pub struct RSimplified {
+    pub root:     WRef<RExpr>,
+    pub empty:    bool,
+    pub identity: bool,
+}
+
+fn rsimp(root: WRef<RExpr>) -> RSimplified {
+    return RSimplified { root: root, empty: false, identity: false };
+}
+
+// True iff `sel` is a BARE identity reference to the loop variable `var_name` —
+// i.e. `select v` where `v` is the scan's row variable. In the self-describing
+// IR a bare identifier parses to an `SField` with a NULL base whose `name` is the
+// identifier; an identity projection is such a field-root naming the loop var.
+fn is_identity_sel(sel: WRef<SExpr>, var_name: str) -> bool {
+    let a: WAny = sel.any();
+    if a.is_null() { return false; }
+    let e: SExpr = a.view::<SExpr>();
+    match e {
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            let base: WAny = bref.any();
+            if !base.is_null() { return false; }   // a field STEP `x.y`, not the row itself
+            return str_eq(f.name, var_name);
+        }
+        SExpr::Var(v) => { return str_eq(v.name, var_name); }
+        _ => { return false; }
+    }
+}
+
+// The RScan var-name reachable under a (possibly filtered) relational input, or
+// "" if the input is not a bare scan / filtered-scan. Used to test identity
+// projection against the loop variable.
+fn input_scan_var(e: RExpr) -> str {
+    match e {
+        RExpr::Scan(sc) => { return sc.var_name; }
+        _ => { return ""; }
+    }
+}
+
+// Rebuild an `RFilter(input, pred)` node in `h`.
+fn rebuild_filter(h: &Writ, input: WRef<RExpr>, pred: WRef<SExpr>) -> WRef<RExpr> {
+    let n: RFilter = h.make::<RFilter>();
+    n.input = input;
+    n.pred  = pred;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Rebuild an `RProj(input, sel)` node in `h`.
+fn rebuild_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
+    let n: RProj = h.make::<RProj>();
+    n.input = input;
+    n.sel   = sel;
+    return WRef::<RExpr>::from_any(n.as_ref());
+}
+
+// Simplify a RELATIONAL sub-tree that is NOT the projection root — a scan /
+// filter / (nested) sub-plan. Returns the rewritten edge + empty signal. Filter
+// folding lives here (rule a). Scans and the join/anti/aggr bodies pass through
+// unchanged (their embedded scalar clauses are folded by `emit_rexpr`, which runs
+// `simplify_sexpr` per clause; the RELATIONAL shape of those is not rewritten in
+// Phase 3 — only filters over them collapse).
+// Takes the input's edge HANDLE (`in_ref`) so the pass-through case returns it
+// verbatim (no `as_ref` re-derivation off a local view, which the borrow checker
+// rejects). `e` is that handle's view.
+fn simplify_rbody(in_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
+    match e {
+        RExpr::Filter(f) => {
+            // Fold the predicate first (scalar pass), then apply filter folding.
+            let ir: WRef<RExpr> = f.input;
+            let inner: RSimplified = simplify_rbody(ir, ir.any().view::<RExpr>(), h);
+            if inner.empty { return inner; }   // filter over an empty plan stays empty
+            let ph: WRef<SExpr> = simplify_sexpr(f.pred_expr(), h);
+            let pc: ConstVal = sexpr_const(ph.any().view::<SExpr>());
+            if pc.is_bool() {
+                if pc.b {
+                    // (a) const-true predicate → drop the filter entirely.
+                    return inner;
+                }
+                // (a) const-false predicate → the plan yields no rows.
+                return RSimplified { root: inner.root, empty: true, identity: false };
+            }
+            // Non-const predicate: keep the filter over the simplified input+pred.
+            return rsimp(rebuild_filter(h, inner.root, ph));
+        }
+        _ => {
+            // A scan / join / anti / aggr body: pass through the ORIGINAL edge
+            // (its own scalar clauses fold at emit time; relational shape kept).
+            return rsimp(in_ref);
+        }
+    }
+}
+
+// ── simplify_rexpr — the RExpr→RExpr pass entry ───────────────────────────────
+// The lowered plan is ALWAYS rooted at `RProj(body, sel)`. Simplify the body
+// (rule a: filter folding, propagating an empty signal), then apply the
+// projection peepholes (rules b, c) at the root. Takes the root edge HANDLE
+// `root_ref` so the pass-through case returns it without re-deriving a ref.
+pub fn simplify_rexpr_ref(root_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
+    match e {
+        RExpr::Proj(p) => {
+            let sel: WRef<SExpr> = p.sel;
+            let bref: WRef<RExpr> = p.input;
+            let body: RExpr = bref.any().view::<RExpr>();
+
+            // (c) PROJECTION COMPOSITION — RProj over RProj: keep the OUTER
+            // selection, drop the inner projection layer (its rows are re-projected
+            // anyway). Recurse on the inner projection's own body.
+            match body {
+                RExpr::Proj(inner_p) => {
+                    let cref: WRef<RExpr> = inner_p.input;
+                    let sub: RSimplified = simplify_rbody(cref, cref.any().view::<RExpr>(), h);
+                    if sub.empty { return empty_proj(h, sub.root, sel); }
+                    return simplify_proj_root(h, sub.root, sel);
+                }
+                _ => {
+                    let sub: RSimplified = simplify_rbody(bref, body, h);
+                    if sub.empty { return empty_proj(h, sub.root, sel); }
+                    return simplify_proj_root(h, sub.root, sel);
+                }
+            }
+        }
+        // A non-projection root is not produced by the lowering; pass through.
+        _ => { return rsimp(root_ref); }
+    }
+}
+
+// Assemble the projection root over an already-simplified body, applying the
+// identity-projection peephole (rule b): a bare identity `select v` over an
+// UNFILTERED scan whose loop var is `v` needs no per-row copy — the emitter can
+// return the source slice. Otherwise rebuild `RProj(body, sel)`.
+fn simplify_proj_root(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplified {
+    let be: RExpr = body.any().view::<RExpr>();
+    let vname: str = input_scan_var(be);
+    let is_scan_only: bool = vname.len() > 0i64;   // "" ⇒ body is filtered / join / aggr
+    if is_scan_only && is_identity_sel(sel, vname) {
+        // (b) identity projection over a bare scan → passthrough marker.
+        return RSimplified { root: rebuild_proj(h, body, sel), empty: false, identity: true };
+    }
+    return rsimp(rebuild_proj(h, body, sel));
+}
+
+// Wrap an EMPTY body (a const-false filter proved it yields no rows) back into a
+// `RProj(body, sel)` so the emitter sees a full projection root — it reads the
+// scan (signature) + `sel` (result type) off it, then emits an empty-Vec return.
+fn empty_proj(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplified {
+    return RSimplified { root: rebuild_proj(h, body, sel), empty: true, identity: false };
+}

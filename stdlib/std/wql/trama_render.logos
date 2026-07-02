@@ -67,6 +67,7 @@ use logos.std.wql.el;             // ElTypes / el_types_new / el_ty_of_name / EL
 use logos.std.wql.trama;          // TStmt schema family (TText/TVar/TFor/TIf/TSet)
 use logos.std.wql.trama_parser;   // parse_tpl — the GENERATED Trama parser (self-describing IR)
 use logos.std.wql.codegen;
+use logos.std.wql.optimize;  // simplify_sexpr / sexpr_const — IR→IR const-fold + dead-branch
 use logos.std.wql.reflect;   // stamp_types_from_schema — context field-type reflection
 use logos.mem.string;
 use logos.lang.str;
@@ -494,17 +495,17 @@ fn chain_array(arr: &WArray<WAny>) -> i64 {
 // `em`. The type dict `ty` holds field/param/var value-types (reflection + `with`);
 // `vtys` resolves a `for`/`set` var's declared Logos TYPE NAME. `depth`
 // disambiguates nested loop counters (`__i0`, `__i1`, …); the walk follows `next`.
-fn emit_stmts(em: &mut Emitter, head: i64, ty: &ElTypes, vtys: &TVarTys, ctx: str, depth: i64) {
+fn emit_stmts(em: &mut Emitter, head: i64, ty: &ElTypes, vtys: &TVarTys, ctx: str, depth: i64, h: &Writ) {
     let mut cur: i64 = head;
     while cur != 0i64 {
         let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
-        let nxt: i64 = emit_one(em, e, ty, vtys, ctx, depth);
+        let nxt: i64 = emit_one(em, e, ty, vtys, ctx, depth, h);
         cur = nxt;
     }
 }
 
 // Emit ONE statement; return the `next`-link word (0 = end of chain).
-fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, depth: i64) -> i64 {
+fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, depth: i64, h: &Writ) -> i64 {
     match e {
         TStmt::Text(t) => {
             let s: str = ttext_str(&t);
@@ -518,7 +519,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // by its inferred value-type: a STRING expr (field/literal/concat)
             // is pushed via push_str (concat flattened to successive pushes); a
             // BOOL renders as the words true/false; otherwise the i64 value.
-            let se: SExpr = v.expr_expr();
+            let se: SExpr = simplify_sexpr(v.expr_expr(), h).any().view::<SExpr>();
             let vt: i32 = infer_ty(se, ty);
             if vt == EL_TY_STR() {
                 let mut tmp: String = String::new();
@@ -544,7 +545,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // assigned expression (str / bool / i64). A str `set` binds a `str`
             // (single value) or, when the RHS is a concat, a built `String`.
             let vname: str = s.var;
-            let se: SExpr = s.expr_expr();
+            let se: SExpr = simplify_sexpr(s.expr_expr(), h).any().view::<SExpr>();
             let vt: i32 = infer_ty(se, ty);
             let mut body: String = String::new();
             emit_sexpr(&mut body, se, ty, ctx);
@@ -567,17 +568,36 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // (`emit_truthy`): a bool stays bare, an i64 becomes `!= 0`, a str
             // becomes non-empty. `elif` is desugared at PARSE time into a nested
             // TIf in the else-body (so the walk here is uniform).
+            //
+            // DEAD-BRANCH (Phase 1c): const-fold the condition; if it reduces to a
+            // const bool, EMIT ONLY the taken branch's statements — no `if`
+            // wrapper, the other branch is dropped entirely. (An INT/STR literal
+            // condition, e.g. `{% if 1 %}`, is not a const BOOL here — its
+            // truthiness stays a runtime `!= 0` guard; only a boolean-typed const
+            // collapses. A comparison like `1 > 0` folds to a bool → collapses.)
+            let se: SExpr = simplify_sexpr(i.expr_expr(), h).any().view::<SExpr>();
+            let cc: ConstVal = sexpr_const(se);
+            if cc.is_bool() {
+                if cc.b {
+                    emit_stmts(em, body_word(&i.body), ty, vtys, ctx, depth + 1i64, h);
+                } else {
+                    let altw0: i64 = alt_word(&i.alt);
+                    if altw0 != 0i64 {
+                        emit_stmts(em, altw0, ty, vtys, ctx, depth + 1i64, h);
+                    }
+                }
+                return next_word(&i.next);
+            }
             let mut cond: String = String::new();
-            let se: SExpr = i.expr_expr();
             emit_truthy(&mut cond, se, ty, ctx);
             em.push_text("    if (");
             em.push_text(string_as_str(&cond));
             em.push_text(") {\n");
-            emit_stmts(em, body_word(&i.body), ty, vtys, ctx, depth + 1i64);
+            emit_stmts(em, body_word(&i.body), ty, vtys, ctx, depth + 1i64, h);
             let altw: i64 = alt_word(&i.alt);
             if altw != 0i64 {
                 em.push_text("    } else {\n");
-                emit_stmts(em, altw, ty, vtys, ctx, depth + 1i64);
+                emit_stmts(em, altw, ty, vtys, ctx, depth + 1i64, h);
             }
             em.push_text("    }\n");
             return next_word(&i.next);
@@ -586,7 +606,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             // {% for v in expr %} body {% endfor %} → indexed while-loop.
             let vname: str = f.var;
             let mut iter: String = String::new();
-            let se: SExpr = f.expr_expr();
+            let se: SExpr = simplify_sexpr(f.expr_expr(), h).any().view::<SExpr>();
             emit_sexpr(&mut iter, se, ty, ctx);
             let iter_s: str = string_as_str(&iter);
             em.push_text("    let mut __i");
@@ -622,7 +642,7 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
             em.push_text(")[__i");
             em.push_num(depth as u64);
             em.push_text("];\n");
-            emit_stmts(em, body_word(&f.body), ty, vtys, ctx, depth + 1i64);
+            emit_stmts(em, body_word(&f.body), ty, vtys, ctx, depth + 1i64, h);
             em.push_text("        __i");
             em.push_num(depth as u64);
             em.push_text(" = __i");
@@ -814,7 +834,7 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     em.push_text(params);
     em.push_text(") -> String {\n");
     em.push_text("    let mut __out: String = String::new();\n");
-    emit_stmts(&mut em, head_word, &ty, &vtys, ctx0, 0i64);
+    emit_stmts(&mut em, head_word, &ty, &vtys, ctx0, 0i64, &h);
     em.push_text("    return __out;\n");
     em.push_text("}\n");
     em.commit();

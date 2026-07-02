@@ -146,14 +146,83 @@ impl SCond    { pub fn as_ref(self: &SCond)    -> WAny { return WAny::ref_to((se
 impl SComp    { pub fn as_ref(self: &SComp)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl SExprArr { pub fn as_ref(self: &SExprArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 
+// ── RAgg — one aggregate SPEC `out = fn(arg)` of an RAggr (ADR 0012 §2/§8) ────
+// The relational aggregate spec, enriching the algebra so `RAggr` captures the
+// SEMANTICS of each aggregate column — mirroring the surface `RQAgg` so the
+// lowering from the query PLAN is field-for-field. `fn_name` is the aggregate
+// function NAME (count/sum/min/max/avg — self-describing, Option B; the backend
+// maps it to the AGG_* id); `out` is the bound column name the projection reads;
+// `arg` is the inner `WRef<SExpr>` expression (absent for `count()`, `has_arg`).
+pub schema RAgg : code(0x0011_0000_0000_0010) {
+    out:     str          = 0,
+    fn_name: str          = 1,
+    arg:     WRef<SExpr>  = 2,
+    has_arg: bool         = 3,
+}
+
+impl RAgg {
+    // The inner argument expression as an SExpr view (only valid when has_arg).
+    pub fn arg_expr(self: &RAgg) -> SExpr { return self.arg.any().view::<SExpr>(); }
+    pub fn as_ref(self: &RAgg) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized aggregate-spec list — a fan-out of up to `RAGG_MAX` RAgg edges
+// at fixed slots (the SExprArr pattern). `count` = the arity.
+pub schema RAggArr : code(0x0011_0000_0000_0011) {
+    count: i32       = 0,
+    g0: WRef<RAgg> = 1,
+    g1: WRef<RAgg> = 2,
+    g2: WRef<RAgg> = 3,
+    g3: WRef<RAgg> = 4,
+    g4: WRef<RAgg> = 5,
+    g5: WRef<RAgg> = 6,
+    g6: WRef<RAgg> = 7,
+    g7: WRef<RAgg> = 8,
+}
+
+pub fn RAGG_MAX() -> i64 { return 8i64; }
+
+impl RAggArr {
+    pub fn len(self: &RAggArr) -> i64 { return self.count as i64; }
+
+    pub fn agg_at(self: &RAggArr, i: i64) -> RAgg {
+        if i == 0i64 { return self.g0.any().view::<RAgg>(); }
+        if i == 1i64 { return self.g1.any().view::<RAgg>(); }
+        if i == 2i64 { return self.g2.any().view::<RAgg>(); }
+        if i == 3i64 { return self.g3.any().view::<RAgg>(); }
+        if i == 4i64 { return self.g4.any().view::<RAgg>(); }
+        if i == 5i64 { return self.g5.any().view::<RAgg>(); }
+        if i == 6i64 { return self.g6.any().view::<RAgg>(); }
+        return self.g7.any().view::<RAgg>();
+    }
+
+    pub fn set_agg(self: &mut RAggArr, i: i64, h: WAny) {
+        let r: WRef<RAgg> = WRef::<RAgg>::from_any(h);
+        if i == 0i64 { self.g0 = r; return; }
+        if i == 1i64 { self.g1 = r; return; }
+        if i == 2i64 { self.g2 = r; return; }
+        if i == 3i64 { self.g3 = r; return; }
+        if i == 4i64 { self.g4 = r; return; }
+        if i == 5i64 { self.g5 = r; return; }
+        if i == 6i64 { self.g6 = r; return; }
+        self.g7 = r;
+    }
+
+    pub fn set_len(self: &mut RAggArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RAggArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
 // ── Relational / graph tier — RExpr (category 0x0011) ─────────────────────
-pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1 }            // scan all nodes of a schema in a source — source NAME
+// `RScan` now carries the SOURCE BINDING (source name + row-type name + loop-var
+// name) so the executable algebra is self-sufficient to emit the scan loop — the
+// query-PLAN's `from src:[Ty] var` recovered onto the leaf, self-describing IR.
+pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1, row_ty: str = 2, var_name: str = 3 } // scan a source: name + row-type + loop var
 pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, key: u8 = 1 }              // follow ref field → target node(s): the GRAPH STEP
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
-pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, exprs: WRef<SExprArr> = 1 } // π
+pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: WRef<SExpr> = 1 }     // π — the projection expr
 pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
 pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
-pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, keys: WRef<SExprArr> = 1, aggs: WRef<SExprArr> = 2 }
+pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
 pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
 
 pub schema enum RExpr : category(0x0011_0000_0000_0000) {
@@ -167,6 +236,10 @@ impl RScan   { pub fn as_ref(self: &RScan)   -> WAny { return WAny::ref_to((self
 impl REdge   { pub fn as_ref(self: &REdge)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl RFilter { pub fn as_ref(self: &RFilter) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 impl RProj   { pub fn as_ref(self: &RProj)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RJoin   { pub fn as_ref(self: &RJoin)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RAnti   { pub fn as_ref(self: &RAnti)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RAggr   { pub fn as_ref(self: &RAggr)   -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+impl RFix    { pub fn as_ref(self: &RFix)    -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
 
 // ── Typed edge RESOLVERS (the IR-walking convenience API) ─────────────────
 // Read a `WRef<S>` field → resolve the handle → bind the target view. These are
@@ -205,3 +278,22 @@ impl RFilter {
     pub fn pred_expr(self: &RFilter)  -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
 impl REdge { pub fn input_expr(self: &REdge) -> RExpr { return self.input.any().view::<RExpr>(); } }
+impl RProj {
+    pub fn input_expr(self: &RProj) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn sel_expr(self: &RProj)   -> SExpr { return self.sel.any().view::<SExpr>(); }
+}
+impl RJoin {
+    pub fn left_expr(self: &RJoin)  -> RExpr { return self.left.any().view::<RExpr>(); }
+    pub fn right_expr(self: &RJoin) -> RExpr { return self.right.any().view::<RExpr>(); }
+    pub fn on_expr(self: &RJoin)    -> SExpr { return self.on.any().view::<SExpr>(); }
+}
+impl RAnti {
+    pub fn left_expr(self: &RAnti)  -> RExpr { return self.left.any().view::<RExpr>(); }
+    pub fn right_expr(self: &RAnti) -> RExpr { return self.right.any().view::<RExpr>(); }
+    pub fn on_expr(self: &RAnti)    -> SExpr { return self.on.any().view::<SExpr>(); }
+}
+impl RAggr {
+    pub fn input_expr(self: &RAggr) -> RExpr   { return self.input.any().view::<RExpr>(); }
+    pub fn key_expr(self: &RAggr)   -> SExpr   { return self.key.any().view::<SExpr>(); }
+    pub fn aggs_arr(self: &RAggr)   -> RAggArr { return self.aggs.any().view::<RAggArr>(); }
+}

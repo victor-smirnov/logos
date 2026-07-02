@@ -1,0 +1,42 @@
+// Trama optimizer Phase 1c — DEAD-BRANCH elimination through the REAL `trama!`
+// codegen path.
+//
+// A `{% if <const-bool> %}…{% else %}…{% endif %}` whose condition const-folds to
+// a bool (here `1 > 0` → true, and `2 > 3` → false) collapses at CODEGEN to ONLY
+// the taken branch's statements — the other branch is DROPPED from the emitted
+// source entirely (no `if` wrapper).
+//
+// MUTATION-PROOF that the dead branch is truly dropped (not merely skipped at
+// runtime): each DEAD branch references an UNDEFINED variable
+// (`{{ undefined_dead_a }}` / `{{ undefined_dead_b }}`). If dead-branch
+// elimination did NOT run, that identifier would be emitted into the render fn
+// and the generated code would FAIL TO COMPILE. It compiles + runs → the branch
+// was elided. The rendered string additionally asserts the correct branch won.
+package test;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Ctx { pub nums: [i64; 1] }
+
+// `{% if 1 > 0 %}` → true  → emits "T", drops the else (which names an undefined
+//                                    variable — would not compile if kept).
+// `{% if 2 > 3 %}` → false → emits the else "F", drops the then (undefined var).
+resource render = trama!(c: &Ctx){ "{% if 1 > 0 %}T{% else %}{{ undefined_dead_a }}{% endif %}-{% if 2 > 3 %}{{ undefined_dead_b }}{% else %}F{% endif %}" };
+
+fn main() -> i32 {
+    let ctx: Ctx = Ctx { nums: [0i64] };
+    let s: String = render(&ctx);
+
+    // Expect exactly "T-F": the live branch of each folded `if`.
+    let want: str = "T-F";
+    if s.len() != want.len() { return 1i32; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return 2i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

@@ -1,0 +1,43 @@
+// WQL optimizer Phase 1 — CONST-FOLD through the REAL `wql!` codegen path.
+//
+// The `where` predicate `2 + 3 > 4` const-folds (IR→IR, before emit) to a bare
+// `true`; the emitted filter becomes `if (true) { … }` — every row passes. The
+// `select` projection `p.age + (10 - 4)` folds its constant sub-tree `(10 - 4)`
+// to `6`, emitting `(p.age + 6i64)`. Both fold cases exercise the folded source
+// COMPILING + RUNNING correctly (a folded bare-`true` condition and a folded int
+// literal must be valid emitted Logos). Results prove semantics are preserved.
+//
+// (The *form* of the fold — that a bare `true` / a bare `6` is emitted, not the
+// original tree — is asserted at the IR level in `wql_const_fold_ir`; here we
+// prove the wired pipeline end-to-end.)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person {
+    pub name: i64,
+    pub age:  i64,
+}
+
+// where 2 + 3 > 4  → folds to `true` → all four people pass;
+// select p.age + (10 - 4) → folds to `p.age + 6`.
+resource all_plus6 = wql!{ from people:[Person] p where 2 + 3 > 4 select p.age + (10 - 4) : i64 };
+
+fn main() -> i32 {
+    let people: [Person; 4] = [
+        Person { name: 1i64, age: 15i64 },
+        Person { name: 2i64, age: 18i64 },
+        Person { name: 3i64, age: 40i64 },
+        Person { name: 4i64, age: 9i64  },
+    ];
+    let rows: Vec<i64> = all_plus6(&people[..]);
+
+    // The folded `where true` keeps ALL four rows; each age + 6.
+    if rows.len() != 4i64 { return 1i32; }
+    if rows.get(0i64) != 21i64 { return 2i32; }   // 15 + 6
+    if rows.get(1i64) != 24i64 { return 3i32; }   // 18 + 6
+    if rows.get(2i64) != 46i64 { return 4i32; }   // 40 + 6
+    if rows.get(3i64) != 15i64 { return 5i32; }   //  9 + 6
+    return 0i32;
+}

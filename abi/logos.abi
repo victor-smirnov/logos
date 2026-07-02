@@ -252,6 +252,8 @@ sym	logos.std.wql.el_parser.ElMemoCell__type_id__g__ref_T
 sym	logos.std.wql.el_parser.ElTokCell__type_id__g__ref_T
 sym	logos.std.wql.el_parser.Lexer__type_id__g__ref_T
 sym	logos.std.wql.el_parser.Token__type_id__g__ref_T
+sym	logos.std.wql.ir.RAggArr__type_id__g__ref_T
+sym	logos.std.wql.ir.RAgg__type_id__g__ref_T
 sym	logos.std.wql.ir.RAggr__type_id__g__ref_T
 sym	logos.std.wql.ir.RAnti__type_id__g__ref_T
 sym	logos.std.wql.ir.REdge__type_id__g__ref_T
@@ -272,6 +274,8 @@ sym	logos.std.wql.ir.SLit__type_id__g__ref_T
 sym	logos.std.wql.ir.SParam__type_id__g__ref_T
 sym	logos.std.wql.ir.SUn__type_id__g__ref_T
 sym	logos.std.wql.ir.SVar__type_id__g__ref_T
+sym	logos.std.wql.optimize.ConstVal__type_id__g__ref_T
+sym	logos.std.wql.optimize.RSimplified__type_id__g__ref_T
 sym	logos.std.wql.plan.RQAggArr__type_id__g__ref_T
 sym	logos.std.wql.plan.RQAgg__type_id__g__ref_T
 sym	logos.std.wql.plan.RQAggr__type_id__g__ref_T
@@ -280,6 +284,7 @@ sym	logos.std.wql.plan.RQSimple__type_id__g__ref_T
 sym	logos.std.wql.plan.RQWithArr__type_id__g__ref_T
 sym	logos.std.wql.plan.RQWith__type_id__g__ref_T
 sym	logos.std.wql.plan.RQuery__type_id__g__ref_T
+sym	logos.std.wql.rexpr_walk.Peeled__type_id__g__ref_T
 sym	logos.std.wql.trama.TFor__type_id__g__ref_T
 sym	logos.std.wql.trama.TIf__type_id__g__ref_T
 sym	logos.std.wql.trama.TSet__type_id__g__ref_T
@@ -7470,6 +7475,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Chars
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Child
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CivilTime
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ConnTask
+sym	logos_lang.logos.lang.any$type_id_of__g__void__ConstVal
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ConvertError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CsvReader
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DView
@@ -7546,9 +7552,12 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseBoolError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseFloatError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseIntError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Parser
+sym	logos_lang.logos.lang.any$type_id_of__g__void__Peeled
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PhantomPinned
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Pipe
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QuoteItemBlob
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RAgg
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RAggArr
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RAggr
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RAnti
 sym	logos_lang.logos.lang.any$type_id_of__g__void__REdge
@@ -7566,6 +7575,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__RQWith
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RQWithArr
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RQuery
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RScan
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RSimplified
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFromI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFromI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RangeFull
@@ -8987,12 +8997,34 @@ sym	logos_std..logos.std.wql.el_parser.Lexer__save_line__f__ref_Lexer
 sym	logos_std..logos.std.wql.el_parser.Lexer__save_pos__f__ref_Lexer
 sym	logos_std..logos.std.wql.el_parser.Lexer__try_tok__f__refmut_Lexer__i32
 sym	logos_std..logos.std.wql.el_parser.Token__text__f__ref_Token__slice_u8
+sym	logos_std..logos.std.wql.ir.RAggArr__agg_at__f__ref_RAggArr__i64
+sym	logos_std..logos.std.wql.ir.RAggArr__as_ref__f__ref_RAggArr
+sym	logos_std..logos.std.wql.ir.RAggArr__len__f__ref_RAggArr
+sym	logos_std..logos.std.wql.ir.RAggArr__set_agg__f__refmut_RAggArr__i64__WAny
+sym	logos_std..logos.std.wql.ir.RAggArr__set_len__f__refmut_RAggArr__i64
+sym	logos_std..logos.std.wql.ir.RAgg__arg_expr__f__ref_RAgg
+sym	logos_std..logos.std.wql.ir.RAgg__as_ref__f__ref_RAgg
+sym	logos_std..logos.std.wql.ir.RAggr__aggs_arr__f__ref_RAggr
+sym	logos_std..logos.std.wql.ir.RAggr__as_ref__f__ref_RAggr
+sym	logos_std..logos.std.wql.ir.RAggr__input_expr__f__ref_RAggr
+sym	logos_std..logos.std.wql.ir.RAggr__key_expr__f__ref_RAggr
+sym	logos_std..logos.std.wql.ir.RAnti__as_ref__f__ref_RAnti
+sym	logos_std..logos.std.wql.ir.RAnti__left_expr__f__ref_RAnti
+sym	logos_std..logos.std.wql.ir.RAnti__on_expr__f__ref_RAnti
+sym	logos_std..logos.std.wql.ir.RAnti__right_expr__f__ref_RAnti
 sym	logos_std..logos.std.wql.ir.REdge__as_ref__f__ref_REdge
 sym	logos_std..logos.std.wql.ir.REdge__input_expr__f__ref_REdge
 sym	logos_std..logos.std.wql.ir.RFilter__as_ref__f__ref_RFilter
 sym	logos_std..logos.std.wql.ir.RFilter__input_expr__f__ref_RFilter
 sym	logos_std..logos.std.wql.ir.RFilter__pred_expr__f__ref_RFilter
+sym	logos_std..logos.std.wql.ir.RFix__as_ref__f__ref_RFix
+sym	logos_std..logos.std.wql.ir.RJoin__as_ref__f__ref_RJoin
+sym	logos_std..logos.std.wql.ir.RJoin__left_expr__f__ref_RJoin
+sym	logos_std..logos.std.wql.ir.RJoin__on_expr__f__ref_RJoin
+sym	logos_std..logos.std.wql.ir.RJoin__right_expr__f__ref_RJoin
 sym	logos_std..logos.std.wql.ir.RProj__as_ref__f__ref_RProj
+sym	logos_std..logos.std.wql.ir.RProj__input_expr__f__ref_RProj
+sym	logos_std..logos.std.wql.ir.RProj__sel_expr__f__ref_RProj
 sym	logos_std..logos.std.wql.ir.RScan__as_ref__f__ref_RScan
 sym	logos_std..logos.std.wql.ir.SBin__as_ref__f__ref_SBin
 sym	logos_std..logos.std.wql.ir.SBin__lhs_expr__f__ref_SBin
@@ -9018,6 +9050,14 @@ sym	logos_std..logos.std.wql.ir.SParam__as_ref__f__ref_SParam
 sym	logos_std..logos.std.wql.ir.SUn__arg_expr__f__ref_SUn
 sym	logos_std..logos.std.wql.ir.SUn__as_ref__f__ref_SUn
 sym	logos_std..logos.std.wql.ir.SVar__as_ref__f__ref_SVar
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAggArr__any__g__ref_WRef$G1$S
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAggArr__from_any__g__WAny
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAggArr__from_wany__g__WAny
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAggArr__to_wany__g__WRef$G1$S__pmut_Allocator
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAgg__any__g__ref_WRef$G1$S
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAgg__from_any__g__WAny
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAgg__from_wany__g__WAny
+sym	logos_std..logos.std.wql.ir.WRef$G1$RAgg__to_wany__g__WRef$G1$S__pmut_Allocator
 sym	logos_std..logos.std.wql.ir.WRef$G1$RExpr__any__g__ref_WRef$G1$S
 sym	logos_std..logos.std.wql.ir.WRef$G1$RExpr__from_any__g__WAny
 sym	logos_std..logos.std.wql.ir.WRef$G1$RExpr__from_wany__g__WAny
@@ -9050,6 +9090,9 @@ sym	logos_std..logos.std.wql.ir.WRef$G1$TStmt__any__g__ref_WRef$G1$S
 sym	logos_std..logos.std.wql.ir.WRef$G1$TStmt__from_any__g__WAny
 sym	logos_std..logos.std.wql.ir.WRef$G1$TStmt__from_wany__g__WAny
 sym	logos_std..logos.std.wql.ir.WRef$G1$TStmt__to_wany__g__WRef$G1$S__pmut_Allocator
+sym	logos_std..logos.std.wql.optimize.ConstVal__is_bool__f__ref_ConstVal
+sym	logos_std..logos.std.wql.optimize.ConstVal__is_int__f__ref_ConstVal
+sym	logos_std..logos.std.wql.optimize.ConstVal__is_some__f__ref_ConstVal
 sym	logos_std..logos.std.wql.plan.RQAggArr__agg_at__f__ref_RQAggArr__i64
 sym	logos_std..logos.std.wql.plan.RQAggArr__as_ref__f__ref_RQAggArr
 sym	logos_std..logos.std.wql.plan.RQAggArr__len__f__ref_RQAggArr
@@ -9463,16 +9506,29 @@ sym	logos_std.logos.std.wql.el$el_ty_of_name__f__slice_u8
 sym	logos_std.logos.std.wql.el$el_types_new__f__void
 sym	logos_std.logos.std.wql.el_parser$lexer_new__f__slice_u8
 sym	logos_std.logos.std.wql.el_parser$parse_expr__f__slice_u8__ref_Writ
+sym	logos_std.logos.std.wql.ir$RAGG_MAX__f__void
 sym	logos_std.logos.std.wql.ir$SEXPRARR_MAX__f__void
+sym	logos_std.logos.std.wql.optimize$const_bool__f__bool
+sym	logos_std.logos.std.wql.optimize$const_int__f__i64
+sym	logos_std.logos.std.wql.optimize$const_none__f__void
+sym	logos_std.logos.std.wql.optimize$make_bool_lit__f__ref_Writ__bool
+sym	logos_std.logos.std.wql.optimize$make_int_lit__f__ref_Writ__i64
+sym	logos_std.logos.std.wql.optimize$sexpr_const__f__SExpr
+sym	logos_std.logos.std.wql.optimize$simplify_rexpr_ref__f__WRef$G1$RExpr__RExpr__ref_Writ
+sym	logos_std.logos.std.wql.optimize$simplify_sexpr__f__SExpr__ref_Writ
 sym	logos_std.logos.std.wql.plan$RQAGG_MAX__f__void
 sym	logos_std.logos.std.wql.plan$RQWITH_MAX__f__void
-sym	logos_std.logos.std.wql.plan_walker$walk_query__f__RQuery
-sym	logos_std.logos.std.wql.plan_walker$walk_query_any__f__WAny
+sym	logos_std.logos.std.wql.plan_walker$walk_query__f__RQuery__ref_Writ
+sym	logos_std.logos.std.wql.plan_walker$walk_query_any__f__WAny__ref_Writ
 sym	logos_std.logos.std.wql.plan_walker$walk_query_any_named__f__WAny__slice_u8__ref_Writ
 sym	logos_std.logos.std.wql.reflect$field_element_type_name__f__ref_OView__WAny__slice_u8
 sym	logos_std.logos.std.wql.reflect$field_type_name__f__ref_OView__WAny__slice_u8
 sym	logos_std.logos.std.wql.reflect$find_decl_by_name__f__ref_OView__slice_u8
 sym	logos_std.logos.std.wql.reflect$stamp_types_from_schema__f__ref_OView__refmut_ElTypes__slice_u8
+sym	logos_std.logos.std.wql.rexpr_walk$emit_rexpr__f__RExpr__slice_u8__WRef$G1$RQWithArr__slice_u8__bool__ref_Writ
+sym	logos_std.logos.std.wql.rexpr_walk$emit_rexpr_opt__f__RExpr__bool__bool__slice_u8__WRef$G1$RQWithArr__slice_u8__bool__ref_Writ
+sym	logos_std.logos.std.wql.rexpr_walk$lower_rquery_to_rexpr__f__RQuery__ref_Writ
+sym	logos_std.logos.std.wql.rexpr_walk$lower_simplify_emit__f__RQuery__slice_u8__WRef$G1$RQWithArr__slice_u8__bool__ref_Writ
 sym	logos_std.logos.std.wql.trama_parser$lexer_new__f__slice_u8
 sym	logos_std.logos.std.wql.trama_parser$parse_tpl__f__slice_u8__ref_Writ
 sym	logos_std.logos.std.wql.wql_surface_parser$lexer_new__f__slice_u8
@@ -9829,6 +9885,8 @@ type	logos.std.wql.el_parser.ElMemoCell	fields=[res:*const u8,endpos:i64,endline
 type	logos.std.wql.el_parser.ElTokCell	fields=[tk:i32,tstart:i64,tlen:i64,tline:i64,endpos:i64,endline:i64]
 type	logos.std.wql.el_parser.Lexer	fields=[src:&[u8],pos:i64,line:i64,la:Token,have_la:bool,memo:HashMap<i64, ElMemoCell>,tbuf:Vec<ElTokCell>]
 type	logos.std.wql.el_parser.Token	fields=[kind:i32,start:i64,len:i64,line:i64]
+type	logos.std.wql.ir.RAgg	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
+type	logos.std.wql.ir.RAggArr	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.ir.RAggr	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.ir.RAnti	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.ir.REdge	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
@@ -9850,6 +9908,8 @@ type	logos.std.wql.ir.SParam	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.ir.SUn	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.ir.SVar	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.ir.WRef	fields=[h:WAny]
+type	logos.std.wql.optimize.ConstVal	fields=[kind:i32,i:i64,b:bool]
+type	logos.std.wql.optimize.RSimplified	fields=[root:WRef<RExpr>,empty:bool,identity:bool]
 type	logos.std.wql.plan.RQAgg	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.plan.RQAggArr	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.plan.RQAggr	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
@@ -9858,6 +9918,7 @@ type	logos.std.wql.plan.RQSimple	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.plan.RQWith	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.plan.RQWithArr	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.plan.RQuery	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
+type	logos.std.wql.rexpr_walk.Peeled	fields=[inner:RExpr,pred:WRef<SExpr>,has_pred:bool]
 type	logos.std.wql.trama.TFor	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.trama.TIf	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
 type	logos.std.wql.trama.TSet	fields=[m:*const WMap<Wu6, WAny>,z:*mut u8]
