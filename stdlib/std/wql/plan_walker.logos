@@ -59,7 +59,7 @@
 // `RExpr`.
 package logos.std.wql.plan_walker;
 
-use logos.std.compiler.metaprog;  // error
+use logos.std.compiler.metaprog;  // error, OView, oview_module_ast
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // RExpr, WRef
@@ -67,6 +67,8 @@ use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (alloca
 use logos.std.wql.params;         // MacroParams — the parsed wql!(…) param list + rel registry
 use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
+use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
+use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_traversal_elem (slice D)
 use logos.mem.string;
 use logos.lang.str;
 
@@ -429,24 +431,40 @@ fn rel_body_mods_ok(rel_name: str, first: bool, distinct: bool,
 // vars append to `relvars`. A BODY's rel-sourced ANTI step records a negation
 // edge (afrom/ato) — the post-SCC stratification check errors when it lands
 // inside the head rel's own SCC.
-fn stamp_steps(steps: RQJoinStepArr, base_var: str, prm: &MacroParams,
+//
+// TRAVERSAL steps (`is_edge`, slice D) skip source resolution entirely: the
+// field path validates against the BASE var's row type via module-AST
+// reflection (stamp_edge_step), `src_name` is REWRITTEN to the full source
+// EXPRESSION text (`d.emps` — arena-boxed), and `row_ty` stamped to the
+// ELEMENT type. Scalar-element vars (Vec<str> → str) append to `svars` — the
+// callers reject field access rooted at them across every clause.
+fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
-               relvars: &mut [str; 9], nrelv: &mut i64, h: &Writ) -> bool {
+               relvars: &mut [str; 9], nrelv: &mut i64,
+               svars: &mut [str; 9], nsv: &mut i64, h: &Writ) -> bool {
     let n: i64 = steps.len();
     let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut vtys: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut vanti: [bool; 9] = [false; 9];
     vars[0] = base_var;
+    vtys[0] = base_ty;
     let mut nv: i64 = 1i64;
     let mut i: i64 = 0i64;
     while i < n {
         let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
-        let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
-        if !sr.ok { return false; }
-        if sr.is_rel {
-            st.src_name = prm.rel_srcs[sr.idx];
-            if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
-            if *nrelv < 9i64 { relvars[*nrelv] = st.var_name; *nrelv = *nrelv + 1i64; }
+        if st.is_edge {
+            if !stamp_edge_step(st, &vars, &vtys, &vanti, nv,
+                                relvars, *nrelv, svars, nsv) { return false; }
+        } else {
+            let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
+            if !sr.ok { return false; }
+            if sr.is_rel {
+                st.src_name = prm.rel_srcs[sr.idx];
+                if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
+                if *nrelv < 9i64 { relvars[*nrelv] = st.var_name; *nrelv = *nrelv + 1i64; }
+            }
+            st.row_ty = sr.row_ty;
         }
-        st.row_ty = sr.row_ty;
         // Uniqueness against every var bound so far.
         let v: str = st.var_name;
         let mut k: i64 = 0i64;
@@ -461,7 +479,257 @@ fn stamp_steps(steps: RQJoinStepArr, base_var: str, prm: &MacroParams,
             }
             k = k + 1i64;
         }
-        if nv < 9i64 { vars[nv] = v; nv = nv + 1i64; }
+        if nv < 9i64 { vars[nv] = v; vtys[nv] = st.row_ty; vanti[nv] = st.is_anti; nv = nv + 1i64; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// ── Traversal-step validation + stamping (slice D) ───────────────────────────
+// `[anti] join <base>.<f>[.<g>…] <var> [on P]` — containment IS the join. The
+// base var must be a NON-ANTI struct-rowed var bound EARLIER in the chain (the
+// from-var included); intermediate path segments must be SINGULAR plain struct
+// fields; the FINAL segment must be a collection (Vec<E> / &[E] / [E; N] —
+// single references `&T`/`Box<T>` are the named error below). On success the
+// step's `src_name` becomes the full source expression text and `row_ty` the
+// element type — the emitters then scan `(src_name)` uniformly.
+fn stamp_edge_step(st: RQJoinStep,
+                   vars: &[str; 9], vtys: &[str; 9], vanti: &[bool; 9], nv: i64,
+                   relvars: &[str; 9], nrelv: i64,
+                   svars: &mut [str; 9], nsv: &mut i64) -> bool {
+    let bv: str = st.base_var;
+    // 1. The base var: bound earlier, non-anti, not rel-rowed, not scalar.
+    let mut bi: i64 = -1i64;
+    let mut k0: i64 = 0i64;
+    while k0 < nv {
+        if str_eq(vars[k0], bv) { bi = k0; }
+        k0 = k0 + 1i64;
+    }
+    if bi < 0i64 {
+        let mut m: String = String::new();
+        m.push_str("wql!: traversal `join ");
+        m.push_str(bv);
+        m.push_str(".…`: `");
+        m.push_str(bv);
+        m.push_str("` is not a bound row variable — the base of a field-path join must be the from-var or an earlier join var");
+        error(string_as_str(&m));
+        return false;
+    }
+    if vanti[bi] {
+        let mut m1: String = String::new();
+        m1.push_str("wql!: traversal `join ");
+        m1.push_str(bv);
+        m1.push_str(".…`: `");
+        m1.push_str(bv);
+        m1.push_str("` is an anti-join variable — it binds only inside its own `on` predicate and cannot seed a traversal");
+        error(string_as_str(&m1));
+        return false;
+    }
+    let mut r0: i64 = 0i64;
+    while r0 < nrelv {
+        if str_eq(relvars[r0], bv) {
+            let mut m2: String = String::new();
+            m2.push_str("wql!: traversal `join ");
+            m2.push_str(bv);
+            m2.push_str(".…`: `");
+            m2.push_str(bv);
+            m2.push_str("` binds a rel row — rel rows are native tuples and have no collection fields to traverse");
+            error(string_as_str(&m2));
+            return false;
+        }
+        r0 = r0 + 1i64;
+    }
+    if el_ret_class(vtys[bi]) >= 0i32 {
+        let mut m3: String = String::new();
+        m3.push_str("wql!: traversal `join ");
+        m3.push_str(bv);
+        m3.push_str(".…`: `");
+        m3.push_str(bv);
+        m3.push_str("` binds a scalar element (");
+        m3.push_str(vtys[bi]);
+        m3.push_str(") — scalars have no fields");
+        error(string_as_str(&m3));
+        return false;
+    }
+    // 2. Resolve the path against the base row type (module-AST reflection).
+    let view: OView = oview_module_ast();
+    let segs: RQPathSegArr = st.path_arr();
+    let np: i64 = segs.len();
+    if np < 1i64 { error("wql!: empty traversal path"); return false; }   // unreachable via grammar
+    let mut cur_ty: str = vtys[bi];
+    let mut fin_kind: i32 = 0i32;
+    let mut k: i64 = 0i64;
+    while k < np {
+        let seg: str = segs.seg_at(k).name;
+        let decl: WAny = find_decl_by_name(&view, cur_ty);
+        if decl.is_null() {
+            let mut m4: String = String::new();
+            m4.push_str("wql!: traversal path segment `.");
+            m4.push_str(seg);
+            m4.push_str("`: row type `");
+            m4.push_str(cur_ty);
+            m4.push_str("` is not a struct declared in this module — traversal paths resolve against module-local struct declarations");
+            error(string_as_str(&m4));
+            return false;
+        }
+        if !has_field(&view, decl, seg) {
+            let mut m5: String = String::new();
+            m5.push_str("wql!: traversal path: `");
+            m5.push_str(cur_ty);
+            m5.push_str("` has no field `");
+            m5.push_str(seg);
+            m5.push_str("`");
+            error(string_as_str(&m5));
+            return false;
+        }
+        let elem: str = field_traversal_elem(&view, decl, seg);
+        if k < np - 1i64 {
+            // INTERMEDIATE segment: must be a SINGULAR plain struct field.
+            if elem.len() > 0i64 {
+                let mut m6: String = String::new();
+                m6.push_str("wql!: traversal path: intermediate segment `.");
+                m6.push_str(seg);
+                m6.push_str("` is a collection — only the FINAL segment may be; traverse it with its own `join ");
+                m6.push_str(bv);
+                m6.push_str(".");
+                m6.push_str(seg);
+                m6.push_str(" <var>` step first");
+                error(string_as_str(&m6));
+                return false;
+            }
+            let tn: str = field_type_name(&view, decl, seg);
+            if tn.len() == 0i64 {
+                let mut m7: String = String::new();
+                m7.push_str("wql!: traversal path: intermediate segment `.");
+                m7.push_str(seg);
+                m7.push_str("` of `");
+                m7.push_str(cur_ty);
+                m7.push_str("` is not a plain named struct field");
+                error(string_as_str(&m7));
+                return false;
+            }
+            cur_ty = tn;
+        } else {
+            // FINAL segment: must be a collection field. The KIND drives the
+            // emitted source spelling (Vec → hoist a `.as_slice()` view).
+            fin_kind = field_traversal_kind(&view, decl, seg);
+            if elem.len() == 0i64 {
+                let tn2: str = field_type_name(&view, decl, seg);
+                let mut m8: String = String::new();
+                m8.push_str("wql!: `join ");
+                m8.push_str(bv);
+                m8.push_str(".");
+                m8.push_str(seg);
+                m8.push_str("`: field `");
+                m8.push_str(seg);
+                m8.push_str("` of `");
+                m8.push_str(cur_ty);
+                m8.push_str("`");
+                if tn2.len() > 0i64 {
+                    m8.push_str(" has type `");
+                    m8.push_str(tn2);
+                    m8.push_str("`");
+                }
+                m8.push_str(" — traverse a collection field (Vec<E>, &[E], or [E; N]; single references are not traversable)");
+                error(string_as_str(&m8));
+                return false;
+            }
+            st.row_ty = elem;
+        }
+        k = k + 1i64;
+    }
+    // 3. Rewrite src_name → the full source expression text (arena-boxed by
+    // the fat-view str write; the local String may die). A Vec-typed final
+    // segment takes a `.as_slice()` view — the emitters then index a SLICE
+    // (the native fat-element path); slice/array fields index in place.
+    let mut buf: String = String::new();
+    buf.push_str(bv);
+    let mut k2: i64 = 0i64;
+    while k2 < np {
+        buf.push_str(".");
+        buf.push_str(segs.seg_at(k2).name);
+        k2 = k2 + 1i64;
+    }
+    if fin_kind == 1i32 { buf.push_str(".as_slice()"); }
+    st.src_name = string_as_str(&buf);
+    // 4. Scalar-element var (Vec<str> → str) → the no-fields diagnostic set.
+    if el_ret_class(st.row_ty) >= 0i32 {
+        if *nsv < 9i64 { svars[*nsv] = st.var_name; *nsv = *nsv + 1i64; }
+    }
+    return true;
+}
+
+// ── Scalar-element field-access guard (slice D) ──────────────────────────────
+// A traversal var over a SCALAR collection (Vec<str> → `s: str`) has no fields
+// — `s.foo` anywhere in a clause is a named error (referenced BARE it is the
+// element value). Recursive over the SExpr family; no-op when no scalar vars.
+fn no_scalar_field(e: SExpr, sv: &[str; 9], n: i64) -> bool {
+    if n == 0i64 { return true; }
+    match e {
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() { return true; }
+            let rn: str = root_ident_name(f.base_expr());
+            if rn.len() > 0i64 {
+                let mut i: i64 = 0i64;
+                while i < n {
+                    if str_eq(sv[i], rn) {
+                        let mut m: String = String::new();
+                        m.push_str("wql!: `");
+                        m.push_str(rn);
+                        m.push_str(".");
+                        m.push_str(f.name);
+                        m.push_str("` — `");
+                        m.push_str(rn);
+                        m.push_str("` binds a scalar collection element and has no fields; reference it bare");
+                        error(string_as_str(&m));
+                        return false;
+                    }
+                    i = i + 1i64;
+                }
+            }
+            return no_scalar_field(f.base_expr(), sv, n);
+        }
+        SExpr::Bin(b)  => { return no_scalar_field(b.lhs_expr(), sv, n) && no_scalar_field(b.rhs_expr(), sv, n); }
+        SExpr::Un(u)   => { return no_scalar_field(u.arg_expr(), sv, n); }
+        SExpr::Cond(c) => {
+            return no_scalar_field(c.cond_expr(), sv, n)
+                && no_scalar_field(c.then_expr(), sv, n)
+                && no_scalar_field(c.else_expr(), sv, n);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i2: i64 = 0i64;
+            while i2 < args.len() {
+                if !no_scalar_field(args.arg_at(i2), sv, n) { return false; }
+                i2 = i2 + 1i64;
+            }
+            return true;
+        }
+        SExpr::Comp(cp) => { return no_scalar_field(cp.head_expr(), sv, n); }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i3: i64 = 0i64;
+            while i3 < items.len() {
+                if !no_scalar_field(items.arg_at(i3), sv, n) { return false; }
+                i3 = i3 + 1i64;
+            }
+            return true;
+        }
+        _ => { return true; }
+    }
+}
+
+// The step fan-out's on-predicates through the scalar-field guard.
+fn steps_scalar_ok(steps: RQJoinStepArr, sv: &[str; 9], n: i64) -> bool {
+    if n == 0i64 { return true; }
+    let ns: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < ns {
+        let st: RQJoinStep = steps.step_at(i);
+        if st.has_on {
+            if !no_scalar_field(st.on_expr(), sv, n) { return false; }
+        }
         i = i + 1i64;
     }
     return true;
@@ -538,8 +806,20 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             if !sr.ok { return false; }
             if sr.is_rel { j.a_name = prm.rel_srcs[sr.idx]; }
             j.a_ty = sr.row_ty;
-            return stamp_steps(j.steps_arr(), j.x_var, prm, cur_rel, deps,
-                               &mut relvars, &mut nrelv, h);
+            let mut svars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+            let mut nsv: i64 = 0i64;
+            if !stamp_steps(j.steps_arr(), j.x_var, sr.row_ty, prm, cur_rel, deps,
+                            &mut relvars, &mut nrelv, &mut svars, &mut nsv, h) { return false; }
+            // Scalar-element vars (traversal over Vec<str> etc.): no field
+            // access rooted at them in any clause of this body.
+            if nsv > 0i64 {
+                if !no_scalar_field(j.select_expr(), &svars, nsv) { return false; }
+                if j.has_where {
+                    if !no_scalar_field(j.where_expr(), &svars, nsv) { return false; }
+                }
+                if !steps_scalar_ok(j.steps_arr(), &svars, nsv) { return false; }
+            }
+            return true;
         }
         RQuery::Aggr(_) => {
             // Aggregate bodies are rejected either way — but the ERROR is
@@ -558,9 +838,13 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
                 let mut gi: i64 = 0i64;
                 while gi < gn {
                     let gst: RQJoinStep = rq_fat_step(gsteps.step_any(gi), h);
-                    let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
-                    if !srs.ok { return false; }
-                    if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
+                    // Traversal steps have no SOURCE to resolve (field path of a
+                    // bound var) — they cannot form rel dependency edges.
+                    if !gst.is_edge {
+                        let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
+                        if !srs.ok { return false; }
+                        if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
+                    }
                     gi = gi + 1i64;
                 }
             }
@@ -756,9 +1040,22 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 nrelv = 1i64;
             }
             j.a_ty = sr2.row_ty;
-            if !stamp_steps(j.steps_arr(), j.x_var, prm, -1i64, &mut deps,
-                            &mut relvars, &mut nrelv, h) { return false; }
+            let mut svars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+            let mut nsv: i64 = 0i64;
+            if !stamp_steps(j.steps_arr(), j.x_var, sr2.row_ty, prm, -1i64, &mut deps,
+                            &mut relvars, &mut nrelv, &mut svars, &mut nsv, h) { return false; }
             if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
+            // Scalar-element traversal vars: no field access rooted at them.
+            if nsv > 0i64 {
+                if !no_scalar_field(j.select_expr(), &svars, nsv) { return false; }
+                if j.has_where {
+                    if !no_scalar_field(j.where_expr(), &svars, nsv) { return false; }
+                }
+                if j.has_order {
+                    if !no_scalar_field(j.order_expr(), &svars, nsv) { return false; }
+                }
+                if !steps_scalar_ok(j.steps_arr(), &svars, nsv) { return false; }
+            }
         }
         RQuery::Aggr(_) => {
             let g: RQAggr = rq_fat_aggr(entry_any, h);
@@ -773,8 +1070,33 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             g.a_ty = sr3.row_ty;
             // Optional join steps — the aggregate over a JOINED stream.
             if g.has_steps() {
-                if !stamp_steps(g.steps_arr(), g.x_var, prm, -1i64, &mut deps,
-                                &mut relvars, &mut nrelv, h) { return false; }
+                let mut svars2: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+                let mut nsv2: i64 = 0i64;
+                if !stamp_steps(g.steps_arr(), g.x_var, sr3.row_ty, prm, -1i64, &mut deps,
+                                &mut relvars, &mut nrelv, &mut svars2, &mut nsv2, h) { return false; }
+                if nsv2 > 0i64 {
+                    if !no_scalar_field(g.select_expr(), &svars2, nsv2) { return false; }
+                    if !no_scalar_field(g.key_expr(), &svars2, nsv2) { return false; }
+                    if g.has_where {
+                        if !no_scalar_field(g.where_expr(), &svars2, nsv2) { return false; }
+                    }
+                    if g.has_having {
+                        if !no_scalar_field(g.having_expr(), &svars2, nsv2) { return false; }
+                    }
+                    if g.has_order {
+                        if !no_scalar_field(g.order_expr(), &svars2, nsv2) { return false; }
+                    }
+                    let gaggs: RQAggArr = g.aggs_arr();
+                    let mut ga: i64 = 0i64;
+                    while ga < gaggs.len() {
+                        let a: RQAgg = gaggs.agg_at(ga);
+                        if a.has_arg {
+                            if !no_scalar_field(a.arg_expr(), &svars2, nsv2) { return false; }
+                        }
+                        ga = ga + 1i64;
+                    }
+                    if !steps_scalar_ok(g.steps_arr(), &svars2, nsv2) { return false; }
+                }
             }
         }
         RQuery::Find(_) => {

@@ -26,7 +26,11 @@
 //              select [first|distinct] S [order by O [desc]] [limit N|p] [: RTy]
 //              (N-WAY CHAIN: each `[anti] join <src> <var> on <pred>` step is
 //              one RQJoinStep in the RQJoinStepArr fan-out; a step's on-pred
-//              may reference every var bound so far + scalar params)
+//              may reference every var bound so far + scalar params. A step
+//              source may ALSO be a FIELD PATH of a bound var —
+//              `[anti] join <base>.<f>[.<g>…] <var> [on P]` — the TRAVERSAL
+//              form (slice D): the new var ranges over the collection field,
+//              `on` optional, is_edge/base_var/path on the step node)
 //   RQAggr   — from a x ( [anti] join b y on ON )* [where P] group by K
 //              aggregate name=fn(arg?),… [having H]
 //              select [first|distinct] S [order by O [desc]] [limit N|p] [: RTy]
@@ -161,8 +165,14 @@
     RQAgg      { name: "str", fn_name: "str", arg: "ref SExpr", has_arg: "bool" }
     RQAggArr   { aggs: "fan set_agg RQAGG_MAX" }
 
-    RQJoinStep    { is_anti: "bool", src_name: "str", var_name: "str", on: "ref SExpr" }
+    RQJoinStep    { is_anti: "bool", src_name: "str", var_name: "str", on: "ref SExpr",
+                    is_edge: "bool", has_on: "bool", base_var: "str",
+                    path: "ref RQPathSegArr" }
     RQJoinStepArr { steps: "fan set_step RQJSTEP_MAX" }
+
+    // ── traversal-step field path (slice D — collection-field joins) ──────
+    RQPathSeg    { name: "str" }
+    RQPathSegArr { segs: "fan set_seg RQPSEG_MAX" }
 
     // ── rel blocks + the program envelope (slice B static Datalog) ────────
     RQProgram   { rels: "ref RQRelArr", entry: "ref RQuery" }
@@ -205,6 +215,7 @@
     LBRACE   = "{"
     RBRACE   = "}"
     SEMI     = ";"
+    DOT      = "."
 
     INTEGER = /[0-9]+/
     IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -357,13 +368,38 @@
                        has_result_ty: $21, result_ty: $21 }
 
     // ── Join steps (shared by join_query / aggr_query) ────────────────────
-    // ONE `[anti] join <src> <var> on <pred>` step → an RQJoinStep node.
+    // TWO step forms → ONE RQJoinStep node, discriminated by `is_edge`.
+    // The PATH (traversal) form is ordered FIRST — it demands ≥ 1 `.field`
+    // segment after the head IDENT, so the classic form can never shadow it
+    // (PEG ordered choice; a classic `join b y on …` fails path_segs at the
+    // missing DOT and falls through).
+    //
+    // TRAVERSAL (slice D): `[anti] join <base>.<f>[.<g>…] <var> [on P]` — the
+    // step ranges over a COLLECTION FIELD of an already-bound row var; `on` is
+    // OPTIONAL (containment IS the join; P is a residual filter). base_var +
+    // the segment fan-out are grammar-captured; src_name/row_ty are WALKER-
+    // stamped (full source expression text + reflected element type).
+    //   $1=KW_ANTI? $2=KW_JOIN $3=IDENT(base) $4=path_segs $5=IDENT(var)
+    //   $6=on_clause?
+    //
+    // CLASSIC: `[anti] join <src> <var> on <pred>` — `on` REQUIRED (unchanged).
     //   $1=KW_ANTI? $2=KW_JOIN $3=IDENT(src) $4=IDENT(var) $5=KW_ON $6=on_body
     // `row_ty` is handler-stamped (slice-param element type), like RQSimple.
-    join_step  <- KW_ANTI? KW_JOIN IDENT IDENT
+    join_step  <- KW_ANTI? KW_JOIN IDENT path_segs IDENT
+                  on_clause?
+                  => { CODE: "RQJoinStep", is_anti: $1, base_var: $3, path: $4,
+                       var_name: $5, on: $6, has_on: $6, is_edge: true }
+                / KW_ANTI? KW_JOIN IDENT IDENT
                   KW_ON on_body
                   => { CODE: "RQJoinStep", is_anti: $1, src_name: $3,
-                       var_name: $4, on: $6 }
+                       var_name: $4, on: $6, has_on: true, is_edge: false }
+
+    // `on P` — the traversal step's OPTIONAL residual (value = the SExpr, $2).
+    on_clause <- KW_ON on_body
+
+    // One `.field` path segment / the ≥1 segment list (RQPathSegArr fan-out).
+    path_seg  <- DOT IDENT => { CODE: "RQPathSeg", name: $2 }
+    path_segs <- path_seg path_seg* => { CODE: "RQPathSegArr", segs: $... }
 
     // The step list (≥ 1) → RQJoinStepArr fan-out (the agg_list pattern; every
     // capture is a join_step node, so `$...` collects exactly the steps).

@@ -140,24 +140,96 @@ pub schema RQSimple : code(0x0012_0000_0000_0000) {
     sel_first:      bool          = 17,
 }
 
-// ── RQJoinStep — ONE `[anti] join <src> <var> on <pred>` step of a join chain ──
-// `src_name`/`var_name` — captured IDENTs (the source names a SLICE param; the
-// var is the step's row binding). `row_ty` — handler-stamped from the slice
-// param's element type (like RQSimple.row_ty). `is_anti` — per-step anti flag
-// (an anti step's var binds ONLY inside its own `on`; downstream clauses see
-// only the non-anti vars). `on` — the step predicate; it may reference ALL vars
-// bound so far (base + earlier non-anti steps) plus scalar params.
+// ── RQJoinStep — ONE join step of a chain, in TWO forms ───────────────────────
+// CLASSIC (`[anti] join <src> <var> on <pred>`, is_edge = false):
+//   `src_name`/`var_name` — captured IDENTs (the source names a SLICE param or
+//   a rel; the var is the step's row binding). `row_ty` — handler-stamped from
+//   the slice param's element type (like RQSimple.row_ty). `on` REQUIRED
+//   (has_on always true).
+// TRAVERSAL (`[anti] join <base>.<f>[.<g>…] <var> [on P]`, is_edge = true —
+// slice D, collection-field join):
+//   `base_var` — the already-bound row var the path starts at; `path` — the
+//   grammar-captured segment fan-out; `on` OPTIONAL (has_on — containment IS
+//   the join; P is a residual filter). The WALKER validates the path against
+//   the base var's row type (intermediate segments singular, final segment a
+//   collection: Vec<T> / &[T] / [T;N]), then REWRITES `src_name` to the full
+//   source EXPRESSION text (`d.emps`) and stamps `row_ty` to the ELEMENT type
+//   — so the emitters scan `(src_name)` uniformly for both forms.
+// `is_anti` — per-step anti flag (an anti step's var binds ONLY inside its own
+// `on`; downstream clauses see only the non-anti vars). A non-anti `on` may
+// reference ALL vars bound so far (base + earlier non-anti steps) + scalar
+// params.
 pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
     src_name: str          = 0,
     var_name: str          = 1,
     row_ty:   str          = 2,
     is_anti:  bool         = 3,
     on:       WRef<SExpr>  = 4,
+    is_edge:  bool         = 5,
+    has_on:   bool         = 6,
+    base_var: str          = 7,
+    path:     WRef<RQPathSegArr> = 8,
 }
 
 impl RQJoinStep {
     pub fn on_expr(self: &RQJoinStep) -> SExpr { return self.on.any().view::<SExpr>(); }
+    pub fn path_arr(self: &RQJoinStep) -> RQPathSegArr { return self.path.any().view::<RQPathSegArr>(); }
     pub fn as_ref(self: &RQJoinStep) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// ── RQPathSeg — one `.field` segment of a traversal step's field path ─────────
+pub schema RQPathSeg : code(0x0012_0000_0000_001A) {
+    name: str = 0,
+}
+
+impl RQPathSeg {
+    pub fn as_ref(self: &RQPathSeg) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized segment list — fan-out of up to RQPSEG_MAX RQPathSeg edges
+// (the RQJoinStepArr pattern). `count` = the path depth (≥ 1).
+pub schema RQPathSegArr : code(0x0012_0000_0000_001B) {
+    count: i32           = 0,
+    p0: WRef<RQPathSeg> = 1,
+    p1: WRef<RQPathSeg> = 2,
+    p2: WRef<RQPathSeg> = 3,
+    p3: WRef<RQPathSeg> = 4,
+    p4: WRef<RQPathSeg> = 5,
+    p5: WRef<RQPathSeg> = 6,
+    p6: WRef<RQPathSeg> = 7,
+    p7: WRef<RQPathSeg> = 8,
+}
+
+pub fn RQPSEG_MAX() -> i64 { return 8i64; }
+
+impl RQPathSegArr {
+    pub fn len(self: &RQPathSegArr) -> i64 { return self.count as i64; }
+
+    pub fn seg_at(self: &RQPathSegArr, i: i64) -> RQPathSeg {
+        if i == 0i64 { return self.p0.any().view::<RQPathSeg>(); }
+        if i == 1i64 { return self.p1.any().view::<RQPathSeg>(); }
+        if i == 2i64 { return self.p2.any().view::<RQPathSeg>(); }
+        if i == 3i64 { return self.p3.any().view::<RQPathSeg>(); }
+        if i == 4i64 { return self.p4.any().view::<RQPathSeg>(); }
+        if i == 5i64 { return self.p5.any().view::<RQPathSeg>(); }
+        if i == 6i64 { return self.p6.any().view::<RQPathSeg>(); }
+        return self.p7.any().view::<RQPathSeg>();
+    }
+
+    pub fn set_seg(self: &mut RQPathSegArr, i: i64, h: WAny) {
+        let r: WRef<RQPathSeg> = WRef::<RQPathSeg>::from_any(h);
+        if i == 0i64 { self.p0 = r; return; }
+        if i == 1i64 { self.p1 = r; return; }
+        if i == 2i64 { self.p2 = r; return; }
+        if i == 3i64 { self.p3 = r; return; }
+        if i == 4i64 { self.p4 = r; return; }
+        if i == 5i64 { self.p5 = r; return; }
+        if i == 6i64 { self.p6 = r; return; }
+        self.p7 = r;
+    }
+
+    pub fn set_len(self: &mut RQPathSegArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQPathSegArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
 }
 
 // The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep

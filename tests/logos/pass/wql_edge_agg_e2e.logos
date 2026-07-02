@@ -1,0 +1,45 @@
+// WQL EDGE TRAVERSAL (slice D) — GROUP BY / AGGREGATE over TRAVERSED rows:
+// the aggregate shape's joined-stream fold runs over a chain containing
+// traversal steps (dept → emps → skills); the group key + aggregate args
+// range over any bound level. `count()` counts flattened (dept, emp, skill)
+// rows per dept id.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub name: str, pub skills: Vec<str> }
+struct Dept { pub did: i64, pub emps: Vec<Emp> }
+
+resource skills_per_dept = wql!(depts: &[Dept]) {
+    from depts d
+    join d.emps e
+    join e.skills s
+    group by d.did
+    aggregate n = count()
+    select key * 10i64 + n };
+
+fn mk_emp(name: str, s1: str, s2: str) -> Emp {
+    let mut sk: Vec<str> = Vec::<str>::new();
+    if s1.len() > 0i64 { sk.push(s1); }
+    if s2.len() > 0i64 { sk.push(s2); }
+    return Emp { name: name, skills: sk };
+}
+
+fn main() -> i32 {
+    let mut d1: Vec<Emp> = Vec::<Emp>::new();
+    d1.push(mk_emp("ann", "rust", "c"));
+    d1.push(mk_emp("bob", "sql", ""));
+    let mut d2: Vec<Emp> = Vec::<Emp>::new();
+    d2.push(mk_emp("eve", "go", ""));
+    let mut depts: Vec<Dept> = Vec::<Dept>::new();
+    depts.push(Dept { did: 1i64, emps: d1 });
+    depts.push(Dept { did: 2i64, emps: d2 });
+    depts.push(Dept { did: 3i64, emps: Vec::<Emp>::new() });   // no rows → no group
+
+    let rows: Vec<i64> = skills_per_dept(depts.as_slice());
+    if rows.len() != 2i64 { return 1i32; }
+    if rows.get(0i64) != 13i64 { return 2i32; }   // dept 1: 3 skills
+    if rows.get(1i64) != 21i64 { return 3i32; }   // dept 2: 1 skill
+    return 0i32;
+}

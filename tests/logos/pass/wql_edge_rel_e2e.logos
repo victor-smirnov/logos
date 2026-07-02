@@ -1,0 +1,59 @@
+// WQL EDGE TRAVERSAL (slice D) — traversal INSIDE rel bodies:
+//   • a NON-recursive rel whose body traverses a collection field;
+//   • a RECURSIVE rel whose body traverses (id-carrying graph reachability —
+//     `nodes` rows carry Vec<i64> child-id lists). The semi-naïve delta
+//     rewrite touches only the in-SCC SOURCE step (`from reach r`); the
+//     traversal step rides along unchanged in every delta variant.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Node { pub id: i64, pub kids: Vec<i64> }
+
+// Non-recursive: all (parent, kid) edges via traversal in a rel body.
+resource edges = wql!(nodes: &[Node]) {
+    rel edge(p: i64, c: i64) {
+        from nodes n join n.kids k select (n.id, k);
+    }
+    from edge e select e.p * 100i64 + e.c };
+
+// Recursive: ids reachable from `root` (graph closure over the kid lists).
+resource reachable = wql!(nodes: &[Node], root: i64) {
+    rel reach(x: i64) {
+        from nodes n join n.kids k where n.id == root select k;
+        from reach r join nodes n on n.id == r.x join n.kids k select k;
+    }
+    from reach r select r.x };
+
+fn mk_node(id: i64, k1: i64, k2: i64) -> Node {
+    let mut ks: Vec<i64> = Vec::<i64>::new();
+    if k1 >= 0i64 { ks.push(k1); }
+    if k2 >= 0i64 { ks.push(k2); }
+    return Node { id: id, kids: ks };
+}
+
+fn main() -> i32 {
+    // 1 → {2, 3}, 2 → {4}, 3 → {}, 4 → {}.
+    let mut nodes: Vec<Node> = Vec::<Node>::new();
+    nodes.push(mk_node(1i64, 2i64, 3i64));
+    nodes.push(mk_node(2i64, 4i64, -1i64));
+    nodes.push(mk_node(3i64, -1i64, -1i64));
+    nodes.push(mk_node(4i64, -1i64, -1i64));
+
+    let es: Vec<i64> = edges(nodes.as_slice());
+    if es.len() != 3i64 { return 1i32; }
+    if es.get(0i64) != 102i64 { return 2i32; }
+    if es.get(1i64) != 103i64 { return 3i32; }
+    if es.get(2i64) != 204i64 { return 4i32; }
+
+    let rs: Vec<i64> = reachable(nodes.as_slice(), 1i64);
+    if rs.len() != 3i64 { return 5i32; }
+    if rs.get(0i64) != 2i64 { return 6i32; }   // seed round order
+    if rs.get(1i64) != 3i64 { return 7i32; }
+    if rs.get(2i64) != 4i64 { return 8i32; }   // discovered via the delta round
+
+    let rs4: Vec<i64> = reachable(nodes.as_slice(), 4i64);
+    if rs4.len() != 0i64 { return 9i32; }
+    return 0i32;
+}

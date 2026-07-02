@@ -1,0 +1,71 @@
+// WQL EDGE TRAVERSAL (slice D) — MIXED chain: a KEYED top-level join (the
+// hash-strategy cascade, unchanged) composes with a traversal step in ONE
+// chain, in both orders:
+//   hash join THEN traversal   (emp → dept by key, then emp.skills), and
+//   traversal THEN hash join   (dept.emps, then emp.dept → dept by key —
+//   the traversal-bound var feeding a later keyed step's probe side).
+// The cascade must analyze the KEYED steps only; traversal steps bypass it
+// (always nested-loop — their source depends on the outer row var).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp  { pub name: str, pub dept: i64, pub skills: Vec<str> }
+struct Dept { pub id: i64, pub dname: str }
+struct Org  { pub oname: str, pub emps: Vec<Emp> }
+
+// Keyed hash join first, traversal second.
+resource emp_geo = wql!(emps: &[Emp], depts: &[Dept]) {
+    from emps e
+    join depts d on e.dept == d.id
+    join e.skills s
+    select (d.dname, s) };
+
+// Traversal first, keyed hash join over the traversal-bound var second.
+resource org_depts = wql!(orgs: &[Org], depts: &[Dept]) {
+    from orgs o
+    join o.emps e
+    join depts d on e.dept == d.id
+    select (o.oname, e.name, d.dname) };
+
+fn mk_emp(name: str, dept: i64, s1: str) -> Emp {
+    let mut sk: Vec<str> = Vec::<str>::new();
+    if s1.len() > 0i64 { sk.push(s1); }
+    return Emp { name: name, dept: dept, skills: sk };
+}
+
+fn main() -> i32 {
+    let mut emps: Vec<Emp> = Vec::<Emp>::new();
+    emps.push(mk_emp("ann", 1i64, "rust"));
+    emps.push(mk_emp("bob", 2i64, "sql"));
+    emps.push(mk_emp("zed", 9i64, "perl"));   // no dept → dropped by the keyed step
+    let depts: [Dept; 2] = [
+        Dept { id: 1i64, dname: "core" },
+        Dept { id: 2i64, dname: "data" },
+    ];
+
+    let g: Vec<(str, str)> = emp_geo(emps.as_slice(), &depts[..]);
+    if g.len() != 2i64 { return 1i32; }
+    let g0: (str, str) = g.get(0i64);
+    if !str_eq(g0.0, "core") { return 2i32; }
+    if !str_eq(g0.1, "rust") { return 3i32; }
+    let g1: (str, str) = g.get(1i64);
+    if !str_eq(g1.0, "data") { return 4i32; }
+    if !str_eq(g1.1, "sql")  { return 5i32; }
+
+    let mut o_emps: Vec<Emp> = Vec::<Emp>::new();
+    o_emps.push(mk_emp("eve", 2i64, "go"));
+    o_emps.push(mk_emp("moe", 7i64, "sh"));   // dept 7 unknown → dropped
+    let mut orgs: Vec<Org> = Vec::<Org>::new();
+    orgs.push(Org { oname: "acme", emps: o_emps });
+
+    let od: Vec<(str, str, str)> = org_depts(orgs.as_slice(), &depts[..]);
+    if od.len() != 1i64 { return 6i32; }
+    let od0: (str, str, str) = od.get(0i64);
+    if !str_eq(od0.0, "acme") { return 7i32; }
+    if !str_eq(od0.1, "eve")  { return 8i32; }
+    if !str_eq(od0.2, "data") { return 9i32; }
+    return 0i32;
+}

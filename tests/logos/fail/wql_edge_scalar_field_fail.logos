@@ -1,0 +1,18 @@
+// wql! diagnostic (slice D): the FINAL traversal-path segment must be a
+// COLLECTION field (Vec<E> / &[E] / [E; N]) — a plain struct field (a single
+// reference / singular value) is a named compile-time error reporting the
+// field and its type.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub name: str }
+struct Dept { pub dname: str, pub boss: Emp, pub emps: Vec<Emp> }
+
+resource bad = wql!(depts: &[Dept]) {
+    from depts d
+    join d.boss e
+    select e.name };
+
+fn main() -> i32 { return 0i32; }

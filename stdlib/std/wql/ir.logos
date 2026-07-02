@@ -236,7 +236,19 @@ impl RAggArr {
 // name) so the executable algebra is self-sufficient to emit the scan loop — the
 // query-PLAN's `from src:[Ty] var` recovered onto the leaf, self-describing IR.
 pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1, row_ty: str = 2, var_name: str = 3 } // scan a source: name + row-type + loop var
-pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, key: u8 = 1 }              // follow ref field → target node(s): the GRAPH STEP
+// REdge — the GRAPH STEP (slice D, collection-field traversal): range a new row
+// var over a COLLECTION FIELD PATH of an already-bound row var. Self-describing:
+//   `base_var`/`path` — the semantic step (`d` + "emps.skills" — queue-2's
+//   interpreter re-resolves these against its own row bindings);
+//   `src` — the full source EXPRESSION text (`d.emps.skills`, walker-stamped) —
+//   the static emitter's scan spelling (`while i < (src).len()`);
+//   `var_name`/`row_ty` — the new binding + its ELEMENT type;
+//   `on`/`has_on` — the OPTIONAL residual filter (containment IS the join);
+//   `is_anti` — anti-traversal: keep the bound row iff NO element satisfies
+//   `on` (no `on` ⇒ iff the collection is empty).
+// Traversal is ALWAYS nested-loop (its source depends on outer row vars, so no
+// build-once index exists) — the join-strategy cascade bypasses REdge steps.
+pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, src: str = 1, base_var: str = 2, path: str = 3, var_name: str = 4, row_ty: str = 5, on: WRef<SExpr> = 6, has_on: bool = 7, is_anti: bool = 8 }
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
 pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: WRef<SExpr> = 1 }     // π — the projection expr
 pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
@@ -311,7 +323,10 @@ impl RFilter {
     pub fn input_expr(self: &RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }
     pub fn pred_expr(self: &RFilter)  -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
-impl REdge { pub fn input_expr(self: &REdge) -> RExpr { return self.input.any().view::<RExpr>(); } }
+impl REdge {
+    pub fn input_expr(self: &REdge) -> RExpr { return self.input.any().view::<RExpr>(); }
+    pub fn on_expr(self: &REdge)    -> SExpr { return self.on.any().view::<SExpr>(); }
+}
 impl RProj {
     pub fn input_expr(self: &RProj) -> RExpr { return self.input.any().view::<RExpr>(); }
     pub fn sel_expr(self: &RProj)   -> SExpr { return self.sel.any().view::<SExpr>(); }

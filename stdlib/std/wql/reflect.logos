@@ -129,6 +129,93 @@ pub fn field_element_type_name(view: &OView, decl: WAny, field_name: str) -> str
     return "";
 }
 
+// Does struct node `decl` declare a field named `field_name`? (Existence test —
+// `field_type_name`'s "" conflates absent-field with a nameless type node like
+// `&[T]`'s SLICE_TYPE, so path validation needs the explicit probe.)
+pub fn has_field(view: &OView, decl: WAny, field_name: str) -> bool {
+    if decl.is_null() { return false; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        if sview_eq_str(view.ast_field_name(fld), field_name) { return true; }
+        i = i + (1 as u64);
+    }
+    return false;
+}
+
+// AST type-node code for a generic instantiation in type position (`Vec<T>` —
+// NAME(1) = the head name, ITEMS(2) = the type-arg array).
+fn LA_GENERIC_INST() -> u64 { return 92 as u64; }
+
+// The declared ELEMENT type NAME of field `field_name` within struct node `decl`,
+// IF that field's type is a TRAVERSABLE collection — the wql! edge-step (slice D)
+// reflection primitive. Covers:
+//   • the slice/array family (`[T; N]` / `&[T]` / `[T]`) — element = the
+//     collection node's TYPE(3) child's name (field_element_type_name's rule);
+//   • `Vec<T>` — a GENERIC_INST whose head NAME is `Vec` with exactly one
+//     type-arg — element = ITEMS(2)[0]'s name.
+// Everything else (scalar / plain struct / &T / Box<T> / non-Vec generics)
+// returns "" — the caller diagnoses with the field's declared type text.
+//
+// KIND companion (`field_traversal_kind`): 1 = Vec<T> — the wql! emitter must
+// hoist a `.as_slice()` view (a Vec field is indexed through the Index-trait
+// call, whose fat-element deref the backend does not yet lower — the slice
+// spelling is the native, verified path); 2 = the slice/array family —
+// natively indexable in place; 0 = not traversable.
+pub fn field_traversal_kind(view: &OView, decl: WAny, field_name: str) -> i32 {
+    if decl.is_null() { return 0i32; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        if sview_eq_str(view.ast_field_name(fld), field_name) {
+            let tynode: WAny = view.ast_type_child(fld);
+            if tynode.is_null() { return 0i32; }
+            let code: u64 = view.ast_node_code(tynode);
+            if is_collection_type_code(code) { return 2i32; }
+            if (code & (0xFFFF as u64)) == LA_GENERIC_INST() {
+                if str_eq(sview_str(view.ast_node_name(tynode)), "Vec") { return 1i32; }
+            }
+            return 0i32;
+        }
+        i = i + (1 as u64);
+    }
+    return 0i32;
+}
+
+pub fn field_traversal_elem(view: &OView, decl: WAny, field_name: str) -> str {
+    if decl.is_null() { return ""; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        let fnm: SView = view.ast_field_name(fld);
+        if sview_eq_str(fnm, field_name) {
+            let tynode: WAny = view.ast_type_child(fld);          // TYPE(3) node
+            if tynode.is_null() { return ""; }
+            let code: u64 = view.ast_node_code(tynode);
+            if is_collection_type_code(code) {
+                let elem: WAny = view.ast_type_child(tynode);
+                if elem.is_null() { return ""; }
+                return sview_str(view.ast_node_name(elem));
+            }
+            if (code & (0xFFFF as u64)) == LA_GENERIC_INST() {
+                let head: str = sview_str(view.ast_node_name(tynode));
+                if !str_eq(head, "Vec") { return ""; }
+                let args: WAny = view.tiny_map_get(tynode, 2 as u8);   // ITEMS = 2
+                if args.is_null() { return ""; }
+                if view.array_len(args) != (1 as u64) { return ""; }
+                let a0: WAny = view.array_get(args, 0 as u64);
+                return sview_str(view.ast_node_name(a0));
+            }
+            return "";
+        }
+        i = i + (1 as u64);
+    }
+    return "";
+}
+
 // ── FN-declaration reflection (UDF / UDA — ADR 0012 user functions) ─────────
 // The wql!/trama! EL resolves non-builtin call names against the TRIGGER
 // module's top-level `fn` items. These readers mirror the struct walk above:

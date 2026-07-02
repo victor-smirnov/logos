@@ -1,0 +1,52 @@
+// WQL EDGE TRAVERSAL (slice D) — collection-field join steps, 2 LEVELS deep:
+// `join d.emps e` ranges e over the Vec<Emp> field of the bound dept row;
+// `join e.skills s` flattens one level further into a SCALAR (str) element
+// var. No `on` — containment IS the join. The select tuple takes one
+// component from EVERY level (outer struct, mid struct, scalar leaf); rows
+// replay in nested scan order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp  { pub name: str, pub skills: Vec<str> }
+struct Dept { pub dname: str, pub emps: Vec<Emp> }
+
+resource all_skills = wql!(depts: &[Dept]) {
+    from depts d
+    join d.emps e
+    join e.skills s
+    select (d.dname, e.name, s) };
+
+fn mk_emp(name: str, s1: str, s2: str) -> Emp {
+    let mut sk: Vec<str> = Vec::<str>::new();
+    if s1.len() > 0i64 { sk.push(s1); }
+    if s2.len() > 0i64 { sk.push(s2); }
+    return Emp { name: name, skills: sk };
+}
+
+fn main() -> i32 {
+    let mut eng_emps: Vec<Emp> = Vec::<Emp>::new();
+    eng_emps.push(mk_emp("ann", "rust", "c"));
+    eng_emps.push(mk_emp("bob", "", ""));        // no skills → contributes 0 rows
+    let mut ops_emps: Vec<Emp> = Vec::<Emp>::new();
+    ops_emps.push(mk_emp("eve", "sql", ""));
+    let mut depts: Vec<Dept> = Vec::<Dept>::new();
+    depts.push(Dept { dname: "eng", emps: eng_emps });
+    depts.push(Dept { dname: "ops", emps: ops_emps });
+
+    let rows: Vec<(str, str, str)> = all_skills(depts.as_slice());
+    if rows.len() != 3i64 { return 1i32; }
+    let r0: (str, str, str) = rows.get(0i64);
+    if !str_eq(r0.0, "eng")  { return 2i32; }
+    if !str_eq(r0.1, "ann")  { return 3i32; }
+    if !str_eq(r0.2, "rust") { return 4i32; }
+    let r1: (str, str, str) = rows.get(1i64);
+    if !str_eq(r1.2, "c")    { return 5i32; }
+    let r2: (str, str, str) = rows.get(2i64);
+    if !str_eq(r2.0, "ops")  { return 6i32; }
+    if !str_eq(r2.1, "eve")  { return 7i32; }
+    if !str_eq(r2.2, "sql")  { return 8i32; }
+    return 0i32;
+}

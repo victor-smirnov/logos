@@ -176,19 +176,47 @@ fn lower_simple(s: RQSimple, h: &Writ) -> WRef<RExpr> {
 // Fold a join-step fan-out LEFT-DEEP onto a base input: step k wraps the
 // accumulated tree in RJoin(acc, RScan_k, on_k) — or RAnti at an anti step —
 // so an N-way chain is ordinary composition of the EXISTING binary algebra:
-// RJoin(RJoin(RScan a, RScan b, on1), RScan c, on2). No new RExpr nodes.
+// RJoin(RJoin(RScan a, RScan b, on1), RScan c, on2).
+// A TRAVERSAL step (is_edge, slice D) wraps the accumulated tree in the UNARY
+// graph step REdge{input, src, base_var, path, var_name, row_ty, on, has_on,
+// is_anti} — containment joins have no right scan (the source is a field path
+// of an outer-bound row var, walker-validated + stamped).
 fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> WRef<RExpr> {
     let mut cur: WRef<RExpr> = input0;
     let ns: i64 = steps.len();
     let mut i: i64 = 0i64;
     while i < ns {
         let st: RQJoinStep = steps.step_at(i);
-        let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
-        if st.is_anti {
+        if st.is_edge {
+            let n: REdge = h.make::<REdge>();
+            n.input    = cur;
+            n.src      = st.src_name;   // walker-stamped full expression text
+            n.base_var = st.base_var;
+            // Join the grammar's segment fan-out into the dotted path text
+            // (self-describing IR — queue-2 re-resolves base_var + path).
+            let mut pb: String = String::new();
+            let segs: RQPathSegArr = st.path_arr();
+            let np: i64 = segs.len();
+            let mut k: i64 = 0i64;
+            while k < np {
+                if k > 0i64 { pb.push_str("."); }
+                pb.push_str(segs.seg_at(k).name);
+                k = k + 1i64;
+            }
+            n.path     = string_as_str(&pb);
+            n.var_name = st.var_name;
+            n.row_ty   = st.row_ty;
+            n.has_on   = st.has_on;
+            n.on       = st.on;
+            n.is_anti  = st.is_anti;
+            cur = WRef::<RExpr>::from_any(n.as_ref());
+        } else if st.is_anti {
+            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
             let n: RAnti = h.make::<RAnti>();
             n.left = cur; n.right = right; n.on = st.on;
             cur = WRef::<RExpr>::from_any(n.as_ref());
         } else {
+            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
             let n: RJoin = h.make::<RJoin>();
             n.left = cur; n.right = right; n.on = st.on;
             cur = WRef::<RExpr>::from_any(n.as_ref());
@@ -833,6 +861,9 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                 RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
                                                       null_sref(), false, sel, mods,
                                                       fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
+                RExpr::Edge(ed) => { return emit_join_chain(ed.as_ref().view::<RExpr>(),
+                                                      null_sref(), false, sel, mods,
+                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                 RExpr::Aggr(ag) => {
                     if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                     let pl: Peeled = peel_filter(ag.input_expr());
@@ -849,6 +880,9 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                                                               f.pred, true, sel, mods,
                                                               fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                         RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
+                                                              f.pred, true, sel, mods,
+                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
+                        RExpr::Edge(ed) => { return emit_join_chain(ed.as_ref().view::<RExpr>(),
                                                               f.pred, true, sel, mods,
                                                               fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
                         RExpr::Aggr(ag) => {
@@ -1281,6 +1315,13 @@ fn ind_string(lvl: i64) -> String {
 }
 
 // ── JChain — the linearized join chain (base + steps) ────────────────────────
+// `edge[i]` — TRAVERSAL step (slice D): `src[i]` is the full field-path source
+// EXPRESSION (`d.emps`, walker-stamped) rather than a slice-param name; the
+// strategy cascade is BYPASSED (always nested-loop — the source depends on
+// outer row vars, so no build-once index exists) and `onw[i]` may be 0 (no
+// `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
+// element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
+// not by reference.
 struct JChain {
     base_src: str,
     base_ty:  str,
@@ -1290,7 +1331,9 @@ struct JChain {
     ty:   [str; 8],
     var:  [str; 8],
     anti: [bool; 8],
-    onw:  [i64; 8],     // raw arena words of the per-step on-pred edges
+    onw:  [i64; 8],     // raw arena words of the per-step on-pred edges (0 = none)
+    edge:  [bool; 8],
+    byval: [bool; 8],
 }
 
 fn jchain_new() -> JChain {
@@ -1299,7 +1342,9 @@ fn jchain_new() -> JChain {
                     ty:   ["", "", "", "", "", "", "", ""],
                     var:  ["", "", "", "", "", "", "", ""],
                     anti: [false; 8],
-                    onw:  [0i64; 8] };
+                    onw:  [0i64; 8],
+                    edge:  [false; 8],
+                    byval: [false; 8] };
 }
 
 // Walk the left spine of the binary join tree: the recursion bottoms out at
@@ -1328,6 +1373,23 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.var[ch.n] = rs.var_name;
                 ch.anti[ch.n] = true;
                 ch.onw[ch.n]  = an.on.any().raw();
+                ch.n = ch.n + 1i64;
+            }
+            return;
+        }
+        RExpr::Edge(ed) => {
+            // TRAVERSAL step (slice D): unary — recurse into the input, then
+            // append one edge step (src = the field-path expression text).
+            collect_chain(ed.input_expr(), ch);
+            if ch.n < 8i64 {
+                ch.src[ch.n]   = ed.src;
+                ch.ty[ch.n]    = ed.row_ty;
+                ch.var[ch.n]   = ed.var_name;
+                ch.anti[ch.n]  = ed.is_anti;
+                ch.edge[ch.n]  = true;
+                ch.byval[ch.n] = el_ret_class(ed.row_ty) >= 0i32;
+                if ed.has_on { ch.onw[ch.n] = ed.on.any().raw(); }
+                else         { ch.onw[ch.n] = 0i64; }
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -1497,6 +1559,10 @@ fn analyze_step(on_ref: WRef<SExpr>, new_var: str, t: &ElTypes, var0: str, h: &W
 }
 
 // Analyze EVERY step of a chain into the caller's parallel arrays.
+// TRAVERSAL steps (edge) BYPASS the strategy cascade entirely: containment has
+// no key and the source expression depends on outer row vars (a build-once
+// index cannot exist), so the step is ALWAYS a nested loop — its optional `on`
+// is just the loop's residual filter ("true" when absent).
 fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
                  st_build: &mut [String; 8], st_probe: &mut [String; 8],
                  st_resid: &mut [String; 8], st_pred: &mut [String; 8],
@@ -1504,24 +1570,43 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
                  st_hasres: &mut [bool; 8], st_equi: &mut [bool; 8]) {
     let mut i: i64 = 0i64;
     while i < ch.n {
-        let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[i] as *const u8));
-        let ss: StepSel = analyze_step(onr, ch.var[i], t, var0, h,
-                                       &mut st_build[i], &mut st_probe[i],
-                                       &mut st_resid[i], &mut st_pred[i]);
-        st_strat[i]  = ss.strat;
-        st_ktn[i]    = el_ty_name(ss.key_ty);
-        st_hasres[i] = ss.has_resid;
-        st_equi[i]   = ss.has_equi;
+        if ch.edge[i] {
+            st_strat[i]  = JS_LOOP();
+            st_ktn[i]    = "";
+            st_hasres[i] = false;
+            st_equi[i]   = false;
+            if ch.onw[i] != 0i64 {
+                let on_opt: WRef<SExpr> = simplify_sexpr(sexpr_of_word(ch.onw[i]), h);
+                emit_sexpr(&mut st_pred[i], on_opt.any().view::<SExpr>(), t, var0);
+            } else {
+                st_pred[i].push_str("true");
+            }
+        } else {
+            let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[i] as *const u8));
+            let ss: StepSel = analyze_step(onr, ch.var[i], t, var0, h,
+                                           &mut st_build[i], &mut st_probe[i],
+                                           &mut st_resid[i], &mut st_pred[i]);
+            st_strat[i]  = ss.strat;
+            st_ktn[i]    = el_ty_name(ss.key_ty);
+            st_hasres[i] = ss.has_resid;
+            st_equi[i]   = ss.has_equi;
+        }
         i = i + 1i64;
     }
 }
 
 // The `// join strategy: …` trace line (visible via LOGOS_TRACE_EMIT).
 fn emit_strategy_comment(em: &mut Emitter, s: i64, strat: i32, anti: bool,
-                         has_equi: bool, has_resid: bool, ktn: str) {
+                         has_equi: bool, has_resid: bool, ktn: str, edge: bool) {
     em.push_text("    // join strategy: step ");
     { let mut t: String = String::new(); t.push_i64(s); em.push_text(string_as_str(&t)); }
     em.push_text(" = ");
+    if edge {
+        em.push_text("traversal (nested loop over the field path)");
+        if anti { em.push_text(", anti"); }
+        em.push_text("\n");
+        return;
+    }
     if strat == JS_HASH() {
         em.push_text("hash join (");
         em.push_text(ktn);
@@ -1700,8 +1785,12 @@ fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str) 
 }
 
 // ── One step of the nest: OPEN (emit loops/guards; return levels opened) ─────
+// `byval` — bind the row var BY VALUE (`let s: str = (src)[j];`) instead of by
+// reference: scalar-element traversal steps (the Copy lattice — a `&str` local
+// would not compose with the EL clauses, which reference the element bare).
+// Only meaningful on the JS_LOOP tier (traversal is always nested-loop).
 fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
-                  has_resid: bool, ktn: str, src: str, ty: str, var: str,
+                  has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
                   probe_key: str, residual: str, pred: str, lim: str) -> i64 {
     // The probe key (hash/tree tiers) — over the ALREADY-BOUND vars/params.
     if strat != JS_LOOP() {
@@ -1738,9 +1827,12 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
             push_ind(em, lvl + 2i64);
             em.push_text("let ");
             em.push_text(var);
-            em.push_text(": &");
+            em.push_text(": ");
+            if !byval { em.push_text("&"); }
             em.push_text(ty);
-            em.push_text(" = &(");
+            em.push_text(" = ");
+            if !byval { em.push_text("&"); }
+            em.push_text("(");
             em.push_text(src);
             em.push_text(")[");
             push_nk(em, "__j", s);
@@ -1864,9 +1956,12 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
         push_ind(em, lvl + 1i64);
         em.push_text("let ");
         em.push_text(var);
-        em.push_text(": &");
+        em.push_text(": ");
+        if !byval { em.push_text("&"); }
         em.push_text(ty);
-        em.push_text(" = &(");
+        em.push_text(" = ");
+        if !byval { em.push_text("&"); }
+        em.push_text("(");
         em.push_text(src);
         em.push_text(")[");
         push_nk(em, "__j", s);
@@ -2001,6 +2096,9 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
         stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        // Scalar-element traversal var: the VAR NAME itself carries the
+        // element's value type (referenced bare in the EL clauses).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
@@ -2079,10 +2177,14 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                   &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
 
     // 5. Bound sources (base + non-anti steps): rebind targets for the sort /
-    // output phases; idx = the generated row-index expression per source.
+    // output phases; idx = the generated row-index expression per source. A
+    // traversal step's rebind source is its FIELD-PATH expression — its base
+    // var rebinds at an EARLIER slot (chain order), so `&(d.emps)[ix]` is
+    // well-scoped in the output phase; byval steps rebind by value.
     let mut bnd_src: [str; 9] = ["", "", "", "", "", "", "", "", ""];
     let mut bnd_ty:  [str; 9] = ["", "", "", "", "", "", "", "", ""];
     let mut bnd_var: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut bnd_byval: [bool; 9] = [false; 9];
     let mut bnd_idx: [String; 9] = [String::new(), String::new(), String::new(), String::new(),
                                     String::new(), String::new(), String::new(), String::new(),
                                     String::new()];
@@ -2097,6 +2199,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
             bnd_src[nb] = ch.src[bi];
             bnd_ty[nb]  = ch.ty[bi];
             bnd_var[nb] = ch.var[bi];
+            bnd_byval[nb] = ch.byval[bi];
             if st_strat[bi] == JS_LOOP() { bnd_idx[nb].push_str("__j"); }
             else                         { bnd_idx[nb].push_str("__ri"); }
             bnd_idx[nb].push_i64(bi + 1i64);
@@ -2128,7 +2231,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut ci: i64 = 0i64;
     while ci < ch.n {
         emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci]);
+                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
         ci = ci + 1i64;
     }
     let mut bpi: i64 = 0i64;
@@ -2178,7 +2281,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     while oi < ch.n {
         opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
                                    st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], string_as_str(&st_probe[oi]),
+                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
                                    string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
                                    lim_use);
         lvl = lvl + opens[oi];
@@ -2246,9 +2349,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
             while rk < nb {
                 em.push_text("        let ");
                 em.push_text(bnd_var[rk]);
-                em.push_text(": &");
+                em.push_text(": ");
+                if !bnd_byval[rk] { em.push_text("&"); }
                 em.push_text(bnd_ty[rk]);
-                em.push_text(" = &(");
+                em.push_text(" = ");
+                if !bnd_byval[rk] { em.push_text("&"); }
+                em.push_text("(");
                 em.push_text(bnd_src[rk]);
                 em.push_text(")[");
                 push_nk(&mut em, "__ix", rk);
@@ -2268,9 +2374,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
             while rk2 < nb {
                 em.push_text("        let ");
                 em.push_text(bnd_var[rk2]);
-                em.push_text(": &");
+                em.push_text(": ");
+                if !bnd_byval[rk2] { em.push_text("&"); }
                 em.push_text(bnd_ty[rk2]);
-                em.push_text(" = &(");
+                em.push_text(" = ");
+                if !bnd_byval[rk2] { em.push_text("&"); }
+                em.push_text("(");
                 em.push_text(bnd_src[rk2]);
                 em.push_text(")[");
                 push_nk(&mut em, "__ix", rk2);
@@ -3002,6 +3111,8 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
         stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        // Scalar-element traversal var: name → element value type (bare refs).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
@@ -3118,7 +3229,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut ci: i64 = 0i64;
     while ci < ch.n {
         emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci]);
+                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
         ci = ci + 1i64;
     }
     let mut bpi: i64 = 0i64;
@@ -3172,7 +3283,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     while oi < ch.n {
         opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
                                    st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], string_as_str(&st_probe[oi]),
+                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
                                    string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
                                    "");
         lvl = lvl + opens[oi];
@@ -3464,11 +3575,14 @@ fn jchain_from_plan(j: RQJoin, ch: &mut JChain) {
     while i < ns {
         let st: RQJoinStep = steps.step_at(i);
         if ch.n < 8i64 {
-            ch.src[ch.n]  = st.src_name;
+            ch.src[ch.n]  = st.src_name;   // traversal steps: the walker-stamped field-path expr
             ch.ty[ch.n]   = st.row_ty;
             ch.var[ch.n]  = st.var_name;
             ch.anti[ch.n] = st.is_anti;
-            ch.onw[ch.n]  = st.on.any().raw();
+            ch.edge[ch.n]  = st.is_edge;
+            ch.byval[ch.n] = st.is_edge && el_ret_class(st.row_ty) >= 0i32;
+            if st.is_edge && !st.has_on { ch.onw[ch.n] = 0i64; }
+            else                        { ch.onw[ch.n] = st.on.any().raw(); }
             ch.n = ch.n + 1i64;
         }
         i = i + 1i64;
@@ -3687,17 +3801,22 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
         stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        // Scalar-element traversal var: name → element value type (bare refs).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
+    // The whole-row-projection gate's var set. SCALAR-element traversal vars
+    // (byval) are EXCLUDED: they bind a scalar VALUE (Vec<i64> → i64), which
+    // is a legitimate select component — only struct/tuple ROWS are barred.
     let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
     vars[0] = ch.base_var;
     let mut nv: i64 = 1i64;
     let mut vi: i64 = 0i64;
     while vi < ch.n {
-        if nv < 9i64 { vars[nv] = ch.var[vi]; nv = nv + 1i64; }
+        if nv < 9i64 && !ch.byval[vi] { vars[nv] = ch.var[vi]; nv = nv + 1i64; }
         vi = vi + 1i64;
     }
 
@@ -3747,7 +3866,7 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
     let mut ci: i64 = 0i64;
     while ci < ch.n {
         emit_strategy_comment(em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci]);
+                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
         ci = ci + 1i64;
     }
     let mut bpi: i64 = 0i64;
@@ -3778,7 +3897,7 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
     while oi < ch.n {
         opens[oi] = emit_step_open(em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
                                    st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], string_as_str(&st_probe[oi]),
+                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
                                    string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
                                    "");
         lvl = lvl + opens[oi];
