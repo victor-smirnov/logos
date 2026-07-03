@@ -76,10 +76,12 @@
 
   "default_layers": ["grammar", "sema", "mono", "codegen"],
 
+  "_doc_extension_domains": "writ/trama/wql/el are metaprogramming+stdlib EXTENSION surfaces spec'd in their own docs (docs/spec/{writ,trama,wql}.md), hand-authored pending a `.logos` stdlib chunker + layer + section map for automatic regeneration. `el` = the shared CEL-class expression sublanguage, canonical in wql.md, referenced by trama.md.",
   "id_domains": [
     "lex", "grammar", "item", "expr", "stmt", "pat", "type",
     "trait", "generic", "mono", "borrow", "region", "coerce",
-    "const", "metaprog", "module", "layout", "intrinsic", "divergence"
+    "const", "metaprog", "module", "layout", "intrinsic", "divergence",
+    "writ", "trama", "wql", "el"
   ],
 
   "sections": {
