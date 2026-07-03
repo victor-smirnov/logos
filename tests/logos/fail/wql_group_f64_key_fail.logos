@@ -1,0 +1,13 @@
+// wql! diagnostic: a `group by` key cannot be f64 — floats have no Eq/Hash
+// (NaN breaks both), so float group keys get a NAMED compile-time error
+// instead of the emitter miscompiling the key comparison/dedup machinery.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct M { pub score: f64, pub amt: i64 }
+
+resource bad = wql!(ms: &[M]) { from ms m group by m.score aggregate n = count() select (key, n) };
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,83 @@
+// WQL GROUP BY — STR keys (regression). The aggregate emitters hardcoded the
+// group-key type as i64 (`let __k: i64` + `Vec<i64>` for __seen/__g_key/
+// __gf_key), so `group by <str-expr>` failed to compile ("type mismatch —
+// expected i64, got &[u8]"). The key type now flows from EL inference
+// (i64/str/bool; f64 = named diagnostic, see fail/wql_group_f64_key_fail)
+// into every key site of BOTH aggregate emitters (classic two-pass scan +
+// joined-stream fold) and the shared group-bind helper. Three shapes:
+//
+//   (A) classic scan  : group by r.dept (str) + (key, n, total) + order by key
+//   (B) joined stream : group by d.region (str) reached through a join step,
+//                       order by key desc (str sort over group rows)
+//   (C) rel-sourced   : group over a derived rel's str column
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Row  { pub dept: str, pub amt: i64 }
+struct Dept { pub name: str, pub region: str }
+
+resource by_dept = wql!(rows: &[Row]) {
+    from rows r group by r.dept aggregate n = count(), total = sum(r.amt)
+    select (key, n, total) order by key
+};
+
+resource by_region = wql!(rows: &[Row], depts: &[Dept]) {
+    from rows r
+    join depts d on r.dept == d.name
+    group by d.region
+    aggregate total = sum(r.amt)
+    select (key, total) order by key desc
+};
+
+resource by_rel = wql!(rows: &[Row]) {
+    rel big(dept: str, amt: i64) {
+        from rows r where r.amt > 5 select (r.dept, r.amt);
+    }
+    from big b group by b.dept aggregate n = count()
+    select (key, n) order by key
+};
+
+fn main() -> i32 {
+    let rows: [Row; 5] = [
+        Row { dept: "eng",   amt: 10i64 },
+        Row { dept: "sales", amt: 7i64 },
+        Row { dept: "eng",   amt: 4i64 },
+        Row { dept: "ops",   amt: 2i64 },
+        Row { dept: "sales", amt: 1i64 },
+    ];
+    let depts: [Dept; 3] = [
+        Dept { name: "eng",   region: "west" },
+        Dept { name: "sales", region: "east" },
+        Dept { name: "ops",   region: "west" },
+    ];
+
+    // (A) eng:(2,14)  ops:(1,2)  sales:(2,8), ordered by key asc.
+    let a: Vec<(str, i64, i64)> = by_dept(&rows[..]);
+    if a.len() != 3i64 { return 1i32; }
+    let a0: (str, i64, i64) = a.get(0i64);
+    if a0.0 != "eng" || a0.1 != 2i64 || a0.2 != 14i64 { return 2i32; }
+    let a1: (str, i64, i64) = a.get(1i64);
+    if a1.0 != "ops" || a1.1 != 1i64 || a1.2 != 2i64 { return 3i32; }
+    let a2: (str, i64, i64) = a.get(2i64);
+    if a2.0 != "sales" || a2.1 != 2i64 || a2.2 != 8i64 { return 4i32; }
+
+    // (B) west = 10+4+2 = 16, east = 7+1 = 8; desc by key → [west, east].
+    let b: Vec<(str, i64)> = by_region(&rows[..], &depts[..]);
+    if b.len() != 2i64 { return 5i32; }
+    let b0: (str, i64) = b.get(0i64);
+    if b0.0 != "west" || b0.1 != 16i64 { return 6i32; }
+    let b1: (str, i64) = b.get(1i64);
+    if b1.0 != "east" || b1.1 != 8i64 { return 7i32; }
+
+    // (C) rel filters amt>5 → {(eng,10),(sales,7)} → eng:1, sales:1.
+    let c: Vec<(str, i64)> = by_rel(&rows[..]);
+    if c.len() != 2i64 { return 8i32; }
+    let c0: (str, i64) = c.get(0i64);
+    if c0.0 != "eng" || c0.1 != 1i64 { return 9i32; }
+    let c1: (str, i64) = c.get(1i64);
+    if c1.0 != "sales" || c1.1 != 1i64 { return 10i32; }
+    return 0i32;
+}

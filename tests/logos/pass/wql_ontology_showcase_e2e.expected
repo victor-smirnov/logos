@@ -1,0 +1,11 @@
+exit: 0
+stdout:
+== unmonitored rotating equipment ==
+m1 @ bldg_a
+p3 @ bldg_b
+== asset census per building ==
+bldg_a: 4
+bldg_b: 1
+== inferred classes of 'sx' ==
+asset
+device

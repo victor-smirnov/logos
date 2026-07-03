@@ -2134,7 +2134,20 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
-    ty.set_ty("key", EL_TY_INT());
+    // Group KEY: infer its EL type from the row env (i64/str/bool; f64 has no
+    // Eq/Hash — named diagnostic) and stamp `key` with it for the having/
+    // order/select scope. `key_ty` also types __k / __seen / __g_key below.
+    let key_e: SExpr = key_ref.any().view::<SExpr>();
+    if !reject_tuple(key_e, "wql!: `group by`") { return false; }
+    if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
+    let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+    let key_ety: i32 = infer_ty(key_opt, &ty);
+    if key_ety == EL_TY_FLT() {
+        error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
+        return false;
+    }
+    let key_ty: str = el_ty_name(key_ety);
+    ty.set_ty("key", key_ety);
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
@@ -2150,13 +2163,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
     compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
 
-    let key_e: SExpr = key_ref.any().view::<SExpr>();
     let proj_e: SExpr = sel.any().view::<SExpr>();
-    if !reject_tuple(key_e, "wql!: `group by`") { return false; }
-    if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     if !check_calls(proj_e, &ty, "wql!: `select`") { return false; }
 
-    let key_opt: SExpr  = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
 
     let mut result_ty: str = result_ty0;
@@ -2228,7 +2237,11 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         // Materialized group columns: `key` + one Vec per aggregate output
         // (typed by the finalized column type — UDA outputs carry R's lattice
         // type, builtins the f64/i64 split).
-        em.push_text("    let mut __g_key: Vec<i64> = Vec::<i64>::new();\n");
+        em.push_text("    let mut __g_key: Vec<");
+        em.push_text(key_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(key_ty);
+        em.push_text(">::new();\n");
         let mut gd: i64 = 0i64;
         while gd < acount {
             let a: RAgg = aggs.agg_at(gd);
@@ -2242,7 +2255,11 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             gd = gd + 1i64;
         }
     }
-    em.push_text("    let mut __seen: Vec<i64> = Vec::<i64>::new();\n");
+    em.push_text("    let mut __seen: Vec<");
+    em.push_text(key_ty);
+    em.push_text("> = Vec::<");
+    em.push_text(key_ty);
+    em.push_text(">::new();\n");
     em.push_text("    let mut __i: i64 = 0i64;\n");
     em.push_text("    while __i < (");
     em.push_text(a_name);
@@ -2259,7 +2276,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text(string_as_str(&where_body));
         em.push_text(") {\n");
     }
-    em.push_text("        let __k: i64 = (");
+    em.push_text("        let __k: ");
+    em.push_text(key_ty);
+    em.push_text(" = (");
     em.push_text(string_as_str(&key_body));
     em.push_text(");\n");
     em.push_text("        let mut __f: bool = false;\n");
@@ -2376,7 +2395,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     if has_where { em.push_text("                }\n"); }
     em.push_text("                __j = __j + 1i64;\n");
     em.push_text("            }\n");
-    em.push_text("            let key: i64 = __k;\n");
+    em.push_text("            let key: ");
+    em.push_text(key_ty);
+    em.push_text(" = __k;\n");
     let mut c2: i64 = 0i64;
     while c2 < acount {
         let a: RAgg = aggs.agg_at(c2);
@@ -2451,7 +2472,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text("    let mut __r: i64 = 0i64;\n");
         em.push_text("    while __r < __g_key.len() {\n");
         if mods.has_sort {
-            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__g_");
+            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__g_", key_ty);
             em.push_text("        __ix0.push(__r);\n");
             em.push_text("        __ks.push(");
             em.push_text(string_as_str(&okey_body));
@@ -2468,7 +2489,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text("    while __o < __ix0.len()");
         em.push_text(string_as_str(&lim_cond));
         em.push_text(" {\n");
-        emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__g_");
+        emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__g_", key_ty);
         emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
         em.push_text("        __o = __o + 1i64;\n");
         em.push_text("    }\n");
@@ -2485,9 +2506,12 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // "__g_" for the classic two-pass shape, "__gf_" for the joined-stream fold's
 // finalized columns.
 fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
-                    aggs: &RAggArr, acount: i64, act: &[str; 8], pfx: str) {
+                    aggs: &RAggArr, acount: i64, act: &[str; 8], pfx: str,
+                    key_ty: str) {
     em.push_text(indent);
-    em.push_text("let key: i64 = ");
+    em.push_text("let key: ");
+    em.push_text(key_ty);
+    em.push_text(" = ");
     em.push_text(pfx);
     em.push_text("key.get(");
     em.push_text(idx);
@@ -2812,7 +2836,19 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     }
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
-    ty.set_ty("key", EL_TY_INT());
+    // Group KEY: infer + stamp (mirror of the classic shape; f64 keys get the
+    // same named diagnostic). `key_ty` types __k / __g_key / group binds below.
+    let key_e: SExpr = key_ref.any().view::<SExpr>();
+    if !reject_tuple(key_e, "wql!: `group by`") { return false; }
+    if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
+    let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+    let key_ety: i32 = infer_ty(key_opt, &ty);
+    if key_ety == EL_TY_FLT() {
+        error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
+        return false;
+    }
+    let key_ty: str = el_ty_name(key_ety);
+    ty.set_ty("key", key_ety);
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
@@ -2828,9 +2864,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
     compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
 
-    // Validate clause calls (group key / select / where / on preds).
-    if !reject_tuple(key_ref.any().view::<SExpr>(), "wql!: `group by`") { return false; }
-    if !check_calls(key_ref.any().view::<SExpr>(), &ty, "wql!: `group by`") { return false; }
+    // Validate clause calls (select / where / on preds; the key is validated above).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
     if has_where {
         if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
@@ -2845,8 +2879,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         ci0 = ci0 + 1i64;
     }
 
-    // Clause bodies.
-    let key_opt: SExpr  = simplify_sexpr(key_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
+    // Clause bodies (`key_opt` is already simplified above).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
@@ -2934,7 +2967,11 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
                          string_as_str(&st_build[bpi]));
         bpi = bpi + 1i64;
     }
-    em.push_text("    let mut __g_key: Vec<i64> = Vec::<i64>::new();\n");
+    em.push_text("    let mut __g_key: Vec<");
+    em.push_text(key_ty);
+    em.push_text("> = Vec::<");
+    em.push_text(key_ty);
+    em.push_text(">::new();\n");
     em.push_text("    let mut __g_cnt: Vec<i64> = Vec::<i64>::new();\n");
     let mut gd: i64 = 0i64;
     while gd < acount {
@@ -2994,7 +3031,9 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         lvl = lvl + 1i64;
     }
     push_ind(&mut em, lvl);
-    em.push_text("let __k: i64 = (");
+    em.push_text("let __k: ");
+    em.push_text(key_ty);
+    em.push_text(" = (");
     em.push_text(string_as_str(&key_body));
     em.push_text(");\n");
     push_ind(&mut em, lvl);
@@ -3119,7 +3158,11 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns
     // (typed by the finalized column type — a UDA column narrows from the
     // accumulator's A to R's lattice type here, via <name>_fin when declared).
-    em.push_text("    let mut __gf_key: Vec<i64> = Vec::<i64>::new();\n");
+    em.push_text("    let mut __gf_key: Vec<");
+    em.push_text(key_ty);
+    em.push_text("> = Vec::<");
+    em.push_text(key_ty);
+    em.push_text(">::new();\n");
     let mut fg: i64 = 0i64;
     while fg < acount {
         let a: RAgg = aggs.agg_at(fg);
@@ -3134,7 +3177,9 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     }
     em.push_text("    let mut __r0: i64 = 0i64;\n");
     em.push_text("    while __r0 < __g_key.len() {\n");
-    em.push_text("        let key: i64 = __g_key.get(__r0);\n");
+    em.push_text("        let key: ");
+    em.push_text(key_ty);
+    em.push_text(" = __g_key.get(__r0);\n");
     let mut fz: i64 = 0i64;
     while fz < acount {
         let a: RAgg = aggs.agg_at(fz);
@@ -3199,7 +3244,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("    let mut __r: i64 = 0i64;\n");
     em.push_text("    while __r < __gf_key.len() {\n");
     if mods.has_sort {
-        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__gf_");
+        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__gf_", key_ty);
         em.push_text("        __ix0.push(__r);\n");
         em.push_text("        __ks.push(");
         em.push_text(string_as_str(&okey_body));
@@ -3216,7 +3261,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("    while __o < __ix0.len()");
     em.push_text(string_as_str(&lim_cond));
     em.push_text(" {\n");
-    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__gf_");
+    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__gf_", key_ty);
     emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
     em.push_text("        __o = __o + 1i64;\n");
     em.push_text("    }\n");

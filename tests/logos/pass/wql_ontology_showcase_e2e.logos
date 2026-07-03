@@ -1,0 +1,183 @@
+// ONTOLOGICAL INFERENCE SHOWCASE — RDFS-ядро на WQL-Datalog (queue-1, статика).
+//
+// Онтология промышленной площадки:
+//   TBox  (Sub):  иерархия классов  pump ⊑ rotating_equipment ⊑ equipment ⊑ asset, …
+//   ABox  (Isa):  записанные типы индивидов
+//   Mon:          свойство monitors(sensor → target); домен=device, диапазон=equipment
+//   Part: (Loc):  вложенность локаций + прямое размещение
+//
+// Вывод (правила RDFS-класса):
+//   sub_tr   — транзитивное замыкание иерархии классов          (rdfs11)
+//   type     — записанные типы + типизация доменом/диапазоном    (rdfs2/3)
+//              + наследование вверх по sub_tr                    (rdfs9)
+//   part_tr  — транзитивное замыкание вложенности локаций
+//   located  — прямое размещение + подъём по part_tr
+//
+// Запросы:
+//   audit    — ротационное оборудование БЕЗ мониторинга + его здание
+//              (стратифицированная негация: anti join по mons)
+//   census   — перепись активов по зданиям (агрегат над выведенным)
+//   classify — все классы индивида, В Т.Ч. чисто выведенные:
+//              у 'sx' НЕТ isa-факта, его тип следует из употребления monitors
+package test;
+
+use logos.std.wql.wql;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Sub  { pub sub: str, pub sup: str }
+struct Isa  { pub ind: str, pub cls: str }
+struct Mon  { pub sensor: str, pub target: str }
+struct Part { pub part: str, pub whole: str }
+struct Loc  { pub ind: str, pub room: str }
+
+resource audit = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
+    rel sub_tr(a: str, b: str) {
+        from subs s select (s.sub, s.sup);
+        from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
+    }
+    rel type(x: str, c: str) {
+        from inst i select (i.ind, i.cls);
+        from mons m select (m.sensor, "device");
+        from mons m select (m.target, "equipment");
+        from type t join sub_tr s on t.c == s.a select (t.x, s.b);
+    }
+    rel part_tr(p: str, w: str) {
+        from parts q select (q.part, q.whole);
+        from part_tr t join parts q on t.w == q.part select (t.p, q.whole);
+    }
+    rel located(x: str, place: str) {
+        from locs l select (l.ind, l.room);
+        from locs l join part_tr t on l.room == t.p select (l.ind, t.w);
+    }
+    from type t
+    anti join mons m on t.x == m.target
+    join located loc on t.x == loc.x
+    join type bt on loc.place == bt.x
+    where t.c == "rotating_equipment" && bt.c == "building"
+    select (t.x, loc.place) order by t.x
+};
+
+resource census = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
+    rel sub_tr(a: str, b: str) {
+        from subs s select (s.sub, s.sup);
+        from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
+    }
+    rel type(x: str, c: str) {
+        from inst i select (i.ind, i.cls);
+        from mons m select (m.sensor, "device");
+        from mons m select (m.target, "equipment");
+        from type t join sub_tr s on t.c == s.a select (t.x, s.b);
+    }
+    rel part_tr(p: str, w: str) {
+        from parts q select (q.part, q.whole);
+        from part_tr t join parts q on t.w == q.part select (t.p, q.whole);
+    }
+    rel located(x: str, place: str) {
+        from locs l select (l.ind, l.room);
+        from locs l join part_tr t on l.room == t.p select (l.ind, t.w);
+    }
+    from type t
+    join located loc on t.x == loc.x
+    join type bt on loc.place == bt.x
+    where t.c == "asset" && bt.c == "building"
+    group by loc.place
+    aggregate n = count()
+    select (key, n) order by key
+};
+
+resource classify = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
+    rel sub_tr(a: str, b: str) {
+        from subs s select (s.sub, s.sup);
+        from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
+    }
+    rel type(x: str, c: str) {
+        from inst i select (i.ind, i.cls);
+        from mons m select (m.sensor, "device");
+        from mons m select (m.target, "equipment");
+        from type t join sub_tr s on t.c == s.a select (t.x, s.b);
+    }
+    from type t where t.x == who select t.c order by t.c
+};
+
+fn main() -> i32 {
+    // TBox: иерархия классов.
+    let subs: [Sub; 10] = [
+        Sub { sub: "pump",               sup: "rotating_equipment" },
+        Sub { sub: "motor",              sup: "rotating_equipment" },
+        Sub { sub: "rotating_equipment", sup: "equipment" },
+        Sub { sub: "equipment",          sup: "asset" },
+        Sub { sub: "vibration_sensor",   sup: "sensor" },
+        Sub { sub: "sensor",             sup: "device" },
+        Sub { sub: "device",             sup: "asset" },
+        Sub { sub: "room",               sup: "location" },
+        Sub { sub: "floor",              sup: "location" },
+        Sub { sub: "building",           sup: "location" },
+    ];
+    // ABox: записанные типы. У 'sx' isa-факта НЕТ намеренно.
+    let inst: [Isa; 12] = [
+        Isa { ind: "p1", cls: "pump" },
+        Isa { ind: "p2", cls: "pump" },
+        Isa { ind: "p3", cls: "pump" },
+        Isa { ind: "m1", cls: "motor" },
+        Isa { ind: "vs1", cls: "vibration_sensor" },
+        Isa { ind: "room101", cls: "room" },
+        Isa { ind: "room102", cls: "room" },
+        Isa { ind: "room201", cls: "room" },
+        Isa { ind: "floor1", cls: "floor" },
+        Isa { ind: "floor2", cls: "floor" },
+        Isa { ind: "bldg_a", cls: "building" },
+        Isa { ind: "bldg_b", cls: "building" },
+    ];
+    // monitors: p1 мониторится vs1; p2 — загадочным 'sx' (тип sx ВЫВОДИТСЯ).
+    let mons: [Mon; 2] = [
+        Mon { sensor: "vs1", target: "p1" },
+        Mon { sensor: "sx",  target: "p2" },
+    ];
+    let parts: [Part; 5] = [
+        Part { part: "room101", whole: "floor1" },
+        Part { part: "room102", whole: "floor1" },
+        Part { part: "floor1",  whole: "bldg_a" },
+        Part { part: "room201", whole: "floor2" },
+        Part { part: "floor2",  whole: "bldg_b" },
+    ];
+    let locs: [Loc; 5] = [
+        Loc { ind: "p1",  room: "room101" },
+        Loc { ind: "p2",  room: "room102" },
+        Loc { ind: "m1",  room: "room102" },
+        Loc { ind: "p3",  room: "room201" },
+        Loc { ind: "vs1", room: "room101" },
+    ];
+    println!("== unmonitored rotating equipment ==");
+    let bad: Vec<(str, str)> = audit(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]);
+    let mut i: i64 = 0i64;
+    while i < bad.len() {
+        let row: (str, str) = bad.get(i);
+        println!("{} @ {}", row.0, row.1);
+        i = i + 1i64;
+    }
+
+    println!("== asset census per building ==");
+    let cs: Vec<(str, i64)> = census(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]);
+    let mut j: i64 = 0i64;
+    while j < cs.len() {
+        let g: (str, i64) = cs.get(j);
+        println!("{}: {}", g.0, g.1);
+        j = j + 1i64;
+    }
+
+    println!("== inferred classes of 'sx' ==");
+    let sx: Vec<str> = classify(&subs[..], &inst[..], &mons[..], "sx");
+    let mut k: i64 = 0i64;
+    while k < sx.len() {
+        println!("{}", sx.get(k));
+        k = k + 1i64;
+    }
+
+    if bad.len() != 2i64 { return 1i32; }
+    if cs.len()  != 2i64 { return 2i32; }
+    if sx.len()  != 2i64 { return 3i32; }
+    return 0i32;
+}
