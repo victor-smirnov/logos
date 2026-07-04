@@ -1,0 +1,246 @@
+// Wardedness static checker (Datalog±) — classification harness.
+//
+// Exercises logos.std.wql.ward on six programs with KNOWN wardedness (from the
+// Gottlob–Pieris theory), asserting the classifier's verdict on each. This is
+// PURE static analysis: no value invention, no chase. See ward.logos.
+//
+// Variable-id convention below: small ints are rule-local variable ids; a term
+// of -1 (WARD_CONST) is a constant. Existential head positions are flagged via
+// the `exist=true` arg to set_head.
+package ward_checker;
+
+use logos.lang.str;
+use logos.std.io;
+use logos.std.wql.ward;
+
+fn expect(label: str, got: bool, want: bool) -> i32 {
+    if got == want {
+        print("ok   ");
+        println(label);
+        return 0i32;
+    }
+    print("FAIL ");
+    println(label);
+    return 1i32;
+}
+
+// (1) VANILLA Datalog (transitive closure, NO existentials) — always warded.
+//   T(x,y) :- E(x,y).
+//   T(x,z) :- T(x,y), E(y,z).
+fn prog_vanilla() -> WardProg {
+    let mut p: WardProg = ward_prog_new();
+    let e: i64 = p.add_pred(2i64);   // E/2
+    let t: i64 = p.add_pred(2i64);   // T/2
+    // T(x,y) :- E(x,y).   vars x=0,y=1
+    let r0: i64 = p.begin_rule(t);
+    p.set_head(r0, 0i64, 0i64, false);
+    p.set_head(r0, 1i64, 1i64, false);
+    let a0: i64 = p.add_body(r0, e);
+    p.set_body(r0, a0, 0i64, 0i64);
+    p.set_body(r0, a0, 1i64, 1i64);
+    // T(x,z) :- T(x,y), E(y,z).   vars x=0,y=1,z=2
+    let r1: i64 = p.begin_rule(t);
+    p.set_head(r1, 0i64, 0i64, false);
+    p.set_head(r1, 1i64, 2i64, false);
+    let b0: i64 = p.add_body(r1, t);
+    p.set_body(r1, b0, 0i64, 0i64);
+    p.set_body(r1, b0, 1i64, 1i64);
+    let b1: i64 = p.add_body(r1, e);
+    p.set_body(r1, b1, 0i64, 1i64);
+    p.set_body(r1, b1, 1i64, 2i64);
+    return p;
+}
+
+// (2) Single-body-atom existential rule — trivially warded.
+//   Person(x)              -> exists y . HasFather(x,y)      [HasFather[1] affected]
+//   HasFather(a,b)         -> Person(a)                       [a is dangerous, sole atom = ward]
+fn prog_single_atom() -> WardProg {
+    let mut p: WardProg = ward_prog_new();
+    let per: i64 = p.add_pred(1i64);   // Person/1
+    let hf:  i64 = p.add_pred(2i64);   // HasFather/2
+    // Person(x) -> exists y . HasFather(x,y).   x=0, y=1(exist)
+    let r0: i64 = p.begin_rule(hf);
+    p.set_head(r0, 0i64, 0i64, false);
+    p.set_head(r0, 1i64, 1i64, true);
+    let a0: i64 = p.add_body(r0, per);
+    p.set_body(r0, a0, 0i64, 0i64);
+    // HasFather(a,b) -> Person(a).   a=0, b=1
+    let r1: i64 = p.begin_rule(per);
+    p.set_head(r1, 0i64, 0i64, false);
+    let b0: i64 = p.add_body(r1, hf);
+    p.set_body(r1, b0, 0i64, 0i64);
+    p.set_body(r1, b0, 1i64, 1i64);
+    return p;
+}
+
+// (3) Multi-atom WARDED — the dangerous vars are concentrated in one ward atom
+//     whose only shared variable with the rest of the body is harmless.
+//   A(x)             -> exists y1,y2 . W(x,y1,y2)     [W[1],W[2] affected]
+//   W(g,d1,d2), Link(g,h) -> H(d1,d2,h)
+//     d1@W[1], d2@W[2] harmful+in head => dangerous; both in ward W.
+//     g@W[0](unaffected) => harmless; shared with Link => OK.
+fn prog_warded_multi() -> WardProg {
+    let mut p: WardProg = ward_prog_new();
+    let a:    i64 = p.add_pred(1i64);   // A/1
+    let w:    i64 = p.add_pred(3i64);   // W/3
+    let link: i64 = p.add_pred(2i64);   // Link/2
+    let h:    i64 = p.add_pred(3i64);   // H/3
+    // A(x) -> exists y1,y2 . W(x,y1,y2).   x=0,y1=1(ex),y2=2(ex)
+    let r0: i64 = p.begin_rule(w);
+    p.set_head(r0, 0i64, 0i64, false);
+    p.set_head(r0, 1i64, 1i64, true);
+    p.set_head(r0, 2i64, 2i64, true);
+    let a0: i64 = p.add_body(r0, a);
+    p.set_body(r0, a0, 0i64, 0i64);
+    // W(g,d1,d2), Link(g,hh) -> H(d1,d2,hh).   g=0,d1=1,d2=2,hh=3
+    let r1: i64 = p.begin_rule(h);
+    p.set_head(r1, 0i64, 1i64, false);
+    p.set_head(r1, 1i64, 2i64, false);
+    p.set_head(r1, 2i64, 3i64, false);
+    let b0: i64 = p.add_body(r1, w);
+    p.set_body(r1, b0, 0i64, 0i64);
+    p.set_body(r1, b0, 1i64, 1i64);
+    p.set_body(r1, b0, 2i64, 2i64);
+    let b1: i64 = p.add_body(r1, link);
+    p.set_body(r1, b1, 0i64, 0i64);
+    p.set_body(r1, b1, 1i64, 3i64);
+    return p;
+}
+
+// (4) NOT warded — dangerous vars SPLIT across two body atoms (reason WARD_SPLIT).
+//   A(x) -> exists y . B(x,y)      [B[1] affected]
+//   C(x) -> exists y . D(y,x)      [D[0] affected]
+//   B(m,d1), D(d2,n) -> H(d1,d2)
+//     d1@B[1] harmful+head => dangerous (in atom B);
+//     d2@D[0] harmful+head => dangerous (in atom D);
+//     no single atom holds both => NOT warded.
+fn prog_split() -> WardProg {
+    let mut p: WardProg = ward_prog_new();
+    let a: i64 = p.add_pred(1i64);   // A/1
+    let b: i64 = p.add_pred(2i64);   // B/2
+    let c: i64 = p.add_pred(1i64);   // C/1
+    let d: i64 = p.add_pred(2i64);   // D/2
+    let h: i64 = p.add_pred(2i64);   // H/2
+    // A(x) -> exists y . B(x,y).   x=0,y=1(ex)
+    let r0: i64 = p.begin_rule(b);
+    p.set_head(r0, 0i64, 0i64, false);
+    p.set_head(r0, 1i64, 1i64, true);
+    let a0: i64 = p.add_body(r0, a);
+    p.set_body(r0, a0, 0i64, 0i64);
+    // C(x) -> exists y . D(y,x).   y=1(ex) at pos0, x=0 at pos1
+    let r1: i64 = p.begin_rule(d);
+    p.set_head(r1, 0i64, 1i64, true);
+    p.set_head(r1, 1i64, 0i64, false);
+    let b0: i64 = p.add_body(r1, c);
+    p.set_body(r1, b0, 0i64, 0i64);
+    // B(m,d1), D(d2,n) -> H(d1,d2).   m=0,d1=1,d2=2,n=3
+    let r2: i64 = p.begin_rule(h);
+    p.set_head(r2, 0i64, 1i64, false);
+    p.set_head(r2, 1i64, 2i64, false);
+    let c0: i64 = p.add_body(r2, b);
+    p.set_body(r2, c0, 0i64, 0i64);
+    p.set_body(r2, c0, 1i64, 1i64);
+    let c1: i64 = p.add_body(r2, d);
+    p.set_body(r2, c1, 0i64, 2i64);
+    p.set_body(r2, c1, 1i64, 3i64);
+    return p;
+}
+
+// (5) NOT warded — a single atom covers all dangerous vars, but the ward SHARES
+//     a HARMFUL variable with the rest of the body (reason WARD_SHARE).
+//   A(x) -> exists y1,y2 . W(x,y1,y2)     [W[1],W[2] affected]
+//   C(x) -> exists y . M(y,x)             [M[0] affected]
+//   W(g,d1,d2), M(d1,t) -> H(d1,d2)
+//     d1@W[1] & @M[0] both affected => harmful; d2@W[2] harmful; both in head => dangerous.
+//     ward candidate = W (covers d1,d2) but shares d1 (harmful) with M => NOT warded.
+fn prog_share() -> WardProg {
+    let mut p: WardProg = ward_prog_new();
+    let a: i64 = p.add_pred(1i64);   // A/1
+    let w: i64 = p.add_pred(3i64);   // W/3
+    let c: i64 = p.add_pred(1i64);   // C/1
+    let m: i64 = p.add_pred(2i64);   // M/2
+    let h: i64 = p.add_pred(2i64);   // H/2
+    // A(x) -> exists y1,y2 . W(x,y1,y2).   x=0,y1=1(ex),y2=2(ex)
+    let r0: i64 = p.begin_rule(w);
+    p.set_head(r0, 0i64, 0i64, false);
+    p.set_head(r0, 1i64, 1i64, true);
+    p.set_head(r0, 2i64, 2i64, true);
+    let a0: i64 = p.add_body(r0, a);
+    p.set_body(r0, a0, 0i64, 0i64);
+    // C(x) -> exists y . M(y,x).   y=1(ex) at pos0, x=0 at pos1
+    let r1: i64 = p.begin_rule(m);
+    p.set_head(r1, 0i64, 1i64, true);
+    p.set_head(r1, 1i64, 0i64, false);
+    let b0: i64 = p.add_body(r1, c);
+    p.set_body(r1, b0, 0i64, 0i64);
+    // W(g,d1,d2), M(d1,t) -> H(d1,d2).   g=0,d1=1,d2=2,t=3
+    let r2: i64 = p.begin_rule(h);
+    p.set_head(r2, 0i64, 1i64, false);
+    p.set_head(r2, 1i64, 2i64, false);
+    let c0: i64 = p.add_body(r2, w);
+    p.set_body(r2, c0, 0i64, 0i64);
+    p.set_body(r2, c0, 1i64, 1i64);
+    p.set_body(r2, c0, 2i64, 2i64);
+    let c1: i64 = p.add_body(r2, m);
+    p.set_body(r2, c1, 0i64, 1i64);
+    p.set_body(r2, c1, 1i64, 3i64);
+    return p;
+}
+
+// (6) The canonical WARDED recursion (a harmful var recirculates but stays
+//     inside a single ward each rule) — reachability-with-invention:
+//   R(x)          -> exists y . R(y)     [R[0] affected — x@R[0] harmful]
+//   R(x)          -> S(x)                [x@R[0] harmful, in head S(x); sole atom = ward => warded]
+fn prog_warded_rec() -> WardProg {
+    let mut p: WardProg = ward_prog_new();
+    let r: i64 = p.add_pred(1i64);   // R/1
+    let s: i64 = p.add_pred(1i64);   // S/1
+    // R(x) -> exists y . R(y).   body R(x): x=0 ; head R(y): y=1(ex)
+    let r0: i64 = p.begin_rule(r);
+    p.set_head(r0, 0i64, 1i64, true);
+    let a0: i64 = p.add_body(r0, r);
+    p.set_body(r0, a0, 0i64, 0i64);
+    // R(x) -> S(x).   x=0
+    let r1: i64 = p.begin_rule(s);
+    p.set_head(r1, 0i64, 0i64, false);
+    let b0: i64 = p.add_body(r1, r);
+    p.set_body(r1, b0, 0i64, 0i64);
+    return p;
+}
+
+fn main() -> i32 {
+    let mut fails: i32 = 0i32;
+
+    let p1: WardProg = prog_vanilla();
+    let r1: WardResult = check_warded(&p1);
+    fails = fails + expect("vanilla-datalog warded", r1.ok, true);
+
+    let p2: WardProg = prog_single_atom();
+    let r2: WardResult = check_warded(&p2);
+    fails = fails + expect("single-atom-existential warded", r2.ok, true);
+
+    let p3: WardProg = prog_warded_multi();
+    let r3: WardResult = check_warded(&p3);
+    fails = fails + expect("multi-atom warded (ward shares harmless)", r3.ok, true);
+
+    let p4: WardProg = prog_split();
+    let r4: WardResult = check_warded(&p4);
+    fails = fails + expect("split dangerous vars NOT warded", r4.ok, false);
+    fails = fails + expect("split reason = WARD_SPLIT", r4.reason == WARD_SPLIT(), true);
+
+    let p5: WardProg = prog_share();
+    let r5: WardResult = check_warded(&p5);
+    fails = fails + expect("ward shares harmful NOT warded", r5.ok, false);
+    fails = fails + expect("share reason = WARD_SHARE", r5.reason == WARD_SHARE(), true);
+
+    let p6: WardProg = prog_warded_rec();
+    let r6: WardResult = check_warded(&p6);
+    fails = fails + expect("warded recursion warded", r6.ok, true);
+
+    if fails == 0i32 {
+        println("ALL-WARD-TESTS-PASS");
+        return 0i32;
+    }
+    println("SOME-WARD-TESTS-FAILED");
+    return 1i32;
+}

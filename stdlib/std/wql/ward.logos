@@ -1,0 +1,386 @@
+// logos.std.wql.ward — the WARDEDNESS static checker for Datalog± (existential
+// rules / TGDs) over a WQL rel program.
+//
+// ── What this is (and is NOT) ────────────────────────────────────────────────
+// This module is PURE STATIC ANALYSIS. It decides whether a set of existential
+// rules (tuple-generating dependencies of the form  φ(x̄,ȳ) → ∃z̄ ψ(x̄,z̄)) is
+// WARDED in the sense of Gottlob & Pieris, "Warded Datalog±" (the syntactic
+// restriction that recovers PTIME data complexity / decidability of query
+// answering for otherwise-undecidable existential Datalog).
+//
+// It performs NO value invention (no Skolem terms, no labelled nulls, no chase).
+// It only reads the SHAPE of the rules (predicate arities + which head variables
+// are existentially quantified) and classifies the program. Wardedness is the
+// P3 static SELECTOR: it is the decidable/containable fragment gate, and it can
+// be computed with ZERO dependency on the deferred identity/value-invention
+// foundation (see ADR 0012 + memory `project_writ_semantic_triple_level`). The
+// CHASE (which actually mints existential witnesses) is the part that is blocked
+// on that foundation and is deliberately NOT attempted here.
+//
+// ── The algorithm (two stages, both monotone/terminating) ────────────────────
+// 1. AFFECTED POSITIONS Π_aff — the least set of predicate positions where a
+//    null (invented value) can appear, by a monotone fixpoint:
+//      (base)  a position is affected if some rule head places an EXISTENTIAL
+//              variable there;
+//      (step)  a position (p,i) is affected if some rule with head predicate p
+//              carries at head position i a FRONTIER variable v (shared with the
+//              body) that, in the body, occurs ONLY at already-affected
+//              positions — i.e. v may be bound to a null and is propagated here.
+//    Monotone over a finite set of positions ⇒ terminates.
+// 2. WARDEDNESS — per rule:
+//      • a body variable is HARMFUL iff every one of its body occurrences is at
+//        an affected position (so it may carry a null); HARMLESS otherwise;
+//      • a DANGEROUS variable is a harmful variable that is also propagated to
+//        the head (a frontier variable);
+//      • the rule is WARDED iff all its dangerous variables occur together in a
+//        single body atom (the WARD) and every variable the ward shares with the
+//        rest of the body is harmless.
+//    A rule with no dangerous variables is trivially warded; a vanilla
+//    (existential-free) Datalog program has NO affected positions, hence no
+//    dangerous variables, hence is ALWAYS warded — so this checker is a
+//    conservative superset of the current WQL `rel` language.
+//
+// SCHEMA MANDATE EXCEPTION: this is a metaprog-free PURE module (like the graph
+// half of params.logos) — plain structs + fixed arrays, no Writ schema views and
+// no `error()` host extern. The metaprog wiring (surface existential heads →
+// WardProg → `error()` diagnostic) is the deferred integration layer; this
+// module is the reusable analysis core it will call.
+package logos.std.wql.ward;
+
+// ── Capacity bounds (a toy/analysis program is tiny; mirror params.logos) ─────
+//   MAXP predicates, MAXR rules, MAXA positions/arity, MAXB body atoms/rule,
+//   MAXD distinct dangerous vars/rule. Flat index formulas:
+//     head term  (rule r, pos i)          → r*MAXA + i
+//     body atom  (rule r, atom k)          → r*MAXB + k
+//     body term  (rule r, atom k, pos i)   → (r*MAXB + k)*MAXA + i
+//     affected   (pred p, pos i)           → p*MAXA + i
+// MAXP=16, MAXR=16, MAXA=6, MAXB=6 ⇒ head 96, body-atoms 96, body-terms 576,
+// affected 96.
+pub fn WARD_MAXP() -> i64 { return 16i64; }
+pub fn WARD_MAXR() -> i64 { return 16i64; }
+pub fn WARD_MAXA() -> i64 { return 6i64; }
+pub fn WARD_MAXB() -> i64 { return 6i64; }
+
+// A term that is a CONSTANT (or an unused slot) rather than a variable. Variable
+// ids are >= 0; any term < 0 is "not a variable" and is ignored by the analysis.
+pub fn WARD_CONST() -> i64 { return 0i64 - 1i64; }
+
+// ── The program under analysis ───────────────────────────────────────────────
+pub struct WardProg {
+    pub npred: i64,
+    pub arity: [i64; 16],       // arity[p]
+    pub nrule: i64,
+    pub head_pred:  [i64; 16],  // head predicate of rule r
+    pub head_term:  [i64; 96],  // var id (>=0) or CONST, at r*MAXA + i
+    pub head_exist: [bool; 96], // is head position i an existential variable?
+    pub nbody:      [i64; 16],  // number of body atoms of rule r
+    pub body_pred:  [i64; 96],  // predicate of body atom (r,k) at r*MAXB + k
+    pub body_term:  [i64; 576], // var id (>=0) or CONST, at (r*MAXB+k)*MAXA + i
+}
+
+pub fn ward_prog_new() -> WardProg {
+    return WardProg {
+        npred: 0i64,
+        arity: [0i64; 16],
+        nrule: 0i64,
+        head_pred:  [0i64; 16],
+        head_term:  [0i64; 96],
+        head_exist: [false; 96],
+        nbody:      [0i64; 16],
+        body_pred:  [0i64; 96],
+        body_term:  [0i64; 576],
+    };
+}
+
+impl WardProg {
+    // Declare a predicate of the given arity; returns its id.
+    pub fn add_pred(self: &mut WardProg, ar: i64) -> i64 {
+        let p: i64 = self.npred;
+        self.arity[p] = ar;
+        self.npred = self.npred + 1i64;
+        return p;
+    }
+
+    // Begin a rule with the given head predicate; returns its id. Body atoms are
+    // added with `add_body`; head terms with `set_head`.
+    pub fn begin_rule(self: &mut WardProg, hpred: i64) -> i64 {
+        let r: i64 = self.nrule;
+        self.head_pred[r] = hpred;
+        self.nbody[r] = 0i64;
+        // default every head position to CONST so an unset frontier slot is inert
+        let mut i: i64 = 0i64;
+        while i < 6i64 {
+            self.head_term[r * 6i64 + i]  = 0i64 - 1i64;
+            self.head_exist[r * 6i64 + i] = false;
+            i = i + 1i64;
+        }
+        self.nrule = self.nrule + 1i64;
+        return r;
+    }
+
+    // Set head position `i` of rule `r` to variable `var` (>=0) or CONST; `exist`
+    // marks it as an existentially-quantified (invented) variable.
+    pub fn set_head(self: &mut WardProg, r: i64, i: i64, var: i64, exist: bool) {
+        self.head_term[r * 6i64 + i]  = var;
+        self.head_exist[r * 6i64 + i] = exist;
+    }
+
+    // Append a body atom over predicate `bpred` to rule `r`; returns its atom
+    // index `k`. Every position defaults to CONST until `set_body` fills it.
+    pub fn add_body(self: &mut WardProg, r: i64, bpred: i64) -> i64 {
+        let k: i64 = self.nbody[r];
+        self.body_pred[r * 6i64 + k] = bpred;
+        let mut i: i64 = 0i64;
+        while i < 6i64 {
+            self.body_term[(r * 6i64 + k) * 6i64 + i] = 0i64 - 1i64;
+            i = i + 1i64;
+        }
+        self.nbody[r] = self.nbody[r] + 1i64;
+        return k;
+    }
+
+    // Set position `i` of body atom `k` in rule `r` to variable `var` or CONST.
+    pub fn set_body(self: &mut WardProg, r: i64, k: i64, i: i64, var: i64) {
+        self.body_term[(r * 6i64 + k) * 6i64 + i] = var;
+    }
+}
+
+// ── Affected positions (stage 1) ─────────────────────────────────────────────
+pub struct Affected {
+    pub a: [bool; 96],   // a[p*MAXA + i]
+}
+
+// Does variable `v` occur in the BODY of rule `r`, and if so ONLY at affected
+// positions? (true ⇒ v is HARMFUL — it may carry an invented null everywhere it
+// appears in the body). Returns false if v does not occur in the body at all
+// (a var absent from the body is not harmful) or occurs at any non-affected
+// position.
+fn var_body_only_affected(p: &WardProg, r: i64, v: i64, aff: &Affected) -> bool {
+    let mut occurs: bool = false;
+    let nb: i64 = p.nbody[r];
+    let mut k: i64 = 0i64;
+    while k < nb {
+        let bp: i64 = p.body_pred[r * 6i64 + k];
+        let mut i: i64 = 0i64;
+        while i < p.arity[bp] {
+            let t: i64 = p.body_term[(r * 6i64 + k) * 6i64 + i];
+            if t == v {
+                occurs = true;
+                if !aff.a[bp * 6i64 + i] { return false; }
+            }
+            i = i + 1i64;
+        }
+        k = k + 1i64;
+    }
+    return occurs;
+}
+
+// Does variable `v` occur in the HEAD of rule `r` as a FRONTIER (non-existential)
+// term? (i.e. is v propagated from the body to the head).
+fn var_in_head_frontier(p: &WardProg, r: i64, v: i64) -> bool {
+    let hp: i64 = p.head_pred[r];
+    let mut i: i64 = 0i64;
+    while i < p.arity[hp] {
+        if !p.head_exist[r * 6i64 + i] {
+            if p.head_term[r * 6i64 + i] == v { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// Compute the least set of affected positions by the monotone fixpoint.
+pub fn compute_affected(p: &WardProg) -> Affected {
+    let mut aff: Affected = Affected { a: [false; 96] };
+    // Base: existential head positions.
+    let mut r: i64 = 0i64;
+    while r < p.nrule {
+        let hp: i64 = p.head_pred[r];
+        let mut i: i64 = 0i64;
+        while i < p.arity[hp] {
+            if p.head_exist[r * 6i64 + i] { aff.a[hp * 6i64 + i] = true; }
+            i = i + 1i64;
+        }
+        r = r + 1i64;
+    }
+    // Step: propagate through frontier vars that are body-only-affected.
+    let mut changed: bool = true;
+    while changed {
+        changed = false;
+        let mut r2: i64 = 0i64;
+        while r2 < p.nrule {
+            let hp2: i64 = p.head_pred[r2];
+            let mut i2: i64 = 0i64;
+            while i2 < p.arity[hp2] {
+                let idx: i64 = hp2 * 6i64 + i2;
+                let is_ex: bool = p.head_exist[r2 * 6i64 + i2];
+                if !aff.a[idx] {
+                    if !is_ex {
+                        let v: i64 = p.head_term[r2 * 6i64 + i2];
+                        if v >= 0i64 {
+                            if var_body_only_affected(p, r2, v, &aff) {
+                                aff.a[idx] = true;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                i2 = i2 + 1i64;
+            }
+            r2 = r2 + 1i64;
+        }
+    }
+    return aff;
+}
+
+// ── Wardedness (stage 2) ─────────────────────────────────────────────────────
+// Reason codes for a non-warded rule.
+pub fn WARD_OK() -> i32 { return 0i32; }
+pub fn WARD_SPLIT() -> i32 { return 1i32; }   // dangerous vars span >1 body atom
+pub fn WARD_SHARE() -> i32 { return 2i32; }   // the ward shares a HARMFUL variable
+
+pub struct WardResult {
+    pub ok:       bool,
+    pub bad_rule: i64,   // offending rule, or -1
+    pub reason:   i32,   // WARD_OK / WARD_SPLIT / WARD_SHARE
+    pub bad_var:  i64,   // a dangerous variable involved, or -1
+}
+
+// Does variable `v` appear anywhere in body atom `k` of rule `r`?
+fn atom_has_var(p: &WardProg, r: i64, k: i64, v: i64) -> bool {
+    let bp: i64 = p.body_pred[r * 6i64 + k];
+    let mut i: i64 = 0i64;
+    while i < p.arity[bp] {
+        if p.body_term[(r * 6i64 + k) * 6i64 + i] == v { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// Is `v` already in `out[0..n)`?
+fn dv_contains(out: &[i64; 16], n: i64, v: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < n {
+        if out[i] == v { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// Collect the DISTINCT dangerous variables of rule `r` into `out`; return count.
+// A variable is dangerous iff it is body-only-affected (harmful) AND a head
+// frontier variable (propagated).
+fn collect_dangerous(p: &WardProg, r: i64, aff: &Affected, out: &mut [i64; 16]) -> i64 {
+    let mut n: i64 = 0i64;
+    let nb: i64 = p.nbody[r];
+    let mut k: i64 = 0i64;
+    while k < nb {
+        let bp: i64 = p.body_pred[r * 6i64 + k];
+        let mut i: i64 = 0i64;
+        while i < p.arity[bp] {
+            let v: i64 = p.body_term[(r * 6i64 + k) * 6i64 + i];
+            if v >= 0i64 {
+                if !dv_contains(out, n, v) {
+                    if var_body_only_affected(p, r, v, aff) {
+                        if var_in_head_frontier(p, r, v) {
+                            if n < 16i64 { out[n] = v; n = n + 1i64; }
+                        }
+                    }
+                }
+            }
+            i = i + 1i64;
+        }
+        k = k + 1i64;
+    }
+    return n;
+}
+
+// Does body atom `k` contain ALL of the dangerous vars `dv[0..nd)`?
+fn atom_covers_all(p: &WardProg, r: i64, k: i64, dv: &[i64; 16], nd: i64) -> bool {
+    let mut j: i64 = 0i64;
+    while j < nd {
+        if !atom_has_var(p, r, k, dv[j]) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+// For candidate ward atom `k`: every variable it shares with ANY other body atom
+// must be harmless (not body-only-affected). Returns true iff the sharing is
+// clean.
+fn ward_share_ok(p: &WardProg, r: i64, k: i64, aff: &Affected) -> bool {
+    let bp: i64 = p.body_pred[r * 6i64 + k];
+    let nb: i64 = p.nbody[r];
+    let mut i: i64 = 0i64;
+    while i < p.arity[bp] {
+        let u: i64 = p.body_term[(r * 6i64 + k) * 6i64 + i];
+        if u >= 0i64 {
+            // Only a HARMFUL shared variable violates wardedness.
+            if var_body_only_affected(p, r, u, aff) {
+                let mut k2: i64 = 0i64;
+                while k2 < nb {
+                    if k2 != k {
+                        if atom_has_var(p, r, k2, u) { return false; }
+                    }
+                    k2 = k2 + 1i64;
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Check a single rule.
+fn check_rule(p: &WardProg, r: i64, aff: &Affected) -> WardResult {
+    let mut dv: [i64; 16] = [0i64; 16];
+    let nd: i64 = collect_dangerous(p, r, aff, &mut dv);
+    if nd == 0i64 {
+        return WardResult { ok: true, bad_rule: 0i64 - 1i64, reason: 0i32, bad_var: 0i64 - 1i64 };
+    }
+    // Find a body atom that covers all dangerous vars AND shares only harmless
+    // variables with the rest of the body — that atom is the ward.
+    let mut found_container: bool = false;
+    let nb: i64 = p.nbody[r];
+    let mut k: i64 = 0i64;
+    while k < nb {
+        if atom_covers_all(p, r, k, &dv, nd) {
+            found_container = true;
+            if ward_share_ok(p, r, k, aff) {
+                return WardResult { ok: true, bad_rule: 0i64 - 1i64, reason: 0i32, bad_var: 0i64 - 1i64 };
+            }
+        }
+        k = k + 1i64;
+    }
+    if found_container {
+        // Some atom held all dangerous vars, but every such candidate leaked a
+        // harmful variable to the rest of the body.
+        return WardResult { ok: false, bad_rule: r, reason: 2i32, bad_var: dv[0] };
+    }
+    // No single atom holds all dangerous vars — they are split across atoms.
+    return WardResult { ok: false, bad_rule: r, reason: 1i32, bad_var: dv[0] };
+}
+
+// Check the whole program. Returns the FIRST offending rule (ok=true if warded).
+pub fn check_warded(p: &WardProg) -> WardResult {
+    let aff: Affected = compute_affected(p);
+    let mut r: i64 = 0i64;
+    while r < p.nrule {
+        let res: WardResult = check_rule(p, r, &aff);
+        if !res.ok { return res; }
+        r = r + 1i64;
+    }
+    return WardResult { ok: true, bad_rule: 0i64 - 1i64, reason: 0i32, bad_var: 0i64 - 1i64 };
+}
+
+// A human-readable reason string for a WardResult reason code (the seam a
+// metaprog handler would splice into an `error(...)` diagnostic).
+pub fn ward_reason_str(reason: i32) -> str {
+    if reason == 1i32 {
+        return "not warded: the rule's dangerous variables are split across more than one body atom (no single ward atom contains them all) — a dangerous variable may carry an invented null into an unbounded join";
+    }
+    if reason == 2i32 {
+        return "not warded: the ward atom (the atom holding all dangerous variables) shares a harmful variable with the rest of the body — a null can leak past the ward";
+    }
+    return "warded";
+}

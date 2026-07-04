@@ -1,0 +1,11 @@
+exit: 0
+stdout:
+ok   vanilla-datalog warded
+ok   single-atom-existential warded
+ok   multi-atom warded (ward shares harmless)
+ok   split dangerous vars NOT warded
+ok   split reason = WARD_SPLIT
+ok   ward shares harmful NOT warded
+ok   share reason = WARD_SHARE
+ok   warded recursion warded
+ALL-WARD-TESTS-PASS
