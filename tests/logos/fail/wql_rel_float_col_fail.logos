@@ -9,7 +9,7 @@ use logos.lang.str;
 
 struct Reading { pub id: i64, pub w: f64 }
 
-resource weights = wql!(rs: &[Reading]) {
+resource weights = deem!(rs: &[Reading]) {
     rel wr(id: i64, w: f64) {
         from rs r select (r.id, r.w);
     }

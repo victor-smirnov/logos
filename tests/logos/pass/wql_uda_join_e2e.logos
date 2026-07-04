@@ -20,7 +20,7 @@ fn big_step(acc: i64, x: i64) -> i64 {
 }
 fn big_fin(acc: i64) -> i64 { return acc * 10i64; }
 
-resource region_stats = wql!(orders: &[Order], depts: &[Dept]) {
+resource region_stats = deem!(orders: &[Order], depts: &[Dept]) {
     from orders o
     join depts d on o.dept == d.id
     group by d.region

@@ -3,7 +3,7 @@
 // grammar BUILDS and the walker-emitter CONSUMES.
 //
 // The wql! surface has four shapes, modelled here as a `schema enum` family
-// `RQuery` with one variant per shape (params come from the `wql!(<params>)`
+// `RQuery` with one variant per shape (params come from the `deem!(<params>)`
 // paren list — see wql.logos; there is NO `with` clause and NO inline `:[Ty]`
 // source typing any more):
 //
@@ -24,7 +24,7 @@
 // result type + aggregate column names all live on the node as `str` fields;
 // the walker reads them directly (no side tables). Row TYPES (`row_ty` /
 // `a_ty` / `b_ty`) are NOT grammar-captured: the HANDLER stamps them after the
-// parse from the `wql!(<params>)` slice-param element types (plan_walker::
+// parse from the `deem!(<params>)` slice-param element types (plan_walker::
 // walk_query_params). Optionality is tracked with explicit `has_*` bool flags
 // rather than sentinel edges — strict + unambiguous.
 //
@@ -110,7 +110,7 @@ impl RQAggArr {
 // `select` — the required projection edge.
 // `has_result_ty` — false ⇒ INFER the result element type from `select`.
 // `row_ty` — the row TYPE name: stamped by the HANDLER from the slice param
-// `src_name: &[row_ty]` in the wql!(…) list (not grammar-captured).
+// `src_name: &[row_ty]` in the deem!(…) list (not grammar-captured).
 // SELECT-TAIL MODIFIERS (simple/join/aggregate shapes): `distinct` dedups the
 // projected values; `has_order`/`order_key`/`order_desc` = `order by O [desc]`
 // (the key ranges over the row vars for simple/join, over the group key +

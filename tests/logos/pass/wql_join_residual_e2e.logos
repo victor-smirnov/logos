@@ -12,14 +12,14 @@ struct Emp  { pub dept: i64, pub level: i64, pub salary: i64 }
 struct Dept { pub id: i64,   pub min_level: i64 }
 
 // Equi + inequality residual: match the dept AND out-rank its min level.
-resource senior = wql!(emps: &[Emp], depts: &[Dept]) {
+resource senior = deem!(emps: &[Emp], depts: &[Dept]) {
     from emps e
     join depts d on e.dept == d.id && e.level > d.min_level
     select e.salary };
 
 // ANTI with residual: keep employees with NO dept row they out-rank —
 // absent bucket (unknown dept) or all bucket rows failing the residual.
-resource unranked = wql!(emps: &[Emp], depts: &[Dept]) {
+resource unranked = deem!(emps: &[Emp], depts: &[Dept]) {
     from emps e
     anti join depts d on e.dept == d.id && e.level > d.min_level
     select e.salary };

@@ -22,16 +22,16 @@ use logos.std.wql.wql_surface_parser;    // parse_program — the GENERATED surf
 use logos.std.wql.plan_walker;           // walk_program_params — the program walker-emitter
 
 #[token_macro]
-pub fn wql_walk(name: str, params: str, body: str) -> ItemList {
+pub fn deem_walk(name: str, params: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
-        error("wql_walk!: needs a binding name — write `resource <name> = wql_walk!(<params>){ from … select … }`");
+        error("wql_walk!: needs a binding name — write `resource <name> = deem_walk!(<params>){ from … select … }`");
         return out;
     }
     let mut prm: MacroParams = macro_params_new();
     parse_macro_params(params, &mut prm);
     if prm.n == 0i64 {
-        error("wql_walk!: needs at least one parameter — write `resource <name> = wql_walk!(<src>: &[RowTy], …){ from <src> <var> … }`");
+        error("wql_walk!: needs at least one parameter — write `resource <name> = deem_walk!(<src>: &[RowTy], …){ from <src> <var> … }`");
         return out;
     }
     let h: Writ = writ_new(4096i64);

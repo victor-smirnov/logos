@@ -16,7 +16,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource farq = wql!(edges: &[Edge], start: i64) {
+resource farq = deem!(edges: &[Edge], start: i64) {
     rel path(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from path p join edges e on p.b == e.src select (p.a, e.dst);

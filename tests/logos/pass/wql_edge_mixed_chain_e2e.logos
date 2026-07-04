@@ -17,14 +17,14 @@ struct Dept { pub id: i64, pub dname: str }
 struct Org  { pub oname: str, pub emps: Vec<Emp> }
 
 // Keyed hash join first, traversal second.
-resource emp_geo = wql!(emps: &[Emp], depts: &[Dept]) {
+resource emp_geo = deem!(emps: &[Emp], depts: &[Dept]) {
     from emps e
     join depts d on e.dept == d.id
     join e.skills s
     select (d.dname, s) };
 
 // Traversal first, keyed hash join over the traversal-bound var second.
-resource org_depts = wql!(orgs: &[Org], depts: &[Dept]) {
+resource org_depts = deem!(orgs: &[Org], depts: &[Dept]) {
     from orgs o
     join o.emps e
     join depts d on e.dept == d.id

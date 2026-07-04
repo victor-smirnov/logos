@@ -1,6 +1,6 @@
 // logos.std.wql.params — the SHARED macro parameter-list parser (ADR 0012 §6,
 // parameterized-resource surface). Both `trama!(<params>){ … }` and
-// `wql!(<params>){ … }` carry a GENUINE Logos parameter list in the parens: the
+// `deem!(<params>){ … }` carry a GENUINE Logos parameter list in the parens: the
 // handler re-emits it VERBATIM into the generated fn signature (the compiler
 // parses + type-checks it), and ALSO parses it here to drive schema reflection
 // + value-typing. ONE mechanism, two consumers.
@@ -233,7 +233,7 @@ pub fn rel_scc_new() -> RelScc {
 // AGGREGATED sub-lists — a cycle through either is non-stratifiable.
 // MOVED here from plan_walker (queue-2 slice I3): the graph half is PURE
 // (no metaprog) and is now shared by the static walker AND the runtime
-// interpreter (logos.std.query) — the same layering move as lower.logos.
+// interpreter (logos.std.deem) — the same layering move as lower.logos.
 pub struct RelDeps {
     pub efrom: [i64; 64],
     pub eto:   [i64; 64],

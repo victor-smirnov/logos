@@ -12,7 +12,7 @@ use logos.lang.str;
 struct Emp { pub dept: i64, pub name: str, pub id: i64 }
 
 // (dept, name) with duplicates in the source → distinct tuple rows.
-resource dept_names = wql!(emps: &[Emp]) { from emps e select distinct (e.dept, e.name) };
+resource dept_names = deem!(emps: &[Emp]) { from emps e select distinct (e.dept, e.name) };
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

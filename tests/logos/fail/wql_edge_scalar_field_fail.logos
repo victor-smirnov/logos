@@ -10,7 +10,7 @@ use logos.mem.collections.vec;
 struct Emp  { pub name: str }
 struct Dept { pub dname: str, pub boss: Emp, pub emps: Vec<Emp> }
 
-resource bad = wql!(depts: &[Dept]) {
+resource bad = deem!(depts: &[Dept]) {
     from depts d
     join d.boss e
     select e.name };

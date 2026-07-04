@@ -17,7 +17,7 @@ use logos.lang.str;
 struct Node { pub id: i64 }
 struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
 
-resource sssp = wql!(src: &[Node], edges: &[Edge]) {
+resource sssp = deem!(src: &[Node], edges: &[Edge]) {
     rel dist(node: i64, d: i64) {
         from src s select (s.id, 0);
         from dist x join edges e on e.src == x.node

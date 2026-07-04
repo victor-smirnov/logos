@@ -15,7 +15,7 @@ use logos.lang.str;
 
 struct N { pub k: i64 }
 
-resource bad = wql!(sa: &[N], sc: &[N]) {
+resource bad = deem!(sa: &[N], sc: &[N]) {
     rel W(g: i64, d1: i64, d2: i64) { from sa x select (x.k, fresh(), fresh()); }
     rel M(mm: i64, t: i64)          { from sc x select (fresh(), x.k); }   // M[0] existential
     rel H(a: i64, b: i64) {

@@ -354,7 +354,7 @@ fn copy_env(dst: &mut StructEnv, src: &StructEnv) {
 // The chain-stitch (T3 post-pass `chain_array`) + chain-walk primitives
 // (`next_of_stmt` / `next_word` / `body_word` / `alt_word` / `ttext_str`) now
 // live in logos.std.wql.trama — the ONE mechanism shared with the DYNAMIC
-// `Tpl::compile` runtime (logos.std.query), which must not import metaprog.
+// `Tpl::compile` runtime (logos.std.deem), which must not import metaprog.
 
 // ── Trama AST → render-fn body ─────────────────────────────────────────────
 // Walk a TStmt chain (the singly-linked body), emitting render statements into

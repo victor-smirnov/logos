@@ -11,7 +11,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource badagg = wql!(edges: &[Edge]) {
+resource badagg = deem!(edges: &[Edge]) {
     rel p(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from p x group by x.a aggregate n = count() select (x.a, n);

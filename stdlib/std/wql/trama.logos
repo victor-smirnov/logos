@@ -114,7 +114,7 @@ impl TSet  { pub fn has_next(self: &TSet)  -> bool { return !self.next.any().is_
 
 // ── Shared chain-walk primitives ────────────────────────────────────────────
 // The ONE chain-stitch + walk mechanism, shared by the STATIC `trama!` handler
-// (trama_render) and the DYNAMIC `Tpl::compile` runtime (logos.std.query).
+// (trama_render) and the DYNAMIC `Tpl::compile` runtime (logos.std.deem).
 // Moved here from trama_render so runtime consumers need no metaprog import.
 
 // Edge-word readers (launder WRef<TStmt> → raw chain word, no borrow carried).

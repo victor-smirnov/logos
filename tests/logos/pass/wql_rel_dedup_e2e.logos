@@ -12,7 +12,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource pair_count = wql!(edges: &[Edge], back: &[Edge]) {
+resource pair_count = deem!(edges: &[Edge], back: &[Edge]) {
     rel p(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from back r select (r.dst, r.src);

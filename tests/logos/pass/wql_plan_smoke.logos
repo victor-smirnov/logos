@@ -3,7 +3,7 @@
 // edge + a `select` projection edge — via make/view, then read it back through
 // the `RQuery` schema-enum `match` and resolve each `WRef<SExpr>` embedded-EL
 // edge. The `row_ty` field is written the way the wql! HANDLER stamps it after
-// the parse (from the `wql!(…)` slice-param element type — the grammar no
+// the parse (from the `deem!(…)` slice-param element type — the grammar no
 // longer captures `:[Ty]`, and the `with` clause is gone).
 //
 // This is the Phase-1 anchor: it proves the RQSimple plan schema round-trips

@@ -9,7 +9,7 @@ package test;
 
 use logos.std.wql.catalog_macro;   // schema_catalog! — the handler
 use logos.std.wql.ir;              // WRef<S> — the edge field type
-use logos.std.query;               // SchemaCatalog — the public surface
+use logos.std.deem;               // SchemaCatalog — the public surface
 use logos.lang.str;
 
 pub schema Emp : code(0x0A01_0000_0000_0001) {

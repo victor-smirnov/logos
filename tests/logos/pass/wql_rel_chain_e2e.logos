@@ -14,7 +14,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource layered = wql!(edges: &[Edge]) {
+resource layered = deem!(edges: &[Edge]) {
     rel pairs(x: i64, y: i64) {
         from edges e select (e.src, e.dst);
     }

@@ -22,7 +22,7 @@ struct Person {
 
 // where 2 + 3 > 4  → folds to `true` → all four people pass;
 // select p.age + (10 - 4) → folds to `p.age + 6`.
-resource all_plus6 = wql!(people: &[Person]) { from people p where 2 + 3 > 4 select p.age + (10 - 4) : i64 };
+resource all_plus6 = deem!(people: &[Person]) { from people p where 2 + 3 > 4 select p.age + (10 - 4) : i64 };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

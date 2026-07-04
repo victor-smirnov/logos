@@ -1,10 +1,10 @@
 // WQL Phase 4 — RELATIONAL JOIN, static lowering end-to-end (ADR 0012 §2,
-// queue-1). The `wql!(…){ … }` handler now lowers an inner join over TWO source
+// queue-1). The `deem!(…){ … }` handler now lowers an inner join over TWO source
 // slices to native nested-loop code: for each (employee, dept) pair whose `on`
 // predicate holds, it projects a joined value.
 //
 // Surface:
-//   resource <name> = wql!(<a>: &[A], <b>: &[B], …) { from <a> x join <b> y
+//   resource <name> = deem!(<a>: &[A], <b>: &[B], …) { from <a> x join <b> y
 //         on <pred> [where <pred>] select <expr> [: <Ty>] };
 //
 // Here `emp_salaries` joins employees to departments on `e.dept == d.id` and
@@ -25,7 +25,7 @@ struct Dept { pub id: i64,   pub budget: i64 }
 //   }
 // Result type INFERRED from the join projection (`e.salary` reflects `Emp.salary`
 // as i64 ⇒ `Vec<i64>`) — no `: ResultTy` annotation needed.
-resource emp_salaries = wql!(emps: &[Emp], depts: &[Dept]) { from emps e
+resource emp_salaries = deem!(emps: &[Emp], depts: &[Dept]) { from emps e
       join depts d on e.dept == d.id
       where d.budget > 100
       select e.salary };
@@ -34,7 +34,7 @@ resource emp_salaries = wql!(emps: &[Emp], depts: &[Dept]) { from emps e
 // row at all — the relational RAnti (semijoin complement) lowered to a native
 // "scan-for-any-match, push iff none" loop.
 //   pub fn orphan_salaries(emps: &[Emp], depts: &[Dept]) -> Vec<i64> { … }
-resource orphan_salaries = wql!(emps: &[Emp], depts: &[Dept]) { from emps e
+resource orphan_salaries = deem!(emps: &[Emp], depts: &[Dept]) { from emps e
       anti join depts d on e.dept == d.id
       select e.salary };
 

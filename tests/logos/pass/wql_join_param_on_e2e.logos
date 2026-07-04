@@ -1,5 +1,5 @@
 // WQL — SCALAR PARAM inside a join ON-predicate. `d.budget > min_b` references
-// the wql!(…) scalar param `min_b` — a BOUND-side name in the equi/residual
+// the deem!(…) scalar param `min_b` — a BOUND-side name in the equi/residual
 // classification, so `e.dept == d.id` still drives the hash probe and the
 // param comparison lands in the RESIDUAL (`hash join (i64 key) + residual`).
 // Different arguments at different call sites re-parameterize the SAME
@@ -12,7 +12,7 @@ use logos.mem.collections.vec;
 struct Emp  { pub dept: i64, pub salary: i64 }
 struct Dept { pub id: i64,   pub budget: i64 }
 
-resource rich_sal = wql!(emps: &[Emp], depts: &[Dept], min_b: i64) {
+resource rich_sal = deem!(emps: &[Emp], depts: &[Dept], min_b: i64) {
     from emps e
     join depts d on e.dept == d.id && d.budget > min_b
     select e.salary };

@@ -6,7 +6,7 @@
 // `doc.make::<S>()` + typed field writes + `WRef<S>` edges — dogfooding ADR 0011.
 //
 // PARAMETERIZED surface (the trama! model): the macro is
-//   resource <name> = wql!(<real Logos params>){ <query> };
+//   resource <name> = deem!(<real Logos params>){ <query> };
 // The PARENS carry a genuine Logos parameter list, re-emitted VERBATIM into the
 // generated fn signature. SLICE params (`emps: &[Emp]`) are the query SOURCES —
 // a `from`/`join` clause names one by its param name; the row type is the slice
@@ -42,7 +42,7 @@
 // → distinct → limit. `having` exists ONLY on the aggregate shape (a predicate
 // over the group key + aggregate output names); `order by` takes ONE key
 // expression + an optional trailing `desc` (asc default); `limit` takes an
-// INTEGER literal or a bare IDENT naming a SCALAR param from the wql!(…) list;
+// INTEGER literal or a bare IDENT naming a SCALAR param from the deem!(…) list;
 // `distinct` dedups the PROJECTED values; `first` (`select first S`) makes the
 // query SINGLE-ROW — the generated fn returns Option<ElemTy> (the first
 // projected value in scan order, or in ORDER BY order when `order by` is

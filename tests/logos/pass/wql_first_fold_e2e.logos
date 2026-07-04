@@ -15,16 +15,16 @@ use logos.lang.str;
 struct Person { pub name: str, pub age: i64 }
 
 // where false + first → the plan provably yields no rows; constant None.
-resource nobody_first = wql!(people: &[Person]) { from people p where 1 == 2 select first p.age };
+resource nobody_first = deem!(people: &[Person]) { from people p where 1 == 2 select first p.age };
 
 // find false → constant None.
-resource find_nothing = wql!(people: &[Person]) { from people p find 1 == 2 };
+resource find_nothing = deem!(people: &[Person]) { from people p find 1 == 2 };
 
 // find true → the filter folds away; head-row borrow.
-resource find_any = wql!(people: &[Person]) { from people p find 1 == 1 };
+resource find_any = deem!(people: &[Person]) { from people p find 1 == 1 };
 
 // identity + first: `select first p` → the first row itself, borrowed.
-resource head_person = wql!(people: &[Person]) { from people p select first p };
+resource head_person = deem!(people: &[Person]) { from people p select first p };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

@@ -13,7 +13,7 @@ use logos.lang.str;
 
 struct Node { pub id: i64 }
 
-resource q = wql!(base: &[Node]) {
+resource q = deem!(base: &[Node]) {
     rel R(x: i64) { from base b select (zz); }   // `zz` bare, unbound, no fresh()
     from R r select (r.x)
 };

@@ -17,7 +17,7 @@ use logos.lang.str;
 
 struct Node { pub id: i64 }
 
-resource grow = wql!(base: &[Node]) {
+resource grow = deem!(base: &[Node]) {
     rel R(x: i64) {
         from base b select (b.id);      // R(x) :- Node(x)
         from R r select (fresh());      // R(y) :- R(x)   [existential head]

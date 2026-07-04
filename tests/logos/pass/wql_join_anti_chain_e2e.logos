@@ -14,7 +14,7 @@ struct Dept { pub id: i64,   pub budget: i64 }
 struct Ban  { pub dept: i64 }
 
 // emp ⋈ dept, minus departments present in the ban list.
-resource ok_salaries = wql!(emps: &[Emp], depts: &[Dept], bans: &[Ban]) {
+resource ok_salaries = deem!(emps: &[Emp], depts: &[Dept], bans: &[Ban]) {
     from emps e
     join depts d on e.dept == d.id
     anti join bans b on d.id == b.dept

@@ -16,7 +16,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource odd_reach = wql!(edges: &[Edge], start: i64) {
+resource odd_reach = deem!(edges: &[Edge], start: i64) {
     rel odd(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from even v join edges e on v.b == e.src select (v.a, e.dst);
@@ -27,7 +27,7 @@ resource odd_reach = wql!(edges: &[Edge], start: i64) {
     from odd p where p.a == start select p.b order by p.b
 };
 
-resource even_reach = wql!(edges: &[Edge], start: i64) {
+resource even_reach = deem!(edges: &[Edge], start: i64) {
     rel odd(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from even v join edges e on v.b == e.src select (v.a, e.dst);

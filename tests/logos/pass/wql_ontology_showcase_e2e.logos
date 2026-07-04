@@ -33,7 +33,7 @@ struct Mon  { pub sensor: str, pub target: str }
 struct Part { pub part: str, pub whole: str }
 struct Loc  { pub ind: str, pub room: str }
 
-resource audit = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
+resource audit = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
@@ -60,7 +60,7 @@ resource audit = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], 
     select (t.x, loc.place) order by t.x
 };
 
-resource census = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
+resource census = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
@@ -88,7 +88,7 @@ resource census = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part],
     select (key, n) order by key
 };
 
-resource classify = wql!(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
+resource classify = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);

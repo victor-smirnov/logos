@@ -20,7 +20,7 @@ use logos.lang.str;
 struct Par { pub par: i64, pub chi: i64 }
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource sgq = wql!(pars: &[Par], who: i64) {
+resource sgq = deem!(pars: &[Par], who: i64) {
     rel sg(x: i64, y: i64) {
         from pars p1 join pars p2 on p1.par == p2.par where p1.chi != p2.chi select (p1.chi, p2.chi);
         from pars p1 join sg s on s.x == p1.par join pars p2 on s.y == p2.par select (p1.chi, p2.chi);
@@ -28,7 +28,7 @@ resource sgq = wql!(pars: &[Par], who: i64) {
     from sg s where s.x == who select s.y order by s.y
 };
 
-resource tcq = wql!(edges: &[Edge], start: i64) {
+resource tcq = deem!(edges: &[Edge], start: i64) {
     rel tc(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from tc t1 join tc t2 on t1.b == t2.a select (t1.a, t2.b);

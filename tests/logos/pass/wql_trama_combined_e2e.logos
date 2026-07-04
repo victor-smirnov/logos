@@ -23,7 +23,7 @@ struct Emp {
     pub age:  i64,
 }
 
-resource adults = wql!(people: &[Emp]) { from people p where p.age >= 18 select p.age : i64 };
+resource adults = deem!(people: &[Emp]) { from people p where p.age >= 18 select p.age : i64 };
 
 struct Ctx {
     pub nums: [i64; 3],

@@ -7,6 +7,6 @@ use logos.mem.collections.vec;
 
 struct P { pub a: i64, pub b: i64 }
 
-resource bad = wql!(ps: &[P]) { from ps p where (p.a, p.b) select p.a };
+resource bad = deem!(ps: &[P]) { from ps p where (p.a, p.b) select p.a };
 
 fn main() -> i32 { return 0i32; }

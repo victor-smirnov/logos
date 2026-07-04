@@ -1,4 +1,4 @@
-// logos.std.query — the PUBLIC runtime query/template API (ADR 0012-queue2 §3,
+// logos.std.deem — the PUBLIC runtime query/template API (ADR 0012-queue2 §3,
 // slices I1–I3). Query/template TEXT arrives at RUNTIME, is parsed by the SAME
 // peg-generated parsers the static queue uses, checked against a SchemaCatalog
 // (queue-1-generated schema metadata), lowered/optimized by the SAME
@@ -58,7 +58,7 @@
 //     emit the same per-schema entry calls for schemas declared in OTHER
 //     modules than the schema_catalog! callsite (same-module reflection is
 //     the I1 MVP).
-package logos.std.query;
+package logos.std.deem;
 
 use logos.lang.writ.container;    // Writ / writ_new
 use logos.lang.writ.anyval;       // WAny

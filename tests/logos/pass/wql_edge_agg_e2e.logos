@@ -11,7 +11,7 @@ use logos.mem.collections.vec;
 struct Emp  { pub name: str, pub skills: Vec<str> }
 struct Dept { pub did: i64, pub emps: Vec<Emp> }
 
-resource skills_per_dept = wql!(depts: &[Dept]) {
+resource skills_per_dept = deem!(depts: &[Dept]) {
     from depts d
     join d.emps e
     join e.skills s

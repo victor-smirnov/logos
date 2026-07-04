@@ -1,7 +1,7 @@
 // WQL Phase 2 — TYPED PARAMS (str AND i64) as generated-fn arguments, static
 // lowering end-to-end (ADR 0012 §10.3, the sqlx prepared-statement model).
 //
-// The `q: str, minage: i64` params in the wql!(…) list declare the runtime
+// The `q: str, minage: i64` params in the deem!(…) list declare the runtime
 // params' types; the handler re-emits the list VERBATIM as the generated fn's
 // ARGUMENTS. We then call the prepared query with concrete runtime values and
 // assert the filtered/projected result.
@@ -20,7 +20,7 @@ struct Person { pub name: str, pub age: i64 }
 
 // Emits:
 //   pub fn lookup(people: &[Person], q: str, minage: i64) -> Vec<str> { … }
-resource lookup = wql!(people: &[Person], q: str, minage: i64) { from people p where p.name == q && p.age >= minage select p.name : str };
+resource lookup = deem!(people: &[Person], q: str, minage: i64) { from people p where p.name == q && p.age >= minage select p.name : str };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

@@ -11,7 +11,7 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.array;
 use logos.std.wql.ir;              // WRef<S>
 use logos.std.wql.catalog_macro;   // schema_catalog!
-use logos.std.query;               // SchemaCatalog / QEnv / Query / QRows
+use logos.std.deem;               // SchemaCatalog / QEnv / Query / QRows
 use logos.lang.result;
 use logos.mem.string;
 use logos.lang.str;

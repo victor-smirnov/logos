@@ -1,4 +1,4 @@
-// logos.std.wql.wql — the `wql!(<params>){ … }` RESOURCE surface (ADR 0012 §6 /
+// logos.std.wql.wql — the `deem!(<params>){ … }` RESOURCE surface (ADR 0012 §6 /
 // §10.2, queue-1 STATIC lowering). A `#[token_macro]` handler receives the raw
 // params source text + the raw query block bytes at compile time, PARSES the
 // query via the peg-GENERATED surface parser (`wql_surface_parser::parse_query`
@@ -12,8 +12,8 @@
 // exactly trama!'s model; the old inline `:[Ty]` source typing, the `$` param
 // sigil, and the `with` clause are GONE):
 //
-//   resource <name> = wql!(<params>) { from <src> <var> [ where P ] select S [: RTy] };
-//     e.g.  resource top = wql!(emps: &[Emp], n: i64) {
+//   resource <name> = deem!(<params>) { from <src> <var> [ where P ] select S [: RTy] };
+//     e.g.  resource top = deem!(emps: &[Emp], n: i64) {
 //               from emps e where e.salary > 50.0 select e.name limit n };
 //
 //   →  pub fn top(emps: &[Emp], n: i64) -> Vec<str> { … }
@@ -72,10 +72,10 @@ use logos.std.wql.plan_walker;           // walk_program_params — the program 
 // spliced by the host's Emitter/`logos_emit_source` (ADR 0012 §10.2); the
 // handler returns an (empty) ItemList.
 #[token_macro]
-pub fn wql(name: str, params: str, body: str) -> ItemList {
+pub fn deem(name: str, params: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
-        error("wql!: needs a binding name — write `resource <name> = wql!(<params>){ from … select … }`");
+        error("wql!: needs a binding name — write `resource <name> = deem!(<params>){ from … select … }`");
         return out;
     }
     // Parse the REAL parameter list (shared mechanism with trama!). The params
@@ -84,7 +84,7 @@ pub fn wql(name: str, params: str, body: str) -> ItemList {
     let mut prm: MacroParams = macro_params_new();
     parse_macro_params(params, &mut prm);
     if prm.n == 0i64 {
-        error("wql!: needs at least one parameter — write `resource <name> = wql!(<src>: &[RowTy], …){ from <src> <var> … }`");
+        error("wql!: needs at least one parameter — write `resource <name> = deem!(<src>: &[RowTy], …){ from <src> <var> … }`");
         return out;
     }
     let h: Writ = writ_new(4096i64);

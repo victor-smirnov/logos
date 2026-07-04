@@ -14,7 +14,7 @@ struct Order { pub dept: i64, pub amt: i64 }
 struct Dept  { pub id: i64,   pub region: i64 }
 
 // Region totals over the joined (order, dept) stream.
-resource region_totals = wql!(orders: &[Order], depts: &[Dept]) {
+resource region_totals = deem!(orders: &[Order], depts: &[Dept]) {
     from orders o
     join depts d on o.dept == d.id
     group by d.region
@@ -22,7 +22,7 @@ resource region_totals = wql!(orders: &[Order], depts: &[Dept]) {
     select key * 1000000i64 + total * 100i64 + n };
 
 // With having + order by over the group rows.
-resource big_regions = wql!(orders: &[Order], depts: &[Dept]) {
+resource big_regions = deem!(orders: &[Order], depts: &[Dept]) {
     from orders o
     join depts d on o.dept == d.id
     group by d.region

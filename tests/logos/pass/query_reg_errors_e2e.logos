@@ -5,7 +5,7 @@
 // silent no-op made the later "unknown function" error misleading.
 package test;
 
-use logos.std.query;
+use logos.std.deem;
 use logos.mem.string;
 use logos.lang.str;
 

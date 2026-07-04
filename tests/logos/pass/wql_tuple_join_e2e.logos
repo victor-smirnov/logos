@@ -14,7 +14,7 @@ struct Dept { pub id: i64, pub region: i64 }
 struct Reg  { pub rid: i64, pub label: str }
 
 // 3-way join; the projection takes one column from EACH bound var.
-resource emp_geo = wql!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+resource emp_geo = deem!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
     from emps e
     join depts d on e.dept == d.id
     join regs r on d.region == r.rid

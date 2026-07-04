@@ -14,7 +14,7 @@ use logos.lang.str;
 struct Node { pub id: i64 }
 struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
 
-resource bad = wql!(src: &[Node], edges: &[Edge]) {
+resource bad = deem!(src: &[Node], edges: &[Edge]) {
     rel tot(node: i64, s: i64) {
         from src n select (n.id, 0);
         from tot x join edges e on e.src == x.node

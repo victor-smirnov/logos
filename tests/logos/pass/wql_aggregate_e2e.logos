@@ -1,10 +1,10 @@
 // WQL Phase 4 — GROUP BY + AGGREGATES, static lowering end-to-end (ADR 0012 §2,
-// queue-1). The `wql!(…){ … }` handler now lowers a `group by … aggregate …` query
+// queue-1). The `deem!(…){ … }` handler now lowers a `group by … aggregate …` query
 // to native two-pass grouped code: discover each distinct group key, then fold
 // count / sum / min / max / avg over the rows in that group.
 //
 // Surface:
-//   resource <name> = wql!(<a>: &[A], …) { from <a> x [where <pred>] group by <key>
+//   resource <name> = deem!(<a>: &[A], …) { from <a> x [where <pred>] group by <key>
 //         aggregate <name1>=<fn>(<expr>?) , … select <expr> [: <Ty>] };
 //
 // The group key is bound in the projection as the local `key`; each aggregate as
@@ -29,7 +29,7 @@ struct Sale { pub dept: i64, pub amount: i64 }
 // Result type INFERRED from the projection: the group `key` + each aggregate
 // column (sum/count) are i64, so `key*1000 + total*10 + cnt` types as i64 ⇒
 // `Vec<i64>` — no `: ResultTy` annotation needed.
-resource dept_totals = wql!(sales: &[Sale]) { from sales s
+resource dept_totals = deem!(sales: &[Sale]) { from sales s
       group by s.dept
       aggregate total = sum(s.amount) , cnt = count()
       select key * 1000 + total * 10 + cnt };
@@ -40,7 +40,7 @@ resource dept_totals = wql!(sales: &[Sale]) { from sales s
 // column is FLT and the projection PROMOTES to f64 (key/lo/hi get explicit
 // `as f64` casts in the emitted source) ⇒ the inferred result is Vec<f64>.
 //   pub fn dept_stats(sales: &[Sale]) -> Vec<f64> { … two-pass min/max/avg … }
-resource dept_stats = wql!(sales: &[Sale]) { from sales s
+resource dept_stats = deem!(sales: &[Sale]) { from sales s
       where s.amount >= 5
       group by s.dept
       aggregate lo = min(s.amount) , hi = max(s.amount) , av = avg(s.amount)

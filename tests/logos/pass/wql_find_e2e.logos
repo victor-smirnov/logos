@@ -2,7 +2,7 @@
 // REPLACES where+select: the generated fn returns Option<&Ty> — a borrow of the
 // FIRST row matching P (early-exit scan, zero-copy), Option::None when no row
 // matches. The find shape takes NO other clause; scalar params from the
-// wql!(…) list may be referenced bare in the predicate.
+// deem!(…) list may be referenced bare in the predicate.
 package test;
 
 use logos.std.wql.wql;
@@ -13,13 +13,13 @@ struct Person { pub name: str, pub age: i64 }
 
 // hit: borrow of the first row with age 41 (Bob — Dan shares the age but comes
 // LATER in scan order).
-resource find_41 = wql!(people: &[Person]) { from people p find p.age == 41 };
+resource find_41 = deem!(people: &[Person]) { from people p find p.age == 41 };
 
 // miss → None.
-resource find_ancient = wql!(people: &[Person]) { from people p find p.age > 100 };
+resource find_ancient = deem!(people: &[Person]) { from people p find p.age > 100 };
 
 // scalar-param predicate (bare `n`).
-resource find_by_age = wql!(people: &[Person], n: i64) { from people p find p.age == n };
+resource find_by_age = deem!(people: &[Person], n: i64) { from people p find p.age == n };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

@@ -8,7 +8,7 @@
 //
 // The handler REFLECTS the named ADR-0011 `schema` declarations out of the
 // trigger module's AST (SCHEMA_DEF items: name, `code(0x…)` clause, per-field
-// name/type/`= key`) and emits a fn returning a `logos.std.query::SchemaCatalog`
+// name/type/`= key`) and emits a fn returning a `logos.std.deem::SchemaCatalog`
 // built from a `@{…}` STATIC Writ blob in .rodata (content-deduped; zero heap,
 // zero global registry — explicit-metacall house style). Blob envelope — the
 // GENERIC typed-metadata-entry shape (fn-signature entries ride the same array
@@ -261,7 +261,7 @@ pub fn schema_catalog(name: str, s: str) -> ItemList {
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     // A chunk is a SEPARATE AST — it carries its own use-decls.
-    em.push_text("use logos.std.query; use logos.lang.writ.wstatic; ");
+    em.push_text("use logos.std.deem; use logos.lang.writ.wstatic; ");
     em.push_text("pub fn ");
     em.push_text(name);
     em.push_text("() -> SchemaCatalog { return SchemaCatalog::from_static(@{\"v\": 1, \"entries\": [");

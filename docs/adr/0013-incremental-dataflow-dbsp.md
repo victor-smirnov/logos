@@ -9,7 +9,7 @@
 
 ## 0. Context and hard constraints
 
-The WQL/Datalog stack ships two batch consumers of one relational IR (`RExpr`, `stdlib/std/wql/ir.logos`): the static emitter (`rexpr_walk.logos`, queue-1) and the runnable interpreter (`query.logos`, queue-2). Both compute the **batch least fixpoint** by semi-naïve evaluation. What is missing is **incremental maintenance**: given a materialized relation and a batch of ±changes to its sources, recompute only the affected output rows instead of re-running the whole query.
+The WQL/Datalog stack ships two batch consumers of one relational IR (`RExpr`, `stdlib/std/wql/ir.logos`): the static emitter (`rexpr_walk.logos`, queue-1) and the runnable interpreter (`deem.logos`, queue-2). Both compute the **batch least fixpoint** by semi-naïve evaluation. What is missing is **incremental maintenance**: given a materialized relation and a batch of ±changes to its sources, recompute only the affected output rows instead of re-running the whole query.
 
 This ADR designs that engine as a **DBSP-style** (signed-weight Z-set) incremental regime *over the existing RExpr*, not a new IR.
 
@@ -27,7 +27,7 @@ This is deliberately a **basic** implementation. Performance-oriented arrangemen
 
 ### 0.2 Invariants inherited (must not be broken)
 
-- **Set / weighted-set semantics** identical to the batch oracle (dedup via shared hash buckets; `query.logos:2739-2746`).
+- **Set / weighted-set semantics** identical to the batch oracle (dedup via shared hash buckets; `deem.logos:2739-2746`).
 - **Termination / determinism is sacred**: confluent within an epoch, ordered dispatch, no silent round caps (a silent cap changes semantics — `rexpr_walk.logos:4255-4259`).
 - **Recursion admissibility** keyed to `agg_algebra` (`rexpr_walk.logos:66-69`): SEMILATTICE (min/max) safe in fixpoint; GROUP (sum/count/avg) is a named compile error in recursion; default = GROUP/unknown ⇒ reject-in-recursion.
 - **IR is frozen**: the normalized RExpr tree (`RLimit?(RDistinct?(RProj(RSort?(body),sel)))`, `rexpr_walk.logos:243`) is consumed *as-is*; the incremental engine is a **third execution regime**, alongside queue-1 emit and queue-2 interpret.
@@ -38,7 +38,7 @@ This is deliberately a **basic** implementation. Performance-oriented arrangemen
 
 1. **Z-sets are represented as a Writ schema** (dogfooding ADR 0011): a delta row = `{ row: <tuple-row TOM>, w: i64 }`, ℤ multiplicity weight. A Δ-batch is a Writ array of such rows. This makes deltas serializable / relocatable for free.
 2. **Every RExpr operator gets an explicit DELTA-DISCIPLINE class** — LINEAR (Δ passes through, stateless), BILINEAR (join family: `Δ(A⋈B)=ΔA⋈B + A⋈ΔB + ΔA⋈ΔB`), or STATEFUL (distinct, antijoin, aggregate). Aggregates split on the **algebraic-structure column**: GROUP = O(1)-via-inverse; SEMILATTICE = stateful re-min/re-max on retraction. Full table in §3.
-3. **Recursion incrementalizes as nested Δ-streams / DRed** (delta-through-fixpoint), reusing the *exact* semi-naïve loop shape the batch already runs (`query.logos:3750-3832`, `rexpr_walk.logos:4095-4259`) — same `total`/`delta` watermark structure, now driven by external ±deltas across epochs.
+3. **Recursion incrementalizes as nested Δ-streams / DRed** (delta-through-fixpoint), reusing the *exact* semi-naïve loop shape the batch already runs (`deem.logos:3750-3832`, `rexpr_walk.logos:4095-4259`) — same `total`/`delta` watermark structure, now driven by external ±deltas across epochs.
 4. **Synchronous epoch model** (barrier-per-epoch, *logical*). Frontier/progress protocols (Timely/Naiad) are deferred.
 5. **Change-capture fork RESOLVED for slice-1 = (A) mutation-instrumentation**; (B) CoW/snapshot-diff over persistent Writ is **design-for** (needed for R6). Rationale in §6.
 6. **First slice** (§8): plain single-threaded, non-recursive, linear ops + exactly one incremental bilinear join against an in-memory arranged input, driven by ±delta batches, **differential-tested against the batch interpreter oracle** tuple-for-tuple with weights.
@@ -58,7 +58,7 @@ schema ZRow : code(<query-category>_…_ZROW) {
 }
 ```
 
-- The `row` field is the **existing** rel-row representation — rel rows are already tuple-typed schema'd TOMs (`RtVal` element conversion `wany_to_rt`, `query.logos:712`). No new row layout.
+- The `row` field is the **existing** rel-row representation — rel rows are already tuple-typed schema'd TOMs (`RtVal` element conversion `wany_to_rt`, `deem.logos:712`). No new row layout.
 - A **Δ-batch** = a Writ array of `ZRow` (a TOM with `count` + fixed slot edges, exactly like `SExprArr`/`RAggArr`, `ir.logos:58-68`).
 - A **materialized relation under maintenance** = a Z-set: the same `ZRow` array, with weights ≥ 0 after `distinct` (see §3), or raw ℤ multiplicities on internal streams.
 
@@ -66,7 +66,7 @@ schema ZRow : code(<query-category>_…_ZROW) {
 
 - **Layout-independent change capture**: a Δ is a set of `±atom` rows; it does not depend on how the source relation is physically laid out. This is the ADR 0011 dogfood payoff.
 - **Serializable / relocatable for free**: a `ZRow` array is a Writ object; checkpoint/migration of engine state is ≈ free (the Hest asset later, *not* used now).
-- **Registration path already exists**: the schema-catalog seam (`SchemaCatalog`, `query.logos:163`) maps schema-code → typed fields at runtime; the **rodata blob channel** (`from_static`/`merge_static`, `query.logos:315-366`) is the designated metadata path. `ZRow`/`ZBatch` register through the same `add_schema`/`add_field` builder calls as every other IR schema — **no new mechanism**.
+- **Registration path already exists**: the schema-catalog seam (`SchemaCatalog`, `deem.logos:163`) maps schema-code → typed fields at runtime; the **rodata blob channel** (`from_static`/`merge_static`, `deem.logos:315-366`) is the designated metadata path. `ZRow`/`ZBatch` register through the same `add_schema`/`add_field` builder calls as every other IR schema — **no new mechanism**.
 
 ### 2.3 In-memory index / arrangement (the "arranged input")
 
@@ -132,13 +132,13 @@ for each SCC in condensation-topo order:            # reg.order[p]
     }
 ```
 
-Storage: one append-only `Vec` per rel with `total=[0..tot)`, `delta=[dlo..dhi)` watermarks (`query.logos:2739-2746`, `:3817`); variant = `rctx.ovr_w`, not an IR rewrite.
+Storage: one append-only `Vec` per rel with `total=[0..tot)`, `delta=[dlo..dhi)` watermarks (`deem.logos:2739-2746`, `:3817`); variant = `rctx.ovr_w`, not an IR rewrite.
 
 ### 4.2 Incremental (DRed) form
 
 Incremental recursion = **delta-through-fixpoint**. Two motions, both plain loops:
 
-1. **Inner fixpoint (same as batch)**: within one epoch, iterate the semi-naïve loop above to quiescence. The *only* change is the seed: instead of seeding from base bodies only, seed from **the external ΔEDB for this epoch** propagated through the recursive rules. Monotone (positive) recursion just grows `total`; the loop converges when all member deltas are empty — **unchanged termination argument**. **Obligation (review U4): incremental recursion MUST re-apply an incremental `distinct` per rel per round** (the §3 `RDistinct` multiplicity clamp), because the batch loop only terminates thanks to per-round dedup via the rel shadow-set (`RelCtx.hmp`, `query.logos:2739-2746`): without re-clamping each round, raw ℤ multiplicities from a cycle keep the round-delta non-empty forever and the "all deltas empty ⇒ break" quiescence test never fires. Monotone-termination transfers from batch ONLY under this per-round distinct.
+1. **Inner fixpoint (same as batch)**: within one epoch, iterate the semi-naïve loop above to quiescence. The *only* change is the seed: instead of seeding from base bodies only, seed from **the external ΔEDB for this epoch** propagated through the recursive rules. Monotone (positive) recursion just grows `total`; the loop converges when all member deltas are empty — **unchanged termination argument**. **Obligation (review U4): incremental recursion MUST re-apply an incremental `distinct` per rel per round** (the §3 `RDistinct` multiplicity clamp), because the batch loop only terminates thanks to per-round dedup via the rel shadow-set (`RelCtx.hmp`, `deem.logos:2739-2746`): without re-clamping each round, raw ℤ multiplicities from a cycle keep the round-delta non-empty forever and the "all deltas empty ⇒ break" quiescence test never fires. Monotone-termination transfers from batch ONLY under this per-round distinct.
 
 2. **Retraction / DRed (over-deletion → re-derivation)**: a **negative** EDB delta can invalidate derived facts. The standard DRed three-phase, run as plain loops within the epoch:
    - **Over-delete**: propagate `-` deltas through the recursive rules to a fixpoint, tentatively retracting every fact whose derivation *could* depend on a deleted fact.
@@ -238,12 +238,12 @@ Non-recursive ⇒ **one pass, no loop**. Trivially terminating; determinism is t
 
 ## 9. Differential-oracle harness plan
 
-**Oracle = the queue-2 batch interpreter** (`query.logos`), the runnable, data-driven consumer of the same IR. It computes the batch least fixpoint (`qrel_materialize`, `:3750-3832`; `exec_root`, `:4235`) and materializes a self-contained `QRows` (interned strings, `:4198`) with a stable API (`row_count/col_count/get_i64/get_f64/get_bool/get_str/get_node/is_null/col_ty`, `:3606-3631`). Sources bound via `QEnv::bind_source(name, warray)` / `bind_i64` etc. (`:558`).
+**Oracle = the queue-2 batch interpreter** (`deem.logos`), the runnable, data-driven consumer of the same IR. It computes the batch least fixpoint (`qrel_materialize`, `:3750-3832`; `exec_root`, `:4235`) and materializes a self-contained `QRows` (interned strings, `:4198`) with a stable API (`row_count/col_count/get_i64/get_f64/get_bool/get_str/get_node/is_null/col_ty`, `:3606-3631`). Sources bound via `QEnv::bind_source(name, warray)` / `bind_i64` etc. (`:558`).
 
 ### 9.1 The equality asserted
 
 **Slice-1 harness preconditions (review U1) — assert before any compare:**
-- **No rels** (`reg.n == 0`): slice-1 is a rel-free query (linear ops + one join), so `qrel_materialize` (`query.logos:3750-3832`) is SKIPPED and the rel-materialization dedup (`:2739-2746`) never runs. The set/bag boundary for slice-1 is therefore the **top-level `RExpr::Distinct`** node (`query.logos:3502`), NOT the rel shadow-set. The harness asserts `reg.n==0` and inspects the normalized plan for a top `RDistinct` to decide set-vs-bag mode.
+- **No rels** (`reg.n == 0`): slice-1 is a rel-free query (linear ops + one join), so `qrel_materialize` (`deem.logos:3750-3832`) is SKIPPED and the rel-materialization dedup (`:2739-2746`) never runs. The set/bag boundary for slice-1 is therefore the **top-level `RExpr::Distinct`** node (`deem.logos:3502`), NOT the rel shadow-set. The harness asserts `reg.n==0` and inspects the normalized plan for a top `RDistinct` to decide set-vs-bag mode.
 - **Non-negative source clamp**: the LHS builds its source input as a **Writ array** (`bind_source` over a `warray`), which **cannot carry negative multiplicity**. So `D ⊕ Δ` must be clamped to non-negative per-row weights *before* materializing the LHS array (a delete that drives a row's count to 0 removes it; a delete of an absent row is a no-op on the source, though the RHS engine must still handle the transient negative — see below). The RHS `out_int` MAY hold transient negative weights mid-epoch (a `-` arriving before its balancing `+`); **compare only at quiescence** (§4.4 U3), where a correct engine has netted them.
 
 For query `Q`, base data `D`, and a random ±delta batch `Δ`:
@@ -294,7 +294,7 @@ batch(D ⊕ Δ)  ==  incremental( batch(D), Δ )      # netted weighted multiset
 
 ### 10.3 Where the first slice could FAIL to be differential-testable
 
-- **Bag vs set weight mismatch**: if the batch interpreter silently de-dups (set semantics) at a point where the incremental engine is still carrying raw ℤ multiplicities, the multiset compare (§9.1) diverges *spuriously*. Mitigation: the compare must clamp both sides identically at the plan's `RDistinct` boundary, and the harness must **assert the plan shape** (where distinct sits) before comparing. If a plan has *no* `RDistinct`, both sides must agree to run in bag mode. For slice-1 (rel-free, `reg.n==0`) the only dedup point is the top-level `RExpr::Distinct` (`query.logos:3502`) — the rel-materialization dedup (`:2739-2746`) is never reached (§9.1 U1). The harness asserts this before choosing set-vs-bag mode.
+- **Bag vs set weight mismatch**: if the batch interpreter silently de-dups (set semantics) at a point where the incremental engine is still carrying raw ℤ multiplicities, the multiset compare (§9.1) diverges *spuriously*. Mitigation: the compare must clamp both sides identically at the plan's `RDistinct` boundary, and the harness must **assert the plan shape** (where distinct sits) before comparing. If a plan has *no* `RDistinct`, both sides must agree to run in bag mode. For slice-1 (rel-free, `reg.n==0`) the only dedup point is the top-level `RExpr::Distinct` (`deem.logos:3502`) — the rel-materialization dedup (`:2739-2746`) is never reached (§9.1 U1). The harness asserts this before choosing set-vs-bag mode.
 - **Deletes of non-existent rows** (negative net weight): the incremental engine must not emit phantom `-` rows for tuples never present. If it does, `out_int` goes negative and the compare catches it — but only if the generator actually produces such deletes (§9.3 (b) mandates it). Risk = under-generation; mitigated by explicitly including that case.
 - **Integrate-order bug** (§8.2 step 5 after step 1): if integration happens *before* the join computes, the `ΔA⋈ΔB` term is double-counted (ΔA already in A_int). This is the classic DBSP bug; the harness's multi-epoch mode (§9.3) is specifically what catches it — a single epoch from empty state can accidentally pass. **The multi-epoch sequence is load-bearing for correctness testing, not optional.**
 - **REdge non-arrangeability**: `REdge` is out of slice-1, but if a test query lowers a path step to `REdge` unexpectedly, the slice-1 engine (which only handles arranged `RJoin`) would silently mishandle it. Mitigation: slice-1 harness must **reject/skip** any plan containing `REdge`/`RAnti`/`RAggr`/`RFix`/`RSort`/`RLimit` and assert the plan is within the linear+one-join fragment.
@@ -321,7 +321,7 @@ batch(D ⊕ Δ)  ==  incremental( batch(D), Δ )      # netted weighted multiset
 
 Adversarial review flagged three defects + two pre-build items; all applied inline above (design edits, not redesigns):
 
-- **U1 — slice-1 oracle precondition** (§9.1, §10.3): re-anchored the set/bag dedup point to the top `RExpr::Distinct` (`query.logos:3502`), NOT the rel-materialization dedup (`:2739-2746`) — slice-1 is rel-free (`reg.n==0`, `qrel_materialize` skipped). Mandated the harness assert `reg.n==0`, the non-negative source-array clamp on `D⊕Δ`, and compare-only-at-quiescence (RHS `out_int` may hold transient negatives mid-epoch).
+- **U1 — slice-1 oracle precondition** (§9.1, §10.3): re-anchored the set/bag dedup point to the top `RExpr::Distinct` (`deem.logos:3502`), NOT the rel-materialization dedup (`:2739-2746`) — slice-1 is rel-free (`reg.n==0`, `qrel_materialize` skipped). Mandated the harness assert `reg.n==0`, the non-negative source-array clamp on `D⊕Δ`, and compare-only-at-quiescence (RHS `out_int` may hold transient negatives mid-epoch).
 - **U2 — count-of-best storage** (§3.1): corrected — it does not save value storage (re-scan needs the upstream integrated arrangement); it is a lazy variant of multiset, not an independent strategy.
 - **U3 — determinism scope** (§4.4): scoped determinism to the epoch-final NETTED delta (integrate-then-diff at quiescence); raw per-step emissions of stateful ops are order-dependent. Effects (§7) observe only the netted delta.
 - **U4 — distinct-per-round obligation** (§4.2): incremental recursion must re-apply incremental `distinct` per rel per round, else monotone termination does not transfer from batch (batch terminates only because `RelCtx.hmp` dedups each round).

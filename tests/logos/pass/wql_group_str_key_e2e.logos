@@ -19,12 +19,12 @@ use logos.lang.str;
 struct Row  { pub dept: str, pub amt: i64 }
 struct Dept { pub name: str, pub region: str }
 
-resource by_dept = wql!(rows: &[Row]) {
+resource by_dept = deem!(rows: &[Row]) {
     from rows r group by r.dept aggregate n = count(), total = sum(r.amt)
     select (key, n, total) order by key
 };
 
-resource by_region = wql!(rows: &[Row], depts: &[Dept]) {
+resource by_region = deem!(rows: &[Row], depts: &[Dept]) {
     from rows r
     join depts d on r.dept == d.name
     group by d.region
@@ -32,7 +32,7 @@ resource by_region = wql!(rows: &[Row], depts: &[Dept]) {
     select (key, total) order by key desc
 };
 
-resource by_rel = wql!(rows: &[Row]) {
+resource by_rel = deem!(rows: &[Row]) {
     rel big(dept: str, amt: i64) {
         from rows r where r.amt > 5 select (r.dept, r.amt);
     }

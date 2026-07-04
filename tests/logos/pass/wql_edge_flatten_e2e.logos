@@ -13,7 +13,7 @@ use logos.lang.str;
 struct Emp  { pub name: str, pub skills: Vec<str> }
 struct Dept { pub dname: str, pub emps: Vec<Emp> }
 
-resource all_skills = wql!(depts: &[Dept]) {
+resource all_skills = deem!(depts: &[Dept]) {
     from depts d
     join d.emps e
     join e.skills s

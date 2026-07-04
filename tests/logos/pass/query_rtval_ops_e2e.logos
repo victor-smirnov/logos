@@ -9,7 +9,7 @@
 package test;
 
 use logos.std.wql.catalog_macro;
-use logos.std.query;
+use logos.std.deem;
 use logos.lang.result;
 use logos.mem.string;
 use logos.lang.str;

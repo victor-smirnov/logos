@@ -3,7 +3,7 @@
 // every argument in the `SExprArr`'s fixed slots, so a 2-arg builtin emits BOTH
 // operands. This test exercises `contains(haystack, needle)` where BOTH args are
 // load-bearing — a first-arg-only regression would mis-filter — AND mixes a
-// FIELD arg with a runtime PARAM arg (`sub`, a scalar param from the wql!(…)
+// FIELD arg with a runtime PARAM arg (`sub`, a scalar param from the deem!(…)
 // list), proving the param flows through the materialized arg list.
 package test;
 
@@ -19,7 +19,7 @@ struct Person {
 //   pub fn pick(people: &[Person], sub: str) -> Vec<str> {
 //       … if (str_contains((p.name),(sub))) { __out.push(p.dept); } …
 //   }
-resource pick = wql!(people: &[Person], sub: str) { from people p
+resource pick = deem!(people: &[Person], sub: str) { from people p
       where contains(p.name, sub)
       select p.dept : str };
 

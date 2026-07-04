@@ -3,9 +3,9 @@
 //
 // MOVED OUT of rexpr_walk (queue-2 slice I2): the lowering is a PURE IR→IR
 // function over Writ schemas — no Emitter, no reflection, no metaprog — and the
-// DYNAMIC interpreter (logos.std.query, ADR 0012-queue2) reuses it verbatim at
+// DYNAMIC interpreter (logos.std.deem, ADR 0012-queue2) reuses it verbatim at
 // RUNTIME (`Query::compile`). rexpr_walk (metaprog-tainted: Emitter/error) keeps
-// the STATIC emitters and imports this module; logos.std.query imports it
+// the STATIC emitters and imports this module; logos.std.deem imports it
 // without dragging compiler hooks into a runtime link.
 //
 // Shapes produced (identical to the pre-move rexpr_walk Part 1):

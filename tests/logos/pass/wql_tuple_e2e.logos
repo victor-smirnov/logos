@@ -17,18 +17,18 @@ use logos.lang.str;
 struct Emp { pub id: i64, pub name: str, pub score: f64, pub dept: i64 }
 
 // 2-tuple: (id, name) for every row.
-resource id_names = wql!(emps: &[Emp]) { from emps e select (e.id, e.name) };
+resource id_names = deem!(emps: &[Emp]) { from emps e select (e.id, e.name) };
 
 // 3-tuple mixed i64/str/f64, filtered.
-resource top_rows = wql!(emps: &[Emp]) { from emps e where e.score > 2.0 select (e.id, e.name, e.score) };
+resource top_rows = deem!(emps: &[Emp]) { from emps e where e.score > 2.0 select (e.id, e.name, e.score) };
 
 // Component EXPRESSIONS: arithmetic + a builtin call + const-fold inside a
 // component ((2 + 3) * e.id folds the (2+3)) — components are full EL exprs.
-resource calc_rows = wql!(emps: &[Emp]) { from emps e select ((2 + 3) * e.id, len(e.name)) };
+resource calc_rows = deem!(emps: &[Emp]) { from emps e select ((2 + 3) * e.id, len(e.name)) };
 
 // Grouping non-regression: `(e.id)` (NO comma) is still plain grouping — a
 // scalar i64 projection, not a 1-tuple.
-resource grouped = wql!(emps: &[Emp]) { from emps e select (e.id) };
+resource grouped = deem!(emps: &[Emp]) { from emps e select (e.id) };
 
 fn main() -> i32 {
     let emps: [Emp; 3] = [

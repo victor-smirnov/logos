@@ -20,7 +20,7 @@ fn sumsq_init() -> f64 { return 0.0f64; }
 fn sumsq_step(acc: f64, x: f64) -> f64 { return acc + x * x; }
 fn sumsq_fin(acc: f64) -> f64 { return acc * 10.0f64; }
 
-resource groups = wql!(xs: &[M]) { from xs x
+resource groups = deem!(xs: &[M]) { from xs x
       group by x.g
       aggregate s = sumsq(x.v), c = count()
       having s > 100.0

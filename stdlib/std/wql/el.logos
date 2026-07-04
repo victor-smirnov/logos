@@ -1,7 +1,7 @@
 // logos.std.wql.el — EL (Expression Language) SHARED TYPES: the CEL operator ids
 // (`OP_*`), the value-type lattice (`EL_TY_*` / `el_ty_of_name`), and the
 // name→value-type dictionary (`ElTypes`) the wql!/trama! handlers build from
-// schema reflection + the `wql!(…)`/`trama!(…)` parameter list.
+// schema reflection + the `deem!(…)`/`trama!(…)` parameter list.
 //
 // The hand-written recursive-descent EL PARSER that used to live here is RETIRED
 // (ADR 0012 peg-frontend Phase 4). EL parsing is now done by the peg_gen_logos-
@@ -41,7 +41,7 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 // backends map it to one of these builtin ids. The id table is small + stable;
 // unknown names diagnose in the caller. Lives HERE (not codegen) because it is
 // shared by the STATIC emitters (logos.std.wql.codegen) and the DYNAMIC
-// interpreter (logos.std.query) — this package is metaprog-free, so the
+// interpreter (logos.std.deem) — this package is metaprog-free, so the
 // runtime side imports it without dragging compiler hooks into the link.
 pub fn BFN_UNKNOWN()     -> i32 { return 0i32; }
 pub fn BFN_LEN()         -> i32 { return 1i32; }
@@ -173,7 +173,7 @@ pub fn el_ret_class(name: str) -> i32 {
 //   avg   : T   → Quot(T)    (Quot(INT) = Quot(FLT) = FLT under the current
 //                             numeric tower — the exact mean, f64 division)
 // Lives HERE (metaprog-free, IR-level shared code) so the DYNAMIC interpreter
-// (logos.std.query) consults it now and the STATIC emitter (rexpr_walk's
+// (logos.std.deem) consults it now and the STATIC emitter (rexpr_walk's
 // agg_flt/act computation) MIGRATES to consult the same table later — one
 // rule source, two consumers.
 
@@ -213,7 +213,7 @@ pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
 // still needs each field/param/var's EL value-type (str/bool/int) to route
 // push_str vs push_i64 and choose the result element type. `ElTypes` is that
 // mapping, built by the wql!/trama! HANDLER from (a) schema reflection over the
-// source/context struct and (b) the `wql!(…)`/`trama!(…)` PARAM LIST (scalar
+// source/context struct and (b) the `deem!(…)`/`trama!(…)` PARAM LIST (scalar
 // params seed their declared value-type) — and passed to the codegen instead
 // of the parser. It is a small association list over borrowed `str` name views
 // (the names live in the surface text / interned WStrings, which outlive the

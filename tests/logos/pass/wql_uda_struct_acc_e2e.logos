@@ -27,13 +27,13 @@ fn imean_fin(acc: Acc) -> i64 {
 }
 
 // Classic path (single source).
-resource means = wql!(xs: &[P]) { from xs x
+resource means = deem!(xs: &[P]) { from xs x
       group by x.g
       aggregate m = imean(x.v)
       select key * 1000 + m };
 
 // Join-fold path (struct accumulator inside Vec<Acc> group columns).
-resource joined_means = wql!(xs: &[P], ks: &[K]) { from xs x
+resource joined_means = deem!(xs: &[P], ks: &[K]) { from xs x
       join ks k on x.g == k.id
       group by x.g
       aggregate m = imean(x.v)

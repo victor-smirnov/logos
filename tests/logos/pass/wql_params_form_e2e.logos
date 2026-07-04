@@ -1,4 +1,4 @@
-// WQL PARAMETERIZED surface e2e — `wql!(<params>){ <query> }` (the trama!
+// WQL PARAMETERIZED surface e2e — `deem!(<params>){ <query> }` (the trama!
 // model, ADR 0012 §6). The parens carry a REAL Logos parameter list re-emitted
 // VERBATIM as the generated fn signature:
 //   • TWO slice params (`emps: &[Emp]`, `depts: &[Dept]`) are the query
@@ -22,7 +22,7 @@ use logos.lang.str;
 struct Emp  { pub name: str, pub dept: i64, pub salary: i64 }
 struct Dept { pub id: i64,   pub budget: i64 }
 
-resource top_paid = wql!(emps: &[Emp], depts: &[Dept], n: i64) {
+resource top_paid = deem!(emps: &[Emp], depts: &[Dept], n: i64) {
     from emps e join depts d on e.dept == d.id
     where e.salary > n * 10
     select e.name limit n : str };

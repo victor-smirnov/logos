@@ -12,7 +12,7 @@ use logos.mem.collections.vec;
 struct Sale { pub dept: i64, pub amount: i64 }
 
 // (key, n, mean) + having: only groups with ≥ 2 sales survive.
-resource dept_stats = wql!(sales: &[Sale]) {
+resource dept_stats = deem!(sales: &[Sale]) {
     from sales s
     group by s.dept
     aggregate n = count(), mean = avg(s.amount)
@@ -20,7 +20,7 @@ resource dept_stats = wql!(sales: &[Sale]) {
     select (key, n, mean) };
 
 // Plain single-pass shape (no modifiers): (key, total).
-resource dept_totals = wql!(sales: &[Sale]) {
+resource dept_totals = deem!(sales: &[Sale]) {
     from sales s
     group by s.dept
     aggregate total = sum(s.amount)

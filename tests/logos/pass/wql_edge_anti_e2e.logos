@@ -13,13 +13,13 @@ struct Emp  { pub name: str, pub skills: Vec<str> }
 struct Dept { pub dname: str, pub emps: Vec<Emp> }
 
 // Depts with NO employees at all (anti + empty-containment).
-resource empty_depts = wql!(depts: &[Dept]) {
+resource empty_depts = deem!(depts: &[Dept]) {
     from depts d
     anti join d.emps e
     select d.dname };
 
 // Employees with NO "rust" skill (anti traversal WITH a predicate).
-resource no_rust = wql!(depts: &[Dept]) {
+resource no_rust = deem!(depts: &[Dept]) {
     from depts d
     join d.emps e
     anti join e.skills s on s == "rust"

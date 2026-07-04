@@ -8,7 +8,7 @@
 // field/param/var NAMES directly off the IR nodes (`f.name`, `pp.name`,
 // `c.fn_name`, …) — NOT from an `ElParser` dense side table. Value-TYPES come
 // from a name→type dictionary (`ElTypes`) the handler builds from schema
-// reflection + the `wql!(…)`/`trama!(…)` parameter list. So the codegen depends
+// reflection + the `deem!(…)`/`trama!(…)` parameter list. So the codegen depends
 // only on the IR + a type dict, never on the parser — which is what makes a
 // peg-generated parser a drop-in producer of the same IR.
 package logos.std.wql.codegen;
@@ -52,7 +52,7 @@ pub fn begin_chunk(em: &mut Emitter, view: &OView) {
 // ── Builtin function registry ───────────────────────────────────────────────
 // The registry (BFN_* ids, builtin_of_name/arity/ret_ty) and the RUNTIME helper
 // fns (wql_upper / wql_lower / wql_f64_to_str) now live in logos.std.wql.el —
-// shared with the DYNAMIC interpreter (logos.std.query), which must not import
+// shared with the DYNAMIC interpreter (logos.std.deem), which must not import
 // this metaprog-tainted package. Imported here via `use logos.std.wql.el`.
 //
 // Each builtin lowers to a fully-qualified stdlib call (qualified-path form, so

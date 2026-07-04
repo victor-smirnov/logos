@@ -18,19 +18,19 @@ use logos.lang.str;
 struct Person { pub name: str, pub age: i64, pub weight: f64 }
 
 // asc int key: ages sorted ascending.
-resource ages_asc = wql!(people: &[Person]) { from people p select p.age order by p.age };
+resource ages_asc = deem!(people: &[Person]) { from people p select p.age order by p.age };
 
 // desc int key + limit 2: the two largest ages, descending.
-resource top2_ages = wql!(people: &[Person]) { from people p select p.age order by p.age desc limit 2 };
+resource top2_ages = deem!(people: &[Person]) { from people p select p.age order by p.age desc limit 2 };
 
 // asc str key: names sorted byte-lexicographically.
-resource names_by_name = wql!(people: &[Person]) { from people p select p.name order by p.name : str };
+resource names_by_name = deem!(people: &[Person]) { from people p select p.name order by p.name : str };
 
 // asc FLT key + limit 2: the two lightest people's names (f64 sort keys).
-resource lightest2 = wql!(people: &[Person]) { from people p select p.name order by p.weight limit 2 : str };
+resource lightest2 = deem!(people: &[Person]) { from people p select p.name order by p.weight limit 2 : str };
 
 // where + order desc + limit: adult names by age descending, first 2.
-resource adult_names = wql!(people: &[Person]) { from people p where p.age >= 18 select p.name order by p.age desc limit 2 : str };
+resource adult_names = deem!(people: &[Person]) { from people p where p.age >= 18 select p.name order by p.age desc limit 2 : str };
 
 fn main() -> i32 {
     let people: [Person; 5] = [

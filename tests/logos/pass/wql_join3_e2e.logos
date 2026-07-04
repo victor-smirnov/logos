@@ -17,7 +17,7 @@ struct Reg  { pub rid: i64,  pub bonus: i64 }
 
 // 3-way chain: emp → dept (e.dept == d.id) → region (d.region == r.rid);
 // project salary + region bonus.
-resource emp_bonus = wql!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+resource emp_bonus = deem!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
     from emps e
     join depts d on e.dept == d.id
     join regs r on d.region == r.rid

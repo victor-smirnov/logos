@@ -14,19 +14,19 @@ struct Person { pub name: str, pub age: i64 }
 struct Dept   { pub id: i64, pub label: str }
 
 // hit: the first adult's name in SCAN order (Eve 12 skipped → Ada).
-resource first_adult = wql!(people: &[Person]) { from people p where p.age >= 18 select first p.name : str };
+resource first_adult = deem!(people: &[Person]) { from people p where p.age >= 18 select first p.name : str };
 
 // miss: nobody above 100 → None.
-resource first_ancient = wql!(people: &[Person]) { from people p where p.age > 100 select first p.age };
+resource first_ancient = deem!(people: &[Person]) { from people p where p.age > 100 select first p.age };
 
 // order by desc: the OLDEST person's name (sort first, then take the head).
-resource oldest_name = wql!(people: &[Person]) { from people p select first p.name order by p.age desc : str };
+resource oldest_name = deem!(people: &[Person]) { from people p select first p.name order by p.age desc : str };
 
-// scalar param in the predicate (typed via the wql!(…) list).
-resource first_over = wql!(people: &[Person], n: i64) { from people p where p.age >= n select first p.name : str };
+// scalar param in the predicate (typed via the deem!(…) list).
+resource first_over = deem!(people: &[Person], n: i64) { from people p where p.age >= n select first p.name : str };
 
 // join + first: the first (x,d) match in scan order projects d.label.
-resource first_dept = wql!(people: &[Person], depts: &[Dept]) { from people x join depts d on x.age == d.id select first d.label : str };
+resource first_dept = deem!(people: &[Person], depts: &[Dept]) { from people x join depts d on x.age == d.id select first d.label : str };
 
 fn main() -> i32 {
     let people: [Person; 4] = [

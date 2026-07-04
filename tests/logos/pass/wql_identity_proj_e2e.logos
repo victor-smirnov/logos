@@ -18,7 +18,7 @@ struct Person {
 }
 
 // Identity projection over an unfiltered scan → borrow-and-return `&[Person]`.
-resource all_people = wql!(people: &[Person]) { from people p select p };
+resource all_people = deem!(people: &[Person]) { from people p select p };
 
 fn main() -> i32 {
     let people: [Person; 3] = [

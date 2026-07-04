@@ -8,7 +8,7 @@ use logos.mem.collections.vec;
 
 struct Node { pub id: i64, pub kids: Vec<i64> }
 
-resource bad = wql!(nodes: &[Node]) {
+resource bad = deem!(nodes: &[Node]) {
     rel ids(x: i64) {
         from nodes n select n.id;
     }

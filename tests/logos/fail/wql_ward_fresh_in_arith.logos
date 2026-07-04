@@ -10,7 +10,7 @@ use logos.lang.str;
 
 struct Node { pub k: i64 }
 
-resource q = wql!(base: &[Node]) {
+resource q = deem!(base: &[Node]) {
     rel R(v: i64) { from base b select (b.k + fresh()); }
     from R r select (r.v)
 };

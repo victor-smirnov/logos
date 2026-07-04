@@ -39,15 +39,15 @@ fn label(n: str) -> String {
 }
 
 // i64 UDF in where + f64 UDF in select.
-resource taxed_prices = wql!(xs: &[Item]) { from xs x
+resource taxed_prices = deem!(xs: &[Item]) { from xs x
       where weight(x.qty) >= 6
       select taxed(x.price) : f64 };
 
 // i32-returning UDF: emitted as ((half32(x.qty)) as i64) inside i64 arithmetic.
-resource halves = wql!(xs: &[Item]) { from xs x select half32(x.qty) + 100 };
+resource halves = deem!(xs: &[Item]) { from xs x select half32(x.qty) + 100 };
 
 // String-returning UDF projected → Vec<String> (owned elements).
-resource labels = wql!(xs: &[Item]) { from xs x where x.qty > 3 select label(x.name) };
+resource labels = deem!(xs: &[Item]) { from xs x where x.qty > 3 select label(x.name) };
 
 fn main() -> i32 {
     let xs: [Item; 3] = [

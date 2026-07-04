@@ -18,7 +18,7 @@
 //      wql! handler routes `parse → RQuery → lower_rquery_to_rexpr → simplify
 //      (Phase-1, on the embedded SExpr edges) → emit_rexpr`.
 //
-// The fn envelope (name, the VERBATIM `wql!(…)` param list, result-type
+// The fn envelope (name, the VERBATIM `deem!(…)` param list, result-type
 // inference) rides beside the RExpr tree — `RScan` carries the source binding
 // (name + row-type + loop var) and `RProj.sel` the projection. The generated fn
 // SIGNATURE is `pub fn <name>(<params verbatim>) -> Ret` (the trama! model);
@@ -37,7 +37,7 @@ use logos.lang.writ.wmap;
 use logos.std.wql.ir;
 use logos.std.wql.plan;
 use logos.std.wql.el;         // ElTypes, el_types_new, el_ty_of_name, EL_TY_*
-use logos.std.wql.params;     // MacroParams — the parsed wql!(…) param list
+use logos.std.wql.params;     // MacroParams — the parsed deem!(…) param list
 use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
@@ -99,7 +99,7 @@ pub fn SELM_FIND()  -> i32 { return 2i32; }
 // (filter folding, identity-projection collapse, projection composition) with
 // the embedded scalar clauses const-folded inside it, then EMIT the (possibly
 // thinner) form. `fn_name` / `result_ty` come off the surface plan envelope;
-// `params_text` is the RAW `wql!(…)` paren text (re-emitted VERBATIM as the
+// `params_text` is the RAW `deem!(…)` paren text (re-emitted VERBATIM as the
 // generated fn signature) and `prm` its parsed form (scalar-param typing +
 // limit-param validation); the relational STRUCTURE + clause bodies live on
 // the RExpr tree.
@@ -156,7 +156,7 @@ pub fn stamp_rel_source(ty: &mut ElTypes, prm: &MacroParams,
 }
 
 // Shared: seed the type dict with each SCALAR param's declared value-type off
-// the parsed `wql!(…)` list — the replacement for the retired `with` overlay.
+// the parsed `deem!(…)` list — the replacement for the retired `with` overlay.
 // Slice params are SOURCES (their row schemas are reflected separately); a
 // scalar param referenced BARE in EL (`e.salary > min_sal`, `limit n`) types
 // through this seeding.
@@ -171,16 +171,16 @@ fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
 }
 
 // Validate a `limit <ident>` reference: the ident must name a SCALAR param
-// declared in the wql!(…) list. Surfaces an `error` (build failure) otherwise.
+// declared in the deem!(…) list. Surfaces an `error` (build failure) otherwise.
 fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
     if !mods.has_limit || !mods.limit_is_param { return true; }
     if prm.is_scalar(mods.limit_param) { return true; }
-    error("wql!: `limit <ident>` must name a scalar (i64) parameter declared in the wql!(…) parameter list");
+    error("wql!: `limit <ident>` must name a scalar (i64) parameter declared in the deem!(…) parameter list");
     return false;
 }
 
 // Emit the generated fn signature head: `pub fn <name>(<params verbatim>`.
-// The paren text is the REAL Logos parameter list from the wql!(…) surface —
+// The paren text is the REAL Logos parameter list from the deem!(…) surface —
 // the compiler parses + type-checks it when the emitted chunk compiles, and
 // the generated-fn param ORDER is the paren-list order, verbatim.
 fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str) {
@@ -928,7 +928,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 // the predicate (zero-copy; the emit_identity accessor-collapse precedent shows
 // returning borrows of the slice param works), `Option::None` when no row
 // matches. Early-exit loop — no Vec, no materialization. Scalar params from the
-// wql!(…) list may be referenced BARE in the predicate (typed off the list).
+// deem!(…) list may be referenced BARE in the predicate (typed off the list).
 fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
              fn_name: str, params_text: str, prm: &MacroParams,
              prelude: str, h: &Writ) -> bool {

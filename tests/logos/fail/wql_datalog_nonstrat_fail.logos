@@ -10,7 +10,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource bad = wql!(edges: &[Edge]) {
+resource bad = deem!(edges: &[Edge]) {
     rel p(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from q x join edges e on x.b == e.src select (x.a, e.dst);

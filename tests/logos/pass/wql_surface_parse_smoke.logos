@@ -5,7 +5,7 @@
 // `parse_entry` helper unwraps the envelope (these samples declare no rels, so
 // the rels edge is NULL).
 //
-// PARAMETERIZED surface: sources are named by their `wql!(…)` slice-param name
+// PARAMETERIZED surface: sources are named by their `deem!(…)` slice-param name
 // (`from people p` — no inline `:[Ty]`; the handler stamps row types AFTER the
 // parse, so `row_ty`/`a_ty`/`b_ty` are EMPTY here), scalar params are bare
 // idents inside the EL bodies, and `limit` takes an INTEGER or a bare IDENT

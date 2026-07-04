@@ -51,7 +51,7 @@
 //     the `as_slice()` views the entry scans reference.
 //
 // PARAMETERIZED surface (the trama! model): the handler passes the RAW
-// `wql!(…)` paren text (re-emitted VERBATIM as the generated fn signature) +
+// `deem!(…)` paren text (re-emitted VERBATIM as the generated fn signature) +
 // its parsed form (`MacroParams`). Row TYPES are stamped from the SLICE
 // params' element types; rel row types from the declared columns.
 //
@@ -64,7 +64,7 @@ use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // RExpr, WRef
 use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (allocator-carrying views)
-use logos.std.wql.params;         // MacroParams — the parsed wql!(…) param list + rel registry
+use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
 use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
@@ -119,7 +119,7 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
 
 // ── RelDeps + compute_rel_scc — MOVED to logos.std.wql.params (queue-2 I3) ──
 // The pure graph half (dependency edge list + Warshall/Kahn condensation) is
-// metaprog-free and now shared with the runtime interpreter (logos.std.query),
+// metaprog-free and now shared with the runtime interpreter (logos.std.deem),
 // which re-hosts the same semi-naïve algorithm as an interpreter loop. This
 // module keeps only the metaprog-entangled validation/emission around it.
 
@@ -252,7 +252,7 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
         m1.push_str(src);
         m1.push_str("` is not a slice — declare it as `");
         m1.push_str(src);
-        m1.push_str(": &[RowTy]` in the wql!(…) parameter list");
+        m1.push_str(": &[RowTy]` in the deem!(…) parameter list");
         error(string_as_str(&m1));
         return src_fail();
     }
@@ -266,7 +266,7 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     let mut msg: String = String::new();
     msg.push_str("wql!: unknown source `");
     msg.push_str(src);
-    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the wql!(…) parameter list or a rel declared in the block");
+    msg.push_str("` — a from/join source must name a `&[RowTy]` parameter declared in the deem!(…) parameter list or a rel declared in the block");
     error(string_as_str(&msg));
     return src_fail();
 }
