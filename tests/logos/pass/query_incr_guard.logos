@@ -73,8 +73,14 @@ fn main() -> i32 {
     if !accepts("from emps e anti join depts d on e.dept == d.id select e.name", &c, &env) { return 3i32; }
     // REJECT: self-anti (a single ΔA must feed both positions — §10.4).
     if accepts("from emps e anti join emps m on e.dept == m.dept select e.name", &c, &env) { return 11i32; }
-    // REJECT: aggregate / group-by.
-    if accepts("from emps e group by e.dept aggregate cnt = count() select (key, cnt)", &c, &env) { return 4i32; }
+    // ACCEPT: top-level GROUP aggregate over a single scan (slice-3, abelian
+    // GROUP — count/sum/avg have an O(1) inverse-on-retract).
+    if !accepts("from emps e group by e.dept aggregate cnt = count() select (key, cnt)", &c, &env) { return 4i32; }
+    if !accepts("from emps e group by e.dept aggregate s = sum(e.dept) select (key, s)", &c, &env) { return 12i32; }
+    if !accepts("from emps e group by e.dept aggregate a = avg(e.dept) select (key, a)", &c, &env) { return 13i32; }
+    // REJECT: SEMILATTICE min/max incremental is deferred (§3.1 re-min on retraction).
+    if accepts("from emps e group by e.dept aggregate m = min(e.dept) select (key, m)", &c, &env) { return 14i32; }
+    if accepts("from emps e group by e.dept aggregate m = max(e.dept) select (key, m)", &c, &env) { return 15i32; }
     // REJECT: limit (top-of-plan, order-dependent).
     if accepts("from emps e join depts d on e.dept == d.id select d.dname limit 1", &c, &env) { return 5i32; }
     // REJECT: order by (RSort).

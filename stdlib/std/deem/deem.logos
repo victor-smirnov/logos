@@ -4322,6 +4322,73 @@ fn arr_new(var: str) -> Arr {
     };
 }
 
+// ── AggState — per-group i64 accumulators for incremental GROUP aggregation ──
+// (DBSP slice-3, ADR 0013 §3.1). One SLOT per distinct group key; slots are
+// NEVER deleted (mirrors `Arr`), an emptied group keeps its slot with
+// gcount==0/gsum==0 (the abelian GROUP inverse over CLAMPED truth) and is reused
+// cleanly on re-appearance.
+//   keyv   — group key RtVal per slot (string keys interned into the out arena)
+//   gcount — Σw = count() value AND the avg denominator per slot
+//   gsum   — stride agg_n: Σ(w·rt_i(arg)) per agg slot (i64 → exact inverse, no
+//            float drift; matches the slice-1 i64-value constraint). count slots
+//            carry an unused 0; avg slots carry the numerator Σ(w·arg).
+//   live   — gcount>0 (the group currently has an emitted output row)
+//   idx    — rt_key_hash(key) -> slots (rt_eq verify on collision), the group
+//            probe index (mirrors zout's bucket+verify pattern).
+pub struct AggState {
+    keyv:   Vec<RtVal>,
+    gcount: Vec<i64>,
+    gsum:   Vec<i64>,
+    live:   Vec<bool>,
+    idx:    HashMap<u64, Vec<i64>>,
+}
+fn aggstate_new() -> AggState {
+    return AggState {
+        keyv: vec_new::<RtVal>(), gcount: vec_new::<i64>(), gsum: vec_new::<i64>(),
+        live: vec_new::<bool>(), idx: hashmap_new::<u64, Vec<i64>>(),
+    };
+}
+// Group slot of key `k`, or -1 (rt_key_hash bucket + rt_eq verify).
+fn aggstate_find(agg: &AggState, k: RtVal) -> i64 {
+    let h: u64 = rt_key_hash(k);
+    let mp: *mut HashMap<u64, Vec<i64>> =
+        (&agg.idx as *const HashMap<u64, Vec<i64>>) as *mut HashMap<u64, Vec<i64>>;
+    let bp: *const Vec<i64> = unsafe { mp.get(&h) };
+    if (bp as i64) == 0i64 { return -1i64; }
+    let bucket: &Vec<i64> = unsafe { &*bp };
+    let nb: i64 = bucket.len();
+    let mut t: i64 = 0i64;
+    while t < nb {
+        let o: i64 = bucket.get(t);
+        if rt_eq(agg.keyv.get(o), k) { return o; }
+        t = t + 1i64;
+    }
+    return -1i64;
+}
+// Ensure a slot for key `k` (created zeroed, live=false, gsum stride `n`).
+// String keys are interned into `arena` so the group row stays self-contained.
+fn aggstate_ensure(agg: &mut AggState, k: RtVal, n: i64, arena: &Writ) -> i64 {
+    let existing: i64 = aggstate_find(agg, k);
+    if existing >= 0i64 { return existing; }
+    let slot: i64 = agg.gcount.len();
+    let h: u64 = rt_key_hash(k);
+    let mp: *mut HashMap<u64, Vec<i64>> = &mut agg.idx;
+    unsafe {
+        let vp: *mut Vec<i64> = mp.get_or_insert(h, vec_new::<i64>());
+        (&mut *vp).push(slot);
+    }
+    let ki: RtVal = match k {
+        RtVal::S(s) => { RtVal::S(intern_str(arena, s)) }
+        _ => { k }
+    };
+    agg.keyv.push(ki);
+    agg.gcount.push(0i64);
+    agg.live.push(false);
+    let mut i: i64 = 0i64;
+    while i < n { agg.gsum.push(0i64); i = i + 1i64; }
+    return slot;
+}
+
 // The maintained OUTPUT Z-set, keyed on the canonical projected tuple.
 //   cells — stride ncols (interned strings, self-contained)
 //   wt    — bag multiplicity per distinct tuple
@@ -4542,6 +4609,37 @@ fn ij_anti_emit(odp: *mut ZOut, arena: &Writ, l_node: WAny, w: i64,
     zout_bump(odp, arena, &cells, 0i64, w);
 }
 
+// Aggregate group-row emit (DBSP slice-3): one group row (key + agg values,
+// weight w which may be −1 on retraction) → optional HAVING → project → coalesce
+// into `od`. Mirrors ij_anti_emit; the group scalars are bound by NAME ("key" +
+// each agg's out-name) into RBinds — the EXACT scalar-binding contract the batch
+// projection over group rows uses (eval_root resolves bare idents against RBinds).
+fn ag_emit(odp: *mut ZOut, arena: &Writ, key: RtVal, aggvals: &Vec<RtVal>, an: i64, w: i64,
+           agg_out: &[str], has_pred: bool, pred_w: i64, sel_w: i64,
+           cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) {
+    if w == 0i64 { return; }
+    let mut cb: RBinds = rbinds_new();
+    cb.bind_val("key", key);
+    let mut i: i64 = 0i64;
+    while i < an { cb.bind_val(agg_out[i], aggvals.get(i)); i = i + 1i64; }
+    let cbp: *const RBinds = &cb;
+    if has_pred {
+        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch)) { return; }
+    }
+    let sel: SExpr = sx_of(sel_w);
+    let mut cells: Vec<RtVal> = vec_new::<RtVal>();
+    match sel {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let nn: i64 = items.len();
+            let mut c: i64 = 0i64;
+            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch)); c = c + 1i64; }
+        }
+        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
+    }
+    zout_bump(odp, arena, &cells, 0i64, w);
+}
+
 // Weighted matchcount of one left row against arranged `b`: Σ_r [key(r)==l_key
 // ∧ residual(l,r)]·b.wt[r] over post-integrate `b`. Clone of ij_join_term's
 // probe loop MINUS emit. A left key with two supporting depts returns 2 (enters
@@ -4675,12 +4773,23 @@ pub struct IncrJoin {
     is_anti: bool,           // top step is `anti join` -> matchcount/crossing mode
     ncols:  i64,
     ckind:  [i32; 8],
+    // ── slice-3: incremental GROUP aggregation (single top-level scan) ──
+    is_aggr:   bool,         // top step is `group by … aggregate …` -> AggState path
+    agg_n:     i64,          // number of aggregate columns
+    agg_fnid:  [i32; 8],     // AGG_* id per column (1 count / 2 sum / 5 avg — GROUP)
+    agg_arg_w: [i64; 8],     // raw SExpr of each agg's arg (0 for count / has_arg=false)
+    agg_out:   [str; 8],     // bound out-name of each agg column (projection reads it)
+    key_w:     i64,          // raw SExpr of the group key (evaluated per scan row)
+    agg:       AggState,     // the maintained per-group accumulators (a/b unused here)
 }
 
 impl IncrJoin {
     // One epoch: admit (da over the LEFT source, db over the RIGHT source),
     // compute the netted output delta, apply it, THEN integrate (§8.2).
     pub fn epoch(self: &mut IncrJoin, da: &ZBatch, db: &ZBatch) {
+        // slice-3: GROUP aggregation is a SINGLE-SCAN operator — consume only `da`
+        // (the scan source); `db` is ignored (no second source in this fragment).
+        if self.is_aggr { self.ag_run(da); return; }
         let cat: &SchemaCatalog = &self.cat;
         let env: &QEnv = unsafe { &*(self.envp as *const QEnv) };
         let scratch: Writ = writ_new(2048i64);
@@ -4830,6 +4939,135 @@ impl IncrJoin {
         ij_integrate(&mut self.b, db, build_w, rvar, cat, env, &scratch);
     }
 
+    // One epoch of incremental GROUP aggregation (DBSP slice-3, ADR 0013 §3.1).
+    // Folds `da` into the per-group i64 accumulators (the abelian GROUP inverse
+    // makes retraction O(1), no rescan) and stages the group-row Δ into a scratch
+    // ZOut, then out_apply (reused verbatim — the aggregate output is a projected
+    // tuple ZOut identical in kind to the join/anti output).
+    //   • integrate-after-compute: the OLD group tuple is captured BEFORE any
+    //     mutation to that slot; −old/+new is derived from old-vs-new.
+    //   • emit-once-per-touched-slot (seen/touched): multiple `da` entries hitting
+    //     one group stage exactly one −old and one +new (no intra-epoch thrash).
+    //   • empty-group DROP: gcount→0 stages ONLY the −old retraction and sets
+    //     live=false — never a stale 0-count row, never a +（key,0).
+    fn ag_run(self: &mut IncrJoin, da: &ZBatch) {
+        let cat: &SchemaCatalog = &self.cat;
+        let env: &QEnv = unsafe { &*(self.envp as *const QEnv) };
+        let scratch: Writ = writ_new(2048i64);
+        let n: i64 = self.agg_n;
+        let key_w: i64 = self.key_w;
+        let lvar: str = self.lvar;
+        let has_pred: bool = self.has_pred;
+        let pred_w: i64 = self.pred_w;
+        let sel_w: i64 = self.sel_w;
+
+        let mut od: ZOut = zout_new(self.ncols);
+        let odp: *mut ZOut = &mut od;
+
+        // Per-touched-slot OLD snapshot (captured before mutation) + seen/touched;
+        // grown to cover slots created THIS epoch (their OLD is zero/not-live).
+        let mut seen:   Vec<bool> = vec_new::<bool>();
+        let mut old_gc: Vec<i64>  = vec_new::<i64>();
+        let mut old_lv: Vec<bool> = vec_new::<bool>();
+        let mut old_gs: Vec<i64>  = vec_new::<i64>();   // stride n
+        let mut touched: Vec<i64> = vec_new::<i64>();
+
+        let nd: i64 = da.node.len();
+        let mut di: i64 = 0i64;
+        while di < nd {
+            let w: i64 = da.wt.get(di);
+            if w != 0i64 {
+                let node: WAny = da.node.get(di);
+                let mut kb: RBinds = rbinds_new();
+                kb.bind_val(lvar, RtVal::Node(node));
+                let kbp: *const RBinds = &kb;
+                let k: RtVal = eval_sexpr(sx_of(key_w), cat, env, kbp, &scratch);
+                let slot: i64 = aggstate_ensure(&mut self.agg, k, n, &self.arena);
+                // grow the OLD/seen scratch to cover `slot`
+                while seen.len() <= slot {
+                    seen.push(false);
+                    old_gc.push(0i64);
+                    old_lv.push(false);
+                    let mut gi: i64 = 0i64;
+                    while gi < n { old_gs.push(0i64); gi = gi + 1i64; }
+                }
+                if !seen.get(slot) {
+                    seen.set(slot, true);
+                    touched.push(slot);
+                    old_gc.set(slot, self.agg.gcount.get(slot));
+                    old_lv.set(slot, self.agg.live.get(slot));
+                    let mut gi2: i64 = 0i64;
+                    while gi2 < n {
+                        old_gs.set(slot * n + gi2, self.agg.gsum.get(slot * n + gi2));
+                        gi2 = gi2 + 1i64;
+                    }
+                }
+                // MUTATE (= integrate): gcount += w; per sum/avg slot gsum += w·arg.
+                self.agg.gcount.set(slot, self.agg.gcount.get(slot) + w);
+                let mut ai: i64 = 0i64;
+                while ai < n {
+                    let fnid: i32 = self.agg_fnid[ai];
+                    if fnid == 2i32 || fnid == 5i32 {
+                        let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
+                        let cur: i64 = self.agg.gsum.get(slot * n + ai);
+                        self.agg.gsum.set(slot * n + ai, cur + w * rt_i(av));
+                    }
+                    ai = ai + 1i64;
+                }
+            }
+            di = di + 1i64;
+        }
+
+        // Stage the group-row deltas (−old if it was live, +new if still non-empty).
+        let nt: i64 = touched.len();
+        let mut tj: i64 = 0i64;
+        while tj < nt {
+            let slot: i64 = touched.get(tj);
+            let key: RtVal = self.agg.keyv.get(slot);
+            if old_lv.get(slot) {
+                let mut oldvals: Vec<RtVal> = vec_new::<RtVal>();
+                let mut oi: i64 = 0i64;
+                while oi < n {
+                    let fnid: i32 = self.agg_fnid[oi];
+                    if fnid == 1i32 {
+                        oldvals.push(RtVal::I(old_gc.get(slot)));
+                    } else if fnid == 5i32 {
+                        oldvals.push(RtVal::F((old_gs.get(slot * n + oi) as f64) / (old_gc.get(slot) as f64)));
+                    } else {
+                        oldvals.push(RtVal::I(old_gs.get(slot * n + oi)));
+                    }
+                    oi = oi + 1i64;
+                }
+                ag_emit(odp, &self.arena, key, &oldvals, n, 0i64 - 1i64,
+                        &self.agg_out, has_pred, pred_w, sel_w, cat, env, &scratch);
+            }
+            let newc: i64 = self.agg.gcount.get(slot);
+            if newc > 0i64 {
+                let mut newvals: Vec<RtVal> = vec_new::<RtVal>();
+                let mut ni: i64 = 0i64;
+                while ni < n {
+                    let fnid: i32 = self.agg_fnid[ni];
+                    if fnid == 1i32 {
+                        newvals.push(RtVal::I(newc));
+                    } else if fnid == 5i32 {
+                        newvals.push(RtVal::F((self.agg.gsum.get(slot * n + ni) as f64) / (newc as f64)));
+                    } else {
+                        newvals.push(RtVal::I(self.agg.gsum.get(slot * n + ni)));
+                    }
+                    ni = ni + 1i64;
+                }
+                ag_emit(odp, &self.arena, key, &newvals, n, 1i64,
+                        &self.agg_out, has_pred, pred_w, sel_w, cat, env, &scratch);
+                self.agg.live.set(slot, true);
+            } else {
+                self.agg.live.set(slot, false);   // empty-group drop (−old already staged)
+            }
+            tj = tj + 1i64;
+        }
+
+        out_apply(&mut self.out, &self.arena, &od, self.has_distinct);
+    }
+
     // Read the maintained state as a self-contained QRows (compare at
     // quiescence, U3). Set mode: one row per live tuple (memb). Bag mode:
     // `wt` duplicate rows per tuple (multiplicity expanded to match the
@@ -4952,7 +5190,83 @@ impl Query {
                 is_join = true;
                 is_anti = true;
             }
-            RExpr::Aggr(_g) => { return Result::Err(qerr("Query::incremental: aggregate/group-by is out of slice-1")); }
+            // slice-3: a single top-level GROUP aggregate over ONE bare scan
+            // (count/sum/avg — abelian GROUP, O(1) inverse-on-retract). The input
+            // MUST be a bare Scan — this implicitly rejects join+aggregate and any
+            // pre-group WHERE/RFilter. SEMILATTICE min/max stays REJECTED (§3.1).
+            RExpr::Aggr(g) => {
+                let mut sok: bool = false;
+                match g.input_expr() {
+                    RExpr::Scan(s) => { lvar = s.var_name; lsrc = s.src_name; sok = true; }
+                    _ => { }
+                }
+                if !sok {
+                    return Result::Err(qerr("Query::incremental: aggregate input is not a bare scan — join/where+aggregate is out of slice-3"));
+                }
+                // strict check to populate agg_n / agg_fnid / agg_ret + ncols/ckind
+                let mut achk: Chk = chk_new();
+                let mut aqp: QPlan = qplan_new();
+                let mut alb: CBinds = cbinds_new();
+                check_rexpr(root, &self.cat, env, true, &mut alb, &mut achk, &mut aqp, &self.reg);
+                if achk.failed { return Result::Err(chk_err(achk)); }
+                let an: i64 = aqp.agg_n;
+                // ALGEBRA GATE — accept only abelian-GROUP aggregates (reuse of
+                // rexpr_walk::agg_algebra's classification: fnid 0 = UDA (no inverse),
+                // 3/4 = min/max = SEMILATTICE; 1 count / 2 sum / 5 avg = GROUP).
+                let mut gi3: i64 = 0i64;
+                while gi3 < an {
+                    let fnid: i32 = aqp.agg_fnid[gi3];
+                    if fnid == 0i32 {
+                        return Result::Err(qerr("Query::incremental: UDA aggregate has no inverse guarantee — out of slice-3"));
+                    }
+                    if fnid == 3i32 || fnid == 4i32 {
+                        return Result::Err(qerr("Query::incremental: min/max incremental deferred — SEMILATTICE re-min on retraction (§3.1)"));
+                    }
+                    gi3 = gi3 + 1i64;
+                }
+                // capture the group key + per-agg fnid / arg-expr / out-name
+                let mut afnid: [i32; 8] = [0i32; 8];
+                let mut aargw: [i64; 8] = [0i64; 8];
+                let mut aout:  [str; 8] = [""; 8];
+                let aggs: RAggArr = g.aggs_arr();
+                let mut ci2: i64 = 0i64;
+                while ci2 < an {
+                    let ag: RAgg = aggs.agg_at(ci2);
+                    afnid[ci2] = aqp.agg_fnid[ci2];
+                    aout[ci2]  = ag.out;
+                    if ag.has_arg { aargw[ci2] = ag.arg.any().raw(); }
+                    ci2 = ci2 + 1i64;
+                }
+                let akey_w: i64 = g.key.any().raw();
+                let ancols: i64 = aqp.ncols;
+                let ackind: [i32; 8] = aqp.ckind;
+                // resolve the single source
+                let aei: i64 = env.find(lsrc);
+                if aei < 0i64 {
+                    return Result::Err(qerr("Query::incremental: the aggregate source is not bound on the env"));
+                }
+                let asrcv: WAny = WAny::ref_to(env.words[aei] as *const u8);
+                // build the engine (join fields inert; a/b allocated-but-unused)
+                let mut eng: IncrJoin = IncrJoin {
+                    arena: writ_new(4096i64),
+                    a: arr_new(lvar), b: arr_new(""),
+                    out: zout_new(ancols),
+                    cat: catalog_clone(&self.cat),
+                    envp: (env as *const QEnv) as i64,
+                    on_w: 0i64, equi_w: 0i64, build_w: 0i64, probe_w: 0i64,
+                    pred_w: pred_w, has_pred: has_pred, sel_w: sel_w,
+                    lvar: lvar, rvar: "", has_distinct: has_distinct,
+                    is_anti: false,
+                    ncols: ancols, ckind: ackind,
+                    is_aggr: true, agg_n: an, agg_fnid: afnid, agg_arg_w: aargw,
+                    agg_out: aout, key_w: akey_w, agg: aggstate_new(),
+                };
+                // base-fill: +1/identity per source element through the SAME
+                // accumulate+emit path (seeds AggState and the initial out).
+                let ba: ZBatch = ij_batch_from_source(asrcv);
+                eng.ag_run(&ba);
+                return Result::Ok(eng);
+            }
             RExpr::Edge(_e) => { return Result::Err(qerr("Query::incremental: graph traversal (edge) is out of slice-1")); }
             RExpr::Fix(_x)  => { return Result::Err(qerr("Query::incremental: recursion (fix) is out of slice-1")); }
             _ => { return Result::Err(qerr("Query::incremental: the fragment must be exactly one join of two scans")); }
@@ -5006,6 +5320,8 @@ impl Query {
             lvar: lvar, rvar: rvar, has_distinct: has_distinct,
             is_anti: is_anti,
             ncols: ncols, ckind: ckind,
+            is_aggr: false, agg_n: 0i64, agg_fnid: [0i32; 8], agg_arg_w: [0i64; 8],
+            agg_out: [""; 8], key_w: 0i64, agg: aggstate_new(),
         };
         let scratch: Writ = writ_new(2048i64);
         // fill arrangements from the base sources (+1/identity per element)

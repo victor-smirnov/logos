@@ -98,6 +98,11 @@ fn qrow_eq(a: &QRows, ai: i64, b: &QRows, bi: i64) -> bool {
             if a.get_i64(ai, c) != b.get_i64(bi, c) { return false; }
         } else if str_eq(ty, "bool") {
             if a.get_bool(ai, c) != b.get_bool(bi, c) { return false; }
+        } else if str_eq(ty, "f64") {
+            // avg is bit-exact here: both sides sum integer-valued args (≪ 2^53)
+            // and divide once — batch sums in f64, incremental sums in i64 then
+            // casts; identical bits ⇒ exact == (no epsilon).
+            if a.get_f64(ai, c) != b.get_f64(bi, c) { return false; }
         } else {
             return false;
         }
@@ -234,6 +239,26 @@ fn main() -> i32 {
     if r7 != 0i32 { return 700i32 + r7; }
     let r8: i32 = run_variant("from emps e anti join depts d on e.dept == d.id select distinct e.dept", &c, &doc, &eh, &dh);
     if r8 != 0i32 { return 800i32 + r8; }
+
+    // ── slice-3 GROUP-AGGREGATE variants (§3.1 abelian GROUP: inverse-on-retract
+    // + empty-group drop). Groups = dept `j%5` over emps 0..3 base (groups
+    // {0,1,2,3}); the 12-epoch ±churn drives a group gcount→0 (empty-drop) and
+    // back (re-appear). The aggregate references ONLY emps — dept churn is a
+    // consistent no-op on both sides (epoch ignores db, the oracle reads no dept).
+    // The oracle stays Query::run (queue-2 batch group-by) from clamped truth.
+    let r9: i32 = run_variant("from emps e group by e.dept aggregate cnt = count() select (key, cnt)", &c, &doc, &eh, &dh);
+    if r9 != 0i32 { return 900i32 + r9; }
+    // key dropped ⇒ projection coalesce + empty-group multiplicity crossing.
+    let r10: i32 = run_variant("from emps e group by e.dept aggregate cnt = count() select distinct cnt", &c, &doc, &eh, &dh);
+    if r10 != 0i32 { return 1000i32 + r10; }
+    let r11: i32 = run_variant("from emps e group by e.dept aggregate s = sum(e.dept) select (key, s)", &c, &doc, &eh, &dh);
+    if r11 != 0i32 { return 1100i32 + r11; }
+    // avg — the f64-column variant (bit-exact == vs the batch oracle).
+    let r12: i32 = run_variant("from emps e group by e.dept aggregate a = avg(e.dept) select (key, a)", &c, &doc, &eh, &dh);
+    if r12 != 0i32 { return 1200i32 + r12; }
+    // multi-aggregate (≤ the batch limit).
+    let r13: i32 = run_variant("from emps e group by e.dept aggregate cnt = count(), s = sum(e.dept) select (key, cnt, s)", &c, &doc, &eh, &dh);
+    if r13 != 0i32 { return 1300i32 + r13; }
 
     return 0i32;
 }
