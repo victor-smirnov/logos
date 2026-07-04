@@ -1,0 +1,84 @@
+// query_incr_tc_guard — the slice-5 fragment guard for Query::incremental_rec
+// is an error VALUE (Result::Err), not a compile diagnostic, so this is a PASS
+// test. Asserts incremental_rec ACCEPTS a single LINEAR self-recursive rel
+// (transitive closure) and REJECTS out-of-slice shapes: no-rel plans, mutual-
+// recursion SCCs, non-linear (doubling) recursion, non-recursive rels, and
+// non-i64 rel columns. Exit 0 iff every classification is correct.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema Edge : code(0x0E06_0000_0000_0001) {
+    src: i64 = 0,
+    dst: i64 = 1,
+}
+pub schema Node : code(0x0E06_0000_0000_0002) {
+    name: str = 0,
+    link: str = 1,
+}
+
+resource cat = schema_catalog!{ Edge, Node };
+
+fn mk_edge(d: &Writ, s: i64, t: i64) -> WAny {
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+fn mk_node(d: &Writ, n: str, l: str) -> WAny {
+    let x: Node = d.make::<Node>();
+    x.name = n; x.link = l;
+    return WAny::ref_to((x.m as i64) as *const u8);
+}
+
+// true iff incremental_rec ACCEPTS (Ok).
+fn accepts(qtext: str, c: &SchemaCatalog, env: &QEnv) -> bool {
+    let q: Query = match Query::compile(qtext, c) { Result::Ok(v) => { v } Result::Err(_e) => { return false; } };
+    let mut ok: bool = false;
+    match q.incremental_rec(env) { Result::Ok(_e) => { ok = true; } Result::Err(_e2) => { ok = false; } }
+    return ok;
+}
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(8192i64);
+    let edges: &mut WArray<WAny> = doc.array(4i64);
+    edges.push(mk_edge(&doc, 0i64, 1i64));
+    edges.push(mk_edge(&doc, 1i64, 2i64));
+    let esrc: WAny = WAny::ref_to(edges as *const WArray<WAny> as *const u8);
+    let nodes: &mut WArray<WAny> = doc.array(4i64);
+    nodes.push(mk_node(&doc, "a", "b"));
+    nodes.push(mk_node(&doc, "b", "c"));
+    let nsrc: WAny = WAny::ref_to(nodes as *const WArray<WAny> as *const u8);
+
+    let c: SchemaCatalog = cat();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("edges", esrc);
+    env.bind_source("nodes", nsrc);
+
+    // ── ACCEPT: single linear self-recursive rel (transitive closure) ──
+    if !accepts("rel path(a: i64, b: i64) { from edges e select (e.src, e.dst); from path p join edges e on p.b == e.src select (p.a, e.dst); } from path p select (p.a, p.b)", &c, &env) { return 10i32; }
+
+    // ── REJECT: no rel block (plain scan) ──
+    if accepts("from edges e select e.src", &c, &env) { return 20i32; }
+
+    // ── REJECT: mutual-recursion SCC (odd/even — two rels) ──
+    if accepts("rel odd(a: i64, b: i64) { from edges e select (e.src, e.dst); from even v join edges e on v.b == e.src select (v.a, e.dst); } rel even(a: i64, b: i64) { from odd o join edges e on o.b == e.src select (o.a, e.dst); } from odd p select (p.a, p.b)", &c, &env) { return 30i32; }
+
+    // ── REJECT: non-linear (doubling) recursion — recursive body joins path⋈path ──
+    if accepts("rel path(a: i64, b: i64) { from edges e select (e.src, e.dst); from path p join path q on p.b == q.a select (p.a, q.b); } from path p select (p.a, p.b)", &c, &env) { return 40i32; }
+
+    // ── REJECT: non-recursive rel (base body only) ──
+    if accepts("rel r(a: i64, b: i64) { from edges e select (e.src, e.dst); } from r p select (p.a, p.b)", &c, &env) { return 50i32; }
+
+    // ── REJECT: non-i64 rel columns (str transitive closure) ──
+    if accepts("rel reach(a: str, b: str) { from nodes e select (e.name, e.link); from reach p join nodes e on p.b == e.name select (p.a, e.link); } from reach p select (p.a, p.b)", &c, &env) { return 60i32; }
+
+    return 0i32;
+}

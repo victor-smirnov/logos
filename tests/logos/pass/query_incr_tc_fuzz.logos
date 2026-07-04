@@ -1,0 +1,246 @@
+// query_incr_tc_fuzz — property-based DIFFERENTIAL test for slice-5, the
+// incremental LINEAR-RECURSIVE rel (transitive closure over an edge relation,
+// ADR 0013 §4 R1). MILESTONE A: INSERTIONS. A deterministic LCG (the test is a
+// Logos program, not a host RNG) drives a seed battery; each seed runs a
+// multi-epoch sequence of random +edge inserts over a SMALL node domain (5
+// nodes ⇒ forced cycles + multi-path derivations), mirrored into a truth model.
+// After EVERY epoch the maintained closure (IncrRec::snapshot) is compared, as
+// a multiset at quiescence, against the queue-2 batch least-fixpoint oracle
+// (Query::run) recomputed from the current edge set. Any divergence ⇒ nonzero
+// exit. Includes a hand-crafted cycle-closing sequence (insert the back-edge of
+// a chain) — the case where naïve ℤ-multiplicity would never quiesce and only
+// the per-round membership DISTINCT terminates.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.arith;
+use logos.mem.collections.vec;
+
+pub schema Edge : code(0x0E05_0000_0000_0001) {
+    src: i64 = 0,
+    dst: i64 = 1,
+}
+
+resource cat = schema_catalog!{ Edge };
+
+fn mk_edge(d: &Writ, s: i64, t: i64) -> WAny {
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+// ── Deterministic LCG (Knuth MMIX constants); high bits via >>33 ────────────
+struct Lcg { s: u64 }
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add(wrapping_mul(self.s, 6364136223846793005u64), 1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+fn lcg_seed(seed: u64) -> Lcg {
+    let mut l: Lcg = Lcg { s: wrapping_add(wrapping_mul(seed, 2862933555777941757u64), 3037000493u64) };
+    let _w0: u64 = l.next();
+    let _w1: u64 = l.next();
+    return l;
+}
+fn rand_n(l: &mut Lcg, n: i64) -> i64 {
+    if n <= 0i64 { return 0i64; }
+    return (l.next() % (n as u64)) as i64;
+}
+
+// Effective-delta discipline (U1): clamp the source weight ≥0, emit the net.
+fn src_apply(hs: &Vec<WAny>, wts: &mut Vec<i64>, batch: &mut ZBatch, idx: i64, raw: i64) {
+    let old: i64 = wts.get(idx);
+    let mut neww: i64 = old + raw;
+    if neww < 0i64 { neww = 0i64; }
+    let eff: i64 = neww - old;
+    wts.set(idx, neww);
+    if eff != 0i64 { batch.push(hs.get(idx), eff); }
+}
+
+// The current edge SOURCE array (one node per present edge; the rel dedups).
+fn build_src(d: &Writ, hs: &Vec<WAny>, wts: &Vec<i64>) -> WAny {
+    let arr: &mut WArray<WAny> = d.array(256i64);
+    let n: i64 = hs.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let w: i64 = wts.get(i);
+        let mut k: i64 = 0i64;
+        while k < w { arr.push(hs.get(i)); k = k + 1i64; }
+        i = i + 1i64;
+    }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+fn qrow_eq(a: &QRows, ai: i64, b: &QRows, bi: i64) -> bool {
+    let nc: i64 = a.col_count();
+    let mut c: i64 = 0i64;
+    while c < nc {
+        if a.is_null(ai, c) != b.is_null(bi, c) { return false; }
+        if a.get_i64(ai, c) != b.get_i64(bi, c) { return false; }
+        c = c + 1i64;
+    }
+    return true;
+}
+
+fn multiset_eq(a: &QRows, b: &QRows) -> bool {
+    if a.row_count() != b.row_count() { return false; }
+    if a.col_count() != b.col_count() { return false; }
+    let n: i64 = a.row_count();
+    let mut used: Vec<bool> = vec_new::<bool>();
+    let mut i: i64 = 0i64;
+    while i < n { used.push(false); i = i + 1i64; }
+    let mut ai: i64 = 0i64;
+    while ai < n {
+        let mut found: bool = false;
+        let mut bi: i64 = 0i64;
+        while bi < n && !found {
+            if !used.get(bi) {
+                if qrow_eq(a, ai, b, bi) { used.set(bi, true); found = true; }
+            }
+            bi = bi + 1i64;
+        }
+        if !found { return false; }
+        ai = ai + 1i64;
+    }
+    return true;
+}
+
+fn cmp(eng: &IncrRec, q: &Query, doc: &Writ, eh: &Vec<WAny>, ew: &Vec<i64>,
+       oenv: &mut QEnv) -> bool {
+    let es: WAny = build_src(doc, eh, ew);
+    oenv.bind_source("edges", es);
+    let orc: QRows = match q.run(oenv) { Result::Ok(r) => { r } Result::Err(_e) => { return false; } };
+    let snap: QRows = eng.snapshot();
+    return multiset_eq(&snap, &orc);
+}
+
+// One seed → an insertion-only T-epoch sequence. 0 on all-match, else 1+epoch.
+fn run_seed(q: &Query, seed: u64, doc: &Writ, eh: &Vec<WAny>, init: &Vec<i64>) -> i32 {
+    let ne: i64 = eh.len();
+    let mut ew: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < ne { ew.push(init.get(i)); i = i + 1i64; }
+
+    let mut eng_env: QEnv = QEnv::new();
+    eng_env.bind_source("edges", build_src(doc, eh, &ew));
+    let mut eng: IncrRec = match q.incremental_rec(&eng_env) { Result::Ok(e) => { e } Result::Err(_e2) => { return 99i32; } };
+
+    let mut oenv: QEnv = QEnv::new();
+    if !cmp(&eng, q, doc, eh, &ew, &mut oenv) { return 1i32; }
+
+    let mut lcg: Lcg = lcg_seed(seed);
+    let mut ep: i64 = 0i64;
+    while ep < 12i64 {
+        let mut de: ZBatch = ZBatch::new();
+        let nops: i64 = 1i64 + rand_n(&mut lcg, 3i64);
+        let mut o: i64 = 0i64;
+        while o < nops {
+            let idx: i64 = rand_n(&mut lcg, ne);
+            src_apply(eh, &mut ew, &mut de, idx, 1i64);   // INSERTIONS only
+            o = o + 1i64;
+        }
+        eng.epoch(&de);
+        if !cmp(&eng, q, doc, eh, &ew, &mut oenv) { return (2i64 + ep) as i32; }
+        ep = ep + 1i64;
+    }
+    return 0i32;
+}
+
+// Index into the ordered-pair pool (i,j), i,j ∈ 0..5, i != j (20 edges).
+fn pool_idx(i: i64, j: i64) -> i64 {
+    let mut k: i64 = 0i64;
+    let mut a: i64 = 0i64;
+    while a < 5i64 {
+        let mut b: i64 = 0i64;
+        while b < 5i64 {
+            if a != b {
+                if a == i && b == j { return k; }
+                k = k + 1i64;
+            }
+            b = b + 1i64;
+        }
+        a = a + 1i64;
+    }
+    return -1i64;
+}
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(1048576i64);
+    let c: SchemaCatalog = cat();
+
+    // edge pool = all ordered pairs (i,j), i != j, over nodes 0..4 (20 edges).
+    let mut eh: Vec<WAny> = vec_new::<WAny>();
+    let mut a: i64 = 0i64;
+    while a < 5i64 {
+        let mut b: i64 = 0i64;
+        while b < 5i64 {
+            if a != b { eh.push(mk_edge(&doc, a, b)); }
+            b = b + 1i64;
+        }
+        a = a + 1i64;
+    }
+    let ne: i64 = eh.len();
+
+    // initial present set = the chain 0→1→2→3→4 (non-empty; not yet cyclic).
+    let mut init: Vec<i64> = vec_new::<i64>();
+    let mut z: i64 = 0i64;
+    while z < ne { init.push(0i64); z = z + 1i64; }
+    init.set(pool_idx(0i64, 1i64), 1i64);
+    init.set(pool_idx(1i64, 2i64), 1i64);
+    init.set(pool_idx(2i64, 3i64), 1i64);
+    init.set(pool_idx(3i64, 4i64), 1i64);
+
+    let q: Query = match Query::compile(
+        "rel path(a: i64, b: i64) { from edges e select (e.src, e.dst); from path p join edges e on p.b == e.src select (p.a, e.dst); } from path p select (p.a, p.b)",
+        &c)
+    {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 90i32; }
+    };
+
+    // ── seed battery ──
+    let mut seed: u64 = 0u64;
+    while seed < 60u64 {
+        let r: i32 = run_seed(&q, seed, &doc, &eh, &init);
+        if r != 0i32 { return 100i32 + r; }
+        seed = seed + 1u64;
+    }
+
+    // ── hand-crafted CYCLE-CLOSING sequence: chain 0→1→2→3→4 present, then
+    // insert the back-edge 4→0 (closes a 5-cycle; without the per-round
+    // membership distinct the round-delta never empties). Then insert a chord. ──
+    let mut ew2: Vec<i64> = vec_new::<i64>();
+    let mut z2: i64 = 0i64;
+    while z2 < ne { ew2.push(init.get(z2)); z2 = z2 + 1i64; }
+    let mut env2: QEnv = QEnv::new();
+    env2.bind_source("edges", build_src(&doc, &eh, &ew2));
+    let mut eng2: IncrRec = match q.incremental_rec(&env2) { Result::Ok(e) => { e } Result::Err(_e3) => { return 91i32; } };
+    let mut oenv2: QEnv = QEnv::new();
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 92i32; }
+    // close the cycle: 4→0
+    let mut d1: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut d1, pool_idx(4i64, 0i64), 1i64);
+    eng2.epoch(&d1);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 93i32; }
+    // add a chord 0→2 (multi-path derivations); still fully cyclic.
+    let mut d2: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut d2, pool_idx(0i64, 2i64), 1i64);
+    eng2.epoch(&d2);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 94i32; }
+    // re-insert an already-present edge (no-op crossing; closure unchanged).
+    let mut d3: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut d3, pool_idx(0i64, 1i64), 1i64);
+    eng2.epoch(&d3);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 95i32; }
+
+    return 0i32;
+}

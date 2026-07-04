@@ -2789,6 +2789,14 @@ fn rctx_set_ovr(rctx: *mut RelCtx, w: i64) {
     let cm: &mut RelCtx = unsafe { &mut *rctx };
     cm.ovr_w = w;
 }
+// Force a rel's DELTA region directly (slice-5 IncrRec seed: a manual round-0
+// where the delta is the whole existing total [0, hi), not a promote-derived
+// watermark). Total is left untouched — the caller manages tot separately.
+fn rctx_set_delta(rctx: *mut RelCtx, ri: i64, lo: i64, hi: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.dlo[ri] = lo;
+    cm.dhi[ri] = hi;
+}
 
 // Dedup-push every row of a body's OutTab into rel `ri` (SET semantics: the
 // shared bucket map probes by row hash, verifies cell-wise with rt_eq). New
@@ -5427,6 +5435,426 @@ impl Query {
                          lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, &eng.cat, env, &scratch);
         }
         out_apply(&mut eng.out, &eng.arena, &od0, has_distinct);
+        return Result::Ok(eng);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL LINEAR-RECURSIVE REL — slice-5 (ADR 0013 §4, R1)
+//
+// Maintains a single LINEAR self-recursive rel (canonical: transitive closure
+// over an edge relation) under ±ΔEDB, differential-tested vs the queue-2 batch
+// least-fixpoint oracle (Query::run). This slice ships INSERTIONS solid.
+//
+// DESIGN — maximal reuse of the batch semi-naïve kernel (derive-from-foundation):
+// the maintained relation is the SAME append-only RelCtx storage + shadow-set
+// the batch materializer uses, PERSISTED across epochs. An insert epoch:
+//   (1) admit ΔEDB, update the edge multiset, collect NEWLY-PRESENT edges (NE);
+//   (2) SEED round-0 from ΔEDB — the base body over NE (new direct edges) PLUS
+//       the recursive body with the EXISTING relation as its delta and NE as
+//       the joined edge (existing-path ⋈ new-edge). Both push through the SAME
+//       qrel_push_out shadow-set (per-round DISTINCT on MEMBERSHIP, §3 / U4);
+//   (3) run the batch inner fixpoint (round-delta ⋈ FULL-edges) to quiescence.
+// The shadow-set membership-crossing (a tuple appends at most once) is exactly
+// the batch termination mechanism — cycles enlarge a FINITE closure, the round
+// empties, NO round cap (§4.4). Correctness: closure(E∪NE) = closure(E) plus
+// every path using ≥1 new edge; such a path splits at its FIRST new edge into
+// (all-old prefix ∈ existing-relation) ⋈ (new edge) ⋈ (any-edge suffix) — the
+// prefix+new-edge is a round-0 seed, the suffix is inner-loop propagation. So
+// the incremental result equals the batch recompute by construction (same code
+// path, same dedup), which the differential harness confirms.
+//
+// RETRACTION (− edge Δ) is NOT maintained here (honest partial): a single scalar
+// weight cannot carry retraction on cyclic graphs (spurious circular support —
+// R-spurious counterexample edges {a→b,b→c,c→b}, delete a→b: (a,b)/(a,c) prop
+// each other up via the surviving b⇄c cycle), so LINEAR recursion does NOT let
+// weight-cancellation subsume DRed. Correct retraction needs mark-based DRed
+// (over-delete → re-derive); left for the next pass. This engine tracks the
+// edge SET for both signs but only GROWS the closure — a − delta leaves stale
+// tuples (the differential harness for − deltas is red by construction, the
+// honest status). See docs/adr/0013 §4.2 and the slice-5 self-critique.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Peel RProj/RFilter to the underlying RScan and return its source name ("" if
+// the shape is not a scan-rooted pipeline). Used to resolve a base body's edge
+// source (a base body scans ONLY the edge source — no in-rel occurrence).
+fn ir_scan_src(e: RExpr) -> str {
+    let mut cur: RExpr = e;
+    loop {
+        match cur {
+            RExpr::Proj(p)   => { cur = p.input_expr(); }
+            RExpr::Filter(f) => { cur = f.input_expr(); }
+            RExpr::Distinct(d) => { cur = d.input_expr(); }
+            RExpr::Scan(s)   => { return s.src_name; }
+            _ => { return ""; }
+        }
+    }
+}
+
+// Populate `qp` by strict-checking every non-empty rel body + the entry against
+// `env` (mirrors Query::run's check loop — the plan words the executor reads).
+fn ir_check(q: &Query, env: &QEnv, qp: &mut QPlan, chk: &mut Chk) {
+    let mut bi: i64 = 0i64;
+    while bi < q.bodies.n && !chk.failed {
+        if q.bodies.empty.get(bi) == 0i64 {
+            let mut lbb: CBinds = cbinds_new();
+            let broot: RExpr = WAny::ref_to(q.bodies.root.get(bi) as *const u8).view::<RExpr>();
+            check_rexpr(broot, &q.cat, env, true, &mut lbb, chk, qp, &q.reg);
+        }
+        bi = bi + 1i64;
+    }
+    if !chk.failed {
+        let root: RExpr = WAny::ref_to(q.root as *const u8).view::<RExpr>();
+        let mut lb: CBinds = cbinds_new();
+        check_rexpr(root, &q.cat, env, true, &mut lb, chk, qp, &q.reg);
+    }
+}
+
+// The maintained incremental linear-recursive relation. Owns the persistent
+// rel storage (append-only rows + shadow dedup, batch parity) and the edge
+// multiset; holds a raw pointer to the Query (must outlive the engine, like
+// IncrJoin::envp). `env` binds ONLY the edge source (rebuilt per phase).
+pub struct IncrRec {
+    qptr:     i64,                     // *const Query (must outlive)
+    env:      QEnv,                    // owns the edge-source binding
+    edoc:     Writ,                    // arena for the per-phase edge arrays
+    enode:    Vec<WAny>,               // edge nodes (slot-stable)
+    ewt:      Vec<i64>,                // edge weight per slot (identity-coalesced)
+    eid:      HashMap<u64, i64>,       // edge raw handle -> slot
+    rows:     Vec<RtVal>,              // path storage (cell-flat, stride ncols)
+    rhm:      HashMap<u64, Vec<i64>>,  // shared shadow-set (SET dedup)
+    ptot:     i64,                     // path ROW count (the maintained total)
+    edge_src: str,
+    ncols:    i64,                     // rel column count
+    rec_body: i64,                     // the single linear recursive body index
+    rec_ovr:  i64,                     // its in-rel scan node word (delta reader)
+    nbase:    i64,
+    base_b:   [i64; 8],                // base body indices (occ_n == 0)
+}
+
+// Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
+// Takes fields (not whole self) so it stays disjoint from a self.qptr borrow.
+fn ir_bind_edges(edoc: &mut Writ, env: &mut QEnv, edge_src: str, nodes: &Vec<WAny>) {
+    let n: i64 = nodes.len();
+    // Keep the FAT `&mut` (it carries the arena zone; casting to a thin raw
+    // pointer drops the allocator and `push`/`zone_of` then faults).
+    let arr: &mut WArray<WAny> = edoc.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(nodes.get(i)); i = i + 1i64; }
+    let av: WAny = WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+    env.bind_source(edge_src, av);
+}
+
+// Node list of every currently-present edge (weight > 0).
+fn ir_full_nodes(enode: &Vec<WAny>, ewt: &Vec<i64>) -> Vec<WAny> {
+    let mut out: Vec<WAny> = vec_new::<WAny>();
+    let n: i64 = enode.len();
+    let mut i: i64 = 0i64;
+    while i < n { if ewt.get(i) > 0i64 { out.push(enode.get(i)); } i = i + 1i64; }
+    return out;
+}
+
+impl IncrRec {
+    // Recompute the closure from scratch over the CURRENT edge set (batch
+    // semi-naïve). Used at build to seed the initial state.
+    fn recompute(self: &mut IncrRec) {
+        self.rows = vec_new::<RtVal>();
+        self.rhm  = hashmap_new::<u64, Vec<i64>>();
+        self.ptot = 0i64;
+        let qp_raw: i64 = self.qptr;
+        let q: &Query = unsafe { &*(qp_raw as *const Query) };
+        let fulln: Vec<WAny> = ir_full_nodes(&self.enode, &self.ewt);
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        ir_check(q, &self.env, &mut qp, &mut chk);
+        if chk.failed { return; }
+        let scratch: Writ = writ_new(2048i64);
+        let hmp_i:  i64 = (&mut self.rhm  as *mut HashMap<u64, Vec<i64>>) as i64;
+        let rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = q.reg.n;
+        ctx.regp = (&q.reg as *const QRelReg) as i64;
+        ctx.hmp = hmp_i;
+        ctx.rowsp[0] = rows_i;
+        let cp: *mut Chk = &mut chk;
+        qrel_materialize(q, &self.env, &qp, &scratch, &mut ctx, cp);
+        self.ptot = self.rows.len() / self.ncols;
+    }
+
+    // One epoch: admit ΔEDB `dedges` (±weighted edge handles), maintain the
+    // closure. INSERTIONS are incremental + correct + terminating; − deltas
+    // update the edge set but leave the closure (stale — honest partial).
+    pub fn epoch(self: &mut IncrRec, dedges: &ZBatch) {
+        let qp_raw: i64 = self.qptr;
+        let q: &Query = unsafe { &*(qp_raw as *const Query) };
+        // ── admit ΔEDB: coalesce by identity, collect newly-present edges ──
+        let mut ne_slots: Vec<i64> = vec_new::<i64>();
+        let nd: i64 = dedges.node.len();
+        let mut di: i64 = 0i64;
+        while di < nd {
+            let w: i64 = dedges.wt.get(di);
+            if w != 0i64 {
+                let node: WAny = dedges.node.get(di);
+                let rawu: u64 = node.raw() as u64;
+                let idp: *mut HashMap<u64, i64> = &mut self.eid;
+                let sp: *const i64 = unsafe { idp.get(&rawu) };
+                if (sp as i64) != 0i64 {
+                    let slot: i64 = unsafe { *sp };
+                    let old: i64 = self.ewt.get(slot);
+                    let neww: i64 = old + w;
+                    self.ewt.set(slot, neww);
+                    if old <= 0i64 && neww > 0i64 { ne_slots.push(slot); }
+                } else {
+                    let slot: i64 = self.enode.len();
+                    self.enode.push(node);
+                    self.ewt.push(w);
+                    unsafe { let _q: *mut i64 = idp.get_or_insert(rawu, slot); }
+                    if w > 0i64 { ne_slots.push(slot); }
+                }
+            }
+            di = di + 1i64;
+        }
+        // No newly-present edge ⇒ the closure only ever GROWS on insert, so a
+        // pure-retraction / no-op epoch changes nothing here (stale on − Δ).
+        if ne_slots.len() == 0i64 { return; }
+
+        // NE node list (newly present, still present).
+        let mut nen: Vec<WAny> = vec_new::<WAny>();
+        let mut ni: i64 = 0i64;
+        while ni < ne_slots.len() {
+            let s: i64 = ne_slots.get(ni);
+            if self.ewt.get(s) > 0i64 { nen.push(self.enode.get(s)); }
+            ni = ni + 1i64;
+        }
+        let fulln: Vec<WAny> = ir_full_nodes(&self.enode, &self.ewt);
+
+        // qp against the FULL edge set (type/plan words are array-independent).
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        ir_check(q, &self.env, &mut qp, &mut chk);
+        if chk.failed { return; }
+        let scratch: Writ = writ_new(2048i64);
+        let cp: *mut Chk = &mut chk;
+
+        // persistent RelCtx over the maintained storage (tot = current total).
+        let hmp_i:  i64 = (&mut self.rhm  as *mut HashMap<u64, Vec<i64>>) as i64;
+        let rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let ncols: i64 = self.ncols;
+        let ptot0: i64 = self.ptot;
+        let rec_body: i64 = self.rec_body;
+        let rec_ovr: i64 = self.rec_ovr;
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = q.reg.n;
+        ctx.regp = (&q.reg as *const QRelReg) as i64;
+        ctx.hmp = hmp_i;
+        ctx.rowsp[0] = rows_i;
+        ctx.tot[0] = ptot0;
+        let ctxp: *mut RelCtx = &mut ctx;
+
+        // ── SEED round-0 from ΔEDB, edges bound to NE ──
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &nen);
+        // base bodies over NE (new direct edges).
+        let nb: i64 = self.nbase;
+        let mut bi: i64 = 0i64;
+        while bi < nb && !chk_bad(cp) {
+            qrel_run_body(q, self.base_b[bi], &self.env, &qp, &scratch, ctxp, cp);
+            bi = bi + 1i64;
+        }
+        // recursive body with the EXISTING relation [0,ptot) as its delta and
+        // NE as the joined edge (existing-path ⋈ new-edge).
+        if ptot0 > 0i64 && !chk_bad(cp) {
+            rctx_set_ovr(ctxp, rec_ovr);
+            rctx_set_delta(ctxp, 0i64, 0i64, ptot0);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
+            rctx_set_ovr(ctxp, 0i64);
+        }
+
+        // ── INNER FIXPOINT: round-delta ⋈ FULL-edges to quiescence (batch
+        // semi-naïve loop; per-round DISTINCT via the shadow-set; NO cap) ──
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        loop {
+            if chk_bad(cp) { break; }
+            let len: i64 = qrel_len(ctxp as *const RelCtx, 0i64, ncols);
+            rctx_promote(ctxp, 0i64, len);
+            if ctx.dlo[0] >= len { break; }   // least fixpoint (empty round-delta)
+            rctx_set_ovr(ctxp, rec_ovr);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
+            rctx_set_ovr(ctxp, 0i64);
+        }
+        self.ptot = self.rows.len() / self.ncols;
+    }
+
+    // Read the maintained closure as a self-contained QRows via the ENTRY
+    // projection over the persistent relation (exact oracle parity).
+    pub fn snapshot(self: &IncrRec) -> QRows {
+        let qp_raw: i64 = self.qptr;
+        let q: &Query = unsafe { &*(qp_raw as *const Query) };
+        let root: RExpr = WAny::ref_to(q.root as *const u8).view::<RExpr>();
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        let mut lb: CBinds = cbinds_new();
+        check_rexpr(root, &q.cat, &self.env, true, &mut lb, &mut chk, &mut qp, &q.reg);
+        let mut rows: QRows = QRows {
+            arena: writ_new(1024i64),
+            ncols: qp.ncols,
+            kinds: qp.ckind,
+            cells: vec_new::<RtVal>(),
+            nrows: 0i64,
+        };
+        if chk.failed { return rows; }
+        let scratch: Writ = writ_new(2048i64);
+        let rows_i: i64 = (&self.rows as *const Vec<RtVal>) as i64;
+        let hmp_i:  i64 = (&self.rhm  as *const HashMap<u64, Vec<i64>>) as i64;
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = q.reg.n;
+        ctx.regp = (&q.reg as *const QRelReg) as i64;
+        ctx.hmp = hmp_i;
+        ctx.rowsp[0] = rows_i;
+        ctx.tot[0] = self.ptot;
+        let cp: *mut Chk = &mut chk;
+        let out: OutTab = exec_root(root, &q.cat, &self.env, &qp, &scratch, cp,
+                                    &ctx as *const RelCtx);
+        if chk_bad(cp) { return rows; }
+        let mut nkeep: i64 = out.nrows;
+        if (q.sel_mode == QM_FIRST || q.sel_mode == QM_FIND) && nkeep > 1i64 { nkeep = 1i64; }
+        let mut r: i64 = 0i64;
+        while r < nkeep {
+            let mut c: i64 = 0i64;
+            while c < out.ncols {
+                let v: RtVal = out.cells.get(r * out.ncols + c);
+                match v {
+                    RtVal::S(s) => { rows.cells.push(RtVal::S(intern_str(&rows.arena, s))); }
+                    _ => { rows.cells.push(v); }
+                }
+                c = c + 1i64;
+            }
+            r = r + 1i64;
+        }
+        rows.nrows = nkeep;
+        return rows;
+    }
+}
+
+impl Query {
+    // Build an incremental maintainer for a single LINEAR self-recursive rel
+    // (slice-5, transitive-closure shape). The fragment guard ACCEPTS iff:
+    //   • exactly one rel (reg.n == 1) and it is recursive (its SCC);
+    //   • all rel columns are i64;
+    //   • exactly ONE recursive body with occ_n == 1 (LINEAR — one in-rel
+    //     occurrence) plus ≥1 base body (occ_n == 0);
+    // and REJECTS mutual-recursion SCCs, non-linear (occ_n > 1) doubling rules,
+    // recursive aggregates, and non-i64 columns with precise messages. `env`
+    // must bind the edge source (non-empty) and outlive the engine.
+    pub fn incremental_rec(self: &Query, env: &QEnv) -> Result<IncrRec, QError> {
+        if self.empty {
+            return Result::Err(qerr("Query::incremental_rec: empty query plan — nothing to maintain"));
+        }
+        if self.reg.n == 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: query has no `rel` block — use Query::incremental for the join/anti/aggregate fragment"));
+        }
+        if self.reg.n != 1i64 {
+            return Result::Err(qerr("Query::incremental_rec: multiple rels (mutual-recursion SCC) — out of slice-5 (single linear-recursive rel only)"));
+        }
+        let c: i64 = self.reg.comp[0];
+        if !self.reg.rec[c] {
+            return Result::Err(qerr("Query::incremental_rec: the rel is not recursive — nothing to maintain incrementally (use Query::run)"));
+        }
+        // all columns i64
+        let off: i64 = self.reg.coff[0];
+        let ncols: i64 = self.reg.ncols[0];
+        let mut ci: i64 = 0i64;
+        while ci < ncols {
+            if self.reg.ctys.get(off + ci) != (CT_INT as i64) {
+                return Result::Err(qerr("Query::incremental_rec: a rel column is not i64 — out of slice-5 (i64 columns only)"));
+            }
+            ci = ci + 1i64;
+        }
+        // classify bodies: base (occ_n==0) vs the single linear recursive body
+        let mut nbase: i64 = 0i64;
+        let mut base_b: [i64; 8] = [0i64; 8];
+        let mut nrec: i64 = 0i64;
+        let mut rec_body: i64 = -1i64;
+        let mut b: i64 = 0i64;
+        while b < self.bodies.n {
+            if self.bodies.owner.get(b) == 0i64 && self.bodies.empty.get(b) == 0i64 {
+                let on: i64 = self.bodies.occ_n.get(b);
+                if on == 0i64 {
+                    if nbase < 8i64 { base_b[nbase] = b; nbase = nbase + 1i64; }
+                } else if on == 1i64 {
+                    nrec = nrec + 1i64;
+                    rec_body = b;
+                } else {
+                    return Result::Err(qerr("Query::incremental_rec: a recursive body has >1 in-rel occurrence (non-linear / doubling recursion) — out of slice-5 (linear only)"));
+                }
+            }
+            b = b + 1i64;
+        }
+        if nrec != 1i64 {
+            return Result::Err(qerr("Query::incremental_rec: slice-5 needs exactly one linear recursive body (self-recursion)"));
+        }
+        if nbase < 1i64 {
+            return Result::Err(qerr("Query::incremental_rec: the recursive rel has no base body"));
+        }
+        let rec_off: i64 = self.bodies.occ_off.get(rec_body);
+        let rec_ovr: i64 = self.bodies.ow.get(rec_off);
+        // edge source = the base body's scanned source
+        let base_root: RExpr = WAny::ref_to(self.bodies.root.get(base_b[0]) as *const u8).view::<RExpr>();
+        let edge_src: str = ir_scan_src(base_root);
+        if edge_src.len() == 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: could not resolve the base edge source (base body is not a scan pipeline)"));
+        }
+        let ei: i64 = env.find(edge_src);
+        if ei < 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: the edge source is not bound on the env"));
+        }
+        let srcv: WAny = WAny::ref_to(env.words[ei] as *const u8);
+        if !srcv.is_array() {
+            return Result::Err(qerr("Query::incremental_rec: the edge source is not a Writ array"));
+        }
+        let sarr: &WArray<WAny> = srcv.as_array();
+        if sarr.len() == 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: the edge source is empty — bind a non-empty base relation"));
+        }
+
+        let mut eng: IncrRec = IncrRec {
+            qptr: (self as *const Query) as i64,
+            env: QEnv::new(),
+            edoc: writ_new(65536i64),
+            enode: vec_new::<WAny>(),
+            ewt: vec_new::<i64>(),
+            eid: hashmap_new::<u64, i64>(),
+            rows: vec_new::<RtVal>(),
+            rhm: hashmap_new::<u64, Vec<i64>>(),
+            ptot: 0i64,
+            edge_src: edge_src,
+            ncols: ncols,
+            rec_body: rec_body,
+            rec_ovr: rec_ovr,
+            nbase: nbase,
+            base_b: base_b,
+        };
+        // seed the edge multiset from the bound base relation (+1/identity)
+        let sn: i64 = sarr.len();
+        let mut si: i64 = 0i64;
+        while si < sn {
+            let node: WAny = sarr.get(si);
+            let rawu: u64 = node.raw() as u64;
+            let idp: *mut HashMap<u64, i64> = &mut eng.eid;
+            let sp: *const i64 = unsafe { idp.get(&rawu) };
+            if (sp as i64) != 0i64 {
+                let slot: i64 = unsafe { *sp };
+                eng.ewt.set(slot, eng.ewt.get(slot) + 1i64);
+            } else {
+                let slot: i64 = eng.enode.len();
+                eng.enode.push(node);
+                eng.ewt.push(1i64);
+                unsafe { let _z: *mut i64 = idp.get_or_insert(rawu, slot); }
+            }
+            si = si + 1i64;
+        }
+        eng.recompute();
         return Result::Ok(eng);
     }
 }
