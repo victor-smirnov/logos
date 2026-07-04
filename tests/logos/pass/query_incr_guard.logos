@@ -1,8 +1,9 @@
 // query_incr_guard — the slice-1 fragment guard is an error VALUE
 // (Result::Err), not a compile diagnostic, so this is a PASS test. Asserts
-// Query::incremental REJECTS every out-of-slice-1 plan (anti / aggregate /
-// limit / order-by / self-join / rel-block / f64 (loop-tier) key) and ACCEPTS
-// the linear + one-hash-join fragment. Exit 0 iff all classifications correct.
+// Query::incremental REJECTS every out-of-fragment plan (aggregate / limit /
+// order-by / self-join / self-anti / rel-block / f64 (loop-tier) key) and
+// ACCEPTS the linear + one-hash-join fragment PLUS a single top-level anti join
+// (slice-2). Exit 0 iff all classifications correct.
 package test;
 
 use logos.lang.writ.container;
@@ -68,8 +69,10 @@ fn main() -> i32 {
     // ACCEPT: with a WHERE filter (linear) and a distinct (set mode).
     if !accepts("from emps e join depts d on e.dept == d.id where e.dept > 0 select distinct d.dname", &c, &env) { return 2i32; }
 
-    // REJECT: anti join.
-    if accepts("from emps e anti join depts d on e.dept == d.id select e.name", &c, &env) { return 3i32; }
+    // ACCEPT: anti join (slice-2 — stateful matchcount, §3/§10.4).
+    if !accepts("from emps e anti join depts d on e.dept == d.id select e.name", &c, &env) { return 3i32; }
+    // REJECT: self-anti (a single ΔA must feed both positions — §10.4).
+    if accepts("from emps e anti join emps m on e.dept == m.dept select e.name", &c, &env) { return 11i32; }
     // REJECT: aggregate / group-by.
     if accepts("from emps e group by e.dept aggregate cnt = count() select (key, cnt)", &c, &env) { return 4i32; }
     // REJECT: limit (top-of-plan, order-dependent).

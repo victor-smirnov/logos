@@ -4301,17 +4301,23 @@ impl ZBatch {
 //         per whole-node row; rt_key_hash collapses Nodes to one bucket and
 //         rt_eq(Node,Node)=false, so identity is the raw self-relative ref)
 //   idx — join-key hash -> slots: the arrangement / probe index (kept live).
+//   mc — per-LEFT-ROW matchcount (anti mode only): weighted count of supporting
+//        right matches for slot i; the left row is in the anti-output iff mc==0.
+//        Sentinel -1 = "uncomputed" (a new slot not yet probed). Meaningful only
+//        for the LEFT arrangement (`a`) under anti; unused for join / for `b`.
 pub struct Arr {
     var:  str,
     node: Vec<WAny>,
     wt:   Vec<i64>,
     key:  Vec<RtVal>,
+    mc:   Vec<i64>,
     id:   HashMap<u64, i64>,
     idx:  HashMap<u64, Vec<i64>>,
 }
 fn arr_new(var: str) -> Arr {
     return Arr {
         var: var, node: vec_new::<WAny>(), wt: vec_new::<i64>(), key: vec_new::<RtVal>(),
+        mc: vec_new::<i64>(),
         id: hashmap_new::<u64, i64>(), idx: hashmap_new::<u64, Vec<i64>>(),
     };
 }
@@ -4509,6 +4515,65 @@ fn ij_join_term(odp: *mut ZOut, arena: &Writ,
     }
 }
 
+// Anti-output emit: a LEFT-only row (weight w, may be negative) → filter →
+// project → coalesce into `od`. No rvar/residual (the anti-output is left-only;
+// the where-clause is left-only by the checker). Mirrors ij_emit minus the join.
+fn ij_anti_emit(odp: *mut ZOut, arena: &Writ, l_node: WAny, w: i64,
+                lvar: str, has_pred: bool, pred_w: i64, sel_w: i64,
+                cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) {
+    if w == 0i64 { return; }
+    let mut cb: RBinds = rbinds_new();
+    cb.bind_val(lvar, RtVal::Node(l_node));
+    let cbp: *const RBinds = &cb;
+    if has_pred {
+        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch)) { return; }
+    }
+    let sel: SExpr = sx_of(sel_w);
+    let mut cells: Vec<RtVal> = vec_new::<RtVal>();
+    match sel {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let nn: i64 = items.len();
+            let mut c: i64 = 0i64;
+            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch)); c = c + 1i64; }
+        }
+        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
+    }
+    zout_bump(odp, arena, &cells, 0i64, w);
+}
+
+// Weighted matchcount of one left row against arranged `b`: Σ_r [key(r)==l_key
+// ∧ residual(l,r)]·b.wt[r] over post-integrate `b`. Clone of ij_join_term's
+// probe loop MINUS emit. A left key with two supporting depts returns 2 (enters
+// the anti-output only at 0). NOT boolean — per (ℓ,r) residual, weighted.
+fn ij_matchcount(l_node: WAny, l_key: RtVal, b: &Arr,
+                 on_w: i64, equi_w: i64, lvar: str, rvar: str,
+                 cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) -> i64 {
+    let rp: *mut HashMap<u64, Vec<i64>> =
+        (&b.idx as *const HashMap<u64, Vec<i64>>) as *mut HashMap<u64, Vec<i64>>;
+    let hp: u64 = rt_key_hash(l_key);
+    let bp: *const Vec<i64> = unsafe { rp.get(&hp) };
+    let mut mc: i64 = 0i64;
+    if (bp as i64) != 0i64 {
+        let bucket: &Vec<i64> = unsafe { &*bp };
+        let nb: i64 = bucket.len();
+        let mut t: i64 = 0i64;
+        while t < nb {
+            let j: i64 = bucket.get(t);
+            let wr: i64 = b.wt.get(j);
+            if wr != 0i64 && rt_eq(l_key, b.key.get(j)) {
+                let mut cb: RBinds = rbinds_new();
+                cb.bind_val(lvar, RtVal::Node(l_node));
+                cb.bind_val(rvar, RtVal::Node(b.node.get(j)));
+                let cbp: *const RBinds = &cb;
+                if eval_on_residual(on_w, equi_w, cat, env, cbp, scratch) { mc = mc + wr; }
+            }
+            t = t + 1i64;
+        }
+    }
+    return mc;
+}
+
 // The ΔA ⋈ ΔB cross term (nested loop; deltas are small). Index-free so it
 // never touches the arrangements — the §8.2 double-count trap is avoided by
 // computing this BEFORE integrating either delta.
@@ -4563,6 +4628,7 @@ fn ij_integrate(arr: &mut Arr, delta: &ZBatch, keyw: i64, var: str,
                 arr.node.push(node);
                 arr.wt.push(w);
                 arr.key.push(key);
+                arr.mc.push(-1i64);   // uncomputed sentinel (anti mode fills lazily)
                 unsafe { let _q: *mut i64 = idp.get_or_insert(rawu, slot); }
                 let hp: u64 = rt_key_hash(key);
                 let ixp: *mut HashMap<u64, Vec<i64>> = &mut arr.idx;
@@ -4606,6 +4672,7 @@ pub struct IncrJoin {
     lvar:    str,
     rvar:    str,
     has_distinct: bool,      // top RExpr::Distinct present -> set mode
+    is_anti: bool,           // top step is `anti join` -> matchcount/crossing mode
     ncols:  i64,
     ckind:  [i32; 8],
 }
@@ -4635,6 +4702,111 @@ impl IncrJoin {
         while ib < db.node.len() {
             dbkeys.push(ij_key(build_w, rvar, db.node.get(ib), cat, env, &scratch));
             ib = ib + 1i64;
+        }
+
+        // ── ANTI PATH (§10.4): matchcount maintenance + 0↔>0 crossing emit ──
+        if self.is_anti {
+            let mut oda: ZOut = zout_new(self.ncols);
+            let odap: *mut ZOut = &mut oda;
+
+            // PHASE 1 — ΔB crossings over the EXISTING left population, using the
+            // PRE-ΔA left weight and PRE-ΔB matchcount. Accumulate Δmc per touched
+            // left slot (slot-indexed scratch, applied ONCE — never per db entry).
+            let nla: i64 = self.a.node.len();
+            let mut dmc: Vec<i64> = vec_new::<i64>();
+            let mut seen: Vec<bool> = vec_new::<bool>();
+            let mut zi: i64 = 0i64;
+            while zi < nla { dmc.push(0i64); seen.push(false); zi = zi + 1i64; }
+            let mut touched: Vec<i64> = vec_new::<i64>();
+            let ap_idx: *mut HashMap<u64, Vec<i64>> =
+                (&self.a.idx as *const HashMap<u64, Vec<i64>>) as *mut HashMap<u64, Vec<i64>>;
+            let nbd: i64 = db.node.len();
+            let mut bj: i64 = 0i64;
+            while bj < nbd {
+                let wb: i64 = db.wt.get(bj);
+                if wb != 0i64 {
+                    let kb: RtVal = dbkeys.get(bj);
+                    let hp: u64 = rt_key_hash(kb);
+                    let bp: *const Vec<i64> = unsafe { ap_idx.get(&hp) };
+                    if (bp as i64) != 0i64 {
+                        let bucket: &Vec<i64> = unsafe { &*bp };
+                        let nbk: i64 = bucket.len();
+                        let mut t: i64 = 0i64;
+                        while t < nbk {
+                            let ls: i64 = bucket.get(t);
+                            // NOTE: maintain mc for ALL key-matching left slots,
+                            // incl. wt==0 (else a re-inserted row reads stale mc in
+                            // Phase 3). The crossing emit at wt==0 is a no-op.
+                            if rt_eq(kb, self.a.key.get(ls)) {
+                                let mut cb: RBinds = rbinds_new();
+                                cb.bind_val(lvar, RtVal::Node(self.a.node.get(ls)));
+                                cb.bind_val(rvar, RtVal::Node(db.node.get(bj)));
+                                let cbp: *const RBinds = &cb;
+                                if eval_on_residual(on_w, equi_w, cat, env, cbp, &scratch) {
+                                    if !seen.get(ls) { seen.set(ls, true); touched.push(ls); }
+                                    dmc.set(ls, dmc.get(ls) + wb);
+                                }
+                            }
+                            t = t + 1i64;
+                        }
+                    }
+                }
+                bj = bj + 1i64;
+            }
+            let nt: i64 = touched.len();
+            let mut tj: i64 = 0i64;
+            while tj < nt {
+                let ls: i64 = touched.get(tj);
+                let old: i64 = self.a.mc.get(ls);
+                let neww: i64 = old + dmc.get(ls);
+                if old == 0i64 && neww > 0i64 {
+                    // new match ⇒ left LEAVES (−left, at PRE-ΔA weight)
+                    ij_anti_emit(odap, &self.arena, self.a.node.get(ls), 0i64 - self.a.wt.get(ls),
+                                 lvar, has_pred, pred_w, sel_w, cat, env, &scratch);
+                } else {
+                    if old > 0i64 && neww == 0i64 {
+                        // last match retracted ⇒ left ENTERS (+left, at PRE-ΔA weight)
+                        ij_anti_emit(odap, &self.arena, self.a.node.get(ls), self.a.wt.get(ls),
+                                     lvar, has_pred, pred_w, sel_w, cat, env, &scratch);
+                    }
+                }
+                self.a.mc.set(ls, neww);
+                tj = tj + 1i64;
+            }
+
+            // PHASE 2 — INTEGRATE (after Phase-1 compute). Right FIRST: Phase 3's
+            // matchcount probes post-ΔB `b`. New left slots get mc = −1 sentinel.
+            ij_integrate(&mut self.b, db, build_w, rvar, cat, env, &scratch);
+            ij_integrate(&mut self.a, da, probe_w, lvar, cat, env, &scratch);
+
+            // PHASE 3 — ΔA gated by CURRENT (post-ΔB) matchcount. A new left copy
+            // appears in the anti-output only if its key has matchcount==0.
+            let nad: i64 = da.node.len();
+            let mut ai: i64 = 0i64;
+            while ai < nad {
+                let wa: i64 = da.wt.get(ai);
+                if wa != 0i64 {
+                    let dn: WAny = da.node.get(ai);
+                    let rawu: u64 = dn.raw() as u64;
+                    let idp: *mut HashMap<u64, i64> =
+                        (&self.a.id as *const HashMap<u64, i64>) as *mut HashMap<u64, i64>;
+                    let sp: *const i64 = unsafe { idp.get(&rawu) };
+                    let s: i64 = unsafe { *sp };   // exists post-integrate
+                    if self.a.mc.get(s) < 0i64 {
+                        let mcv: i64 = ij_matchcount(dn, dakeys.get(ai), &self.b,
+                                                     on_w, equi_w, lvar, rvar, cat, env, &scratch);
+                        self.a.mc.set(s, mcv);
+                    }
+                    if self.a.mc.get(s) == 0i64 {
+                        ij_anti_emit(odap, &self.arena, dn, wa,
+                                     lvar, has_pred, pred_w, sel_w, cat, env, &scratch);
+                    }
+                }
+                ai = ai + 1i64;
+            }
+
+            out_apply(&mut self.out, &self.arena, &oda, has_distinct);
+            return;
         }
 
         // ── COMPUTE ΔJ against the CURRENT (pre-integrate) arrangements ──
@@ -4706,11 +4878,12 @@ fn ij_push_row(rows: &mut QRows, out: &ZOut, slot: i64, nc: i64) {
 }
 
 impl Query {
-    // Build a slice-1 incremental maintainer for this query against `env`'s
-    // base sources. Returns Err (an error VALUE) if the plan is outside the
-    // slice-1 fragment: any of RSort/RLimit/REdge/RAnti/RAggr/RFix, a
-    // non-Scan join child, a self-join, a rel block (reg.n != 0), or a
-    // non-hash (f64) join key. `env` must stay alive across every epoch and
+    // Build an incremental maintainer for this query against `env`'s base
+    // sources. Slice-1 fragment = RScan/RFilter/RProj + one top RJoin; slice-2
+    // adds a single top-level RAnti (stateful matchcount, §3/§10.4). Returns Err
+    // (an error VALUE) if the plan is outside that: any of RSort/RLimit/REdge/
+    // RAggr/RFix, a non-Scan join/anti child, a self-join/self-anti, a rel block
+    // (reg.n != 0), or a non-hash (f64) join key. `env` must stay alive and
     // its base sources must be NON-EMPTY (the join tier resolves off the live
     // element type).
     pub fn incremental(self: &Query, env: &QEnv) -> Result<IncrJoin, QError> {
@@ -4752,6 +4925,7 @@ impl Query {
         let mut on_w: i64 = 0i64;
         let mut join_w: i64 = 0i64;
         let mut is_join: bool = false;
+        let mut is_anti: bool = false;
         match cur {
             RExpr::Join(jn)  => {
                 let mut lok: bool = false;
@@ -4764,7 +4938,20 @@ impl Query {
                 join_w = jn.as_ref().raw();
                 is_join = true;
             }
-            RExpr::Anti(_a) => { return Result::Err(qerr("Query::incremental: `anti join` is out of slice-1")); }
+            // slice-2: a single top-level `anti join` (STATEFUL, §3/§10.4). Left/
+            // right must be bare scans; self-anti still rejected below (str_eq).
+            RExpr::Anti(an) => {
+                let mut lok: bool = false;
+                let mut rok: bool = false;
+                match an.left_expr()  { RExpr::Scan(s) => { lvar = s.var_name; lsrc = s.src_name; lok = true; } _ => { } }
+                match an.right_expr() { RExpr::Scan(s) => { rvar = s.var_name; rsrc = s.src_name; rok = true; } _ => { } }
+                if !lok { return Result::Err(qerr("Query::incremental: the anti join's left input is not a bare scan")); }
+                if !rok { return Result::Err(qerr("Query::incremental: the anti join's right input is not a bare scan")); }
+                on_w = an.on.any().raw();
+                join_w = an.as_ref().raw();
+                is_join = true;
+                is_anti = true;
+            }
             RExpr::Aggr(_g) => { return Result::Err(qerr("Query::incremental: aggregate/group-by is out of slice-1")); }
             RExpr::Edge(_e) => { return Result::Err(qerr("Query::incremental: graph traversal (edge) is out of slice-1")); }
             RExpr::Fix(_x)  => { return Result::Err(qerr("Query::incremental: recursion (fix) is out of slice-1")); }
@@ -4817,6 +5004,7 @@ impl Query {
             on_w: on_w, equi_w: equi_w, build_w: build_w, probe_w: probe_w,
             pred_w: pred_w, has_pred: has_pred, sel_w: sel_w,
             lvar: lvar, rvar: rvar, has_distinct: has_distinct,
+            is_anti: is_anti,
             ncols: ncols, ckind: ckind,
         };
         let scratch: Writ = writ_new(2048i64);
@@ -4825,10 +5013,27 @@ impl Query {
         ij_integrate(&mut eng.a, &ba, probe_w, lvar, &eng.cat, env, &scratch);
         let bb: ZBatch = ij_batch_from_source(rsrcv);
         ij_integrate(&mut eng.b, &bb, build_w, rvar, &eng.cat, env, &scratch);
-        // base out = A_int ⋈ B_int (one join_term — integrate-order-independent)
         let mut od0: ZOut = zout_new(ncols);
-        ij_join_term(&mut od0, &eng.arena, &eng.a.node, &eng.a.wt, &eng.a.key, &eng.b, true,
-                     lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, &eng.cat, env, &scratch);
+        if is_anti {
+            // base anti-out = { left row : matchcount==0 } over A_int / B_int.
+            // Overwrites every left slot's mc eagerly (no −1 sentinel survives).
+            let nla: i64 = eng.a.node.len();
+            let mut ls: i64 = 0i64;
+            while ls < nla {
+                let mcv: i64 = ij_matchcount(eng.a.node.get(ls), eng.a.key.get(ls), &eng.b,
+                                             on_w, equi_w, lvar, rvar, &eng.cat, env, &scratch);
+                eng.a.mc.set(ls, mcv);
+                if mcv == 0i64 {
+                    ij_anti_emit(&mut od0, &eng.arena, eng.a.node.get(ls), eng.a.wt.get(ls),
+                                 lvar, has_pred, pred_w, sel_w, &eng.cat, env, &scratch);
+                }
+                ls = ls + 1i64;
+            }
+        } else {
+            // base out = A_int ⋈ B_int (one join_term — integrate-order-independent)
+            ij_join_term(&mut od0, &eng.arena, &eng.a.node, &eng.a.wt, &eng.a.key, &eng.b, true,
+                         lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, &eng.cat, env, &scratch);
+        }
         out_apply(&mut eng.out, &eng.arena, &od0, has_distinct);
         return Result::Ok(eng);
     }

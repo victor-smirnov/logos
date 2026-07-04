@@ -222,5 +222,18 @@ fn main() -> i32 {
     let r4: i32 = run_variant("from emps e join depts d on e.dept == d.id select distinct (d.dname, e.name)", &c, &doc, &eh, &dh);
     if r4 != 0i32 { return 400i32 + r4; }
 
+    // ── slice-2 ANTI variants (§10.4 crossing; dept-4 emps E4/E9 are permanent
+    // anti-output; deleting the sole supporting dept drives an emp's mc→0 = it
+    // ENTERS, re-adding drives mc 0→>0 = it LEAVES). Injective + non-injective
+    // (E5/E10→dept0, E4/E9→dept4 coalesce) × bag/set to pin per-row-not-per-key.
+    let r5: i32 = run_variant("from emps e anti join depts d on e.dept == d.id select e.name", &c, &doc, &eh, &dh);
+    if r5 != 0i32 { return 500i32 + r5; }
+    let r6: i32 = run_variant("from emps e anti join depts d on e.dept == d.id select distinct e.name", &c, &doc, &eh, &dh);
+    if r6 != 0i32 { return 600i32 + r6; }
+    let r7: i32 = run_variant("from emps e anti join depts d on e.dept == d.id select e.dept", &c, &doc, &eh, &dh);
+    if r7 != 0i32 { return 700i32 + r7; }
+    let r8: i32 = run_variant("from emps e anti join depts d on e.dept == d.id select distinct e.dept", &c, &doc, &eh, &dh);
+    if r8 != 0i32 { return 800i32 + r8; }
+
     return 0i32;
 }
