@@ -1,15 +1,18 @@
-// query_incr_tc_fuzz — property-based DIFFERENTIAL test for slice-5, the
-// incremental LINEAR-RECURSIVE rel (transitive closure over an edge relation,
-// ADR 0013 §4 R1). MILESTONE A: INSERTIONS. A deterministic LCG (the test is a
-// Logos program, not a host RNG) drives a seed battery; each seed runs a
-// multi-epoch sequence of random +edge inserts over a SMALL node domain (5
-// nodes ⇒ forced cycles + multi-path derivations), mirrored into a truth model.
-// After EVERY epoch the maintained closure (IncrRec::snapshot) is compared, as
-// a multiset at quiescence, against the queue-2 batch least-fixpoint oracle
-// (Query::run) recomputed from the current edge set. Any divergence ⇒ nonzero
-// exit. Includes a hand-crafted cycle-closing sequence (insert the back-edge of
-// a chain) — the case where naïve ℤ-multiplicity would never quiesce and only
-// the per-round membership DISTINCT terminates.
+// query_incr_tc_fuzz — property-based DIFFERENTIAL test for the incremental
+// LINEAR-RECURSIVE rel (transitive closure over an edge relation, ADR 0013 §4).
+// ±EDGE DELTAS: slice-5 insertions + slice-6 mark-based DELETE-REDERIVE
+// retraction. A deterministic LCG (the test is a Logos program, not a host RNG)
+// drives a seed battery; each seed runs a multi-epoch sequence of random SIGNED
+// edge deltas (add AND remove — creating and breaking cycles) over a SMALL node
+// domain (5 nodes ⇒ forced cycles + multi-path derivations), mirrored into a
+// truth model. After EVERY epoch the maintained closure (IncrRec::snapshot) is
+// compared, as a multiset at quiescence, against the queue-2 batch
+// least-fixpoint oracle (Query::run) recomputed from the CURRENT clamped edge
+// set — so retraction is differentially tested every epoch. Any divergence ⇒
+// nonzero exit. Includes hand-crafted cycle-CLOSING (insert the back-edge) and
+// cycle-BREAKING (delete a cycle edge) sequences — the ± analogues where naïve
+// ℤ-multiplicity would never quiesce / would leave spurious circular support,
+// and only per-round membership DISTINCT + mark-based DRed are correct.
 package test;
 
 use logos.lang.writ.container;
@@ -145,7 +148,12 @@ fn run_seed(q: &Query, seed: u64, doc: &Writ, eh: &Vec<WAny>, init: &Vec<i64>) -
         let mut o: i64 = 0i64;
         while o < nops {
             let idx: i64 = rand_n(&mut lcg, ne);
-            src_apply(eh, &mut ew, &mut de, idx, 1i64);   // INSERTIONS only
+            // SIGNED delta: present edge → fully retract (−cur); absent → insert.
+            // Toggling the present/absent state exercises cycle CREATE and BREAK
+            // every epoch, so mark-based DRed is differentially tested vs batch.
+            let cur: i64 = ew.get(idx);
+            let raw: i64 = if cur > 0i64 { 0i64 - cur } else { 1i64 };
+            src_apply(eh, &mut ew, &mut de, idx, raw);
             o = o + 1i64;
         }
         eng.epoch(&de);
@@ -241,6 +249,38 @@ fn main() -> i32 {
     src_apply(&eh, &mut ew2, &mut d3, pool_idx(0i64, 1i64), 1i64);
     eng2.epoch(&d3);
     if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 95i32; }
+
+    // ── hand-crafted CYCLE-BREAKING sequence (slice-6 DRed): the graph is now
+    // the fully-cyclic 5-cycle 0→1→2→3→4→0 + chord 0→2 (closure = all 25 pairs
+    // over {0..4}). Delete edges one at a time and check the closure SHRINKS to
+    // match the batch oracle each step — the retraction analogue of the
+    // cycle-closing block above. ──
+    // break 2→3 (opens the main cycle at one arc; 0→2 chord keeps partial reach)
+    let mut r1: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut r1, pool_idx(2i64, 3i64), -1i64);
+    eng2.epoch(&r1);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 96i32; }
+    // break the chord 0→2 (removes an alternative derivation path)
+    let mut r2: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut r2, pool_idx(0i64, 2i64), -1i64);
+    eng2.epoch(&r2);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 97i32; }
+    // break the back-edge 4→0 (fully opens the cycle → pure chain remnants)
+    let mut r3: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut r3, pool_idx(4i64, 0i64), -1i64);
+    eng2.epoch(&r3);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 98i32; }
+    // delete a chain edge whose only support it is (1→2): drops (·,2)-via-1 facts
+    let mut r4: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut r4, pool_idx(1i64, 2i64), -1i64);
+    eng2.epoch(&r4);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 99i32; }
+    // re-insert 2→3 and 4→0 (mixed re-growth after retraction; ± interleaved)
+    let mut r5: ZBatch = ZBatch::new();
+    src_apply(&eh, &mut ew2, &mut r5, pool_idx(2i64, 3i64), 1i64);
+    src_apply(&eh, &mut ew2, &mut r5, pool_idx(4i64, 0i64), 1i64);
+    eng2.epoch(&r5);
+    if !cmp(&eng2, &q, &doc, &eh, &ew2, &mut oenv2) { return 89i32; }
 
     return 0i32;
 }

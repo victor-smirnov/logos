@@ -1,19 +1,17 @@
-// query_incr_tc_retract_gap — HONEST CHARACTERIZATION of the slice-5 partial:
-// INSERTIONS are maintained incrementally (see query_incr_tc_fuzz), RETRACTION
-// is NOT (ADR 0013 §4.2; the self-critique). This test PINS that gap so it is
-// documented and so the day retraction lands (correct DRed), this test flips
-// and forces its own removal — it is green ONLY while retraction is a no-op.
-//
-// The engine tracks the edge SET for both signs but the closure only GROWS: a
-// − edge delta leaves stale path tuples. Two named cases lock this:
+// query_incr_tc_retract — slice-6 RETRACTION correctness via mark-based
+// DELETE-REDERIVE (ADR 0013 §4.2). A − edge delta correctly SHRINKS the
+// maintained closure: over-delete every path fact whose derivation could use
+// the deleted edge, then re-derive over the survivors. Asserted eng == oracle
+// after retraction. Two named cases (formerly the pinned gap, now closed):
 //   (R-last)     delete the ONLY support of a path fact → the batch oracle drops
-//                it, the engine keeps it (stale) → snapshot ⊋ oracle.
+//                it AND the engine drops it (over-delete, no re-derive) → 1 row.
 //   (R-spurious) edges {a→b, b→c, c→b}; delete a→b. The oracle drops every
-//                (a,·); a single scalar weight would keep (a,b)/(a,c) alive via
+//                (a,·). A single SCALAR WEIGHT would keep (a,b)/(a,c) alive via
 //                the surviving b⇄c cycle (spurious circular support) — the exact
-//                case that makes weight-cancellation UNSOUND on cyclic graphs
-//                and mandates mark-based DRed. Here the engine (no retraction)
-//                likewise keeps them; asserted as the go/no-go for retraction.
+//                case that makes weight-cancellation UNSOUND on cyclic graphs.
+//                Mark-based DRed gets it RIGHT: over-delete removes (a,b)/(a,c)
+//                (derivable via a→b), re-derive does NOT bring them back (a has
+//                no other out-edge), the b⇄c closure survives → 4 rows == oracle.
 package test;
 
 use logos.lang.writ.container;
@@ -93,11 +91,11 @@ fn main() -> i32 {
     src_apply(&hs, &mut wts, &mut d1, 1i64, -1i64);
     eng.epoch(&d1);
     let orc_after: i64 = oracle_rows(&q, &doc, &hs, &wts);   // = 1  {(0,1)}
-    let eng_after: i64 = eng.snapshot().row_count();         // = 3  (STALE)
+    let eng_after: i64 = eng.snapshot().row_count();         // = 1  (DRed shrinks)
     if orc_after != 1i64 { return 94i32; }
-    // GAP: retraction not maintained ⇒ the engine is STALE (⊋ oracle). When
-    // retraction lands, eng_after becomes 1 and this test MUST be updated.
-    if eng_after <= orc_after { return 95i32; }              // gap present ⇒ pass
+    // DRed over-deletes (1,2) and (0,2) [both derivable via the deleted 1→2],
+    // re-derive brings back nothing (no alternative support) ⇒ engine == oracle.
+    if eng_after != 1i64 { return 95i32; }
 
     // ── (R-spurious): edges {a→b, b→c, c→b}; delete a→b. Oracle drops all (a,·). ──
     let mut hs2: Vec<WAny> = vec_new::<WAny>();
@@ -118,11 +116,12 @@ fn main() -> i32 {
     src_apply(&hs2, &mut w2, &mut d2, 0i64, -1i64);
     eng2.epoch(&d2);
     let orc2: i64 = oracle_rows(&q, &doc, &hs2, &w2);   // b⇄c closure only: {(1,2),(2,1),(1,1),(2,2)} = 4
-    let eng2_after: i64 = eng2.snapshot().row_count();  // STALE: keeps the (0,·) tuples
+    let eng2_after: i64 = eng2.snapshot().row_count();  // DRed: drops (0,·), keeps b⇄c
     if orc2 != 4i64 { return 98i32; }
-    // GAP: spurious survival of (0,·) — the decisive weight-cancellation-unsound
-    // case; requires mark-based DRed. Engine stays stale ⇒ eng2_after > orc2.
-    if eng2_after <= orc2 { return 99i32; }             // gap present ⇒ pass
+    // DECISIVE: mark-based DRed drops the spurious (0,·) tuples (over-deleted via
+    // a→b, no re-derive since a has no other out-edge) while the b⇄c cycle
+    // survives ⇒ engine == oracle. Scalar-weight cancellation got this WRONG.
+    if eng2_after != 4i64 { return 99i32; }
 
     return 0i32;
 }
