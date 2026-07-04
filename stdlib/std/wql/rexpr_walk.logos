@@ -46,13 +46,29 @@ use logos.mem.string;
 use logos.lang.str;
 
 // ── Aggregate fn ids (mirror plan_walker) ────────────────────────────────────
-fn AGG_COUNT() -> i32 { return 1i32; }
-fn AGG_SUM()   -> i32 { return 2i32; }
-fn AGG_MIN()   -> i32 { return 3i32; }
-fn AGG_MAX()   -> i32 { return 4i32; }
-fn AGG_AVG()   -> i32 { return 5i32; }
+pub fn AGG_COUNT() -> i32 { return 1i32; }
+pub fn AGG_SUM()   -> i32 { return 2i32; }
+pub fn AGG_MIN()   -> i32 { return 3i32; }
+pub fn AGG_MAX()   -> i32 { return 4i32; }
+pub fn AGG_AVG()   -> i32 { return 5i32; }
 
-fn agg_of_name(name: str) -> i32 {
+// The algebraic-structure class of an aggregate — the load-bearing column that
+// decides in-fixpoint admissibility (recursive-aggregation design §1):
+//   • SEMILATTICE (min/max) — idempotent meet/join; the absorb gate IS the
+//     lattice order, so a recursive head stays monotone ⇒ fixpoint-SAFE.
+//   • GROUP (sum/count/avg) — abelian group; the very inverse that makes it
+//     O(1)-incremental breaks fixpoint monotonicity (counting paths in a cycle
+//     diverges) ⇒ recursion is a NAMED compile error; stratified-only.
+// Defaults to GROUP/unknown for any unclassified id — reject-in-recursion, never
+// default-allow (design §7 critique #1).
+pub fn AGG_CLASS_SEMILATTICE() -> i32 { return 1i32; }
+pub fn AGG_CLASS_GROUP()       -> i32 { return 2i32; }
+pub fn agg_algebra(fnid: i32) -> i32 {
+    if fnid == AGG_MIN() || fnid == AGG_MAX() { return AGG_CLASS_SEMILATTICE(); }
+    return AGG_CLASS_GROUP();
+}
+
+pub fn agg_of_name(name: str) -> i32 {
     if str_eq(name, "count") { return AGG_COUNT(); }
     if str_eq(name, "sum")   { return AGG_SUM(); }
     if str_eq(name, "min")   { return AGG_MIN(); }
@@ -3466,6 +3482,72 @@ fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
     em.push_text("if unsafe { __rsp.insert(__rv) } { __out.push(__rv); }\n");
 }
 
+// The SEMILATTICE-ABSORB push (recursive min/max aggregation — the generalization
+// of the set-insert). A candidate `(key, arg)` is absorbed against the persistent
+// per-key best-map `__bp_<rel>`: kept iff it STRICTLY improves the running best
+// (`<` for min, `>` for max). The improvement gate IS the ⊓/⊔ meet/join — this is
+// exactly why min/max are incrementalizable in a fixpoint and sum/count/avg are
+// not (design §2). A NEW key seeds the best and records its key in `__keys_<rel>`
+// (the distinct-key roster the post-loop materializes the argmin/argmax total
+// from); an improved key overwrites the best. Every improvement pushes the row
+// into `__out` (the round's improvement delta) — semi-naïve re-derivation.
+fn emit_rel_push_agg(em: &mut Emitter, lvl: i64, ri: i64, prm: &MacroParams,
+                     key_body: str, val_body: str) {
+    let rn:  str = prm.rel_names[ri];
+    let off: i64 = prm.rel_coff[ri];
+    let kty: str = prm.relc_ty[off];
+    let vty: str = prm.relc_ty[off + 1i64];
+    let cmp: str = if prm.rel_agg_dir[ri] == AGG_MAX() { " > " } else { " < " };
+    push_ind(em, lvl);
+    em.push_text("let __ak: "); em.push_text(kty); em.push_text(" = (");
+    em.push_text(key_body); em.push_text(");\n");
+    push_ind(em, lvl);
+    em.push_text("let __av: "); em.push_text(vty); em.push_text(" = (");
+    em.push_text(val_body); em.push_text(");\n");
+    push_ind(em, lvl);
+    em.push_text("unsafe {\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("let __cp: *const "); em.push_text(vty);
+    em.push_text(" = (__bp_"); em.push_text(rn); em.push_text(").get(&__ak);\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("let mut __imp: bool = false;\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("if __cp == (0i64 as *const "); em.push_text(vty);
+    em.push_text(") { __imp = true; __keys_"); em.push_text(rn); em.push_text(".push(__ak); }\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("else { if __av"); em.push_text(cmp); em.push_text("*__cp { __imp = true; } }\n");
+    push_ind(em, lvl + 1i64);
+    em.push_text("if __imp { (__bp_"); em.push_text(rn);
+    em.push_text(").insert(__ak, __av); __out.push((__ak, __av)); }\n");
+    push_ind(em, lvl);
+    em.push_text("}\n");
+}
+
+// Emit the (key, arg) split of an aggregate MEMBER's body select tuple into the
+// `key_out`/`val_out` strings, for the seed / plain-body absorb path. The select
+// of an aggregate member is always `(key…, aggout)` (walker-validated against the
+// two declared columns), so component 0 is the group key and component 1 the
+// value the lattice folds. Returns false (error surfaced) if not a 2-tuple.
+fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: str,
+                  key_out: &mut String, val_out: &mut String) -> bool {
+    match proj {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            if items.len() != 2i64 {
+                error("wql!: a recursive-aggregate rel select must be `(key, aggout)` — exactly two components (slice-1)");
+                return false;
+            }
+            emit_sexpr(key_out, items.arg_at(0i64), t, var0);
+            emit_sexpr(val_out, items.arg_at(1i64), t, var0);
+            return true;
+        }
+        _ => {
+            error("wql!: a recursive-aggregate rel select must be a `(key, aggout)` tuple (slice-1)");
+            return false;
+        }
+    }
+}
+
 // One SIMPLE rel body: scan + optional where + dedup-push projection.
 fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
                         prm: &MacroParams, h: &Writ) -> bool {
@@ -3482,8 +3564,18 @@ fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
     let proj_opt: SExpr = simplify_sexpr(s.select_expr(), h).any().view::<SExpr>();
     if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
     if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, 1i64) { return false; }
+    // Aggregate MEMBER (recursive min/max): its bodies — including seed scans —
+    // absorb `(key, val)` into the best-map, not the set shadow. Split the select
+    // tuple into the two lattice operands.
+    let is_agg: bool = prm.rel_is_agg[ri];
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, s.var_name);
+    let mut key_body: String = String::new();
+    let mut val_body: String = String::new();
+    if is_agg {
+        if !split_agg_proj(proj_opt, ri, prm, &ty, s.var_name, &mut key_body, &mut val_body) { return false; }
+    } else {
+        emit_sexpr(&mut proj_body, proj_opt, &ty, s.var_name);
+    }
 
     let mut pred_body: String = String::new();
     if s.has_where {
@@ -3514,7 +3606,11 @@ fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
         em.push_text(") {\n");
         lvl = lvl + 1i64;
     }
-    emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+    if is_agg {
+        emit_rel_push_agg(em, lvl, ri, prm, string_as_str(&key_body), string_as_str(&val_body));
+    } else {
+        emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+    }
     if s.has_where {
         lvl = lvl - 1i64;
         push_ind(em, lvl);
@@ -3526,13 +3622,98 @@ fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
     return true;
 }
 
+// ── jchain_from_aggr — a JChain over an aggregate body's base + join steps ──
+// The recursive-aggregate body (`from rel x join edges e … group by … aggregate
+// …`) has the SAME base-scan + join-step-fan-out shape as a join body; only the
+// PUSH differs (lattice absorb vs set insert). Mirror jchain_from_plan.
+fn jchain_from_aggr(g: RQAggr, ch: &mut JChain) {
+    ch.base_src = g.a_name;
+    ch.base_ty  = g.a_ty;
+    ch.base_var = g.x_var;
+    if !g.has_steps() { return; }
+    let steps: RQJoinStepArr = g.steps_arr();
+    let ns: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < ns {
+        let st: RQJoinStep = steps.step_at(i);
+        if ch.n < 8i64 {
+            ch.src[ch.n]  = st.src_name;
+            ch.ty[ch.n]   = st.row_ty;
+            ch.var[ch.n]  = st.var_name;
+            ch.anti[ch.n] = st.is_anti;
+            ch.edge[ch.n]  = st.is_edge;
+            ch.byval[ch.n] = st.is_edge && el_ret_class(st.row_ty) >= 0i32;
+            if st.is_edge && !st.has_on { ch.onw[ch.n] = 0i64; }
+            else                        { ch.onw[ch.n] = st.on.any().raw(); }
+            ch.n = ch.n + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
 // One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
 // strategy cascade — rel-sourced sides included) + optional where + dedup push.
 fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
                       prm: &MacroParams, h: &Writ) -> bool {
     let mut ch: JChain = jchain_new();
     jchain_from_plan(j, &mut ch);
+    let se: SExpr = j.select_expr();
+    // A JOIN-shaped SEED of an aggregate member projects `(key, val)` — split it
+    // so the absorb folds the two lattice operands (not the whole tuple twice).
+    if prm.rel_is_agg[ri] {
+        match se {
+            SExpr::Tuple(tp) => {
+                let items: SExprArr = tp.items_arr();
+                if items.len() != 2i64 {
+                    error("wql!: a recursive-aggregate rel body must project `(key, aggout)` — exactly two components (slice-1)");
+                    return false;
+                }
+                return emit_chain_body(em, &ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
+                                       j.has_where, j.where_expr(), h);
+            }
+            _ => {
+                error("wql!: a recursive-aggregate rel body must project a `(key, aggout)` tuple (slice-1)");
+                return false;
+            }
+        }
+    }
+    return emit_chain_body(em, &ch, ri, prm, se, se, se,
+                           j.has_where, j.where_expr(), h);
+}
 
+// One RECURSIVE-AGGREGATE rel body: same chain nest as a join body, but the inner
+// push is the semilattice absorb over `(group-key, aggregate-arg)` into the
+// best-map (min/max fixpoint). The surface `select (key, aggout)` is structural
+// only — the emitted operands are the group KEY and the aggregate's ARG expr.
+fn emit_rel_body_agg(em: &mut Emitter, g: RQAggr, ri: i64,
+                     prm: &MacroParams, h: &Writ) -> bool {
+    if !g.has_steps() {
+        error("wql!: a recursive-aggregate rel body must JOIN the rel with an edge/relation slice (e.g. `from dist x join edges e on e.src == x.node …`) — a bare self-scan cannot propagate the fixpoint");
+        return false;
+    }
+    let aggs: RQAggArr = g.aggs_arr();
+    let a0: RQAgg = aggs.agg_at(0i64);
+    if !a0.has_arg {
+        error("wql!: a recursive min/max aggregate needs an argument (e.g. `min(x.d + e.w)`) — `count()` is a group aggregate and cannot recurse");
+        return false;
+    }
+    let mut ch: JChain = jchain_new();
+    jchain_from_aggr(g, &mut ch);
+    let key_e: SExpr = g.key_expr();
+    let val_e: SExpr = a0.arg_expr();
+    let we: SExpr = if g.has_where { g.where_expr() } else { key_e };
+    return emit_chain_body(em, &ch, ri, prm, key_e, key_e, val_e,
+                           g.has_where, we, h);
+}
+
+// The shared CHAIN-BODY emitter (join bodies + recursive-aggregate bodies). For a
+// non-aggregate member `proj_e` is the select projection (dedup-push); for an
+// aggregate member (`prm.rel_is_agg[ri]`) `key_e`/`val_e` are the group key + the
+// aggregate argument (semilattice absorb). `where_e` is valid only if `has_where`.
+fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
+                   proj_e: SExpr, key_e: SExpr, val_e: SExpr,
+                   has_where: bool, where_e: SExpr, h: &Writ) -> bool {
+    let is_agg: bool = prm.rel_is_agg[ri];
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ch.base_ty);
@@ -3560,15 +3741,35 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
         vi = vi + 1i64;
     }
 
-    // Clause validation (select / where / per-step on).
-    let proj_opt: SExpr = simplify_sexpr(j.select_expr(), h).any().view::<SExpr>();
-    if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
-    if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, nv) { return false; }
+    // Clause validation + push-operand emission (select / key+arg / where).
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+    let mut key_body: String = String::new();
+    let mut val_body: String = String::new();
+    if is_agg {
+        // Recursive-aggregate: the value column carries an ORDER (the lattice); a
+        // single-key group (slice-1). Require val col = i64 (total Ord, no f64
+        // NaN hazard — design §7 critique #6).
+        let voff: i64 = prm.rel_coff[ri];
+        if !str_eq(prm.relc_ty[voff + 1i64], "i64") {
+            error("wql!: a recursive min/max aggregate value column must be i64 (the ordered lattice; f64/str are out of slice-1)");
+            return false;
+        }
+        let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+        let val_opt: SExpr = simplify_sexpr(val_e, h).any().view::<SExpr>();
+        if !reject_tuple(key_opt, "wql!: rel aggregate `group by`") { return false; }
+        if !check_calls(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
+        if !check_calls(val_opt, &ty, "wql!: rel aggregate argument") { return false; }
+        emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
+        emit_sexpr(&mut val_body, val_opt, &ty, ch.base_var);
+    } else {
+        let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
+        if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
+        if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, nv) { return false; }
+        emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+    }
     let mut where_body: String = String::new();
-    if j.has_where {
-        let we: SExpr = j.where_expr();
+    if has_where {
+        let we: SExpr = where_e;
         if !reject_tuple(we, "wql!: rel `where`") { return false; }
         if !check_calls(we, &ty, "wql!: rel `where`") { return false; }
         let we_opt: SExpr = simplify_sexpr(we, h).any().view::<SExpr>();
@@ -3597,7 +3798,7 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
     let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
     let mut st_hasres: [bool; 8] = [false; 8];
     let mut st_equi:   [bool; 8] = [false; 8];
-    analyze_chain(&ch, &ty, ch.base_var, h,
+    analyze_chain(ch, &ty, ch.base_var, h,
                   &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
                   &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
 
@@ -3643,15 +3844,19 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
         lvl = lvl + opens[oi];
         oi = oi + 1i64;
     }
-    if j.has_where {
+    if has_where {
         push_ind(em, lvl);
         em.push_text("if (");
         em.push_text(string_as_str(&where_body));
         em.push_text(") {\n");
         lvl = lvl + 1i64;
     }
-    emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
-    if j.has_where {
+    if is_agg {
+        emit_rel_push_agg(em, lvl, ri, prm, string_as_str(&key_body), string_as_str(&val_body));
+    } else {
+        emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+    }
+    if has_where {
         lvl = lvl - 1i64;
         push_ind(em, lvl);
         em.push_text("}\n");
@@ -3703,8 +3908,18 @@ fn emit_rel_body(em: &mut Emitter, body_any: WAny, ri: i64,
         RQuery::Join(_) => {
             return emit_rel_body_join(em, rq_fat_join(body_any, h), ri, prm, h);
         }
+        RQuery::Aggr(_) => {
+            // Only reachable for a FINALIZED recursive-aggregate member (the
+            // walker's stratification check sets rel_is_agg); any other aggregate
+            // body was rejected there.
+            if prm.rel_is_agg[ri] {
+                return emit_rel_body_agg(em, rq_fat_aggr(body_any, h), ri, prm, h);
+            }
+            error("wql!: rel body must be a scan or join query (from/join/where/select)");
+            return false;
+        }
         _ => {
-            // Unreachable — the walker rejects aggregate/find bodies.
+            // Unreachable — the walker rejects find bodies.
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;
         }
@@ -3797,6 +4012,26 @@ fn body_scc_occs(body_any: WAny, prm: &MacroParams, scc: &RelScc, c: i64,
                 i = i + 1i64;
             }
         }
+        RQuery::Aggr(_) => {
+            // A recursive-aggregate body (min/max): its base + join-step sources
+            // participate in the SCC exactly like a join body's — the self-ref to
+            // the aggregate rel is the in-SCC occurrence the semi-naïve driver
+            // binds to the improvement delta.
+            let g: RQAggr = rq_fat_aggr(body_any, h);
+            let rig: i64 = prm.rel_find_src(g.a_name);
+            if rig >= 0i64 && scc.comp[rig] == c { occ_push(&mut o, -1i64, rig); }
+            if g.has_steps() {
+                let gsteps: RQJoinStepArr = g.steps_arr();
+                let gns: i64 = gsteps.len();
+                let mut gi: i64 = 0i64;
+                while gi < gns {
+                    let gst: RQJoinStep = rq_fat_step(gsteps.step_any(gi), h);
+                    let rig1: i64 = prm.rel_find_src(gst.src_name);
+                    if rig1 >= 0i64 && scc.comp[rig1] == c { occ_push(&mut o, gi, rig1); }
+                    gi = gi + 1i64;
+                }
+            }
+        }
         _ => { }
     }
     return o;
@@ -3811,13 +4046,24 @@ fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
         match q {
             RQuery::Simple(_) => { let s: RQSimple = rq_fat_simple(body_any, h); s.src_name = name; }
             RQuery::Join(_)   => { let j: RQJoin = rq_fat_join(body_any, h); j.a_name = name; }
+            RQuery::Aggr(_)   => { let g: RQAggr = rq_fat_aggr(body_any, h); g.a_name = name; }
             _ => { }
         }
         return;
     }
-    let j2: RQJoin = rq_fat_join(body_any, h);
-    let st: RQJoinStep = rq_fat_step(j2.steps_arr().step_any(o.pos[w]), h);
-    st.src_name = name;
+    let q2: RQuery = body_any.view::<RQuery>();
+    match q2 {
+        RQuery::Aggr(_) => {
+            let g2: RQAggr = rq_fat_aggr(body_any, h);
+            let st2: RQJoinStep = rq_fat_step(g2.steps_arr().step_any(o.pos[w]), h);
+            st2.src_name = name;
+        }
+        _ => {
+            let j2: RQJoin = rq_fat_join(body_any, h);
+            let st: RQJoinStep = rq_fat_step(j2.steps_arr().step_any(o.pos[w]), h);
+            st.src_name = name;
+        }
+    }
 }
 
 // ── The SEMI-NAÏVE fixpoint fn — one per RECURSIVE SCC (slice C) ─────────────
@@ -3880,17 +4126,37 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
     }
     em.push_text(") {\n");
     // ── Per-member state ──
+    // Plain (set-semantics) member: a shadow HashSet + current/next delta Vecs.
+    // AGGREGATE member (recursive min/max): a best-per-key MAP + its raw pointer
+    // (the map mutators take `*mut self`), a distinct-KEY roster (the post-loop
+    // argmin/argmax materialization of the total), the improvement deltas, and a
+    // round counter (the runtime convergence guard — termination is sacred).
     let mut m1: i64 = 0i64;
     while m1 < nm {
         let rn: str = prm.rel_names[mem[m1]];
         let rt: str = prm.rel_rowty[mem[m1]];
-        em.push_text("    let mut __rs_");
-        em.push_text(rn);
-        em.push_text(": HashSet<");
-        em.push_text(rt);
-        em.push_text("> = hashset_new::<");
-        em.push_text(rt);
-        em.push_text(">();\n");
+        if prm.rel_is_agg[mem[m1]] {
+            let off: i64 = prm.rel_coff[mem[m1]];
+            let kty: str = prm.relc_ty[off];
+            let vty: str = prm.relc_ty[off + 1i64];
+            em.push_text("    let mut __best_"); em.push_text(rn);
+            em.push_text(": HashMap<"); em.push_text(kty); em.push_text(", "); em.push_text(vty);
+            em.push_text("> = hashmap_new::<"); em.push_text(kty); em.push_text(", "); em.push_text(vty); em.push_text(">();\n");
+            em.push_text("    let __bp_"); em.push_text(rn);
+            em.push_text(": *mut HashMap<"); em.push_text(kty); em.push_text(", "); em.push_text(vty);
+            em.push_text("> = &mut __best_"); em.push_text(rn); em.push_text(";\n");
+            em.push_text("    let mut __keys_"); em.push_text(rn);
+            em.push_text(": Vec<"); em.push_text(kty); em.push_text("> = Vec::<"); em.push_text(kty); em.push_text(">::new();\n");
+            em.push_text("    let mut __rounds_"); em.push_text(rn); em.push_text(": i64 = 0i64;\n");
+        } else {
+            em.push_text("    let mut __rs_");
+            em.push_text(rn);
+            em.push_text(": HashSet<");
+            em.push_text(rt);
+            em.push_text("> = hashset_new::<");
+            em.push_text(rt);
+            em.push_text(">();\n");
+        }
         em.push_text("    let mut __dl_");
         em.push_text(rn);
         em.push_text(": Vec<");
@@ -3922,7 +4188,8 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
             b0 = b0 + 1i64;
         }
         if nseed > 0i64 {
-            emit_member_block_open(em, prm, ri);
+            if prm.rel_is_agg[ri] { emit_member_block_open_agg(em, prm, ri); }
+            else                  { emit_member_block_open(em, prm, ri); }
             let mut b1: i64 = 0i64;
             while b1 < nb {
                 let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
@@ -3952,20 +4219,26 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
         em.push_text(" = Vec::<");
         em.push_text(rt3);
         em.push_text(">::new();\n");
-        em.push_text("        {\n");
-        em.push_text("            let __ps: &[");
-        em.push_text(rt3);
-        em.push_text("] = __dl_");
-        em.push_text(rn3);
-        em.push_text(".as_slice();\n");
-        em.push_text("            let mut __pk: i64 = 0i64;\n");
-        em.push_text("            while __pk < __ps.len() {\n");
-        em.push_text("                __tot_");
-        em.push_text(rn3);
-        em.push_text(".push(__ps[__pk]);\n");
-        em.push_text("                __pk = __pk + 1i64;\n");
-        em.push_text("            }\n");
-        em.push_text("        }\n");
+        // Plain member: total ∪= dl (the shadow set already holds the rows). An
+        // AGGREGATE member's total is the argmin/argmax MAP — materialized ONCE
+        // after the fixpoint (the per-round best is the map, not an append-union),
+        // so its promote is just the delta swap above.
+        if !prm.rel_is_agg[mem[m3]] {
+            em.push_text("        {\n");
+            em.push_text("            let __ps: &[");
+            em.push_text(rt3);
+            em.push_text("] = __dl_");
+            em.push_text(rn3);
+            em.push_text(".as_slice();\n");
+            em.push_text("            let mut __pk: i64 = 0i64;\n");
+            em.push_text("            while __pk < __ps.len() {\n");
+            em.push_text("                __tot_");
+            em.push_text(rn3);
+            em.push_text(".push(__ps[__pk]);\n");
+            em.push_text("                __pk = __pk + 1i64;\n");
+            em.push_text("            }\n");
+            em.push_text("        }\n");
+        }
         m3 = m3 + 1i64;
     }
     // EXIT: all deltas empty ⇒ least fixpoint.
@@ -3979,18 +4252,44 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
         m4 = m4 + 1i64;
     }
     em.push_text(" { break; }\n");
-    // BIND the round's total + delta slices.
+    // CONVERGENCE GUARD (aggregate members): a monotone min/max fixpoint over a
+    // finite reachable key set converges in ≤ |keys|−1 improvement waves (each
+    // wave extends the frontier by one hop; a shortest/widest path is simple).
+    // A MINTING head (additive SSSP) over a NEGATIVE-weight cycle (min) / a
+    // POSITIVE-weight cycle (max) has no least fixpoint and would improve
+    // forever — capped generously (never false-fires on a valid graph; the
+    // execution ABORTS with a diagnostic rather than hanging — termination is
+    // sacred, design §5).
+    let mut mg: i64 = 0i64;
+    while mg < nm {
+        if prm.rel_is_agg[mem[mg]] {
+            let rng: str = prm.rel_names[mem[mg]];
+            em.push_text("        __rounds_"); em.push_text(rng);
+            em.push_text(" = __rounds_"); em.push_text(rng); em.push_text(" + 1i64;\n");
+            em.push_text("        if __rounds_"); em.push_text(rng);
+            em.push_text(" > (__best_"); em.push_text(rng);
+            em.push_text(".len() as i64) * 4i64 + 16i64 { logos.lang.panic::panic(\"wql!: recursive aggregate '");
+            em.push_text(rng);
+            em.push_text("' did not converge — a negative-weight cycle (min) or positive-weight cycle (max) has no least fixpoint\"); }\n");
+        }
+        mg = mg + 1i64;
+    }
+    // BIND the round's slices. A plain member binds BOTH total + delta; an
+    // AGGREGATE member's recursive body reads only the improvement DELTA (the
+    // total is materialized post-loop), so bind the delta only.
     let mut m5: i64 = 0i64;
     while m5 < nm {
         let rn5: str = prm.rel_names[mem[m5]];
         let rt5: str = prm.rel_rowty[mem[m5]];
-        em.push_text("        let ");
-        em.push_text(prm.rel_srcs[mem[m5]]);
-        em.push_text(": &[");
-        em.push_text(rt5);
-        em.push_text("] = __tot_");
-        em.push_text(rn5);
-        em.push_text(".as_slice();\n");
+        if !prm.rel_is_agg[mem[m5]] {
+            em.push_text("        let ");
+            em.push_text(prm.rel_srcs[mem[m5]]);
+            em.push_text(": &[");
+            em.push_text(rt5);
+            em.push_text("] = __tot_");
+            em.push_text(rn5);
+            em.push_text(".as_slice();\n");
+        }
         em.push_text("        let ");
         em.push_text(prm.rel_dsrcs[mem[m5]]);
         em.push_text(": &[");
@@ -4014,7 +4313,8 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
             b2 = b2 + 1i64;
         }
         if nrec > 0i64 {
-            emit_member_block_open(em, prm, ri6);
+            if prm.rel_is_agg[ri6] { emit_member_block_open_agg(em, prm, ri6); }
+            else                   { emit_member_block_open(em, prm, ri6); }
             let mut b3: i64 = 0i64;
             while b3 < nb6 {
                 let body_any: WAny = bodies6.body_any(b3);
@@ -4046,6 +4346,33 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
         m6 = m6 + 1i64;
     }
     em.push_text("    }\n");
+    // ── Materialize each AGGREGATE member's total = argmin/argmax per key ──
+    // The fixpoint left the best value per key in the map; walk the distinct-key
+    // roster and emit one `(key, best)` row into the caller's total Vec (the
+    // entry/later strata scan its `as_slice()`, unchanged contract).
+    let mut mt: i64 = 0i64;
+    while mt < nm {
+        if prm.rel_is_agg[mem[mt]] {
+            let rnt: str = prm.rel_names[mem[mt]];
+            let offt: i64 = prm.rel_coff[mem[mt]];
+            let ktyt: str = prm.relc_ty[offt];
+            let vtyt: str = prm.relc_ty[offt + 1i64];
+            em.push_text("    {\n");
+            em.push_text("        let mut __mk: i64 = 0i64;\n");
+            em.push_text("        while __mk < __keys_"); em.push_text(rnt); em.push_text(".len() {\n");
+            em.push_text("            let __kk: "); em.push_text(ktyt);
+            em.push_text(" = __keys_"); em.push_text(rnt); em.push_text("[__mk];\n");
+            em.push_text("            unsafe {\n");
+            em.push_text("                let __vp: *const "); em.push_text(vtyt);
+            em.push_text(" = (__bp_"); em.push_text(rnt); em.push_text(").get(&__kk);\n");
+            em.push_text("                __tot_"); em.push_text(rnt); em.push_text(".push((__kk, *__vp));\n");
+            em.push_text("            }\n");
+            em.push_text("            __mk = __mk + 1i64;\n");
+            em.push_text("        }\n");
+            em.push_text("    }\n");
+        }
+        mt = mt + 1i64;
+    }
     em.push_text("}\n");
     return true;
 }
@@ -4065,6 +4392,22 @@ fn emit_member_block_open(em: &mut Emitter, prm: &MacroParams, ri: i64) {
     em.push_text("    let __rsp: *mut HashSet<");
     em.push_text(rt);
     em.push_text("> = &mut __rs_");
+    em.push_text(rn);
+    em.push_text(";\n");
+}
+
+// Open an AGGREGATE member's push-target block: bind `__out` onto this member's
+// improvement-delta Vec (the semilattice absorb pushes improved rows there). The
+// best-map pointer `__bp_<rel>` + distinct-key roster `__keys_<rel>` are named
+// per rel in the fn's state, so the absorb (emit_rel_push_agg) references them
+// directly — no shadow-set rebind.
+fn emit_member_block_open_agg(em: &mut Emitter, prm: &MacroParams, ri: i64) {
+    let rn: str = prm.rel_names[ri];
+    let rt: str = prm.rel_rowty[ri];
+    em.push_text("    {\n");
+    em.push_text("    let __out: &mut Vec<");
+    em.push_text(rt);
+    em.push_text("> = &mut __nd_");
     em.push_text(rn);
     em.push_text(";\n");
 }

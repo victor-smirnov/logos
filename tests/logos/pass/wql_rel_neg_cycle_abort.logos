@@ -1,0 +1,43 @@
+// WQL RECURSIVE AGGREGATION (slice 1b — MINTING min, termination guard) — a
+// NEGATIVE-WEIGHT CYCLE has NO least fixpoint for `min(x.d + e.w)`: the additive
+// head MINTS ever-smaller values around the cycle forever. Termination is
+// SACRED: the emitted semi-naïve loop carries a runtime convergence guard (a
+// generous round cap ∝ |reachable keys|) that ABORTS with a diagnostic rather
+// than hanging. This is the honest home for the data-dependent negative-cycle
+// case — it cannot be a compile-time `fail` test (the cycle is a property of the
+// DATA, not the query text), so it is a `pass` test asserting the NONZERO exit.
+//
+// The guard fires `panic!` ⇒ SIGABRT ⇒ exit 134.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
+
+resource sssp = wql!(src: &[Node], edges: &[Edge]) {
+    rel dist(node: i64, d: i64) {
+        from src s select (s.id, 0);
+        from dist x join edges e on e.src == x.node
+            group by e.dst
+            aggregate d = min(x.d + e.w)
+            select (e.dst, d);
+    }
+    from dist r select (r.node, r.d) order by r.node
+};
+
+fn main() -> i32 {
+    // 2 → 3 → 2 is a cycle of total weight -3 (negative): distances to 2 and 3
+    // decrease without bound. The guard must fire (no hang).
+    let src: [Node; 1] = [ Node { id: 1i64 } ];
+    let edges: [Edge; 3] = [
+        Edge { src: 1i64, dst: 2i64, w: 1i64  },
+        Edge { src: 2i64, dst: 3i64, w: -1i64 },
+        Edge { src: 3i64, dst: 2i64, w: -2i64 },
+    ];
+    let got: Vec<(i64, i64)> = sssp(&src[..], &edges[..]);
+    // Unreachable: the guard aborts before returning.
+    return got.len() as i32;
+}

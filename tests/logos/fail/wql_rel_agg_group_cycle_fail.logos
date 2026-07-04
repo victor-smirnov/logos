@@ -1,0 +1,33 @@
+// WQL RECURSIVE AGGREGATION (slice 1) — the ALGEBRAIC-STRUCTURE gate. `sum` is
+// an abelian-GROUP aggregate: the very inverse that makes it O(1)-incremental
+// (DBSP-maintainable for a non-recursive aggregate) is exactly what breaks
+// fixpoint monotonicity — summing over a cycle counts infinitely many paths and
+// diverges. So `sum` as a RECURSIVE head is a named non-stratifiable error;
+// only min/max (idempotent semilattice) may recurse. The message names the
+// cycle and the group/semilattice distinction (design §1).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
+
+resource bad = wql!(src: &[Node], edges: &[Edge]) {
+    rel tot(node: i64, s: i64) {
+        from src n select (n.id, 0);
+        from tot x join edges e on e.src == x.node
+            group by e.dst
+            aggregate s = sum(x.s + e.w)
+            select (e.dst, s);
+    }
+    from tot r select (r.node, r.s)
+};
+
+fn main() -> i32 {
+    let src: [Node; 1] = [ Node { id: 1i64 } ];
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64, w: 1i64 } ];
+    let out: Vec<(i64, i64)> = bad(&src[..], &edges[..]);
+    return out.len() as i32;
+}

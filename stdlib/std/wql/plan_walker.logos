@@ -144,20 +144,53 @@ fn push_scc_members(out: &mut String, prm: &MacroParams, scc: &RelScc, c: i64) {
 // stratified semantics — a named error listing the cycle members. An
 // aggregate body OUTSIDE any cycle still gets the slice-B shape reject
 // (bodies are relation producers).
-fn check_stratified(prm: &MacroParams, deps: &RelDeps, scc: &RelScc) -> bool {
+fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool {
+    // ── Aggregate edges: min/max (semilattice) may recurse; group may not ──
     let mut k: i64 = 0i64;
     while k < deps.gn {
-        if scc.comp[deps.gfrom[k]] == scc.comp[deps.gto[k]] {
-            let mut m: String = String::new();
-            m.push_str("wql!: non-stratifiable aggregation — rel '");
-            m.push_str(prm.rel_names[deps.gfrom[k]]);
-            m.push_str("' aggregates over rel '");
-            m.push_str(prm.rel_names[deps.gto[k]]);
-            m.push_str("' of the same recursive component ");
-            push_scc_members(&mut m, prm, scc, scc.comp[deps.gfrom[k]]);
-            m.push_str(" — aggregation through recursion has no stratified semantics; aggregate only over rels from an earlier stratum");
-            error(string_as_str(&m));
-            return false;
+        let f: i64 = deps.gfrom[k];
+        let t: i64 = deps.gto[k];
+        if scc.comp[f] == scc.comp[t] {
+            let dir: i32 = deps.head_agg_dir[f];
+            if agg_algebra(dir) == AGG_CLASS_SEMILATTICE() {
+                // ADMISSIBLE recursive aggregation — the absorb gate IS the
+                // lattice order (monotone fixpoint). Slice-1 restricts the SCC to
+                // the SINGLE aggregate rel (self-recursion): mutual plain↔agg
+                // recursion has non-monotone interaction (design §7 critique #3).
+                let mut nmem: i64 = 0i64;
+                let mut r0: i64 = 0i64;
+                while r0 < prm.rel_n {
+                    if scc.comp[r0] == scc.comp[f] { nmem = nmem + 1i64; }
+                    r0 = r0 + 1i64;
+                }
+                if nmem > 1i64 {
+                    let mut mm: String = String::new();
+                    mm.push_str("wql!: rel '");
+                    mm.push_str(prm.rel_names[f]);
+                    mm.push_str("': a recursive min/max aggregate must be its OWN recursive component — ");
+                    push_scc_members(&mut mm, prm, scc, scc.comp[f]);
+                    mm.push_str(" has multiple rels; mutual recursion through an aggregate is not supported (slice-1)");
+                    error(string_as_str(&mm));
+                    return false;
+                }
+                prm.rel_is_agg[f]  = true;
+                prm.rel_agg_dir[f] = dir;
+            } else {
+                // GROUP aggregate (sum/count/avg) as a recursive head — the
+                // abelian-group inverse that makes it O(1)-incremental is exactly
+                // what breaks fixpoint monotonicity (counting paths in a cycle
+                // diverges). Non-stratifiable; the message NAMES the cycle.
+                let mut m: String = String::new();
+                m.push_str("wql!: non-stratifiable aggregation — rel '");
+                m.push_str(prm.rel_names[f]);
+                m.push_str("' aggregates over rel '");
+                m.push_str(prm.rel_names[t]);
+                m.push_str("' of the same recursive component ");
+                push_scc_members(&mut m, prm, scc, scc.comp[f]);
+                m.push_str(" — sum/count/avg is an abelian-group aggregate and cannot appear as a recursive head; only min/max (idempotent semilattice) may recurse; aggregate over an earlier stratum");
+                error(string_as_str(&m));
+                return false;
+            }
         }
         k = k + 1i64;
     }
@@ -177,13 +210,22 @@ fn check_stratified(prm: &MacroParams, deps: &RelDeps, scc: &RelScc) -> bool {
         }
         k2 = k2 + 1i64;
     }
-    if deps.agg_head >= 0i64 {
-        let mut m3: String = String::new();
-        m3.push_str("wql!: rel '");
-        m3.push_str(prm.rel_names[deps.agg_head]);
-        m3.push_str("': aggregate bodies are not allowed — a rel body is a relation producer (from/join/where/select only)");
-        error(string_as_str(&m3));
-        return false;
+    // ── Non-recursive aggregate bodies: deferred (out of slice-1) ──
+    // A rel with an aggregate body that did NOT finalize as a recursive
+    // semilattice head is a non-recursive aggregate rel (aggregate over a slice
+    // param / earlier stratum). Recursive min/max is the only aggregate-body
+    // form implemented; anything else is aggregated in the entry query.
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        if deps.head_agg_dir[r] != 0i32 && !prm.rel_is_agg[r] {
+            let mut m3: String = String::new();
+            m3.push_str("wql!: rel '");
+            m3.push_str(prm.rel_names[r]);
+            m3.push_str("': aggregate rel bodies are only supported as RECURSIVE min/max (an idempotent semilattice closing a self-cycle); a non-recursive aggregate rel is not yet supported — aggregate in the entry query or over an earlier stratum");
+            error(string_as_str(&m3));
+            return false;
+        }
+        r = r + 1i64;
     }
     return true;
 }
@@ -678,16 +720,20 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             return true;
         }
         RQuery::Aggr(_) => {
-            // Aggregate bodies are rejected either way — but the ERROR is
-            // chosen POST-SCC: an aggregate reading a rel of its own SCC is
-            // the non-stratifiable-aggregation cycle error, anything else the
-            // plain shape reject. So here we only RESOLVE the sources (which
-            // records the dependency edges the condensation needs — an
-            // aggregate edge participates in cycle formation) and defer.
+            // An aggregate rel body. In slice-1 the ADMISSIBLE case is a
+            // RECURSIVE min/max (idempotent semilattice) closing a self-cycle —
+            // the fixpoint's per-key lattice. The classification (min/max vs
+            // group) is recorded here (head_agg_dir) and the SOURCES are
+            // resolved + REWRITTEN to the rel-slice spelling (recursion needs it;
+            // the semi-naïve driver swaps in the per-round delta). The final
+            // admit/reject decision is POST-SCC (check_stratified): an in-cycle
+            // semilattice is accepted, an in-cycle group is the non-stratifiable
+            // error, a non-recursive aggregate is deferred.
             let g: RQAggr = rq_fat_aggr(body_any, h);
             let sra: SrcRes = resolve_source(prm, g.a_name, cur_rel, deps);
             if !sra.ok { return false; }
-            if sra.is_rel { deps.add_agg(cur_rel, sra.idx); }
+            if sra.is_rel { g.a_name = prm.rel_srcs[sra.idx]; deps.add_agg(cur_rel, sra.idx); }
+            g.a_ty = sra.row_ty;
             if g.has_steps() {
                 let gsteps: RQJoinStepArr = g.steps_arr();
                 let gn: i64 = gsteps.len();
@@ -699,11 +745,24 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
                     if !gst.is_edge {
                         let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
                         if !srs.ok { return false; }
-                        if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
+                        if srs.is_rel { gst.src_name = prm.rel_srcs[srs.idx]; deps.add_agg(cur_rel, srs.idx); }
+                        gst.row_ty = srs.row_ty;
                     }
                     gi = gi + 1i64;
                 }
             }
+            // Slice-1: exactly one aggregate; classify it (min/max/sum/…).
+            let gaggs: RQAggArr = g.aggs_arr();
+            if gaggs.len() != 1i64 {
+                let mut ma: String = String::new();
+                ma.push_str("wql!: rel '");
+                ma.push_str(rel_name);
+                ma.push_str("': a recursive aggregate rel supports exactly ONE aggregate (slice-1); found ");
+                ma.push_i64(gaggs.len());
+                error(string_as_str(&ma));
+                return false;
+            }
+            deps.set_head_agg_dir(cur_rel, agg_of_name(gaggs.agg_at(0i64).fn_name));
             if deps.agg_head < 0i64 { deps.agg_head = cur_rel; }
             return true;
         }

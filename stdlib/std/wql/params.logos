@@ -61,6 +61,14 @@ pub struct MacroParams {
     pub relc_name: [str; 64],   // flat column names
     pub relc_ty:   [str; 64],   // flat column type names ("i64"/"str"/"bool")
     pub rel_n:     i64,
+    // ── recursive-aggregate rels (semilattice min/max — the fixpoint lattice) ──
+    // Finalized by the stratification check when a rel's aggregate body closes a
+    // self-cycle AND its aggregate is an idempotent SEMILATTICE (min/max). Such a
+    // rel materializes via a best-per-key MAP absorb (not the set shadow), so the
+    // emitter branches on `rel_is_agg`. `rel_agg_dir` is the AGG_* id (min/max) —
+    // the lattice order (`<` for min, `>` for max) the absorb gate uses.
+    pub rel_is_agg:  [bool; 8],
+    pub rel_agg_dir: [i32; 8],
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -90,6 +98,8 @@ pub fn macro_params_new() -> MacroParams {
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         rel_n: 0i64,
+        rel_is_agg:  [false; 8],
+        rel_agg_dir: [0i32; 8],
     };
 }
 
@@ -241,13 +251,19 @@ pub struct RelDeps {
     pub gn:    i64,
     // First rel with an aggregate body (-1 = none) — the deferred plain reject.
     pub agg_head: i64,
+    // Per rel: the AGG_* id of its aggregate body's aggregate (0 = no aggregate
+    // body). Set by the STATIC walker only (the runtime interpreter's add_agg
+    // callers leave it 0). The stratification check reads it to decide whether an
+    // in-cycle aggregate is an admissible SEMILATTICE (min/max) recursive head or
+    // a non-stratifiable GROUP (sum/count/avg) one.
+    pub head_agg_dir: [i32; 8],
 }
 
 pub fn rel_deps_new() -> RelDeps {
     return RelDeps { efrom: [0i64; 64], eto: [0i64; 64], n: 0i64,
                      afrom: [0i64; 16], ato: [0i64; 16], an: 0i64,
                      gfrom: [0i64; 16], gto: [0i64; 16], gn: 0i64,
-                     agg_head: -1i64 };
+                     agg_head: -1i64, head_agg_dir: [0i32; 8] };
 }
 
 impl RelDeps {
@@ -270,6 +286,13 @@ impl RelDeps {
         self.gfrom[self.gn] = f;
         self.gto[self.gn]   = t;
         self.gn = self.gn + 1i64;
+    }
+
+    // Record rel `f`'s aggregate-body aggregate id (AGG_* — min/max/sum/…). The
+    // static walker calls this from the aggregate-body check; consumed by the
+    // stratification check to classify the cycle. Idempotent per rel.
+    pub fn set_head_agg_dir(self: &mut RelDeps, f: i64, dir: i32) {
+        if f >= 0i64 && f < 8i64 { self.head_agg_dir[f] = dir; }
     }
 }
 

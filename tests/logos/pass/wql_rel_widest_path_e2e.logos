@@ -1,0 +1,101 @@
+// WQL RECURSIVE AGGREGATION (slice 1a — NON-MINTING max) — the WIDEST PATH /
+// max-bottleneck problem as a recursive rel carrying a MONOTONE max aggregate.
+//
+//   rel cap(node, c) {
+//       from src s                              select (s.id, BIG);      // seed
+//       from cap x join edges e on e.src==x.node
+//            group by e.dst
+//            aggregate c = max( x.c < e.cap ? x.c : e.cap )              // relax
+//            select (e.dst, c);
+//   }
+//
+// The recursive head is `max` (a join-semilattice ⇒ fixpoint-safe). The
+// argument `min(x.c, e.cap)` (CEL ternary) is NON-MINTING: every produced value
+// is an EXISTING input capacity (or the seed), so the value domain is closed
+// under recursion — the lattice height is bounded by the number of distinct
+// capacities and the fixpoint is STATICALLY terminating (design §1a). The graph
+// includes a 2↔3 cycle that never improves any best — the fixpoint still halts.
+//
+// DIFFERENTIAL ORACLE: an INDEPENDENT array widest-path relaxation (Bellman-Ford
+// with the (max,min) semiring) in this same file computes the reference; the wql
+// result must equal it as a sorted (node, cap) row-set.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub cap: i64 }
+
+resource widest = wql!(src: &[Node], edges: &[Edge]) {
+    rel cap(node: i64, c: i64) {
+        from src s select (s.id, 1000i64);
+        from cap x join edges e on e.src == x.node
+            group by e.dst
+            aggregate c = max( x.c < e.cap ? x.c : e.cap )
+            select (e.dst, c);
+    }
+    from cap r select (r.node, r.c) order by r.node
+};
+
+// ── Independent reference: array widest-path ((max, min) semiring), |V| passes ──
+fn ref_widest(edges: &[Edge], source: i64, maxid: i64, big: i64) -> Vec<(i64, i64)> {
+    let neg: i64 = -1i64;
+    let mut cap: [i64; 32] = [-1i64; 32];
+    cap[source] = big;
+    let mut it: i64 = 0i64;
+    while it < maxid {
+        let mut e: i64 = 0i64;
+        while e < edges.len() {
+            let ed: &Edge = &edges[e];
+            if cap[ed.src] > neg {
+                let thr: i64 = if cap[ed.src] < ed.cap { cap[ed.src] } else { ed.cap };
+                if thr > cap[ed.dst] { cap[ed.dst] = thr; }
+            }
+            e = e + 1i64;
+        }
+        it = it + 1i64;
+    }
+    let mut out: Vec<(i64, i64)> = Vec::<(i64, i64)>::new();
+    let mut i: i64 = 1i64;
+    while i <= maxid {
+        if cap[i] > neg { out.push((i, cap[i])); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    let src: [Node; 1] = [ Node { id: 1i64 } ];
+    let edges: [Edge; 7] = [
+        Edge { src: 1i64, dst: 2i64, cap: 3i64 },
+        Edge { src: 1i64, dst: 3i64, cap: 5i64 },
+        Edge { src: 2i64, dst: 4i64, cap: 4i64 },
+        Edge { src: 3i64, dst: 4i64, cap: 2i64 },
+        Edge { src: 3i64, dst: 2i64, cap: 6i64 },   // 2↔3 cycle (below) — never improves
+        Edge { src: 2i64, dst: 3i64, cap: 6i64 },
+        Edge { src: 4i64, dst: 5i64, cap: 7i64 },
+    ];
+
+    let got: Vec<(i64, i64)> = widest(&src[..], &edges[..]);
+    let want: Vec<(i64, i64)> = ref_widest(&edges[..], 1i64, 5i64, 1000i64);
+
+    if got.len() != want.len() { return 1i32; }
+    let mut k: i64 = 0i64;
+    while k < got.len() {
+        let g: (i64, i64) = got.get(k);
+        let w: (i64, i64) = want.get(k);
+        if g.0 != w.0 { return 2i32; }
+        if g.1 != w.1 { return 3i32; }
+        k = k + 1i64;
+    }
+    // Known widest capacities from node 1: {1:1000, 2:5, 3:5, 4:4, 5:4}.
+    let n5: (i64, i64) = got.get(4i64);
+    if n5.0 != 5i64 { return 4i32; }
+    if n5.1 != 4i64 { return 5i32; }
+    let n2: (i64, i64) = got.get(1i64);
+    if n2.0 != 2i64 { return 6i32; }
+    if n2.1 != 5i64 { return 7i32; }
+    return 0i32;
+}
