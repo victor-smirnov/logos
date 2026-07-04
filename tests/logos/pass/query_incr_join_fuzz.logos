@@ -25,6 +25,7 @@ use logos.mem.collections.vec;
 pub schema Emp : code(0x0E02_0000_0000_0001) {
     name: str = 0,
     dept: i64 = 1,
+    val:  i64 = 2,
 }
 pub schema Dept : code(0x0E02_0000_0000_0002) {
     id:    i64 = 0,
@@ -33,9 +34,9 @@ pub schema Dept : code(0x0E02_0000_0000_0002) {
 
 resource cat = schema_catalog!{ Emp, Dept };
 
-fn mk_emp(d: &Writ, name: str, dept: i64) -> WAny {
+fn mk_emp(d: &Writ, name: str, dept: i64, val: i64) -> WAny {
     let e: Emp = d.make::<Emp>();
-    e.name = name; e.dept = dept;
+    e.name = name; e.dept = dept; e.val = val;
     return WAny::ref_to((e.m as i64) as *const u8);
 }
 fn mk_dept(d: &Writ, id: i64, dname: str) -> WAny {
@@ -207,8 +208,15 @@ fn main() -> i32 {
     // emp pool: 12 handles, dept = j % 5 (dept 4 never matches → unmatched mix)
     let mut eh: Vec<WAny> = vec_new::<WAny>();
     let names: [str; 12] = ["E0","E1","E2","E3","E4","E5","E6","E7","E8","E9","EA","EB"];
+    // val = (j*37)%101 — distinct, non-monotonic, uncorrelated with dept (j%5) so
+    // the group extremum is NOT the lowest-index member and best-churn is real.
+    // EXCEPTION: index 10 is overridden 67→84 to COLLIDE with index 5 (both dept 0),
+    // giving a deliberate within-group DUPLICATE extremum: retracting one copy must
+    // leave the best unchanged (count>0, no rescan), distinct from retracting the
+    // last copy (rescan fires). Covers the self-critique's duplicate-of-best path.
+    let vals: [i64; 12] = [0i64, 37i64, 74i64, 10i64, 47i64, 84i64, 20i64, 57i64, 94i64, 30i64, 84i64, 3i64];
     let mut j: i64 = 0i64;
-    while j < 12i64 { eh.push(mk_emp(&doc, names[j], j % 5i64)); j = j + 1i64; }
+    while j < 12i64 { eh.push(mk_emp(&doc, names[j], j % 5i64, vals[j])); j = j + 1i64; }
     // dept pool: 4 distinct ids 0..3
     let mut dh: Vec<WAny> = vec_new::<WAny>();
     dh.push(mk_dept(&doc, 0i64, "D0"));
@@ -259,6 +267,22 @@ fn main() -> i32 {
     // multi-aggregate (≤ the batch limit).
     let r13: i32 = run_variant("from emps e group by e.dept aggregate cnt = count(), s = sum(e.dept) select (key, cnt, s)", &c, &doc, &eh, &dh);
     if r13 != 0i32 { return 1300i32 + r13; }
+
+    // ── slice-4 SEMILATTICE min/max variants (§3.1: O(1) improve on insert,
+    // RESCAN-on-best-retraction, empty-group drop). Groups = dept j%5; the
+    // distinct `val` column means the extremum is not the lowest-index member,
+    // so ±churn on group members drives: delete-current-best → RE-MIN/RE-MAX to
+    // the next value (trap 1); delete-all → empty-drop (trap 2); re-add a
+    // smaller/larger value → O(1) improve (trap 4); the index-5/10 duplicate
+    // exercises retract-one-copy-of-best-with-best-unchanged. Oracle = Query::run
+    // batch min/max recomputed from clamped truth each epoch (independent).
+    let r14: i32 = run_variant("from emps e group by e.dept aggregate m = min(e.val) select (key, m)", &c, &doc, &eh, &dh);
+    if r14 != 0i32 { return 1400i32 + r14; }
+    let r15: i32 = run_variant("from emps e group by e.dept aggregate m = max(e.val) select (key, m)", &c, &doc, &eh, &dh);
+    if r15 != 0i32 { return 1500i32 + r15; }
+    // mixed GROUP + SEMILATTICE columns in one query (per-column agg_fnid dispatch).
+    let r16: i32 = run_variant("from emps e group by e.dept aggregate cnt = count(), lo = min(e.val), hi = max(e.val) select (key, cnt, lo, hi)", &c, &doc, &eh, &dh);
+    if r16 != 0i32 { return 1600i32 + r16; }
 
     return 0i32;
 }

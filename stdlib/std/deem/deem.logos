@@ -68,6 +68,7 @@ use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + int
 use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
 use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
 use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
 use logos.mem.string;             // String
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
@@ -4335,17 +4336,30 @@ fn arr_new(var: str) -> Arr {
 //   live   — gcount>0 (the group currently has an emitted output row)
 //   idx    — rt_key_hash(key) -> slots (rt_eq verify on collision), the group
 //            probe index (mirrors zout's bucket+verify pattern).
+//   vbest  — stride agg_n: cached extremum per (slot,agg) for SEMILATTICE
+//            min/max columns (fnid 3/4). A placeholder 0 while the slot's
+//            vmap is empty (never read then); the first live insert sets it.
+//   vmap   — stride agg_n: value→live-multiplicity map per (slot,agg) for
+//            min/max columns. `vmap[v] = Σw` of live rows carrying value `v`
+//            in that group; a key is dropped when its count reaches 0. On
+//            retracting the current best to 0 we RESCAN this group's live
+//            keys (only) for the next extremum (ADR 0013 §3.1, slice-4).
+//            INVARIANT: gcount>0 ⇔ vmap non-empty ⇔ vbest valid (for min/max
+//            columns); gcount is the single liveness/empty driver for all algebras.
 pub struct AggState {
     keyv:   Vec<RtVal>,
     gcount: Vec<i64>,
     gsum:   Vec<i64>,
     live:   Vec<bool>,
     idx:    HashMap<u64, Vec<i64>>,
+    vbest:  Vec<i64>,
+    vmap:   Vec<HashMap<i64, i64>>,
 }
 fn aggstate_new() -> AggState {
     return AggState {
         keyv: vec_new::<RtVal>(), gcount: vec_new::<i64>(), gsum: vec_new::<i64>(),
         live: vec_new::<bool>(), idx: hashmap_new::<u64, Vec<i64>>(),
+        vbest: vec_new::<i64>(), vmap: vec_new::<HashMap<i64, i64>>(),
     };
 }
 // Group slot of key `k`, or -1 (rt_key_hash bucket + rt_eq verify).
@@ -4385,7 +4399,12 @@ fn aggstate_ensure(agg: &mut AggState, k: RtVal, n: i64, arena: &Writ) -> i64 {
     agg.gcount.push(0i64);
     agg.live.push(false);
     let mut i: i64 = 0i64;
-    while i < n { agg.gsum.push(0i64); i = i + 1i64; }
+    while i < n {
+        agg.gsum.push(0i64);
+        agg.vbest.push(0i64);                        // placeholder (unread while vmap empty)
+        agg.vmap.push(hashmap_new::<i64, i64>());    // SEMILATTICE value→live-count map
+        i = i + 1i64;
+    }
     return slot;
 }
 
@@ -4969,7 +4988,8 @@ impl IncrJoin {
         let mut seen:   Vec<bool> = vec_new::<bool>();
         let mut old_gc: Vec<i64>  = vec_new::<i64>();
         let mut old_lv: Vec<bool> = vec_new::<bool>();
-        let mut old_gs: Vec<i64>  = vec_new::<i64>();   // stride n
+        let mut old_gs: Vec<i64>  = vec_new::<i64>();   // stride n (GROUP accumulator)
+        let mut old_best: Vec<i64> = vec_new::<i64>();  // stride n (SEMILATTICE pre-epoch best)
         let mut touched: Vec<i64> = vec_new::<i64>();
 
         let nd: i64 = da.node.len();
@@ -4989,7 +5009,7 @@ impl IncrJoin {
                     old_gc.push(0i64);
                     old_lv.push(false);
                     let mut gi: i64 = 0i64;
-                    while gi < n { old_gs.push(0i64); gi = gi + 1i64; }
+                    while gi < n { old_gs.push(0i64); old_best.push(0i64); gi = gi + 1i64; }
                 }
                 if !seen.get(slot) {
                     seen.set(slot, true);
@@ -4999,6 +5019,7 @@ impl IncrJoin {
                     let mut gi2: i64 = 0i64;
                     while gi2 < n {
                         old_gs.set(slot * n + gi2, self.agg.gsum.get(slot * n + gi2));
+                        old_best.set(slot * n + gi2, self.agg.vbest.get(slot * n + gi2));
                         gi2 = gi2 + 1i64;
                     }
                 }
@@ -5011,6 +5032,57 @@ impl IncrJoin {
                         let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
                         let cur: i64 = self.agg.gsum.get(slot * n + ai);
                         self.agg.gsum.set(slot * n + ai, cur + w * rt_i(av));
+                    } else if fnid == 3i32 || fnid == 4i32 {
+                        // SEMILATTICE min/max (ADR 0013 §3.1, slice-4): maintain a
+                        // value→live-multiplicity map + cached best; O(1) improve on
+                        // insert, rescan this group's live keys on best-retraction.
+                        let av: i64 = rt_i(eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch));
+                        let mp: *mut HashMap<i64, i64> = unsafe { self.agg.vmap.at(slot * n + ai) };
+                        let cp: *const i64 = unsafe { mp.get(&av) };
+                        let cur: i64 = if (cp as i64) == 0i64 { 0i64 } else { unsafe { *cp } };
+                        let nc: i64 = cur + w;                       // valcount[v] += w
+                        let mut removed_best: bool = false;
+                        if nc <= 0i64 {
+                            unsafe { mp.remove(&av); }               // value fully retracted
+                            // compare against the best BEFORE any mutation to it below
+                            if self.agg.vbest.get(slot * n + ai) == av { removed_best = true; }
+                        } else {
+                            unsafe { mp.insert(av, nc); }            // upsert (overwrites)
+                        }
+                        // best update on a value NEWLY present (0→>0, incl. re-add):
+                        if nc > 0i64 && cur <= 0i64 {
+                            let mlen: i64 = unsafe { (&*(mp as *const HashMap<i64, i64>)).len() };
+                            if mlen == 1i64 {
+                                self.agg.vbest.set(slot * n + ai, av);       // first live value = best
+                            } else if (fnid == 3i32 && av < self.agg.vbest.get(slot * n + ai))
+                                   || (fnid == 4i32 && av > self.agg.vbest.get(slot * n + ai)) {
+                                self.agg.vbest.set(slot * n + ai, av);       // O(1) improve (meet/join)
+                            }
+                        }
+                        if removed_best {
+                            // ── RE-MIN / RE-MAX (trap 1): rescan THIS group/col's
+                            //    live keys only (never the whole relation). Empty ⇒
+                            //    group emptying ⇒ gcount hits 0 ⇒ empty-drop handles it,
+                            //    vbest left stale-but-unread (+new suppressed).
+                            // DEFERRED OPT: an ordered structure (BTree/heap) gives an
+                            //    O(log n) rescan — not built now (correctness-first).
+                            let mpc: *const HashMap<i64, i64> = unsafe { self.agg.vmap.at(slot * n + ai) } as *const HashMap<i64, i64>;
+                            if unsafe { (&*mpc).len() } > 0i64 {
+                                let mut nb: i64 = if fnid == 3i32 { 9223372036854775807i64 } else { -9223372036854775807i64 - 1i64 };
+                                let mut kit: HashMapKeys<i64, i64> = unsafe { mpc.keys() };
+                                loop {
+                                    match kit.next() {
+                                        Option::Some(kp) => {
+                                            let kv: i64 = *kp;
+                                            if fnid == 3i32 { if kv < nb { nb = kv; } }
+                                            else            { if kv > nb { nb = kv; } }
+                                        }
+                                        Option::None => { break; }
+                                    }
+                                }
+                                self.agg.vbest.set(slot * n + ai, nb);
+                            }
+                        }
                     }
                     ai = ai + 1i64;
                 }
@@ -5033,6 +5105,8 @@ impl IncrJoin {
                         oldvals.push(RtVal::I(old_gc.get(slot)));
                     } else if fnid == 5i32 {
                         oldvals.push(RtVal::F((old_gs.get(slot * n + oi) as f64) / (old_gc.get(slot) as f64)));
+                    } else if fnid == 3i32 || fnid == 4i32 {
+                        oldvals.push(RtVal::I(old_best.get(slot * n + oi)));   // pre-epoch extremum
                     } else {
                         oldvals.push(RtVal::I(old_gs.get(slot * n + oi)));
                     }
@@ -5051,6 +5125,8 @@ impl IncrJoin {
                         newvals.push(RtVal::I(newc));
                     } else if fnid == 5i32 {
                         newvals.push(RtVal::F((self.agg.gsum.get(slot * n + ni) as f64) / (newc as f64)));
+                    } else if fnid == 3i32 || fnid == 4i32 {
+                        newvals.push(RtVal::I(self.agg.vbest.get(slot * n + ni)));   // post-epoch extremum
                     } else {
                         newvals.push(RtVal::I(self.agg.gsum.get(slot * n + ni)));
                     }
@@ -5190,10 +5266,12 @@ impl Query {
                 is_join = true;
                 is_anti = true;
             }
-            // slice-3: a single top-level GROUP aggregate over ONE bare scan
-            // (count/sum/avg — abelian GROUP, O(1) inverse-on-retract). The input
-            // MUST be a bare Scan — this implicitly rejects join+aggregate and any
-            // pre-group WHERE/RFilter. SEMILATTICE min/max stays REJECTED (§3.1).
+            // slice-3/4: a single top-level GROUP/SEMILATTICE aggregate over ONE
+            // bare scan. count/sum/avg = abelian GROUP (O(1) inverse-on-retract);
+            // min/max = SEMILATTICE (O(1) improve, rescan-on-best-retract, slice-4).
+            // The input MUST be a bare Scan — this implicitly rejects join+aggregate
+            // and any pre-group WHERE/RFilter. Mixed GROUP+SEMILATTICE columns in
+            // one query are accepted (per-column dispatch on agg_fnid).
             RExpr::Aggr(g) => {
                 let mut sok: bool = false;
                 match g.input_expr() {
@@ -5210,17 +5288,15 @@ impl Query {
                 check_rexpr(root, &self.cat, env, true, &mut alb, &mut achk, &mut aqp, &self.reg);
                 if achk.failed { return Result::Err(chk_err(achk)); }
                 let an: i64 = aqp.agg_n;
-                // ALGEBRA GATE — accept only abelian-GROUP aggregates (reuse of
-                // rexpr_walk::agg_algebra's classification: fnid 0 = UDA (no inverse),
-                // 3/4 = min/max = SEMILATTICE; 1 count / 2 sum / 5 avg = GROUP).
+                // ALGEBRA GATE — accept abelian-GROUP (1 count / 2 sum / 5 avg) and
+                // SEMILATTICE (3 min / 4 max, slice-4) aggregates; reject only UDA
+                // (fnid 0 — no inverse, no lattice guarantee). Reuse of
+                // rexpr_walk::agg_algebra's classification.
                 let mut gi3: i64 = 0i64;
                 while gi3 < an {
                     let fnid: i32 = aqp.agg_fnid[gi3];
                     if fnid == 0i32 {
-                        return Result::Err(qerr("Query::incremental: UDA aggregate has no inverse guarantee — out of slice-3"));
-                    }
-                    if fnid == 3i32 || fnid == 4i32 {
-                        return Result::Err(qerr("Query::incremental: min/max incremental deferred — SEMILATTICE re-min on retraction (§3.1)"));
+                        return Result::Err(qerr("Query::incremental: UDA aggregate has no inverse/lattice guarantee — out of slice-3/4"));
                     }
                     gi3 = gi3 + 1i64;
                 }
