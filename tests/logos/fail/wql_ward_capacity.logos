@@ -1,0 +1,25 @@
+// TRACK A — the capacity guard fires BEFORE any WardProg array write (the ward
+// analyzer's flat arrays are sized MAXA=6 columns / MAXB=6 atoms / 16 preds / 16
+// rules — an over-sized program would otherwise index out of bounds). Here a
+// 7-column existential rel exceeds the per-predicate arity bound, so the build
+// fails with the capacity diagnostic rather than crashing.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub k: i64 }
+
+resource q = wql!(base: &[Node]) {
+    rel R(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64) {
+        from base x select (x.k, x.k, x.k, x.k, x.k, x.k, fresh());
+    }
+    from R r select (r.a)
+};
+
+fn main() -> i32 {
+    let base: [Node; 1] = [ Node { k: 1i64 } ];
+    let out: Vec<i64> = q(&base[..]);
+    return out.len() as i32;
+}

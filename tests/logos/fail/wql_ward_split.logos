@@ -1,0 +1,31 @@
+// TRACK A — a NON-warded existential program: the dangerous variables are SPLIT
+// across two body atoms (reason WARD_SPLIT). Mirrors ward.logos prog (4):
+//   A(x)          -> ∃y . B(x,y)      [B[1] affected]
+//   C(x)          -> ∃y . D(y,x)      [D[0] affected]
+//   B(m,d1), D(d2,n) -> H(d1,d2)
+// d1@B[1] and d2@D[0] are both harmful+frontier (dangerous), but no single body
+// atom holds BOTH — so a null could carry into an unbounded join. Rejected with
+// the named wardedness reason.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct N { pub k: i64 }
+
+resource bad = wql!(sa: &[N], sc: &[N]) {
+    rel B(m: i64, d: i64) { from sa x select (x.k, fresh()); }        // ∃ in col 1
+    rel D(d: i64, n: i64) { from sc x select (fresh(), x.k); }        // ∃ in col 0
+    rel H(a: i64, b: i64) {
+        from B bb join D dd on bb.m == dd.n select (bb.d, dd.d);
+    }
+    from H h select (h.a)
+};
+
+fn main() -> i32 {
+    let sa: [N; 1] = [ N { k: 1i64 } ];
+    let sc: [N; 1] = [ N { k: 2i64 } ];
+    let out: Vec<i64> = bad(&sa[..], &sc[..]);
+    return out.len() as i32;
+}

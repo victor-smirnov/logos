@@ -69,6 +69,7 @@ use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
 use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_traversal_elem (slice D)
+use logos.std.wql.ward;           // WardProg / check_warded — Track A: warded Datalog± verdict
 use logos.mem.string;
 use logos.lang.str;
 
@@ -694,6 +695,11 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             if !sr.ok { return false; }
             if sr.is_rel { s.src_name = prm.rel_srcs[sr.idx]; }
             s.row_ty = sr.row_ty;
+            // Classify bare select idents (typo vs bound column / scalar param /
+            // fresh() marker) — Track A.
+            let mut bv: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+            bv[0] = s.var_name;
+            if !ward_sel_idents_ok(s.select_expr(), &bv, 1i64, prm, rel_name) { return false; }
             return true;
         }
         RQuery::Join(_) => {
@@ -717,6 +723,21 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
                 }
                 if !steps_scalar_ok(j.steps_arr(), &svars, nsv) { return false; }
             }
+            // Classify bare select idents (Track A). Bound vars = base + every
+            // non-anti step var (anti-step vars are scoped to their own `on`).
+            let mut bv: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+            bv[0] = j.x_var;
+            let mut nbv: i64 = 1i64;
+            let jsteps: RQJoinStepArr = j.steps_arr();
+            let mut sk: i64 = 0i64;
+            while sk < jsteps.len() {
+                let stp: RQJoinStep = jsteps.step_at(sk);
+                if !stp.is_anti {
+                    if nbv < 9i64 { bv[nbv] = stp.var_name; nbv = nbv + 1i64; }
+                }
+                sk = sk + 1i64;
+            }
+            if !ward_sel_idents_ok(j.select_expr(), &bv, nbv, prm, rel_name) { return false; }
             return true;
         }
         RQuery::Aggr(_) => {
@@ -800,6 +821,539 @@ fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
     m1.push_str("` — rel columns are i64 / str / bool");
     error(string_as_str(&m1));
     return false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TRACK A — warded Datalog± existential heads on the WQL surface.
+//
+// SURFACE: an existential head term is the reserved pseudo-call `fresh()` /
+// `fresh(z)` inside a rel-body `select` (rides the existing EL `SCall` syntax —
+// NO grammar change). `fresh()` = a unique invented null; `fresh(z)` = a NAMED
+// existential (two `fresh(z)` in the same body's select denote the same witness).
+// A rel with ≥1 `fresh(...)` in some body's select is an EXISTENTIAL (TGD) rel.
+//
+// PIPELINE: at the walk seam (after stratification, before emission) we scan for
+// markers; if present we EXTRACT the rel program → a `WardProg` (ward.logos) and
+// run the PURE-STATIC wardedness checker. Three outcomes, all fail the build
+// (the only wql! diagnostic channel), differing only in message:
+//   • WARDED    → "accepted (warded); execution not yet supported" (chase is
+//                 blocked on the identity/Skolem-null foundation — ADR 0012) and
+//                 lowering is GRACEFULLY REFUSED (return false before emission —
+//                 no fn, no miscompile, no silent empty result);
+//   • NON-WARDED→ the wardedness failure + named reason (SPLIT/SHARE);
+//   • NO MARKER → fast path, emission UNCHANGED (a vanilla Datalog program has no
+//                 existential positions, hence is trivially warded — never built).
+//
+// Value invention (the chase) is DELIBERATELY NOT attempted — only the SHAPE of
+// the rules is read (ward.logos §What-this-is-and-is-NOT). The verdict is the
+// deliverable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// A column reference `rv.col` decoded off an SExpr (SField over a simple root).
+struct ColRef { pub ok: bool, pub rv: str, pub col: str }
+
+// The per-program existential extractor state: a per-RULE union-find over
+// (row-var, column) pairs (var identity = the union-find ROOT slot index, an id
+// < WX_CAP hence disjoint from existential ids ≥ WX_EXBASE); per-rule
+// existential-name table; a program-global EDB predicate registry; and the
+// per-rule provenance (flat rule index → declaring rel + body index) used to
+// point a non-warded diagnostic back at its source rule.
+fn WX_CAP() -> i64 { return 48i64; }
+fn WX_EXBASE() -> i64 { return 100000i64; }
+
+struct WardX {
+    pub vv:  [str; 48],   // union-find pair: row var
+    pub vc:  [str; 48],   //               : column
+    pub par: [i64; 48],   // union-find parent
+    pub nvar: i64,
+    pub exn:  [str; 12],  // per-rule existential names (fresh(z))
+    pub exi:  [i64; 12],  // → assigned existential var id
+    pub nexn: i64,
+    pub exctr: i64,       // next existential id (reset per rule)
+    pub esrc: [str; 16],  // program-global EDB source name
+    pub epid: [i64; 16],  // → WardProg predicate id
+    pub nedb: i64,
+    pub prel: [i64; 16],  // rule r → declaring rel index
+    pub pbod: [i64; 16],  // rule r → body index within that rel
+}
+
+fn wardx_new() -> WardX {
+    return WardX {
+        vv: [""; 48], vc: [""; 48], par: [0i64; 48], nvar: 0i64,
+        exn: [""; 12], exi: [0i64; 12], nexn: 0i64, exctr: 100000i64,
+        esrc: [""; 16], epid: [0i64; 16], nedb: 0i64,
+        prel: [0i64; 16], pbod: [0i64; 16],
+    };
+}
+
+// Reset the per-rule state (union-find + existential names); the EDB registry and
+// provenance are program-global and persist.
+fn wardx_reset(x: &mut WardX) {
+    x.nvar = 0i64;
+    x.nexn = 0i64;
+    x.exctr = WX_EXBASE();
+}
+
+fn wx_find(x: &WardX, i: i64) -> i64 {
+    let mut j: i64 = i;
+    while x.par[j] != j { j = x.par[j]; }
+    return j;
+}
+
+// Get-or-add the union-find slot for (rv, col); returns its slot index.
+fn wx_slot(x: &mut WardX, rv: str, col: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < x.nvar {
+        if str_eq(x.vv[i], rv) && str_eq(x.vc[i], col) { return i; }
+        i = i + 1i64;
+    }
+    if x.nvar >= WX_CAP() { return x.nvar - 1i64; }
+    let s: i64 = x.nvar;
+    x.vv[s] = rv; x.vc[s] = col; x.par[s] = s;
+    x.nvar = x.nvar + 1i64;
+    return s;
+}
+
+// The variable id (union-find root) of (rv, col).
+fn wx_class(x: &mut WardX, rv: str, col: str) -> i64 {
+    let s: i64 = wx_slot(x, rv, col);
+    return wx_find(x, s);
+}
+
+fn wx_union(x: &mut WardX, ra: str, ca: str, rb: str, cb: str) {
+    let a: i64 = wx_slot(x, ra, ca);
+    let b: i64 = wx_slot(x, rb, cb);
+    let fa: i64 = wx_find(x, a);
+    let fb: i64 = wx_find(x, b);
+    if fa != fb { x.par[fa] = fb; }
+}
+
+// Get-or-add an EDB predicate for source `src`; -1 on capacity overflow.
+fn wx_edb_pid(x: &mut WardX, wp: &mut WardProg, src: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < x.nedb {
+        if str_eq(x.esrc[i], src) { return x.epid[i]; }
+        i = i + 1i64;
+    }
+    if wp.npred >= 16i64 { return -1i64; }
+    let pid: i64 = wp.add_pred(6i64);   // EDB positions are never affected → arity 6, unused slots CONST
+    if x.nedb < 16i64 { x.esrc[x.nedb] = src; x.epid[x.nedb] = pid; x.nedb = x.nedb + 1i64; }
+    return pid;
+}
+
+// ── SExpr shape probes (existential markers, column refs, bare idents) ────────
+fn sx_is_fresh(e: SExpr) -> bool {
+    match e {
+        SExpr::Call(c) => { return str_eq(c.fn_name, "fresh"); }
+        _ => { return false; }
+    }
+}
+
+// True iff `e` CONTAINS a `fresh(...)` marker anywhere (used to (a) detect an
+// existential program and (b) reject a marker buried in an arithmetic head term).
+fn sx_has_fresh(e: SExpr) -> bool {
+    match e {
+        SExpr::Call(c) => {
+            if str_eq(c.fn_name, "fresh") { return true; }
+            let a: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < a.len() { if sx_has_fresh(a.arg_at(i)) { return true; } i = i + 1i64; }
+            return false;
+        }
+        SExpr::Bin(b)  => { return sx_has_fresh(b.lhs_expr()) || sx_has_fresh(b.rhs_expr()); }
+        SExpr::Un(u)   => { return sx_has_fresh(u.arg_expr()); }
+        SExpr::Cond(c) => { return sx_has_fresh(c.cond_expr()) || sx_has_fresh(c.then_expr()) || sx_has_fresh(c.else_expr()); }
+        SExpr::Tuple(tp) => {
+            let it: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < it.len() { if sx_has_fresh(it.arg_at(i)) { return true; } i = i + 1i64; }
+            return false;
+        }
+        SExpr::Field(f) => {
+            if f.base.any().is_null() { return false; }
+            return sx_has_fresh(f.base_expr());
+        }
+        _ => { return false; }
+    }
+}
+
+// Decode `rv.col` (an SField whose base is a simple root var); ok=false otherwise.
+fn sx_colref(e: SExpr) -> ColRef {
+    match e {
+        SExpr::Field(f) => {
+            if f.base.any().is_null() { return ColRef { ok: false, rv: "", col: "" }; }
+            let base: SExpr = f.base_expr();
+            let rv: str = root_ident_name(base);
+            if rv.len() > 0i64 { return ColRef { ok: true, rv: rv, col: f.name }; }
+            return ColRef { ok: false, rv: "", col: "" };
+        }
+        _ => { return ColRef { ok: false, rv: "", col: "" }; }
+    }
+}
+
+// A bare identifier (null-base field or comprehension var), or "" if `e` is not one.
+fn sx_bare_ident(e: SExpr) -> str {
+    match e {
+        SExpr::Field(f) => { if f.base.any().is_null() { return f.name; } return ""; }
+        SExpr::Var(v)   => { return v.name; }
+        _ => { return ""; }
+    }
+}
+
+// The existential var id for a `fresh(...)` marker: `fresh(z)` reuses a per-rule
+// id keyed by the name `z`; bare `fresh()` mints a unique id each occurrence.
+fn wx_fresh_id(x: &mut WardX, c: SCall) -> i64 {
+    let a: SExprArr = c.args_arr();
+    if a.len() >= 1i64 {
+        let nm: str = sx_bare_ident(a.arg_at(0i64));
+        if nm.len() > 0i64 {
+            let mut i: i64 = 0i64;
+            while i < x.nexn { if str_eq(x.exn[i], nm) { return x.exi[i]; } i = i + 1i64; }
+            let id: i64 = x.exctr; x.exctr = x.exctr + 1i64;
+            if x.nexn < 12i64 { x.exn[x.nexn] = nm; x.exi[x.nexn] = id; x.nexn = x.nexn + 1i64; }
+            return id;
+        }
+    }
+    let id: i64 = x.exctr; x.exctr = x.exctr + 1i64;
+    return id;
+}
+
+// Fold every `a == b` equality of a join `on` predicate (descending `&&`) into
+// the union-find: shared Datalog variables come EXACTLY from the equi-`on` set
+// (non-equi / arithmetic residuals contribute no unions — C2).
+fn wx_collect_on(x: &mut WardX, e: SExpr) {
+    match e {
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op == OP_AND() { wx_collect_on(x, b.lhs_expr()); wx_collect_on(x, b.rhs_expr()); return; }
+            if op == OP_EQ() {
+                let l: ColRef = sx_colref(b.lhs_expr());
+                let r: ColRef = sx_colref(b.rhs_expr());
+                if l.ok && r.ok { wx_union(x, l.rv, l.col, r.rv, r.col); }
+                return;
+            }
+        }
+        _ => { }
+    }
+}
+
+// ── Extraction diagnostics ────────────────────────────────────────────────────
+fn ward_cap_err() {
+    error("wql!: existential (warded) analysis capacity exceeded — the wardedness analyzer supports up to 16 predicates / 16 rules / 6 columns / 6 body atoms per rule");
+}
+fn ward_frag_err(rn: str) {
+    let mut m: String = String::new();
+    m.push_str("wql!: rel '");
+    m.push_str(rn);
+    m.push_str("': an existential (fresh) program cannot use anti-join / traversal / aggregate bodies — outside the positive-TGD fragment the wardedness checker covers");
+    error(string_as_str(&m));
+}
+fn ward_freshpos_err(rn: str) {
+    let mut m: String = String::new();
+    m.push_str("wql!: rel '");
+    m.push_str(rn);
+    m.push_str("': fresh() inside an arithmetic head term mints a value — not a clean existential; value-minting in heads is gated separately (termination)");
+    error(string_as_str(&m));
+}
+
+// One head projection item i → a WardProg head term. Returns 0 (ok), or 2 (a
+// fresh buried in arithmetic — value-mint reject).
+fn ward_head_item(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+                  rel_i: i64, r: i64, i: i64, item: SExpr) -> i32 {
+    if sx_is_fresh(item) {
+        let mut id: i64 = x.exctr;
+        match item { SExpr::Call(c) => { id = wx_fresh_id(x, c); } _ => { } }
+        wp.set_head(r, i, id, true);
+        return 0i32;
+    }
+    if sx_has_fresh(item) { ward_freshpos_err(prm.rel_names[rel_i]); return 2i32; }
+    let cr: ColRef = sx_colref(item);
+    if cr.ok { wp.set_head(r, i, wx_class(x, cr.rv, cr.col), false); }
+    // literal / pure arithmetic over consts → CONST (the begin_rule default) — inert.
+    return 0i32;
+}
+
+// The head of a rule = the body's `select` (a tuple, positionally → declared
+// columns 0..arity-1; or a single expr → column 0). Runs AFTER all `on` unions.
+fn ward_emit_head(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+                  rel_i: i64, r: i64, sel: SExpr) -> i32 {
+    let arity: i64 = prm.rel_ccnt[rel_i];
+    match sel {
+        SExpr::Tuple(tp) => {
+            let it: SExprArr = tp.items_arr();
+            let n: i64 = it.len();
+            let mut i: i64 = 0i64;
+            while i < n && i < arity && i < 6i64 {
+                let st: i32 = ward_head_item(x, wp, prm, rel_i, r, i, it.arg_at(i));
+                if st != 0i32 { return st; }
+                i = i + 1i64;
+            }
+        }
+        _ => {
+            let st: i32 = ward_head_item(x, wp, prm, rel_i, r, 0i64, sel);
+            if st != 0i32 { return st; }
+        }
+    }
+    return 0i32;
+}
+
+// One body atom over source (rv, src). A REL source uses DECLARED column ordinals
+// (canonical — the affected-position fixpoint keys on them, must line up with the
+// existential heads defined for that rel elsewhere — critique C3); an EDB source
+// uses first-seen ordinals (EDB positions are never affected). Returns 0 / 1 (cap).
+fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+                  r: i64, rv: str, ridx: i64, src: str) -> i32 {
+    if wp.nbody[r] >= 6i64 { ward_cap_err(); return 1i32; }
+    if ridx >= 0i64 {
+        let k: i64 = wp.add_body(r, ridx);
+        let coff: i64 = prm.rel_coff[ridx];
+        let ccnt: i64 = prm.rel_ccnt[ridx];
+        let mut i: i64 = 0i64;
+        while i < ccnt && i < 6i64 {
+            let cn: str = prm.relc_name[coff + i];
+            wp.set_body(r, k, i, wx_class(x, rv, cn));
+            i = i + 1i64;
+        }
+        return 0i32;
+    }
+    let pid: i64 = wx_edb_pid(x, wp, src);
+    if pid < 0i64 { ward_cap_err(); return 1i32; }
+    let k: i64 = wp.add_body(r, pid);
+    // Fill positions for every (rv, col) already interned (from `on` + head) —
+    // first-seen order. An EDB occurrence is an UNaffected witness for its var.
+    let mut o: i64 = 0i64;
+    let mut si: i64 = 0i64;
+    while si < x.nvar {
+        if str_eq(x.vv[si], rv) {
+            if o >= 6i64 { ward_cap_err(); return 1i32; }
+            wp.set_body(r, k, o, wx_find(x, si));
+            o = o + 1i64;
+        }
+        si = si + 1i64;
+    }
+    return 0i32;
+}
+
+// A SIMPLE rel body → one rule (single body atom, no `on`).
+fn ward_rule_simple(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+                    rel_i: i64, s: RQSimple) -> i32 {
+    let r: i64 = wp.begin_rule(rel_i);
+    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, s.select_expr());
+    if hst != 0i32 { return hst; }
+    let ridx0: i64 = prm.rel_find_src(s.src_name);
+    return ward_emit_atom(x, wp, prm, r, s.var_name, ridx0, s.src_name);
+}
+
+// A JOIN rel body → one rule (base + step atoms; `on` equalities are the shared
+// Datalog variables). Anti / traversal steps are outside the positive-TGD
+// fragment → reject (returns 2).
+fn ward_rule_join(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+                  rel_i: i64, j: RQJoin) -> i32 {
+    let r: i64 = wp.begin_rule(rel_i);
+    let steps: RQJoinStepArr = j.steps_arr();
+    let ns: i64 = steps.len();
+    // 1) fragment guard + collect ALL `on` unions BEFORE any var id is read.
+    let mut si: i64 = 0i64;
+    while si < ns {
+        let st: RQJoinStep = steps.step_at(si);
+        if st.is_anti || st.is_edge { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
+        if st.has_on { wx_collect_on(x, st.on_expr()); }
+        si = si + 1i64;
+    }
+    // 2) head (needs final union roots).
+    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, j.select_expr());
+    if hst != 0i32 { return hst; }
+    // 3) base atom, then step atoms.
+    let ridx0: i64 = prm.rel_find_src(j.a_name);
+    let bst0: i32 = ward_emit_atom(x, wp, prm, r, j.x_var, ridx0, j.a_name);
+    if bst0 != 0i32 { return bst0; }
+    let mut sj: i64 = 0i64;
+    while sj < ns {
+        let st2: RQJoinStep = steps.step_at(sj);
+        let ridxk: i64 = prm.rel_find_src(st2.src_name);
+        let bstk: i32 = ward_emit_atom(x, wp, prm, r, st2.var_name, ridxk, st2.src_name);
+        if bstk != 0i32 { return bstk; }
+        sj = sj + 1i64;
+    }
+    return 0i32;
+}
+
+// Extract the whole rel program into `wp`. Predicate id == rel declaration index
+// (so "rel k as a head" and "rel k as a body atom" share affected positions).
+// Returns 0 (built), 1 (capacity), 2 (out-of-fragment) — errors already emitted.
+fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
+              x: &mut WardX, wp: &mut WardProg, h: &Writ) -> i32 {
+    let mut ri: i64 = 0i64;
+    while ri < nr {
+        let cc: i64 = prm.rel_ccnt[ri];
+        if cc > 6i64 { ward_cap_err(); return 1i32; }
+        wp.add_pred(cc);
+        ri = ri + 1i64;
+    }
+    let mut rel_i: i64 = 0i64;
+    while rel_i < nr {
+        let rel: RQRel = rels.rel_at(rel_i);
+        let bodies: RQBodyArr = rel.bodies_arr();
+        let nb: i64 = bodies.len();
+        let mut bi: i64 = 0i64;
+        while bi < nb {
+            if wp.nrule >= 16i64 { ward_cap_err(); return 1i32; }
+            let r: i64 = wp.nrule;
+            x.prel[r] = rel_i; x.pbod[r] = bi;
+            wardx_reset(x);
+            let body_any: WAny = bodies.body_any(bi);
+            let q: RQuery = body_any.view::<RQuery>();
+            let mut st: i32 = 0i32;
+            match q {
+                RQuery::Simple(s) => { st = ward_rule_simple(x, wp, prm, rel_i, s); }
+                RQuery::Join(jj)  => { st = ward_rule_join(x, wp, prm, rel_i, jj); }
+                RQuery::Aggr(_)   => { ward_frag_err(prm.rel_names[rel_i]); st = 2i32; }
+                RQuery::Find(_)   => { ward_frag_err(prm.rel_names[rel_i]); st = 2i32; }
+            }
+            if st != 0i32 { return st; }
+            bi = bi + 1i64;
+        }
+        rel_i = rel_i + 1i64;
+    }
+    return 0i32;
+}
+
+// ── Marker scan ───────────────────────────────────────────────────────────────
+struct FreshScan { pub has: bool, pub rel: i64 }
+
+fn program_fresh_scan(rels: RQRelArr, nr: i64) -> FreshScan {
+    let mut ri: i64 = 0i64;
+    while ri < nr {
+        let rel: RQRel = rels.rel_at(ri);
+        let bodies: RQBodyArr = rel.bodies_arr();
+        let nb: i64 = bodies.len();
+        let mut bi: i64 = 0i64;
+        while bi < nb {
+            let q: RQuery = bodies.body_any(bi).view::<RQuery>();
+            let mut hf: bool = false;
+            match q {
+                RQuery::Simple(s) => { hf = sx_has_fresh(s.select_expr()); }
+                RQuery::Join(jj)  => { hf = sx_has_fresh(jj.select_expr()); }
+                RQuery::Aggr(g)   => { hf = sx_has_fresh(g.select_expr()); }
+                RQuery::Find(_)   => { hf = false; }
+            }
+            if hf { return FreshScan { has: true, rel: ri }; }
+            bi = bi + 1i64;
+        }
+        ri = ri + 1i64;
+    }
+    return FreshScan { has: false, rel: 0i64 - 1i64 };
+}
+
+// The whole program verdict (called at the walk seam once the registry + deps +
+// SCC are complete). Returns true = "keep going / emit"; false = "stop, a
+// diagnostic was raised" (both the warded-accept and non-warded cases stop —
+// only the message differs; an accepted existential rule is NOT lowered because
+// the chase is blocked on the identity foundation).
+fn ward_verdict(rels: RQRelArr, nr: i64, prm: &MacroParams, h: &Writ) -> bool {
+    let fs: FreshScan = program_fresh_scan(rels, nr);
+    if !fs.has { return true; }   // vanilla Datalog → trivially warded, unchanged path.
+    let mut wx: WardX = wardx_new();
+    let mut wp: WardProg = ward_prog_new();
+    let bst: i32 = ward_build(rels, nr, prm, &mut wx, &mut wp, h);
+    if bst != 0i32 { return false; }   // capacity / out-of-fragment (already emitted).
+    let res: WardResult = check_warded(&wp);
+    if res.ok {
+        let mut m: String = String::new();
+        m.push_str("wql!: rel '");
+        m.push_str(prm.rel_names[fs.rel]);
+        m.push_str("': existential rule accepted (warded per Gottlob-Pieris); execution not yet supported — blocked on the identity/Skolem-null foundation (ADR 0012). The wardedness verdict is the deliverable; no runnable function is emitted.");
+        error(string_as_str(&m));
+        return false;
+    }
+    let mut m2: String = String::new();
+    m2.push_str("wql!: rel '");
+    m2.push_str(prm.rel_names[wx.prel[res.bad_rule]]);
+    m2.push_str("' (body ");
+    m2.push_i64(wx.pbod[res.bad_rule] + 1i64);
+    m2.push_str("): ");
+    m2.push_str(ward_reason_str(res.reason));
+    error(string_as_str(&m2));
+    return false;
+}
+
+// ── Rel-body select IDENT classifier (runs for EVERY rel body, marker or not) ──
+// Closes the class where a BARE unbound identifier in a `select` (a typo, not an
+// existential) silently fell through to codegen and produced an opaque downstream
+// Logos error. A `fresh(...)` marker is NOT a bare ident (it is a Call) → never
+// misclassified; the ward path owns markers.
+fn ward_var_in(vars: &[str; 9], nv: i64, nm: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < nv { if str_eq(vars[i], nm) { return true; } i = i + 1i64; }
+    return false;
+}
+
+fn ward_sel_idents_ok(sel: SExpr, vars: &[str; 9], nv: i64,
+                      prm: &MacroParams, rel_name: str) -> bool {
+    match sel {
+        SExpr::Field(f) => {
+            if !f.base.any().is_null() { return true; }   // `rv.col` — root validated by the emit path.
+            let nm: str = f.name;
+            if ward_var_in(vars, nv, nm) { return true; }  // whole-row (gated by sel_whole_row_ok).
+            if prm.is_scalar(nm) { return true; }          // a bare scalar-param projection.
+            let mut m: String = String::new();
+            m.push_str("wql!: rel '");
+            m.push_str(rel_name);
+            m.push_str("': `select ");
+            m.push_str(nm);
+            m.push_str("`: '");
+            m.push_str(nm);
+            m.push_str("' is not a bound row column, scalar param, or fresh() marker — did you mean a column (`<var>.");
+            m.push_str(nm);
+            m.push_str("`) or an existential (`fresh()`)?");
+            error(string_as_str(&m));
+            return false;
+        }
+        SExpr::Var(v) => {
+            let nm: str = v.name;
+            if ward_var_in(vars, nv, nm) { return true; }
+            if prm.is_scalar(nm) { return true; }
+            let mut m: String = String::new();
+            m.push_str("wql!: rel '");
+            m.push_str(rel_name);
+            m.push_str("': `select ");
+            m.push_str(nm);
+            m.push_str("`: '");
+            m.push_str(nm);
+            m.push_str("' is not a bound row column, scalar param, or fresh() marker — did you mean a column (`<var>.");
+            m.push_str(nm);
+            m.push_str("`) or an existential (`fresh()`)?");
+            error(string_as_str(&m));
+            return false;
+        }
+        SExpr::Tuple(tp) => {
+            let it: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < it.len() {
+                if !ward_sel_idents_ok(it.arg_at(i), vars, nv, prm, rel_name) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        SExpr::Bin(b)  => { return ward_sel_idents_ok(b.lhs_expr(), vars, nv, prm, rel_name) && ward_sel_idents_ok(b.rhs_expr(), vars, nv, prm, rel_name); }
+        SExpr::Un(u)   => { return ward_sel_idents_ok(u.arg_expr(), vars, nv, prm, rel_name); }
+        SExpr::Cond(c) => {
+            return ward_sel_idents_ok(c.cond_expr(), vars, nv, prm, rel_name)
+                && ward_sel_idents_ok(c.then_expr(), vars, nv, prm, rel_name)
+                && ward_sel_idents_ok(c.else_expr(), vars, nv, prm, rel_name);
+        }
+        SExpr::Call(c) => {
+            if str_eq(c.fn_name, "fresh") { return true; }   // marker — owned by the ward path.
+            let a: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < a.len() {
+                if !ward_sel_idents_ok(a.arg_at(i), vars, nv, prm, rel_name) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { return true; }   // Lit / Param / Comp
+    }
 }
 
 // ── The PROGRAM walker entry ─────────────────────────────────────────────────
@@ -922,6 +1476,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // ── Condense + stratify (slice C) ───────────────────────────────────
         scc = compute_rel_scc(&deps, nr);
         if !check_stratified(prm, &deps, &scc) { return false; }
+        // ── Track A: warded Datalog± existential-head verdict ───────────────
+        // (Runs on the COMPLETE registry/deps/SCC, before any emission. Vanilla
+        // Datalog — no `fresh(...)` marker — takes the fast path unchanged; an
+        // existential program is classified and GRACEFULLY refuses lowering.)
+        if !ward_verdict(rels, nr, prm, h) { return false; }
     }
 
     // ── The ENTRY query: stamp fn name + resolve/rewrite sources ────────────

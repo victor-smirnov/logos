@@ -1,0 +1,22 @@
+// TRACK A — a `fresh()` marker buried inside an ARITHMETIC head term is NOT a
+// clean existential: `b.k + fresh()` would MINT a computed value into the head,
+// which is a value-invention concern gated separately (termination), not the
+// warded ∃-null the checker reasons about. Rejected with a value-mint message.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub k: i64 }
+
+resource q = wql!(base: &[Node]) {
+    rel R(v: i64) { from base b select (b.k + fresh()); }
+    from R r select (r.v)
+};
+
+fn main() -> i32 {
+    let base: [Node; 1] = [ Node { k: 1i64 } ];
+    let out: Vec<i64> = q(&base[..]);
+    return out.len() as i32;
+}

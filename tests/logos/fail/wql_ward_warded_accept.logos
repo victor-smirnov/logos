@@ -1,0 +1,32 @@
+// TRACK A — a WARDED existential (Datalog±) program on the WQL surface. The
+// existential head is the reserved `fresh()` marker in a rel-body `select`:
+//   R(x) :- Node(x)
+//   R(y) :- R(x)          -- ∃y : the recursion invents a fresh witness
+// This is the canonical warded ∃-recursion (Gottlob–Pieris). The wardedness
+// checker ACCEPTS it — but execution (the chase / value invention) is blocked on
+// the paused identity/Skolem-null foundation (ADR 0012), so the compiler emits a
+// CLEAN "accepted (warded); execution not yet supported" diagnostic and refuses
+// lowering gracefully (NO runnable fn, NO miscompile, NO silent empty result).
+// The verdict is the deliverable — hence this is a FAIL-mode test asserting the
+// accepted-but-blocked message.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+
+resource grow = wql!(base: &[Node]) {
+    rel R(x: i64) {
+        from base b select (b.id);      // R(x) :- Node(x)
+        from R r select (fresh());      // R(y) :- R(x)   [existential head]
+    }
+    from R r select (r.x)
+};
+
+fn main() -> i32 {
+    let base: [Node; 1] = [ Node { id: 1i64 } ];
+    let out: Vec<i64> = grow(&base[..]);
+    return out.len() as i32;
+}

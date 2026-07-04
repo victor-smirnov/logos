@@ -1,0 +1,25 @@
+// TRACK A — the marker-vs-bug distinction. A BARE unbound identifier in a rel
+// `select` (`zz`) is a TYPO, not an existential head: there is no `fresh()`
+// marker, so the compiler must NOT treat it as invention. Previously such a bare
+// ident fell through to codegen as an undefined Logos variable → an opaque
+// downstream error; now it gets a clean, specific diagnostic that points at the
+// column / scalar-param / fresh() alternatives. (Distinct from the wardedness
+// messages — proves the marker path and the bug path do not collide.)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+
+resource q = wql!(base: &[Node]) {
+    rel R(x: i64) { from base b select (zz); }   // `zz` bare, unbound, no fresh()
+    from R r select (r.x)
+};
+
+fn main() -> i32 {
+    let base: [Node; 1] = [ Node { id: 1i64 } ];
+    let out: Vec<i64> = q(&base[..]);
+    return out.len() as i32;
+}

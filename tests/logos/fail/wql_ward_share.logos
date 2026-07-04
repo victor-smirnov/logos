@@ -1,0 +1,32 @@
+// TRACK A — a NON-warded existential program: a single atom covers all dangerous
+// variables, but the ward SHARES a HARMFUL variable with the rest of the body
+// (reason WARD_SHARE). Mirrors ward.logos prog (5):
+//   A(x)          -> ∃y1,y2 . W(x,y1,y2)   [W[1],W[2] affected]
+//   C(x)          -> ∃y . M(y,t)           [M[0] affected]
+//   W(g,d1,d2), M(d1,t) -> H(d1,d2)
+// d1@W[1] & @M[0] are BOTH affected ⇒ harmful; d2@W[2] harmful; both frontier ⇒
+// dangerous. The only ward candidate W (covers d1,d2) leaks the harmful d1 to M
+// via the join — a null can escape the ward. Rejected with the named reason.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct N { pub k: i64 }
+
+resource bad = wql!(sa: &[N], sc: &[N]) {
+    rel W(g: i64, d1: i64, d2: i64) { from sa x select (x.k, fresh(), fresh()); }
+    rel M(mm: i64, t: i64)          { from sc x select (fresh(), x.k); }   // M[0] existential
+    rel H(a: i64, b: i64) {
+        from W w join M m on w.d1 == m.mm select (w.d1, w.d2);
+    }
+    from H h select (h.a)
+};
+
+fn main() -> i32 {
+    let sa: [N; 1] = [ N { k: 1i64 } ];
+    let sc: [N; 1] = [ N { k: 2i64 } ];
+    let out: Vec<i64> = bad(&sa[..], &sc[..]);
+    return out.len() as i32;
+}

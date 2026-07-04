@@ -1,0 +1,43 @@
+// TRACK A — outcome C (the fast path). An ORDINARY (marker-free) recursive rel
+// program — transitive closure — has NO `fresh()` markers, hence NO existential
+// positions, hence is trivially warded and must take the emission path COMPLETELY
+// UNCHANGED. Guards that the marker scan + the select-ident classifier introduce
+// zero behavioral change for vanilla Datalog.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+resource reach = wql!(edges: &[Edge], start: i64) {
+    rel path(a: i64, b: i64) {
+        from edges e select (e.src, e.dst);
+        from path p join edges e on p.b == e.src select (p.a, e.dst);
+    }
+    from path p where p.a == start select p.b order by p.b
+};
+
+fn main() -> i32 {
+    let edges: [Edge; 4] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 2i64, dst: 3i64 },
+        Edge { src: 2i64, dst: 4i64 },
+        Edge { src: 5i64, dst: 6i64 },
+    ];
+
+    // 1 ⇒ {2, 3, 4}, ordered.
+    let out1: Vec<i64> = reach(&edges[..], 1i64);
+    if out1.len() != 3i64      { return 1i32; }
+    if out1.get(0i64) != 2i64  { return 2i32; }
+    if out1.get(1i64) != 3i64  { return 3i32; }
+    if out1.get(2i64) != 4i64  { return 4i32; }
+
+    // 5 ⇒ {6}.
+    let out5: Vec<i64> = reach(&edges[..], 5i64);
+    if out5.len() != 1i64      { return 5i32; }
+    if out5.get(0i64) != 6i64  { return 6i32; }
+
+    return 0i32;
+}
