@@ -4258,3 +4258,578 @@ impl Query {
         return Result::Ok(rows);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL DATAFLOW ENGINE — slice-1 (ADR 0013 §8)
+//
+// A DBSP-style signed-weight (Z-set) incremental maintainer for the linear +
+// ONE-bilinear-join fragment  RDistinct?( RProj( RFilter?( RJoin(Scan,Scan) ) ) ).
+// Plain single-threaded: an "epoch" is one call that admits ±delta batches,
+// computes the netted output delta, applies it, then integrates the deltas
+// into the arranged inputs — INTEGRATE-AFTER-COMPUTE (§8.2). Derived from the
+// batch evaluator: reuses eval_sexpr / eval_on_residual / rt_key_hash / rt_eq
+// verbatim, so the only new surface is the weight bookkeeping.
+//
+// State is private; the PUBLIC surface is ZBatch / IncrJoin /
+// Query::incremental. Correctness rules honored: U1 (rel-free; the dedup
+// boundary is the top RDistinct, non-negative source clamp is the harness's
+// job; out_int may hold transient negatives, compared only at quiescence),
+// §10.4 (RProj weight-coalesce; RDistinct multiplicity-CROSSING), §8.2
+// integrate-after-compute.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// A ±delta batch over ONE source: signed-weight node handles. Harness-built
+// (the ZBatch seam, §6 — mutation-instrumentation / snapshot-diff are drop-in
+// producers behind it).
+pub struct ZBatch {
+    node: Vec<WAny>,
+    wt:   Vec<i64>,
+}
+impl ZBatch {
+    pub fn new() -> ZBatch { return ZBatch { node: vec_new::<WAny>(), wt: vec_new::<i64>() }; }
+    pub fn push(self: &mut ZBatch, row: WAny, w: i64) { self.node.push(row); self.wt.push(w); }
+    pub fn clear(self: &mut ZBatch) {
+        self.node = vec_new::<WAny>();
+        self.wt   = vec_new::<i64>();
+    }
+    pub fn len(self: &ZBatch) -> i64 { return self.node.len(); }
+}
+
+// An integrated, arranged Z-set of ONE join input, keyed on the join key.
+//   node/wt/key — one slot per source-row identity (weight >0 at quiescence)
+//   id  — handle-raw -> slot: coalesce ±w by identity (the change-capture is
+//         per whole-node row; rt_key_hash collapses Nodes to one bucket and
+//         rt_eq(Node,Node)=false, so identity is the raw self-relative ref)
+//   idx — join-key hash -> slots: the arrangement / probe index (kept live).
+pub struct Arr {
+    var:  str,
+    node: Vec<WAny>,
+    wt:   Vec<i64>,
+    key:  Vec<RtVal>,
+    id:   HashMap<u64, i64>,
+    idx:  HashMap<u64, Vec<i64>>,
+}
+fn arr_new(var: str) -> Arr {
+    return Arr {
+        var: var, node: vec_new::<WAny>(), wt: vec_new::<i64>(), key: vec_new::<RtVal>(),
+        id: hashmap_new::<u64, i64>(), idx: hashmap_new::<u64, Vec<i64>>(),
+    };
+}
+
+// The maintained OUTPUT Z-set, keyed on the canonical projected tuple.
+//   cells — stride ncols (interned strings, self-contained)
+//   wt    — bag multiplicity per distinct tuple
+//   memb  — set membership, maintained on multiplicity CROSSING (set mode)
+//   idx   — canon-row hash -> slots (rt_eq verify on collision).
+pub struct ZOut {
+    ncols: i64,
+    cells: Vec<RtVal>,
+    wt:    Vec<i64>,
+    memb:  Vec<bool>,
+    idx:   HashMap<u64, Vec<i64>>,
+}
+fn zout_new(nc: i64) -> ZOut {
+    return ZOut {
+        ncols: nc, cells: vec_new::<RtVal>(), wt: vec_new::<i64>(),
+        memb: vec_new::<bool>(), idx: hashmap_new::<u64, Vec<i64>>(),
+    };
+}
+
+// FNV fold over a row slice cells[off .. off+nc] (the exec_root Distinct hash).
+fn zrow_hash(cells: &Vec<RtVal>, off: i64, nc: i64) -> u64 {
+    let mut h: u64 = 1469598103934665603u64;
+    let mut c: i64 = 0i64;
+    while c < nc { h = h_step(h, rt_key_hash(cells.get(off + c))); c = c + 1i64; }
+    return h;
+}
+
+// Find the slot of row cells[off..] in `z`; -1 if absent (rt_eq bucket verify).
+fn zout_find(zp: *mut ZOut, cells: &Vec<RtVal>, off: i64) -> i64 {
+    let z: &ZOut = unsafe { &*zp };
+    let nc: i64 = z.ncols;
+    let h: u64 = zrow_hash(cells, off, nc);
+    let mp: *mut HashMap<u64, Vec<i64>> = unsafe { &mut (&mut *zp).idx };
+    let bp: *const Vec<i64> = unsafe { mp.get(&h) };
+    if (bp as i64) == 0i64 { return -1i64; }
+    let bucket: &Vec<i64> = unsafe { &*bp };
+    let nb: i64 = bucket.len();
+    let mut t: i64 = 0i64;
+    while t < nb {
+        let o: i64 = bucket.get(t);
+        let mut same: bool = true;
+        let mut c2: i64 = 0i64;
+        while c2 < nc {
+            if !rt_eq(z.cells.get(o * nc + c2), cells.get(off + c2)) { same = false; break; }
+            c2 = c2 + 1i64;
+        }
+        if same { return o; }
+        t = t + 1i64;
+    }
+    return -1i64;
+}
+
+// Ensure a slot exists for row cells[off..] (created with wt 0, memb false);
+// interns string cells into `arena` so the row is self-contained. Returns slot.
+fn zout_upsert(zp: *mut ZOut, arena: &Writ, cells: &Vec<RtVal>, off: i64) -> i64 {
+    let existing: i64 = zout_find(zp, cells, off);
+    if existing >= 0i64 { return existing; }
+    let z: &mut ZOut = unsafe { &mut *zp };
+    let nc: i64 = z.ncols;
+    let slot: i64 = z.wt.len();
+    let h: u64 = zrow_hash(cells, off, nc);
+    let mp: *mut HashMap<u64, Vec<i64>> = &mut z.idx;
+    unsafe {
+        let vp: *mut Vec<i64> = mp.get_or_insert(h, vec_new::<i64>());
+        (&mut *vp).push(slot);
+    }
+    let mut c: i64 = 0i64;
+    while c < nc {
+        let v: RtVal = cells.get(off + c);
+        match v {
+            RtVal::S(s) => { z.cells.push(RtVal::S(intern_str(arena, s))); }
+            _ => { z.cells.push(v); }
+        }
+        c = c + 1i64;
+    }
+    z.wt.push(0i64);
+    z.memb.push(false);
+    return slot;
+}
+
+// RProj weight-coalesce (§10.4): Δout[π(t)] += w, ADDITIVE (never 1:1).
+fn zout_bump(zp: *mut ZOut, arena: &Writ, cells: &Vec<RtVal>, off: i64, w: i64) {
+    if w == 0i64 { return; }
+    let slot: i64 = zout_upsert(zp, arena, cells, off);
+    let z: &mut ZOut = unsafe { &mut *zp };
+    z.wt.set(slot, z.wt.get(slot) + w);
+}
+
+// Apply a scratch delta `od` into `out`. Bag: wt += dw. Set (has_distinct):
+// maintain `memb` on multiplicity CROSSING — <=0→>0 emits +, >0→<=0 emits -
+// (§10.4 RDistinct crossing, NOT w>0).
+fn out_apply(outp: *mut ZOut, arena: &Writ, odp: *const ZOut, has_distinct: bool) {
+    let od: &ZOut = unsafe { &*odp };
+    let nc: i64 = od.ncols;
+    let n: i64 = od.wt.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let dw: i64 = od.wt.get(i);
+        if dw != 0i64 {
+            let slot: i64 = zout_upsert(outp, arena, &od.cells, i * nc);
+            let out: &mut ZOut = unsafe { &mut *outp };
+            let old: i64 = out.wt.get(slot);
+            let neww: i64 = old + dw;
+            out.wt.set(slot, neww);
+            if has_distinct {
+                if old <= 0i64 && neww > 0i64 { out.memb.set(slot, true); }
+                else if old > 0i64 && neww <= 0i64 { out.memb.set(slot, false); }
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// Compute the join key of one node by evaluating `kexpr_w` with `var` bound.
+// The key expr references ONLY its own scan var (analyze_join_step's build/
+// probe split), so a single-var RBinds suffices.
+fn ij_key(kexpr_w: i64, var: str, node: WAny, cat: &SchemaCatalog, env: &QEnv,
+          scratch: &Writ) -> RtVal {
+    let mut b: RBinds = rbinds_new();
+    b.bind_val(var, RtVal::Node(node));
+    let bp: *const RBinds = &b;
+    return eval_sexpr(sx_of(kexpr_w), cat, env, bp, scratch);
+}
+
+// One surviving join pair (aNode ⋈ bNode, weight w) → filter → project →
+// coalesce into `od`. Residual = every ON conjunct except the consumed equi
+// term (the key equality was already rt_eq-verified by the caller).
+fn ij_emit(odp: *mut ZOut, arena: &Writ, a_node: WAny, b_node: WAny, w: i64,
+           lvar: str, rvar: str, on_w: i64, equi_w: i64, has_pred: bool, pred_w: i64,
+           sel_w: i64, cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) {
+    if w == 0i64 { return; }
+    let mut cb: RBinds = rbinds_new();
+    cb.bind_val(lvar, RtVal::Node(a_node));
+    cb.bind_val(rvar, RtVal::Node(b_node));
+    let cbp: *const RBinds = &cb;
+    if !eval_on_residual(on_w, equi_w, cat, env, cbp, scratch) { return; }
+    if has_pred {
+        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch)) { return; }
+    }
+    let sel: SExpr = sx_of(sel_w);
+    let mut cells: Vec<RtVal> = vec_new::<RtVal>();
+    match sel {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let nn: i64 = items.len();
+            let mut c: i64 = 0i64;
+            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch)); c = c + 1i64; }
+        }
+        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
+    }
+    zout_bump(odp, arena, &cells, 0i64, w);
+}
+
+// One bilinear join term: stream (lnodes,lwts,lkeys) against arranged `right`.
+// leftIsA=true ⇒ left rows bind the A/left var and `right` binds B/right; false
+// ⇒ swapped (left=ΔB binds rvar, right=A_int binds lvar). Weights MULTIPLY.
+fn ij_join_term(odp: *mut ZOut, arena: &Writ,
+                lnodes: &Vec<WAny>, lwts: &Vec<i64>, lkeys: &Vec<RtVal>,
+                right: &Arr, left_is_a: bool,
+                lvar: str, rvar: str, on_w: i64, equi_w: i64,
+                has_pred: bool, pred_w: i64, sel_w: i64,
+                cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) {
+    let rp: *mut HashMap<u64, Vec<i64>> =
+        (&right.idx as *const HashMap<u64, Vec<i64>>) as *mut HashMap<u64, Vec<i64>>;
+    let n: i64 = lnodes.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let wl: i64 = lwts.get(i);
+        if wl != 0i64 {
+            let kl: RtVal = lkeys.get(i);
+            let hp: u64 = rt_key_hash(kl);
+            let bp: *const Vec<i64> = unsafe { rp.get(&hp) };
+            if (bp as i64) != 0i64 {
+                let bucket: &Vec<i64> = unsafe { &*bp };
+                let nb: i64 = bucket.len();
+                let mut t: i64 = 0i64;
+                while t < nb {
+                    let j: i64 = bucket.get(t);
+                    let wr: i64 = right.wt.get(j);
+                    if wr != 0i64 && rt_eq(kl, right.key.get(j)) {
+                        let a_node: WAny = if left_is_a { lnodes.get(i) } else { right.node.get(j) };
+                        let b_node: WAny = if left_is_a { right.node.get(j) } else { lnodes.get(i) };
+                        ij_emit(odp, arena, a_node, b_node, wl * wr,
+                                lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, cat, env, scratch);
+                    }
+                    t = t + 1i64;
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// The ΔA ⋈ ΔB cross term (nested loop; deltas are small). Index-free so it
+// never touches the arrangements — the §8.2 double-count trap is avoided by
+// computing this BEFORE integrating either delta.
+fn ij_cross_term(odp: *mut ZOut, arena: &Writ,
+                 an: &Vec<WAny>, awt: &Vec<i64>, akey: &Vec<RtVal>,
+                 bn: &Vec<WAny>, bwt: &Vec<i64>, bkey: &Vec<RtVal>,
+                 lvar: str, rvar: str, on_w: i64, equi_w: i64,
+                 has_pred: bool, pred_w: i64, sel_w: i64,
+                 cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) {
+    let na: i64 = an.len();
+    let nb: i64 = bn.len();
+    let mut i: i64 = 0i64;
+    while i < na {
+        let wl: i64 = awt.get(i);
+        if wl != 0i64 {
+            let kl: RtVal = akey.get(i);
+            let mut j: i64 = 0i64;
+            while j < nb {
+                let wr: i64 = bwt.get(j);
+                if wr != 0i64 && rt_eq(kl, bkey.get(j)) {
+                    ij_emit(odp, arena, an.get(i), bn.get(j), wl * wr,
+                            lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, cat, env, scratch);
+                }
+                j = j + 1i64;
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// Integrate a ±delta into an arrangement by identity (§8.2 step 5). Existing
+// identity ⇒ wt += w (no index change; key unchanged). New identity ⇒ append a
+// slot, compute + index its key. Zero-weight slots survive (skipped by joins);
+// no Vec deletion, so `id`/`idx` slots stay stable across epochs.
+fn ij_integrate(arr: &mut Arr, delta: &ZBatch, keyw: i64, var: str,
+                cat: &SchemaCatalog, env: &QEnv, scratch: &Writ) {
+    let n: i64 = delta.node.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let w: i64 = delta.wt.get(i);
+        if w != 0i64 {
+            let node: WAny = delta.node.get(i);
+            let rawu: u64 = node.raw() as u64;
+            let idp: *mut HashMap<u64, i64> = &mut arr.id;
+            let sp: *const i64 = unsafe { idp.get(&rawu) };
+            if (sp as i64) != 0i64 {
+                let slot: i64 = unsafe { *sp };
+                arr.wt.set(slot, arr.wt.get(slot) + w);
+            } else {
+                let slot: i64 = arr.node.len();
+                let key: RtVal = ij_key(keyw, var, node, cat, env, scratch);
+                arr.node.push(node);
+                arr.wt.push(w);
+                arr.key.push(key);
+                unsafe { let _q: *mut i64 = idp.get_or_insert(rawu, slot); }
+                let hp: u64 = rt_key_hash(key);
+                let ixp: *mut HashMap<u64, Vec<i64>> = &mut arr.idx;
+                unsafe {
+                    let vp: *mut Vec<i64> = ixp.get_or_insert(hp, vec_new::<i64>());
+                    (&mut *vp).push(slot);
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// A +1/identity ZBatch over every element of a bound source array (base fill).
+fn ij_batch_from_source(src: WAny) -> ZBatch {
+    let mut b: ZBatch = ZBatch::new();
+    if !src.is_array() { return b; }
+    let a: &WArray<WAny> = src.as_array();
+    let n: i64 = a.len();
+    let mut i: i64 = 0i64;
+    while i < n { b.push(a.get(i), 1i64); i = i + 1i64; }
+    return b;
+}
+
+// ── IncrJoin — the maintained engine (arrangements + out state + frozen plan) ─
+pub struct IncrJoin {
+    arena: Writ,             // owns interned output-row strings (self-contained)
+    a:     Arr,              // A_int (left / probe side)
+    b:     Arr,              // B_int (right / build side)
+    out:   ZOut,             // out_int
+    cat:   SchemaCatalog,    // catalog snapshot (eval_sexpr needs it)
+    envp:  i64,             // *const QEnv — param lookups only (row vars come
+                             // from RBinds); the caller keeps the env alive
+    on_w:   i64,
+    equi_w: i64,
+    build_w: i64,            // qp.jbuild (right/new-side key)
+    probe_w: i64,            // qp.jprobe (left/bound-side key)
+    pred_w:  i64,
+    has_pred: bool,
+    sel_w:   i64,
+    lvar:    str,
+    rvar:    str,
+    has_distinct: bool,      // top RExpr::Distinct present -> set mode
+    ncols:  i64,
+    ckind:  [i32; 8],
+}
+
+impl IncrJoin {
+    // One epoch: admit (da over the LEFT source, db over the RIGHT source),
+    // compute the netted output delta, apply it, THEN integrate (§8.2).
+    pub fn epoch(self: &mut IncrJoin, da: &ZBatch, db: &ZBatch) {
+        let cat: &SchemaCatalog = &self.cat;
+        let env: &QEnv = unsafe { &*(self.envp as *const QEnv) };
+        let scratch: Writ = writ_new(2048i64);
+        let on_w: i64 = self.on_w; let equi_w: i64 = self.equi_w;
+        let build_w: i64 = self.build_w; let probe_w: i64 = self.probe_w;
+        let pred_w: i64 = self.pred_w; let has_pred: bool = self.has_pred;
+        let sel_w: i64 = self.sel_w; let lvar: str = self.lvar; let rvar: str = self.rvar;
+        let has_distinct: bool = self.has_distinct;
+
+        // Δ keys: ΔA via probe_w (left var), ΔB via build_w (right var).
+        let mut dakeys: Vec<RtVal> = vec_new::<RtVal>();
+        let mut ia: i64 = 0i64;
+        while ia < da.node.len() {
+            dakeys.push(ij_key(probe_w, lvar, da.node.get(ia), cat, env, &scratch));
+            ia = ia + 1i64;
+        }
+        let mut dbkeys: Vec<RtVal> = vec_new::<RtVal>();
+        let mut ib: i64 = 0i64;
+        while ib < db.node.len() {
+            dbkeys.push(ij_key(build_w, rvar, db.node.get(ib), cat, env, &scratch));
+            ib = ib + 1i64;
+        }
+
+        // ── COMPUTE ΔJ against the CURRENT (pre-integrate) arrangements ──
+        let mut od: ZOut = zout_new(self.ncols);
+        let odp: *mut ZOut = &mut od;
+        // T1: ΔA ⋈ B_int
+        ij_join_term(odp, &self.arena, &da.node, &da.wt, &dakeys, &self.b, true,
+                     lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, cat, env, &scratch);
+        // T2: A_int ⋈ ΔB   (left = ΔB binds rvar; right = A_int binds lvar)
+        ij_join_term(odp, &self.arena, &db.node, &db.wt, &dbkeys, &self.a, false,
+                     lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, cat, env, &scratch);
+        // T3: ΔA ⋈ ΔB   (the cross term — computed before integrate)
+        ij_cross_term(odp, &self.arena, &da.node, &da.wt, &dakeys, &db.node, &db.wt, &dbkeys,
+                      lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, cat, env, &scratch);
+
+        // ── APPLY the netted delta into out_int (crossing for set mode) ──
+        out_apply(&mut self.out, &self.arena, &od, has_distinct);
+
+        // ── INTEGRATE (AFTER compute) ──
+        ij_integrate(&mut self.a, da, probe_w, lvar, cat, env, &scratch);
+        ij_integrate(&mut self.b, db, build_w, rvar, cat, env, &scratch);
+    }
+
+    // Read the maintained state as a self-contained QRows (compare at
+    // quiescence, U3). Set mode: one row per live tuple (memb). Bag mode:
+    // `wt` duplicate rows per tuple (multiplicity expanded to match the
+    // batch oracle's duplicate output rows).
+    pub fn snapshot(self: &IncrJoin) -> QRows {
+        let mut rows: QRows = QRows {
+            arena: writ_new(1024i64),
+            ncols: self.ncols,
+            kinds: self.ckind,
+            cells: vec_new::<RtVal>(),
+            nrows: 0i64,
+        };
+        let out: &ZOut = &self.out;
+        let nc: i64 = out.ncols;
+        let n: i64 = out.wt.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if self.has_distinct {
+                if out.memb.get(i) { ij_push_row(&mut rows, out, i, nc); }
+            } else {
+                let w: i64 = out.wt.get(i);
+                let mut k: i64 = 0i64;
+                while k < w { ij_push_row(&mut rows, out, i, nc); k = k + 1i64; }
+            }
+            i = i + 1i64;
+        }
+        return rows;
+    }
+}
+
+// Push out-tuple `slot` into a QRows, re-interning strings into the QRows arena.
+fn ij_push_row(rows: &mut QRows, out: &ZOut, slot: i64, nc: i64) {
+    let mut c: i64 = 0i64;
+    while c < nc {
+        let v: RtVal = out.cells.get(slot * nc + c);
+        match v {
+            RtVal::S(s) => {
+                let iv: str = intern_str(&rows.arena, s);
+                rows.cells.push(RtVal::S(iv));
+            }
+            _ => { rows.cells.push(v); }
+        }
+        c = c + 1i64;
+    }
+    rows.nrows = rows.nrows + 1i64;
+}
+
+impl Query {
+    // Build a slice-1 incremental maintainer for this query against `env`'s
+    // base sources. Returns Err (an error VALUE) if the plan is outside the
+    // slice-1 fragment: any of RSort/RLimit/REdge/RAnti/RAggr/RFix, a
+    // non-Scan join child, a self-join, a rel block (reg.n != 0), or a
+    // non-hash (f64) join key. `env` must stay alive across every epoch and
+    // its base sources must be NON-EMPTY (the join tier resolves off the live
+    // element type).
+    pub fn incremental(self: &Query, env: &QEnv) -> Result<IncrJoin, QError> {
+        if self.empty {
+            return Result::Err(qerr("Query::incremental: empty query plan (no rows) — nothing to maintain"));
+        }
+        // U1: slice-1 is rel-free ⇒ qrel_materialize unreachable; the only
+        // dedup point is the top RExpr::Distinct.
+        if self.reg.n != 0i64 {
+            return Result::Err(qerr("Query::incremental: query has a `rel` block — recursion/rels are out of slice-1"));
+        }
+        let root: RExpr = WAny::ref_to(self.root as *const u8).view::<RExpr>();
+        // ── fragment guard: peel  RDistinct?( RProj( RFilter?( RJoin(Scan,Scan) ) ) ) ──
+        let mut has_distinct: bool = false;
+        let mut cur: RExpr = root;
+        match cur {
+            RExpr::Limit(_l)    => { return Result::Err(qerr("Query::incremental: `limit` is out of slice-1")); }
+            RExpr::Distinct(d)  => { has_distinct = true; cur = d.input_expr(); }
+            _ => { }
+        }
+        let mut sel_w: i64 = 0i64;
+        match cur {
+            RExpr::Proj(p) => { sel_w = p.sel.any().raw(); cur = p.input_expr(); }
+            _ => { return Result::Err(qerr("Query::incremental: plan has no projection")); }
+        }
+        let mut has_pred: bool = false;
+        let mut pred_w: i64 = 0i64;
+        match cur {
+            RExpr::Sort(_s)  => { return Result::Err(qerr("Query::incremental: `order by` is out of slice-1")); }
+            RExpr::Filter(f) => { has_pred = true; pred_w = f.pred.any().raw(); cur = f.input_expr(); }
+            _ => { }
+        }
+        // The scrutinee is a schema-enum; value-yielding match over one is not
+        // supported (statement form only), so extract into mutable locals.
+        let mut lvar: str = "";
+        let mut rvar: str = "";
+        let mut lsrc: str = "";
+        let mut rsrc: str = "";
+        let mut on_w: i64 = 0i64;
+        let mut join_w: i64 = 0i64;
+        let mut is_join: bool = false;
+        match cur {
+            RExpr::Join(jn)  => {
+                let mut lok: bool = false;
+                let mut rok: bool = false;
+                match jn.left_expr()  { RExpr::Scan(s) => { lvar = s.var_name; lsrc = s.src_name; lok = true; } _ => { } }
+                match jn.right_expr() { RExpr::Scan(s) => { rvar = s.var_name; rsrc = s.src_name; rok = true; } _ => { } }
+                if !lok { return Result::Err(qerr("Query::incremental: the join's left input is not a bare scan")); }
+                if !rok { return Result::Err(qerr("Query::incremental: the join's right input is not a bare scan")); }
+                on_w = jn.on.any().raw();
+                join_w = jn.as_ref().raw();
+                is_join = true;
+            }
+            RExpr::Anti(_a) => { return Result::Err(qerr("Query::incremental: `anti join` is out of slice-1")); }
+            RExpr::Aggr(_g) => { return Result::Err(qerr("Query::incremental: aggregate/group-by is out of slice-1")); }
+            RExpr::Edge(_e) => { return Result::Err(qerr("Query::incremental: graph traversal (edge) is out of slice-1")); }
+            RExpr::Fix(_x)  => { return Result::Err(qerr("Query::incremental: recursion (fix) is out of slice-1")); }
+            _ => { return Result::Err(qerr("Query::incremental: the fragment must be exactly one join of two scans")); }
+        }
+        if !is_join {
+            return Result::Err(qerr("Query::incremental: the fragment must be exactly one join of two scans"));
+        }
+        // self-join guard (§10.4 — a single ΔA must feed both positions).
+        if str_eq(lsrc, rsrc) {
+            return Result::Err(qerr("Query::incremental: self-join is out of slice-1"));
+        }
+
+        // ── strict check to populate the join plan + projection kinds ──
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        let mut lb: CBinds = cbinds_new();
+        check_rexpr(root, &self.cat, env, true, &mut lb, &mut chk, &mut qp, &self.reg);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        let ji: i64 = qp_jfind(&qp, join_w);
+        if ji < 0i64 {
+            return Result::Err(qerr("Query::incremental: internal — join node not in the plan"));
+        }
+        if qp.jtier[ji] != QT_HASH {
+            return Result::Err(qerr("Query::incremental: join key is not hash-arrangeable (f64/loop tier) — out of slice-1"));
+        }
+        let build_w: i64  = qp.jbuild[ji];
+        let probe_w: i64  = qp.jprobe[ji];
+        let equi_w: i64   = qp.jequi[ji];
+        let ncols: i64    = qp.ncols;
+        let ckind: [i32; 8] = qp.ckind;
+
+        // ── resolve base sources ──
+        let lei: i64 = env.find(lsrc);
+        let rei: i64 = env.find(rsrc);
+        if lei < 0i64 || rei < 0i64 {
+            return Result::Err(qerr("Query::incremental: a join source is not bound on the env"));
+        }
+        let lsrcv: WAny = WAny::ref_to(env.words[lei] as *const u8);
+        let rsrcv: WAny = WAny::ref_to(env.words[rei] as *const u8);
+
+        // ── build the engine ──
+        let mut eng: IncrJoin = IncrJoin {
+            arena: writ_new(4096i64),
+            a: arr_new(lvar),
+            b: arr_new(rvar),
+            out: zout_new(ncols),
+            cat: catalog_clone(&self.cat),
+            envp: (env as *const QEnv) as i64,
+            on_w: on_w, equi_w: equi_w, build_w: build_w, probe_w: probe_w,
+            pred_w: pred_w, has_pred: has_pred, sel_w: sel_w,
+            lvar: lvar, rvar: rvar, has_distinct: has_distinct,
+            ncols: ncols, ckind: ckind,
+        };
+        let scratch: Writ = writ_new(2048i64);
+        // fill arrangements from the base sources (+1/identity per element)
+        let ba: ZBatch = ij_batch_from_source(lsrcv);
+        ij_integrate(&mut eng.a, &ba, probe_w, lvar, &eng.cat, env, &scratch);
+        let bb: ZBatch = ij_batch_from_source(rsrcv);
+        ij_integrate(&mut eng.b, &bb, build_w, rvar, &eng.cat, env, &scratch);
+        // base out = A_int ⋈ B_int (one join_term — integrate-order-independent)
+        let mut od0: ZOut = zout_new(ncols);
+        ij_join_term(&mut od0, &eng.arena, &eng.a.node, &eng.a.wt, &eng.a.key, &eng.b, true,
+                     lvar, rvar, on_w, equi_w, has_pred, pred_w, sel_w, &eng.cat, env, &scratch);
+        out_apply(&mut eng.out, &eng.arena, &od0, has_distinct);
+        return Result::Ok(eng);
+    }
+}
