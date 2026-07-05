@@ -1,0 +1,71 @@
+// query_incr_sssp_guard — slice-7 fragment guard for RECURSIVE AGGREGATION.
+// Query::compile ADMITS a single-rel recursive SEMILATTICE (min/max) aggregate
+// head (the relaxed stratification, ADR 0013 §4.3) and REJECTS a recursive
+// GROUP (sum/count/avg) head as non-stratifiable (the abelian-group inverse
+// breaks fixpoint monotonicity). incremental_rec then ACCEPTS the admitted min
+// rel. Errors are VALUES (Result::Err), so this is a PASS test. Exit 0 iff every
+// classification is correct.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema Edge : code(0x0E07_0000_0000_0003) {
+    src: i64 = 0,
+    dst: i64 = 1,
+    w:   i64 = 2,
+}
+resource cat = schema_catalog!{ Edge };
+
+fn mk_edge(d: &Writ, s: i64, t: i64, w: i64) -> WAny {
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t; e.w = w;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+fn build_src(d: &Writ, hs: &Vec<WAny>) -> WAny {
+    let arr: &mut WArray<WAny> = d.array(64i64);
+    let mut i: i64 = 0i64;
+    while i < hs.len() { arr.push(hs.get(i)); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = cat();
+
+    // (1) recursive MIN aggregate — ADMITTED.
+    let qmin: Query = match Query::compile(
+        "rel dist(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from dist x join edges e on e.src == x.node group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d); } from dist r select (r.node, r.d)",
+        &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+
+    // (2) recursive MAX aggregate — ADMITTED (symmetric semilattice).
+    let _ok_max: bool = match Query::compile(
+        "rel wide(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from wide x join edges e on e.src == x.node group by e.dst aggregate d = max(x.d + e.w) select (e.dst, d); } from wide r select (r.node, r.d)",
+        &c)
+    { Result::Ok(_v) => { true } Result::Err(_e) => { return 11i32; } };
+
+    // (3) recursive SUM aggregate — REJECTED (abelian-group / non-stratifiable).
+    let _rej_sum: bool = match Query::compile(
+        "rel bad(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from bad x join edges e on e.src == x.node group by e.dst aggregate d = sum(x.d + e.w) select (e.dst, d); } from bad r select (r.node, r.d)",
+        &c)
+    { Result::Ok(_v) => { return 12i32; } Result::Err(_e) => { true } };
+
+    // (4) incremental_rec ACCEPTS the admitted min rel.
+    let mut hs: Vec<WAny> = vec_new::<WAny>();
+    hs.push(mk_edge(&doc, 0i64, 1i64, 5i64));
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("edges", build_src(&doc, &hs));
+    let _ok_ir: bool = match qmin.incremental_rec(&env) { Result::Ok(_e) => { true } Result::Err(_e2) => { return 13i32; } };
+
+    return 0i32;
+}

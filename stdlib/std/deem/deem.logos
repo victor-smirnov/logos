@@ -69,6 +69,7 @@ use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob han
 use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
 use logos.lang.result;            // Result — the error-as-value carrier
 use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
 use logos.mem.string;             // String
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
@@ -899,6 +900,12 @@ pub struct QRelReg {
     comp:  [i64; 8],
     rec:   [bool; 8],
     order: [i64; 8],
+    // RECURSIVE SEMILATTICE AGGREGATION (slice-7): per rel, the AGG_* id of its
+    // recursive min/max aggregate head (3 = min, 4 = max; 0 = plain rel). Set by
+    // the relaxed stratification check when a single-rel recursive component is an
+    // admissible semilattice aggregate. Nonzero ⇒ qrel_push_out routes to the
+    // semilattice-ABSORB push (qrel_push_agg) instead of set-dedup.
+    rel_agg: [i32; 8],
 }
 
 fn qrelreg_new() -> QRelReg {
@@ -906,6 +913,7 @@ fn qrelreg_new() -> QRelReg {
         n: 0i64, names: [""; 8], ncols: [0i64; 8], coff: [0i64; 8],
         cnames: vec_new::<str>(), ctys: vec_new::<i64>(),
         nscc: 0i64, comp: [0i64; 8], rec: [false; 8], order: [0i64; 8],
+        rel_agg: [0i32; 8],
     };
 }
 
@@ -2762,6 +2770,14 @@ struct RelCtx {
     // over-delete scratch. Both must be set-or-both-clear (0 = inactive).
     wr_rowsp: [i64; 8],     // *mut Vec<RtVal> per rel (WRITE storage) or 0
     wr_hmp:   i64,          // *mut HashMap<u64, Vec<i64>> (WRITE map) or 0
+    // RECURSIVE SEMILATTICE AGGREGATION (slice-7): per rel, a raw *mut
+    // HashMap<i64, i64> — the per-key best-map (node → champion value) the
+    // semilattice absorb (qrel_push_agg) consults + updates. 0 for a plain rel.
+    // `wr_bestp` is the DRed over-delete/re-derive WRITE-REDIRECT best-map (moves
+    // with wr_rowsp/wr_hmp — set-or-both-clear); the absorb writes wr_bestp when
+    // the row redirect is active, self-bestp otherwise.
+    bestp:    [i64; 8],     // *mut HashMap<i64, i64> per rel (READ best) or 0
+    wr_bestp: [i64; 8],     // *mut HashMap<i64, i64> per rel (WRITE best) or 0
 }
 
 fn relctx_new() -> RelCtx {
@@ -2770,6 +2786,7 @@ fn relctx_new() -> RelCtx {
         tot: [0i64; 8], dlo: [0i64; 8], dhi: [0i64; 8],
         ovr_w: 0i64, hmp: 0i64,
         wr_rowsp: [0i64; 8], wr_hmp: 0i64,
+        bestp: [0i64; 8], wr_bestp: [0i64; 8],
     };
 }
 
@@ -2812,6 +2829,18 @@ fn rctx_set_wr(rctx: *mut RelCtx, ri: i64, rows_i: i64, hmp_i: i64) {
     cm.wr_rowsp[ri] = rows_i;
     cm.wr_hmp = hmp_i;
 }
+// slice-7: point rel `ri`'s READ best-map (the semilattice absorb consults +
+// updates it when no write-redirect is active). 0 = plain rel (no absorb).
+fn rctx_set_best(rctx: *mut RelCtx, ri: i64, best_i: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.bestp[ri] = best_i;
+}
+// slice-7 DRed: the WRITE-REDIRECT best-map for rel `ri` (moves with
+// rctx_set_wr's rows/hmp redirect). Pass 0 to clear.
+fn rctx_set_wr_best(rctx: *mut RelCtx, ri: i64, best_i: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.wr_bestp[ri] = best_i;
+}
 
 // Dedup-push every row of a body's OutTab into rel `ri` (SET semantics: the
 // shared bucket map probes by row hash, verifies cell-wise with rt_eq). New
@@ -2819,6 +2848,9 @@ fn rctx_set_wr(rctx: *mut RelCtx, ri: i64, rows_i: i64, hmp_i: i64) {
 fn qrel_push_out(rctx: *mut RelCtx, ri: i64, reg: &QRelReg, out: &OutTab) {
     let nc: i64 = reg.ncols[ri];
     if nc <= 0i64 { return; }
+    // slice-7: an AGGREGATE rel absorbs candidates against a per-key best-map
+    // (the ⊓/⊔ meet IS the dedup) instead of set-dedup — dispatch on rel_agg.
+    if reg.rel_agg[ri] != 0i32 { qrel_push_agg(rctx, ri, reg, out); return; }
     // WRITE-REDIRECT (slice-6): dedup + append target. When wr_hmp is set the
     // OD seed writes scratch (od_rows/od_rhm) while scans still read rowsp/hmp;
     // the encoded (nrow<<3)|ri indices then key the WRITE storage consistently.
@@ -2869,6 +2901,66 @@ fn qrel_push_out(rctx: *mut RelCtx, ri: i64, reg: &QRelReg, out: &OutTab) {
                     rows.push(out.cells.get(r * nc + c3));
                     c3 = c3 + 1i64;
                 }
+            }
+        }
+        r = r + 1i64;
+    }
+}
+
+// slice-7: the SEMILATTICE-ABSORB push (recursive min/max aggregation) — the
+// runtime twin of the static emit_rel_push_agg. SCOPE: key = column 0 (i64),
+// value = the folded last column (i64); key_nc == 1 (design §1). A candidate
+// row `(key, v)` is absorbed against the per-key best-map: kept iff it STRICTLY
+// improves the running champion (`<` for min / `>` for max) or the key is new.
+// The improvement gate IS the ⊓/⊔ meet — this is exactly why min/max
+// incrementalize in a fixpoint and sum/count/avg do not. Each improvement is
+// APPENDED to the write-target rows (the improvement log = the batch `__out`),
+// landing in the next-delta window so the semi-naïve driver re-propagates it.
+// Superseded rows stay inert (a worse d yields d+w ≥ champion downstream → the
+// gate rejects it). NO shadow-set dedup: the best-gate subsumes per-round
+// DISTINCT (an equal value re-appends only on strict improvement). Honors the
+// DRed write-redirect (wr_rowsp/wr_hmp/wr_bestp) so over-delete writes scratch.
+// slice-7: the AGG_* id of an aggregate function NAME (min = 3 / max = 4;
+// 0 = a non-semilattice / unrecognized aggregate — NOT admissible in recursion).
+// Mirrors rexpr_walk::agg_of_name for the semilattice subset (the only ids the
+// recursive-aggregation fixpoint accepts); count/sum/avg return 0 here so the
+// stratification check rejects them as GROUP heads.
+fn deem_agg_dir(name: str) -> i32 {
+    if str_eq(name, "min") { return 3i32; }
+    if str_eq(name, "max") { return 4i32; }
+    return 0i32;
+}
+
+fn qrel_push_agg(rctx: *mut RelCtx, ri: i64, reg: &QRelReg, out: &OutTab) {
+    let nc: i64 = reg.ncols[ri];
+    if nc <= 0i64 { return; }
+    let dir: i32 = reg.rel_agg[ri];   // 3 = min, 4 = max
+    // WRITE targets: redirect to scratch (od) when a DRed redirect is active.
+    let whm: i64 = unsafe { (&*rctx).wr_hmp };
+    let redir: bool = whm != 0i64;
+    let rows_i: i64 = if redir { unsafe { (&*rctx).wr_rowsp[ri] } } else { unsafe { (&*rctx).rowsp[ri] } };
+    let best_i: i64 = if redir { unsafe { (&*rctx).wr_bestp[ri] } } else { unsafe { (&*rctx).bestp[ri] } };
+    if rows_i == 0i64 || best_i == 0i64 { return; }
+    let rows: *mut Vec<RtVal> = rows_i as *mut Vec<RtVal>;
+    let best: *mut HashMap<i64, i64> = best_i as *mut HashMap<i64, i64>;
+    let mut r: i64 = 0i64;
+    while r < out.nrows {
+        let key: i64 = rt_i(out.cells.get(r * nc + 0i64));
+        let v:   i64 = rt_i(out.cells.get(r * nc + (nc - 1i64)));
+        let mut imp: bool = false;
+        unsafe {
+            let cp: *const i64 = best.get(&key);
+            if (cp as i64) == 0i64 { imp = true; }
+            else {
+                let champ: i64 = *cp;
+                if dir == 4i32 { if v > champ { imp = true; } }
+                else           { if v < champ { imp = true; } }
+            }
+            if imp {
+                let _z: *mut i64 = best.get_or_insert(key, v);
+                *(_z) = v;
+                let mut c: i64 = 0i64;
+                while c < nc { (&mut *rows).push(out.cells.get(r * nc + c)); c = c + 1i64; }
             }
         }
         r = r + 1i64;
@@ -3711,6 +3803,41 @@ fn qrel_len(rctx: *const RelCtx, ri: i64, nc: i64) -> i64 {
 // ═══════════════════════════════════════════════════════════════════════════
 // Query — compile-once / run-many dynamic query (ADR §3).
 // ═══════════════════════════════════════════════════════════════════════════
+// slice-7: lower a RECURSIVE-AGGREGATE rel body (`from rel x join edges e … group
+// by key aggregate d = min/max(arg) select …`) to its underlying relational
+// pipeline  RProj( RFilter?( RJoin(Scan, edges…) ), (key, arg) ).  The surface
+// `select (key, aggout)` is structural only — the emitted projection is the group
+// KEY and the aggregate's ARG expression (the two lattice operands); the fold
+// itself is the push-time semilattice absorb (qrel_push_agg). Mirrors the static
+// emit_rel_body_agg / lower_join shapes so occ-detection + semi-naïve are reused.
+fn lower_agg_body_recursive(g: RQAggr, h: &Writ) -> WRef<RExpr> {
+    let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
+    let mut input: WRef<RExpr> = scan;
+    if g.has_steps() { input = fold_join_steps(input, g.steps_arr(), h); }
+    if g.has_where  { input = make_filter(h, input, g.where_pred); }
+    let a0: RQAgg = g.aggs_arr().agg_at(0i64);
+    let mut items: SExprArr = h.make::<SExprArr>();
+    items.set_len(2i64);
+    items.set_arg(0i64, g.key.any());      // component 0 = the group key
+    items.set_arg(1i64, a0.arg.any());     // component 1 = the aggregate arg
+    let tup: STuple = h.make::<STuple>();
+    tup.items = WRef::<SExprArr>::from_any(items.as_ref());
+    let sel: WRef<SExpr> = WRef::<SExpr>::from_any(tup.as_ref());
+    return make_proj(h, input, sel);
+}
+
+// Lower one rel body: an admitted recursive-aggregate body via the semilattice
+// pipeline above, any other via the shared plan→algebra lowering.
+fn lower_rel_body(q: RQuery, is_agg: bool, h: &Writ) -> WRef<RExpr> {
+    if is_agg {
+        match q {
+            RQuery::Aggr(g) => { return lower_agg_body_recursive(g, h); }
+            _ => { }
+        }
+    }
+    return lower_rquery_to_rexpr(q, h);
+}
+
 pub struct Query {
     doc:      Writ,            // owns the parsed plan + lowered algebra
     root:     i64,             // simplified ENTRY RExpr root word (into `doc`)
@@ -3817,6 +3944,16 @@ fn qrel_materialize(q: &Query, env: &QEnv, qp: &QPlan, scratch: &Writ,
                 }
                 m = m + 1i64;
             }
+            // slice-7: is this SCC a recursive SEMILATTICE aggregate? Its additive
+            // fixpoint converges by monotone descent (positive-weight min / bounded
+            // max) but a negative-weight cycle (min) has no least fixpoint — guard
+            // the loop so recompute ABORTS with a diagnostic rather than hanging
+            // (termination is sacred). A plain closure stays uncapped (finite
+            // node-universe Datalog contract; static parity).
+            let mut agg_scc: bool = false;
+            let mut ma: i64 = 0i64;
+            while ma < reg.n { if reg.comp[ma] == c && reg.rel_agg[ma] != 0i32 { agg_scc = true; } ma = ma + 1i64; }
+            let mut rounds: i64 = 0i64;
             loop {
                 if chk_bad(chk) { break; }
                 // PROMOTE: delta ← next-delta; total ∪= delta (watermarks
@@ -3824,15 +3961,23 @@ fn qrel_materialize(q: &Query, env: &QEnv, qp: &QPlan, scratch: &Writ,
                 // prefix). EXIT when every member delta is empty.
                 let mut any: bool = false;
                 let mut m2: i64 = 0i64;
+                let mut tot_rows: i64 = 0i64;
                 while m2 < reg.n {
                     if reg.comp[m2] == c {
                         let len2: i64 = qrel_len(rctx as *const RelCtx, m2, reg.ncols[m2]);
+                        tot_rows = tot_rows + len2;
                         rctx_promote(rctx, m2, len2);
                         if unsafe { (&*rctx).dlo[m2] } < len2 { any = true; }
                     }
                     m2 = m2 + 1i64;
                 }
                 if !any { break; }   // least fixpoint reached
+                if agg_scc {
+                    rounds = rounds + 1i64;
+                    if rounds > tot_rows * 4i64 + 64i64 {
+                        panic("deem: recursive aggregate did not converge — a negative-weight cycle (min) / positive-weight cycle (max) has no least fixpoint");
+                    }
+                }
                 // VARIANTS: recursive bodies × their in-SCC occurrences.
                 let mut m3: i64 = 0i64;
                 while m3 < reg.n && !chk_bad(chk) {
@@ -3988,9 +4133,12 @@ impl Query {
                             }
                         }
                         RQuery::Aggr(g) => {
-                            // Rejected either way — but the DIAGNOSTIC is
-                            // chosen POST-SCC (in-SCC ⇒ the cycle error), so
-                            // only record the edges here (static parity).
+                            // slice-7: an aggregate body MAY be an admissible
+                            // recursive SEMILATTICE head (min/max) — the
+                            // stratification check (POST-SCC) decides using the
+                            // recorded head_agg_dir; record edges + the aggregate
+                            // id here. A recursive GROUP (sum/count/avg) head
+                            // stays the named non-stratifiable error there.
                             let ri4: i64 = qreg_find(&reg, g.a_name);
                             if ri4 >= 0i64 { deps.add(i2, ri4); deps.add_agg(i2, ri4); }
                             if g.has_steps() {
@@ -4005,6 +4153,12 @@ impl Query {
                                     }
                                     gi = gi + 1i64;
                                 }
+                            }
+                            // classify the aggregate (first column spec) — min/max
+                            // = semilattice (nonzero), else GROUP (0).
+                            let gaggs: RQAggArr = g.aggs_arr();
+                            if gaggs.len() > 0i64 {
+                                deps.set_head_agg_dir(i2, deem_agg_dir(gaggs.agg_at(0i64).fn_name));
                             }
                             if deps.agg_head < 0i64 { deps.agg_head = i2; }
                         }
@@ -4028,18 +4182,47 @@ impl Query {
                 reg.rec[ci]   = scc.rec[ci];
                 ci = ci + 1i64;
             }
+            // ── AGGREGATE edges: min/max (semilattice) MAY recurse; group may
+            //    not (slice-7, mirrors plan_walker::check_stratified). An in-SCC
+            //    aggregate edge is admissible iff its head is a SEMILATTICE
+            //    (min/max) AND its recursive component is the SINGLE aggregate rel
+            //    (self-recursion; mutual plain↔agg recursion is non-monotone). ──
             let mut sk: i64 = 0i64;
             while sk < deps.gn {
-                if scc.comp[deps.gfrom[sk]] == scc.comp[deps.gto[sk]] {
-                    let mut m1: String = String::new();
-                    m1.push_str("non-stratifiable aggregation — rel '");
-                    m1.push_str(reg.names[deps.gfrom[sk]]);
-                    m1.push_str("' aggregates over rel '");
-                    m1.push_str(reg.names[deps.gto[sk]]);
-                    m1.push_str("' of the same recursive component ");
-                    qreg_push_scc_members(&mut m1, &reg, scc.comp[deps.gfrom[sk]]);
-                    m1.push_str(" — aggregate only over rels from an earlier stratum");
-                    return Result::Err(QError { msg: m1 });
+                let gf: i64 = deps.gfrom[sk];
+                let gt: i64 = deps.gto[sk];
+                if scc.comp[gf] == scc.comp[gt] {
+                    let dir: i32 = deps.head_agg_dir[gf];
+                    if dir != 0i32 {
+                        // count the members of gf's component (slice-7 = 1)
+                        let mut nmem: i64 = 0i64;
+                        let mut r0: i64 = 0i64;
+                        while r0 < nr {
+                            if scc.comp[r0] == scc.comp[gf] { nmem = nmem + 1i64; }
+                            r0 = r0 + 1i64;
+                        }
+                        if nmem > 1i64 {
+                            let mut mm: String = String::new();
+                            mm.push_str("rel '");
+                            mm.push_str(reg.names[gf]);
+                            mm.push_str("': a recursive min/max aggregate must be its OWN recursive component ");
+                            qreg_push_scc_members(&mut mm, &reg, scc.comp[gf]);
+                            mm.push_str(" has multiple rels; mutual recursion through an aggregate is not supported (slice-7)");
+                            return Result::Err(QError { msg: mm });
+                        }
+                        reg.rel_agg[gf] = dir;   // admit as a recursive semilattice head
+                    } else {
+                        // GROUP (sum/count/avg) recursive head — non-stratifiable.
+                        let mut m1: String = String::new();
+                        m1.push_str("non-stratifiable aggregation — rel '");
+                        m1.push_str(reg.names[gf]);
+                        m1.push_str("' aggregates over rel '");
+                        m1.push_str(reg.names[gt]);
+                        m1.push_str("' of the same recursive component ");
+                        qreg_push_scc_members(&mut m1, &reg, scc.comp[gf]);
+                        m1.push_str(" — sum/count/avg is an abelian-group aggregate and cannot recurse; only min/max (idempotent semilattice) may");
+                        return Result::Err(QError { msg: m1 });
+                    }
                 }
                 sk = sk + 1i64;
             }
@@ -4058,7 +4241,24 @@ impl Query {
                 }
                 sk2 = sk2 + 1i64;
             }
-            if deps.agg_head >= 0i64 {
+            // A rel with an aggregate body that did NOT finalize as an admitted
+            // recursive semilattice head is out of slice-7 (non-recursive
+            // aggregate rels / group aggregate over an earlier stratum are not
+            // yet supported here — aggregate in the entry query instead).
+            let mut ah: i64 = 0i64;
+            while ah < nr {
+                if deps.head_agg_dir[ah] != 0i32 && reg.rel_agg[ah] == 0i32 {
+                    return Result::Err(qfail("rel '", reg.names[ah],
+                             "': a min/max aggregate rel body is only supported as a RECURSIVE semilattice head (a self-cycle) — a non-recursive aggregate rel is not yet supported (slice-7); aggregate in the entry query or over an earlier stratum",
+                             "", ""));
+                }
+                ah = ah + 1i64;
+            }
+            // A non-semilattice aggregate body outside any cycle keeps the plain
+            // "aggregate bodies are relation producers" reject (agg_head set but
+            // head_agg_dir 0 = count/sum/avg body, never admitted).
+            if deps.agg_head >= 0i64 && reg.rel_agg[deps.agg_head] == 0i32
+               && deps.head_agg_dir[deps.agg_head] == 0i32 {
                 return Result::Err(qfail("rel '", reg.names[deps.agg_head],
                          "': aggregate bodies are not allowed — a rel body is a relation producer (from/join/where/select only)",
                          "", ""));
@@ -4078,7 +4278,13 @@ impl Query {
                         return Result::Err(qerr("Query::compile: too many rel bodies"));
                     }
                     let q3: RQuery = barr3.body_any(b3).view::<RQuery>();
-                    let root0: WRef<RExpr> = lower_rquery_to_rexpr(q3, &doc);
+                    // slice-7: a recursive-aggregate body of an admitted
+                    // semilattice rel lowers to its underlying JOIN+PROJ pipeline
+                    // projecting `(key, aggarg)` — NOT an RExpr::Aggr group-by.
+                    // The `min`/`max` becomes the push-time semilattice absorb
+                    // (qrel_push_agg); everything downstream (occ detection,
+                    // semi-naïve) treats it as a plain linear-recursive body.
+                    let root0: WRef<RExpr> = lower_rel_body(q3, reg.rel_agg[i3] != 0i32, &doc);
                     let sig: RSimplified = simplify_rexpr_ref(root0, root0.any().view::<RExpr>(), &doc);
                     let bn: i64 = bodies.n;
                     bodies.owner.push(i3);
@@ -5552,6 +5758,14 @@ pub struct IncrRec {
     rec_ovr:  i64,                     // its in-rel scan node word (delta reader)
     nbase:    i64,
     base_b:   [i64; 8],                // base body indices (occ_n == 0)
+    // RECURSIVE SEMILATTICE AGGREGATION (slice-7). `agg` — this rel is a
+    // recursive min/max aggregate (its body absorbs against `best`). `agg_dir` —
+    // 3 = min, 4 = max. `best` — the per-key champion map (node → current least/
+    // greatest folded value); `rows` becomes the append-only IMPROVEMENT LOG, and
+    // the maintained view (snapshot) is projected from `best`, not the raw log.
+    agg:      bool,
+    agg_dir:  i32,
+    best:     HashMap<i64, i64>,
 }
 
 // Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
@@ -5614,6 +5828,7 @@ impl IncrRec {
     fn recompute(self: &mut IncrRec) {
         self.rows = vec_new::<RtVal>();
         self.rhm  = hashmap_new::<u64, Vec<i64>>();
+        self.best = hashmap_new::<i64, i64>();   // slice-7: reset the champion map
         self.ptot = 0i64;
         let qp_raw: i64 = self.qptr;
         let q: &Query = unsafe { &*(qp_raw as *const Query) };
@@ -5626,11 +5841,13 @@ impl IncrRec {
         let scratch: Writ = writ_new(2048i64);
         let hmp_i:  i64 = (&mut self.rhm  as *mut HashMap<u64, Vec<i64>>) as i64;
         let rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let best_i: i64 = (&mut self.best as *mut HashMap<i64, i64>) as i64;
         let mut ctx: RelCtx = relctx_new();
         ctx.n = q.reg.n;
         ctx.regp = (&q.reg as *const QRelReg) as i64;
         ctx.hmp = hmp_i;
         ctx.rowsp[0] = rows_i;
+        if self.agg { rctx_set_best(&mut ctx, 0i64, best_i); }   // slice-7 absorb
         let cp: *mut Chk = &mut chk;
         qrel_materialize(q, &self.env, &qp, &scratch, &mut ctx, cp);
         self.ptot = self.rows.len() / self.ncols;
@@ -5677,11 +5894,25 @@ impl IncrRec {
             }
             di = di + 1i64;
         }
-        // ── RETRACTION (or mixed ±) → mark-based DRed; do NOT also run the
-        // insert seed (avoids double-derivation — NE ⊂ PRES, absorbed by
-        // re-derive). ──
+        // ── RETRACTION (or mixed ±) →
+        //   • PLAIN closure rel: mark-based DRed (slice-6) — over-delete every
+        //     path fact whose derivation could use a deleted edge, then re-derive
+        //     over the survivors (finite node×node universe ⇒ terminating).
+        //   • RECURSIVE MIN/MAX AGGREGATE (slice-7): DRed-for-lattices CANNOT
+        //     reuse the plain over-delete — the improvement log over ADDITIVE
+        //     weights is INFINITE on a cycle (each loop grows d unboundedly), so
+        //     a SET-semantics over-delete propagation does not terminate, and an
+        //     absorb-bounded over-delete under-deletes superseded tainted rows
+        //     (a stale champion then survives → wrong; the incremental re-min-in-
+        //     fixpoint is the deferred R2-followup, see ADR §4.3). The CORRECT +
+        //     TERMINATING retraction is a full recompute over the surviving edge
+        //     set (the absorb fixpoint converges on cycles by monotone descent;
+        //     "degrading toward recompute" is the design-blessed fallback,
+        //     correctness > minimality). Differential-green vs the Bellman-Ford
+        //     oracle; NOT incrementally minimal (honest partial).
         if de_slots.len() != 0i64 {
-            self.dred(q, &de_slots);
+            if self.agg { self.recompute(); }
+            else        { self.dred(q, &de_slots); }
             return;
         }
         // No newly-present edge and no retraction ⇒ no-op epoch (closure only
@@ -5710,6 +5941,8 @@ impl IncrRec {
         // persistent RelCtx over the maintained storage (tot = current total).
         let hmp_i:  i64 = (&mut self.rhm  as *mut HashMap<u64, Vec<i64>>) as i64;
         let rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let best_i: i64 = (&mut self.best as *mut HashMap<i64, i64>) as i64;
+        let is_agg: bool = self.agg;
         let ncols: i64 = self.ncols;
         let ptot0: i64 = self.ptot;
         let rec_body: i64 = self.rec_body;
@@ -5720,6 +5953,10 @@ impl IncrRec {
         ctx.hmp = hmp_i;
         ctx.rowsp[0] = rows_i;
         ctx.tot[0] = ptot0;
+        // slice-7: for an aggregate rel the absorb consults+updates `best` (which
+        // ALREADY holds the maintained champions — INSERTION only IMPROVES it,
+        // monotone). A new/shorter edge seeds candidates that beat the champion.
+        if is_agg { rctx_set_best(&mut ctx, 0i64, best_i); }
         let ctxp: *mut RelCtx = &mut ctx;
 
         // ── SEED round-0 from ΔEDB, edges bound to NE ──
@@ -5732,7 +5969,9 @@ impl IncrRec {
             bi = bi + 1i64;
         }
         // recursive body with the EXISTING relation [0,ptot) as its delta and
-        // NE as the joined edge (existing-path ⋈ new-edge).
+        // NE as the joined edge (existing-path ⋈ new-edge). For an aggregate rel
+        // the existing rows are the improvement LOG (best-gated downstream, so
+        // superseded rows produce dominated candidates that the absorb rejects).
         if ptot0 > 0i64 && !chk_bad(cp) {
             rctx_set_ovr(ctxp, rec_ovr);
             rctx_set_delta(ctxp, 0i64, 0i64, ptot0);
@@ -5741,13 +5980,26 @@ impl IncrRec {
         }
 
         // ── INNER FIXPOINT: round-delta ⋈ FULL-edges to quiescence (batch
-        // semi-naïve loop; per-round DISTINCT via the shadow-set; NO cap) ──
+        // semi-naïve loop; per-round DISTINCT via the shadow-set / best-gate) ──
+        // Convergence GUARD for the aggregate path: an integer min/max fixpoint
+        // over a finite reachable key set converges in ≤ |keys| improvement waves;
+        // a negative-weight cycle (min) / positive-weight cycle (max) has no least
+        // fixpoint and would improve forever — ABORT with a diagnostic rather than
+        // hang (termination is sacred; NOT a silent cap — fires only on genuinely
+        // non-well-founded input).
         ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        let mut rounds: i64 = 0i64;
         loop {
             if chk_bad(cp) { break; }
             let len: i64 = qrel_len(ctxp as *const RelCtx, 0i64, ncols);
             rctx_promote(ctxp, 0i64, len);
             if ctx.dlo[0] >= len { break; }   // least fixpoint (empty round-delta)
+            if is_agg {
+                rounds = rounds + 1i64;
+                if rounds > (self.best.len() * 4i64 + 16i64) {
+                    panic("deem: recursive aggregate did not converge — a negative-weight cycle (min) / positive-weight cycle (max) has no least fixpoint");
+                }
+            }
             rctx_set_ovr(ctxp, rec_ovr);
             qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
             rctx_set_ovr(ctxp, 0i64);
@@ -5932,14 +6184,39 @@ impl IncrRec {
         };
         if chk.failed { return rows; }
         let scratch: Writ = writ_new(2048i64);
-        let rows_i: i64 = (&self.rows as *const Vec<RtVal>) as i64;
+        // slice-7: an AGGREGATE rel's `rows` is the append-only IMPROVEMENT LOG
+        // (superseded rows remain, inert). The maintained view is the CHAMPION
+        // per key — project the entry over champion rows rebuilt from `best`
+        // (node → least/greatest d), NOT the raw log (oracle parity = least
+        // distances). key = col 0, value = last col; ncols == 2 (slice-7 scope).
+        let mut champ: Vec<RtVal> = vec_new::<RtVal>();
+        if self.agg {
+            let ncc: i64 = self.ncols;
+            let bp: *const HashMap<i64, i64> = &self.best;
+            let mut kit: HashMapKeys<i64, i64> = unsafe { bp.keys() };
+            loop {
+                match kit.next() {
+                    Option::Some(kp) => {
+                        let node: i64 = *kp;
+                        let dv: i64 = unsafe { *((&self.best as *const HashMap<i64, i64>).get(&node)) };
+                        champ.push(RtVal::I(node));
+                        let mut cpad: i64 = 1i64;
+                        while cpad < ncc - 1i64 { champ.push(RtVal::I(0i64)); cpad = cpad + 1i64; }
+                        champ.push(RtVal::I(dv));
+                    }
+                    Option::None => { break; }
+                }
+            }
+        }
+        let rows_i: i64 = if self.agg { (&champ as *const Vec<RtVal>) as i64 }
+                          else        { (&self.rows as *const Vec<RtVal>) as i64 };
         let hmp_i:  i64 = (&self.rhm  as *const HashMap<u64, Vec<i64>>) as i64;
         let mut ctx: RelCtx = relctx_new();
         ctx.n = q.reg.n;
         ctx.regp = (&q.reg as *const QRelReg) as i64;
         ctx.hmp = hmp_i;
         ctx.rowsp[0] = rows_i;
-        ctx.tot[0] = self.ptot;
+        ctx.tot[0] = if self.agg { champ.len() / self.ncols } else { self.ptot };
         let cp: *mut Chk = &mut chk;
         let out: OutTab = exec_root(root, &q.cat, &self.env, &qp, &scratch, cp,
                                     &ctx as *const RelCtx);
@@ -6045,6 +6322,13 @@ impl Query {
             return Result::Err(qerr("Query::incremental_rec: the edge source is empty — bind a non-empty base relation"));
         }
 
+        // slice-7: is this the admitted recursive SEMILATTICE aggregate? (its
+        // single rel carries rel_agg = 3 min / 4 max). The lowered agg body is a
+        // plain join+proj at the RExpr level, so the recursive-aggregate flag is
+        // read off the registry, not the body shape. GROUP-in-recursion never
+        // reaches here (Query::compile already rejected it with a named error).
+        let rel_dir: i32 = self.reg.rel_agg[0];
+
         let mut eng: IncrRec = IncrRec {
             qptr: (self as *const Query) as i64,
             env: QEnv::new(),
@@ -6061,6 +6345,9 @@ impl Query {
             rec_ovr: rec_ovr,
             nbase: nbase,
             base_b: base_b,
+            agg: rel_dir != 0i32,
+            agg_dir: rel_dir,
+            best: hashmap_new::<i64, i64>(),
         };
         // seed the edge multiset from the bound base relation (+1/identity)
         let sn: i64 = sarr.len();

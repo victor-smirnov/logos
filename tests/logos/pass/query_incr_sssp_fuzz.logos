@@ -1,0 +1,255 @@
+// query_incr_sssp_fuzz — slice-7 INCREMENTAL RECURSIVE AGGREGATION (SSSP / R2,
+// ADR 0013 §4.3). A single linear-recursive MIN aggregate rel maintained under
+// ±edge deltas, differential-tested every epoch vs an INDEPENDENT array-based
+// Bellman-Ford oracle (relax all edges |V| times) over the CURRENT edge set.
+//
+//   rel dist(node, d) {
+//       from edges e where e.src == 0 select (e.dst, e.w);              // base: direct edges from source 0
+//       from dist x join edges e on e.src == x.node
+//            group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d);  // relax
+//   }
+//   from dist r select (r.node, r.d)
+//
+// The recursive body absorbs each candidate (dst, x.d+e.w) against the per-node
+// BEST (min) — the ⊓ meet IS the fixpoint gate; the maintained view is the
+// champion map, projected as least distances (not the raw improvement log).
+//
+// GREEN here:
+//   • INSERTIONS (true incremental, monotone improvement): a brand-new edge, an
+//     off-path edge (no change), a strictly-shorter parallel edge — each seeded
+//     off the ΔEDB and propagated to a best-fixpoint.
+//   • RETRACTIONS (correct + terminating via RECOMPUTE — the design-blessed
+//     "degrading toward recompute" fallback; NOT incrementally minimal): delete
+//     an off-path edge (no change), delete the SHORTEST-path edge (distance
+//     GROWS to the next-best surviving path), delete-then-re-add (round-trip).
+//   • CYCLE stress: a positive cycle on the shortest-path support; deleting the
+//     tree edge re-routes around the cycle with NO stale short distance.
+//
+// The incremental re-min-in-fixpoint (DRed-for-lattices) is the deferred R2
+// followup: the additive-weight improvement log is INFINITE on a cycle, so a
+// SET-semantics over-delete propagation does not terminate — recompute is the
+// correct terminating retraction for this pass (see deem.logos epoch()).
+//
+// Node 0 is the source and has NO incoming edge (a pure source) so `dist` never
+// contains node 0 — the oracle reports dist[v] for v != 0, v reachable.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema Edge : code(0x0E07_0000_0000_0002) {
+    src: i64 = 0,
+    dst: i64 = 1,
+    w:   i64 = 2,
+}
+resource cat = schema_catalog!{ Edge };
+
+fn mk_edge(d: &Writ, s: i64, t: i64, w: i64) -> WAny {
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t; e.w = w;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+// Present-edge array (presence multiplicity > 0) bound as the `edges` source.
+fn build_src(d: &Writ, hs: &Vec<WAny>, wts: &Vec<i64>) -> WAny {
+    let arr: &mut WArray<WAny> = d.array(256i64);
+    let n: i64 = hs.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if wts.get(i) > 0i64 { arr.push(hs.get(i)); }
+        i = i + 1i64;
+    }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+// Toggle edge `idx` presence by `raw` (+1 present / -1 absent), staging the
+// NETTED ±handle into `batch` (identity-coalesced by the engine).
+fn edge_apply(hs: &Vec<WAny>, wts: &mut Vec<i64>, batch: &mut ZBatch, idx: i64, raw: i64) {
+    let old: i64 = wts.get(idx);
+    let mut neww: i64 = old + raw;
+    if neww < 0i64 { neww = 0i64; }
+    let eff: i64 = neww - old;
+    wts.set(idx, neww);
+    if eff != 0i64 { batch.push(hs.get(idx), eff); }
+}
+
+// ── INDEPENDENT reference: array Bellman-Ford over the CURRENT present edges.
+// dist[0] = 0; relax every present edge |V| times. out[v] = INF ⇒ unreachable. ──
+fn ref_dist(hs: &Vec<WAny>, wts: &Vec<i64>, out: &mut [i64; 32]) {
+    let inf: i64 = 1000000000i64;
+    let mut i: i64 = 0i64;
+    while i < 32i64 { out[i] = inf; i = i + 1i64; }
+    out[0] = 0i64;
+    let mut it: i64 = 0i64;
+    while it < 32i64 {
+        let mut e: i64 = 0i64;
+        while e < hs.len() {
+            if wts.get(e) > 0i64 {
+                let ed: Edge = hs.get(e).view::<Edge>();
+                if out[ed.src] < inf {
+                    let nd: i64 = out[ed.src] + ed.w;
+                    if nd < out[ed.dst] { out[ed.dst] = nd; }
+                }
+            }
+            e = e + 1i64;
+        }
+        it = it + 1i64;
+    }
+}
+
+// DIFFERENTIAL check: snapshot champions (least distances) == Bellman-Ford ref
+// for every node 1..31 (node 0 = source, excluded from `dist`). Returns true iff
+// they agree cell-for-cell (as a per-node distance map).
+fn agrees(eng: &IncrRec, hs: &Vec<WAny>, wts: &Vec<i64>) -> bool {
+    let mut refd: [i64; 32] = [1000000000i64; 32];
+    ref_dist(hs, wts, &mut refd);
+    let inf: i64 = 1000000000i64;
+
+    let mut snap: [i64; 32] = [1000000000i64; 32];
+    let rows: QRows = eng.snapshot();
+    let nr: i64 = rows.row_count();
+    let mut r: i64 = 0i64;
+    while r < nr {
+        let node: i64 = rows.get_i64(r, 0i64);
+        let dv:   i64 = rows.get_i64(r, 1i64);
+        if node < 0i64 || node >= 32i64 { return false; }
+        if node == 0i64 { return false; }   // dist must never contain the source
+        snap[node] = dv;
+        r = r + 1i64;
+    }
+    // per-node agreement for v != 0
+    let mut v: i64 = 1i64;
+    let mut want_cnt: i64 = 0i64;
+    while v < 32i64 {
+        let want: i64 = if refd[v] < inf { refd[v] } else { inf };
+        if snap[v] != want { return false; }
+        if want < inf { want_cnt = want_cnt + 1i64; }
+        v = v + 1i64;
+    }
+    // row-count parity (no extra/duplicate champion rows)
+    if nr != want_cnt { return false; }
+    return true;
+}
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(262144i64);
+    let c: SchemaCatalog = cat();
+    let q: Query = match Query::compile(
+        "rel dist(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from dist x join edges e on e.src == x.node group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d); } from dist r select (r.node, r.d)",
+        &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; } };
+
+    // ── graph G1 (source 0, no edge into 0) ──
+    //   0->1 (10)   0->2 (3)   2->1 (2)   1->3 (5)   2->3 (20)
+    // dist: 1 = min(10, 3+2=5) = 5 ; 2 = 3 ; 3 = 5+5 = 10  (2->3 off-path: 23)
+    let mut hs: Vec<WAny> = vec_new::<WAny>();
+    hs.push(mk_edge(&doc, 0i64, 1i64, 10i64));  // 0
+    hs.push(mk_edge(&doc, 0i64, 2i64, 3i64));   // 1
+    hs.push(mk_edge(&doc, 2i64, 1i64, 2i64));   // 2
+    hs.push(mk_edge(&doc, 1i64, 3i64, 5i64));   // 3
+    hs.push(mk_edge(&doc, 2i64, 3i64, 20i64));  // 4  (off-path)
+    // pre-created handles used by later epochs:
+    hs.push(mk_edge(&doc, 0i64, 3i64, 4i64));   // 5  new shorter direct to 3
+    hs.push(mk_edge(&doc, 0i64, 1i64, 2i64));   // 6  parallel shorter to 1
+    let mut wts: Vec<i64> = vec_new::<i64>();
+    wts.push(1i64); wts.push(1i64); wts.push(1i64); wts.push(1i64); wts.push(1i64);
+    wts.push(0i64); wts.push(0i64);   // 5,6 absent initially
+
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("edges", build_src(&doc, &hs, &wts));
+    let mut eng: IncrRec = match q.incremental_rec(&env) { Result::Ok(e) => { e } Result::Err(_e2) => { return 91i32; } };
+
+    // baseline
+    if !agrees(&eng, &hs, &wts) { return 10i32; }
+
+    // ── INSERTION A: brand-new shorter direct edge 0->3 (4). 3: 10 → 4. ──
+    let mut a: ZBatch = ZBatch::new();
+    edge_apply(&hs, &mut wts, &mut a, 5i64, 1i64);
+    eng.epoch(&a);
+    if !agrees(&eng, &hs, &wts) { return 11i32; }
+
+    // ── INSERTION B: strictly-SHORTER parallel edge 0->1 (2). 1: 5 → 2. ──
+    let mut b: ZBatch = ZBatch::new();
+    edge_apply(&hs, &mut wts, &mut b, 6i64, 1i64);
+    eng.epoch(&b);
+    if !agrees(&eng, &hs, &wts) { return 12i32; }
+
+    // ── RETRACTION C: delete the OFF-PATH edge 2->3 (20). No change. ──
+    let mut cc: ZBatch = ZBatch::new();
+    edge_apply(&hs, &mut wts, &mut cc, 4i64, -1i64);
+    eng.epoch(&cc);
+    if !agrees(&eng, &hs, &wts) { return 13i32; }
+
+    // ── RETRACTION D (DECISIVE): delete the SHORTEST edge to node 1 (0->1 w2,
+    //    idx 6). node 1 must GROW back to the next-best surviving path
+    //    (0->2->1 = 5). ──
+    let mut d1: ZBatch = ZBatch::new();
+    edge_apply(&hs, &mut wts, &mut d1, 6i64, -1i64);
+    eng.epoch(&d1);
+    if !agrees(&eng, &hs, &wts) { return 14i32; }
+
+    // ── ROUND-TRIP E: re-add 0->1 (2). node 1 back to 2 == recompute. ──
+    let mut e1: ZBatch = ZBatch::new();
+    edge_apply(&hs, &mut wts, &mut e1, 6i64, 1i64);
+    eng.epoch(&e1);
+    if !agrees(&eng, &hs, &wts) { return 15i32; }
+
+    // ── CYCLE STRESS (fresh engine): positive cycle 1<->2 on the shortest-path
+    //    support; delete the tree edge 0->1 so the re-min must route around the
+    //    cycle without a stale short distance surviving. ──
+    //   0->1 (1)  1->2 (1)  2->1 (1)  0->2 (10)
+    //   dist: 1 = 1 ; 2 = min(10, 1+1=2) = 2
+    let mut hs2: Vec<WAny> = vec_new::<WAny>();
+    hs2.push(mk_edge(&doc, 0i64, 1i64, 1i64));   // 0  tree edge to 1
+    hs2.push(mk_edge(&doc, 1i64, 2i64, 1i64));   // 1
+    hs2.push(mk_edge(&doc, 2i64, 1i64, 1i64));   // 2  (cycle 1<->2)
+    hs2.push(mk_edge(&doc, 0i64, 2i64, 10i64));  // 3
+    let mut w2: Vec<i64> = vec_new::<i64>();
+    w2.push(1i64); w2.push(1i64); w2.push(1i64); w2.push(1i64);
+
+    let mut env2: QEnv = QEnv::new();
+    env2.bind_source("edges", build_src(&doc, &hs2, &w2));
+    let mut eng2: IncrRec = match q.incremental_rec(&env2) { Result::Ok(e) => { e } Result::Err(_e3) => { return 92i32; } };
+    if !agrees(&eng2, &hs2, &w2) { return 20i32; }
+
+    // delete tree edge 0->1: now 1 reachable only via 0->2 (10) then 2->1 (1):
+    //   dist: 2 = 10 ; 1 = 11. The positive cycle must NOT keep 1 at the stale 1.
+    let mut f1: ZBatch = ZBatch::new();
+    edge_apply(&hs2, &mut w2, &mut f1, 0i64, -1i64);
+    eng2.epoch(&f1);
+    if !agrees(&eng2, &hs2, &w2) { return 21i32; }
+
+    // ── INSERT CASCADE (fresh engine): a chain 0->1->2->3; inserting a strictly
+    //    shorter 0->1 must PROPAGATE through the recursive best-fixpoint (node 1
+    //    improves → node 2 improves → node 3 improves) in ONE incremental epoch. ──
+    //   0->1 (10)  1->2 (1)  2->3 (1)   dist: 1:10 2:11 3:12
+    let mut hs3: Vec<WAny> = vec_new::<WAny>();
+    hs3.push(mk_edge(&doc, 0i64, 1i64, 10i64));  // 0
+    hs3.push(mk_edge(&doc, 1i64, 2i64, 1i64));   // 1
+    hs3.push(mk_edge(&doc, 2i64, 3i64, 1i64));   // 2
+    hs3.push(mk_edge(&doc, 0i64, 1i64, 2i64));   // 3  shorter parallel, inserted later
+    let mut w3: Vec<i64> = vec_new::<i64>();
+    w3.push(1i64); w3.push(1i64); w3.push(1i64); w3.push(0i64);
+
+    let mut env3: QEnv = QEnv::new();
+    env3.bind_source("edges", build_src(&doc, &hs3, &w3));
+    let mut eng3: IncrRec = match q.incremental_rec(&env3) { Result::Ok(e) => { e } Result::Err(_e4) => { return 93i32; } };
+    if !agrees(&eng3, &hs3, &w3) { return 30i32; }
+
+    // insert 0->1 (2): node 1: 10→2, cascading 2: 11→3, 3: 12→4 (multi-hop
+    // improvement wave in one incremental insertion epoch).
+    let mut g1: ZBatch = ZBatch::new();
+    edge_apply(&hs3, &mut w3, &mut g1, 3i64, 1i64);
+    eng3.epoch(&g1);
+    if !agrees(&eng3, &hs3, &w3) { return 31i32; }
+
+    return 0i32;
+}
