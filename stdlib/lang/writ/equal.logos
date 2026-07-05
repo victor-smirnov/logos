@@ -25,7 +25,17 @@ use logos.lang.writ.wstring;
 use logos.lang.str;
 use logos.lang.ptr;
 
+// Depth bound: past this the compare walker stops and reports "not equal" rather
+// than overflowing the native C stack on pathologically deep input (mirrors the
+// compactify / parser guards). Realistic docs nest only a few levels.
+const WEQUAL_MAX_DEPTH: i64 = 4096i64;
+
 pub fn equal(a: WAny, b: WAny) -> bool {
+    return equal_d(a, b, 0i64);
+}
+
+fn equal_d(a: WAny, b: WAny, depth: i64) -> bool {
+    if depth > WEQUAL_MAX_DEPTH { return false; }
     if a.is_null()  { return b.is_null(); }
     if a.is_bool()  { return b.is_bool()  && a.as_bool() == b.as_bool(); }
     if a.is_float() { return b.is_float() && a.as_f64()  == b.as_f64(); }
@@ -43,7 +53,7 @@ pub fn equal(a: WAny, b: WAny) -> bool {
         if aa.len() != ab.len() { return false; }
         let mut i: i64 = 0i64;
         while i < aa.len() {
-            if !equal(aa.get(i), ab.get(i)) { return false; }
+            if !equal_d(aa.get(i), ab.get(i), depth + 1i64) { return false; }
             i = i + 1i64;
         }
         return true;
@@ -59,7 +69,7 @@ pub fn equal(a: WAny, b: WAny) -> bool {
             if !k.is_null() {
                 let ks: str = unsafe { (&*(k.resolve() as *const WString)).as_str() };
                 if !mb.contains(ks) { return false; }
-                if !equal(ma.val_at(i), mb.get(ks)) { return false; }
+                if !equal_d(ma.val_at(i), mb.get(ks), depth + 1i64) { return false; }
             }
             i = i + 1i64;
         }

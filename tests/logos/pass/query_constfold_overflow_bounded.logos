@@ -1,0 +1,64 @@
+// Regression: EL const-fold optimizer (wql/optimize.logos fold_arith_ii /
+// simplify_un) must NOT trap on i64 overflow of two in-range const literals.
+//
+// Before the fix, the static deem! macro ran the simplify pass at COMPILE time
+// and folded `MAX + 1` / `A * B` / `-i64::MIN` with plain `+ * -`, which trap
+// (SIGILL) on i64 overflow — crashing logosc itself. The fix uses overflowing
+// ops and leaves an overflowing fold UNFOLDED, so the runtime's CHECKED
+// arithmetic returns a clean ElError instead.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Order { pub grp: i64, pub amt: i64 }
+
+// ADD overflow: 9223372036854775807 (i64::MAX) + 1 → unfolded; runtime errors.
+resource q_add = deem!(orders: &[Order]) {
+    from orders o
+    where o.amt < 9223372036854775807 + 1
+    select o.amt };
+
+// MUL overflow: 4e9 * 4e9 > i64::MAX → unfolded; runtime errors.
+resource q_mul = deem!(orders: &[Order]) {
+    from orders o
+    where o.amt < 4000000000 * 4000000000
+    select o.amt };
+
+// NEG of i64::MIN overflows → unfolded; runtime errors.
+resource q_neg = deem!(orders: &[Order]) {
+    from orders o
+    where o.amt < -(-9223372036854775807 - 1)
+    select o.amt };
+
+// Control: a NON-overflowing fold (MAX - 1) still folds and runs fine.
+resource q_ok = deem!(orders: &[Order]) {
+    from orders o
+    where o.amt < 9223372036854775807 - 1
+    select o.amt };
+
+fn main() -> i32 {
+    let orders: [Order; 1] = [ Order { grp: 1i64, amt: 5i64 } ];
+
+    // Overflowing const arithmetic must surface as a RETURNED error, not a trap.
+    match q_add(&orders[..]) {
+        Result::Ok(_v)  => { return 10i32; }   // unexpected: overflow should error
+        Result::Err(_e) => {}
+    }
+    match q_mul(&orders[..]) {
+        Result::Ok(_v)  => { return 11i32; }
+        Result::Err(_e) => {}
+    }
+    match q_neg(&orders[..]) {
+        Result::Ok(_v)  => { return 12i32; }
+        Result::Err(_e) => {}
+    }
+
+    // Control must still evaluate cleanly and match the single row (5 < MAX-1).
+    match q_ok(&orders[..]) {
+        Result::Ok(v)   => { if v.len() != 1i64 { return 13i32; } }
+        Result::Err(_e) => { return 14i32; }
+    }
+
+    return 0i32;
+}

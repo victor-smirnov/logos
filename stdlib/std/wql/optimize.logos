@@ -111,11 +111,29 @@ pub fn make_float_lit(h: &Writ, v: f64) -> WRef<SExpr> {
 // is a comparison over ints (→ handled by fold_cmp_ii) or when division/modulo by
 // zero would trap (left unfolded). Arithmetic → int; nothing else here.
 fn fold_arith_ii(op: i32, l: i64, r: i64) -> ConstVal {
-    if op == OP_ADD() { return const_int(l + r); }
-    if op == OP_SUB() { return const_int(l - r); }
-    if op == OP_MUL() { return const_int(l * r); }
-    if op == OP_DIV() { if r == 0i64 { return const_none(); } return const_int(l / r); }
-    if op == OP_MOD() { if r == 0i64 { return const_none(); } return const_int(l % r); }
+    // ADD/SUB/MUL use OVERFLOWING ops: a result that overflows i64 has no valid
+    // literal spelling and the runtime uses CHECKED arithmetic (returns an
+    // ElError), so leave it UNFOLDED rather than trap — the sibling of the
+    // DIV/MOD-by-zero guards below and the float non-finite guard in
+    // fold_arith_ff. Folding overflow with plain `+`/`-`/`*` traps (SIGILL) and,
+    // because this runs at comptime for the static deem! macro, crashes logosc.
+    if op == OP_ADD() { let (v, o): (i64, bool) = l.overflowing_add(r); if o { return const_none(); } return const_int(v); }
+    if op == OP_SUB() { let (v, o): (i64, bool) = l.overflowing_sub(r); if o { return const_none(); } return const_int(v); }
+    if op == OP_MUL() { let (v, o): (i64, bool) = l.overflowing_mul(r); if o { return const_none(); } return const_int(v); }
+    if op == OP_DIV() {
+        if r == 0i64 { return const_none(); }
+        // i64::MIN / -1 overflows (traps) — leave unfolded.
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if l == i64_min && r == -1i64 { return const_none(); }
+        return const_int(l / r);
+    }
+    if op == OP_MOD() {
+        if r == 0i64 { return const_none(); }
+        // i64::MIN % -1 overflows (traps) — leave unfolded.
+        let i64_min: i64 = (0x8000000000000000u64) as i64;
+        if l == i64_min && r == -1i64 { return const_none(); }
+        return const_int(l % r);
+    }
     return const_none();
 }
 
@@ -261,7 +279,14 @@ fn simplify_bin(h: &Writ, op: i32,
 fn simplify_un(h: &Writ, op: i32, ah: WRef<SExpr>, ac: ConstVal,
                orig: WRef<SExpr>, changed_child: bool) -> WRef<SExpr> {
     if op == OP_NOT() && ac.is_bool()  { return make_bool_lit(h, !ac.b); }
-    if op == OP_NEG() && ac.is_int()   { return make_int_lit(h, -ac.i); }
+    if op == OP_NEG() && ac.is_int()   {
+        // -i64::MIN overflows (traps SIGILL at comptime) — leave unfolded so the
+        // runtime's checked negation returns an ElError. Same class as the
+        // fold_arith_ii overflow guards.
+        let (v, o): (i64, bool) = ac.i.overflowing_neg();
+        if o { return orig; }
+        return make_int_lit(h, v);
+    }
     if op == OP_NEG() && ac.is_float() { return make_float_lit(h, -ac.f); }
     if !changed_child { return orig; }
     let n: SUn = h.make::<SUn>();

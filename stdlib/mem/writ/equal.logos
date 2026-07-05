@@ -31,7 +31,17 @@ unsafe fn elem_width(tc: u64) -> i64 {
     return 8i64;
 }
 
+// Depth bound for the recursive compare walk — past this we stop and report
+// "not equal" rather than overflowing the native C stack on pathologically deep
+// input (mirrors compactify / the parser guard). Realistic docs nest few levels.
+const WRITEQ_MAX_DEPTH: i64 = 4096i64;
+
 pub fn writ_equal(a: WAny, b: WAny) -> bool {
+    return writ_equal_d(a, b, 0i64);
+}
+
+fn writ_equal_d(a: WAny, b: WAny, depth: i64) -> bool {
+    if depth > WRITEQ_MAX_DEPTH { return false; }
     if a.is_null() { return b.is_null(); }
     if b.is_null() { return false; }
 
@@ -62,7 +72,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
             if n != ab.len() { return false; }
             let mut i: i64 = 0;
             while i < n {
-                if !writ_equal(aa.get(i), ab.get(i)) { return false; }
+                if !writ_equal_d(aa.get(i), ab.get(i), depth + 1i64) { return false; }
                 i = i + 1;
             }
             return true;
@@ -81,7 +91,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
                 let k: WAny = ma.key_at(i);
                 if !k.is_null() {
                     let ks: &WString = &*(k.resolve() as *const WString);
-                    if !writ_equal(ma.val_at(i), mb.get(ks.as_str())) { return false; }
+                    if !writ_equal_d(ma.val_at(i), mb.get(ks.as_str()), depth + 1i64) { return false; }
                 }
                 i = i + 1;
             }
@@ -134,7 +144,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
                     let key_j: i64 = if kw == 4 { *((keys_b + j * 4) as *const i32) as i64 }
                                      else       { *((keys_b + j * 8) as *const i64) };
                     if key_j == key_i {
-                        if !writ_equal(wa_at(vals_a + i * 8), wa_at(vals_b + j * 8)) { return false; }
+                        if !writ_equal_d(wa_at(vals_a + i * 8), wa_at(vals_b + j * 8), depth + 1i64) { return false; }
                         found = true;
                         break;
                     }
@@ -151,7 +161,7 @@ pub fn writ_equal(a: WAny, b: WAny) -> bool {
             while f < 3 {
                 let sa: i64 = (pa as i64) + f * 8;
                 let sb: i64 = (pb as i64) + f * 8;
-                if !writ_equal(wa_at(sa), wa_at(sb)) { return false; }
+                if !writ_equal_d(wa_at(sa), wa_at(sb), depth + 1i64) { return false; }
                 f = f + 1;
             }
             return true;

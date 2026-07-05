@@ -30,6 +30,14 @@ use logos.lang.ptr;                 // byte_add
 use logos.lang.num.parse;           // f64_from_str
 use logos.mem.string;               // String (escape-decoded scratch)
 
+// Maximum nesting depth for the recursive-descent reader. Untrusted/adversarial
+// input (deep-but-valid `[[[…]]]`) must not exhaust the native C stack: past this
+// bound parse_value returns a null WAny so the enclosing loops unwind into a
+// best-effort bounded document instead of a SIGSEGV. Mirrors the 64-elem / 32-param
+// caps already enforced elsewhere in this parser. 512 >> any real document nesting
+// yet fits comfortably even under a constrained (~512 KB) stack.
+const WRIT_PARSE_MAX_DEPTH: i64 = 512i64;
+
 // Parser cursor over the source bytes.
 struct P { data: *const u8, len: i64, pos: i64 }
 
@@ -75,6 +83,17 @@ unsafe fn parse_ident_raw(p: *mut P) -> String {
     return s;
 }
 
+// Fold one decimal digit into a running i64 with a saturating overflow guard:
+// `acc*10 + d`, clamped to i64::MAX instead of trapping on signed overflow
+// (SIGILL). Used by the typed-int container paths (map keys / array elements)
+// where there is no float fallback — a >i64::MAX literal saturates rather than
+// crashing, honoring the module's lenient best-effort contract.
+fn accum_digit_sat(acc: i64, d: i64) -> i64 {
+    let i64_max: i64 = 9223372036854775807i64;
+    if acc > (i64_max - d) / 10i64 { return i64_max; }
+    return acc * 10i64 + d;
+}
+
 // Parse a number token. Integers (possibly wide) → `h.int`; anything with a
 // fractional '.' or exponent 'e'/'E' → f64 via `h.float`.
 unsafe fn parse_number(h: &Writ, p: *mut P) -> WAny {
@@ -82,9 +101,18 @@ unsafe fn parse_number(h: &Writ, p: *mut P) -> WAny {
     let neg: bool = peek(p) == 45u8;
     if neg { advance(p); }                                  // -
     let mut iv: i64 = 0i64;
-    while is_digit(peek(p)) { iv = iv * 10i64 + ((advance(p) - 48u8) as i64); }
+    let mut ovf: bool = false;
+    // Accumulate digits with an overflow guard: a run exceeding i64::MAX must NOT
+    // trap (signed overflow → SIGILL). On overflow we stop accumulating and take
+    // the float path below, yielding a best-effort f64 (lenient, never a crash).
+    let i64_max: i64 = 9223372036854775807i64;
+    while is_digit(peek(p)) {
+        let d: i64 = (advance(p) - 48u8) as i64;
+        if ovf || iv > (i64_max - d) / 10i64 { ovf = true; }
+        else { iv = iv * 10i64 + d; }
+    }
     let pc: u8 = peek(p);
-    if pc == 46u8 || pc == 101u8 || pc == 69u8 {            // . e E → float
+    if pc == 46u8 || pc == 101u8 || pc == 69u8 || ovf {     // . e E (or int overflow) → float
         if pc == 46u8 { advance(p); while is_digit(peek(p)) { advance(p); } }
         let ec: u8 = peek(p);
         if ec == 101u8 || ec == 69u8 {
@@ -112,7 +140,7 @@ unsafe fn kw(p: *mut P, s: str) -> bool {
 }
 
 // `<T>[e,...]` typed dense array / `<K[,AnyVal]>{k: v,...}` typed dense map.
-unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
+unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
     advance(p);                                   // '<'
     skip_ws(p);
     // <Varchar[,AnyVal]>{...} is the plain ObjectMap spelled with a key type.
@@ -120,7 +148,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
         skip_ws(p);
         if peek(p) == 44u8 { advance(p); skip_ws(p); let _ = kw(p, "AnyVal"); skip_ws(p); }
         if peek(p) == 62u8 { advance(p); }
-        return parse_value(h, p);                 // expects '{' next
+        return parse_value(h, p, depth + 1i64);   // expects '{' next
     }
     let tc: u64 =
         if kw(p, "I16") { 2106u64 } else if kw(p, "U16") { 2102u64 }
@@ -158,12 +186,12 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
                 if neg { advance(p); }
                 if !is_digit(peek(p)) { return WAny::ref_to(0i64 as *const u8); }   // key must be an int
                 let mut kv: i64 = 0i64;
-                while is_digit(peek(p)) { kv = kv * 10i64 + ((advance(p) - 48u8) as i64); }
+                while is_digit(peek(p)) { kv = accum_digit_sat(kv, (advance(p) - 48u8) as i64); }
                 if neg { kv = 0i64 - kv; }
                 skip_ws(p);
                 if peek(p) != 58u8 { return WAny::ref_to(0i64 as *const u8); }      // ':' required (rejects 1.5 keys)
                 advance(p);
-                let v: WAny = parse_value(h, p);
+                let v: WAny = parse_value(h, p, depth + 1i64);
                 if n < 64i64 { keys[n] = kv; vals[n] = v.raw(); n = n + 1i64; }
                 skip_ws(p);
                 if peek(p) == 44u8 { advance(p); } else { done = true; }
@@ -212,7 +240,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
             if neg { advance(p); }
             if !is_digit(peek(p)) { return WAny::ref_to(0i64 as *const u8); }   // numerals only
             let mut iv: i64 = 0i64;
-            while is_digit(peek(p)) { iv = iv * 10i64 + ((advance(p) - 48u8) as i64); }
+            while is_digit(peek(p)) { iv = accum_digit_sat(iv, (advance(p) - 48u8) as i64); }
             let mut fv: f64 = iv as f64;
             if peek(p) == 46u8 {
                 if tc != 2109u64 && tc != 2110u64 {
@@ -258,7 +286,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P) -> WAny {
 
 // `@Name(params)? = value` typed-value prefix. Returns null WAny on malformed
 // forms (trailing comma, >32 params, @Decimal rule violations).
-unsafe fn parse_tv_prefix(h: &Writ, p: *mut P) -> WAny {
+unsafe fn parse_tv_prefix(h: &Writ, p: *mut P, depth: i64) -> WAny {
     advance(p);                                   // '@'
     let name: String = parse_ident_raw(p);
     if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
@@ -274,7 +302,7 @@ unsafe fn parse_tv_prefix(h: &Writ, p: *mut P) -> WAny {
         if peek(p) != 41u8 {
             let mut done: bool = false;
             while !done {
-                let v: WAny = parse_value(h, p);
+                let v: WAny = parse_value(h, p, depth + 1i64);
                 if n_params >= 32i64 { return WAny::ref_to(0i64 as *const u8); }   // overflow
                 params_arr[n_params] = v.raw();
                 n_params = n_params + 1i64;
@@ -292,7 +320,7 @@ unsafe fn parse_tv_prefix(h: &Writ, p: *mut P) -> WAny {
     }
     if peek(p) != 61u8 { return WAny::ref_to(0i64 as *const u8); }   // '='
     advance(p);
-    let init: WAny = parse_value(h, p);
+    let init: WAny = parse_value(h, p, depth + 1i64);
     return tv_build(h, name.as_str(), params_arr, n_params, had_parens, init);
 }
 
@@ -336,11 +364,15 @@ unsafe fn tv_build(h: &Writ, name: str, params_arr: [i64; 32], n_params: i64,
     return h.typed_value(name, params, init);
 }
 
-unsafe fn parse_value(h: &Writ, p: *mut P) -> WAny {
+unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
     skip_ws(p);
+    // Nesting-depth guard: past the cap, stop recursing and return null so the
+    // enclosing container loops unwind into a bounded best-effort doc (never a
+    // native stack overflow on adversarial deep input).
+    if depth > WRIT_PARSE_MAX_DEPTH { return WAny::ref_to(0i64 as *const u8); }
     let c: u8 = peek(p);
-    if c == 60u8 { return parse_typed(h, p); }   // <  typed dense container
-    if c == 64u8 { return parse_tv_prefix(h, p); }  // @  typed-value prefix
+    if c == 60u8 { return parse_typed(h, p, depth); }   // <  typed dense container
+    if c == 64u8 { return parse_tv_prefix(h, p, depth); }  // @  typed-value prefix
     if c == 123u8 {                              // {  object
         advance(p);
         let m: &mut WMap<WString, WAny> = h.map(8i64);
@@ -354,7 +386,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P) -> WAny {
                               else { parse_ident_raw(p) };
             skip_ws(p);
             if peek(p) == 58u8 { advance(p); }   // :
-            let val: WAny = parse_value(h, p);
+            let val: WAny = parse_value(h, p, depth + 1i64);
             m.set(key.as_str(), val);
             skip_ws(p);
             if peek(p) == 44u8 { advance(p); } else { done = true; }
@@ -369,7 +401,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P) -> WAny {
         if peek(p) == 93u8 { advance(p); return WAny::from(&*a); }   // []
         let mut done: bool = false;
         while !done {
-            let val: WAny = parse_value(h, p);
+            let val: WAny = parse_value(h, p, depth + 1i64);
             a.push(val);
             skip_ws(p);
             if peek(p) == 44u8 { advance(p); } else { done = true; }
@@ -396,7 +428,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P) -> WAny {
                 if peek(p) != 41u8 {
                     let mut done2: bool = false;
                     while !done2 {
-                        let v2: WAny = parse_value(h, p);
+                        let v2: WAny = parse_value(h, p, depth + 1i64);
                         if n_params >= 32i64 { return WAny::ref_to(0i64 as *const u8); }
                         params_arr[n_params] = v2.raw();
                         n_params = n_params + 1i64;
@@ -425,7 +457,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P) -> WAny {
 pub fn parse(h: &Writ, text: str) -> WAny {
     unsafe {
         let mut p: P = P { data: text.as_ptr(), len: text.len(), pos: 0i64 };
-        return parse_value(h, &mut p as *mut P);
+        return parse_value(h, &mut p as *mut P, 0i64);
     }
 }
 

@@ -20,6 +20,15 @@ use logos.lang.writ.wstring;    // WString
 use logos.lang.str;                // str
 use logos.mem.string;              // String
 
+// Maximum nesting depth for the recursive tree walk. A Writ document can be
+// built to arbitrary depth (via the API, or decoded from an untrusted wbs
+// stream), and this read-only render recurses once per level — past this bound
+// it emits `null` for the too-deep subtree so adversarial deep input yields a
+// bounded best-effort string instead of exhausting the native C stack (SIGSEGV).
+// Mirrors the 4096 cap already enforced by the compactify / clone / equal tree
+// walkers; >> any real document nesting.
+const STRINGIFY_MAX_DEPTH: i64 = 4096i64;
+
 // Quote + escape a string into `out`, matching the C++ writ::quote()
 // (src/writ/stringify.cpp): wrap in '"', escape " \ \n \t \r, control byte
 // (< 0x20) → \uXXXX (lowercase hex). Keeps output valid + byte-identical to C++.
@@ -51,7 +60,10 @@ unsafe fn quote_into(out: &mut String, s: str) {
 
 // Append the rendering of `v` to `*out`. A raw `*mut String` (not `&mut`) so the
 // recursion + loops thread the sink without &mut-reborrow churn.
-unsafe fn write_val(out: &mut String, v: WAny) {
+unsafe fn write_val(out: &mut String, v: WAny, depth: i64) {
+    // Nesting-depth guard: past the cap, emit `null` instead of recursing so a
+    // pathologically deep tree renders to a bounded string, never a SIGSEGV.
+    if depth > STRINGIFY_MAX_DEPTH { out.push_str("null"); return; }
     if v.is_null() { out.push_str("null"); return; }
     if v.is_bool() { out.push_str(if v.as_bool() { "true" } else { "false" }); return; }
     if v.is_float() { let s: String = v.as_f64().to_string(); out.push_str(s.as_str()); return; }
@@ -67,7 +79,7 @@ unsafe fn write_val(out: &mut String, v: WAny) {
         let mut i: i64 = 0i64;
         while i < a.len() {
             if i > 0i64 { out.push_str(", "); }
-            write_val(out, a.get(i));
+            write_val(out, a.get(i), depth + 1i64);
             i = i + 1i64;
         }
         out.push_u8(93u8);                 // ]
@@ -86,7 +98,7 @@ unsafe fn write_val(out: &mut String, v: WAny) {
                 let ks: &WString = &*(k.resolve() as *const WString);
                 quote_into(out, ks.as_str());
                 out.push_u8(58u8); out.push_u8(32u8);          // ": "
-                write_val(out, m.val_at(i));
+                write_val(out, m.val_at(i), depth + 1i64);
             }
             i = i + 1i64;
         }
@@ -111,7 +123,7 @@ unsafe fn write_val(out: &mut String, v: WAny) {
                 first = false;
                 out.push_str(k.to_string().as_str());
                 out.push_u8(58u8); out.push_u8(32u8);          // ": "
-                write_val(out, t.get(k as u8));
+                write_val(out, t.get(k as u8), depth + 1i64);
             }
             k = k + 1i64;
         }
@@ -127,11 +139,11 @@ unsafe fn write_val(out: &mut String, v: WAny) {
             return;
         }
         if tcv >= 3101u64 && tcv <= 3104u64 {
-            write_typed_map(out, p, tcv);
+            write_typed_map(out, p, tcv, depth);
             return;
         }
         if tcv == 4115u64 {                    // TypedValue: init@Name(params)
-            write_typed_value(out, p);
+            write_typed_value(out, p, depth);
             return;
         }
     }
@@ -188,7 +200,7 @@ unsafe fn write_typed_array(out: &mut String, p: *const u8, tc: u64) {
 // Render a TypedMap<K> blob: size_(i64@0) cap_(i64@8) keys_(RelativePtr@16→K[])
 // vals_(RelativePtr@24→AnyVal[]). Values are AT-REST WAny words (self-relative to
 // their slot). `<KType,AnyVal> {k: v, ...}`.
-unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64) {
+unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64, depth: i64) {
     let size: i64 = *(p as *const i64);
     let kfield: i64 = (p as i64) + 16i64;
     let keys: i64 = kfield + *(kfield as *const i64);      // RelativePtr resolve
@@ -219,7 +231,7 @@ unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64) {
             if w == 0i64 { WAny::Ref(0i64 as *const u8) }
             else if (w & 1i64) == 1i64 { WAny::Pod(w as u64) }
             else { WAny::Ref((vslot + w) as *const u8) };
-        write_val(out, vh);
+        write_val(out, vh, depth + 1i64);
         i = i + 1i64;
     }
     out.push_u8(125u8);                                    // }
@@ -228,17 +240,17 @@ unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64) {
 // Render `v` (and its transitive references) to a fresh String.
 pub fn stringify(v: WAny) -> String {
     let mut out: String = String::new();
-    unsafe { write_val(&mut out, v); }
+    unsafe { write_val(&mut out, v, 0i64); }
     return out;
 }
 
 // TypedValue render: `init@Name(p1,p2)` (postfix form; no parens when the
 // params slot is null). Fields are at-rest words at obj+0/8/16.
-unsafe fn write_typed_value(out: &mut String, p: *const u8) {
+unsafe fn write_typed_value(out: &mut String, p: *const u8, depth: i64) {
     let tn: WAny = ws_at((p as i64) + 0i64);
     let pr: WAny = ws_at((p as i64) + 8i64);
     let iv: WAny = ws_at((p as i64) + 16i64);
-    write_val(out, iv);
+    write_val(out, iv, depth + 1i64);
     out.push_u8(64u8);                          // '@'
     if tn.is_string() {
         let hs: &WString = &*(tn.resolve() as *const WString);
@@ -250,7 +262,7 @@ unsafe fn write_typed_value(out: &mut String, p: *const u8) {
         let mut i: i64 = 0;
         while i < pa.len() {
             if i > 0i64 { out.push_u8(44u8); }  // ','
-            write_val(out, pa.get(i));
+            write_val(out, pa.get(i), depth + 1i64);
             i = i + 1;
         }
         out.push_u8(41u8);                      // ')'

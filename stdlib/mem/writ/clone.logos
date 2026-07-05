@@ -21,8 +21,18 @@ use logos.lang.rc;                    // Rc
 use logos.lang.str;
 use logos.lang.cell;
 
+// Depth bound for the recursive copy walk — past this we stop and return null
+// rather than overflowing the native C stack on pathologically deep input
+// (mirrors compactify / the parser guard). Realistic docs nest only a few levels.
+const CLONE_MAX_DEPTH: i64 = 4096i64;
+
 // Deep-copy `v` into container `h`; returns the value-form handle of the copy.
 pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
+    return writ_clone_into_d(h, v, 0i64);
+}
+
+unsafe fn writ_clone_into_d(h: &Writ, v: WAny, depth: i64) -> WAny {
+    if depth > CLONE_MAX_DEPTH { return WAny::Ref(0 as *const u8); }
     if v.is_null() { return WAny::Ref(0 as *const u8); }
     if v.is_pod()  { return v; }                       // position-independent
 
@@ -51,7 +61,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
         let dst: &mut WArray<WAny> = h.array(cap);
         let mut i: i64 = 0;
         while i < n {
-            dst.push(writ_clone_into(h, src.get(i)));
+            dst.push(writ_clone_into_d(h, src.get(i), depth + 1i64));
             i = i + 1;
         }
         let dp: *const WArray<WAny> = dst as *const WArray<WAny>;
@@ -69,7 +79,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
             let k: WAny = src.key_at(i);
             if !k.is_null() {
                 let ks: &WString = &*(k.resolve() as *const WString);
-                dst.set(ks.as_str(), writ_clone_into(h, src.val_at(i)));
+                dst.set(ks.as_str(), writ_clone_into_d(h, src.val_at(i), depth + 1i64));
             }
             i = i + 1;
         }
@@ -123,7 +133,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
             }
             i = 0i64;
             while i < n {
-                let c2: WAny = writ_clone_into(h, wc_at(svals + i * 8i64));
+                let c2: WAny = writ_clone_into_d(h, wc_at(svals + i * 8i64), depth + 1i64);
                 let slot: i64 = vbuf + i * 8i64;
                 let w2: i64 = c2.raw();
                 if w2 == 0i64 || (w2 & 1i64) == 1i64 { *(slot as *mut i64) = w2; }
@@ -147,7 +157,7 @@ pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
         let mut f: i64 = 0;
         while f < 3 {
             let src_slot: i64 = (p as i64) + f * 8;
-            let c: WAny = writ_clone_into(h, wc_at(src_slot));
+            let c: WAny = writ_clone_into_d(h, wc_at(src_slot), depth + 1i64);
             let dst_slot: i64 = (obj as i64) + f * 8;
             let cw: i64 = c.raw();
             if cw == 0i64 || (cw & 1i64) == 1i64 { *(dst_slot as *mut i64) = cw; }

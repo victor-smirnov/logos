@@ -246,8 +246,12 @@ impl WAny {
         if self.is_null() { return 0u64; }
         return unsafe { *(self.resolve() as *const u64) };
     }
-    pub fn as_f32(self: &WAny) -> f32 { if self.is_null() { return 0.0f32; } return unsafe { *(self.resolve() as *const f32) }; }
-    pub fn as_f64(self: &WAny) -> f64 { if self.is_null() { return 0.0f64; } return unsafe { *(self.resolve() as *const f64) }; }
+    // Floats are ALWAYS boxed (W_F32/W_F64 Ref) — never an inline Pod. The guard is
+    // `!is_ref()` (NOT merely `!is_null()`): an inline Pod (e.g. an i56) is non-null,
+    // so a bare null-check would fall through and reinterpret the Pod word as a wild
+    // `*f32`/`*f64` pointer → SIGSEGV. `!is_ref()` covers both null and Pod → 0.0.
+    pub fn as_f32(self: &WAny) -> f32 { if !self.is_ref() { return 0.0f32; } return unsafe { *(self.resolve() as *const f32) }; }
+    pub fn as_f64(self: &WAny) -> f64 { if !self.is_ref() { return 0.0f64; } return unsafe { *(self.resolve() as *const f64) }; }
 }
 
 // ── WAnyMut — the MUTABLE dual of WAny (a fat `&mut` onto an element slot) ─────

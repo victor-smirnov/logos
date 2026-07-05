@@ -1,0 +1,58 @@
+// Regression (fix #6): WAny::as_wstr / as_f32 / as_f64 must NOT dereference a
+// present-but-wrong-type WAny as a pointer. A schema `str`/`f32`/`f64` field
+// viewing a key that actually holds an inline integer Pod used to reinterpret the
+// Pod bit-word as a `*WString` / `*f32` / `*f64` and dereference a WILD pointer →
+// SIGSEGV (these accessors guarded only is_null(), not the wrong-type case). The
+// schema field-read sugar reaches them via `impl WritField for {str,f32,f64}`, so a
+// fully-SAFE program (no `unsafe` blocks) faulted — a memory-safety soundness gap.
+// Fix: guard is_string() / is_ref() before resolve; a wrong/absent value yields the
+// ADR-0011 default (empty str / 0.0), matching the null case. Sibling accessors
+// as_i64/as_u64 already guarded is_pod() — this brings str/f32/f64 into the class.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.lang.str;
+
+schema Mismatch : code(0x0044000000000101) {
+    s: str = 0,
+    f: f32 = 1,
+    d: f64 = 2,
+}
+
+schema HasStr : code(0x0044000000000102) {
+    s: str = 0,
+}
+
+fn main() -> i32 {
+    let h: Writ = writ_new(512i64);
+
+    // TOM whose keys hold INTEGER Pods, viewed through a schema that types them as
+    // str / f32 / f64 — the exact type-mismatch that reinterpreted the Pod as a ptr.
+    let m: &mut WMap<Wu6, WAny> = h.tinymap(4i64);
+    m.set_schema_type_code(0x0044000000000101u64);
+    m.set(0u8, WAny::from(1000000i56));   // int where a str is expected
+    m.set(1u8, WAny::from(7i56));         // int where an f32 is expected
+    m.set(2u8, WAny::from(9i56));         // int where an f64 is expected
+    let v: Mismatch = (&*m).view::<Mismatch>();
+
+    // No crash: each wrong-type read returns the safe absent-key default.
+    let s: str = v.s;                     // was: wild *WString deref → SIGSEGV
+    if s.len() != 0i64 { return 1i32; }   // wrong-type str → empty
+    if v.f != 0.0f32   { return 2i32; }   // wrong-type f32 → 0.0
+    if v.d != 0.0f64   { return 3i32; }   // wrong-type f64 → 0.0
+
+    // Positive control: a genuinely-string field still reads back correctly (the
+    // guard must not swallow real strings).
+    let g: &mut WMap<Wu6, WAny> = h.tinymap(2i64);
+    g.set_schema_type_code(0x0044000000000102u64);
+    let ws: &WString = h.wstring("héllo");
+    g.set(0u8, WAny::from(ws));
+    let hv: HasStr = (&*g).view::<HasStr>();
+    let gs: str = hv.s;
+    if gs.len() != 6i64 { return 4i32; }  // "héllo" = 6 UTF-8 bytes
+    if !str_eq(gs, "héllo") { return 5i32; }
+
+    return 0i32;
+}

@@ -24,10 +24,22 @@ use logos.lang.writ.wstring;     // WString
 use logos.lang.str;                 // str
 use logos.lang.ptr;
 
+// Maximum structural nesting the recursive copy walker will descend. Past this
+// cap it stops and returns null rather than overflowing the native C stack on
+// pathologically deep (adversarial or accidental) input — the same robustness
+// guard the Writ parser applies (WRIT_PARSE_MAX_DEPTH). Realistic documents nest
+// only a handful of levels; the observed stack overflow needs tens of thousands.
+const COMPACTIFY_MAX_DEPTH: i64 = 4096i64;
+
 // Deep-copy `v` (and everything it transitively references) into `dst`; return the
 // new root WAny. Pods/null are position-independent (copied by value); Refs are
 // rebuilt and re-anchored.
 pub fn compactify(dst: &Writ, v: WAny) -> WAny {
+    return compactify_d(dst, v, 0i64);
+}
+
+fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> WAny {
+    if depth > COMPACTIFY_MAX_DEPTH { return WAny::ref_to(0i64 as *const u8); }
     if v.is_null() { return WAny::ref_to(0i64 as *const u8); }
     if v.is_pod()  { return v; }                       // i56 / bool — position-independent
     if v.is_float() { return dst.float(v.as_f64()); }  // boxed wide scalars → re-box in dst
@@ -41,7 +53,7 @@ pub fn compactify(dst: &Writ, v: WAny) -> WAny {
         let n: i64 = a.len();
         let na: &mut WArray<WAny> = dst.array(if n < 1i64 { 1i64 } else { n });
         let mut i: i64 = 0i64;
-        while i < n { na.push(compactify(dst, a.get(i))); i = i + 1i64; }
+        while i < n { na.push(compactify_d(dst, a.get(i), depth + 1i64)); i = i + 1i64; }
         return WAny::from(&*na);
     }
     if v.is_map() {
@@ -53,7 +65,7 @@ pub fn compactify(dst: &Writ, v: WAny) -> WAny {
             let k: WAny = m.key_at(i);
             if !k.is_null() {
                 let ks: &WString = unsafe { &*(k.resolve() as *const WString) };
-                nm.set(ks.as_str(), compactify(dst, m.val_at(i)));
+                nm.set(ks.as_str(), compactify_d(dst, m.val_at(i), depth + 1i64));
             }
             i = i + 1i64;
         }

@@ -1,0 +1,56 @@
+// REGRESSION: the Writ SDN text parser must not TRAP (SIGILL) on an integer
+// literal run that exceeds i64::MAX. Before the overflow guards in
+// logos.mem.writ.parser, digit accumulation used plain `iv = iv*10 + d`, which
+// on a >i64::MAX digit run overflowed a signed i64 and trapped the process
+// (EXIT=132, SIGILL) — violating the module's documented "lenient: malformed
+// input yields a best-effort partial doc rather than an error" contract.
+//
+// The fix guards all three accumulation sites:
+//   - parse_number  (scalar): overflow → best-effort f64 (float path)
+//   - typed-map integer key  : saturates to i64::MAX (accum_digit_sat)
+//   - typed-array element    : saturates to i64::MAX (accum_digit_sat)
+// This test drives all three and asserts they return WITHOUT crashing, and that
+// ordinary in-range integers still parse to the exact value.
+package writ_parse_bignum_bounded;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.mem.writ.parser;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(1i64 << 20i64);
+    let h: &Writ = rc.deref();
+
+    // 1) Scalar: 26-digit literal, far past i64::MAX (was SIGILL). Must not crash;
+    //    lenient parser yields a best-effort float (non-null).
+    let big: WAny = parse(h, "99999999999999999999999999");
+    if big.is_null() { return 1; }
+
+    // 2) Negative overflowing literal must also survive.
+    let bneg: WAny = parse(h, "-99999999999999999999999999");
+    if bneg.is_null() { return 2; }
+
+    // 3) Typed-map integer key overflow (accum_digit_sat path). Must not crash.
+    let m: WAny = parse(h, "<I64,AnyVal>{99999999999999999999999999: 1}");
+    if m.raw() == 12345678i64 { return 3; }   // touch it; any non-crash is a pass
+
+    // 4) Typed-array element overflow (accum_digit_sat path). Must not crash.
+    let a: WAny = parse(h, "<I64>[99999999999999999999999999]");
+    if a.raw() == 12345678i64 { return 4; }
+
+    // 5) In-range integers must still parse to the EXACT value (guard is inert
+    //    below the overflow threshold).
+    let ok: WAny = parse(h, "1234567890");
+    if !ok.is_int() { return 5; }
+    if ok.as_i64() != 1234567890i64 { return 6; }
+
+    // 6) i64::MAX itself (the boundary) must parse exactly as an int.
+    let mx: WAny = parse(h, "9223372036854775807");
+    if !mx.is_int() { return 7; }
+    if mx.as_i64() != 9223372036854775807i64 { return 8; }
+
+    return 0;
+}

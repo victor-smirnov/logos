@@ -1,0 +1,84 @@
+// REGRESSION (fix #7): wbs_write / wbs_read must preserve TYPED containers.
+//
+// The wire serializer (mem.writ.wbs::write_val) originally handled only
+// null/bool/float/int/string/array(W_ARRAY=100)/map(W_MAP=101); every OTHER
+// WAny type code fell through to the terminal `out.push(0u8)` — a single NULL
+// byte. So the typed containers that `parse` produces — typed dense arrays
+// (2101..2110), typed dense int-keyed maps (3101..3104), typed values (4115) —
+// silently round-tripped to `null`, INCLUDING as subtrees nested inside an
+// otherwise-supported map/array. WRITE→READ is contractually an identity oracle,
+// so this was silent, error-free data corruption.
+//
+// The fix serializes these typed containers with full fidelity (new wire leads
+// 0x50/0x51/0x52) so `writ_equal(v, wbs_read(wbs_write(v)))` holds for them too.
+// Before the fix every typed-container case below returns `null` from wbs_read,
+// which is NOT writ_equal to the source → the corresponding return code fires.
+package writ_wbs_typed_container_roundtrip;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.wbs;
+use logos.mem.writ.parser;
+use logos.mem.writ.equal;
+use logos.mem.collections.vec;
+use logos.lang.rc;
+use logos.lang.str;
+
+// parse(text) -> wbs_write -> wbs_read must reconstruct a writ_equal value.
+unsafe fn rt(h: &Writ, text: str) -> bool {
+    let v1: WAny = parse(h, text);
+    let bytes: Vec<u8> = wbs_write(v1);
+    let bs: &[u8] = bytes.as_slice();
+    let v2: WAny = wbs_read(h, bs.as_ptr(), bytes.len() as i64);
+    return writ_equal(v1, v2);
+}
+
+// A malformed 0x50/0x51/0x52 stream must return null (clean error), never crash.
+unsafe fn expect_null(h: &Writ, bad: &Vec<u8>) -> bool {
+    let bs: &[u8] = bad.as_slice();
+    return wbs_read(h, bs.as_ptr(), bad.len() as i64).is_null();
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(1048576i64);
+    let h: &Writ = rc.deref();
+
+    // Control: a plain array already round-tripped — proves the harness is sound.
+    if !rt(h, "[1, 2, 3]")                               { return 1; }
+
+    // Typed dense arrays (2101..2110): the confirmed repro.
+    if !rt(h, "<I32> [1, 2, 3]")                         { return 2; }
+    if !rt(h, "<I8> [-128, 0, 127]")                     { return 3; }
+    if !rt(h, "<U16> [0, 65535]")                        { return 4; }
+    if !rt(h, "<I64> [9000000000, -9000000000]")         { return 5; }
+    if !rt(h, "<F64> [1.5, -2.25, 0.0]")                 { return 6; }
+    if !rt(h, "<F32> [3.5]")                             { return 7; }
+    if !rt(h, "<I32> []")                                { return 8; }   // empty
+
+    // Typed dense int-keyed maps (3101..3104).
+    if !rt(h, "<I64, AnyVal> {5: 50, 6: 60}")            { return 9; }
+    if !rt(h, "<I32, AnyVal> {1: \"a\", 2: [10, 20], 3: {\"x\": true}}") { return 10; }
+    if !rt(h, "<I64, AnyVal> {}")                        { return 11; }  // empty
+
+    // Typed value (4115): @Name(params)=init, incl. nested in a map.
+    if !rt(h, "@Point(1, 2) = 3")                        { return 12; }
+    if !rt(h, "{\"tv\": @Q(9) = \"hi\", \"n\": 5}")      { return 13; }
+
+    // Typed containers as subtrees of supported containers (nested-corruption case).
+    if !rt(h, "{\"vals\": <I32> [7, 8, 9], \"ok\": true}") { return 14; }
+    if !rt(h, "[<I32> [1, 2], <F32> [3.5]]")             { return 15; }
+
+    // Malformed typed streams must error cleanly (bounds-checked, no SIGSEGV).
+    // typed-array lead + valid I32 code + huge size + no element bytes.
+    let mut a: Vec<u8> = Vec::new();
+    a.push(0x50u8);
+    a.push(249u8); a.push((2107u64 & 0xFFu64) as u8); a.push((2107u64 >> 8u64) as u8);
+    a.push(255u8); a.push(0xFFu8); a.push(0xFFu8); a.push(0xFFu8); a.push(0xFFu8);
+    a.push(0xFFu8); a.push(0xFFu8); a.push(0x7Fu8);
+    if !expect_null(h, &a) { return 16; }
+    // typed-value lead + name only (params/init truncated).
+    let mut b: Vec<u8> = Vec::new();
+    b.push(0x52u8); b.push(2u8); b.push(65u8); b.push(66u8);
+    if !expect_null(h, &b) { return 17; }
+
+    return 0;
+}

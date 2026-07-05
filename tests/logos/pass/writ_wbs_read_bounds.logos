@@ -1,0 +1,92 @@
+// REGRESSION: wbs_read must be BOUNDS-CHECKED. A truncated / malformed HBS2
+// byte stream must return a null WAny (clean error) instead of reading past the
+// caller-supplied buffer (OOB read / SIGSEGV).
+//
+// Before the fix, rd_str took a length straight from the stream and copied that
+// many bytes with no check against `len`, walking off the end of the buffer.
+// This test crafts several hostile streams that all previously trapped, plus a
+// valid round-trip to prove the reader still decodes good input.
+package writ_wbs_read_bounds;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.wbs;
+use logos.mem.writ.parser;
+use logos.mem.writ.equal;
+use logos.mem.collections.vec;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+// wbs_read over `bad` must return null and must not crash.
+unsafe fn expect_null(h: &Writ, bad: &Vec<u8>) -> bool {
+    let bs: &[u8] = bad.as_slice();
+    let v: WAny = wbs_read(h, bs.as_ptr(), bad.len() as i64);
+    return v.is_null();
+}
+
+// valid value -> wbs_write -> wbs_read must reconstruct an equal value.
+unsafe fn roundtrip(h: &Writ, text: str) -> bool {
+    let v1: WAny = parse(h, text);
+    let bytes: Vec<u8> = wbs_write(v1);
+    let bs: &[u8] = bytes.as_slice();
+    let v2: WAny = wbs_read(h, bs.as_ptr(), bytes.len() as i64);
+    return writ_equal(v1, v2);
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(65536);
+    let h: &Writ = rc.deref();
+
+    // (1) The original repro: string lead + a ~2^56 declared length, no payload.
+    let mut a: Vec<u8> = Vec::new();
+    a.push(0x30u8);                                   // string lead
+    a.push(255u8);                                    // vlen marker 248+7 -> 7 bytes
+    a.push(0xFFu8); a.push(0xFFu8); a.push(0xFFu8); a.push(0xFFu8);
+    a.push(0xFFu8); a.push(0xFFu8); a.push(0x00u8);   // huge length, no payload
+    if !expect_null(h, &a) { return 1; }
+
+    // (2) String lead + small length but truncated payload (claims 5, gives 2).
+    let mut b: Vec<u8> = Vec::new();
+    b.push(0x30u8); b.push(5u8); b.push(0x68u8); b.push(0x69u8);
+    if !expect_null(h, &b) { return 2; }
+
+    // (3) i64 lead with fewer than 8 payload bytes.
+    let mut c: Vec<u8> = Vec::new();
+    c.push(0x10u8); c.push(1u8); c.push(2u8);
+    if !expect_null(h, &c) { return 3; }
+
+    // (4) Array lead declaring a huge count with no elements.
+    let mut d: Vec<u8> = Vec::new();
+    d.push(0x40u8); d.push(255u8);
+    d.push(0xFFu8); d.push(0xFFu8); d.push(0xFFu8); d.push(0xFFu8);
+    d.push(0xFFu8); d.push(0xFFu8); d.push(0x7Fu8);   // count ~2^55
+    if !expect_null(h, &d) { return 4; }
+
+    // (5) Empty buffer — lead byte itself is out of bounds.
+    let e: Vec<u8> = Vec::new();
+    if !expect_null(h, &e) { return 5; }
+
+    // (6) Unknown lead byte.
+    let mut f: Vec<u8> = Vec::new();
+    f.push(0x7Fu8);
+    if !expect_null(h, &f) { return 6; }
+
+    // (7) Map lead with huge entry count.
+    let mut g: Vec<u8> = Vec::new();
+    g.push(0x41u8); g.push(255u8);
+    g.push(0xFFu8); g.push(0xFFu8); g.push(0xFFu8); g.push(0xFFu8);
+    g.push(0xFFu8); g.push(0xFFu8); g.push(0x7Fu8);
+    if !expect_null(h, &g) { return 7; }
+
+    // (8..) Valid streams still decode correctly (write -> read identity).
+    if !roundtrip(h, "null")                      { return 10; }
+    if !roundtrip(h, "true")                      { return 11; }
+    if !roundtrip(h, "42")                        { return 12; }
+    if !roundtrip(h, "-8388608")                  { return 13; }
+    if !roundtrip(h, "9000000000")                { return 14; }
+    if !roundtrip(h, "\"hello\"")                 { return 15; }
+    if !roundtrip(h, "[1, 2, 3]")                 { return 16; }
+    if !roundtrip(h, "{\"k\": [true, null, \"s\"], \"n\": {\"d\": 1}}") { return 17; }
+
+    return 0;
+}

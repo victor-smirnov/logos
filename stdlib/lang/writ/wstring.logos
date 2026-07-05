@@ -105,9 +105,13 @@ impl WAny {
 
     // ADR 0011 — null-safe str view of a WAny holding an interned WString. A
     // null/absent WAny (e.g. a schema field whose key isn't present) → empty str.
-    // Used by the schema field-read sugar for `str`-typed fields.
+    // Used by the schema field-read sugar for `str`-typed fields. The guard is
+    // `!is_string()` (NOT merely `!is_null()`): a present-but-wrong-type WAny — an
+    // inline Pod (e.g. an i56) or a Ref to a non-string object — must NOT have its
+    // word reinterpreted as a `*WString` (that dereferences a wild pointer → SIGSEGV
+    // for a Pod). Same absent-key default (empty str) covers null, Pod, and wrong-Ref.
     pub fn as_wstr(self: &WAny) -> str {
-        if self.is_null() { return str_from_raw(0i64 as *const u8, 0i64); }
+        if !self.is_string() { return str_from_raw(0i64 as *const u8, 0i64); }
         return unsafe { (&*(self.resolve() as *const WString)).as_str() };
     }
 }

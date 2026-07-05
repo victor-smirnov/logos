@@ -1,0 +1,83 @@
+// REGRESSION: the remaining Writ recursive tree walkers — mem.writ.stringify
+// (write_val) and mem.writ.wbs (wbs_read / wbs_write) — must not stack-overflow
+// (SIGSEGV) on deeply-nested input, matching the depth-guard contract already
+// enforced by the parser and the compactify / clone / equal walkers.
+//
+// Two attack vectors, both previously EXIT=139:
+//   (A) wbs_read: a crafted HBS2 byte stream nests an array in only 2 bytes per
+//       level (0x40 0x01 …), so the per-read byte-bounds checks all PASS yet the
+//       reader recurses once per level — a ~400 KB "depth bomb" exhausted the C
+//       stack. The fix caps descent at WBS_MAX_DEPTH: past it the stream is
+//       poisoned and wbs_read returns a null WAny (clean error), never a crash.
+//   (B) stringify / wbs_write: a deep tree built via the API (or decoded from a
+//       stream) recursed one frame per level in write_val. The fix caps at
+//       STRINGIFY_MAX_DEPTH / WBS_MAX_DEPTH — past the cap it emits null and
+//       unwinds into a bounded best-effort result.
+//
+// Also asserts SHALLOW nesting still round-trips (write→read identity + faithful
+// stringify) so the guard did not regress correct behavior.
+package writ_wbs_stringify_deep_nesting_bounded;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.mem.writ.stringify;
+use logos.mem.writ.wbs;
+use logos.mem.writ.parser;
+use logos.mem.writ.equal;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+// Build a chain of `depth` nested single-element arrays around a 42 leaf in `h`.
+fn build_deep(h: &Writ, depth: i64) -> WAny {
+    let bottom: &mut WArray<WAny> = h.array(1i64);
+    bottom.push(42i64);
+    let mut cur: WAny = WAny::ref_to(&*bottom as *const WArray<WAny> as *const u8);
+    let mut i: i64 = 0i64;
+    while i < depth {
+        let outer: &mut WArray<WAny> = h.array(1i64);
+        outer.push(cur);
+        cur = WAny::ref_to(&*outer as *const WArray<WAny> as *const u8);
+        i = i + 1i64;
+    }
+    return cur;
+}
+
+unsafe fn main() -> i32 {
+    // (A) wbs_read depth bomb: (0x40 0x01)*N + 0x00. Must return null, no crash.
+    let mut bomb: Vec<u8> = Vec::new();
+    let n: i64 = 200000i64;
+    let mut i: i64 = 0i64;
+    while i < n { bomb.push(0x40u8); bomb.push(0x01u8); i = i + 1i64; }
+    bomb.push(0x00u8);                                  // innermost value = null
+    let h0: Writ = writ_new(1048576i64);
+    let bs: &[u8] = bomb.as_slice();
+    let rv: WAny = wbs_read(&h0, bs.as_ptr(), bomb.len() as i64);
+    if !rv.is_null() { return 1; }                     // must be a clean null error
+
+    // (B) stringify + wbs_write depth bomb on a deep API-built tree. Must return
+    //     WITHOUT crashing (bounded best-effort).
+    let h1: Writ = writ_new(1048576i64);
+    let deep: WAny = build_deep(&h1, 200000i64);
+    let s: String = stringify(deep);
+    if s.len() <= 0i64 { return 2; }                   // produced *some* bounded text
+    let bytes: Vec<u8> = wbs_write(deep);
+    if bytes.len() <= 0i64 { return 3; }               // produced *some* bounded bytes
+
+    // (C) SHALLOW correctness preserved: parse → wbs_write → wbs_read == original,
+    //     and stringify is faithful.
+    let hs: Writ = writ_new(65536i64);
+    let v1: WAny = parse(&hs, "{\"k\": [1, 2, [3, {\"d\": true}]], \"n\": null}");
+    let w: Vec<u8> = wbs_write(v1);
+    let ws: &[u8] = w.as_slice();
+    let v2: WAny = wbs_read(&hs, ws.as_ptr(), w.len() as i64);
+    if !writ_equal(v1, v2) { return 4; }               // write→read round-trip identity
+
+    let sh: Writ = writ_new(4096i64);
+    let a: &mut WArray<WAny> = sh.array(4i64);
+    a.push(1i64); a.push(2i64); a.push(3i64);
+    let sv: String = stringify(WAny::from(&*a));
+    if !str_eq(sv.as_str(), "[1, 2, 3]") { return 5; }
+
+    return 0;
+}
