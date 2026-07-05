@@ -67,6 +67,30 @@ static bool is_wql_internal_pkg(std::string_view pkg) {
            pkg[kRoot.size()] == '.';
 }
 
+// ── ABI-spec scoping: the Deem query/reasoning-engine internals ──────────────
+// logos.std.deem holds the queue-2 interpreter AND the DBSP incremental engine
+// (IncrJoin / IncrAnti / IncrRec / AggState / FactStore / Arr / ZBatch / ZOut /
+// QRelReg / RelCtx / …) — heavy-development internals that grow a type layout or
+// add a whole type on essentially every incremental slice, falsely tripping the
+// abi-gate as ABI-breaking (the same problem the wql engine had). The ONLY
+// consumer-facing contract is the DYNAMIC-QUERY API: compile a query text
+// against a SchemaCatalog, bind sources into a QEnv, run, read a QRows (QError
+// on failure). Everything else in the package is implementation detail.
+// Expressed as an ALLOWLIST (not a blocklist) so a NEW engine type is excluded
+// automatically — the churn never reaches the spec, no per-slice bump. Matched
+// on the exact TYPE name within the deem package (methods emit per-struct, so an
+// excluded type drops its methods wholesale; free helpers are private already).
+static bool is_deem_api_type(std::string_view name) {
+    return name == "Query" || name == "SchemaCatalog" || name == "QEnv" ||
+           name == "QRows" || name == "QError";
+}
+static bool is_deem_internal_type(std::string_view pkg, std::string_view name) {
+    static constexpr std::string_view kRoot = "logos.std.deem";
+    const bool in_deem = (pkg == kRoot) ||
+        (pkg.size() > kRoot.size() && pkg.rfind(kRoot, 0) == 0 && pkg[kRoot.size()] == '.');
+    return in_deem && !is_deem_api_type(name);
+}
+
 // Second leak form the package test can't see: generic INSTANCES parameterized
 // by an excluded type. `type_id_of__g__void__RQWith` lives in logos.lang.any
 // (its own package is public) and its signature never mentions the type — the
@@ -552,6 +576,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // materialisation, but the field-type list is the layout determinant.
         for (auto& sd : prog.structs) {
             if (is_wql_internal_pkg(sd.pkg())) continue;  // wql engine is internal
+            if (is_deem_internal_type(sd.pkg(), sd.name())) continue;  // deem engine internal (only the Query API is contract)
             if (!abi_treat_pub(sd.name(), sd.is_pub())) continue;  // private type: not consumer ABI
             std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
             bool first = true;
@@ -566,6 +591,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // type change, e.g. Some(i32)→Some(i64), changes the layout).
         for (auto& ed : prog.enums) {
             if (is_wql_internal_pkg(ed.pkg())) continue;  // wql engine is internal
+            if (is_deem_internal_type(ed.pkg(), ed.name())) continue;  // deem engine internal (only the Query API is contract)
             if (!abi_treat_pub(ed.name(), ed.is_pub())) continue;  // private type: not consumer ABI
             std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
             bool first = true;
@@ -588,6 +614,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         }
         for (auto& td : prog.traits) {
             if (is_wql_internal_pkg(td.pkg())) continue;  // wql engine is internal
+            if (is_deem_internal_type(td.pkg(), td.name())) continue;  // deem engine internal (only the Query API is contract)
             std::string rec = "vtable\t" + qual(td.pkg(), td.name()) + "\tslots=[";
             bool first = true;
             for (auto& [owner, mname] : td.vtable_method_order()) {
@@ -728,13 +755,13 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // must never drop a public type's instantiations.
         std::vector<std::string> excluded_type_names;
         for (auto& sd : prog.structs) {
-            if (is_wql_internal_pkg(sd.pkg()))
+            if (is_wql_internal_pkg(sd.pkg()) || is_deem_internal_type(sd.pkg(), sd.name()))
                 excluded_type_names.emplace_back(sd.name());
             else if (!abi_treat_pub(sd.name(), sd.is_pub()))
                 excluded_type_names.emplace_back(sd.name());
         }
         for (auto& ed : prog.enums) {
-            if (is_wql_internal_pkg(ed.pkg()))
+            if (is_wql_internal_pkg(ed.pkg()) || is_deem_internal_type(ed.pkg(), ed.name()))
                 excluded_type_names.emplace_back(ed.name());
             else if (!abi_treat_pub(ed.name(), ed.is_pub()))
                 excluded_type_names.emplace_back(ed.name());
@@ -772,6 +799,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // methods are excluded wholesale (fixes e.g. the wql
             // <Type>__type_id__g__ref_T blanket-impl instances leaking in).
             if (is_wql_internal_pkg(sd.pkg())) continue;
+            if (is_deem_internal_type(sd.pkg(), sd.name())) continue;  // deem engine internal — drop its methods (only the Query API is contract)
             // A NON-pub struct's methods are not consumer-callable API (the
             // type is unnameable outside its module) — spec noise. Uses the
             // shared abi_treat_pub include-on-ambiguity fallback.
